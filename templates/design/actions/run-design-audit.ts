@@ -1,16 +1,3 @@
-/**
- * run-design-audit — read-only a11y audit over a design's rendered HTML/DOM.
- *
- * Flags low-opacity text color classes as a contrast hint (real contrast
- * ratios require a DOM/CSS cascade resolver that isn't available server-side,
- * so this is not a computed ratio check), plus tap-target sizes, missing
- * alt/labels, focus visibility, and reduced-motion concerns, all by static
- * analysis of the stored HTML. Does NOT perform writes. Results are returned
- * as `A11yFinding[]` and may be persisted by the caller via
- * `create-design-review-snapshot`.
- *
- * See DESIGN-STUDIO-PLAN.md §6.5 + §7 (Review surface).
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -18,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { readLiveSourceFile } from "../server/source-workspace.js";
 import type {
   A11yFinding,
@@ -30,11 +17,7 @@ import {
   inspectDesignHtmlDocumentIntegrity,
 } from "../shared/html-integrity.js";
 
-// ---------------------------------------------------------------------------
-// HTML helpers (static analysis — no DOM runtime available server-side)
-// ---------------------------------------------------------------------------
 
-/** Pull a node id from a raw tag string (data-agent-native-node-id attr). */
 function extractNodeId(tagHtml: string): string | undefined {
   const m = tagHtml.match(
     /data-agent-native-node-id\s*=\s*(?:"([^"]*?)"|'([^']*?)')/i,
@@ -42,7 +25,6 @@ function extractNodeId(tagHtml: string): string | undefined {
   return m ? (m[1] ?? m[2] ?? undefined) : undefined;
 }
 
-/** Pull a CSS selector hint from a raw tag string (id or class). */
 function extractSelector(tagHtml: string, tagName: string): string | undefined {
   const idMatch = tagHtml.match(/\bid\s*=\s*(?:"([^"]*?)"|'([^']*?)')/i);
   if (idMatch) return `#${idMatch[1] ?? idMatch[2]}`;
@@ -53,31 +35,19 @@ function extractSelector(tagHtml: string, tagName: string): string | undefined {
       .split(/\s+/)
       .filter(Boolean);
     if (classNames.length > 0) {
-      // Include every class, not just the first: Tailwind screens commonly
-      // have several sibling elements sharing one common utility class (e.g.
-      // two buttons both carrying "h-4" but differing in every other class).
-      // A first-class-only selector is ambiguous and apply-a11y-fix's
-      // deterministic edit engine (which treats every dot segment after the
-      // tag as a required class, see shared/code-layer.ts) would match the
-      // wrong element among several sharing only that one class.
       return `${tagName.toLowerCase()}.${classNames.join(".")}`;
     }
   }
   return undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Individual audit checks
-// ---------------------------------------------------------------------------
 
-/** Check <img> tags without a meaningful alt attribute. */
 function checkMissingAlt(html: string): A11yFinding[] {
   const findings: A11yFinding[] = [];
   const imgPattern = /<img\b[^>]*>/gi;
   let idx = 0;
   for (const m of html.matchAll(imgPattern)) {
     const tag = m[0];
-    // Missing alt entirely, or empty alt on a non-decorative image (heuristic)
     const altMatch = tag.match(/\balt\s*=\s*(?:"([^"]*?)"|'([^']*?)')/i);
     if (!altMatch) {
       findings.push({
@@ -98,14 +68,10 @@ function checkMissingAlt(html: string): A11yFinding[] {
   return findings;
 }
 
-/** Escape regex metacharacters so untrusted HTML attribute values (e.g. an
- * author-supplied `id`) can be safely interpolated into a `RegExp` source
- * string instead of crashing the audit or matching unintended text. */
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Check form inputs without an associated <label> or aria-label/aria-labelledby. */
 function checkMissingLabels(html: string): A11yFinding[] {
   const findings: A11yFinding[] = [];
   const inputPattern = /<(?:input|select|textarea)\b[^>]*(?:\/>|>)/gi;
@@ -116,7 +82,6 @@ function checkMissingLabels(html: string): A11yFinding[] {
     const inputEnd = inputStart + tag.length;
     const typeMatch = tag.match(/\btype\s*=\s*(?:"([^"]*?)"|'([^']*?)')/i);
     const type = (typeMatch?.[1] ?? typeMatch?.[2] ?? "text").toLowerCase();
-    // Hidden and submit/button/image inputs don't need visible labels
     if (["hidden", "submit", "button", "image", "reset"].includes(type))
       continue;
 
@@ -166,17 +131,7 @@ function isWrappedByLabel(
   return labelCloseAfterInput !== -1;
 }
 
-/**
- * Whether an interactive element already declares a minimum size that meets the
- * 44px tap-target floor. This recognises exactly what the inline auto-fix adds
- * (`min-h-[44px] min-w-[44px]`) plus equivalents — arbitrary `min-h`/`min-w`
- * values in px/rem/em ≥ 44px, the Tailwind spacing scale (`min-h-11` = 44px on a
- * 4px step), and full-bleed minimums (`min-h-full` / `min-h-screen`). Without
- * this, a fixed element keeps its original tiny `h-4` class and the audit would
- * re-flag it forever, so the audit↔fix loop would never converge.
- */
 function hasAdequateMinTapSize(tag: string): boolean {
-  // Arbitrary values: min-h-[44px], min-w-[2.75rem], etc.
   const arbitraryPattern = /\bmin-(?:h|w)-\[([\d.]+)(px|rem|em)\]/gi;
   let m: RegExpExecArray | null;
   while ((m = arbitraryPattern.exec(tag)) !== null) {
@@ -185,24 +140,15 @@ function hasAdequateMinTapSize(tag: string): boolean {
     const px = m[2]?.toLowerCase() === "px" ? value : value * 16;
     if (px >= 44) return true;
   }
-  // Tailwind spacing scale: min-h-11 / min-w-11 = 2.75rem = 44px (4px per step).
   const scalePattern = /\bmin-(?:h|w)-(\d+)\b/gi;
   while ((m = scalePattern.exec(tag)) !== null) {
     if (Number.parseInt(m[1] ?? "", 10) * 4 >= 44) return true;
   }
-  // Full-bleed minimums always clear the tap floor.
   return /\bmin-(?:h|w)-(?:full|screen)\b/.test(tag);
 }
 
-/**
- * Check interactive elements that are likely too small for touch targets
- * (< ~44px heuristic via Tailwind class). Exported for unit tests that assert
- * the audit↔fix loop converges (a fixed element must stop being flagged).
- */
 export function checkTapTargets(html: string): A11yFinding[] {
   const findings: A11yFinding[] = [];
-  // Heuristic: buttons/links with explicit tiny size classes (h-4, h-5, w-4, w-5, size-4, size-5)
-  // and no explicit larger override or sr-only are flagged.
   const interactivePattern =
     /<(button|a|input|select|textarea)\b[^>]*(?:\/>|>)/gi;
   const tinyPattern = /\b(?:h|w|size)-[345]\b/;
@@ -241,14 +187,6 @@ export function checkTapTargets(html: string): A11yFinding[] {
   return findings;
 }
 
-/**
- * Screens that render with an Alpine-controlled element covering them. Every
- * other check here is a regex over the raw string; this one delegates to the
- * save-time integrity parser so the audit and the write gate cannot drift into
- * disagreeing about the same document. It is the only check that can see the
- * failure a screenshot cannot: `take-design-screenshot` waits for Alpine to
- * settle, so a pre-Alpine cover never appears in the agent's own capture.
- */
 export function checkRenderBlockingOverlays(html: string): A11yFinding[] {
   const result = inspectDesignHtmlDocumentIntegrity(html);
   const issues = [...(result.detail ?? []), ...(result.advisory ?? [])].filter(
@@ -269,10 +207,8 @@ export function checkRenderBlockingOverlays(html: string): A11yFinding[] {
   }));
 }
 
-/** Check for animations/transitions without a prefers-reduced-motion guard. */
 function checkReducedMotion(html: string): A11yFinding[] {
   const findings: A11yFinding[] = [];
-  // Look for <style> blocks that animate but don't include @media (prefers-reduced-motion)
   const stylePattern = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
   let styleIdx = 0;
   for (const m of html.matchAll(stylePattern)) {
@@ -295,7 +231,6 @@ function checkReducedMotion(html: string): A11yFinding[] {
     }
     styleIdx++;
   }
-  // Also check inline style attrs with animation/transition
   const inlineAnimPattern =
     /style\s*=\s*(?:"[^"]*(?:animation|transition)[^"]*"|'[^']*(?:animation|transition)[^']*')/gi;
   const allTags = [...html.matchAll(/<[a-z][^>]*>/gi)];
@@ -318,7 +253,6 @@ function checkReducedMotion(html: string): A11yFinding[] {
   return findings;
 }
 
-/** Check for focus-visibility — elements with outline:none/outline:0 and no :focus-visible alternative. */
 function checkFocusVisibility(html: string): A11yFinding[] {
   const findings: A11yFinding[] = [];
   const stylePattern = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
@@ -344,13 +278,11 @@ function checkFocusVisibility(html: string): A11yFinding[] {
     }
     idx++;
   }
-  // Tailwind outline-none/ring-0 on interactive elements (heuristic)
   const outlineNonePattern =
     /<(?:button|a|input|select|textarea)\b[^>]*\boutline-none\b[^>]*>/gi;
   let inlineIdx = 0;
   for (const m of html.matchAll(outlineNonePattern)) {
     const tag = m[0];
-    // Check it's also not carrying a focus-visible ring class
     if (!/\bfocus-visible:/i.test(tag)) {
       findings.push({
         id: `focus-visibility:inline-${inlineIdx}`,
@@ -371,12 +303,8 @@ function checkFocusVisibility(html: string): A11yFinding[] {
   return findings;
 }
 
-/** Check for inline style color declarations that are opaque but very low-contrast (rough heuristic). */
 function checkContrastHint(html: string): A11yFinding[] {
   const findings: A11yFinding[] = [];
-  // Static analysis cannot compute real contrast ratios without a DOM/CSS
-  // cascade resolver. We flag the presence of explicit low-opacity text colors
-  // as a human-review hint — the UI will show these as "info" prompts.
   const tagPattern = /<([a-z][a-z0-9:-]*)\b[^>]*>/gi;
   const textColorPattern = /\btext-(?:white|black|gray-\d+)\b/i;
   const lowOpacityPattern = /\b(?:opacity-[0-3]\d|text-opacity-[0-3]\d)\b/i;
@@ -412,30 +340,12 @@ function checkContrastHint(html: string): A11yFinding[] {
   return findings;
 }
 
-// ---------------------------------------------------------------------------
-// Multi-screen token-drift check
-// ---------------------------------------------------------------------------
-//
-// design-generation/SKILL.md's "Multi-screen consistency contract" requires
-// every screen's `:root` token block to match index.html's byte-for-byte, but
-// nothing enforced it — an agent could silently let a screen's palette drift.
-// This extracts each screen's `:root { --name: value; ... }` custom-property
-// map and flags any screen whose property VALUES diverge from the design's
-// reference screen (index.html, or the first screen when index.html is
-// absent). Screens that legitimately have no `:root` block (e.g. a bare
-// fragment) are skipped, not flagged — there is nothing to reconcile.
 
-/** One screen's parsed `:root` custom-property map (property name → value). */
 export interface RootTokenMap {
   filename: string;
   tokens: Record<string, string>;
 }
 
-/**
- * Extract the FIRST `:root { ... }` block's custom properties from a screen's
- * HTML. Returns an empty map (not an error) when no `:root` block is present —
- * callers treat that as "nothing to compare" rather than a finding.
- */
 export function extractRootTokens(html: string): Record<string, string> {
   const tokens: Record<string, string> = {};
   const rootMatch = html.match(/:root\s*\{([^}]*)\}/i);
@@ -473,7 +383,6 @@ export function checkTokenDrift(
   for (const screen of screens) {
     if (screen.filename === reference.filename) continue;
     const screenTokens = extractRootTokens(screen.html);
-    // No :root block on this screen — nothing to reconcile, not a finding.
     if (Object.keys(screenTokens).length === 0) continue;
 
     for (const [property, referenceValue] of Object.entries(referenceTokens)) {
@@ -499,30 +408,12 @@ export function checkTokenDrift(
   return findings;
 }
 
-// ---------------------------------------------------------------------------
-// Design-system adherence check
-// ---------------------------------------------------------------------------
-//
-// checkTokenDrift above only proves the screens agree with EACH OTHER. A design
-// can be perfectly self-consistent and still ignore the brand it is linked to,
-// which is the most-reported failure of generation: the user links their system,
-// the agent writes its own palette, and nothing anywhere notices. This compares
-// the saved HTML against the linked kit's own values so the drift is reportable
-// instead of invisible.
 
-/** The subset of a Brand Kit this check can verify against rendered HTML. */
 export interface DesignSystemExpectation {
   title: string;
   fonts: string[];
-  /** Lowercase six-digit hex values, normalized from the kit's own notation. */
   colors: string[];
-  /** Custom-property names the kit names, e.g. `--color-primary`. */
   cssVars: string[];
-  /**
-   * The kit's stored `data` could not be parsed. Adherence is then UNKNOWN,
-   * which is not the same as satisfied — a silent empty expectation would
-   * report a corrupt design system as a clean audit.
-   */
   unreadable?: boolean;
 }
 
@@ -531,7 +422,6 @@ function normalizeHex(value: unknown): string | null {
   const match = value.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
   if (!match) return null;
   const hex = match[1].toLowerCase();
-  // Expand shorthand so 3- and 6-digit forms compare in one space.
   return hex.length === 3
     ? `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`
     : `#${hex}`;
@@ -545,11 +435,6 @@ function expandShortHexes(html: string): string {
   );
 }
 
-/**
- * Build the checkable expectation from a kit's stored `data` JSON. Returns null
- * when the kit carries nothing verifiable — "we cannot check" must not render
- * as "the design complies".
- */
 export function designSystemExpectation(
   title: string,
   data: string | null | undefined,
@@ -603,12 +488,6 @@ export function designSystemExpectation(
   };
 }
 
-/**
- * Flag a screen that uses none of its linked design system's fonts, or none of
- * its colors. Deliberately a "none of them" test rather than a per-value one:
- * a design legitimately uses a subset of a kit, but a design using zero of it
- * is not following it at all. Pure so it can be unit tested without a DB.
- */
 export function checkDesignSystemAdherence(
   html: string,
   expectation: DesignSystemExpectation | null,
@@ -696,9 +575,6 @@ export function checkDesignSystemAdherence(
   return findings;
 }
 
-// ---------------------------------------------------------------------------
-// Live-content helper (matches the pattern in other actions)
-// ---------------------------------------------------------------------------
 
 async function liveContent(
   fileId: string,
@@ -717,9 +593,6 @@ async function liveContent(
   ).content;
 }
 
-// ---------------------------------------------------------------------------
-// Action definition
-// ---------------------------------------------------------------------------
 
 export default defineAction({
   description:
@@ -792,9 +665,6 @@ export default defineAction({
 
     const html = await liveContent(file.id, file.content ?? "");
 
-    // Load every other HTML screen in the design (id + filename only) so the
-    // token-drift check can compare :root blocks across the whole design, not
-    // just the audited screen. Cheap: same table, no content fetched twice.
     const otherHtmlFiles = await db
       .select({
         id: schema.designFiles.id,
@@ -817,10 +687,6 @@ export default defineAction({
       })),
     );
 
-    // Token drift is inherently cross-screen. When the audited screen IS the
-    // reference (index.html), surface drift for every other screen; otherwise
-    // scope findings to just the audited screen so a per-screen audit call
-    // doesn't report unrelated screens' drift.
     const isReferenceScreen = file.filename === "index.html";
     const tokenDriftFindings = checkTokenDrift(screens).filter(
       (finding) =>
@@ -854,7 +720,6 @@ export default defineAction({
         )
       : [];
 
-    // Run all audit checks over the static HTML.
     const findings: A11yFinding[] = [
       ...checkMissingAlt(html),
       ...checkMissingLabels(html),
@@ -867,7 +732,6 @@ export default defineAction({
       ...designSystemFindings,
     ];
 
-    // Summarise by severity for the agent context.
     const summary = {
       errors: findings.filter((f) => f.severity === "error").length,
       warnings: findings.filter((f) => f.severity === "warning").length,

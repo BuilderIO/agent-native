@@ -1,15 +1,3 @@
-/**
- * Shared snapshot logic for the design round-trip.
- *
- * "Snapshot" = the design's *current* state an external agent should continue
- * from: the live file contents (Yjs collab text when a live editing session
- * exists for a file, otherwise the stored `design_files.content`) plus the
- * user's tuned tweak values resolved to CSS custom properties.
- *
- * Both `get-design-snapshot` (read-only ingest) and `export-coding-handoff`
- * (design -> code) build from this so they never diverge. Access control is
- * the caller's responsibility — call assertAccess/resolveAccess first.
- */
 
 import { eq } from "drizzle-orm";
 
@@ -27,24 +15,18 @@ export interface SnapshotFile {
   filename: string;
   fileType: string;
   content: string;
-  /** "collab" when the live Yjs session text was used, "stored" otherwise. */
   source: "collab" | "stored";
 }
 
 export interface DesignSnapshot {
   designId: string;
-  /** Files with live (collab) content preferred over stored content. */
   files: SnapshotFile[];
-  /** Tweak definitions the design declares (from designs.data.tweaks). */
   tweaks: TweakDefinition[];
-  /** The user's persisted knob selections (designs.data.tweakSelections). */
   appliedTweaks: TweakSelections;
-  /** Resolved `--css-var` -> value map produced by the shared resolver. */
   resolvedCssVars: Record<string, string>;
 }
 
 export interface BuildDesignSnapshotOptions {
-  /** Read the persisted SQL rows even when a live collaboration document exists. */
   preferStoredFileContent?: boolean;
 }
 
@@ -62,10 +44,6 @@ function parseDesignData(data?: string | null): Record<string, unknown> {
   }
 }
 
-/**
- * Build the current snapshot for a design. Caller must have already verified
- * access (assertAccess/resolveAccess) — this function does no auth.
- */
 export async function buildDesignSnapshot(
   designId: string,
   designData?: string | null,
@@ -83,8 +61,6 @@ export async function buildDesignSnapshot(
   for (const f of rows) {
     let content = f.content;
     let source: "collab" | "stored" = "stored";
-    // Prefer live collab text when an editing session exists for this file so
-    // an external agent sees in-flight edits, not the last persisted snapshot.
     if (!options.preferStoredFileContent) {
       const live = await readLiveSourceFile(f);
       if (
@@ -108,7 +84,6 @@ export async function buildDesignSnapshot(
     });
   }
 
-  // index.html first, then alphabetical — stable, predictable handoff order.
   files.sort((a, b) => {
     if (a.filename === "index.html") return -1;
     if (b.filename === "index.html") return 1;

@@ -1,13 +1,3 @@
-/**
- * Monthly recap metrics — what an owner's clips did over one calendar month.
- *
- * Human and agent audiences are counted from separate tables on purpose
- * (`recording_views` vs `recording_agent_views`), matching the split described
- * in `agent-views.ts`: no human-view query can ever pick agents up.
- *
- * Months are closed on UTC boundaries. Per-user timezones are not yet stored,
- * so a recap covers the same wall-clock window for everyone.
- */
 
 import { and, asc, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 
@@ -21,7 +11,6 @@ export interface RecapMonthRange {
 }
 
 export interface RecapAgentBreakdownEntry {
-  /** Null when the reader could not be identified. */
   agentLabel: string | null;
   sessions: number;
 }
@@ -34,9 +23,7 @@ export interface RecapTopClip {
   recordedAt: string;
   humanViews: number;
   agentSessions: number;
-  /** Mean completion across the humans who watched it this month, 0-100. */
   completedPct: number;
-  /** Video-time position where watching last stopped, or null if unreported. */
   dropOffMs: number | null;
   agentBreakdown: RecapAgentBreakdownEntry[];
 }
@@ -48,7 +35,6 @@ export interface MonthlyRecap {
   topClip: RecapTopClip;
 }
 
-/** `2026-07` -> the half-open UTC range `[2026-07-01, 2026-08-01)`. */
 export function recapMonthRange(month: string): RecapMonthRange {
   const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(month);
   if (!match) throw new Error(`Invalid recap month: ${month}`);
@@ -61,7 +47,6 @@ export function recapMonthRange(month: string): RecapMonthRange {
   };
 }
 
-/** The calendar month immediately before the one containing `now`, in UTC. */
 export function previousRecapMonth(now: Date): string {
   const year = now.getUTCFullYear();
   const monthIndex = now.getUTCMonth();
@@ -77,11 +62,6 @@ export function recapMonthLabel(month: string): string {
   });
 }
 
-/**
- * Trashed, archived, and unfinished clips are excluded so the top clip is
- * always one the recap can link to — the ranking is recomputed at send time,
- * and a clip the owner deleted must not headline it.
- */
 async function ownerRecordingIds(ownerEmail: string): Promise<string[]> {
   const rows = await getDb()
     .select({ id: schema.recordings.id })
@@ -97,13 +77,6 @@ async function ownerRecordingIds(ownerEmail: string): Promise<string[]> {
   return rows.map((row) => row.id);
 }
 
-/**
- * Counts view rows, not distinct people. Deduping an identity across a month
- * was both ambiguous — `viewerKey` is nullable on rows predating it — and
- * expensive, so the recap reports human views and leaves unique audience out
- * of scope. Summing these per-recording counts is therefore correct: one
- * person watching two clips is genuinely two views.
- */
 async function humanViewCounts(
   recordingIds: string[],
   range: RecapMonthRange,
@@ -173,14 +146,6 @@ async function agentBreakdown(
   }));
 }
 
-/**
- * Mean completion across viewers who watched this month, and the video-time
- * position where watching last stopped.
- *
- * `recording_viewers` holds no per-month completion, so this reflects each
- * viewer's lifetime progress on a clip they watched during the month. A viewer
- * who finished it in June and reopened it in July reports June's completion.
- */
 async function watchDepth(
   recordingId: string,
   range: RecapMonthRange,
@@ -230,10 +195,6 @@ async function watchDepth(
   };
 }
 
-/**
- * Rank by total audience (human views + agent sessions), breaking
- * ties on the more recently recorded clip.
- */
 export function rankTopClip<
   T extends { recordingId: string; audience: number; recordedAt: string },
 >(candidates: readonly T[]): T | null {
@@ -247,10 +208,6 @@ export function rankTopClip<
   );
 }
 
-/**
- * Returns null when the owner had no human or agent audience that month, which
- * is also the signal not to send them a recap at all.
- */
 export async function computeMonthlyRecap(
   ownerEmail: string,
   month: string,
@@ -329,7 +286,6 @@ export async function computeMonthlyRecap(
   };
 }
 
-/** Owners with any human or agent audience in the month, for reconciliation. */
 export async function listOwnersWithMonthlyAudience(
   month: string,
 ): Promise<string[]> {

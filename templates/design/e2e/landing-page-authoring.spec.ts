@@ -3,13 +3,6 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers } from "./helpers";
 
-/**
- * Each test asserts the Figma-correct outcome, so a failure is the bug report.
- * Test names cite clips.agent-native.com/share/jJM4kC0KAkUB.
- *
- * Do not switch to helpers.ts `selectByText`/`enterDirectMode`: they route
- * through the screen card's Interact button, a preview with no edit shield.
- */
 
 const PAGE_W = 1440;
 const PAGE_H = 900;
@@ -48,7 +41,6 @@ async function postAction(
   return res.json();
 }
 
-/** A fresh single-screen design, so every test is independent. */
 async function newDesign(page: Page, content = BLANK_SCREEN): Promise<string> {
   const created = await postAction(page, "create-design", {
     title: "Landing page authoring (clip repro)",
@@ -82,7 +74,6 @@ function numProp(style: string, prop: string): number {
   return raw ? Number(raw[1]) : NaN;
 }
 
-/** Inline styles of every committed primitive of one kind, in document order. */
 function primitiveStyles(html: string, kind: string): string[] {
   const re = new RegExp(
     `data-an-primitive="${kind}"[^>]*?style="([^"]*)"|style="([^"]*)"[^>]*?data-an-primitive="${kind}"`,
@@ -133,13 +124,10 @@ async function openEditor(page: Page, designId: string): Promise<void> {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ state: "visible", timeout: 30_000 });
-  // No blind settle: expandAllLayers waits for the first layer row, which
-  // the editor cannot render before it has parsed the document.
   await expandAllLayers(page);
   await page.waitForTimeout(800);
 }
 
-/** The screen's own content viewport — never assume; it is not the page size. */
 async function contentSize(page: Page): Promise<{ w: number; h: number }> {
   return page
     .locator("iframe[data-design-preview-iframe]")
@@ -210,11 +198,6 @@ async function addText(
   await page.waitForTimeout(1600);
 }
 
-/**
- * Callers assert this list is EMPTY, so a swallowed read failure returning
- * `[]` made "no toast" indistinguishable from "could not read". A zero-match
- * locator already returns `[]`, so the catch only hid real errors.
- */
 async function readToasts(page: Page): Promise<string[]> {
   const all = await page
     .locator("[data-sonner-toast], [role='alert']")
@@ -238,14 +221,11 @@ test.beforeEach(async ({ page }, testInfo) => {
   });
 });
 
-// ── Header ────────────────────────────────────────────────────────────────
 
 test("0:53 — a frame commits the rectangle you dragged", async ({ page }) => {
   const designId = await newDesign(page);
   await openEditor(page, designId);
 
-  // Inset from the very top edge so this measures size fidelity, not the
-  // separate "nothing commits at y=0" case the full-page test covers.
   const requested: Rect = { left: 20, top: 40, width: 280, height: 96 };
   await drawFrame(page, requested);
 
@@ -284,7 +264,6 @@ test("1:16 — header text is readable against the canvas background", async ({
   ).not.toBe("currentcolor");
 });
 
-// ── Foundation ────────────────────────────────────────────────────────────
 
 test("6:03 — every shape you draw lands inside the page", async ({ page }) => {
   const designId = await newDesign(page);
@@ -316,8 +295,6 @@ test("8:35 — a frame adopts an element drawn inside it", async ({ page }) => {
   const html = await indexHtml(page, designId);
   const frameAt = html.indexOf('data-an-primitive="frame"');
   const textAt = html.indexOf('data-an-primitive="text"');
-  // indexOf's -1 is a sentinel, not a position: without these, a missing frame
-  // reads as "index -1" and the ordering comparison below becomes meaningless.
   expect(frameAt, "no frame was committed to compare against").toBeGreaterThan(
     -1,
   );
@@ -399,8 +376,6 @@ test("8:09 — enabling auto layout keeps the container's children", async ({
   await page.waitForTimeout(2500);
 
   const after = await indexHtml(page, designId);
-  // peer PR (hotkeys) owns Shift+A applying auto layout (see the 2:35 test);
-  // observed: html unchanged when this fails.
   expect(
     after,
     "Shift+A must apply auto layout before there is anything to drop",
@@ -413,7 +388,6 @@ test("8:09 — enabling auto layout keeps the container's children", async ({
   ).toBe(textsBefore);
 });
 
-// ── Drag and drop ─────────────────────────────────────────────────────────
 
 test("3:17 — dragging a layer on the canvas moves it", async ({ page }) => {
   const designId = await newDesign(page);
@@ -602,8 +576,6 @@ test("Typography is available for a headline with direct text and inline childre
 test("5:07 — a text layer can be reordered by dragging it on the canvas", async ({
   page,
 }) => {
-  // Absolutely-positioned text moves in x/y when dragged, as in Figma; the
-  // clip's complaint is about reordering a stack, which is the flow path.
   const designId = await newDesign(page, STACK_SCREEN);
   await openEditor(page, designId);
 
@@ -616,10 +588,6 @@ test("5:07 — a text layer can be reordered by dragging it on the canvas", asyn
     '[data-agent-native-node-id="p1"]',
   ).boundingBox())!;
 
-  // The in-iframe "shield" overlay swallows locator clicks — drive the
-  // pointer directly. As in Figma, the first click selects the stack (the
-  // screen's direct child) and a second click selects the paragraph inside
-  // the selected stack; only then does a drag move the paragraph.
   await page.mouse.click(
     second.x + second.width / 2,
     second.y + second.height / 2,
@@ -697,7 +665,6 @@ test("5:30 — dragging does not repaint the canvas background", async ({
   ).toBe(before);
 });
 
-// ── Footer ────────────────────────────────────────────────────────────────
 
 test("4:39 — aligning a multi-selection moves every selected layer", async ({
   page,
@@ -747,7 +714,6 @@ test("0:28 — a deleted screen stays deleted", async ({ page }) => {
   await page.waitForTimeout(600);
   await page.keyboard.press("Delete");
   await page.waitForTimeout(1500);
-  // Deleting a whole screen is destructive, so it confirms first.
   await page
     .getByRole("alertdialog")
     .getByRole("button")
@@ -765,7 +731,6 @@ test("0:28 — a deleted screen stays deleted", async ({ page }) => {
   ).not.toContain("scratch.html");
 });
 
-// ── The whole page ────────────────────────────────────────────────────────
 
 test("a header + hero + footer landing page renders entirely on the page", async ({
   page,

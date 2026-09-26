@@ -40,7 +40,6 @@ export default defineAction({
     { id, title, description, data, assets, customInstructions },
     ctx,
   ) => {
-    // Validate that data/assets are valid JSON when provided
     if (data !== undefined) {
       try {
         const parsed = JSON.parse(data);

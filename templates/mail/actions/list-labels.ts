@@ -53,9 +53,6 @@ function recomputeLocalCounts(labels: Label[], emails: any[]): Label[] {
   });
 }
 
-// Same bound + redaction shape as list-emails.ts's inventoryError: never let
-// a token leak into a surfaced error, and cap length so one bad message
-// can't blow up the response.
 function boundedErrorMessage(err: unknown): string {
   const message =
     err instanceof Error
@@ -127,8 +124,6 @@ export default defineAction({
       ? new Set(accountEmails.map((email) => email.toLowerCase()))
       : undefined;
 
-    // getConnectedAccounts is the single "which accounts exist" source —
-    // OAuth rows with Gmail scope, else a managed workspace grant's email.
     const accountResult = await getConnectedAccountsWithErrors(ownerEmail);
     const connectedEmails = accountResult.accounts
       .map((email) => email.toLowerCase())
@@ -164,10 +159,6 @@ export default defineAction({
 
     const labelsById = new Map<string, Label>();
 
-    // Cache-first: readCachedLabels never throws, and its label id/name
-    // normalization matches gmailListLabels' below exactly (see inbox-store's
-    // comment), so a cached label and a freshly-fetched one for a different
-    // account merge under the same id.
     const { labels: cachedLabels, labelMapByAccount } = await readCachedLabels(
       ownerEmail,
       [...connectedEmails],
@@ -199,8 +190,6 @@ export default defineAction({
       const workspaceError = clientErrors.find(
         ({ email }) => email.toLowerCase() === "workspace",
       );
-      // The managed resolver can fail before it knows the mailbox identity.
-      // Attribute that workspace error when only one requested account remains.
       const workspaceErrorAccount =
         workspaceError && unreportedEmails.length === 1
           ? unreportedEmails[0]
@@ -219,15 +208,9 @@ export default defineAction({
           const result = await gmailListLabels(accessToken);
           mergeGmailLabels(labelsById, result.labels ?? []);
         } catch (err) {
-          // An account with neither a cache nor a live fetch contributes no
-          // labels for this call — reported here instead of swallowed, so
-          // callers can tell an incomplete inventory from a complete one.
           errors.push({ accountEmail: email, error: boundedErrorMessage(err) });
         }
       }
-      // A connected account with no cache and no usable client must still show up
-      // in `errors` — dropping it silently would violate the `{ labels,
-      // errors }` contract by making an incomplete inventory look complete.
       for (const email of uncachedEmails) {
         if (!tokenized.has(email) && !reportedErrors.has(email)) {
           errors.push({

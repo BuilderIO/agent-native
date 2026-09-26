@@ -239,7 +239,6 @@ describe("gmailMutationQueue", () => {
       id: "m1",
       threadId: "t1",
     });
-    // Keep resetting debounce every 400ms, but max-wait is 1200ms.
     await vi.advanceTimersByTimeAsync(400);
     const second = gmailMutationQueue.enqueue("archive", {
       id: "m2",

@@ -1,14 +1,3 @@
-/**
- * When a meeting-linked recording finishes uploading, the linked meeting can
- * still show "Live" for up to 5 minutes (until the next stale-meeting-sweeper
- * tick) even though the recording is done. Stamp `actualEnd` here too, in the
- * same request, so the meeting detail page stops polling immediately instead
- * of waiting on the sweeper backstop.
- *
- * `meetings.recordingId` is the only FK between the two tables (see the
- * `meetings` skill) — there is no `recordings.meeting_id` column — so this
- * looks the link up in that direction.
- */
 
 import { and, eq, isNull } from "drizzle-orm";
 
@@ -17,8 +6,6 @@ import { getDb, schema } from "../db/index.js";
 export async function reconcileMeetingOnRecordingReady(params: {
   recordingId: string;
   ownerEmail: string;
-  /** ISO timestamp to stamp as actualEnd — pass the recording's own finalize
-   * timestamp so this doesn't drift from when the recording actually ended. */
   endedAtIso: string;
 }): Promise<void> {
   const db = getDb();

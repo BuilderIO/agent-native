@@ -161,8 +161,6 @@ export default defineAction({
     try {
       await addDeck.run({ deck }, ctx);
     } catch (error) {
-      // Concurrent retries can both miss the read. Only a unique-key conflict
-      // permits a scoped replay; database or notification failures stay errors.
       if (!isUniqueViolation(error)) throw error;
       if (newId) {
         const existing = await retry();

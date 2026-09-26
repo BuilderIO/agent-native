@@ -1,17 +1,5 @@
 import { test, expect, type Page, type APIResponse } from "@playwright/test";
 
-/*
- * DEEP column drag coverage — "behave like Notion":
- *  - make columns from ANY pair of top-level blocks (side drop), adjacent or not
- *  - drag a top-level block INTO an existing column (side drop) → adds a column
- *  - drag a block OUT of a column to the document (vertical drop)
- *  - drag a block BETWEEN columns (vertical drop into another region)
- *  - drag a column block onto another block's side → make more columns
- *  - grip is present on blocks in every column
- *
- * Cross-region (vertical) moves go through the DragHandle's own transfer path,
- * which is the historically-flaky one — these tests pin its real behavior.
- */
 
 const CREATE = "/_agent-native/actions/create-visual-plan";
 const GET = "/_agent-native/actions/get-visual-plan";
@@ -52,7 +40,6 @@ async function getBlocks(page: Page, planId: string): Promise<Tree> {
   return plan.content?.blocks ?? [];
 }
 
-/** Where does block `id` live? "top" | "col:<columnsId>" | null */
 function locate(blocks: Tree, id: string): string | null {
   for (const b of blocks) {
     if (b.id === id) return "top";
@@ -98,24 +85,18 @@ const topNode = (id: string) =>
 const colNode = (regionId: string, blockId: string) =>
   `.plan-nested-document-editor-region[data-region-id="${regionId}"] .plan-block-node[data-block-id="${blockId}"]`;
 
-/** Grab the grip that appears for `sourceSel` and return its center + the source box. */
 async function grabGrip(page: Page, sourceSel: string) {
   const source = page.locator(sourceSel).first();
   await expect(source).toBeVisible({ timeout: 15_000 });
   await source.scrollIntoViewIfNeeded();
   const box = await source.boundingBox();
   expect(box, "source box").toBeTruthy();
-  // Hover near the source's LEFT content (where its grip resolves), not the
-  // element center — a center hover on a wide block can resolve a different
-  // editor, and a nested flush-left block shares its container's gutter.
   const hoverX = box!.x + Math.min(30, box!.width / 2);
   const hoverY = box!.y + box!.height / 2;
   await page.mouse.move(hoverX, hoverY);
   await page.waitForTimeout(80);
   await page.mouse.move(hoverX + 1, hoverY);
   await page.waitForTimeout(160);
-  // Several grips can be visible (container + columns); pick the one on the
-  // SOURCE's row, not DOM-order `.first()`, so we drag the intended block.
   const grips = page.locator(".drag-handle:visible");
   await expect(grips.first()).toBeVisible({ timeout: 8_000 });
   const count = await grips.count();
@@ -143,8 +124,6 @@ async function pressAndMove(
 ) {
   await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
   await page.mouse.down();
-  // Cross the >4px threshold so the drag session actually begins, then let it
-  // settle before steering to the target.
   await page.mouse.move(
     grip.x + grip.width / 2 + 8,
     grip.y + grip.height / 2 + 8,
@@ -152,15 +131,12 @@ async function pressAndMove(
   );
   await page.waitForTimeout(40);
   await page.mouse.move(x, y, { steps: 22 });
-  // Two stationary passes so the final drop target (and its indicator) resolve
-  // before the caller releases — the drop reads the LAST resolved target.
   await page.mouse.move(x, y, { steps: 6 });
   await page.waitForTimeout(120);
   await page.mouse.move(x, y);
   await page.waitForTimeout(120);
 }
 
-/** Side drop: drop on the left/right edge of `targetSel` to make/extend columns. */
 async function sideDrop(
   page: Page,
   sourceSel: string,
@@ -176,7 +152,6 @@ async function sideDrop(
   await page.waitForTimeout(400);
 }
 
-/** Vertical move: drop just above/below `targetSel` (before/after) — moves a block. */
 async function verticalMove(
   page: Page,
   sourceSel: string,
@@ -186,8 +161,6 @@ async function verticalMove(
   const grip = await grabGrip(page, sourceSel);
   const t = await page.locator(targetSel).first().boundingBox();
   expect(t).toBeTruthy();
-  // Aim at the very top (above) or very bottom (below) so placement resolves to
-  // before/after, and use the target's horizontal center.
   const x = t!.x + t!.width / 2;
   const y = where === "above" ? t!.y + 4 : t!.y + t!.height - 4;
   await pressAndMove(page, grip, x, y);
@@ -203,7 +176,6 @@ test.describe("column manipulation (Notion-like)", () => {
     );
   });
 
-  // ---- 1) MAKE COLUMNS from any pair (side drop), non-adjacent + adjacent ----
   for (const c of [
     {
       name: "callout→callout",
@@ -231,7 +203,6 @@ test.describe("column manipulation (Notion-like)", () => {
     test(`make columns: ${c.name} (non-adjacent side drop)`, async ({
       page,
     }) => {
-      // spacer between a and b so they are non-adjacent
       const planId = await createPlan(page, [
         c.a,
         { id: "spacer", type: "callout", data: { body: "spacer" } },
@@ -279,7 +250,6 @@ test.describe("column manipulation (Notion-like)", () => {
       .toBe(true);
   });
 
-  // ---- 2) top-level block INTO an existing column (side drop) → adds a column
   test("drag a top-level block onto a column block's side → adds a column", async ({
     page,
   }) => {
@@ -307,7 +277,6 @@ test.describe("column manipulation (Notion-like)", () => {
     await expect(page.locator(colNode("cL", "L1"))).toBeVisible({
       timeout: 15_000,
     });
-    // Drop loose onto the LEFT edge of L1 → new column before cL inside `cols`.
     await sideDrop(page, topNode("loose"), colNode("cL", "L1"), "left");
     await expect
       .poll(async () => locate(await getBlocks(page, planId), "loose"), {
@@ -316,7 +285,6 @@ test.describe("column manipulation (Notion-like)", () => {
       .toBe("col:cols");
   });
 
-  // ---- 3) drag a block OUT of a column to the document (vertical move) ----
   test("drag a column block OUT to the top-level document", async ({
     page,
   }) => {
@@ -347,7 +315,6 @@ test.describe("column manipulation (Notion-like)", () => {
     await expect(page.locator(colNode("cL", "L1"))).toBeVisible({
       timeout: 15_000,
     });
-    // Drag L1 out, dropping ABOVE the top-level anchor → L1 becomes top-level.
     await verticalMove(page, colNode("cL", "L1"), topNode("anchor"), "above");
     await expect
       .poll(async () => locate(await getBlocks(page, planId), "L1"), {
@@ -356,7 +323,6 @@ test.describe("column manipulation (Notion-like)", () => {
       .toBe("top");
   });
 
-  // ---- 4) drag a block BETWEEN columns (vertical move into other region) ----
   test("drag a block from one column into another column", async ({ page }) => {
     const planId = await createPlan(page, [
       {
@@ -384,14 +350,12 @@ test.describe("column manipulation (Notion-like)", () => {
     await expect(page.locator(colNode("cR", "R1"))).toBeVisible({
       timeout: 15_000,
     });
-    // Drag L2 into the right column, below R1.
     await verticalMove(page, colNode("cL", "L2"), colNode("cR", "R1"), "below");
     await expect
       .poll(
         async () => {
           const cols = columnsOf(await getBlocks(page, planId));
           const c = cols.find((x) => x.id === "cols");
-          // L2 should now be in the RIGHT column (the one containing R1).
           const right = c?.childIds.find((ids) => ids.includes("R1"));
           return Boolean(right?.includes("L2"));
         },
@@ -400,7 +364,6 @@ test.describe("column manipulation (Notion-like)", () => {
       .toBe(true);
   });
 
-  // ---- 5) grip present on blocks in EVERY column ----
   test("every column block exposes its own grip", async ({ page }) => {
     const planId = await createPlan(page, [
       {
@@ -441,7 +404,6 @@ test.describe("column manipulation (Notion-like)", () => {
       });
       const g = await grip.boundingBox();
       const n = await node.boundingBox();
-      // grip sits just left of the block it belongs to (within ~48px), not far away.
       expect(g && n).toBeTruthy();
       expect(n!.x - g!.x, `grip near ${block}`).toBeLessThan(56);
       expect(n!.x - g!.x).toBeGreaterThan(-4);

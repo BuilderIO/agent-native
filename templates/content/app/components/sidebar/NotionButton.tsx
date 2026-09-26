@@ -35,7 +35,6 @@ import {
 } from "@/hooks/use-notion";
 import { cn } from "@/lib/utils";
 
-// ─── Notion SVG icon ────────────────────────────────────────────────────────
 
 function NotionIcon({ className }: { className?: string }) {
   return (
@@ -54,7 +53,6 @@ function NotionIcon({ className }: { className?: string }) {
   );
 }
 
-// ─── OAuth wizard steps ─────────────────────────────────────────────────────
 
 const OAUTH_STEPS = [
   {
@@ -87,7 +85,6 @@ interface EnvKeyStatus {
   configured: boolean;
 }
 
-// ─── Component ──────────────────────────────────────────────────────────────
 
 export function NotionButton() {
   const t = useT();
@@ -127,7 +124,6 @@ export function NotionButton() {
   const pollRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Cleanup polling on unmount
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -163,11 +159,9 @@ export function NotionButton() {
       return;
     }
 
-    // Clear any existing poll before starting a new one
     if (pollRef.current) clearInterval(pollRef.current);
     if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
 
-    // Poll for connection
     pollRef.current = setInterval(async () => {
       if (document.hidden) return;
       const result = await refetch();
@@ -179,7 +173,6 @@ export function NotionButton() {
       }
     }, 2000);
 
-    // Stop polling after 5 minutes
     pollTimeoutRef.current = setTimeout(() => {
       if (pollRef.current) clearInterval(pollRef.current);
       pollRef.current = undefined;
@@ -236,7 +229,6 @@ export function NotionButton() {
     }
   }
 
-  // ─── Wizard UI ──────────────────────────────────────────────────────────
 
   if (showWizard) {
     return (
@@ -458,7 +450,6 @@ export function NotionButton() {
     );
   }
 
-  // ─── Connected state ────────────────────────────────────────────────────
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

@@ -20,7 +20,6 @@ afterEach(() => {
 
 const initial: PreviewDocumentPayload = { title: "T0", content: "C0" };
 
-// A factory wired to a save spy, mirroring how DatabaseItemPreview builds one.
 function factoryFor(
   documentId: string,
   save: (id: string, p: PreviewDocumentPayload) => Promise<unknown>,
@@ -80,18 +79,13 @@ describe("previewDocumentSaveRegistry", () => {
       factoryFor(id, save),
     );
 
-    // Dirty content with no debounce fired yet.
     controller.changeContent("draft");
 
-    // Release the only reference → flush-then-evict. The flush dispatches the
-    // save SYNCHRONOUSLY (bound to this doc id), but the controller is NOT evicted
-    // until that save settles.
     releasePreviewDocumentSaveController(id);
     expect(saved).toEqual([{ id, content: "draft" }]);
     expect(activePreviewControllerCount()).toBe(1);
     expect(peekPreviewDocumentSaveController(id)).toBe(controller);
 
-    // Settle the flush save → now it evicts.
     await act(() => resolvers[0]!());
     expect(activePreviewControllerCount()).toBe(0);
     expect(peekPreviewDocumentSaveController(id)).toBeUndefined();
@@ -231,8 +225,6 @@ describe("previewDocumentSaveRegistry", () => {
     );
     controller.changeContent("unsaved final edit");
 
-    // Release must flush the pending edit (not drop it), bound to the OLD doc id,
-    // then evict once the flush settles.
     releasePreviewDocumentSaveController(id);
     for (let i = 0; i < 8; i++) await Promise.resolve();
 
@@ -251,19 +243,15 @@ describe("previewDocumentSaveRegistry", () => {
     );
     first.changeContent("content");
 
-    // Release → flush-then-evict starts; the save goes in flight (unresolved).
     releasePreviewDocumentSaveController(id);
     expect(activePreviewControllerCount()).toBe(1);
 
-    // Reopen before the flush settles: same instance, eviction cancelled.
     const second = acquirePreviewDocumentSaveController(
       id,
       factoryFor(id, save),
     );
     expect(second).toBe(first);
 
-    // Even after the in-flight flush save settles, the entry is NOT evicted
-    // because it was re-acquired (refCount > 0, evicting cleared).
     await act(() => resolvers.forEach((r) => r()));
     expect(activePreviewControllerCount()).toBe(1);
     expect(peekPreviewDocumentSaveController(id)).toBe(second);
@@ -282,8 +270,6 @@ describe("previewDocumentSaveRegistry", () => {
   });
 });
 
-// Minimal act() shim: settle promises after a resolver, mirroring how the hook
-// awaits flushes. Keeps assertions deterministic.
 async function act(fn: () => void): Promise<void> {
   fn();
   for (let i = 0; i < 6; i++) await Promise.resolve();

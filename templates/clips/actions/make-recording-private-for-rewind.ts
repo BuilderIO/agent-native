@@ -45,7 +45,6 @@ export default defineAction({
       .returning({ id: schema.recordings.id });
     if (!recording) {
       // The conditional UPDATE is the invariant. This follow-up read only
-      // chooses the useful error message after the atomic mutation declined.
       await assertNoDirectRecordingShares(recordingId);
       throw new Error("This Clip is unavailable.");
     }

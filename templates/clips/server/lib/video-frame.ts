@@ -129,11 +129,6 @@ function parseDurationMs(stderr: string): number | null {
   );
 }
 
-/**
- * Best-effort duration probe used when stored recording metadata is stale.
- * Returns null when the container cannot be inspected, so callers can keep
- * the original frame-extraction error instead of inventing a duration.
- */
 export async function probeMediaDurationMs(
   mediaBytes: Uint8Array,
   mimeType: string,

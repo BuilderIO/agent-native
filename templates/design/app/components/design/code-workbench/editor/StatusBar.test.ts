@@ -2,11 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { languageDisplayName } from "./status-bar-lang";
 
-// StatusBar.tsx (and `countProblemsForOpenTabs`) transitively import
-// `monaco-editor`/model-registry, which require a `window` global and can't
-// load under vitest's node environment (see monaco-theme.test.ts for the
-// same split elsewhere). The monaco-free display-name mapping lives in
-// status-bar-lang.ts specifically so it stays unit-testable in isolation.
 
 describe("languageDisplayName", () => {
   it("maps known language ids to display names", () => {

@@ -7,13 +7,6 @@ import type { ElementInfo } from "@/components/design/types";
 import { runRenderPngBlob } from "./commands/render-png-blob";
 import { PngCaptureError, resolveExportCropTarget } from "./png-export-render";
 
-/**
- * The inspector's export preview captures with `scope: "element"`, which
- * refuses to widen a crop to the whole document. Selecting a screen — a frame
- * in overview, or the BODY root in single view — resolves no crop at all, and
- * treating that as a failed crop made the preview render "Preview unavailable"
- * for every frame-level selection while the Export button beside it worked.
- */
 
 vi.mock("html2canvas", () => ({ default: vi.fn() }));
 
@@ -177,8 +170,6 @@ describe("resolveExportCropTarget", () => {
       ({ left: 10, top: 20, width: 100, height: 50 }) as DOMRect;
     document.body.appendChild(painted);
 
-    // A missing target may be a stale or wrongly scoped selection. Exporting
-    // only the other members would make that failure look like success.
     expect(
       resolveExportCropTarget(document, [
         elementInfo({ selector: "#painted" }),

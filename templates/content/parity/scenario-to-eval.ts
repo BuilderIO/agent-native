@@ -187,8 +187,6 @@ function parseToolResultJson(result: string | undefined): unknown {
     return JSON.parse(result);
   } catch {
     // coercion-ok: an unparseable tool result fails the same "did not supply
-    // the expected target/contract" scorer checks below as a missing one —
-    // both are non-passing evidence, not a distinction the eval needs to make.
     return undefined;
   }
 }

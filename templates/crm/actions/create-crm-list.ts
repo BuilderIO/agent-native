@@ -17,11 +17,6 @@ import {
   type CrmObjectAttribute,
 } from "./_crm-list-utils.js";
 
-/**
- * Stage options for a list whose parent object declares no status attribute to
- * copy. A board with no options has no columns at all, and a status write with
- * no options is a 422, so this is the floor rather than an empty stage.
- */
 const DEFAULT_STAGE_OPTIONS = [
   { value: "new", title: "New" },
   { value: "in-progress", title: "In Progress" },
@@ -29,8 +24,6 @@ const DEFAULT_STAGE_OPTIONS = [
   { value: "lost", title: "Lost" },
 ] as const;
 
-/** Currency config for a seeded amount when the parent object has no currency
- * attribute to copy one from. Matches the native adapter's own default. */
 const DEFAULT_CURRENCY_CONFIG = JSON.stringify({ currency: { code: "USD" } });
 
 interface SeedOption {
@@ -89,9 +82,6 @@ async function resolveConnectionId(
   return rows[0]!.id;
 }
 
-/** The live options of the object's status attribute, in their own order, so a
- * seeded board's columns read like the object's stages instead of a generic
- * vocabulary the records never use. */
 async function loadSourceOptions(
   db: ReturnType<typeof getDb>,
   attributeId: string,
@@ -121,9 +111,6 @@ async function loadSourceOptions(
   );
 }
 
-/** Says what a seeded attribute is, in the one place a user sees it: the
- * attribute's own description. The initial copy is stated as a copy so nobody
- * reads a board as live-linked to its records. */
 function seedDescription(
   listName: string,
   objectType: string,
@@ -204,12 +191,7 @@ export default defineAction({
       ? [
           {
             id: crypto.randomUUID(),
-            // The slug follows the object's attribute so an entry's first value
-            // has an unambiguous source; `stage` is the fallback name.
             apiSlug: statusSource?.apiSlug ?? "stage",
-            // Qualified by the list: an opportunity's own Stage and this
-            // pipeline's Stage are different fields that a bare "Stage" on both
-            // makes indistinguishable in the record panel.
             label: `${args.name} Stage`,
             description: seedDescription(
               args.name,
@@ -265,8 +247,6 @@ export default defineAction({
         ]
       : [];
 
-    // `(connection_id, object_type, field_name)` is unique and `object_type`
-    // mirrors the list id here, so two seeds may never claim one slug.
     const claimed = new Set<string>();
     const attributes = seeds.filter((seed) => {
       if (claimed.has(seed.apiSlug)) return false;
@@ -299,8 +279,6 @@ export default defineAction({
         attributes.map((seed) => ({
           id: seed.id,
           connectionId,
-          // `object_type` mirrors `target_id` for list attributes so the legacy
-          // (connection_id, object_type, field_name) unique index keeps working.
           objectType: listId,
           fieldName: seed.apiSlug,
           label: seed.label,
@@ -370,7 +348,6 @@ export default defineAction({
         apiSlug: seed.apiSlug,
         label: seed.label,
         attributeType: seed.attributeType,
-        /** The object attribute this one was copied from, if any. */
         seededFrom:
           sources.find((source) => source.apiSlug === seed.apiSlug)?.apiSlug ??
           null,

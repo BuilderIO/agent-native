@@ -17,37 +17,9 @@ import {
 
 import { getDb, schema } from "../db/index.js";
 
-/**
- * Brand kits split writing into drafting and approving.
- *
- * Drafting is what a `viewer` may do: create generation runs and generation
- * sessions, and produce `image_assets` rows with `role: "generated"` and
- * `status: "candidate"`. None of that reaches the kit's content —
- * `shouldIncludeAssetInLibraryResults` keeps unsaved candidates out of every
- * library read — so it is a write a read-only collaborator can safely make.
- *
- * Approving is everything that changes what the kit *is*: promoting a
- * candidate to `saved`, uploads, imports, folders, collections, style brief,
- * canonical logo, templates, deletes. That still requires `editor`.
- *
- * Route new generation paths through `assertCanDraft` and new save/organize
- * paths through `assertCanApprove` instead of picking a role literal per
- * action, so the boundary stays readable in one place.
- */
 export const DRAFT_ROLE: ShareRole = "viewer";
 export const APPROVE_ROLE: ShareRole = "editor";
 
-/**
- * The creative-context access target for provenance on a draft this caller
- * just created in `libraryId`.
- *
- * Recording it needs only `DRAFT_ROLE`, because the artifact is the caller's
- * own candidate run/asset/session rather than kit content. Defaulting to
- * `editor` there is what made every viewer generation die mid-turn with a bare
- * `Requires editor role on asset-library <id> (have viewer)` — the kit gate had
- * already passed, so the refusal arrived with no remedy and read as a
- * permanent precondition the caller could not act on.
- */
 export function draftProvenanceAccess(libraryId: string): {
   resourceType: "asset-library";
   resourceId: string;
@@ -62,14 +34,9 @@ export function draftProvenanceAccess(libraryId: string): {
 
 export interface LibraryWriteAccess {
   role: ShareRole | "owner";
-  /** True when this caller may save and organize, not only draft. */
   canApprove: boolean;
 }
 
-/**
- * Assert the caller may draft in this kit, and report whether they may also
- * approve. Throws `ForbiddenError` when they cannot even read the kit.
- */
 export async function assertCanDraft(
   libraryId: string,
 ): Promise<LibraryWriteAccess> {
@@ -86,15 +53,6 @@ export async function assertCanDraft(
   };
 }
 
-/**
- * Assert the caller may change the kit itself, not just draft in it.
- *
- * The thrown message deliberately keeps the framework's
- * `Requires editor role on asset-library <id> (have viewer)` wording: the
- * agent's permanent-precondition classifier matches that shape and ends the
- * turn instead of burning retries on a grant it cannot obtain. `what` names
- * the blocked step so the remedy is legible to a human too.
- */
 export async function assertCanApprove(
   libraryId: string,
   what: string,
@@ -109,13 +67,6 @@ export async function assertCanApprove(
   );
 }
 
-/**
- * Every draft refusal keeps the framework's
- * `Requires editor role on asset-library <id> (have viewer)` opening, because
- * core's permanent-precondition classifier matches that shape and ends the
- * agent turn instead of retrying a grant the model cannot obtain. It is also
- * literally the remedy: an editor may act on any draft in the kit.
- */
 function draftRefusal(
   libraryId: string,
   role: ShareRole | "owner",
@@ -127,11 +78,6 @@ function draftRefusal(
   );
 }
 
-/**
- * Drafting in a kit does not extend to someone else's drafting workspace: a
- * below-editor caller may only change a session or run they authored. Legacy
- * rows with no recorded author therefore need `editor`.
- */
 export async function assertCanDraftAuthoredBy(
   libraryId: string,
   authorEmail: string | null | undefined,
@@ -162,17 +108,9 @@ export async function assertCanDraftAuthoredBy(
  * lists pay nothing.
  */
 export interface DraftReadScope {
-  /** True when every kit in the read is approvable, so nothing is filtered. */
   unrestricted: boolean;
   approvableLibraryIds: Set<string>;
-  /** The caller's own generation runs in the kits they cannot approve. */
   ownRunIds: Set<string>;
-  /**
-   * Captured when the scope is resolved, so every predicate below is a pure
-   * function of the scope. Reading it from the ambient request context instead
-   * makes a row check silently answer "not yours" whenever it runs outside the
-   * context that resolved the scope.
-   */
   callerEmail: string | null;
 }
 
@@ -228,10 +166,6 @@ export async function resolveDraftReadScope(
   };
 }
 
-/**
- * The no-op scope, for a caller already known to approve everywhere in the
- * read. Lets an approver-side read skip the run lookup entirely.
- */
 export function unrestrictedDraftReadScope(): DraftReadScope {
   return {
     unrestricted: true,
@@ -241,7 +175,6 @@ export function unrestrictedDraftReadScope(): DraftReadScope {
   };
 }
 
-/** True when this row is not a draft, or is a draft this caller may read. */
 export function canReadDraftAsset(
   scope: DraftReadScope,
   asset: {
@@ -259,10 +192,6 @@ export function canReadDraftAsset(
   );
 }
 
-/**
- * The run rows behind drafts carry the same prompts and settings, so a kit's
- * run history narrows the same way its candidates do.
- */
 export function canReadRun(
   scope: DraftReadScope,
   run: { id: string; libraryId: string },
@@ -272,14 +201,6 @@ export function canReadRun(
   return scope.ownRunIds.has(run.id);
 }
 
-/**
- * The scope as a WHERE clause, for a query that pages candidates.
- *
- * Filtering in JS after `limit` silently drops authorized rows — a viewer asks
- * for 50 drafts, the newest 50 belong to other people, and they get none while
- * their own sit just past the cut. Returns `undefined` when nothing is
- * filtered, so callers can skip adding a clause.
- */
 export function draftReadFilter(
   scope: DraftReadScope,
   table: {
@@ -297,17 +218,11 @@ export function draftReadFilter(
   if (scope.ownRunIds.size) {
     clauses.push(inArray(table.generationRunId, Array.from(scope.ownRunIds)));
   }
-  // No approvable kit and no run of their own: this caller authored none of the
   // candidates in scope, so the query must return nothing rather than fall
-  // through to an unfiltered read.
   if (!clauses.length) return sql`1 = 0`;
   return clauses.length === 1 ? clauses[0] : or(...clauses);
 }
 
-/**
- * The scope as a WHERE clause for run history. Runs carry the prompts and
- * settings behind a draft, so they narrow to their author the same way.
- */
 export function runReadFilter(
   scope: DraftReadScope,
   table: { id: AnyColumn; libraryId: AnyColumn },
@@ -326,12 +241,6 @@ export function runReadFilter(
   return clauses.length === 1 ? clauses[0] : or(...clauses);
 }
 
-/**
- * Handoff sessions hold a brief, feedback, and references to candidates, so a
- * below-approver caller sees only the sessions they created. Filtering in SQL
- * rather than after `limit` keeps a caller's own sessions from being paged out
- * behind other people's.
- */
 export function sessionReadFilter(
   scope: DraftReadScope,
   table: { libraryId: AnyColumn; createdBy: AnyColumn },
@@ -344,14 +253,12 @@ export function sessionReadFilter(
     );
   }
   if (scope.callerEmail) {
-    // Case-insensitive to match how core's own access filter compares emails.
     clauses.push(sql`lower(${table.createdBy}) = ${scope.callerEmail}`);
   }
   if (!clauses.length) return sql`1 = 0`;
   return clauses.length === 1 ? clauses[0] : or(...clauses);
 }
 
-/** The row-level counterpart of `sessionReadFilter`, for reads by id. */
 export function canReadSession(
   scope: DraftReadScope,
   session: { libraryId: string; createdBy?: string | null },
@@ -396,10 +303,6 @@ export async function deleteDraftAssetIfUnchanged(asset: {
   return !survivor;
 }
 
-/**
- * The draft scope for one kit, free when the caller can already approve there.
- * Use this in write paths that also read candidates as input.
- */
 export async function draftScopeForLibrary(
   libraryId: string,
   access?: LibraryWriteAccess,
@@ -408,13 +311,6 @@ export async function draftScopeForLibrary(
   return resolveDraftReadScope([libraryId]);
 }
 
-/**
- * Guard the *input* side of the same boundary `canReadDraftAsset` guards on
- * reads. A draft this caller cannot read must not become a generation
- * reference, a lineage source, or a session attachment either — otherwise the
- * private-candidate rule holds on the list surfaces and leaks through every
- * path that takes an asset id.
- */
 export function assertCanUseAssets(
   scope: DraftReadScope,
   libraryId: string,
@@ -439,7 +335,6 @@ export function assertCanUseAssets(
   }
 }
 
-/** The same guard for run rows, whose prompts and settings are just as private. */
 export function assertCanUseRuns(
   scope: DraftReadScope,
   libraryId: string,
@@ -458,13 +353,6 @@ export function assertCanUseRuns(
   }
 }
 
-/**
- * Removing a row from a kit is approving-class work, with one exception: an
- * unsaved generated candidate is a draft, so its author may discard their own
- * even with read-only access. Authorship lives on the generation run — the
- * asset row itself records no drafting identity — so a candidate with no run
- * behind it falls back to needing `editor`.
- */
 export async function assertCanDeleteAsset(asset: {
   libraryId: string;
   role?: string | null;

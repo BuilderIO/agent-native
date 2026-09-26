@@ -29,7 +29,6 @@ export function observeCommentLane(
     typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
   resizeObserver?.observe(container);
   resizeObserver?.observe(lane);
-  // The editor can mount after the lane, or be replaced when collaboration starts.
   const mountObserver = new MutationObserver(schedule);
   mountObserver.observe(container, { childList: true, subtree: true });
   window.addEventListener("resize", schedule);

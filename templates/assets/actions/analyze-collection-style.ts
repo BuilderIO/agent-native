@@ -15,9 +15,6 @@ import { getObject } from "../server/lib/storage.js";
 import type { StyleBrief } from "../shared/api.js";
 import { serializeLibrary } from "./_helpers.js";
 
-/**
- * Synthesize a reusable style guide from a library's reference images.
- */
 export default defineAction({
   description:
     "Analyze reference images in an asset library or collection and update the style brief with palette plus vision-derived brand/style traits.",
@@ -80,7 +77,6 @@ export default defineAction({
         (): string[] => [],
       );
       colors.forEach((hex, idx) => {
-        // Earlier colors in each ref's palette dominate; weight accordingly.
         const weight = colors.length - idx;
         colorScores.set(hex, (colorScores.get(hex) ?? 0) + weight);
       });

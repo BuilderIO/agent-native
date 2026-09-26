@@ -26,11 +26,6 @@ function readId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-/**
- * Workspace defaults live on the org, so a caller with no org (personal
- * context, CLI, cron) genuinely has none — that is absent, not unreadable, and
- * every read below distinguishes the two by letting store failures propagate.
- */
 export async function getWorkspaceDefaults(): Promise<WorkspaceDefaults> {
   const orgId = getRequestOrgId();
   if (!orgId) return EMPTY_DEFAULTS;
@@ -108,14 +103,6 @@ export async function writeWorkspaceDefaults(
   };
 }
 
-/**
- * A default nobody else can open is worse than no default: every teammate's
- * first prompt would 404 on the reference lookup and silently produce an
- * off-brand deck. Refuse to set one that is still private, and refuse an
- * `org`-visible resource that belongs to a different org than the one it is
- * being set as the default for — an individual viewer share on the caller's
- * side must not make a foreign org's resource resolvable workspace-wide.
- */
 export async function assertWorkspaceVisible(
   kind: "deck" | "design-system",
   id: string,
@@ -148,11 +135,6 @@ export async function assertWorkspaceVisible(
   }
 }
 
-/**
- * Design-system precedence: an explicit pick wins, then the caller's own
- * default, then the workspace default. A user who never set one still gets
- * on-brand output; one who did keeps their choice.
- */
 export async function resolveDefaultDesignSystemId(
   ownerEmail: string,
 ): Promise<string | null> {
@@ -177,11 +159,6 @@ export async function resolveDefaultDesignSystemId(
   return (await getWorkspaceDefaults()).designSystemId;
 }
 
-/**
- * Resolves an exact title to an id using the same access filter
- * list-design-systems uses, so a title matches only what that action would
- * offer the caller to pick from.
- */
 export async function resolveDesignSystemIdByTitle(
   title: string,
 ): Promise<string> {

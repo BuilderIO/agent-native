@@ -20,11 +20,6 @@ export async function readSelectedDashboardObject(): Promise<SelectedDashboardOb
   }
 }
 
-/**
- * Clear this tab's dashboard selection without touching another tab's state.
- * The action validates the tab marker and deletes with a compare-and-set so a
- * route transition cannot erase a newer selection after the read.
- */
 export async function clearSelectedDashboardObjectIfOwned(
   dashboardIdOrSelection?: string | SelectedDashboardObject | null,
 ): Promise<void> {

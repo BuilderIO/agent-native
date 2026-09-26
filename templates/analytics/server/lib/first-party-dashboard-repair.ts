@@ -23,13 +23,6 @@ type DashboardRepairRow = {
   visibility: string;
 };
 
-/**
- * Apply `repairFn` to one already-fetched dashboard row inside a transaction,
- * guarded by an optimistic-concurrency fence on (config, updatedAt) so a
- * concurrent human/agent edit always wins over the repair. Snapshots the
- * pre-repair config into dashboard_revisions (bounded to the 50 most recent)
- * before committing, so any repair is one click away from undo.
- */
 async function applyRepairToDashboardRow(
   row: DashboardRepairRow,
   repairFn: (config: Record<string, unknown>) => {
@@ -125,7 +118,6 @@ async function applyRepairToDashboardRow(
 
 export async function repairPersistedFirstPartyDashboardQueries(): Promise<boolean> {
   // guard:allow-unscoped — startup repair targets two fixed first-party dashboards
-  // and only replaces the exact shipped legacy SQL under an optimistic fence.
   const db = getDb() as any;
   const rows = await db
     .select({
@@ -159,20 +151,8 @@ export async function repairPersistedFirstPartyDashboardQueries(): Promise<boole
   return changed;
 }
 
-/**
- * Scan every SQL dashboard (not just the one canonical dashboard above) for
- * first-party panels whose SQL exactly matches a known-unbounded pattern —
- * see first-party-unbounded-panel-repair.ts for how these were found (a
- * full-org audit, 2026-07-25) and why exact-string matching, not a general
- * SQL rewrite, is the safe way to fix panels this repair didn't author.
- * Returns the number of dashboards actually changed.
- */
 export async function repairUnboundedFirstPartyPanelsAcrossDashboards(): Promise<number> {
   // guard:allow-unscoped — this explicit operator repair may touch any
-  // dashboard's persisted panel SQL. It must never run during server startup:
-  // reading every config on each serverless cold start can saturate the
-  // database. Exact-string matches and the optimistic (config, updatedAt)
-  // fence ensure a concurrent edit always wins.
   const db = getDb() as any;
   const rows = await db
     .select({
@@ -197,7 +177,6 @@ export async function repairUnboundedFirstPartyPanelsAcrossDashboards(): Promise
       );
       if (wasRepaired) repairedCount += 1;
     } catch (err) {
-      // One dashboard's malformed config or a lost optimistic-concurrency
       // race must not block repairing every other dashboard.
       console.warn(
         `[db] Unbounded first-party panel repair failed for dashboard "${row.id}" (non-fatal):`,

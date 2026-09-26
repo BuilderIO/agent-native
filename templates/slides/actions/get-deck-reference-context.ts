@@ -3,7 +3,7 @@ import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import getDesignSystem from "./get-design-system.js";
 

@@ -151,7 +151,6 @@ describe("PagedContentFilesSidebarView", () => {
     const showMore = Array.from(
       container.querySelectorAll<HTMLButtonElement>("button"),
     ).find((button) => button.textContent === "Show more");
-    // Show more keeps row height and puts its chevron in the icon column.
     expect(showMore?.style.gridTemplateColumns).toBe(
       "0px 1.75rem minmax(0, 1fr)",
     );
@@ -239,7 +238,6 @@ describe("PagedContentFilesSidebarView", () => {
     });
     const { container, root } = await renderHarness();
 
-    // Only the root page is read until the parent is explicitly expanded.
     expect(
       useActionQuery.mock.calls.every(
         ([, args]) => args.navigation.parentId === null,

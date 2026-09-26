@@ -117,20 +117,6 @@ export function runIframeContextMenu(
     typeof payload.viewportClientY === "number"
       ? payload.viewportClientY
       : payload.clientY;
-  // PASTE-HERE-IN-CONTENT: this imperative openAt() call bypasses
-  // CanvasContextMenu's own onContextMenuCapture handler entirely — the
-  // ONLY place that normally calls getCanvasPoint to attach canvasX/
-  // canvasY to the menu's point. Without computing it here too, a
-  // right-click that lands ON rendered screen content (an element, or
-  // empty in-screen space — as opposed to the shared canvas background,
-  // which still goes through onContextMenuCapture) never got a
-  // canvasX/canvasY at all, so "Paste here" from it silently degraded to
-  // the position-less cascade/offset paste instead of landing under the
-  // cursor. Overview screens each carry their own screenId through the
-  // context-menu bridge, including non-active screens, so target that
-  // exact iframe rather than the currently-active screen. Otherwise
-  // Paste here would translate the pointer through the wrong frame just
-  // before Select layer activates the right-clicked screen.
   const iframeForPoint =
     viewMode === "single"
       ? container.querySelector<HTMLElement>("[data-design-preview-iframe]")

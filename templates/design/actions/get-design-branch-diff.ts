@@ -1,24 +1,3 @@
-/**
- * get-design-branch-diff — read action returning a code + visual diff for a
- * design branch (§6.6 of DESIGN-STUDIO-PLAN.md).
- *
- * Two diff axes:
- *
- * 1. **Visual diff** — compares two `design_versions` snapshots (before and
- *    after branching).  Always available when a `preSnapshotVersionId` is
- *    stored on the branch entry.  Reuses the same lightweight snapshot-diff
- *    approach from `get-design-review.ts` (file presence + content hash).
- *
- * 2. **Code/branch diff** — available only when the source is `fusion` and
- *    `diffPatch` capability is advertised.  For now this surfaces the branch
- *    metadata (name, url, status) and a clear `notAvailable` note when the
- *    bridge write path isn't yet hardened.  Per the plan, real file-level code
- *    diffs land with bridge write hardening (phase 5); the action is structured
- *    to receive that data transparently once the bridge proves it.
- *
- * When neither diff axis is available (e.g. inline design without branches),
- * returns `ctaRequired: true` with a "Make it real" CTA.
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -26,7 +5,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { readDesignVersionSnapshot } from "../server/lib/design-versions.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import type {
@@ -36,7 +15,6 @@ import type {
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface StoredBranchEntry {
   branchName?: string;
@@ -48,7 +26,6 @@ interface StoredBranchEntry {
   createdAt?: string;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function parseDesignData(raw: unknown): Record<string, unknown> {
   if (typeof raw !== "string") return {};
@@ -78,11 +55,6 @@ function parseBranches(
   );
 }
 
-/**
- * Parse a design_versions snapshot JSON into a flat map of
- * `{ filename: { bytes, contentHash } }` for structural comparison.
- * Mirrors the approach in `get-design-review.ts`.
- */
 function snapshotFiles(
   files: ReadonlyArray<{ filename: string; content: string }>,
 ): Record<string, { bytes: number; content: string }> {
@@ -94,7 +66,6 @@ function snapshotFiles(
   );
 }
 
-/** Produce a visual diff entry list from two snapshot file maps. */
 function diffSnapshotFiles(
   baseFiles: Record<string, { bytes: number; content: string | undefined }>,
   compareFiles: Record<string, { bytes: number; content: string | undefined }>,
@@ -142,7 +113,6 @@ function diffSnapshotFiles(
   return entries;
 }
 
-// ─── Action ───────────────────────────────────────────────────────────────────
 
 export default defineAction({
   description:
@@ -184,18 +154,15 @@ export default defineAction({
   run: async ({ designId, branchName, baseVersionId, compareVersionId }) => {
     const db = getDb();
 
-    // ── Access check ────────────────────────────────────────────────────────
     const access = await resolveAccess("design", designId);
     if (!access) throw new Error("Design not found");
 
     const resource = access.resource as { data?: unknown };
 
-    // ── Source type + capability check ──────────────────────────────────────
     const designData = parseDesignData(resource.data);
     const sourceType = designSourceTypeFromData(designData);
     const caps = resolveSourceCapabilities(sourceType);
 
-    // For inline/localhost without branch capability, return a CTA.
     if (!hasCapability(caps, "branch") && !hasCapability(caps, "diffPatch")) {
       return {
         designId,
@@ -218,7 +185,6 @@ export default defineAction({
       };
     }
 
-    // ── Resolve branch entry ─────────────────────────────────────────────────
     const branches = parseBranches(designData);
 
     let branch: StoredBranchEntry | null = null;
@@ -228,7 +194,6 @@ export default defineAction({
           (b) => b.branchName?.toLowerCase() === branchName.toLowerCase(),
         ) ?? null;
     } else {
-      // Default to the most recently created branch.
       branch = branches.length > 0 ? branches[branches.length - 1]! : null;
     }
 
@@ -248,8 +213,6 @@ export default defineAction({
       };
     }
 
-    // ── Resolve version ids for the visual diff ──────────────────────────────
-    // Priority: explicit params > branch's pre-snapshot > most-recent version
     let effectiveBaseId =
       baseVersionId ?? branch.preSnapshotVersionId ?? undefined;
     let effectiveCompareId = compareVersionId;
@@ -264,7 +227,6 @@ export default defineAction({
       effectiveCompareId = latestVersion?.id;
     }
 
-    // ── Visual diff ──────────────────────────────────────────────────────────
     let visualDiff: VisualDiffEntry[] = [];
     let resolvedBaseVersionId: string | null = null;
     let resolvedCompareVersionId: string | null = null;
@@ -310,9 +272,6 @@ export default defineAction({
       }
     }
 
-    // ── Code/branch diff ─────────────────────────────────────────────────────
-    // File-level code diffs land with bridge write hardening (phase 5).
-    // Surface what is available now: branch metadata + a clear not-available note.
     const codeDiffAvailable = hasCapability(caps, "diffPatch");
     const codeDiff = {
       available: codeDiffAvailable,

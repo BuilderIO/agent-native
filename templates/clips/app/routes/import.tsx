@@ -180,8 +180,6 @@ export default function ImportRoute() {
       stageTimerRef.current = setInterval(() => {
         setStageIndex((prev) => Math.min(prev + 1, importStages.length - 1));
       }, 1300);
-      // Ease the accent bar toward ~92% while the request is in flight; the
-      // real completion snaps it to 100%.
       progressTimerRef.current = setInterval(() => {
         setProgress((p) => (p >= 92 ? p : p + Math.max(0.6, (92 - p) * 0.07)));
       }, 120);
@@ -224,7 +222,6 @@ export default function ImportRoute() {
         await copyRecordingLink(recordingId);
         await writeNavigateAppState(recordingId);
 
-        // Linger on the "done" reveal, then fade out into the clip.
         completeImportToast(t("recordRoute.loomImported"));
         setPhase("done");
         timeoutsRef.current.push(

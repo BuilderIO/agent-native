@@ -30,29 +30,15 @@ function providerKeyRequired(): boolean {
   return process.env.BETA_E2E_CLUSTER?.trim().toLowerCase() === "chat";
 }
 
-/**
- * Prepare the run.
- *
- * Two jobs: warm every host so a cold start does not read as a failure, and —
- * when the authenticated lane is in play — establish one signed-in session per
- * app and, for the chat cluster, install the dedicated OpenAI key against it.
- *
- * The authenticated lane either works or the run stops here. Degrading to an
- * anonymous session would leave every authed assertion passing against a
- * signed-out app, which is worse than no coverage because it reads as proof.
- */
 
 export function authedLaneRequested(): boolean {
   const explicit = process.env.BETA_E2E_AUTHED?.trim().toLowerCase();
   if (explicit === "0" || explicit === "false") return false;
   if (explicit === "1" || explicit === "true") return true;
-  // Unset: run the authed lane when a credential was supplied.
   return hasSessionCredentials();
 }
 
 async function globalSetup(): Promise<void> {
-  // Clear first: a marker left by a previous run would let this run's specs
-  // believe they are authenticated when they are not.
   clearAuthedLaneMarker();
 
   const sites = selectedSites();
@@ -61,9 +47,6 @@ async function globalSetup(): Promise<void> {
   );
 
   console.log("[beta-e2e] warming hosts…");
-  // Modest concurrency: a burst large enough to look like a flood gets
-  // throttled at the edge, and a throttled probe is indistinguishable from a
-  // down host unless we avoid causing it.
   const queue = [...sites];
   await Promise.all(
     Array.from({ length: 4 }, async () => {
@@ -121,10 +104,6 @@ async function globalSetup(): Promise<void> {
     `[beta-e2e] establishing sessions as ${email} on: ${targets.map((site) => site.id).join(", ")}`,
   );
 
-  // The key is written only where a turn will actually run. Every install is a
-  // durable write to the e2e account's credential vault on that host — and for
-  // most beta apps that vault lives in the production database — so writing it
-  // to hosts this run will never prompt is avoidable damage.
   const needsKey = new Set(chatSites().map((site) => site.id));
 
   const browser = await chromium.launch();

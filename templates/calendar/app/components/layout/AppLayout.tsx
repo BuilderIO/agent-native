@@ -37,13 +37,8 @@ import { Sidebar } from "./Sidebar";
 const EVENT_DETAIL_MODE_KEY = "calendar-event-detail-mode";
 const SIDEBAR_COLLAPSE_KEY = "calendar.sidebar.collapsed";
 
-/** Routes that render without the full AppLayout chrome (sidebar, agent panel). */
 const BARE_ROUTES = new Set(["/event"]);
 
-/**
- * Routes whose page renders its own toolbar. Layout still mounts Sidebar +
- * AgentSidebar, but skips its own header so there's no double-header.
- */
 function pageOwnsToolbar(pathname: string): boolean {
   if (pathname === "/" || pathname === "/home") return true;
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
@@ -73,38 +68,23 @@ interface CalendarContextValue {
   setAddCalendarOpen: (open: boolean) => void;
   addCalendarDefaultTab: "people" | "url" | "google";
   setAddCalendarDefaultTab: (tab: "people" | "url" | "google") => void;
-  /** Opens the add-a-peer dialog prefilled with this email. Prefills the
-   *  search only — the user still confirms, so a link click never writes. */
   openAddPersonPrefilled: (email: string) => void;
   hiddenCalendars: ReturnType<typeof useHiddenCalendars>["hidden"];
   toggleHiddenCalendar: ReturnType<typeof useHiddenCalendars>["toggle"];
   isHiddenCalendar: ReturnType<typeof useHiddenCalendars>["isHidden"];
-  /** Whether to show event details in sidebar instead of popover */
   eventDetailSidebar: boolean;
   setEventDetailSidebar: (sidebar: boolean) => void;
-  /** The currently selected event for the sidebar panel */
   sidebarEvent: CalendarEvent | null;
   setSidebarEvent: (event: CalendarEvent | null) => void;
-  /** The last-clicked/focused event (for keyboard shortcuts like Delete) */
   focusedEvent: CalendarEvent | null;
   setFocusedEvent: (event: CalendarEvent | null) => void;
-  /** The currently open unsent event draft, if any */
   eventDraft: CalendarEventDraft | null;
   setEventDraft: (draft: CalendarEventDraft | null) => void;
   openSidebar: () => void;
 }
 
-/**
- * Setter-only slice. Every value here is a stable function reference (state
- * setters, or callbacks with empty/near-empty dep arrays), so this context's
- * value object only needs to be rebuilt when AppLayout itself remounts.
- * Consumers that only dispatch changes (not read current values) should read
- * from this context so they don't re-render on every focus/selection change.
- */
 interface CalendarSettersValue {
   setSelectedDate: (date: Date) => void;
-  /** Opens the add-a-peer dialog prefilled with this email. Prefills the
-   *  search only — the user still confirms, so a link click never writes. */
   openAddPersonPrefilled: (email: string) => void;
   setViewMode: (mode: ViewMode) => void;
   setPeopleSearchOpen: (open: boolean) => void;
@@ -118,7 +98,6 @@ interface CalendarSettersValue {
   openSidebar: () => void;
 }
 
-/** Values that change on navigation/preference actions, not on every event interaction. */
 interface CalendarRareValuesContextValue {
   selectedDate: Date;
   viewMode: ViewMode;
@@ -130,8 +109,6 @@ interface CalendarRareValuesContextValue {
   eventDetailSidebar: boolean;
 }
 
-/** Values that change on nearly every event click/drag — kept separate so
- * rare-value and setter-only consumers don't re-render alongside them. */
 interface CalendarHighFrequencyContextValue {
   sidebarEvent: CalendarEvent | null;
   focusedEvent: CalendarEvent | null;
@@ -175,12 +152,6 @@ const CalendarHighFrequencyContext =
     eventDraft: null,
   });
 
-/**
- * Full merged calendar context, for consumers that need a mix of setters and
- * values. Prefer the narrower `useCalendarSetters`, `useCalendarRareValues`,
- * or `useCalendarHighFrequency` hooks in render-hot components so they only
- * re-render for the slice they actually read.
- */
 export function useCalendarContext(): CalendarContextValue {
   const setters = useContext(CalendarSettersContext);
   const rare = useContext(CalendarRareValuesContext);
@@ -188,17 +159,14 @@ export function useCalendarContext(): CalendarContextValue {
   return { ...setters, ...rare, ...highFrequency };
 }
 
-/** Setter-only slice — safe for components that dispatch but never read focus/selection state. */
 export function useCalendarSetters(): CalendarSettersValue {
   return useContext(CalendarSettersContext);
 }
 
-/** Rarely-changing slice (view mode, hidden calendars, selected date, dialogs). */
 export function useCalendarRareValues(): CalendarRareValuesContextValue {
   return useContext(CalendarRareValuesContext);
 }
 
-/** High-frequency slice (focused/sidebar event, in-progress draft). */
 export function useCalendarHighFrequency(): CalendarHighFrequencyContextValue {
   return useContext(CalendarHighFrequencyContext);
 }
@@ -283,7 +251,6 @@ export function AppLayout({ children }: AppLayoutProps) {
   );
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
 
-  // Load preference from localStorage
   useEffect(() => {
     try {
       const saved = localStorage.getItem(EVENT_DETAIL_MODE_KEY);
@@ -310,9 +277,6 @@ export function AppLayout({ children }: AppLayoutProps) {
     }
   }, [sidebarCollapsed]);
 
-  // Global keyboard-shortcuts help: opens via `?` (or shift+/) or the sidebar
-  // button on any page, not just the calendar view. Calendar-specific shortcuts
-  // (j/k/c/etc.) still live in CalendarView.
   useEffect(() => {
     const openShortcuts = () => setShortcutsHelpOpen(true);
     window.addEventListener("calendar:open-shortcuts", openShortcuts);
@@ -394,7 +358,6 @@ export function AppLayout({ children }: AppLayoutProps) {
     [sidebarEvent, focusedEvent, eventDraft],
   );
 
-  // Render chromeless for embed/preview routes — all hooks must be called above
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
   }
@@ -408,8 +371,6 @@ export function AppLayout({ children }: AppLayoutProps) {
             open={addCalendarOpen}
             onOpenChange={(open) => {
               setAddCalendarOpen(open);
-              // Clear the prefill on close so reopening the dialog manually
-              // doesn't resurrect a stale deep-linked address.
               if (!open) setAddPersonPrefillEmail(undefined);
             }}
             defaultTab={addCalendarDefaultTab}

@@ -23,7 +23,6 @@ const draftScopeMock = vi.hoisted(() => ({
 }));
 
 vi.mock("../server/lib/library-access.js", () => ({
-  // This spec covers template access; the draft rules have their own tests.
   resolveDraftReadScope: vi.fn(async () => draftScopeMock),
   canReadSession: vi.fn(() => true),
   canReadDraftAsset: vi.fn(() => true),

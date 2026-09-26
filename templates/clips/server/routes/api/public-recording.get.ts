@@ -127,16 +127,8 @@ function setProtectedMediaAccessCookie(
   return token;
 }
 
-// Best-effort, per-instance (not distributed) throttle on wrong-password
-// attempts against a password-protected share. Keyed by IP + recordingId so
-// one abusive client/recording pair can't brute-force unlimited guesses
-// against a single server instance. Mirrors the limiter in view-event.post.ts.
 const PASSWORD_ATTEMPT_WINDOW_MS = 60_000;
 const PASSWORD_ATTEMPT_MAX = 10;
-// Cap on the number of tracked IP+recording buckets. This is a process-local,
-// best-effort limiter (not distributed), so we only need to keep it from
-// growing unbounded over the life of an instance — not enforce the cap
-// precisely. When we cross it, sweep once and drop every expired bucket.
 const PASSWORD_ATTEMPT_MAX_BUCKETS = 5000;
 const passwordAttemptBuckets = new Map<
   string,
@@ -236,10 +228,6 @@ export default defineEventHandler(async (event) => {
       }).ok
     : false;
 
-  // Share links are public-shell routes, so this endpoint cannot rely on the
-  // authenticated player action to authorize private recordings. Resolve the
-  // same registered access policy here so explicit user/org grants work before
-  // the client redirects to the direct player route.
   const viewerAccess = session?.email
     ? await resolveAccess("recording", rec.id, {
         userEmail: session.email,
@@ -257,8 +245,6 @@ export default defineEventHandler(async (event) => {
       );
       viewerIsOrgMember = Boolean(role);
     } catch {
-      // Never fail the request for anonymous/unauthenticated viewers or if
-      // org lookup is unavailable — just fall through to the existing gate.
       viewerIsOrgMember = false;
     }
   }
@@ -274,16 +260,11 @@ export default defineEventHandler(async (event) => {
     return { error: "Not found" };
   }
 
-  // Any signed-in viewer with access to the recording may comment or react —
-  // this covers an explicit share at any role (not just "commenter"), org
-  // membership, and a public link, which grants a viewer role that
-  // `resolveAccess` may not surface without an explicit share row.
   const viewerCanComment = Boolean(
     session?.email &&
     (rec.visibility === "public" || viewerAccess || viewerIsOrgMember),
   );
 
-  // Expiry check
   const recordingExpired = isRecordingExpiredForViewer({
     expiresAt: rec.expiresAt,
     viewerIsOwner,
@@ -293,8 +274,6 @@ export default defineEventHandler(async (event) => {
     return { error: "Recording has expired", expired: true };
   }
 
-  // Same hold as the media route, so the page explains instead of loading a
-  // player that cannot fetch anything.
   if (isHeldForRedaction(rec.editsJson, viewerAccess?.role ?? null)) {
     setResponseStatus(event, 409);
     return {
@@ -303,15 +282,10 @@ export default defineEventHandler(async (event) => {
     };
   }
 
-  // Password check
   let protectedMediaToken: string | null = null;
   if (rec.password && !viewerIsOwner) {
     if (!tokenAllowsAgentAccess) {
       if (!password) {
-        // No password supplied at all — this is the initial load or a
-        // background poll sitting on the password prompt, not a guess. Don't
-        // touch the throttle, or a viewer who never submits anything would
-        // eventually get 429'd just for polling.
         setResponseStatus(event, 401);
         return { error: "Password required", passwordRequired: true };
       }
@@ -390,23 +364,7 @@ export default defineEventHandler(async (event) => {
     durationMs: rec.durationMs,
   });
 
-  // Normalize the player videoUrl:
-  //   1. Rewrite the legacy `/api/uploads/:id/blob` shape to the current
-  //      `/api/video/:id` endpoint so old rows keep playing after the move.
-  //   2. Keep all Loom imports behind the same-origin `/api/video/:id` access
-  //      gate. Legacy Loom rows render an iframe inside that route; reuploaded
-  //      Loom rows proxy their stored provider URL from the server.
-  //   3. For password-protected public recordings, the password check above
-  //      mints a signed media grant cookie scoped to `/api/video/:id`. We also
-  //      append the same 6-hour token as a fallback for browsers/embeds that
   //      cannot use the cookie immediately. Sticking the plaintext password in
-  //      the URL leaks it into browser history, CDN logs, and Referer headers.
-  //      The downstream `/api/video/:id` route accepts `?t=<token>`, the media
-  //      cookie, or `?password=<pw>` as a legacy fallback. (audit 11 F-07)
-  //      Remote provider URLs (R2/S3/Builder) are kept behind the same-origin
-  //      proxy on public pages so CORS, Range support, and fragile signed URLs
-  //      fail in one server-controlled place instead of as opaque <video>
-  //      errors in the browser.
   const resolvedVideoUrl = resolvePlayerVideoUrl(rec, {
     addPasswordToken: false,
     appPath,
@@ -449,8 +407,6 @@ export default defineEventHandler(async (event) => {
       }).contextUrl
     : null;
 
-  // Don't leak the URL (which now carries a short-lived token) into the
-  // Referer of any outbound link the share page renders.
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
   const transcriptPresentation = resolveTranscriptPresentation(transcript);
   const [verificationPending, seekableRepairPending] = await Promise.all([
@@ -474,11 +430,6 @@ export default defineEventHandler(async (event) => {
 
   const viewerRole =
     viewerAccess?.role ?? (viewerIsOrgMember ? "viewer" : null);
-  // Mirrors the gate in `get-recording-player-data` exactly: the share page
-  // auto-redirects on this flag, so a false positive bounces the viewer
-  // between /share/:id and /r/:id forever. Only a resolved access role can
-  // open the direct page - the org-member fallback above is a display role,
-  // not access the player action would grant.
   const canOpenDashboard =
     Boolean(session?.email) && viewerAccess
       ? canOpenDirectRecordingPage({
@@ -519,7 +470,6 @@ export default defineEventHandler(async (event) => {
       seekableRepairPending,
       uploadProgress: rec.uploadProgress,
       failureReason: rec.failureReason,
-      // Don't leak the password to clients; just indicate whether one was set.
       hasPassword: !!rec.password,
       expiresAt: rec.expiresAt,
       enableComments: Boolean(rec.enableComments),
@@ -533,7 +483,6 @@ export default defineEventHandler(async (event) => {
       updatedAt: rec.updatedAt,
     },
     agentContextUrl,
-    // Aggregate counts only — never viewer identities on this public payload.
     viewCount,
     agentViewCount,
     transcript: transcript

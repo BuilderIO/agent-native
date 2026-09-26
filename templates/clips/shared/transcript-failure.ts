@@ -1,27 +1,5 @@
-/**
- * One vocabulary for why a transcript did not happen.
- *
- * Production accumulated **39 distinct `failure_reason` strings** across 1100
- * failed rows, introduced on five separate dates across four files and three
- * capture surfaces. No commit ever owned the terminal-failure vocabulary, so
- * every fix added its own sentence. Two of those strings were the same
- * condition renamed ("backup transcription" → "Builder transcription"), which
- * silently forked every downstream count.
- *
- * Worse, a typed code already existed (`AudioOnlyExtractionErrorCode`), was
- * thrown, and was discarded at the persistence boundary — after which
- * retryability was re-derived by running regexes over the English prose. A
- * message reworded for clarity could therefore change whether a transcript
- * retried.
- *
- * So: the CODE is the record, prose is rendered from it, and retryability is a
- * property of the code. Adding a failure mode means adding one entry here, not
- * a new sentence at a call site.
- */
 
-/** Why a transcript ended in `failed`. Persisted; do not renumber or reword. */
 export type TranscriptFailureCode =
-  // --- audio extraction (mirrors AudioOnlyExtractionErrorCode) ---
   | "NO_AUDIO_TRACK"
   | "NO_SPEECH_DETECTED"
   | "FFMPEG_UNAVAILABLE"
@@ -37,13 +15,6 @@ export type TranscriptFailureCode =
   /** Anything not yet classified. Prose is preserved; never retried blindly. */
   | "UNKNOWN";
 
-/**
- * Codes worth retrying automatically.
- *
- * Retrying anything else wastes a media fetch and an ffmpeg run to reach the
- * same answer — `NO_AUDIO_SAVED` in particular is a measurement of the stored
- * file, so no number of retries will find audio that was never captured.
- */
 const RETRYABLE: ReadonlySet<TranscriptFailureCode> = new Set([
   "TIMEOUT",
   "EXTRACTION_FAILED",
@@ -56,15 +27,6 @@ export function isRetryableTranscriptFailure(
   return code != null && RETRYABLE.has(code);
 }
 
-/**
- * The sentence shown to a person, derived from the code.
- *
- * Each says what happened and what the reader can do about it. None of them
- * blames the recording for a capture setting — "no speech was detected" on a
- * recording saved without audio was the single most common transcript failure
- * in production, and it sent people looking for a microphone problem when the
- * screen-share simply never included audio.
- */
 export function transcriptFailureMessage(code: TranscriptFailureCode): string {
   switch (code) {
     case "NO_AUDIO_SAVED":

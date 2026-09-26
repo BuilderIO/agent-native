@@ -1,13 +1,4 @@
-// Loom-style in-page overlay host. The next release declares this on every page
-// so the face bubble and controls can survive tab switches and navigations; the
-// background worker can also inject it into the launch tab for immediate and
-// reload recovery. That broad "<all_urls>" host access is the Chrome Web Store
-// in-depth review boundary. Wrapped in an IIFE so it emits a single self-contained
-// classic script with no module imports/exports and leaks no names into the shared
 // global scope. Its only job is to
-// mount/unmount the overlay iframes; all UI and control logic lives inside the
-// extension-origin overlay pages (src/overlay.html). The worker is the source of
-// truth for which "parts" are visible and pushes them here.
 
 (function clipsOverlayHost() {
   type OverlayPart = "bubble" | "countdown" | "toolbar" | "saving";
@@ -16,8 +7,6 @@
   const ALL_PARTS: OverlayPart[] = ["bubble", "countdown", "toolbar", "saving"];
   const flags = window as unknown as { __clipsOverlayHostReady?: boolean };
 
-  // Declarative and recovery injection can target the same document. Return
-  // before any side effects so global listeners remain one-per-page.
   if (flags.__clipsOverlayHostReady) return;
   flags.__clipsOverlayHostReady = true;
   let recordingActive = false;
@@ -278,18 +267,12 @@
     /* storage unavailable */
   }
 
-  // ----- Draggable, resizable camera bubble ---------------------------------
-  // Size + position persist in storage so the bubble stays where the user put it
-  // across pages and recordings (like the desktop app). The iframe can't move or
-  // resize itself, so the content script owns its geometry.
   const BUBBLE_SIZES: Record<string, number> = { sm: 184, lg: 280 };
   const bubbleGeom: { size: string; left: number | null; top: number | null } =
     { size: "lg", left: null, top: null };
   let bubbleDragLayer: HTMLDivElement | null = null;
   let bubblePersistTimer: ReturnType<typeof setTimeout> | undefined;
 
-  // The quick-actions toolbar is also draggable. Keep its geometry in the
-  // content script because the iframe cannot position itself on the host page.
   const TOOLBAR_WIDTH = 68;
   const TOOLBAR_COLLAPSED_HEIGHT = 154;
   const toolbarGeom: { left: number | null; top: number | null } = {
@@ -438,8 +421,6 @@
       partFrameId("bubble"),
     ) as HTMLIFrameElement | null;
     if (!frame) return;
-    // Full-screen capture layer so the pointer keeps tracking after it leaves
-    // the small bubble iframe.
     const layer = document.createElement("div");
     Object.assign(layer.style, {
       position: "fixed",
@@ -536,10 +517,6 @@
     });
   }
 
-  // Only wake the service worker (via requestState) when a recording is actually
-  // active. When idle this script does nothing but keep its message listener
-  // registered, so a recording that starts later still reaches this tab via the
-  // background's MOUNT broadcast.
   function syncIfRecording(): void {
     try {
       chrome.storage.local.get("clipsRecordingActive", (value) => {
@@ -594,26 +571,17 @@
     frame.setAttribute("allowtransparency", "true");
     if (part === "bubble") {
       frame.allow = "camera; microphone";
-      // Above the countdown so the face stays sharp over the dim/blur. Exact
-      // size/position are set by applyBubbleGeom() once mounted.
       const size = bubbleSizePx();
       Object.assign(frame.style, {
         left: "24px",
         bottom: "24px",
         width: `${size}px`,
         height: `${size}px`,
-        // Clip the IFRAME itself to a circle so the iframe's opaque canvas (which
-        // a declared color-scheme always paints, dark or white) can never show as
-        // a square box around the bubble.
         borderRadius: "50%",
         overflow: "hidden",
         zIndex: "3",
       });
     } else if (part === "toolbar") {
-      // Left-edge vertical pill (desktop layout). Height grows on hover via the
-      // resize message below. Clipped to the pill's radius (the pill fills the
-      // iframe) so the opaque canvas can't show as a box; shadow on the iframe so
-      // the clip doesn't cut it.
       Object.assign(frame.style, {
         left: "16px",
         top: "calc(50% - 77px)",
@@ -625,8 +593,6 @@
         zIndex: "2",
       });
     } else if (part === "saving") {
-      // Compact card: caption + a single indeterminate bar (no circular spinner).
-      // Clipped to the card radius (card fills the iframe) so no canvas box shows.
       Object.assign(frame.style, {
         left: "24px",
         bottom: "24px",
@@ -638,7 +604,6 @@
         zIndex: "2",
       });
     } else {
-      // countdown — full-screen dim/blur, below the bubble.
       Object.assign(frame.style, {
         inset: "0",
         width: "100%",
@@ -663,12 +628,6 @@
     if (part === "toolbar") applyToolbarGeom();
   }
 
-  // Camera-ready gating + connecting spinner: while the camera connects we show a
-  // simple centered spinner and keep the bubble hidden, then reveal the bubble and
-  // start the countdown once the feed is live — so the "3" never hangs and there's
-  // no half-loaded, un-draggable bubble during the wait. The bubble posts
-  // "camera-ready" when its video plays (or fails); a fallback timer proceeds
-  // anyway if the camera never connects.
   const CONNECTING_ID = `${CONTAINER_ID}-connecting`;
   let cameraReady = false;
   let countdownDeferred = false;
@@ -761,10 +720,6 @@
       wanted.has("countdown") &&
       wanted.has("bubble") &&
       !lastWantedParts.has("countdown");
-    // Leaving the countdown phase (recording / saving / idle): cancel any pending
-    // deferred countdown + spinner so a late fallback timer can't pop the "3-2-1"
-    // back up over a later overlay (this was the "countdown over the saving card"
-    // bug).
     if (!wanted.has("countdown")) {
       countdownDeferred = false;
       clearTimeout(countdownFallbackTimer);
@@ -789,7 +744,6 @@
     for (const part of ALL_PARTS) {
       const existing = document.getElementById(partFrameId(part));
       if (wanted.has(part)) {
-        // Hold the countdown (showing the spinner) until the camera feed is live.
         if (part === "countdown" && gateCountdown) {
           if (!existing && !countdownDeferred) {
             countdownDeferred = true;
@@ -799,7 +753,6 @@
           continue;
         }
         if (!existing) mountPart(container, part);
-        // Keep the bubble hidden behind the spinner until the feed is live.
         if (part === "bubble" && gateCountdown) setBubbleHidden(true);
       } else if (existing) {
         existing.remove();
@@ -824,8 +777,6 @@
     }
   });
 
-  // Overlay iframes post layout requests (toolbar hover-resize, bubble drag and
-  // size). Only trust messages from our own extension-origin frames.
   window.addEventListener("message", (event) => {
     const data = event.data as
       | {

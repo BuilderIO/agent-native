@@ -129,17 +129,6 @@ export function runToggleLayerLocked(
     applyLayerStatePreview(layerScreenId, layerId, "locked", locked);
     return;
   }
-  // BUG-LOCK-HIDE-LIVE-SNAPSHOT: same fix as handleDeleteSelection —
-  // getFreshActiveContent()/file.content is a bare URL for a
-  // localhost/live-snapshot screen, so setCodeLayerAttributeInHtml below
-  // could never find `node` in it and this write silently no-opped.
-  // `node` itself is unusable against the live snapshot HTML too:
-  // setCodeLayerAttributeInHtml indexes by node.source.openStart/openEnd,
-  // raw offsets into whatever string the RUNTIME projection parsed
-  // (runtimeLayerSnapshotsById), not the separately-tracked live
-  // snapshot — re-resolve a node from that exact content by the one id
-  // that's stable across both (see codeLayerOwnerByNodeId's matching
-  // note above).
   const liveSnapshot = liveScreenSnapshotsById[owner.fileId];
   const nodeIdAttr = node.dataAttributes["data-agent-native-node-id"];
   const liveNode =

@@ -11,12 +11,6 @@ import type { ElementInfo } from "@/components/design/types";
 
 import { resolveCodeLayerNodeFromElementInfo } from "./code-layer-state";
 
-/**
- * Figma parity — an arrow key reorders a flow child and translates everything
- * else. Writing left/top on a flow child is the wrong operation: under
- * `position: static` it does nothing, and under `relative` it detaches the
- * element from its neighbours instead of moving through them.
- */
 
 export type NudgeDirection = "up" | "right" | "down" | "left";
 
@@ -34,24 +28,12 @@ export type FlowAxis = "horizontal" | "vertical";
 
 export interface FlowContainerInfo {
   kind: "flex" | "grid" | "block" | "none";
-  /** The axis DOM order advances along. */
   axis: FlowAxis;
-  /** Visual order runs opposite to DOM order (`*-reverse`). */
   reversed: boolean;
   wraps: boolean;
-  /** Items per line when statically knowable (grid tracks); null otherwise. */
   lineLength: number | null;
 }
 
-/**
- * Normal block flow: children stack vertically in DOM order, so an arrow along
- * the block axis reorders exactly like a flex column.
- *
- * Not inferable from the parent's own markup — a `<div>` with no styles is
- * block, but so is one the stylesheet turned into a flex container. Only the
- * browser knows, so this is built from the bridge's rendered `parentDisplay`
- * rather than from parsed styles.
- */
 export const BLOCK_FLOW_CONTAINER: FlowContainerInfo = {
   kind: "block",
   axis: "vertical",
@@ -84,9 +66,6 @@ function toPositiveInteger(value: string | undefined): number | null {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-/** Tailwind utilities only count unprefixed: `md:flex` is conditional on a
- * breakpoint we are not resolving here, so treating it as the current layout
- * would reorder against a container shape the user cannot see. */
 function utilitySet(classes: readonly string[] | undefined): Set<string> {
   const set = new Set<string>();
   for (const raw of classes ?? []) {
@@ -97,12 +76,6 @@ function utilitySet(classes: readonly string[] | undefined): Set<string> {
   return set;
 }
 
-/**
- * `grid-template-columns: repeat(4, minmax(0,1fr))` and
- * `grid-template-columns: 1fr 1fr 1fr` both describe three-or-four column
- * tracks; counting top-level tokens (with `repeat(n, …)` expanded to n) is
- * enough for reorder arithmetic and never needs layout.
- */
 export function countGridTracks(value: string | undefined): number | null {
   if (!value) return null;
   const trimmed = value.trim();
@@ -118,9 +91,6 @@ export function countGridTracks(value: string | undefined): number | null {
     const repeat = /^repeat\(\s*([^,]+?)\s*,(.*)\)$/is.exec(item);
     if (repeat) {
       const times = Number.parseInt(repeat[1]!, 10);
-      // `auto-fit`/`auto-fill` resolve against the container's width, so the
-      // track count is only knowable from layout. Counting the repeat as one
-      // track would make a cross-axis arrow move one sibling, not one row.
       if (!Number.isSafeInteger(times) || times <= 0) {
         unresolved = true;
         return;
@@ -144,9 +114,6 @@ export function countGridTracks(value: string | undefined): number | null {
   return count > 0 ? count : null;
 }
 
-/** Read the flow shape of a would-be parent from its authored styles and
- * Tailwind utilities. Accepts anything shaped like a `CodeLayerNode` or an
- * `ElementInfo`'s computed styles. */
 export function describeFlowContainer(
   source: FlowContainerStyleSource | null | undefined,
 ): FlowContainerInfo {
@@ -210,8 +177,6 @@ export function describeFlowContainer(
       kind: "grid",
       axis: columnFlow ? "vertical" : "horizontal",
       reversed: false,
-      // A grid always continues onto the next track line; there is no
-      // grid equivalent of `flex-wrap: nowrap`.
       wraps: true,
       lineLength: columnFlow
         ? countGridTracks(templateRows)
@@ -234,9 +199,6 @@ function gridTemplateFromUtilities(
   return undefined;
 }
 
-/** A declared flex/grid `order`, or null when the child leaves it at the
- * default. Tailwind's `order-first`/`order-last` map to the sentinels the
- * utility generates. */
 const GRID_PLACEMENT_PROPERTIES = [
   "grid-row",
   "grid-column",
@@ -254,8 +216,6 @@ const GRID_PLACEMENT_UTILITY_PREFIXES = [
   "row-end-",
 ];
 
-/** Explicit grid placement opts a child out of auto-placement, so moving it in
- * the DOM leaves it in the same cell. */
 export function hasExplicitGridPlacement(
   source: FlowContainerStyleSource,
 ): boolean {
@@ -289,9 +249,6 @@ export function declaredFlexOrder(
   return null;
 }
 
-/** `position: absolute|fixed` takes a child out of its parent's flow — Figma
- * calls the same escape hatch "Ignore auto layout". `sticky` and `relative`
- * still occupy a flow slot, so they keep reordering. */
 export function escapesFlow(
   position: string | null | undefined,
   classes?: readonly string[],
@@ -311,11 +268,8 @@ export interface ResolveNudgeIntentArgs {
   largeStep: boolean;
   amounts?: NudgeAmounts;
   container?: FlowContainerInfo;
-  /** The selected node's own `position`. */
   position?: string | null;
-  /** Its 0-based index among its siblings in DOM order. */
   siblingIndex?: number;
-  /** How many siblings share the container, including the selection. */
   siblingCount?: number;
 }
 
@@ -371,11 +325,6 @@ export interface ReorderAnchor {
   placement: "before" | "after";
 }
 
-/** Translate a `reorder` intent into the anchor sibling + placement the
- * `moveNode` visual edit takes. Moving later must anchor AFTER the sibling
- * currently at the destination index, and moving earlier BEFORE it — the
- * moved node vacates its own slot, so anchoring on the wrong side lands it
- * one position short. */
 export function reorderAnchorFor(intent: {
   fromIndex: number;
   toIndex: number;
@@ -390,9 +339,6 @@ export type ElementNudgeIntent =
   | { kind: "translate"; dx: number; dy: number }
   | {
       kind: "reorder";
-      /** The snapshot the node ids below were resolved against — the caller
-       * must apply its `moveNode` edit to THIS string, not re-read the file,
-       * or the ids can address a document that has since changed. */
       content: string;
       targetNodeId: string;
       anchorNodeId: string;
@@ -400,9 +346,6 @@ export type ElementNudgeIntent =
     }
   | { kind: "none" };
 
-/** Rendered `display` from the canvas bridge (`getComputedStyle`), which sees
- * stylesheet rules and the active breakpoint that authored-style parsing
- * cannot. */
 function isRenderedFlowDisplay(display: string | null | undefined): boolean {
   return (
     display === "flex" ||
@@ -412,11 +355,6 @@ function isRenderedFlowDisplay(display: string | null | undefined): boolean {
   );
 }
 
-/**
- * Rendered `display` values whose children stack in normal block flow, so DOM
- * order is visual order. `list-item` covers `<li>`; table and flow-root boxes
- * lay their children out on their own rules and are deliberately excluded.
- */
 function isRenderedBlockDisplay(display: string | null | undefined): boolean {
   return display === "block" || display === "list-item";
 }
@@ -443,10 +381,6 @@ export interface ResolveElementNudgeIntentArgs {
   amounts?: NudgeAmounts;
 }
 
-/** Resolve an arrow key against a selected element's real position in its
- * source document. Falls back to a plain translate whenever the document or
- * the node cannot be resolved (live/localhost screens have no authored source
- * here), so an unreadable projection never silently swallows the keypress. */
 export function resolveElementNudgeIntent(
   args: ResolveElementNudgeIntentArgs,
 ): ElementNudgeIntent {
@@ -480,22 +414,9 @@ export function resolveElementNudgeIntent(
     args.selectedElement.computedStyles?.position;
 
   const parsedContainer = describeFlowContainer(parent);
-  // The parser sees only the parent's inline styles and Tailwind utilities, so
-  // a stylesheet-driven layout reads as `none` and every arrow key used to fall
-  // through to a blind translate. Prefer what the browser actually rendered.
-  //
-  // When nothing knows the display, treat it as block: that is the CSS initial
-  // value for the container elements a layer tree contains, and it is also the
-  // case that reaches here from a layers-tree selection, where no bridge
-  // round-trip has happened yet and `parentDisplay` is simply absent. An
-  // element that really is inline or a flex child is handled above — the parser
-  // sees those, and a rendered value always wins over this default.
   const rendered =
     args.selectedElement.parentDisplay ??
     args.selectedElement.parentLayout?.display;
-  // A rendered grid needs its track count to map an arrow onto the next visual
-  // cell, and `display: grid` alone does not carry it. Reuse the computed track
-  // templates already reported by the bridge instead of guessing a flex row.
   const renderedGrid =
     parsedContainer.kind === "none" &&
     !escapesFlow(position) &&
@@ -532,9 +453,6 @@ export function resolveElementNudgeIntent(
   ) {
     return { kind: "none" };
   }
-  // The rendered axis, which markup alone cannot give: a stylesheet-driven
-  // `flex-direction: column` maps up/down onto DOM order, and assuming a row
-  // reorders on left/right instead.
   const renderedFlexDirection =
     args.selectedElement.parentLayout?.flexDirection;
   if (
@@ -558,17 +476,12 @@ export function resolveElementNudgeIntent(
                 : "horizontal",
               reversed: renderedFlexDirection?.endsWith("-reverse") ?? false,
             }
-          : // `parent` null means the node is a projection root: it has no flow to
-            // reorder within, and the bridge reports `parentDisplay: undefined`
-            // for it exactly as it does for a not-yet-measured selection.
+          :
             isRenderedBlockDisplay(rendered) ||
               (rendered === undefined && parent !== null)
             ? BLOCK_FLOW_CONTAINER
             : parsedContainer
       : parsedContainer;
-  // Flex/grid paint children by `order` and explicit grid placement, not DOM
-  // position, so moving the node would write a source change that produces no
-  // visible movement.
   if (
     container.kind !== "none" &&
     siblingIds.some((id) => {
@@ -582,13 +495,7 @@ export function resolveElementNudgeIntent(
     return { kind: "none" };
   }
 
-  // A `.row { display: flex }` parent used to reach here as `none` and get
-  // suppressed. It is now promoted to a flex container above, so a reorder is
-  // attempted instead of the key being swallowed — same protection against
-  // writing left/top onto a flex child, but it does the useful thing.
 
-  // Rendered `order` from the bridge sees stylesheet rules that the authored
-  // styles above cannot.
   const renderedOrder = args.selectedElement.computedStyles?.order;
   if (
     container.kind !== "none" &&

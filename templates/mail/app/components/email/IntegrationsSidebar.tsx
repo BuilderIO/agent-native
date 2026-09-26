@@ -52,7 +52,6 @@ function safeExternalHref(value?: string | null): string | null {
   }
 }
 
-// ─── Integration definitions ────────────────────────────────────────────────
 
 type ProviderId = "apollo" | "hubspot" | "gong" | "pylon";
 
@@ -181,7 +180,6 @@ const INTEGRATIONS: IntegrationDef[] = [
   },
 ];
 
-// ─── Main Sidebar Component ─────────────────────────────────────────────────
 
 export function IntegrationsSidebar({
   email,
@@ -278,7 +276,6 @@ export function IntegrationsSidebar({
   );
 }
 
-// ─── Integration Setup ──────────────────────────────────────────────────────
 
 function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
   const [expanded, setExpanded] = useState(false);
@@ -607,7 +604,6 @@ function IntegrationKeyEntry({
   );
 }
 
-// ─── Integration Notice (error / no-data) ──────────────────────────────────
 
 function IntegrationNotice({
   email,
@@ -710,7 +706,6 @@ function IntegrationNotice({
   );
 }
 
-// ─── Apollo Section ─────────────────────────────────────────────────────────
 
 function ApolloSection({ email }: { email: string }) {
   const t = useT();
@@ -723,7 +718,6 @@ function ApolloSection({ email }: { email: string }) {
     );
   }
   if (!person) {
-    // No enrichment data — show basic info (email + domain)
     return (
       <div className="px-4 pt-4 pb-3">
         <h3 className="text-[14px] font-semibold text-foreground truncate">
@@ -932,7 +926,6 @@ function ApolloSection({ email }: { email: string }) {
   );
 }
 
-// ─── HubSpot Section ────────────────────────────────────────────────────────
 
 function HubSpotSection({ email }: { email: string }) {
   const t = useT();
@@ -1030,7 +1023,6 @@ function HubSpotSection({ email }: { email: string }) {
   );
 }
 
-// ─── Gong Section ───────────────────────────────────────────────────────────
 
 function GongSection({ email }: { email: string }) {
   const t = useT();
@@ -1088,7 +1080,6 @@ function GongSection({ email }: { email: string }) {
   );
 }
 
-// ─── Pylon Section ──────────────────────────────────────────────────────────
 
 function PylonSection({ email }: { email: string }) {
   const { data, isLoading, error } = usePylonContact(email) as {
@@ -1171,7 +1162,6 @@ function PylonSection({ email }: { email: string }) {
   );
 }
 
-// ─── Shared ─────────────────────────────────────────────────────────────────
 
 function SectionHeader({
   logo,

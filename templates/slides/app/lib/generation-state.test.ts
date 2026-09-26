@@ -101,7 +101,6 @@ describe("new deck generation state", () => {
       }),
     ).toBeNull();
 
-    // Agent appends a net-new slide: no placeholder to light up.
     expect(
       slideBeingFilledInPlace({
         addSlideGenerating: true,
@@ -111,7 +110,6 @@ describe("new deck generation state", () => {
       }),
     ).toBeNull();
 
-    // Placeholder deleted mid-run.
     expect(
       slideBeingFilledInPlace({
         addSlideGenerating: true,
@@ -124,9 +122,6 @@ describe("new deck generation state", () => {
       }),
     ).toBeNull();
 
-    // The agent has already written real content: the fill is done, so a
-    // follow-up `add-slide` for the rest of a multi-slide request gets the
-    // trailing generating row again instead of staying suppressed.
     expect(
       slideBeingFilledInPlace({
         addSlideGenerating: true,
@@ -173,9 +168,6 @@ describe("new deck generation state", () => {
 
   describe("nextNewDeckGenerationPhase", () => {
     it("reloading a dead ?generating=1 deck (no run, no questions) abandons after the wait lapses, and that clears the stuck state", () => {
-      // A page load that never observes a run and isn't blocked on
-      // questions must eventually leave "pending" — otherwise the overlay
-      // and the url param that re-seeds it persist forever.
       const phase = nextNewDeckGenerationPhase({
         phase: "pending",
         generating: false,
@@ -212,9 +204,6 @@ describe("new deck generation state", () => {
     });
 
     it("survives an expired wait while pre-generation questions are pending", () => {
-      // Intent can legitimately arrive after mount, through the question
-      // flow the empty editor shows — the wait must not lapse underneath it
-      // even once the plain time bound would otherwise have expired.
       const phase = nextNewDeckGenerationPhase({
         phase: "pending",
         generating: false,
@@ -259,8 +248,6 @@ describe("new deck generation state", () => {
       });
       expect(started).toBe("started");
 
-      // Terminal: further calls (e.g. `generating` flickering, a stray
-      // expiry) never move it back to pending or to abandoned.
       expect(
         nextNewDeckGenerationPhase({
           phase: started,

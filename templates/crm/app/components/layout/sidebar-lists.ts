@@ -1,9 +1,3 @@
-/**
- * Shapes the sidebar and command menu need from `list-crm-lists` and
- * `list-crm-saved-views`. Both actions are read defensively because the wave-1
- * contract widened saved views (`viewKind`/`targetKind`/`targetId`) while the
- * older `kind` field is still in flight.
- */
 
 export interface CrmSidebarList {
   id: string;

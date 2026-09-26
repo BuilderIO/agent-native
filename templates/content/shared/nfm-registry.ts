@@ -22,10 +22,6 @@ import {
   parseSpecBlock,
   createAttrReader,
   attributeValue,
-  // The whole standard library config (checklist, table, code-tabs, html, tabs +
-  // the eight dev-doc blocks) is registered once via `registerLibraryBlockConfigs`
-  // — the SAME shared list plan's server registry uses. Content's only override
-  // is the table `type` rename (see `registerContentBlocks`).
   registerLibraryBlockConfigs,
   type BlockSpec,
   type MdxJsxNode,
@@ -38,25 +34,7 @@ import { builderDocsBlockConfigs } from "./builder-docs-blocks";
 import { inlineDatabaseBlockConfig } from "./inline-database-block";
 import { sourceComponentBlockConfig } from "./source-component-block";
 
-/**
- * Register the content block library (the dev-doc + OpenAPI + standard
- * structured blocks) into a registry. Server stubs only (`Read: () => null`);
- * the browser registry supplies the real renderers. Every spec carries its core
- * `schema` + `mdx` config so serialize/parse is byte-identical to plan.
- *
- * IMPORTANT: every MDX `tag` here is PascalCase (`Endpoint`, `Checklist`,
- * `DataModel`, …) so it can NEVER collide with NFM's lowercase Notion container
- * tags (`callout`, `details`, `table`, `page`, `column`). `nfm.ts` keys its
- * registry detection off `registry.getByTag(tag)`, which only matches these
- * PascalCase names, leaving the Notion tag set untouched.
- */
 export function registerContentBlocks(registry: BlockRegistry): void {
-  // Register the whole standard library config in one shared call (the same list
-  // plan's server registry uses). Content's only override is the table `type`
-  // rename to `table-block` (it already owns a Notion lowercase `table` node, so
-  // the registry block can't reuse the bare `table` type). The core `tableBlock`
-  // schema/mdx is reused verbatim; only the discriminating `type` changes, and
-  // `notionCompatible` is carried from the shared config.
   registerLibraryBlockConfigs(registry, {
     overrides: { table: { type: "table-block" } },
   });
@@ -67,10 +45,6 @@ export function registerContentBlocks(registry: BlockRegistry): void {
   registry.register(inlineDatabaseBlockConfig);
 }
 
-/**
- * The content registry, built once. React-free; safe to import into `nfm.ts`
- * (server pull + hashing) and the browser editor alike.
- */
 let cachedRegistry: BlockRegistry | null = null;
 export function contentBlockRegistry(): BlockRegistry {
   if (!cachedRegistry) {
@@ -80,29 +54,18 @@ export function contentBlockRegistry(): BlockRegistry {
   return cachedRegistry;
 }
 
-/** True when `tag` is a registered content registry-block MDX tag. */
 export function isRegistryBlockTag(tag: string): boolean {
   return contentBlockRegistry().hasTag(tag);
 }
 
-/** Resolve a registered spec by its MDX tag, or `undefined`. */
 export function registryBlockSpecByTag(tag: string): BlockSpec | undefined {
   return contentBlockRegistry().getByTag(tag);
 }
 
-/** Resolve a registered spec by its runtime `type`, or `undefined`. */
 export function registryBlockSpecByType(type: string): BlockSpec | undefined {
   return contentBlockRegistry().get(type);
 }
 
-/**
- * Serialize a registry block to its exact MDX element string via the shared
- * core serializer. The bytes are identical to what plan stores (base attrs
- * `id,title,summary,editable` first, then the spec's `toAttrs` in order, then
- * self-closing or `>\n\n{children}\n\n</Tag>`). `nfm.ts` splits this into
- * indented lines for the surrounding block context. Throws if `type` is not a
- * registered registry-block type.
- */
 export function serializeRegistryBlockToMdx(
   type: string,
   block: SerializableBlock,
@@ -114,25 +77,13 @@ export function serializeRegistryBlockToMdx(
   return serializeSpecBlock(spec, block);
 }
 
-/** The base identity attributes + typed data parsed from a registry block's MDX. */
 export interface ParsedRegistryBlock {
   type: string;
   base: ParsedBlockBase;
   data: unknown;
 }
 
-/* -------------------------------------------------------------------------- */
-/* remark-mdx micro-parse (READ side-map, NOT the byte-exact round-trip path) */
-/* -------------------------------------------------------------------------- */
 
-/**
- * Lazily-loaded MDX processor. The byte-exact NFM round-trip never needs this —
- * an untouched registry block emits its preserved `__raw` verbatim. The
- * micro-parse below is only for deriving a block's typed `data` from its raw
- * MDX source for the editor side-map (`RegistryBlockDataProvider`). Importing it
- * lazily keeps `nfm.ts`'s hot path (parse/serialize/hash) free of the remark
- * toolchain.
- */
 type MdxModule = {
   unified: typeof import("unified").unified;
   remarkParse: typeof import("remark-parse").default;
@@ -174,10 +125,6 @@ function elementName(node: MdxNode | undefined): string | undefined {
     : undefined;
 }
 
-/**
- * Read a registry block's identity attrs (`id,title,summary,editable`) directly
- * off the parsed node, the same way the shared `parseSpecBlock` resolves data.
- */
 function readBase(node: MdxJsxNode): ParsedBlockBase {
   const reader = createAttrReader(node);
   return {
@@ -188,11 +135,6 @@ function readBase(node: MdxJsxNode): ParsedBlockBase {
   };
 }
 
-/**
- * Stringify an MDX element's prose children back to a markdown string (for the
- * `childrenField` blocks: `<Endpoint>…description…</Endpoint>`). Uses
- * remark-stringify, matching plan-mdx's `stringifyChildren`.
- */
 async function stringifyChildren(
   mdx: MdxModule,
   children: MdxNode[] | undefined,
@@ -332,15 +274,6 @@ async function parseRegistryBlockNode(
   return { type: parsed.type, base, data: parsed.data };
 }
 
-/**
- * Micro-parse one registry block's verbatim MDX source (its `__raw`) into typed
- * `{ type, base, data }` via the shared core `parseSpecBlock`. Returns `null`
- * when the source is not a single registered registry-block element. Async
- * because it loads the remark toolchain lazily.
- *
- * The editor's `RegistryBlockDataProvider` uses this to hydrate a block's typed
- * `data` from the surrounding NFM; it is NOT on the byte-exact round-trip path.
- */
 export async function parseRegistryBlockData(
   raw: string,
 ): Promise<ParsedRegistryBlock | null> {
@@ -358,6 +291,4 @@ export async function parseRegistryBlockData(
   return parseRegistryBlockNode(mdx, node, "content-block");
 }
 
-// Re-export so consumers that already import this module can use the shared
-// attribute reader without a second core import.
 export { attributeValue };

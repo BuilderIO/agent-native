@@ -3,10 +3,6 @@ import { runMigrations } from "@agent-native/core/db";
 import { scheduleStartupMaintenance } from "../lib/startup-maintenance.js";
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
-// packages/core/src/db/migrations.ts for the full rationale). Version numbers
-// alone are not a safe identity across parallel branches that each extend
-// this list independently — see the analytics db.ts v75-v83 incident this
-// convention was introduced to prevent.
 const contentMigrations = [
   {
     version: 1,
@@ -79,9 +75,6 @@ const contentMigrations = [
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
   },
-  // v5-v8: add owner_email to tables that may have been created before the
-  // column was part of the initial CREATE TABLE (v1-v4 now include it, but
-  // databases created with older schema versions still need the ALTER).
   {
     version: 5,
     sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
@@ -118,7 +111,6 @@ const contentMigrations = [
     // guard:allow-localhost-fallback — one-time migration backfilling legacy null owner_email values for dev-mode upgrade path
     sql: `UPDATE document_comments SET owner_email = 'local@localhost' WHERE owner_email IS NULL OR owner_email = ''`,
   },
-  // v13-v14: add sharing columns (org_id, visibility) to documents.
   {
     version: 13,
     sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS org_id TEXT`,
@@ -127,7 +119,6 @@ const contentMigrations = [
     version: 14,
     sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'`,
   },
-  // v15: companion shares table for per-principal grants.
   {
     version: 15,
     sql: `CREATE TABLE IF NOT EXISTS document_shares (
@@ -148,7 +139,6 @@ const contentMigrations = [
     version: 17,
     sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS hide_from_search INTEGER NOT NULL DEFAULT 0`,
   },
-  // v18: content-hash baseline for drift-free conflict detection.
   {
     version: 18,
     sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS last_synced_content_hash TEXT`,
@@ -221,24 +211,16 @@ const contentMigrations = [
     version: 25,
     sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS view_config_json TEXT NOT NULL DEFAULT '{}'`,
   },
-  // v26 repeats v18 idempotently for databases that previously ran this
-  // feature branch's old v18 property migration before merging main.
   {
     version: 26,
     sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS last_synced_content_hash TEXT`,
   },
-  // v27: performance indexes. The list/tree path filters documents by owner +
-  // org and orders by position/updated_at, walks the tree via parent_id, and
-  // resolves per-principal grants from document_shares — none of which had any
-  // index. Plain CREATE INDEX IF NOT EXISTS so the same DDL applies on both
-  // Postgres and PGlite (no DESC, partial, or PG-only syntax).
   {
     version: 27,
     sql: `CREATE INDEX IF NOT EXISTS documents_owner_org_updated_idx ON documents (owner_email, org_id, updated_at);
         CREATE INDEX IF NOT EXISTS documents_parent_idx ON documents (parent_id);
         CREATE INDEX IF NOT EXISTS document_shares_resource_idx ON document_shares (resource_id, principal_type, principal_id)`,
   },
-  // v28-v31: robust text-anchor + @mention metadata for document comments.
   {
     version: 28,
     sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS anchor_prefix TEXT`,
@@ -255,7 +237,6 @@ const contentMigrations = [
     version: 31,
     sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS mentions_json TEXT`,
   },
-  // v32-v36: source metadata for database-mode local Markdown imports.
   {
     version: 32,
     sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_mode TEXT`,
@@ -276,7 +257,6 @@ const contentMigrations = [
     version: 36,
     sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS source_updated_at TEXT`,
   },
-  // v37-v45: source-aware Builder database foundation tables (additive).
   {
     version: 37,
     sql: `CREATE TABLE IF NOT EXISTS content_database_sources (
@@ -427,10 +407,6 @@ const contentMigrations = [
         CREATE INDEX IF NOT EXISTS content_database_source_executions_idempotency_idx ON content_database_source_executions (idempotency_key)`,
   },
   {
-    // Independent backing store for ADDITIONAL "Blocks" property fields. The
-    // primary "Content" Blocks field is backed by documents.content; every
-    // other Blocks field on a row stores its own content here, keyed by
-    // (document_id, property_id), so no two Blocks fields ever share content.
     version: 48,
     sql: `CREATE TABLE IF NOT EXISTS document_block_field_contents (
       id TEXT PRIMARY KEY,
@@ -447,11 +423,6 @@ const contentMigrations = [
     sql: `CREATE INDEX IF NOT EXISTS document_block_field_contents_document_idx ON document_block_field_contents (document_id);
         CREATE UNIQUE INDEX IF NOT EXISTS document_block_field_contents_doc_prop_idx ON document_block_field_contents (document_id, property_id)`,
   },
-  // v50-v52: DB-enforced single-primary Blocks invariant. `primary_blocks_property_id`
-  // is the one source of truth for which property backs `documents.content`;
-  // `blocks_seeded` records that a database was seeded once, so an intentionally
-  // deleted primary is never silently recreated. Both are additive and safe on
-  // existing data.
   {
     version: 50,
     sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS primary_blocks_property_id TEXT`,
@@ -460,15 +431,6 @@ const contentMigrations = [
     version: 51,
     sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS blocks_seeded INTEGER NOT NULL DEFAULT 0`,
   },
-  // v52: one-time backfill for LEGACY databases that already had a primary
-  // "Content" Blocks definition (seeded by the previous read-path safety net)
-  // before these columns existed. Point primary_blocks_property_id at that
-  // definition and mark the database seeded. Idempotent: only fills rows that
-  // are still NULL, and re-running is a no-op. Databases with NO primary
-  // definition are intentionally left unseeded — the startup repair seeds them
-  // exactly once via the authenticated path. The correlated subquery picks the
-  // primary definition by its options JSON marker (`"primary":true`); the
-  // simple `%...%` LIKE works in Postgres and PGlite.
   {
     version: 52,
     sql: `UPDATE content_databases
@@ -488,8 +450,6 @@ const contentMigrations = [
                 AND d.options_json LIKE '%"primary":true%'
             )`,
   },
-  // v53-v54: ownership metadata for inline databases. Nullable by design:
-  // full-page databases and non-owning references leave these empty.
   {
     version: 53,
     sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_document_id TEXT`,
@@ -498,16 +458,10 @@ const contentMigrations = [
     version: 54,
     sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_block_id TEXT`,
   },
-  // v55: soft-delete marker for inline database lifecycle. Nullable keeps
-  // existing databases active; cleanup remains a later explicit path.
   {
     version: 55,
     sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS deleted_at TEXT`,
   },
-  // v56-v57: DB-backed Builder MDX documents keep their raw sidecar files in a
-  // document-scoped cache. Local-file Builder MDX still uses in-repo sidecars
-  // as the portable source of truth; these rows only make pulled SQL documents
-  // round-trip through the visual editor and push validator.
   {
     version: 56,
     sql: `CREATE TABLE IF NOT EXISTS builder_doc_sidecars (
@@ -563,21 +517,11 @@ const contentMigrations = [
   {
     version: 61,
     name: "document-sync-links-claim-column",
-    // Best-effort cross-instance serialization for Notion pull/push: a
-    // conditional UPDATE claims this column before making Notion API calls
-    // so two concurrent syncs for the same document (different tabs,
-    // different serverless instances) don't race Notion mutations against
-    // each other. See server/lib/notion-sync.ts's use of this column.
     sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS sync_claimed_at TEXT`,
   },
   {
     version: 62,
     name: "document-comments-notion-discussion-id-column",
-    // Notion groups a top-level comment and its replies under one
-    // discussion_id. Storing it locally lets sync-notion-comments create
-    // replies with `discussion_id` (instead of `parent`) so they thread
-    // under the existing Notion discussion in both directions instead of
-    // becoming unrelated top-level comments. See actions/sync-notion-comments.ts.
     sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS notion_discussion_id TEXT`,
   },
   {
@@ -633,9 +577,6 @@ const contentMigrations = [
   {
     version: 68,
     name: "builder-source-execution-claims",
-    // Non-destructive concurrency fence. Existing duplicate execution rows
-    // remain intact as ambiguity evidence; the claim chooses one canonical
-    // row for every future prepare/execute path.
     sql: `CREATE TABLE IF NOT EXISTS content_database_source_execution_claims (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -962,9 +903,6 @@ const contentMigrations = [
       CREATE INDEX IF NOT EXISTS document_blocks_parent_idx
         ON document_blocks (parent_id)`,
   },
-  // The current schema uses BOOLEAN while the legacy INTEGER migration above
-  // is stored as BIGINT. Convert the stored column before Drizzle sends
-  // boolean values.
   {
     version: 83,
     name: "content-block-addressable-postgres-boolean",

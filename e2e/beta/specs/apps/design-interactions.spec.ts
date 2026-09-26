@@ -1295,7 +1295,6 @@ test.describe("authenticated beta Design interactions", () => {
         rootBefore.x + rootBefore.width / 2,
         rootBefore.y + rootBefore.height / 2,
       );
-      // Playwright calls the browser-level Option key Alt on Linux CI.
       let mouseHeld = false;
       let modifierHeld = false;
       try {

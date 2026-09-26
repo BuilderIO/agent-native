@@ -1,14 +1,3 @@
-/**
- * Single frontend entry point for Rust-side transcription.
- *
- * Two engines live behind these helpers:
- *   - "whisper"      → `audio_transcription_*` (local whisper.cpp, mic + system)
- *   - "macos-native" → `native_speech_*` (SFSpeechRecognizer, mic only)
- *
- * Everything that starts/stops an engine or listens to a `voice:*` transcript
- * event should go through here so the engine choice, command names, and event
- * payload shapes are defined in exactly one place.
- */
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -16,29 +5,23 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 export type TranscriptSource = "mic" | "system";
 export type TranscriptionEngine = "whisper" | "macos-native";
 
-/** A transcript segment as emitted per `voice:final-transcript` event (the
- *  event itself carries the source). */
 export interface TranscriptSegment {
   startMs: number;
   endMs: number;
   text: string;
 }
 
-/** An accumulated segment tagged with the stream it came from (mic/system).
- *  Shared by every consumer that stores or replays transcript segments. */
 export interface SourcedTranscriptSegment extends TranscriptSegment {
   source: TranscriptSource;
 }
 
 export interface FinalTranscriptEvent {
-  /** Raw text (not trimmed); callers decide whether to skip empties. */
   text: string;
   source: TranscriptSource;
   segments: TranscriptSegment[];
 }
 
 export interface PartialTranscriptEvent {
-  /** Raw text; empty string is meaningful (clears the live display). */
   text: string;
   source: TranscriptSource;
 }
@@ -49,10 +32,8 @@ export interface SpeechErrorEvent {
 }
 
 export interface AudioLevelEvent {
-  /** 0..1 peak level. */
   level: number;
   source: TranscriptSource;
-  /** Renderer-only fallback pulse, not a native capture buffer. */
   synthetic?: boolean;
 }
 
@@ -61,11 +42,7 @@ interface MicSelection {
   label?: string | null;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
-/** Conversation-side label: system audio is the other party, mic is the user. */
 export function speakerFor(
   source: TranscriptSource | undefined,
 ): "Me" | "Them" {
@@ -85,46 +62,13 @@ function transcriptWords(text: string): string[] {
   return normalized ? normalized.split(/\s+/) : [];
 }
 
-// ---------------------------------------------------------------------------
-// Echo de-duplication
-// ---------------------------------------------------------------------------
-//
-// Without headphones the microphone re-records whatever the speakers play, so
-// the remote side can reach the transcript twice: cleanly on the system stream
-// and, whenever the acoustic guard in `echo_guard.rs` was not confident enough
-// to drop it, again on the mic. The leak only ever runs one way, because a call
-// app never plays the local user back. So when both streams carry the same
-// words at the same time, the system copy is the real one and the mic copy is
-// echo — no matter which stream happened to finalize first.
 
-/** Share of the *longer* of the two word lists that has to match. Scoring the
- *  longer side is what keeps a brief interjection ("yeah, I think so") alive
- *  next to a long remote passage that happens to contain those words in order:
- *  echo repeats a whole utterance, it does not sprinkle a few words into one. */
 const ECHO_MATCH_RATIO = 0.65;
-/** Fewer matched words than this is coincidence, not evidence. */
 const ECHO_MIN_WORDS = 4;
-/** Words that have to agree before a long in-order run counts as echo on its
- *  own. Two people do not independently say eight of the same words, in the
- *  same order, at the same moment. */
 const ECHO_LONG_MATCH_WORDS = 8;
-/** How many recently appended lines count as "at the same time".
- *
- *  Arrival order, not timestamps: each stream's Whisper timestamps are
- *  estimates against its own rolling buffer, and the two streams cut those
- *  buffers at their own silences, so the same words routinely carry stamps
- *  seconds apart. Both finals still *arrive* within a second or two of each
- *  other, because they are transcribed from the same sound. Finalized lines also
- *  get a loose timestamp bound below to reject much later deliberate repeats. */
 const ECHO_RECENT_LINES = 6;
-/** Cross-stream timestamps are approximate, but echo finals should still begin
- *  within this loose bound of each other. */
 const ECHO_MAX_START_DELTA_MS = 15_000;
 
-/** Length of the longest common subsequence of two word lists. Subsequence
- *  rather than set intersection because echo repeats the words *in order*,
- *  while two people using the same vocabulary do not — and rather than exact
- *  equality because Whisper mangles echo with dropped and substituted words. */
 function commonWordRun(left: string[], right: string[]): number {
   let previous = new Array<number>(right.length + 1).fill(0);
   let current = new Array<number>(right.length + 1).fill(0);
@@ -140,15 +84,6 @@ function commonWordRun(left: string[], right: string[]): number {
   return previous[right.length];
 }
 
-/** Whether `text` heard on the mic is the speakers bleeding back into it.
- *
- *  Exported because the live overlay has to make the same call on in-flight
- *  partials, which never reach `appendFinalTranscript`.
- *
- *  Scored against every contiguous run of the recent system lines, not against
- *  all of them glued together: the two streams cut speech at different points,
- *  so one mic line can echo a single system line or straddle two, and gluing an
- *  unrelated third one in would bury the match. */
 export function isMicEcho(
   text: string,
   lines: TranscriptLine[],
@@ -175,8 +110,6 @@ export function isMicEcho(
       run.push(...nearby[end]);
       const matched = commonWordRun(words, run);
       if (matched < ECHO_MIN_WORDS) continue;
-      // Either the two are the same length and mostly agree, or they agree on
-      // a stretch long enough that nothing but echo explains it.
       const sameUtterance =
         matched / Math.max(words.length, run.length) >= ECHO_MATCH_RATIO;
       const longRun =
@@ -188,7 +121,6 @@ export function isMicEcho(
   return false;
 }
 
-/** Drop the recent mic lines that a just-appended system line exposes as echo. */
 function retractMicEcho(lines: TranscriptLine[]): void {
   const snapshot = [...lines];
   const oldest = Math.max(0, snapshot.length - ECHO_RECENT_LINES);
@@ -202,20 +134,10 @@ function retractMicEcho(lines: TranscriptLine[]): void {
   for (const index of removals) lines.splice(index, 1);
 }
 
-// ---------------------------------------------------------------------------
-// Transcript lines
-// ---------------------------------------------------------------------------
 
-/** One speaker-labelled transcript line. `segments` carries the verbatim
- *  Whisper timings behind the line and is empty for the mic-only fallback
- *  engines, which report no timestamps. */
 export interface TranscriptLine {
   source: TranscriptSource;
-  /** Preloaded lines are display/persistence data, not live echo evidence. */
   historical?: boolean;
-  /** Meeting-timeline position, or null from an engine that reports none.
-   *  Not 0 — the overlay renders a timestamp for every line that has one, and
-   *  "start of the meeting" is a different claim from "unknown". */
   startMs: number | null;
   text: string;
   segments: SourcedTranscriptSegment[];
@@ -232,14 +154,12 @@ function lineFromSegments(
   };
 }
 
-/** Rebuild a line from a stored segment, for preloaded transcript history. */
 export function transcriptLineFromSegment(
   segment: SourcedTranscriptSegment,
 ): TranscriptLine {
   return { ...lineFromSegments([segment]), historical: true };
 }
 
-/** Speaker-labelled text, as persisted by `save-browser-transcript`. */
 export function transcriptFullText(lines: TranscriptLine[]): string {
   return lines
     .map((line) => `${speakerFor(line.source)}: ${line.text}`)
@@ -247,23 +167,11 @@ export function transcriptFullText(lines: TranscriptLine[]): string {
     .trim();
 }
 
-/** Rough duration estimate for a line with no verbatim timing, matching the
- *  pacing `buildCaptionSegmentsFromText` uses server-side. */
 function estimatedLineDurationMs(text: string): number {
   const words = text.split(/\s+/).filter(Boolean).length || 1;
   return Math.max(900, words * 420);
 }
 
-/** Flattened verbatim segments, as persisted alongside the text.
- *
- *  A line with no verbatim timings still contributes one synthesized segment
- *  rather than being dropped: the mic-only fallback engines report no
- *  timestamps at all, and dropping the line loses its text and its `source`
- *  — and a `source`-less stored segment silently renders as "Them". Those
- *  engines report `startMs: null` on *every* line, so a synthesized segment
- *  continues from the previous line's end; anchoring each at its own
- *  null-coalesced 0 would stack the whole transcript on one instant and break
- *  ordering and timestamp seeking. */
 export function transcriptSegments(
   lines: TranscriptLine[],
 ): SourcedTranscriptSegment[] {
@@ -278,11 +186,6 @@ export function transcriptSegments(
       );
       continue;
     }
-    // `appendFinalTranscript` is the only path that yields an untimed line and
-    // it always pairs `segments: []` with `startMs: null`, so today this reads
-    // as `cursorMs`. Honouring a line's own stamp is for the shape the type
-    // still permits (see `historyLine` in overlays/live-transcript.tsx), and
-    // clamping to the cursor keeps a stale stamp from reordering the transcript.
     const startMs = Math.max(line.startMs ?? cursorMs, cursorMs);
     const endMs = startMs + estimatedLineDurationMs(line.text);
     segments.push({ startMs, endMs, text: line.text, source: line.source });
@@ -291,12 +194,6 @@ export function transcriptSegments(
   return segments;
 }
 
-/**
- * Fold a final-transcript event into a running transcript, dropping mic speech
- * that only echoes the system audio and retracting mic lines that a later
- * system line exposes as echo. Mutates `lines` in place; returns whether the
- * transcript changed.
- */
 export function appendFinalTranscript(
   event: FinalTranscriptEvent,
   lines: TranscriptLine[],
@@ -313,9 +210,6 @@ export function appendFinalTranscript(
     }))
     .filter((segment) => segment.text.length > 0);
 
-  // One event is one stream's take on one utterance, so the whole line is the
-  // unit that is or is not echo. Engines without timestamps still produce a
-  // line, just one carrying no segments behind it.
   const line: TranscriptLine = segments.length
     ? lineFromSegments(segments)
     : { source: event.source, startMs: null, text, segments: [] };
@@ -372,12 +266,7 @@ export function recordingTranscriptionLanguage(): string | null {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Engine lifecycle
-// ---------------------------------------------------------------------------
 
-/** Start a specific engine. No fallback — throws if the command fails.
- *  `captureSystem` (whisper only) toggles the system-audio stream. */
 export async function restartTranscriptionEngine(
   engine: TranscriptionEngine,
   mic?: MicSelection,
@@ -397,11 +286,6 @@ export async function restartTranscriptionEngine(
       owner: "meeting",
     });
   } else {
-    // This module is meetings-only (see file header) — always pass
-    // owner: "meeting" so a Fn/dictation press can't silently evict a
-    // meeting's native-speech fallback session (Rust-side priority rule
-    // in native_speech.rs). Dictation's own caller (voice-dictation.ts)
-    // omits `owner` and gets the "dictation" default.
     await invoke("native_speech_start", {
       locale: browserLocale(),
       micDeviceId: mic?.deviceId || null,
@@ -413,20 +297,8 @@ export async function restartTranscriptionEngine(
 
 export async function startTranscriptionEngine(opts: {
   mic?: MicSelection;
-  /** Capture + transcribe system audio (whisper). Default true. */
   captureSystem?: boolean;
-  /**
-   * Enable Apple's voice-processing input mode for the Whisper mic tap.
-   * Meeting and recording capture leave this off at the renderer boundary.
-   * The native meeting runtime may allocate VoiceProcessingIO in bypass mode
-   * only when combined ScreenCaptureKit capture is unavailable or fails.
-   */
   voiceProcessing?: boolean;
-  /**
-   * Emit recurring live partial transcripts while speech is in progress.
-   * Meetings render these updates; recordings only persist final segments and
-   * disable them to avoid repeatedly transcribing the same growing buffer.
-   */
   emitPartials?: boolean;
 }): Promise<TranscriptionEngine> {
   const captureSystem = opts.captureSystem ?? true;
@@ -485,7 +357,6 @@ export async function startTranscriptionEngine(opts: {
   }
 }
 
-/** Stop the given engine. */
 export async function stopTranscriptionEngine(
   engine: TranscriptionEngine,
 ): Promise<void> {
@@ -504,9 +375,6 @@ export async function resetTranscriptionTimeline(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Event subscriptions
-// ---------------------------------------------------------------------------
 
 export function onFinalTranscript(
   cb: (event: FinalTranscriptEvent) => void,

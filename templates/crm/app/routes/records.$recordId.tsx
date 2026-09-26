@@ -41,9 +41,7 @@ export default function RecordRoute() {
     };
   }, [detail?.displayName]);
 
-  // A read that failed is not a record that is gone. Rendering the "archived or
   // no longer shared" empty state for a transport or permission error would
-  // tell the user something we do not know.
   if (query.error)
     return (
       <div className="p-6">

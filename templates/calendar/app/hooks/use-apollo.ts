@@ -17,8 +17,6 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export function useApolloStatus() {
-  // The raw API key is never sent to the browser. This endpoint returns only
-  // `{ connected }`; the secret stays in the encrypted per-user vault server-side.
   const { data } = useQuery<{ connected: boolean } | null>({
     queryKey: ["apollo-status"],
     queryFn: async () => {

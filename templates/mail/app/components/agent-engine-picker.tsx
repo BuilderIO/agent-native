@@ -23,7 +23,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface EngineCapabilities {
   thinking: boolean;
@@ -49,7 +48,6 @@ interface EnginesResponse {
   current: { engine: string; model: string };
 }
 
-// ─── API helpers ──────────────────────────────────────────────────────────────
 
 async function manageAgentEngine<T>(body: Record<string, unknown>): Promise<T> {
   const res = await fetch(
@@ -66,7 +64,6 @@ async function manageAgentEngine<T>(body: Record<string, unknown>): Promise<T> {
   }
   const text = await res.text();
   try {
-    // The script returns a JSON string as the result
     const outer = JSON.parse(text);
     if (typeof outer === "string") return JSON.parse(outer) as T;
     return outer as T;
@@ -75,7 +72,6 @@ async function manageAgentEngine<T>(body: Record<string, unknown>): Promise<T> {
   }
 }
 
-// ─── Capability badge ─────────────────────────────────────────────────────────
 
 function CapBadge({ label, enabled }: { label: string; enabled: boolean }) {
   return (
@@ -92,7 +88,6 @@ function CapBadge({ label, enabled }: { label: string; enabled: boolean }) {
   );
 }
 
-// ─── Engine card ──────────────────────────────────────────────────────────────
 
 function EngineCard({
   engine,
@@ -159,7 +154,6 @@ function EngineCard({
   );
 }
 
-// ─── AgentEnginePicker ────────────────────────────────────────────────────────
 
 export function AgentEnginePicker() {
   const t = useT();
@@ -172,14 +166,12 @@ export function AgentEnginePicker() {
     error?: string;
   } | null>(null);
 
-  // Fetch engine list
   const { data, isLoading, error } = useQuery<EnginesResponse>({
     queryKey: ["agent-engines"],
     queryFn: () => manageAgentEngine<EnginesResponse>({ action: "list" }),
     staleTime: 30_000,
   });
 
-  // Set engine mutation
   const setEngine = useMutation({
     mutationFn: ({ engine, model }: { engine: string; model: string }) =>
       manageAgentEngine({ action: "set", engine, model }),
@@ -191,7 +183,6 @@ export function AgentEnginePicker() {
     },
   });
 
-  // Test engine mutation
   const testEngine = useMutation({
     mutationFn: ({ engine, model }: { engine: string; model: string }) =>
       manageAgentEngine<{ ok: boolean; latencyMs?: number; error?: string }>({

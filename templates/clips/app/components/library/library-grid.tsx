@@ -73,7 +73,6 @@ interface LibraryGridProps {
   view: "library" | "shared" | "space" | "archive" | "trash" | "all";
   folderId?: string | null;
   spaceId?: string | null;
-  /** What empty-state illustration to render. Defaults from `view`. */
   emptyKind?: "library" | "shared" | "folder" | "space" | "archive" | "trash";
   title?: string;
   breadcrumbItems?: readonly PageBreadcrumbItem[];

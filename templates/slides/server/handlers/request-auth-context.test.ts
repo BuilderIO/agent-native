@@ -41,10 +41,6 @@ describe("resolveSlidesRequestAuthContext", () => {
   });
 
   it("throws SlidesSessionLookupError instead of returning a fake anonymous context when the lookup itself fails", async () => {
-    // Regression for Toni's report: `getSession(event).catch(() => null)`
-    // used to collapse a DB blip / cookie race into the same shape a real
-    // anonymous visitor gets, so callers reported "unauthorized" for what
-    // was actually a server-side failure.
     mockGetSession.mockRejectedValue(new Error("db unavailable"));
 
     await expect(

@@ -118,12 +118,6 @@ export default defineAction({
       .from(schema.documents)
       .where(where);
     const totalItems = Number(countRow?.count ?? 0);
-    // Projection that deliberately avoids pulling the full `content` blob:
-    // document bodies can be multi-MB, and the list/tree path only needs a
-    // short preview plus the true length. `substr` truncates the transferred
-    // text to the first 400 chars (well above the ~180-char preview, leaving
-    // headroom for whitespace collapse), while `length` reports the real size.
-    // Both `substr` and `length` work in PostgreSQL and PGlite.
     const documents = await db
       .select({
         id: schema.documents.id,
@@ -198,9 +192,6 @@ export default defineAction({
         );
       }
 
-      // These queries all depend only on the initial `documents` id list
-      // (already fetched above), not on each other's results, so they run
-      // concurrently instead of as sequential round-trips.
       const [notionLinks, shareRows, databases, databaseMemberships] =
         await Promise.all([
           db

@@ -24,10 +24,6 @@ GROUP BY name
 ORDER BY cnt DESC
 LIMIT 200`;
 
-/**
- * Extract JSON keys from the data column using JSON_EXTRACT_KEYS.
- * Samples a small number of recent rows to discover property names.
- */
 const DYNAMIC_PROPERTIES_SQL = `
 WITH sampled AS (
   SELECT SAFE.PARSE_JSON(data) AS js
@@ -60,10 +56,6 @@ export interface PropertyValue {
   count: number;
 }
 
-/**
- * Hook to load dynamic events from BigQuery.
- * Queries run when `enabled` is true (e.g. when the combobox opens).
- */
 export function useDynamicEvents(enabled: boolean) {
   const { data: eventData, isLoading: eventsLoading } = useMetricsQuery(
     ["explorer-dynamic-events"],
@@ -92,10 +84,6 @@ export function useDynamicEvents(enabled: boolean) {
   return { events, eventNames, isLoading: eventsLoading || namesLoading };
 }
 
-/**
- * Hook to load dynamic properties from BigQuery.
- * Always enabled — loads once on mount and caches for 5 min via React Query.
- */
 export function useDynamicProperties() {
   const { data, isLoading } = useMetricsQuery(
     ["explorer-dynamic-properties"],
@@ -130,7 +118,6 @@ function escapeSql(s: string): string {
 }
 
 function buildPropertyValuesSql(property: string): string {
-  // Enriched properties query their own dimension tables (fast, <1s)
   const enriched = ENRICHED_PROPERTY_MAP.get(property);
   if (enriched) return enriched.valuesSql;
 
@@ -139,9 +126,6 @@ function buildPropertyValuesSql(property: string): string {
     ? property
     : `JSON_VALUE(data, '$.${escapeSql(property)}')`;
 
-  // JSON column scans are expensive (~550GB for 14d) — use 14-day window
-  // to stay under 750GB limit. Prefetching makes the wait transparent.
-  // Top-level columns are cheap — use 30 days.
   const interval = isTopLevel ? "30 DAY" : "14 DAY";
 
   return `SELECT ${col} AS val, COUNT(*) AS cnt
@@ -154,11 +138,6 @@ ORDER BY cnt DESC
 LIMIT 50`;
 }
 
-/**
- * Hook to load the top values for a given property.
- * Prefetches immediately when property is set so data is ready
- * when the dropdown opens (BigQuery queries take ~7-9s).
- */
 export function usePropertyValues(property: string) {
   const sql = property ? buildPropertyValuesSql(property) : "";
   const { data, isLoading } = useMetricsQuery(

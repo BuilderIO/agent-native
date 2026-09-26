@@ -418,7 +418,6 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
     } catch (error) {
       if (!(error instanceof GoogleApiError) || error.status !== 410 || !cursor)
         throw error;
-      // Google invalidates sync tokens periodically; reset from now and resume incremental reads.
       delete cursors[accountCalendarKey];
       cursor = undefined;
       initial = new Date().toISOString();

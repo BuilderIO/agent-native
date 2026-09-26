@@ -1,35 +1,8 @@
-/**
- * run-design-extension-action — thin dispatcher.
- *
- * Routes an extension action request to the correct first-party action via
- * the existing action surface.  Extensions add NO permanent editor chrome —
- * this action is the single call-through so the agent doesn't need to remember
- * which internal action backs each extension capability.
- *
- * For first-party extensions (design.asset-library, design.shader-fills,
- * design.token-auditor, design.motion-presets), the action dispatches to the
- * correct implementation.  The caller can always call the underlying action
- * directly; this dispatcher exists as a convenience layer for the agent and
- * for extension iframe code that calls `appAction("run-design-extension-action")`.
- *
- * For user-created extensions (kind="user-extension"), the action does NOT
- * inject content into or modify the extension iframe itself — the iframe
- * bridge handles that.  Instead, it records the request context so the agent
- * can follow up.
- *
- * Reuses the existing extension infra:
- * - Core `list-extensions` / `get-extension` for user extension resolution.
- * - Per-action implementations for first-party capabilities.
- * - The `design.editor.inspector` slot contract from DesignExtensionsPanel.tsx.
- *
- * Plan reference: DESIGN-STUDIO-PLAN.md §6.7 + §7 (`run-design-extension-action`).
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-// ─── Supported first-party extension ids ──────────────────────────────────────
 
 const FIRST_PARTY_IDS = [
   "design.asset-library",
@@ -40,14 +13,7 @@ const FIRST_PARTY_IDS = [
 
 type FirstPartyId = (typeof FIRST_PARTY_IDS)[number];
 
-// ─── Capability routing map ───────────────────────────────────────────────────
 
-/**
- * Maps a `extensionId:capabilityId` pair to the action the caller should use.
- * The dispatcher does NOT inline-call other actions (actions are not composable
- * that way in this framework) — it returns routing guidance with the exact
- * action name and params so the agent makes one follow-up call.
- */
 interface CapabilityRoute {
   action: string;
   paramHint: string;
@@ -57,7 +23,6 @@ interface CapabilityRoute {
 }
 
 const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
-  // Asset Library
   "design.asset-library:browse": {
     action: "get-design-snapshot",
     paramHint:
@@ -77,7 +42,6 @@ const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
     readOnly: false,
   },
 
-  // Shader Fills
   "design.shader-fills:catalog": {
     action: "get-shader",
     paramHint: "Call get-shader with an optional source context.",
@@ -105,7 +69,6 @@ const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
       "apply-shader-fill is GATED until runtime rendering + source-write path + CSS fallback + diff proof are all in place.  It will return { ok: false, gated: true } today.",
   },
 
-  // Token Auditor
   "design.token-auditor:index": {
     action: "index-design-tokens",
     paramHint:
@@ -134,7 +97,6 @@ const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
       "Source write-back to globals.css / tailwind.config is planned pending bridge hardening.",
   },
 
-  // Motion Presets
   "design.motion-presets:preview": {
     action: "get-motion-timeline",
     paramHint:
@@ -160,7 +122,6 @@ const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
   },
 };
 
-// ─── Action ──────────────────────────────────────────────────────────────────
 
 export default defineAction({
   description: `
@@ -206,8 +167,6 @@ The extension iframe itself is not called by this action — only the backing ac
   }),
   readOnly: true, // This dispatcher only returns routing guidance; it never writes.
   run: async ({ extensionId, capabilityId, context }) => {
-    // Enforce read access before doing anything else when a designId is given,
-    // so this dispatcher can't be used to probe whether a design exists.
     if (context?.designId) {
       const access = await resolveAccess("design", context.designId);
       if (!access) {
@@ -219,7 +178,6 @@ The extension iframe itself is not called by this action — only the backing ac
       }
     }
 
-    // Validate extension id.
     if (!FIRST_PARTY_IDS.includes(extensionId as FirstPartyId)) {
       return {
         ok: false,
@@ -233,7 +191,6 @@ The extension iframe itself is not called by this action — only the backing ac
     const route = CAPABILITY_ROUTES[routeKey];
 
     if (!route) {
-      // Return available capabilities for this extension.
       const availableCaps = Object.keys(CAPABILITY_ROUTES)
         .filter((k) => k.startsWith(`${extensionId}:`))
         .map((k) => k.split(":")[1]);
@@ -246,7 +203,6 @@ The extension iframe itself is not called by this action — only the backing ac
       };
     }
 
-    // Build a helpful context-aware param hint.
     let contextualHint = route.paramHint;
     if (context?.designId) {
       contextualHint += `  Current designId: "${context.designId}".`;

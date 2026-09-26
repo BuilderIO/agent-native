@@ -147,10 +147,6 @@ export default defineAction({
     const db = getDb();
     const connectionId = await resolveConnectionId(args);
 
-    // Deliberately not access-filtered: the unique index spans every row for
-    // (connection_id, object_type, field_name), so a slug taken by a row this
-    // caller cannot see still collides. Reporting that as a clean 422 beats a
-    // raw constraint violation.
     const siblings = await db
       .select({
         id: schema.crmFieldPolicies.id,
@@ -182,8 +178,6 @@ export default defineAction({
     await db.insert(schema.crmFieldPolicies).values({
       id,
       connectionId,
-      // Both columns carry the target: `object_type` keeps the legacy unique
-      // index meaningful for list attributes too.
       objectType: args.targetId,
       targetId: args.targetId,
       target: args.target,
@@ -192,8 +186,6 @@ export default defineAction({
       label: args.title,
       description: args.description ?? null,
       valueType: legacyValueTypeFor(args.type, args.multi),
-      // An authored attribute is owned here, never by a provider, even when the
-      // connection mirrors HubSpot or Salesforce.
       storagePolicy: "local-authoritative",
       authority: "local-authoritative",
       attributeType: args.type,
@@ -269,10 +261,6 @@ export default defineAction({
   },
 });
 
-/**
- * The connection an attribute belongs to. A list already names one, so a list
- * attribute never has to be told which connection it is on.
- */
 async function resolveConnectionId(args: {
   target: "object" | "list";
   targetId: string;
@@ -331,7 +319,6 @@ async function resolveConnectionId(args: {
   return connections[0]!.id;
 }
 
-/** The other half of a paired relationship, or a typed error explaining why not. */
 async function loadPairableInverse(inverseAttributeId: string) {
   const inverse = await requireEditableAttribute(inverseAttributeId);
   if (inverse.attributeType !== "record-reference") {

@@ -1,15 +1,4 @@
 // @vitest-environment happy-dom
-//
-// Narrow hypothesis: structural edits (drag-into-container, undo, alt-drag
-// out, delete+undo) on a document that carries a Tailwind Play CDN script +
-// inline `tailwind.config` + Alpine CDN script + inline theme script trigger
-// `runtimeDocumentNeedsReload` (DesignCanvas.tsx ~1078) even though no
-// *script* text actually changed — because `applyVisualEdit` re-serializes
-// bytes it shouldn't. Reuses the `renderCanvas` harness from
-// DesignCanvas.head-edit-no-reload.test.tsx: a stable `iframe.srcdoc`
-// reference across an update means `runtimeDocumentNeedsReload` returned
-// false (in-place morph); a new one means it returned true (full reload,
-// the observed "flash").
 
 import { applyVisualEdit } from "@shared/code-layer";
 import { act } from "react";
@@ -26,9 +15,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-// A realistic generated-design head: Tailwind Play CDN + darkMode config +
-// Alpine CDN + an inline theme script that stamps `class="dark"` onto <html>
-// before paint. This is the exact script quartet real Design output carries.
 const HEAD = [
   '<script src="https://cdn.tailwindcss.com"></script>',
   "<script>tailwind.config = { darkMode: 'class' };</script>",
@@ -95,7 +81,6 @@ describe("runtimeDocumentNeedsReload with a script-bearing document", () => {
       const base = canvas.iframe()?.srcdoc;
       expect(base).toBeTruthy();
 
-      // Drag "hero" into the "footer" container.
       const afterDrag = apply(BASE, {
         kind: "moveNode",
         target: { nodeId: "hero" },
@@ -108,14 +93,12 @@ describe("runtimeDocumentNeedsReload with a script-bearing document", () => {
         "drag-into-container spuriously reloaded the frame",
       ).toBe(base);
 
-      // Cmd+Z: back to BASE.
       await canvas.update(BASE);
       expect(
         canvas.iframe()?.srcdoc,
         "undo spuriously reloaded the frame",
       ).toBe(base);
 
-      // Cmd+Z again (already at the oldest state — a no-op re-render).
       await canvas.update(BASE);
       expect(
         canvas.iframe()?.srcdoc,
@@ -131,7 +114,6 @@ describe("runtimeDocumentNeedsReload with a script-bearing document", () => {
     try {
       const base = canvas.iframe()?.srcdoc;
 
-      // Alt-drag "card" out of <main>, reparenting it as a body-level sibling.
       const afterAltDrag = apply(BASE, {
         kind: "moveNode",
         target: { nodeId: "card" },
@@ -205,17 +187,6 @@ describe("runtimeDocumentNeedsReload with a script-bearing document", () => {
   });
 
   it("does not reload when the next content reserializes a bare boolean script attribute", async () => {
-    // Root cause of the real e2e flash: a structural edit's next content can
-    // come from the live iframe's own DOM (the bridge resolves the moved
-    // node against the running document, not the original source bytes).
-    // Chromium's attribute serializer normalizes a bare boolean attribute
-    // like `defer` to `defer=""` on that round trip even though the script
-    // itself never changed — exactly what the real e2e run observed for the
-    // Alpine CDN <script> tag on the first drag-into-container edit. This
-    // reserializes ONLY that one attribute (the rest of the document is
-    // byte-identical to BASE), mirroring the live-DOM round trip without
-    // going through the string-only `applyVisualEdit` path (which never
-    // reproduces this — see the byte-for-byte test below).
     const reserialized = BASE.replace(
       '/dist/cdn.min.js" defer>',
       '/dist/cdn.min.js" defer="">',
@@ -236,8 +207,6 @@ describe("runtimeDocumentNeedsReload with a script-bearing document", () => {
   });
 
   it("byte-for-byte: the <head> script region never changes across any structural edit", () => {
-    // Direct evidence for the "does re-serialization touch script bytes"
-    // hypothesis, independent of the React/iframe harness above.
     const headOf = (html: string) => html.slice(0, html.search(/<\/head\s*>/i));
 
     const afterDrag = apply(BASE, {

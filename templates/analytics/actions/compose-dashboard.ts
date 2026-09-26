@@ -33,7 +33,6 @@ function normalizeWindow(raw: unknown): MetricWindow | undefined {
   return WINDOWS.has(v) ? v : undefined;
 }
 
-/** One requested metric, normalized to a key plus optional overrides. */
 interface NormalizedRequest {
   metric: string;
   id?: string;
@@ -166,8 +165,6 @@ export default defineAction({
     if (!email) throw new Error("no authenticated user");
     const ctx = { email, orgId: getRequestOrgId() || null };
 
-    // The CLI/gateway may hand `metrics` over as a JSON string; the schema
-    // preprocess handles that, but normalize defensively here too.
     const rawMetrics: unknown[] = Array.isArray(args.metrics)
       ? (args.metrics as unknown[])
       : typeof args.metrics === "string"
@@ -195,15 +192,11 @@ export default defineAction({
         window: req.window,
       });
       if (!panel) {
-        // Unknown key — report, never throw.
         if (!unknownMetrics.includes(req.metric)) {
           unknownMetrics.push(req.metric);
         }
         continue;
       }
-      // Per-panel graceful validation: a bad panel is dropped + reported, the
-      // rest of the dashboard still builds. (Catalog SQL is known-good, so this
-      // is a defensive net, e.g. if a future window/override produces bad SQL.)
       try {
         const timeScopeError = validateFirstPartyDashboardTimeScope(
           panel,
@@ -252,10 +245,6 @@ export default defineAction({
     let refreshedExistingIds: string[] = [];
 
     if (existing && !args.overwrite) {
-      // Append: preserve existing panels + order, add only new panel ids.
-      // Recomputed on every retry attempt from the freshest existing config —
-      // via upsertDashboardWithRetry — so a panel a concurrent writer just
-      // added is never silently dropped by this merge.
       const saved = await upsertDashboardWithRetry(
         args.dashboardId,
         ctx,
@@ -316,11 +305,6 @@ export default defineAction({
       );
       finalConfig = saved.config as Record<string, unknown>;
     } else {
-      // Create or overwrite: a fresh config with exactly the composed panels.
-      // No prior state can be lost here — create has none, and
-      // `overwrite: true` is an explicit full-replace request rather than a
-      // read-modify-write, so it saves unconditionally like update-dashboard's
-      // full-config replace mode.
       finalConfig = withFilters({
         name: dashboardName,
         description:

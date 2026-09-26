@@ -1,4 +1,3 @@
-//! Local Whisper model catalog, download, and integrity verification.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -69,9 +68,6 @@ const SUPPORTED_MODELS: &[WhisperModel] =
 static DOWNLOADING: AtomicBool = AtomicBool::new(false);
 static DOWNLOADED_BYTES: AtomicU64 = AtomicU64::new(0);
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 pub(crate) fn custom_model_override() -> bool {
     std::env::var("CLIPS_WHISPER_MODEL")
@@ -90,7 +86,6 @@ fn find_model(id: &str) -> Result<&'static WhisperModel, String> {
         .ok_or_else(|| format!("unsupported Whisper model: {id}"))
 }
 
-/// Returns the directory where model files are stored, creating it if needed.
 fn models_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -101,7 +96,6 @@ fn models_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// Resolve the full path for a catalog model on disk.
 fn model_path(dir: &Path, model: &WhisperModel) -> PathBuf {
     dir.join(model.filename)
 }
@@ -116,9 +110,6 @@ fn downloaded_mb(bytes: u64, model: &WhisperModel) -> u64 {
     bytes.saturating_mul(model.size_mb) / model.size_bytes
 }
 
-// ---------------------------------------------------------------------------
-// Public: resolve model file path (honors CLIPS_WHISPER_MODEL env override)
-// ---------------------------------------------------------------------------
 
 pub fn model_file(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(path) = std::env::var("CLIPS_WHISPER_MODEL") {
@@ -131,9 +122,6 @@ pub fn model_file(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(model_path(&models_dir(app)?, model))
 }
 
-// ---------------------------------------------------------------------------
-// Tauri commands
-// ---------------------------------------------------------------------------
 
 #[tauri::command]
 pub async fn whisper_models() -> Vec<WhisperModel> {
@@ -251,9 +239,6 @@ pub async fn whisper_model_delete(app: AppHandle, model_id: String) -> Result<()
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Download logic (called by whisper_model_download and lib.rs startup prewarm)
-// ---------------------------------------------------------------------------
 
 pub(crate) async fn ensure_model(app: &AppHandle) -> Result<PathBuf, String> {
     let path = model_file(app)?;

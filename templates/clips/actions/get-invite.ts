@@ -1,11 +1,3 @@
-/**
- * Look up an invite by its token.
- *
- * The invitation id IS the token — accept URLs point at `/invite/<id>`.
- *
- * Usage:
- *   pnpm action get-invite --token=<token>
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { organizations, orgInvitations } from "@agent-native/core/org";

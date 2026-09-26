@@ -53,9 +53,6 @@ const DATE_FORMATS = [
   "MMMM d, yyyy",
 ];
 
-// Trailing connector words chrono-node can leave dangling on the title when
-// the matched date phrase doesn't consume them (e.g. "call mom for" if the
-// date phrase only matched a single word after "for").
 const TRAILING_CONNECTOR_WORDS = /[\s,-]*\b(?:on|at|for|by)$/i;
 
 function parseQuickCreateEvent(query: string): QuickCreateEvent | null {
@@ -126,8 +123,6 @@ export function CommandPalette({
       .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
       .slice(0, 6);
 
-    // Plain date jumps and existing event matches take priority over creating
-    // a new event because the user is more likely navigating or searching.
     const quickCreate =
       onCreateEventFromText && !parsedDate && matchingEvents.length === 0
         ? parseQuickCreateEvent(query)

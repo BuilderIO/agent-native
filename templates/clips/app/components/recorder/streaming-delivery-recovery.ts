@@ -5,13 +5,6 @@ export interface StreamingDeliveryRecoveryOptions {
   onSettled: () => void;
 }
 
-/**
- * Keeps temporary upload interruptions separate from media capture.
- *
- * It pauses new sends, retries while this tab remains open, and asks the
- * recorder to resume or replay media. The recorder remains responsible for
- * recording, upload requests, and finalization.
- */
 export class StreamingDeliveryRecovery {
   private active = false;
   private attempt: Promise<void> | null = null;
@@ -32,12 +25,10 @@ export class StreamingDeliveryRecovery {
     return this.paused;
   }
 
-  /** Uses the browser's offline hint to avoid starting a request known to fail. */
   isBrowserOffline(): boolean {
     return typeof navigator !== "undefined" && navigator.onLine === false;
   }
 
-  /** Returns whether an upload error can pause and retry without ending capture. */
   isRecoverableFailure(error: Error): boolean {
     const details = error as Error & {
       status?: unknown;
@@ -52,7 +43,6 @@ export class StreamingDeliveryRecovery {
     );
   }
 
-  /** Stops new uploads and starts recovery while recording continues locally. */
   pause(error?: Error): void {
     this.restartRequired ||=
       (error as { restartRequired?: unknown })?.restartRequired === true;
@@ -62,7 +52,6 @@ export class StreamingDeliveryRecovery {
     this.schedule(true);
   }
 
-  /** Clears delivery state before a recorder instance begins another take. */
   reset(): void {
     this.generation += 1;
     this.clear();
@@ -73,7 +62,6 @@ export class StreamingDeliveryRecovery {
     this.restartRequired = false;
   }
 
-  /** Clears retry timers and browser listeners without changing the paused state. */
   clear(): void {
     if (this.timer !== null) {
       window.clearTimeout(this.timer);
@@ -85,7 +73,6 @@ export class StreamingDeliveryRecovery {
     this.wake = null;
   }
 
-  /** Finishes paused delivery before a final streaming chunk is uploaded. */
   async drainForStop(): Promise<void> {
     this.clearTimer();
     await this.attempt;

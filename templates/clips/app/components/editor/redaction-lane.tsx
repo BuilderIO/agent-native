@@ -14,33 +14,15 @@ import {
   type VideoRedaction,
 } from "@/lib/video-redactions";
 
-/**
- * A lane under the clip track: one bar per redaction, showing when it is on
- * screen and where its waypoints are.
- *
- * It shares the clip lane's time axis and its gesture vocabulary — drag an
- * edge to move it, click to select — so the timeline reads as one thing. What
- * it deliberately does not share is the clip lane's rule about sections owning
- * boundaries: a redaction bar is a free-floating range, and both of its edges
- * belong to it.
- */
 
 const ROW_HEIGHT = 16;
 const ROW_GAP = 2;
-/** Beyond this the lane would crowd out the timeline; later ones share a row. */
 const MAX_ROWS = 4;
 
 export function redactionLaneHeight(rowCount: number): number {
   return Math.max(1, rowCount) * (ROW_HEIGHT + ROW_GAP) + ROW_GAP;
 }
 
-/**
- * Put overlapping redactions on their own rows.
- *
- * Two boxes covering the same stretch is the normal case — a name and an email
- * address on the same screen — and stacked on one row the second is drawn
- * exactly on top of the first, where it cannot be clicked at all.
- */
 export function packRedactionRows(redactions: VideoRedaction[]): {
   rows: number;
   rowOf: Map<string, number>;
@@ -59,10 +41,8 @@ export function packRedactionRows(redactions: VideoRedaction[]): {
   }
   return { rows: Math.max(1, ends.length), rowOf };
 }
-/** Below this a bar is too small to grab, so it is drawn but not resizable. */
 const EDGE_PX = 8;
 const DRAG_THRESHOLD_PX = 3;
-/** Two presses this close together on one waypoint means "remove it". */
 const DOUBLE_PRESS_MS = 400;
 
 export interface RedactionLaneProps {
@@ -71,7 +51,6 @@ export interface RedactionLaneProps {
   redactions: VideoRedaction[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
-  /** Continuous feedback while an edge is moving. */
   onPreview: (redactions: VideoRedaction[] | null) => void;
   onCommit: (redactions: VideoRedaction[]) => void;
   onSeek?: (originalMs: number) => void;
@@ -81,7 +60,6 @@ export interface RedactionLaneProps {
 
 type Edge = "start" | "end";
 
-/** An edge of the bar, or one of the waypoints along it. */
 type LaneTarget = { kind: "edge"; edge: Edge } | { kind: "key"; atMs: number };
 
 interface DragState {
@@ -109,21 +87,11 @@ export function RedactionLane({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const [dragging, setDragging] = useState(false);
-  /** The last press on a waypoint, for spotting a second one. */
   const keyPressRef = useRef<{ id: string; atMs: number; at: number } | null>(
     null,
   );
-  /** The last press on a bar, for telling a click from a drag. */
   const barPressRef = useRef<{ id: string; clientX: number } | null>(null);
 
-  /**
-   * Nothing is drawn outside the track, whatever the document says.
-   *
-   * A bar that runs past the end of the recording puts its end grip somewhere
-   * there is no timeline, and a redaction whose end cannot be grabbed cannot be
-   * brought back — the editor clamps ranges too, but this lane is the thing
-   * with the geometry, so it does not take that on trust.
-   */
   const shown = useMemo(
     () => redactions.map((r) => clampRedactionToDuration(r, durationMs)),
     [durationMs, redactions],
@@ -149,8 +117,6 @@ export function RedactionLane({
     (drag: DragState, atMs: number): VideoRedaction[] => {
       let next: VideoRedaction;
       if (drag.target.kind === "key") {
-        // A waypoint stays on its own bar: dragged outside the range it would
-        // still steer the box, from somewhere the user cannot see it.
         const within = Math.min(
           Math.max(atMs, drag.base.startMs),
           drag.base.endMs,
@@ -183,20 +149,12 @@ export function RedactionLane({
       setDragging(true);
     }
     const at = toMs(e.clientX);
-    // Dragging a waypoint takes the playhead with it: the whole point of
-    // moving one is to line the box up with what is on screen at that moment,
-    // which means being able to see that moment.
     if (drag.target.kind === "key") {
       onSeek?.(Math.min(Math.max(at, drag.base.startMs), drag.base.endMs));
     }
     onPreview(applied(drag, at));
   };
 
-  /**
-   * `commit` is false for a cancelled pointer. A cancel is the browser taking
-   * the gesture away rather than the user letting go, so the timing goes back
-   * to what it was instead of being saved half-dragged.
-   */
   const endDrag = (e: React.PointerEvent, commit: boolean) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== e.pointerId) return;
@@ -245,9 +203,6 @@ export function RedactionLane({
       />
 
       {shown.map((redaction) => {
-        // Pixels, clamped to the track as well as the range: a track whose
-        // duration is unknown maps every millisecond somewhere off the right
-        // of the screen, and a bar out there cannot be grabbed or deleted.
         const left = Math.max(0, Math.min(width, toX(redaction.startMs)));
         const barWidth = Math.max(
           2,
@@ -291,11 +246,6 @@ export function RedactionLane({
             onPointerUp={(e) => {
               const press = barPressRef.current;
               barPressRef.current = null;
-              // A click on the bar pins the box where it already is at that
-              // moment. It changes nothing on screen until the box is moved
-              // or the diamond is dragged, and a point landing on one that is
-              // already there is left alone — so clicking to select costs
-              // nothing, and there is no tool to arm first.
               if (
                 disabled ||
                 !press ||
@@ -323,9 +273,6 @@ export function RedactionLane({
           >
             {/* Waypoints: where the box was put by hand. */}
             {redaction.keys.map((key) => (
-              // Draggable, so *when* the box arrives somewhere is adjustable
-              // without re-placing it. The hit area is wider than the diamond,
-              // which is too small to catch with a pointer.
               <div
                 key={key.atMs}
                 role="button"
@@ -337,11 +284,6 @@ export function RedactionLane({
                 )}
                 style={{ left: toX(key.atMs) - left }}
                 title={t("redaction.waypoint", { at: formatMs(key.atMs) })}
-                // Two presses in quick succession removes it. Counted here
-                // rather than left to `dblclick`, which never arrives: a
-                // pointerdown whose default is prevented — as a drag's must
-                // be, or the picture gets selected instead — takes the
-                // browser's click and double-click events with it.
                 onPointerDown={(e) => {
                   if (disabled || e.button !== 0) return;
                   const now = Date.now();
@@ -421,10 +363,6 @@ function EdgeGrip({
   disabled?: boolean;
   onPointerDown: (e: React.PointerEvent) => void;
 }) {
-  // Grips stay inside the bar — one hanging off the end of a redaction that
-  // runs to the end of the recording would be clipped, and unreachable. On a
-  // short bar they take half each rather than overlapping, which otherwise
-  // hands the whole bar to whichever one is drawn last.
   const grip = Math.max(3, Math.min(EDGE_PX, barWidth / 2));
   return (
     <div

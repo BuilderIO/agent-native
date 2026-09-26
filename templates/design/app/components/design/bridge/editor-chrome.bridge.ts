@@ -41,10 +41,6 @@ declare var __DESIGN_CANVAS_CONTENT_OFFSET_Y__: number;
 declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
 declare var __LIVE_REFLOW_ENABLED__: boolean;
 declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
-/** Head inner HTML of the document this srcdoc was built from. The live head
- *  cannot supply it: a blocking script src (the Tailwind runtime) has already
- *  injected into it by the time this bridge runs, and adopting that as the
- *  source baseline makes the first diff delete the compiled stylesheet. */
 declare var __INITIAL_SOURCE_HEAD__: string;
 
 (function () {
@@ -64,15 +60,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       : {};
   }
 
-  // Idempotency guard: replace-document-content / srcdoc rebuilds can end up
-  // re-injecting this script into a document where a previous instance's
-  // listeners, overlays, and observers are still alive (e.g. a head-only
-  // content swap in replaceRuntimeDocument that preserves persistent overlay
-  // nodes but re-runs inline <script> tags). Without this, a second instance
-  // would double-post every message and double-attach every document-level
-  // listener. The legacy boolean marker remains for compatibility; the
-  // separate host reference is the liveness check because document hydration
-  // can remove the editor host while leaving the marker behind.
   var previousEditorChromeBridge = (window as any).__anEditorChromeBridge;
   var previousEditorChromeHost =
     (window as any).__anEditorChromeBridgeHost ||
@@ -226,22 +213,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   (window as any).__anEditorChromeBridgeHost = editorChromeHost;
 
   var gridGroupBatchingEnabled = false;
-  // Raw host-controlled flag, kept separate from the derived
-  // `textEditingEnabled` below. The host (DesignCanvas.tsx) live-updates this
-  // via the `set-text-editing-enabled` postMessage instead of rebuilding
-  // srcdoc, exactly like `set-read-only`. See that handler for why: baking
-  // edit/preview-mode toggles into srcdoc would reload every screen iframe on
-  // every mode switch (white flash + lost in-iframe/Alpine state).
   var textEditingEnabled = !readOnly && textEditingEnabledFlag;
   var runtimeLayerSnapshotEnabled = !!__RUNTIME_LAYER_SNAPSHOT_ENABLED__;
-  // Figma-parity live-reflow drag (Phase 0 + 1: hysteresis-stabilized target
-  // resolution, size guard, transform lift/follow, live sibling reflow,
-  // exact absolute commit). Gated so it can be flipped off without a revert.
-  // The placeholder is referenced EXACTLY ONCE so the host's single
-  // String.replace fully substitutes it; the try/catch keeps it crash-safe if
-  // an injection site forgets to replace it (an un-replaced identifier read
-  // throws ReferenceError, which we treat as "off") — the behavior is additive
-  // and rolling out incrementally.
   var liveReflowEnabled = (function () {
     try {
       return !!__LIVE_REFLOW_ENABLED__;
@@ -249,9 +222,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return false;
     }
   })();
-  // Selected-layer drag priority: when on, a pointerdown inside the selection
-  // box keeps the selected element as the drag target even when an overlapping
-  // non-descendant sibling wins the hit test.
   var selectedLayerDragPriorityEnabled = (function () {
     try {
       return !!__SELECTED_LAYER_DRAG_PRIORITY__;
@@ -261,13 +231,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   })();
   var scaleToolEnabled = false;
 
-  // ── Drag-and-drop debug logging ────────────────────────────────────
-  // Every DnD seam logs under the "[dnd]" prefix with a phase tag, so the
-  // console reads as a narrated timeline of ONE gesture:
-  //   start:* → target → lift/reflow → commit:* → post:* → ack:*
-  // The iframe posts these to its own console; the host mirrors its side
-  // under the same prefix. Defaults OFF; opt in at runtime from the iframe
-  // console with `window.__DND_DEBUG = true` — no rebuild needed.
   function dndLog(phase: string, data?: unknown): void {
     if (!(window as any).__DND_DEBUG) return;
     try {
@@ -277,8 +240,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       else console.log(tag, style, data);
     } catch (_e) {}
   }
-  // Describe a resolved drop target compactly for the log timeline. Reads
-  // getSelector/dropContainerForTarget (declared later, hoisted) at call time.
   function dndTarget(t): unknown {
     if (!t) return null;
     try {
@@ -296,11 +257,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  // Interaction-state forced preview (phase 2 — see shared/interaction-states.ts's
-  // "Forced-preview mechanism" doc comment). Keep the actual element rather
-  // than only its node id: localhost React layers can resolve through runtime
-  // selectors/provenance without carrying data-agent-native-node-id, and a
-  // DOM replacement may retire the old element between preview messages.
   var statePreviewElement: HTMLElement | null = null;
   type RuntimeInteractionStatePreview = {
     element: HTMLElement;
@@ -320,9 +276,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     Number(__EDITOR_CHROME_SCALE_Y__) || editorChromeScaleX,
   );
 
-  // Ease the constant-size selection chrome to its new size when overview zoom
-  // settles (parent posts set-editor-chrome-scale), matching the canvas chrome.
-  // Only chrome-scale-driven props animate; the overlay's live position is excluded.
   var chromeTransitionStyle: HTMLStyleElement | null = null;
 
   function ensureEditorChromeStyle(): void {
@@ -333,27 +286,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "",
     );
     chromeTransitionStyle.textContent =
-      "html{overflow:clip}" /* prevent negative-offset handles from expanding the iframe */ +
+      "html{overflow:clip}"  +
       '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
       "[data-agent-native-drawn-caret]{caret-color:transparent!important}" +
-      // Figma hides a styled range's highlight while its inspector controls
-      // have focus; an unfocused frame would paint it as an opaque grey block.
       "[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}" +
       "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}" +
-      // A selection SWITCHING to a different element must not ease the
-      // handle spans through their old target's geometry: the singleton
-      // spans jump straight from one element's clamped hit-zone to
-      // another's, and animating that jump (see applySelectionHandleHitGeometry)
-      // can transiently render an in-between size big enough to cover the
-      // newly selected element's own center. The transition above stays for
-      // same-element chrome-scale eases (zoom settling).
       "[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}" +
-      // Locked layers get a neutral dashed hairline instead of an accent one:
-      // accent means "selected" everywhere else in the canvas chrome, and a
-      // locked layer is usually neither selected nor selectable. The width
-      // rides the chrome line scale so it stays one screen pixel at any zoom.
       '[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}' +
       "[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}" +
       "[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}" +
@@ -493,32 +433,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     renderRuntimeInteractionStatePreviews();
   }
 
-  /**
-   * The last source <head> this bridge applied. Compared against instead of the
-   * live head, which also carries nodes the page's own runtime injected —
-   * @tailwindcss/browser's compiled sheet above all. Against the live head the
-   * comparison always differs, the head gets wiped, the compiled CSS goes with
-   * it, and the re-inserted `<script src>` cannot rebuild it because innerHTML
-   * never executes scripts. The screen then renders unstyled for good.
-   */
   var lastSourceHeadHtml: string | null =
     typeof __INITIAL_SOURCE_HEAD__ === "string"
       ? __INITIAL_SOURCE_HEAD__ || null
       : null;
 
-  /**
-   * Swaps only the nodes the previous source head contributed. Assigning
-   * `document.head.innerHTML` instead destroys whatever the page's own runtime
-   * injected — @tailwindcss/browser's compiled sheet above all — and the
-   * `<script src>` re-inserted in its place can never rebuild it, because
-   * innerHTML does not execute scripts.
-   */
-  /**
-   * Stable identity for the head nodes a source document owns and can change
-   * in place. Deliberately narrow: anything without a signature is only ever
-   * matched by exact `outerHTML`, so a runtime-injected node is never a
-   * replacement target.
-   */
   function headNodeSignature(node: Element): string {
     var tag = node.tagName.toLowerCase();
     if (tag === "title" || tag === "base") return tag;
@@ -564,9 +483,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var key = node.outerHTML;
       staleCounts[key] = (staleCounts[key] || 0) + 1;
     });
-    // A node the next head still carries is not stale. Removing and
-    // re-inserting it cancels an async script that has not finished loading,
-    // and the replacement is inert — innerHTML-built scripts never execute.
     var retained = document.createElement("head");
     retained.innerHTML = nextSourceHtml || "";
     Array.prototype.forEach.call(retained.children, function (node: Element) {
@@ -593,20 +509,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
     var anchor = document.head.firstChild;
     Array.prototype.slice.call(next.children).forEach(function (node: Element) {
-      // The seed pass below passes a null previous head, so every node it
-      // carries would otherwise be inserted on top of the identical one the
-      // srcdoc already rendered — two copies of the managed stylesheet.
       var key = node.outerHTML;
       if (present[key]) {
         present[key] -= 1;
         return;
       }
-      // Still the seed pass: with no previous head to diff against, an
-      // existing node whose CONTENT changed cannot be matched by outerHTML.
-      // Left alone it survives alongside its replacement, and because new
-      // nodes are prepended the stale one wins the cascade. Match it by
-      // identity instead and swap in place. Unmatched live nodes stay put —
-      // they are what the page's own runtime injected.
       var signature =
         previousSourceHtml === null ? headNodeSignature(node) : "";
       if (signature) {
@@ -673,10 +580,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return value ? "[" + name + '="' + escapeAttribute(value) + '"]' : "";
   }
 
-  // True only for a selector that names one node's own identity: the stable
-  // source-id attributes getSelector prefers, or an id. Anything with a
-  // combinator or an :nth-* step describes a POSITION, which a sibling can
-  // inherit after a delete or a reorder.
   function isStableIdentitySelector(selector: string): boolean {
     if (!selector || /[\s>+~,]/.test(selector)) return false;
     if (/^#[^#.:[\]()]+$/.test(selector)) return true;
@@ -697,10 +600,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function selectorPart(el: Element | null, structuralOnly = false): string {
     if (!el || !el.tagName) return "";
-    // A clone's own position is the only thing that distinguishes it from its
-    // siblings, and it is a LIVE position: the source-equivalent count below
-    // deliberately skips clones, so it gives every row of a repeat the same
-    // answer.
     if (isTemplateCloneElement(el)) {
       var cloneTag = el.tagName.toLowerCase();
       var cloneParent = el.parentElement;
@@ -727,11 +626,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       (structuralOnly ? "" : stableSelector || classSelectorSuffix(el, 2));
     var parent = el.parentElement;
     if (parent) {
-      // Count positions the way SOURCE does. Alpine's x-for clones and the
-      // editor's own overlays exist only in the live DOM, so counting them
-      // emits a position the stored document has no element at — and the
-      // resolver then either refuses or lands on a different sibling.
-      // Mirrors buildSourceEquivalentSelector in hit-test.bridge.ts.
       var sameTag = Array.prototype.filter.call(
         parent.children,
         function (child) {
@@ -807,10 +701,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     sourceId: string,
     element: Element | null,
   ): { versionHash?: string; uniqueNodeId?: string } | undefined {
-    // Only a node that the source morph actually owns can be paired with the
-    // current source version. Alpine template instances are runtime copies,
-    // even when a single rendered row makes their copied authored ID appear
-    // unique in the live document.
     if (
       !element ||
       !isSourceOwned(element) ||
@@ -889,46 +779,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       sourceDocumentProvenanceSnapshot;
   }
 
-  /**
-   * Resolve a DOM element to the authored source site exposed by its framework
-   * dev runtime, read-only, so the editor and coding agent anchor to evidence
-   * instead of a selector guess. Explicit data-source-* / data-loc attributes
-   * still win at the call sites below; an app that stamps those attributes at
-   * build time opts into authored precision without relying on runtime fibers.
-   *
-   * React tiers:
-   *   • React <=18 — the structured `_debugSource` fiber field (authored file,
-   *     line and column, emitted by the dev JSX transform).
-   *   • React 19 — `_debugSource` is gone; parse the `_debugStack` owner stack
-   *     captured at element creation.
-   * Vue's dev compiler exposes `vnode.props.__v_inspector`; Svelte's dev
-   * compiler exposes `element.__svelte_meta.loc`. Both are authored compiler
-   * coordinates. Their ancestor walks cross open and closed shadow boundaries
-   * through `ShadowRoot.host`, matching the browser's composed tree rather than
-   * stopping at `parentElement === null`. When a runtime omits its dev metadata,
-   * report WHY (`unavailableReason`) instead of guessing.
-   *
-   * `sourceFile`/`line`/`column` are the element's OWN authoring site (a button
-   * inside Card.jsx always resolves to Card.jsx). `owner*` is where the nearest
-   * enclosing component was instantiated — `<Card …>` in the parent — which is
-   * what separates a directly-authored instance from `.map()`-produced ones.
-   * All `.map()` siblings share one owner site, so `ownerKey` (their React key)
-   * is the only source-derived signal that tells them apart.
-   *
-   * TRAP: a `_debugStack` frame points into the file the dev server SERVES, so
-   * under a transforming dev server (Vite's React plugin, Next.js) its line is
-   * the transformed line, not the authored one — `_debugSource` and
-   * data-source-* attributes are authored coordinates. React 19 has ONLY the
-   * stack tier, so this is the common case, not the corner: on the React 19.2 +
-   * Vite 8 target an `<h1>` authored at line 13 reports as line 26. The bridge
-   * fetches that served module's source map and upgrades a verified mapping to
-   * `debug-stack-remapped`; until then every result carries `method`, and
-   * nothing downstream may present a plain `debug-stack` position as authored.
-   *
-   * Keep in sync with ../../../pages/design-editor/source-location.ts (the
-   * unit-tested parser) and source-location.bridge.ts; bridge files may not
-   * import, so the parsing is duplicated by hand.
-   */
   var PROVENANCE_NOISE_SEGMENTS: Record<string, true> = {
     node_modules: true,
     dist: true,
@@ -938,22 +788,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ".vite": true,
   };
 
-  // React 19 captures _debugStack inside the JSX runtime itself, so its
-  // module is always the top frame; recognised by a runtime module name
-  // INSIDE a Vite optimizer deps directory (`deps`/`deps_ssr`/`deps_temp_*`
-  // — the optimizer always writes pre-bundles there, even under a custom
-  // cacheDir with no node_modules segment) — never by basename alone, since
-  // an authored file that happens to be named react.js or jsx-runtime.js
-  // outside a deps directory is a real local file.
   var PROVENANCE_REACT_RUNTIME_MODULE_RE =
     /^(?:react|(?:react[-_])?jsx(?:-dev)?-runtime)(?:\.development|\.production(?:\.min)?)?\.(?:m?js|cjs)$/;
   var PROVENANCE_VITE_DEPS_SEGMENT_RE = /^deps(?:_|$)/;
 
-  // localServedOutput (a /@fs/ frame) exempts dist/build only — a locally
-  // built package is a real local file. node_modules stays noise even
-  // through /@fs/: Vite resolves symlinks, so a linked workspace package
-  // never carries a node_modules segment, and third-party code always
-  // arrives here by its real path.
   function isProvenanceNoisePath(
     path: string,
     localServedOutput: boolean,
@@ -978,10 +816,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return false;
   }
 
-  // webpack-internal:/// (webpack/Next.js/CRA), Vite's /@fs/ absolute serving,
-  // plain http(s) dev-server paths and file: URLs all reduce to one path here.
-  // Keep the served URL as well: React 19 reports transformed coordinates, and
-  // the matching Vite source map is only available from that URL.
   function resolveProvenanceFrameUrl(rawUrl: string): {
     sourceFile: string;
     servedUrl?: string;
@@ -1034,10 +868,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!match) return null;
     var resolved = resolveProvenanceFrameUrl(match[2]!);
     if (!resolved) return null;
-    // A Vite /@fs/ frame is a real local file even when its path contains
-    // dist/ or build/ — but node_modules stays noise even through /@fs/, so a
-    // classic-transform createElement frame served from a symlinked
-    // dependency (react.development.js) never becomes element provenance.
     if (
       isProvenanceNoisePath(resolved.sourceFile, resolved.localServedOutput)
     ) {
@@ -1112,7 +942,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ownerColumn?: number;
     ownerComponentName?: string;
     ownerKey?: string;
-    // Which tier produced line/column. "debug-stack" is a TRANSFORMED position.
     method?:
       | "data-attribute"
       | "debug-source"
@@ -1120,9 +949,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       | "debug-stack-remapped"
       | "vue-inspector"
       | "svelte-meta";
-    // Which tier produced ownerLine/ownerColumn. Tracked separately because an
-    // element can carry an authored data-source-* position while its owner site
-    // is only reachable through the (transformed) owner stack.
     ownerMethod?: "debug-source" | "debug-stack" | "debug-stack-remapped";
     unavailableReason?: "not-framework" | "no-debug-info";
   };
@@ -1139,11 +965,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return isShadowRoot && rootNode.host ? rootNode.host : null;
   }
 
-  // Fiber debug stacks are immutable for the lifetime of a mounted host node.
-  // Keep the relatively expensive Object.keys + owner walk off the snapshot
-  // hot path after the first successful read. A WeakMap also means React can
-  // collect unmounted nodes normally. Do not cache misses: the bridge can run
-  // before a slow/Suspense hydration attaches Fiber to an existing DOM node.
   var reactDebugProvenanceCache =
     typeof WeakMap !== "undefined"
       ? new WeakMap<Element, FrameworkDebugProvenance>()
@@ -1180,9 +1001,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       return cached;
     }
-    // Deliberately no climb to an ancestor's fiber: this runs over every node
-    // in the runtime snapshot, and borrowing a parent's location would stamp a
-    // non-React node with a source line that is not its own.
     var leafFiber = reactFiberOf(el);
     if (!leafFiber) return { unavailableReason: "not-framework" };
 
@@ -1526,9 +1344,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             return /^_ng(?:content|host)-/i.test(attribute.name);
           })
         ) {
-          // Angular does not expose an authored file/line on DOM nodes. The
-          // marker only distinguishes a known framework with no debug location;
-          // never turn a component class name into a fake source path.
           return { framework: "angular", unavailableReason: "no-debug-info" };
         }
         if (
@@ -1537,8 +1352,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             return /^lwc-[a-z0-9]+(?:-host)?$/i.test(attribute.name);
           })
         ) {
-          // LWC compiler scope attributes identify the runtime, not a source
-          // coordinate. Preserve that distinction instead of fabricating one.
           return { framework: "lwc", unavailableReason: "no-debug-info" };
         }
       }
@@ -1626,10 +1439,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var explicit = explicitDebugProvenance(el);
     if (!explicit) return framework;
 
-    // An explicit compiler attribute is the element's authored site, but React
-    // owner metadata still carries the parent call site / key that distinguishes
-    // repeated instances. Merge only those owner fields; an explicit location
-    // must never retain a contradictory unavailableReason.
     explicit.framework =
       explicit.framework === "html" && framework.framework
         ? framework.framework
@@ -1704,14 +1513,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           ":" +
           runtimeLayerStructuralPath(el),
       );
-    // This attribute is editor-only and never persisted. Stamping the live DOM
-    // gives the runtime projection and the selectable element one exact shared
-    // identity. Qualifying the hash with the owning screen/file id prevents a
-    // shared React shell from producing the same layer id in two route iframes
-    // (which would make the editor's document-wide owner map route selection
-    // and hover to whichever screen registered last). The structural path
-    // keeps the id stable across reloads within that iframe while still
-    // disambiguating repeated JSX emitted from the same source location.
     el.setAttribute("data-agent-native-node-id", nodeId);
     return nodeId;
   }
@@ -1742,10 +1543,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     | { ok: true; html: string; nodeCount: number; documentId: string }
     | { ok: false; reason: "snapshot-unavailable" | "snapshot-too-large" } {
     if (!document.body) return { ok: false, reason: "snapshot-unavailable" };
-    // Keep this list export-focused and bounded. The runtime snapshot is also
-    // the hosted/cross-origin Design→Figma fallback: inlining the resolved
-    // paint/layout values lets the parent reconstruct the already-rendered
-    // frame without loading the app's CSS or running its scripts again.
     var snapshotComputedProperties = [
       "box-sizing",
       "display",
@@ -1863,8 +1660,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
         cloneNode.setAttribute("data-source-file", provenance.sourceFile);
         cloneNode.setAttribute("data-source-line", String(provenance.line));
-        // Without this the projection would read a stack-derived (transformed)
-        // line back out through data-source-*, i.e. as an authored one.
         if (provenance.method) {
           cloneNode.setAttribute("data-source-method", provenance.method);
         }
@@ -1917,8 +1712,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               provenance.ownerComponentName,
             );
           }
-          // Same trap as data-source-method: without the owner's own tier the
-          // projection would read a stack-derived owner line as an authored one.
           if (provenance.ownerMethod) {
             cloneNode.setAttribute(
               "data-source-owner-method",
@@ -1926,14 +1719,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             );
           }
         }
-        // The only source-derived signal that separates `.map()` siblings,
-        // which all share one owner call site.
         if (provenance.ownerKey) {
           cloneNode.setAttribute("data-source-owner-key", provenance.ownerKey);
         }
       } else if (provenance.unavailableReason) {
-        // Absent must stay distinguishable from not-loaded-yet downstream, so
-        // record why this node has no location instead of dropping the fact.
         cloneNode.setAttribute(
           "data-source-unavailable",
           provenance.unavailableReason,
@@ -1953,9 +1742,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       .forEach(function (node) {
         node.remove();
       });
-    // Snapshots cross a trust boundary into parent-owned srcdoc. Strip active
-    // attributes here even though the receiver repeats the same policy and
-    // renders under a no-script sandbox + restrictive CSP.
     [cloneBody]
       .concat(
         Array.prototype.slice.call(
@@ -2082,11 +1868,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function scheduleRuntimeLayerSnapshot(): void {
-    // A leading-edge throttle still serializes a fast clock, streaming list,
-    // or hydration loop five times per second forever. Debounce on the trailing
-    // edge so a normal React commit becomes one snapshot, with a bounded max
-    // wait so a genuinely continuous stream still refreshes Layers eventually
-    // without monopolising the iframe main thread.
     if (runtimeLayerSnapshotTimer !== null) {
       window.clearTimeout(runtimeLayerSnapshotTimer);
     }
@@ -2102,10 +1883,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  // Runtime Layers describes hierarchy, names, and layout containers. It does
-  // not need a new full-document snapshot for animation-frame churn such as
-  // transform/opacity/style streaming or state-only utility classes. Compare
-  // only the class/style subset that can change the projected Layers tree.
   function runtimeLayerClassSignature(value: string | null): string {
     return String(value || "")
       .split(/\s+/)
@@ -2120,9 +1897,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ) {
           return utility;
         }
-        // The projection only asks whether a component-like class exists; a
-        // transition from `button-idle` to `button-active` does not change the
-        // layer type and should not trigger another full snapshot.
         return /(?:component|card|button|control)/.test(utility)
           ? "component-like"
           : "";
@@ -2206,13 +1980,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return el === document.body || el === document.documentElement;
   }
 
-  // A hairline and a zero-height flow container are both real layers. Pad them
-  // for hit-testing and outlines instead of dropping them, or a click can
-  // select what a marquee cannot.
-  // Both this bridge and the lightweight hit-test bridge are injected into the
-  // same document unless Interact mode drops this one. The fallback answers
   // selectable-rects only when this flag is absent, or two replies race and the
-  // host keeps whichever arrives first.
   (window as unknown as Record<string, boolean>).__agentNativeEditorChrome =
     true;
 
@@ -2228,7 +1996,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "br",
   ];
 
-  /** A rect padded so a hairline or empty box can still be hit and outlined. */
   interface SelectableBounds {
     left: number;
     top: number;
@@ -2254,7 +2021,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  /** The outermost <svg> above `el`, or null when `el` is not SVG geometry. */
   function outermostSvgAncestor(el: Element | null): Element | null {
     var owner = el && (el as SVGElement).ownerSVGElement;
     if (!owner) return null;
@@ -2319,19 +2085,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return !!(el && !isDocumentRootElement(el) && getSourceId(el));
   }
 
-  // Portable clone styling retains its marker after persistence. The marker
-  // alone therefore means "clone-shaped", not "runtime-only": a source
-  // document reload stamps its nodes with __anSource, while an optimistic
-  // board insertion remains unclaimed until that source round trip completes.
   function isRuntimeOnlyClone(el: Element): boolean {
     var cloneRoot = el.closest('[data-agent-native-clone-root="true"]');
     return !!cloneRoot && !isSourceOwned(cloneRoot);
   }
 
-  // Alpine inserts x-for and x-if instances as direct siblings of their
-  // template. Use Alpine's own ownership references rather than guessing from
-  // copied IDs, tag shape, or sibling position: any of those can also describe
-  // an ordinary authored sibling.
   function repeatTemplateOwning(node: Element): Element | null {
     var parent = node.parentElement;
     if (!parent) return null;
@@ -2374,13 +2132,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return null;
   }
 
-  /**
-   * Alpine copies the template body's ids onto every element of every clone,
-   * so an element having its own id proves nothing about authorship inside a
-   * repeat. The walk has to continue to the row the template owns — stopping
-   * at the first id-bearing node detects clone ROOTS only, and leaves every
-   * descendant looking authored.
-   */
   function isTemplateCloneElement(el: Element | null): boolean {
     var node: Element | null = el;
     while (node && !isDocumentRootElement(node)) {
@@ -2390,13 +2141,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return false;
   }
 
-  /**
-   * A repeat renders one source element N times, so an edit has exactly one
-   * place to land: the element in the template body that this row was stamped
-   * from. Alpine copies that body's id onto every clone, so the clone's own id
-   * already names the write target. querySelectorAll cannot see into
-   * `<template>.content`, so the match count is the rendered rows alone.
-   */
   function hasOwnTextContent(el: Element): boolean {
     var children = el.childNodes;
     for (var i = 0; i < children.length; i += 1) {
@@ -2424,7 +2168,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  /** Every row this template rendered, in document order. */
   function repeatRowsOf(template: Element, row: Element): Element[] {
     var parent = row.parentElement;
     if (!parent) return [];
@@ -2438,15 +2181,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return rows;
   }
 
-  /**
-   * The `:key` value Alpine rendered this row from, read out of the template's
-   * own key->element map. A derived collection (`filteredTasks`) has no array
-   * to index, so this identity is the only way back to the item.
-   *
-   * COUPLING: `_x_lookup` is Alpine private API — see the matching warning in
-   * hit-test.bridge.ts. An empty result must make callers refuse, never fall
-   * back to a positional write, or a rename would silently edit another item.
-   */
   function rowKeyFor(template: Element | null, row: Element | null): string {
     if (!template || !row) return "";
     var lookup = (
@@ -2455,9 +2189,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     )._x_lookup;
     if (!lookup) return "";
-    // Alpine 3.15 keeps this as a Map; earlier lines used a plain object. A
-    // `for...in` over a Map iterates nothing, which reads as "no key" and
-    // silently disables every key-identified edit.
     var map = lookup as Map<unknown, Element>;
     if (typeof map.forEach === "function" && typeof map.get === "function") {
       var fromMap = "";
@@ -2474,7 +2205,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return "";
   }
 
-  /** The row Alpine stamped from the template body, for an element anywhere in it. */
   function repeatRowRootOf(el: Element): Element | null {
     var node: Element | null = el;
     while (node && !isDocumentRootElement(node)) {
@@ -2498,9 +2228,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var row = repeatRowRootOf(el);
     var template = row ? repeatTemplateOwning(row) : null;
     if (!row || !template) return null;
-    // Derived from template ownership, not from a shared id: a generated screen
-    // frequently ships with no `data-agent-native-node-id` anywhere, and
-    // keying off one made every repeat behaviour silently unavailable there.
     var rows = repeatRowsOf(template, row);
     var rowIndex = rows.indexOf(row);
     if (rowIndex === -1) return null;
@@ -2524,20 +2251,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       instanceIndex: instanceIndex,
       xFor: template.getAttribute("x-for") || "",
       itemIndex: rowIndex,
-      // Empty when this element's text is literal markup in the template body,
-      // which an ordinary markup edit reaches correctly.
       textBinding: el.getAttribute("x-text") || "",
       keyExpression: template.getAttribute(":key") || "",
       itemKey: rowKeyFor(template, row),
     };
   }
 
-  /**
-   * `el` plus every other row rendering the same source element. The persisted
-   * edit lands on the one element in the template body, so previewing it on
-   * only the row the selector resolved to shows a change the save will apply
-   * everywhere.
-   */
   function repeatStyleTargets(el: Element): Element[] {
     var info = repeatInstanceInfo(el);
     if (!info || info.instanceCount < 2) return [el];
@@ -2547,7 +2266,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       for (var i = 0; i < matches.length; i += 1) targets.push(matches[i]!);
       if (targets.length > 0) return targets;
     }
-    // No id to match on, so walk the same child path inside every other row.
     var row = repeatRowRootOf(el);
     var template = row ? repeatTemplateOwning(row) : null;
     if (!row || !template) return [el];
@@ -2571,9 +2289,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return siblings.length > 0 ? siblings : [el];
   }
 
-  // `data-an-text` is the editor's own wrapper around a painted leaf's bare
-  // text. Selecting it hands the inspector a bare inline span, so a button's
-  // radius, fill and component props all read as absent.
   function unwrapTextOverlay(hit: Element): Element {
     if (hit.hasAttribute && hit.hasAttribute("data-an-text")) {
       var textOwner = hit.parentElement;
@@ -2593,9 +2308,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     descendIntoGroup = false,
   ): Element | null {
     if (!hit || isDocumentRootElement(hit)) return hit;
-    // A <path>/<polygon> is geometry, not a layer: its tight bbox is 0-height
-    // for a horizontal line, and only the outermost <svg> carries the id and a
-    // layout box.
     var svgRoot = outermostSvgAncestor(hit);
     if (svgRoot) return pastedSvgShapeForHit(hit, svgRoot) || svgRoot;
     var target = unwrapTextOverlay(hit);
@@ -2611,27 +2323,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           group.getAttribute("data-agent-native-clone-root") !== "true";
         var legacyNodeId =
           group.getAttribute && group.getAttribute("data-agent-native-node-id");
-        // Pre-marker group wrappers use hash-based an-* ids; copied roots use copy-* ids.
         var legacyGeneratedGroup =
           /^an-[a-z0-9]+$/i.test(legacyNodeId || "") &&
           /^group(?: \d+)?$/i.test(groupName.trim()) &&
           group.getAttribute("data-agent-native-preserve-styles") === "true" &&
           group.getAttribute("data-agent-native-clone-root") !== "true";
-        // The dedicated marker survives renames. The fallback recognizes
-        // pre-marker wrappers while excluding style-preserving pasted roots.
         if (generatedGroupMarker || legacyGeneratedGroup) {
           return group;
         }
         group = group.parentElement;
       }
     }
-    // Select the deepest element under the pointer unless an explicit Group
-    // owns it. Double-click passes descendIntoGroup to reach the child.
     return target;
   }
 
-  // Climbs from `el` to the ancestor that is a direct child of `scope`
-  // (inclusive: returns `el` itself when `el === scope`). Bounded at
   // document.body/documentElement even if `scope` is never reached, so a
   // stale or detached scope can never walk the climb past the top level.
   function containerScopeAncestor(el: Element, scope: Element): Element {
@@ -2648,13 +2353,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return node;
   }
 
-  // Figma parity (spec Part 3 + ground truth Round 2): a plain click selects
-  // the outermost child of the CURRENT container scope — the screen root by
-  // default, or the container last drilled into via double-click — instead of
-  // the raw deepest hit under the pointer. A click that lands outside the
-  // drilled container exits drill mode (Figma: clicking elsewhere returns to
-  // top-level selection). Cmd/Ctrl+click deep-selects and must call
-  // selectionTargetForHit directly instead of this.
   function containerFirstSelectionTarget(
     hit: Element | null,
     descendIntoGroup?: boolean,
@@ -2667,15 +2365,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       !document.documentElement.contains(scope) ||
       !scope.contains(resolved)
     ) {
-      // Falling back out of a stale/unrelated scope IS exiting drill mode.
       selectionContainerScope = null;
       scope = topLevelBoardFrameOwning(resolved) || document.body;
     }
     return containerScopeAncestor(resolved, scope);
   }
 
-  // Figma treats a top-level frame like an artboard: its direct children are
-  // picked by a plain click, while nested frames still need a drill-in.
   function topLevelBoardFrameOwning(el: Element): Element | null {
     if (!designCanvasBoardSurface) return null;
     var node: Element | null = el;
@@ -2702,19 +2397,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
    */
   function plainClickSelectionTarget(hit: Element | null): Element | null {
     if (!designCanvasBoardSurface) {
-      // A direct screen click also exits any board-style drill scope left by a
-      // prior interaction before resolving the block under the pointer.
       selectionContainerScope = null;
       return selectionTargetForHit(hit);
     }
     return containerFirstSelectionTarget(hit);
   }
 
-  // Figma "click through": with a container selected, a plain click on one
-  // of its descendants selects the container's child under the pointer, one
-  // level per click, and the scope follows so later clicks stay inside it.
-  // The second click of a double-click is not a click-through: the dblclick
-  // handler drills that one level itself.
   function clickThroughSelectionTarget(
     hit: Element | null,
     ev: MouseEvent,
@@ -2725,11 +2413,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (collectMoveGroupMembers(selectedEl).length > 1) return null;
     if (!hit || isDocumentRootElement(hit)) return null;
-    // Unlike selectionTargetForHit, this does not promote to an ancestor
-    // group/frame wrapper: a Frame-kind wrapper carries the same
-    // data-agent-native-group-wrapper marker as a Group, so that promotion
-    // would resolve straight back to selectedEl and click-through would
-    // never descend into a selected Frame's children.
     var svgRoot = outermostSvgAncestor(hit);
     var raw =
       (svgRoot && pastedSvgShapeForHit(hit, svgRoot)) ||
@@ -2930,9 +2613,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function getSelector(el: Element | null): string {
     if (!el) return "";
-    // Alpine copies the template body's stamped node id — and any authored
-    // `id` — onto every clone, so both address all of a repeat's rows at once
-    // and every resolver lands on the first one.
     if (isTemplateCloneElement(el)) return selectorPath(el);
     var stableOwnSelector =
       attributeSelector(el, "data-agent-native-node-id") ||
@@ -2980,9 +2660,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return "";
   }
 
-  // Only the annotation. The class/layer-name guess this replaced painted
-  // shadcn's `bg-card` violet on canvas while the panel kept it blue, and
-  // `btn-group` the other way round — the same element, two colours.
   function elementLooksLikeComponent(el: Element | null): boolean {
     if (!el || !el.getAttribute || !el.tagName) return false;
     if (explicitComponentNameForElement(el)) return true;
@@ -3023,7 +2700,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return props;
   }
 
-  /** Runtime identity is separate from the persisted component annotation. */
   function runtimeComponentIdentityForElement(
     el: Element,
     provenance: FrameworkDebugProvenance,
@@ -3258,12 +2934,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "placeContent",
     "placeItems",
     "placeSelf",
-    // "position" is deliberately excluded: the drop/move that carries this
-    // snapshot always decides the landed node's position itself afterward
-    // (setRootLayerPosition / setAbsolutePositioningForNodeInHtml /
-    // removeAbsolutePositioningFromNodeInHtml), and design-editor/
-    // portable-style.ts's applyPortableStyles filters it back out on the
-    // apply side too if it's ever added back here — keep both in sync.
     "rowGap",
     "textAlign",
     "textDecoration",
@@ -3301,18 +2971,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return paths;
   }
 
-  // Editor-internal CSS custom-property prefixes — selection chrome colors,
-  // editor-chrome scale compensation, framework clipboard/surface tokens.
-  // These have no meaning outside this editor session and must never leak
-  // into persisted user HTML/exports. design-editor/portable-style.ts's
-  // applyPortableStyleSnapshotToHtml (isEditorInternalCssVar /
-  // EDITOR_INTERNAL_CSS_VAR_PREFIXES) already filters them back out on the
-  // apply side; filtering here too at COLLECTION time is pure bloat
-  // reduction (skips carrying them across the postMessage boundary at all)
-  // and changes no observable behavior on the apply side.
-  //
-  // keep in sync with design-editor/portable-style.ts's
-  // EDITOR_INTERNAL_CSS_VAR_PREFIXES
   var EDITOR_INTERNAL_CSS_VAR_PREFIXES = [
     "--design-editor-",
     "--agent-native-editor-chrome-",
@@ -3326,15 +2984,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return false;
   }
 
-  // Bare-tag baseline for the diff below, measured in a throwaway iframe
-  // with NO author stylesheets — the source document's own `<style>`/
-  // Tailwind rules must never leak into "default", or a bare-tag rule
-  // there (e.g. `button { background: teal }`) matches the probe too and
-  // the diff wrongly reads a real, authored appearance as "just what this
-  // tag renders as anyway", dropping it before it ever reaches the
-  // destination document (which has no such rule). Cached per tag+
-  // namespace since a portable-style snapshot walks up to 80 descendants
-  // per drag.
   var portableStyleProbeDoc: Document | null | undefined;
   var portableStyleProbeContainer: HTMLElement | ShadowRoot | null | undefined;
 
@@ -3356,10 +3005,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         portableStyleProbeContainer = probeDoc.body;
       } else {
         frame.remove();
-        // URL previews are sandboxed without allow-same-origin, so a child
-        // probe iframe has no readable document. A shadow root on an isolated
-        // same-document host keeps source author styles and inherited values
-        // out while still applying the user-agent stylesheet.
         var fallbackHost = document.createElement("div");
         fallbackHost.setAttribute(
           "style",
@@ -3384,11 +3029,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     Record<string, string>
   > = {};
 
-  // `null` means "the probe could not be measured" — a distinct, loud
-  // failure a caller must skip on, never `{}`. `{}` reads as "this tag has
-  // no default styles," which makes every real computed value look
-  // customized and silently falls back to over-carrying ~130 properties
-  // onto every moved/duplicated node (the exact pre-fix bug this guards).
   function portableStyleTagDefaults(
     el: Element,
   ): Record<string, string> | null {
@@ -3401,12 +3041,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       dndLog("style:probe-unavailable", { tag: el.tagName });
       return null;
     }
-    // Deliberately NOT forced to position:absolute: that changes width's
-    // auto-sizing algorithm (shrink-to-fit vs filling the containing
-    // block), so an ordinary static element would look "different from
-    // default" purely from the probe's own position, not any real
-    // customization. The probe stays in normal flow; the IFRAME around it
-    // (zero-size, hidden, fixed) is what's kept out of visible layout.
     var probe =
       el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml"
         ? probeDoc.createElementNS(el.namespaceURI, el.tagName)
@@ -3424,11 +3058,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return defaults;
   }
 
-  // Native computed values preserve auto/%/calc without freezing used layout
-  // pixels or trying to replay the cascade. Like the other snapshot properties,
-  // sizes describe the current computed state, including active animations.
   // ponytail: font-relative sizes may canonicalize to pixels; preserving authored
-  // units across different stylesheets would require declaration provenance.
   var PORTABLE_STYLE_BOX_SIZE_PROPERTIES: Record<string, boolean> = {
     width: true,
     height: true,
@@ -3468,9 +3098,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     subscribers: PortableStyleCssomHookSubscriber[];
   };
 
-  // A collection can be re-entered while another collection still owns the
-  // same global CSSOM prototypes. Keep one wrapper per owner/property and
-  // release the original descriptor only after every cache has detached.
   var portableStyleCssomHooks = new WeakMap<
     object,
     Map<string, PortableStyleCssomHook>
@@ -3524,9 +3151,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         cache.mutationGeneration += 1;
       }
     } catch (_error) {
-      // A cache with an unreadable observer cannot prove that a DOM/style
-      // mutation did not happen. Advancing the generation forces every
-      // subsequent lookup to miss and keeps the optimization fail-closed.
       cache.mutationGeneration += 1;
       dndLog("style:mutation-state-unreadable");
     }
@@ -3544,9 +3168,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         portableStyleMutationObserverOptions,
       );
       cache.observedMutationRoots.push(root);
-      // A newly discovered root may already have changed while an earlier
-      // snapshot was being read, so invalidate entries captured before it was
-      // observed.
       if (cache.observedMutationRoots.length > 1) {
         cache.mutationGeneration += 1;
       }
@@ -3600,8 +3221,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function portableStyleCssomDeclarationChanged(receiver: unknown): boolean {
     try {
-      // Inline style writes are already covered by MutationObserver. A rule's
-      // declaration has a parentRule and is invisible to that observer.
       return (receiver as { parentRule?: unknown }).parentRule !== null;
     } catch (_error) {
       return true;
@@ -4118,9 +3737,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     el: Element,
     cache?: PortableStyleComputedStylesCache,
   ): boolean {
-    // Computed inherited values can change while only an ancestor is
-    // animated. Recheck the whole style parent chain on every cache lookup;
-    // caching this answer would make a mid-request animation invisible.
     var current: Element | null = el;
     while (current) {
       var parent = portableStyleAnimationParent(current);
@@ -4267,8 +3883,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         : ["margin-top", "margin-bottom"];
     return margins.some(function (margin) {
       var value = typedStyleValue(el, margin);
-      // CSSOM resolves auto margins to pixels. If Typed OM cannot distinguish
-      // them, skip stretch preservation rather than freezing an uncertain size.
       return (
         value.status === "failed" ||
         value.value === undefined ||
@@ -4441,14 +4055,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) return;
       var value = cs[property] || cs.getPropertyValue(property);
       var inlineValue = hostStyle && hostStyle.getPropertyValue(property);
-      // Only carry what a class/cascade actually customized on THIS element,
-      // or what it inherited from its old parent chain (an inherited value
-      // differs from the bare probe's un-inherited default too, since the
-      // probe has no parent to inherit from). A value identical to the bare
-      // tag's own rendering is noise: applying it verbatim is how a
-      // duplicate/cross-screen move used to bake ~50 irrelevant properties
-      // (opacity, z-index, box-sizing, transform:none, ...) onto every
-      // dropped copy instead of just what makes it look like the source.
       if (
         typeof value === "string" &&
         value.trim() &&
@@ -4508,8 +4114,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return null;
     }
     var nodes = [];
-    // A failed probe or Typed OM read invalidates the entire capture; never
-    // return a partial snapshot that silently loses appearance.
     var probeFailed = false;
     function pushNode(node: Element) {
       if (nodes.length >= maxNodes || probeFailed) return;
@@ -4518,9 +4122,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         probeFailed = true;
         return;
       }
-      // The root is also represented by getElementInfo's live computedStyles.
-      // Refresh it instead of reusing an ancestor's value. Descendants use the
-      // request cache only when their style-parent animation state is quiescent.
       var styles = collectPortableComputedStyles(
         node,
         node === root ? undefined : cache,
@@ -4530,10 +4131,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         probeFailed = true;
         return;
       }
-      // Keep an existing root fingerprint until every descendant has been
-      // checked. A root's computed style is captured before its rect read, so
-      // a timeline seek during that read must invalidate descendants against
-      // the previous fingerprint before this request records the new one.
       nodes.push({
         sourceId: getSourceId(node) || undefined,
         path: path,
@@ -4550,13 +4147,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (probeFailed) {
       dndLog("style:snapshot-skipped", { el: getSelector(root) });
-      // `null` (not `undefined`) marks CAPTURE FAILED, distinct from a
-      // legitimately absent snapshot (isDocumentRootElement/no root above,
-      // which returns `undefined`). Callers that post this cross-screen must
-      // forward that distinction as its own flag — a probe failure means
-      // "we don't know this element's appearance," not "there is nothing to
-      // carry," and a cross-screen move must refuse rather than silently
-      // drop a class-only appearance it never got to measure.
       return null;
     }
     if (cache) recordPortableStyleAnimationState(cache, root);
@@ -4567,13 +4157,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  // Raw authored (not computed) inline style values for the properties the
-  // EditPanel constraints/position/auto-size readers need to distinguish
-  // "unset" from "resolved to a computed pixel value" (e.g. an absolutely
-  // positioned element with only `left` authored still computes both `left`
-  // and `right` — only the inline style tells you which side was actually
-  // set). Empty-string values are omitted so callers can treat key-absence as
-  // "not authored".
   var INLINE_STYLE_PROPERTIES = [
     "position",
     "left",
@@ -4724,11 +4307,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return styles;
   }
 
-  // CSS Typed OM keeps sizing keywords and authored units intact where
-  // getComputedStyle() resolves them to pixels: `auto`, `fit-content`, and
-  // `100%` remain distinguishable from an explicit pixel dimension. This is a
-  // read-only hint for the Inspector; stylesheet values are never write
-  // targets.
   function collectAuthoredSizeStyles(
     el: Element,
   ): Record<string, string> | undefined {
@@ -4851,11 +4429,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       webkitLineClamp: cs.getPropertyValue("-webkit-line-clamp"),
       textAlign: cs.textAlign,
       textTransform: cs.textTransform,
-      // Clean longhand for decoration-toggle state (Cmd+U underline /
-      // Cmd+Shift+X strikethrough). Deliberately the longhand, not the
-      // `textDecoration` shorthand — see typography-helpers.ts's
-      // PERSISTENCE GOTCHA comment: reads use this clean value, writes
-      // still commit through the shorthand property name.
       textDecorationLine: cs.textDecorationLine,
       display: cs.display,
       overflow: cs.overflow,
@@ -4920,8 +4493,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       outlineStyle: cs.outlineStyle,
       outlineColor: cs.outlineColor,
       outlineOffset: cs.outlineOffset,
-      // Read off the shape child for a drawn vector (vectorPaintTarget):
-      // the `<svg>` wrapper itself is never painted.
       fill: paintCs.fill,
       fillOpacity: paintCs.fillOpacity,
       stroke: strokeCs.stroke,
@@ -4936,10 +4507,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       vectorTransform: paintCs.transform,
       vectorTransformOrigin: paintCs.transformOrigin,
       vectorTransformBox: paintCs.transformBox,
-      // Text glyph outline (Figma-parity text "Stroke") — CSS has no
-      // unprefixed alias, so this is read via the vendor-prefixed
-      // longhands directly. See applyStyleEdit/normalizeStyleProperty in
-      // shared/code-layer.ts for the matching write-side allow-list entry.
       webkitTextStrokeWidth: (
         cs as unknown as { webkitTextStrokeWidth?: string }
       ).webkitTextStrokeWidth,
@@ -5156,8 +4723,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var leaf = textLeafAtCaret(target, caret);
     if (!leaf || leaf.length === 0) return null;
 
-    // Keep the browser's actual text-leaf affinity, including offset zero at
-    // the start of a styled run. Flattening the caret offset loses that owner.
     var leafRange = document.createRange();
     leafRange.selectNodeContents(leaf);
     var bookmark = captureTextRangeBookmark(target, leafRange);
@@ -5180,8 +4745,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ? window.getComputedStyle(strokeTarget)
       : paintCs;
     var computed = collectComputedStyles(cs, paintCs, strokeCs);
-    // An open pen path's fill-opacity="0" only keeps its chord unpainted
-    // (Figma fills closed regions only); it is not the fill's own opacity.
     var paintTarget =
       vectorPaintTarget(el) ||
       (el.tagName.toLowerCase() === "path" &&
@@ -5202,10 +4765,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         (paintTarget as HTMLElement).style.getPropertyValue("fill-opacity") ||
         "1";
     }
-    // A multi-shape pasted SVG has no single paint target. Its wrapper's
-    // computed `fill` is the SVG initial value (black), not an authored fill.
-    // Keep authored wrapper fills visible, while leaving child paints to the
-    // Selection colors inspector.
     if (
       el.tagName.toLowerCase() === "svg" &&
       el.getAttribute("data-an-primitive") === "pasted-svg" &&
@@ -5265,9 +4824,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var cs = window.getComputedStyle(el);
     var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
     var boundingRect = rectInfoForElement(el);
-    // A clone inherits nothing editable from its stamped ancestor: source
-    // holds one template body, not this row. Claiming source-backed handed
-    // the host a selector that resolves onto a DIFFERENT sibling.
     var componentName = componentNameForElement(el);
     var parentAutoLayout = autoLayoutParentInfo(el);
     var designParent = designParentForElement(el);
@@ -5276,10 +4832,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       : null;
     var authoredSizeStyles = collectAuthoredSizeStyles(el);
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
-    // A board copy has a fresh live id so selection can target it, but that
-    // id is not source ownership until the host projects/persists the copy.
-    // Keep those identities separate: sourceId remains write-safe while the
-    // runtime pair lets host chrome match this exact live clone.
     var runtimeOnlyClone = isRuntimeOnlyClone(el);
     var sourceBacked =
       !runtimeOnlyClone &&
@@ -5288,17 +4840,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var sourceId = sourceBacked ? getSourceId(el) || getSelector(el) : "";
     var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
     var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
-    // Id-on-demand (empty-node-id fix, bridge side): AI-generated screens
-    // frequently ship with NO data-agent-native-node-id anywhere, which
-    // breaks every id-keyed operation host-side ("Could not move that
-    // layer", `Node with data-agent-native-node-id="" not found`). When the
-    // element has no stable own id, mint a durable candidate once and expose
-    // it as `pendingNodeId` in the payload so the HOST can persist it into
-    // the source as the element's real data-agent-native-node-id. The mint
-    // is stored under data-an-pending-node-id — an attribute that
-    // getSourceId/getSelector/closestStableSourceElement deliberately do NOT
-    // read — so until the host persists it, resolution still flows through
-    // the existing structural-selector fallback unchanged.
     var pendingNodeId = "";
     if (
       !getSourceId(el) &&
@@ -5306,12 +4847,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       el !== document.documentElement &&
       el.getAttribute &&
       el.setAttribute &&
-      // Defensive guard (mirrors hit-test.bridge.ts's getOrMintPendingNodeId):
-      // a template clone has no counterpart in source HTML, so no host
-      // persist call could ever durably write data-agent-native-node-id for
-      // it, and Alpine re-renders the clone from scratch on the next data
-      // change anyway (the stamped attribute would vanish). Fail closed
-      // instead of minting a pending id that can never be persisted.
       !isTemplateCloneElement(el)
     ) {
       pendingNodeId = el.getAttribute("data-an-pending-node-id") || "";
@@ -5370,9 +4905,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           "Parent layout context decides whether movement means gap, order, alignment, or wrapper structure.",
       });
     }
-    // Explicit compiler attributes win for the selected element's authored
-    // site; framework runtime metadata fills the React owner call site. The
-    // shared resolver crosses ShadowRoot.host for Vue, Svelte, and attributes.
     var provenance: FrameworkDebugProvenance = elementDebugProvenance(el);
     var runtimeComponent = runtimeComponentIdentityForElement(
       el,
@@ -5463,15 +4995,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     });
   }
 
-  // Light hover descriptor: every pointer hover posts one of these instead of
-  // the full getElementInfo() payload. getElementInfo() runs getComputedStyle
-  // over ~130 properties on the element PLUS (via collectPortableStyleSnapshot)
-  // up to 80 descendants — fine at select/drag-start time, too expensive to run
-  // on every mousemove. Hover-only consumers (outline positioning, code-layer
-  // resolution by selector/id/tagName/classes/text) never read computedStyles
-  // or portableStyleSnapshot, so this intentionally omits both. Full detail is
-  // still posted on element-select / drag-start / edit-time messages via
-  // getElementInfo().
   function getLightElementInfo(
     el: Element,
     includePendingNodeId = false,
@@ -5544,13 +5067,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     metaKey: boolean;
     ctrlKey: boolean;
   } {
-    // Figma spec §1: Shift+click is the ADDITIVE gesture (toggles membership).
-    // Cmd/Ctrl+click alone REPLACES the selection with the deep hit — it must
-    // not set `additive`, or a click-select host consumer (runScreenElementSelect)
-    // unions the deep-selected child into the current selection instead of
-    // replacing it. `metaKey`/`ctrlKey` still ride along on the intent for
-    // consumers (like deep-select's own hit resolution) that need to know a
-    // modifier was held without treating it as additive.
     var shiftHeld = Boolean(e && e.shiftKey);
     return {
       additive: shiftHeld,
@@ -5577,10 +5093,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (intent) message.intent = intent;
     (window.parent as Window).postMessage(message, "*");
 
-    // React 19 gives us a transformed stack coordinate synchronously. Resolve
-    // its Vite map after the first paint, then echo the same selection with the
-    // authored location. The generation and identity checks keep a slow map
-    // response from stealing a newer hit or changing additive selection state.
     var framework = frameworkDebugProvenance(el);
     if (
       framework.framework === "react" &&
@@ -5605,14 +5117,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  // Every element the click path can reach, not just the id-bearing ones: an id
-  // attribute is a persistence detail, and generated markup routinely has none,
-  // so keying selectability off it made a marquee miss what a click hits.
-  // Figma parity: a marquee selects objects at the CURRENT container scope
-  // (the screen root by default, or the container last drilled into) — the
   // same scope containerFirstSelectionTarget resolves clicks against — never
-  // reaching into a candidate's nested descendants unless Cmd/Ctrl is held
-  // (`deep`), matching Cmd/Ctrl+click's own deep-select.
   function collectSelectableElements(deep?: boolean): Element[] {
     var nodes = Array.prototype.slice.call(
       document.body ? document.body.querySelectorAll("*") : [],
@@ -5652,10 +5157,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return elements;
   }
 
-  /** True for a node the padding above would otherwise rescue into the band:
-   *  `display:none` and `visibility:hidden` both measure 0x0, and inflating
-   *  them makes a layer nobody can see selectable. Computed style is read only
-   *  for degenerate boxes, so a whole-document sweep stays cheap. */
   function isPaddedAwayFromView(el: Element): boolean {
     var rect = el.getBoundingClientRect();
     if (
@@ -5668,10 +5169,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return cs.display === "none" || cs.visibility === "hidden";
   }
 
-  /** An `atPoint` that is present but unreadable must not silently widen into
-   *  "collect everything": the caller asked a point question, so a malformed
-   *  point is a caller bug, not a request for the whole document. Absent stays
-   *  absent (collect all); malformed throws. */
   function readSelectablePoint(raw: unknown): SelectablePoint | null {
     if (raw === undefined || raw === null) return null;
     var point = raw as Partial<SelectablePoint>;
@@ -5698,37 +5195,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     atPoint?: SelectablePoint | null,
     includePortableStyleSnapshot = true,
   ): unknown[] {
-    // This answers agent-native:collect-selectable-rects, which the overview
-    // host uses for BOTH the overview marquee (scoped: direct children of
-    // the current container, like the in-iframe marquee) and double-click
-    // drill-in/click-to-pick (deep: needs every descendant to walk one level
-    // further per repeat click) — the caller says which via `deep`.
     var targets = collectSelectableElements(deep);
-    // getElementInfo is the expensive part by two orders of magnitude: it
-    // snapshots portable computed styles for the element AND its whole
-    // subtree. A drill-in/pick asks a POINT question and then discards every
-    // candidate whose box misses that point (drillInChainAtPoint), so
-    // narrowing here — before the map — is the difference between building
-    // ~1200 infos and building the handful actually on the containment
-    // chain. Deliberately a superset of the host's own filter: padded like
-    // selectableBounds and given a rounding tolerance, because the host
-    // re-filters in board space and must never lose a candidate this pass
-    // dropped.
     if (atPoint) {
       targets = targets.filter(function (el) {
         return documentSpaceBoundsContainPoint(el, atPoint);
       });
     }
-    // Overview marquee collection only needs identity, geometry, and the
-    // selected element's computed state. Building a portable subtree snapshot
-    // for every candidate blocks the preview thread before a hit-set exists;
-    // direct selection and drill-in keep the default full snapshot contract.
     if (!includePortableStyleSnapshot) {
       return targets.map(function (target) {
         return getElementInfo(target, undefined, false);
       });
     }
-    // Warm the editor-owned probe iframe before observing this request.
     portableStyleProbeDocument();
     var portableComputedStylesCache = createPortableStyleComputedStylesCache();
     try {
@@ -5743,9 +5220,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  /** Containment test in the same document space getElementInfo reports
-   *  boundingRect in (client rect + scroll), padded like selectableBounds so a
-   *  hairline element under the pointer stays reachable. */
   function documentSpaceBoundsContainPoint(
     el: Element,
     point: SelectablePoint,
@@ -5859,10 +5333,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     selectionOverlay.appendChild(handle);
   });
-  // Figma-style corner-radius handles: small circles inset from each corner
-  // along its diagonal, draggable to adjust the element's border-radius.
-  // Hidden (display:none) by default; applySelectionHandleHitGeometry shows
-  // and positions them only for elements that support a CSS border-radius.
   ["nw", "ne", "se", "sw"].forEach(function (pos) {
     var handle = document.createElement("span");
     handle.setAttribute("data-agent-native-radius-handle", pos);
@@ -5908,23 +5378,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   appendEditorChromeNode(selectionOverlay);
   if (readOnly) setSelectionOverlayResizeChromeVisible(false);
 
-  // ── Gradient edit overlay (in-iframe parity for MultiScreenCanvas's
-  // GradientEditOverlay) ──────────────────────────────────────────────────
-  // Renders the same gradient line + endpoint squares + round stop markers
-  // over an element *inside* this screen's iframe content, driven entirely
-  // by `gradient-edit-target` / `gradient-edit-clear` postMessages from the
-  // parent (DesignEditor forwards its existing `gradientEditTarget` state
-  // for the active screen — see the doc comment on
-  // `gradientEditOverlayTarget` below for the exact wiring contract). Linear
   // gradients only, matching MultiScreenCanvas's overlay scope: an
-  // unparseable or non-linear `cssValue` renders nothing.
-  //
-  // The math below (gradientLineEndpoints/gradientStopPoints/
-  // angleFromDraggedEndpoint/stopPercentFromDraggedPoint) is a direct port
-  // of the same-named pure functions exported from MultiScreenCanvas.tsx —
-  // this file cannot import them (bridge sources may not import/require
-  // anything, see bridge.guard.spec.ts), so the formulas are duplicated
-  // here verbatim. Keep both copies in sync if the math ever changes.
   var gradientOverlay = document.createElement("div");
   gradientOverlay.setAttribute("data-agent-native-edit-overlay", "gradient");
   gradientOverlay.style.cssText =
@@ -5976,9 +5430,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   var transformBadge = document.createElement("div");
   transformBadge.setAttribute("data-agent-native-transform-badge", "");
-  // Classify as edit-overlay so the content-stamp pass (isEditorChrome) does
-  // not strip it and replaceRuntimeDocument preserves it — otherwise the badge
-  // is detached from the DOM and its styling targets a dead node (invisible).
   transformBadge.setAttribute(
     "data-agent-native-edit-overlay",
     "transform-badge",
@@ -5994,10 +5445,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;color:white;font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;padding:2px 4px;box-shadow:0 4px 14px rgba(0,0,0,0.18);";
   appendEditorChromeNode(spacingBadge);
 
-  // Figma's constraint indicator: dashed lines running from the dragged
-  // element to the frame edges it is pinned to. Distinct from the snap
-  // guides above — this shows how the element will REFLOW when its parent
-  // resizes, not what it is currently aligned with.
   var constraintGuideLayer = document.createElement("div");
   constraintGuideLayer.setAttribute(
     "data-agent-native-edit-overlay",
@@ -6023,30 +5470,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "position:fixed;z-index:100000;display:none;pointer-events:none;background:var(--design-editor-accent-color);border-radius:999px;box-shadow:0 0 0 1px var(--design-editor-accent-color);";
   appendEditorChromeNode(insertionGuide);
 
-  // Alignment and spacing guides shown while dragging (and resizing) an
-  // element inside the iframe — Figma-style snap-to-sibling guides. One
-  // container whose children are rebuilt per drag tick, since a snapped
-  // position can sit on any number of guide lines at once. Tagged as an
-  // edit-overlay so elementFromEditorPoint/isOverlayElement never treat a
-  // guide line as a hit-test or drop target. Color matches the overview
-  // canvas's alignment guides, in the forwarded measure colour.
   var snapGuideLayer = document.createElement("div");
   snapGuideLayer.setAttribute("data-agent-native-edit-overlay", "snap-guide");
   snapGuideLayer.style.cssText =
     "position:fixed;inset:0;z-index:100000;display:none;pointer-events:none;";
   appendEditorChromeNode(snapGuideLayer);
 
-  // Cell boundaries of a selected grid container, empty cells included: the
-  // gap handles alone leave a two-child grid looking like a flex row.
   var gridCellOverlay = document.createElement("div");
   gridCellOverlay.setAttribute("data-agent-native-edit-overlay", "grid-cells");
   gridCellOverlay.style.cssText =
     "position:fixed;inset:0;z-index:99993;display:none;pointer-events:none;";
   appendEditorChromeNode(gridCellOverlay);
 
-  // Grid-track controls sit just outside the selected grid. They are a
-  // separate surface from cell insertion: a track drag moves the row/column
-  // contents as a unit, including spanning cells.
   var gridTrackOverlay = document.createElement("div");
   gridTrackOverlay.setAttribute(
     "data-agent-native-edit-overlay",
@@ -6056,9 +5491,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "position:fixed;inset:0;z-index:99994;display:none;pointer-events:none;";
   appendEditorChromeNode(gridTrackOverlay);
 
-  // Name labels above the outermost frames, the in-screen twin of the overview
-  // canvas's screen labels. Above the shield's z-index so a label click can
-  // select its frame.
   var frameLabelLayer = document.createElement("div");
   frameLabelLayer.setAttribute("data-agent-native-edit-overlay", "frame-label");
   frameLabelLayer.style.cssText =
@@ -6067,8 +5499,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   var measurementOverlay = document.createElement("div");
   measurementOverlay.setAttribute("data-agent-native-measurement-overlay", "");
-  // Tag as an edit overlay so the content-replacement path preserves it (only
-  // [data-agent-native-edit-overlay] nodes survive a body rebuild).
   measurementOverlay.setAttribute(
     "data-agent-native-edit-overlay",
     "measurement",
@@ -6077,10 +5507,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "position:fixed;inset:0;z-index:100001;display:none;pointer-events:none;color:var(--design-editor-measure-color);font:11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;";
   appendEditorChromeNode(measurementOverlay);
 
-  // Component-instance tag: a small pill that floats above the selection
-  // outline whenever the selected element carries a data-agent-native-component
-  // attribute.  Clicking it sends a 'component-source-jump' message to the
-  // parent so the editor can invoke open-component-source.
   var componentTagOverlay = document.createElement("div");
   componentTagOverlay.setAttribute(
     "data-agent-native-edit-overlay",
@@ -6148,16 +5574,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     componentTagOverlay.setAttribute("data-component-node-id", nodeId);
     componentTagOverlay.setAttribute("data-component-name", compName);
 
-    // Reuse the caller's fresh rect when available: positionOverlay() already
-    // read this element's rect this frame, and an extra getBoundingClientRect
-    // here is a second forced layout when overlay styles were just written.
     var rect = knownRect || el.getBoundingClientRect();
-    // Constant-screen-size chrome: pill font/padding/offsets and the
-    // component-root outline compensate for the host's iframe scale.
     var line = chromeLineScale();
     var tagHeight = 24 * line;
     var tagTop = rect.top - tagHeight - 6 * line;
-    // The fallback clears the size badge and outward rotation handles too.
     if (tagTop < 4 * line) tagTop = rect.bottom + 40 * line;
     componentTagOverlay.style.display = "block";
     componentTagOverlay.style.fontSize = 11 * line + "px";
@@ -6231,10 +5651,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function updateParentAutoLayoutOverlay(el: Element | null): void {
-    // A selected frame already has its own selection outline. Showing the
-    // parent's layout box as a second dashed outline makes the frame read as
-    // nested chrome instead of one selected object; keep this affordance for
-    // ordinary child layers where it communicates their auto-layout parent.
     if (el?.getAttribute("data-an-primitive") === "frame") {
       hideParentAutoLayoutOverlay();
       return;
@@ -6263,12 +5679,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function hideSelectionOverlay(): void {
     selectionOverlay.style.display = "none";
-    // The host mirrors this overlay into its own SelectionBox so a board
-    // object's handles can win z-order over an overlapping Screen (see
-    // MultiScreenCanvas). Clearing belongs here, at the single point every
-    // deselect path already funnels through — posting it from one caller
-    // leaves the host chrome floating over nothing after Escape, a marquee
-    // clear, a delete, or an undo.
     if (designCanvasBoardSurface) {
       window.parent.postMessage(
         { type: "agent-native:board-selection-rect", rect: null },
@@ -6288,17 +5698,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var runtimeStructureInsertTransactionKey = Symbol(
     "agent-native-runtime-structure-transaction",
   );
-  // Figma parity on the infinite-canvas board: a plain click resolves to the
-  // outermost child of this container (the screen root, i.e. null, by default)
-  // rather than the raw deepest hit. Double-click drilling
-  // (beginTextEditingFromEvent's descend fallback) sets this to the container
-  // just drilled into; a plain click that lands outside it exits drill mode by
-  // clearing it back to null. See containerFirstSelectionTarget. Screen
-  // contents intentionally use plainClickSelectionTarget instead.
   var selectionContainerScope: Element | null = null;
   var selectionGeneration = 0;
-  // When true, selection chrome stays hidden through async reflows so a
-  // keyboard-nudge burst does not flicker; selection itself is unchanged.
   var selectionChromeHidden = false;
   var hoveredEl: Element | null = null;
   var highlightOverlayStyle: "default" | "soft" = "default";
@@ -6313,22 +5714,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     hoveredWasInside: boolean;
   };
   var activeNodeHtmlPreview: NodeHtmlPreviewSession | null = null;
-  // Last element an "element-hover" message was actually posted for. Lets
-  // the shield's pointermove handler skip getLightElementInfo's two
-  // getComputedStyle calls plus the postMessage on every one of the dozens
-  // of raw pointermove ticks a slow hover over one unchanged element
-  // produces — only the FIRST tick that lands on a given element needs to
-  // tell the host anything new. The parent already de-dupes on its side
-  // (see the "PF9" equality-bail comment in DesignEditor.tsx), so skipping
-  // the redundant sends here is a pure perf win with no behavior change.
   var lastHoverInfoPostedEl: Element | null = null;
 
-  // Every path that clears (or invalidates) the current hover must re-arm the
-  // post gate above through this helper, not just null out hoveredEl. If a
-  // path nulls hoveredEl without resetting lastHoverInfoPostedEl, the pointer
-  // returning to the SAME element the gate already posted for will silently
-  // skip re-posting "element-hover" to the host, leaving its hover state
-  // stuck until a different element is hovered.
   function clearHoverGate(): void {
     hoveredEl = null;
     lastHoverInfoPostedEl = null;
@@ -6338,8 +5725,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var passiveSelectionOverlays: HTMLElement[] = [];
   var repeatInstanceOverlays: HTMLElement[] = [];
   var repeatInstanceAnchor: Element | null = null;
-  // Figma draws ONE bounding box with handles around a multi-selection; the
-  // per-element overlays above are the thin outlines inside it.
   var multiSelectionBoundsOverlay: HTMLElement | null = null;
   var activeMarqueeSelection: {
     startX: number;
@@ -6349,18 +5734,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     moved: boolean;
     pointerId?: number;
     candidates?: Element[];
-    /** Parallel to `candidates`: each candidate's padded bounds, measured once
-     *  per gesture. A marquee never changes layout, so re-measuring every
-     *  candidate on every mousemove was pure waste. */
     candidateBounds?: SelectableBounds[];
-    /** Per-gesture getElementInfo memo. The same element is re-reported on
-     *  every tick it stays inside the band, and getElementInfo snapshots
-     *  portable computed styles for the element AND its subtree — so without
-     *  this the drag pays that cost once per element PER TICK. Valid only
-     *  while the gesture runs, which is exactly while layout is frozen. */
     infoCache?: Map<Element, unknown>;
-    /** Light identity/geometry descriptors are also stable for one gesture;
-     * cache them so distinct hit-set reports do not re-read computed style. */
     lightInfoCache?: Map<Element, unknown>;
     lastReportedElements?: Element[];
     moveFrame?: number | null;
@@ -6379,28 +5754,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     selector: string;
   } | null = null;
   var textEditInspectorFocused = false;
-  // Session-captured original min-width/min-height for the active text edit
-  // (T19): refreshOverlays() re-applies these on every reflow via
-  // updateTextEditingChrome, so it needs the real originals rather than "" —
-  // otherwise every overlay refresh during an edit clobbers the saved size
-  // back to the "1px"/"1em" empty-text defaults.
   var activeTextEditOriginalMinWidth = "";
   var activeTextEditOriginalMinHeight = "";
-  // Module-level ref to the in-flight text edit session's finish() closure
-  // (T4). replaceRuntimeDocument (forceFullDocument path, e.g. HMR/localhost
-  // reload) must commit or discard the active edit through the same path a
-  // user Escape/blur would use — removing its listeners and clearing overlay
-  // chrome — instead of only resetting the activeTextEditEl variable, which
-  // left the session's keydown/blur/paste/input/selectionchange listeners
-  // (including a document-level "selectionchange" listener) attached forever.
   var finishActiveTextEdit: ((commit: boolean) => void) | null = null;
-  // Buffered runtime-content-update payload dropped while a text edit session
-  // is active (T13). replaceRuntimeDocument silently no-ops non-force updates
-  // during an edit (so the user's in-progress typing isn't yanked out from
-  // under them), but the host's one-shot queue still marks the update as
-  // applied. Without buffering, the canvas is left stale once the edit
-  // session ends. We keep only the latest dropped payload — a newer update
-  // supersedes an older one.
   var pendingRuntimeDocumentUpdate: {
     html: string;
     preferredSelector: string;
@@ -6411,29 +5767,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     selection: string;
     highlight: string;
   } | null = null;
-  // T22: deferred begin-text-edit command for a node that hasn't landed in
-  // this document yet. The host posts begin-text-edit immediately after
-  // creating a text primitive, but the node itself arrives via the
-  // replace-document-content persist round-trip — when the command wins that
-  // race the old behavior silently dropped it, leaving the user typing into
-  // nothing (worst case: Delete/arrow keystrokes fell through to host layer
-  // shortcuts). Instead, poll briefly (bounded ~2s, rAF cadence) for the
-  // nodeId and activate the edit the moment it appears. Only the newest
-  // command is kept; any user pointerdown or a user-initiated text edit
-  // cancels it (the user has moved on — never yank focus later).
   type BeginTextEditRepeat = { sourceSelector: string; itemIndex: number };
   var pendingBeginTextEdit: {
     nodeId: string;
     repeat: BeginTextEditRepeat | null;
     force: boolean;
-    // Escape keeps what was typed (Figma): the host hands its buffer over with
-    // the command and asks for the session to end the moment it has landed.
     commitImmediately: boolean;
     deadline: number;
     raf: number;
-    // Keystrokes typed INTO THIS IFRAME while the command waits for its node
-    // (see the pending-window branch of the document keydown handler) —
-    // replayed into the editable the moment it activates.
     buffer: string;
   } | null = null;
   function cancelPendingBeginTextEdit(): void {
@@ -6443,19 +5784,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     pendingBeginTextEdit = null;
   }
-  // T25: tell the HOST (DesignCanvas) that a begin-text-edit command is
-  // waiting for its node, so the host arms its own keystroke buffer for keys
-  // that land on the HOST document during the window (the host cannot see
-  // the begin-text-edit post itself — DesignEditor sends it straight to this
-  // iframe). pending:false stands the host down when the wait is abandoned;
-  // successful activation instead flows through text-editing-state(active),
-  // which both flushes the host buffer and clears its pending flag.
-  // `reason` exists because pending:false carries two different facts. Escape,
-  // a pointerdown in this frame, and a superseding dblclick are the user
-  // abandoning the request — the host may drop it and clean the node up. The
-  // pump's own deadline is not: the node simply has not arrived here yet, and
-  // a host that reads that as abandonment deletes a layer its own retry ladder
-  // is still working on. Unlabelled is never treated as abandonment.
   function postTextEditPending(
     nodeId: string,
     pending: boolean,
@@ -6477,10 +5805,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "*",
     );
   }
-  // Whether text handed to this frame actually landed in a session. The host
-  // owns the only copy until this says it did: an insert for an editable that
-  // was replaced or detached is dropped here, and silence let the host release
-  // keystrokes that never reached the document.
   function postTextEditInsertResult(nodeId: string, inserted: boolean): void {
     (window.parent as Window).postMessage(
       {
@@ -6491,15 +5815,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "*",
     );
   }
-  // T23: is the active text-edit element still part of this document? A
-  // document patch (replaceRuntimeDocument subtree/body swap), a
-  // delete-element command, or in-page reactivity (Alpine x-if) can detach
-  // the edited node while its session is live — its blur/keydown listeners
-  // then never fire again, so nothing ever runs the Escape/blur cleanup
-  // path. The leaked activeTextEditEl blocked ALL drags/marquees
-  // (beginPotentialShieldDrag/beginMarqueeSelection bail on it), kept the
-  // shield pointer-passthrough disabled, swallowed every design hotkey, and
-  // buffered every future runtime content update until a full reload.
   function isTextEditElConnected(): boolean {
     return !!(
       activeTextEditEl &&
@@ -6507,11 +5822,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       document.documentElement.contains(activeTextEditEl)
     );
   }
-  // T23: exit a stale (detached-element) text edit session through the SAME
-  // cleanup path a user Escape/blur takes. Returns true when a stale session
-  // was cleaned up. Callers that previously hard-bailed on activeTextEditEl
-  // should call this first so a leaked session self-heals on the next
-  // interaction instead of wedging the surface until reload.
   function exitStaleTextEditSession(): boolean {
     if (!activeTextEditEl || isTextEditElConnected()) return false;
     var staleEl = activeTextEditEl;
@@ -6523,10 +5833,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       setTextEditingPointerPassthrough(false);
       setSelectionOverlayResizeChromeVisible(true);
     }
-    // Defensive: finish() only clears activeTextEditEl when it still points
-    // at that session's own target. If overlapping sessions ever left a
-    // different detached element behind, force-clear so the surface can't
-    // stay wedged.
     if (activeTextEditEl === staleEl) {
       activeTextEditEl = null;
       setTextEditingPointerPassthrough(false);
@@ -6544,14 +5850,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         | {
             prevParent: Element;
             prevNextSibling: Node | null;
-            // Inline position/left/top/right/bottom VALUES captured right before
-            // the optimistic reorder's stripAbsolutePositioningForFlowInsert ran
-            // (absent/undefined when that strip did not apply — e.g. an
-            // absolute-container drop, or a flow-reorder of an already-flow
-            // element with nothing to strip). Restored by the visual-structure-ack
-            // failure branch alongside the parent/sibling revert so a rejected
-            // move-node round-trip cannot leave the element stripped of its
-            // absolute positioning while stuck in the wrong parent.
             prevInlinePositionStyles?: Record<string, string> | null;
             prevInlineGridStyles?: Array<{
               property: string;
@@ -6612,9 +5910,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var spacingHatchNodesByKey: Record<string, Element> = {};
   var spacingOverlayRenderKey = "";
   var activeDragCancel: (() => boolean) | null = null;
-  // Wall-clock (epoch ms) moment the currently-active gesture became active,
-  // so a delayed cancel meant for an earlier gesture can be told apart from
-  // one meant for whatever is active now — see cancelActiveBridgeDragOrPendingCommit.
   var activeDragStartedAt: number | null = null;
   var editorDragIdCounter = 0;
   var activeEditorDragId = "";
@@ -6626,9 +5921,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function resetBridgeDragModifierStateOnCancel(): void {
     bridgeSpaceKeyPressed = false;
     bridgeSpaceKeyConsumedByDrag = false;
-    // Keep a physically held non-Apple S modifier live until its keyup. The
-    // cancel path can run before that keyup and must not make the next move
-    // disagree with the host's active-key tracking.
     hostIgnoreAutoLayoutAtPointerDown = false;
   }
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
@@ -6726,12 +6018,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     });
   }
 
-  // `startedAt` should be performance.timeOrigin + <the originating pointer
-  // event>.timeStamp when that event is on hand (real creation time, immune
-  // to any synchronous work done before this call), falling back to Date.now()
-  // for gestures that don't thread the originating event through. Both are the
-  // same epoch-ms wall clock the host's Escape handler stamps its pressedAt
-  // with, so either is comparable against it.
   function setActiveDragCancel(
     cancel: () => boolean,
     startedAt?: number,
@@ -6767,29 +6053,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return cancel();
   }
 
-  // The host's Escape handler learns of an active drag from THIS document's
-  // own postEditorDragState message and cancels it by posting
-  // "agent-native:cancel-active-drag" back — both hops cross the iframe
-  // boundary as an async postMessage. The mouseup that ends the very same
-  // gesture is dispatched natively, directly to this document, and reliably
-  // finishes (removing this gesture's listeners and committing) before that
-  // cancel message is even delivered here, so `cancelActiveBridgeDrag` above
-  // finds nothing to cancel and the commit that should have been cancelled
-  // stands.
-  //
-  // Kept in a SEPARATE slot from `activeDragCancel` rather than reusing it:
-  // the plain-keydown Escape handler below also calls `cancelActiveBridgeDrag`
-  // directly, synchronously, whenever focus happens to sit in this document
-  // for ANY reason — arming that shared slot here would let an unrelated
-  // LATER Escape undo an already-finished gesture. Only the postMessage path
-  // (the one actually exposed to the race above) consults this slot, via
-  // cancelActiveBridgeDragOrPendingCommit.
-  //
-  // Tagged with the gesture's own id and cleared the moment ANY new gesture
-  // begins (beginPotentialShieldDrag), so a stale revert left over from
-  // gesture A can never fire once the user has moved on to gesture B — it
-  // simply vanishes rather than being left to fire against whatever gesture
-  // is active by the time it would.
   var MOVE_CANCEL_RACE_GRACE_MS = 200;
   var dragGestureSequence = 0;
   var pendingMoveCommitRevert: {
@@ -6817,28 +6080,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }, MOVE_CANCEL_RACE_GRACE_MS);
   }
 
-  // Used ONLY by the "agent-native:cancel-active-drag" message handler, so
-  // the grace window above is never reachable from the plain-keydown Escape
-  // path (which keeps calling cancelActiveBridgeDrag directly, touching only
-  // a genuinely live gesture).
-  //
-  // `pressedAt` is the moment Escape was actually pressed (the host computes
-  // it as performance.timeOrigin + the keydown event's timeStamp — real event
-  // creation time, not message-delivery time), never message-arrival time —
-  // the postMessage round trip means "cancel arrived after the commit" is
-  // true for BOTH an Escape that predates the mouseup (the race this grace
-  // window exists to fix) and one pressed genuinely after the drag already
-  // finished (which must NOT revert it). Per MDN, event creation time is
-  // comparable across browsing contexts as performance.timeOrigin +
-  // event.timeStamp, so both this document's releasedAt/activeDragStartedAt
-  // and the host's pressedAt sit on the same epoch-ms wall clock even though
-  // they're stamped in different documents; only comparing those creation
-  // times — never message arrival order — can tell the two cases apart.
-  //
-  // Gesture identity comes first, before touching the active gesture at all:
-  // an Escape stamped before the CURRENTLY active gesture began belongs to
-  // some earlier gesture (already finished or itself already cancelled) and
-  // must not reach in and cancel whatever the user has since started.
   function cancelActiveBridgeDragOrPendingCommit(pressedAt?: number): boolean {
     if (
       activeDragCancel &&
@@ -6851,8 +6092,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (
       pendingMoveCommitRevert &&
       typeof pressedAt === "number" &&
-      // Strict: a tie (same-tick release and Escape) is not "Escape predates
-      // the release" and must not revert an already-committed drag.
       pressedAt < pendingMoveCommitRevert.releasedAt
     ) {
       var pending = pendingMoveCommitRevert;
@@ -6908,13 +6147,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     repeatInstanceAnchor = null;
   }
 
-  /**
-   * Every row of a repeat renders the one source element under the selection,
-   * so an edit reaches all of them. Outlining the others is the only thing
-   * that says so before the edit lands. Deliberately not the passive-selection
-   * overlay: that one also draws combined bounds, which reads as "these are
-   * selected together" rather than "these follow this one".
-   */
   function paintRepeatInstances(el: Element | null): void {
     var info = el ? repeatInstanceInfo(el) : null;
     if (!info || info.instanceCount < 2) {
@@ -6969,7 +6201,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       )
       .forEach(function (handle) {
         var pos = handle.getAttribute("data-corner") || "";
-        // A viewer must not get four dead 7px squares over their content.
         handle.style.pointerEvents = readOnly ? "none" : "auto";
         handle.style.width = 7 * sx + "px";
         handle.style.height = 7 * sy + "px";
@@ -6981,8 +6212,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
   }
 
-  /** Grows/shrinks the pooled passive overlays to `count`. A style change
-   *  rebuilds the pool, because the two styles are different cssText. */
   var passiveSelectionOverlayPoolStyle: "default" | "soft" = "default";
   function syncPassiveSelectionOverlayPool(
     count: number,
@@ -7024,11 +6253,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         all.indexOf(el) === index
       );
     });
-    // A marquee drag reports on every frame, but the hit-set only changes on
-    // the frames where the band actually crosses an element boundary. Tearing
-    // down and rebuilding every passive overlay on the unchanged frames was
-    // one DOM write plus one forced layout read per selected element per
-    // frame, for no visible difference.
     if (
       style === passiveSelectionOverlayPoolStyle &&
       passiveSelectionOverlays.length === nextPassiveEls.length &&
@@ -7039,18 +6263,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     passiveSelectionEls = nextPassiveEls;
-    // Pool the overlay nodes rather than dropping and re-creating one per
-    // selected element: a marquee changes the hit-set on most frames, and the
-    // create/append/remove churn invalidated layout right before
-    // positionOverlay read it back, turning every frame into N forced
-    // reflows.
     syncPassiveSelectionOverlayPool(passiveSelectionEls.length, style);
     passiveSelectionEls.forEach(function (el, index) {
       var overlay = passiveSelectionOverlays[index];
       if (overlay) positionOverlay(overlay, el);
     });
-    // Selection changes do not go through refreshOverlays, so the combined
-    // bounds must be recomputed here too.
     positionMultiSelectionBounds();
   }
 
@@ -7072,16 +6289,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setPassiveSelectionElements([previous].concat(passiveSelectionEls));
   }
 
-  // Figma parity (spec §1): "shift+click on an already-selected object
-  // removes it." A caller must try this BEFORE overwriting `selectedEl` with
-  // the clicked target — once selectedEl already points at the target,
-  // there is no way to tell "reselecting the same primary" apart from
-  // "toggling it off". Returns undefined when shift-click isn't a toggle
-  // here (not shift-held, or target isn't already a member) so the caller
-  // proceeds with its normal add/replace selection logic; otherwise it has
-  // already applied the removal (mutating selectedEl/passiveSelectionEls)
-  // and returns the resulting primary (null when that empties the
-  // selection entirely).
   function resolveShiftClickToggleOff(
     target: Element | null,
     e?: MouseEvent,
@@ -7104,13 +6311,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return undefined;
   }
 
-  // Reports the FULL resulting selection after resolveShiftClickToggleOff
-  // mutated it, as a replace (non-additive) message. A plain `element-select`
-  // only ever tells the host to ADD one element (its `intent.additive` comes
-  // straight from the click's shiftKey, so a toggle-off's own shift+click
-  // reads as another add) — there is no "remove this one" message, so a
-  // toggle-off can only land on the host as an authoritative replacement
-  // list, the same vocabulary a non-additive marquee already uses.
   function postToggledSelection(toggledPrimary: Element | null): void {
     var survivors = (
       toggledPrimary ? [toggledPrimary] : ([] as Element[])
@@ -7121,12 +6321,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideSelectionOverlay();
     }
     if (survivors.length > 0) {
-      // No event: the bridge already resolved the toggle, so this is an
-      // authoritative REPLACE, not a fresh gesture for the host to interpret
-      // modifiers on. handleScreenElementMarqueeSelect ORs shiftKey into its
-      // own `additive` (a real shift+marquee is meant to merge, not replace),
-      // so passing this click's actual shiftKey:true would make the host
-      // merge Solo B right back in — the exact bug this toggle exists to fix.
       postElementMarqueeSelect(survivors, false, undefined);
     } else {
       (window.parent as Window).postMessage({ type: "clear-selection" }, "*");
@@ -7175,11 +6369,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  // Both layer states are painted here, from the one `layer-states` message,
-  // so every call site that re-runs after a runtime document swap restores
-  // hide AND lock together. Locked paints an attribute only; the hairline
-  // treatment lives in the editor chrome stylesheet, which is never part of
-  // the source head and so never reaches source or export.
   function applyLayerStateSelectors(): void {
     document
       .querySelectorAll("[data-agent-native-runtime-hidden]")
@@ -7224,9 +6413,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   interface MorphContext {
     keyed: Map<string, Element>;
     nextKeys: Set<string>;
-    /** Keys whose live element cannot be reused because its tag changed, so
-     *  the unkeyed probe must treat it as doomed even though the key lives on
-     *  in the next document. */
     obsolete: Set<string>;
     repeatCloneTargets?: Map<Element, Element[]>;
     repeatCloneBaselines?: Map<Element, SourceMeta>;
@@ -7274,9 +6460,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  // These children are what the host now persists: unclaimed, a node the
-  // browser created while typing stays invisible to morphChildren, which
-  // imports the saved copy beside it and never sweeps the original.
   function claimContentAsSource(el: Element | null): void {
     if (!el) return;
     var children = el.childNodes;
@@ -7292,9 +6475,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       return;
     }
-    // An x-for clone is not authored markup. Stamping one at init (when Alpine
-    // has already rendered) makes the morph read it as a stale source node and
-    // delete it the first time the source changes.
     if (root.nodeType === 1 && isTemplateCloneElement(root as Element)) return;
     recordSourceOwnership(root);
     if (root.nodeType !== 1) return;
@@ -7310,27 +6490,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  /** A template's authored children live in `.content`, not as child nodes, so
-   *  a walk over childNodes silently ignores every edit inside an x-if/x-for
-   *  template until Alpine instantiates the stale markup. */
   function templateContentOf(element: Element): DocumentFragment | null {
     if (element.nodeName !== "TEMPLATE") return null;
     return (element as HTMLTemplateElement).content ?? null;
   }
 
-  /**
-   * `querySelector` cannot see into a `<template>`: its content is an inert
-   * fragment outside the document tree. Reporting that miss as "absent" is
-   * what let the subtree path below delete live x-for clones whose only
-   * source counterpart lives inside the template.
-   */
   function findSourceNodeForSelector(
     root: Document | DocumentFragment | Element,
     selector: string,
   ): { node: Element | null; inTemplate: boolean } {
-    // An unparseable selector throws, and the caller's alias loop already
-    // treats that as "try the next candidate". Catching it here would report
-    // the same "absent" this function uses for a real miss.
     var direct = root.querySelector(selector);
     if (direct) return { node: direct, inTemplate: false };
     var templates = root.querySelectorAll("template");
@@ -7365,19 +6533,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return { keyed: keyed, nextKeys: nextKeys, obsolete: new Set<string>() };
   }
 
-  /**
-   * Seeds ownership from the document the srcdoc was built from: this runs
-   * inline at the end of body during parsing, before any deferred script, so
-   * Alpine and every other deferred runtime has yet to render.
-   *
-   * Two things it cannot see. The head is already contaminated — a blocking
-   * script src such as the Tailwind runtime has injected there — which is why
-   * the head baseline is baked in at build time instead. And DOM appended by
-   * the design's OWN synchronous body scripts, which ran before this point, is
-   * indistinguishable from authored markup and will be treated as source. Our
-   * injected bridges are exempt: everything they add carries
-   * data-agent-native-edit-overlay, which recordSourceSubtree skips.
-   */
   function captureInitialSourceOwnership(): void {
     if (document.body) recordSourceSubtree(document.body);
   }
@@ -7388,7 +6543,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     });
   }
 
-  /** Keeps class tokens the runtime added while applying the source's edit. */
   function applyClassAttribute(
     live: Element,
     previousSource: string,
@@ -7408,8 +6562,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     else live.removeAttribute("class");
   }
 
-  /** Parsed through a real CSSStyleDeclaration so quoted values and
-   *  `!important` survive a round trip that a split on ";" would corrupt. */
   var styleProbe: HTMLElement | null = null;
 
   function styleDeclarations(value: string): Array<[string, string, string]> {
@@ -7427,14 +6579,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return out;
   }
 
-  /** Property-level counterpart to applyClassAttribute: a property the source
-   *  never declared belongs to the runtime (x-show writes display). Ownership
-   *  is tracked by VALUE, not just name — a property the source has always
-   *  declared can still belong to the runtime for one particular morph if a
-   *  script (a theme toggle, Tailwind's CDN build) set it AFTER the source
-   *  last rendered. Only a source value that is new or has actually changed
-   *  since the previous render may overwrite the live value; an unchanged
-   *  source declaration always defers to whatever is live. */
   function applyStyleAttribute(
     live: Element,
     previousSource: string,
@@ -7450,18 +6594,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       nextOwned[entry[0]] = true;
     });
     var target = document.createElement("div");
-    // Start from the live value, not the next source: a runtime-set value
-    // this morph doesn't touch must survive by default. Only the two loops
-    // below move it off of that default.
     target.style.cssText = live.getAttribute("style") ?? "";
     nextDeclarations.forEach(function (entry) {
       var wasSource = Object.prototype.hasOwnProperty.call(
         previousOwned,
         entry[0],
       );
-      // Source didn't change this property since last render — leave the
-      // live value (author's or the runtime's) alone rather than resetting
-      // it to the source's own, unchanged value.
       if (wasSource && previousOwned[entry[0]] === entry[1]) return;
       target.style.setProperty(entry[0], entry[1], entry[2]);
     });
@@ -7472,10 +6610,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           previousOwned,
           entry[0],
         );
-        // Source declared this property and the live value still matches, so
-        // it is the source's to drop. A live value that has diverged is the
-        // runtime's — x-show writing display over an authored one — and
-        // dropping it un-hides the element.
         if (wasSource && previousOwned[entry[0]] === entry[1]) {
           target.style.removeProperty(entry[0]);
         }
@@ -7487,9 +6621,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     else live.removeAttribute("style");
   }
 
-  /** Form controls carry live state in properties the attributes do not
-   *  mirror. Gated on the DEFAULT changing, so a value the user typed is never
-   *  overwritten by an unrelated edit. */
   function morphFormState(live: Element, next: Element): void {
     if (live.nodeName === "INPUT") {
       var input = live as HTMLInputElement;
@@ -7524,9 +6655,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  /** x-text and x-html hand their entire child list to the runtime; whatever
-   *  the source still carries inside them is pre-hydration fallback, not
-   *  content to reconcile. */
   function declaresRuntimeChildren(element: Element): boolean {
     return (
       element.hasAttribute("x-text") ||
@@ -7750,13 +6878,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         applyStyleAttribute(live, previousStyle, attr.value);
         continue;
       }
-      // Alpine strips x-cloak the moment it initialises a tree. Source still
-      // carries it, and putting it back re-hides an element that is running.
       if (attr.name === "x-cloak" && !live.hasAttribute("x-cloak")) continue;
       if (live.getAttribute(attr.name) === attr.value) continue;
-      // A namespaced attribute (xlink:href inside an SVG) set through the
-      // plain setter becomes an inert same-named attribute the renderer
-      // ignores.
       if (attr.namespaceURI) {
         live.setAttributeNS(attr.namespaceURI, attr.name, attr.value);
       } else {
@@ -7785,13 +6908,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  /**
-   * Runtime output (x-for clones) sits between authored siblings but has no
-   * source counterpart, so it is never a valid insertion position: anchoring
-   * an authored node on a clone hoists it above the clones belonging to the
-   * template that precedes them — which is how the static sibling of a repeat
-   * ends up first in its list.
-   */
   function nextSourceAnchor(node: Node | null): Node | null {
     var probe = node;
     while (probe && !isSourceOwned(probe)) probe = probe.nextSibling;
@@ -7810,10 +6926,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var reuse: Node | null = null;
       if (key) {
         var candidate = context.keyed.get(key) ?? null;
-        // A keyed node that already contains this parent cannot be moved
-        // inside itself; recreate it instead of building a cycle. A candidate
-        // whose tag changed cannot be morphed into the new one either — the
-        // iframe would keep a div where source now says button.
         if (
           candidate &&
           !candidate.contains(live) &&
@@ -7821,17 +6933,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           candidate.namespaceURI === (nextChild as Element).namespaceURI
         ) {
           reuse = candidate;
-          // Claim it: authored markup can repeat an id, and reusing one live
-          // element for both would move the same node twice and drop one.
           context.keyed.delete(key);
         } else if (candidate) {
           context.obsolete.add(key);
         }
       } else {
-        // Skip live siblings that cannot be this source child: runtime output,
-        // and keyed nodes already destined to disappear. Stopping at one would
-        // import a fresh copy of the unchanged node behind it and destroy the
-        // original's listeners and state.
         var probe: Node | null = cursor;
         while (probe) {
           var probeKey = morphNodeKey(probe);
@@ -7863,14 +6969,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         reuse.nodeType === 1 &&
         scopeDirectiveChanged(reuse as Element, nextChild as Element)
       ) {
-        // Rebuild just this component rather than the frame: Alpine evaluates
-        // x-data once at init, so patching it in place leaves every binding
-        // underneath reading the previous scope. Alpine's own observer
-        // initialises the replacement.
         var rebuilt = document.importNode(nextChild as Element, true);
-        // Anchor on `cursor`, not on `reuse`: a keyed candidate can live
-        // anywhere in the document, so when this parent is itself newly
-        // inserted the old node is not its child and insertBefore throws.
         live.insertBefore(rebuilt, nextSourceAnchor(cursor));
         if (reuse.parentNode) reuse.parentNode.removeChild(reuse);
         recordSourceSubtree(rebuilt);
@@ -7888,16 +6987,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
         cursor = reuse.nextSibling;
       } else if (nextChild.nodeType === 1) {
-        // Shell first, then reconcile: a deep import would clone keyed
-        // descendants that already exist live, and the originals would be
-        // swept as stale right after. Wrapping a component in a new parent
-        // (the Group action) has to move the existing child, not rebuild it.
         var shell = document.importNode(nextChild as Element, false) as Element;
         live.insertBefore(shell, nextSourceAnchor(cursor));
         recordSourceOwnership(shell);
         morphElement(shell, nextChild as Element, context);
-        // That reconcile can pull `cursor` itself into the shell, leaving the
-        // outer walk holding a node this parent no longer owns.
         cursor = shell.nextSibling;
       } else {
         var imported = document.importNode(nextChild, true);
@@ -7909,12 +7002,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     while (cursor) {
       var stale = cursor;
       cursor = cursor.nextSibling;
-      // A keyed node can have been moved into a subtree inserted earlier in
-      // this same pass; it is no longer this parent's to remove.
       if (stale.parentNode !== live) continue;
-      // Only the source's own children are the source's to delete. What is
-      // left is runtime output — an x-for clone, x-text's text node — and the
-      // runtime holds the same parent element, so it never re-renders it.
       if (!isSourceOwned(stale)) continue;
       live.removeChild(stale);
     }
@@ -7925,10 +7013,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     next: Element,
     context: MorphContext,
   ): void {
-    // Before morphAttributes: writing the `value` attribute moves
-    // defaultValue, and the guard inside morphFormState reads defaultValue to
-    // decide whether the SOURCE default changed. Run it after and a dirty
-    // input never sees an explicit source edit.
     morphFormState(live, next);
     var previousSource = sourceMetaFor(live);
     morphAttributes(live, next);
@@ -7947,10 +7031,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var liveTemplate = templateContentOf(live);
     var nextTemplate = templateContentOf(next);
     if (liveTemplate && nextTemplate) {
-      // Its own key scope: a node id can legitimately appear both inside a
-      // template and in the instantiated body, and the outer map must not
-      // hand the live one over to the template. Snapshot repeat rows before
-      // morphing the inert children so unkeyed paths cannot shift mid-walk.
       var templateContext = scopedMorphContext(liveTemplate, nextTemplate);
       var repeatCloneSnapshot = snapshotRepeatCloneTargets(
         live as HTMLTemplateElement,
@@ -7964,31 +7044,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     morphChildren(live, next, context);
   }
 
-  /**
-   * Reconcile the live body against the parsed next document, reusing every
-   * node whose `data-agent-native-node-id` is unchanged.
-   *
-   * Never `body.innerHTML = next`. That rebuilds every node in the screen, so
-   * editing one element restarts Alpine components, CSS transitions and media,
-   * drops focus and inner scroll positions, and re-decodes every image — the
-   * "the frame refreshed" report. This walk touches only what differs.
-   *
-   * Like innerHTML it does not execute an inserted script, so a changed script
-   * is still the caller's cue to rebuild the document — see
-   * `runtimeDocumentNeedsReload` in DesignCanvas.tsx.
-   */
   function morphRuntimeBody(nextBody: Element): void {
     var keyed = new Map<string, Element>();
     document.querySelectorAll("[data-agent-native-node-id]").forEach(function (
       element: Element,
     ) {
-      // An x-for clone copies the template's markup, node id and all. Indexing
-      // one would let the morph adopt a runtime clone as the source node and
-      // move it out of the list it belongs to.
       if (!isSourceOwned(element)) return;
       var key = element.getAttribute("data-agent-native-node-id");
-      // First occurrence wins: a duplicated id in authored markup must not
-      // let a later node steal an earlier node's identity.
       if (key && !keyed.has(key)) keyed.set(key, element);
     });
     var nextKeys = new Set<string>();
@@ -8019,18 +7081,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
     var hasSourceProvenance =
       sourceProvenanceValue !== undefined && sourceProvenanceValue !== null;
-    // A document revision proof only describes a complete source document.
-    // Inline source edits carrying proof therefore use the body morph even if
-    // the legacy selected-subtree optimization would otherwise apply.
     var requiresFullDocumentMorph =
       Boolean(forceFullDocument) || hasSourceProvenance;
-    // T23: a session whose element was already detached (earlier patch,
-    // delete-element, in-page reactivity) can never end via blur/Escape —
-    // buffering behind it would freeze this surface's content forever. Exit
-    // it through the canonical cleanup first, then treat this update
-    // normally. (The nested pendingRuntimeDocumentUpdate replay inside
-    // finish() runs before we continue; this newer payload then supersedes
-    // its result, preserving ordering.)
     exitStaleTextEditSession();
     var rangeStateBeforeMorph = suspendedTextEditRange;
     var rangeBookmarkBeforeMorph = rangeStateBeforeMorph
@@ -8046,10 +7098,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       activeTextEditEl &&
       (!forceFullDocument || preserveTextEditingSession)
     ) {
-      // Don't yank a runtime content update out from under an in-progress
-      // text edit — but don't silently lose it either (T13). Buffer only the
-      // latest payload; it is applied once the edit session ends via
-      // finishActiveTextEdit's replay below.
       pendingRuntimeDocumentUpdate = {
         html: html,
         preferredSelector: preferredSelector,
@@ -8063,10 +7111,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (activeTextEditEl) {
-      // Commit (or discard, if empty) the active edit through the same path
-      // Escape/blur would use — this removes the session's listeners
-      // (including the document-level "selectionchange" listener) instead of
-      // just resetting activeTextEditEl, which leaked them (T4).
       if (finishActiveTextEdit) {
         finishActiveTextEdit(true);
       } else {
@@ -8083,13 +7127,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var persistentNodes = Array.prototype.slice.call(
       document.querySelectorAll("[data-agent-native-edit-overlay]"),
     );
-    // A forced whole-document replace is used for structural edits (duplicate,
-    // delete, cut/paste, undo/redo). The single-subtree fast path below must
-    // never run in that mode — it can faithfully replace the selected node
-    // while silently omitting inserted or removed siblings elsewhere — but the
-    // selectors still re-anchor the selection AFTER the morph, or an edit that
-    // keeps the same node selected (a layout flow change) leaves the canvas
-    // looking deselected while the inspector still shows it.
     var activeSelector =
       preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
     var activeCandidates: string[] = [];
@@ -8111,20 +7148,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
     ensureEditorChromeStyle();
     if (lastSourceHeadHtml === null) {
-      // First patch after a srcdoc build. The document already carries the
-      // head it was built from, so this seeds the baseline — but it cannot
-      // just adopt: when the first patch is itself a head edit (a breakpoint,
-      // motion or token write, none of which reload the frame any more),
-      // adopting means that stylesheet never reaches the live document and
-      // every later diff is measured against a head that was never applied.
-      // Insert only what is genuinely new; replaceSourceHeadNodes skips nodes
-      // already present.
       replaceSourceHeadNodes(null, nextHeadHtml);
       lastSourceHeadHtml = nextHeadHtml;
     }
     var currentHeadHtml = lastSourceHeadHtml;
-    // The subtree path rewrites one selector's match. A forced replacement can
-    // have changed any number of nodes, so taking it leaves the rest stale.
     if (
       !requiresFullDocumentMorph &&
       nextHeadHtml === currentHeadHtml &&
@@ -8170,10 +7197,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         currentMatch = fallbackCurrentMatch;
         matchedSelector = fallbackSelector;
       }
-      // A source node inside a template feeds every clone it renders, so
-      // rewriting the one clone this selector happens to hit would leave the
-      // rest stale and replace it with markup whose bindings have no data.
-      // The whole body has to re-render instead.
       if (
         !nextInTemplate &&
         currentMatch &&
@@ -8237,8 +7260,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ensureEditorChromeStyle();
       lastSourceHeadHtml = nextHeadHtml;
     }
-    // Detached first so the keyed walk below never sees editor chrome as a
-    // stale child of the source document and removes it.
     persistentNodes.forEach(function (node) {
       if (node.parentNode) node.parentNode.removeChild(node);
     });
@@ -8277,27 +7298,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     });
     hydrateVectorEndpointMarkers();
     applyLayerStateSelectors();
-    // The morph can swap a frame for an equivalent element with the same name
-    // and box, which the label cache cannot see: rebuild so no label's click
-    // closure keeps pointing at a detached node.
     frameLabelRenderKey = "";
 
     selectedEl = null;
     clearHoverGate();
-    // A structural replace can have deleted the selected node, and a stale
-    // positional candidate then matches whichever sibling shifted into its
-    // place — so only whole-selector stable identity may re-anchor one.
     var reanchorCandidates = requiresFullDocumentMorph
       ? activeCandidates.filter(isStableIdentitySelector)
       : activeCandidates;
     for (var i = 0; i < reanchorCandidates.length && !selectedEl; i += 1) {
       try {
         var match = document.querySelector(reanchorCandidates[i]);
-        // Skip the editor's own injected overlay chrome and re-anchor to a
-        // source-backed element. A stale positional candidate like
-        // body > div:nth-of-type(6) can otherwise re-match an overlay div
-        // (the only direct div children of body at runtime), which then has
-        // no code-layer node and fails every edit.
         if (
           match &&
           !isLayerInteractionBlocked(match) &&
@@ -8387,9 +7397,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var stripe =
       kind === "gap" ? "rgba(255, 79, 216, 0.58)" : "rgba(46, 168, 255, 0.52)";
     var angle = orientation === "vertical" ? "135deg" : "45deg";
-    // Constant-screen-size chrome: stripe density compensates for the host's
-    // iframe scale so the hatch pattern reads identically at any canvas zoom
-    // instead of blurring together at low zoom.
     var scale = chromeLineScale();
     return (
       "repeating-linear-gradient(" +
@@ -8418,16 +7425,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return Math.max(allowNegative ? -999 : 0, Math.min(999, rounded));
   }
 
-  // Figma-style handle hit area: only the small handle *line* itself (plus a
-  // few px of pointer tolerance) should start a padding drag. The rest of the
-  // padding band must fall through to normal element move/select — dragging
-  // anywhere else inside the element (even inside the padding region) moves
-  // the element, it does not resize padding. Gap handles keep the previous
-  // full-region hit area (out of scope for this fix; not covered by the
-  // reported UX regression). Base tolerance is in editor-chrome (unscaled)
-  // pixels; callers multiply by chromeLineScale() so the hit area keeps a
-  // constant on-screen size regardless of canvas zoom, matching how the
-  // handle line's own thickness (chromeLineScale()) is derived.
   var PADDING_HANDLE_HIT_TOLERANCE_BASE = 4;
 
   function hitRectForPaddingHandle(
@@ -8440,9 +7437,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var minY = Math.min(line.y, region.y);
     var maxX = Math.max(line.x + line.width, region.x + region.width);
     var maxY = Math.max(line.y + line.height, region.y + region.height);
-    // Only the line itself matters for hit-testing; expand just the line's own
-    // rect by the tolerance, then clamp to the padding region bounds so the
-    // hit area never spills outside the visual padding band.
     var hitX = Math.max(minX, line.x - tolerance);
     var hitY = Math.max(minY, line.y - tolerance);
     var hitRight = Math.min(maxX, line.x + line.width + tolerance);
@@ -8594,10 +7588,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var paddingBottom = readPx(cs.paddingBottom);
     var paddingLeft = readPx(cs.paddingLeft);
     var line = chromeLineScale();
-    // Both orientations derive their tick length from the same metric (the
-    // element's smaller dimension) and the same uniform scale factor, so a
-    // horizontal (top/bottom) tick and a vertical (left/right) tick always
-    // render at the same visual length.
     var tickLength =
       Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) *
       line;
@@ -8846,8 +7836,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (children.length < 2) return [];
     var handles = [];
     var line = chromeLineScale();
-    // Use the same uniform scale for both axes so a horizontal gap tick and
-    // a vertical gap tick render at the same visual length.
     var tickLength = 8 * line;
     var isFlex = cs.display === "flex" || cs.display === "inline-flex";
     var isGrid = cs.display === "grid" || cs.display === "inline-grid";
@@ -8952,14 +7940,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       .concat(buildGapSpacingHandles(el, rect, cs));
   }
 
-  // Figma-style live value readout for the padding handle: shown while
-  // hovering OR dragging the handle line, positioned ~12px above and to the
-  // right of the pointer (matching showTransformBadge's cursor-relative
-  // offset idiom, but anchored to the badge's bottom-left corner via
-  // translateY(-100%) so the box actually sits above the cursor instead of
-  // growing downward through it) and live-updating as the value changes.
-  // Falls back to the handle-region center when no cursor point is known yet
-  // (e.g. a hover activated programmatically rather than by a pointer move).
   function showSpacingBadgeForHandle(
     handle: {
       key: string;
@@ -8981,12 +7961,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       spacingBadge.style.display = "none";
       return;
     }
-    // Constant-screen-size chrome: the host CSS-scales this iframe by the
-    // canvas zoom, so every intrinsic size here (font, padding, radius,
-    // cursor offset) multiplies by chromeLineScale() to render at the same
-    // apparent size at any zoom — the badge was previously unscaled, which
-    // made it microscopic at low overview zooms (the "value box never
-    // appears" report) and oversized when zoomed in.
     var line = chromeLineScale();
     var point = cursorPoint || lastSpacingPointerPoint;
     var x: number;
@@ -9046,22 +8020,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     lineNode.style.borderRadius = "999px";
     lineNode.style.left = handle.line.x + "px";
     lineNode.style.top = handle.line.y + "px";
-    // No 1px floor: at zoom > 100% the pill's thickness is intentionally
-    // sub-1px in iframe space (thickness * host scale = constant screen px).
     lineNode.style.width = handle.line.width + "px";
     lineNode.style.height = handle.line.height + "px";
     lineNode.style.background = spacingColor(handle.kind);
     spacingOverlay.appendChild(lineNode);
 
-    // Visual-only hatch band over the full padding region. Purely decorative
-    // (pointer-events: none) — it must never intercept clicks, since only the
-    // small hit node below is allowed to start a padding drag. Hatch is a
-    // hover affordance only: it shows the band the user is about to resize,
-    // and disappears the instant a drag starts (kind === "padding" only, per
-    // the reported regression; gap handles are out of scope for this fix).
-    // Constant-screen-size chrome: tile the hatch pattern at a size that
-    // compensates for the host's iframe scale (matches spacingFill's scaled
-    // stripe stops — a fixed 6px tile would clip the scaled pattern).
     var hatchTile = 6 * chromeLineScale() + "px";
     if (handle.kind === "padding" || handle.kind === "margin") {
       var hatchNode = document.createElement("span");
@@ -9103,10 +8066,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     regionNode.style.top = hitRect.y + "px";
     regionNode.style.width = hitRect.width + "px";
     regionNode.style.height = hitRect.height + "px";
-    // The gap-handle band keeps its previous always-tintable full-region
-    // background (unaffected by this fix); padding handles no longer paint
-    // the hatch on this node — buildSpacingHandles' dedicated hatchNode above
-    // owns that so it can stay outside the (now much smaller) hit area.
     regionNode.style.background =
       handle.kind !== "padding" && handle.kind !== "margin" && active
         ? spacingFill(handle.kind, handle.orientation)
@@ -9201,19 +8160,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return activeGroupKeys;
   }
 
-  // Figma-parity: the diagonal hatch fill over the padding band is a
-  // hover-only VISUAL affordance layered on top of handles that are always
-  // mounted and hit-testable for the selected element (mounting itself is
-  // never gated on hover — see buildSpacingHandles/renderSpacingHandle, which
-  // render every handle unconditionally). The hatch must be visible while the
-  // pointer rests over the handle line (so the user can see the full padding
-  // band they are about to resize) and hidden the instant an actual drag
-  // starts — during the drag only the live value badge communicates the
-  // current amount. This is intentionally a separate concept from
-  // activeSpacingGroupKeys (which mirrors the opposite side during an
-  // alt-drag and still applies while dragging) — hover-hatch and drag-mirror
-  // never overlap in time because a drag suppresses hover state (see
-  // startSpacingDrag).
   function hoverSpacingGroupKeys(
     handles: ({
       key: string;
@@ -9307,12 +8253,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  // Resolves the handle object matching hoveredSpacingHandleKey, if any — used
-  // to keep the value badge visible on hover (not just during an active drag)
-  // per the padding-handle UX fix: hovering the handle line shows the live
-  // "Npx" readout, dragging keeps showing it with the in-progress value. Note
-  // this only affects which handle drives the *badge* — every handle stays
-  // mounted/hit-testable regardless of hover (see buildSpacingHandles).
   function hoveredHandleFor(
     handles: ({ key: string } | null)[],
   ): { key: string } | null {
@@ -9374,15 +8314,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     activateSpacingHandle(spacingKey);
   }
 
-  // Geometry-based fallback for the padding/gap handle hover: resolves the
-  // handle whose hit rect (line + scaled tolerance zone) contains the given
-  // client point, using the handle state captured at the last overlay
-  // render. The event-target path above (spacingKeyFromTarget) only fires
-  // when the pointermove's target IS the region node — which depends on
-  // overlay z-order and event routing; this direct hit test makes the
-  // hover badge reliable from the shield's pointermove too, so hovering
-  // anywhere on the handle line (with its tolerance zone) always shows the
-  // "Npx" value box.
   function spacingHandleKeyAtPoint(clientX: number, clientY: number): string {
     if (!selectedEl || !document.documentElement.contains(selectedEl)) {
       return "";
@@ -9476,33 +8407,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return false;
   }
 
-  // ── Selection-handle hit-zone inward clamp ────────────────────────────
-  // Keep in sync with multi-screen/handle-hit-zones.ts (the host-side
-  // selection chrome applies the same clamp rule to its screen-frame/board
-  // handles; nominal sizes differ — bridge edge bars are 10px thick centered
-  // on the edge, corner squares 7px with a 4px outward offset — but the
-  // inward-reach clamp and its 0.25 fraction must stay identical).
-  //
-  // The edge/corner handles multiply by the chrome scale so they keep a
-  // constant on-screen size, which makes their HIT zones grow without bound
-  // in iframe-local px as the host zooms out: at 19% zoom the nominal 10px
-  // edge bar is ~52.6 local px thick, reaching ~26.3 local px into the
-  // element from each edge. Any element smaller than twice that reach has
-  // its ENTIRE body covered by the two opposing bars — every press resolves
-  // to a resize, so the element can never be grabbed for a move drag (or
-  // clicked in its interior) at low zoom. Clamp only the INWARD reach of
-  // each handle hit zone to a fraction of the element's own dimension on
-  // that axis; the outward reach (which can never occlude the body) and the
-  // corner handles' VISUAL size stay untouched. With 0.25, two opposing
-  // handles consume at most half the dimension, so the central 50% band of
-  // each axis always stays body-grabbable.
   var HANDLE_MAX_INWARD_FRACTION = 0.25;
 
-  // A translated or scaled element still has an axis-aligned visual box, so
-  // its center is safe for move-drag fallback. Rotation, skew, perspective,
-  // and other non-axis-aligned transforms must keep the existing handle-first
-  // behavior because their edge handles can legitimately overlap the element's
-  // axis-aligned bounding rect.
   function isAxisAlignedTransform(transform: string): boolean {
     if (!transform || transform === "none") return true;
     var matrixMatch = /^matrix\(([^)]+)\)$/.exec(transform);
@@ -9539,11 +8445,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  // Mirror of clampHandleInwardReach in multi-screen/handle-hit-zones.ts.
-  // Non-finite or non-positive dimensions (no overlaid element, degenerate
-  // zero-size elements mid-creation) return the nominal reach unchanged —
-  // exactly the pre-clamp behavior, and a zero-size element has no body to
-  // protect.
   function clampHandleInwardReach(nominalInward, elementDimension) {
     if (!Number.isFinite(elementDimension) || elementDimension <= 0) {
       return nominalInward;
@@ -9554,17 +8455,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  // The element applySelectionHandleHitGeometry last sized handles for.
-  // Compared by reference on every call so a genuine selection SWITCH (a
-  // different element, including the very first real selection after the
-  // null-element page-load call) can suppress the handles' geometry
-  // transition for that one write — see the CSS rule this toggles above.
   var lastHandleGeometryTargetEl: Element | null = null;
 
-  // Drawn vector primitives (lines, arrows, ellipses, polygons, stars, pen
-  // paths) render their shape via SVG geometry, not a CSS box — a
-  // border-radius on their wrapper has no visible effect, so the
-  // corner-radius drag handles stay hidden for them.
   var RADIUS_UNSUPPORTED_PRIMITIVES = {
     line: true,
     arrow: true,
@@ -9585,23 +8477,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return !kind || !RADIUS_UNSUPPORTED_PRIMITIVES[kind];
   }
 
-  // Sizes the selection overlay's edge/corner handles for the current chrome
-  // scale, clamping each handle's inward reach against the overlaid
-  // element's own rect. Called from applyEditorChromeScale (scale changes)
-  // AND from positionOverlay (selection/element changes), because the
-  // clamped geometry depends on the element's dimensions, not just the
-  // scale. On large elements this reproduces the historical geometry
-  // exactly: edge bars 10*scale thick centered on the edge, corner squares
-  // 7*scale offset -4*scale.
   function applySelectionHandleHitGeometry(el) {
-    // The handle spans are singletons reused across every selection. Easing
-    // them from the PREVIOUS target's geometry to this one is meaningless
-    // for hit-testing (the two targets are unrelated), and the transient
-    // in-between value — up to the fully unclamped nominal reach, since the
-    // null-element page-load call never clamps — can cover this element's
-    // entire body and steal its first click as a resize instead of a move.
-    // Only ease when the SAME element is resizing under a live chrome-scale
-    // change, which is what the transition exists for.
     var isNewSelectionTarget = el !== lastHandleGeometryTargetEl;
     lastHandleGeometryTargetEl = el || null;
     if (isNewSelectionTarget) {
@@ -9621,9 +8497,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       elHeight = elRect.height;
     }
 
-    // Invisible edge-resize hit bars: nominal 5*scale outward + 5*scale
-    // inward. Only the inward half is clamped; the bar's outward side stays
-    // anchored at -5*scale from the edge.
     selectionOverlay
       .querySelectorAll("[data-agent-native-edge-handle]")
       .forEach(function (edge) {
@@ -9642,23 +8515,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
       });
 
-    // Visible corner squares: the square keeps its constant on-screen size
-    // (7*scale); when its nominal 3*scale inward overlap would exceed the
-    // per-axis clamp, the square shifts outward so only the clamped reach
-    // overlaps the body. Corners clamp per-axis independently.
     selectionOverlay
       .querySelectorAll("[data-agent-native-edit-handle]")
       .forEach(function (handle) {
         var pos = handle.getAttribute("data-agent-native-edit-handle") || "";
-        // Both axes use the same uniform `line` scale (never sx/sy
-        // individually) so the square handle stays square and centered on
-        // the stroke corner even when the iframe's own X/Y chrome scale
-        // differs — using sx/sy here stretched the square into a rectangle
-        // and threw off the corner offset math whenever scaleX !== scaleY.
         var sizeX = 7 * line;
         var sizeY = 7 * line;
-        // sizeY - 4*line is exact (Sterbenz), so the unclamped offset below
-        // reproduces the historical -4*scale bit-for-bit.
         var inwardX = clampHandleInwardReach(sizeX - 4 * line, elWidth);
         var inwardY = clampHandleInwardReach(sizeY - 4 * line, elHeight);
         handle.style.width = sizeX + "px";
@@ -9678,9 +8540,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
       });
 
-    // Radius handles: small circles inset along each corner's diagonal,
-    // hidden unless the element supports border-radius and is large enough
-    // to fit them without overlapping the opposite corner.
     var radiusHandlesSupported = supportsCornerRadiusHandles(el);
     selectionOverlay
       .querySelectorAll("[data-agent-native-radius-handle]")
@@ -9715,9 +8574,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
 
     if (isNewSelectionTarget) {
-      // Force layout so the instant geometry above is committed under the
-      // transition:none rule before removing it, or removing it on the same
-      // tick would let the transition pick up mid-write and still animate.
       void selectionOverlay.offsetHeight;
       selectionOverlay.removeAttribute(
         "data-agent-native-suppress-handle-transition",
@@ -9730,8 +8586,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var sx = chromeScaleX();
     var sy = chromeScaleY();
     var line = chromeLineScale();
-    // Keep hover and the corresponding selection outline visually identical.
-    // Soft responsive peers intentionally use the lighter outline treatment.
     highlightOverlay.style.borderWidth =
       (highlightOverlayStyle === "soft" ? 1 : 1.5) * line + "px";
     parentAutoLayoutOverlay.style.borderWidth = 1 * line + "px";
@@ -9764,7 +8618,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
   }
 
-  // Returns true when the overlay was placed with the element's rotated CSS box.
   function positionOverlayForRotatedLocalBox(
     overlay: HTMLElement,
     el: Element,
@@ -9821,8 +8674,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     passiveSelectionEls.forEach(function (el) {
       if (el && document.documentElement.contains(el)) members.push(el);
     });
-    // One set of handles per multi-selection: the primary member's own sit
-    // over the group's at a shared corner and win the hit test.
     setSelectionOverlayResizeChromeVisible(
       !readOnly && !activeTextEditEl && members.length < 2,
     );
@@ -9904,13 +8755,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var placedRotatedLocalBox = positionOverlayForRotatedLocalBox(overlay, el);
     if (!placedRotatedLocalBox) {
-      // Only the primary selection overlay consumes this (updateComponentTag
-      // below); a marquee repositions every passive overlay on every frame,
-      // so measuring for them too was a forced layout per hit per tick.
       var rect =
         overlay === selectionOverlay ? el.getBoundingClientRect() : undefined;
-      // Only a degenerate box is padded, so every normal outline still matches
-      // the element rect exactly.
       var box = selectableBounds(el);
       overlay.style.display = "block";
       overlay.style.top = box.top + "px";
@@ -9922,28 +8768,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (overlay === selectionOverlay) {
       paintRepeatInstances(el);
       applySelectionChrome(el);
-      // Re-clamp handle hit zones for THIS element's dimensions — the
-      // clamped geometry is element-dependent, not just scale-dependent
-      // (see applySelectionHandleHitGeometry).
       applySelectionHandleHitGeometry(el);
       updateSpacingOverlay(el);
       updateGridCellOverlay(el);
-      // A label paints in the accent colour while its frame is selected, so it
-      // has to repaint on every selection change, not only on a geometry tick.
       refreshFrameNameLabels();
-      // `rect` is undefined on the rotated-local-box path; updateComponentTag
-      // falls back to its own read in that case.
       updateComponentTag(el, rect);
       updateParentAutoLayoutOverlay(el);
       showSizeBadge(el);
-      // Board objects live inside this iframe, but the board wrapper is
-      // pinned below Screens (z-index 0) so an overlapping Screen can occlude
-      // this overlay's own handles both visually and for hit-testing. The
-      // host renders its own SelectionBox above every Screen and forwards
-      // gestures back into startResize() (see beginBoardElementResize); it
-      // needs this overlay's just-computed unrotated local box (left/top/
-      // width/height are set the same way by both branches above) plus the
-      // rotation separately, not the rotated bounding box.
       if (designCanvasBoardSurface) {
         window.parent.postMessage(
           {
@@ -9951,8 +8782,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             screenId: designCanvasScreenId,
             selector: getSelector(el),
             sourceId: getSourceId(el),
-            // Carry the iframe's own render-window offset with this geometry.
-            // A delayed local rect must not be paired with a newer host window.
             contentOffsetX: designCanvasContentOffsetX,
             contentOffsetY: designCanvasContentOffsetY,
             rect: {
@@ -10003,7 +8832,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     hideGridTrackOverlay();
   }
 
-  // Computed grid templates resolve to used px track sizes; a 0px track still
   // occupies a line, so only a genuinely non-numeric token (a line name) drops.
   function gridTrackSizes(template: string): number[] {
     var sizes: number[] = [];
@@ -10015,12 +8843,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return sizes;
   }
 
-  /**
-   * Where the tracks actually start, and how far apart they sit, once
-   * justify-content / align-content has distributed the space the tracks do
-   * not fill. Reading only the content-box origin paints the cells of a
-   * centered or distributed grid away from its real tracks.
-   */
   function gridTrackDistribution(
     tracks: number[],
     contentSize: number,
@@ -10657,17 +9479,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (trackLayout) renderGridTrackOverlay(el, trackLayout);
   }
 
-  // ── Frame name labels ───────────────────────────────────────────────────
-  // This chrome paints over the design's own page, never over editor surfaces.
   // guard:allow-raw-color — a mid grey is legible on white screens and dark boards.
   var FRAME_LABEL_IDLE_COLOR = "rgba(113,113,122,0.95)";
   var FRAME_PRIMITIVE_SELECTOR = '[data-an-primitive="frame"]';
   var frameLabelRenderKey = "";
 
-  // Only top-level canvas objects carry a name label. A screen is named by the
-  // host's screen card, so nothing inside a screen document is labeled here:
-  // "has no frame ancestor" is not "is top level", and a frame dropped inside a
-  // screen satisfied the former and got a stray canvas label.
   function outermostFrameElements(): Element[] {
     if (!designCanvasBoardSurface) return [];
     var frames = Array.prototype.slice.call(
@@ -10697,9 +9513,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var previousSelectedEl = selectedEl;
     selectedEl = frame;
     positionOverlay(selectionOverlay, selectedEl);
-    // Same collapse the shield's own plain select does (phantom-passenger
-    // fix, §3.5): a drag started before the host mirrors this selection back
-    // would otherwise carry the previous multi-selection's members along.
     if (!e.shiftKey && passiveSelectionEls.length) {
       setPassiveSelectionElements([]);
     }
@@ -10727,8 +9540,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     frames.forEach(function (frame) {
       var rect = frame.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
-      // A frame flush against the document top would have its label clipped by
-      // the iframe edge, so it rides just inside the frame instead.
       var top = rect.top - labelHeight - 2 * line;
       if (top < 0) top = rect.top + 2 * line;
       placements.push({
@@ -10832,8 +9643,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var overlay = passiveSelectionOverlays[index];
       if (overlay) positionOverlay(overlay, el);
     });
-    // A multi-selection has no single size to report; positionOverlay owns
-    // the badge for the single-selection case.
     if (passiveSelectionEls.length > 0) hideSizeBadge();
     positionMultiSelectionBounds();
     positionGradientOverlay();
@@ -10841,10 +9650,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     syncOverlayObservers();
   }
 
-  // Coalesced overlay refresh: ResizeObserver/MutationObserver callbacks can
-  // fire in bursts (e.g. a font/image load reflowing many ancestors, or an
-  // Alpine x-show toggling several siblings in one microtask). Collapse any
-  // number of triggers within a frame into a single refreshOverlays() call.
   var refreshOverlaysScheduled = false;
   var refreshOverlaysGeneration = 0;
   function scheduleRefreshOverlays(): void {
@@ -10858,13 +9663,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     });
   }
 
-  // ResizeObserver on the selected + hovered elements catches size changes
-  // that scroll/resize listeners miss entirely: webfont swap reflow, image
-  // decode, CSS transitions/animations, and Alpine/Vue reactivity toggling
-  // classes on the element itself. MutationObserver (attributes + childList,
-  // scoped to the selected element and its parent) catches structural/attr
-  // changes that resize an element without necessarily firing a ResizeObserver
-  // entry on that exact node (e.g. a sibling insertion shifting layout).
   var overlayResizeObserver: ResizeObserver | null = null;
   var overlayMutationObserver: MutationObserver | null = null;
   var observedResizeEls: Element[] = [];
@@ -10925,8 +9723,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             childList: true,
             subtree: false,
           });
-          // Also watch the selected element itself for attribute changes
-          // (e.g. class/style toggles) when it isn't the observed root.
           if (nextRoot !== selectedEl && selectedEl) {
             overlayMutationObserver.observe(selectedEl, {
               attributes: true,
@@ -10940,28 +9736,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  // Transition/animation overlay tracking: the ResizeObserver above only
-  // fires on border-box SIZE changes, so a purely transform- or left/top-
-  // driven CSS transition/animation on the selected or hovered element (very
-  // common for hover states, toggles, carousels in AI-generated prototypes)
-  // never triggers it. Without this, the one-shot MutationObserver callback
-  // that fires when the triggering class/style attribute changes reads
-  // getBoundingClientRect() at essentially the START of the transition, and
-  // the overlay then freezes there while the real element visually slides/
-  // fades to its final position — the selection outline and its handles
-  // visibly detach from the animating element for the transition's whole
-  // duration. Fixed by running a bounded rAF refresh loop for the duration of
-  // any transition/animation that starts on a tracked element, so the
-  // overlay follows every intermediate frame instead of only the first and
-  // (via the next unrelated mutation/resize/scroll) last.
   var overlayAnimationTrackingActive = false;
   var overlayAnimationTrackingUntil = 0;
   var overlayAnimationTrackingStartedAt = 0;
-  // Covers the vast majority of real UI transitions/animations (hover/toggle
-  // durations are almost always well under a second); the max below is a
-  // safety net for a transition whose end event never fires (e.g. cancelled
-  // by a later style write with no transitionend), so a slow/held animation
-  // can't pin this loop on forever.
   var OVERLAY_ANIMATION_TRACKING_WINDOW_MS = 1000;
   var OVERLAY_ANIMATION_TRACKING_MAX_MS = 4000;
 
@@ -10970,10 +9747,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ): boolean {
     if (!target) return false;
     if (target === selectedEl || target === hoveredEl) return true;
-    // Frame labels are always-on chrome, so a transition that moves or
-    // resizes a labelled frame — on the frame, an ancestor, or a child that
-    // grows a hug-sized one — has to drive this loop even with nothing
-    // selected. Mutation records never fire for a running keyframe.
     var el = target as Element;
     if (!el || typeof el.closest !== "function") return false;
     return Boolean(
@@ -10997,10 +9770,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     window.requestAnimationFrame(tickOverlayAnimationTracking);
   }
 
-  // Re-armed (window extended) by every qualifying transitionrun/
-  // animationstart, so a sequence of staggered transitions on the same
-  // element keeps the loop running for their combined duration rather than
-  // stopping partway through.
   function startOverlayAnimationTracking(): void {
     var now = Date.now();
     overlayAnimationTrackingUntil = now + OVERLAY_ANIMATION_TRACKING_WINDOW_MS;
@@ -11015,10 +9784,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       startOverlayAnimationTracking();
     }
   }
-  // Capture-phase, delegated on document (not per-element add/remove-
-  // listener bookkeeping tied to selection changes): transitionrun/
-  // animationstart bubble, so one pair of listeners registered once at
-  // bridge init covers whichever element is currently selected/hovered.
   document.addEventListener(
     "transitionrun",
     onOverlayAnimationTrackingEvent,
@@ -11092,8 +9857,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     measurementOverlay.appendChild(labelEl);
   }
 
-  // Figma measures both axes: single gaps when boxes are apart and separate
-  // edge distances while they overlap. Dashed runs only connect off-axis gaps.
   function measurementSegments(s, t) {
     var segments: Array<{
       x1: number;
@@ -11169,8 +9932,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideMeasurements();
       return;
     }
-    // A content re-render can rebuild document.body and drop this overlay;
-    // re-attach it before drawing so the lines always render.
     if (!measurementOverlay.isConnected) {
       appendEditorChromeNode(measurementOverlay);
     }
@@ -11198,11 +9959,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       : { move: "mousemove", up: "mouseup" };
   }
 
-  // The bridge is bundled into an iframe IIFE. Its canvas is expressed in the
-  // iframe's CSS pixels, so client and canvas coordinates intentionally share
-  // the same viewport. Keeping this conversion at the adapter boundary lets
-  // the common controller own gesture lifecycle/threshold/Shift semantics
-  // without teaching it Design's source patches, auto layout, or transforms.
   function bridgeGestureViewport() {
     var width = Math.max(
       1,
@@ -11260,8 +10016,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function stopNativeInteraction(e: Event): void {
     if (interactionMode) return;
-    // A fling's wheel events are not cancelable; cancelling one logs a browser
-    // Intervention per event and scrolls anyway.
     if (e.cancelable) e.preventDefault();
     e.stopPropagation();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
@@ -11376,12 +10130,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var didScroll = scrollElementByWheelDelta(scrollTarget, delta.x, delta.y);
     if (!didScroll) return;
     stopNativeInteraction(e);
-    // Coalesced (not a raw requestAnimationFrame(refreshOverlays)): trackpads
-    // emit several wheel events per frame, and scheduling one full overlay
-    // refresh per event stacks N redundant refreshOverlays() runs into every
-    // frame. With an element selected each run forces multiple synchronous
-    // layout reads, which is exactly the per-event work that froze scrolling
-    // on layout-heavy pages while a selection was active.
     scheduleRefreshOverlays();
   }
 
@@ -11392,9 +10140,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  // Option composes a different character on macOS (Option+A -> "å"), so an
-  // alt-held chord matched on e.key forwards on Windows and vanishes on a Mac.
-  // Mirrors ALT_CODE_KEYS / normalizedKey in useDesignHotkeys.ts.
   var ALT_CODE_KEYS = {
     KeyA: "a",
     KeyB: "b",
@@ -11439,10 +10184,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var nav = navigator as Navigator & {
       userAgentData?: { platform?: string };
     };
-    // `userAgentData.platform` can describe the emulated UA while
-    // `navigator.platform` still reports the physical keyboard platform (as
-    // Chromium does in the Playwright Mac profile). Prefer the latter so the
-    // primary modifier follows the keyboard that delivered the event.
     var platform =
       nav.platform || (nav.userAgentData && nav.userAgentData.platform) || "";
     return /Mac|iPhone|iPad|iPod/i.test(platform);
@@ -11455,10 +10196,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function isIgnoreAutoLayoutChord(e): boolean {
-    // Figma assigns nesting to the platform-primary modifier (Cmd on Apple,
-    // Ctrl elsewhere). Literal Control is the free-placement override on
-    // Apple; keeping it platform-scoped avoids treating Windows Ctrl as both
-    // nesting and Ignore auto layout.
     return isApplePlatformBridge()
       ? Boolean(e.ctrlKey && !e.metaKey)
       : bridgeIgnoreAutoLayoutKeyPressed ||
@@ -11479,25 +10216,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function isShowShortcutsChord(e) {
     if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
-    // macOS delivers Control+Shift+/ as "/" — Control suppresses the shifted
-    // character — while Windows sends "?". Match both; see
-    // isShowKeyboardShortcutsHotkey in useDesignHotkeys.ts.
     return e.key === "?" || e.key === "/";
   }
 
   function shouldForwardDesignHotkey(e) {
-    // Shortcut help is not an editing affordance, so it forwards ahead of the
-    // read-only and typing guards below — the host matcher is deliberately
-    // global for the same reason. Without this the chord never escapes the
-    // canvas iframe, which is where focus lands the moment you click a frame.
-    // Not reached during a live text-edit session: that block returns before
-    // this function runs, deliberately — see the activeTextEditEl guard in
-    // the keydown listener.
     if (isShowShortcutsChord(e)) return true;
-    // Read-only surfaces (e.g. background/inactive board screens) must never
-    // forward edit hotkeys or preventDefault() native browser shortcuts —
-    // Escape/Enter/Tab/Delete/arrow-key/undo-redo forwarding is an editing
-    // affordance and has no business intercepting keys on a passive view.
     if (readOnly) return false;
     if (activeTextEditEl || isEditorTypingTarget(e.target) || e.isComposing)
       return false;
@@ -11509,29 +10232,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ((!primary && !e.altKey && !e.shiftKey) ||
         (primary && !e.shiftKey) ||
         (e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey));
-    // KeyboardEvent.key is layout-dependent for bracket keys and some native
-    // automation sends the physical code as the key. Keep the iframe gate in
-    // step with the shared Design shortcut resolver, which already matches on
-    // code for these commands.
     if (isArrangeBracketChord) return true;
     if (key === "Escape" || key === "Enter") return true;
-    // Space arms Figma-style temporary hand-tool panning while the cursor is
-    // over the preview iframe. Only forward the plain (no-modifier) chord —
-    // the isEditorTypingTarget guard above already keeps this from hijacking
-    // Space while the user is typing in an editable in-iframe target.
     if (key === " " && e.code === "Space") {
       return !primary && !e.altKey && !e.shiftKey;
     }
-    // Forward Tab only when an element is actively selected so the iframe does
-    // not intercept Tab when the user is tabbing through browser UI with nothing
-    // selected (preserves native keyboard accessibility).
     if (key === "Tab") return !!selectedEl;
     if (key === "Delete" || key === "Backspace") {
-      // Cmd/Ctrl+Backspace is Figma's "ungroup" chord (see onUngroup in
-      // useDesignHotkeys.ts) — carve out that one primary-modifier exception
-      // so it isn't swallowed by the blanket "no modifier" rule below. Any
-      // other primary+Delete/Backspace combo has no host binding, so it stays
-      // local (matches prior behavior).
       if (primary) return key === "Backspace" && !e.altKey && !e.shiftKey;
       return true;
     }
@@ -11553,43 +10260,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           "0",
           "]",
           "[",
-          // Cmd/Ctrl+U — toggle underline (useDesignHotkeys.ts onToggleUnderline).
           "u",
-          // Cmd/Ctrl+Shift+R paste-to-replace. Bare primary+r stays native
-          // so browser refresh keeps its expected meaning.
-          // Cmd/Ctrl+K — open the host command menu even while the iframe has
-          // focus. DesignEditor routes this chord to openCommandMenu().
           "k",
         ].indexOf(normalized) !== -1 ||
         e.code === "Digit1" ||
         e.code === "Digit2" ||
         key === "1" ||
         key === "2" ||
-        // Cmd/Ctrl+Shift+H / +L — toggle hidden / toggle locked
-        // (onToggleHidden / onToggleLocked). Gated on shiftKey so bare
-        // Cmd+H / Cmd+L — common OS "Hide app" / browser "focus address bar"
-        // shortcuts the host has no bare-primary binding for — are left
-        // alone (see useDesignHotkeys.ts: both require event.shiftKey).
-        // Cmd/Ctrl+F — find (onFind). Gated on the platform's own primary
-        // modifier, matching isPlatformPrimaryModifier host-side: forwarding
-        // is NOT harmless, because the shield preventDefaults before posting,
-        // so a forwarded-then-ignored macOS Ctrl+F loses browser Find.
         (isPlatformPrimaryChord(e) &&
           !e.altKey &&
           !e.shiftKey &&
           normalized === "f") ||
-        // Cmd/Ctrl+\ and Cmd/Ctrl+Shift+\ toggle Design chrome. Use the
-        // physical code so both shortcuts remain stable across layouts.
         (e.code === "Backslash" && !e.altKey) ||
         (e.shiftKey && (normalized === "h" || normalized === "l")) ||
         (e.shiftKey && normalized === "r") ||
-        // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
-        // (onDetachInstance / onCreateComponent). Gated on altKey so bare
-        // Cmd+B is left alone — the host has no bare-primary binding for it.
         (e.altKey && (normalized === "b" || normalized === "k")) ||
-        // Ctrl+Alt+H/V/T distribute + tidy up: LITERAL Control on every
-        // platform, so gate on ctrlKey rather than `primary` — a blanket "t"
-        // above would swallow Cmd+T, a combo the host never binds.
         (e.ctrlKey &&
           e.altKey &&
           !e.metaKey &&
@@ -11598,12 +10283,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
     }
 
-    // Non-primary families, mirroring handleDesignHotkey in
-    // useDesignHotkeys.ts. A chord absent here is dead for anyone whose focus
-    // is in the canvas iframe — where it lands the moment you click a layer.
     if (e.altKey) {
       if (e.shiftKey) return normalized === "s";
-      // Alt+A/D/W/S/H/V align selection; Alt+1/Alt+2 navigation panels.
       return (
         ["a", "d", "w", "s", "h", "v"].indexOf(normalized) !== -1 ||
         e.code === "Digit1" ||
@@ -11611,9 +10292,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
     }
     if (e.shiftKey) {
-      // Shift+A auto layout, Shift+H/V flip, Shift+X swap fill/stroke,
-      // Shift+C comments, Shift+L arrow tool, Shift+Y draw tool,
-      // Shift+N previous frame, Shift+1/2 zoom, Shift+= zoom in.
       return (
         ["a", "h", "v", "x", "c", "l", "y", "n", "=", "+"].indexOf(
           normalized,
@@ -11624,8 +10302,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         key === "2"
       );
     }
-    // Unmodified: tool shortcuts, next frame, select parent, z-order, zoom,
-    // and digit opacity.
     return (
       [
         "v",
@@ -11664,8 +10340,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  // The host replays read-only and interaction mode many times a second, so
-  // every writer must derive the shield from both states, not overwrite it.
   function syncShieldPointerEvents(): void {
     shieldOverlay.style.pointerEvents =
       interactionMode || textEditPointerState ? "none" : "auto";
@@ -11710,7 +10384,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
   }
 
-  // Native caret width scales with the canvas. Draw one screen pixel at every zoom.
   var textCaretOverlay: HTMLElement | null = null;
 
   function hideTextCaretOverlay(target: Element): void {
@@ -11810,12 +10483,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function isInlineEditableDescendant(el: Element | null): boolean {
     if (!el || !el.tagName) return false;
-    // Allowlist covers inline markup AND common block-level text containers
-    // (p, h1-h6, li, etc.) so that paragraphs with inline markup like
-    // <p>Hello <strong>world</strong></p> can be double-click edited.
     return (
       [
-        // Inline formatting
         "a",
         "abbr",
         "b",
@@ -11833,7 +10502,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "time",
         "u",
         "wbr",
-        // Block-level text containers
         "p",
         "h1",
         "h2",
@@ -11876,7 +10544,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (nativeTextRoot) return nativeTextRoot;
     var selectedContainsHit =
       selectedEl && selectedEl.contains && selectedEl.contains(hit);
-    // Generated Group wrappers are selection boundaries, not text targets.
     var selectedGroupOwnsHit = !!(
       selectedContainsHit &&
       selectionTargetForHit(hit) === selectedEl &&
@@ -11904,9 +10571,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (selectedEl && node === selectedEl) break;
       node = node.parentElement;
     }
-    // Return null (not the raw hit) when no text-editable ancestor is found.
-    // Falling back to the raw hit element makes non-text nodes like <img> or
-    // <canvas> contenteditable, which leaves the editor in a broken state.
     return candidate || null;
   }
 
@@ -11921,9 +10585,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       return;
     }
-    // Suppress the first click in a double-click sequence — the dblclick
-    // handler (beginTextEditingFromEvent) will fire immediately after and a
-    // spurious element-select would cause inspector flicker.
     if (e.detail >= 2) return;
     var target = elementFromEditorPoint(e.clientX, e.clientY);
     if (!target && lastEditorPointWasBlocked) return;
@@ -11932,16 +10593,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       target === document.body ||
       target === document.documentElement
     ) {
-      // Click on empty canvas: clear the current selection (matches Figma).
       clearRuntimeSelection();
       (window.parent as Window).postMessage({ type: "clear-selection" }, "*");
       return;
     }
     hoveredSpacingHandleKey = "";
-    // Cmd/Ctrl+click skips the container-first step and deep-selects the raw
-    // hit (spec Part 3); this fallback path has no stack-cycling of its own
-    // (that lives in beginPotentialShieldDrag's onUp), so it deep-selects the
-    // literal element under the pointer instead.
     var resolvedClickTarget =
       e.metaKey || e.ctrlKey
         ? selectionTargetForHit(target)
@@ -12066,10 +10722,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         type: "agent-native:layer-marquee-selection",
         phase: "change",
         payload: elements.map(function (el) {
-          // Live ticks only need identity and geometry. On the settled report,
-          // every member needs its own computed state: z-order planning must not
-          // classify passive selections from authored source or the primary
-          // inspector payload.
           if (!final) return lightInfo(el);
           if (!infoCache) return getElementInfo(el);
           var cached = infoCache.get(el);
@@ -12086,10 +10738,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           shiftKey: Boolean(e && e.shiftKey),
           metaKey: Boolean(e && e.metaKey),
           ctrlKey: Boolean(e && e.ctrlKey),
-          // A live drag reports a changed hit-set on every mousemove tick;
-          // only the mouseup report (see beginMarqueeSelection's onUp) sets
-          // this, so the host records ONE selection-history entry per
-          // gesture instead of one per tick (coalesceMarqueeSelectionHistory).
           final: final === true,
         },
       },
@@ -12111,10 +10759,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     marqueeSelectionOverlay.style.width = rect.width + "px";
     marqueeSelectionOverlay.style.height = rect.height + "px";
 
-    // Collected once per gesture: this runs on every pointermove, and a
-    // generated screen can hold thousands of nodes. Bounds are measured in the
-    // same pass — a marquee moves the band, never the page, so every
-    // candidate's box is constant for the life of the gesture.
     if (!activeMarqueeSelection.candidates) {
       var collected = collectSelectableElements(activeMarqueeSelection.deep);
       activeMarqueeSelection.candidates = collected;
@@ -12126,9 +10770,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     for (var index = 0; index < candidates.length; index += 1) {
       var bounds = candidateBounds[index];
       if (!bounds) continue;
-      // A candidate that encloses the band is the container being banded
-      // inside, not something aimed at: sweeping it in selects the whole
-      // screen and every later drag moves everything.
       if (
         bounds.left <= rect.left &&
         bounds.top <= rect.top &&
@@ -12150,9 +10791,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideSelectionOverlay();
     }
     setPassiveSelectionElements(hitElements);
-    // The host also dedupes unchanged hit sets, but doing it after postMessage
-    // still pays to serialize every selection payload. Skip identical live
-    // ticks here; mouseup must always send the final packet for undo history.
     var lastReported = activeMarqueeSelection.lastReportedElements;
     var sameHitSet =
       !!lastReported &&
@@ -12174,19 +10812,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function beginMarqueeSelection(e): void {
     if (e.button !== 0) return;
-    // T23: a stale session self-heals and the marquee proceeds; only a LIVE
-    // session (connected element) blocks marquee starts.
     if (activeTextEditEl && !exitStaleTextEditSession()) return;
     clearActiveMarqueeSelection();
     var events = dragEventNames(e);
     var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
-    // rAF-coalesce raw move events, mirroring the host canvas's own drag
-    // listeners (PF15 in MultiScreenCanvas.installDragListeners). A pointer
-    // can emit several moves per frame; each one repositions the band,
-    // rebuilds passive overlays, and posts a selection message, so doing that
-    // per-event rather than per-frame was the dominant cost of the gesture.
-    // Latest-wins, and mouseup force-flushes so the gesture always ends on the
-    // true final pointer position.
     function flushMarqueeMove() {
       var session = activeMarqueeSelection;
       if (!session) return;
@@ -12229,9 +10858,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var didMove = Boolean(activeMarqueeSelection?.moved);
       if (didMove) {
         stopNativeInteraction(ev);
-        // Drop any frame still queued from the last move: this mouseup event
-        // carries the final position and must be the tick tagged `final`,
-        // or the host never gets its one-drag-one-undo history entry.
         if (
           activeMarqueeSelection &&
           activeMarqueeSelection.moveFrame != null
@@ -12272,9 +10898,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     document.addEventListener(events.up, onUp, true);
   }
 
-  // Attributes checked (in order) before falling back to text/tag, mirroring
-  // shared/code-layer.ts's semanticLayerNameFor. Kept in sync by hand: the
-  // bridge runs against live DOM and can't import the HTML-source parser.
   var LAYER_LABEL_SEMANTIC_ATTRIBUTES = [
     "aria-label",
     "title",
@@ -12287,9 +10910,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "data-test-id",
   ];
 
-  // Mirrors shared/code-layer.ts's fallbackTagLayerName so a container with no
-  // explicit/semantic name reads the same tag-derived name everywhere it's
-  // shown, instead of the raw lowercase tag.
   function fallbackTagLayerLabel(tag: string): string {
     switch (tag) {
       case "article":
@@ -12350,12 +10970,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  // The name shown for a node must be the same string everywhere it's shown
-  // (Layers panel, "Select layer", "Edit with AI"). Mirrors layerNameFor's
-  // priority order (shared/code-layer.ts): explicit name -> semantic
-  // attribute -> [leaf only] own text -> tag fallback. A container is named
-  // by what it IS, not by its subtree's text — reversing that named a plain
-  // wrapper div after its child span's content instead of "Frame".
   function layerCandidateLabelFor(
     candidate: Element,
     candidateInfo: { componentName?: string },
@@ -12377,10 +10991,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return fallbackTagLayerLabel(candidate.tagName.toLowerCase());
   }
 
-  // Returns the full z-stack of selectable layers under a point (topmost
-  // first), each element index-aligned with a { key, label, info } descriptor.
-  // Overlays are briefly made pointer-transparent so elementsFromPoint sees
-  // through the editor chrome.
   function collectLayerHitCandidates(
     clientX: number,
     clientY: number,
@@ -12437,9 +11047,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return { elements: elements, layerCandidates: layerCandidates };
   }
 
-  // Given a point and the current selection, return the next layer BELOW it in
-  // the hit stack (wrapping at the bottom), or null when the selection is not
-  // in the stack or the next layer is blocked. Backs Cmd/Ctrl+click deep-select.
   function stackCycleTarget(
     clientX: number,
     clientY: number,
@@ -12523,12 +11130,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (match && !isLayerInteractionBlocked(match)) return match;
       } catch (_err) {}
     }
-    // Last resort: React re-creating a node drops its imperatively stamped
-    // "runtime-" id, and on a client-rendered screen that id is the host's ONLY
-    // identity for the element — so the miss dropped the whole edit while we
-    // still held the selection. ensureRuntimeLayerNodeId is deterministic over
-    // screen + provenance + structural path, so re-stamping restores the SAME id
-    // for the intended element and a different one for anything else.
     if (selectedEl && document.documentElement.contains(selectedEl)) {
       try {
         ensureRuntimeLayerNodeId(selectedEl);
@@ -12712,12 +11313,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     postNodeHtmlPreviewApplied(proposalId);
   }
 
-  // Host-driven Layers-panel moves must never inherit findRuntimeTarget's
-  // selected-element shortcut or first-match querySelector behavior. Runtime
-  // React trees routinely repeat classes and component markup, so a selector
-  // is only safe when it identifies exactly one live element. Prefer the
-  // runtime projection's stable source id and fall back to the selector only
-  // when that id has no match at all.
   function findUniqueRuntimeStructureTarget(
     selector,
     sourceId,
@@ -12725,10 +11320,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     allowDocumentBody = false,
   ) {
     var matches = new Set<Element>();
-    // Pending ids are deliberately NOT part of the stable-id list below: they
-    // are minted per hit-test and only ever stamped on the live DOM, so they
-    // must not participate in stored-id resolution. They are still the only
-    // handle a cross-screen drop has on an id-less live anchor.
     if (typeof pendingId === "string" && pendingId) {
       try {
         var pendingMatches = document.querySelectorAll(
@@ -12779,8 +11370,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
     if (typeof selector !== "string" || !selector) {
-      // An empty anchor is the explicit hit-test shape for a blank root drop;
-      // never reinterpret a failed stable or pending identity as the root.
       return allowDocumentBody &&
         !(typeof sourceId === "string" && sourceId) &&
         !(typeof pendingId === "string" && pendingId)
@@ -12831,11 +11420,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (typeof requestId === "string" && requestId) {
       restorePendingRuntimeDeleteStyle(target, requestId);
     }
-    // A requestId means the host queued this deletion as a pending live edit
-    // and may undo it. Register it in the same pending-move table the drag
-    // path uses so the existing visual-structure-ack channel can put the node
-    // back; without it the ack arrives for an unknown id and Cmd+Z silently
-    // does nothing.
     if (typeof requestId === "string" && requestId && target.parentElement) {
       pendingStructureMoves[requestId] = {
         requestId: requestId,
@@ -12864,9 +11448,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "*",
       );
     }
-    // T23: the removed subtree may contain the active text-edit element —
-    // its blur/keydown listeners are gone with it, so exit the session
-    // through the canonical cleanup instead of leaking it.
     exitStaleTextEditSession();
     if (
       selectedEl === target ||
@@ -12985,12 +11566,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return readPx(part);
   }
 
-  // CSS resolves each border-*-radius longhand as a horizontal/vertical pair:
-  // even a single value like `50%` produces an ellipse (not a circle) on a
-  // non-square box, because the horizontal component resolves against width
-  // and the vertical component resolves against height independently — a
-  // 200x100 box with `border-radius: 50%` renders 100px horizontal by 50px
-  // vertical corners, not a uniform 50px radius.
   function resolveCornerRadiusXY(value, width, height) {
     var trimmed = typeof value === "string" ? value.trim() : "";
     var parts = trimmed.split(/\s+/);
@@ -13042,8 +11617,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var matrix = new DOMMatrixReadOnly(cs.transform);
         transform = { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d };
       } catch (err) {
-        // Invalid computed transforms have no reliable inverse; keep identity
-        // drag math rather than hiding the parse failure in an empty catch.
         void err;
       }
     }
@@ -13080,9 +11653,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function composeRadiusLinearTransform(transform, scaleX, scaleY, radians) {
     var cos = Math.cos(radians);
     var sin = Math.sin(radians);
-    // CSS individual scale/rotate are applied after the transform property.
-    // Keep that order so a class-authored rotate plus independent scale maps
-    // viewport deltas through the same matrix the browser paints.
     var independent = {
       a: cos * scaleX,
       b: sin * scaleY,
@@ -13175,11 +11745,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return Number.isFinite(num) ? num : null;
   }
 
-  // ── Gradient edit overlay: math + minimal linear-gradient CSS parser ────
-  // Ports of MultiScreenCanvas.tsx's exported `gradientLineEndpoints` /
-  // `gradientStopPoints` / `angleFromDraggedEndpoint` /
-  // `stopPercentFromDraggedPoint` (see that file's doc comments for the
-  // full derivation) — duplicated verbatim since this file cannot import.
 
   function clampGradientT(t: number): number {
     if (!Number.isFinite(t)) return 0;
@@ -13252,9 +11817,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return clampGradientT(t) * 100;
   }
 
-  // Minimal linear-only port of GradientEditor.tsx's parseGradientCss /
-  // gradientToCss (that component owns the canonical parser; this is a
-  // reduced copy scoped to just `linear-gradient(...)`, matching the
   // MultiScreenCanvas overlay's own linear-only scope).
   var GRADIENT_LINEAR_RE = /^linear-gradient\s*\(([\s\S]*)\)\s*$/i;
   var GRADIENT_ANGLE_RE = /(-?\d+(?:\.\d+)?)deg/;
@@ -13331,36 +11893,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  // gradientEditOverlayTarget doc / parent wiring contract:
-  //
-  // This bridge only RENDERS the overlay + emits drag deltas; it has no idea
-  // which element on the host side "is" the gradient-edited node beyond the
-  // `nodeId` the parent gives it. The parent (DesignEditor.tsx, NOT owned by
-  // this change — see the report) is expected to:
-  //
-  //   1. Keep its existing `gradientEditTarget` state (already threaded into
-  //      MultiScreenCanvas's board/screen-frame overlay) as the single
-  //      source of truth for "is a gradient edit session active, for which
-  //      node, with which CSS value".
-  //   2. Whenever that target refers to an element *inside* the active
-  //      screen's iframe content (as opposed to a board/draft primitive
-  //      MultiScreenCanvas already draws chrome for directly), postMessage
-  //      `{ type: "gradient-edit-target", nodeId, cssValue }` into that
-  //      screen's iframe — `nodeId` being the element's
-  //      `data-agent-native-node-id`. Post `{ type: "gradient-edit-clear" }`
-  //      when the session ends (selection changes, popover closes, or the
-  //      target moves to a different screen/board node).
-  //   3. Listen for this bridge's `{ type: "gradient-edit-change", nodeId,
-  //      cssValue, phase }` postMessages and route them through the same
-  //      style-apply path `visual-style-change` already uses (phase
-  //      "preview" for live feedback, "commit" once on release — mirroring
-  //      GradientEditOverlayTarget's own onChange contract in
-  //      MultiScreenCanvas.tsx).
-  //
-  // Until that parent-side wiring lands, this bridge simply never receives
-  // `gradient-edit-target` and stays fully inert (see the early-return checks
-  // below), so this is a strictly additive, zero-behavior-change surface
-  // until wired up.
   var gradientEditTarget: { nodeId: string; cssValue: string } | null = null;
   var gradientDrag: {
     kind: "endpoint" | "stop";
@@ -13402,7 +11934,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var gradient = parseLinearGradientCss(target.cssValue);
     if (!gradient) {
       // Non-linear/unparseable — render nothing (linear-only scope, matches
-      // MultiScreenCanvas's GradientEditOverlay contract exactly).
       hideGradientOverlay();
       return;
     }
@@ -13456,9 +11987,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
     });
 
-    // Stop markers are rebuilt each render (cheap: 2-8 stops typical) rather
-    // than pooled, matching the overlay's overall "small + self-contained"
-    // design (see the doc comment on MultiScreenCanvas's GradientEditOverlay).
     hideGradientOverlayStops();
     var stopSize = 12 * line1;
     var stopBorderWidth = 2 * line1;
@@ -13521,10 +12049,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       },
       "*",
     );
-    // Keep the local target's cssValue in sync so a subsequent drag tick (or
-    // a re-render triggered by scroll/resize) reflects the in-progress value
-    // instead of waiting for the parent to round-trip a fresh
-    // gradient-edit-target message.
     gradientEditTarget = {
       nodeId: gradientEditTarget.nodeId,
       cssValue: linearGradientToCss(gradient),
@@ -13662,13 +12186,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  // Merge an ABSOLUTE rotation value (degrees) into a transform string.
-  // When the string already has a rotate/rotateZ(), replace it in place.
-  // When the transform is a matrix() (e.g. computed from a class rule), strip
-  // the rotation component and append the new absolute rotate() so the inline
-  // value only adds what the class doesn't already own as non-rotation parts.
-  // When the string has non-rotation functions (translate, scale, etc.) without
-  // an explicit rotate(), append rotate() so other transforms are preserved.
   function mergeAbsoluteRotation(transform, degrees) {
     var rotatePattern = /rotate(?:Z)?\((-?\d+(?:\.\d+)?)deg\)/i;
     if (rotatePattern.test(transform)) {
@@ -13676,13 +12193,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         .replace(rotatePattern, "rotate(" + degrees + "deg)")
         .trim();
     }
-    // matrix() is the computed form of a class-rule transform; writing it
-    // inline would hard-pin every property from that rule. Instead start fresh
-    // with just the target rotation so the class still owns everything else.
     if (/^matrix(?:3d)?\(/i.test(transform.trim())) {
       return "rotate(" + degrees + "deg)";
     }
-    // transform string with other functions but no existing rotate: append.
     return (
       (transform && transform !== "none" ? transform + " " : "") +
       "rotate(" +
@@ -13691,10 +12204,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ).trim();
   }
 
-  // Keep the authored transform intact and append only the relative mirror
-  // needed by a resize-through-zero. Rewriting a computed matrix loses class
-  // authored translate/scale functions and re-reading independent CSS scale
-  // makes a non-unit negative scale flip twice.
   function readScalePair(value) {
     if (!value || value === "none") return { x: 1, y: 1 };
     var parts = value
@@ -13862,9 +12371,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (syncAllSides) {
       applySpacingDragValue(dragEl, handle, originValue, !!e.altKey, true);
     }
-    // Hide the hover-only hatch fill the instant the drag begins (Figma-style:
-    // hatch communicates "this is the resizable band" on hover; once dragging,
-    // only the live value badge should be visible over the padding band).
     updateSpacingOverlay(selectedEl);
     showSpacingBadgeForHandle(handle, originValue);
 
@@ -14124,9 +12630,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     postTextEditingState(suspended.target, false, suspended.selector, false);
   }
 
-  /** Whether the text actually landed in the document. The host holds the only
-   *  copy until it hears that it did, so reporting a success execCommand
-   *  refused released those keystrokes into nothing. */
   function insertPlainTextAtSelection(text: string): boolean {
     if (!text) return false;
     if (
@@ -14139,8 +12642,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       } catch (_err) {
         executed = false;
       }
-      // A refusal is not yet a failure to report: fall through to the manual
-      // range path, and answer for what actually happened.
       if (executed) return true;
     }
     var selection: Selection | null = window.getSelection
@@ -14158,10 +12659,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return textNode.isConnected === true;
   }
 
-  // T2: Figma-style text editing treats Enter as a line break while editing
-  // (Escape or blur commits and exits). Uses the same insertText execCommand
-  // path as insertPlainTextAtSelection so undo grouping/IME behavior matches,
-  // falling back to a manual <br> insertion when insertText isn't supported.
   function insertLineBreak(): void {
     if (
       document.queryCommandSupported &&
@@ -14184,13 +12681,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     selection.addRange(range);
   }
 
-  // T12: applyTextRangeStyle wraps a fresh <span> per invocation, so repeated
-  // scrub/commit cycles on the same range nest span chains
-  // (<span><span><span>text</span></span></span>) that persist in saved HTML.
-  // Collapse any run of nested spans that carry the exact same style
-  // attribute and no other attributes down to a single span. Only merges
-  // spans that are the sole child of their parent span (an exact 1:1 nesting,
-  // not spans that merely overlap a wider range).
   function normalizeNestedIdenticalSpans(root: Element | null): void {
     if (!root) return;
     var spans = Array.prototype.slice.call(root.querySelectorAll("span"));
@@ -14237,8 +12727,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return !!(ancestorEl && (ancestorEl === el || el.contains(ancestorEl)));
   }
 
-  // Source echoes can replace a selected Range's boundary nodes during a
-  // document morph, so preserve its text offsets only while the text is equal.
   function textOffsetInElement(
     root: Element,
     node: Node,
@@ -14557,11 +13045,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
   }
 
-  /**
-   * A drawn vector primitive's `<svg>` carries the geometry and its shape
-   * child carries the paint, so fill/stroke aimed at the wrapper tints the
-   * bounding box instead. Mirrored by `vectorPaintChild` in code-layer.ts.
-   */
   function vectorPaintTarget(el: Element | null): Element | null {
     if (!el || el.tagName.toLowerCase() !== "svg") return null;
     var kind = el.getAttribute("data-an-primitive") || "";
@@ -14585,8 +13068,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       return null;
     }
-    // A pasted SVG may wrap its sole editable shape in <g>. Walk groups only;
-    // never search <defs>, where an arrowhead or gradient geometry can live.
     if (kind === "pasted-svg") {
       var pendingShapes = Array.from(el.children);
       var pastedShape: Element | null = null;
@@ -14616,9 +13097,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       return pastedShape;
     }
-    // Direct children only: an arrow's marker <path> sits inside <defs>
-    // ahead of the shaft, so a descendant search paints the arrowhead. Keeps
-    // this in step with code-layer's childIndexes walk.
     return el.querySelector(
       ":scope > path, :scope > polygon, :scope > ellipse, :scope > circle, :scope > rect, :scope > line, :scope > polyline",
     );
@@ -14895,11 +13373,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  /**
-   * Box paint on a vector wrapper paints its bounding rectangle, and the
-   * inspector no longer edits these for a vector — left behind it is
-   * unreachable. Mirrors `clearVectorWrapperPaint` in code-layer.ts.
-   */
   function clearVectorWrapperPaint(el: Element): void {
     var style = (el as HTMLElement).style;
     var properties = [
@@ -15447,22 +13920,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return true;
   }
 
-  // T12: if the current selection exactly covers an existing <span>'s content
-  // (i.e. the user is re-scrubbing/re-applying a style to the same range
-  // rather than a new sub-range), reuse that span instead of wrapping another
-  // one around it. Without this, a scrub gesture that fires applyTextRangeStyle
-  // many times per gesture nests a new <span> on every tick
-  // (<span><span><span>text</span></span></span>), and those chains persist
-  // in the saved HTML.
   function exactCoverSpanForRange(range: Range): HTMLSpanElement | null {
     var start = range.startContainer;
     var end = range.endContainer;
     if (start !== end) return null;
 
-    // Shape A: start/end container IS the span itself, with node-offsets
-    // spanning all of its children (this is what
-    // Range.selectNodeContents(span) produces — offsets into an Element
-    // container count child nodes, not characters).
     if (start.nodeType === 1) {
       var containerEl = start as HTMLElement;
       if (containerEl.tagName !== "SPAN") return null;
@@ -15471,17 +13933,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return containerEl as HTMLSpanElement;
     }
 
-    // Shape B: start/end container is a text node, with character offsets
-    // spanning its full length (this is what surroundContents +
-    // selectNodeContents(span) round-trips to on a subsequent read, or what a
-    // caller-constructed range over the text node directly looks like).
-    if (start.nodeType !== 3) return null; // text node
+    if (start.nodeType !== 3) return null;
     var parent = start.parentNode;
     if (!parent || parent.nodeType !== 1) return null;
     var el = parent as HTMLElement;
     if (el.tagName !== "SPAN") return null;
-    // The span must contain exactly this one text node, and the range must
-    // span the text node's full content (not a sub-range within it).
     if (el.childNodes.length !== 1 || el.childNodes[0] !== start) return null;
     if (
       range.startOffset !== 0 ||
@@ -15556,10 +14012,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return true;
   }
 
-  // Chromium's execCommand emits legacy <b>/<i>/<u> tags, which persist into
-  // the design source as child layers the text pipeline never models — T12's
-  // span normalizer above only ever sees spans. Keep these chords on the same
-  // span-based helper the inspector styling path uses.
   var TEXT_EDIT_FORMATS: Record<
     string,
     {
@@ -15596,9 +14048,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     },
   };
 
-  // Select-all puts the common ancestor on the editable, not on the inline
-  // span carrying the format, so the toggle has to read every text run the
-  // range actually covers or Cmd+U stops being able to turn underline off.
   function rangeFormatIsOn(
     range: Range,
     spec: { isOn: (styles: CSSStyleDeclaration) => boolean },
@@ -15632,9 +14081,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var selection = window.getSelection ? window.getSelection() : null;
     if (!selection || selection.rangeCount === 0) return false;
     var range = selection.getRangeAt(0);
-    // Known gap: applyTextRangeStyle can only SET a property, so an "off"
-    // value cannot beat an inner run that sets the format itself. Toggling off
-    // works for a single covering run, not for a format split across several.
     var next = rangeFormatIsOn(range, spec) ? spec.off : spec.on;
     return applyTextRangeStyle(spec.property, next);
   }
@@ -15644,9 +14090,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     clientX: number,
     clientY: number,
   ): void {
-    // Constant-screen-size chrome (see showSpacingBadgeForHandle): scale the
-    // label's intrinsic sizes by chromeLineScale() so the move/resize badge
-    // reads the same at any canvas zoom.
     var line = chromeLineScale();
     transformBadge.textContent = text;
     transformBadge.style.display = "block";
@@ -15665,11 +14108,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     transformBadge.style.removeProperty("border-color");
   }
 
-  // Rejection feedback for a drag that can never resolve on the host (see
-  // isTemplateCloneElement): reuses transformBadge with a red-tinted style
-  // instead of adding another chrome element, and a "not-allowed" cursor on
-  // shieldOverlay for the duration of the gesture — clear, immediate signal
-  // instead of an optimistic reorder that silently reverts ~1 frame later.
   function showRejectedDragBadge(
     text: string,
     clientX: number,
@@ -15687,28 +14125,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function isOverlayElement(el: Element | null): boolean {
-    // Use closest() so that children of overlay elements (e.g. spacing-region
-    // spans inside selectionOverlay that have pointer-events:auto via a CSS rule
-    // and can therefore still be returned by elementFromPoint even when the
-    // parent overlay has pointer-events:none set inline) are also treated as
-    // overlay elements and never used as drag-drop anchor targets.
     return Boolean(
       el && el.closest && el.closest("[data-agent-native-edit-overlay]"),
     );
   }
 
-  // Anchor-candidate gate (companion to the dragged-element
-  // isTemplateCloneElement rejection below): a template clone can never be
-  // used as an insertion ANCHOR either — it has no counterpart in the static
-  // source HTML, so before/after placement against it can never resolve on
-  // the host any more than dragging the clone itself could. Filtering clones
-  // out of the candidate list here (rather than only checking the dragged
-  // element) is what fixes drops into a container whose ONLY children are
-  // x-for clones: without this, nearestChildInsertionTarget's "nearest
-  // child" search and reorderTargetForPoint's sibling-scan fallback would
-  // both happily pick a clone as the anchor, and the resulting moveNode
-  // against source HTML would silently fail (layerMoveFailed toast) even
-  // though the drop gesture itself was completely valid.
   function draggableElementChildren(parent: Element): Element[] {
     return Array.prototype.slice.call(parent.children).filter(function (child) {
       return (
@@ -15728,9 +14149,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return true;
   }
 
-  /** The current multi-selection's own elements: the primary plus the passive
-   *  shift-click/marquee set, minus blocked layers and anything contained by
-   *  another member. */
   function collectSelectionMembers(): Element[] {
     var raw: Element[] = [];
     if (selectedEl) raw.push(selectedEl);
@@ -15759,15 +14177,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     });
   }
 
-  // Multi-select group move: when the user drags an element that is a member
-  // of the current multi-selection (primary selectedEl + the passive
-  // shift-click/marquee set), the whole group moves together — Figma
-  // behavior. Returns the full member list in DOCUMENT ORDER (so a group
-  // flow-insert lands the members consecutively in their existing visual
-  // order) when gestureEl belongs to a 2+ selection, or just [gestureEl]
-  // otherwise. Members nested inside another member are dropped: moving the
-  // ancestor already moves them, and double-applying the delta would fling
-  // them.
   function collectMoveGroupMembers(gestureEl: Element): Element[] {
     if (!gestureEl) return [];
     var members = collectSelectionMembers();
@@ -15791,9 +14200,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return members;
   }
 
-  // Resolves the group member that owns a drag gesture's target element (the
-  // member itself or an ancestor member), or null when the target is not
-  // part of the current multi-selection.
   function groupMemberForGestureTarget(target: Element | null): Element | null {
     if (!target) return null;
     var raw: Element[] = selectedEl
@@ -15844,16 +14250,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     rect: true,
   };
 
-  // KEEP IN SYNC with hit-test.bridge.ts — pinned by bridge.guard.spec.ts.
-  // Layout decides, not the tag: a group has no data-an-primitive and a
-  // generated container is often a <section>.
 
-  // keep in sync with hit-test.bridge.ts isFreeformRelativeContainer
-  // Complements isAbsolutePrimitiveContainer below, which requires the
-  // container itself to be absolute/fixed. A generated screen wraps content in
-  // a `position:relative` full-bleed div, and calling that flow strips a
-  // dropped layer's left/top into the corner. Every child must be out of flow:
-  // one absolute badge in a flex row does not make the row freeform.
   function isFreeformRelativeContainer(el: Element | null): boolean {
     if (!el || el === document.body || el === document.documentElement) {
       return false;
@@ -15882,14 +14279,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ""
     ).toLowerCase();
     if (primitive) {
-      // A declared frame or rectangle is authored free-form even when empty;
-      // other drawn shapes stay leaves, matching what
-      // appendCanvasPrimitiveToHtml enforces on draw.
       if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
     } else if (!hasAbsolutePositionedChild(el)) {
-      // Unmarked markup is judged by how it positions its CHILDREN, not by its
-      // own position: an absolutely positioned card whose children are in
-      // normal flow still has slots, and pinning a drop into it is wrong.
       return false;
     }
     var cs = window.getComputedStyle(el);
@@ -15907,9 +14298,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return false;
   }
 
-  // A frame with any content of its own has a layout that adopting auto
-  // layout would reflow, so only an empty one converts on drop. A member
-  // already parented here is reordering, not arriving.
   function isEmptyDropContainer(
     container: Element,
     dragged: Element[],
@@ -15931,14 +14319,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return true;
   }
 
-  // Applies the flex conversion to `container` and posts it to the host as a
-  // normal visual-style-change for that container's own selector/elementInfo
-  // — the same message shape the style panel already uses, just targeting
-  // the drop-target anchor instead of the current selection, so no host-side
-  // routing changes are needed. Runs BEFORE the moved-element's own
-  // visual-structure-change post so the host's synchronous same-tick content
-  // refs (see DesignEditor.tsx's getFreshActiveContent) compose the two
-  // edits in order: container becomes flex, then the child moves into it.
   function applyAutoLayoutConversionForDrop(container: Element): void {
     var el = container as HTMLElement;
     el.style.display = "flex";
@@ -15961,34 +14341,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  // ── Board-text auto-color adaptation on nest ─────────────────────────────
-  //
-  // Board-drawn text on the dark infinite canvas gets an explicit inline
-  // default `color:#ffffff` (+ Inter) from DesignEditor's
-  // appendCanvasPrimitiveToHtml — necessary there because "currentColor"
-  // would inherit the unstyled document's black and vanish on the dark
-  // board. But when that text is later dragged INTO a (typically light)
-  // container, the stale inline white makes it white-on-white invisible.
-  //
-  // On re-parent into a different container, adapt: if the text's inline
-  // color is the auto-applied board default (marker present, or —
-  // pre-marker content — exactly the default white AND the destination is
-  // light), switch it to `color:inherit` so it picks up the container's
-  // effective text color. A color the user explicitly set is NEVER touched:
-  // DesignEditor's appendCanvasPrimitiveToHtml stamps `data-an-auto-text-color`
-  // when IT auto-picks the color at creation (BOARD_TEXT_AUTO_COLOR_MARKER
-  // export in DesignEditor.tsx) and any explicit color edit removes the
-  // marker; when the marker is present the color is definitely auto (always
-  // safe to adapt), and when absent the conservative default-white +
-  // light-target heuristic below only fires in the exact case where the text
-  // would be invisible anyway.
-  //
-  // keep in sync with DesignEditor.tsx's
-  // adaptAutoTextColorForCrossScreenNode / shouldAdaptAutoTextColorForCrossScreenMove
-  // — the cross-screen mirror of this same decision, applied host-side (HTML
-  // string, post-reparent) after handleCrossScreenElementDrop moves a text
-  // node between documents, since this in-iframe bridge only ever sees
-  // same-document re-parents.
   var BOARD_TEXT_AUTO_COLOR_MARKER = "data-an-auto-text-color";
 
   function parseCssRgb(
@@ -16008,9 +14360,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  // Walks up from the container until it finds a non-transparent computed
-  // background and reports whether it is light (relative-luminance
-  // threshold). An unstyled chain means the default white page background.
   function containerBackgroundIsLight(container: Element): boolean {
     var cursor: Element | null = container;
     while (cursor && cursor !== document.documentElement) {
@@ -16064,9 +14413,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  // Resolves the actual container element a drop target lands the moved
-  // element(s) in: the anchor itself for "inside" placement, otherwise the
-  // anchor's parent.
   function dropContainerForTarget(target): Element | null {
     if (!target || !target.anchor) return null;
     return target.placement === "inside"
@@ -16107,7 +14453,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       },
     );
     try {
-      // The synchronous override is restored before the browser can paint.
       style.setProperty("transition", "none", "important");
       style.setProperty("flex-grow", "0", "important");
       style.setProperty("flex-shrink", "0", "important");
@@ -16201,15 +14546,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       : undefined;
   }
 
-  // Chromium reports Event.timeStamp relative to the document time origin,
-  // while synthetic and older events can carry an epoch timestamp. Normalize
-  // both forms before sending a source timestamp to the host document.
   function eventEpochMilliseconds(
     ev?: { timeStamp?: number; isTrusted?: boolean } | null,
   ): number | undefined {
-    // The host forwards board-drag events built in its own realm. Their
-    // timeStamp uses the host's earlier time origin, so dispatch-time is the
-    // reliable creation time when the event crosses into this document.
     if (ev?.isTrusted === false) {
       return performance.timeOrigin + performance.now();
     }
@@ -16245,9 +14584,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ): void {
     dndLog("post:cross-screen", { phase: phase, el: getSelector(el ?? null) });
     if (phase === "cancel") {
-      // Escape/cancel can arrive while the physical S key is still held.
-      // Keep that source-side state until the matching keyup so the next drag
-      // does not silently lose Ignore Auto Layout.
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
       activeCrossScreenComputedSize = undefined;
@@ -16277,9 +14613,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         startSourceId,
         el ?? null,
       );
-      // A duplicated authored ID needs its exact position. Only the frozen,
-      // source-owned static revision permits this fallback; runtime clone
-      // selectors keep their existing authored-template semantics.
       var needsStructuralSelector =
         startSourceId &&
         startProvenance?.versionHash &&
@@ -16327,21 +14660,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         pointerOffset,
         styleSnapshot: activeCrossScreenStyleSnapshot,
         sourceComputedSize: activeCrossScreenComputedSize,
-        // Explicit sibling flag, not just `styleSnapshot === null` — the
-        // host must not have to infer capture-failed from a value shape
-        // that could change; see collectPortableStyleSnapshot's doc.
         styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
         modifiers: options?.modifiers,
         duplicate: options?.duplicate === true ? true : undefined,
-        // The host needs the frozen outerHTML for moves as well as copies. A
-        // live source has no stored HTML document to snapshot, so waiting for
-        // the duplicate-only field leaves move drops with no insert payload.
-        // Use the pre-lift snapshot: during a drag the bridge may temporarily
-        // add a translate() transform to the source element, and that
-        // editor-only transform must never become destination markup.
-        // Send it from "start": the host can finalize from its own window
-        // mouseup, in which case this iframe never sees the release and no
-        // "end" is posted.
         sourceCloneHtml:
           phase === "start" || phase === "end"
             ? activeCrossScreenSourceHtml
@@ -16351,9 +14672,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "*",
     );
     if (phase === "end") {
-      // A non-Apple S keyup can land in the overview host after this source
-      // iframe loses focus. End the source gesture's modifier scope here so a
-      // missed iframe keyup cannot affect the next drag.
       bridgeIgnoreAutoLayoutKeyPressed = false;
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
@@ -16363,7 +14681,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  // keep in sync with EditPanel.tsx CONTAINER_TAGS/LEAF_TAGS (~line 1679)
   var BRIDGE_CONTAINER_TAGS = [
     "div",
     "section",
@@ -16417,20 +14734,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "li",
   ];
 
-  // keep in sync with hit-test.bridge.ts BRIDGE_INTERACTIVE_LEAF_TAGS
   var BRIDGE_INTERACTIVE_LEAF_TAGS = ["button", "summary"];
 
-  // Drop-on-leaf fix: a `<button>` (or similar interactive leaf control) is
-  // frequently styled `display:flex` purely to align its own icon + label —
-  // that is NOT the same thing as a Figma "frame" a user expects to drop
-  // items into. Neither the tag denylist (BRIDGE_LEAF_TAGS/TEXT_TAGS) nor the
-  // flex/grid computed-display check alone can tell these apart (button is
-  // in neither tag list, and it genuinely has display:flex), so this walks
-  // the element's own children: if every child is itself a leaf/text tag
-  // with no further container/flex descendant of its own, the element is
-  // "leaf content" (an icon+label control) and must not accept nested
-  // drops — only a container that itself hosts a real sub-layout (a nested
-  // container/flex child) qualifies.
   function hasOnlyLeafContent(el: Element): boolean {
     var children = el.children;
     if (!children.length) return true;
@@ -16449,13 +14754,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return true;
   }
 
-  // Figma R11: an element whose entire content is text / inline leaves is a
-  // text node, not a frame — it must never swallow a flow-reordered sibling as
-  // a child. Used to keep the flow-reorder resolver on before/after for text
-  // cards (§1.1/§1.2 nest-into-text + silent flex-conversion bug). A truly
-  // empty element (no text, no children) is NOT a text leaf — it stays a valid
-  // empty frame you can drop into, and the absolute-drag nest path is
-  // unaffected (it targets frames, not reordered flow siblings).
   function isTextBearingLeaf(el: Element): boolean {
     return hasOnlyLeafContent(el) && (el.textContent || "").trim().length > 0;
   }
@@ -16464,18 +14762,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!el || el === document.documentElement) return false;
     if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
     if (el === document.body) return true;
-    // Figma's shape primitives are vectors; only a frame adopts children.
     var primitiveKind = el.getAttribute("data-an-primitive");
     if (primitiveKind && primitiveKind !== "frame") return false;
     var tag = (el.tagName || "").toLowerCase();
-    // Reject leaf/text tags — they cannot accept children
     if (
       BRIDGE_LEAF_TAGS.indexOf(tag) !== -1 ||
       BRIDGE_TEXT_TAGS.indexOf(tag) !== -1
     )
       return false;
-    // Reject interactive leaf controls (button, summary) whose children are
-    // all leaf/text content — see hasOnlyLeafContent above.
     if (
       BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(tag) !== -1 &&
       hasOnlyLeafContent(el)
@@ -16512,8 +14806,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var cs = window.getComputedStyle(parent);
     if (cs.display === "flex" || cs.display === "inline-flex") {
       var isRow = cs.flexDirection && cs.flexDirection.indexOf("row") === 0;
-      // Wrapping row containers need Y-axis awareness for inter-row targeting;
-      // fall back to column-axis insertion so the heuristic picks the right row.
       var wraps = cs.flexWrap === "wrap" || cs.flexWrap === "wrap-reverse";
       if (isRow && !wraps) return "x";
       return "y";
@@ -16543,13 +14835,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       : "y";
   }
 
-  // Grid placement is two-dimensional. A nearest-child line is not enough
-  // when the pointer is over an empty cell: it can point at a neighbour in a
-  // different row and the live preview then disagrees with the cell the user
-  // is holding over. Let the browser lay out a hidden placeholder at each
-  // structural slot instead of reconstructing tracks here. That keeps used
-  // sizes, implicit tracks, dense/column flow, and zoom transforms in the
-  // browser's own coordinate space.
   function supportsGridPlaceholderProjection(
     container: Element,
     containerStyles: CSSStyleDeclaration,
@@ -16568,10 +14853,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var autoFlow = (containerStyles.gridAutoFlow || "row").split(/\s+/);
     if (autoFlow[0] !== "row" && autoFlow[0] !== "column") return false;
     if (autoFlow[1] === "dense" || !children.length) return false;
-    // CSS Grid places every direct child, including locked/hidden layers that
-    // the drag hit-test deliberately omits. Inspect the authored grid set at
-    // this boundary so a filtered child with an explicit slot or span cannot
-    // make the auto-placement shortcut appear safe.
     var allChildren = (
       Array.prototype.slice.call(container.children) as Element[]
     ).filter(function (child) {
@@ -16585,11 +14866,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     (excluded || []).forEach(function (child) {
       if (allChildren.indexOf(child) === -1) allChildren.push(child);
     });
-    // A filtered direct child still occupies an implicit grid slot. The
-    // projection loop only walks eligible children plus the dragged source,
-    // so retaining the shortcut with any other authored child would index
-    // every later slot against the wrong browser cell. Fall back to the
-    // ordinary insertion-line resolver until the structural set is complete.
     for (
       var authoredIndex = 0;
       authoredIndex < allChildren.length;
@@ -16600,10 +14876,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         children.indexOf(authoredChild) === -1 &&
         (excluded || []).indexOf(authoredChild) === -1
       ) {
-        // Rendered x-for rows are real grid items even though the source
-        // resolver cannot use them as structural anchors. Keep the browser
-        // projection conservative when one is present instead of indexing a
-        // later authored slot as if the runtime row did not exist.
         return false;
       }
     }
@@ -16638,12 +14910,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     slots: GridProjectionSlot[];
   };
 
-  // Measuring a temporary placeholder is necessary for grid parity, but doing
-  // one forced layout for every candidate slot on every pointer event makes a
-  // large grid visibly stutter. Cache the browser-measured slots for the
-  // current gesture and key them by the target's direct structure and layout
-  // styles. A new pointer gesture clears the cache, so content/layout changes
-  // between drags cannot reuse stale geometry.
   var gridProjectionCaches: GridProjectionCacheEntry[] = [];
 
   function clearGridProjectionCaches(): void {
@@ -16733,10 +14999,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       return;
     }
-    // A late Alt duplicate enters the source grid as a new auto-flow item.
-    // Carrying the source's authored slot would paint the clone over its
-    // source and make the eventual persisted insertion disagree with the
-    // held preview.
     duplicate.style.gridArea = "auto";
     duplicate.style.gridColumn = "auto";
     duplicate.style.gridRow = "auto";
@@ -16761,8 +15023,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         container,
       );
     }
-    // Preserve authored placement for any dragged source. Cross-grid and
-    // grouped drops still need the destination cell for every authored item.
     var singleSource = excluded && excluded.length === 1 ? excluded[0] : null;
     var singleSourceStyles = singleSource
       ? window.getComputedStyle(singleSource)
@@ -16805,9 +15065,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     while (hit && hit.parentElement && hit.parentElement !== container) {
       hit = hit.parentElement;
     }
-    // Resolve the pointer against rendered tracks and carry the cell through
-    // the drop so the source and its persisted markup move together. The
-    // occupied cell is also retained as the source-order insertion anchor.
     if (trackLayout && !hasAuthoredSingleCellSourcePlacement) {
       var column = trackLayout.columnBounds.findIndex(function (bound) {
         return clientX >= bound.start && clientX <= bound.end;
@@ -16815,9 +15072,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var row = trackLayout.rowBounds.findIndex(function (bound) {
         return clientY >= bound.start && clientY <= bound.end;
       });
-      // A spanning item includes the track gap in its rendered rectangle, but
-      // a gap is not itself a track bound. Preserve that item's authored start
-      // instead of falling through to a flow insertion at its midpoint.
       if (
         (column < 0 || row < 0) &&
         hit &&
@@ -16860,14 +15114,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             : (cellTop + cellBottom) / 2;
         return {
           anchor: container,
-          // Grid placement is calculated against the container, while the
-          // insertion line communicates the layer-order position within the
-          // occupied cell. Keep the structural target as "inside" so the
-          // grid placement path still owns persistence and displacement.
           placement: "inside",
-          // Grid placement is calculated against the container, but source
-          // order must follow the occupied cell so persistence matches the
-          // held preview and Figma's layer order.
           persistenceAnchor: displaced || container,
           persistencePlacement: displaced
             ? pointer <= midpoint + 0.5
@@ -16884,9 +15131,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           },
           guideMode: displaced ? "grid-line" : "grid-cell",
           guidePlacement: pointer <= midpoint + 0.5 ? "before" : "after",
-          // Column auto-flow derives placement from source order. Persisting
-          // measured coordinates here would freeze responsive auto-flow into
-          // explicit gridColumn/gridRow styles.
           ...(autoFlow[0] === "column" && !sourceHasAuthoredPlacement
             ? {}
             : { gridCell: { column, row } }),
@@ -16894,11 +15138,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         };
       }
     }
-    // A pointer over an authored grid child expresses an insertion between
-    // that child and its neighbor. Reserve the placeholder projection for
-    // actual empty cells and outer grid whitespace; otherwise the projected
-    // child rectangle paints a cell fill where the normal insertion line is
-    // the established drag affordance.
     if (
       hit &&
       hit.parentElement === container &&
@@ -17036,10 +15275,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
     if (!best) return null;
-    // A full grid leaves its next implicit row/column in the container's
-    // trailing whitespace. Euclidean distance otherwise favors the last
-    // visible cell along the perpendicular axis, so a bottom/right edge drop
-    // would preview that occupied cell instead of the new flow slot.
     if (
       trailingCandidate &&
       ((autoFlow[0] === "row" && clientY > occupiedBottom) ||
@@ -17059,25 +15294,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  // Resolves a between-children insertion inside `container` from the
-  // pointer position: the nearest visible child (by flow-axis center, or
-  // two-dimensional visual distance for wrapped flex and multi-track grid)
-  // becomes the anchor with before/after placement, which renders as the
-  // Figma-style insertion LINE between children. Returns null when the
-  // container has no eligible children (caller falls back to "inside").
-  //
-  // This is the B5-4 fix: hovering the container's own background — its
-  // padding, or the gaps BETWEEN children, which is where the pointer
-  // naturally sits when dropping "between two cards" — used to resolve to
-  // placement "inside" (appendChild = always lands after the LAST child,
-  // with the container-fill affordance instead of an insertion line). Both
-  // in-screen drag paths now route container-background hits through this
-  // helper so dropping between children works and shows the line.
-  //
-  // keep in sync with hit-test.bridge.ts's own nearestChildInsertionTarget
-  // (finding 6's cross-screen/canvas-to-screen mirror of this same fix —
-  // that copy omits the `excludeEls` param since hit-test.bridge.ts never
-  // has a dragged element of its own).
   function nearestChildInsertionTarget(
     container: Element,
     clientX: number,
@@ -17122,17 +15338,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var placement = "after";
     for (var j = 0; j < children.length; j += 1) {
       var rect = children[j].getBoundingClientRect();
-      // Skip zero-size children (e.g. Alpine <template> nodes, hidden
-      // elements) — they are not visible slots.
       if (rect.width <= 0 || rect.height <= 0) continue;
       var center =
         axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
       var pointer = axis === "x" ? clientX : clientY;
-      // A multi-column grid or wrapped flex is two-dimensional. Comparing one
-      // axis alone ties cells/items across rows, so a drop can anchor against
-      // the wrong visual track. Resolve the nearest visual child in both
-      // axes, then use the container's main axis for before/after placement.
-      // One-column grids and non-wrapped flex retain their normal flow path.
       var distance =
         multiTrackGrid || wrappedFlexAxis
           ? Math.hypot(
@@ -17168,9 +15377,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     clientY: number,
     excludeEls?: Element[],
   ) {
-    // Body is the authored Screen root. It has no durable node id, so use a
-    // real root child as the insertion anchor instead of minting an id for
-    // the document root and falling back to absolute placement.
     if (!isAutoLayoutElement(document.body)) return null;
     var bodyRect = document.body.getBoundingClientRect();
     if (
@@ -17191,11 +15397,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  // `excludeEls` (optional): other members of a multi-select group drag.
-  // They can never be the anchor/target of their own group's reorder (that
-  // would insert the group relative to an element that is itself about to
-  // move), so hits on them fall through to the sibling-scan fallback and the
-  // sibling scan skips them.
   function reorderTargetForPoint(el, clientX, clientY, excludeEls) {
     if (!el || !el.parentElement) return null;
     var dragged: Element[] = [el].concat(excludeEls || []);
@@ -17212,15 +15413,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return false;
     }
     var hit = elementFromEditorPoint(clientX, clientY);
-    // Anchor-candidate gate: a hit that resolves directly onto a template
-    // clone (e.g. hovering over one of the rendered `<li>` items inside a
-    // container whose ONLY children are x-for clones) can never anchor a
-    // structural move — see draggableElementChildren's comment above. Falling
-    // through here (instead of using `hit` as the anchor) routes to the
-    // sibling-scan fallback below, which already filters clones out via
-    // draggableElementChildren, so it correctly resolves to either a
-    // non-clone sibling or, when there are none, no anchor at all (caller
-    // falls back to the container itself with "inside" placement).
     if (
       hit &&
       hit !== document.documentElement &&
@@ -17228,10 +15420,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       !isOverlayElement(hit) &&
       !isTemplateCloneElement(hit)
     ) {
-      // A same-parent child is always a slot. Cross-parent slots are only
-      // forced for wrapped flex and grid, where the row/cell geometry carries
-      // insertion intent; a child of an ordinary flex item can still be an
-      // intentional nesting target.
       var hitAutoLayoutParent = hit.parentElement;
       var hitAutoLayoutStyles = hitAutoLayoutParent
         ? window.getComputedStyle(hitAutoLayoutParent)
@@ -17273,12 +15461,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           clientY,
         );
         if (!edgePlacement) {
-          // B5-4: the pointer is over the container's inner area — its
-          // padding or the gap BETWEEN children (a direct child under the
-          // pointer would have been the hit instead). Resolve to the
-          // nearest child slot so the drop lands between children with the
-          // insertion LINE, instead of the old placement:"inside" append-
-          // after-last with only the container-fill affordance.
           var betweenChildren = nearestChildInsertionTarget(
             hit,
             clientX,
@@ -17304,9 +15486,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           dropMode: "flow-insert",
         };
       }
-      // A hit on a label or icon is below its flow item. Reuse the same
-      // ancestor resolver used for free-element drops so the anchor remains
-      // at the nearest container's child level.
       var hasAutoLayoutAncestor = false;
       var ancestor = hit.parentElement;
       while (ancestor && ancestor !== document.body) {
@@ -17351,15 +15530,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return !isDraggedOrInsideDragged(child);
     });
     if (!siblings.length) {
-      // No non-clone, non-dragged sibling to anchor against — e.g. `parent`'s
-      // only other children are x-for clones (draggableElementChildren
-      // already filtered those out above). Fall back to the parent container
-      // itself with "inside" placement instead of returning null: null here
-      // would make onReorderUp treat this as "no valid drop target" and
-      // silently no-op the whole gesture, even though moving into `parent`
-      // (landing after the rendered clones, which in source HTML is simply
-      // inside the container since clones don't exist there) is a completely
-      // valid and expected drop.
       return {
         anchor: parent,
         placement: "inside",
@@ -17392,12 +15562,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  /** Resolve a flow child's full Figma-style move target. The legacy reorder
-   * resolver always fell back to the current parent/root, so a child could be
-   * reordered but never dragged out of auto layout onto the freeform screen.
-   * Keep ordinary flow insertion intact, but turn a root/background release
-   * into an absolute-container move. Space preserves the current parent;
-   * Control drops into an auto-layout parent as Ignore auto layout. */
   function flowMoveTargetForPoint(
     el,
     clientX,
@@ -17417,9 +15581,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       clientY < parentRect.top ||
       clientY > parentRect.bottom;
 
-    // Cmd/Ctrl's auto-layout override is a free placement gesture. Once it
-    // leaves its current auto-layout parent, resolve the root escape before a
-    // nearby sibling/container can pull it back into that parent's flow.
     var pointHit = elementFromEditorPoint(clientX, clientY);
     if (
       ignoreTargetAutoLayout &&
@@ -17429,10 +15590,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         pointHit === document.body ||
         pointHit === document.documentElement)
     ) {
-      // Cmd/Ctrl is an explicit escape from the current auto-layout tree.
-      // Use the document root as the persistence anchor instead of placing
-      // after the former parent, whose generated screen wrapper would retain
-      // the child in that tree after the source round-trip.
       return {
         anchor: document.body,
         placement: "inside",
@@ -17442,17 +15599,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
 
     if (keepCurrentParent && pointerOutsideCurrentParent) {
-      // Figma parity: an auto-layout parent cannot host a freely
-      // (absolutely) positioned child at all, so "keep current parent,
-      // position free" while the pointer is off dragging far away must
-      // escape every auto-layout ancestor (the object's own row, the
-      // screen's own auto-layout root, ...) up to the nearest one that
-      // isn't — never just the object's immediate DOM parent, which may
-      // be a small auto-layout group nested deep inside a big auto-layout
-      // screen. Stops one level short of document.body: body itself has
-      // no node-id for persistence to anchor on (see the body-container
-      // fallback below), so the screen's own top-level wrapper is the
-      // outermost usable anchor.
       var freeParent = currentParent;
       while (
         freeParent &&
@@ -17533,8 +15679,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var container = dropContainerForTarget(target);
 
-    // Figma Ignore auto layout: Control-drag into an auto-layout frame keeps
-    // the new parent but excludes the object from its flow.
     if (
       ignoreTargetAutoLayout &&
       container &&
@@ -17549,9 +15693,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
 
-    // Body has no node-id, so persist cannot resolve `html > body` as an
-    // inside-anchor. After the current parent lands the same freeform root
-    // sibling and gives persist a real node-id.
     if (
       currentParent !== document.body &&
       (container === document.body ||
@@ -17566,9 +15707,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
 
-    // Flow child (a real flow-reorder gesture) dropped into an empty plain
-    // container: convert it to auto layout before the structural move. This is
-    // the flow path only; the absolute/free drag keeps shapes free.
     if (
       target &&
       target.dropMode === "flow-insert" &&
@@ -17584,13 +15722,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return target;
   }
 
-  /** Apply Figma's Cmd/Ctrl-drag "Ignore auto layout" modifier to an
-   * absolute/freeform drag target. The flow-origin path above already made
-   * this conversion, but the ordinary absolute drag path used to ignore the
-   * modifier and strip position/left/top on drop. Resolve to the auto-layout
-   * container itself so the object keeps absolute positioning inside its new
-   * parent, regardless of whether the pointer is over a child insertion slot
-   * or the container background. */
   function ignoreAutoLayoutForDropTarget(target) {
     var container = dropContainerForTarget(target);
     var isDeclaredFrameInAutoLayout = Boolean(
@@ -17614,10 +15745,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  // Accepts a single element or an array (group drags temporarily disable
-  // pointer-events on EVERY dragged member so the hit test sees what's
-  // underneath the whole group, not a sibling member riding along under the
-  // pointer).
   function elementFromEditorPointIgnoring(
     clientX: number,
     clientY: number,
@@ -17641,37 +15768,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return hit;
   }
 
-  // Item 8 — re-parent policy for absolute-position drags (this function
-  // feeds onMove's currentAutoLayoutTarget for the isFlowReorderCandidate
-  // === false path, i.e. plain absolute-positioned elements/shapes, NOT flow
-  // children — see reorderTargetForPoint above for that separate case).
-  //
-  // PRODUCT DECISION (supersedes the old "genuine auto-layout only" policy
-  // below): dragging one element onto another must nest it as a child with
-  // auto-layout, exactly like dropping an element into a frame in Figma —
-  // this applies to plain rectangles/divs too, not just existing flex/grid
-  // containers. `isContainerDropTarget` (below) is the single nestable-
-  // container test shared with reorderTargetForPoint's flow-reorder path and
-  // the overview canvas's getPrimitiveDropTargetForPoint, so in-screen and
-  // cross-screen drag agree on what counts as a container: any block-level
-  // element that can hold children (plain divs/sections/etc. included),
-  // excluding text/leaf tags, overlay chrome, and the dragged element's own
-  // descendants (cycle guard). When the resolved container is not already an
-  // auto-layout (flex/grid) display, the caller (onUp) converts it to
-  // display:flex on drop — see needsAutoLayoutConversion below and
-  // applyAutoLayoutConversionForDrop.
-  //
-  // (Historical note: an earlier revision of this policy matched ANY
-  // absolute-positioned rect primitive as a drop-into target purely from
-  // pointer overlap, with no leaf/text exclusion and no cycle guard, which
-  // caused two merely-overlapping absolute elements to silently adopt one
-  // another. isContainerDropTarget's tag/role checks plus the cursor
-  // ancestor-walk's cycle guard below are what keep this version scoped to
-  // Figma's actual "drop into a frame" behavior instead of that regression.)
-  // `excludeEls` (optional): additional dragged elements to treat exactly
-  // like `el` — used by multi-select group drags so no member of the moving
-  // group is hit-tested, walked through, or offered as a nesting container
-  // for its own group.
   function autoLayoutInsertionTargetForPoint(
     el,
     clientX,
@@ -17710,9 +15806,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         anchor: explicitFrame,
         placement: "inside",
         axis: parentFlowAxis(explicitFrame),
-        // A declared frame is a deliberate nesting target even while it is a
-        // flex item itself. Its normal drop mode joins the frame's content
-        // flow; Ctrl is the explicit request to keep absolute positioning.
         dropMode: "flow-insert",
       };
     }
@@ -17726,11 +15819,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         cursor = cursor.parentElement;
         continue;
       }
-      // document.body is excluded as a nesting target here (both branches
-      // below): it is the screen root, not a Figma-style frame, so hovering
-      // loose background — including hovering a leaf like an image or text
-      // node whose parent happens to be body — must fall through to a plain
-      // absolute placement instead of silently wrapping body in auto-layout.
       var parent = cursor.parentElement;
       if (
         parent === document.body &&
@@ -17747,11 +15835,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         if (rootChildSlot) return rootChildSlot;
       }
-      // An absolute layer dropped onto a direct child of an established
-      // auto-layout parent is joining that parent's flow. Resolve the sibling
-      // slot before the freeform-container probes below: generated preview
-      // wrappers and relatively positioned leaf cards can otherwise look like
-      // absolute containers and swallow the layer as an absolute child.
       if (
         parent &&
         parent !== document.body &&
@@ -17786,20 +15869,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           dropMode: "flow-insert",
         };
       }
-      // Absolute-primitive-container target (a canvas rectangle marked
-      // data-an-primitive="rectangle"/"rect"): this is a dedicated
-      // free-placement container, not a Figma-style auto-layout frame — the
-      // matching reorderTargetForPoint (flow-reorder) branch already
-      // recognizes it via this same helper and assigns dropMode
-      // "absolute-container" so onUp skips the auto-layout conversion and
-      // keeps the moved element's position:absolute.
       if (
         cursor !== document.body &&
         (isAbsolutePrimitiveContainer(cursor) ||
           isFreeformRelativeContainer(cursor))
       ) {
-        // Same-parent drop is a pure reposition: a target here re-appends the
-        // element as its parent's last child and changes its z-order.
         if (cursor === el.parentElement) return null;
         return {
           anchor: cursor,
@@ -17808,30 +15882,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           dropMode: "absolute-container",
         };
       }
-      // Nest-inside-what-you're-hovering takes priority over sibling-insert
-      // UNLESS cursor is already a managed flex-item of an ESTABLISHED
-      // auto-layout parent (isAutoLayoutElement — genuinely display:flex/grid,
-      // not just an isContainerDropTarget tag match). That parent-is-already-
-      // auto-layout signal is what distinguishes "cursor is a list item being
-      // reordered within its existing list" (sibling-insert is correct: a
-      // plain-block <div> chip that is itself a flex-item of #frame/#col)
-      // from "cursor is genuinely being hovered as a nesting target" (a
-      // pristine/empty container, or a real container whose own parent isn't
-      // already running auto-layout — e.g. a top-level or newly-adjacent
-      // rectangle, matching reorderTargetForPoint's isContainerDropTarget(hit)
-      // priority for the flow-reorder gesture).
-      //
-      // This check used to run AFTER the sibling-insert branch below with no
-      // such carve-out, so hovering directly over a pristine/empty auto-layout
-      // container nested under a NON-auto-layout ancestor (e.g. a plain
-      // <main>) — whose own parent still satisfies the old unconditional
-      // "isContainerDropTarget(parent)" check — matched the sibling-insert
-      // branch first and resolved the drop one level too high (anchoring
-      // before/after the hovered container inside ITS parent, instead of
-      // nesting inside the hovered container). Fixed by promoting this
-      // nest-inside check ahead of the sibling-insert fallback, gated on the
-      // parent NOT already being an established auto-layout list (so genuine
-      // flex-item reordering inside an existing list is unaffected).
       if (
         cursor !== document.body &&
         isContainerDropTarget(cursor) &&
@@ -17845,9 +15895,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             isTemplateCloneElement(cursor))
         )
       ) {
-        // Free (absolute) element into a non-auto-layout container stays free:
-        // nest as an absolute child at the drop point, never convert to flex.
-        // Same-parent drop is a pure reposition (null → onUp writes left/top).
         if (!isAutoLayoutElement(cursor)) {
           if (cursor === el.parentElement) return null;
           return {
@@ -17857,9 +15904,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             dropMode: "absolute-container",
           };
         }
-        // B5-4: pointer over an auto-layout container's background (padding or a
-        // gap). Prefer the nearest child slot over plain "inside" (append last);
-        // fall back to "inside" for an empty container.
         var betweenContainerChildren = nearestChildInsertionTarget(
           cursor,
           clientX,
@@ -17892,16 +15936,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         isAutoLayoutElement(parent.parentElement) &&
         parent.getAttribute("data-an-primitive") !== "frame"
       ) {
-        // A generated text wrapper inside a direct auto-layout child is still
-        // part of that sibling's hit area. Walk out to the direct child so a
-        // free layer re-enters the parent's flow instead of nesting into the
-        // wrapper's leaf card as an absolute child.
         cursor = parent;
         continue;
       }
       if (parent && parent !== document.body && isContainerDropTarget(parent)) {
-        // Free element over a sibling in a non-auto-layout parent stays free:
-        // absolute child at the drop point (same-parent → null reposition).
         if (!isAutoLayoutElement(parent)) {
           if (parent === el.parentElement) return null;
           return {
@@ -17911,13 +15949,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             dropMode: "absolute-container",
           };
         }
-        // parent is an established auto-layout list: reorder within its flow.
-        // Anchor-candidate gate: cursor is a plain sibling under `parent`
-        // being used as a before/after anchor — but if it's a template
-        // clone (no counterpart in source HTML), fall back to the nearest
-        // non-clone sibling via nearestChildInsertionTarget, else the
-        // container itself with "inside" placement, exactly like
-        // reorderTargetForPoint's equivalent fallback above.
         if (isTemplateCloneElement(cursor)) {
           var cloneFallback = nearestChildInsertionTarget(
             parent,
@@ -17975,8 +16006,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  // After-the-parent (not inside body): body often has no node-id, so persist
-  // cannot resolve it and the style-only write leaves the child clipped.
   function unnestAbsoluteToScreenRoot(el, clientX, clientY) {
     var parent = el && el.parentElement;
     if (
@@ -18030,9 +16059,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var htmlEl = cursor as HTMLElement;
         if (seen.indexOf(htmlEl) === -1) {
           var cs = window.getComputedStyle(htmlEl);
-          // `auto` and `scroll` clip absolutely-positioned descendants to the
-          // padding box exactly as `hidden` does, so a child dragged out of a
-          // scrollable frame vanishes unless they are lifted too.
           if (
             clipsOverflow(cs.overflow) ||
             clipsOverflow(cs.overflowX) ||
@@ -18076,14 +16102,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideInsertionGuide();
       return;
     }
-    // Compensate for the host's inverse-scale chrome model (see
-    // applyEditorChromeScale / chromeLineScale): the host shrinks this iframe
-    // via a CSS transform at low canvas zoom, so a hardcoded "2px" line here
-    // would render sub-pixel (effectively invisible) at typical overview zoom
-    // levels — this was the actual regression, not a missing code path. Every
-    // other chrome line/border in this file (selection border, spacing lines,
-    // handle borders) already scales by chromeLineScale(); the insertion
-    // guide must match so it stays a visible bright line at any zoom.
     var line = 2 * chromeLineScale();
     var insideBorder = 2 * chromeLineScale();
     var rect = target.guideRect || target.anchor.getBoundingClientRect();
@@ -18165,20 +16183,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  // Absolute-into-flow teleport fix: a flow-insert reparent (the ONLY
-  // dropMode applyRuntimeReorder ever nests an absolute-positioned member
-  // through — "absolute-container" placements keep position:absolute by
-  // design) must strip the leftover position/left/top/right/bottom the
-  // absolute-drag onMove loop wrote onto the element throughout the drag.
-  // Without this the element reparents into the flow container correctly
-  // but stays absolutely positioned at its last drag offset — rendering
-  // hundreds of px away from the slot the insertion guide indicated, since
-  // position:absolute measures from the nearest positioned ancestor, not
-  // flow layout. DesignEditor.tsx does the equivalent strip on the
-  // PERSISTED source string once the host round-trips (see
-  // removeAbsolutePositioningFromNodeInHtml); this mirrors it on the LIVE
-  // runtime DOM so the optimistic in-iframe result is correct immediately,
-  // not just after the host ack.
   var ABS_POSITION_INLINE_PROPS = [
     "position",
     "left",
@@ -18186,15 +16190,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "right",
     "bottom",
   ];
-  // Flex/grid-item-only inline properties. A member leaving auto-layout flow
-  // for an absolute/freeform container (prepareFlowMembersForAbsoluteDrop)
-  // must lose these — they only affect how a flow child sizes/aligns itself
-  // among siblings inside an auto-layout parent, and are meaningless once the
-  // element is position:absolute. Left in place they silently keep
-  // controlling nothing today but would immediately re-activate (with a
-  // stale, source-parent-relative value) the moment the element was ever
-  // reparented BACK into flow — e.g. by an undo, or a later drag into another
-  // auto-layout container that doesn't explicitly reset every one of these.
   var FLEX_ITEM_INLINE_PROPS = [
     "flex",
     "flex-grow",
@@ -18209,13 +16204,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       htmlEl.style.removeProperty(FLEX_ITEM_INLINE_PROPS[i]);
     }
   }
-  // Snapshot of the inline position/left/top/right/bottom VALUES (not just
-  // whether they existed) taken right before stripAbsolutePositioningForFlowInsert
-  // runs, so a failed move-node round-trip can restore exactly what was
-  // there — including "" for a property that had no inline value at all,
-  // which style.removeProperty already treats correctly as "unset". Reused
-  // by the visual-structure-ack failure branch below to undo the optimistic
-  // strip together with the parent/sibling DOM revert.
   function snapshotInlinePositionStyles(el: Element): Record<string, string> {
     var htmlEl = el as HTMLElement;
     var snapshot: Record<string, string> = {};
@@ -18315,9 +16303,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!layout) return null;
     var negative = value.trim().match(/^-(\d+)$/);
     if (negative) {
-      // Computed grid templates include implicit tracks. Resolve negative
-      // lines against the browser's explicit-grid origin instead of counting
-      // those expanded tracks as authored tracks.
       var bounds = axis === "column" ? layout.columnBounds : layout.rowBounds;
       var coordinates = withGridAreaProbe(layout.container, function (probe) {
         if (axis === "column") probe.style.gridRow = "1 / 1";
@@ -18453,8 +16438,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       requiredColumns > layout.columns.length ||
       requiredRows > layout.rows.length
     ) {
-      // An absolutely positioned grid item spans its grid area without
-      // participating in track sizing, even when real children self-size.
       withGridAreaProbe(container, function (probe) {
         for (
           var column = layout.columns.length;
@@ -18507,16 +16490,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
     });
   }
-  // Builds the same snapshot shape as snapshotInlinePositionStyles, but from
-  // a startMove memberState's TRUE pre-drag inline values (captured once at
-  // gesture start — see memberStates below) rather than the live element's
-  // CURRENT inline styles. Used at the startMove/applyGroupStructureDrop
-  // call sites: those paths continuously rewrite the dragged element's
-  // left/top to follow the pointer throughout the free-drag phase, so a
-  // snapshot taken right before the strip would only capture the LAST
-  // dragged-to position, not the position the element should return to when
-  // the whole move-node round-trip is rejected and it goes back to its
-  // original parent.
   function dragOriginInlinePositionStyles(state: {
     originalPosition: string;
     originalLeft: string;
@@ -18557,19 +16530,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       htmlEl.style.setProperty("right", "auto");
       htmlEl.style.setProperty("bottom", "auto");
     }
-    // A Frame remains the containing block for its absolute descendants. If
-    // an authored stylesheet overrides the inline relative reset, persist the
-    // same important override as the host. Other nodes only need this fallback
-    // while a stylesheet still keeps them absolute/fixed after the strip.
     var afterRemoval = window.getComputedStyle(htmlEl).position;
     var needsPositionOverride = keepsContainingBlock
       ? afterRemoval !== "relative"
       : afterRemoval === "absolute" || afterRemoval === "fixed";
     if (needsPositionOverride) {
-      // An authored stylesheet may carry !important, so the optimistic
-      // override must match that priority. Tell the host to persist the same
-      // narrow override; otherwise its source round-trip would re-apply the
-      // stylesheet and pop the newly-flowed child back out of auto layout.
       htmlEl.style.setProperty(
         "position",
         keepsContainingBlock ? "relative" : "static",
@@ -18585,29 +16550,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  // Absolute-container nest rebase: an "absolute-container" drop keeps the
-  // member position:absolute BY DESIGN (no flow-insert strip), but the drag
-  // loop wrote its left/top in the member's ORIGINAL containing-block space
-  // (typically the screen root). After reparenting into the drop container —
-  // itself a positioned element — those same numbers re-resolve against the
-  // NEW containing block, displacing the child by exactly the container's
-  // origin: it renders outside the container's (unclipped) box and visually
-  // "vanishes", and that corrupt geometry then persists. Convert left/top
-  // into the new parent's coordinate space BEFORE the DOM move so (a) the
-  // optimistic in-iframe render is correct immediately and (b)
-  // postVisualStructureChange's sourceRect — measured AFTER the move — now
-  // reflects the true on-screen position, which the host's
-  // absoluteContainerOffset persistence math (sourceRect − anchorRect)
-  // depends on. Delta math (old CB origin − new CB origin) keeps the
-  // member's on-screen position identical through the reparent and stays
-  // exact under margins/rotation, unlike re-deriving from the member's own
-  // (transform-inflated) bounding box.
   function rebaseAbsoluteMemberForContainerDrop(el, target): void {
     if (!el || !target || target.dropMode !== "absolute-container") return;
-    // Flow children are prepared directly in the destination containing-block
-    // coordinate space immediately before their DOM move. Rebasing those
-    // coordinates as if they came from an old absolute containing block would
-    // apply the parent-origin delta twice.
     if (target.absoluteCoordinatesPrepared) return;
     var container = dropContainerForTarget(target);
     if (!container || container === el) return;
@@ -18615,8 +16559,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var htmlEl = el as HTMLElement;
     var cs = window.getComputedStyle(htmlEl);
     if (cs.position !== "absolute" && cs.position !== "fixed") return;
-    // New containing block origin: the container's padding edge, in client
-    // coordinates (border box + border widths − its own scroll offsets).
     var containerRect = container.getBoundingClientRect();
     var containerCS = window.getComputedStyle(container);
     var boardOffsetX = designCanvasBoardSurface
@@ -18625,8 +16567,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var boardOffsetY = designCanvasBoardSurface
       ? designCanvasContentOffsetY
       : 0;
-    // Body's children carry the board translate; subtracting it from body's
-    // origin double-counts and parks an un-nested child one chunk off-world.
     var bodyIsContainingBlock =
       container !== document.body ||
       containerCS.position !== "static" ||
@@ -18646,10 +16586,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         readPx(containerCS.borderTopWidth) -
         container.scrollTop
       : -(window.scrollY || 0);
-    // Current containing block origin: the member's offsetParent when it is
-    // a real containing block, else the initial containing block (client
-    // 0,0 minus page scroll). offsetParent falls back to <body> even when
-    // body is NOT positioned/transformed — detect that and use the ICB.
     var oldOriginX = -(window.scrollX || 0);
     var oldOriginY = -(window.scrollY || 0);
     var offsetParent = htmlEl.offsetParent as HTMLElement | null;
@@ -18665,12 +16601,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (offsetParentIsRealContainingBlock) {
         var opRect = offsetParent.getBoundingClientRect();
         var opCS = window.getComputedStyle(offsetParent);
-        // The finite board offset is applied to `body > [data-node-id]`, not
-        // to body itself. A top-level member whose containing block is the
-        // positioned body therefore still has a true origin of 0; subtracting
-        // the render offset here poisoned a frame nest by exactly one chunk
-        // (for example -4096px). Nested containing blocks do inherit the
-        // translated top-level visual space, so only those need normalization.
         var oldContainingBlockOffsetX =
           designCanvasBoardSurface && offsetParent !== document.body
             ? boardOffsetX
@@ -18693,19 +16623,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var currentLeft = readPx(htmlEl.style.left || cs.left);
     var currentTop = readPx(htmlEl.style.top || cs.top);
-    // Both origins come from getBoundingClientRect, so the raw difference is
-    // subpixel and would be authored as one.
     htmlEl.style.left =
       Math.round(currentLeft + (oldOriginX - newOriginX)) + "px";
     htmlEl.style.top =
       Math.round(currentTop + (oldOriginY - newOriginY)) + "px";
   }
 
-  /** Convert flow members to absolute positioning at their drag release point
-   * before moving them into a freeform root/absolute container. The DOM move
-   * happens synchronously in the same event turn, so no intermediate frame is
-   * painted; postVisualStructureChange then measures the final geometry for
-   * the source persistence/undo entry. */
   function prepareFlowMembersForAbsoluteDrop(
     members: Element[],
     target,
@@ -18751,10 +16674,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       htmlEl.style.removeProperty("right");
       htmlEl.style.removeProperty("bottom");
       stripFlexItemInlineStyles(htmlEl);
-      // Preserve the exact intended client-space release point for the
-      // post-reparent transform correction. Raw left/top are in the new
-      // containing block's local space; when that parent is rotated/scaled,
-      // subtracting bounding-box origins alone cannot keep this client point.
       (
         htmlEl as HTMLElement & {
           __agentNativeDesiredDropPoint?: { left: number; top: number };
@@ -18767,14 +16686,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     target.absoluteCoordinatesPrepared = true;
   }
 
-  /**
-   * Correct an absolute member after it enters a transformed containing block.
-   * CSS transforms (including rotated/scaled ancestors) make client-space
-   * deltas differ from local left/top deltas. Measure the two local 1px basis
-   * vectors through the browser's actual layout engine, invert that 2x2 matrix,
-   * and apply the exact local correction. This also covers nested transforms
-   * without trying to reconstruct the browser's full transform-origin chain.
-   */
   function correctAbsoluteMemberClientPosition(
     el: Element,
     desired: { left: number; top: number } | null,
@@ -18807,8 +16718,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var localDx = (clientDx * yy - yx * clientDy) / determinant;
     var localDy = (xx * clientDy - clientDx * xy) / determinant;
-    // The exact client point is worth at most a subpixel here, and paying for
-    // it in a fractional authored left/top is the wrong trade.
     htmlEl.style.left = Math.round(baseLeft + localDx) + "px";
     htmlEl.style.top = Math.round(baseTop + localDy) + "px";
   }
@@ -19109,12 +17018,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         };
       }
     }
-    // Must run BEFORE the DOM move below: the delta math reads the member's
-    // CURRENT containing block via offsetParent. Called here (the single
-    // choke point for drop reparenting) so the single-drag, group-drag,
-    // flow-reorder, and alt-drag-duplicate paths all rebase consistently.
-    // Idempotent for already-nested members (old CB === new CB → delta 0),
-    // so the visual-structure-ack replay path is safe too.
     rebaseAbsoluteMemberForContainerDrop(el, target);
     var persistenceAnchor = target.persistenceAnchor || target.anchor;
     var persistencePlacement = target.persistencePlacement || target.placement;
@@ -19134,8 +17037,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       previousNextSibling !== el.nextElementSibling ||
       previousInlineStyle !== el.getAttribute("style");
     if (runtimeMutationApplied && !preview) {
-      // The optimistic DOM order/reparent now diverges from authored source.
-      // Keep known unique IDs, but invalidate the complete-source revision.
       publishSourceDocumentProvenance(undefined, true);
     }
     return runtimeMutationApplied;
@@ -19154,8 +17055,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     runtimeInsert?: boolean,
   ) {
     if (!el || !target || !target.anchor) return;
-    // Batched grid messages keep the grid container as their runtime anchor;
-    // persistence fields retain each member's source-order anchor.
     var messageAnchor = collectMessages
       ? target.anchor
       : target.persistenceAnchor || target.anchor;
@@ -19208,14 +17107,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             };
           })
         : undefined,
-      // Present only when this node did not exist in the running app before
-      // the change. The host must NOT tell the coding agent to relocate an
-      // element the source file has never contained.
       insertedHtml: typeof insertedHtml === "string" ? insertedHtml : undefined,
-      // A runtime insert has a separate applied acknowledgement. Its
-      // optimistic visual-structure echo is informational and must not be
-      // rejected independently, or the target bridge removes a successful
-      // cross-screen/canvas insert before the host records it.
       runtimeInsert: runtimeInsert === true ? true : undefined,
       replaced: replaced === true ? true : undefined,
       replacementSnapshotHtml: replacementSnapshotHtml,
@@ -19239,9 +17131,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       target && (target.persistenceAnchor || target.anchor)
         ? target.persistenceAnchor || target.anchor
         : originalEl;
-    // The host immediately pushes the persisted clone back through the source
-    // morph. Claim the optimistic clone first so that round-trip reuses it
-    // instead of importing a second copy beside it.
     recordSourceSubtree(cloneEl);
     var requestId =
       "duplicate-" + Date.now() + "-" + Math.random().toString(16).slice(2);
@@ -19257,9 +17146,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         requestId: requestId,
         selector: getSelector(originalEl),
         sourceId: getSourceId(originalEl),
-        // A free Alt-drag has no resolved insertion target, but the source is
-        // still inserted after its original sibling. Keep that anchor in the
-        // host message so live-source persistence can replay the same relation.
         anchorSelector: getSelector(anchorEl),
         anchorSourceId: getSourceId(anchorEl),
         placement:
@@ -19284,28 +17170,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  // Multi-select group drop: land every member of the group CONSECUTIVELY at
-  // the drop target, preserving their existing document order (standard
-  // design-tool group-drop semantics). `members` must already be in document
-  // order (collectMoveGroupMembers guarantees it). The first member takes the
-  // real drop target; each subsequent member chains "after" the previous one
-  // so the group stays contiguous regardless of the target placement mode.
-  // Persistence reuses the existing per-element visual-structure-change
-  // message — one per member, posted in order, which the host composes
-  // sequentially against its synchronous same-tick content refs (the same
-  // established multi-message pattern as the auto-layout conversion +
-  // structure change pairing in onUp). The host handler collapses its
-  // selection to each moved node as it processes each message, so a final
-  // marquee-selection message restores the full multi-selection afterwards
-  // (requirement: selection stays intact after a group drop).
-  // `originInlineStylesFor` (optional): resolves a member's TRUE pre-drag
-  // position/left/top snapshot (see dragOriginInlinePositionStyles) when the
-  // caller has that gesture-start state available (the startMove auto-layout
-  // branch, whose onMove continuously rewrites left/top to follow the
-  // pointer). Falls back to a live snapshot taken here for the flow-reorder
-  // branch's group call site, which never mutates left/top during its drag
-  // (flow-reorder has no free left/top phase), so the live value IS the
-  // pre-strip/pre-move value there.
   function applyGroupStructureDrop(
     members: Element[],
     target,
@@ -19460,16 +17324,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
                 };
       var prevParent = member.parentElement;
       var prevNextSibling = member.nextSibling;
-      // Captured BEFORE applyRuntimeReorder so a rejected move-node
-      // round-trip can restore the exact pre-strip inline values (see
-      // snapshotInlinePositionStyles / dragOriginInlinePositionStyles doc
-      // comments).
       var prevInlinePositionStyles = originInlineStylesFor
         ? originInlineStylesFor(member)
         : snapshotInlinePositionStyles(member);
       var prevInlineGridStyles = snapshotInlineGridStyles(member);
-      // Board-text auto-color: adapt before the DOM move so the re-parent
-      // check sees the ORIGINAL parent (see adaptAutoTextColorForNest).
       adaptAutoTextColorForNest(member, container);
       if (
         applyRuntimeReorder(member, memberTarget, preview, members) &&
@@ -19518,18 +17376,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!preview) postElementMarqueeSelect(members, false, ev);
   }
 
-  // ── Alignment / smart-guide snapping (Figma parity) ───────────────────────
-  //
-  // Minimal, dependency-free port of the overview canvas's edge/center snap
-  // routine (shared/canvas-math.ts computeMoveSnap) for in-iframe element
-  // dragging. The bridge's pointer coordinates and getBoundingClientRect()
-  // values are iframe-local content px, so SNAP_THRESHOLD_PX is a screen-space
-  // base converted to content px at snap time via chromeLineScale (1/zoom) to
-  // keep the snap tolerance constant on screen at any zoom.
   var SNAP_THRESHOLD_PX = 6;
 
-  /** This screen's layout grid step in content px, pushed by the host. 1 means
-   *  no grid, which is the whole-pixel floor every gesture already lands on. */
   var layoutGridStep = 1;
 
   function quantizeToLayoutGrid(value: number): number {
@@ -19538,11 +17386,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
   var SNAP_CANDIDATE_CAP = 200;
 
-  // Accepts either a real DOMRect (getBoundingClientRect()) or a plain
-  // {left, top, width, height} object (the moving element's live drag rect,
-  // which doesn't have its own DOMRect during the drag since it's derived
-  // from pointer deltas) — right/bottom are always derived from
-  // left/top/width/height so both shapes work identically.
   function rectBounds(rect) {
     return {
       left: rect.left,
@@ -19554,13 +17397,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  // Collects candidate rects to snap against: visible sibling elements that
-  // share the dragged element's offsetParent, plus the parent's own content
-  // box. Capped and computed once (one getBoundingClientRect pass) at drag
-  // start rather than per move event, per the perf requirement below.
-  // `excludeEls` (optional): other members of a multi-select group drag —
-  // they move together with dragEl, so snapping against them would chase a
-  // moving target.
   function collectSnapCandidateRects(dragEl, excludeEls) {
     var rects = [];
     var excluded: Element[] = excludeEls || [];
@@ -19605,18 +17441,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return rects;
   }
 
-  // Hand-port of shared/canvas-math.ts computeDragSnap and its helpers:
-  // alignment offset per axis, then every guide line the snapped position
-  // actually sits on, then a spacing snap on whichever axes alignment left
-  // free. Keep the two in sync — canvas-math is the reference implementation
-  // and editor-chrome-bridge.snap.test.ts proves this copy against it.
   var SNAP_ALIGN_EPSILON = 1e-6;
-  // Guides are drawn at this tight tolerance, not the snap pull: on an axis
-  // locked by an alignment guide the element never moved, so a near-equal
-  // pair would otherwise get labelled as an equal gap it does not have.
   var SPACING_MATCH_EPSILON = 0.5;
-  // Screen px: beyond this a neighbour is not what the user is positioning
-  // against, and its measurement is a line stretched over empty space.
   var PROXIMITY_RANGE_PX = 160;
 
   function axisSnapValues(bounds, axis) {
@@ -19786,9 +17612,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     for (var i = 0; i < candidates.length; i += 1) {
       var entry = candidates[i];
       if (!crossAxisOverlaps(axis, entry, moving)) continue;
-      // A candidate that spans the whole moving element — the parent content
-      // box — is a wrapper, not a neighbour in the rhythm, and its span would
-      // swallow every real gap in the row.
       if (
         axisStart(entry, axis) <= axisStart(moving, axis) &&
         axisEnd(entry, axis) >= axisEnd(moving, axis)
@@ -19831,8 +17654,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return gaps;
   }
 
-  // Returns the matched side with the offset: picking a side independently
-  // builds chrome for a gap the snap never used.
   function findSpacingSnapOffset(axis, moving, candidates, tolerance) {
     var gaps = collectAxisGapCandidates(axis, moving, candidates);
     var before = closestGapCandidate(gaps, "before");
@@ -19867,8 +17688,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  // Every gap already in the row/column that matches: Figma and tldraw both
-  // light the whole run, not only the pair the snap landed on.
   function matchingRhythmBands(rhythms, gap, tolerance) {
     var bands: any[] = [];
     for (var i = 0; i < rhythms.length; i += 1) {
@@ -19921,9 +17740,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ];
   }
 
-  // Nearest neighbour per axis, within range. Stock Figma only prints a gap
-  // that matches an existing one; showing the nearest unconditionally is a
-  // deliberate divergence (see canvas-math computeProximityMeasurements).
   function computeProximityMeasurements(moving, candidates, range, gapsByAxis) {
     var measurements: any[] = [];
     var axes = ["x", "y"];
@@ -19966,8 +17782,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       locked.x ? [] : buildAxisGuides("x", snapped, candidates)
     ).concat(locked.y ? [] : buildAxisGuides("y", snapped, candidates));
 
-    // Figma drops spacing guides for a multi-select drag, and so does the
-    // overview canvas; a grouped iframe drag must not diverge from either.
     if (isGroup) {
       return {
         dx: dx || 0,
@@ -19978,8 +17792,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
 
-    // Spacing only gets the axes alignment left free — moving a claimed axis
-    // would pull the element off the guide line the user can already see.
     var idle = { offset: 0, side: null };
     var spacingXResult = guides.some(function (guide) {
       return guide.orientation === "vertical";
@@ -19998,8 +17810,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var spacingX = spacingXResult.offset;
     var spacingY = spacingYResult.offset;
     var spaced = translateRectBounds(snapped, spacingX, spacingY);
-    // Spacing and proximity ask the same question of the same bounds; one
-    // scan per axis feeds both instead of four scans per drag tick.
     var settledGaps = {
       x: collectAxisGapCandidates("x", spaced, candidates),
       y: collectAxisGapCandidates("y", spaced, candidates),
@@ -20042,9 +17852,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  // Pooled, not rebuilt: this runs on every rAF of a drag, and tearing the
-  // layer down with innerHTML each frame costs a full style recalc for nodes
-  // that are almost always identical in count from one frame to the next.
   var snapGuideNodeCount = 0;
 
   function beginSnapGuideNodes() {
@@ -20071,9 +17878,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  // Constant-screen-size chrome: guide THICKNESS and the spacing serifs
-  // compensate for the host's iframe scale (chromeLineScale) so they stay
-  // crisp at any zoom; positions and spans stay in content coordinates.
   function showSnapGuides(guides, spacingGuides, measurements) {
     measurements = measurements || [];
     if (!guides.length && !spacingGuides.length && !measurements.length) {
@@ -20086,9 +17890,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var scale = chromeLineScale();
     var line = 1 * scale;
-    // Must be a forwarded var (see EDITOR_BRIDGE_VAR_NAMES in DesignCanvas):
-    // an unknown custom property paints transparent, not red, and a guide
-    // with correct geometry and no colour looks exactly like no guide.
     var fill = "background:var(--design-editor-measure-color);";
 
     for (var i = 0; i < guides.length; i += 1) {
@@ -20257,10 +18058,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  // Hand-port of deriveConstraintsValue in edit-panel/position-layout-
-  // properties.tsx — the bridge cannot import. Reads AUTHORED inline offsets
-  // only: an absolutely positioned left-only element still has a computed
-  // `right`, and treating that as a pin would draw a line that lies.
   function authoredOffset(value) {
     if (!value || value === "auto") return "";
     return value;
@@ -20297,8 +18094,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  // Pooled for the same reason as the snap guides: this runs every rAF of a
-  // drag, and rebuilding the layer each frame costs a needless style recalc.
   var constraintNodeCount = 0;
 
   function appendConstraintLine(
@@ -20341,9 +18136,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function showConstraintGuides(el) {
     if (!el || dragChromeSuppressed) return hideConstraintGuides();
-    // body counts here: it is the screen root, which is exactly the frame an
-    // element's offsets are resolved against. (Auto-layout nesting excludes
-    // body for the opposite reason — it is not a drop target.)
     var parent =
       (el as HTMLElement).offsetParent || (el as HTMLElement).parentElement;
     if (!parent) return hideConstraintGuides();
@@ -20430,13 +18222,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     constraintNodeCount = 0;
   }
 
-  // Figma pins the dragged object's dimensions just under it, in canvas
-  // space — unlike the transform badge, which tracks the cursor.
   var sizeBadgeKey = "";
-  // Set while a drag is in a state that suppresses free-placement chrome (an
-  // auto-layout insert, or the pointer outside the iframe). refreshOverlays
-  // runs on the same pointer event and would otherwise re-show the badge and
-  // constraint lines the drag just hid.
   var dragChromeSuppressed = false;
 
   function showSizeBadge(el) {
@@ -20444,8 +18230,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
     var scale = chromeLineScale();
-    // refreshOverlays fires on every ResizeObserver/MutationObserver tick, so
-    // re-writing identical styles here would invalidate layout for nothing.
     var key =
       rect.left +
       "|" +
@@ -20484,10 +18268,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     snapGuideNodeCount = 0;
   }
 
-  // `gestureElParam` (optional): the specific multi-selection member the
-  // pointer went down on when this drag preserves a 2+ selection instead of
-  // collapsing to one element (see beginPotentialShieldDrag's group branch).
-  // Defaults to selectedEl — the selection-overlay drag path.
   function startMove(
     e,
     gestureElParam?: Element,
@@ -20506,20 +18286,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
     clearGridProjectionCaches();
     var moveGestureId = ++dragGestureSequence;
-    // Real creation time of the mousedown that started this gesture, not the
-    // moment this handler happened to run — see cancelActiveBridgeDragOrPendingCommit.
     var gestureStartedAt = eventEpochMilliseconds(e) ?? Date.now();
     var events = dragEventNames(e);
     var originalSelectedEl = selectedEl;
     var duplicatedForDrag = false;
     var duplicateStyleSnapshot;
     var duplicatedSourceNodeIdMap: Array<[string, string]> | undefined;
-    // Client-space vector from the clone's own layout box back to the box the
-    // pointer grabbed. A flow clone is inserted one slot after its source, so
-    // its layout box sits a whole slot away from the grab point; dragGrabRect
-    // below anchors every geometry baseline of this gesture to the grabbed box
-    // instead, so the duplicate drags, previews, and drops from where the user
-    // took hold of it.
     var duplicateGrabOffset: { x: number; y: number } | null = null;
     if (
       e.altKey &&
@@ -20544,17 +18316,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         y: grabbedRect.top - insertedRect.top,
       };
       positionOverlay(selectionOverlay, selectedEl);
-      // No `e` here: this reselects the clone mid-gesture, before the drag's
-      // own commit persists it (postVisualDuplicateChange, at gesture end).
-      // Passing the mousedown event would tag it a real "pointer" pick, and
-      // the host records every intent-carrying pick as its own undo step —
-      // stacking a stray one under this gesture's real content entry.
       postElementSelect(selectedEl);
     }
-    // Read every drag baseline through this, never getBoundingClientRect
-    // directly: an alt-drag clone must be measured at the box the pointer
-    // grabbed, not at the flow slot it was inserted into. Identity for every
-    // other drag.
     function dragGrabRect(el: Element): DOMRect {
       var rect = el.getBoundingClientRect();
       if (!duplicateGrabOffset || el !== gestureEl) return rect;
@@ -20565,9 +18328,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         rect.height,
       );
     }
-    // Multi-select group move: every member of the current 2+ selection moves
-    // with the gesture when the drag started on a member. Alt-drag duplicates
-    // stay single-element (the clone is never part of a selection group).
     var groupEls: Element[] =
       duplicatedForDrag || e.altKey
         ? [gestureEl]
@@ -20578,23 +18338,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return member !== gestureEl;
     });
     if (isGroupDrag) {
-      // beginPotentialShieldDrag armed the host's cross-screen drag state for
-      // a single element before this group drag was detected; clear it. Group
-      // drags stay in-iframe — the host's cross-screen drop only knows how to
-      // move one element, which would tear the group apart.
       postCrossScreenDrag("cancel");
     }
-    // Template-clone reorder rejection (CRITICAL fix): a runtime clone of an
-    // Alpine `<template x-for>` item has no counterpart in the static source
-    // HTML the host resolves structural moves against (only the single
-    // template child exists there), so a reorder/reparent targeting one can
-    // never succeed — the old behavior optimistically reordered the live DOM
-    // then silently reverted it ~1 frame later with zero feedback. Reject up
-    // front instead: no DOM mutation, no doomed host round-trip, clear
-    // "can't reorder" cursor + badge feedback for the whole gesture. Scoped
-    // to single-element, non-duplicate drags of a flow-reorder candidate —
-    // group drags and alt-duplicates build a real, source-backed clone/copy
-    // first (resetRuntimeStableIds), so they are unaffected.
     if (
       !isGroupDrag &&
       !duplicatedForDrag &&
@@ -20652,18 +18397,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (isFlowReorderCandidate(gestureEl)) {
-      // Snapshot the element being reordered so a concurrent select-element or
-      // clear-selection postMessage cannot mutate the wrong element mid-drag.
       var reorderEl = gestureEl;
       var reorderGroupStartRects = groupEls.map(function (member) {
         return dragGrabRect(member);
       });
-      // Capture structural + inline positioning origins before any drop
-      // preparation. Control-dragging a flow child calls
-      // prepareFlowMembersForAbsoluteDrop on pointer-up, which writes
-      // position/left/top before the optimistic DOM move. Taking this snapshot
-      // afterward made a rejected persistence ack (and the equivalent undo
-      // boundary) "restore" those new absolute values instead of flow state.
       var reorderOrigins = groupEls.map(function (member) {
         return {
           el: member,
@@ -20675,16 +18412,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var reorderGestureStartRect = dragGrabRect(reorderEl);
       var reorderLastTargetKey = null;
       var keepCurrentFlowParent = bridgeSpaceKeyPressed;
-      // Ignore auto layout overrides drag resistance for the WHOLE
-      // gesture (unique-paths-5): captured once here, not re-read per move
-      // tick, so releasing the modifier mid-drag can't hand the gesture to
-      // the host's cross-screen tracking partway through. Held, this skips
-      // every postCrossScreenDrag below so the host never installs its
-      // own board-level pointer listeners for this drag at all — those
-      // listeners have no ctrl-awareness and reparent the element onto the
-      // board the moment the pointer crosses the screen's rendered edge,
-      // stealing the gesture from the (already-correct) in-iframe free-move
-      // path below before it can ever run.
       var reorderIgnoresAutoLayout = isIgnoreAutoLayoutChord(e);
       var reorderMetaFreePlacement = false;
       function reorderCrossScreenModifiers(ev?: any) {
@@ -20736,12 +18463,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           modifiers: reorderCrossScreenModifiers(e),
         });
       }
-      // Transform-only follow: must be cleared before any pointer-up commit
-      // reads getBoundingClientRect, or the drag delta corrupts the result.
       function authoredTransformOf(el: HTMLElement): string {
-        // The element's own transform to compose the drag translate WITH: inline
-        // if set, else the class/stylesheet value so a drag never wipes an
-        // authored rotate/scale. "none" → "" so we don't emit an identity.
         if (el.style.transform) return el.style.transform;
         var computed = window.getComputedStyle(el).transform;
         return computed && computed !== "none" ? computed : "";
@@ -20779,15 +18501,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             el.style.willChange = "transform";
             el.style.zIndex = "2147483646";
             el.style.boxShadow = "0 8px 24px rgba(0, 0, 0, 0.18)";
-            // Hit-test through the lifted element so it never resolves as its
-            // own drop target while following the cursor.
             el.style.pointerEvents = "none";
           }
-          // Translate FIRST so movement is in screen space (an authored rotate
-          // would otherwise send the drag off-axis), composed with the element's
-          // own transform (inline OR class/stylesheet) so the drag never wipes
-          // it. The grab offset rides along so an alt-drag clone follows the
-          // cursor from the grabbed box rather than from its inserted slot.
           var liftDx = dx + (duplicateGrabOffset ? duplicateGrabOffset.x : 0);
           var liftDy = dy + (duplicateGrabOffset ? duplicateGrabOffset.y : 0);
           el.style.transform =
@@ -20811,9 +18526,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         });
         reorderLiftedMembers = [];
       }
-      // Without this the clone renders in the slot it was inserted into until
-      // the first pointer move, so the gesture opens with the element visibly
-      // jumping away from the cursor.
       if (
         duplicateGrabOffset &&
         (duplicateGrabOffset.x !== 0 || duplicateGrabOffset.y !== 0)
@@ -20821,10 +18533,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         applyReorderLift(0, 0);
         positionOverlay(selectionOverlay, selectedEl);
       }
-      // Live sibling reflow. The preview is calculated by asking the browser
-      // for the actual layout after a temporary placeholder is inserted at
-      // the target slot. That keeps wrapped flex and grid geometry faithful to
-      // CSS instead of assuming every sibling moves by one main-axis gap.
       var reorderCommittedTarget: any = null;
       var reorderCommittedSlot: number | null = null;
       var reorderCommittedAt = 0;
@@ -20944,8 +18652,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         });
         applyGroupStructureDrop(groupEls, target, null, undefined, true);
         restoreGroupGridPreview = function () {
-          // Reinsert group members in reverse order so each saved next sibling
-          // is back in its original parent before restoring its predecessor.
           origins
             .filter(function (origin) {
               return groupEls.indexOf(origin.el) !== -1;
@@ -21079,22 +18785,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         positionOverlay(selectionOverlay, selectedEl);
         postElementSelect(selectedEl);
       }
-      // Auto-layout children reorder into a slot on plain drag — they have no
-      // free x/y without leaving the layout, which would collapse it. Ignore
-      // "ignore auto layout" is the explicit free-place escape.
       function resolveReorderOrFreeTarget(
         cx,
         cy,
         ignoreTargetAutoLayout,
         forceNestedAutoLayout,
       ) {
-        // Re-sync from the live global on every call: this document's own
-        // onReorderKeyDown/KeyUp keep keepCurrentFlowParent current when
-        // Space lands here, but the host's forwarded
-        // "agent-native:set-space-held" (see the message listener) only
-        // ever updates bridgeSpaceKeyPressed — never reaching this drag's
-        // own key listeners — so a "held" forward would otherwise be
-        // invisible to the one gesture that needs it.
         if (bridgeSpaceKeyPressed) keepCurrentFlowParent = true;
         return flowMoveTargetForPoint(
           reorderEl,
@@ -21139,9 +18835,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           cy <= rect.bottom
         );
       }
-      // Figma's "don't nest into a smaller container" guard (⌘/Ctrl overrides).
-      // Instead of nesting into a too-small container, fall back to placing
-      // beside it in its parent so the drop is never silently discarded.
       function applyReorderSizeGuard(target, ev) {
         if (!liveReflowEnabled || !target || target.placement !== "inside") {
           return target;
@@ -21150,9 +18843,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           return target;
         }
         var container = dropContainerForTarget(target);
-        // Never treat the screen root (body/html) as a too-small container: the
-        // before/after fallback would reparent to documentElement and insert a
-        // full-size layer as a sibling of <body>. Guard nested frames only.
         if (
           !container ||
           container === reorderEl ||
@@ -21162,10 +18852,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           return target;
         }
         var crect = container.getBoundingClientRect();
-        // The live reflow preview can temporarily shrink a flex item before
-        // the release-time guard runs. Compare against the gesture baseline so
-        // a source layer wider/taller than the destination cannot slip into
-        // a too-small frame just because its projected box was compressed.
         var drect = reorderGestureStartRect;
         if (crect.width >= drect.width && crect.height >= drect.height) {
           return target;
@@ -21191,10 +18877,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           dropMode: "flow-insert",
         };
       }
-      // Stabilize a freshly-resolved target against the committed one so the
-      // preview only moves on a deliberate ≥8px pointer move from the last
-      // commit or after the NEW candidate persists ≥60ms. Mirrors
-      // shared/drag-reflow.ts resolveTargetHysteresis; same-container only.
       function stabilizeReorderTarget(rawTarget, cx, cy, now) {
         var reset = function () {
           reorderCommittedTarget = null;
@@ -21253,9 +18935,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       function applyReorderReflow(target, cx, cy): void {
         if (!liveReflowEnabled) return;
-        // Group members are each lifted and follow the cursor; also reflowing
-        // them would double-transform and strand a residual on teardown, so
-        // group drags stay indicator-only.
         if (isGroupDrag || !target || target.dropMode !== "flow-insert") {
           clearReorderReflow();
           return;
@@ -21297,10 +18976,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var axis = reorderMainAxis(target);
         var key = axis + ":" + slotInfo.slot;
         if (key === reflowKey) {
-          // The target resolver returns a fresh object on every pointer event.
-          // Preserve the wrapped-slot projection that was computed when the
-          // same-slot fast path first ran so the guide does not fall back to
-          // the anchor's full card rect on subsequent events.
           restoreReorderReflowPreview();
           if (reflowGuideRect) target.guideRect = { ...reflowGuideRect };
           if (reflowGuideMode) target.guideMode = reflowGuideMode;
@@ -21363,9 +19038,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           } else {
             container.appendChild(reorderEl);
           }
-          // A physical wrapped reorder already makes the browser lay out each
-          // sibling at its projected slot; translating them too would double
-          // the displacement.
           if (!isWrappedFlex)
             projectedRects.forEach(function (projected) {
               var el = projected.el as HTMLElement;
@@ -21393,8 +19065,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
                 previewTransition: previewTransition,
               });
               el.style.transition = previewTransition;
-              // Translate FIRST (screen space) composed with the sibling's own
-              // transform so an authored rotate/scale survives the reflow shift.
               el.style.transform = previewTransform;
             });
           if (isWrappedFlex) {
@@ -21435,9 +19105,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             }
           }
         } catch (error) {
-          // A layout read or DOM insertion can fail if the editor is tearing
-          // down the frame during a cancel. Restore all preview transforms
-          // before letting the gesture handler surface the error.
           clearReorderReflow();
           throw error;
         } finally {
@@ -21480,10 +19147,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
         if (isIgnoreAutoLayoutChord(ev)) activateReorderControlOverride();
         var rawTarget = null;
-        // Meta stays in normal flow whenever the pointer resolves to a real
-        // flow target. Probe without the free-placement override first on
-        // every move so crossing a background gap on the way to a valid target
-        // does not permanently poison the rest of the gesture.
         if (ev.metaKey && !isGroupDrag && !reorderIgnoresAutoLayout) {
           clearReorderReflow();
           var metaFlowTarget = outside
@@ -21531,13 +19194,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             }
           }
         }
-        // Always notify the host frame so it can track the cursor position,
-        // render the ghost, and highlight the target screen. Group drags stay
-        // in-iframe (the host's cross-screen drop moves a single element and
-        // would tear the group apart), so they never arm the host. Same for
-        // a ctrl/cmd auto-layout-override drag or a Meta free-placement tick
-        // (see the two gesture flags above): the host's board-level listeners
-        // have no modifier-aware target resolver.
         if (
           !isGroupDrag &&
           !reorderIgnoresAutoLayout &&
@@ -21557,10 +19213,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           );
         }
         if (outside && !isGroupDrag) {
-          // Cursor left this iframe — hide the in-iframe insertion guide so
-          // it does not render while the host shows a cross-screen drop target.
-          // Drop the lift so the host-rendered ghost is the only moving visual
-          // (re-applied automatically if the cursor comes back inside).
           hideInsertionGuide();
           clearReorderLift();
           clearReorderReflow();
@@ -21571,18 +19223,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             cy,
           );
         } else {
-          // NOT reset here: postCrossScreenDrag above runs every tick
-          // regardless of inside/outside, so crossScreenClaimedByHost tracks
-          // only the host's own "agent-native:cross-screen-claim" reply (see
-          // the matching comment in the free-drag onMove above for why this
-          // `outside` check cannot be used to invalidate it).
-          // Cursor is inside this iframe — use existing in-iframe behavior,
-          // stabilized (hysteresis) and previewed with live sibling reflow when
-          // liveReflowEnabled. stabilizeReorderTarget / applyReorderReflow are
-          // no-ops (pass-through) when the flag is off.
-          // Resolve against the source layout, not transforms from the prior
-          // projected slot. The next call reapplies the fresh projection, so
-          // wrapped rows remain hit-testable while siblings animate.
           clearReorderReflowForHitTest();
           if (!rawTarget) {
             rawTarget = resolveReorderOrFreeTarget(
@@ -21616,8 +19256,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           applyReorderLift(dx, dy);
           applyReorderReflow(currentTarget, cx, cy);
           applyGroupGridPreview(currentTarget);
-          // Paint after sibling projection so a marker anchored to a moved
-          // child follows its projected geometry instead of one frame behind.
           showInsertionGuideFor(currentTarget);
           showTransformBadge(
             duplicatedForDrag
@@ -21644,15 +19282,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         document.removeEventListener("keydown", onReorderKeyDown, true);
         document.removeEventListener("keyup", onReorderKeyUp, true);
         clearActiveDragCancel(onReorderEscape);
-        // onReorderUp calls this before resolving/reordering, so the commit
-        // reads un-transformed rects and — one synchronous task — paints once
-        // in the final slot with no back-to-origin flicker.
         clearReorderLift();
         clearReorderReflow();
-        // See cleanupMoveDrag's matching call: the mousedown that started
-        // this reorder still owes the browser a trailing native click on
-        // mouseup, which would otherwise reselect the reordered element with
-        // a real pointer intent right after this gesture's own commit.
         suppressNextShieldClickBriefly();
       }
       function onReorderVisibilityChange() {
@@ -21664,7 +19295,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         hideTransformBadge();
         hideInsertionGuide();
         if (!isGroupDrag) postCrossScreenDrag("cancel");
-        // Revert any clone that was inserted for alt-drag.
         if (
           duplicatedForDrag &&
           reorderEl &&
@@ -21711,21 +19341,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           return;
         }
         if (ev.code !== "Space" && ev.key !== " ") return;
-        // Deliberately NOT resetting keepCurrentFlowParent here. onReorderUp
-        // re-resolves the drop target from the release point (see its own
-        // comment) instead of reusing the last onReorderMove preview, so a
-        // release with no further pointer move before mouseup (Figma
-        // parity: press Space mid-drag, release it, drop without moving
-        // again) would otherwise re-read this as false and reparent anyway
-        // — exactly the bug this flag exists to prevent. Once Space has
-        // protected the current parent during a gesture, that protection
-        // holds for the rest of the gesture.
         ev.preventDefault();
       }
       function onReorderUp(ev) {
-        // A release with no usable point is not a release at the origin: 0,0
-        // reads as "inside this iframe" and drops the element in the top-left
-        // corner. Cancel instead, which restores it where it started.
         if (
           !ev ||
           !Number.isFinite(ev.clientX) ||
@@ -21762,22 +19380,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
         }
         var outsideOnDrop =
-          // A ctrl/cmd auto-layout-override or Meta free-placement drag never
-          // arms the host (see onReorderMove above), so the numeric
-          // outside-the-iframe check below must not apply to either path, or
-          // the in-iframe commit below is skipped with nothing to take its
-          // place.
           (!reorderIgnoresAutoLayout &&
             !reorderMetaFreePlacement &&
             (cx < 0 || cy < 0 || cx > vw || cy > vh)) ||
-          // Claimed by the host: committing here too would write the node
-          // twice, from two different ideas of where it landed.
           crossScreenClaimedByHost;
-        // Post the end message so the host can finalize a cross-screen drop.
-        // Group drags never armed the host (see onReorderMove), so posting
-        // end here would trigger a bogus single-element cross-screen move.
-        // Same for a ctrl/cmd auto-layout-override or Meta free-placement
-        // drag (unique-paths-5).
         if (
           !isGroupDrag &&
           !reorderIgnoresAutoLayout &&
@@ -21796,15 +19402,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             },
           );
         }
-        // When the pointer is outside this iframe at release, the host owns the
-        // move (cross-screen drop).  Do NOT apply the in-iframe reorder so we
-        // avoid a ghost element left in screen A's DOM. For group drags an
-        // outside release is simply a no-op (nothing moved during a flow
-        // reorder drag, so there is nothing to restore).
-        // Use outsideOnDrop only — a live pointer-outside flag is stale when the
-        // user briefly exits the iframe and re-enters before releasing.  The host
-        // already clears cross-screen state on re-entry so checking the
-        // momentary excursion flag here would wrongly drop the element nowhere.
         if (outsideOnDrop) {
           if (duplicatedForDrag) {
             if (reorderEl.parentElement)
@@ -21816,10 +19413,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           resetReorderModifierState();
           return;
         }
-        // Resolve from the RELEASE point + release-time modifiers so a Ctrl or
-        // Space held only at release still takes effect; live reflow then runs
-        // one final stabilize tick so the drop still lands on the previewed
-        // slot rather than jumping.
         var finalRaw = resolveReorderOrFreeTarget(
           cx,
           cy,
@@ -21844,8 +19437,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           ctrl: Boolean(ev && ev.ctrlKey),
         });
         if (!currentTarget) {
-          // No valid drop target — clean up the clone if one was inserted so
-          // no ghost element is left in the DOM.
           if (
             duplicatedForDrag &&
             reorderEl &&
@@ -21900,8 +19491,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             },
           );
         } else {
-          // Capture the pre-drag DOM anchor so we can revert if the parent
-          // reports applied===false on the structure-ack.
           var reorderOrigin = reorderOrigins.filter(function (candidate) {
             return candidate.el === reorderEl;
           })[0];
@@ -21911,11 +19500,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           var prevNextSibling = reorderOrigin
             ? reorderOrigin.prevNextSibling
             : reorderEl.nextSibling;
-          // Usually a no-op here (flow-reorder drags a member that's
-          // already in flow, so there's nothing to strip), but captured for
-          // consistency so an absolute-positioned element reordered through
-          // this gesture still rolls back its inline styles correctly on a
-          // rejected move-node round-trip.
           var prevInlinePositionStyles = reorderOrigin
             ? reorderOrigin.prevInlinePositionStyles
             : snapshotInlinePositionStyles(reorderEl);
@@ -21924,9 +19508,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             reorderEl,
             dropContainerForTarget(currentTarget),
           );
-          // Optimistically apply the reorder in the DOM for immediate
-          // visual feedback; the visual-structure-ack handler will confirm
-          // or revert once the parent processes the change.
           var runtimeMutationApplied = applyRuntimeReorder(
             reorderEl,
             currentTarget,
@@ -21957,9 +19538,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       document.addEventListener(events.move, onReorderMove, true);
       document.addEventListener(events.up, onReorderUp, true);
       document.addEventListener("pointercancel", onReorderEscape, true);
-      // A drag that never receives its release — the pointer left for another
-      // window, or the tab was hidden — must not leave the element lifted out
-      // of place with an orphaned ghost on the canvas.
       window.addEventListener("blur", onReorderEscape, true);
       document.addEventListener(
         "visibilitychange",
@@ -21971,11 +19549,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       setActiveDragCancel(onReorderEscape);
       return;
     }
-    // Per-member drag state: inline-style snapshots (for escape-cancel
-    // restore) plus each member's own drag origin. Single-element drags have
-    // exactly one entry; group drags get one per multi-selection member so
-    // the SAME delta can be applied to every member each tick, preserving
-    // the group's relative offsets (Figma group-move semantics).
     var memberStates = groupEls.map(function (member) {
       var m = member as HTMLElement;
       var snapshot = {
@@ -21998,31 +19571,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     var originLeft = gestureState.originLeft;
     var originTop = gestureState.originTop;
-    // Shield drags hand off after crossing their outer threshold. The legacy
-    // moved flag must use the original press too, or a small follow-up delta
-    // is mistaken for an Alt-click and the optimistic clone is removed.
     var startX = pointerStartParam ? pointerStartParam.clientX : e.clientX;
     var startY = pointerStartParam ? pointerStartParam.clientY : e.clientY;
-    // Snapshot the element being moved so that a concurrent select-element or
-    // clear-selection postMessage cannot swap selectedEl mid-drag and cause
-    // mutations on the wrong element or a null-deref in onUp.
     var dragEl = gestureEl;
     var gestureViewport = bridgeGestureViewport();
-    // Design owns the advanced preview math below: snapping/guides, nested
-    // auto-layout conversion, and cross-screen state all have source-aware
-    // invariants. The shared controller owns only the browser gesture state
-    // machine and emits the normalized pointer lifecycle that gates it.
-    // Use the same threshold for the controller and the legacy moved flag so
-    // a selected-box click remains a click instead of starting a persistence
-    // gesture with a zero delta.
     var DRAG_THRESHOLD = 3;
     var bridgeMoveController = createCanvasGestureController({
       capabilities: { move: true, resize: true },
       drag: {
-        // Shield drags already crossed the outer threshold before reaching
-        // startMove. Keeping their controller threshold at zero preserves the
-        // first post-shield delta, while direct selection-chrome drags still
-        // need a real threshold before they preview or persist.
         threshold: pointerStartParam ? 0 : DRAG_THRESHOLD,
         duplicateModifier: "alt",
       },
@@ -22041,10 +19597,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     bridgeMoveController.pointerDown({
       kind: "move",
       objectIds: [getSelector(gestureEl)],
-      // Shield drags begin here after their threshold-crossing event. For an
-      // alt-drag, the clone must include the movement from the original press;
-      // plain shield drags keep their existing threshold-relative baseline so
-      // cross-screen target resolution is unchanged.
       pointer: bridgeGesturePointer(
         duplicatedForDrag && pointerStartParam
           ? { ...e, ...pointerStartParam }
@@ -22062,8 +19614,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       needsAutoLayoutConversion?: boolean;
       conversionTarget?: Element;
     } | null = null;
-    // Preserve the modifier captured at pointerdown. Playwright and real
-    // browsers can deliver the first move/up without the held key flags.
     var dragIgnoreAutoLayout =
       hostIgnoreAutoLayoutAtPointerDown ||
       pointerStartParam?.ignoreAutoLayout === true ||
@@ -22088,19 +19638,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         measurements: unknown[];
       };
     } | null = null;
-    // Snap candidates (siblings + parent content box) are computed once at
-    // drag start — a single getBoundingClientRect pass per candidate — not
-    // recomputed on every move event. Other group members are excluded: they
-    // move with the drag, so snapping against them would chase a moving
-    // target.
     var snapCandidateRects = collectSnapCandidateRects(dragEl, groupOthers);
     var dragElStartRect = (dragEl as HTMLElement).getBoundingClientRect();
     var dragElStartWidth = dragElStartRect.width;
     var dragElStartHeight = dragElStartRect.height;
-    // Figma keeps an oversized free layer out of a smaller auto-layout
-    // container. The free-drag resolver can otherwise return an inside target
-    // without passing through the flow-reorder guard, so apply the same
-    // source-baseline check before preview and commit.
     function applyFreeDropSizeGuard(target, ev) {
       if (
         !target ||
@@ -22165,10 +19706,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ctrlKey: !!ev.ctrlKey,
         altKey: !!ev.altKey,
         shiftKey: !!ev.shiftKey,
-        // Capture the modifier state carried by this move. The RAF can run
-        // after the host's keyboard state has changed, so reading only the
-        // bridge globals there can resolve a different gesture than the one
-        // that scheduled the move.
         spaceKeyPressed: Boolean(ev.spaceKeyPressed) || bridgeSpaceKeyPressed,
         ignoreAutoLayoutKeyPressed:
           Boolean(ev.ignoreAutoLayoutKeyPressed) ||
@@ -22208,15 +19745,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           showInsertionGuideFor(currentAutoLayoutTarget);
           if (currentAutoLayoutTarget.dropMode !== "absolute-container") {
             hideSnapGuides();
-            // hideSnapGuides clears the suppression flag as part of its normal
-            // cleanup. Set it after that call so the queued overlay refresh
-            // cannot restore free-placement chrome during a flow insert.
             dragChromeSuppressed = true;
             hideSizeBadge();
             hideConstraintGuides();
           } else {
-            // A deferred result may move from a flow target to a free-drop
-            // container. Restore the chrome state for that transition.
             dragChromeSuppressed = false;
             showSnapGuides(
               point.snapResult.guides,
@@ -22238,13 +19770,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
     }
 
-    // Client px per CSS px for this element. 1 unless an ancestor between it
-    // and the viewport is CSS-scaled; offsetWidth is the untransformed box.
-    // Client px per CSS px contributed by ANCESTORS. Measured on the offset
-    // parent, never on dragEl: its own rect already carries its own
-    // transform, so a rotated or scaled layer would report its local
-    // transform as if the parent were scaled. 1 means "no mapping known",
-    // which is the identity, not a measurement.
     function ancestorScale(el, axis) {
       var host = el && (el as HTMLElement).offsetParent;
       if (!host) return 1;
@@ -22272,14 +19797,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         },
       });
     }
-    // rAF-coalesce the "move" phase postMessage: a raw mousemove/pointermove
-    // stream can fire well above 60/s on a high-poll-rate mouse or trackpad,
-    // and every tick of this handler already recomputes a getBoundingClientRect
-    // for postCrossScreenDrag — batching to one postMessage per animation
-    // frame matches the parent's own equivalent coalescing (see
-    // MultiScreenCanvas.tsx's rAF-batched cross-screen hit-test) without
-    // changing what gets sent, only how often. cleanupMoveDrag cancels any
-    // still-pending tick so a stale "move" can never post after "end"/"cancel".
     var crossScreenDragMoveScheduled = false;
     var crossScreenDragMovePendingEv: {
       clientX: number;
@@ -22327,9 +19844,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       })[0];
       if (!sourceState || !source.parentElement) return;
 
-      // The source may have followed the pointer for a few ticks before Alt
-      // arrived. Restore its authored position first so the optimistic clone
-      // starts at the held source rect and the original remains fixed.
       var heldPosition = {
         position: source.style.position,
         left: source.style.left,
@@ -22343,9 +19857,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
       clone.setAttribute("data-agent-native-clone-root", "true");
       source.parentElement.insertBefore(clone, source.nextSibling);
-      // Keep the clone at the source's current held position while the
-      // gesture switches ownership, then let the same move tick below apply
-      // the controller's full delta from the authored numeric origin once.
       clone.style.position = heldPosition.position;
       clone.style.left = heldPosition.left;
       clone.style.top = heldPosition.top;
@@ -22411,24 +19922,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (ev.altKey && moved && !duplicatedForDrag) {
         activateLateDuplicate(ev);
       }
-      // The controller converts client deltas at the iframe boundary and
-      // applies the live Shift dominant-axis constraint. Design-specific snap
-      // and auto-layout handling decorates this normalized delta below.
       var rawDx = controllerMove.gesture.canvasDelta.x;
       var rawDy = controllerMove.gesture.canvasDelta.y;
       var nextLeft = originLeft + rawDx;
       var nextTop = originTop + rawDy;
-      // Alignment/smart-guide snapping: disabled while Cmd/Ctrl is held
-      // (Figma behavior) and while an auto-layout flow-insert is about to
-      // happen instead of a free absolute placement (handled below once
-      // currentAutoLayoutTarget is known for this tick).
       var snapBypass = ignoreAutoLayoutHeld(ev) || isPlatformPrimaryChord(ev);
       var snapResult =
         !snapBypass && !duplicatedForDrag
           ? computeMoveSnapOffset(
               {
-                // snapCandidateRects are client space; nextLeft/nextTop are
-                // offset-parent CSS space. Convert, or nothing ever matches.
                 left:
                   dragElStartRect.left +
                   (nextLeft - originLeft) * dragElOffsetScaleX,
@@ -22439,7 +19941,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
                 height: dragElStartHeight,
               },
               snapCandidateRects,
-              // Convert the screen-space base to content px (1/zoom).
               SNAP_THRESHOLD_PX * chromeLineScale(),
               isGroupDrag,
               ev.shiftKey ? { x: rawDx === 0, y: rawDy === 0 } : null,
@@ -22447,8 +19948,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           : { dx: 0, dy: 0, guides: [], spacingGuides: [], measurements: [] };
       if ((window as any).__DND_DEBUG)
         dndLog("snap:tick", {
-          // Ordered so the fields that decide whether snapping ran at all come
-          // first: the console collapses long objects behind an ellipsis.
           bypass: snapBypass,
           duplicated: duplicatedForDrag,
           mods:
@@ -22463,13 +19962,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ? currentAutoLayoutTarget.dropMode || "(none)"
             : "no-target",
         });
-      // Back to CSS space before it is written to style.left/top.
       nextLeft += snapResult.dx / dragElOffsetScaleX;
       nextTop += snapResult.dy / dragElOffsetScaleY;
-      // Apply the SAME delta to every member (one entry for single drags)
-      // so relative offsets within a multi-selection are preserved. For the
-      // gesture member this reduces exactly to the previous
-      // Math.round(nextLeft/nextTop) single-element behavior.
       var appliedDx = nextLeft - originLeft;
       var appliedDy = nextTop - originTop;
       memberStates.forEach(function (state) {
@@ -22486,17 +19980,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         currentAutoLayoutTarget = null;
         hideInsertionGuide();
       } else {
-        // NOT reset here: scheduleCrossScreenDragMove above runs every tick
-        // regardless of inside/outside, so the host always sees a fresh point
-        // and its "agent-native:cross-screen-claim" reply is the only source
-        // of truth for crossScreenClaimedByHost. Every per-screen iframe
-        // renders oversized relative to its screen's visible card, so
-        // isOutsideIframeViewport reads false even while the pointer sits
-        // squarely over a DIFFERENT screen — resetting the flag here on that
-        // signal clobbered a true claim the host had just granted, and the
-        // host only resends a claim message on a claimed-value CHANGE, so
-        // once clobbered it stayed false for the rest of the drag with no
-        // further message ever arriving to correct it.
         if (!bridgeSpaceKeyPressed) {
           scheduleAutoLayoutTargetResolution(ev, snapResult);
         } else {
@@ -22505,17 +19988,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           hideInsertionGuide();
         }
       }
-      // Snap guides only make sense for a free absolute placement — never at
-      // once alongside the auto-layout flow-insert indicator (the element is
-      // about to be reflowed into a flex/grid slot, not placed at an x/y
-      // coordinate), and never while the pointer has left the iframe (the
-      // host owns a cross-screen drop at that point).
-      //
-      // An "absolute-container" target is a free placement: the element keeps
-      // its x/y inside the frame it lands in, so it is precisely the case
-      // guides are for. Hiding them there left every board drag — where the
-      // primitives live inside an absolutely positioned frame — with no
-      // guides at all.
       var flowInsertPending =
         !!currentAutoLayoutTarget &&
         currentAutoLayoutTarget.dropMode !== "absolute-container";
@@ -22536,8 +20008,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         showConstraintGuides(dragEl);
       }
-      // Reorder gestures already paint the modifier cue, but drawn/root
-      // frames use this free path and otherwise leave held Option silent.
       if (duplicatedForDrag) {
         showTransformBadge("Duplicate layer", ev.clientX, ev.clientY);
       }
@@ -22561,19 +20031,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       document.removeEventListener("keydown", onMoveKeyDown, true);
       clearActiveDragCancel(cancelMoveDrag);
       restoreOverflowOnAncestors(liftedClippingAncestors);
-      // Drop any rAF-scheduled "move" tick so it can never fire and post
-      // after this gesture's "end"/"cancel" phase has already gone out.
       crossScreenDragMoveScheduled = false;
       crossScreenDragMovePendingEv = null;
-      // The mousedown that started this gesture still owes the browser a
-      // trailing native "click" on mouseup — unsuppressed, it reaches
-      // selectElementAtEvent as an ordinary standalone pick of whatever now
-      // sits under the pointer (the moved element, the duplicate's clone),
-      // tags it a real pointer intent, and the host records that as its own
-      // undo step stacked on top of this gesture's own commit. Every onUp
-      // exit — commit or cancel — runs this cleanup first, so suppressing
-      // here covers all of them instead of each commit branch needing its
-      // own call (the cancel branches already added theirs ad hoc).
       suppressNextShieldClickBriefly();
     }
     function cancelMoveDrag() {
@@ -22625,17 +20084,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           postElementSelect(selectedEl);
           postCrossScreenDrag("cancel");
         } else if (!isGroupDrag) {
-          // A selection-box press that never crosses the drag threshold still
-          // arms the host's cross-screen listener. Clear that claim on the
-          // click path too, or the next drag inherits a stale board gesture.
           postCrossScreenDrag("cancel");
         }
         return;
       }
       cleanupMoveDrag();
-      // cleanupMoveDrag invalidates any queued move repaint. Re-arm one for
-      // the successful release so pointerup cannot leave selection chrome at
-      // the pre-release geometry when it arrives before that frame runs.
       scheduleRefreshOverlays();
       hideTransformBadge();
       hideInsertionGuide();
@@ -22643,9 +20096,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideSizeBadge();
       hideConstraintGuides();
       if (!dragEl) return;
-      // The board surface iframe covers the screens, so a release over one is
-      // still "inside" it. Only the host knows that, and it says so by claiming
-      // the drop; committing here as well writes the node twice.
       var outsideOnDrop = ev
         ? isOutsideIframeViewport(ev.clientX, ev.clientY) ||
           crossScreenClaimedByHost
@@ -22662,9 +20112,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         });
       }
       if (ev && !isGroupDrag && outsideOnDrop) {
-        // Outside release: the host owns a single-element cross-screen drop;
-        // group drags never armed the host, so an outside release simply
-        // restores every member (cancel semantics).
         if (duplicatedForDrag) {
           if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
           selectedEl = originalSelectedEl;
@@ -22697,14 +20144,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         currentAutoLayoutTarget = finalAutoLayoutTarget;
       } else if (bridgeSpaceKeyPressed) {
-        // Space is Figma's retain-parent modifier. Absolute/freeform drags
-        // already move in their current containing-block coordinates, so
-        // suppressing the nest target keeps the existing parent while still
-        // committing the new left/top in one style change.
         currentAutoLayoutTarget = null;
       }
       if (duplicatedForDrag && !moved) {
-        // Alt-click with no real drag — remove the premature clone and restore the original selection.
         if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
         selectedEl = originalSelectedEl;
         positionOverlay(selectionOverlay, selectedEl);
@@ -22721,10 +20163,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         postCrossScreenDrag("cancel");
       } else if (currentAutoLayoutTarget) {
-        // Nest-on-drop: a free element nests as an absolute child of a plain
-        // container ("absolute-container", keeps left/top) or flow-inserts into
-        // an existing auto-layout frame. The resolver never requests an implicit
-        // flex conversion, so there is none to apply here.
         if (isGroupDrag) {
           applyGroupStructureDrop(
             groupEls,
@@ -22742,13 +20180,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         } else {
           var prevParent = dragEl.parentElement;
           var prevNextSibling = dragEl.nextSibling;
-          // The element's TRUE pre-drag inline position/left/top (gestureState
-          // is captured once at drag start, before onMove's continuous
-          // pointer-follow rewrites left/top) — not a snapshot taken here,
-          // which would only capture the LAST dragged-to position. On a
-          // rejected move-node round-trip the element goes back to its
-          // ORIGINAL parent, so it must also go back to the position it had
-          // in that original parent, not a mid-drag coordinate.
           var prevInlinePositionStyles =
             dragOriginInlinePositionStyles(gestureState);
           adaptAutoTextColorForNest(
@@ -22773,9 +20204,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
       } else {
         dndLog("commit:free-absolute", { count: memberStates.length });
-        // Free absolute placement: one style-change message per member, in
-        // order — the host composes them against its synchronous same-tick
-        // content refs exactly like multi-property style commits.
         memberStates.forEach(function (state) {
           var styles = {
             position: state.el.style.position,
@@ -22792,20 +20220,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             },
             "*",
           );
-          // This position is now the source's own value (the host persists
-          // it as-is, runtimeApplied, with no re-morph of this element) —
-          // record it as the last-known source baseline. Skipping this left
-          // __anSourceMeta pinned to the PRE-drag position, so a later
-          // full-document reconcile (e.g. undo back to that same pre-drag
-          // value) matched the stale cache and left the dragged position
-          // rendered instead of reverting.
           recordSourceOwnership(state.el);
         });
         armPostCommitCancelGrace(
           moveGestureId,
-          // Real creation time of the mouseup, not of this handler running —
-          // any synchronous work above (auto-layout resolution, DOM writes)
-          // would otherwise inflate the apparent release time.
           performance.timeOrigin + (ev ? ev.timeStamp : performance.now()),
           function () {
             memberStates.forEach(function (state) {
@@ -22830,9 +20248,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
                 },
                 "*",
               );
-              // Same reasoning as the commit above: this grace-period revert
-              // is the new source baseline too, so the cache must follow it
-              // back rather than staying pinned to the just-cancelled commit.
               recordSourceOwnership(state.el);
             });
             selectedEl = originalSelectedEl;
@@ -23291,8 +20706,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     e.preventDefault();
     e.stopPropagation();
     var events = dragEventNames(e);
-    // Snapshot the element so a concurrent clear-selection postMessage cannot
-    // cause a null-deref in onMove/onUp.
     var resizeEl = selectedEl;
     var originalInlinePosition = resizeEl.style.position;
     var originalInlineLeft = resizeEl.style.left;
@@ -23308,9 +20721,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var hasInlineTransform =
       !!originalInlineTransform && originalInlineTransform !== "none";
     var computedScale = cs.scale || cs.getPropertyValue("scale") || "none";
-    // A class-authored transform must remain owned by its stylesheet. CSS's
-    // independent scale property gives a separate mirror slot, so only an
-    // explicitly inline transform needs a transform-string edit.
     var flipTransformBase = hasInlineTransform
       ? originalInlineTransform
       : cs.transform;
@@ -23319,26 +20729,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ? originalInlineScale
         : computedScale;
     var mirrorUsesScale = !hasInlineTransform;
-    // Bug fix: use COMPUTED width/height (never the raw inline style string)
-    // for the resize origin dimensions. Two distinct hazards, one fix:
-    //   1. Rotated elements — getBoundingClientRect() returns the inflated
-    //      axis-aligned bounding box of the rotated box, not its own
-    //      width/height, so it can't seed the origin either.
-    //   2. Non-px inline values — an inline style of "100%" / "50vw" / "2rem"
-    //      / "auto" / "calc(...)" is NOT a pixel measurement. Reading
-    //      `resizeEl.style.width` directly and running it through
-    //      parseFloat (readPx) previously parsed "100%" as the number 100
-    //      and treated it as 100PX, so a +50px drag produced 150px instead
-    //      of correctly growing from the ~358px the element actually
-    //      rendered at. getComputedStyle always resolves to the element's
-    //      used-value size in px regardless of the authored unit (and is
-    //      unaffected by a rotate transform, unlike getBoundingClientRect),
-    //      so it's the one source that's simultaneously rotation-safe and
-    //      unit-agnostic.
     var originW = readPx(cs.width);
     var originH = readPx(cs.height);
-    // K-scale captures border widths with the other authored length styles so
-    // asymmetric sides keep their proportions.
     var originFontSize = readPx(resizeEl.style.fontSize || cs.fontSize);
     var svgViewBoxScalesFont =
       (resizeEl instanceof SVGSVGElement && resizeEl.hasAttribute("viewBox")) ||
@@ -23352,14 +20744,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
     var startX = e.clientX;
     var startY = e.clientY;
-    // Capture the element rotation once at drag-start so per-move projection is
-    // cheap and consistent even if the transform changes during the drag.
     var resizeTheta = (currentRotation(resizeEl) * Math.PI) / 180;
     var resizeGestureViewport = bridgeGestureViewport();
-    // Keep generic resize lifecycle in Toolkit while Design continues to own
-    // rotated/Alt-centered/Scale-tool geometry. The generic rect emitted by
-    // the controller is intentionally advisory here; applying it directly
-    // would discard Design's rotation-projected resize invariants.
     var RESIZE_DRAG_THRESHOLD = 3;
     var bridgeResizeController = createCanvasGestureController({
       capabilities: { move: true, resize: true },
@@ -23394,22 +20780,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         height: origin.height,
       },
     });
-    // Figma commit-semantics parity: a resize must only ever write the
-    // axis/axes the user actually dragged. A pure vertical edge-drag (handle
-    // "n"/"s", no Shift, scale tool off) must leave width completely alone —
-    // e.g. a `width: 100%` element stays percentage-based after a
-    // height-only resize instead of being silently pinned to a px value the
-    // user never touched. These accumulate for the life of the gesture (once
-    // an axis is touched — including transiently, e.g. Shift held mid-drag
-    // then released — it stays "touched" for this gesture's commit) and
-    // gate both the live style writes in onMove and the committed style keys
-    // in onUp.
     var widthTouched = false;
     var heightTouched = false;
     var transformTouched = false;
     var scaleTouched = false;
-    // Captured on the first K-scale tick, not at drag start: the host can arm
-    // scale-tool-mode mid-gesture.
     var scaledStyleTargetsCache: ReturnType<
       typeof collectKScaleStyleTargets
     > | null = null;
@@ -23422,9 +20796,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     function nextRect(ev) {
       var screenDx = ev.clientX - startX;
       var screenDy = ev.clientY - startY;
-      // Project the screen-space pointer delta into the element's local
-      // (un-rotated) coordinate frame so handles behave relative to the
-      // visible rotated box rather than screen axes.
       var cosT = Math.cos(resizeTheta);
       var sinT = Math.sin(resizeTheta);
       var dx = screenDx * cosT + screenDy * sinT;
@@ -23443,10 +20814,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         height = origin.height - dy;
       }
       if (handle.indexOf("s") !== -1) height = origin.height + dy;
-      // Apply Shift / scaleToolEnabled aspect-ratio lock BEFORE the min-size
-      // clamp so the ratio is computed from unclamped values (bug fix).
       if (ev.shiftKey) {
-        // Shift locks aspect ratio for ALL 8 handles (corners and edges).
         if (handle === "e" || handle === "w") {
           height = width / origin.ratio;
         } else if (handle === "n" || handle === "s") {
@@ -23457,7 +20825,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
       }
       if (scaleToolEnabled) {
-        // Scale tool: enforce aspect ratio on all 8 handles, not just corners.
         if (handle === "e" || handle === "w") {
           height = width / origin.ratio;
         } else if (handle === "n" || handle === "s") {
@@ -23467,17 +20834,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           else width = height * origin.ratio;
         }
       }
-      // Flip-through-zero: dragging a handle past the box's OWN opposite
-      // (anchor) edge must keep resizing continuously instead of clamping to
-      // a floor and getting stuck near-flat (reported: a triangle shrunk to
-      // a hairline sliver and stayed there instead of flipping and growing
-      // from the other side, matching Figma). width/height above are
-      // computed straight from origin, so a negative value unambiguously
-      // means the dragged edge crossed the fixed anchor edge. Re-derive both
-      // edges from that ANCHOR -- never from left/top, which for a
-      // ratio-locked corner drag can be stale against a width/height the
-      // aspect-lock branch just overwrote above -- so the anchor edge stays
-      // exactly fixed and the box keeps growing on the far side of it.
       var anchorLeft =
         handle.indexOf("w") !== -1 ? origin.left + origin.width : origin.left;
       var anchorTop =
@@ -23488,9 +20844,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         handle.indexOf("n") !== -1 ? anchorTop - height : anchorTop + height;
       var widthCrossed = width < 0;
       var heightCrossed = height < 0;
-      // These are relative mirrors for this gesture, not an absolute reading
-      // of the element's existing transform. That keeps class-authored and
-      // independent CSS transforms from being parsed and rewritten.
       var flipX = widthCrossed;
       var flipY = heightCrossed;
       left = Math.min(anchorLeft, movingLeft);
@@ -23503,12 +20856,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (handle.indexOf("n") !== -1 || handle.indexOf("s") !== -1)
           top = origin.top - (height - origin.height) / 2;
       }
-      // Which axis/axes this handle actually drives: the handle's own
-      // letters directly touch their axis; an active aspect-ratio lock
-      // (Shift or the K-scale tool) additionally derives the OTHER axis from
-      // the touched one for a single-axis edge handle (e.g. dragging "n"
-      // with Shift held also changes width to hold the ratio). Two-letter
-      // corner handles already touch both axes regardless of the lock.
       var handlesWidth =
         handle.indexOf("w") !== -1 || handle.indexOf("e") !== -1;
       var handlesHeight =
@@ -23539,11 +20886,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (rect.touchesHeight) heightTouched = true;
       resizeEl.style.left = quantizeToLayoutGrid(rect.left) + "px";
       resizeEl.style.top = quantizeToLayoutGrid(rect.top) + "px";
-      // Only write width/height for an axis this gesture actually touched —
-      // writing the untouched axis every tick (even to its own unchanged
-      // origin value) would silently convert e.g. `width: 100%` to a px
-      // value on a pure vertical drag, which is exactly the "shrank instead
-      // of preserved" class of bug this fixes.
       if (widthTouched)
         resizeEl.style.width = quantizeToLayoutGrid(rect.width) + "px";
       if (heightTouched)
@@ -23570,10 +20912,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (scaleTouched) resizeEl.style.scale = originalInlineScale;
       }
       if (scaleToolEnabled) {
-        // Uniform scale factor: scaleToolEnabled already forces the
-        // aspect-ratio lock above (nextRect), so width/origin.width and
-        // height/origin.height agree (barring the min-size clamp's rounding)
-        // — width is the simpler, always-defined choice.
         var kScaleFactor = rect.width / Math.max(1, origin.width);
         if (originFontSize > 0 && !svgViewBoxScalesFont) {
           resizeEl.style.fontSize =
@@ -23587,9 +20925,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ev.clientX,
         ev.clientY,
       );
-      // Keep the host Inspector in lockstep with the live DOM. This is a
-      // preview only: the final pointerup message is still the one persistence
-      // boundary, so a drag does not create a history entry per pixel.
       var previewStyles: Record<string, string> = {
         position: resizeEl.style.position,
         left: resizeEl.style.left,
@@ -23636,9 +20971,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         restoreKScaleStyleTargets(scaledStyleTargetsCache || []);
         selectedEl = resizeEl;
         positionOverlay(selectionOverlay, selectedEl);
-        // Cancellation restores the iframe DOM without a commit packet. Send
-        // the restored snapshot back so the host Inspector does not keep
-        // displaying the last previewed dimensions.
         var restoredComputed = window.getComputedStyle(resizeEl);
         var restoredStyles: Record<string, string> = {
           position: restoredComputed.position,
@@ -23693,11 +21025,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (resizeEl.style.position) styles.position = resizeEl.style.position;
       if (resizeEl.style.left) styles.left = resizeEl.style.left;
       if (resizeEl.style.top) styles.top = resizeEl.style.top;
-      // Only commit width/height for an axis this gesture actually touched
-      // (see widthTouched/heightTouched above) — a pure vertical or
-      // horizontal edge-drag must not also commit a px value for the axis
-      // the user never dragged, which would silently convert e.g.
-      // `width: 100%` to a fixed px width.
       if (widthTouched) styles.width = resizeEl.style.width;
       if (heightTouched) styles.height = resizeEl.style.height;
       if (
@@ -23709,8 +21036,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (scaleTouched && resizeEl.style.scale !== originalInlineScale) {
         styles.scale = resizeEl.style.scale;
       }
-      // Only include fontSize when the K-scale tool actually changed it — a
-      // normal resize must never introduce this key.
       if (scaleToolEnabled && originFontSize > 0 && !svgViewBoxScalesFont) {
         styles.fontSize = resizeEl.style.fontSize;
       }
@@ -23760,8 +21085,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           "*",
         );
       }
-      // Let the next undo/redo morph compare against the committed inline
-      // values instead of the pre-resize snapshot.
       recordSourceOwnership(resizeEl);
       if (scaleToolEnabled) {
         (scaledStyleTargetsCache || []).forEach(function (target) {
@@ -23776,12 +21099,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setActiveDragCancel(cancelResizeDrag);
   }
 
-  /**
-   * Scales a multi-selection as one box: the drag resizes the group's bounds
-   * and every member keeps its position and size relative to them. Separate
-   * from startResize, whose single-element invariants (Alt-from-center,
-   * per-axis touch tracking) have no group analogue.
-   */
   function startGroupResize(handle, e) {
     if (readOnly) return;
     var members = collectSelectionMembers();
@@ -23795,8 +21112,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var groupBottom = -Infinity;
     var memberStates = members.map(function (member) {
       var el = member as HTMLElement;
-      // Snapshot before ensurePositionable, or Escape restores the position
-      // it just wrote onto a static member instead of the authored one.
       var snapshot = {
         el: el,
         originalInlinePosition: el.style.position,
@@ -23808,9 +21123,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         originTop: 0,
         originWidth: 0,
         originHeight: 0,
-        // The center is the one point rotation leaves alone: a rotated
-        // member's client rect is its inflated axis-aligned box, so corners
-        // would scale it to the wrong place.
         originCenterX: 0,
         originCenterY: 0,
       };
@@ -23832,12 +21144,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     });
     var groupWidth = Math.max(1, groupRight - groupLeft);
     var groupHeight = Math.max(1, groupBottom - groupTop);
-    // The group's fixed corner for this handle — every member scales away
-    // from it, so the opposite side of the selection stays put.
     var anchorX = handle.indexOf("w") !== -1 ? groupRight : groupLeft;
     var anchorY = handle.indexOf("n") !== -1 ? groupBottom : groupTop;
-    // Clamp by the SMALLEST member, not by the group box: a factor that keeps
-    // the group above 8px can still collapse (or mirror) a small member.
     var minMemberWidth = Math.max(
       1,
       Math.min.apply(
@@ -23907,8 +21215,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var factorX = nextWidth / groupWidth;
       var factorY = nextHeight / groupHeight;
       if (ev.shiftKey || scaleToolEnabled) {
-        // Clamping the axes separately against their own minimums would
-        // break the very lock this branch applies.
         var uniform = Math.max(
           Math.max(minFactorX, minFactorY),
           Math.abs(dx) > Math.abs(dy) ? factorX : factorY,
@@ -24076,9 +21382,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           recordSourceOwnership(target.el);
         });
       } else {
-        // Normal multi-resize keeps the existing one-style-change-per-member
-        // history path. K-scale uses one batch so every descendant edit is
-        // applied atomically with the selected roots.
         memberStates.forEach(function (state) {
           var styles = rootStylesForMember(state, false);
           (window.parent as Window).postMessage(
@@ -24109,8 +21412,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     e.preventDefault();
     e.stopPropagation();
     var events = dragEventNames(e);
-    // getBoundingClientRect is correct here — we only need the element center
-    // for angle math, and the element's visual position is what we want.
     var rect = selectedEl.getBoundingClientRect();
     var center = {
       x: rect.left + rect.width / 2,
@@ -24119,8 +21420,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var originAngle =
       (Math.atan2(e.clientY - center.y, e.clientX - center.x) * 180) / Math.PI;
     var originRotation = currentRotation(selectedEl);
-    // Snapshot so a concurrent clear-selection postMessage cannot cause a
-    // null-deref in onMove/onUp.
     var rotateEl = selectedEl;
     var originalInlineTransform = rotateEl.style.transform;
     var originalComputedTransform = window.getComputedStyle(rotateEl).transform;
@@ -24195,21 +21494,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var events = dragEventNames(e);
     var radiusEl = selectedEl;
     var cs = window.getComputedStyle(radiusEl);
-    // Each handle owns exactly one corner — Figma adjusts only the dragged
-    // corner, not all four, so 4 independent handles stay meaningful instead
-    // of behaving like a single uniform-radius control.
     var cornerProperty =
       CORNER_RADIUS_PROPERTY_BY_HANDLE[corner] || "borderTopLeftRadius";
     refreshLiveVisualEditOriginalStyles(radiusEl);
     var borderBox = borderBoxDimensions(cs);
     var elWidthPx = borderBox.width;
     var elHeightPx = borderBox.height;
-    // getComputedStyle returns the COMPUTED value, so a percentage-authored
-    // radius (e.g. `border-radius: 50%` on a circular/pill element) comes
-    // back as a literal "50%" string. readPx's parseFloat would read that as
-    // the number 50 and misinterpret it as 50px, snapping the shape the
-    // instant the drag starts. Resolve it against the box's own dimensions
-    // first, same convention as CSS's own circle/pill radius authoring.
     var authoredRadiusValue = radiusEl.style[cornerProperty];
     var originRadius = resolveCornerRadiusXY(
       isDirectCornerRadiusValue(authoredRadiusValue)
@@ -24341,11 +21631,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     pendingShieldDrag = null;
   }
 
-  // Decides the drag target for a pointerdown. Descendant hits keep the
-  // selected element; with preferSelected on, a point inside the selection box
-  // also keeps it over an overlapping non-descendant sibling. Falls through to
-  // hitEl when the selection is detached or zero-area. Pure and self-contained
-  // so the snap test can brace-extract and evaluate it in isolation.
   function dragTargetForPointerDown(args) {
     var selectedEl = args.selectedEl;
     var hitEl = args.hitEl;
@@ -24357,8 +21642,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       selectedEl.contains &&
       selectedEl.contains(hitRaw)
     ) {
-      // Figma: a drag that starts inside the selected container moves the
-      // container; a child only drags once a click has selected it.
       return selectedEl;
     }
     if (args.preferSelected && selectedEl && selectedAlive) {
@@ -24380,9 +21663,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return hitEl;
   }
 
-  // Given the hit-stack candidate keys (topmost first) and the current
-  // selection key, returns the next key below it, wrapping to the top. Returns
-  // null when the selection is not in the stack. Pure, for the snap test.
   function nextStackCandidate(candidateKeys, currentKey) {
     if (!candidateKeys || candidateKeys.length === 0) return null;
     var idx = candidateKeys.indexOf(currentKey);
@@ -24390,8 +21670,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return candidateKeys[(idx + 1) % candidateKeys.length];
   }
 
-  // Figma parity: a drag on a container's own background rubber-bands its
-  // children. A leaf object, or one already selected, still moves.
   function isContainerBackgroundHit(
     el: Element | null,
     rawHit: Element | null = null,
@@ -24402,11 +21680,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (outermostSvgAncestor(el) === el) return false;
     if (!isContainerDropTarget(el)) return false;
     var child = el.firstElementChild;
-    // A lone `data-an-text` span is the editor's own wrapper around a
-    // painted leaf's bare text (see selectionTargetForHit) — not a real
-    // design child, so a plain text leaf must never read as a container
-    // with rubber-band-selectable children just because its own text got
-    // wrapped for editing.
     if (
       child &&
       child === el.lastElementChild &&
@@ -24418,26 +21691,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return Boolean(child);
   }
 
-  // The board surface iframe spans the whole canvas, screens included, so
-  // "the release was inside my viewport" cannot decide who owns the drop. The
-  // host claims the gesture whenever the pointer is over a screen frame.
   var crossScreenClaimedByHost = false;
   var lastPointerDownTimestamp = 0;
 
   function beginPotentialShieldDrag(e) {
-    // A read-only bridge may still expose passive inspection chrome, but it
-    // must never become a document-level interaction blocker. In particular,
-    // the host is intentionally below high-z app portals in this mode, so
-    // this fallback sees the app's real target and must leave it untouched.
     if (readOnly) return;
     if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
       return;
     }
     if (e.type === "pointerdown") lastPointerDownTimestamp = Date.now();
-    // A live text edit owns pointer selection inside its contenteditable. The
-    // document capture listener must not cancel that native gesture before the
-    // target's own selection machinery sees it; clicks outside still commit
-    // through the shield path below.
     if (
       activeTextEditEl &&
       isTextEditElConnected() &&
@@ -24453,16 +21715,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     stopNativeInteraction(e);
     clearGridProjectionCaches();
-    // Consume any host handoff at pointerdown; the synthetic event carries
     // the same value so async postMessage delivery cannot win the race.
     hostIgnoreAutoLayoutAtPointerDown = false;
-    // A new interaction starting is unambiguous proof the previous gesture is
-    // over — a stale post-commit revert from it must never fire against
-    // whatever this new one turns out to be.
     pendingMoveCommitRevert = null;
     if (e.button !== 0) return;
-    // T23: a stale session self-heals and the drag proceeds; only a LIVE
-    // session (connected element) blocks shield drags.
     if (activeTextEditEl && !exitStaleTextEditSession()) return;
     var events = dragEventNames(e);
     var hit = elementFromEditorPoint(e.clientX, e.clientY);
@@ -24492,11 +21748,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       point: { x: e.clientX, y: e.clientY },
       preferSelected: selectedLayerDragPriorityEnabled,
     });
-    // NOTE: the eventual plain-click selection (onUp below) resolves its own
-    // container-first target from `hit` lazily, only when the gesture turns
-    // out to be a click (not a drag) — see clickTarget there. Drag-target
-    // resolution above keeps the raw hitTarget so a click-drag on an
-    // unselected nested child still moves that child.
     if ((window as any).__DND_DEBUG)
       dndLog("shield:down", {
         hit: getSelector(hit),
@@ -24526,15 +21777,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         shieldOverlay.setPointerCapture(e.pointerId);
       } catch (_err) {}
     }
-    // unique-paths-5: an Ignore-auto-layout drag on a flow-reorder candidate
-    // (isFlowReorderCandidate) is about to be routed to the modifier-aware
-    // auto-layout-override path below (reorderIgnoresAutoLayout) — arming
-    // the host's cross-screen tracking here, before that routing decision
-    // even runs, would let its ctrl-unaware board-level listeners steal the
-    // gesture the moment the pointer crosses the screen's rendered edge.
-    // Every other drag (including platform-primary nesting) arms the host
-    // exactly as
-    // before.
     var suppressCrossScreenStartForCtrlReorder =
       isIgnoreAutoLayoutChord(e) && isFlowReorderCandidate(dragTarget);
     if (!readOnly && !e.altKey && !suppressCrossScreenStartForCtrlReorder) {
@@ -24544,9 +21786,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var startY = e.clientY;
     var didStartDrag = false;
     function selectTarget(target, ev?: MouseEvent, isClick?: boolean) {
-      // Shift+click toggle-off only applies to an actual click (onUp below),
-      // never to a drag-start reselect (onMove) — shift-dragging an
-      // already-selected member must move the group, not deselect it.
       if (isClick) {
         var toggled = resolveShiftClickToggleOff(target, ev);
         if (toggled !== undefined) {
@@ -24557,11 +21796,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var previousSelectedEl = selectedEl;
       selectedEl = target;
       positionOverlay(selectionOverlay, selectedEl);
-      // A plain (non-shift) select on a fresh target collapses any prior
-      // multi-selection, so a following drag can never inherit stale passive
-      // members from an earlier gesture (phantom-passenger fix, §3.5). Shift
-      // keeps + extends the set via the helper below. Only reached for
-      // single-element drags — an intentional group drag returns earlier.
       if (!ev?.shiftKey && passiveSelectionEls.length) {
         setPassiveSelectionElements([]);
       }
@@ -24579,12 +21813,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (!didStartDrag)
         dndLog("shield:drag-start", { board: designCanvasBoardSurface });
       didStartDrag = true;
-      // Multi-select group move: when the drag starts on a member of the
-      // current 2+ selection, PRESERVE the whole selection (no
-      // selectTarget collapse) and move the group together — Figma
-      // behavior. A plain click (no drag) still collapses to the clicked
-      // element via onUp below (existing disambiguation). Alt-drag
-      // duplication stays single-element.
       var groupGestureMember = !e.altKey
         ? groupMemberForGestureTarget(dragTarget)
         : null;
@@ -24629,18 +21857,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         postCrossScreenDrag("cancel");
       }
       if (ev) stopNativeInteraction(ev);
-      // Cmd/Ctrl+click (no Shift) deep-selects the next layer below the current
-      // selection in the z-stack under the pointer, wrapping at the bottom.
-      // Runs here (not in selectElementAtEvent) because a shield click resolves
-      // selection in this onUp and then suppresses the click handler.
       var cycledEl =
         !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey
           ? stackCycleTarget(e.clientX, e.clientY, selectedEl)
           : null;
-      // Cmd/Ctrl+click always deep-selects the raw hit (spec Part 3), even
-      // when stackCycleTarget above declines (nothing was selected yet to
-      // cycle from) — container-first resolution must never win a
-      // modified click just because there was no prior selection to cycle.
       var primaryClickTarget =
         !readOnly && (e.metaKey || e.ctrlKey)
           ? selectionTargetForHit(hit)
@@ -24650,11 +21870,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
                 ? clickThroughSelectionTarget(hit, ev)
                 : null) || containerFirstSelectionTarget(hit);
       if (cycledEl) {
-        // Real event (not undefined): selectionIntentFromEvent now reports
-        // Cmd/Ctrl-alone as non-additive, so the intent this carries already
-        // replaces rather than unions — passing it lets the host tell a real
-        // deep-select from a driftless bridge echo (DesignCanvas.tsx's
-        // `e.data.intent` check) instead of reading as one.
         selectTarget(cycledEl, ev, true);
       } else {
         selectTarget(primaryClickTarget || dragTarget, ev, true);
@@ -24673,11 +21888,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     document.addEventListener(events.up, onUp, true);
   }
 
-  // Resize and rotation handles are the only editable chrome that sits inside
-  // the selection overlay. At overview zoom their rendered hit box can be
-  // smaller than a screen pixel, so the first move often leaves the iframe.
-  // Capture the pointer before the existing mouse handler starts the gesture;
-  // otherwise the document-level move/up listeners stop receiving the drag.
   var selectionHandleMoveRerouted = false;
   function rerouteStaleSelectionHandleHitToMove(e): boolean {
     if (
@@ -24698,12 +21908,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
     if (!isResizeHandle) return false;
 
-    // Runtime inserts can settle from their source-frame size to their
-    // destination layout size after the selection overlay was first painted.
-    // Recompute the current hit geometry before deciding whether this press is
-    // genuinely on a resize handle. Without this, a tiny inserted node can
-    // retain a scaled edge bar over its entire center and every canvas drag
-    // starts a resize instead of moving the node.
     var hadSuppressedHandleTransition = selectionOverlay.hasAttribute(
       "data-agent-native-suppress-handle-transition",
     );
@@ -24714,9 +21918,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
     }
     applySelectionHandleHitGeometry(selectedEl);
-    // Same-element scale/resize updates normally animate the singleton
-    // handles. Hit testing must see the just-written geometry, not an
-    // interpolated frame from that transition.
     void selectionOverlay.offsetHeight;
     var refreshedTarget = document.elementFromPoint(e.clientX, e.clientY);
     var resizeHandlePosition = (
@@ -24735,12 +21936,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       e.clientY >= selectedRect.top &&
       e.clientY <= selectedRect.bottom
     ) {
-      // A resize handle should only win when the pointer is in the outer
-      // quarter of the selected box on the handle's axis. This guard is
-      // deliberately based on the live element rect rather than the overlay
-      // span: the span can still cover the center for one frame while a
-      // runtime clone settles from its source-frame size. A center press must
-      // remain a move even if elementFromPoint reports the stale span.
       var moveBandX = selectedRect.width * HANDLE_MAX_INWARD_FRACTION;
       var moveBandY = selectedRect.height * HANDLE_MAX_INWARD_FRACTION;
       var awayFromTop = e.clientY > selectedRect.top + moveBandY;
@@ -24965,33 +22160,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         bridgeSpaceKeyPressed = true;
         if (activeDragCancel) {
           bridgeSpaceKeyConsumedByDrag = true;
-          // Not stopNativeInteraction: this listener is registered before
-          // the active drag's own onReorderKeyDown (added at drag start), so
-          // stopImmediatePropagation here would keep that later listener
-          // from ever seeing Space and setting keepCurrentFlowParent — the
-          // Figma-parity "Space suppresses reparenting" gesture would only
-          // ever see whatever Space was doing at drag START. preventDefault
-          // alone still blocks the browser's default (page scroll) and the
-          // early return still skips host-hotkey forwarding below.
           if (e.cancelable) e.preventDefault();
           return;
         }
       }
-      // T25: pending-window keydown routing — a begin-text-edit is still
-      // waiting for its node. Keystrokes that land in THIS document during
-      // the wait belong to the upcoming text session: buffer printable
-      // characters (replayed on activation), let Backspace edit the buffer,
-      // and swallow Delete/Enter/Tab/arrows so they can never be forwarded
-      // into host layer-deletion/navigation. IME composition and Cmd/Ctrl
-      // chords pass through untouched.
       if (!activeTextEditEl && pendingBeginTextEdit) {
         if (!(e.isComposing || e.keyCode === 229) && !e.metaKey && !e.ctrlKey) {
           var pendingKey = e.key || "";
           if (pendingKey === "Escape") {
-            // Escape KEEPS what was typed (Figma). Characters typed into this
-            // frame while the node was still arriving exist nowhere else, so
-            // the request stays alive and commits them the moment the node
-            // appears; only an empty one is abandoned.
             if (pendingBeginTextEdit.buffer) {
               pendingBeginTextEdit.commitImmediately = true;
               stopNativeInteraction(e);
@@ -25027,18 +22203,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
         }
       }
-      // T23/T24: text-edit keydown routing runs BEFORE hotkey forwarding so
-      // a nominally-active session can never lose keys to host shortcuts.
       if (activeTextEditEl) {
         if (exitStaleTextEditSession()) {
-          // The session was stale (element detached by a patch). Swallow
-          // this keystroke entirely — letting it fall through in the same
-          // event would forward Delete/Backspace straight into host
-          // layer-deletion while the user believes they are typing text.
           stopNativeInteraction(e);
           return;
         }
-        // Respect IME composition exactly like the session's own onKeyDown.
         if (e.isComposing || e.keyCode === 229) return;
         var activeNow = document.activeElement;
         var focusInsideEdit = !!(
@@ -25046,25 +22215,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           (activeNow === activeTextEditEl ||
             activeTextEditEl.contains(activeNow))
         );
-        // T24: Escape must ALWAYS exit the session deterministically, even
-        // when focus fell outside the editable (where the session's own
-        // target-scoped keydown listener can never fire).
         if (e.key === "Escape") {
           if (!focusInsideEdit) {
             stopNativeInteraction(e);
             if (finishActiveTextEdit) finishActiveTextEdit(true);
             return;
           }
-          // Focus is inside: fall through — the session's own capture
-          // onKeyDown on the target handles Escape (commit + blur) next.
           return;
         }
         if (!focusInsideEdit) {
-          // Race window: the session is active but focus sits elsewhere
-          // (creation focus race, transient focus steal). If the user is
-          // legitimately typing in a real form control, leave it alone;
-          // otherwise pull focus back into the editable so the keystroke
-          // lands as text — and never reaches host shortcuts.
           if (!isEditorTypingTarget(activeNow)) {
             try {
               activeTextEditEl.focus();
@@ -25075,15 +22234,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             e.stopPropagation();
           }
         }
-        // While a live session exists, never forward hotkeys to the host
-        // (matches shouldForwardDesignHotkey's activeTextEditEl guard).
-        // The shortcut-help chord is deliberately included in that exclusion:
-        // the panel lives in the parent document, so opening it moves focus
-        // out of the iframe, blurs the editable and commits the in-progress
-        // edit. Ending someone's text entry to show help is a worse trade
-        // than help being unavailable for the duration of a typing session;
-        // it stays available everywhere else, including while a text layer is
-        // merely selected.
         return;
       }
       if (!shouldForwardDesignHotkey(e)) return;
@@ -25119,9 +22269,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     },
     true,
   );
-  // The preview iframe may not own focus when a drag begins. Mirror the
-  // host document's S modifier so a pre-pointerdown shortcut reaches the
-  // same drag state as an iframe-focused keydown.
   try {
     var parentDocument = window.parent.document as Document & {
       __agentNativeDesignModifierListeners?: WeakMap<
@@ -25172,13 +22319,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     void _err;
   }
 
-  // Space-pan release: keydown forwarding above arms the parent's temporary
-  // hand tool (see postDesignHotkey/"design-hotkey"), but the parent also
-  // needs the matching keyup to release it — without this, holding Space
-  // inside the preview iframe would arm panning but never let go. Forwarded
-  // as its own message (not reusing "design-hotkey", which the parent only
-  // ever re-dispatches as a synthetic keydown) so the parent can drive its
-  // real keyup-driven release logic.
   document.addEventListener(
     "keyup",
     function (e) {
@@ -25189,10 +22329,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       bridgeSpaceKeyPressed = false;
       if (bridgeSpaceKeyConsumedByDrag) {
         bridgeSpaceKeyConsumedByDrag = false;
-        // Not stopNativeInteraction — see the matching keydown listener's
-        // comment: the active drag's own onReorderKeyUp (registered later)
-        // must still see this keyup to clear keepCurrentFlowParent, or
-        // releasing Space mid-drag would never re-enable reparenting.
         if (e.cancelable) e.preventDefault();
         return;
       }
@@ -25214,15 +22350,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }, 0);
   });
 
-  // T23/T24: pointerdown-level text-edit session hygiene. Runs on DOCUMENT
-  // capture (not the shield) because an active session sets the shield to
-  // pointer-events:none — and a LEAKED session leaves it that way, so shield
-  // handlers can never observe the pointerdown that should recover from it.
-  // 1. A pointerdown means the user moved on: drop any deferred
-  //    begin-text-edit command so it can't yank focus later.
-  // 2. A stale (detached-element) session self-heals on the next click.
-  // 3. Click-away must exit the session even when the editable is NOT
-  //    focused (the blur-based commit can never fire in that state).
   document.addEventListener(
     "pointerdown",
     function (e) {
@@ -25244,16 +22371,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         return;
       }
-      // Editor chrome (overlays) never hosts text content — clicking it
-      // shouldn't force-commit here; the session's own blur handling decides.
       if (pointerTarget && isOverlayElement(pointerTarget)) return;
-      // A real user pointerdown outside the editable is a deterministic
-      // click-away: commit and exit NOW. This covers both broken states the
-      // blur path can't reach — (a) focus already fell outside the editable
-      // (blur will never fire), and (b) the programmatic empty-text session,
-      // whose blur handler deliberately re-focuses on transient focus steals
-      // but must NOT fight a real click elsewhere. For a healthy focused
-      // session this simply commits a few ms before blur would have.
       if (finishActiveTextEdit) {
         finishActiveTextEdit(true);
       }
@@ -25422,16 +22540,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         });
         return;
       }
-      // Relay image files pasted while the canvas has focus (e.g. "Copy as PNG"
-      // from Figma, or a screenshot). The parent's handleEditorPaste cannot see
-      // these because paste events inside an iframe don't bubble to the parent
-      // document — the bridge reads each file as a data URL and relays it so
-      // the parent's handlePastedImageFiles can insert an <img> layer.
-      // A paste carrying nothing importable stays silent, unless it plainly
-      // came from Figma — the user expected a screen and must be told why they
-      // got nothing. The parent applies the same rule to its own listener, but
-      // a paste inside the iframe never reaches it, so relay the strings and
-      // let that one rule decide both.
       var pastedHtml = e.clipboardData
         ? e.clipboardData.getData("text/html") || ""
         : "";
@@ -25454,9 +22562,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     true,
   );
 
-  // Reports whether the caret actually moved: addRange throws on a detached
-  // node, and a caller that assumes success then inserts text at whatever the
-  // stale selection still points at.
   function collapseSelectionIntoContents(
     el: Element,
     toStart?: boolean,
@@ -25480,11 +22585,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     selection.addRange(range);
   }
 
-  // T5: elements that must never become contenteditable via the raw-target
-  // fallback below, even when a caller opts into programmatic text editing.
-  // Chrome overlays are never real content; img/svg/canvas cannot host a text
-  // selection/caret the way findTextEditTarget expects and would leave the
-  // editor in a broken state (see the warning comment in findTextEditTarget).
   function isRejectedRawTextEditTarget(el: Element | null): boolean {
     if (!el) return true;
     if (isOverlayElement(el)) return true;
@@ -25504,33 +22604,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     stopNativeInteraction(e);
-    // A new edit supersedes any deferred begin-text-edit command. This is a
-    // USER-initiated path (dblclick) whenever pending is still set here —
-    // the programmatic activation paths clear pending BEFORE calling in —
-    // so also stand the host keystroke buffer down: it must never flush
-    // into this unrelated session.
     if (pendingBeginTextEdit) {
       var supersededPendingNodeId = pendingBeginTextEdit.nodeId;
       cancelPendingBeginTextEdit();
       postTextEditPending(supersededPendingNodeId, false, "superseded");
     }
-    // T23: a live session on a DIFFERENT element must end through the
-    // canonical cleanup BEFORE the new one starts. Previously the new
-    // session simply overwrote activeTextEditEl/finishActiveTextEdit, and
-    // the old session's eventual blur-driven finish() then restored the
-    // shield pointer-passthrough state and posted text-editing-state(false)
-    // UNDERNEATH the new session, corrupting both.
     if (activeTextEditEl && finishActiveTextEdit) finishActiveTextEdit(true);
     clearSuspendedTextEditRange();
     var eventTarget =
       e && e.target && e.target.nodeType === 1 ? e.target : null;
-    // The raw `eventTarget` fallback (no findTextEditTarget resolution at
-    // all) bypasses findTextEditTarget's editable-ancestor check entirely, so
-    // it is only safe when the caller has explicitly opted into programmatic
-    // text editing (e.g. an agent action creating a new text primitive and
-    // immediately entering edit mode on it) — and even then, never for a
-    // chrome overlay or an img/svg/canvas element, which cannot be made
-    // sensibly contenteditable.
     var programmaticFlag =
       !!e &&
       (e as unknown as { agentNativeProgrammaticTextEdit?: boolean })
@@ -25539,35 +22621,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       programmaticFlag && !isRejectedRawTextEditTarget(eventTarget)
         ? eventTarget
         : null;
-    // Programmatic edits (e.g. begin-text-edit on a just-created text node)
-    // already carry the exact node to edit as e.target. A freshly-created text
-    // node is 0×0, so elementFromEditorPoint at its synthesized edge point
-    // resolves to whatever is underneath — the parent screen container
-    // (<main>) — and editing would bind to the ENTIRE screen instead of the new
-    // node (keystrokes land in the wrong element, the node stays empty, focus is
-    // lost). So for the programmatic path, honor the explicit target first and
-    // never re-resolve from a point.
     var target = programmaticFlag
-      ? // Prefer the raw explicit node (rawTargetFallback === eventTarget) over
-        // findTextEditTarget, which climbs UP to the highest inline-editable
-        // ancestor (→ <main>) and would put the whole screen into edit mode.
+      ?
         rawTargetFallback || findTextEditTarget(eventTarget)
       : findTextEditTarget(elementFromEditorPoint(e.clientX, e.clientY)) ||
         findTextEditTarget(eventTarget) ||
         rawTargetFallback;
     if (!target || target.nodeType !== 1) {
-      // Figma parity: double-clicking a non-text element drills one level
-      // into the current selection instead of doing nothing. The previously
-      // selected element becomes the new container scope (so the resolved
-      // target is its direct child on the path to the pointer, per spec Part
-      // 3's "double-click drills one level in"), and the plain-click
-      // container-first rules resolve the target from there. Skip this for
-      // the programmatic path: there is no real pointer position to
-      // hit-test, and we already tried the explicit target above.
       if (!programmaticFlag) {
         var descendHit = elementFromEditorPoint(e.clientX, e.clientY);
-        // Figma: double-clicking the selected vector opens point editing,
-        // which the host already owns behind Enter.
         if (
           descendHit &&
           selectedEl &&
@@ -25606,27 +22668,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       return;
     }
-    // Template-clone text-edit rejection (mirrors the reorder-rejection fix
-    // above): `target` here can be a raw Alpine `<template x-for>`/`x-if`
-    // runtime clone — findTextEditTarget's climb only requires every
-    // descendant tag to be inline-editable, it never checks whether the
-    // ancestor chain crosses a clone boundary, so a repeated list/card item
-    // whose own content is plain text passes straight through. Entering
-    // contenteditable on that clone lets the user type and see the change
-    // live (it's a real DOM node), but the clone has no per-instance
-    // counterpart in the static source HTML (only the single `<template>`
-    // stays there), so getSelector's live-DOM nth-of-type path — unlike
-    // hit-test.bridge.ts's source-equivalent selector builder — cannot
-    // resolve it on commit. Previously the edit silently failed on the host
-    // (error toast, or a no-op) and vanished for good on the next Alpine
-    // re-render, with no indication anything was wrong. Reject up front
-    // instead — same UX contract as the reorder-rejection badge — and fall
-    // back to selecting the nearest source-backed ancestor (typically the
-    // repeated item's container) so the user isn't left with a stale or
-    // empty selection.
-    // An `x-text` row DOES have a per-instance destination now — the item in
-    // the collection — so the host can persist the edit. Only a clone whose
-    // text has no binding is still unresolvable.
     if (
       !programmaticFlag &&
       isTemplateCloneElement(target) &&
@@ -25637,9 +22678,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         e.clientX,
         e.clientY,
       );
-      // No ongoing gesture here (unlike the reorder-rejection badge, which
-      // hides on the drag's own mouseup/Escape) to hide it on, so time it
-      // out on its own instead of leaving it on screen indefinitely.
       window.setTimeout(hideTransformBadge, 1400);
       var rejectedTextEditFallback = selectionTargetForHit(target);
       if (
@@ -25652,11 +22690,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       return;
     }
-    // Anchor the selection identity to the nearest source-backed element. Text
-    // editing still operates on the actual target text node, but a later
-    // style edit posts from selectedEl, so it must point at a patchable
-    // code-layer node rather than a runtime-only descendant (which would emit a
-    // brittle body > div:nth-of-type(...) selector that never resolves).
     selectedEl = selectionTargetForHit(target) || target;
     var programmaticTextEdit = programmaticFlag;
     var originalText = target.textContent || "";
@@ -25683,9 +22716,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             parseFloat(computedTextStyle.paddingBottom || "0") +
             parseFloat(computedTextStyle.borderTopWidth || "0") +
             parseFloat(computedTextStyle.borderBottomWidth || "0");
-      // offsetHeight is in layout coordinates, unlike the transformed client
-      // rect. It reports whole CSS pixels, so fractional auto-height boxes can
-      // be quantized for this transient editing session.
       clampedTextEditHeight =
         Math.max(0, target.offsetHeight - verticalInset) + "px";
     }
@@ -25696,16 +22726,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     activeTextEditEl = target;
     activeTextEditRange = null;
     activeTextEditStyleSelector = getSelector(selectedEl);
-    // T19: publish this session's captured originals so refreshOverlays()
-    // (which runs on ResizeObserver/MutationObserver ticks during the edit,
-    // not just from inside this closure) can pass the real values instead of
-    // "" to updateTextEditingChrome.
     activeTextEditOriginalMinWidth = originalMinWidth;
     activeTextEditOriginalMinHeight = originalMinHeight;
-    // T20: per-keystroke chrome updates (onInput/onSelectionChange) and the
-    // 3-4 postMessages they cause (text-editing-state + a caret-move
-    // selectionchange on every arrow key / click) are coalesced into a single
-    // rAF tick instead of firing synchronously on every event.
     var chromeUpdateScheduled = false;
     function scheduleTextEditingChromeUpdate() {
       if (chromeUpdateScheduled) return;
@@ -25737,9 +22759,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
     }
     if (hasLineClamp) {
-      // Keep the native text box dimensions while exposing its full text for
-      // editing. Only the active DOM session changes; finish() restores these
-      // inline declarations before the source-backed edit is committed.
       target.style.setProperty("-webkit-line-clamp", "none", "important");
       target.style.setProperty("overflow", "visible", "important");
       target.style.setProperty("height", clampedTextEditHeight, "important");
@@ -25823,7 +22842,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             selector: activeTextEditStyleSelector,
           }
         : null;
-      // T4: this session no longer owns the active-edit slot.
       if (finishActiveTextEdit === finish) finishActiveTextEdit = null;
       postTextEditingState(
         target,
@@ -25838,17 +22856,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         refreshOverlays();
         return;
       }
-      // T12: collapse any nested-identical-style <span> chains left behind by
-      // repeated applyTextRangeStyle scrub/commit cycles before reading out
-      // the committed HTML.
       normalizeNestedIdenticalSpans(target);
       var next = target.textContent || "";
       var nextHtml = target.innerHTML || "";
       refreshOverlays();
-      // T23: never post a content change from a DETACHED node — a document
-      // patch already replaced it, so the in-document copy is the source of
-      // truth and a selector computed from the orphan would target the wrong
-      // (or no) element host-side.
       if (
         target.isConnected &&
         (next !== originalText ||
@@ -25863,9 +22874,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           originalHtml,
         );
       }
-      // T13: replay the latest runtime-content update that arrived (and was
-      // buffered) while this edit session was active, so the canvas isn't
-      // left stale now that editing has ended.
       if (pendingRuntimeDocumentUpdate) {
         var pending = pendingRuntimeDocumentUpdate;
         pendingRuntimeDocumentUpdate = null;
@@ -25879,10 +22887,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
       }
     }
-    // T4: publish this session's finish() so replaceRuntimeDocument (and any
-    // other caller that must end an in-progress edit deterministically) can
-    // commit/discard through the same listener-teardown path a user
-    // Escape/blur would take, instead of only resetting activeTextEditEl.
     finishActiveTextEdit = finish;
 
     var emptyProgrammaticRefocusScheduled = false;
@@ -25910,20 +22914,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       finish(true, true);
     }
 
-    // Moving focus from a child browsing context back to the host canvas does
-    // not consistently blur the iframe's activeElement in Chromium. Listen at
-    // the window boundary too so the newly created empty text field keeps the
-    // keyboard until the user types or explicitly exits.
     function onWindowBlur() {
       refocusEmptyProgrammaticEdit();
     }
 
     function onKeyDown(ev) {
-      // T3: bail out on IME composition input (e.g. CJK/Korean input method
-      // candidate selection) so a composing Enter/Escape keystroke isn't
-      // intercepted as a commit/newline before the IME has finished composing
-      // the character. keyCode 229 is the legacy signal browsers send for
-      // composition keydowns that don't set isComposing.
       if (ev.isComposing || ev.keyCode === 229) return;
       var metaOrCtrl = ev.metaKey || ev.ctrlKey;
       if (
@@ -25936,25 +22931,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         target.blur();
         return;
       }
-      // T2: Enter inserts a line break while editing (Figma convention);
-      // Escape, Cmd/Ctrl+Enter, or blur commits and exits the session.
       if (ev.key === "Enter" && !ev.shiftKey) {
         ev.preventDefault();
         insertLineBreak();
         scheduleTextEditingChromeUpdate();
         return;
       }
-      // T21: forward Cmd/Ctrl+B, Cmd/Ctrl+I, and Cmd/Ctrl+U within the edit
-      // session to execCommand bold/italic/underline on the current selection.
-      // normalizeNestedIdenticalSpans (T12) cleans up any span nesting
-      // execCommand leaves behind when the session commits.
-      // A just-created text layer is one editor transaction, not an isolated
-      // native contenteditable history island. Chromium consumes Cmd/Ctrl+Z
-      // locally even when the empty editable has nothing to undo, so the host
-      // never sees the command and cannot remove the created layer. Cancel the
-      // uncommitted DOM session and forward the chord to Design's guarded
-      // content history; typing committed by blur/Escape is coalesced into the
-      // same creation entry host-side.
       if (
         programmaticTextEdit &&
         metaOrCtrl &&
@@ -26058,9 +23040,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       resumedSelection.removeAllRanges();
       resumedSelection.addRange(resumedRange);
     } else if (programmaticTextEdit) {
-      // The synthesized point sits at the (0×0) node's edge and resolves to the
-      // parent element, so caretRangeFromPoint would drop the caret OUTSIDE the
-      // editable node. Collapse to the end of the target's own contents instead.
       collapseSelectionIntoContents(target);
     } else {
       selectAllTextContents(target);
@@ -26069,9 +23048,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     postTextEditingState(target, true);
   }
 
-  // T22: shared programmatic activation used by the begin-text-edit message
-  // handler — both for an immediately-resolvable node and for one that lands
-  // later via the deferred-retry window below.
   function beginTextEditRepeatFromMessage(
     value: unknown,
   ): BeginTextEditRepeat | null {
@@ -26134,12 +23110,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     force: boolean,
     resumeBookmark?: { start: number; end: number; text: string },
   ): void {
-    // The host canvas can reclaim keyboard focus while React settles a newly
-    // created layer. In that case this document still reports the same
-    // activeElement even though its browsing context no longer has focus, so
-    // treating the session as already active makes every retry a no-op and the
-    // user's first keystroke hits host shortcuts. Re-focus the existing
-    // session instead of rebuilding it.
     if (activeTextEditEl && activeTextEditEl === textTarget) {
       if (resumeBookmark) {
         var activeResumeRange = restoreTextRangeBookmark(
@@ -26164,13 +23134,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       return;
     }
-    // Synthesise coordinates at the end of the element content so the caret
-    // lands at the insertion point (right after any placeholder text).
     var bteRect = textTarget.getBoundingClientRect();
     var bteCenterX = bteRect.right - 2;
     var bteCenterY = bteRect.top + bteRect.height / 2;
-    // Delegate to the canonical path so all state, events, and postMessages
-    // stay consistent with a normal double-click text edit.
     beginTextEditingFromEvent(
       {
         clientX: bteCenterX,
@@ -26185,10 +23151,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       resumeBookmark,
     );
   }
-  // Outlives the host's own request window (its retry ladder settles at
-  // ~4.75s). At the old 2s this frame gave up FIRST on a slow board mount, and
-  // a commit-on-Escape carries no retries to extend it — everything typed was
-  // discarded before the node arrived.
   var PENDING_BEGIN_TEXT_EDIT_MS = 5000;
   function pumpPendingBeginTextEdit(): void {
     if (!pendingBeginTextEdit) return;
@@ -26196,16 +23158,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var node = queryBeginTextEditNode(entry.nodeId, entry.repeat);
     if (node) {
       pendingBeginTextEdit = null;
-      // The user may have started their own edit meanwhile — never steal it,
-      // and tell the host its text did not land so it keeps owing it.
       if (activeTextEditEl) {
         if (entry.buffer) postTextEditInsertResult(entry.nodeId, false);
       }
       if (!activeTextEditEl) {
         activateProgrammaticTextEdit(node, entry.force);
-        // Replay keystrokes typed into this iframe during the wait — the
-        // session is focused with the caret at the content end, so this
-        // lands exactly where the user expects their first characters.
         var replayLanded = false;
         if (entry.buffer) {
           replayLanded =
@@ -26214,9 +23171,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           postTextEditInsertResult(entry.nodeId, replayLanded);
         }
         if (entry.commitImmediately) {
-          // Same rule as the takeover above: a session finished and reported
-          // committed after a failed replay tells the host to release text
-          // that never reached the document.
           if (
             activeTextEditEl === node &&
             finishActiveTextEdit &&
@@ -26246,10 +23200,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     insertText?: string,
     commitImmediately?: boolean,
   ): void {
-    // DesignEditor's own T6 loop re-posts begin-text-edit for the SAME node
-    // every few hundred ms until it activates — those re-posts must extend
-    // the wait, not reset it (a reset would drop keystrokes already buffered
-    // for this node).
     if (
       pendingBeginTextEdit &&
       pendingBeginTextEdit.nodeId === nodeId &&
@@ -26289,11 +23239,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     true,
   );
 
-  // Meta/Ctrl held while hovering previews Cmd-click's deep-select: the
-  // outline jumps to the innermost object under the pointer instead of its
-  // container. Re-resolved on modifier keydown/keyup too (see below), so
-  // pressing/releasing the key while the pointer sits still still updates
-  // the outline without requiring a move.
   var lastHoverClientPoint: { x: number; y: number } | null = null;
   function resolveHoverTarget(
     clientX: number,
@@ -26351,11 +23296,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         scheduleSpacingHoverClear(e);
       }
       hideMeasurements();
-      // Re-arm the hover-info post gate below: leaving all content (e.g.
-      // pointer over empty canvas or off the iframe entirely) means the
-      // NEXT element this pointer lands on — even if it's the same one
-      // hovered before — is a genuinely new hover the host hasn't heard
-      // about since.
       lastHoverInfoPostedEl = null;
       return;
     }
@@ -26372,12 +23312,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         clearSpacingHoverTimer();
         lastSpacingPointerPoint = { x: e.clientX, y: e.clientY };
         updateSpacingOverlay(selectedEl);
-        // Reliable padding/gap hover: hit-test the handle geometry
-        // directly from the pointer position instead of depending on the
-        // pointermove's event target being the region node (see
-        // spacingHandleKeyAtPoint). Shows/updates the "Npx" value box
-        // while hovering the handle line; clears it when the pointer
-        // leaves the tolerance zone.
         var pointSpacingKey = spacingHandleKeyAtPoint(e.clientX, e.clientY);
         if (pointSpacingKey) {
           activateSpacingHandle(pointSpacingKey);
@@ -26399,10 +23333,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     } else {
       hideMeasurements();
     }
-    // While Alt is held (measurement mode) keep hover local: posting it would
-    // update the host's hoveredSelector, re-run replayIframeEditorState, and
-    // echo selection/hover back every move — a loop that jitters selection
-    // and flickers the measurement lines.
     if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
       lastHoverInfoPostedEl = hoveredEl;
       var info = getLightElementInfo(hoveredEl);
@@ -26414,15 +23344,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   shieldOverlay.addEventListener("pointermove", handleShieldPointerMove, true);
-  // Chromium's embedded-frame path can expose the legacy mouse stream even
-  // when the pointer stream stops at the iframe boundary. Keep hover on both
-  // streams; the same-element gate makes duplicate delivery harmless.
   shieldOverlay.addEventListener("mousemove", handleShieldPointerMove, true);
 
-  // Some Chromium embedding paths deliver the live iframe's pointer stream to
-  // the document under the fixed editor host even though the shield owns the
-  // click. Capture those events at document level so hover uses the same
-  // hit-test path as shield-delivered clicks instead of reaching the app.
   document.addEventListener(
     "pointermove",
     function (e) {
@@ -26479,10 +23402,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         updateSpacingOverlay(selectedEl);
         return;
       }
-      // Leaving the iframe entirely (e.g. to a panel or outside the window)
-      // must re-arm the post gate, not just clear hoveredEl — otherwise the
-      // pointer returning to this SAME element never re-posts "element-hover"
-      // and the host's hover highlight stays stuck at "nothing".
       clearHoverGate();
       if (!spacingDrag) {
         scheduleSpacingHoverClear(e);
@@ -26502,8 +23421,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     function (e) {
       if (e.key === "Alt") {
         hideMeasurements();
-        // Re-sync the hover suppressed during measurement so the host isn't
-        // left on a stale element until the next pointermove.
         lastHoverInfoPostedEl = hoveredEl;
         (window.parent as Window).postMessage(
           {
@@ -26532,24 +23449,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
       return;
     }
-    // The child can finish booting before the parent installs its one-shot
-    // ready listener. Let the parent ask again after the iframe load event;
-    // this is idempotent and also survives a document remount.
     if (e.data.type === "agent-native:editor-chrome-ready-probe") {
       sendEditorChromeReady();
       return;
     }
-    // NOTE: no message type in this handler is sourced from a `payload`
-    // sub-object — every host sender (DesignCanvas.tsx) puts its fields
-    // directly on the top-level message. A previous blanket
-    // `Object.keys(e.data.payload).forEach(...)` hoist here copied every key
-    // of an arbitrary `payload` object onto `e.data` for ANY message type,
-    // which could let an attacker-controlled `payload` (e.g. relayed through
-    // a less-trusted surface) inject fields like `readOnly`, `force`, or
-    // `content` into a message type that never intended to accept them. If a
-    // future message type needs payload-sourced fields, extract them
-    // explicitly inside that type's own branch below instead of reintroducing
-    // a blanket hoist.
     if (e.data.type === "resume-text-edit") {
       var resumeScreenId =
         typeof e.data.screenId === "string" ? e.data.screenId : "";
@@ -26618,9 +23521,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       return;
     }
-    // set-read-only: toggle the bridge's readOnly state in-place without a reload.
-    // When readOnly becomes true the shield/selection/drag/edit entry points are
-    // gated so the surface is safe for background/inactive display use.
     if (e.data.type === "set-layout-grid-step") {
       var nextStep = Number(e.data.step);
       layoutGridStep =
@@ -26637,7 +23537,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       textEditingEnabled =
         !readOnly && !interactionMode && textEditingEnabledFlag;
       if (readOnly) {
-        // Leave the text editor gracefully before going read-only.
         if (activeTextEditEl) {
           activeTextEditEl.blur();
         }
@@ -26645,8 +23544,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         cancelActiveBridgeDrag();
         setSelectionOverlayResizeChromeVisible(false);
       }
-      // Preserve the more specific Interact ownership when read-only state is
-      // replayed after a mode change on a retained iframe.
       syncShieldPointerEvents();
       setSelectionOverlayResizeChromeVisible(
         !readOnly && !interactionMode && !activeTextEditEl,
@@ -26656,8 +23553,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         positionOverlay(selectionOverlay, selectedEl);
       return;
     }
-    // Interact changes pointer ownership in-place. The editor chrome stays
-    // installed so returning to Edit can restore selection without a reload.
     if (e.data.type === "set-interaction-mode") {
       var nextInteractionMode = e.data.interact === true;
       interactionMode = nextInteractionMode;
@@ -26690,12 +23585,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       return;
     }
-    // set-text-editing-enabled: toggle the bridge's edit/preview-mode flag
-    // in-place without a reload, mirroring set-read-only above. The host
-    // flips this whenever DesignCanvas's `editMode` prop changes (Edit ⇄
-    // Preview). Without this postMessage path, `editMode` would need to stay
-    // a srcdoc dependency, which rebuilds and reloads every screen iframe on
-    // every edit/preview toggle.
     if (e.data.type === "set-text-editing-enabled") {
       var nextTextEditingEnabledFlag = !!e.data.enabled;
       if (textEditingEnabledFlag === nextTextEditingEnabledFlag) return;
@@ -26704,9 +23593,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         !readOnly && !interactionMode && textEditingEnabledFlag;
       if (textEditingEnabled === nextTextEditingEnabled) return;
       textEditingEnabled = nextTextEditingEnabled;
-      // Leaving text-editing-enabled mode: gracefully exit any in-progress
-      // text edit rather than leaving a live contenteditable behind, mirroring
-      // the readOnly transition above.
       if (!textEditingEnabled && activeTextEditEl) {
         activeTextEditEl.blur();
       }
@@ -26723,18 +23609,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         : 0;
       return;
     }
-    // begin-text-edit: enter text-editing mode for the element identified by
-    // nodeId immediately (no double-click needed). Used after programmatic
-    // text-element creation so the user can type right away and the autosize
-    // CSS (width:max-content or similar) takes effect from the first keystroke.
-    // The host stood this exact creation down (pointer-away, Escape, undo, a
-    // newer creation). A begin-text-edit already delivered here outlives that:
-    // pendingBeginTextEdit keeps pumping for its own ~2s deadline and focuses
-    // the node the moment it appears, so the abandoned layer comes back to life
-    // with a caret in it. Identity-scoped on BOTH ids — a cancel for one node
-    // must never touch another node's pending or live session — and it only
-    // ends a live session that is still EMPTY, because a session with typed
-    // text belongs to the user, not to the cancelled request.
     if (e.data.type === "agent-native:cancel-text-edit") {
       var cancelScreenId =
         typeof e.data.screenId === "string" ? e.data.screenId : "";
@@ -26766,24 +23640,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (!nodeId) return;
       var beginTextEditRepeat = beginTextEditRepeatFromMessage(e.data.repeat);
       if (e.data.repeat !== undefined && !beginTextEditRepeat) return;
-      // Escape while the host still holds the creation's keystrokes: they ride
-      // in with the command so the node keeps them, and the session closes as
-      // soon as they have landed. Never a way to drop what was typed.
       var beginInsertText =
         typeof e.data.insertText === "string" ? e.data.insertText : "";
       var beginCommitImmediately = e.data.commitImmediately === true;
-      // Edit the EXACT node identified by nodeId. Do NOT run it through
-      // findTextEditTarget here — that helper climbs UP to the highest
-      // inline-editable ancestor, which for a text node inside a text-heavy
-      // screen resolves all the way to <main>, putting the ENTIRE screen into
-      // edit mode instead of this node (keystrokes land in the wrong element).
       var textTarget = queryBeginTextEditNode(nodeId, beginTextEditRepeat);
       if (!textTarget) {
-        // T22: the node hasn't landed in this document yet — the command won
-        // the race against the replace-document-content round trip that
-        // carries the freshly-created element. Defer instead of dropping,
-        // so the caret is live the moment the node appears. Tell the host so
-        // it buffers HOST-focused keystrokes for the same window (T25).
         scheduleBeginTextEditRetry(
           nodeId,
           beginTextEditRepeat,
@@ -26797,9 +23658,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       cancelPendingBeginTextEdit();
       activateProgrammaticTextEdit(textTarget, forceBeginTextEdit);
       var tookTarget = activeTextEditEl === textTarget;
-      // The host keeps owing these keystrokes until this frame says they
-      // landed: a target it could not take over, or an insert the document
-      // refused, never received them.
       var beginInsertLanded = false;
       if (beginInsertText) {
         beginInsertLanded =
@@ -26807,10 +23665,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         postTextEditInsertResult(nodeId, beginInsertLanded);
       }
       if (beginCommitImmediately) {
-        // Only ever finish THIS target, and only once the text is actually in
-        // it. Reporting "committed" after a failed insert made the host release
-        // the buffer it had just been told to keep — the two reports together
-        // were the one way to lose the text outright.
         if (
           tookTarget &&
           finishActiveTextEdit &&
@@ -26825,28 +23679,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       return;
     }
-    // T25: replay keystrokes the HOST buffered during the creation→activation
-    // race window (DesignCanvas suppresses host shortcuts and stashes
-    // printable keys while its begin-text-edit is pending, then flushes them
-    // here once the session reports active). Goes through the same execCommand
-    // path paste uses, so the session's own input listener updates
-    // chrome/state naturally.
     if (e.data.type === "text-edit-insert-text") {
       var bufferedText = typeof e.data.text === "string" ? e.data.text : "";
       var bufferedNodeId =
         typeof e.data.nodeId === "string" ? e.data.nodeId : "";
       if (!bufferedText) return;
       if (!activeTextEditEl || !isTextEditElConnected()) {
-        // The editable these keystrokes belong to is gone — a document swap or
-        // a detached node. Returning silently lost them outright, because the
-        // host released its only copy when the session reported active.
         postTextEditInsertResult(bufferedNodeId, false);
         return;
       }
       if (bufferedNodeId && getSourceId(activeTextEditEl) !== bufferedNodeId) {
-        // A queued insert for a node that is no longer the live session.
-        // Writing it here spliced one creation's keystrokes into another's
-        // node AND told the host the first one had landed.
         postTextEditInsertResult(bufferedNodeId, false);
         return;
       }
@@ -26860,9 +23702,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           activeTextEditEl.focus();
         } catch (_err) {}
       }
-      // Every buffered key predates this session, so it belongs ahead of
-      // whatever landed natively while the flush was in flight; inserting at
-      // the live caret splices the prefix into a half-typed word.
       var positionedAtStart = collapseSelectionIntoContents(
         activeTextEditEl,
         true,
@@ -26873,8 +23712,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (e.data.type === "set-editor-chrome-scale") {
-      // Live-update the constant-size chrome scale WITHOUT rebuilding srcdoc.
-      // Rebuilding srcdoc reloads the iframe and flashes the content white.
       editorChromeScaleX = Math.max(0.05, Number(e.data.scaleX) || 1);
       editorChromeScaleY = Math.max(
         0.05,
@@ -26889,11 +23726,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       scaleToolEnabled = !!e.data.enabled;
       return;
     }
-    // gradient-edit-target / gradient-edit-clear: see the gradientEditTarget
-    // doc comment above (near parseLinearGradientCss) for the full parent
-    // wiring contract. `nodeId` must be a `data-agent-native-node-id` value;
-    // `cssValue` is the live gradient CSS (only linear-gradient(...) renders
-    // handles — anything else is accepted but draws nothing).
     if (e.data.type === "gradient-edit-target") {
       var gradientTargetNodeId =
         typeof e.data.nodeId === "string" ? e.data.nodeId : "";
@@ -26951,19 +23783,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       return;
     }
-    // state-preview: force-render one element's interaction-state styling by
-    // setting/removing the `data-an-state-preview="<state>"` attribute. Inline
-    // HTML gets its styles from the persisted twin rule; localhost previews
-    // can carry `previewStyles`, held in a temporary CSSOM rule so no runtime
-    // source/URL content is rewritten before the guarded source handoff.
     if (e.data.type === "state-preview") {
       var statePreviewTargetNodeId =
         typeof e.data.nodeId === "string" ? e.data.nodeId : "";
       var statePreviewState =
         typeof e.data.state === "string" ? e.data.state : "";
-      // Clear the PREVIOUS target first — only one element force-previews a
-      // state at a time, and the new message may target a different node
-      // (e.g. the selection changed) or clear entirely.
       if (statePreviewElement) {
         statePreviewElement.removeAttribute("data-an-state-preview");
         statePreviewElement = null;
@@ -27006,12 +23830,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (e.data.type === "agent-native:set-space-held") {
-      // Figma parity (unique-paths): the host forwards Space here when ITS
-      // OWN window — not this document — received the native key event
-      // (the pointer-down that starts an on-canvas drag does not always
-      // move focus into this iframe). resolveReorderOrFreeTarget reads
-      // bridgeSpaceKeyPressed on every move/commit tick, so this has the
-      // same effect as this document's own keydown/keyup listener seeing it.
       bridgeSpaceKeyPressed = Boolean(e.data.held);
       return;
     }
@@ -27040,21 +23858,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (e.data.type === "clear-selection") {
-      // During marquee drag, empty hit sets are replayed back from the host as a
-      // clear-selection state. Keep the drag-owned rectangle alive until pointer-up.
       if (activeMarqueeSelection) return;
       clearSuspendedTextEditRange();
       clearRuntimeSelection();
       return;
     }
-    // A host-side inspector commit never reaches this bridge, so nothing
-    // re-measures the element it changed. `fit-content` leaves the host holding
-    // the keyword plus a pre-commit rect, i.e. no current width at all.
     if (e.data.type === "agent-native:measure-selection") {
-      // The host broadcasts to every frame, so a reply from the wrong screen
-      // or the wrong element is worse than no reply: it lands in the inspector
-      // as a confident number for something else. Stay silent unless this
-      // frame owns both the screen and the element.
       var measureScreenId: string =
         typeof e.data.screenId === "string" ? e.data.screenId : "";
       if (measureScreenId && measureScreenId !== designCanvasScreenId) return;
@@ -27102,23 +23911,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
       return;
     }
-    // agent-native:text-edit-status: host-side query used instead of a direct
-    // (now sandbox-blocked) iframe.contentDocument read. Mirrors the exact
-    // resolution `postBeginTextEditToPreviewIframes` (DesignEditor.tsx) used to
-    // do itself: find the node by data-agent-native-node-id, and report whether
-    // a text-edit session is currently "active" on it (focused element carries
-    // data-agent-native-text-editing), "done" (non-empty committed text and not
-    // actively focused), or neither.
     if (e.data.type === "agent-native:text-edit-status") {
       var textEditStatusCorrelationId: string =
         typeof e.data.correlationId === "string" ? e.data.correlationId : "";
       var textEditStatusNodeId: string =
         typeof e.data.nodeId === "string" ? e.data.nodeId : "";
       var textEditStatusRepeat = beginTextEditRepeatFromMessage(e.data.repeat);
-      // "missing" (this document has no such node) stays distinct from a bare
-      // `false` (node is here, just not being edited). The host's retry ladder
-      // needs the difference: the first is a still-propagating insert or the
-      // wrong iframe, the second means the user has not typed yet.
       var textEditStatus: "active" | "done" | "missing" | false = "missing";
       if (
         textEditStatusNodeId &&
@@ -27183,11 +23981,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           } catch (_err) {}
         }
       });
-      // A selector group for a repeat resolves to whichever row matches first,
-      // which is a DIFFERENT row than the one selected — painting it as a
-      // second selection, complete with combined bounds and handles across
-      // the whole list. Rows of the selection's own repeat are already shown
-      // by the linked-row outlines.
       var selectedRepeat = selectedEl ? repeatInstanceInfo(selectedEl) : null;
       if (selectedRepeat) {
         passiveTargets = passiveTargets.filter(function (candidate) {
@@ -27255,14 +24048,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         } catch (_err) {}
       }
       if (!target) return;
-      // Only reset the spacing hover state when the replay actually CHANGES
-      // the selection. The host re-sends select-element on every
-      // application-state poll tick (~1-2s) even when nothing changed; the
-      // old unconditional reset silently killed the padding/gap hover state
-      // — the "Npx" value box and the hatch band vanished within a poll tick
-      // whenever the cursor RESTED on a handle (the user only ever saw the
-      // badge flash, i.e. "the value box never shows"). A same-element
-      // replay must be a no-op for hover state.
       var selectionChangedByHost = target !== selectedEl;
       if (
         suspendedTextEditRange &&
@@ -27282,31 +24067,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         hoveredSpacingHandleKey = "";
       }
       selectedEl = target;
-      // Respect a nudge-burst chrome-hide: the host re-sends select-element on
-      // every poll tick, and repeated nudges don't resend hidden:true (its ref
-      // stays set), so a replay must not re-show the overlay on its own.
       if (selectionChromeHidden) {
         hideSelectionOverlay();
       } else {
         positionOverlay(selectionOverlay, target);
       }
-      // The combined box spans selectedEl plus the passive selection, so a
-      // host-driven change leaves it on the previous geometry without this.
       positionMultiSelectionBounds();
       if (hoveredEl === selectedEl) highlightOverlay.style.display = "none";
-      // A host-driven selection (e.g. picking a layer in the Layers panel)
-      // only ever moved the overlay above — it never sent the rich
-      // getElementInfo() payload (computedStyles, portableStyleSnapshot,
-      // gradients, etc.) back up, unlike pointer-driven selection which
-      // calls postElementSelect() immediately. The properties panel's
-      // "element-select" listener was therefore left with whatever payload
-      // (or lack of one) it already had, which surfaced as an empty Fill
-      // section and zeroed-out layout fields right after a Layers-panel
-      // click even though the same element selected by clicking the canvas
-      // rendered correctly. Post the full payload on genuine selection
-      // changes only — the `selectionChangedByHost` guard above already
-      // keeps this a no-op on the ~1-2s poll-tick replay so it can't turn
-      // into a message-spam loop.
       if (selectionChangedByHost) {
         postElementSelect(target);
       }
@@ -27553,10 +24320,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (e.data.type === "runtime-structure-insert") {
       var insertRequestId = e.data.requestId;
-      // An insert that silently returns loses the whole gesture with nothing
-      // on screen and nothing in the pending list — strictly worse than a
-      // no-op move, which at least leaves the element where it was. Always
-      // answer the host so it can surface the failure.
       var rejectInsert = function (reason: string): void {
         (window.parent as Window).postMessage(
           {
@@ -27642,10 +24405,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var insertNodeId = parsedInsertEl.getAttribute(
         "data-agent-native-node-id",
       );
-      // A same-screen repeat drag explicitly identifies the source screen, so
-      // it is a reorder rather than a new insert. Resolve that identity before
-      // collision reminting; a cross-screen copy must never reuse a coincident
-      // node/runtime id from this destination document.
       var existingBeforeRemint: Element | null = null;
       if (insertNodeId) {
         existingBeforeRemint = document.querySelector(
@@ -27669,9 +24428,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         remintCollidingRuntimeNodeIds(parsedInsertEl);
       }
       insertNodeId = parsedInsertEl.getAttribute("data-agent-native-node-id");
-      // Only the explicit same-screen identity path may reuse an existing
-      // runtime node. All other inserts keep the parsed node as a new element,
-      // with collision reminting above when requested.
       var existingInsertEl: Element | null = reuseExistingRuntimeNode
         ? existingBeforeRemint
         : null;
@@ -27718,9 +24474,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             reinsertOrigin,
           );
         }
-        // A same-slot reorder changes no DOM. Report that explicitly so the
-        // host does not record an inserted pending edit whose undo would
-        // delete this pre-existing element.
         acknowledgeInsert(existingInsertEl, runtimeMutationApplied);
         return;
       }
@@ -27739,8 +24492,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
         var replaceNextSibling = insertAnchor.nextSibling;
         replaceParent.insertBefore(parsedInsertEl, insertAnchor);
-        // Capture while the original still supplies its selector/provenance,
-        // and reject before publishing a pending operation if proof is unavailable.
         var replacementSnapshot = serializeRuntimeLayerSnapshot(insertAnchor);
         if (!replacementSnapshot.ok) {
           parsedInsertEl.remove();
@@ -27774,9 +24525,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         acknowledgeInsert(parsedInsertEl);
         return;
       }
-      // The host bakes flow/absolute positioning into the markup before it
-      // gets here (it owns the drop point and the anchor rect), so the node
-      // goes in verbatim — no reorder rebasing on a never-laid-out element.
       if (insertPlacement === "inside") {
         insertAnchor.appendChild(parsedInsertEl);
       } else {
@@ -27878,9 +24626,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       if (moveWasRemoval) {
-        // applied === true means the source now deletes it too, so the node
-        // stays gone and this entry is simply released. applied === false is
-        // the undo: re-attach the very element that was removed.
         if (!e.data.applied && move.origin && "removed" in move.origin) {
           var removedParent = move.origin.prevParent;
           var removedNextSibling = move.origin.prevNextSibling;
@@ -27908,9 +24653,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       if (e.data.applied) {
-        // An inserted node is already exactly where the host asked for it and
-        // has no pre-insert geometry to rebase; replaying the reorder would
-        // re-run the absolute/flow correction against its own current rect.
         if (!moveWasInsert && move.el && move.el.isConnected && move.target) {
           applyRuntimeReorder(move.el, move.target);
           selectedEl = move.el;
@@ -27918,15 +24660,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           postElementSelect(selectedEl);
         }
       } else {
-        // Revert the optimistic reorder to its pre-drag position AND
-        // restore any inline position/left/top/right/bottom the optimistic
-        // reorder stripped (stripAbsolutePositioningForFlowInsert runs
-        // inside applyRuntimeReorder for flow-insert drops). Without this
-        // second half a rejected move-node round-trip left the element
-        // re-parented back to its original container but permanently
-        // stripped of its absolute positioning — worse than doing nothing,
-        // since it now renders at the flow position of a detached style
-        // instead of either its original spot or the intended drop slot.
         if (moveWasInsert) {
           var selectionBelongsToRejectedClone = Boolean(
             move.el &&
@@ -28202,19 +24935,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
     }
     var el = findRuntimeTarget(String(sel || ""), candidatesForStyle);
-    // T11: a live text-edit session's selection lives inside activeTextEditEl,
-    // but the incoming style-change's selector/candidates were captured from
-    // selectedEl at edit-start time, which selectionTargetForHit may have
-    // anchored to a source-backed ancestor rather than activeTextEditEl
-    // itself (when the actual edit target is a runtime-only descendant).
-    // Requiring `el === activeTextEditEl` then never matches, and the whole
-    // ancestor gets restyled instead of just the visible range. Route on
-    // activeTextEditEl's own relationship to the resolved target instead: a
-    // style-change should still be treated as "editing the active session"
-    // when the resolved element IS activeTextEditEl, or IS an ancestor that
-    // activeTextEditEl lives inside (the panel is targeting "the thing the
-    // user double-clicked into", which is this edit session, even though the
-    // selector re-anchored to its stable container).
     var textEditStyleTarget =
       activeTextEditEl || suspendedTextEditRange?.target || null;
     var textEditStyleSelector = activeTextEditEl
@@ -28317,33 +25037,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   });
 
-  // rAF-coalesced on purpose: scroll events can fire several times per frame
-  // (nested scrollers, high-rate trackpads), and running the full overlay
-  // pipeline synchronously per event — with its interleaved rect reads and
-  // overlay style writes — forces repeated synchronous reflows while a
-  // selection is active. Coalescing to one refreshOverlays() per frame keeps
-  // overlays visually locked to the content (rAF runs before paint) while
-  // bounding the per-frame cost regardless of the incoming event rate.
   window.addEventListener("scroll", scheduleRefreshOverlays, true);
   window.addEventListener("resize", scheduleRefreshOverlays);
 
-  // Document-level native-interaction net for the z-index race: the shield
-  // (z-index 99990) only wins pointer dispatch when nothing in the previewed
-  // app paints above it, and real running apps routinely do — portalled
-  // modals/toasts/menus at 99999+/2147483647, or any node appended to <body>
-  // after the shield at an equal z-index. When that happens the app element
-  // is the real e.target, not the shield, so none of the shield-bound
-  // listeners above ever see the event. `document` is still an ancestor of
-  // that element regardless of paint order, so a capture listener here still
-  // sees every such event. Registered LAST among this file's own
-  // document-level listeners (all of which sit above this line) so this net
-  // can never preempt them via stopImmediatePropagation — e.g. the
-  // click-away-commits-text-edit pointerdown listener above must still run
-  // first. `activeDragCancel` is truthy for the file's mouse-event-driven
-  // drags (move/resize/rotate/spacing/reorder), whose own document-level
-  // mousemove/mouseup listeners are attached later still (on the mousedown
   // that starts the drag) and would otherwise be the same kind of race
-  // victim; deferring to them while a drag owns input avoids that.
   function isNativeInteractionNetExempt(target: Element | null): boolean {
     return (
       isOverlayElement(target) ||
@@ -28375,14 +25072,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     document.addEventListener(type, interceptNativeInteractionNet, true);
   });
 
-  // Enter/Space activate a focused native control (link, button, or a
-  // role="button"/"link") through the keydown event's default action, which
-  // is dispatched straight to the focused element regardless of z-index —
-  // neither the shield nor the net above (both pointer-target-based) can see
-  // it. Scoped to just these two keys and only when the target is itself
-  // such a control: the file already has many other keydown handlers (move/
-  // resize/rotate/reorder/escape, the plain-paste hotkey) that a blanket
-  // keydown block would break.
   function isFocusedActivationTarget(target: Element | null): boolean {
     return !!(
       target &&
@@ -28450,9 +25139,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ],
     });
   }
-  // Frame labels are always-on chrome, so unlike the selection overlays they
-  // cannot ride selection-scoped observers: a frame added, renamed, moved, or
-  // arriving with a replaced document must relabel with nothing selected.
   var frameLabelRefreshScheduled = false;
   function scheduleFrameNameLabels(): void {
     if (frameLabelRefreshScheduled) return;
@@ -28464,7 +25150,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
   if (typeof MutationObserver !== "undefined" && document.body) {
     new MutationObserver(function (mutations) {
-      // Skip our own label writes, or every refresh schedules the next one.
       var touchedContent = mutations.some(function (mutation) {
         var target = mutation.target;
         return !(target instanceof Element) || !isOverlayElement(target);
@@ -28519,8 +25204,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       if (isWholeTextStyleRoot(currentSelection)) {
-        // No intent marks this as a metadata echo; the host keeps user history
-        // untouched and does not replace an active multi-selection.
         postElementSelect(currentSelection);
       }
 
@@ -28610,11 +25293,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     },
   };
 
-  // Tell the host that every message listener above is attached, then keep the
-  // chrome host alive across document hydration. A React Router hydration
-  // recovery can remove foreign body children after this script runs; the
-  // repair observer restores the shield/overlays and repeats this handshake so
-  // the host's Edit-mode gate cannot silently reopen native app input.
   observeEditorChromeHost();
   sendEditorChromeReady();
   if (document.readyState === "complete") {

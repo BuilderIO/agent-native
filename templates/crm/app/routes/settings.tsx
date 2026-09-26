@@ -29,11 +29,6 @@ export function meta() {
   return [{ title: "CRM settings" }];
 }
 
-/**
- * `/settings/<section>` deep links. `integrations` is the shared workspace tab
- * and `connection` is the CRM one, so the segment is matched exactly rather
- * than by substring.
- */
 const SETTINGS_SECTIONS: readonly string[] = [
   "fields",
   "lists",

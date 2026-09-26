@@ -268,7 +268,6 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
         return;
       previousSize = { width, height };
       if (frame !== undefined) return;
-      // A rail can resize the editor without a selection or window-resize event.
       frame = requestAnimationFrame(() => {
         frame = undefined;
         if (disposed || editor.isDestroyed) return;

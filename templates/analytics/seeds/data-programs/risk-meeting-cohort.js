@@ -1,50 +1,3 @@
-/**
- * Data program: Risk Meeting cohort.
- *
- * This file is a STORED PROGRAM PAYLOAD, not a build source file. It is
- * plain JS text persisted in the `data_programs.code` column (see
- * `packages/core/src/data-programs/`) and executed exclusively server-side
- * inside the existing run-code sandbox (`executeSandboxCode`). It is never
- * imported, bundled, or type-checked by the template build — the repo rule
- * against new `.js` source files does not apply to seed payloads under
- * `seeds/`. Keep it readable: it is also the canonical teaching example for
- * the generic provider-access pattern (see the `data-programs` skill).
- *
- * THE PATTERN, in one paragraph: any provider endpoint the agent can reach
- * through `provider-api-catalog` / `provider-api-docs` can be called directly
- * here with `providerFetch` / `providerFetchAll` — no hardcoded per-vendor
- * action is required. Big intermediate responses (raw deal search pages,
- * association batches, full account lists) stay server-side inside this
- * sandbox and are NEVER returned to the agent or the browser. Only the small,
- * already-joined `rows` array emitted at the bottom ever leaves this program
- * — that's the "curl | grep | jq" mental model applied to authenticated
- * provider APIs instead of a shell pipe.
- *
- * What this program does:
- *   1. Searches HubSpot deals for a configurable cohort of `risk_status`
- *      values with an open close date (arbitrary property filter + IN-search
- *      — exactly the shape a hardcoded action can't anticipate for every
- *      customer's custom properties).
- *   2. Resolves each deal's primary company via the deals->companies
- *      association endpoint, batched 100 at a time.
- *   3. Resolves each company's domain, batched 100 at a time.
- *   4. Fetches Pylon accounts and builds a sentiment-by-domain map
- *      (a second, unrelated provider — proves cross-source joins need no
- *      bespoke glue action).
- *   5. Joins HubSpot deal rows with Pylon sentiment by domain and computes
- *      `cross_source_flag` — a derived signal that only exists because this
- *      program stitched two providers together.
- *
- * Params (all optional, all have defaults so the program is dry-runnable
- * with zero args):
- *   riskStatuses  string[] — HubSpot `risk_status` values to include.
- *                 Defaults to the four canonical Risk Meeting statuses.
- *   enterpriseOnly boolean — when true, only counts Pylon sentiment for
- *                 accounts whose `account_profile` is
- *                 "Enterprise Active Customer" (does not filter OUT deal
- *                 rows — it only narrows which Pylon signals are considered
- *                 authoritative for the sentiment join).
- */
 
 const DEFAULT_RISK_STATUSES = [
   "On the Radar",
@@ -70,9 +23,6 @@ function chunk(items, size) {
 }
 
 async function main() {
-  // -------------------------------------------------------------------
-  // Step 1: HubSpot deal-property cohort IN-search.
-  // -------------------------------------------------------------------
   const dealSearch = await providerFetchAll(
     "hubspot",
     "/crm/v3/objects/deals/search",
@@ -121,10 +71,6 @@ async function main() {
   const deals = dealSearch.items || [];
   const dealIds = deals.map((deal) => deal && deal.id).filter(Boolean);
 
-  // -------------------------------------------------------------------
-  // Step 2: batched deal -> company associations. Big intermediate
-  // (per-deal association rows) never leaves this program.
-  // -------------------------------------------------------------------
   const companyByDeal = {};
   for (const batch of chunk(dealIds, 100)) {
     if (batch.length === 0) continue;
@@ -144,9 +90,6 @@ async function main() {
     }
   }
 
-  // -------------------------------------------------------------------
-  // Step 3: batched company -> domain lookup.
-  // -------------------------------------------------------------------
   const companyIds = Array.from(new Set(Object.values(companyByDeal))).filter(
     Boolean,
   );
@@ -172,10 +115,6 @@ async function main() {
     }
   }
 
-  // -------------------------------------------------------------------
-  // Step 4: Pylon account sentiment, keyed by domain. Second provider,
-  // zero bespoke glue action required.
-  // -------------------------------------------------------------------
   const pylonAccounts = await providerFetchAll("pylon", "/accounts", {
     itemsPath: "data",
     pagination: {
@@ -202,10 +141,6 @@ async function main() {
     }
   }
 
-  // -------------------------------------------------------------------
-  // Step 5: join + emit. csm_name is computed HERE, in the program — never
-  // baked into a generic hubspot-deals action.
-  // -------------------------------------------------------------------
   const rows = deals.map((deal) => {
     const props = (deal && deal.properties) || {};
     const dealId = deal && deal.id;

@@ -7,7 +7,6 @@ import type {
   ParsedTextRun,
 } from "./pptx-parser.js";
 
-/** Escape HTML special characters. */
 function esc(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -16,21 +15,6 @@ function esc(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/**
- * Render a page's embedded photo as the full-bleed slide background with the
- * page's extracted text overlaid on top. Designed PDF pages (photo
- * backgrounds, gradients, custom typography) have no reliable shape
- * structure to reconstruct, so the embedded image is reused directly — but
- * the vector/glyph text on the page is not something we can rasterize
- * reliably headless, so the extracted text is drawn as real HTML on top
- * instead of relying on the page's own (font-dependent) rendering.
- *
- * `pdf-parse`'s plain-text extraction carries no color/font metadata, so the
- * heading accent color below is a stand-in, not a recovered value — when a
- * subtitle is present (a content slide, not a title slide) it renders as a
- * centered card with a divider rule so the two text roles stay visually
- * distinct instead of collapsing into one flat paragraph.
- */
 export function buildFullBleedImageSlideHtml(
   imageUrl: string,
   headingText?: string,
@@ -54,7 +38,6 @@ export function buildFullBleedImageSlideHtml(
 </div>`;
 }
 
-/** Render a rasterized source page without changing its layout or text. */
 export function buildFullPageImageSlideHtml(
   imageUrl: string,
   sourceWidth?: number,
@@ -72,7 +55,6 @@ export function buildFullPageImageSlideHtml(
 </div>`;
 }
 
-/** Wrap text in formatting tags based on run properties. */
 function formatRun(run: ParsedTextRun): string {
   let text = esc(run.content);
   if (run.color)
@@ -84,18 +66,9 @@ function formatRun(run: ParsedTextRun): string {
 
 const DEFAULT_IMPORT_FONT = "'Poppins', sans-serif";
 
-/**
- * PowerPoint records a weight variant as part of the typeface name
- * ("Work Sans Medium", "Open Sans SemiBold", "Roboto Black"), which no
- * webfont registers as a CSS family — `font-family: 'Work Sans Medium'`
- * always falls back, even when Work Sans itself is loaded. The same token is
- * read as a numeric weight by `fontWeightForFamily`, so stripping it here
- * loses nothing.
- */
 const FONT_WEIGHT_SUFFIX =
   /[ _-](?:ultra|extra|semi|demi)?[ _-]?(?:black|heavy|bold|medium|regular|normal|roman|book|light|thin|italic|oblique)$/i;
 
-/** Turn an extracted PPTX theme font name into a safe CSS font-family value, falling back to the default when absent. */
 function cssFontFamily(themeFont: string | undefined): string {
   if (!themeFont) return DEFAULT_IMPORT_FONT;
   const safeName = themeFont.replace(/["']/g, "").trim();
@@ -106,25 +79,16 @@ function cssFontFamily(themeFont: string | undefined): string {
     if (!stripped) break;
     base = stripped;
   }
-  // The authored name stays first: a deck whose exact variant family *is*
-  // installed still gets it, and a family whose real name ends in a weight
-  // word ("Archivo Black") is not broken by the strip.
   return base === safeName
     ? `'${safeName}', sans-serif`
     : `'${safeName}', '${base}', sans-serif`;
 }
 
-/**
- * Group text runs into logical paragraphs.
- * In PPTX, paragraph boundaries are typically between runs with different
- * formatting blocks. We group consecutive runs and split on newlines.
- */
 function groupIntoParagraphs(texts: ParsedTextRun[]): ParsedTextRun[][] {
   const paragraphs: ParsedTextRun[][] = [];
   let current: ParsedTextRun[] = [];
 
   for (const run of texts) {
-    // Split on explicit newlines within content
     const parts = run.content.split(/\r?\n/);
     for (let i = 0; i < parts.length; i++) {
       if (i > 0 && current.length > 0) {
@@ -144,25 +108,11 @@ function groupIntoParagraphs(texts: ParsedTextRun[]): ParsedTextRun[][] {
   return paragraphs;
 }
 
-/**
- * Determine slide layout and generate HTML. `imageUrl` is the hosted URL
- * for the slide's first embedded image (already uploaded by the caller) —
- * pass undefined when the slide has no image or the upload failed, and the
- * builders fall back to a text placeholder instead of a broken `<img>`.
- * `themeFont` is the presentation's extracted theme font, if any, so
- * imported slides keep the source deck's typeface instead of always
- * rendering in Poppins.
- */
 export function convertToSlideHtml(
   slide: ParsedSlide,
   imageUrls?: string | Record<string, string>,
   themeFont?: string,
 ): string {
-  // A slide parsed with real geometry goes through the fidelity renderer even
-  // when it has zero elements: a deliberately empty divider slide (a
-  // full-bleed background and nothing else) is a real state the source
-  // states, and the templates below would replace it with an invented
-  // "Untitled Slide" heading on a background they never apply.
   if (slide.elements) {
     return buildFidelitySlide(slide, imageUrls, themeFont);
   }
@@ -170,9 +120,6 @@ export function convertToSlideHtml(
   const paragraphs = groupIntoParagraphs(slide.texts);
   const fontFamily = cssFontFamily(themeFont);
 
-  // An embedded image always wins the layout choice — a forced title slide
-  // has no room to show it, which is how imports used to silently drop
-  // photos from otherwise short/title-shaped slides.
   if (slide.images.length > 0) {
     return buildImageSlide(
       paragraphs,
@@ -191,39 +138,10 @@ export function convertToSlideHtml(
 
 const DEFAULT_SLIDE_WIDTH_EMU = 9144000;
 const DEFAULT_SLIDE_HEIGHT_EMU = 5143500;
-// PowerPoint's own default slide background (no `<p:bg>` declared) is white,
-// not black — defaulting to black here made an undecorated slide's own
-// (often dark, theme-default) text unreadable or fully invisible against a
-// background the source file never actually specified.
 const DEFAULT_PPTX_BACKGROUND = "#ffffff"; // guard:allow-raw-color - PPTX's own white default when no background is declared
-// OOXML's own default run color when nothing in the run, the placeholder
-// chain, or `<p:txStyles>` declares one. It has to be the value the file
-// format states, not a readable-looking approximation: an invented near-black
-// renders beside the deck's real black inside a single text box, which is
-// visible as two different blacks in one paragraph.
 const DEFAULT_PPTX_FOREGROUND = "#000000"; // guard:allow-raw-color - OOXML's declared default text color
-/**
- * OOXML's own default run size, used only when the run, its placeholder
- * chain, and the deck's `<p:defaultTextStyle>` all fail to state one.
- * KNOWN GAP: the parser does not read `<p:defaultTextStyle>` or the master's
- * `<p:otherStyle>`, and real decks routinely declare 14pt there — an unsized
- * run in one of those decks renders 28% oversized and overflows its authored
- * box. Fixing that needs the parser to surface the deck's declared default,
- * not a different constant here.
- */
 const DEFAULT_PPTX_FONT_SIZE_PT = 18;
 
-/**
- * The absolute px box `toSlidePxX`/`toSlidePxY` scale positions and sizes
- * against. It must match the aspect-ratio preset the deck actually renders
- * into (`ASPECT_RATIOS`, chosen by the import actions' own
- * `nearestAspectRatio`) rather than a fixed 16:9 box: a PDF page or a custom
- * PPTX slide size is routinely portrait or square, and scaling its elements
- * against a 960x540 reference while the deck itself renders in an 864x1080
- * (or other) box stretches every element by the ratio between the two
- * boxes, most visibly squashing everything into the top fraction of a
- * taller-than-540 canvas.
- */
 function referenceBoxForSlide(
   widthEmu: number,
   heightEmu: number,
@@ -292,10 +210,6 @@ function buildFidelityElement(
   if (element.kind === "image") {
     const url = imageUrlForElement(element, imageUrls);
     const imageStyle = imageRenderStyle(element);
-    // PowerPoint paints a picture inside its shape, so a portrait in an
-    // `ellipse` frame is a circle, not the square its bounding box is. Text
-    // is the one kind that must keep its box — clipping it would eat the
-    // text with the outline.
     const imagePath = customGeometryPath(element, widthPx, heightPx);
     const clip = imagePath
       ? `clip-path: path('${imagePath}');`
@@ -315,8 +229,6 @@ function buildFidelityElement(
     );
   }
 
-  // Text keeps its box: clipping a text element to its outline would eat the
-  // text with it, which PowerPoint does not do either.
   const customPath =
     element.kind === "shape"
       ? customGeometryPath(element, widthPx, heightPx)
@@ -398,17 +310,6 @@ function toSlidePxY(
 
 const EMU_PER_POINT = 12700;
 
-/**
- * A run's font size (and paragraph spacing) is stored in points, a physical
- * unit independent of the source slide's own canvas size — unlike
- * position/size EMUs, a fixed `pt * 96/72` conversion doesn't know how far
- * `toSlidePxX`/`toSlidePxY` scaled that canvas down (or up) to fit the
- * deck's aspect-ratio box. Converting the point value to EMU first and
- * running it through the same `toSlidePxX` scale keeps text sized
- * proportionally to its box on every source slide size, not just the one
- * physical size (10in wide) that happens to make the fixed conversion agree
- * with the 16:9 preset's box.
- */
 function ptToSlidePx(
   valuePt: number,
   widthEmu: number,
@@ -437,17 +338,9 @@ type ParsedTableCell = NonNullable<
   ParsedElement["table"]
 >["rows"][number][number];
 
-/**
- * ECMA-376's own default `a:tcPr` cell margins, in EMU (0.1in left/right,
- * 0.05in top/bottom). They run through the same slide scale as every other
- * measurement, so a portrait or otherwise non-16:9 deck gets margins
- * proportional to its own canvas instead of a fixed px pair sized for one
- * slide shape.
- */
 const DEFAULT_TABLE_CELL_MARGIN_X_EMU = 91440;
 const DEFAULT_TABLE_CELL_MARGIN_Y_EMU = 45720;
 
-/** Render a parsed `"table"` element (a PPTX `graphicFrame`'s `a:tbl`) as a real HTML `<table>`, sized/positioned the same way every other fidelity element is. */
 function buildFidelityTable(
   element: ParsedElement,
   widthEmu: number,
@@ -528,14 +421,6 @@ function buildFidelityTableCell(
 
 const TABLE_CELL_SIDES = ["top", "right", "bottom", "left"] as const;
 
-/**
- * A side the source draws nothing on emits nothing: under
- * `border-collapse: collapse` an unset side yields to its neighbour's rule
- * rather than erasing it, which is what a table styled with only outer edges
- * needs. The 1px floor is there because the hairline these decks author
- * (9525 EMU = 0.75pt) scales below a device pixel on the reference canvas,
- * and a rule the browser rounds away is the same missing grid this is fixing.
- */
 function tableCellBorderCss(
   side: (typeof TABLE_CELL_SIDES)[number],
   border: NonNullable<ParsedTableCell["borders"]>["top"],
@@ -550,15 +435,6 @@ function tableCellBorderCss(
   return `border-${side}:${round3(width)}px ${border.dash ?? "solid"} ${esc(border.color)};`;
 }
 
-/**
- * Preset geometries whose real outline leaves most of their bounding box
- * empty — a ring, an L-bracket, a hooked arrow. There is no CSS shape for
- * them here, and painting the bounding box instead is not a degraded
- * rendering but an actively wrong one: it covers the neighbouring content
- * the real geometry leaves visible, so a four-ring diagram becomes one
- * opaque square over the title. Until a geometry is reproduced, its fill and
- * stroke are dropped rather than approximated by a rectangle.
- */
 const UNRENDERABLE_GEOMETRIES = new Set([
   "arc",
   "bentUpArrow",
@@ -581,20 +457,8 @@ const UNRENDERABLE_GEOMETRIES = new Set([
   "rightBracket",
 ]);
 
-/**
- * PowerPoint's own default `a:avLst` adjustment for the corner-rounding
- * presets, as a fraction of the shape's shortest side. The parser records
- * `a:prstGeom/@_prst` but not the adjust values, so a deck that overrides
- * `adj` (a 50% pill, say) still renders at this default.
- */
 const DEFAULT_CORNER_ADJUSTMENT = 0.16667;
 
-/**
- * Preset geometries reproduced as a `clip-path` polygon, keyed by
- * `a:prstGeom/@_prst`. `ss` is the shape's shortest side, which is what
- * OOXML's own guide formulas measure their adjustments against; each literal
- * fraction below is that preset's default `a:avLst` value.
- */
 const diamondPoints = (w: number, h: number): [number, number][] => [
   [w / 2, 0],
   [w, h / 2],
@@ -612,9 +476,6 @@ const CLIP_PATH_GEOMETRIES: Record<
   ) => [number, number][]
 > = {
   halfFrame: (w, h, ss, adj) => {
-    // An L-bracket: `adj2` is the top arm's thickness and `adj1` the left
-    // arm's, each measured against the shortest side, and the inner corner is
-    // mitred so the two arms meet along the box's own diagonal.
     const x1 = (ss * pin(0, adj?.adj2 ?? 33333, (100000 * w) / ss)) / 100000;
     const y1 =
       (ss * pin(0, adj?.adj1 ?? 33333, (100000 * (h - (h * x1) / w)) / ss)) /
@@ -639,8 +500,6 @@ const CLIP_PATH_GEOMETRIES: Record<
     [0, h],
   ],
   diamond: diamondPoints,
-  // OOXML states the flow chart decision node as the same four points; a
-  // rectangle in its place reads as one more process box in the chart.
   flowChartDecision: diamondPoints,
   homePlate: (w, h, ss) => {
     const x = ss * 0.16667;
@@ -777,13 +636,6 @@ function toPercent(value: number, total: number): number {
   return Math.round((value / Math.max(total, 0.001)) * 10000) / 100;
 }
 
-/**
- * A `blockArc` is a ring segment: two concentric elliptical arcs joined at
- * their ends. Its three `a:avLst` adjustments — start angle, end angle, and
- * ring thickness — are the only thing distinguishing one segment of a
- * six-part ring diagram from another, so reproducing the preset from its
- * defaults would draw six identical half-rings stacked on each other.
- */
 function blockArcPath(
   adjustments: Record<string, number> | undefined,
   widthPx: number,
@@ -791,12 +643,7 @@ function blockArcPath(
 ): string | undefined {
   const startAngle = (adjustments?.adj1 ?? 10800000) / 60000;
   const endAngle = (adjustments?.adj2 ?? 0) / 60000;
-  // OOXML's own `pin 0 adj3 50000`: past half the shortest side the ring has
-  // no hole left and the segment is a pie slice.
   const thickness = Math.min(Math.max(adjustments?.adj3 ?? 25000, 0), 50000);
-  // A swing of zero is a *whole* ring, not an empty one; the tiny shortfall
-  // keeps the two arcs from collapsing onto the same point, where SVG draws
-  // nothing at all.
   let swing = endAngle - startAngle;
   while (swing <= 0) swing += 360;
   swing = Math.min(swing, 359.9);
@@ -807,9 +654,6 @@ function blockArcPath(
   const innerY = outerY - inset;
   if (!(innerX > 0) || !(innerY > 0)) return undefined;
   // ponytail: parametric angles, exact for a circular block arc — which is
-  // every one in the decks this was measured against. A markedly elliptical
-  // one starts and ends a few degrees around from where PowerPoint puts it;
-  // OOXML's `cat2`/`sat2` true-angle correction is the upgrade.
   const at = (radiusX: number, radiusY: number, degrees: number) => {
     const angle = (degrees * Math.PI) / 180;
     return `${round1(outerX + radiusX * Math.cos(angle))} ${round1(outerY + radiusY * Math.sin(angle))}`;
@@ -824,19 +668,10 @@ function blockArcPath(
   ].join(" ");
 }
 
-/** OOXML's `pin`: a preset's declared adjustment clamped to the range its own guides allow. */
 function pin(min: number, value: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-/**
- * OOXML angles are 60000ths of a degree, and on an ellipse they are the angle
- * a ray from the centre actually makes, not the parametric angle whose sine
- * and cosine give the point. The presets say so themselves: `pie` computes its
- * arc's endpoints with `cat2`/`sat2`, which is this correction, and those
- * endpoints must land where its own `arcTo` lands or the slice never closes.
- * On a circular arc — every arc in the two arrow presets — it is the identity.
- */
 function ellipseAngle(
   angle60k: number,
   radiusX: number,
@@ -846,16 +681,6 @@ function ellipseAngle(
   return Math.atan2(radiusX * Math.sin(radians), radiusY * Math.cos(radians));
 }
 
-/**
- * Draws one preset outline as an SVG path in the shape's own pixel box. An
- * OOXML `arcTo` gives radii and a start/sweep angle but neither the centre nor
- * the end point SVG's `A` needs — the current point is the arc's start, so the
- * centre is that point walked back along the start angle.
- *
- * `flipH`/`flipV` mirror the geometry before the element's CSS rotation runs,
- * and are folded into the coordinates rather than added to the `transform`,
- * which would mirror any text the box carries along with its outline.
- */
 function presetPen(
   widthPx: number,
   heightPx: number,
@@ -865,7 +690,6 @@ function presetPen(
   const parts: string[] = [];
   const toX = (x: number) => round1(flipH ? widthPx - x : x);
   const toY = (y: number) => round1(flipV ? heightPx - y : y);
-  // A single mirror reverses the direction an arc sweeps in; two cancel out.
   const mirrored = Boolean(flipH) !== Boolean(flipV);
   let currentX = 0;
   let currentY = 0;
@@ -904,14 +728,6 @@ function presetPen(
   };
 }
 
-/**
- * Preset geometries whose outline needs an arc or a curve, so no polygon can
- * state them. Each is OOXML's own `gdLst` and `pathLst` for that preset
- * evaluated against the shape's box and its `a:avLst` adjustments — a
- * `uturnArrow`'s shaft width, head width, head length and bend radius all live
- * there, and a version built from the preset's defaults draws a different
- * arrow from the one the deck asked for.
- */
 const PRESET_PATH_GEOMETRIES: Record<
   string,
   (
@@ -922,10 +738,6 @@ const PRESET_PATH_GEOMETRIES: Record<
   ) => void
 > = {
   heart: (pen, w, h) => {
-    // The one preset here with no adjustments at all: two cubics whose control
-    // points sit outside the box on purpose — `hc - dx1` is left of it and
-    // `y1` is a third of the height above it, which is what gives the lobes
-    // their overhang.
     const hc = w / 2;
     const quarter = h / 4;
     const dx1 = (w * 49) / 48;
@@ -950,9 +762,6 @@ const PRESET_PATH_GEOMETRIES: Record<
     const startAngle = pin(0, adj?.adj1 ?? 0, 21599999);
     const endAngle = pin(0, adj?.adj2 ?? 16200000, 21599999);
     const span = endAngle - startAngle;
-    // OOXML's `?: sw1 sw1 sw2` wraps a backwards slice forward a full turn. A
-    // slice that then closes on itself is a whole disc in PowerPoint but draws
-    // nothing at all in SVG, where the arc's two ends coincide.
     const swing = Math.min(span > 0 ? span : span + 21600000, 21594000);
     const start = ellipseAngle(startAngle, radiusX, radiusY);
     pen.move(
@@ -964,11 +773,6 @@ const PRESET_PATH_GEOMETRIES: Record<
     pen.close();
   },
   uturnArrow: (pen, w, h, adj) => {
-    // A stadium-shaped arrow: two parallel straight runs joined by a 180°
-    // bend, with the head on the returning run. `adj1` is the shaft width,
-    // `adj2` the half head width, `adj3` the head length, `adj4` the bend
-    // radius and `adj5` how far down the box the head's tip reaches — each a
-    // fraction of the shortest side except `adj5`, which is of the height.
     const ss = Math.min(w, h);
     const a2 = pin(0, adj?.adj2 ?? 25000, 25000);
     const a1 = pin(0, adj?.adj1 ?? 25000, a2 * 2);
@@ -997,8 +801,6 @@ const PRESET_PATH_GEOMETRIES: Record<
     pen.line(x8, y5);
     pen.line(x6, y4);
     pen.line(x7, y4);
-    // Not a mis-copied `y3`: OOXML reuses the guide named `x3` as this
-    // vertical, and it is where the inner bend starts.
     pen.line(x7, x3);
     pen.arc(bd2, bd2, 0, -5400000);
     pen.line(x3, th);
@@ -1007,9 +809,6 @@ const PRESET_PATH_GEOMETRIES: Record<
     pen.close();
   },
   bentArrow: (pen, w, h, adj) => {
-    // The same shaft/head/bend adjustments as `uturnArrow`, but one 90° bend
-    // instead of a 180° one: up the left edge, round the corner, right to a
-    // head pointing at the box's right side.
     const ss = Math.min(w, h);
     const a2 = pin(0, adj?.adj2 ?? 25000, 50000);
     const a1 = pin(0, adj?.adj1 ?? 25000, a2 * 2);
@@ -1057,12 +856,6 @@ function presetGeometryPath(
   return pen.path();
 }
 
-/**
- * Reproduce the shape's declared preset geometry. `shapeType` is the only
- * geometry the parser records, so this maps the preset to the CSS that draws
- * it — without it every preset renders as the plain rectangle its bounding
- * box happens to be.
- */
 function geometryCss(
   element: ParsedElement,
   widthPx: number,
@@ -1085,9 +878,6 @@ function geometryCss(
       return `border-radius: ${corner}px ${corner}px 0 0;`;
     case "round2DiagRect":
       return `border-radius: ${corner}px 0 ${corner}px 0;`;
-    // OOXML defines this one as a `roundRect` whose adjustment is pinned at
-    // 50%: a pill, and a flow chart's start and end nodes are the one place a
-    // reader tells them apart from its process boxes by shape alone.
     case "flowChartTerminator":
       return `border-radius: ${round3(shortest / 2)}px;`;
     case "blockArc": {
@@ -1110,16 +900,6 @@ function geometryCss(
   return `clip-path: polygon(${polygon});`;
 }
 
-/**
- * The outline a preset geometry is *clipped* to, as an SVG path — the same
- * shape `geometryCss` writes into `clip-path`, in the form a stroke can
- * follow. `border` only paints the bounding box's four edges, so on a clipped
- * preset the clip then removes every part of them the outline does not cover:
- * a stroke-only triangle keeps a sliver of its base and loses both diagonals,
- * which is the whole shape gone. Presets that clip nothing (`ellipse`,
- * `roundRect`) are absent on purpose — `border` plus `border-radius` draws
- * those correctly.
- */
 function clippedPresetPath(
   element: ParsedElement,
   widthPx: number,
@@ -1151,30 +931,10 @@ function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
-/**
- * Path coordinates are rounded harder than the rest of the renderer: a single
- * freeform illustration can carry ten thousand of them, and at the 960px
- * reference width 0.1px is well under one device pixel on any display. Three
- * decimals instead costs ~25% more HTML on a slide that is already the
- * largest this importer produces.
- */
 function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-/**
- * Freeform path data is by far the largest thing this importer stores: one
- * decorative layout illustration in a real template is 86KB of coordinates,
- * and the layout layer repeats it on every slide that uses the layout. Writing
- * it in absolute commands spends 5-6 characters per coordinate on the shape's
- * own box origin; the same outline in relative commands spends 1-3 on the step
- * from the previous point.
- *
- * Deltas are measured against the point that was actually *emitted*, never the
- * exact one, so per-step rounding cannot accumulate: every emitted point stays
- * within half a rounding unit of its true position no matter how many
- * thousands of segments precede it.
- */
 function createPathWriter() {
   let out = "";
   let lastCommand = "";
@@ -1185,15 +945,11 @@ function createPathWriter() {
   let subpathX = 0;
   let subpathY = 0;
 
-  /** Writes the shortest legal spelling of `value` and returns what it rounded to. */
   const number = (value: number): number => {
     const rounded = round1(value);
     let text = String(rounded);
     if (text.startsWith("0.")) text = text.slice(1);
     else if (text.startsWith("-0.")) text = `-${text.slice(2)}`;
-    // A leading `.` only runs into the previous number when that one had no
-    // decimal point of its own: `1 .5` may compact to `1.5`, which is one
-    // number, but `1.5 .5` reads as two either way.
     const joins =
       afterLetter ||
       text.startsWith("-") ||
@@ -1205,8 +961,6 @@ function createPathWriter() {
   };
 
   const command = (letter: string) => {
-    // SVG repeats the previous command for a bare run of coordinates, and the
-    // command implied after a `moveto` is `lineto`.
     if (lastCommand === letter) return;
     out += letter;
     afterLetter = true;
@@ -1214,7 +968,6 @@ function createPathWriter() {
   };
 
   return {
-    /** `points` are absolute px; every one is written relative to the point the command starts from. */
     write(letter: string, points: { x: number; y: number }[]) {
       command(letter);
       const fromX = x;
@@ -1250,8 +1003,6 @@ function createPathWriter() {
     close() {
       out += "z";
       afterLetter = true;
-      // `z` returns the pen to where the subpath started, and no command is
-      // implied after it.
       lastCommand = "";
       x = subpathX;
       y = subpathY;
@@ -1260,18 +1011,6 @@ function createPathWriter() {
   };
 }
 
-/**
- * Convert a shape's `a:custGeom` outline into an SVG path `d` string in the
- * shape's own pixel box. Every OOXML path command has an exact SVG
- * counterpart, so a freeform outline — a country on a map, a line-art
- * pictogram, one segment of a curved-arrow ring — is reproduced rather than
- * flattened into the rectangle its bounding box happens to be, which is what
- * turns a 422-path world map into a field of staircase blocks.
- *
- * Returns `undefined` rather than a partial path when the geometry cannot be
- * converted, so the caller falls back to the shape's existing rendering
- * instead of clipping it down to a fragment.
- */
 function customGeometryPath(
   element: ParsedElement,
   widthPx: number,
@@ -1285,8 +1024,6 @@ function customGeometryPath(
   for (const path of geometry.paths) {
     const scaleX = widthPx / path.w;
     const scaleY = heightPx / path.h;
-    // OOXML path space is top-left origin like SVG's, so only the shape's own
-    // `flipH`/`flipV` mirror it — there is no axis flip to undo.
     const toX = (x: number) =>
       element.flipH ? widthPx - x * scaleX : x * scaleX;
     const toY = (y: number) =>
@@ -1302,16 +1039,11 @@ function customGeometryPath(
       if (command.kind === "arcTo") {
         const start = (command.stAng / 60000) * (Math.PI / 180);
         const swing = (command.swAng / 60000) * (Math.PI / 180);
-        // OOXML gives the arc's radii and angles but not its center: the
-        // current point is the arc's start, so the center is that point
-        // walked back along the start angle.
         const centerX = currentX - command.wR * Math.cos(start);
         const centerY = currentY - command.hR * Math.sin(start);
         currentX = centerX + command.wR * Math.cos(start + swing);
         currentY = centerY + command.hR * Math.sin(start + swing);
         const largeArc = Math.abs(command.swAng) > 180 * 60000 ? 1 : 0;
-        // A single mirror reverses the direction the arc sweeps in; two
-        // cancel out.
         const sweep =
           command.swAng >= 0 !==
           (Boolean(element.flipH) !== Boolean(element.flipV))
@@ -1341,13 +1073,6 @@ function customGeometryPath(
   return wrote ? writer.result() : undefined;
 }
 
-/**
- * A clipped outline's stroke follows the path, not the bounding box, so the
- * `border` shorthand cannot draw it — on a line-art pictogram or an
- * outline-only triangle (no fill, a stroked outline only) a border is exactly
- * the generic square the shape collapses into today. The path is stroked as
- * an overlay instead, leaving the fill to the div's own clipped background.
- */
 function customGeometryStroke(
   element: ParsedElement,
   pathData: string,
@@ -1364,14 +1089,6 @@ function customGeometryStroke(
   return `<svg viewBox="0 0 ${round3(widthPx)} ${round3(heightPx)}" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;"><path d="${esc(pathData)}" fill="none" stroke="${esc(element.lineColor)}" stroke-width="${stroke}" /></svg>`;
 }
 
-/**
- * A PPTX line or connector is a box with one dimension of zero — or thinner
- * than the two borders that would have to meet inside it. Emitting the
- * `border` shorthand on it paints *both* parallel edges, so the rule draws at
- * twice its authored weight, overruns its own length by the stroke width at
- * each end, and grows perpendicular nubs from the two edges that should not
- * exist at all. A box with no room for an interior gets the single edge it is.
- */
 function strokeDecoration(
   element: ParsedElement,
   widthEmu: number,
@@ -1399,11 +1116,6 @@ function strokeWidthPx(
   );
 }
 
-/**
- * The axis a degenerate box draws its line along, or `undefined` for a box
- * with room for a real four-sided outline. The longer axis has to win, or a
- * small square outline (a 2px dot, say) would lose three of its four edges.
- */
 function lineAxis(
   widthPx: number,
   heightPx: number,
@@ -1414,25 +1126,8 @@ function lineAxis(
   return undefined;
 }
 
-/**
- * `a:headEnd`/`a:tailEnd` `@_w` sizes, as multiples of the line's own width:
- * PowerPoint scales a line end with its stroke rather than to a fixed size, so
- * a 1.5pt connector and a 6pt one do not get the same dot.
- */
 const LINE_END_SCALE: Record<string, number> = { sm: 2, med: 3, lg: 5 };
 
-/**
- * The round dots a connector terminates in (`<a:headEnd type="oval"/>` — the
- * ends of every rule on a chevron timeline) are a decoration on top of the
- * stroke, not part of it, so neither the border above nor
- * `customGeometryStroke` draws them and they were dropped on import.
- *
- * Only `oval` is reproduced. An arrowhead's shape and orientation are not
- * something this can get right unverified, and a wrong arrowhead reads worse
- * than the bare line the source at least still communicates; the parsed end
- * survives on the element either way, so an unrendered one stays
- * distinguishable from a line the source drew bare.
- */
 function lineEndCaps(
   element: ParsedElement,
   widthEmu: number,
@@ -1445,10 +1140,7 @@ function lineEndCaps(
   if (!element.lineColor || (!head && !tail)) return "";
   const stroke = strokeWidthPx(element, widthEmu, refWidthPx);
   const axis = lineAxis(widthPx, heightPx, stroke);
-  // Only the line case: on a four-sided outline there is no "end" to cap.
   if (!axis) return "";
-  // The border paints its line half a stroke inside the box's own edge, and a
-  // cap is centred on the line's endpoint, not offset from it.
   const along = axis === "x" ? widthPx : heightPx;
   const flipped = axis === "x" ? element.flipH : element.flipV;
   const point = (distance: number, radius: number) => ({
@@ -1460,9 +1152,6 @@ function lineEndCaps(
     head ? point(flipped ? along : 0, head) : undefined,
     tail ? point(flipped ? 0 : along, tail) : undefined,
   ].filter((cap) => cap !== undefined);
-  // A zero-width viewBox disables rendering, and every capped line has one
-  // degenerate axis — the overlay is inset by its own largest cap so both the
-  // box and the part of the cap hanging past the line's end stay inside it.
   const pad = Math.max(...caps.map((cap) => cap.radius));
   const boxWidth = round3(widthPx + pad * 2);
   const boxHeight = round3(heightPx + pad * 2);
@@ -1475,7 +1164,6 @@ function lineEndCaps(
   return `<svg viewBox="0 0 ${boxWidth} ${boxHeight}" style="position:absolute;left:${round3(-pad)}px;top:${round3(-pad)}px;width:${boxWidth}px;height:${boxHeight}px;overflow:visible;pointer-events:none;">${circles}</svg>`;
 }
 
-/** The cap's radius as a multiple of the line's stroke width, or `undefined` for an end this does not draw. */
 function ovalCapRadius(end: ParsedElement["lineHeadEnd"]): number | undefined {
   if (end?.type !== "oval") return undefined;
   return (LINE_END_SCALE[end.w ?? "med"] ?? LINE_END_SCALE.med) / 2;
@@ -1490,8 +1178,6 @@ function shapeDecoration(
   customPath: string | undefined,
   outlinePath: string | undefined,
 ): string {
-  // A reproduced outline is no longer an occluding box, so it paints its real
-  // fill even when its preset is one this renderer cannot otherwise draw.
   if (
     !customPath &&
     element.shapeType &&
@@ -1501,13 +1187,8 @@ function shapeDecoration(
   }
   const fill = element.fill ? `background: ${esc(element.fill)};` : "";
   if (customPath) {
-    // No `border`: the stroke follows the outline, and `customGeometryStroke`
-    // draws it. Clipping an unfilled box would only eat half that stroke, so
-    // the clip is the fill's, not the shape's.
     return fill ? `${fill}clip-path: path('${customPath}');` : "";
   }
-  // Same reason as above for a clipped preset: `border` draws the box, the
-  // clip eats it, and `customGeometryStroke` draws the outline instead.
   const line = outlinePath
     ? ""
     : strokeDecoration(element, widthEmu, refWidthPx, widthPx, heightPx);
@@ -1538,24 +1219,8 @@ function textBoxStyle(
   return `display:flex;flex-direction:column;${vertical}padding:${top}px ${right}px ${bottom}px ${left}px;font-family:${cssFontFamily(themeFont)};text-align:${align};overflow:visible;`;
 }
 
-/**
- * OOXML's default `a:lnSpc` is `spcPct val="100000"` — single spacing. The
- * parser resolves that declared value against the font's own line height
- * (`SINGLE_LINE_SPACING_RATIO`), so an inherited default has to land on the
- * same number, or an unspecified paragraph renders tighter than the identical
- * paragraph that states its spacing explicitly.
- */
 const DEFAULT_LINE_SPACING = 1.2;
 
-/**
- * The first size any run in this text box declares. A blank spacer paragraph
- * has no run to read a size from, so it would otherwise fall back to the
- * format-wide default and reserve a taller empty line than the copy it
- * separates — every blank paragraph in a 14pt box adding a few px of drift
- * that pushes the rest of the box down. Its real size lives in
- * `<a:endParaRPr>`, which the parser does not surface; the box's own declared
- * size is the closest value the source actually states.
- */
 function firstDeclaredFontSizePt(
   paragraphs: ParsedParagraph[] | undefined,
 ): number | undefined {
@@ -1588,11 +1253,6 @@ function buildFidelityParagraph(
     widthEmu,
     refWidthPx,
   );
-  // `min-width` (not a hard `width`) with `white-space:nowrap`: the parent
-  // paragraph inherits `white-space:pre-wrap`, and a hard width sized for a
-  // single bullet glyph wrapped multi-character auto-num bullets like "2."
-  // internally — the digit on one line, the period pushed onto the next
-  // alongside the paragraph text.
   const bullet = paragraph.bulletChar
     ? `<span aria-hidden="true" style="display:inline-block;min-width:${fontSize * 0.75}px;white-space:nowrap;margin-right:${fontSize * 0.65}px;color:${esc(paragraph.bulletColor ?? firstRun?.color ?? DEFAULT_PPTX_FOREGROUND)};font-family:${cssFontFamily(paragraph.bulletFontFamily ?? themeFont)};font-size:${bulletFontSize}px;">${esc(paragraph.bulletChar)}</span>`
     : "";
@@ -1618,12 +1278,6 @@ function buildFidelityParagraph(
       ),
     )
     .join("");
-  // A right-to-left paragraph needs its base direction stated, or the browser
-  // infers one per run and mixed Arabic/Latin/numeral text reorders differently
-  // than PowerPoint laid it out. The `dir` attribute is the semantic form the
-  // export DOM walker and any non-sanitizing consumer read, but it is not in
-  // `sanitizeSlideHtml`'s ALLOWED_ATTRS — so the CSS equivalent has to carry it
-  // through the renderer, where only `style` survives.
   const direction = paragraph.rtl ? ` dir="rtl"` : "";
   const directionCss = paragraph.rtl ? "direction:rtl;" : "";
   return `<p data-pptx-paragraph="${paragraphIndex}"${direction} style="${directionCss}display:block;flex:0 0 auto;text-align:${paragraph.alignment ?? (paragraph.rtl ? "right" : "left")};white-space:pre-wrap;margin:${marginBefore}px 0 ${marginAfter}px;line-height:${lineHeight};font-size:${fontSize}px;min-height:${fontSize * lineHeight}px;padding-left:${marginLeft}px;text-indent:${paragraph.bulletChar ? 0 : indent}px;">${bullet.replace("display:inline-block;", `display:inline-block;${bulletMargin}`)}${text}</p>`;
@@ -1651,7 +1305,6 @@ function formatFidelityRun(
   return `<span style="${styles};">${esc(run.content)}</span>`;
 }
 
-/** A source PDF/PPTX link annotation is untrusted input — only render schemes a browser treats as navigation, never `javascript:`/`data:`/etc. */
 function isSafeLinkHref(href: string): boolean {
   return /^(https?:|mailto:)/i.test(href);
 }
@@ -1692,7 +1345,6 @@ function buildContentSlide(
   slide: ParsedSlide,
   fontFamily: string,
 ): string {
-  // First paragraph is the heading, rest are bullet points
   const headingPara = paragraphs[0] ?? [];
   const bulletParas = paragraphs.slice(1);
 
@@ -1721,16 +1373,6 @@ ${bulletItems}
 </div>`;
 }
 
-/**
- * Render the slide's embedded image, or a text placeholder if it couldn't
- * be uploaded. `objectFit` defaults to `contain` — the stacked-image layout
- * sizes its box to the shape's own placed aspect ratio specifically so the
- * source photo isn't cropped, but the embedded file's actual pixel ratio
- * can still differ slightly from that placed ratio, and `cover` would crop
- * to fill the box in that case, defeating the point. `cover` is only
- * correct for a full-bleed background image, which intentionally fills its
- * box edge-to-edge.
- */
 function imageOrPlaceholder(
   imageUrl: string | undefined,
   imageName: string,
@@ -1743,17 +1385,6 @@ function imageOrPlaceholder(
   return `<div class="fmd-img-placeholder" style="${style}">Imported image: ${esc(imageName)}</div>`;
 }
 
-/**
- * A PPTX slide's picture and heading always go through one of two real
- * designs, decided by how big the photo was placed on the original slide —
- * not by a single fixed template:
- *  - a near-full-slide photo (a cover/section photo) had its title overlaid
- *    on top of it in the original, so it's rendered full-bleed with the
- *    text overlaid over a legibility scrim;
- *  - a smaller inset photo (a card-style illustration) had its caption
- *    stacked below it, so it's rendered that way, sized to the image's own
- *    aspect ratio instead of a fixed box that would crop or stretch it.
- */
 function buildImageSlide(
   paragraphs: ParsedTextRun[][],
   slide: ParsedSlide,
@@ -1766,7 +1397,6 @@ function buildImageSlide(
   return buildStackedImageSlide(paragraphs, slide, imageUrl, fontFamily);
 }
 
-/** Full-bleed photo with the heading/caption overlaid at the bottom behind a gradient scrim. */
 function buildOverlayImageSlide(
   paragraphs: ParsedTextRun[][],
   imageUrl: string,
@@ -1794,7 +1424,6 @@ function buildOverlayImageSlide(
 </div>`;
 }
 
-/** Photo card on top (sized to its own aspect ratio), heading/caption below. */
 function buildStackedImageSlide(
   paragraphs: ParsedTextRun[][],
   slide: ParsedSlide,
@@ -1815,15 +1444,7 @@ function buildStackedImageSlide(
     : "";
 
   const imageName = slide.images[0]?.name ?? "image";
-  // Size the box to the image's own placed aspect ratio instead of a fixed
-  // height, so portrait and landscape source photos both render undistorted
-  // — a fixed height forced `object-fit: cover` to crop whichever
-  // orientation didn't match the assumed box.
   const aspectRatio = slide.images[0]?.aspectRatio ?? 16 / 9;
-  // `max-width` (not `width: 100%`) so the aspect-ratio box is never forced
-  // wider than the height cap allows — pinning width to 100% while also
-  // capping height made `object-fit: cover` crop the image to fit, which
-  // defeated the point of sizing the box to its real aspect ratio.
   const imageHtml = imageOrPlaceholder(
     imageUrl,
     imageName,
@@ -1836,12 +1457,10 @@ function buildStackedImageSlide(
 </div>`;
 }
 
-/** Strip HTML tags to get plain text. */
 function stripTags(html: string): string {
   return html.replace(/<[^>]+>/g, "");
 }
 
-/** Convert document sections (from DOCX/PDF) into slide HTML strings. */
 export function convertSectionsToSlides(
   sections: { heading: string; content: string }[],
 ): string[] {
@@ -1853,14 +1472,12 @@ export function convertSectionsToSlides(
 
     if (!plainContent && !section.heading) continue;
 
-    // Split long content into multiple slides
     const lines = plainContent
       .split(/\n+/)
       .map((l) => l.trim())
       .filter(Boolean);
 
     if (lines.length === 0) {
-      // Section with just a heading becomes a section divider
       slides.push(
         `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;">
     <div style="font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 20px;">${String(slides.length + 1).padStart(2, "0")}</div>
@@ -1870,7 +1487,6 @@ export function convertSectionsToSlides(
       continue;
     }
 
-    // Group lines into chunks of ~5 for bullet slides
     const LINES_PER_SLIDE = 5;
     for (let i = 0; i < lines.length; i += LINES_PER_SLIDE) {
       const chunk = lines.slice(i, i + LINES_PER_SLIDE);

@@ -1,56 +1,3 @@
-//! Silence-aware auto-stop heuristics for meeting recordings.
-//!
-//! This module subscribes to the existing `voice:audio-level` events emitted by
-//! `native_speech.rs` (mic) and `system_audio.rs` (system audio) and tracks a
-//! last meaningful level per source. When **both** sources have stayed below
-//! the silence threshold for the configured silence duration, we emit
-//! `meetings:silence-stop` to the renderer, which calls the
-//! `stop-meeting-recording` action.
-//!
-//! Two additional auto-stop triggers also live here for parity:
-//!
-//!  * **System sleep** — `NSWorkspaceWillSleepNotification` via objc2.
-//!    Emits `meetings:sleep-stop`.
-//!  * **Call-end heuristic** — when a known conferencing app releases its
-//!    microphone after using it for the active meeting, emit
-//!    `meetings:call-ended`. Release is corroborated by two independent
-//!    sources — CoreAudio's per-process running-input state
-//!    (`call_activity`, macOS 14+ only) and Control Center's mic-attribution
-//!    log (`mic_attribution`, macOS 12+) — so either one reporting "released"
-//!    is enough; both reporting "unknown" is not. The event fires after the
-//!    release has held for `CALL_MIC_RELEASE_CONFIRM` (15s). A
-//!    foreground-to-background transition is deliberately not an end signal:
-//!    people switch apps while calls are still live.
-//!  * **Calendar end** — when the scheduled meeting end has passed and system
-//!    audio has been quiet for the call-end window, emit the same event even if
-//!    the conferencing app remains open.
-//!
-//! Renderer-side responsibility: subscribe via `silence-events.ts`, dispatch
-//! the `stop-meeting-recording` action when any of the events fire.
-//!
-//! ## Tauri commands
-//!
-//! | Command                     | Purpose                                       |
-//! | --------------------------- | --------------------------------------------- |
-//! | `silence_detector_start`    | Begin tracking; takes thresholds in payload   |
-//! | `silence_detector_stop`     | Stop tracking                                 |
-//!
-//! ## Algorithm
-//!
-//! Each `voice:audio-level` event carries `{ level: f32, source: "mic"|"system" }`.
-//! We keep a per-source `last_loud_at: Instant`. On every level event:
-//!   - if `level >= silence_threshold` -> reset `last_loud_at = now()`.
-//!
-//! A two-second supervisor task ticks. The calendar signal still requires quiet
-//! system audio, because a user's local mic can stay noisy after a call ends.
-//! Call-end instead corroborates CoreAudio against mic attribution (see
-//! `mic_attribution`) — system audio is not a signal there, since playing
-//! music or a video after a call keeps it loud indefinitely. The all-source
-//! silence stop remains the long safety backstop.
-//!
-//! Defaults: silence_threshold = 0.05, silence_duration = 15 minutes.
-//! No raw "sliding window of samples" is needed — the `last_loud_at` Instant
-//! trick is equivalent and uses constant memory.
 
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -61,31 +8,18 @@ use tauri::{AppHandle, Emitter, Listener, Manager};
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SilenceConfig {
-    /// Peak-level (0.0..1.0) below which a sample is considered "silent".
-    /// Default 0.05.
     #[serde(default = "default_threshold")]
     pub silence_threshold: f32,
-    /// Milliseconds of continuous silence on BOTH sources before firing.
-    /// Default 15 * 60 * 1000.
     #[serde(default = "default_silence_ms")]
     pub silence_ms: u64,
-    /// Milliseconds of quiet system audio after the scheduled end before
-    /// firing the call-ended event. Default 30 seconds.
     #[serde(default = "default_call_ended_ms")]
     pub call_ended_ms: u64,
-    /// Whether to enable the system-sleep auto-stop.
     #[serde(default = "default_true")]
     pub watch_sleep: bool,
-    /// Whether to enable the call-ended heuristic.
     #[serde(default = "default_true")]
     pub watch_call_ended: bool,
-    /// Bundle IDs allowed to corroborate a call ending by releasing their
-    /// microphone input. Restricting this to the meeting provider prevents an
-    /// unrelated browser tab from affecting a live meeting session.
     #[serde(default)]
     pub call_app_bundle_ids: Option<Vec<String>>,
-    /// Unix epoch milliseconds for the calendar event's scheduled end.
-    /// Calendar-end stopping still requires quiet audio as confirmation.
     #[serde(default)]
     pub scheduled_end_ms: Option<u64>,
 }
@@ -120,30 +54,18 @@ impl SourceState {
 
 #[derive(Default)]
 struct DetectorInner {
-    /// Generation counter — bumped on every `start`/`stop` so old supervisor
-    /// tasks know to exit.
     generation: u64,
-    /// Whether tracking is currently active.
     active: bool,
-    /// Config snapshot for the active session.
     config: Option<SilenceConfig>,
-    /// Per-source last-loud timestamp.
     mic: Option<SourceState>,
     system: Option<SourceState>,
-    /// Already fired an automatic stop event in this session?
     auto_stop_fired: bool,
-    /// Calendar event end for the active session, if one is known.
     scheduled_end_ms: Option<u64>,
-    /// Apps allowed to corroborate a call ending by releasing their microphone
-    /// input. This varies by the calendar join URL for each session.
     call_app_bundle_ids: Vec<String>,
 }
 
 pub struct DetectorState {
     inner: Arc<Mutex<DetectorInner>>,
-    /// One-shot wiring of the `voice:audio-level` listener — done lazily on
-    /// the first `silence_detector_start` so we don't pay the cost when no
-    /// meeting is active.
     listener_installed: OnceLock<()>,
 }
 
@@ -175,7 +97,6 @@ pub fn silence_detector_start(app: AppHandle, config: Option<SilenceConfig>) -> 
         scheduled_end_ms: None,
     });
 
-    // Install the audio-level listener exactly once for the process.
     let inner_for_listener = state.inner.clone();
     state.listener_installed.get_or_init(|| {
         app.listen("voice:audio-level", move |event| {
@@ -225,8 +146,6 @@ pub fn silence_detector_start(app: AppHandle, config: Option<SilenceConfig>) -> 
             .into_iter()
             .map(|bundle_id| bundle_id.to_lowercase())
             .collect();
-        // Seed both buckets with `now()` so we don't insta-fire on start
-        // before any audio has streamed in yet.
         g.mic = Some(SourceState::fresh());
         g.system = Some(SourceState::fresh());
     }
@@ -317,19 +236,12 @@ pub fn silence_detector_stop(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-// --- system sleep ----------------------------------------------------------
 
 #[cfg(target_os = "macos")]
 fn install_sleep_watcher(app: &AppHandle) {
     static INSTALLED: OnceLock<()> = OnceLock::new();
     let app = app.clone();
     INSTALLED.get_or_init(|| {
-        // We use a polling fallback instead of full objc2 plumbing so this
-        // file stays self-contained and dependency-light. On macOS,
-        // `IOPSGetTimeRemainingEstimate` would require IOKit bindings; the
-        // simplest reliable signal is a clock-jump heuristic: if a 5-second
-        // supervisor tick observes a wall-clock gap > 30s, the machine
-        // almost certainly slept.
         std::thread::spawn(move || {
             let mut last_tick = Instant::now();
             loop {
@@ -338,7 +250,6 @@ fn install_sleep_watcher(app: &AppHandle) {
                 let drift = now.duration_since(last_tick);
                 last_tick = now;
                 if drift > Duration::from_secs(30) {
-                    // Only fire when a session is active to avoid noise.
                     let state = app.state::<DetectorState>();
                     let (active, generation, watch_sleep) = state
                         .inner
@@ -366,38 +277,17 @@ fn install_sleep_watcher(app: &AppHandle) {
 #[cfg(not(target_os = "macos"))]
 fn install_sleep_watcher(_app: &AppHandle) {}
 
-// --- call-ended heuristic --------------------------------------------------
 
-/// How long a release must hold, corroborated by CoreAudio and/or mic
-/// attribution, before firing. screenpipe uses a 20s ending grace and
-/// pasrom/meeting-transcriber 15s; this replaces the old 5s-plus-quiet-system-
-/// audio gate, which never fired while music or a video played after a call.
 const CALL_MIC_RELEASE_CONFIRM: Duration = Duration::from_secs(15);
 #[cfg(target_os = "macos")]
 const CALL_END_POLL: Duration = Duration::from_secs(2);
 
-/// Tracks the call-ended release window across ticks. `ever_in_use` gates
-/// firing on an actual observed call (never on two sources that are merely
-/// unknown), and `released_since` is the in-progress confirmation timer.
 #[derive(Default)]
 struct CallEndTracker {
     ever_in_use: bool,
     released_since: Option<Instant>,
 }
 
-/// One decision step of the call-ended heuristic, given this tick's CoreAudio
-/// and mic-attribution readings. Pure and side-effect-free so the release
-/// logic is unit-testable without a real CoreAudio/log-stream backend;
-/// mutates `tracker` in place and returns whether the release has now been
-/// confirmed for `release_confirm`.
-///
-/// Either source reporting `Some(true)` means in use; with neither in use, at
-/// least one source must positively report `Some(false)` to count as
-/// released — two `None`s (unknown) hold the tracker's current state rather
-/// than starting or resetting the timer, since neither says a call ended.
-/// Confirmation also needs a positive release reading on the confirming tick:
-/// a timer left running while both sources went unknown must not stop a
-/// recording on evidence nobody can see any more.
 fn call_end_step(
     tracker: &mut CallEndTracker,
     coreaudio: Option<bool>,
@@ -453,8 +343,6 @@ fn install_call_ended_watcher(app: &AppHandle) {
                         })
                         .unwrap_or((false, 0, Vec::new(), false, true));
                 if !active || !watch_call_ended {
-                    // Drops the prior generation's watcher, stopping its
-                    // `/usr/bin/log stream` child.
                     attribution_watcher = None;
                     tracker = CallEndTracker::default();
                     generation = None;
@@ -463,8 +351,6 @@ fn install_call_ended_watcher(app: &AppHandle) {
                 if generation != Some(active_generation) {
                     tracker = CallEndTracker::default();
                     generation = Some(active_generation);
-                    // Replacing drops (and stops) any watcher from a
-                    // superseded generation first.
                     attribution_watcher = Some(crate::mic_attribution::MicAttributionWatcher::start());
                 }
                 if fired {
@@ -644,8 +530,6 @@ mod tests {
             t0 + Duration::from_secs(2),
             confirm
         ));
-        // Both sources go dark past the window: the timer survives, but a
-        // stop needs someone to actually say "released" again.
         assert!(!call_end_step(
             &mut tracker,
             None,
@@ -670,7 +554,6 @@ mod tests {
         let confirm = Duration::from_secs(15);
 
         call_end_step(&mut tracker, Some(true), None, t0, confirm);
-        // Released for 8s...
         call_end_step(
             &mut tracker,
             Some(false),
@@ -678,7 +561,6 @@ mod tests {
             t0 + Duration::from_secs(8),
             confirm,
         );
-        // ...then in use again cancels the timer.
         call_end_step(
             &mut tracker,
             Some(true),
@@ -688,7 +570,6 @@ mod tests {
         );
         assert!(tracker.released_since.is_none());
 
-        // Released again — the old 8s doesn't carry over, needs a fresh 15s.
         call_end_step(
             &mut tracker,
             Some(false),
@@ -718,10 +599,7 @@ mod tests {
         let t0 = Instant::now();
         let confirm = Duration::from_secs(15);
 
-        // In use via CoreAudio.
         call_end_step(&mut tracker, Some(true), None, t0, confirm);
-        // CoreAudio goes unreadable, but attribution alone positively reports
-        // released — that's enough to start the timer.
         assert!(!call_end_step(
             &mut tracker,
             None,
@@ -730,8 +608,6 @@ mod tests {
             confirm,
         ));
         assert!(tracker.released_since.is_some());
-        // ...and it still fires once that release has held for the full
-        // window, with CoreAudio unknown the whole time.
         assert!(call_end_step(
             &mut tracker,
             None,

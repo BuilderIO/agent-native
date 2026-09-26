@@ -26,14 +26,9 @@ function handleForbidden(event: any, err: unknown): { error: string } {
   throw err;
 }
 
-// GET /api/design-systems — list design systems the caller can see
-// (own + shared + visibility match)
 export const listDesignSystems = defineEventHandler(async (event) => {
   return withSlidesRequestContext(event, async () => {
     const db = getDb();
-    // Project only the metadata columns this list returns. A bare `.select()`
-    // would also pull the heavy `data` and `assets` blobs off every row even
-    // though the list never returns them.
     const rows = await db
       .select({
         id: schema.designSystems.id,
@@ -60,8 +55,6 @@ export const listDesignSystems = defineEventHandler(async (event) => {
   });
 });
 
-// GET /api/design-systems/:id — get a specific design system
-// (caller must have viewer+ access)
 export const getDesignSystem = defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
   if (!id) {
@@ -72,8 +65,6 @@ export const getDesignSystem = defineEventHandler(async (event) => {
   return withSlidesRequestContext(event, async () => {
     const access = await resolveAccess("design-system", id);
     if (!access) {
-      // Return 404 (not 403) so we don't leak existence of design
-      // systems the caller has no access to.
       setResponseStatus(event, 404);
       return { error: "Design system not found" };
     }
@@ -92,7 +83,6 @@ export const getDesignSystem = defineEventHandler(async (event) => {
   });
 });
 
-// POST /api/design-systems — create a new design system owned by the caller
 export const createDesignSystem = defineEventHandler(async (event) => {
   const body = await readBody(event);
 
@@ -137,7 +127,6 @@ export const createDesignSystem = defineEventHandler(async (event) => {
   });
 });
 
-// PUT /api/design-systems/:id — update a design system (must have editor+ access)
 export const updateDesignSystem = defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
   if (!id) {
@@ -153,9 +142,6 @@ export const updateDesignSystem = defineEventHandler(async (event) => {
 
   return withSlidesRequestContext(event, async () => {
     try {
-      // assertAccess loads the row and verifies the caller has editor+
-      // role on this resource — it must run BEFORE the update (and in
-      // the same scope) so we don't leak existence to non-editors.
       await assertAccess("design-system", id, "editor");
 
       const db = getDb();
@@ -185,8 +171,6 @@ export const updateDesignSystem = defineEventHandler(async (event) => {
       return { id, updated: true };
     } catch (err) {
       if (err instanceof ForbiddenError) {
-        // Return 404 (not 403) so we don't leak the existence of design
-        // systems the caller has no access to.
         setResponseStatus(event, 404);
         return { error: "Design system not found" };
       }
@@ -195,7 +179,6 @@ export const updateDesignSystem = defineEventHandler(async (event) => {
   });
 });
 
-// DELETE /api/design-systems/:id — delete a design system (admin or owner only)
 export const deleteDesignSystem = defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
   if (!id) {
@@ -205,10 +188,6 @@ export const deleteDesignSystem = defineEventHandler(async (event) => {
 
   return withSlidesRequestContext(event, async () => {
     try {
-      // assertAccess loads the row and verifies the caller has admin
-      // role on this resource — it must run BEFORE the delete (and in
-      // the same scope) so we don't leak existence to callers who lack
-      // access.
       await assertAccess("design-system", id, "admin");
       const db = getDb();
       const result = await db
@@ -224,7 +203,6 @@ export const deleteDesignSystem = defineEventHandler(async (event) => {
       }
     } catch (err) {
       if (err instanceof ForbiddenError) {
-        // 404 to avoid leaking existence
         setResponseStatus(event, 404);
         return { error: "Design system not found" };
       }

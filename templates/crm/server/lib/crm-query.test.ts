@@ -1,7 +1,3 @@
-// Integration tests for the server-side CRM query. Boots a real PGlite
-// database, runs the actual migrations, and seeds attribute values through the
-// real bitemporal writer — the whole point of this file is that filters, sorts,
-// and cursors are proven against SQL rather than against a stub.
 
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -152,7 +148,6 @@ async function setValue(
   );
 }
 
-// Attributes and records shared by every test below.
 let stage: CrmWritableAttribute;
 let arr: CrmWritableAttribute;
 let amount: CrmWritableAttribute;
@@ -264,7 +259,6 @@ beforeAll(async () => {
   await setValue(acme, stage, "Won");
   await setValue(globex, stage, "Discovery");
   await setValue(initech, stage, "Won");
-  // hooli deliberately has no stage value — it is the is-empty case.
 
   await setValue(acme, arr, 120_000);
   await setValue(globex, arr, 40_000);
@@ -293,10 +287,6 @@ afterAll(() => {
 });
 
 describe("record summary", () => {
-  // The board drags a record between columns with `update-crm-record`, which
-  // refuses a native local write without the record's current revision. The
-  // summary is that board's only read, so dropping this column silently breaks
-  // every drag.
   it("carries the record revision, reporting an absent one as null", async () => {
     const summaries = await run({ limit: 50 });
     expect(
@@ -369,7 +359,6 @@ describe("condition compilation", () => {
     });
     expect(notContains).toContain(globex);
     expect(notContains).not.toContain(acme);
-    // Records with no value at all are "not containing" it.
     expect(notContains).toContain(hooli);
 
     await expect(
@@ -544,7 +533,6 @@ describe("condition compilation", () => {
       }),
     ).resolves.toEqual([acme]);
 
-    // "smb" must not match Acme's ["enterprise","expansion"] set.
     await expect(
       ids({
         limit: 50,
@@ -571,7 +559,6 @@ describe("condition compilation", () => {
       }),
     ).rejects.toMatchObject({ code: "crm-filter-condition", statusCode: 422 });
 
-    // The option family has no substring condition at all…
     await expect(
       ids({
         limit: 50,
@@ -584,8 +571,6 @@ describe("condition compilation", () => {
       }),
     ).rejects.toMatchObject({ code: "crm-filter-condition" });
 
-    // …and a multi attribute whose family does have one still refuses it,
-    // because the stored value is the whole set rather than one string.
     await expect(
       ids({
         limit: 50,
@@ -748,8 +733,6 @@ describe("sorting", () => {
         { field: "displayName", direction: "asc" },
       ],
     });
-    // Acme 120k, then the 40k pair ordered by name, then the record with no
-    // value at all — NULLs last in both dialects.
     expect(byArrThenName).toEqual([acme, globex, initech, hooli]);
 
     const ascending = await ids({
@@ -848,7 +831,7 @@ describe("cursor pagination", () => {
 
 describe("relative date tokens", () => {
   it("resolves day-boundary ranges in UTC", () => {
-    const now = new Date("2026-07-26T12:00:00.000Z"); // a Sunday
+    const now = new Date("2026-07-26T12:00:00.000Z");
     expect(query.resolveRelativeDateToken("today", now)).toEqual({
       from: "2026-07-26",
       to: "2026-07-27",

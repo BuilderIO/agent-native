@@ -20,21 +20,11 @@ export interface QuestionFlowModelSelection {
   effort?: PromptComposerSubmitOptions["effort"];
 }
 
-/**
- * What the user actually supplied at kickoff. The intake turn is forced to emit
- * only a questionnaire and then stop, so THIS continuation is the turn that
- * writes HTML — and a fresh thread inherits nothing. Re-sending the brief here
- * is the only thing that puts the user's own prompt, reference screenshots, and
- * design system in front of the model at the moment it generates.
- */
 export interface QuestionFlowGenerationBrief {
   contextItems?: PromptComposerSubmitOptions["contextItems"];
-  /** The user's original words, replayed verbatim — never a paraphrase. */
   prompt?: string;
   designSystemId?: string | null;
-  /** Data URLs; re-attached so the reference screenshot survives the hop. */
   images?: string[];
-  /** Extracted text from uploaded files (specs, outlines, token dumps). */
   uploadedFileContext?: string;
 }
 
@@ -42,14 +32,7 @@ interface UseQuestionFlowOptions {
   enabled?: boolean;
   continuationTabId?: string | null;
   onContinue?: (tabId: string) => void;
-  /**
-   * The model this generation started with, read AT SEND TIME. The continuation
-   * is the turn that generates and it opens a fresh thread, which has no
-   * override to inherit. A getter, not a value: the caller's source is a ref
-   * filled after render, so a snapshot taken here would be the pre-kickoff one.
-   */
   getModelSelection?: () => QuestionFlowModelSelection | null | undefined;
-  /** Read at send time, for the same reason as `getModelSelection`. */
   getGenerationBrief?: () => QuestionFlowGenerationBrief | null | undefined;
 }
 
@@ -57,11 +40,6 @@ function designQuestionsStateKey(designId: string | undefined): string {
   return designId ? `show-questions:${designId}` : "show-questions";
 }
 
-/**
- * Render the kickoff brief as prompt context for the continuation turn.
- * Exported and pure so the carry-through is testable without a DOM — this is
- * the whole fix for "the agent ignored my design system / screenshot / brief".
- */
 export function buildGenerationBriefContext(
   brief: QuestionFlowGenerationBrief | null | undefined,
   designSystemContext: string,
@@ -111,12 +89,6 @@ function existingDesignContinuationContext(
 const SETTLED_ANSWERS_INSTRUCTION =
   "Treat every question below as settled: do not ask it again, and do not ask for a confirmation of it. Continue the work these answers were blocking.";
 
-/**
- * Polls design-scoped question state. When the agent writes structured
- * questions, the editor surfaces a full-canvas overlay for only this design.
- * On submit, answers are formatted and posted back to the agent chat; on skip,
- * the agent is told to proceed.
- */
 export function useQuestionFlow(
   designId: string | undefined,
   {
@@ -165,17 +137,10 @@ export function useQuestionFlow(
 
   const sendContinuation = useCallback(
     async (message: string, context?: string) => {
-      // Hide the answered questionnaire before rehydrating optional context.
-      // Design-system reads can take long enough that leaving the old form up
-      // makes a submitted generation look stalled and still interactive.
       flow.clear();
       const selection = getModelSelection?.() ?? {};
       const { model, engine, effort } = selection;
       const brief = getGenerationBrief?.() ?? null;
-      // Re-hydrated rather than snapshotted at kickoff: the user can link or
-      // change the design system while the questionnaire is open. This never
-      // throws — a load failure returns instruction text telling the agent to
-      // stop rather than improvise a generic style.
       const designSystemContext =
         brief?.designSystemId && !hasComposerSystemContext(brief.contextItems)
           ? await loadDesignSystemGenerationContext(brief.designSystemId)
@@ -184,18 +149,6 @@ export function useQuestionFlow(
         brief,
         designSystemContext,
       );
-      // Always request `newTab` (mirroring useAgentGenerating.submit's
-      // default). Without it, when there is no continuationTabId yet the
-      // message goes to whatever tab is currently active, but the id we
-      // return here would still be a freshly generated one that was never
-      // actually used — trackAgentGeneration/onContinue would then watch a
-      // tabId that never matches real chatRunning events, so the design
-      // "generating" UI silently desyncs (false "stopped, please retry"
-      // toasts, completion never detected). Passing tabId only when we have
-      // a continuationTabId still reuses that existing thread (addOptimistic
-      // thread is idempotent for known ids); omitting it lets a fresh id be
-      // generated and actually created, so the returned tabId is always the
-      // real destination thread.
       const tabId = sendToDesignAgentChat({
         message,
         context: [briefContext, context, DESIGN_MUTATION_REQUIRED_DIRECTIVE]

@@ -125,12 +125,6 @@ export default defineAction({
         .from(schema.assets)
         .where(and(...filters))
         .orderBy(desc(schema.assets.createdAt)),
-      // Lineage labels (Original N / Variation N) are numbered across the whole
-      // library and resolve each variation's parent label, so this must stay
-      // library-scoped rather than narrowing to the same folder/collection
-      // filter as the primary query. Project only the columns
-      // `buildAssetLineage` reads instead of pulling full rows for every asset
-      // in the library on each list call.
       db
         .select({
           id: schema.assets.id,
@@ -149,8 +143,6 @@ export default defineAction({
     const lineageById = buildAssetLineage(lineageRows);
     const candidatesRequested =
       includeCandidates || status === "candidate" || candidateRunIdSet.size > 0;
-    // Drafts are the author's until approved, so a candidate-bearing read
-    // narrows to this caller's own. Plain asset reads pay no lookup.
     const scope = candidatesRequested
       ? await resolveDraftReadScope(libraryIds)
       : unrestrictedDraftReadScope();

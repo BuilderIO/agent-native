@@ -62,9 +62,7 @@ export interface AddLocalhostScreenDialogProps {
   onOpenChange: (open: boolean) => void;
   designId: string;
   connectionId?: string;
-  /** Used only when the connection's route manifest has no routes. */
   fallbackPaths?: string[];
-  /** Canvas placement for the new frame; defaults to (0, 0). */
   position?: { x: number; y: number };
 }
 

@@ -1,12 +1,3 @@
-/**
- * Navigate the UI to a view.
- *
- * Usage:
- *   pnpm action navigate --view=tasks
- *   pnpm action navigate --view=tasks --includeDone=true
- *   pnpm action navigate --view=tasks --taskId=<id>
- *   pnpm action navigate --view=fields
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";

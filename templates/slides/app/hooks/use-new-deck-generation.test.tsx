@@ -434,10 +434,6 @@ describe("useNewDeckGeneration", () => {
   });
 
   it("catches the run's first chatRunning event dispatched synchronously with its submit target", () => {
-    // sendToTab -> reportAgentChatSubmitTarget -> AssistantChat's optimistic
-    // "running" event all fire in one call stack for a targeted send. The
-    // chatRunning listener must already be live when that happens, not wait
-    // for the chatSubmitTarget state update to commit on a later render.
     const submitMessageId = "submit-sync-initial-running";
     const { result } = renderHook(() =>
       useNewDeckGenerationRun(
@@ -591,9 +587,6 @@ describe("useNewDeckGeneration", () => {
     unmount();
     await act(async () => Promise.resolve());
 
-    // The route unmounted (e.g. the user navigated to the deck list) before
-    // the run reached a terminal state, so the tab mapping must survive for a
-    // browser-back navigation to recover it.
     expect(sessionStorage.getItem(storageKey)).toBe("still-running-tab");
 
     vi.mocked(sendToAgentChatAndConfirm).mockResolvedValue({

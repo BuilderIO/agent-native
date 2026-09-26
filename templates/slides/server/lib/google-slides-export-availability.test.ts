@@ -33,8 +33,6 @@ describe("resolveGoogleSlidesExportAvailability", () => {
   });
 
   it("stays available for a connected account when no client is configured", async () => {
-    // An unexpired stored upload token uploads without resolving client
-    // credentials, so this export works and must not be gated.
     const preflight = preflightReturning({ status: "ok" });
     await expect(
       resolveGoogleSlidesExportAvailability({
@@ -45,7 +43,6 @@ describe("resolveGoogleSlidesExportAvailability", () => {
         preflight,
       }),
     ).resolves.toEqual({ available: true });
-    // Nothing is about to start an authorization request, so nothing to probe.
     expect(preflight).not.toHaveBeenCalled();
   });
 

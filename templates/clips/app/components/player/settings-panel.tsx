@@ -386,9 +386,6 @@ function CtaEditor({
   onSave: (fields: Record<string, unknown>) => void;
   onDelete: () => void;
 }) {
-  // Re-adopt the server/agent CTA fields whenever the user isn't actively
-  // editing this card, so an agent edit to the CTA shows up live. `editing`
-  // flips true while focus is anywhere inside the card.
   const editing = useRef(false);
   const [label, setLabel] = useReconciledState(cta.label, {
     active: editing.current,
@@ -411,7 +408,6 @@ function CtaEditor({
         editing.current = true;
       }}
       onBlurCapture={(e) => {
-        // Only clear when focus leaves the card entirely.
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
           editing.current = false;
         }
@@ -506,7 +502,6 @@ function isPublicHttpUrl(value: string): boolean {
     return protocol === "http:" || protocol === "https:";
   } catch {
     // coercion-ok: invalid draft input is intentionally represented as false
-    // so the Save action stays disabled until it becomes a web URL.
     return false;
   }
 }

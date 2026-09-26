@@ -40,14 +40,11 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 
-/** Exposed for tests; production callers rely on the TTL. */
 export function clearGoogleOAuthPreflightCache(): void {
   cache.clear();
 }
 
 function decodeAuthError(authError: string): string | null {
-  // The payload is a protobuf blob whose first field is the error code; the
-  // code is the only ASCII run before the human-readable description.
   const decoded = Buffer.from(authError, "base64").toString("utf8");
   return decoded.match(/[a-z][a-z0-9_]{4,}/)?.[0] ?? null;
 }
@@ -123,8 +120,6 @@ export async function checkGoogleOAuthPreflight(input: {
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
   const value = await probe(input.clientId, input.redirectUri, input.scopes);
-  // An inconclusive probe is not worth a full TTL of stickiness, but retrying it
-  // on every request would put a Google round trip on the editor's load path.
   const ttl = value.status === "unknown" ? 30_000 : CACHE_TTL_MS;
   cache.set(key, { expiresAt: Date.now() + ttl, value });
   return value;

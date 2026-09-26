@@ -11,13 +11,6 @@ import {
 import { parsePdfFidelity } from "./pdf-fidelity-parser.js";
 import { readSlidesPdfSidecar } from "./pdf-sidecar-reader.js";
 
-/**
- * The deck PDF round trip, end to end against the real libraries: a PDF built
- * by the same jsPDF the exporter uses, read back by the same pdfjs the importer
- * uses. Exporting a deck and importing it again has to return editable slides —
- * the bug this covers shipped a PDF whose pages were nothing but a JPEG, so
- * every re-import produced one full-slide image and no text.
- */
 
 function newPdf(): jsPDF {
   return new jsPDF({
@@ -40,7 +33,6 @@ function elementText(element: {
     .join(" ");
 }
 
-/** A 2x2 JPEG, standing in for a rasterized slide page. */
 const TINY_JPEG =
   "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAACAAIBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=";
 
@@ -61,8 +53,6 @@ describe("PDF round trip", () => {
       "Quarterly Business Review",
       "Revenue grew 42% year over year",
     ]);
-    // Real placement, not a stacked template: the second line sits below the
-    // first and both keep the left margin they were drawn at.
     expect(texts[0].x).toBeGreaterThan(0);
     expect(texts[1].y).toBeGreaterThan(texts[0].y);
   });
@@ -81,10 +71,6 @@ describe("PDF round trip", () => {
   });
 
   it("does not rebuild a page's own OCR layer as visible text on top of it", async () => {
-    // This is the shape of a Slides export whose XMP sidecar was stripped by
-    // another PDF tool: the words are baked into the page raster AND present as
-    // an invisible text layer. Reconstructing both prints every heading twice,
-    // once from the image and once in the wrong font over it.
     const pdf = newPdf();
     pdf.addImage(TINY_JPEG, "JPEG", 0, 0, 1920, 1080);
     pdf.setFontSize(72);
@@ -103,8 +89,6 @@ describe("PDF round trip", () => {
     expect(page.elements.some((element) => element.kind === "text")).toBe(
       false,
     );
-    // Still selectable and searchable in any PDF reader — it is only the
-    // visible reconstruction that skips it.
     expect(extractable).toContain("Quarterly Business Review");
   });
 
@@ -156,9 +140,6 @@ describe("PDF round trip", () => {
   });
 
   it("refuses a sidecar whose slide count no longer matches the PDF's pages", async () => {
-    // The sidecar is one document-level stream, so deleting pages in Preview or
-    // Acrobat leaves it describing a deck the file no longer is. Restoring it
-    // would hand back slides the user is not looking at.
     const sidecar: SlidesPdfSidecar = {
       v: 1,
       slides: [
@@ -231,8 +212,6 @@ describe("PDF round trip", () => {
   it("refuses a payload larger than anything the exporter would write", async () => {
     const pdf = newPdf();
     pdf.addImage(TINY_JPEG, "JPEG", 0, 0, 1920, 1080);
-    // Valid base64, and valid JSON if it were decoded — the point is that the
-    // reader rejects it on size before allocating several copies of it.
     pdf.addMetadata(
       "A".repeat(SLIDES_PDF_SIDECAR_MAX_BASE64_BYTES + 4),
       SLIDES_PDF_SIDECAR_NAMESPACE,

@@ -79,9 +79,6 @@ export function runSendRuntimeLayerMoveSemanticHandoff(
   const subjectAnchor = sourceAnchorForOwner(subjectOwner, "subject");
   const targetAnchor = sourceAnchorForOwner(targetOwner, "target");
   if (!subjectAnchor || !targetAnchor) {
-    // Mixed runtime/source moves are only safe when BOTH endpoints carry
-    // exact compiler provenance. Never fall back to selectors or a generic
-    // source/AST move for the missing side.
     toast.error(
       reactSourceAnchorUnavailableReason([
         elementInfoFromCodeLayerNode(subjectOwner.node),

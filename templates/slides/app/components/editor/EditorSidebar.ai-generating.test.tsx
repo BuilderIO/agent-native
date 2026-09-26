@@ -199,8 +199,6 @@ describe("EditorSidebar AI-active slide", () => {
       onAwaitAddSlidePersisted: () => Promise.resolve(),
       addSlideAgentSubmit,
     };
-    // "New slide" sets the describe target after the rail is already mounted;
-    // the popover only anchors once that thumbnail's ref re-registers.
     const { rerender } = render(
       <EditorSidebar {...props} describeSlideId={null} />,
     );

@@ -8,11 +8,6 @@ import {
 } from "./overview-layout";
 import type { FrameGeometry } from "./types";
 
-// The smallest thing that fails if MultiScreenCanvas's board-selection-rect
-// message handling ever flips the mapping direction or sign: a reported
-// iframe-local rect must convert to a world point and back to the exact same
-// iframe-local point, for a render geometry whose origin is not (0,0) — the
-// board's render window is chunk-snapped and rarely starts there.
 describe("board selection geometry round-trip", () => {
   const fixtures: Array<{
     renderGeometry: FrameGeometry;

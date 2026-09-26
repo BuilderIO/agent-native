@@ -43,8 +43,6 @@ async function action(
   return res.json();
 }
 
-// --- Fixture 1: the card from tutorial #3 (image + CardBody[title, desc,
-// price, StatusTag]) inside one screen. ---
 const CARD_HTML = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Card</title></head>
@@ -104,9 +102,6 @@ async function dumpTrace(page: Page) {
     .catch(() => "(trace unavailable)");
 }
 
-/** Click to select an element by node id (first click hits its top-level
- * container per the container-first click model; a second click drills in
- * to the node itself — matches selectByNodeId elsewhere in this suite). */
 async function selectByNodeId(page: Page, nodeId: string) {
   const el = designFrame(page).locator(
     `[data-agent-native-node-id="${nodeId}"]`,
@@ -155,9 +150,6 @@ test.describe("tutorial #3 — card component: structure, duplicate, rename, reo
     try {
       await gotoEditor(page, designId);
       const before = await selectByNodeId(page, "card");
-      // First click drilled to the deepest hovered leaf under the shield; back
-      // out to the Card layer itself via the layers panel so Cmd+D duplicates
-      // the whole card, not a text leaf.
       await clickLayerRow(page, "Card");
       await page.keyboard.press(`${MOD}+d`);
 
@@ -172,9 +164,6 @@ test.describe("tutorial #3 — card component: structure, duplicate, rename, reo
       );
       const copyId = ids.find((id) => id !== "card")!;
       expect(copyId, `trace: ${await dumpTrace(page)}`).toBeTruthy();
-      // Directly above the original in z-order — this app's convention (see
-      // the sibling parity specs) is later-in-DOM = higher z-order, so the
-      // copy lands immediately AFTER the source, not before.
       expect(ids.indexOf(copyId)).toBeGreaterThan(ids.indexOf("card"));
 
       const copyBox = await designFrame(page)
@@ -190,7 +179,6 @@ test.describe("tutorial #3 — card component: structure, duplicate, rename, reo
         2,
       );
 
-      // Selection moved to the copy.
       await expect(layerRow(page, "Card").first()).toHaveAttribute(
         "aria-selected",
         "true",
@@ -219,9 +207,6 @@ test.describe("tutorial #3 — card component: structure, duplicate, rename, reo
         )
         .toBe(2);
 
-      // The duplicate's title row is the SECOND "Wireless Headphones" row —
-      // walk into the duplicated Card to reach it (search would collapse the
-      // two identically-named rows together).
       const titleRows = layerTree(page).locator(
         '[data-layer-row-button] span[title="Wireless Headphones"]',
       );
@@ -240,7 +225,6 @@ test.describe("tutorial #3 — card component: structure, duplicate, rename, reo
           '[data-layer-row-button] span[title="Bluetooth Speaker Title"]',
         ),
       ).toHaveCount(1, { timeout: 10_000 });
-      // The original's title layer name is untouched.
       await expect(
         layerTree(page).locator(
           '[data-layer-row-button] span[title="Wireless Headphones"]',
@@ -326,9 +310,6 @@ test.describe("tutorial #3 — card component: structure, duplicate, rename, reo
         .toBe(true);
 
       const grouped = await fileContent(page, designId, "index.html");
-      // Plain group, not a frame: Figma ground truth says ⌘G has no
-      // clip/fill of its own — the group must not introduce a new
-      // overflow:hidden/background on the wrapper it inserts.
       const groupOpenTag =
         /<[a-z0-9]+[^>]*data-agent-native-layer-name="Group"[^>]*>/i.exec(
           grouped,
@@ -358,8 +339,6 @@ test.describe("tutorial #3 — card component: structure, duplicate, rename, reo
   });
 });
 
-// --- Fixture 2: three icon-frame screens for tutorial #6's overview steps
-// (shift-select 3 icons, marquee full-enclosure rule, mouse pan/zoom). ---
 async function createIconScreensDesign(request: APIRequestContext) {
   const created = await action(request, "create-design", {
     title: `YT tips overview parity ${Date.now()}`,
@@ -397,8 +376,6 @@ async function createIconScreensDesign(request: APIRequestContext) {
   return { designId, fileIds };
 }
 
-/** Poll a locator's boundingBox until two consecutive reads agree — used
- * after a navigation/layout change with no discrete "settled" event. */
 async function stableBox(
   locator: Locator,
 ): Promise<{ x: number; y: number; width: number; height: number }> {
@@ -453,7 +430,7 @@ test.describe("tutorial #6 — overview canvas: multi-select, marquee enclosure,
               .catch(() => -1),
           { timeout: 5_000 },
         )
-        .toBeGreaterThanOrEqual(0); // fall through to the selection-count probe below if this attribute doesn't exist
+        .toBeGreaterThanOrEqual(0);
       const selectedCount = await page.evaluate(() => {
         const labels = Array.from(
           document.querySelectorAll("[data-frame-label]"),
@@ -465,9 +442,6 @@ test.describe("tutorial #6 — overview canvas: multi-select, marquee enclosure,
             el.className.includes("selected"),
         ).length;
       });
-      // Either the app stamps per-label selected state (assert 3), or it
-      // doesn't and we fall back to reporting this as harness-blocked in
-      // findings rather than asserting on a made-up signal.
       if (selectedCount > 0) {
         expect(selectedCount).toBe(3);
       } else {
@@ -493,9 +467,6 @@ test.describe("tutorial #6 — overview canvas: multi-select, marquee enclosure,
         .first()
         .boundingBox())!;
 
-      // Marquee that only clips the right edge of the Home screen — must NOT
-      // select it (shapes need only intersection; top-level frames need full
-      // enclosure).
       await page.mouse.move(homeCard.x + homeCard.width - 10, homeCard.y - 40);
       await page.mouse.down();
       await page.mouse.move(homeCard.x + homeCard.width + 60, homeCard.y + 40, {
@@ -513,7 +484,6 @@ test.describe("tutorial #6 — overview canvas: multi-select, marquee enclosure,
         "a marquee that only clips the frame's edge must not select a top-level screen",
       ).toBe(0);
 
-      // Marquee that fully encloses Home — must select it.
       await page.mouse.move(homeCard.x - 30, homeCard.y - 30);
       await page.mouse.down();
       await page.mouse.move(

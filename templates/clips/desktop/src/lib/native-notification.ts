@@ -18,7 +18,6 @@ export interface NativeNotificationDeps {
 const tauriNotificationDeps: NativeNotificationDeps = {
   isPermissionGranted,
   requestPermission,
-  // The JS sendNotification wrapper discards the native command promise.
   sendNotification: (notification) =>
     invoke<void>("plugin:notification|notify", { options: notification }),
 };
@@ -74,7 +73,6 @@ export async function submitNativeNotification(
       });
     });
     // Desktop plugin permission checks cannot see Focus/OS suppression, and
-    // its backend queues delivery without acknowledging notification display.
     return { status: "submitted", visibility: "unknown" };
   } catch (error) {
     return {

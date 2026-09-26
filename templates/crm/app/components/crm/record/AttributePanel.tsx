@@ -1,10 +1,3 @@
-/**
- * Highlights, then the rest of the object's typed attributes, each
- * inline-editable when `update-crm-record` would actually accept it.
- *
- * This renders the *sections*; the resizable pane that holds them (and the
- * list memberships below them) belongs to `RecordWorkspace`.
- */
 
 import { useT } from "@agent-native/core/client/i18n";
 import { IconChevronRight } from "@tabler/icons-react";
@@ -109,8 +102,6 @@ function AttributeRow({
 }) {
   const t = useT();
   const editability = fieldEditability(attribute);
-  // Options and checkboxes are always live controls; typing controls swap in
-  // only once the row is activated, so the panel stays readable at rest.
   const alwaysLive =
     editability.editable &&
     (attribute.attributeType === "checkbox" ||
@@ -118,10 +109,6 @@ function AttributeRow({
         (attribute.attributeType === "status" ||
           attribute.attributeType === "select")));
 
-  // Provenance rides on the row's tooltip instead of a hover-revealed caption:
-  // a caption either reserves ~15px on every row (killing the 36px rhythm) or
-  // grows the row on hover, and animating layout is off the table. The history
-  // dialog still carries the full actor-and-when list.
   const title = [
     attribute.description ?? attribute.label,
     meta

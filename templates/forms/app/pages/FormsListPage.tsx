@@ -131,8 +131,6 @@ export function FormsListPage() {
   useSetHeaderActions(headerActions);
 
   async function handleDuplicate(form: (typeof forms)[0]) {
-    // The list payload no longer ships the heavy `fields` / `settings` JSON,
-    // so fetch the full form on demand to clone its schema and settings.
     try {
       const full = await callAction("get-form", { id: form.id });
       createForm.mutate(
@@ -635,11 +633,6 @@ export function FormsListPage() {
                           </>
                         ) : (
                           (() => {
-                            // Viewers see a form they were granted access to but
-                            // can't manage it: hide Delete, Publish/Unpublish, and
-                            // Duplicate. Viewing responses is also editor-only —
-                            // submissions are sensitive and view access on the
-                            // form structure shouldn't grant access to them.
                             const formRole = (form as any).role as
                               | "owner"
                               | "viewer"

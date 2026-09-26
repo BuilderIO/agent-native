@@ -22,15 +22,7 @@ describe("read-source-file", () => {
   });
 
   it("exposes a signed-out-capable surface, matching get-design.ts", () => {
-    // read-source-file's run() enforces access itself (via
-    // resolveSourceWorkspace -> resolveAccess), so it does not also need
-    // requiresAuth's default (true), which would 401 every anonymous
-    // /visual-edit/:id visitor before run() ever executes.
     expect(action.requiresAuth).toBe(false);
-    // Unlike read-local-file.ts, this action does not read through the
-    // owner's local bridge — it must NOT declare capabilityScopes, which
-    // would route it through the WebMCP-oriented capability-resource gate
-    // instead of the plain public-design check below.
     expect(action).not.toHaveProperty("capabilityScopes");
   });
 

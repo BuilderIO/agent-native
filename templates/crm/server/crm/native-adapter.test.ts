@@ -532,12 +532,6 @@ describe("native CRM typed-attribute boundary", () => {
   });
 
   it("keeps the amount field typed currency after a later update writes it again", async () => {
-    // Regression test for the merge-order bug behind the boundary fix:
-    // `ensureNativeObject` rebuilds an ad hoc field definition from every
-    // written field on every mutation, and before the fix that ad hoc
-    // definition (inferred from the raw JS value as generic "number")
-    // overwrote the template's "currency" definition on every single write —
-    // so the type only looked fixed until the next update.
     const connectionId = `native-typed-update-${crypto.randomUUID()}`;
     const adapter = new NativeCrmAdapter(testConnection(connectionId), "human");
     const remoteId = `opp-${crypto.randomUUID()}`;

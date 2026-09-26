@@ -1,14 +1,5 @@
 import { defineEventHandler, getQuery, setResponseHeaders } from "h3";
 
-/**
- * Tauri updater manifest endpoint for the Clips desktop app.
- *
- * The installed app only needs this endpoint to be valid JSON when no signed
- * updater bundle is available. If the channel's GitHub pointer release exists,
- * we proxy its signed manifest. If it does not, return a deliberately old
- * no-update manifest so the desktop UI stays quiet instead of surfacing a
- * release-channel setup error to end users.
- */
 
 type ClipsUpdateChannel = "production" | "nightly";
 
@@ -20,10 +11,6 @@ const GITHUB_MANIFEST_URL: Record<ClipsUpdateChannel, string> = {
 };
 const CACHE_TTL_MS = 5 * 60_000;
 
-// Tauri throws a red-banner error if the requesting client's target triple is
-// missing from `platforms`. We ship Universal macOS, Windows, and Linux, so the
-// manifest must always carry all targets — if upstream is incomplete, fall
-// back to inert so no client sees a hard error.
 export const REQUIRED_PLATFORM_KEYS = [
   "darwin-aarch64",
   "darwin-x86_64",
@@ -120,10 +107,6 @@ async function getManifest(
       cache.set(channel, { data, ts: Date.now() });
       return data;
     } catch {
-      // A validation or network failure may serve the last good manifest (or
-      // inert fallback), but it must not make that fallback fresh again.
-      // Otherwise an incomplete release manifest can indefinitely extend the
-      // stale cache window on every failed refresh.
       return cache.get(channel)?.data ?? INERT_MANIFEST;
     } finally {
       inFlight.delete(channel);

@@ -64,7 +64,6 @@ export default function ExplorerPage() {
     isSaving,
   } = useExplorerConfig();
 
-  // Support ?config=<id> URL param to auto-load a saved config
   const configParam = searchParams.get("config");
   const [loadedParam, setLoadedParam] = useState<string | null>(null);
   useEffect(() => {

@@ -1,32 +1,13 @@
-/**
- * Client-side waveform peak computation.
- *
- * Given a video URL we decode the audio track into peaks (one pair of min/max
- * samples per "bucket") using the Web Audio API. The default bucket count is
- * 2000, which gives us a decently-detailed waveform without being slow to draw.
- *
- * Results are small enough to cache in `application_state` keyed by
- * `waveform-<recordingId>` — no need to recompute on remount.
- */
 
 export interface WaveformPeaks {
-  /** Interleaved [min, max, min, max, ...] pairs, one per bucket. Range -1..1. */
   peaks: number[];
-  /** Number of min/max pairs. peaks.length === bucketCount * 2. */
   bucketCount: number;
-  /** Duration in seconds of the decoded audio. */
   durationSec: number;
-  /** Sample rate of the decoded audio. */
   sampleRate: number;
 }
 
 const DEFAULT_BUCKET_COUNT = 2000;
 
-/**
- * Fetch a URL and decode to an AudioBuffer. Browsers will happily decode a
- * video file's audio track as long as the codec is supported (WebM/Opus,
- * MP4/AAC are both fine).
- */
 async function decodeUrl(url: string, ctx: AudioContext): Promise<AudioBuffer> {
   const res = await fetch(url, { credentials: "include" });
   if (!res.ok) {
@@ -36,17 +17,11 @@ async function decodeUrl(url: string, ctx: AudioContext): Promise<AudioBuffer> {
   return await ctx.decodeAudioData(buf);
 }
 
-/**
- * Downsample an AudioBuffer to a min/max pair per bucket. We always take the
- * max-abs across channels so mono and stereo peaks look visually consistent.
- */
 function downsamplePeaks(buffer: AudioBuffer, bucketCount: number): number[] {
   const peaks = new Array<number>(bucketCount * 2).fill(0);
   const totalFrames = buffer.length;
   const bucketSize = Math.max(1, Math.floor(totalFrames / bucketCount));
 
-  // Extract channel data once — array access inside tight loop is much faster
-  // than calling getChannelData per sample.
   const channels: Float32Array[] = [];
   for (let c = 0; c < buffer.numberOfChannels; c++) {
     channels.push(buffer.getChannelData(c));
@@ -71,10 +46,6 @@ function downsamplePeaks(buffer: AudioBuffer, bucketCount: number): number[] {
   return peaks;
 }
 
-/**
- * Compute peaks from a given URL. Returns null when the browser can't decode
- * (e.g., no Web Audio support, CORS blocks, or the codec isn't supported).
- */
 export async function computePeaks(
   url: string,
   bucketCount: number = DEFAULT_BUCKET_COUNT,
@@ -106,10 +77,6 @@ export async function computePeaks(
   }
 }
 
-/**
- * Compute peaks from a Blob (e.g., a freshly-recorded MediaRecorder chunk
- * before it's been uploaded). Same return shape as `computePeaks`.
- */
 export async function computePeaksFromBlob(
   blob: Blob,
   bucketCount: number = DEFAULT_BUCKET_COUNT,

@@ -1,9 +1,3 @@
-/**
- * Clip A 19:55 → 19:59 (XpIts390YLYS): a bare `Ctrl+[` on an in-flow
- * rectangle moved it from Y 225 to Y 128 with its width, height and corner
- * radius unchanged. Every mode built a `moveNode` markup splice, so a
- * paint-order command relaid out the document.
- */
 
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import { describe, expect, it, vi } from "vitest";
@@ -18,7 +12,6 @@ const CONTENT = `<html><body><div data-agent-native-node-id="wrap">
 <div data-agent-native-node-id="b" style="position:absolute;left:0;top:40px"></div>
 </div></body></html>`;
 
-/** Selection state carries projection ids, not authored node attributes. */
 function projectionId(authoredId: string, content = CONTENT): string {
   const node = buildCodeLayerProjection(content, {
     source: { kind: "design-file", fileId: "file-1" },
@@ -71,7 +64,6 @@ function harness(
     selectedLayerIdsState: [targetId],
     setSelectedElement: vi.fn(),
   } as unknown as Parameters<typeof runChangeSelectedZIndex>[0];
-  /** The write aimed at the selection, ignoring any parent-scoped write. */
   const targetStyles = () =>
     commitVisualStyles.mock.calls.find(
       ([, styles]) =>
@@ -301,9 +293,6 @@ describe("runChangeSelectedZIndex — a paint-order change must not move anythin
   });
 });
 
-// PR #3585 review: a negative z-index escapes to the nearest stacking-context
-// ancestor, so an in-flow layer sent to back could vanish behind an opaque
-// parent background instead of moving behind its siblings.
 describe("runChangeSelectedZIndex — send to back must not hide the layer", () => {
   it("isolates the parent so the negative index cannot escape", () => {
     const { args, applyLocalContentUpdate, commitVisualStyles } = harness({
@@ -334,7 +323,6 @@ describe("runChangeSelectedZIndex — send to back must not hide the layer", () 
   });
 });
 
-// PR #3585 review round 2.
 describe("runChangeSelectedZIndex — send to back must reach the back", () => {
   it("goes below a sibling that is already negative", () => {
     const content = `<html><body><div data-agent-native-node-id="wrap">
@@ -546,8 +534,6 @@ describe("runChangeSelectedZIndex — rendered multi-selection order", () => {
     );
   });
 
-  // {A, C} passes with the no-hop guard removed or the loop reversed; an
-  // adjacent pair is what exposes both.
   it.each([
     ["forward", ["S", "A", "D", "B", "C"]],
     ["backward", ["S", "B", "C", "A", "D"]],

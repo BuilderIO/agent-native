@@ -33,7 +33,6 @@ import {
   themeClrSchemeXml,
 } from "./export-pptx";
 
-/** An imported-PPTX slide wrapper holding one `data-pptx-element-kind` element. */
 function importedSlide(element: string, slideStyle = "background:#000000;") {
   return `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="${slideStyle}">${element}</div>`;
 }
@@ -41,16 +40,10 @@ function importedSlide(element: string, slideStyle = "background:#000000;") {
 const SHAPE_BOX =
   "position:absolute;left:96px;top:54px;width:192px;height:108px;";
 
-/** `importedSlide`, but stamped with a real 16:9 source page like the importer does. */
 function sourcePagedSlide(element: string) {
   return `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" data-slide-width-emu="12192000" data-slide-height-emu="6858000" style="background:#FFFFFF;">${element}</div>`;
 }
 
-/**
- * Slide 4 of SlidesMania "Infographics Set 1", verbatim: a `<p:cxnSp>`
- * `straightConnector1` of `cx="0"`, which the importer renders as a
- * zero-width box with one `border-left` plus its two `oval` end caps.
- */
 const CONNECTOR_ELEMENT =
   '<div class="fmd-pptx-shape" data-pptx-element-kind="shape" data-slide-object-id="153" style="position: absolute; left: 95.528px; top: 216.774px; width: 0px; height: 72.581px; z-index: 9; box-sizing: border-box; transform: rotate(180deg); transform-origin: center center;border-left: 1.5px solid #3A3838;">' +
   '<svg viewBox="0 0 4.5 77.081" style="position:absolute;left:-2.25px;top:-2.25px;width:4.5px;height:77.081px;overflow:visible;pointer-events:none;">' +
@@ -215,8 +208,6 @@ describe("parseSlideHtml", () => {
     expect(result.texts).toHaveLength(1);
     expect(result.texts[0].x).toBeCloseTo(1, 3);
     expect(result.texts[0].y).toBeCloseTo((68 / 540) * 7.5, 4);
-    // 16:9 decks are 72 px/in, so CSS px and pt match 1:1 — not the fixed
-    // 96dpi (0.75x) conversion, which would wrongly give 36 here.
     expect(result.texts[0].fontSize).toBe(48);
     expect(result.texts[0].runs?.map((run) => run.text).join("")).toContain(
       "Body accent",
@@ -280,8 +271,6 @@ describe("parseSlideHtml", () => {
   });
 
   it("derives px-to-pt from the deck's actual px/inch ratio, not a fixed 96dpi assumption", () => {
-    // 1:1 decks are 108 px/in (1080px / 10in), not the 96dpi (0.75x) the
-    // fixed conversion assumed: 48px at 108dpi is 32pt, not 36pt.
     const result = parseSlideHtml(
       '<div class="fmd-slide"><h1 style="font-size: 48px;">Title</h1></div>',
       "1:1",
@@ -430,8 +419,6 @@ describe("parseSlideHtml", () => {
     const [start, arc] = (result.shapes[0]?.points ?? []) as Array<
       Record<string, never>
     >;
-    // The arc's center is (50px, 50px), so it starts due east and sweeps a
-    // quarter turn clockwise onto its endpoint.
     expect(start).toEqual({
       x: (100 / 960) * 13.33,
       y: (50 / 540) * 7.5,
@@ -471,8 +458,6 @@ describe("parseSlideHtml", () => {
   });
 
   it("reads the importer's compact relative path, not just the absolute spelling", () => {
-    // What `createPathWriter` emits: lowercase commands, no separator before a
-    // sign or a bare `.`, and a repeated command left implicit.
     const compact = parseSlideHtml(
       importedSlide(
         `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('m0 0 96 0-96 54z');"></div>`,
@@ -574,10 +559,8 @@ describe("parseSlideHtml", () => {
 
     expect(circle?.shapeType).toBe("ellipse");
     expect(circle?.rectRadius).toBeUndefined();
-    // 16:9 decks are 72 px/in, so an 18px radius is 0.25in.
     expect(rounded?.shapeType).toBe("roundRect");
     expect(rounded?.rectRadius).toBeCloseTo((18 / 960) * 13.33, 4);
-    // A pill clamps to the half-short-side PowerPoint's `adj` value caps at.
     expect(pill?.rectRadius).toBeCloseTo(((108 / 540) * 7.5) / 2, 4);
   });
 
@@ -642,7 +625,6 @@ describe("parseSlideHtml", () => {
 
     expect(connector).toMatchObject({
       shapeType: "line",
-      // 1.5px at this deck's 72 px/in is the source's own `<a:ln w="19050">`.
       lineColor: "3A3838",
       lineWidth: 2,
       lineHeadType: "oval",
@@ -726,8 +708,6 @@ describe("parseSlideHtml", () => {
       1,
     ).texts;
 
-    // The importer renders the source's `spcPct 100000` as CSS 1.2; writing
-    // that back out unchanged shipped every paragraph at 120%.
     expect(text.lineSpacingMultiple).toBe(1);
   });
 
@@ -759,7 +739,6 @@ describe("parseSlideHtml", () => {
       1,
     );
 
-    // SHAPE_BOX is 192x108px, which is 2.6667x1.5in on a 16:9 deck.
     expect(result.tables[0]?.colW).toEqual([
       expect.closeTo(1.3333, 3),
       expect.closeTo(0.6667, 3),
@@ -800,7 +779,6 @@ describe("parseSlideHtml", () => {
 
     const cell = result.tables[0]?.rows[0]?.[0]?.options;
     expect(cell?.align).toBe("center");
-    // 9.6px is 0.1333in tall and 19.2px is 0.2667in wide on a 16:9 deck.
     expect(cell?.margin).toEqual([
       expect.closeTo(0.1333, 3),
       expect.closeTo(0.2667, 3),
@@ -833,7 +811,6 @@ describe("parseSlideHtml", () => {
     );
 
     expect(result.texts[0]?.fontFace).toBe("Bodoni Moda");
-    // No run declared a size, so none is invented on the way out either.
     expect(result.texts[0]?.fontSize).toBeUndefined();
   });
 
@@ -849,9 +826,6 @@ describe("parseSlideHtml", () => {
       1,
     );
 
-    // pptxgenjs copies a box-level option onto any run whose own value is
-    // falsy, so a `bold: true` default here re-bolds every `bold: false` run:
-    // gamesfund came back with 28 bold runs the source never had.
     expect(result.texts[0]?.bold).toBe(false);
     expect(result.texts[0]?.runs?.map((run) => run.options.bold)).toEqual([
       true,
@@ -896,9 +870,6 @@ describe("parseSlideHtml", () => {
   });
 
   it("scales onto the source page size, not the preset the import snapped to", () => {
-    // creandum-board-deck-template is 9144000x5715000 EMU (16:10). The nearest
-    // renderable preset is 16:9, so exporting onto the preset's 13.33x7.5in
-    // page stretched every element vertically by 16:9 / 16:10.
     const element = `<div data-pptx-element-kind="text" style="position:absolute;left:96px;top:54px;width:192px;height:108px;"><p><span style="font-size:32px;">Title</span></p></div>`;
     const onSourcePage = parseSlideHtml(
       `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" data-slide-width-emu="9144000" data-slide-height-emu="5715000" style="background:#ffffff;">${element}</div>`,
@@ -911,10 +882,8 @@ describe("parseSlideHtml", () => {
       1,
     );
 
-    // 96px of a 960px box on a 10in page is exactly the source's own 914400 EMU.
     expect(onSourcePage.texts[0].x).toBeCloseTo(1, 6);
     expect(onSourcePage.texts[0].y).toBeCloseTo((54 / 540) * 6.25, 6);
-    // 96 px/in here, so the source's 24pt run comes back 24pt, not 32pt.
     expect(onSourcePage.texts[0].fontSize).toBe(24);
     expect(onPresetPage.texts[0].x).toBeCloseTo((96 / 960) * 13.33, 6);
     expect(onPresetPage.texts[0].y).toBeCloseTo((54 / 540) * 7.5, 6);
@@ -983,8 +952,6 @@ describe("sourcePageInches", () => {
 
 describe("cssGradientToDrawingMl", () => {
   it("re-orients a linear gradient back to the OOXML angle the importer read", () => {
-    // CSS measures clockwise from "up", `<a:lin ang>` from the positive x-axis:
-    // 140.02deg is (140.02 - 90) * 60000 = 3001200, not 8401200.
     expect(
       cssGradientToDrawingMl(
         "linear-gradient(140.02deg, #2A80D0 0%, #67A99C 50%, #9CCB5A 100%)",
@@ -1024,11 +991,6 @@ describe("cssGradientToDrawingMl", () => {
   });
 
   it("reads a `to <side>` direction as its angle rather than as a color stop", () => {
-    // Regression: only `<angle>` was recognized as the configuration argument,
-    // so `to right` reached `colorToHex`, which reported an unreadable color
-    // the way it is meant to — by defaulting to white. The gradient came out
-    // with a phantom white stop the deck never had, pointing down instead of
-    // right.
     expect(
       cssGradientToDrawingMl("linear-gradient(to right, #013445, #018589)"),
     ).toBe(
@@ -1099,7 +1061,7 @@ describe("themeClrSchemeXml", () => {
     const xml = themeClrSchemeXml(palette);
 
     expect(xml).toContain('<a:accent1><a:srgbClr val="FFAB40"/></a:accent1>');
-    expect(xml).not.toContain("4472C4"); // the Office default accent1
+    expect(xml).not.toContain("4472C4");
     expect(xml?.indexOf("<a:dk1>")).toBeLessThan(xml?.indexOf("<a:lt1>") ?? -1);
   });
 
@@ -1111,7 +1073,6 @@ describe("themeClrSchemeXml", () => {
 });
 
 describe("exported slide XML", () => {
-  /** The slide part pptxgenjs writes for one parsed slide, exercised the way the action does. */
   async function writeParsedSlide(html: string): Promise<string> {
     const { texts, shapes } = parseSlideHtml(html, "16:9", 1);
     const pptx = new PptxGenJS();
@@ -1231,7 +1192,6 @@ describe("tableOptions", () => {
       .file("ppt/slides/slide1.xml")
       ?.async("string");
 
-    // 60/40 of 2.6667in, and 25/75 of 1.5in, in EMUs.
     expect(slideXml).toContain(
       '<a:gridCol w="1462674"/><a:gridCol w="975116"/>',
     );

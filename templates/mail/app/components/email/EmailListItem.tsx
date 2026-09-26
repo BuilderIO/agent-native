@@ -42,13 +42,9 @@ interface EmailListItemProps {
   isSelected: boolean;
   isFocused: boolean;
   isMultiSelected?: boolean;
-  /** Whether archive/snooze/trash row actions apply in the current view.
-   *  Passed as booleans instead of `undefined`-vs-closure so handlers stay
-   *  referentially stable across rows and renders. */
   canArchive?: boolean;
   canSnooze?: boolean;
   canTrash?: boolean;
-  /** Present only for scheduled-send rows; drives the send-now/cancel actions. */
   scheduledJobId?: string | null;
   onSelect: (thread: ThreadSummary) => void;
   onToggleMultiSelect: (e: React.SyntheticEvent, thread: ThreadSummary) => void;
@@ -61,11 +57,8 @@ interface EmailListItemProps {
   onSendNow?: (e: React.MouseEvent, thread: ThreadSummary) => void;
   onCancelSchedule?: (e: React.MouseEvent, thread: ThreadSummary) => void;
   onHover: (thread: ThreadSummary) => void;
-  /** Called after a left-swipe past the threshold (archive). */
   onSwipeArchive?: (thread: ThreadSummary) => void;
-  /** Called after a right-swipe past the threshold (snooze). */
   onSwipeSnooze?: (thread: ThreadSummary) => void;
-  /** Optional search term to highlight in subject and snippet. */
   highlight?: string;
 }
 
@@ -89,26 +82,18 @@ function renderWithHighlight(text: string, term?: string) {
   );
 }
 
-// Minimum horizontal distance before we lock into a swipe gesture.
 const SWIPE_SLOP = 10;
-// Distance past which a swipe commits the action.
 const SWIPE_COMMIT_THRESHOLD = 80;
-// Distance past which the action icon "snaps" to filled state.
 const SWIPE_ICON_SNAP = 56;
-// Release velocity (px/ms) past which a swipe commits regardless of distance.
 const SWIPE_COMMIT_VELOCITY = 0.11;
 
-/** Format participant names for thread display, e.g. "Kaitlyn .. Sam, Andrew" */
 function formatParticipants(participants: string[], maxWidth = 3): string {
   if (participants.length <= 1) return participants[0] || "";
-  // Extract first names only
   const firstNames = participants.map((p) => p.split(" ")[0]);
   if (firstNames.length <= maxWidth) return firstNames.join(", ");
-  // Show first, "..", then last few
   return `${firstNames[0]} .. ${firstNames.slice(-(maxWidth - 1)).join(", ")}`;
 }
 
-/** Stable dot colors for distinguishing accounts */
 const accountDotColors = [
   "bg-blue-400",
   "bg-emerald-400",
@@ -165,21 +150,13 @@ export const EmailListItem = memo(function EmailListItem({
   const showSendNow = Boolean(onSendNow && scheduledJobId);
   const showCancelSchedule = Boolean(onCancelSchedule && scheduledJobId);
 
-  // ── Swipe state ─────────────────────────────────────────────────────────
-  // `dragX` drives the row's translateX. `isDragging` disables the snap
-  // transition while the finger is on the screen. Refs hold the active gesture
-  // so event handlers don't thrash state on every touchmove.
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const gestureRef = useRef<{
     startX: number;
     startY: number;
-    // "none" until we know which axis the user is swiping; then "h" or "v".
     locked: "none" | "h" | "v";
-    // Set to true once we commit an action — blocks the trailing click.
     committed: boolean;
-    // Two-sample window for release-velocity calculation (px/ms). Updated on
-    // each touchmove; not an accumulating history.
     lastX: number;
     lastT: number;
     prevX: number;
@@ -223,8 +200,6 @@ export const EmailListItem = memo(function EmailListItem({
       const dx = t.clientX - g.startX;
       const dy = t.clientY - g.startY;
 
-      // Decide the axis on first meaningful movement. Bias toward vertical
-      // so hesitant scrolls don't accidentally start a swipe.
       if (g.locked === "none") {
         if (Math.abs(dx) < SWIPE_SLOP && Math.abs(dy) < SWIPE_SLOP) return;
         if (Math.abs(dx) > Math.abs(dy) * 1.2) {
@@ -232,7 +207,6 @@ export const EmailListItem = memo(function EmailListItem({
           setIsDragging(true);
           didSwipeRef.current = true;
         } else {
-          // Vertical scroll — disengage swipe for the rest of this gesture.
           g.locked = "v";
           gestureRef.current = null;
           return;
@@ -240,13 +214,11 @@ export const EmailListItem = memo(function EmailListItem({
       }
 
       if (g.locked === "h") {
-        // Slide the two-sample window forward for release-velocity math.
         g.prevX = g.lastX;
         g.prevT = g.lastT;
         g.lastX = t.clientX;
         g.lastT = performance.now();
 
-        // Only one side may be active at a time.
         if (dx < 0 && !onSwipeArchive) {
           setDragX(0);
           return;
@@ -274,27 +246,21 @@ export const EmailListItem = memo(function EmailListItem({
     const flungRight =
       velocity >= SWIPE_COMMIT_VELOCITY && dragX >= SWIPE_ICON_SNAP;
 
-    // Left swipe → archive.
     if (
       (dragX <= -SWIPE_COMMIT_THRESHOLD || flungLeft) &&
       onSwipeArchive &&
       thread
     ) {
       g.committed = true;
-      // Fly the row off-screen, then hand off to the parent to actually
-      // remove it from the list. The snap transition makes this feel fluid
-      // instead of an abrupt disappearance.
       setIsDragging(false);
       setDragX(-window.innerWidth);
       setTimeout(() => {
         onSwipeArchive(thread);
-        // Parent will unmount us; reset defensively if it doesn't.
         resetSwipe();
       }, 180);
       return;
     }
 
-    // Right swipe → snooze. We don't remove the row — the modal takes over.
     if (
       (dragX >= SWIPE_COMMIT_THRESHOLD || flungRight) &&
       onSwipeSnooze &&
@@ -302,12 +268,10 @@ export const EmailListItem = memo(function EmailListItem({
     ) {
       g.committed = true;
       onSwipeSnooze(thread);
-      // Snap back so the row is in place when the modal closes.
       resetSwipe();
       return;
     }
 
-    // Not enough — snap back.
     resetSwipe();
   }, [dragX, onSwipeArchive, onSwipeSnooze, resetSwipe, thread]);
 
@@ -316,7 +280,6 @@ export const EmailListItem = memo(function EmailListItem({
     didSwipeRef.current = false;
   }, [resetSwipe]);
 
-  // Suppress click fired at the end of a swipe.
   const handleRowClick = useCallback(() => {
     if (didSwipeRef.current) {
       didSwipeRef.current = false;
@@ -331,8 +294,6 @@ export const EmailListItem = memo(function EmailListItem({
 
   const handleRowKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      // Action buttons live inside the row. Their Enter/Space events must not
-      // also open the conversation or toggle selection.
       if (!thread || e.target !== e.currentTarget) return;
       if (e.key === "Enter") {
         e.preventDefault();
@@ -411,7 +372,6 @@ export const EmailListItem = memo(function EmailListItem({
   const isUnread = thread ? thread.hasUnread : !email.isRead;
   const isStarred = thread ? thread.hasStarred : email.isStarred;
 
-  // Filter to user labels only (skip system labels and Gmail auto-categories)
   const systemLabels = new Set([
     "inbox",
     "sent",
@@ -433,7 +393,6 @@ export const EmailListItem = memo(function EmailListItem({
     "CATEGORY_UPDATES",
     "CATEGORY_FORUMS",
     "UNREAD",
-    // Gmail auto-categories (lowercase IDs used in the app)
     "updates",
     "promotions",
     "social",
@@ -446,7 +405,6 @@ export const EmailListItem = memo(function EmailListItem({
     (l) => !systemLabels.has(l),
   );
 
-  // Progress (0–1+) in each direction — used to scale icon feedback.
   const archiveProgress = dragX < 0 ? Math.min(1, -dragX / SWIPE_ICON_SNAP) : 0;
   const snoozeProgress = dragX > 0 ? Math.min(1, dragX / SWIPE_ICON_SNAP) : 0;
   const showSwipeBackgrounds = canSwipe && dragX !== 0;
@@ -504,9 +462,6 @@ export const EmailListItem = memo(function EmailListItem({
         aria-selected={isMultiSelected}
         aria-current={isFocused ? "true" : undefined}
         onClick={handleRowClick}
-        // `mouseenter` can fire when layout moves under a stationary cursor.
-        // `mousemove` only follows the pointer after the user actually moves it,
-        // so keyboard navigation keeps ownership during list/header changes.
         onMouseMove={handleRowHover}
         onKeyDown={handleRowKeyDown}
         onTouchStart={canSwipe ? handleTouchStart : undefined}
@@ -519,10 +474,6 @@ export const EmailListItem = memo(function EmailListItem({
                 transform: `translateX(${dragX}px)`,
                 transition: isDragging ? "none" : "transform 180ms ease-out",
                 touchAction: "pan-y",
-                // While the row is displaced we need a solid background so the
-                // colored reveal backgrounds don't bleed through. When idle we
-                // leave this unset so the .focused / .selected CSS classes can
-                // apply their own backgrounds naturally.
                 ...(dragX !== 0
                   ? {
                       backgroundColor: isSelected

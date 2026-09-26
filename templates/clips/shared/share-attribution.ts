@@ -14,18 +14,11 @@
  * an email. Omit `via` rather than leak PII into a public URL or event.
  */
 
-/** Fixed referral source for clip shares. */
 export const CLIP_SHARE_REF = "clip_share";
 
-/** Query param names that carry attribution. */
 export const REF_PARAM = "ref";
 export const VIA_PARAM = "via";
 
-/**
- * Append `ref=clip_share` (and `via=<ownerId>` when a non-PII owner id is
- * known) to an absolute share/embed URL, preserving any existing query params.
- * Returns the input unchanged when it isn't a parseable absolute URL.
- */
 export function withShareAttribution(
   url: string,
   ownerId?: string | null,
@@ -47,10 +40,6 @@ export type ShareAttribution = {
   via: string | undefined;
 };
 
-/**
- * Keep only non-sensitive attribution and playback state when a share page
- * redirects to sign-in. Passwords and capability tokens must never enter auth URLs.
- */
 export function buildShareContinuationQuery(
   attribution: ShareAttribution,
   startAt?: string | null,
@@ -64,11 +53,6 @@ export function buildShareContinuationQuery(
   return params.toString();
 }
 
-/**
- * Read `ref`/`via` from a query string (e.g. `window.location.search`). Falls
- * back to `ref=clip_share` so downstream attribution stays meaningful even when
- * the visitor arrived via a link that lost the param.
- */
 export function readShareAttribution(search: string): ShareAttribution {
   let ref: string | undefined;
   let via: string | undefined;
@@ -82,11 +66,6 @@ export function readShareAttribution(search: string): ShareAttribution {
   return { ref: ref || CLIP_SHARE_REF, via: via || undefined };
 }
 
-/**
- * Build the attribution-forwarding signup path so attribution survives even if
- * cookies are blocked. The framework also captures these params on the
- * `/signup` page load.
- */
 export function buildSignupAttributionQuery(via?: string | null): string {
   const params = new URLSearchParams();
   params.set(REF_PARAM, CLIP_SHARE_REF);

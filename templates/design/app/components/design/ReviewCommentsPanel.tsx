@@ -42,9 +42,7 @@ export interface ReviewCommentsPanelProps {
   canComment: boolean;
   currentUserEmail?: string | null;
   currentTargetId?: string | null;
-  /** Caller-derived editor capability for resolving threads. */
   canResolve?: boolean;
-  /** Caller authorization for deleting a specific root comment. */
   canDeleteComment?: (comment: ReviewComment, thread: ReviewThread) => boolean;
   signInHref?: string;
   onSelectThread?: (thread: ReviewThread) => void;

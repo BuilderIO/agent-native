@@ -235,9 +235,6 @@ export function documentContentPreview(content: string) {
   };
 }
 
-/** Shape written by the editor's `content-selection.ts` client helper. Kept
- *  as a local structural type (rather than imported from `app/`) since
- *  actions are server-only and app-state values are untrusted input anyway. */
 interface ContentSelectionAppState {
   documentId?: unknown;
   collapsed?: unknown;
@@ -247,12 +244,6 @@ interface ContentSelectionAppState {
   heading?: unknown;
 }
 
-/**
- * Build the `selection` screen section from the raw `content-selection`
- * app-state value, or return null when there is nothing usable — no value,
- * malformed value, or a selection left over from a document that isn't the
- * one currently open (the tab navigated away without clearing it in time).
- */
 export function buildSelectionScreenSection(
   selection: unknown,
   openDocumentId: string | undefined,

@@ -2,30 +2,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-/**
- * These tests exercise the REAL shader-fill-preview bridge script that
- * `DesignCanvas.tsx` injects into the design iframe. Rather than duplicate
- * the validation logic here (which would drift from the bridge), we import
- * the compiled bridge string from the generated module, strip the IIFE
- * wrapper, and pull out the pieces under test so the live postMessage
- * handler is exercised for real.
- *
- * Covers the two code-review fixes on the PREVIEW path only:
- *   1. GLSL validation gap — `glsl-shader-preview` (and `glsl-shader-update`)
- *      now run the same structural checks the persist path's
- *      `validateShaderDef()` applies (shared/shader-fills.ts) before ever
- *      calling into the WebGL runtime, and reject with a posted error
- *      message instead of compiling. Also covers the local MAX_PREVIEW_MOUNTS
- *      (8) cap enforced independently of the runtime's own bookkeeping.
- *   2. Unvalidated CSS — `shader-fill-preview` now gates `css` through
- *      `isSafeBackgroundStyleValue()` (a minimal duplicate of
- *      `isSafeStyleValue()` in shared/code-layer.ts) before writing
- *      `el.style.background`, rejecting silently (no style write) plus
- *      posting a warning message.
- *
- * Source: app/components/design/bridge/shader-fill-preview.bridge.ts
- * Compiled: .generated/bridge/shader-fill-preview.generated.ts
- */
 
 interface FakeElement {
   style: Record<string, string>;
@@ -58,13 +34,9 @@ interface FakeAnShadersApi {
 }
 
 function loadBridge(): {
-  /** Dispatch a parent → iframe postMessage into the bridge's listener. */
   sendMessage: (data: unknown) => void;
-  /** Register a fake element addressable by data-agent-native-node-id. */
   addElement: (nodeId: string) => FakeElement;
-  /** Messages the bridge posted back to window.parent. */
   parentMessages: unknown[];
-  /** Calls recorded against the fake window.__anShaders runtime. */
   runtimeCalls: {
     applyPreview: Array<{
       target: unknown;
@@ -73,7 +45,6 @@ function loadBridge(): {
     }>;
     updateShader: Array<{ id: string; patch: unknown }>;
   };
-  /** Controls what the fake runtime's applyPreview() returns. */
   setApplyPreviewResult: (result: boolean) => void;
 } {
   const generatedPath = fileURLToPath(
@@ -87,12 +58,6 @@ function loadBridge(): {
     shaderFillPreviewBridgeScript: string;
   };
 
-  // The generated string is the compiled IIFE JS (no <script> tags).
-  // esbuild wraps the source IIFE in an outer arrow-IIFE:
-  //   "use strict";\n(() => {\n  // source-file-comment\n  (function() {\n    ...\n  })();\n})();\n
-  // Strip both wrappers so only the function body is left, then run it
-  // against fake window/document objects so the real message listener
-  // registers and runs for real.
   let body = shaderFillPreviewBridgeScript;
   body = body.replace(/^["']use strict["'];\s*\(\(\)\s*=>\s*\{/, "");
   body = body.replace(/\}\)\(\);\s*$/, "");
@@ -398,10 +363,6 @@ describe("shader-fill-preview bridge — GLSL preview gate", () => {
 
   it("enforces the MAX_PREVIEW_MOUNTS (8) cap independent of the runtime, rejecting the 9th preview request since the last clear", () => {
     const bridge = loadBridge();
-    // The bridge counts every ACCEPTED preview request since the last
-    // glsl-shader-preview-clear (rather than trusting that a preview mount
-    // always self-replaces), so 8 accepted requests saturate the cap and a
-    // 9th is rejected without ever reaching the runtime.
     for (let i = 0; i < 8; i++) {
       bridge.sendMessage({
         type: "glsl-shader-preview",
@@ -420,7 +381,6 @@ describe("shader-fill-preview bridge — GLSL preview gate", () => {
       mode: "fill",
     });
 
-    // Still 8 — the 9th request was rejected before calling the runtime.
     expect(bridge.runtimeCalls.applyPreview).toHaveLength(8);
     const [message] = bridge.parentMessages as Array<{
       type: string;

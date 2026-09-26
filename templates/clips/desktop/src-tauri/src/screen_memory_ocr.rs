@@ -134,14 +134,10 @@ struct NativeOcrResponse {
     error: Option<String>,
 }
 
-/// Maps Vision's actual extracted frame time onto the segment timeline.
 pub fn captured_at_for_offset(segment_started_at: DateTime<Utc>, offset_ms: i64) -> String {
     (segment_started_at + Duration::milliseconds(offset_ms.max(0))).to_rfc3339()
 }
 
-/// The sparse sampling contract shared with the native helper: start at the
-/// segment boundary, use the configured interval, and never request more than
-/// thirty video frames.
 pub fn requested_frame_offsets(duration_ms: u64, sample_interval_seconds: u64) -> Vec<u64> {
     let interval_ms = sample_interval_seconds.max(1).saturating_mul(1_000);
     (0..MAX_OCR_FRAMES)
@@ -150,7 +146,6 @@ pub fn requested_frame_offsets(duration_ms: u64, sample_interval_seconds: u64) -
         .collect()
 }
 
-/// Retains a bounded, UTF-8-safe prefix without carrying frame images forward.
 pub fn bounded_ocr_text(text: &str) -> String {
     if text.len() <= MAX_OCR_TEXT_BYTES {
         return text.to_owned();
@@ -185,8 +180,6 @@ fn rows_from_frames(
         .collect()
 }
 
-/// Runs sparse, on-device OCR on macOS. Callers own persistence and should
-/// transition the associated index status from `indexing` to `ready`/`failed`.
 #[cfg(target_os = "macos")]
 pub fn recognize_segment(
     segment_path: &Path,
@@ -220,8 +213,6 @@ pub fn recognize_segment(
     ))
 }
 
-/// Platforms without AVFoundation/Vision do not silently provide a different
-/// OCR path. Capture remains usable, while callers can mark OCR as skipped.
 #[cfg(not(target_os = "macos"))]
 pub fn recognize_segment(
     _segment_path: &Path,

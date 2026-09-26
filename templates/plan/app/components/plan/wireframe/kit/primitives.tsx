@@ -6,14 +6,8 @@ import {
   type ReactNode,
 } from "react";
 
-/** Default sketch level (0–100) → rough.js roughness. Legible but hand-drawn. */
 export const DEFAULT_SKETCH = 40;
 
-/**
- * Frame-level config threaded to every Screen (including ones the registry
- * builds for a top-level `screen` node), so skeleton / theme / sketch-vs-clean
- * reach the kit no matter which path renders the root Screen.
- */
 export const KitConfigContext = createContext<{
   skeleton?: boolean;
   sketch?: number;
@@ -54,7 +48,6 @@ const V = {
   script: "var(--font-script)",
 } as const;
 
-/** Map a semantic tone to its foreground / background / border colors. */
 type ToneColors = { fg: string; bg: string; bd: string };
 
 function toneColors(tone: PlanWireframeTone = "default"): ToneColors {
@@ -72,7 +65,6 @@ function toneColors(tone: PlanWireframeTone = "default"): ToneColors {
   }
 }
 
-/** Resolve a tone keyword to just its ink color (for text). */
 function toneInk(tone?: PlanWireframeTone): string {
   return toneColors(tone).fg;
 }
@@ -83,9 +75,6 @@ function fontWeight(weight?: "normal" | "medium" | "bold"): number {
   return 400;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Screen — root frame. Paper bg, hand font, the sketch wobble filter.        */
-/* -------------------------------------------------------------------------- */
 
 export function Screen({
   children,
@@ -101,7 +90,6 @@ export function Screen({
   sketch?: number;
   density?: "compact" | "regular" | "roomy";
   theme?: "light" | "dark";
-  /** Neutral loading register: rough off, borders dropped, soft placeholder fills. */
   skeleton?: boolean;
   style?: CSSProperties;
 }) {
@@ -139,9 +127,6 @@ export function Screen({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Hand — handwritten text run.                                               */
-/* -------------------------------------------------------------------------- */
 
 export function Hand({
   children,
@@ -175,9 +160,6 @@ export function Hand({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Bar — a grey placeholder line standing in for un-drawn body text.          */
-/* -------------------------------------------------------------------------- */
 
 export function Bar({
   w = 80,
@@ -206,9 +188,6 @@ export function Bar({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Lines — stack of placeholder bars (paragraph stand-in).                    */
-/* -------------------------------------------------------------------------- */
 
 export function Lines({
   n = 2,
@@ -235,9 +214,6 @@ export function Lines({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Box — generic hand-drawn container.                                        */
-/* -------------------------------------------------------------------------- */
 
 export function Box({
   children,
@@ -271,9 +247,6 @@ export function Box({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Check — task checkbox. done -> accent fill + tick.                         */
-/* -------------------------------------------------------------------------- */
 
 export function Check({
   done = false,
@@ -319,9 +292,6 @@ export function Check({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Pill — outline tag tinted by tone.                                         */
-/* -------------------------------------------------------------------------- */
 
 export function Pill({
   children,
@@ -359,9 +329,6 @@ export function Pill({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Prio — priority dot. 1 = high (warn), 2 = med (soft), 3 = low (outline).   */
-/* -------------------------------------------------------------------------- */
 
 export function Prio({ level = 2, label }: { level?: number; label?: string }) {
   const fill = level === 1 ? V.warn : level === 2 ? V.soft : "transparent";
@@ -387,9 +354,6 @@ export function Prio({ level = 2, label }: { level?: number; label?: string }) {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Btn — sketchy button. solid -> accent fill.                                */
-/* -------------------------------------------------------------------------- */
 
 export function Btn({
   children,
@@ -441,9 +405,6 @@ export function Btn({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Chip — small filter / segmented option.                                    */
-/* -------------------------------------------------------------------------- */
 
 export function Chip({
   children,
@@ -480,9 +441,6 @@ export function Chip({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Field — form field: label + outlined input holding value or placeholder.   */
-/* -------------------------------------------------------------------------- */
 
 export function Field({
   label,
@@ -537,9 +495,6 @@ export function Field({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* StatusBar — phone status row.                                              */
-/* -------------------------------------------------------------------------- */
 
 export function StatusBar() {
   return (
@@ -564,9 +519,6 @@ export function StatusBar() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Fab — floating action button (bottom-right). Absolute by design.           */
-/* -------------------------------------------------------------------------- */
 
 export function Fab({ icon = "+" }: { icon?: string }) {
   return (
@@ -599,9 +551,6 @@ export function Fab({ icon = "+" }: { icon?: string }) {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* BrowserBar — desktop window top chrome with address pill.                  */
-/* -------------------------------------------------------------------------- */
 
 export function BrowserBar({
   title = "todo",
@@ -660,9 +609,6 @@ export function BrowserBar({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* SectionLabel — group header for a list section, optional right slot.       */
-/* -------------------------------------------------------------------------- */
 
 export function SectionLabel({
   children,
@@ -700,9 +646,6 @@ export function SectionLabel({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Avatar — little round placeholder.                                         */
-/* -------------------------------------------------------------------------- */
 
 export function Avatar({ size = 26 }: { size?: number }) {
   return (
@@ -721,9 +664,6 @@ export function Avatar({ size = 26 }: { size?: number }) {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* IconSquare — generic small icon placeholder (a box with an inner square).  */
-/* -------------------------------------------------------------------------- */
 
 export function IconSquare({
   size = 18,
@@ -759,9 +699,6 @@ export function IconSquare({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* NavItem — sidebar nav row (icon/dot + label + optional count).            */
-/* -------------------------------------------------------------------------- */
 
 export function NavItem({
   label,
@@ -819,9 +756,6 @@ export function NavItem({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Sidebar — left rail container (flex column, right border).                 */
-/* -------------------------------------------------------------------------- */
 
 export function Sidebar({
   children,
@@ -857,9 +791,6 @@ export function Sidebar({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Main — primary content pane (flex column, fills remaining width).          */
-/* -------------------------------------------------------------------------- */
 
 export function Main({
   children,
@@ -887,9 +818,6 @@ export function Main({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Row / Col — flex direction containers.                                     */
-/* -------------------------------------------------------------------------- */
 
 export function Row({
   children,
@@ -945,9 +873,6 @@ export function Col({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* TaskRow — checkbox + title (+ note) + trailing due/prio meta.              */
-/* -------------------------------------------------------------------------- */
 
 export function TaskRow({
   title,
@@ -1015,9 +940,6 @@ export function TaskRow({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Card — generic content card (board / list item).                          */
-/* -------------------------------------------------------------------------- */
 
 export function Card({
   children,
@@ -1044,9 +966,6 @@ export function Card({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Column — kanban column: header (dot + title + count) over a stack.         */
-/* -------------------------------------------------------------------------- */
 
 export function Column({
   title,
@@ -1099,9 +1018,6 @@ export function Column({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Toolbar — horizontal action/control strip with a bottom border.           */
-/* -------------------------------------------------------------------------- */
 
 export function Toolbar({
   children,
@@ -1133,9 +1049,6 @@ export function Toolbar({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Tabs — pill tab strip (renders from items).                               */
-/* -------------------------------------------------------------------------- */
 
 export function Tabs({
   items = [],
@@ -1153,9 +1066,6 @@ export function Tabs({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* KV — key/value rows (definition list).                                    */
-/* -------------------------------------------------------------------------- */
 
 export function KV({ rows = [] }: { rows?: Array<{ k: string; v: string }> }) {
   return (
@@ -1184,9 +1094,6 @@ export function KV({ rows = [] }: { rows?: Array<{ k: string; v: string }> }) {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* SearchBar — rounded search input stand-in.                                */
-/* -------------------------------------------------------------------------- */
 
 export function SearchBar({
   placeholder = "Search",
@@ -1213,9 +1120,6 @@ export function SearchBar({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Divider — thin horizontal rule using the line token.                      */
-/* -------------------------------------------------------------------------- */
 
 export function Divider({ style = {} }: { style?: CSSProperties }) {
   return (
@@ -1231,9 +1135,6 @@ export function Divider({ style = {} }: { style?: CSSProperties }) {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Title — large heading (script-friendly).                                  */
-/* -------------------------------------------------------------------------- */
 
 export function Title({
   text,
@@ -1253,9 +1154,6 @@ export function Title({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Text — a plain text run with tone/weight (real content).                  */
-/* -------------------------------------------------------------------------- */
 
 export function Text({
   value,

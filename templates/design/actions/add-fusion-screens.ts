@@ -1,11 +1,3 @@
-/**
- * add-fusion-screens — place additional URL-backed screens for an already
- * synced fusion app.
- *
- * Use this to add more routes/screens to the canvas once the container is
- * ready (i.e. after sync-fusion-app has resolved a previewUrl). If the app
- * has not been synced yet, this throws with guidance to call sync-fusion-app.
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
@@ -13,7 +5,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   DEFAULT_FUSION_SCREEN_HEIGHT,

@@ -1,14 +1,3 @@
-/**
- * Unit tests for the paint-type mode resolution logic extracted from
- * DesignColorPicker.  These tests verify that:
- *
- *  1. The three-level precedence (localPaintType > paintType prop > inferred)
- *     is respected so clicking a paint-type icon always engages the right editor.
- *  2. Each editor panel flag (gradient / image / shader) is set correctly.
- *  3. No "reset" path can clear a localPaintType selection while the session
- *     is still in the same state (i.e. the caller passes the same localPaintType
- *     back in on every render).
- */
 
 import { rgbaToHsl, hslToRgba, type RgbaColor } from "@shared/color-utils";
 import { describe, expect, it } from "vitest";
@@ -24,7 +13,6 @@ import {
   rgbaToHsv,
 } from "./DesignColorPicker";
 
-// ─── inferPaintType ───────────────────────────────────────────────────────────
 
 describe("inferPaintType", () => {
   it("returns 'solid' for a plain hex color at full opacity", () => {
@@ -66,7 +54,6 @@ describe("inferPaintType", () => {
   });
 });
 
-// ─── GRADIENT_PAINT_TYPES ─────────────────────────────────────────────────────
 
 describe("GRADIENT_PAINT_TYPES", () => {
   it("contains all four gradient variants", () => {
@@ -83,13 +70,11 @@ describe("GRADIENT_PAINT_TYPES", () => {
   });
 });
 
-// ─── resolveActivePaint – precedence ─────────────────────────────────────────
 
 describe("resolveActivePaint – precedence", () => {
   const solidValue = "#ffffff";
 
   it("uses localPaintType when set, regardless of the paintType prop", () => {
-    // The live bug: paintType='solid' from EditPanel, but user clicked 'linear'.
     const result = resolveActivePaint("solid", "linear", solidValue, 100);
     expect(result.effectivePaintType).toBe("linear");
     expect(result.showGradientEditor).toBe(true);
@@ -111,7 +96,6 @@ describe("resolveActivePaint – precedence", () => {
   });
 
   it("localPaintType beats inferred type from value", () => {
-    // Value is a gradient but user explicitly chose 'solid'.
     const gradientValue = "linear-gradient(90deg, #000000 0%, #ffffff 100%)";
     const result = resolveActivePaint(undefined, "solid", gradientValue, 100);
     expect(result.effectivePaintType).toBe("solid");
@@ -119,7 +103,6 @@ describe("resolveActivePaint – precedence", () => {
   });
 });
 
-// ─── resolveActivePaint – gradient variants ───────────────────────────────────
 
 describe("resolveActivePaint – gradient paint types engage GradientEditor", () => {
   const solidValue = "#ffffff";
@@ -127,7 +110,6 @@ describe("resolveActivePaint – gradient paint types engage GradientEditor", ()
   it.each(["linear", "radial", "angular", "diamond"] as const)(
     "clicking '%s' sets showGradientEditor=true",
     (gradientType) => {
-      // Simulate: user clicked the gradient icon; paintType prop still says solid.
       const result = resolveActivePaint("solid", gradientType, solidValue, 100);
       expect(result.effectivePaintType).toBe(gradientType);
       expect(result.showGradientEditor).toBe(true);
@@ -137,7 +119,6 @@ describe("resolveActivePaint – gradient paint types engage GradientEditor", ()
   );
 });
 
-// ─── resolveActivePaint – image mode ─────────────────────────────────────────
 
 describe("resolveActivePaint – image mode", () => {
   it("clicking 'image' engages ImageFillControls regardless of paintType prop", () => {
@@ -160,7 +141,6 @@ describe("resolveActivePaint – image mode", () => {
   });
 });
 
-// ─── resolveActivePaint – shader mode ────────────────────────────────────────
 
 describe("resolveActivePaint – shader mode", () => {
   it("clicking 'shader' sets showShaderPanel=true", () => {
@@ -178,7 +158,6 @@ describe("resolveActivePaint – shader mode", () => {
   });
 });
 
-// ─── resolveActivePaint – solid mode ─────────────────────────────────────────
 
 describe("resolveActivePaint – solid mode", () => {
   it("solid paint type shows no special editor", () => {
@@ -191,35 +170,23 @@ describe("resolveActivePaint – solid mode", () => {
 
   it("localPaintType=solid wins over gradient value (switching back to solid)", () => {
     const gradientValue = "linear-gradient(90deg, #000 0%, #fff 100%)";
-    // User clicked 'solid' while gradient CSS is still in the value.
     const result = resolveActivePaint("linear", "solid", gradientValue, 100);
     expect(result.effectivePaintType).toBe("solid");
     expect(result.showGradientEditor).toBe(false);
   });
 });
 
-// ─── resolveActivePaint – no re-reset of localPaintType ──────────────────────
 
 describe("resolveActivePaint – localPaintType stability", () => {
-  /**
-   * This simulates what happens across multiple renders while the popover is
-   * open: EditPanel bounces `paintType` back to 'solid' after each onChange
-   * call, but localPaintType stays as whatever the user clicked.  The helper
-   * must NOT use paintType when localPaintType is set.
-   */
   it("localPaintType persists across repeated calls even when paintType prop reverts to solid", () => {
-    // Render 1: user clicked 'radial'
     const r1 = resolveActivePaint("solid", "radial", "#ffffff", 100);
     expect(r1.effectivePaintType).toBe("radial");
     expect(r1.showGradientEditor).toBe(true);
 
-    // Render 2: EditPanel pushes paintType='solid' again (e.g. after onChange)
-    //           but localPaintType is still 'radial' in component state.
     const r2 = resolveActivePaint("solid", "radial", "#ffffff", 100);
     expect(r2.effectivePaintType).toBe("radial");
     expect(r2.showGradientEditor).toBe(true);
 
-    // Render 3: Same scenario with the gradient CSS now in value
     const css = "radial-gradient(circle at center, #000 0%, #fff 100%)";
     const r3 = resolveActivePaint("solid", "radial", css, 100);
     expect(r3.effectivePaintType).toBe("radial");
@@ -227,7 +194,6 @@ describe("resolveActivePaint – localPaintType stability", () => {
   });
 });
 
-// ─── parseNumericDraft (IP20) ─────────────────────────────────────────────────
 
 describe("parseNumericDraft", () => {
   it("parses ordinary numeric drafts", () => {
@@ -237,7 +203,6 @@ describe("parseNumericDraft", () => {
   });
 
   it("returns null (revert) for an emptied draft instead of committing 0", () => {
-    // The bug: Number("") === 0, so clearing the field used to commit 0.
     expect(parseNumericDraft("")).toBeNull();
     expect(parseNumericDraft("   ")).toBeNull();
   });
@@ -252,7 +217,6 @@ describe("parseNumericDraft", () => {
   });
 });
 
-// ─── expandHexShorthand (IP20 nice-to-have) ──────────────────────────────────
 
 describe("expandHexShorthand", () => {
   it("expands a single hex digit across all channels", () => {
@@ -279,7 +243,6 @@ describe("expandHexShorthand", () => {
   });
 });
 
-// ─── hasHexAlpha ──────────────────────────────────────────────────────────────
 
 describe("hasHexAlpha", () => {
   it("detects 4-digit shorthand hex-with-alpha (#RGBA)", () => {
@@ -308,7 +271,7 @@ describe("hasHexAlpha", () => {
     expect(hasHexAlpha("")).toBe(false);
     expect(hasHexAlpha("zzzz")).toBe(false);
     expect(hasHexAlpha("FF")).toBe(false);
-    expect(hasHexAlpha("FFFFF")).toBe(false); // 5 digits — not a valid length
+    expect(hasHexAlpha("FFFFF")).toBe(false);
   });
 
   it("tolerates surrounding whitespace", () => {
@@ -316,29 +279,8 @@ describe("hasHexAlpha", () => {
   });
 });
 
-// ─── RGB <-> HSL / HSB round-trip stability (no drift on repeated conversion) ──
-//
-// Classic bug: converting RGB -> HSL -> RGB (or RGB -> HSV -> RGB) repeatedly,
-// as happens every time a user nudges a value in one mode then switches to
-// another, can "creep" indefinitely if intermediate state is cached instead
-// of always re-derived from a single RGB source of truth. DesignColorPicker
-// always recomputes HSL/HSV fresh from the current RGB `value` on every
-// render (see `hsl`/`hsv` in the component body), so this suite pins that
-// no-cache invariant at the pure-function level.
-//
-// Note: because HSL/HSV store saturation/lightness/value as rounded 0-100
-// integers (matching Figma's own integer HSB/HSL fields), a handful of
-// arbitrary RGB triples are inherently off by ±1 per channel after the very
-// first round trip — that's unavoidable quantization from displaying a
-// continuous color in an integer percent field, not a bug. The bug this
-// suite actually guards against is *unbounded* drift: once an RGB value has
-// gone through one round trip, every further round trip of that same value
-// must reproduce it exactly — a fixed point, not a random walk that keeps
-// creeping every time the user nudges a field or switches modes.
 
 describe("RGB <-> HSL round-trip stability (shared/color-utils)", () => {
-  // Primaries, grayscale, black, and white are exactly representable in
-  // integer HSL and must round-trip losslessly on the very first pass.
   const exactSamples: RgbaColor[] = [
     { r: 255, g: 0, b: 0, a: 1 },
     { r: 0, g: 255, b: 0, a: 1 },
@@ -347,8 +289,6 @@ describe("RGB <-> HSL round-trip stability (shared/color-utils)", () => {
     { r: 255, g: 255, b: 255, a: 1 },
     { r: 128, g: 128, b: 128, a: 1 },
   ];
-  // Arbitrary triples that may shift by at most 1 per channel on the first
-  // trip (integer-percent quantization) but must then stay fixed forever.
   const arbitrarySamples: RgbaColor[] = [
     { r: 128, g: 64, b: 200, a: 1 },
     { r: 17, g: 202, b: 91, a: 0.5 },
@@ -381,8 +321,6 @@ describe("RGB <-> HSL round-trip stability (shared/color-utils)", () => {
         current = hslToRgba(rgbaToHsl(current));
         seen.push(current);
       }
-      // Every trip after the first must reproduce the exact same RGB as the
-      // first trip's result — no slow drift across many conversions.
       const stabilizedAt = seen[0];
       for (const value of seen) {
         expect(value.r).toBe(stabilizedAt.r);

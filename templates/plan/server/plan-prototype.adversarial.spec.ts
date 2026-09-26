@@ -47,9 +47,6 @@ async function roundTrip(content: PlanContent): Promise<PlanContent> {
   return parsePlanMdxFolder(folder);
 }
 
-/* -------------------------------------------------------------------------- */
-/* 1. prototype.mdx round-trip: deep no-loss                                  */
-/* -------------------------------------------------------------------------- */
 
 describe("prototype.mdx round-trip (no data loss/drift)", () => {
   it("preserves transition id + trigger and per-state ids across the full screen set", async () => {
@@ -97,8 +94,6 @@ describe("prototype.mdx round-trip (no data loss/drift)", () => {
     const proto = result.prototype;
     expect(proto?.surface).toBe("mobile");
     expect(proto?.initialScreenId).toBe("home");
-    // Transition id + trigger must survive — the serializer emits them and the
-    // parser reads them, so dropping either is silent data loss.
     expect(proto?.transitions?.[0]).toEqual({
       id: "tr1",
       from: "home",
@@ -106,7 +101,6 @@ describe("prototype.mdx round-trip (no data loss/drift)", () => {
       label: "Open",
       trigger: "tap a row",
     });
-    // Per-state ids must survive (used to anchor comments to a state chip).
     expect(proto?.screens[0]?.state).toEqual([
       { id: "st1", label: "Count", value: "3" },
       { id: "st2", label: "Mode", value: "edit" },
@@ -189,9 +183,6 @@ describe("prototype.mdx round-trip (no data loss/drift)", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* 2. prototype patch ops                                                     */
-/* -------------------------------------------------------------------------- */
 
 describe("prototype patch ops (idempotency, bad ids, sanitize)", () => {
   const withPrototype = (): PlanContent =>
@@ -242,8 +233,6 @@ describe("prototype patch ops (idempotency, bad ids, sanitize)", () => {
       },
     ]);
     expect(once.prototype?.screens[0]?.html).toContain(">Continue<");
-    // Re-running the SAME find now misses (it was already replaced) and must
-    // throw a clear "not present" error rather than silently corrupting.
     expect(() =>
       applyPlanContentPatches(once, [
         {
@@ -315,9 +304,6 @@ describe("prototype patch ops (idempotency, bad ids, sanitize)", () => {
   });
 
   it("rejects active content smuggled through patch-prototype-html (parity with patch-wireframe-html)", () => {
-    // The wireframe patch comment promises a patch can never smuggle active
-    // content in. The prototype patch must hold the same line: an event-handler
-    // attribute / javascript: href in the replacement must be rejected.
     expect(() =>
       applyPlanContentPatches(withPrototype(), [
         {
@@ -361,9 +347,6 @@ describe("prototype patch ops (idempotency, bad ids, sanitize)", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* 3. parsePlanContent defensive (the landed try/catch)                        */
-/* -------------------------------------------------------------------------- */
 
 describe("parsePlanContent fail-closed on pathological input", () => {
   function nestTabs(depth: number): PlanBlock {
@@ -388,9 +371,6 @@ describe("parsePlanContent fail-closed on pathological input", () => {
   });
 
   it("returns null (not a RangeError) for pathologically deep tabs (overflows the recursive parser)", () => {
-    // At this depth the recursive schema/migration throws a RangeError that
-    // safeParse does NOT catch; the landed outer try/catch must convert it to a
-    // graceful null so the plan page renders a fallback instead of crashing.
     const content = { version: 2, blocks: [nestTabs(6000)] };
     let result: PlanContent | null = null;
     expect(() => {
@@ -406,9 +386,6 @@ describe("parsePlanContent fail-closed on pathological input", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* 4. Generated prototype content survives a round-trip                        */
-/* -------------------------------------------------------------------------- */
 
 describe("generated prototype content round-trips", () => {
   it("createPrototypePlanContent output survives JSON -> MDX -> JSON", async () => {
@@ -428,14 +405,12 @@ describe("generated prototype content round-trips", () => {
       ],
       transitions: [{ from: "screen-1", to: "screen-2", label: "open" }],
     });
-    // It must serialize as stored content without throwing.
     expect(() => serializePlanContent(content)).not.toThrow();
 
     const result = await roundTrip(content);
     expect(result.prototype?.screens.map((s) => s.id)).toEqual(
       content.prototype?.screens.map((s) => s.id),
     );
-    // Every generated screen's html must survive byte-exact.
     content.prototype?.screens.forEach((screen, i) => {
       expect(result.prototype?.screens[i]?.html, `screen ${i}`).toBe(
         screen.html,
@@ -465,7 +440,6 @@ describe("generated prototype content round-trips", () => {
             surface: "browser",
             wireframe: { surface: "browser", html: "<div>B</div>" },
           },
-          // A kit-tree-only frame (no html) must be SKIPPED, not break derivation.
           {
             id: "f3",
             label: "C",
@@ -484,8 +458,6 @@ describe("generated prototype content round-trips", () => {
     const prototype = createPrototypeFromPlanContent(content);
     expect(prototype?.screens.map((s) => s.id)).toEqual(["f1", "f2"]);
     expect(prototype?.initialScreenId).toBe("f1");
-    // The derived prototype must satisfy the schema (initialScreenId/transitions
-    // reference existing screens) so it can actually be stored.
     expect(() =>
       serializePlanContent({ ...content, prototype: prototype ?? undefined }),
     ).not.toThrow();
@@ -515,17 +487,6 @@ describe("generated prototype content round-trips", () => {
   });
 
   it("BUG: title-only screens + caller transitions using the natural screen-N convention throw (transitions are not remapped to derived ids)", () => {
-    // The create-prototype-plan action accepts `screens` whose `id` is optional
-    // and `transitions` whose from/to are free strings. When screens omit ids,
-    // createPrototypeFromScreens derives ids from slug(title) (here `list` /
-    // `detail`), but the caller's transitions still reference the obvious
-    // index-based `screen-1`/`screen-2` ids — and those transitions are passed
-    // through verbatim instead of being remapped. Result: a ZodError that the
-    // action surfaces as an opaque 400, even though screens + transitions were
-    // each individually well-formed.
-    //
-    // Asserts the intended behavior: index-style transitions should resolve
-    // against the generated screen order. FAILING pins the footgun.
     expect(() =>
       createPrototypePlanContent({
         title: "P",
@@ -538,11 +499,6 @@ describe("generated prototype content round-trips", () => {
   });
 
   it("BUG: two title-only screens that slug to the same id throw 'Duplicate prototype screen id'", () => {
-    // Distinct screens with the same (or slug-colliding) title and no explicit
-    // id both derive the same slug id, tripping the duplicate-id refine. Two
-    // screens legitimately titled the same (e.g. two "Loading" states) is a
-    // reasonable agent input but cannot be created. Derived ids should be made
-    // unique. FAILING pins the collision.
     expect(() =>
       createPrototypePlanContent({
         title: "P",
@@ -554,21 +510,9 @@ describe("generated prototype content round-trips", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* 5. Documented prototype directive contract                                  */
-/* -------------------------------------------------------------------------- */
 
 describe("documented prototype directive contract", () => {
   it("BUG: rejects the canonical Alpine `<template x-for>` even though x-for is advertised as a supported safe directive", () => {
-    // Both create-prototype-plan's action description and PlanPrototypeScreen's
-    // JSDoc list `x-for` as a supported safe directive. The canonical Alpine
-    // x-for binds on a <template> element, but <template> is in
-    // `unsafeCustomHtmlPattern`, so a screen authored with idiomatic Alpine
-    // x-for is rejected at the action boundary (statusCode 400). An agent that
-    // follows the documented directive list cannot create the plan.
-    //
-    // Asserts the intended contract (the documented directive should be
-    // accepted). FAILING pins the doc/validation mismatch.
     const html =
       '<ul><template x-for="t in items"><li x-text="t"></li></template></ul>';
     expect(() =>
@@ -581,8 +525,6 @@ describe("documented prototype directive contract", () => {
   });
 
   it("accepts the framework's non-template x-for form (x-for on a plain element)", () => {
-    // This is the form the prototype runtime + sanitize-html actually support,
-    // and is the safe baseline this contract should preserve.
     const html =
       '<ul><li class="wf-box" x-for="t in items" x-text="t"></li></ul>';
     expect(() =>

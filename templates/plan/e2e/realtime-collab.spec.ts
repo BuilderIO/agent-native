@@ -12,42 +12,6 @@ function makeE2ePassword(label: string): string {
   return ["example", label, Date.now().toString(36), "pw"].join("-");
 }
 
-/*
- * REAL-TIME COLLAB — adversarial coverage for the SINGLE-DOCUMENT plan editor.
- *
- * Architecture under test (verified from the code + a live browser, 2026-06):
- *  - The whole plan body is ONE ProseMirror/Tiptap editor — `PlanDocumentEditor`,
- *    rendered as the wrapper `.plan-document-editor-surface` (contenteditable on a
- *    child). Custom blocks are inline `planBlock` NodeViews. Read-only / review /
- *    SSR keeps the per-block reader (`PlanMarkdownReader`) — no Tiptap server-side.
- *    `PlanContentRenderer` gates the editor on `SINGLE_DOC_EDITOR_ENABLED = true`.
- *
- *  - Cross-client propagation is Yjs in this model. Inside `PlanDocumentEditor`,
- *    `SINGLE_DOC_COLLAB_ENABLED = true`, so a signed-in editor binds a
- *    `plan:<planId>` Y.Doc + awareness and `SharedRichEditor` mounts the shared
- *    Collaboration stack (live CRDT merge + CollaborationCaret cursors). External
- *    agent/peer edits mirrored to SQL still reconcile in via the peer's `usePlan`
- *    poll (`refetchInterval: 3s`) → `content.blocks` prop change →
- *    `useCollabReconcile`, which now applies them SURGICALLY through the plan's
- *    `setContent` (one `tr.replaceWith` for the changed top-level run) so
- *    unchanged NodeViews are never torn down — the flushSync storm that kept
- *    collab off is gone. In collab mode Yjs owns undo/redo (the app-level
- *    blocks[] undo stack is gated off), so cmd+z reverts only the local client's
- *    edits.
- *
- *  - The collab SERVER transport (`createCollabPlugin` in server/plugins/collab.ts)
- *    is mounted and healthy. `resolvePlanIdFromCollabDocId` strips everything
- *    after the first `:`, so BOTH a single-doc `plan:<id>` docId and a legacy
- *    per-block `plan:<id>:<block>` docId resolve to the same plan for the access
- *    check. Reads (state/users/awareness) require VIEWER; writes
- *    (update/text/json/patch) require EDITOR; no session → 401. The real client
- *    sends the RAW docId (literal colons — never percent-encoded).
- *
- * These specs assert the CURRENT model's CORRECT behavior. A failing assertion is
- * a real bug. Two peers editing concurrently through Yjs still converge to ONE
- * consistent value with no duplication; the transport substrate stays reachable;
- * live cursors render for a remote editor.
- */
 
 const CREATE_ACTION = "/_agent-native/actions/create-visual-plan";
 const GET_ACTION = "/_agent-native/actions/get-visual-plan";
@@ -121,12 +85,10 @@ async function createPlan(
   return planId as string;
 }
 
-/** Fetch persisted markdown for the collab block (separates sync vs autosave). */
 async function persistedMarkdown(
   page: Page,
   planId: string,
 ): Promise<string | null> {
-  // get-visual-plan is a GET action — id is a query param, not a POST body.
   const res = await page.request.get(
     `${GET_ACTION}?id=${encodeURIComponent(planId)}`,
   );
@@ -147,28 +109,14 @@ async function persistedMarkdown(
   );
 }
 
-/**
- * The single-document editor surface. `PlanContentRenderer` renders the whole
- * body as ONE editor whose wrapper carries `.plan-document-editor-surface`
- * (the contenteditable element is a child; `.click()`, `.innerText()`, and
- * `toContainText` all operate on the wrapper subtree).
- */
 function surface(page: Page) {
   return page.locator(".plan-document-editor-surface").first();
 }
 
-/**
- * Build a collab route URL exactly the way the real client does — RAW docId with
- * literal colons. `useCollaborativeDoc` does NOT `encodeURIComponent` the docId;
- * percent-encoding the colons turns `plan:` into `plan%3A`, so
- * `resolvePlanIdFromCollabDocId` returns null and the route 404s (a TEST bug, not
- * an app bug). This helper mirrors the production transport.
- */
 function collabUrl(docId: string, action: string): string {
   return `/_agent-native/collab/${docId}/${action}`;
 }
 
-/** Open a plan and wait for the single-doc editor to mount + seed. */
 async function openEditable(page: Page, planId: string, seedText: string) {
   await page.goto(`/plans/${planId}`);
   const ed = surface(page);
@@ -176,13 +124,10 @@ async function openEditable(page: Page, planId: string, seedText: string) {
     ed,
     "the single-document plan editor surface should render",
   ).toBeVisible({ timeout: 25_000 });
-  // The seed text confirms the editor has materialized real content (not the
-  // pre-seed empty doc) before we start typing / asserting.
   await expect(
     ed,
     "the editor should seed with the plan's existing content",
   ).toContainText(seedText, { timeout: 20_000 });
-  // The wrapper subtree must contain an editable surface.
   await expect(
     ed.locator('[contenteditable="true"]').first(),
     "the document editor should be editable (not stuck read-only)",
@@ -220,18 +165,11 @@ async function typeTokenAtEnd(
   await typeAtEnd(page, ed, ` ${token}${TAIL_SENTINEL}`);
 }
 
-/**
- * Settle a local edit: blur the editor so the focus-guard in `useCollabReconcile`
- * stops deferring external reconciles, and give autosave + the peer's 3s poll
- * cycles room. (External content is dropped/deferred while the editor is focused
- * and a keystroke landed within ~1.5s; an idle/blurred peer converges.)
- */
 async function settle(page: Page) {
   await page.keyboard.press("Escape");
   await page.evaluate(() => (document.activeElement as HTMLElement)?.blur?.());
 }
 
-/** Register a fresh second user same-origin (passes Better Auth origin check). */
 async function registerSecondUser(
   page: Page,
 ): Promise<{ email: string; password: string }> {
@@ -275,7 +213,6 @@ async function registerSecondUser(
   return { email, password };
 }
 
-/** Make a plan public so a guest can read it (best-effort across action names). */
 async function makePublic(page: Page, planId: string): Promise<boolean> {
   for (const action of [
     "set-resource-visibility",
@@ -300,7 +237,6 @@ async function makePublic(page: Page, planId: string): Promise<boolean> {
   return false;
 }
 
-/** Share a plan with another user as editor (best-effort across action names). */
 async function shareWith(
   page: Page,
   planId: string,
@@ -324,19 +260,10 @@ async function shareWith(
   return false;
 }
 
-/* -------------------------------------------------------------------------- */
-/* 0. Root-cause anchor — the collab transport must be reachable for the OWNER */
-/* -------------------------------------------------------------------------- */
 
 test("collab transport: owner can reach state/users/awareness for both docId shapes", async ({
   page,
 }) => {
-  // The transport substrate must stay healthy even though the editable surface
-  // doesn't bind a Y.Doc today: it gates viewer/editor access and is what live
-  // cursors will ride once single-doc collab is re-enabled. This isolates a
-  // server/access regression away from any editor-binding behavior. Both the
-  // single-doc docId (`plan:<id>`) and the legacy per-block docId
-  // (`plan:<id>:<block>`) must resolve to the same plan for the owner.
   const planId = await createPlan(
     page,
     richTextContent(uniqueTitle("Owner Transport")),
@@ -383,25 +310,10 @@ test("collab transport: owner can reach state/users/awareness for both docId sha
   }
 });
 
-/* -------------------------------------------------------------------------- */
-/* 0b. Edit fidelity — single client, byte-perfect round-trip of typed text    */
-/* -------------------------------------------------------------------------- */
 
 test("edit fidelity: a single client's typed text round-trips byte-perfect to the editor AND to SQL", async ({
   browser,
 }) => {
-  // REGRESSION GUARD for the prosemirror-collab-serializer single-doc refactor.
-  // ONE client, no collaboration involved. After typing a known phrase and
-  // pausing (so the autosave→poll→reconcile cycle runs), the editor and the
-  // persisted markdown must BOTH contain the full phrase. They currently DO NOT
-  // intermittently: the non-byte-identical `blocks[] → doc → blocks[]` round-trip
-  // (`PlanDocumentEditor` getMarkdown/setContent) races the autosave echo, and a
-  // reconcile re-applies a slightly-stale `value`, truncating the LAST 1-2
-  // characters of freshly-typed text — sometimes only in SQL, sometimes rewriting
-  // the live editor backwards on screen. Reproduced single-client and in
-  // inline-editing.spec.ts (`EDITED-…485` → `EDITED-17`). A failure here is a real
-  // data-loss bug in the single-doc editor, NOT a collab/transport issue; fix the
-  // reconcile race (or make the blocks↔doc round-trip byte-stable) in app code.
   const ctx = await browser.newContext({ storageState: STATE_FILE });
   const page = await ctx.newPage();
   try {
@@ -412,17 +324,10 @@ test("edit fidelity: a single client's typed text round-trips byte-perfect to th
     const ed = await openEditable(page, planId, "Seed.");
     await page.waitForTimeout(2_000);
 
-    // The truncation is intermittent (~1 in 2-4 typing bursts loses the tail), so
-    // a SINGLE burst would flake under `retries: 2`. Run several distinct bursts,
-    // each followed by a settle + autosave/reconcile window, and require EVERY
-    // burst's full phrase to survive in BOTH the editor and SQL. With multiple
-    // bursts a clean pass is improbable unless the round-trip is genuinely fixed,
-    // so this stays a dependable regression signal rather than a coin-flip.
     const failures: string[] = [];
     for (let i = 0; i < 4; i++) {
       const phrase = `FIDELITY-${i}-${Date.now() % 1_000_000}-END`;
       await typeAtEnd(page, ed, ` ${phrase}`);
-      // Pause WITHOUT typing so autosave + reconcile cycles run over the new text.
       await settle(page);
       await page.waitForTimeout(4_000);
 
@@ -450,9 +355,6 @@ test("edit fidelity: a single client's typed text round-trips byte-perfect to th
   }
 });
 
-/* -------------------------------------------------------------------------- */
-/* 1. Live sync: an edit in A appears in an idle B within a few seconds        */
-/* -------------------------------------------------------------------------- */
 
 test("live sync: an edit in context A appears in context B within a few seconds", async ({
   browser,
@@ -469,8 +371,6 @@ test("live sync: an edit in context A appears in context B within a few seconds"
     const edA = await openEditable(pageA, planId, "Seed line for collab.");
     const edB = await openEditable(pageB, planId, "Seed line for collab.");
 
-    // Let both editors finish their initial mount + seed so this asserts LIVE
-    // post-mount propagation, not the initial-state load.
     await pageA.waitForTimeout(2_000);
 
     const marker = `SYNC${Date.now() % 1_000_000}`;
@@ -479,14 +379,8 @@ test("live sync: an edit in context A appears in context B within a few seconds"
       edA,
       "A should reflect its own keystrokes immediately",
     ).toContainText(marker, { timeout: 8_000 });
-    // Blur A so its edit settles into autosave; keep B idle so its reconcile is
-    // never blocked by the focus-guard.
     await settle(pageA);
 
-    // First confirm A's edit actually reached SQL (separates a render-only sync
-    // from an autosave 500, AND decouples B's convergence from A's autosave
-    // debounce racing the final keystroke — the marker must be fully persisted
-    // before we expect B's poll to carry it).
     await expect
       .poll(async () => persistedMarkdown(pageA, planId), {
         timeout: 20_000,
@@ -494,9 +388,6 @@ test("live sync: an edit in context A appears in context B within a few seconds"
       })
       .toEqual(expect.stringContaining(marker));
 
-    // The whole point of live propagation: an idle B converges to A's edit. In
-    // the single-doc model this rides autosave → SQL → B's 3s poll → non-collab
-    // reconcile, so allow a generous window (a few poll cycles).
     await expect(
       edB,
       "context B must converge to context A's edit. If this never lands once the " +
@@ -510,9 +401,6 @@ test("live sync: an edit in context A appears in context B within a few seconds"
   }
 });
 
-/* -------------------------------------------------------------------------- */
-/* 2. Concurrent edits: clients converge to ONE consistent value, no dup       */
-/* -------------------------------------------------------------------------- */
 
 test("concurrent edits: near-simultaneous typing converges to one consistent, non-duplicated value", async ({
   browser,
@@ -533,9 +421,6 @@ test("concurrent edits: near-simultaneous typing converges to one consistent, no
     const tokenA = `AAA${Date.now() % 100000}`;
     const tokenB = `BBB${Date.now() % 100000}`;
 
-    // Fire both edits as close to simultaneously as the harness allows. The
-    // sentinel suffix absorbs the orthogonal tail-truncation bug so this test
-    // only judges convergence/duplication, not byte-perfect round-trip.
     await Promise.all([
       typeTokenAtEnd(pageA, edA, tokenA),
       typeTokenAtEnd(pageB, edB, tokenB),
@@ -543,19 +428,11 @@ test("concurrent edits: near-simultaneous typing converges to one consistent, no
     await settle(pageA);
     await settle(pageB);
 
-    // Let the autosave + poll path settle (a few cycles).
     await pageA.waitForTimeout(10_000);
 
     const textA = (await edA.innerText()).replace(/\s+/g, " ").trim();
     const textB = (await edB.innerText()).replace(/\s+/g, " ").trim();
 
-    // CURRENT-MODEL CONTRACT: both clients must converge to the SAME content.
-    // (Single-doc collab is OFF, so cross-client merge is last-write-wins on the
-    // whole blocks[] JSON via autosave+poll — NOT a Yjs CRDT merge. We therefore
-    // do NOT assert that BOTH tokens survive; near-simultaneous edits to the same
-    // block are expected to clobber one writer until single-doc Yjs lands. We DO
-    // require eventual convergence to a single consistent value with no
-    // duplication — the property the non-collab reconcile must still guarantee.)
     await expect
       .poll(
         async () => {
@@ -579,7 +456,6 @@ test("concurrent edits: near-simultaneous typing converges to one consistent, no
     ).toBeTruthy();
 
     // No DUPLICATION: whichever token(s) survive must appear exactly once each
-    // (the reconcile must never insert the same region twice).
     for (const token of [tokenA, tokenB]) {
       const count = (converged.match(new RegExp(token, "g")) || []).length;
       expect(
@@ -588,7 +464,6 @@ test("concurrent edits: near-simultaneous typing converges to one consistent, no
       ).toBeLessThanOrEqual(1);
     }
 
-    // The surviving writer's token persists to SQL (separates a live bug from an
     // autosave 500). Whichever token won convergence must be the one stored.
     const survivingToken = converged.includes(tokenA) ? tokenA : tokenB;
     await expect
@@ -603,16 +478,12 @@ test("concurrent edits: near-simultaneous typing converges to one consistent, no
   }
 });
 
-/* -------------------------------------------------------------------------- */
-/* 3. Presence: transport reachable; live cursors render for a remote editor    */
-/* -------------------------------------------------------------------------- */
 
 test("presence: awareness transport is reachable and a remote editor's live cursor renders in the single-doc surface", async ({
   browser,
 }) => {
   const ctxA = await browser.newContext({ storageState: STATE_FILE });
   const pageA = await ctxA.newPage();
-  // Second user so any presence would be a DIFFERENT identity (own cursor hidden).
   const ctxB = await browser.newContext({
     storageState: { cookies: [], origins: [] },
   });
@@ -634,12 +505,9 @@ test("presence: awareness transport is reachable and a remote editor's live curs
     await pageA.keyboard.press("Control+End");
     await edB.click();
     await pageB.keyboard.press("Control+End");
-    // B moves its selection so its awareness caret has a position A can paint.
     await pageB.keyboard.type(" here");
     await pageA.waitForTimeout(5_000);
 
-    // The awareness SUBSTRATE must be reachable for a present editor — this is
-    // what the live single-doc `plan:<id>` cursors ride.
     const docId = `plan:${planId}:${RICH_BLOCK_ID}`;
     const awarenessStatus = await pageA.evaluate(
       async (url) => {
@@ -662,12 +530,6 @@ test("presence: awareness transport is reachable and a remote editor's live curs
       "the awareness transport must accept a present editor's state",
     ).toBe(200);
 
-    // CURRENT MODEL: single-doc collab is ENABLED (SINGLE_DOC_COLLAB_ENABLED =
-    // true), so the editable surface binds the `plan:<id>` Y.Doc + awareness and
-    // CollaborationCaret paints the REMOTE editor's live cursor. `@tiptap/
-    // extension-collaboration-caret` v3 renders `.collaboration-carets__caret`
-    // (own cursor is hidden; B is a different identity, so its caret is what A
-    // sees). Poll for it — awareness + the render settle a beat after typing.
     await expect(
       pageA.locator(".collaboration-carets__caret").first(),
       "the remote editor's live collaboration cursor must render for a peer " +
@@ -679,9 +541,6 @@ test("presence: awareness transport is reachable and a remote editor's live curs
   }
 });
 
-/* -------------------------------------------------------------------------- */
-/* 4. Public/signed-out viewer: can SEE content but CANNOT mutate              */
-/* -------------------------------------------------------------------------- */
 
 test("guest viewer: a signed-out viewer of a public plan sees content but write routes are blocked", async ({
   browser,
@@ -703,16 +562,12 @@ test("guest viewer: a signed-out viewer of a public plan sees content but write 
       "owner should be able to make the plan public for guest viewing",
     ).toBeTruthy();
 
-    // Guest can SEE the content (public read path renders the read-only block —
-    // PlanMarkdownReader, no Tiptap mount).
     await guestPage.goto(`/plans/${planId}`);
     await expect(
       guestPage.getByText("PUBLIC_CONTENT_TOKEN", { exact: false }).first(),
       "a signed-out viewer of a public plan must be able to read its content",
     ).toBeVisible({ timeout: 25_000 });
 
-    // Guest CANNOT mutate via collab write routes — no session → 401 (the auth
-    // gate fires before docId resolution). Use the RAW docId (literal colons).
     const docId = `plan:${planId}:${RICH_BLOCK_ID}`;
     const guestUpdate = await guestPage.request.post(
       collabUrl(docId, "update"),
@@ -739,7 +594,6 @@ test("guest viewer: a signed-out viewer of a public plan sees content but write 
       `guest collab AWARENESS write must be rejected (got ${guestAwareness.status()})`,
     ).toBeTruthy();
 
-    // Guest CANNOT mutate via the action surface either.
     const guestPatch = await guestPage.request.post(UPDATE_ACTION, {
       data: {
         planId,
@@ -757,7 +611,6 @@ test("guest viewer: a signed-out viewer of a public plan sees content but write 
       `guest update-visual-plan must be rejected (got ${guestPatch.status()})`,
     ).toBeTruthy();
 
-    // And the content was NOT mutated.
     const afterGuestWrites = await persistedMarkdown(ownerPage, planId);
     expect(
       afterGuestWrites,
@@ -773,9 +626,6 @@ test("guest viewer: a signed-out viewer of a public plan sees content but write 
   }
 });
 
-/* -------------------------------------------------------------------------- */
-/* 5. EDGE: interleaved edits still converge to one consistent value           */
-/* -------------------------------------------------------------------------- */
 
 test("edge — interleaved edits: clients converge to one consistent value with no duplication", async ({
   browser,
@@ -793,9 +643,6 @@ test("edge — interleaved edits: clients converge to one consistent value with 
     const edB = await openEditable(pageB, planId, "MID");
     await pageA.waitForTimeout(2_000);
 
-    // B starts an edit, A interleaves, B continues — then both settle. Each
-    // side's LAST-typed text carries the throwaway sentinel so tail truncation
-    // (the orthogonal char-loss bug) can't make this convergence test flake.
     await edB.click();
     await pageB.keyboard.press("Control+End");
     await pageB.keyboard.type(" BHEAD", { delay: 20 });
@@ -804,9 +651,6 @@ test("edge — interleaved edits: clients converge to one consistent value with 
     await settle(pageA);
     await settle(pageB);
 
-    // Eventual convergence to one consistent value (last-write-wins on the whole
-    // blocks[] JSON — single-doc collab is OFF, so we assert convergence + no
-    // duplication, NOT Yjs no-loss of all interleaved fragments).
     await expect
       .poll(
         async () => {
@@ -822,7 +666,6 @@ test("edge — interleaved edits: clients converge to one consistent value with 
       .toBe(true);
 
     const converged = (await edA.innerText()).replace(/\s+/g, " ").trim();
-    // No duplication of any surviving token.
     for (const token of ["AHEAD", "BHEAD", "BTAIL"]) {
       const count = (converged.match(new RegExp(token, "g")) || []).length;
       expect(
@@ -830,7 +673,6 @@ test("edge — interleaved edits: clients converge to one consistent value with 
         `token ${token} must not be duplicated: "${converged}"`,
       ).toBeLessThanOrEqual(1);
     }
-    // At least one writer's contribution survives.
     expect(
       /AHEAD|BHEAD|BTAIL/.test(converged),
       `at least one interleaved edit must survive: "${converged}"`,
@@ -841,9 +683,6 @@ test("edge — interleaved edits: clients converge to one consistent value with 
   }
 });
 
-/* -------------------------------------------------------------------------- */
-/* 6. EDGE: background one tab, edit from the other, refocus → convergence     */
-/* -------------------------------------------------------------------------- */
 
 test("edge — backgrounded tab: edit from the foreground tab converges after the other refocuses", async ({
   browser,
@@ -861,8 +700,6 @@ test("edge — backgrounded tab: edit from the foreground tab converges after th
     const edB = await openEditable(pageB, planId, "Seed line for collab.");
     await pageA.waitForTimeout(1_500);
 
-    // Background tab B (the plan query pauses while hidden; reconcile resumes on
-    // refocus). Spoof the visibility API the hook reads.
     await pageB.evaluate(() => {
       Object.defineProperty(document, "visibilityState", {
         value: "hidden",
@@ -880,8 +717,6 @@ test("edge — backgrounded tab: edit from the foreground tab converges after th
     await expect(edA).toContainText(marker, { timeout: 8_000 });
     await settle(pageA);
 
-    // Confirm A's edit is fully persisted before relying on B catching up (so the
-    // assertion isn't racing A's autosave debounce against the final keystroke).
     await expect
       .poll(async () => persistedMarkdown(pageA, planId), {
         timeout: 20_000,
@@ -889,7 +724,6 @@ test("edge — backgrounded tab: edit from the foreground tab converges after th
       })
       .toEqual(expect.stringContaining(marker));
 
-    // While hidden, B may legitimately lag. Bring B back to the foreground.
     await pageB.evaluate(() => {
       Object.defineProperty(document, "visibilityState", {
         value: "visible",
@@ -904,7 +738,6 @@ test("edge — backgrounded tab: edit from the foreground tab converges after th
     });
     await pageB.bringToFront();
 
-    // After refocus, B must catch up and converge with A (eventual convergence).
     await expect(
       edB,
       "after a backgrounded tab refocuses, it must catch up to edits made meanwhile",

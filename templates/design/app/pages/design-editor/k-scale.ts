@@ -14,7 +14,6 @@ export type KScaleStylePatchResult =
   | { status: "applied"; content: string }
   | { status: "failed"; selector: string; reason: string };
 
-/** Apply one gesture's per-node CSS values to source as one content mutation. */
 export function applyKScaleStyleChanges(
   content: string,
   changes: readonly KScaleStyleChange[],
@@ -77,10 +76,7 @@ export function applyKScaleStyleChanges(
     };
   }
 
-  // Semantic SVG/Boolean edits keep the established per-style dispatcher. Start
-  // from the original gesture source so fallback cannot retain a partial batch.
   // ponytail: mixed semantic gestures reparse per property; batching their
-  // specialized serializers removes that ceiling.
   let nextContent = content;
   for (const change of activeChanges) {
     const currentProjection = buildCodeLayerProjection(nextContent, { source });

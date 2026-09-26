@@ -16,8 +16,6 @@ export default defineConfig({
   plugins: [
     ...reactRouterPlugins(),
     ...agentNativePlugins({
-      // Browser-only renderers run in useEffect — keep them out of the CF Pages
-      // Functions bundle (25 MiB limit) and away from SSR DOM/canvas shims.
       ssrStubs: [
         "shiki",
         "mermaid",

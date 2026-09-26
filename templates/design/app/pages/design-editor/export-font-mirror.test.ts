@@ -73,7 +73,6 @@ describe("collectFontRequests", () => {
 
     expect(specs.some((spec) => spec.includes("700 48px"))).toBe(true);
     expect(specs.some((spec) => spec.includes("400 16px"))).toBe(true);
-    // The wrapper <div> holds no direct text, so it contributes no spec.
     expect(specs.filter((spec) => spec.includes("Neuron"))).toHaveLength(
       new Set(specs.filter((spec) => spec.includes("Neuron"))).size,
     );
@@ -333,16 +332,6 @@ describe("mirrorPreviewWebFonts nested stylesheets", () => {
   });
 });
 
-/**
- * html2canvas turns `::before` / `::after` into real painted elements
- * (`DocumentCloner.resolvePseudoContent`), so a font used only by generated
- * content still has to be requested in the document that owns the canvas.
- *
- * happy-dom does not implement pseudo-element computed styles (`content` comes
- * back empty), so these drive a stubbed view: they pin that the walk asks for
- * pseudo styles and uses them, which is the logic this module owns. The
- * end-to-end behaviour is covered by the Chromium harness.
- */
 describe("collectFontRequests generated content", () => {
   function docWithComputedStyles(
     html: string,
@@ -545,7 +534,6 @@ describe("mirrorPreviewWebFonts import chains and budget", () => {
         document.implementation.createHTMLDocument("editor"),
         { timeoutMs: 300 },
       );
-      // Two independent windows would take ~600ms here.
       expect(Date.now() - started).toBeLessThan(520);
     } finally {
       globalThis.fetch = originalFetch;
@@ -617,12 +605,6 @@ describe("stripCssComments", () => {
   });
 });
 
-/**
- * A brace inside a comment used to unbalance the brace scan, so the captured
- * "@font-face" block ran on through the following rules and carried ordinary
- * layout CSS into the editor document - the one thing this module must never
- * do, since that stylesheet is live in the app while the capture runs.
- */
 describe("extractFontFaceRules hostile input", () => {
   it("does not capture following rules when a comment contains a brace", () => {
     const rules = extractFontFaceRules(
@@ -782,11 +764,6 @@ describe("mirrorPreviewWebFonts import media", () => {
   });
 });
 
-/**
- * html2canvas paints control values through InputElementContainer and friends
- * without those controls owning a text node, so the walk has to read `.value`
- * or the font rasterizes as fallback.
- */
 describe("collectFontRequests form controls", () => {
   function controlDoc(html: string): Document {
     const doc = document.implementation.createHTMLDocument("preview");
@@ -860,11 +837,6 @@ describe("collectFontRequests form controls", () => {
   });
 });
 
-/**
- * FontFaceSet.load only downloads faces whose unicode-range covers the sample
- * text, and its default sample is a single space. An icon face in the
- * private-use area would never load, so the mirrored face changed nothing.
- */
 describe("collectFontRequests sample text", () => {
   function sampleDoc(html: string, family: string): Document {
     const doc = document.implementation.createHTMLDocument("preview");

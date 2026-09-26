@@ -1,12 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
 
-/*
- * The account this project signs in with is created fresh per run, so its very
- * first Page load reproduces the reported post-signup arrival: sign-up resumes
- * whatever Page URL the browser was on, and for a brand-new account that URL
- * routinely names a document the account cannot read. Landing on "Document
- * unavailable" there left the user with no valid destination at all.
- */
 
 const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
@@ -25,8 +18,6 @@ function unreadableDocumentId(): string {
   return `missing-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** Establish the premise before asserting recovery, so a readable id fails here
- * with its own message instead of timing out inside the recovery poll. */
 async function assertUnreadable(page: Page, documentId: string): Promise<void> {
   const response = await page.request.get(
     `/_agent-native/actions/get-document?id=${encodeURIComponent(documentId)}`,
@@ -38,16 +29,11 @@ async function assertUnreadable(page: Page, documentId: string): Promise<void> {
   ).toContain(response.status());
 }
 
-/** The opened document id, or `null` while the browser is anywhere else. A
- * non-Page URL is not a recovered Page, so the two stay distinguishable. */
 function openedDocumentId(page: Page): string | null {
   const match = /^\/page\/([^/?#]+)/.exec(new URL(page.url()).pathname);
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-/** The settled destination, or `null`. Recovery passes through the landing
- * route, which is neither the requested Page nor a recovered one, so "left the
- * bad URL" is not yet "arrived somewhere usable". */
 function recoveredDocumentId(page: Page, requested: string): string | null {
   const opened = openedDocumentId(page);
   return opened && opened !== requested ? opened : null;
@@ -78,7 +64,6 @@ test("a first arrival at an unreadable Page lands on a Page the account can open
   await expect(
     page.getByRole("heading", { name: "Document unavailable" }),
   ).toHaveCount(0);
-  // The recovery says why rather than silently moving the browser.
   await expect(
     page.getByText("That page is not available to your account", {
       exact: false,

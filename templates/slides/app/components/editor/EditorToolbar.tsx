@@ -102,11 +102,7 @@ interface EditorToolbarProps {
   deck: Deck;
   deckId: string;
   deckTitle: string;
-  /** When false, the user is a viewer — render the editor shell with all
-   *  edit affordances disabled, matching Google Slides' viewer experience.
-   *  Defaults to true for backward compatibility. */
   canEdit?: boolean;
-  /** Whether the user may create and manage comments without editing slides. */
   canComment?: boolean;
   onTitleChange: (title: string) => void;
   currentSlideIndex: number;
@@ -117,72 +113,37 @@ interface EditorToolbarProps {
   onShowHistory: () => void;
   historyButtonRef: React.RefObject<HTMLButtonElement | null>;
   currentSlide?: Slide;
-  /** Host for the wide-layout style toolbar in this row. */
   onWideContextToolbarSlotChange?: (element: HTMLDivElement | null) => void;
-  /** Active users on the current slide (from collab awareness) */
   activeUsers?: CollabUser[];
-  /** Whether the agent has a durable presence entry on this slide */
   agentPresent?: boolean;
-  /** True briefly when AI agent is making edits on the current slide */
   agentActive?: boolean;
-  /** Whether the comments panel is open */
   commentsOpen?: boolean;
-  /** Toggle the comments panel */
   onToggleComments?: () => void;
-  /** Number of unresolved comments on the current slide */
   unresolvedCommentCount?: number;
-  /** Current user email for avatar display */
   currentUserEmail?: string;
-  /** Whether the selected-element transitions panel is open */
   animationsOpen?: boolean;
-  /** Toggle the selected-element transitions panel */
   onToggleAnimations?: () => void;
-  /** Whether the slide layers panel is open */
   layersOpen?: boolean;
-  /** Toggle the slide layers panel */
   onToggleLayers?: () => void;
-  /** Whether the tweaks panel is open */
   tweaksOpen?: boolean;
-  /** Toggle the tweaks panel */
   onToggleTweaks?: () => void;
-  /** Whether draw-on-slide mode is active */
   drawMode?: boolean;
-  /** Toggle draw-on-slide mode */
   onToggleDrawMode?: () => void;
-  /** Whether comment-pin drop mode is active */
   pinMode?: boolean;
-  /** Toggle comment-pin drop mode */
   onTogglePinMode?: () => void;
-  /** Whether the add-text-box tool is active */
   textBoxMode?: boolean;
-  /** Toggle the add-text-box tool */
   onToggleTextBoxMode?: () => void;
-  /** Active shape tool */
   shapeType?: SlideShapeType | null;
-  /** Arm a shape tool for drag-to-place on the canvas */
   onSelectShape?: (shape: SlideShapeType) => void;
-  /** Update the current slide's entrance transition from the overflow menu. */
   onChangeSlideTransition?: (transition: SlideTransition) => void;
-  /** Duplicate the current deck */
   onDuplicateDeck?: () => void;
-  /** Export the deck as PDF */
   onExportPdf?: () => Promise<void> | void;
-  /** Export the deck as PPTX */
   onExportPptx?: () => Promise<void> | void;
-  /** Create the deck in the user's Google Drive as native Google Slides */
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
-  /** Flush local edits before entering the full-screen presentation view. */
   onPresent?: (request?: PresentRequest) => boolean | void;
-  /** Download the current local deck state as a recovery backup. */
   onDownloadBackup?: () => void;
-  /** Restore a recovery backup into the current deck. */
   onImportDeckBackup?: (file: File) => Promise<{ slideCount: number }>;
-  /** Inserts a blank slide directly below the active slide. Threaded through
-   *  to the fallback action cluster below so an empty deck (no current
-   *  slide, so the primary element-controls toolbar never mounts) still has
-   *  a way to add its first slide. */
   onAddEmptySlide?: () => void;
-  /** True while an agent add-slide request is in flight. */
   addSlideGenerating?: boolean;
 }
 
@@ -248,9 +209,6 @@ export default function EditorToolbar({
 }: EditorToolbarProps) {
   const t = useT();
   const creativeContextEnabled = useCreativeContextLab();
-  // Public decks default to the read-only presentation URL so recipients do
-  // not get sent through the editor's auth gate. Restricted decks keep the
-  // editor URL primary, where auth resolves viewer access.
   const editorUrl =
     typeof window === "undefined"
       ? `/deck/${deckId}`
@@ -274,8 +232,6 @@ export default function EditorToolbar({
   const shareLinkOrder = getDeckShareLinkOrder(deck.visibility);
   const primaryShareLink = shareLinks[shareLinkOrder.primary];
 
-  // Live save state for the toolbar indicator, so users always see whether
-  // their work has committed (a lost-deck report motivated surfacing this).
   const { saving } = useSaveState();
   const deckHasUnsavedChanges = hasUnsavedDeckChanges(deckId);
   const saveFailed = hasFailedDeckSave(deckId);
@@ -293,9 +249,6 @@ export default function EditorToolbar({
     };
   }, []);
 
-  // The contextual toolbar hosts the action cluster whenever it is on screen.
-  // That row rides on SlideEditor, which only mounts for a real slide, so an
-  // empty deck must keep this fallback or it has no way to add one.
   const contextToolbarVisible = canEdit && Boolean(currentSlide);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const exportMenuRef = useRef<ExportMenuHandle>(null);
@@ -350,11 +303,6 @@ export default function EditorToolbar({
         method: "POST",
         body: formData,
       });
-      // R83 — guard the parse: a failed upload can come back as a non-JSON
-      // body (upstream proxy/platform error page, plaintext "Internal
-      // Error", etc.). Parsing before the ok check used to throw a raw
-      // "Unexpected token ... is not valid JSON" SyntaxError into this
-      // toast instead of the clean message below.
       const uploadData = await parseUploadResponse(
         uploadRes,
         t("editorToolbar.uploadFailed"),
@@ -379,7 +327,6 @@ export default function EditorToolbar({
           }),
         },
       );
-      // R83 — same parse guard as the upload response above.
       const importData = await parseUploadResponse(
         importRes,
         t("editorToolbar.importFailed"),

@@ -27,12 +27,6 @@ const IMAGE_BLOCK: PlanBlock = {
   data: { url: "https://cdn.example.com/cat.png", alt: "A cat", fit: "cover" },
 };
 
-/**
- * Renders an editable image block through the legacy dispatcher. This also
- * exercises the `DocumentArea` ↔ `planBlocks` module cycle (the image edit dialog
- * imports `PlanAiBlockAction` from planBlocks), so an import-order regression
- * would surface here.
- */
 describe("editable image block", () => {
   it("renders the image with a single self-contained action overlay", () => {
     expect(() => {
@@ -44,8 +38,6 @@ describe("editable image block", () => {
     const img = container.querySelector("img");
     expect(img?.getAttribute("src")).toBe("https://cdn.example.com/cat.png");
 
-    // One overlay = zoom + ⋯ (Edit/Replace live inside the ⋯ menu); the block
-    // must NOT render a second, separate edit control.
     const actions = container.querySelector(".plan-image__actions");
     expect(actions).toBeTruthy();
     expect(actions!.querySelectorAll("button")).toHaveLength(2);
@@ -62,7 +54,6 @@ describe("editable image block", () => {
       );
     });
 
-    // Read-only still shows the image; the overlay is the same shared component.
     expect(container.querySelector("img")).toBeTruthy();
   });
 });

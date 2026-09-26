@@ -24,8 +24,6 @@ vi.mock("./_database-membership-lock.js", () => ({
   lockDatabaseMemberships: membershipLock,
 }));
 
-// Minimal schema stand-in: each table is identified by name so a fake db can
-// record which table a delete/select targeted.
 const { schema } = vi.hoisted(() => ({
   schema: {
     documents: {

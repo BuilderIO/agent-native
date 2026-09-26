@@ -63,19 +63,15 @@ export interface DashboardRecord {
   createdBy: string | null;
   updatedAt: string;
   updatedBy: string | null;
-  /** ISO timestamp set when the dashboard is archived. Null = active. */
   archivedAt: string | null;
-  /** ISO timestamp set when the dashboard is hidden from default navigation. */
   hiddenAt: string | null;
   hiddenBy: string | null;
   certification?: DashboardCertification;
-  /** Effective role for the caller when loaded by id. List rows omit this. */
   role?: AccessRole;
   canEdit?: boolean;
   canManage?: boolean;
 }
 
-/** Metadata-only dashboard row for navigation and picker surfaces. */
 export interface DashboardSummaryRecord {
   id: string;
   kind: DashboardKind;
@@ -98,7 +94,6 @@ export interface DashboardSummaryRecord {
   favorite?: boolean;
 }
 
-/** Compact, access-scoped reference returned by dashboard discovery. */
 export interface DashboardReferenceRecord {
   id: string;
   kind: DashboardKind;
@@ -113,7 +108,6 @@ export interface DashboardReferenceRecord {
   matchedFields: Array<"id" | "name" | "description" | "config">;
 }
 
-/** Hydrated dashboard row for catalog ranking only. */
 export interface DashboardCatalogRecord {
   id: string;
   kind: DashboardKind;
@@ -162,10 +156,8 @@ export interface AnalysisRecord {
   visibility: "private" | "org" | "public";
   createdAt: string;
   updatedAt: string;
-  /** ISO timestamp set when the analysis is hidden from default navigation. */
   hiddenAt: string | null;
   hiddenBy: string | null;
-  /** Effective role for the caller when loaded by id. List rows omit this. */
   role?: AccessRole;
   canEdit?: boolean;
   canManage?: boolean;
@@ -212,21 +204,10 @@ interface AccessCtx {
   orgId: string | null;
 }
 
-/**
- * Legacy KV rows are only ever reachable under `o:<orgId>:` or `u:<email>:`,
- * so a caller can match nothing else. Reading them with `getAllSettings()`
- * pulled and JSON-parsed every tenant's settings row into the Lambda to
- * string-match those two prefixes, putting the whole deployment's settings
- * table on the critical path of every dashboard and analysis list read.
- */
 async function getScopedLegacySettings(
   ctx: Pick<AccessCtx, "email" | "orgId">,
   options?: { dashboardKind?: DashboardKind; limit?: number },
 ): Promise<Record<string, Record<string, unknown>>> {
-  // User scope first, then org: callers append these to the SQL rows in
-  // iteration order and never re-sort, so the order is user-visible. The
-  // previous full-table read inherited whatever order the settings table
-  // returned, which no query pinned.
   const prefixes: string[] = [];
   if (options?.dashboardKind === "sql") {
     if (ctx.email) prefixes.push(`u:${ctx.email}:${SQL_PREFIX}`);
@@ -253,13 +234,6 @@ async function getScopedLegacySettings(
 const SQL_PREFIX = "sql-dashboard-";
 const EXPLORER_PREFIX = "dashboard-";
 
-/**
- * `EXPLORER_PREFIX` also prefixes per-dashboard preference keys such as
- * `dashboard-filters:<id>`, so an unqualified prefix match reads every saved
- * filter set back as an "Untitled" explorer dashboard. Settings sub-namespaces
- * are the only thing that puts a separator inside the remainder, encoded or
- * not, and no dashboard id contains one.
- */
 function isLegacyDashboardId(id: string): boolean {
   return id.length > 0 && !/:|%3a/i.test(id);
 }
@@ -548,10 +522,6 @@ function nanoidFallback(): string {
   );
 }
 
-/**
- * Normalize affected-row metadata from PGlite and hosted Postgres. Mirrors
- * templates/design/actions/update-design.ts's `affectedRowCount`.
- */
 function affectedRowCount(result: unknown): number | undefined {
   const candidate = result as
     | {
@@ -573,12 +543,6 @@ function affectedRowCount(result: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
-/**
- * Thrown when a fenced `upsertDashboard` write (an `expectedUpdatedAt` was
- * supplied) loses its compare-and-swap because another writer changed the
- * row first. Callers should re-read the dashboard and re-apply their mutation
- * against the fresh config — see `upsertDashboardWithRetry`.
- */
 export class DashboardConflictError extends Error {
   constructor(id: string) {
     super(`Dashboard "${id}" changed between read and write.`);
@@ -586,12 +550,6 @@ export class DashboardConflictError extends Error {
   }
 }
 
-/**
- * Thrown when a fenced `upsertAnalysis` write (an `expectedUpdatedAt` was
- * supplied) loses its compare-and-swap because another writer changed the
- * row first. Callers should re-read the analysis and re-apply their mutation
- * against the fresh record — see `upsertAnalysisWithRetry`.
- */
 export class AnalysisConflictError extends Error {
   constructor(id: string) {
     super(`Analysis "${id}" changed between read and write.`);
@@ -625,9 +583,6 @@ function recordScopedChange(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Dashboards
-// ---------------------------------------------------------------------------
 
 function accessFields(role?: AccessRole): {
   role?: AccessRole;
@@ -778,8 +733,6 @@ async function migrateDashboardFromSettings(
     })
     .onConflictDoNothing();
   // guard:allow-unscoped — read-after-write of the row just inserted above
-  // with ownerEmail from ctx; eq(id) is sufficient because we know the id we
-  // just wrote and onConflictDoNothing leaves any pre-existing row untouched.
   const [row] = await db
     .select()
     .from(schema.dashboards)
@@ -798,7 +751,6 @@ async function findLegacyDashboard(
   orgId: string | null;
   visibility: DashboardRecord["visibility"];
 } | null> {
-  // Org-scoped SQL dashboard
   if (ctx.orgId) {
     const v = await getOrgSetting(ctx.orgId, `${SQL_PREFIX}${id}`);
     if (v)
@@ -810,7 +762,6 @@ async function findLegacyDashboard(
         visibility: "org",
       };
   }
-  // User-scoped SQL dashboard
   if (ctx.email) {
     const v = await getUserSetting(ctx.email, `${SQL_PREFIX}${id}`);
     if (v)
@@ -822,7 +773,6 @@ async function findLegacyDashboard(
         visibility: "private",
       };
   }
-  // User-scoped Explorer dashboard
   if (ctx.email) {
     const v = await getUserSetting(ctx.email, `${EXPLORER_PREFIX}${id}`);
     if (v)
@@ -837,18 +787,15 @@ async function findLegacyDashboard(
   return null;
 }
 
-/** Fetch a dashboard by id, enforcing access. Lazy-migrates from legacy keys. */
 export async function getDashboard(
   id: string,
   ctx: AccessCtx,
 ): Promise<DashboardRecord | null> {
-  // 1) SQL first, with access check.
   const access = await resolveAccess("dashboard", id, {
     userEmail: ctx.email,
     orgId: ctx.orgId ?? undefined,
   });
   if (access) return rowToDashboard(access.resource, access.role);
-  // 2) Legacy fallback.
   const legacy = await findLegacyDashboard(id, ctx);
   if (!legacy) return null;
   return migrateDashboardFromSettings(
@@ -911,19 +858,6 @@ export async function getPublicDashboardMetadata(id: string) {
   };
 }
 
-/**
- * List dashboards visible to the caller. Union of SQL rows + not-yet-migrated
- * legacy keys.
- *
- * `archived` controls whether archived rows are included:
- *   - `"active"` (default): hide archived rows
- *   - `"archived"`: only archived rows
- *   - `"all"`: both
- *
- * Legacy settings rows have no archive concept, so they are treated as active.
- * Legacy settings rows have no hidden concept, so hidden-only queries skip the
- * legacy scan.
- */
 export async function listDashboards(
   ctx: AccessCtx,
   filter?: {
@@ -953,9 +887,6 @@ export async function listDashboards(
   const rows = await db.select().from(schema.dashboards).where(where);
   const out: DashboardRecord[] = rows.map(rowToDashboard);
   const seen = new Set(out.map((r) => r.id));
-  // Legacy: scan settings once and surface anything not yet migrated.
-  // Archived/hidden state doesn't exist in legacy rows, so skip the legacy scan
-  // entirely when the caller wants archived-only or hidden-only records.
   if (archived === "archived" || hidden === "hidden") return out;
   try {
     const all = await getScopedLegacySettings(ctx);
@@ -1187,13 +1118,6 @@ export async function listDashboardSummaries(
   return out;
 }
 
-/**
- * Find active saved dashboards by metadata or serialized config.
- *
- * This is deliberately separate from the query catalog: a matching saved
- * dashboard is a replication reference, not proof that its source is
- * authoritative for the question being asked.
- */
 export async function searchDashboardReferences(
   ctx: AccessCtx,
   search: string,
@@ -1289,9 +1213,6 @@ export async function searchDashboardReferences(
       } => match !== null,
     );
 
-  // Older Analytics deployments still have dashboards in settings KV. Search
-  // that scoped fallback too, but keep SQL rows authoritative when an id has
-  // already been migrated.
   const seen = new Set(
     ranked.map(({ record }) => `${record.kind}:${record.id}`),
   );
@@ -1351,14 +1272,6 @@ export async function searchDashboardReferences(
     .map(({ record }) => record);
 }
 
-/**
- * With no active organization, `ownerScopeFilter` narrows the owner clause to
- * `org_id IS NULL` and drops the `visibility = 'org'` clause entirely, so every
- * dashboard the caller owns under an organization vanishes from this search.
- * An empty result then reads as "no such dashboard" and the agent answers by
- * querying raw event tables instead of the dashboard the user named. Probe on
- * the empty path only, so an ordinary miss stays one query.
- */
 async function assertNoOwnedReferenceHiddenByScope(
   db: any,
   ctx: AccessCtx,
@@ -1404,13 +1317,6 @@ async function assertNoOwnedReferenceHiddenByScope(
   );
 }
 
-/**
- * Hydrate a bounded set of dashboard ids for catalog ranking.
- *
- * This is the catalog-specific path: it reads only the id, kind, title,
- * description, and config needed for ranking, and only for explicit ids that
- * were already shortlisted from the metadata path.
- */
 export async function loadDashboardCatalogDashboards(
   ctx: AccessCtx,
   ids: readonly string[],
@@ -1510,11 +1416,6 @@ export async function loadDashboardCatalogDashboards(
   return out;
 }
 
-/**
- * Reject a name that would collide with another dashboard visible to the
- * caller. Archived and hidden dashboards are intentionally excluded because
- * they are not part of the navigation surface this protects.
- */
 export async function assertDashboardNameIsAvailable(
   name: string,
   ctx: AccessCtx,
@@ -1695,14 +1596,8 @@ export async function upsertDashboard(
   ctx: AccessCtx,
   expectedUpdatedAt?: string,
 ): Promise<DashboardRecord> {
-  // If the row exists (or legacy-migrates), require editor.
   const existing = await getDashboard(id, ctx);
   if (!existing && expectedUpdatedAt !== undefined) {
-    // A fence was supplied against a specific prior version, but the row is
-    // gone (deleted, or a legacy key that failed to migrate) by the time we
-    // looked. Treat this as a conflict rather than silently creating a fresh
-    // row — the caller's mutation was computed against state that no longer
-    // exists.
     throw new DashboardConflictError(id);
   }
   const db = getDb() as any;
@@ -1736,9 +1631,7 @@ export async function upsertDashboard(
         updatedBy: ctx.email,
       };
       if (expectedUpdatedAt !== undefined) {
-        // Fenced write. Snapshot the revision only after we know this exact
         // write actually landed — otherwise a lost race would record a
-        // revision for a save that never happened.
         const updateResult = await writeDb
           .update(schema.dashboards)
           .set(setValues)
@@ -1807,8 +1700,6 @@ export async function upsertDashboard(
     .select()
     .from(schema.dashboards)
     .where(eq(schema.dashboards.id, id));
-  // Notify any sibling tabs (sidebar list, command palette, dashboard view)
-  // so create/update propagate just like delete and the legacy-migration path.
   const dashboard = rowToDashboard(row);
   recordScopedChange(
     "dashboards",
@@ -1821,7 +1712,6 @@ export async function upsertDashboard(
   return dashboard;
 }
 
-/** Max attempts (first try + retries) for `upsertDashboardWithRetry`. */
 export const DASHBOARD_SAVE_MAX_ATTEMPTS = 3;
 
 /**
@@ -1894,7 +1784,6 @@ function nextDashboardVersion(updatedAt: string): string {
   ).toISOString();
 }
 
-/** Persist an admin certification as server-owned metadata and a new write version. */
 export async function certifyDashboardWithRetry(
   id: string,
   ctx: AccessCtx,
@@ -2140,11 +2029,6 @@ export async function restoreDashboardRevision(
   return restored;
 }
 
-/**
- * Archive a dashboard (soft-delete). Requires editor. The row stays in the
- * dashboards table with `archived_at` set, so it disappears from the default
- * sidebar list but remains accessible by id and can be restored.
- */
 export async function archiveDashboard(
   id: string,
   ctx: AccessCtx,
@@ -2178,7 +2062,6 @@ export async function archiveDashboard(
   return dashboard;
 }
 
-/** Restore an archived dashboard. Requires editor. No-op if already active. */
 export async function unarchiveDashboard(
   id: string,
   ctx: AccessCtx,
@@ -2225,11 +2108,6 @@ export async function unarchiveDashboard(
   return dashboard;
 }
 
-/**
- * Hide a dashboard from default lists/search-empty states without archiving it.
- * The dashboard remains accessible by id and can be found by search surfaces
- * that explicitly include hidden records.
- */
 export async function hideDashboard(
   id: string,
   ctx: AccessCtx,
@@ -2268,11 +2146,6 @@ export async function hideDashboard(
   return dashboard;
 }
 
-/**
- * Unhide a dashboard. During cleanup, legacy org-shared dashboards can be left
- * with a blank owner; the first user to unhide one becomes the owner so future
- * sharing/editing has a real person behind it.
- */
 export async function unhideDashboard(
   id: string,
   ctx: AccessCtx,
@@ -2328,7 +2201,6 @@ export async function unhideDashboard(
   return dashboard;
 }
 
-/** Delete a dashboard. Cleans legacy keys too. Requires admin/owner. */
 export async function removeDashboard(
   id: string,
   ctx: AccessCtx,
@@ -2355,7 +2227,6 @@ export async function removeDashboard(
     existing.orgId,
     existing.visibility,
   );
-  // Best-effort legacy cleanup.
   try {
     if (ctx.orgId) await deleteOrgSetting(ctx.orgId, `${SQL_PREFIX}${id}`);
     if (ctx.email) {
@@ -2367,9 +2238,6 @@ export async function removeDashboard(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Analyses
-// ---------------------------------------------------------------------------
 
 function rowToAnalysis(row: any, role?: AccessRole): AnalysisRecord {
   return {
@@ -2431,12 +2299,6 @@ function safeJsonParse<T>(s: unknown, fallback: T): T {
   }
 }
 
-/**
- * Columns selected for the analyses LIST query. Deliberately excludes the heavy
- * `resultMarkdown` (full findings text) and `resultData` (JSON) blobs — the list
- * action only needs metadata, so pulling those for every row wastes bandwidth.
- * The single-analysis GET path (`getAnalysis`) still selects the full row.
- */
 const analysisListColumns = {
   id: schema.analyses.id,
   name: schema.analyses.name,
@@ -2454,12 +2316,6 @@ const analysisListColumns = {
   hiddenBy: schema.analyses.hiddenBy,
 } as const;
 
-/**
- * Map a list-projection row (no heavy result blobs) to an AnalysisRecord. The
- * excluded `resultMarkdown` / `resultData` fields are filled with empty
- * defaults so list consumers never transfer them; callers needing the real
- * result must load the analysis by id via `getAnalysis`.
- */
 function listRowToAnalysis(row: any): AnalysisRecord {
   return {
     id: row.id,
@@ -2614,16 +2470,12 @@ export async function listAnalyses(
   else if (hidden === "hidden")
     conditions.push(isNotNull(schema.analyses.hiddenAt));
   const where = conditions.length === 1 ? conditions[0] : and(...conditions);
-  // List-specific projection: never pull the heavy resultMarkdown / resultData
-  // blobs for every analysis. Consumers that need the full result load by id.
   const rows = await db
     .select(analysisListColumns)
     .from(schema.analyses)
     .where(where);
   const out: AnalysisRecord[] = rows.map(listRowToAnalysis);
   const seen = new Set<string>(out.map((r) => r.id));
-  // Legacy settings rows have no hidden concept, so hidden-only queries skip
-  // the legacy scan entirely.
   if (hidden === "hidden") return out;
   try {
     const all = await getScopedLegacySettings(ctx);
@@ -2801,11 +2653,6 @@ export async function upsertAnalysis(
 ): Promise<AnalysisRecord> {
   const existing = await getAnalysis(id, ctx);
   if (!existing && expectedUpdatedAt !== undefined) {
-    // A fence was supplied against a specific prior version, but the row is
-    // gone (deleted, or a legacy key that failed to migrate) by the time we
-    // looked. Treat this as a conflict rather than silently creating a fresh
-    // row — the caller's mutation was computed against state that no longer
-    // exists.
     throw new AnalysisConflictError(id);
   }
   const db = getDb() as any;
@@ -2874,9 +2721,7 @@ export async function upsertAnalysis(
               : stableStringify(body.resultData))));
     if (!changed) return existing;
     if (expectedUpdatedAt !== undefined) {
-      // Fenced write. Snapshot the revision only after we know this exact
       // write actually landed — otherwise a lost race would record a
-      // revision for a save that never happened.
       const updateResult = await db
         .update(schema.analyses)
         .set(patch)
@@ -2932,9 +2777,6 @@ export async function upsertAnalysis(
     });
   }
   // guard:allow-unscoped — read-after-write of the analysis row just upserted
-  // above with ownerEmail from ctx; the upsert path already gated access via
-  // assertAccess earlier in this function for the update branch, and the
-  // insert branch sets ownerEmail = ctx.email, so eq(id) is sufficient.
   const [row] = await db
     .select()
     .from(schema.analyses)
@@ -2942,7 +2784,6 @@ export async function upsertAnalysis(
   return rowToAnalysis(row);
 }
 
-/** Max attempts (first try + retries) for `upsertAnalysisWithRetry`. */
 export const ANALYSIS_SAVE_MAX_ATTEMPTS = 3;
 
 /**
@@ -3163,11 +3004,6 @@ export async function removeAnalysis(
   }
 }
 
-/**
- * Hide an analysis from default lists/navigation without deleting it. The
- * analysis remains accessible by id and can be found by surfaces that
- * explicitly include hidden records.
- */
 export async function hideAnalysis(
   id: string,
   ctx: AccessCtx,
@@ -3201,11 +3037,6 @@ export async function hideAnalysis(
   return analysis;
 }
 
-/**
- * Unhide an analysis. During cleanup, legacy org-shared analyses can be left
- * with a blank owner; the first user to unhide one becomes the owner so future
- * sharing/editing has a real person behind it.
- */
 export async function unhideAnalysis(
   id: string,
   ctx: AccessCtx,
@@ -3243,9 +3074,6 @@ export async function unhideAnalysis(
   return analysis;
 }
 
-// ---------------------------------------------------------------------------
-// Dashboard views (child of dashboard — no separate sharing)
-// ---------------------------------------------------------------------------
 
 export interface DashboardViewRecord {
   id: string;
@@ -3271,7 +3099,6 @@ export async function listDashboardViews(
   dashboardId: string,
   ctx: AccessCtx,
 ): Promise<DashboardViewRecord[]> {
-  // Parent access gates view visibility.
   const access = await resolveAccess(
     "dashboard",
     dashboardId,
@@ -3282,8 +3109,6 @@ export async function listDashboardViews(
     { skipResourceBody: true },
   );
   if (!access) {
-    // Keep the migration-aware legacy fallback for dashboards that predate
-    // SQL materialization while retaining the projected SQL fast path.
     const legacy = await findLegacyDashboard(dashboardId, ctx);
     if (!legacy) return [];
     await migrateDashboardFromSettings(
@@ -3328,10 +3153,6 @@ export async function saveDashboardView(
     if (existingRow?.dashboardId === dashboardId) {
       existing = true;
     } else if (existingRow) {
-      // View ids are generated from names in the browser but remain globally
-      // primary-keyed for backwards compatibility. Avoid colliding with a
-      // same-named view on another dashboard instead of updating that row or
-      // returning a raw unique-constraint 500.
       id = nanoidFallback();
     }
   }

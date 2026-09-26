@@ -185,9 +185,6 @@ export default defineAction({
       height: 900,
     }),
   },
-  // Render the answer's diagram/wireframe/api-spec/data-model blocks INLINE in
-  // Agent-Native chat (registry-driven, so custom registered blocks render too),
-  // distinct from the MCP App iframe used by external hosts.
   chatUI: {
     renderer: "plan.visual-answer",
     title: "Visual Answer",
@@ -232,9 +229,6 @@ export default defineAction({
           visibility,
         });
       }
-      // Return a focused payload: enough for the inline chat renderer
-      // (`plan.content` = normalized blocks) and the deep link, without echoing
-      // the heavy import bundle (html, comments, access) back into agent context.
       const bundlePlan = (
         result as {
           plan?: {

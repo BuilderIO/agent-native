@@ -116,7 +116,6 @@ describe("slides comment notifications", () => {
       failed: [],
     });
     stubDb({ deck: DECK });
-    // Access filtering has its own tests; these assert who is offered.
     mocks.filterRecipients.mockImplementation(
       async ({ emails }: { emails: string[] }) => [...emails],
     );

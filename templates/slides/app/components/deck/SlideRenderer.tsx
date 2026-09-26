@@ -44,23 +44,11 @@ import { MermaidRenderer } from "./MermaidRenderer";
 interface SlideRendererProps {
   slide: Slide;
   className?: string;
-  /** If true, renders at full slide resolution and scales down via CSS to fit the container */
   thumbnail?: boolean;
-  /** Design system to inject as CSS custom properties */
   designSystem?: DesignSystemData;
-  /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
-  /** Fires when the natural slide content overflows the canvas vertically.
-   * The renderer no longer shrinks slides for vertical overflow — instead the
-   * editor surfaces this so the agent can rewrite the slide to fit. */
   onOverflowChange?: (info: SlideOverflowInfo) => void;
-  /** Fires after AutoFit has applied its final transform for this render. */
   onAutofitSettled?: () => void;
-  /**
-   * Stamp rendered elements with their stored source position so an editor
-   * can save edits into the stored HTML. Only the editable main canvas sets
-   * this; see `getRenderedSlideSource`.
-   */
   stampSource?: boolean;
 }
 
@@ -98,7 +86,6 @@ function isDarkSlideBackground(value: string): boolean {
   return channels[0] * 0.299 + channels[1] * 0.587 + channels[2] * 0.114 < 128;
 }
 
-/** Custom image component that shows skeleton while loading */
 function LazyImage({
   src,
   alt,
@@ -165,7 +152,6 @@ const markdownComponents = {
     );
   },
   pre: ({ children, ...props }: any) => {
-    // If the child is a mermaid code block, don't wrap in <pre>
     const child = Array.isArray(children) ? children[0] : children;
     if (child?.props?.className === "language-mermaid") {
       return <>{children}</>;
@@ -186,11 +172,7 @@ export interface SlideFitTransform {
   x: number;
   y: number;
   fitted: boolean;
-  /** Vertical overflow in CSS px (0 if content fits). Reported to the agent so it can
-   * rewrite the slide HTML to fit, instead of being papered over with a uniform
-   * shrink that leaves ugly right/bottom margins. */
   verticalOverflow: number;
-  /** Horizontal overflow in CSS px (0 if content fits). */
   horizontalOverflow: number;
 }
 
@@ -213,20 +195,12 @@ export function computeSlideFitTransform({
   minScale?: number;
   measuredHorizontalOverflow?: number;
 }): SlideFitTransform {
-  // Only scale for horizontal overflow. For vertical overflow we surface a
-  // `verticalOverflow` measurement so the agent can rewrite the slide HTML —
-  // uniform scale-to-fit for vertical overflow shrinks both axes and leaves
-  // unbalanced right/bottom margins (with origin top-left), which looks worse
-  // than asking the LLM to redo the layout to fit the canvas properly.
   const safeContentWidth = Math.max(1, contentWidth);
   const rawHorizontalOverflow = Math.max(
     measuredHorizontalOverflow,
     contentWidth - viewportWidth,
     0,
   );
-  // Do not visually zoom for the same small wrapper spill that the warning
-  // intentionally ignores. Positioned objects also report independently, so
-  // their overflow never becomes an accidental scale-to-fit transform.
   const widthToFit =
     rawHorizontalOverflow > HORIZONTAL_OVERFLOW_TOLERANCE_PX
       ? safeContentWidth
@@ -235,9 +209,6 @@ export function computeSlideFitTransform({
   const scale = Math.max(minScale, rawScale);
 
   const rawVerticalOverflow = Math.max(0, contentHeight - viewportHeight);
-  // Small differences are commonly caused by line-box rounding and layout
-  // wrappers. Do not turn that harmless spill into an agent repair request;
-  // significant overflow is still reported at its measured size.
   const verticalOverflow =
     rawVerticalOverflow > VERTICAL_OVERFLOW_TOLERANCE_PX
       ? Math.round(rawVerticalOverflow)
@@ -319,13 +290,6 @@ function measureContentBounds(target: HTMLElement): {
     return false;
   };
   const targetRect = target.getBoundingClientRect();
-  // `scrollWidth` / `clientWidth` return CSS pixels; `getBoundingClientRect`
-  // returns layout pixels after every ancestor transform. In presentation
-  // mode the outer canvas is scaled UP (--slide-scale > 1, e.g. 1.74), so
-  // child rects come back inflated relative to their CSS dimensions. Without
-  // normalization, the bounds read as content overflow, so every slide can
-  // visibly shrink in presentation mode. Normalize child rects back to
-  // CSS-px space.
   const cssWidth = target.clientWidth || target.scrollWidth || 0;
   const cssHeight = target.clientHeight || target.scrollHeight || 0;
   const invScaleX =
@@ -335,11 +299,6 @@ function measureContentBounds(target: HTMLElement): {
 
   let minX = 0;
   let minY = 0;
-  // Absolutely positioned objects intentionally move independently of the
-  // flow layout. Include them in vertical diagnostics so text boxes cannot
-  // silently run off the canvas, but keep them out of the horizontal fit
-  // transform. Using scrollHeight as the baseline makes full-size wrappers
-  // look like overflowing content even when their visible children fit.
   let flowMaxX = target.clientWidth;
   let flowMaxY = target.clientHeight;
   let contentMaxY = target.clientHeight;
@@ -357,9 +316,6 @@ function measureContentBounds(target: HTMLElement): {
     const bottom = (rect.bottom - targetRect.top) * invScaleY;
 
     const isFreeform = isFreeformElement(el);
-    // A normal-flow wrapper can spill because of its own box model while its
-    // visible child still fits. Measure the child boundary instead of making
-    // the wrapper itself an overflow warning.
     const hasDirectText = Array.from(el.childNodes).some(
       (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
     );
@@ -381,10 +337,6 @@ function measureContentBounds(target: HTMLElement): {
     contentMaxY = Math.max(contentMaxY, bottom);
   }
 
-  // Raw text can be a direct child with no measurable element descendant.
-  // Only use scroll dimensions in that case; using them alongside normal
-  // descendants would count full-size wrappers as content and recreate the
-  // false positive.
   if (!hasFlowContent && descendants.length === 0) {
     contentMaxY = Math.max(contentMaxY, target.scrollHeight);
     contentMaxX = Math.max(contentMaxX, target.scrollWidth);
@@ -403,21 +355,12 @@ function measureContentBounds(target: HTMLElement): {
   };
 }
 
-/** Reported by useSlideAutofit when content overflows the slide canvas vertically.
- * Surfaced so the editor can prompt the agent to rewrite the slide instead of
- * the renderer trying to paper over it with a uniform shrink. */
 export interface SlideOverflowInfo {
-  /** Vertical overflow in CSS px at native resolution (0 = fits). */
   verticalOverflow: number;
-  /** Horizontal overflow in CSS px at native resolution (0 = fits). */
   horizontalOverflow: number;
-  /** Total natural content height in CSS px. */
   contentHeight: number;
-  /** Total natural content width in CSS px. */
   contentWidth: number;
-  /** Available canvas height inside the slide padding. */
   viewportHeight: number;
-  /** Available canvas width inside the slide padding. */
   viewportWidth: number;
 }
 
@@ -440,19 +383,9 @@ function useSlideAutofit(
 
     let raf = 0;
     let disposed = false;
-    // Measuring costs a full-document reflow per slide (every descendant is
-    // read with getBoundingClientRect, interleaved with style writes). A deck
-    // with dozens of slides mounts that many renderers at once, so off-screen
-    // thumbnails are left unmeasured until they scroll into view. Without an
-    // IntersectionObserver there is nothing to defer against, so measure
-    // eagerly as before.
     const canDefer =
       typeof IntersectionObserver !== "undefined" &&
       !root.closest("[data-pdf-export-stage]");
-    // Resolved synchronously rather than waiting for the observer's first
-    // callback: a slide that is already on screen must be measured on this
-    // pass, and nothing may depend on a callback that a given environment
-    // might never deliver. This reads one rect, not one per descendant.
     const isNearViewport = () => {
       const rect = root.getBoundingClientRect();
       const margin = 200;
@@ -489,11 +422,6 @@ function useSlideAutofit(
 
       for (const target of targets) {
         if (isEditing) {
-          // Entering inline edit must not change the canvas geometry. The
-          // contenteditable attribute is observed below, so resetting the fit
-          // transform here made a horizontally fitted slide jump as soon as a
-          // user clicked its text. Freeze the most recent fit until the edit
-          // commits, then measure the saved HTML again.
           continue;
         }
 
@@ -537,13 +465,6 @@ function useSlideAutofit(
         }
       }
 
-      // Fire the callback on EVERY measurement (not just when the overflow
-      // value changes). The editor uses this to refresh its
-      // `application_state.slide-fit-check` record with a new `measuredAt`
-      // timestamp so a later `get-layout-overflows` call can confirm the
-      // slide has been re-measured after a write — even when an agent patch
-      // keeps the overflow at the same value (e.g. dropped one bullet and
-      // added another). The editor dedups React state changes on its own end.
       if (!isEditing) {
         overflowCallbackRef.current?.(
           worstInfo ?? {
@@ -584,14 +505,8 @@ function useSlideAutofit(
 
     root.addEventListener("load", scheduleMeasure, true);
     document.fonts?.ready.then(scheduleMeasure).catch(() => {});
-    // An imported deck's webfonts are requested only once its HTML is on
-    // screen, so they can land after `fonts.ready` has already settled. That
-    // reflows text without touching the DOM the observers watch, leaving the
-    // fit transform measured against the fallback font.
     document.fonts?.addEventListener("loadingdone", scheduleMeasure);
 
-    // `rootMargin` measures a thumbnail just before it scrolls in, so the fit
-    // transform is already applied by the time it is on screen.
     const visibilityObserver = canDefer
       ? new IntersectionObserver(
           (entries) => {
@@ -634,7 +549,6 @@ function AutoFitContent({
   canvasHeight: number;
   fitKey: string;
   className?: string;
-  /** Stamps `data-slide-content-scope`; see {@link slideDeclaresTextColor}. */
   contentScope?: string;
   children: ReactNode;
   onOverflowChange?: (info: SlideOverflowInfo) => void;
@@ -682,16 +596,8 @@ export function slideDeclaresTextColor(html: string): boolean {
   return /<[^>]*[^-\w]color\s*:/i.test(html);
 }
 
-/** Marks a markdown container whose slide declares its own colors. */
 const AUTHORED_COLOR_SCOPE = "authored-colors";
 
-/**
- * Google Fonts families an imported deck may name. Split by what the `css2`
- * endpoint accepts for each: the first list has a real 100..900 variable
- * weight axis, the rest only serve discrete weights. Asking for an axis a
- * family does not have is a 400 for the whole request, so both lists were
- * checked against the live endpoint rather than guessed from the name.
- */
 const VARIABLE_AXIS_GOOGLE_FONTS = [
   "Archivo",
   "Asap",
@@ -787,18 +693,11 @@ const STATIC_WEIGHT_GOOGLE_FONTS = [
   "Yanone Kaffeesatz",
 ];
 
-/** Families decks still name under a name Google Fonts does not serve. */
 const GOOGLE_FONT_ALIASES: Record<string, string> = {
   "source sans pro": "source sans 3",
   bodoni: "bodoni moda",
 };
 
-/**
- * PPTX stores a weight as part of the typeface name — a Work Sans deck is full
- * of runs set in `Work Sans Medium` — but a webfont family covers its whole
- * weight range, so the suffixed name matches nothing and falls back to the
- * generic sans that made every imported deck look unstyled.
- */
 const FONT_WEIGHT_SUFFIX =
   /\s+(?:thin|extra ?light|ultra ?light|light|book|regular|normal|medium|semi ?bold|demi ?bold|bold|extra ?bold|ultra ?bold|black|heavy|italic|oblique)$/i;
 
@@ -815,7 +714,6 @@ for (const [families, axis] of [
   }
 }
 
-/** The webfont that should render `name`, or undefined when none can. */
 export function resolveImportedFont(
   name: string,
 ): { family: string; href: string } | undefined {
@@ -830,12 +728,6 @@ export function resolveImportedFont(
   return lookup(key) ?? lookup(key.replace(FONT_WEIGHT_SUFFIX, "").trim());
 }
 
-/**
- * Point every quoted `font-family` in imported slide HTML at a family we can
- * actually serve, and collect the stylesheets that serve them. Families we
- * cannot serve are left exactly as authored so the browser can still match a
- * locally installed copy.
- */
 export function prepareImportedFonts(html: string): {
   html: string;
   hrefs: string[];
@@ -905,28 +797,14 @@ function consumeSlideEditDraft(
   return true;
 }
 
-/**
- * What a stamped `.slide-content` root was rendered from. Undefined for roots
- * rendered without `stampSource` (thumbnails, present mode, Markdown layouts).
- */
 export function getRenderedSlideSource(
   root: HTMLElement,
 ): RenderedSlideSource | undefined {
   return renderedSlideSources.get(root);
 }
 
-/**
- * Dispatched (bubbling) on a `.slide-content` root that holds an open text
- * edit, right before other HTML replaces it: another slide's, or a newer
- * version of this one. The editor must end and save the edit synchronously;
- * a root still being edited is not replaced.
- */
 export const SLIDE_CONTENT_REPLACE_EVENT = "slides:before-content-replace";
 
-/**
- * The event's detail when the incoming HTML is a newer version of the edited
- * slide: its stored source, which the edit must be saved on top of.
- */
 export interface SlideContentReplaceDetail {
   content: string;
 }
@@ -944,10 +822,6 @@ function registerRenderedSlideSource(
 const LOGO_IMAGE_TAG =
   /(<img\s+(?=[^>]*src="[^"]*(?:brandfetch|logo\.dev)[^"]*")[^>]*)(\/?>)/gi;
 
-/**
- * The raw-HTML render pipeline: optional source stamps, mermaid extraction,
- * the logo filter, sanitizing with a scoped stylesheet, and font renames.
- */
 export function renderRawSlideHtml(
   content: string,
   options: { scopeSelector: string; stampNonce?: string },
@@ -957,18 +831,14 @@ export function renderRawSlideHtml(
   fontHrefs: string[];
   source: Omit<RenderedSlideSource, "base"> | null;
 } {
-  // Stamp first: the stamps are what map every later rewrite back to source.
   const stamped =
     options.stampNonce !== undefined
       ? stampSlideSource(content, options.stampNonce)
       : null;
-  // Extract mermaid blocks BEFORE sanitization — see mermaid-blocks.ts for
-  // why (sanitizer HTML-escaping breaks the mermaid parser).
   const { blocks, contentWithPlaceholders } = extractMermaidBlocks(
     stamped?.html ?? content,
   );
 
-  // Apply white filter to all logo images (brandfetch, logo.dev, etc.) for dark backgrounds
   const sanitized = sanitizeSlideHtml(
     contentWithPlaceholders.replace(
       LOGO_IMAGE_TAG,
@@ -1001,11 +871,6 @@ export function renderRawSlideHtml(
   };
 }
 
-/**
- * Mounts the rendered slide HTML once and renders each mermaid diagram into
- * its placeholder, so the canvas tree is the stored tree: a diagram inside
- * `.fmd-slide` stays inside it.
- */
 function RawSlideHtmlContent({
   html,
   scopeId,
@@ -1043,8 +908,6 @@ function RawSlideHtmlContent({
         ? takeSlideImageUploadProvenance(slideId, source.stored)
         : null;
       if (root.querySelector(EDITING_SELECTOR)) {
-        // Preserve the live draft only for this upload's exact edited-node
-        // snapshot; a newer same-slide write must commit and rebase the edit.
         if (
           sameSlide &&
           source &&
@@ -1069,9 +932,6 @@ function RawSlideHtmlContent({
         );
       }
       if (root.querySelector(EDITING_SELECTOR)) {
-        // Rewriting the root would destroy the live edit's DOM and its caret.
-        // Every content write during an edit commits the edit first, so this
-        // is a missed commit, not something to paper over.
         const error = new Error(
           "[slides] refused to re-render a slide while its text is being edited",
         );
@@ -1079,15 +939,12 @@ function RawSlideHtmlContent({
         captureError(error, { tags: { area: "slides-save-boundary" } });
         return;
       }
-      // Keep the live image node for upload-only changes so pointer-driven transforms survive.
       if (!swapImageSourcesInPlace(root, renderedHtmlRef.current, html)) {
         root.innerHTML = html;
       }
       renderedHtmlRef.current = html;
     }
     registerRenderedSlideSource(root, source);
-    // The diagram component renders its own `data-mermaid-index` node inside
-    // the placeholder; only the outermost one is a slot.
     const slots =
       mermaidBlocks.length > 0
         ? Array.from(
@@ -1138,12 +995,8 @@ function BlankSlideContent({
 }) {
   const scopeId = `slide-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const scopeSelector = `[data-slide-content-scope="${scopeId}"]`;
-  // The scope keeps two canvases apart; the slide id keeps a stale stamp from
-  // another slide rendered by this same instance from mapping onto this one.
   const nonce =
     stampNonce === undefined ? undefined : `${scopeId}.${stampNonce}`;
-  // Memoize derived strings on `content`; RawSlideHtmlContent owns the stable
-  // dangerouslySetInnerHTML object so React does not wipe live child mutations.
   const { mermaidBlocks, htmlWithPlaceholders, fontHrefs, source } =
     useMemo(() => {
       const rendered = renderRawSlideHtml(content, {
@@ -1175,11 +1028,6 @@ function BlankSlideContent({
   );
 }
 
-/**
- * Whether a slide renders its stored content as raw HTML (the fmd-slide
- * contract) rather than as Markdown. The editor gates in-place text editing
- * on this, so the two must never disagree.
- */
 export function isRawHtmlSlide(slide: Pick<Slide, "content" | "layout">) {
   const content = typeof slide.content === "string" ? slide.content : "";
   const trimmedContent = content.trimStart();
@@ -1194,7 +1042,6 @@ export function isRawHtmlSlide(slide: Pick<Slide, "content" | "layout">) {
   );
 }
 
-/** Core slide rendering at the deck's aspect-ratio resolution - used by both thumbnails and presentation */
 export function SlideInner({
   slide,
   designSystem,
@@ -1312,9 +1159,6 @@ export function SlideInner({
     : null;
   const hasExcalidraw = Boolean(parsedExcalidrawData?.elements?.length);
 
-  // Excalidraw is a fixed-size canvas and intentionally bypasses AutoFitContent.
-  // Report that finite canvas geometry so a drawing does not remain unknown to
-  // get-layout-overflows forever after its revision changes.
   useEffect(() => {
     if (!hasExcalidraw) return;
     onOverflowChange?.({
@@ -1337,7 +1181,6 @@ export function SlideInner({
     slide.layoutFitRevision,
   ]);
 
-  // If slide has excalidraw data, render it as a static SVG thumbnail
   if (slide.excalidrawData && parsedExcalidrawData?.elements?.length) {
     return (
       <div
@@ -1490,7 +1333,6 @@ export default function SlideRenderer({
   const dims = getAspectRatioDims(aspectRatio);
 
   if (!thumbnail) {
-    // Keep the intrinsic canvas centered while it scales to fit the viewport.
     return (
       <div
         className={`relative flex h-full w-full items-center justify-center overflow-hidden ${className}`}
@@ -1521,7 +1363,6 @@ export default function SlideRenderer({
     );
   }
 
-  // Thumbnail mode: render at intrinsic resolution and scale down to fit
   return (
     <div
       className={`w-full rounded-lg overflow-hidden relative ${className}`}
@@ -1549,7 +1390,6 @@ export default function SlideRenderer({
   );
 }
 
-/** Sets --slide-scale CSS variable on the parent based on container size */
 function ScaleHelper({
   targetWidth = 960,
   targetHeight,
@@ -1559,10 +1399,6 @@ function ScaleHelper({
   targetHeight?: number;
   mode?: "contain";
 }) {
-  // Stable ref callback so React doesn't churn the ResizeObserver on every
-  // render. Returns a cleanup so React 19 disconnects on unmount / identity
-  // change — the previous inline-arrow version stored cleanup on
-  // `el.__cleanup` and never invoked it, leaking an observer per render.
   const refCallback = useCallback(
     (el: HTMLDivElement | null) => {
       if (!el) return;
@@ -1570,11 +1406,6 @@ function ScaleHelper({
       if (!parent) return;
 
       const updateScale = () => {
-        // Prefer offset*, fall back to getBoundingClientRect, then to
-        // viewport. If everything still reads 0, bail rather than write
-        // `--slide-scale: 0` — that would scale the slide to nothing and
-        // the bad value would stick on the parent until the next
-        // observer tick.
         const rect = parent.getBoundingClientRect();
         const w = parent.offsetWidth || rect.width || window.innerWidth;
         const h = parent.offsetHeight || rect.height || window.innerHeight;
@@ -1587,9 +1418,6 @@ function ScaleHelper({
         }
       };
 
-      // Try sync (layout may already be settled) and defer one frame
-      // (in case it isn't — first paint of /present can lag the swap
-      // out of the loading fallback).
       updateScale();
       const raf = requestAnimationFrame(updateScale);
 

@@ -63,8 +63,6 @@ beforeEach(() => {
 
 describe("OrganizationIdentityCard", () => {
   it("renders nothing and fires no org read after the only organization is deleted", () => {
-    // Slack thread 1789039718.548769: the branding card errored beside a
-    // create-organization card that already showed the same no-org state.
     state.org = { orgId: null };
     state.actionResult = { data: undefined, isPending: true, isError: false };
 
@@ -75,8 +73,6 @@ describe("OrganizationIdentityCard", () => {
   });
 
   it("reports a failed organization lookup instead of hiding the section", () => {
-    // A failed `useOrg()` leaves `data` undefined, which is indistinguishable
-    // from a loaded `orgId: null` unless the error is read. Coercing it into
     // personal scope would silently hide an auth/network/backend failure.
     state.org = undefined;
     state.orgError = true;
@@ -98,10 +94,6 @@ describe("OrganizationIdentityCard", () => {
   });
 
   it("waits instead of flashing the error while the active org is still in flight", () => {
-    // Deleting an org invalidates every query at once, so `useOrg()` keeps
-    // naming the outgoing org while it refetches. The branding read then 403s
-    // for an org the caller just left - that is the wrong question, not an
-    // unreadable organization.
     state.org = { orgId: "org_deleted" };
     state.orgFetching = true;
     state.actionResult = { data: undefined, isPending: false, isError: true };
@@ -113,9 +105,6 @@ describe("OrganizationIdentityCard", () => {
   });
 
   it("scopes the branding request to the active organization", () => {
-    // An unscoped query key lets the next organization render the previous
-    // one's cached branding while refetching, which the editor would seed its
-    // form from and save back under the new org's id.
     state.org = { orgId: "org_2" };
     state.actionResult = { data: undefined, isPending: true, isError: false };
 

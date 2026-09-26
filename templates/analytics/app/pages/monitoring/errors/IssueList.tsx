@@ -346,7 +346,6 @@ function IssueListSkeleton() {
   );
 }
 
-/** Issue titles are "Type: message"; the type is shown as a badge already. */
 function stripTypePrefix(title: string, type: string): string {
   const prefix = `${type}: `;
   return title.startsWith(prefix) ? title.slice(prefix.length) : title;

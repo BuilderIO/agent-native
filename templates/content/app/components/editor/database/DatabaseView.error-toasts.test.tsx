@@ -6,10 +6,6 @@ import type {
   ContentDatabaseTableQuery,
 } from "@shared/api";
 // @vitest-environment happy-dom
-//
-// Mount the real DatabaseView with an empty mocked database so UI regressions
-// can cover its composed controls and mutation error paths without heavier row
-// and property subtrees.
 import type { QueryClient as QueryClientType } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -44,10 +40,6 @@ vi.mock("sonner", async (importOriginal) => {
   };
 });
 
-// A single shared, stable stub for every mutation/query hook this render path
-// touches but that neither test drives or asserts on. Reusing one object
-// (rather than a fresh object per call) keeps its identity stable across
-// re-renders so effects/memos that depend on it don't refire or loop.
 const benignMutation = vi.hoisted(() => ({
   mutate: vi.fn(),
   mutateAsync: vi.fn().mockResolvedValue(undefined),
@@ -228,8 +220,6 @@ vi.mock("@/hooks/use-content-spaces", () => ({
   useDeleteContentSpace: () => benignMutation,
 }));
 
-// Keep the real module for everything the preview editor subtree reaches for
-// (query keys, cache helpers) and override only the hooks these tests drive.
 vi.mock("@/hooks/use-documents", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-documents")>()),
   useDocument: (documentId: string) => ({
@@ -331,9 +321,6 @@ const secondFakeDocument = {
   database: secondDatabaseResponse.database,
 };
 
-// The workspace Files collection carries `systemRole: "files"` and, because
-// its rows are the workspace's pages rather than collection-owned rows, the
-// server deliberately returns no `mutationContract` for it.
 const workspaceFilesResponse: ContentDatabaseResponse = {
   ...databaseResponse,
   database: {
@@ -396,10 +383,6 @@ function RouteProbe() {
   return null;
 }
 
-// `DatabaseSettingsRow` renders a label plus an optional trailing value in a
-// second `<span>` right next to it with no separator (e.g. "Sources" +
-// "None" both land in the button's textContent as "SourcesNone"), so fall
-// back to a prefix match for those rows once an exact match comes up empty.
 function findButtonByText(container: HTMLElement, text: string) {
   const buttons = [...container.querySelectorAll("button")];
   return (
@@ -444,9 +427,6 @@ describe("DatabaseView UI regressions", () => {
     currentRoute = "";
     navigateRoute = null;
 
-    // DatabaseTable fire-and-forgets a `fetch(...).catch(() => {})` navigation
-    // state PUT on every relevant render; stub it out so the test doesn't make
-    // a real network call (and doesn't print connection-refused noise).
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(new Response("{}", { status: 200 })),
@@ -674,10 +654,6 @@ describe("DatabaseView UI regressions", () => {
     expect(document.querySelector("[role=menu]")).toBeTruthy();
   });
 
-  // Regression: the workspace Files table rendered "New"/"+ New page" but had
-  // no row mutation contract, so every click toasted "Failed to create row"
-  // while the sidebar "+" kept working. Both entry points must create the page
-  // in the workspace the table belongs to.
   it("creates a workspace page from the Files table New button", async () => {
     createDocumentMutation.mutateAsync.mockResolvedValue({
       id: "created-document",
@@ -702,9 +678,6 @@ describe("DatabaseView UI regressions", () => {
     expect(toastErrorMock).not.toHaveBeenCalled();
   });
 
-  // Regression: the toolbar New button defaults to openAfterCreate, so the
-  // Files path has to open the created page in the preview exactly like an
-  // ordinary collection row rather than silently creating it in the background.
   it("opens the created page in the preview from the Files table New button", async () => {
     createDocumentMutation.mutateAsync.mockResolvedValue({
       id: "created-document",
@@ -726,16 +699,11 @@ describe("DatabaseView UI regressions", () => {
     });
 
     expect(toastErrorMock).not.toHaveBeenCalled();
-    // The preview sheet portals to document.body, so assert there rather than
-    // inside the mounted container.
     expect(
       window.document.body.querySelector('[aria-label^="Preview actions for"]'),
     ).toBeTruthy();
   });
 
-  // Regression: `refetch` resolves with an error result instead of rejecting,
-  // so a failed refresh after a committed create used to leave the table stale
-  // with no feedback at all.
   it("reports a failed collection refresh after the page was created", async () => {
     createDocumentMutation.mutateAsync.mockResolvedValue({
       id: "created-document",
@@ -786,7 +754,6 @@ describe("DatabaseView UI regressions", () => {
 
     await act(async () => {
       newButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      // Flush the rejected mutateAsync + catch handler.
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -903,10 +870,6 @@ describe("DatabaseView UI regressions", () => {
       expect.objectContaining({ description: "attach failed" }),
     );
 
-    // The success-only follow-up (`onNavReplace([])`) must not have run: the
-    // nav stack should still be on the model leaf (its Attach button and the
-    // model's display name are still showing), not reset back to the Sources
-    // root.
     expect(findButtonByText(document.body, "Attach")).toBeTruthy();
     expect(document.body.textContent).toContain("Article");
   });

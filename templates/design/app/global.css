@@ -1,4 +1,3 @@
-/* Self-hosted via @fontsource-variable/inter — no render-blocking Google Fonts request */
 @import "@fontsource-variable/inter";
 
 @import "tailwindcss";
@@ -57,8 +56,6 @@
   padding: 0;
 }
 
-/* Keep agent context available to the Design agent without making the
- * composer carry implementation details as visible chips. */
 [data-design-app]
   .agent-composer-context-row:not(
     [data-design-home-composer] .agent-composer-context-row
@@ -139,9 +136,6 @@
   --design-editor-accent-strong-color: var(--design-editor-accent-color);
   --design-editor-accent-contrast-color: #ffffff;
   --design-editor-measure-color: hsl(24 95% 53%);
-  /* Sampled from Figma: #F2F2F2 on white. Identical in both themes and NOT
-     derived from --foreground: this paints over the user's content, so an
-     editor-theme-light line would vanish on a white design. */
   --design-editor-layout-grid-color: rgb(0 0 0 / 5%);
   --design-editor-panel-bg: hsl(var(--background));
   --design-editor-panel-raised-bg: hsl(var(--secondary));
@@ -253,9 +247,6 @@
   --design-editor-accent-strong-color: var(--design-editor-accent-color);
   --design-editor-accent-contrast-color: #ffffff;
   --design-editor-measure-color: hsl(24 95% 53%);
-  /* Sampled from Figma: #F2F2F2 on white. Identical in both themes and NOT
-     derived from --foreground: this paints over the user's content, so an
-     editor-theme-light line would vanish on a white design. */
   --design-editor-layout-grid-color: rgb(0 0 0 / 5%);
   --design-editor-panel-bg: hsl(0 0% 13%);
   --design-editor-panel-raised-bg: hsl(0 0% 18%);
@@ -501,8 +492,6 @@
       var(--design-inspector-debug-column-fill) 50%,
       transparent 50%
     );
-  /* Section separators are 1px, so the content baseline begins one pixel
-     below the outer inspector origin. Keep the debug coordinates honest. */
   background-position:
     left 1px,
     left 1px,
@@ -523,9 +512,6 @@
   row-gap: var(--design-baseline-half);
 }
 
-/* Responsive inspector rows preserve the 8px baseline at every width. Only
-   property tracks flex; inter-field gutters and right-side action rails stay
-   physical 8px multiples instead of stretching with the 28-column fallback. */
 .design-inspector-grid[data-inspector-layout="pair"] {
   grid-template-columns:
     minmax(0, 1fr) calc(var(--design-baseline-unit) * 2)
@@ -611,10 +597,6 @@
   grid-column: 1 / -1 !important;
 }
 
-/* Two stacked label/control rows sharing the same action-pair geometry.
-   Appearance uses this shape so Opacity and Corner radius stay on the same
-   field starts as Position/Resizing while the independent-corners action
-   remains centered in the fixed terminal slot. */
 .design-inspector-grid[data-inspector-layout="label-action-rows"] {
   grid-template-columns:
     minmax(0, 1fr) var(--design-baseline-unit)
@@ -850,8 +832,6 @@
   );
 }
 
-/* Design keeps denser side-chrome contrast while sharing the borderless app
-   surface treatment used by the rest of the workspace. */
 .agent-layout-shell,
 .agent-sidebar-shell {
   --design-shell-chrome-bg: hsl(0 0% 93%);

@@ -112,9 +112,6 @@ describe("index-design-system-with-builder", () => {
       status: "in-progress",
     });
 
-    // No authenticated user in this test context, so the run rejects further
-    // down the pipeline -- what matters here is that it gets past the
-    // entitlement check without invoking it.
     await action
       .run({ designMd: "# Brand\nUse confident layouts." })
       .catch(() => {});

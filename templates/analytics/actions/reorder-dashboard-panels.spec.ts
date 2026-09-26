@@ -9,14 +9,6 @@ const mocks = vi.hoisted(() => ({
   seedFromText: vi.fn(async () => undefined),
 }));
 
-/**
- * Default passthrough: fetch via the mocked `getDashboard`, run the action's
- * mutate callback once against it, then forward to the mocked
- * `upsertDashboard` (preserving every existing `.mock.calls` assertion below)
- * and return a DashboardRecord-shaped result carrying the mutated config.
- * Individual tests override this with `mockImplementationOnce` to simulate a
- * lost race and prove the action recomputes from fresh state on retry.
- */
 function defaultUpsertDashboardWithRetry(
   id: string,
   ctx: unknown,
@@ -180,11 +172,7 @@ describe("reorder-dashboard-panels", () => {
   });
 
   it("recomputes the move against fresh state on retry so a concurrent writer's save is never dropped", async () => {
-    // Simulates two interleaved writers: this call is asked to move "c" to
     // the top, but loses the race on its first fenced write because a
-    // concurrent writer already saved a different reorder (moving "b" to the
-    // top) in between. A correct retry re-reads that winning save and
-    // reapplies "move c to top" on top of it, landing both writers' edits.
     const beforeConcurrentWrite = {
       kind: "sql",
       config: {
@@ -203,12 +191,8 @@ describe("reorder-dashboard-panels", () => {
     let mutateCallCount = 0;
     mocks.upsertDashboardWithRetry.mockImplementationOnce(
       async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
-        // Attempt 1: computed against the stale pre-race snapshot, then lost
-        // to the concurrent writer's fenced write (never applied).
         mutateCallCount += 1;
         await mutate(beforeConcurrentWrite);
-        // Attempt 2 (retry): re-fetches and recomputes against the fresh
-        // config that already contains the concurrent writer's change.
         mutateCallCount += 1;
         const { kind, body } = await mutate(afterConcurrentWrite);
         await mocks.upsertDashboard(id, kind, body, ctx);
@@ -223,8 +207,6 @@ describe("reorder-dashboard-panels", () => {
     });
 
     expect(mutateCallCount).toBe(2);
-    // Both writers' moves landed: "c" from this call on top of "b" from the
-    // concurrent writer, instead of "c" clobbering "b"'s reorder.
     expect(result.panelOrder).toEqual(["c", "b", "a"]);
     const saved = mocks.upsertDashboard.mock.calls[0][2] as {
       panels: Array<{ id: string }>;

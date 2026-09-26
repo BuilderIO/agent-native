@@ -6,9 +6,6 @@ import action, {
   stripComponentAnnotations,
 } from "./detach-component-instance.js";
 
-// ---------------------------------------------------------------------------
-// Schema
-// ---------------------------------------------------------------------------
 
 describe("detach-component-instance schema", () => {
   it("accepts the minimal designId + nodeId payload", () => {
@@ -35,9 +32,6 @@ describe("detach-component-instance schema", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// stripComponentAnnotations — pure transform
-// ---------------------------------------------------------------------------
 
 function findNode(html: string, nodeId: string) {
   const projection = buildCodeLayerProjection(html, {
@@ -72,7 +66,6 @@ describe("stripComponentAnnotations", () => {
 
     expect(result.content).not.toContain("data-agent-native-component");
     expect(result.content).not.toContain("data-agent-native-prop-");
-    // Preserved: node id, classes, x-data, text content, tag.
     expect(result.content).toContain('data-agent-native-node-id="btn1"');
     expect(result.content).toContain('class="rounded px-4"');
     expect(result.content).toContain('x-data="{ open: false }"');
@@ -108,11 +101,9 @@ describe("stripComponentAnnotations", () => {
     const result = stripComponentAnnotations(html, nodeA, projectionNodes);
 
     expect(result.changed).toBe(true);
-    // Sibling "b" keeps its annotation and its own prop value untouched.
     expect(result.content).toContain(
       'data-agent-native-node-id="b" data-agent-native-component="Chip" data-agent-native-prop-tone="danger"',
     );
-    // "a" lost its annotation entirely.
     const aTagMatch = /<button data-agent-native-node-id="a"[^>]*>/.exec(
       result.content,
     );

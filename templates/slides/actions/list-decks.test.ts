@@ -47,8 +47,6 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => requestUserEmail,
-  // `captureError` (real, unmocked, used by the fallback preview-parse path)
-  // reads this to skip synthetic-traffic events; no request context in tests.
   getRequestContext: () => undefined,
 }));
 
@@ -130,8 +128,6 @@ describe("list-decks", () => {
   it("projects only metadata columns and never selects the deck body for light mode", async () => {
     const result = await action.run({ light: "true" });
 
-    // The `data` column (each deck's full slide JSON) must never appear in
-    // the light-mode projection — this is the poll/diff path's whole point.
     expect(selectFn).toHaveBeenCalledWith({
       id: "id_col",
       title: "title_col",
@@ -175,9 +171,6 @@ describe("list-decks", () => {
   });
 
   it("keeps the list alive when one deck's data fails the SQL preview cast", async () => {
-    // The `::jsonb` cast in the preview projection runs per row inside the
-    // query itself, so one deck with corrupted `data` used to fail the whole
-    // statement and 500 the list for every deck, not just that one.
     const goodRow = {
       ...deckRows[0],
       id: "deck_good",
@@ -198,10 +191,6 @@ describe("list-decks", () => {
     rowsForQuery = [goodRow, badRow];
     orderByFn.mockImplementationOnce(() =>
       Promise.reject(
-        // Postgres 22P02 ("invalid_text_representation") is what the real
-        // `::jsonb` cast throws for a non-JSON row; drizzle wraps it as
-        // `.cause` on a DrizzleQueryError, so a driver-level `.code` here
-        // exercises the same check `.cause.code` would.
         Object.assign(new Error("invalid input syntax for type json"), {
           code: "22P02",
         }),
@@ -229,8 +218,6 @@ describe("list-decks", () => {
         title: "Corrupted Deck",
       });
       expect(badDeck).not.toHaveProperty("previewSlide");
-      // The bad row is visible, not silently dropped: once for the cast
-      // failure, once more naming the specific deck it belongs to.
       expect(captured).toHaveLength(2);
       expect(captured[1]?.extra).toMatchObject({ deckId: "deck_bad" });
     } finally {
@@ -239,11 +226,6 @@ describe("list-decks", () => {
   });
 
   it("does not fall back on a non-JSON-cast failure, so a real outage isn't doubled with a heavier full-data scan", async () => {
-    // Only 22P02 (invalid JSON text) should trigger the fallback. A timeout,
-    // a dropped connection, or pool exhaustion is a real failure — retrying
-    // it as a second query that reads every visible deck's full `data` blob
-    // would double the load on the DB during exactly the incident this guard
-    // exists for.
     orderByFn.mockImplementationOnce(() =>
       Promise.reject(Object.assign(new Error("timeout"), { code: "57014" })),
     );
@@ -251,7 +233,6 @@ describe("list-decks", () => {
     await expect(
       action.run({ light: "true", includePreview: "true" }),
     ).rejects.toThrow("timeout");
-    // The fallback's full-`data` scan never ran.
     expect(selectFn).toHaveBeenCalledTimes(1);
   });
 

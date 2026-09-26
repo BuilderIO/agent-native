@@ -15,13 +15,6 @@ import {
   serializePlanContent,
 } from "./plan-content.js";
 
-/**
- * Adversarial coverage for PLAN GENERATION: content schema validation,
- * sanitization (XSS), resource bounds, and the patch surface. These tests try
- * to break the validators the way a malicious agent / imported plan / smuggled
- * patch would. Where a test pins a REAL bug it is annotated and asserts the
- * SECURE behavior, so it currently fails until the hole is closed.
- */
 
 const wireframeBlock = (html: string): PlanBlock => ({
   id: "wf",
@@ -50,12 +43,8 @@ const parseCustomHtml = (html: string) =>
     blocks: [customHtmlBlock(html)],
   });
 
-/* ------------------------------------------------------------------ */
-/* 1. Sanitization — active content must never reach stored content    */
-/* ------------------------------------------------------------------ */
 
 describe("wireframe html sanitization (rendered live via dangerouslySetInnerHTML)", () => {
-  // These obvious vectors are correctly rejected by the schema regex today.
   const rejected = [
     ["script tag", "<div><script>alert(1)</script></div>"],
     ["svg onload", "<svg onload=alert(1)></svg>"],
@@ -91,7 +80,6 @@ describe("wireframe html sanitization (rendered live via dangerouslySetInnerHTML
    */
   it("rejects a javascript: url obfuscated with a tab (browsers strip the tab)", () => {
     const payload = '<a href="java\tscript:alert(document.domain)">Click</a>';
-    // Currently ACCEPTED — this assertion fails and pins the bug.
     expect(parseWireframeHtml(payload).success).toBe(false);
   });
 
@@ -101,7 +89,6 @@ describe("wireframe html sanitization (rendered live via dangerouslySetInnerHTML
   });
 
   it("rejects an HTML-entity-encoded javascript: url", () => {
-    // &#106; decodes to 'j' when the browser parses the attribute value.
     const payload = '<a href="&#106;avascript:alert(1)">Click</a>';
     expect(parseWireframeHtml(payload).success).toBe(false);
   });
@@ -110,12 +97,9 @@ describe("wireframe html sanitization (rendered live via dangerouslySetInnerHTML
     const payload = '<a href="java\tscript:alert(1)">Click</a>';
     const result = parseWireframeHtml(payload);
     if (!result.success) {
-      // Closed at validation — acceptable.
       expect(result.success).toBe(false);
       return;
     }
-    // If validation lets it through, the stored value must not still carry an
-    // executable javascript scheme after collapsing whitespace.
     const stored = JSON.parse(serializePlanContent(result.data));
     const html: string = stored.blocks[0].data.html;
     const collapsed = html.replace(/[\t\n\r]/g, "").toLowerCase();
@@ -136,17 +120,8 @@ describe("custom-html sanitizer bypasses", () => {
     );
   });
 
-  /**
-   * BUG (med/high): sanitizeCustomHtml only removes the LITERAL string
-   * `javascript:`. An HTML-entity-encoded scheme (&#106;avascript:) decodes in
-   * the browser but is invisible to the sanitizer and to the schema regex, so
-   * it survives storage. The custom-html block renders in a sandboxed iframe,
-   * which lowers the blast radius, but the sanitizer is documented as
-   * defense-in-depth and is reused for other surfaces.
-   */
   it("neutralizes an entity-encoded javascript: scheme", () => {
     const out = sanitizeCustomHtml('<a href="&#106;avascript:alert(1)">x</a>');
-    // The decoded form must not yield an executable scheme.
     const decoded = out.replace(/&#106;/gi, "j").toLowerCase();
     expect(decoded).not.toContain("javascript:");
   });
@@ -158,8 +133,6 @@ describe("custom-html sanitizer bypasses", () => {
   });
 
   it("collapses a split-tag script that re-forms after one pass", () => {
-    // After removing the inner <script>...</script>, the residue must not still
-    // read as a script open tag.
     const out = sanitizeCustomHtml(
       "<scr<script></script>ipt>alert(1)</script>",
     );
@@ -180,9 +153,6 @@ describe("diagram html sanitizer", () => {
   });
 });
 
-/* ------------------------------------------------------------------ */
-/* 2. Resource bounds — deep nesting, huge inputs, node/count limits   */
-/* ------------------------------------------------------------------ */
 
 describe("resource bounds and DoS protection", () => {
   function nestTabs(depth: number): PlanBlock {
@@ -209,13 +179,6 @@ describe("resource bounds and DoS protection", () => {
     return `{"version":2,"brief":"x","blocks":[${json}]}`;
   }
 
-  /**
-   * BUG (high, DoS): tabs nesting has NO depth bound (unlike wireframe trees,
-   * which use WIREFRAME_MAX_DEPTH). The recursive zod `lazy` descent blows the
-   * stack on deeply nested tabs, and `safeParse` does NOT catch a RangeError —
-   * so `parsePlanContent` (run on EVERY stored/imported plan read) throws and
-   * crashes the caller instead of returning null. ~300+ levels is enough.
-   */
   it("does not throw a RangeError on deeply nested tabs (safeParse must stay safe)", () => {
     expect(() =>
       planContentSchema.safeParse({
@@ -247,7 +210,6 @@ describe("resource bounds and DoS protection", () => {
   });
 
   it("caps wireframe tree node count", () => {
-    // 401 sibling nodes under one screen root exceeds WIREFRAME_MAX_NODES (400).
     const children = Array.from({ length: 401 }, (_, i) => ({
       el: "box" as const,
       id: `n${i}`,
@@ -270,7 +232,6 @@ describe("resource bounds and DoS protection", () => {
   });
 
   it("caps wireframe tree depth", () => {
-    // Build a single chain deeper than WIREFRAME_MAX_DEPTH (8).
     let node: Record<string, unknown> = { el: "box" };
     for (let i = 0; i < 12; i += 1) node = { el: "box", children: [node] };
     const result = planContentSchema.safeParse({
@@ -305,9 +266,6 @@ describe("resource bounds and DoS protection", () => {
   });
 });
 
-/* ------------------------------------------------------------------ */
-/* 3. Required fields, enums, ids, structural validation               */
-/* ------------------------------------------------------------------ */
 
 describe("structural validation", () => {
   it("rejects an unknown surface enum", () => {
@@ -530,9 +488,6 @@ describe("structural validation", () => {
   });
 });
 
-/* ------------------------------------------------------------------ */
-/* 4. Patch surface adversarial — no smuggling through patches         */
-/* ------------------------------------------------------------------ */
 
 describe("patch surface stays safe", () => {
   const baseCustomHtml = (): PlanContent =>
@@ -596,11 +551,6 @@ describe("patch surface stays safe", () => {
     ).toThrow(/missing or non-wireframe block/i);
   });
 
-  /**
-   * BUG (high): the tab-obfuscated javascript: bypass also flows through the
-   * patch path — both patch-wireframe-html and update-block re-parse only with
-   * the schema regex, so the same payload lands in stored content.
-   */
   it("does not let patch-wireframe-html inject a tab-obfuscated javascript: url", () => {
     const wf = planContentSchema.parse({
       version: 2,
@@ -698,25 +648,18 @@ describe("patch surface stays safe", () => {
       brief: "x",
       blocks: [{ id: "rt", type: "rich-text", data: { markdown: "x" } }],
     });
-    // A schema-legal fragment that still carries a style tag (only sanitizer
-    // strips it) must be neutralized once stored.
     const next = applyPlanContentPatches(content, [
       {
         op: "append-block",
         block: customHtmlBlock("<button class='cta'>Go</button>"),
       },
     ]);
-    // append-block parses through the schema; storage sanitization runs in
-    // serializePlanContent, so confirm the round-trip is clean.
     const stored = JSON.parse(serializePlanContent(next));
     const ch = stored.blocks.find((b: { id: string }) => b.id === "ch");
     expect(ch?.data.html).not.toMatch(/<style/i);
   });
 });
 
-/* ------------------------------------------------------------------ */
-/* 5. Migration / parse robustness                                     */
-/* ------------------------------------------------------------------ */
 
 describe("parse and migration robustness", () => {
   it("returns null on malformed JSON, html, and empty inputs", () => {
@@ -765,12 +708,6 @@ describe("parse and migration robustness", () => {
   });
 });
 
-/* ------------------------------------------------------------------ */
-/* Legacy top-level `html` escape-hatch (full standalone documents).    */
-/* Rendered in a sandboxed iframe; sanitizeStoredPlanHtml is the        */
-/* data-layer defense-in-depth: strip the script-execution surface but  */
-/* PRESERVE document structure + styling (the field's legit purpose).   */
-/* ------------------------------------------------------------------ */
 
 describe("sanitizeStoredPlanHtml (legacy full-document escape hatch)", () => {
   it("strips script execution while preserving document structure and styling", () => {
@@ -790,14 +727,10 @@ describe("sanitizeStoredPlanHtml (legacy full-document escape hatch)", () => {
 
     const out = sanitizeStoredPlanHtml(doc);
 
-    // Active surface removed.
     expect(out).not.toContain("<script");
     expect(out).not.toContain("onclick");
     expect(out).not.toMatch(/javascript:/i);
 
-    // Legitimate structure + styling preserved — these are why the field
-    // exists (importing a standalone artifact) and must NOT be stripped the
-    // way sanitizeCustomHtml strips fragment <style>/<link>.
     expect(out).toContain("<html");
     expect(out).toContain("<style>");
     expect(out).toContain("<link");

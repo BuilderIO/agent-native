@@ -25,7 +25,6 @@ const REVIEW_STATUSES: ReviewStatus[] = [
 export interface ReviewStatusControlProps {
   designId: string;
   status?: ReviewStatus | null;
-  /** Explicit caller-derived capability. Pass true only for the owner. */
   editable?: boolean;
 }
 

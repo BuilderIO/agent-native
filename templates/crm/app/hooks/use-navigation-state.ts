@@ -21,7 +21,6 @@ export interface CrmNavigationState {
   dashboardId?: string;
 }
 
-/** Exactly what `navigate` accepts, so no destination is dropped in between. */
 export type CrmNavigateCommand = CrmNavigationTarget;
 
 export function useNavigationState() {

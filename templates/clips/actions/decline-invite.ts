@@ -1,11 +1,3 @@
-/**
- * Decline an organization invite.
- *
- * Marks the invitation as rejected (keeps the row for audit).
- *
- * Usage:
- *   pnpm action decline-invite --token=<token>
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";

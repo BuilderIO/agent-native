@@ -105,10 +105,6 @@ async function selectHeadingRange(page: Page): Promise<void> {
   const heading = designFrame(page).locator("h1").first();
   await expect(heading).toHaveAttribute("contenteditable", "true");
   await heading.click({ position: { x: 2, y: 10 }, force: true });
-  // Locator-scoped `.press()` re-focuses `heading` before each key, closing
-  // the race a raw `page.keyboard.press()` leaves open: the click above can
-  // still be settling focus/caret placement asynchronously (matches
-  // selectTextRange below, which never saw this flake).
   await heading.press("Home");
   await heading.press("Shift+ArrowRight");
   await heading.press("Shift+ArrowRight");
@@ -553,8 +549,6 @@ test("multi-selected text leaves share inspector styles and one undo restores bo
   const paragraphName = "First fixture paragraph for selection tests.";
   try {
     await gotoEditor(page, designId);
-    // Re-enter through a hard reload so the initial mixed inspector state is
-    // proven against persisted source, not just the first render.
     await page.reload();
     await selectTextLayers(page, [headingName, paragraphName]);
 
@@ -641,8 +635,6 @@ test("multi-selected text leaves share inspector styles and one undo restores bo
         },
       });
 
-    // Keep the multi-selection active for a second shared write so the next
-    // history step is the style transaction, not a selection change.
     const undoSize = await sizeInput(page);
     await undoSize.fill("26");
     await undoSize.press("Enter");
@@ -704,8 +696,6 @@ test("Line Height Enter returns a real Text-tool range to the editor", async ({
     const nodeId = await editor.getAttribute("data-agent-native-node-id");
     if (!nodeId) throw new Error("Text tool editor has no source node id");
 
-    // Read-only text geometry guides a real pointer drag; the test never sets
-    // the iframe's Selection programmatically.
     const points = await textToolRangePointerPoints(editor);
     await page.mouse.move(points.startX, points.y);
     await page.mouse.down();

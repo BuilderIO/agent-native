@@ -1,11 +1,5 @@
 import type { Document } from "@shared/api";
 // @vitest-environment happy-dom
-//
-// The reported bug surfaced here: while the draft read was still resolving the
-// just-created row, this surface rendered the terminal "Something went wrong"
-// state with a Retry button. Automatic recovery only helps if the in-flight
-// window reads as loading, so pin that the error state stays out of the DOM
-// until the read actually gives up.
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

@@ -85,7 +85,6 @@ export function decodeLocalImportedAssetToken(
   return descriptor;
 }
 
-/** Read a local development import asset after rechecking its owner scope. */
 export async function readLocalImportedAsset(args: {
   token: string;
   email: string;

@@ -35,15 +35,9 @@ import { parseFigmaFileKey } from "../shared/figma-url.js";
 
 const NODE_STRUCTURE_DEPTH = 3;
 
-// A Figma 403 means the token is saved but lacks file_content:read scope -
 // the validator only checks current_user:read. An absent token normally
-// arrives as a typed `figma_auth_required` from the provider wrapper; the
-// raw resolver message is kept so a caller that reaches the provider runtime
-// without that wrapper still degrades to the local fallback instead of
-// surfacing a hard failure.
 const CREDENTIAL_MISSING_RE =
   /credential not configured|figma.*request failed:.*403|figma.*request failed:.*forbidden/i;
-// Transient errors should not block local-kiwi fallback when the buffer is present.
 const TRANSIENT_ERROR_RE =
   /quota cooldown|provider.*quota|rate.?limit|fetch failed|network.*error|timeout|ECONNRESET|ENOTFOUND|ERR_NETWORK/i;
 
@@ -69,11 +63,6 @@ const DURABLE_STORAGE_REQUIRED_RE =
 const AMBIGUOUS_GUIDANCE =
   'Couldn\'t confidently match this paste to specific Figma nodes, so nothing was imported from the API. Paste a frame LINK instead (copy the frame in Figma, then "Copy link to selection") for an exact node import — or continue with the clipboard preview below.';
 
-/**
- * A paste that imports nothing must say which of the four strategies refused
- * and why. Returning a bare empty result is what "I pasted and nothing
- * happened" looks like from the user's side.
- */
 function matchReasonGuidance(
   reason: FigmaClipboardMatchReason | undefined,
   candidateNames: string[] | undefined,
@@ -139,7 +128,6 @@ function restNodePlacements(
   }));
 }
 
-/** Keep the copied arrangement, moved so its top-left lands on `placeAt`. */
 function placeFilesAt(
   files: ImportedDesignFile[],
   placeAt: { x: number; y: number } | undefined,
@@ -257,8 +245,6 @@ export default defineAction({
     },
     context,
   ) => {
-    // One conversion decides both where the paste goes and whether it is saved
-    // here (new screens) or handed back for the editor to insert.
     const placePaste = (
       files: ImportedDesignFile[],
       placements?: ClipboardLayerPlacement[],
@@ -279,9 +265,6 @@ export default defineAction({
     }
     const resolvedDesignId = await resolveImportDesignId(designId);
 
-    // Current Figma clipboard HTML commonly contains only figmeta + the
-    // private binary figma buffer, with no visible HTML at all. Exact REST ids
-    // must therefore run before requiring the legacy preview/matching signal.
     const parsedClipboard = parseVisibleClipboardHtml(clipboardHtml);
     const clipboardTexts = parsedClipboard.fallbackHtml
       ? extractVisibleTexts(parsedClipboard.fallbackHtml)
@@ -396,9 +379,6 @@ export default defineAction({
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      // The importer intentionally refuses to persist Figma's expiring render
-      // URLs. Keep its actionable storage setup error instead of disguising it
-      // as an ordinary clipboard-format fallback.
       const storageCode = (error as { errorCode?: unknown } | null)?.errorCode;
       if (
         storageCode === FIGMA_IMPORT_ERROR_CODES.storageUnavailable ||
@@ -415,11 +395,6 @@ export default defineAction({
         !figmaApiKeyMissing &&
         (!isTransient || !clipboardBuffer)
       ) {
-        // Exact ids prove this was a current Figma clipboard. With no visible
-        // fallback, a permanent REST failure must surface as a real error rather
-        // than silently degrading. Transient errors fall through to local-kiwi
-        // only when a buffer is present to decode; without a buffer there is
-        // nothing to fall back to, so even transient errors must propagate.
         throw error;
       }
       if (!figmaApiKeyMissing) {
@@ -427,11 +402,6 @@ export default defineAction({
       }
     }
 
-    // Local-kiwi fallback: decode the binary buffer when REST failed for any
-    // reason (missing token, 403, quota cooldown, network error) and the buffer
-    // is present. Always produces editable geometry, text, and auto-layout.
-    // IMAGE fills land as about:blank placeholders that hydrate-figma-paste-images
-    // resolves retroactively once the quota clears or the token is configured.
     if ((figmaApiKeyMissing || matchStatus === "error") && clipboardBuffer) {
       try {
         const localResult = await importFigmaClipboardFromBuffer({
@@ -484,22 +454,15 @@ export default defineAction({
         localDecodeError =
           "the .fig clipboard buffer decoded to zero frames (an unsupported or truncated clipboard format)";
       } catch (error) {
-        // Never swallow this: without the reason, a failed local decode and a
-        // successful empty import are indistinguishable downstream.
         localDecodeError =
           error instanceof Error ? error.message : String(error);
       }
     }
 
-    // Every reason this paste could not produce screens, in the order the
-    // strategies were attempted. This is the message a user gets instead of a
-    // paste that appears to do nothing.
     const reasons = [
       oversizeGuidance,
       figmaApiKeyMissing ? KEY_MISSING_GUIDANCE : null,
       matchReasonGuidance(matchReason, matchCandidateNames),
-      // Already a self-describing sentence ("Figma request failed: ...", or the
-      // clipboard-shape error raised above); a prefix would mislabel half of them.
       !figmaApiKeyMissing && restError ? restError : null,
       localDecodeError
         ? `Local clipboard decode failed: ${localDecodeError}`

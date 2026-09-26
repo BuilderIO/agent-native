@@ -1,12 +1,3 @@
-/**
- * motion-timeline.spec.ts
- *
- * Tests for the pure track-building helpers that back the MotionDock
- * "create the FIRST track" flow (§6.3). These are the logic that turns the dock
- * from a dead end into a working editor: a freshly selected element seeds a
- * default two-keyframe track via a property preset, which is then immediately
- * compilable, previewable, and persistable.
- */
 
 import { describe, expect, it } from "vitest";
 
@@ -38,7 +29,6 @@ import {
   type MotionTrack,
 } from "./motion-timeline";
 
-// ─── createMotionTrack ────────────────────────────────────────────────────────
 
 describe("createMotionTrack", () => {
   it("seeds exactly two keyframes at t=0 and t=1", () => {
@@ -79,7 +69,6 @@ describe("createMotionTrack", () => {
   });
 });
 
-// ─── createMotionTrackFromPreset ──────────────────────────────────────────────
 
 describe("createMotionTrackFromPreset", () => {
   it("forwards the preset property + from/to into the track", () => {
@@ -110,8 +99,6 @@ describe("createMotionTrackFromPreset", () => {
   });
 
   it("maps transform channels to individual CSS transform properties", () => {
-    // translate / scale / rotate are separate CSS properties, so position,
-    // scale, and rotation tracks never collide on one (node, property) pair.
     const byLabel = new Map(
       MOTION_PROPERTY_PRESETS.map((p) => [p.label, p.property]),
     );
@@ -121,9 +108,6 @@ describe("createMotionTrackFromPreset", () => {
   });
 
   it("every built-in preset compiles to valid, deterministic CSS", () => {
-    // This is the core guarantee of the first-track path: whatever preset the
-    // user picks, the resulting timeline compiles cleanly (one @keyframes block,
-    // a reduced-motion block) so autosave can persist it.
     for (const preset of MOTION_PROPERTY_PRESETS) {
       const track = createMotionTrackFromPreset("node-x", preset);
       const timeline: MotionTimeline = {
@@ -142,13 +126,11 @@ describe("createMotionTrackFromPreset", () => {
       expect(css).toContain("@keyframes");
       expect(css).toContain(`${preset.property}:`);
       expect(css).toContain("prefers-reduced-motion");
-      // Deterministic: re-compiling yields the identical hash.
       expect(compile(timeline).hash).toBe(hash);
     }
   });
 });
 
-// ─── hasTrackFor ──────────────────────────────────────────────────────────────
 
 describe("hasTrackFor", () => {
   const tracks: MotionTrack[] = [
@@ -176,12 +158,9 @@ describe("hasTrackFor", () => {
   });
 });
 
-// ─── First-track flow integration (timeline → CSS) ───────────────────────────
 
 describe("first-track flow → CSS compile", () => {
   it("a single seeded track produces compilable CSS that targets the node id", () => {
-    // Simulates: user selects an element (node id "abc"), picks "Opacity"
-    // from the Add-motion picker, and autosave persists one track.
     const preset = MOTION_PROPERTY_PRESETS.find((p) => p.label === "Opacity")!;
     const track = createMotionTrackFromPreset("abc", preset);
     const { css } = compile({
@@ -196,7 +175,6 @@ describe("first-track flow → CSS compile", () => {
       createdAt: "2024-01-01T00:00:00.000Z",
       updatedAt: "2024-01-01T00:00:00.000Z",
     });
-    // Element rule targets the literal node id via the data attribute.
     expect(css).toContain('[data-agent-native-node-id="abc"]');
     expect(css).toContain("animation-name:");
     expect(css).toContain("opacity: 0");
@@ -205,7 +183,6 @@ describe("first-track flow → CSS compile", () => {
 
   it("adding a keyframe to a seeded track stays compilable (3 stops)", () => {
     const track = createMotionTrack("abc", "opacity", { from: "0", to: "1" });
-    // Mid keyframe inserted by the dock's addKeyframe at the playhead.
     track.keyframes.splice(1, 0, { t: 0.5, value: "0.5", ease: "linear" });
     const { css } = compile({
       id: "",
@@ -225,7 +202,6 @@ describe("first-track flow → CSS compile", () => {
   });
 });
 
-// ─── sortMotionKeyframes ──────────────────────────────────────────────────────
 
 describe("sortMotionKeyframes", () => {
   it("returns a sorted copy without mutating the input", () => {
@@ -240,7 +216,6 @@ describe("sortMotionKeyframes", () => {
   });
 });
 
-// ─── upsertMotionKeyframeAtTime (epsilon dedupe) ─────────────────────────────
 
 describe("upsertMotionKeyframeAtTime", () => {
   const base: MotionKeyframe[] = [
@@ -277,7 +252,6 @@ describe("upsertMotionKeyframeAtTime", () => {
   });
 });
 
-// ─── evaluateMotionEase ───────────────────────────────────────────────────────
 
 describe("evaluateMotionEase", () => {
   it("is identity for linear", () => {
@@ -304,11 +278,8 @@ describe("evaluateMotionEase", () => {
   });
 
   it("matches known cubic-bezier midpoints", () => {
-    // ease-in-out is symmetric: midpoint maps to 0.5.
     expect(evaluateMotionEase("ease-in-out", 0.5)).toBeCloseTo(0.5, 3);
-    // ease-in starts slow: below linear early on.
     expect(evaluateMotionEase("ease-in", 0.25)).toBeLessThan(0.25);
-    // ease-out starts fast: above linear early on.
     expect(evaluateMotionEase("ease-out", 0.25)).toBeGreaterThan(0.25);
   });
 
@@ -333,7 +304,6 @@ describe("evaluateMotionEase", () => {
   });
 });
 
-// ─── lerpMotionValues + sampleMotionKeyframesAt ──────────────────────────────
 
 describe("sampleMotionKeyframesAt", () => {
   it("lerps plain numeric values linearly", () => {
@@ -357,7 +327,6 @@ describe("sampleMotionKeyframesAt", () => {
       { t: 0, value: "0", ease: "steps(1, end)" },
       { t: 1, value: "1" },
     ];
-    // step-end style hold: value stays at the FROM value until the end.
     expect(sampleMotionKeyframesAt(keyframes, 0.9)).toBe("0");
   });
 
@@ -387,7 +356,6 @@ describe("sampleMotionKeyframesAt", () => {
   });
 });
 
-// ─── Extended easing: real springs + CSS linear() ────────────────────────────
 
 describe("evaluateMotionEase — springs and linear()", () => {
   it("evaluates spring tokens with real physics (settles, overshoots)", () => {
@@ -398,7 +366,6 @@ describe("evaluateMotionEase — springs and linear()", () => {
       max = Math.max(max, evaluateMotionEase("spring(0.69)", i / 100));
     }
     expect(max).toBeGreaterThan(1.1);
-    // Zero bounce never overshoots.
     for (let i = 0; i <= 100; i++) {
       expect(evaluateMotionEase("spring(0)", i / 100)).toBeLessThanOrEqual(
         1.0001,
@@ -415,7 +382,6 @@ describe("evaluateMotionEase — springs and linear()", () => {
   });
 });
 
-// ─── Track timing (offsets + per-track duration) ─────────────────────────────
 
 describe("getMotionTrackTiming / timelineTimeToTrackTime", () => {
   it("spans the whole timeline when delay/duration are omitted (legacy)", () => {
@@ -437,7 +403,6 @@ describe("getMotionTrackTiming / timelineTimeToTrackTime", () => {
     expect(timelineTimeToTrackTime(track, 500, 2000)).toBe(0);
     expect(timelineTimeToTrackTime(track, 1000, 2000)).toBeCloseTo(0.5, 6);
     expect(timelineTimeToTrackTime(track, 1500, 2000)).toBe(1);
-    // Clamped outside the span (animation-fill-mode: both semantics).
     expect(timelineTimeToTrackTime(track, 0, 2000)).toBe(0);
     expect(timelineTimeToTrackTime(track, 2000, 2000)).toBe(1);
   });
@@ -459,7 +424,6 @@ describe("getMotionTrackTiming / timelineTimeToTrackTime", () => {
   });
 });
 
-// ─── Playback mode persistence ───────────────────────────────────────────────
 
 describe("timeline playback mode stamping", () => {
   const twoTracks = (): MotionTrack[] => [
@@ -503,7 +467,6 @@ describe("timeline playback mode stamping", () => {
   });
 });
 
-// ─── Auto-keyframe (pure logic) ──────────────────────────────────────────────
 
 describe("applyMotionAutoKeyframe", () => {
   const baseTracks = (): MotionTrack[] => [
@@ -583,7 +546,6 @@ describe("applyMotionAutoKeyframe", () => {
   });
 });
 
-// ─── Copy / paste animation + stagger ────────────────────────────────────────
 
 describe("copyLayerAnimation / pasteLayerAnimation / staggerLayerTracks", () => {
   const tracks = (): MotionTrack[] => [
@@ -634,13 +596,10 @@ describe("copyLayerAnimation / pasteLayerAnimation / staggerLayerTracks", () => 
       "opacity",
       "translate",
     ]);
-    // b's opacity was replaced by a's copied opacity track.
     expect(
       bTracks.find((t) => t.property === "opacity")!.keyframes[0].value,
     ).toBe("0");
-    // The clip's per-track offset came along.
     expect(bTracks.find((t) => t.property === "translate")!.delayMs).toBe(200);
-    // Timeline playback mode stays stamped on the first track.
     expect(readTimelinePlaybackMode(pasted)).toBe("loop");
   });
 

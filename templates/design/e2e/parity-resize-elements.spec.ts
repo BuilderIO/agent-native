@@ -16,20 +16,6 @@ import {
 } from "./drag-and-drop.shared";
 import { appPath, expandAllLayers, gotoEditor } from "./helpers";
 
-/**
- * Figma parity: §3 Resize + Part 3 resolutions.
- * - Corner handle = both dims; edge handle = one dim only.
- * - Shift locks aspect ratio on any handle; Alt resizes symmetrically from
- *   the element's center.
- * - One resize gesture = one undo step.
- * - Multi-selection resize (plain drag, no tool switch) scales the group
- *   bounds, anchored at the opposite corner.
- *
- * Handle attributes (bridge/editor-chrome.bridge.ts): corners carry
- * data-agent-native-edit-handle="nw|ne|se|sw"; edges carry
- * data-agent-native-edge-handle="n|e|s|w"; a 2+ selection's group handles
- * carry data-corner on [data-agent-native-multi-selection-bounds].
- */
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
@@ -37,7 +23,6 @@ test.beforeEach(async ({}, testInfo) => {
   setBaseURL(testInfo);
 });
 
-/** A resize/edge handle's center, in host page coordinates. */
 async function handlePoint(
   page: Page,
   attr: "data-agent-native-edit-handle" | "data-agent-native-edge-handle",
@@ -70,7 +55,6 @@ async function handlePoint(
   };
 }
 
-/** Corner handle on a live 2+ element multi-selection's group bounds box. */
 async function groupHandlePoint(
   page: Page,
   corner: string,
@@ -102,8 +86,6 @@ async function groupHandlePoint(
 }
 
 async function shiftSelect(page: Page, name: string): Promise<void> {
-  // The layers tree row click, not a canvas click: additive-select via the
-  // panel avoids relying on canvas hit-testing for the second member.
   await page
     .getByRole("tree", { name: "Layers" })
     .getByRole("treeitem")
@@ -112,7 +94,6 @@ async function shiftSelect(page: Page, name: string): Promise<void> {
     .click({ modifiers: ["Shift"] });
 }
 
-/** Manual mouse-driven drag so intermediate positions can be sampled. */
 async function dragHandle(
   page: Page,
   from: { x: number; y: number },
@@ -186,8 +167,6 @@ test("shift+drag on a corner handle keeps the element's aspect ratio", async ({
   const se = await handlePoint(page, "data-agent-native-edit-handle", "se");
   expect(se).not.toBeNull();
   const s = await scale(page);
-  // An asymmetric drag (much more X than Y): if the ratio lock is real, the
-  // resulting box still matches the ORIGINAL ratio, not one skewed toward X.
   await dragHandle(page, se!, 140 * s, 10 * s, { modifier: "Shift" });
 
   const after = await geom(page, id, "box-a");
@@ -246,8 +225,6 @@ test("selection outline tracks the pointer live during a resize drag", async ({
 
   expect(before, "no selection outline before the drag").not.toBeNull();
   expect(boundsDuring.every((b) => b !== null)).toBe(true);
-  // The outline must grow monotonically with the pointer, not jump straight
-  // to the final size or stay frozen at the start size.
   const rights = boundsDuring.map((b) => b!.right);
   expect(
     rights,
@@ -353,12 +330,8 @@ test("multi-selection resize scales the group bounds from the opposite corner", 
     [afterA.width < beforeA.width, afterB.width < beforeB.width],
     `both members must shrink together (A ${beforeA.width}->${afterA.width}, B ${beforeB.width}->${afterB.width})`,
   ).toEqual([true, true]);
-  // NW is the anchor for an SE-handle drag: the group's top-left member (A)
-  // keeps its own top-left corner fixed.
   expect(afterA.left).toBe(beforeA.left);
   expect(afterA.top).toBe(beforeA.top);
-  // The proportional gap between the two members' vertical bands is
-  // preserved by a uniform group scale, not collapsed to a fixed pixel gap.
   const gapAfter = afterB.top - (afterA.top + afterA.height);
   expect(
     gapAfter,
@@ -366,11 +339,6 @@ test("multi-selection resize scales the group bounds from the opposite corner", 
   ).toBeLessThan(gapBefore);
 });
 
-/**
- * Steve's report (2026-09-12): dragging a screen's LEFT edge also changed
- * its HEIGHT. Screen-frame resize is owned by the Codex peer; this one case
- * documents the delta from this agent's side without attempting a fix.
- */
 test("[codex] resizing a screen from its left edge changes width only, not height", async ({
   page,
 }) => {
@@ -412,16 +380,6 @@ test("[codex] resizing a screen from its left edge changes width only, not heigh
   expect(cardBoxAfter.width).not.toBeCloseTo(cardBoxBefore.width, 0);
 });
 
-/**
- * A board-surface object's own selection handles live inside the board
- * iframe, which the board wrapper deliberately keeps at zIndex 0 so board
- * artwork never covers a Screen (see MultiScreenCanvas.tsx's board-surface
- * layer). An overlapping Screen therefore occludes those handles both
- * visually and for hit-testing. The host now mirrors the selected board
- * object's rect into its own SelectionBox (zIndex 1_000_000, same mechanism
- * Screens already use) and forwards resize gestures into the board bridge's
- * own startResize — see beginBoardElementResize in MultiScreenCanvas.tsx.
- */
 test.describe("board object resize through an overlapping Screen", () => {
   const BOARD_HTML = `<!doctype html>
 <html lang="en">
@@ -431,9 +389,6 @@ test.describe("board object resize through an overlapping Screen", () => {
          style="position:absolute;left:0px;top:0px;width:120px;height:90px;background:#f59e0b"></div>
   </body>
 </html>`;
-  // A Screen at overview index 0 is placed at world (0,0) by
-  // getInitialFrameGeometry — the SAME origin as the board rect above — so
-  // it occludes the rect with no extra positioning needed.
   const SCREEN_HTML = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Screen</title></head>
@@ -491,9 +446,6 @@ test.describe("board object resize through an overlapping Screen", () => {
     };
   }
 
-  /** The live DOM inline style inside the board iframe — distinct from
-   * rectGeom's persisted file content, so undo/redo is checked against both
-   * what's saved and what's actually on screen. */
   async function renderedRectGeom(page: Page) {
     const s =
       (await page
@@ -526,9 +478,6 @@ test.describe("board object resize through an overlapping Screen", () => {
     await gotoEditor(page, id);
     await expandAllLayers(page);
 
-    // Precondition: the Screen really does occlude the board rect at the
-    // host level (paint order + hit-testing) — this is the bug this fix
-    // addresses, not a harness artifact.
     const screenCard = page.locator("[data-screen-card]").first();
     await screenCard.waitFor({ timeout: 30_000 });
     const screenBox = (await screenCard.boundingBox())!;
@@ -546,16 +495,12 @@ test.describe("board object resize through an overlapping Screen", () => {
     await layerRow(page, "Rect").click();
     await page.waitForTimeout(500);
 
-    // The board object's own host-level chrome, distinct from a Screen's
-    // (both can be on screen at once — see SelectionBox's boardObject prop).
     const seHandle = page.locator(
       '[data-board-object-selection-box] [data-resize-handle="se"]',
     );
     await seHandle.waitFor({ timeout: 10_000 });
     const handleBox = (await seHandle.boundingBox())!;
 
-    // The handle must win the hit-test at its own location despite the
-    // Screen sitting underneath (host SelectionBox is zIndex 1_000_000).
     const topAtHandle = await page.evaluate(
       ({ x, y }) =>
         document.elementFromPoint(x, y)?.getAttribute("data-resize-handle"),
@@ -583,20 +528,12 @@ test.describe("board object resize through an overlapping Screen", () => {
     await page.waitForTimeout(2000); // e2e-harness-ignore commit settle, matches drag-and-drop.shared dragBy
 
     const after = await rectGeom(page, id);
-    // Growth need not be pixel-exact — the bridge's own snap-to-sibling-edge
-    // math (unrelated to this fix) can nudge the final size. The invariant
-    // this fix is about is that the drag reaches the occluded object AT ALL
-    // and grows both dimensions from a corner handle.
     const msg = `SE-handle drag through the host chrome must resize the occluded board rect (before ${JSON.stringify(before)}, after ${JSON.stringify(after)})`;
     expect(after.left, msg).toBe(0);
     expect(after.top, msg).toBe(0);
     expect(after.width, msg).toBeGreaterThan(before.width + 10);
     expect(after.height, msg).toBeGreaterThan(before.height + 5);
 
-    // Figma contract: a resize gesture is one undo step, and redo re-applies
-    // it exactly — checked against both the persisted file content and the
-    // live board-iframe DOM, since a debounced write could pass the former
-    // while the latter still shows the pre-undo size.
     await page.keyboard.press(`${MOD}+z`);
     await expect
       .poll(async () => rectGeom(page, id), {

@@ -1,6 +1,5 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 
-// SEO data: map of blog handle -> { etv, ranked_keywords, ... }
 export interface BlogPageSeo {
   url: string;
   handle: string;
@@ -16,7 +15,6 @@ export function useBlogSeoData() {
   });
 }
 
-// SEO keywords for a specific blog slug
 export interface RankedKeyword {
   keyword: string;
   search_volume: number;
@@ -33,7 +31,6 @@ export function useBlogKeywords(slug: string | null) {
   });
 }
 
-// Bulk SEO keyword rankings with rank changes
 export interface BlogKeywordRanking {
   keyword: string;
   search_volume: number;
@@ -58,7 +55,6 @@ export function useTopBlogKeywords(limit = 500) {
   );
 }
 
-// -- HubSpot CRM --
 
 export interface HubSpotDeal {
   id: string;
@@ -125,7 +121,6 @@ export function useHubspotMetrics() {
   });
 }
 
-// -- Stripe Billing --
 
 export interface StripeCustomerSummary {
   id: string;
@@ -257,7 +252,6 @@ interface StripeSubscriptionsResponse {
   total: number;
 }
 
-// Helper to build action params for Stripe queries (auto-detects search type)
 function buildStripeActionParams(
   searchInput: string,
   additionalParams?: Record<string, string | number>,
@@ -267,15 +261,11 @@ function buildStripeActionParams(
     ...(additionalParams ?? {}),
   };
 
-  // Auto-detect search type
   if (trimmed.startsWith("cus_")) {
-    // Customer ID lookup
     params.customerId = trimmed;
   } else if (trimmed.includes("@")) {
-    // Email search
     params.email = trimmed;
   } else {
-    // Name or root_id search (backend tries name first, then root_id)
     params.query = trimmed;
   }
 
@@ -352,7 +342,6 @@ export function useStripeSubscriptions(searchInput: string, enabled: boolean) {
   });
 }
 
-// Notion content calendar
 export interface ContentCalendarEntry {
   id: string;
   title: string;

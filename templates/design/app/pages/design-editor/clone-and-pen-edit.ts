@@ -38,7 +38,6 @@ import {
 
 import { hidePenPathFill, restoreClosedPenPathFill } from "./pen-path-paint";
 
-/** Marks a stroke this module added so a reopened path stays visible. */
 const AUTO_OPEN_STROKE_MARKER = "data-an-auto-open-stroke";
 import type { PortableStyleSnapshot } from "@/components/design/types";
 import {
@@ -69,16 +68,6 @@ function restoreClosedPenPathPaint(path: SVGPathElement): void {
   path.removeAttribute(AUTO_OPEN_STROKE_MARKER);
 }
 
-/**
- * Vector-edit foundations: stamps `data-an-pen-nodes` (the compact
- * serializePenNodes encoding — see shared/pen-path.ts) onto the committed
- * pen-path SVG element identified by `data-agent-native-node-id === nodeId`,
- * so the structured node/handle data survives independently of the
- * flattened `d` attribute and can later be re-hydrated into vector edit
- * mode. Returns `content` unchanged (never null) if the node can't be found
- * or `content` fails to parse — this is a best-effort enrichment step, never
- * a hard requirement for the primitive to commit successfully.
- */
 export function setPenNodesAttributeOnElement(
   content: string,
   nodeId: string,
@@ -87,9 +76,6 @@ export function setPenNodesAttributeOnElement(
   if (typeof window === "undefined") return content;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
-    // nodeId always comes from uniqueLayerId(...) (alphanumeric/hyphen/UUID
-    // chars only, never quotes), but escape defensively anyway since this
-    // value is interpolated into a CSS attribute-selector string.
     const safeNodeId = nodeId.replace(/["\\]/g, "\\$&");
     const element = doc.querySelector(
       `[data-agent-native-node-id="${safeNodeId}"]`,
@@ -102,20 +88,6 @@ export function setPenNodesAttributeOnElement(
   }
 }
 
-/**
- * Vector-edit foundations: writes an edited PenPath back onto its committed
- * SVG element — the `<path>` child's `d` (serializePenPath, matching what
- * appendCanvasPrimitiveToHtml's explicitPathData branch produces) AND the
- * `<svg>` root's `data-an-pen-nodes` (serializePenNodes, the structured
- * round-trip source), plus the root's `viewBox`/left/top/width/height so the
- * element's bounding box stays correct after anchors/handles moved it.
- * `nodeId` is the element's `data-agent-native-node-id` value (screen-content
- * space — same coordinate system the path's own nodes are already in, see
- * parsePenPathFromSerializedD's doc comment for that finding).
- *
- * Returns `null` when the source cannot be parsed or updated so the caller can
- * report a failed commit instead of treating it as a successful no-op.
- */
 export function writeBackVectorEditedPenPath(
   content: string,
   nodeId: string,
@@ -214,8 +186,6 @@ export function writeBackVectorEditedPenPath(
         svg.removeAttribute("data-an-vector-stroke-original-overflow");
         svg.removeAttribute("data-an-vector-stroke-original-overflow-priority");
       }
-      // An open path is only its stroke; a filled shape (a converted
-      // rectangle or an older closed path) has stroke:none and would vanish.
       if (path.getAttribute("stroke") === "none") {
         path.setAttribute("stroke", DEFAULT_LINE_STROKE);
         path.setAttribute(AUTO_OPEN_STROKE_MARKER, "");
@@ -263,7 +233,6 @@ export function writeBackVectorEditedPenPath(
   }
 }
 
-/** Axis-aligned scale plus the authored-to-screen-content translation. */
 function penPathScreenContentMapping(svg: SVGSVGElement): {
   scaleX: number;
   scaleY: number;
@@ -290,16 +259,6 @@ function penPathScreenContentMapping(svg: SVGSVGElement): {
   return { scaleX: matrix.a, scaleY: matrix.d, offset, viewBox };
 }
 
-/**
- * Returns the translation between an SVG PenPath's authored coordinates and
- * its current screen-content position. Vector edit handles use screen-content
- * coordinates; CSS moves and reparenting change the SVG CTM without rewriting
- * the path data or its viewBox. Non-translation transforms remain unsupported:
- * the editor currently stores edited anchors in screen-content coordinates,
- * while writeBackVectorEditedPenPath expects authored SVG coordinates. Accepting
- * scale/rotation/skew here without carrying the inverse matrix through commit
- * would serialize displaced anchors and change the rendered geometry.
- */
 export function penPathScreenContentOffset(svg: SVGSVGElement): {
   x: number;
   y: number;
@@ -315,12 +274,6 @@ export function penPathScreenContentOffset(svg: SVGSVGElement): {
   return mapping.offset;
 }
 
-/**
- * A drawn vector's nodes in screen-content space for vector edit. A resize or
- * K-scale leaves the viewBox behind, so the SVG draws at a scale; scaling the
- * nodes about the viewBox origin lets writeBackVectorEditedPenPath re-base the
- * SVG at 1:1 on commit, where `sourceOffset` maps them back.
- */
 export function penPathForVectorEdit(
   svg: SVGSVGElement,
   path: PenPath,
@@ -329,8 +282,6 @@ export function penPathForVectorEdit(
   const mapping = penPathScreenContentMapping(svg);
   if (!mapping) return null;
   const { viewBox, scaleX, scaleY } = mapping;
-  // Only the box-vs-viewBox stretch is re-based; a CSS transform survives
-  // write-back, so baking its scale into the nodes would apply it twice.
   const boxStretchMatches = (scale: number, box: string, extent: number) => {
     const size = parsePixelValue(box);
     if (size === null) return false;
@@ -357,10 +308,6 @@ export function penPathForVectorEdit(
   };
 }
 
-/**
- * The board surface renders its window by translating each body-level root
- * (`body > [data-agent-native-node-id]`); board coordinates exclude it.
- */
 export function boardRenderOffset(element: Element): { x: number; y: number } {
   let root = element;
   while (root.parentElement && root.parentElement !== root.ownerDocument.body) {
@@ -678,7 +625,6 @@ export function preserveClipboardLayerName(
 }
 
 type ClonePositionSpace = "layout" | "visual";
-/** Visual positions include the clone's transform; layout positions do not. */
 type CloneLayerPosition = {
   x: number;
   y: number;
@@ -714,11 +660,6 @@ function inlineLength(value: string, reference: number): number | null {
   return cssLength(value, reference);
 }
 
-/**
- * Null when the clone is sized by layout (no inline width/height): a
- * detached clone has no box to measure, so the caller pastes without
- * rotation compensation instead of refusing the paste.
- */
 function transformedBoundsOffset(
   element: HTMLElement | SVGElement,
 ): { x: number; y: number } | null {
@@ -769,10 +710,6 @@ function setRootLayerPosition(element: Element, position: CloneLayerPosition) {
     x: 0,
     y: 0,
   };
-  // Use explicit style property assignments rather than prepending a raw
-  // string. Prepending creates duplicate CSS properties in the same style
-  // attribute, and in CSS the LAST occurrence wins, so existing left/top
-  // values from the cloned element would override the new position.
   host.style.position = "absolute";
   host.style.left = `${Math.round(position.x - offset.x)}px`;
   host.style.top = `${Math.round(position.y - offset.y)}px`;
@@ -780,10 +717,6 @@ function setRootLayerPosition(element: Element, position: CloneLayerPosition) {
   host.style.bottom = "";
 }
 
-/**
- * Keep an incoming node id the destination does not already use, so a clone
- * the caller already rendered stays addressable by the id it carries.
- */
 function claimClonedNodeId(
   previousId: string | null,
   fallbackPrefix: string,
@@ -1167,10 +1100,6 @@ export function prepareClonedHtmlLayer(
 ): {
   element: Element;
   rootNodeId: string;
-  // U14: old data-agent-native-node-id -> new id, for every node that was
-  // re-stamped (root + descendants). Callers use this to remap motion
-  // tracks (MotionTrack.targetNodeId) onto the clone so a duplicated/pasted
-  // animated layer keeps its animation instead of silently losing it.
   nodeIdMap: Map<string, string>;
 } | null {
   if (styleSnapshot === null) return null;
@@ -1210,10 +1139,6 @@ export function prepareClonedHtmlLayer(
     !resolveLayerNameAttribute((attribute) => clone.getAttribute(attribute))
   ) {
     const sourceNode = buildCodeLayerProjection(layerHtml).nodes[0];
-    // A "tag" source means the name was never authored — it is derived from
-    // the element's tag/paint. Leave it derived so duplicate/paste keeps the
-    // same displayed name. Stamp names sourced from an attribute that clone
-    // id reassignment below changes (id/class -> "selector").
     if (sourceNode && sourceNode.layerNameSource !== "tag") {
       clone.setAttribute("data-agent-native-layer-name", sourceNode.layerName);
     }
@@ -1248,22 +1173,10 @@ export function prepareClonedHtmlLayer(
       },
     );
   }
-  // U14: also regenerate plain `id="..."` attributes on the clone (root +
-  // descendants). Without this, duplicating/pasting an element that (or
-  // whose descendants) carries an authored id="..." produces two elements
-  // with the same id in the same document — CSS #id selectors and any
-  // later selector-based edit then resolve to whichever one the browser
-  // happens to match first (typically the ORIGINAL, not the new copy),
-  // silently misapplying edits meant for the duplicate.
   if (!preserveIncomingNodeIds) {
     reassignClonedAuthoredIds(clone, () => uniqueLayerId("copy-id"));
     reassignClonedSourceIdentity(clone, () => uniqueLayerId("copy-child"));
   }
-  // Runtime snapshots carry the source component identity separately from
-  // the DOM node id. Keep the component boundary stable across a clone, but
-  // mint its instance handle with the same fresh id used for the cloned node.
-  // Leaving the old handle in place makes two live instances address the same
-  // runtime component when the next snapshot is serialized.
   for (const element of [clone, ...Array.from(clone.querySelectorAll("*"))]) {
     const runtimeInstanceId = element.getAttribute(
       "data-agent-native-runtime-instance-id",
@@ -1323,12 +1236,6 @@ function sanitizeClonedHtmlLayer(element: Element): boolean {
   return true;
 }
 
-/**
- * Prepare clipboard subtrees for RuntimeStructureInsertRequest without ever
- * parsing the URL-backed destination as a document. Runtime snapshots already
- * contain sanitized provenance and resolved inline styles; those inert
- * attributes survive while active markup is stripped again at this boundary.
- */
 export function prepareClonedHtmlLayersForLiveInsert(
   destinationContent: string,
   layerHtmls: string[],
@@ -1404,39 +1311,14 @@ export function insertClonedHtmlLayers(
     managedStyleSnapshots?: Array<
       DesignClipboardManagedStyleSnapshot | null | undefined
     >;
-    /**
-     * The layer html describes an element the caller has ALREADY rendered
-     * under these ids. Re-minting them strands that element: every later
-     * message addresses an id the document lacks, and the fuzzy resolver
-     * behind it lands on the node the clone was copied from.
-     */
     preserveIncomingNodeIds?: boolean;
-    /**
-     * Extra ids to treat as already-claimed beyond what `content` itself
-     * contains. A same-document duplicate (Cmd+D) needs nothing here — the
-     * original's id is already in `content`, so claimClonedNodeId mints a
-     * fresh one automatically. A CROSS-document duplicate (alt-drag into a
-     * different screen/board) does NOT see the source doc here at all: its
-     * still-alive original keeps the incoming id, so without this the copy
-     * silently reuses it — two elements, two files, one
-     * data-agent-native-node-id, and every id-keyed lookup (selection,
-     * nudge, the cross-file code-layer owner map) can resolve to either one.
-     */
     additionalReservedNodeIds?: Iterable<string>;
-    /** Current source projections required to keep linked clones in-design. */
     componentLinks?: ComponentCloneBatchContext;
-    /**
-     * Permit insertion below a canonical component main. This is only set by
-     * planLinkedComponentStructureClone, which hands the exact main snapshot
-     * to the linked mutation queue; reference instances stay refused.
-     */
     allowMainComponentStructure?: boolean;
   } = {},
 ): {
   content: string;
   rootNodeIds: string[];
-  // U14: merged old-id -> new-id map across every cloned layer, for
-  // remapping motion tracks onto the copies.
   nodeIdMap: Map<string, string>;
 } | null {
   if (
@@ -1446,10 +1328,6 @@ export function insertClonedHtmlLayers(
   ) {
     return null;
   }
-  // Same hazard appendCanvasPrimitiveToHtml guards: a live screen's stored
-  // content is its route URL, and returning an "edited document" for it means
-  // the caller persists HTML over the URL. Paste, duplicate, and image-drop
-  // all land here, so refuse the shape once rather than at each of them.
   if (isStandaloneHttpUrl(content)) return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
@@ -1605,12 +1483,6 @@ function linkedMainInsertionTarget(
   return { nodeId, span: linkedRoot.source };
 }
 
-/**
- * Build the exact snapshot needed for a canonical-main clone. The DOM helper
- * still does all clone preparation and linked-reference validation, while the
- * returned source replaces only the main root so doctype, head, and sibling
- * bytes remain eligible for the component structure CAS guard.
- */
 export function planLinkedComponentStructureClone(
   content: string,
   layerHtmls: string[],
@@ -1718,16 +1590,6 @@ export function queryFirstSelector(
 ): Element | null {
   for (const selector of selectors) {
     if (!selector) continue;
-    // Fail-closed on ambiguity, same pattern as queryUniqueSelector's other
-    // call sites in this file (and resolveCodeLayerNodeFromBridge in
-    // design-editor/code-layer-state.ts): a selector alias that matches
-    // MULTIPLE elements in this DOMParser pass (an imprecise class-based
-    // alias colliding with unrelated siblings, e.g.) must not silently
-    // resolve to whichever one querySelector happens to return first —
-    // callers pass several alias selectors for the SAME intended node
-    // (codeLayerSelectorAliases) specifically so a later, more specific
-    // alias (e.g. a stable data-attribute id) can still resolve correctly
-    // when an earlier one is ambiguous.
     const match = queryUniqueSelector(root, selector);
     if (match) return match;
   }
@@ -1771,12 +1633,6 @@ export function getElementOuterHtml(
   }
 }
 
-/**
- * Extract the absolute position declared in the outerHTML of a layer element.
- * Used to position a pasted element near its source so the paste lands inside
- * the same design area instead of at an arbitrary canvas coordinate.
- * Returns null if the position cannot be parsed (e.g. non-absolute element).
- */
 export function extractLayerPosition(
   layerHtml: string,
 ): { x: number; y: number } | null {

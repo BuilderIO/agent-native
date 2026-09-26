@@ -37,12 +37,6 @@ export interface DashboardPanelQueryResult {
   bytesProcessed?: number;
 }
 
-/**
- * A stored panel the active data backend cannot run at all. It carries no
- * `rows` on purpose: an empty result set would be indistinguishable from a
- * query that legitimately matched nothing, and this panel matched nothing
- * because it never ran.
- */
 export interface UnsupportedBackendResponse {
   error: "unsupported_by_backend";
   backend: "bigquery";
@@ -64,22 +58,8 @@ export interface ProgramDescriptor {
   params?: Record<string, unknown>;
 }
 
-/** Stored data program id: `dp_` + a random hex id. */
 const PROGRAM_ID_PATTERN = /^dp_[A-Za-z0-9]+$/;
 
-/**
- * program panels carry a JSON blob in `sql` describing which stored data
- * program to run and with what params. Shape:
- * { programId: string; params?: Record<string, unknown> }.
- *
- * A bare program id is part of that grammar, not a fallback: with no params the
- * id IS the whole descriptor, and it is what every caller reaches for first.
- * Writer and reader both resolve through here so they cannot disagree — the
- * writer used to pass any string straight through while the reader required
- * JSON, so a panel saved as `dp_01c5e3d...` threw `is not valid JSON` on every
- * render instead of rendering. Anything that is neither a descriptor nor an id
- * still throws; an unreadable panel must never resolve to an empty one.
- */
 export function coerceProgramDescriptor(raw: unknown): ProgramDescriptor {
   if (typeof raw === "string") {
     const trimmed = raw.trim();
@@ -155,11 +135,6 @@ async function missingCredential(
   };
 }
 
-/**
- * ga4 panels carry a JSON blob in `sql` describing the GA4 Data API call.
- * Shape: { metrics: string[]; dimensions?: string[]; days?: number;
- *          startDate?: string; endDate?: string }.
- */
 async function runGa4Panel(raw: string): Promise<DashboardPanelQueryResult> {
   let parsed: {
     metrics?: unknown;
@@ -233,11 +208,6 @@ async function runGa4Panel(raw: string): Promise<DashboardPanelQueryResult> {
   return { rows, schema };
 }
 
-/**
- * Amplitude panels carry a JSON blob in `sql` describing the segmentation API
- * call. Shape: { event: string; metric?: "totals"|"uniques"; groupBy?: string;
- * days?: number; startDate?: string; endDate?: string }.
- */
 async function runAmplitudePanel(
   raw: string,
 ): Promise<DashboardPanelQueryResult> {
@@ -389,9 +359,6 @@ async function runProgramPanel(
   const descriptor = parseProgramDescriptor(raw);
   const result = await runDataProgram({
     programId: descriptor.programId,
-    // Use the same app scope that registered the agent's data-program actions.
-    // Standalone template dev can derive that scope from the runtime package
-    // even when APP_NAME is not explicitly set.
     appId: getInitializedDataProgramsAppId() ?? ANALYTICS_APP_ID,
     params: descriptor.params,
     ctx: { userEmail: ctx.userEmail, orgId: ctx.orgId ?? null },
@@ -494,10 +461,6 @@ export async function runDashboardPanelQuery(args: {
         },
       );
     } catch (error) {
-      // Only the "no BigQuery equivalent exists" failure becomes a rendered
-      // state. Every other failure — timeout, permission, provider outage —
-      // still throws, because those are retryable and must not read to the
-      // user as a permanent property of the panel.
       if (!(error instanceof FirstPartyAnalyticsUnsupportedSqlError))
         throw error;
       console.error(

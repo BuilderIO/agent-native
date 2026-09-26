@@ -1,14 +1,3 @@
-/**
- * Finalize a meeting — runs the text-model cleanup pass on its transcript and
- * persists summary, bullets, and action items.
- *
- * Reads the linked recording's transcript (`recording_transcripts`) and
- * delegates to `cleanup-transcript` (task='summary'). Writes results to:
- *   - meetings.summaryMd / bulletsJson / actionItemsJson / transcriptStatus
- *   - meeting_action_items (one row per item)
- *
- * Idempotent: rerunning replaces the previous summary + action item rows.
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
@@ -22,9 +11,6 @@ import { nanoid } from "../server/lib/recordings.js";
 import cleanupTranscript, { CleanupResult } from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 
-// A forced claim still needs the same compare-and-set protection as the normal
-// path. It can recover a pending row only after that row has gone stale, which
-// handles crashed processes without stealing an active text-model run.
 const PENDING_STALE_MS = 2 * 60 * 1000;
 
 export function skippedFinalizeResult(meetingId: string) {
@@ -91,25 +77,12 @@ export default defineAction({
           updatedAt: nowIso,
         })
         .where(eq(schema.meetings.id, args.meetingId));
-      // The desktop stop path can finish before its final transcript flush
-      // lands. That is a completed recording without notes, not an action
-      // failure worth returning as HTTP 500; the explicit regenerate flow
-      // still receives the actionable error below.
       if (!args.force) return skippedFinalizeResult(args.meetingId);
       throw new Error(
         `Cannot finalize meeting ${args.meetingId} — no transcript text available yet.`,
       );
     }
 
-    // Mark pending so the UI shows a spinner during the LLM call. This is
-    // also the compare-and-swap that prevents two concurrent finalize calls
-    // (e.g. the desktop stop-path and the web route's auto-finalize effect)
-    // from both running the text model and clobbering meeting_action_items: only a
-    // call that observes 'ready' or 'failed' gets to flip the row to
-    // 'pending' and proceed. `force` (the manual "Regenerate notes" flow)
-    // additionally allows claiming a 'pending' row only when that claim is
-    // stale (see PENDING_STALE_MS). A fresh 'pending' row may still be an
-    // active text-model run, so it is left alone.
     const staleBefore = new Date(Date.now() - PENDING_STALE_MS).toISOString();
     const claimUpdatedAt = nowIso;
     const claimPredicate = args.force
@@ -128,8 +101,6 @@ export default defineAction({
       .returning({ id: schema.meetings.id });
 
     if (!claimed.length) {
-      // Another finalize is already in flight (status is 'pending') — no-op
-      // quietly instead of re-running the text model and re-writing action items.
       const [current] = await db
         .select()
         .from(schema.meetings)
@@ -172,11 +143,6 @@ export default defineAction({
     ]);
     const linkedRecording = recordingRows[0] ?? null;
 
-    // Build a single bounded context pack for the summary prompt. Avoid also
-    // emitting the same fields as a parallel plain-text `context` string: the
-    // cleanup prompt concatenates both into one <context> block, so passing
-    // both would duplicate every snippet (and the plain-text path was
-    // unbounded at ~20k chars per field).
     const contextSnippets: NonNullable<VoiceContextPack["snippets"]> = [];
     const addSnippet = (label: string, value: string, maxChars = 2_000) => {
       const trimmed = trimContextValue(value, maxChars);
@@ -234,9 +200,6 @@ export default defineAction({
         contextPack,
       });
     } catch (err) {
-      // Guard on transcriptStatus='pending' (this call's own claim) so a
-      // losing writer can't stomp a status a winner already committed. Skip
-      // silently if the predicate no longer matches.
       await db
         .update(schema.meetings)
         .set({
@@ -256,12 +219,6 @@ export default defineAction({
     const bullets = result.bullets ?? [];
     const actionItems = result.actionItems ?? [];
 
-    // Single transaction so the meetings write and the action-items
-    // delete+insert can't interleave with a second concurrent finalize call.
-    // The meetings update is CAS-guarded on both transcriptStatus='pending'
-    // and the timestamp written by this call's claim. If a manual edit landed
-    // after the claim, finish the AI fields but preserve that edit's action
-    // items instead of replacing them with stale model output.
     let persistedActionItems = actionItems;
     await db.transaction(async (tx) => {
       const finalNow = new Date().toISOString();
@@ -283,9 +240,6 @@ export default defineAction({
         )
         .returning({ id: schema.meetings.id });
       if (written.length) {
-        // Replace the per-row action items so the dedicated table mirrors the
-        // JSON column. The meeting-row CAS above serializes this replacement
-        // with update-meeting's own meeting-row transaction.
         await tx
           .delete(schema.meetingActionItems)
           .where(eq(schema.meetingActionItems.meetingId, args.meetingId));

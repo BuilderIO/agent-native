@@ -15,16 +15,6 @@ import {
   waitForBridge,
 } from "./helpers";
 
-// Two overlapping code-layer nodes: an outer explicitly-named "Stage" and an
-// inner, UNNAMED container ("card") that wraps a <span>Tiana</span>. The
-// layers-panel name algorithm (shared/code-layer.ts layerNameFor) names an
-// unnamed, non-leaf div by its TAG ("Frame") because it has an element child
-// (the span) — text is only used to name a true leaf. The context-menu
-// bridge's own candidate-label algorithm (editor-chrome.bridge.ts, the
-// collectLayerCandidates area) has no leaf/container distinction: it just
-// reads `candidate.textContent` verbatim, so it names the exact same node
-// "Tiana". Right-clicking this fixture reproduces the reported bug: layers
-// panel calls the node "Frame", the context menu calls it "Tiana".
 const NAME_MISMATCH_HTML = `<!doctype html>
 <html>
   <head><meta charset="utf-8"><title>Context menu fixture</title></head>
@@ -35,9 +25,6 @@ const NAME_MISMATCH_HTML = `<!doctype html>
   </body>
 </html>`;
 
-// A plain two-element fixture for functional (bring-to-front / group /
-// flip) assertions, deliberately WITHOUT overlap so a single right-click
-// hits exactly one code-layer node and no "Select layer" submenu appears.
 const TWO_BOX_HTML = `<!doctype html>
 <html>
   <head><meta charset="utf-8"><title>Context menu fixture 2</title></head>
@@ -88,8 +75,6 @@ async function rightClickNode(page: Page, nodeId: string) {
     const rect = element.getBoundingClientRect();
     return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   });
-  // Dispatched on the real document inside the iframe so it goes through the
-  // actual bridge contextmenu listener, exactly like select-layer-context-menu.spec.ts.
   await node.evaluate((_element, pt) => {
     document.dispatchEvent(
       new MouseEvent("contextmenu", {
@@ -135,8 +120,6 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
         "Flip horizontal",
         "Flip vertical",
       ];
-      // Read only the label span (first child), not the shortcut span glued
-      // onto the same menuitem's textContent.
       const items = menu.getByRole("menuitem");
       const itemCount = await items.count();
       const texts: string[] = [];
@@ -154,8 +137,6 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
         expectedOrder,
       );
 
-      // Functional: Bring to front on "a" (currently painted BEHIND "b" in
-      // DOM order) must move it after "b" in DOM order, and undo restores.
       const frame = designFrame(page);
       const beforeOrder = await frame.locator("body").evaluate((body) =>
         Array.from(body.children)
@@ -202,8 +183,6 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
           ),
         );
 
-      // Functional: Send to back on "b" (currently painted IN FRONT of "a")
-      // must move it before "a" in DOM order, and one undo restores.
       await rightClickNode(page, "b");
       await page
         .getByRole("menu")
@@ -265,11 +244,6 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
       await enterDirectMode(page);
       await installBridge(page);
 
-      // Real Figma's canvas right-click menu has no Rename item: renaming is
-      // ⌘R / double-click, and the only right-click Rename lives on a LAYERS
-      // PANEL row (help.figma.com "Rename layers"; forum "Add rename layers
-      // to context menu on canvas"). The canvas menu here matches that even
-      // though canRename/onRename/labels.rename are all wired.
       await rightClickNode(page, "a");
       const canvasMenu = page.getByRole("menu").last();
       await expect(canvasMenu).toBeVisible();
@@ -319,12 +293,6 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
       await trigger.hover();
       const submenu = page.getByRole("menu").last();
 
-      // The right-clicked node is selected; read its real layers-panel name
-      // from the row Playwright/Chromium's accessibility tree marks
-      // aria-selected (data-layer-selection="primary" mirrors the same
-      // state and is a more reliable locator than the ARIA `selected` state
-      // filter, which this app's virtualization-free but deeply-nested tree
-      // does not always expose promptly to getByRole).
       const panelLabel = (
         (await page
           .locator(
@@ -335,9 +303,6 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
       ).trim();
       expect(panelLabel.length).toBeGreaterThan(0);
 
-      // The card's context-menu candidate label must be the SAME string the
-      // layers panel just showed for that exact node — not its raw text
-      // content ("Tiana").
       await expect(
         submenu.getByText(panelLabel, { exact: true }),
       ).toBeVisible();
@@ -430,10 +395,6 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
         return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
       }
 
-      // The focused row uses the shared panel hover token (a translucent tint)
-      // with the regular foreground text. Composite the tint over an assumed
-      // white menu surface to get the effective row color, then require
-      // WCAG AA contrast (>= 4.5:1) between that and the computed text color.
       const [r, g, b, a] = parseRgb(bg);
       const surface: [number, number, number] = [255, 255, 255];
       const effective: [number, number, number] = [
@@ -628,7 +589,6 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
       await rightClickNode(page, "a");
       const menu = page.getByRole("menu").last();
       await expect(menu).toBeVisible();
-      // Click far away in the parent chrome, well outside canvas/menu.
       await page.mouse.click(10, 10);
       await expect(page.getByRole("menu")).toHaveCount(0);
     } finally {
@@ -660,8 +620,6 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
       await expect(groupItem).toBeEnabled();
       await groupItem.click({ force: true });
 
-      // Grouping wraps both into a new common parent, so "a" stops being a
-      // direct child of <body>.
       await expect
         .poll(() =>
           frame.locator('body > [data-agent-native-node-id="a"]').count(),
@@ -672,12 +630,6 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
         process.platform === "darwin" ? "Meta+z" : "Control+z",
       );
 
-      // One undo restores the exact prior (ungrouped) structure: both boxes
-      // back as direct siblings of <body>, not still nested in the wrapper.
-      // (Deliberately not asserting body.children.length here — the bridge
-      // injects its own <script>/<style> tags into <body> independently of
-      // this edit, so a raw child count is flaky signal for the group/ungroup
-      // structural change under test.)
       await expect
         .poll(() =>
           frame
@@ -688,8 +640,6 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
         )
         .toBe(2);
 
-      // The exact prior selection comes back too, not just the document
-      // shape: both boxes, re-selected as siblings again.
       const lastSelection = await page.evaluate(() => {
         const entries = (window as any).__designTrace?.entries?.() ?? [];
         const selects = entries.filter(

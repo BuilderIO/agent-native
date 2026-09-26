@@ -61,8 +61,6 @@ function parseLease(raw: string | null): LocalEmailLease | null {
 async function readLeaseRow(
   ownerEmail: string,
 ): Promise<{ raw: string | null; lease: LocalEmailLease | null }> {
-  // Initialize the framework-owned settings table, then bypass the request
-  // settings cache so every lease attempt sees the latest committed owner row.
   await getUserSetting(ownerEmail, LOCK_SETTING_KEY);
   const { rows } = await getDbExec().execute({
     sql: `SELECT value FROM ${settingsTable()} WHERE key = $1`,
@@ -130,8 +128,6 @@ async function releaseDatabaseLease(
 }
 
 async function readMailboxRow(ownerEmail: string): Promise<string | null> {
-  // Initialize the settings table, then bypass its request cache so CAS retry
-  // attempts always compare against the latest committed mailbox snapshot.
   await getUserSetting(ownerEmail, "local-emails");
   const { rows } = await getDbExec().execute({
     sql: `SELECT value FROM ${settingsTable()} WHERE key = $1`,
@@ -171,11 +167,6 @@ async function compareAndSwapMailbox(
   return result.rowsAffected === 1;
 }
 
-/**
- * Serialize read-modify-write operations on an owner's synthetic mailbox.
- * Local mail is one JSON document, so every writer must participate to avoid
- * replacing a concurrent writer's newer snapshot.
- */
 export function withLocalEmailMutationLock<T>(
   ownerEmail: string,
   mutate: () => Promise<T>,
@@ -193,9 +184,6 @@ export function withLocalEmailMutationLock<T>(
         try {
           await releaseDatabaseLease(ownerEmail, leaseRaw);
         } catch (error) {
-          // The lease expires and is token-scoped, so a transient cleanup
-          // failure must not turn an already committed mailbox write into an
-          // ambiguous failure that callers may retry.
           console.warn(
             "[local-email-store] failed to release mutation lease; it will expire",
             error,

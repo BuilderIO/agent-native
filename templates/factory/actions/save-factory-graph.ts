@@ -116,8 +116,6 @@ export default defineAction({
         );
       }
       const fallback = defaultFactoryDefinition();
-      // Virtual default is advertised as graphVersion 1 before the first row.
-      // Other missing IDs stay 0 so a stale create cannot slip through as v1.
       const currentVersion =
         existing?.graphVersion ??
         (factoryId === DEFAULT_FACTORY_ID ? fallback.graphVersion : 0);

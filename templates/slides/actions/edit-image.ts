@@ -1,10 +1,3 @@
-/**
- * Edit an existing image using Gemini.
- * Pass in an image file and editing instructions.
- *
- * Usage:
- *   pnpm action edit-image --input public/generated/slide5-v3.png --prompt "Remove the background and make it transparent. Remove any logos." --output public/assets/generated/slide5-edited
- */
 
 import { resolveSecret } from "@agent-native/core/server";
 
@@ -60,7 +53,6 @@ export default async function main(args: string[]) {
   const { GoogleGenAI } = await import("@google/genai");
   const client = new GoogleGenAI({ apiKey });
 
-  // Read the input image
   const imgBuffer = readFileSync(inputPath);
   const imgBase64 = imgBuffer.toString("base64");
   const mimeType = inputPath.endsWith(".png") ? "image/png" : "image/jpeg";

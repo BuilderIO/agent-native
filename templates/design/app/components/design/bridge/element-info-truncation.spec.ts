@@ -3,17 +3,6 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-/**
- * The bridge caps `textContent` and `htmlContent` before they are persisted to
- * `design-selection` and relayed verbatim by the `view-screen` action. The
- * matching `*Truncated` flag is the only thing separating "this is the whole
- * text" from "this is a prefix" — and `apply-visual-edit` kind:"textContent"
- * replaces an element's ENTIRE text, so an agent that writes an unflagged
- * preview back deletes everything past the cap.
- *
- * The cap and its flag are written as two separate literals inside an injected
- * IIFE that cannot import a shared constant, so this asserts they agree.
- */
 const BRIDGE = readFileSync(
   path.join(__dirname, "editor-chrome.bridge.ts"),
   "utf8",

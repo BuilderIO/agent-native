@@ -221,8 +221,6 @@ function normalizeReferenceEntries(entries: PresetReference[]) {
     entries.map((entry) => ({
       ...entry,
       id: entry.id.trim(),
-      // A cleared label must not delete the entry (normalize drops
-      // label-less entries); fall back to the durable id as the label.
       label: entry.label.trim() || entry.id.trim(),
       description: entry.description?.trim() || undefined,
       assetIds: entry.assetIds.filter(Boolean).slice(0, 4),
@@ -531,8 +529,6 @@ export default function TemplateEditorRoute() {
     };
   }, [form?.title, preset?.title]);
 
-  // Saved entry ids are durable keys referenced by presetReferenceFills and
-  // past runs' boardAssignments; renaming a label must never change them.
   const persistedReferenceIds = useMemo(
     () => new Set(presetReferencesFromPreset(preset).map((entry) => entry.id)),
     [preset],

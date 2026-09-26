@@ -122,8 +122,6 @@ export default defineAction({
         );
       }
       // guard:allow-unscoped — requireEditableAttribute() above already ran
-      // assertAccess("crm-field-policy", …, "editor"), and requireCrmScope(ctx)
-      // below sets ownerEmail/orgId from the request context.
       await db.insert(schema.crmAttributeOptions).values({
         id: crypto.randomUUID(),
         attributeId: args.attributeId,
@@ -153,7 +151,6 @@ export default defineAction({
       }
       for (const [index, optionId] of args.optionIds!.entries()) {
         // guard:allow-unscoped — editableOption() carries the editor
-        // accessFilter; the guard cannot follow it out of the helper.
         await db
           .update(schema.crmAttributeOptions)
           .set({ position: index, updatedAt: now })
@@ -184,11 +181,7 @@ export default defineAction({
         );
       }
       if (Object.keys(patch).length > 0) {
-        // Only `crm_attribute_options` is touched. Archiving an option in use
-        // must leave every stored value alone: the value stays, the picker
-        // stops offering it.
         // guard:allow-unscoped — editableOption() carries the editor
-        // accessFilter; the guard cannot follow it out of the helper.
         await db
           .update(schema.crmAttributeOptions)
           .set({ ...patch, updatedAt: now })
@@ -235,14 +228,8 @@ function editableOption(attributeId: string, optionId: string) {
   );
 }
 
-/**
- * Value and position of every option row, deliberately not access-filtered: the
- * unique index on (attribute_id, value) spans rows this caller cannot see, so a
- * scoped check would report a clean insert and then hit a constraint violation.
- */
 function loadOptionSlots(attributeId: string) {
   // guard:allow-unscoped — see the note above: callers are already gated on
-  // editor access to the attribute, and only value/position are read.
   return getDb()
     .select({
       value: schema.crmAttributeOptions.value,
@@ -252,7 +239,6 @@ function loadOptionSlots(attributeId: string) {
     .where(eq(schema.crmAttributeOptions.attributeId, attributeId));
 }
 
-/** Every option the caller may edit, archived ones included. */
 function loadOptionRows(attributeId: string): Promise<CrmAttributeOptionRow[]> {
   return getDb()
     .select()

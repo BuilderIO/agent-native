@@ -1,12 +1,3 @@
-/**
- * The bitemporal history of one attribute value.
- *
- * `crm_record_fields` keeps every superseded value as its own row stamped with
- * when it stopped being current, so "changed from X to Y, by Z" is a read, not
- * an audit-log join. An attribute with `history_tracked = false` is updated in
- * place and therefore genuinely HAS no history — that is reported as
- * `historyTracked: false`, which is a different answer from "nothing changed".
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";

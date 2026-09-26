@@ -50,13 +50,6 @@ export default defineAction({
   schema: z.object({
     title: z.string().optional().describe("Form title"),
     description: z.string().optional().describe("Form description"),
-    // Declared as the real array/object, never `string | array`. A JSON string
-    // still works — `coerceGatewayStringifiedArgs` parses it because the
-    // declared type is `array`/`object` — but the parsed value is then checked
-    // against this schema. Re-adding a `z.string()` branch turns that back off
-    // (the coercion deliberately skips any param that also accepts a string)
-    // AND skips per-field validation, which is how `type: undefined` once
-    // reached the database layer.
     fields: z
       .array(formFieldSchema)
       .optional()
@@ -107,8 +100,6 @@ export default defineAction({
     const incomingSettings = (args.settings ?? {}) as unknown as FormSettings;
     assertValidFormCompletionSettings(incomingSettings);
     const settings = { ...defaultSettings, ...incomingSettings };
-    // Reject blocked integration URLs at save time. fireIntegrations also
-    // re-checks at runtime as defense-in-depth.
     assertIntegrationUrlsAllowed(settings);
 
     const ownerEmail = getRequestUserEmail();
@@ -141,11 +132,6 @@ export default defineAction({
       visibility,
     });
 
-    // Return the values we just inserted rather than re-selecting. A
-    // post-insert SELECT can come back empty under connection-pool routing
-    // (Neon and similar pooled-Postgres setups occasionally route the read
-    // to a replica that hasn't replicated the write yet), which then throws
-    // a 500 even though the form was created successfully.
     const editorUrl = formDeepLink(id);
     const publicUrl =
       status === "published"

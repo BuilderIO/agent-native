@@ -162,8 +162,6 @@ describe("<ExportMenu> Google Slides availability", () => {
   });
 
   it("keeps the export usable when the status probe itself fails", async () => {
-    // A broken status call says nothing about Google. Hiding a working export on
-    // that basis would be a worse failure than the one this gate prevents.
     globalThis.fetch = vi.fn(async () => {
       throw new Error("offline");
     }) as typeof fetch;
@@ -183,9 +181,6 @@ describe("<ExportMenu> Google Slides availability", () => {
   });
 
   it("blocks a click made before the probe has answered", async () => {
-    // The badge is driven by render state, which is still the optimistic
-    // default on the very first interaction. Clicking that fast must not sail
-    // past a rejection the menu has not received yet.
     let releaseStatus: (() => void) | undefined;
     const held = new Promise<void>((resolve) => {
       releaseStatus = resolve;
@@ -202,8 +197,6 @@ describe("<ExportMenu> Google Slides availability", () => {
     openExportMenu();
 
     const item = await googleSlidesItem();
-    // Still enabled: the verdict has not arrived, and flashing the item
-    // disabled on every open would be its own bug.
     expect(item.getAttribute("data-disabled")).toBeNull();
     fireEvent.click(item);
 
@@ -217,10 +210,6 @@ describe("<ExportMenu> Google Slides availability", () => {
   });
 
   it("drops the verdict when the org switch invalidates queries", async () => {
-    // `useSwitchOrg` switches organization by calling `qc.invalidateQueries()`
-    // and staying in the SPA. The verdict is computed from org-scoped Google
-    // credentials, so it has to be reachable by that call - a module-local
-    // cache would outlive the credentials it came from.
     const fetchMock = vi.fn(async () =>
       statusResponse({ googleSlidesExport: { available: true } }),
     );

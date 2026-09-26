@@ -1,9 +1,4 @@
 // @vitest-environment happy-dom
-//
-// canvas-primitive-insert.ts's appendCanvasPrimitiveToHtml (and the
-// html-layer-positioning.ts attribute writer this pulls in) early-return
-// null under `typeof window === "undefined"` (the default node test
-// environment), so this needs a real DOM.
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import { describe, expect, it, vi } from "vitest";
 
@@ -52,10 +47,6 @@ function buildArgs(
       return { status: "accepted", ...publication };
     },
     canEditDesign: true,
-    // Mirrors prepareTextCreationFinalization's own contract: only this exact
-    // node's creation commit names the layer. historyHandled is deliberately
-    // false — an unrelated write can leave the undo stack stale without making
-    // this any less the creation's first commit, and the name must still land.
     prepareTextCreationFinalization: (_fileId, nodeIds) => ({
       isCreationCommit:
         isPendingCreation && nodeIds.some((id) => id === nodeId),
@@ -78,9 +69,6 @@ function buildArgs(
 
 describe("runTextContentChange default text-layer naming", () => {
   it("names a freshly created text layer after its typed content", () => {
-    // The draft primitive is committed with an empty draft and the "Text"
-    // placeholder name (primitiveLayerName's text case), exactly as
-    // appendCanvasPrimitiveToHtml stamps it at creation.
     const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Text"></div></body>`;
     const { args, nodeId, getContent } = buildArgs(content, true);
 
@@ -229,7 +217,6 @@ describe("runTextContentChange rejected live-snapshot write", () => {
       liveScreenSnapshotsById: {
         "index.html": { html: content } as never,
       },
-      // The snapshot vanished, or integrity validation refused this edit.
       updateLiveScreenSnapshotContent: () => false,
       prepareTextCreationFinalization: () => ({
         isCreationCommit: true,
@@ -244,7 +231,6 @@ describe("runTextContentChange rejected live-snapshot write", () => {
       "Standalone",
     );
 
-    // The source is unchanged, so the creation still owns its pending history.
     expect(confirm).not.toHaveBeenCalled();
   });
 });

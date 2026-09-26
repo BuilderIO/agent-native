@@ -138,9 +138,6 @@ describe("agent-frame.jpg route", () => {
   });
 
   it("holds the frame back while redactions are drawn but not burned", async () => {
-    // This route reads the stored file directly, so the hold on /api/video
-    // does not cover it. Without the check, asking for the exact timestamp a
-    // box sits on returns the unredacted frame to any anonymous caller.
     mockLoadPublicAgentAccess.mockResolvedValue({
       ok: true,
       access: makeAccess({
@@ -171,8 +168,6 @@ describe("agent-frame.jpg route", () => {
   });
 
   it("still serves the owner while a redaction is pending", async () => {
-    // The owner is who finishes the burn, so holding them out would make the
-    // editor unusable — and they can already see what is under the box.
     mockLoadPublicAgentAccess.mockResolvedValue({
       ok: true,
       access: makeAccess({

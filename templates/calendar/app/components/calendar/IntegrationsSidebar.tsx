@@ -46,7 +46,6 @@ function safeExternalHref(value?: string | null): string | null {
   }
 }
 
-// ─── Integration definitions ────────────────────────────────────────────────
 
 type ProviderId = "apollo" | "hubspot" | "gong" | "pylon";
 
@@ -159,7 +158,6 @@ const INTEGRATIONS: IntegrationDef[] = [
   },
 ];
 
-// ─── Main Sidebar Component ─────────────────────────────────────────────────
 
 export function IntegrationsSidebar({
   email,
@@ -228,7 +226,6 @@ export function IntegrationsSidebar({
   );
 }
 
-// ─── Integration Setup ──────────────────────────────────────────────────────
 
 function IntegrationSetup() {
   const t = useT();
@@ -511,7 +508,6 @@ function IntegrationKeyEntry({
   );
 }
 
-// ─── Apollo Section ─────────────────────────────────────────────────────────
 
 function ApolloSection({ email }: { email: string }) {
   const { data: person, isLoading } = useApolloPerson(email);
@@ -708,7 +704,6 @@ function ApolloSection({ email }: { email: string }) {
   );
 }
 
-// ─── HubSpot Section ────────────────────────────────────────────────────────
 
 function HubSpotSection({ email }: { email: string }) {
   const { data: contact, isLoading } = useHubSpotContact(email);
@@ -789,7 +784,6 @@ function HubSpotSection({ email }: { email: string }) {
   );
 }
 
-// ─── Gong Section ───────────────────────────────────────────────────────────
 
 function GongSection({ email }: { email: string }) {
   const { data: calls, isLoading } = useGongCalls(email);
@@ -831,7 +825,6 @@ function GongSection({ email }: { email: string }) {
   );
 }
 
-// ─── Pylon Section ──────────────────────────────────────────────────────────
 
 function PylonSection({ email }: { email: string }) {
   const { data, isLoading } = usePylonContact(email);
@@ -903,7 +896,6 @@ function PylonSection({ email }: { email: string }) {
   );
 }
 
-// ─── Shared ─────────────────────────────────────────────────────────────────
 
 function SectionHeader({
   logo,

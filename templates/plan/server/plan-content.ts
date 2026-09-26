@@ -25,16 +25,10 @@ import type { PlanSection } from "../shared/types.js";
 
 type SectionLike = Pick<PlanSection, "id" | "type" | "title" | "body" | "html">;
 
-/** Region-based wireframe data — the renderer's legacy fallback shape. */
 type LegacyWireframeData = PlanLegacyWireframeBlock["data"];
 
 export function parsePlanContent(value: unknown): PlanContent | null {
   if (!value) return null;
-  // Drizzle returns a Buffer for any `content` row stored with BLOB affinity
-  // (e.g. a raw SQL insert via readfile()/a Buffer instead of a JSON string).
-  // Decode it to text so the JSON path below runs — otherwise the Buffer falls
-  // through as an "object", migrate reads undefined version/blocks, and the
-  // plan silently parses to an empty body with no warning.
   const source =
     value instanceof Uint8Array ? new TextDecoder().decode(value) : value;
   const parsedValue =
@@ -48,59 +42,32 @@ export function parsePlanContent(value: unknown): PlanContent | null {
         })()
       : source;
   if (!parsedValue) return null;
-  // Upgrade old/raw shapes (region wireframes -> legacy-wireframe, sketch-* ->
-  // diagram, version backfill) before validating. Never lossily migrate.
   try {
     const migrated = migratePlanContent(parsedValue);
     const result = planContentSchema.safeParse(
       preSanitizePlanContentInput(migrated),
     );
     if (result.success) return result.data;
-    // Full-document parse failed. Attempt per-block salvage so one unknown or
-    // malformed block does not blank the entire document. Validate each block
-    // individually; replace failing blocks with a typed `unknown-block`
-    // placeholder that carries the original type + error summary. The reader
-    // renders these as "Unsupported block" cards so the rest of the document
-    // remains visible.
     console.warn(
       "[plan-content] full parse failed; attempting per-block salvage:",
       result.error.issues.slice(0, 4),
     );
     return parsePlanContentWithSalvage(migrated);
   } catch (error) {
-    // Defense-in-depth: pathological input (e.g. deeply nested tabs) can overflow
-    // the recursive schema/migration and throw a RangeError that safeParse does
-    // NOT catch. Fail closed so the reading route shows a graceful fallback
-    // instead of crashing the entire plan page.
     console.warn("[plan-content] errored while parsing stored content:", error);
     return null;
   }
 }
 
-/**
- * Per-block salvage fallback. When the full planContentSchema parse fails,
- * validate each block individually and substitute an `unknown-block` placeholder
- * (stored as a `callout` with a special marker in `data`) for any that fail.
- * This keeps N-1 good blocks visible instead of blanking the whole document.
- */
 function parsePlanContentWithSalvage(migrated: unknown): PlanContent | null {
   if (!migrated || typeof migrated !== "object") return null;
   const raw = migrated as Record<string, unknown>;
 
-  // Check if the block tree is pathologically deep BEFORE attempting per-block
-  // salvage. exceedsPlanBlockDepth walks the full container-block tree using
-  // the same visit-budget as the schema's preflight preprocessor. When the
-  // depth limit is exceeded the schema would replace ALL blocks with a single
-  // sentinel placeholder; per-block salvage would turn that into a single
-  // "Unsupported block" card, which is misleading. Bail closed instead.
   if (exceedsPlanBlockDepth(raw)) {
     console.warn("[plan-content] per-block salvage bailed: depth-exceeded");
     return null;
   }
 
-  // Validate the document envelope (version, title, brief, canvas, prototype)
-  // independently of the blocks array so we keep the metadata even when blocks
-  // fail.
   const envelopeResult = planContentSchema.safeParse(
     preSanitizePlanContentInput({ ...raw, blocks: [] }),
   );
@@ -115,8 +82,6 @@ function parsePlanContentWithSalvage(migrated: unknown): PlanContent | null {
         blocks: [],
       } as PlanContent);
 
-  // If the blocks field is not an array, the document structure itself is
-  // unsalvageable — bail closed so we don't return an empty document.
   if (!Array.isArray(raw.blocks)) {
     console.warn(
       "[plan-content] per-block salvage bailed: blocks is not an array",
@@ -124,7 +89,6 @@ function parsePlanContentWithSalvage(migrated: unknown): PlanContent | null {
     return null;
   }
 
-  // Validate each block individually; replace bad ones with a callout placeholder.
   const rawBlocks = raw.blocks;
   const salvaged: PlanBlock[] = rawBlocks
     .slice(0, 200)
@@ -135,7 +99,6 @@ function parsePlanContentWithSalvage(migrated: unknown): PlanContent | null {
       if (singleResult.success && singleResult.data.blocks[0]) {
         return singleResult.data.blocks[0];
       }
-      // Replace with an `unknown-block` placeholder stored as a special callout.
       const rb = (rawBlock as Record<string, unknown> | null) ?? {};
       const originalType = typeof rb.type === "string" ? rb.type : "unknown";
       const blockId =
@@ -152,8 +115,6 @@ function parsePlanContentWithSalvage(migrated: unknown): PlanContent | null {
         id: blockId,
         type: "callout",
         title: typeof rb.title === "string" ? rb.title : undefined,
-        // Embed a machine-readable marker so the client can render a better
-        // "Unsupported block" card rather than a generic callout.
         data: {
           tone: "warning" as const,
           body: `​__unknown_block__:${originalType}\n${errorSummary}`,
@@ -227,11 +188,6 @@ export function normalizePlanContent(
 ): PlanContent | null {
   if (!content) return null;
   const migrated = migratePlanContent(content);
-  // Recaps degrade gracefully: rather than failing the whole import when one
-  // block the agent authored is invalid, salvage per-block — keep the valid
-  // blocks and substitute an "Unsupported block" placeholder for the bad ones
-  // (same battle-tested path the read flow uses). A few imperfect blocks must
-  // never sink an entire recap, which is informational. Plans stay strict.
   if (options.salvageInvalidBlocks) {
     const result = planContentSchema.safeParse(
       preSanitizePlanContentInput(migrated),
@@ -313,25 +269,10 @@ export function normalizePlanDesignContent(
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* custom-html sanitization (defense in depth at the action boundary)         */
-/* -------------------------------------------------------------------------- */
 
-/**
- * Tags that may NEVER survive in a stored custom-html fragment. The zod schema
- * already rejects these at validation time; this is a second, allowlist-style
- * pass so the value we persist (and later export) is structurally clean even if
- * validation is ever bypassed or relaxed. The in-app React path renders these
- * fragments in a sandboxed iframe; the export path shows escaped source.
- */
-/**
- * Content-bearing dangerous elements: the whole element (open tag, body, close
- * tag) must go, not just the tags — otherwise script/style bodies leak through.
- */
 const FORBIDDEN_ELEMENT =
   /<(script|style|iframe|object|embed|noscript|svg|math|applet|portal|frameset|marquee)\b[^>]*>[\s\S]*?<\/\s*\1\s*>/gi;
 
-/** Standalone / self-closing forbidden tags (e.g. <link>, <meta>, dangling). */
 const FORBIDDEN_TAG =
   /<\/?\s*(?:script|style|iframe|object|embed|link|meta|base|form|svg|math|noscript|frame|frameset|applet|portal|marquee)\b[^>]*>/gi;
 
@@ -341,7 +282,6 @@ const DIAGRAM_FORBIDDEN_ELEMENT =
 const DIAGRAM_FORBIDDEN_TAG =
   /<\/?\s*(?:script|style|iframe|object|embed|link|meta|base|form|math|foreignObject|noscript|frame|frameset|applet|portal|marquee)\b[^>]*>/gi;
 
-/** Inline event handlers and javascript:/data: URLs in attributes. */
 const FORBIDDEN_ATTR = /\son[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
 const FORBIDDEN_BOUND_ATTR =
   /\s(?::on[a-z][\w:-]*|x-bind:on[a-z][\w:-]*|:style|x-bind:style)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
@@ -474,11 +414,6 @@ function sanitizeMaybeBlocks(blocks: unknown) {
         sanitizeMaybeBlocks((tab as Record<string, unknown>).blocks);
       }
     }
-    // `columns` is the recommended before/after recap primitive and nests child
-    // blocks (commonly wireframes). It must recurse like `tabs` does — otherwise
-    // a nested wireframe authored as a full HTML document never gets its
-    // scaffold stripped and the whole columns block degrades to an "Unsupported
-    // block" card at validation time.
     if (record.type === "columns" && data && Array.isArray(data.columns)) {
       for (const column of data.columns) {
         if (!column || typeof column !== "object") continue;
@@ -515,17 +450,6 @@ function preSanitizePlanContentInput(input: unknown): unknown {
   return content;
 }
 
-/**
- * Coerce a full HTML document into a bounded fragment. Wireframe, custom-html,
- * and diagram blocks must be bounded fragments (the renderer owns the
- * surrounding document, theme, and styling), so the schema rejects any value
- * carrying document scaffolding. Agents frequently author one of these blocks
- * as a standalone page anyway; rather than degrade the whole block to an
- * "Unsupported block" card, drop the scaffold and keep the body content. The
- * `<head>` is removed wholesale because its `<style>`/`<meta>`/`<link>` are
- * renderer-owned and stripped elsewhere regardless. Fragments without
- * scaffolding pass through untouched.
- */
 function stripDocumentScaffold(value: string): string {
   if (!/<!doctype|<\s*\/?\s*(?:html|head|body)\b/i.test(value)) return value;
   return value
@@ -535,10 +459,8 @@ function stripDocumentScaffold(value: string): string {
     .trim();
 }
 
-/** Strip the dangerous surface from a stored custom-html / css string. */
 export function sanitizeCustomHtml(value: string): string {
   let out = stripDocumentScaffold(value);
-  // Iterate element-stripping so nested / sequential cases collapse fully.
   for (let i = 0; i < 4; i += 1) {
     const next = out.replace(FORBIDDEN_ELEMENT, "");
     if (next === out) break;
@@ -582,39 +504,14 @@ export function sanitizeDiagramHtml(value: string): string {
     .replace(/\bdata\s*:\s*(?:text\/html|image\/svg\+xml)/gi, "");
 }
 
-/**
- * Active-embedding elements stripped from a stored full HTML document, with
- * their contents. Unlike {@link sanitizeCustomHtml}, this intentionally does
- * NOT strip presentational/structural tags (`<style>`, `<link>`, `<meta>`,
- * `<head>`, `<body>`, `<svg>`, `<form>`) so a legitimately imported standalone
- * document still renders with its styling intact.
- */
 const STORED_HTML_FORBIDDEN_ELEMENT =
   /<(script|iframe|object|embed|applet|portal|frameset|frame)\b[^>]*>[\s\S]*?<\/\s*\1\s*>/gi;
 
-/** Standalone / dangling forms of the same active-embedding tags. */
 const STORED_HTML_FORBIDDEN_TAG =
   /<\/?\s*(?:script|iframe|object|embed|applet|portal|frame|frameset)\b[^>]*>/gi;
 
-/**
- * Sanitize the legacy top-level plan `html` escape-hatch (a full standalone
- * HTML document). The field is agent-authored and the agent treats fetched
- * pages / tool output / repo files as untrusted, so a prompt-injected source
- * could plant a malicious document; plans are also shareable, so one author's
- * stored HTML renders in a reviewer's session.
- *
- * The render iframes are already sandboxed without `allow-same-origin` (so
- * scripts can never reach the app origin), but this strips the script-execution
- * surface at the data layer too — defense in depth that keeps a malicious
- * document inert even if a future render path forgets the sandbox, and keeps
- * exported source files clean. It preserves document structure and styling
- * (the field's legitimate purpose is storing imported artifacts) while removing
- * script/iframe/object/embed elements, inline event handlers, and
- * `javascript:` / `vbscript:` / `data:text/html` URLs.
- */
 export function sanitizeStoredPlanHtml(value: string): string {
   let out = value;
-  // Iterate so nested / sequential cases collapse fully.
   for (let i = 0; i < 4; i += 1) {
     const next = out.replace(STORED_HTML_FORBIDDEN_ELEMENT, "");
     if (next === out) break;
@@ -824,7 +721,6 @@ function sanitizeCanvas(canvas: PlanContent["canvas"] | undefined) {
   };
 }
 
-/** Sanitize every custom-html fragment in a plan before it is stored. */
 export function sanitizePlanContent(content: PlanContent): PlanContent {
   return {
     ...content,
@@ -1044,10 +940,6 @@ export function createUiPlanContent(input: UiPlanContentInput): PlanContent {
     return {
       id: `frame-${stateIds[index] ?? index + 1}`,
       label: state.name,
-      // Only reference a blockId when the matching wireframe block is included in
-      // blocks[]. Component plans set duplicateVisualBlocks=false (!componentPlan),
-      // so those wireframe blocks are omitted — inline the wireframe directly on
-      // the frame instead of leaving a dangling blockId that fails schema validation.
       ...(!componentPlan ? { blockId: stateBlockIds[index]?.wireframe } : {}),
       surface: wireframe.surface,
       wireframe,
@@ -2343,8 +2235,6 @@ function createCanvasNotes(input: {
   contextFrame?: PlanArtboard;
   stateFrames: PlanArtboard[];
 }): NonNullable<NonNullable<PlanContent["canvas"]>["notes"]> {
-  // Back-compat helper retained for old callers; new `/ui-plan` generation uses
-  // canvas.annotations so notes can attach to frames and avoid overlap.
   if (input.componentPlan) {
     if (!input.includeComponentContext || !input.contextFrame) return [];
     return [
@@ -2696,9 +2586,6 @@ function blockFromSection(section: SectionLike, index: number): PlanBlock {
     };
   }
   if (section.type === "decisions") {
-    // Legacy "decisions" section → a decision-tone `callout` (the `decision`
-    // block was retired). The section title is the question; each body line is an
-    // option.
     const optionLines = markdownLines(section.body).map((line) => `- ${line}`);
     const body =
       [`**${section.title}**`, optionLines.join("\n")]
@@ -3507,9 +3394,6 @@ function renderDiagramHtml(data: PlanDiagramBlock["data"]) {
   </svg>`;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Kit-tree wireframe export (semantic flex tree -> inert HTML)               */
-/* -------------------------------------------------------------------------- */
 
 function renderKitWireframeHtml(data: PlanWireframeBlock["data"]): string {
   const surface = escapeHtml(data.surface || "desktop");
@@ -3570,8 +3454,6 @@ function renderImageHtml(block: PlanImageBlock): string {
   const caption = block.data.caption
     ? `<p class="caption">${escapeHtml(block.data.caption)}</p>`
     : "";
-  // Only inline a same-origin-safe src when an explicit url is present; asset
-  // ids resolve in-app, so the standalone export shows a placeholder instead.
   const body = src
     ? `<img class="plan-image" src="${escapeHtml(src)}" alt="${alt}" loading="lazy" />`
     : `<div class="plan-image placeholder" role="img" aria-label="${alt}">${alt}</div>`;
@@ -3583,8 +3465,6 @@ function previewToWireframe(
   label: string,
 ): PlanWireframeBlock["data"] | undefined {
   if (preview === "desktop" || preview === "mobile" || preview === "split") {
-    // Visual-question previews use the lean kit tree so they validate against
-    // the new wireframe model (region data is rejected there by design).
     return {
       surface: preview === "mobile" ? "mobile" : "desktop",
       screen: [

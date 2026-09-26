@@ -205,7 +205,6 @@ describe("delete-slide-comment", () => {
     await expect(run({ id: "c-3", deckId: "deck-1" })).rejects.toThrow(
       "Forbidden",
     );
-    // Row is untouched since assertAccess rejected before the delete.
     expect(state.rows.map((r) => r.id)).toEqual(["c-1", "c-2", "c-3"]);
   });
 

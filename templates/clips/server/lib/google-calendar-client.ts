@@ -102,7 +102,6 @@ export async function resolveGoogleOAuthCredentialCandidates(): Promise<
   });
 }
 
-/** Exchange an authorization code for tokens. Throws on non-2xx. */
 export async function exchangeCode(
   args: ExchangeCodeArgs,
 ): Promise<GoogleTokenResponse> {
@@ -125,7 +124,6 @@ export async function exchangeCode(
   return (await res.json()) as GoogleTokenResponse;
 }
 
-/** Refresh an access token. Throws on non-2xx (caller decides whether to drop the row). */
 export async function refreshAccessToken(args: {
   refreshToken: string;
   clientId: string;
@@ -193,7 +191,6 @@ export async function refreshAccessTokenWithFallback(args: {
     : new Error("Google token refresh failed.");
 }
 
-/** Best-effort revoke. Returns true if Google returned 2xx, false otherwise. */
 export async function revokeToken(token: string): Promise<boolean> {
   try {
     const res = await fetch(GOOGLE_REVOKE_URL, {
@@ -207,7 +204,6 @@ export async function revokeToken(token: string): Promise<boolean> {
   }
 }
 
-/** Fetch the user's basic profile so we can label the calendar account. */
 export async function getUserInfo(
   accessToken: string,
 ): Promise<GoogleUserInfo> {
@@ -223,9 +219,9 @@ export async function getUserInfo(
 
 export interface ListEventsArgs {
   accessToken: string;
-  calendarId?: string; // defaults to "primary"
-  timeMin?: string; // ISO
-  timeMax?: string; // ISO
+  calendarId?: string;
+  timeMin?: string;
+  timeMax?: string;
   maxResults?: number;
   singleEvents?: boolean;
   pageToken?: string;
@@ -242,7 +238,6 @@ export interface GetEventArgs {
   eventId: string;
 }
 
-/** Fetch a single event by id. Throws on non-2xx. */
 export async function getEvent(args: GetEventArgs): Promise<CalendarEvent> {
   const calId = encodeURIComponent(args.calendarId ?? "primary");
   const eventId = encodeURIComponent(args.eventId);
@@ -257,7 +252,6 @@ export async function getEvent(args: GetEventArgs): Promise<CalendarEvent> {
   return (await res.json()) as CalendarEvent;
 }
 
-/** Make a single events.list call (one page). Throws on non-2xx. */
 async function listEventsPage(
   args: ListEventsArgs,
 ): Promise<ListEventsResponse> {
@@ -287,11 +281,6 @@ async function listEventsPage(
   };
 }
 
-/**
- * Hard cap on pages to fetch per `listEvents` call — protects against runaway
- * pagination loops if Google ever returns a stuck `nextPageToken`. With the
- * default `maxResults=250`, the cap allows up to 1250 events per sync window.
- */
 const MAX_EVENT_PAGES = 5;
 
 /**
@@ -316,16 +305,10 @@ export async function listEvents(
   return {
     items: merged,
     // Only surface a token if we exited because of the page cap — otherwise the
-    // caller fetched everything available in the requested window.
     nextPageToken: lastNextToken,
   };
 }
 
-/**
- * Pick the conferencing join URL from an event. Prefers Google Meet's
- * `hangoutLink`, then a `video` conferenceData entry point, then any
- * uri shaped like a known meeting platform.
- */
 export function pickJoinUrl(event: CalendarEvent): string | undefined {
   if (event.hangoutLink) return event.hangoutLink;
   const eps = event.conferenceData?.entryPoints ?? [];
@@ -339,7 +322,6 @@ export function pickJoinUrl(event: CalendarEvent): string | undefined {
       return ep.uri;
     }
   }
-  // Fall back to scanning the description / location for a meeting URL.
   const haystack = `${event.description ?? ""}\n${event.location ?? ""}`;
   const m = haystack.match(
     /https?:\/\/(?:[a-z0-9-]+\.)?(?:zoom\.us|meet\.google\.com|teams\.microsoft\.com|webex\.com)\/[^\s<>"]+/i,
@@ -347,7 +329,6 @@ export function pickJoinUrl(event: CalendarEvent): string | undefined {
   return m?.[0];
 }
 
-/** Detect the conferencing platform from an event's join URL. */
 export function detectPlatform(
   joinUrl: string | undefined,
 ): "zoom" | "meet" | "teams" | "webex" | "other" {

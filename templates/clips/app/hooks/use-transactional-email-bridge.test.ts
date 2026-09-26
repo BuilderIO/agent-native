@@ -17,10 +17,6 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: (...args: unknown[]) => mocks.callAction(...args),
   useSession: vi.fn(() => ({ status: mocks.sessionStatus })),
-  // The hook itself no longer reads this. Kept mocked as a changing value so
-  // an exact revert of the actionVersion-dependency fix (see "does not
-  // restart the poll on an unrelated re-render" below) is caught instead of
-  // passing for the wrong reason.
   useChangeVersions: vi.fn(() => mocks.changeVersion),
 }));
 
@@ -122,9 +118,6 @@ describe("transactional email bridge", () => {
   });
 
   it("wakes up every few minutes for worker writes the browser can't observe", async () => {
-    // clips_transactional_email_jobs is SQL, but the cron job that claims and
-    // completes a job writes to it directly without bumping a change
-    // version, so this timer is the only thing that notices new work.
     expect(TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS).toBe(3 * 60_000);
 
     vi.useFakeTimers();
@@ -153,9 +146,6 @@ describe("transactional email bridge", () => {
   });
 
   it("does not restart the poll on an unrelated re-render", async () => {
-    // The interval used to sit in an effect keyed on the app-wide action
-    // change version, so any mutation anywhere in the app re-fired this
-    // no-op claim poll immediately instead of waiting out the interval.
     vi.useFakeTimers();
     mocks.callAction.mockResolvedValue({ requests: [] });
     const container = document.createElement("div");

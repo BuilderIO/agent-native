@@ -1,26 +1,3 @@
-/**
- * preview-component-prop-edit — preview-only action.
- *
- * Computes the iframe bridge messages needed to preview a component prop
- * change on the canvas without persisting anything to the database or Yjs.
- *
- * The caller pushes the returned `bridgeMessages` into the iframe via the
- * existing `postMessage` channel (the same mechanism as `tweak-values` and
- * `style-change`).  No writes are performed here.
- *
- * Supported prop edit kinds:
- * - `alpineData`   — replaces the `x-data` attribute on the component root
- *                    (Alpine variant / state switch).  Returned as a
- *                    `style-change` bridge message targeting the node selector.
- * - `attribute`    — sets any HTML attribute (e.g. `class`, `aria-*`,
- *                    `data-agent-native-prop-*`).
- * - `classReplace` — replaces one Tailwind utility with another on the root
- *                    (lightweight responsive / variant preview via the
- *                    existing `responsive-class` edit kind understood by
- *                    the bridge).
- *
- * See DESIGN-STUDIO-PLAN.md §6.1 and §7 (preview vs apply contract).
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
@@ -29,7 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { readLiveSourceFile } from "../server/source-workspace.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
 import type { CodeLayerSource } from "../shared/code-layer.js";
 import {
@@ -39,7 +16,6 @@ import {
 } from "../shared/component-model.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function liveContent(
   fileId: string,
@@ -58,15 +34,8 @@ async function liveContent(
   ).content;
 }
 
-// ─── Bridge message shapes ────────────────────────────────────────────────────
 
-/**
- * A bridge message the client pushes into the canvas iframe via postMessage.
- * The `type` matches the existing parent→iframe message vocabulary so no new
- * message types are introduced.
- */
 export interface ComponentPropPreviewMessage {
-  /** Matches the existing parent→iframe postMessage type vocabulary. */
   type: "style-change" | "replace-document-content" | "select-element";
   selector?: string;
   nodeId?: string;
@@ -79,7 +48,6 @@ export interface ComponentPropPreviewMessage {
   };
 }
 
-// ─── Action ───────────────────────────────────────────────────────────────────
 
 export default defineAction({
   description:
@@ -126,11 +94,9 @@ export default defineAction({
   run: async ({ designId, nodeId, fileId, edit }) => {
     const db = getDb();
 
-    // ── Access check ────────────────────────────────────────────────────────
     const access = await resolveAccess("design", designId);
     if (!access) throw new Error("Design not found");
 
-    // ── Fetch file ───────────────────────────────────────────────────────────
     const conditions = [
       accessFilter(schema.designs, schema.designShares, undefined, "viewer", {
         includePublic: true,
@@ -160,7 +126,6 @@ export default defineAction({
 
     const html = await liveContent(file.id, file.content ?? "");
 
-    // ── Resolve node ─────────────────────────────────────────────────────────
     const codeLayerSource: CodeLayerSource = {
       kind: "design-file",
       designId: file.designId,
@@ -188,16 +153,10 @@ export default defineAction({
       );
     }
 
-    // ── Build bridge messages ────────────────────────────────────────────────
-    // All edit kinds map to existing parent→iframe message types so the client
-    // can push them without any new bridge surface.
 
     const messages: ComponentPropPreviewMessage[] = [];
 
     if (edit.kind === "alpineData") {
-      // Replace the x-data expression — communicated as a style-change with
-      // a special `attributeOverrides` key so the bridge can patch the DOM
-      // attribute without a full HTML replace.
       messages.push({
         type: "style-change",
         selector: node.selector,
@@ -212,8 +171,6 @@ export default defineAction({
         attributeOverrides: { [edit.attribute]: edit.value },
       });
     } else if (edit.kind === "classReplace") {
-      // Communicate as a responsive-class intent so the bridge applies it via
-      // the existing deterministic class-patch path.
       messages.push({
         type: "style-change",
         selector: node.selector,
@@ -227,7 +184,6 @@ export default defineAction({
       });
     }
 
-    // Also emit a select-element message so the canvas highlights the node.
     messages.push({
       type: "select-element",
       selector: node.selector,
@@ -244,9 +200,7 @@ export default defineAction({
       componentName,
       sourceType,
       editKind: edit.kind,
-      /** Push each of these messages into the canvas iframe via postMessage. */
       bridgeMessages: messages,
-      /** Snapshot of current observed props for before/after display. */
       currentProps: extractProps(node),
       note: "Preview only — no database writes performed. Call apply-component-prop-edit to persist.",
     };

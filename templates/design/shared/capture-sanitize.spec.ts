@@ -1,10 +1,3 @@
-/**
- * Tests for the shared capture-sanitize helpers.
- *
- * These helpers are used by both create-design-state and capture-design-state
- * to strip XSS vectors from arbitrary caller-supplied markup before persisting
- * it into design_state rows.
- */
 
 import { describe, expect, it } from "vitest";
 
@@ -102,7 +95,6 @@ describe("sanitizeCaptureData", () => {
     const result = sanitizeCaptureData(input) as Record<string, unknown>;
     expect(result.domHtml).not.toContain("onmouseover");
     expect(result.domHtml).toContain("<div");
-    // Plain string left untouched
     expect(result.route).toBe("/dashboard");
   });
 

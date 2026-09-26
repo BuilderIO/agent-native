@@ -100,14 +100,7 @@ const state = vi.hoisted(() => ({
   revisions: [] as any[],
   analysisRevisions: [] as any[],
   otherDashboards: [] as DashboardRow[],
-  // One-shot flag: the next fenced UPDATE attempt against `dashboards`
-  // simulates a concurrent writer (adding a panel of its own) landing in
-  // between the caller's read and write, then reports zero affected rows —
-  // exactly what a real `WHERE id = $1 AND updated_at = $2` reports when
-  // someone else already moved `updated_at`.
   loseNextCas: false,
-  // When true, every fenced UPDATE attempt loses the race forever, to prove
-  // upsertDashboardWithRetry gives up loud instead of looping forever.
   alwaysLoseCas: false,
   updateAttempts: 0,
 }));
@@ -239,10 +232,6 @@ vi.mock("../db/index.js", () => {
       createdBy: { name: "createdBy" },
       chatContext: { name: "chatContext" },
     },
-    // Not exercised by these tests, but `dashboards-store.ts` builds a
-    // module-scope column-projection constant (`analysisListColumns`) from
-    // `schema.analyses` at import time, so it must exist to avoid a crash
-    // on import.
     analyses: {
       id: { name: "id" },
       name: { name: "name" },
@@ -344,7 +333,6 @@ vi.mock("../db/index.js", () => {
           if (table !== schema.dashboards) return { rowsAffected: 0 };
           state.updateAttempts += 1;
           if (state.alwaysLoseCas) {
-            // Every attempt loses: a different writer keeps landing first.
             state.dashboard = {
               ...state.dashboard,
               updatedAt: `2026-07-09T00:00:00.${String(state.updateAttempts).padStart(3, "0")}Z`,
@@ -607,8 +595,6 @@ describe("dashboards-store concurrency", () => {
     const existing = await getDashboard("traffic", ctx);
     expect(existing).not.toBeNull();
 
-    // First writer saves using the value it read — succeeds and bumps
-    // updated_at.
     await upsertDashboard(
       "traffic",
       "sql",
@@ -618,8 +604,6 @@ describe("dashboards-store concurrency", () => {
     );
     expect(readPanelIds()).toEqual(["a", "b"]);
 
-    // Second writer still holds the OLD updatedAt it read before the first
-    // writer's save landed — the fenced write must reject, not clobber.
     await expect(
       upsertDashboard(
         "traffic",
@@ -629,13 +613,11 @@ describe("dashboards-store concurrency", () => {
         existing!.updatedAt,
       ),
     ).rejects.toBeInstanceOf(DashboardConflictError);
-    // The first writer's save is untouched by the rejected second attempt.
     expect(readPanelIds()).toEqual(["a", "b"]);
   });
 
   it("omits fencing (legacy last-write-wins) when expectedUpdatedAt is not passed", async () => {
     const existing = await getDashboard("traffic", ctx);
-    // Simulate the row having changed since `existing` was read.
     state.dashboard = {
       ...state.dashboard,
       updatedAt: "2099-01-01T00:00:00.000Z",
@@ -693,9 +675,6 @@ describe("dashboards-store concurrency", () => {
       };
     });
 
-    // "writer-a" was injected by the simulated concurrent writer on the lost
-    // first attempt; "writer-b" is this call's own mutation. Both must be
-    // present — neither writer's edit was dropped.
     const ids = (saved.config as { panels: Array<{ id: string }> }).panels.map(
       (p) => p.id,
     );
@@ -718,7 +697,6 @@ describe("dashboards-store concurrency", () => {
     ).rejects.toThrow(/Could not save dashboard "traffic"/);
 
     expect(state.updateAttempts).toBe(DASHBOARD_SAVE_MAX_ATTEMPTS);
-    // Nothing from the doomed mutation ever landed.
     expect(readPanelIds()).toEqual(["a"]);
   });
 });

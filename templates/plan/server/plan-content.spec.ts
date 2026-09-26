@@ -50,10 +50,6 @@ describe("structured plan content", () => {
   });
 
   it("backfills missing column/child ids so attribute-form columns validate", () => {
-    // Mirrors the recap failure mode: a `columns` block authored as an
-    // attribute array (no `<Column>` markup) leaves column `id`s and child
-    // block `id`s unset. migrate must backfill them so the block validates
-    // instead of failing the whole document at parse time.
     const raw = {
       title: "Recap",
       brief: "b",
@@ -93,12 +89,6 @@ describe("structured plan content", () => {
   });
 
   it("coerces a full-document wireframe nested in columns to a fragment instead of dropping the whole block", () => {
-    // The exact recap failure mode from the field report: a `columns`
-    // before/after whose wireframe `html` was authored as a full HTML document.
-    // The pre-validation sanitizer must recurse into `columns` (it only handled
-    // `tabs`) AND strip the document scaffold so the block validates and renders
-    // — rather than degrading every column to an "Unsupported block" card with
-    // "Wireframe html must be a bounded fragment...".
     const result = parsePlanContent({
       version: 2,
       title: "Recap",
@@ -140,7 +130,6 @@ describe("structured plan content", () => {
     });
     expect(result).not.toBeNull();
     const block = result?.blocks[0];
-    // The block survives as real `columns` (not a salvaged callout placeholder).
     expect(block?.type).toBe("columns");
     if (block?.type !== "columns") throw new Error("expected columns");
     const wf = block.data.columns[0]?.blocks[0];
@@ -182,7 +171,6 @@ describe("structured plan content", () => {
     expect(
       content.blocks.some((block) => block.type === "implementation-map"),
     ).toBe(true);
-    // No region-based blocks should keep the deprecated discriminant.
     expect(
       content.blocks.every(
         (block) => block.type !== ("sketch-wireframe" as never),
@@ -412,7 +400,6 @@ describe("structured plan content", () => {
     );
     const preview = questionsBlock.data.questions[0]?.options?.[0]?.wireframe;
     expect(preview).toBeTruthy();
-    // Preview must be the lean kit tree (surface + screen), never regions.
     expect(preview?.surface).toBeTruthy();
     expect(Array.isArray(preview?.screen)).toBe(true);
   });
@@ -721,10 +708,6 @@ describe("custom-html safety", () => {
   });
 
   it("coerces a full HTML document down to a bounded fragment", () => {
-    // Wireframe / custom-html / diagram blocks must be bounded fragments; the
-    // renderer owns the surrounding document and styling. When an agent authors
-    // one as a full standalone page, drop the scaffold (doctype/html/head/body)
-    // and keep the body content instead of rejecting the whole block.
     const out = sanitizeCustomHtml(
       '<!doctype html><html><head><title>t</title><style>.x{color:red}</style></head><body><div class="x">hi</div></body></html>',
     );
@@ -738,8 +721,6 @@ describe("custom-html safety", () => {
   });
 
   it("sanitizes custom html when normalizing content for storage", () => {
-    // A bounded fragment that passes the schema regex but still carries a risky
-    // style tag should be cleaned by the action-boundary sanitizer.
     const normalized = serializePlanContent({
       version: 2,
       title: "Sanitized",
@@ -799,7 +780,6 @@ describe("custom-html safety", () => {
       title: "Light export",
       brief: "Export uses the light palette by default.",
     });
-    // Light default token (warm paper background), not the hard-dark palette.
     expect(html).toContain("--paper: #ffffff");
     expect(html).toContain("color-scheme: light dark");
   });
@@ -901,7 +881,6 @@ describe("granular patch ops", () => {
         {
           id: "rt",
           type: "rich-text",
-          // Simulate a legacy block that carried a stale Tiptap/ProseMirror doc.
           data: {
             markdown: "Old copy.",
             doc: { type: "doc", content: [{ type: "paragraph" }] },
@@ -977,18 +956,10 @@ describe("granular patch ops", () => {
     const replacedWf = replaced.blocks.find((block) => block.id === "wf");
     if (replacedWf?.type !== "wireframe") return;
     expect(replacedWf.data.screen).toHaveLength(1);
-    // ensureNodeIds assigns ids on replace.
     expect(replacedWf.data.screen[0]?.id).toBeTruthy();
   });
 
   it("preserves linked canvas wireframes inline when replace-block changes a wireframe to prose", () => {
-    // Design decision (PR #1081, commit 510f15d46): when a wireframe block is
-    // replaced with a non-wireframe block (or removed), the canvas frame that
-    // referenced it via blockId gets an inline snapshot copy of the wireframe
-    // so the artboard stays visible on the canvas. This mirrors remove-block
-    // behaviour and prevents the canvas from going blank after a document edit.
-    // The frame's blockId is cleared (it is no longer a live reference); the
-    // inline wireframe copy becomes the artboard's permanent visual content.
     const content: PlanContent = planContentSchema.parse({
       version: 2,
       title: "Linked",
@@ -1019,8 +990,6 @@ describe("granular patch ops", () => {
         },
       },
     ]);
-    // The frame retains its inline wireframe snapshot so the canvas artboard
-    // remains visible; it no longer carries a live blockId reference.
     expect(replaced.canvas?.frames[0]?.wireframe?.surface).toBe("desktop");
     expect(replaced.canvas?.frames[0]?.blockId).toBeUndefined();
     expect(replaced.canvas?.frames[0]?.legacyWireframe).toBeUndefined();
@@ -1088,8 +1057,6 @@ describe("back-compat parsing and migration", () => {
         },
       ],
     };
-    // Stored decision blocks must keep loading (the schema no longer has a
-    // `decision` member) by migrating to a callout, not failing the whole plan.
     const parsed = parsePlanContent(JSON.stringify(legacy));
     expect(parsed).not.toBeNull();
     const block = parsed?.blocks.find((b) => b.id === "dec-1");
@@ -1118,8 +1085,6 @@ describe("back-compat parsing and migration", () => {
   });
 
   it("returns null for non-content values (html-only / sections-only fallback)", () => {
-    // An html-only or sections-only plan has no `content` column; parse must
-    // return null so callers fall back to legacy html / section rendering.
     expect(parsePlanContent(null)).toBeNull();
     expect(parsePlanContent("")).toBeNull();
     expect(parsePlanContent("<!doctype html><html></html>")).toBeNull();
@@ -1515,9 +1480,6 @@ describe("patch-diagram-html (granular diagram edits)", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* Per-block salvage                                                          */
-/* -------------------------------------------------------------------------- */
 
 describe("parsePlanContent per-block salvage", () => {
   const ZWSP = "​";
@@ -1543,17 +1505,14 @@ describe("parsePlanContent per-block salvage", () => {
       title: "Mixed",
       blocks: [
         { id: "good1", type: "rich-text", data: { markdown: "Intro" } },
-        // This block has an invalid structure (mermaid requires `data.code`).
         { id: "bad1", type: "mermaid", data: { notCode: "graph TD; A-->B" } },
         { id: "good2", type: "callout", data: { body: "Conclusion" } },
       ],
     });
     expect(result).not.toBeNull();
     expect(result?.blocks).toHaveLength(3);
-    // Good blocks survive unchanged.
     expect(result?.blocks[0]?.type).toBe("rich-text");
     expect(result?.blocks[2]?.type).toBe("callout");
-    // Bad block becomes a callout placeholder with the unknown-block marker.
     const placeholder = result?.blocks[1];
     expect(placeholder?.type).toBe("callout");
     expect(placeholder?.id).toBe("bad1");
@@ -1584,8 +1543,6 @@ describe("parsePlanContent per-block salvage", () => {
   });
 
   it("returns null for a document whose entire block tree exceeds the depth budget", () => {
-    // nestTabs(2000) exceeds exceedsPlanBlockDepth; salvage must bail, not return
-    // a single placeholder for the whole document.
     function nestTabs(depth: number): unknown {
       let block: unknown = {
         id: "leaf",
@@ -1613,14 +1570,11 @@ describe("parsePlanContent per-block salvage", () => {
   it("caps salvaged blocks at 200", () => {
     const blocks = Array.from({ length: 250 }, (_, i) => ({
       id: `b${i}`,
-      // Force a full-document parse failure by having one truly invalid block,
-      // then fill the rest with valid ones (to confirm salvage trims to 200).
       type: i === 0 ? "mermaid" : "rich-text",
       data: i === 0 ? { wrong: true } : { markdown: "x" },
     }));
     const result = parsePlanContent({ version: 2, blocks });
     expect(result).not.toBeNull();
-    // 250 → capped at 200 during salvage.
     expect(result!.blocks.length).toBeLessThanOrEqual(200);
   });
 });

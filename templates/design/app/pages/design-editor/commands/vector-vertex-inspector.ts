@@ -28,11 +28,6 @@ export function selectedVectorVertex(
   return state.path.nodes[state.selectedNodeIndex] ?? null;
 }
 
-/**
- * An SVG vector's Corner radius lives on its path (`data-an-corner-radius`),
- * not CSS. With a vertex selected it is that vertex's own; differing vertex
- * radii read Mixed, as in Figma.
- */
 export function vectorVertexInspectorElement(
   element: ElementInfo | null,
   vertex: PenNode | null,
@@ -70,10 +65,6 @@ export function vectorVertexInspectorElement(
   };
 }
 
-/**
- * A corner-radius edit during vector edit: a selected vertex takes it (true);
- * the vector's radius clears vertex radii in the edit state first (false).
- */
 export function runVectorVertexStyleChange(
   args: {
     state: VectorVertexEditState | null;
@@ -102,7 +93,6 @@ export function runVectorVertexStyleChange(
   return true;
 }
 
-/** Figma's in-edit Vector section: the selected point's X/Y and mirroring. */
 export function vectorVertexMirroringControl(
   state: VectorVertexEditState | null,
   onVectorEditChange: (path: PenPath, phase: "commit") => void,

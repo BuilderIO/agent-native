@@ -28,8 +28,6 @@ import {
   type ImportedDesignFile,
 } from "./import-design-files.js";
 
-// 8 MB binary cap. Above this the caller should use an upload handle; below
-// it the action payload carries the base64 directly.
 const MAX_CLIPBOARD_BUFFER_BYTES = 8 * 1024 * 1024;
 
 const MAX_CLIPBOARD_NODES = 75_000;
@@ -38,17 +36,13 @@ const MAX_FRAME_HTML_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_HTML_BYTES = 24 * 1024 * 1024;
 
 export interface ClipboardLayerPlacement {
-  /** The screen root is a synthetic frame around one loose node. */
   wrapsLooseNode: boolean;
-  /** Top-left on the Figma page, for keeping a multi-node copy's arrangement. */
   origin: { x: number; y: number };
-  /** Top-left relative to the frame it was copied out of in Figma. */
   sourceOffset: { x: number; y: number } | null;
 }
 
 export interface ClipboardLocalDecodeResult {
   files: ImportedDesignFile[];
-  /** Parallel to `files`. */
   layers: ClipboardLayerPlacement[];
   warnings: string[];
   unresolvedImageRefs: string[];
@@ -62,12 +56,6 @@ export interface ClipboardLocalDecodeResult {
   };
 }
 
-/**
- * Return the `guidKey` string for all nodes whose parentIndex.guid does not
- * point to any other node in the flat nodeChanges list. These are the "roots"
- * that need a synthetic CANVAS parent so `renderHtmlTemplates` can traverse
- * the hierarchy starting from its expected DOCUMENT→CANVAS→FRAME structure.
- */
 function findOrphanRoots(nodeChanges: FigNode[]): FigNode[] {
   const ownKeys = new Set(nodeChanges.map((n) => guidKey(n.guid)));
   return nodeChanges.filter((n) => {
@@ -76,8 +64,6 @@ function findOrphanRoots(nodeChanges: FigNode[]): FigNode[] {
   });
 }
 
-// The renderer emits one screen per top-level frame; anything else copied on
-// its own (a vector, group, text, shape) would render nothing at all.
 const TOP_LEVEL_FRAME_TYPES = new Set([
   "FRAME",
   "SYMBOL",
@@ -87,18 +73,9 @@ const TOP_LEVEL_FRAME_TYPES = new Set([
 
 interface NormalizedClipboardDocument {
   document: unknown;
-  /** guidKeys of the synthetic frames that each hold one loose node. */
   wrapperKeys: Set<string>;
 }
 
-/**
- * Make the clipboard's selection renderable by the `.fig` walker: give an
- * orphaned subtree a synthetic DOCUMENT/CANVAS, and give each loose non-frame
- * top-level node a transparent, unclipped frame of exactly its bounds.
- *
- * Synthetic GUIDs use `sessionID = maxExisting + 1` so they cannot collide
- * with real clipboard nodes.
- */
 function normalizeClipboardDocument(
   document: unknown,
 ): NormalizedClipboardDocument {
@@ -211,13 +188,6 @@ function normalizeClipboardDocument(
   };
 }
 
-/**
- * Decode a base64 fig-kiwi clipboard buffer into editable HTML screens.
- *
- * @param options.bufferBase64 - Base64 string of the raw fig-kiwi bytes.
- * @param options.fileKey      - Figma file key from the clipboard's figmeta.
- * @param options.originalName - Human-readable name for warnings/source metadata.
- */
 export async function importFigmaClipboardFromBuffer(options: {
   bufferBase64: string;
   fileKey: string;
@@ -225,7 +195,6 @@ export async function importFigmaClipboardFromBuffer(options: {
 }): Promise<ClipboardLocalDecodeResult> {
   const { bufferBase64, fileKey, originalName = "figma-paste" } = options;
 
-  // Base64 → binary with cap check.
   const bufferBytes = Buffer.from(bufferBase64, "base64");
   if (bufferBytes.length > MAX_CLIPBOARD_BUFFER_BYTES) {
     throw new Error(
@@ -236,7 +205,6 @@ export async function importFigmaClipboardFromBuffer(options: {
   const decoded = decodeFig(bufferBytes);
   assertSafeDecodedFigDocument(decoded.document);
 
-  // Count nodes before synthesis to report against the cap.
   const rawDoc = decoded.document as { nodeChanges?: FigNode[] };
   const nodeCount = rawDoc.nodeChanges?.length ?? 0;
   if (nodeCount > MAX_CLIPBOARD_NODES) {
@@ -247,8 +215,6 @@ export async function importFigmaClipboardFromBuffer(options: {
 
   const normalized = normalizeClipboardDocument(decoded.document);
 
-  // Empty imageMap so all IMAGE fills are treated as unresolved. The renderer
-  // will stamp data-figma-image-ref on affected elements via trackUnresolvedImageRefs.
   const rendered = renderHtmlTemplates(normalized.document, {
     imageMap: new Map(),
     missingImageUrl: "about:blank",
@@ -265,8 +231,6 @@ export async function importFigmaClipboardFromBuffer(options: {
   }
 
   const unresolvedRefs = Array.from(rendered.unresolvedImageRefs ?? []);
-  // Figma records the enclosing frame's page origin only when the selection
-  // had one; without it there is no parent-relative position to restore.
   const pasteOffset = (
     decoded.document as { pasteOffset?: { x: number; y: number } }
   ).pasteOffset;
@@ -318,11 +282,6 @@ export async function importFigmaClipboardFromBuffer(options: {
       `${unresolvedRefs.length} image${unresolvedRefs.length === 1 ? "" : "s"} could not be loaded without a Figma access token. Connect Figma to fill them in.`,
     );
   }
-  // The walker records what it could not reproduce, and this is the boundary
-  // where that report was being dropped: a paste that lost visible content
-  // came back carrying only the image warning, which reads as "everything else
-  // was fine". Summarise by reason rather than per node — a design with 40
-  // boolean bubbles should say so once.
   const approximatedByNote = new Map<string, number>();
   for (const entry of rendered.approximatedNodes ?? []) {
     for (const note of entry.notes) {

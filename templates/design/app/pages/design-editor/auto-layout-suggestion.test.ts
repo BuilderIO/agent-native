@@ -172,8 +172,6 @@ describe("applyAutoLayoutSuggestion", () => {
     expect(history).toHaveLength(1);
     expect(history[0]?.before).toBe(html);
     expect(history[0]?.after).toBe(result.content);
-    // The one entry is exactly what editor undo/redo consumes in each
-    // direction, so the complete reorder/layout/sizing proposal is atomic.
     expect(history[0]?.before).not.toBe(history[0]?.after);
   });
 

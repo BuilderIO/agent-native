@@ -349,17 +349,7 @@ export default defineAction({
       });
 
     if (args.position !== undefined) {
-      // Resequencing reads every current sibling under the target parent,
-      // computes a full renumbering with the moved document inserted, then
-      // writes that renumbering. That read-then-write is exactly as racy as
-      // the append path below: two concurrent moves/reparents into the same
-      // parent can each read the same pre-move snapshot and then each commit
-      // a full-but-stale renumbering, silently clobbering the other move or
-      // leaving a document's new position colliding with one a concurrent
-      // append/reparent just claimed. Serialize the read through the write
-      // under the SAME per-(owner, parent) lock the append branch uses so an
       // append and a reorder/reparent into one parent can't race each other
-      // either (see _position-utils.ts).
       await withPositionLock(
         documentsPositionScope(ownerEmail, targetParentId),
         async () => {
@@ -378,10 +368,6 @@ export default defineAction({
         },
       );
     } else if (args.parentId !== undefined) {
-      // Appending to the end of the new parent's children reads MAX(position)
-      // then writes MAX+1. Serialize the read through the write so a
-      // concurrent move/create/add targeting the same parent can't read the
-      // same MAX and land on the same position (see _position-utils.ts).
       const parentId = args.parentId;
       await withPositionLock(
         documentsPositionScope(ownerEmail, parentId),

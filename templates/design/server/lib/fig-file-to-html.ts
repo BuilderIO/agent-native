@@ -1,13 +1,3 @@
-/**
- * Convert a decoded Figma document (NODE_CHANGES message) into one HTML
- * file per top-level frame. Each node renders as a <div> (or <span> for
- * TEXT) with an inline `style="..."` covering layout, background, border,
- * radius, shadows, blurs, text, transform, autolayout (flexbox), and
- * opacity/blend. Component instances are inlined and tagged with
- * data-component-name / data-variant-name / data-component-description /
- * data-component-doc-link / data-annotations attributes, matching the
- * figma-plugin smart-export conventions.
- */
 
 import {
   base64ToBytes,
@@ -58,7 +48,6 @@ interface Paint {
     m11: number;
     m12: number;
   };
-  // hash may be a hex string (JSON-decoded) or raw bytes (kiwi-decoder).
   image?: { hash?: string | Uint8Array | number[]; name?: string };
   imageScaleMode?: string;
   rotation?: number;
@@ -89,11 +78,6 @@ interface ComponentPropDef {
 
 export interface FigNode {
   guid?: Guid;
-  // Library-stable identifier used by override paths (`symbolOverrides[].guidPath`)
-  // and `derivedSymbolData[].guidPath`. When a node is a remix of a library
-  // component, the `guid` is local to this document but `overrideKey` is the
-  // GUID from the source library. Override-path matching MUST use this when
-  // available so that overrides authored against the library still apply.
   overrideKey?: Guid;
   parentIndex?: { guid?: Guid; position?: string };
   type?: string;
@@ -107,8 +91,6 @@ export interface FigNode {
   isSymbolPublishable?: boolean;
   visible?: boolean;
   size?: { x: number; y: number };
-  // Auto-layout min/max constraints. Either axis may be null when unconstrained.
-  // A min-width keeps e.g. a single-digit count badge circular.
   minSize?: { value?: { x: number | null; y: number | null } };
   maxSize?: { value?: { x: number | null; y: number | null } };
   transform?: {
@@ -121,9 +103,6 @@ export interface FigNode {
   };
   fillPaints?: Paint[];
   strokePaints?: Paint[];
-  // Style references — when present, the actual paint comes from the
-  // referenced shared-style node's fillPaints/strokePaints rather than the
-  // stale `fillPaints`/`strokePaints` cached on this node.
   styleIdForFill?: {
     guid?: Guid;
     assetRef?: { key?: string; version?: string };
@@ -136,21 +115,15 @@ export interface FigNode {
     guid?: Guid;
     assetRef?: { key?: string; version?: string };
   };
-  // Library style nodes carry their stable key here (matched against
-  // `styleIdForFill.assetRef.key` etc. on the consuming nodes).
   key?: string;
   styleType?: string;
   strokeWeight?: number;
   strokeAlign?: string;
   strokeTopWeight?: number;
-  // Kiwi's own spelling of the per-side weights. The variable-binding pass
-  // writes resolved values into the `stroke*Weight` fields above, but a raw
-  // node carries these — and only the sides that are actually set.
   borderTopWeight?: number;
   borderRightWeight?: number;
   borderBottomWeight?: number;
   borderLeftWeight?: number;
-  /** True when the four sides carry their own weights rather than one. */
   borderStrokeWeightsIndependent?: boolean;
   strokeRightWeight?: number;
   strokeBottomWeight?: number;
@@ -159,19 +132,14 @@ export interface FigNode {
   opacity?: number;
   blendMode?: string;
   cornerRadius?: number;
-  /** UNION / SUBTRACT / INTERSECT / EXCLUDE on a BOOLEAN_OPERATION. */
   booleanOperation?: string;
   rectangleTopLeftCornerRadius?: number;
   rectangleTopRightCornerRadius?: number;
   rectangleBottomLeftCornerRadius?: number;
   rectangleBottomRightCornerRadius?: number;
-  /** Kiwi's spelling of REST's `isMask`: this node clips its later siblings. */
   mask?: boolean;
-  /** STAR point count / REGULAR_POLYGON side count. */
   count?: number;
-  /** STAR inner-radius ratio; Figma's default is the golden ratio, ~0.382. */
   starInnerScale?: number;
-  /** ELLIPSE sweep. A full turn with no inner radius is a plain ellipse. */
   arcData?: {
     startingAngle?: number;
     endingAngle?: number;
@@ -185,11 +153,7 @@ export interface FigNode {
   textAlignVertical?: string;
   textData?: {
     characters?: string;
-    // One entry per line Figma laid out — its own count, which is not the same
-    // as counting break characters in `characters`.
     lines?: unknown[];
-    // Per-character style index (one entry per UTF-16 code unit); the index
-    // keys into `styleOverrideTable`. Absent/0 means the node's base style.
     characterStyleIDs?: number[];
     styleOverrideTable?: Array<{
       styleID?: number;
@@ -201,7 +165,6 @@ export interface FigNode {
       textDecoration?: string;
     }>;
   };
-  /** Figma's own layout of this text; only the glyph outlines are read. */
   derivedTextData?: {
     glyphs?: Array<{
       commandsBlob?: number;
@@ -210,13 +173,10 @@ export interface FigNode {
     }>;
     baselines?: Array<{ endCharacter?: number }>;
   };
-  /** ENDING draws an ellipsis where the text no longer fits. */
   textTruncation?: string;
   maxLines?: number;
   textAutoResize?: string;
-  /** ORIGINAL / UPPER / LOWER / TITLE — Figma's own casing, applied at render. */
   textCase?: string;
-  /** NONE / UNDERLINE / STRIKETHROUGH. */
   textDecoration?: string;
   symbolData?: {
     symbolID?: Guid;
@@ -225,9 +185,7 @@ export interface FigNode {
   stackMode?: string;
   stackPrimaryAlignItems?: string;
   stackCounterAlignItems?: string;
-  /** "WRAP" lets the stack run onto more than one line. */
   stackWrap?: string;
-  /** The gap BETWEEN wrapped lines, which is a separate field from stackSpacing. */
   stackCounterSpacing?: number;
   stackSpacing?: number;
   stackHorizontalPadding?: number;
@@ -240,18 +198,12 @@ export interface FigNode {
   stackCounterSizing?: string;
   stackChildPrimaryGrow?: number;
   stackChildAlignSelf?: string;
-  // "ABSOLUTE" marks a child that ignores its parent's auto-layout (Figma's
-  // "ignore auto layout"): it is positioned by its own transform and removed
-  // from the flex flow instead of stacking as a flex item.
   stackPositioning?: string;
   resizeToFit?: boolean;
   horizontalConstraint?: string;
   verticalConstraint?: string;
   frameMaskDisabled?: boolean;
   internalOnly?: boolean;
-  // Vector geometry. Each path's `commandsBlob` is an index into the
-  // document `blobs` array; the bytes there are a Figma path command
-  // stream (see decodePathCommands).
   fillGeometry?: Array<{
     commandsBlob?: number;
     windingRule?: string;
@@ -263,7 +215,6 @@ export interface FigNode {
     styleID?: number;
   }>;
   strokeJoin?: string;
-  /** Figma's dash/gap lengths, in px. Empty or absent means a solid stroke. */
   dashPattern?: number[];
   strokeCap?: string;
   strokeDashes?: number[];
@@ -271,23 +222,19 @@ export interface FigNode {
     normalizedSize?: { x: number; y: number };
     vectorNetworkBlob?: number;
   };
-  // Literal values are stale baked snapshots; resolveVariableBindings rewrites from here.
   variableConsumptionMap?: {
     entries?: Array<{
       variableField?: string;
       variableData?: { value?: VariableValue };
     }>;
   };
-  // Which mode to resolve for each variable set; set may be referenced by assetRef.key or guid.
   variableModeBySetMap?: {
     entries?: Array<{
       variableSetID?: VariableSetRef;
       variableModeID?: Guid;
     }>;
   };
-  // On VARIABLE_SET nodes: the modes this set defines (first is the default).
   variableSetModes?: Array<{ id?: Guid; name?: string }>;
-  // On VARIABLE nodes: this variable's per-mode values and owning set.
   variableSetID?: VariableSetRef;
   variableDataValues?: {
     entries?: Array<{
@@ -297,7 +244,6 @@ export interface FigNode {
   };
 }
 
-// IS_TRUTHY(alias) expressions appear on VISIBLE bindings driven by variant props.
 interface VariableValue {
   alias?: { guid?: Guid; assetRef?: { key?: string } };
   boolValue?: boolean;
@@ -308,33 +254,13 @@ interface VariableValue {
   [field: string]: unknown;
 }
 
-// A variable set is referenced either by its published `assetRef.key` or, for
-// a set local to the document, by `guid`.
 interface VariableSetRef {
   guid?: Guid;
   assetRef?: { key?: string };
 }
 
-/**
- * Names Figma assigns by default — when a layer keeps its placeholder name
- * we treat it as having no meaningful name (matches the figma-plugin's
- * smart-export `isDummyName`).
- */
-/**
- * Split a Figma component master name into a base component name and a
- * variant suffix. Figma uses two conventions:
- *
- *  - Slash-separated: "ComponentName/VariantA/VariantB" — everything after
- *    the first slash is the variant name (this matches the plugin's
- *    smart-export behavior).
- *  - Variant-set children: a SYMBOL named like "Style=Action, Size=Large"
- *    is one variant inside a parent component-set FRAME. In that case the
- *    SYMBOL name IS the variant key/value list and the real component
- *    name is the parent FRAME's name (resolved separately by the caller).
- */
 function isVariantSymbolName(name: string | undefined): boolean {
   if (!name) return false;
-  // Variant SYMBOL naming: comma-separated `Key=Value` pairs.
   return /^[^/=]+=[^=]+(,\s*[^/=]+=[^=]+)*$/.test(name);
 }
 
@@ -349,18 +275,12 @@ function splitComponentName(name: string | undefined): {
   return { base: name.slice(0, i), variant: name.slice(i + 1) };
 }
 
-/**
- * Resolve the canonical component name + variant string for a SYMBOL,
- * walking up to the parent component-set FRAME when the SYMBOL itself is
- * a variant child (e.g. "Style=Action" inside a "Right Element" FRAME).
- */
 function resolveComponentIdentity(
   symbol: FigNode,
   ctx: Ctx,
 ): { base: string; variant: string | null } {
   const ident = splitComponentName(symbol.name);
   if (ident.base) return ident;
-  // Variant SYMBOL — use the parent FRAME (component set) as the base name.
   const parentKey = guidKey(symbol.parentIndex?.guid);
   const parent = ctx.byGuid.get(parentKey);
   const parentName = parent?.name?.trim();
@@ -398,17 +318,6 @@ export function guidKey(g: Guid | undefined): string {
   return g ? `${g.sessionID}:${g.localID}` : "";
 }
 
-/**
- * Collect the raw Figma component-prop data on a node into a single object
- * suitable for stringifying into a `props="..."` attribute.
- *
- *  - SYMBOL nodes get their `componentPropDefs` (the prop schema)
- *  - INSTANCE nodes get the `componentPropAssignments` (overrides) plus any
- *    `componentPropRefs` (per-child wirings) and the master's defs for
- *    context.
- *  - Any node may have its own `componentPropRefs` (e.g. an inner layer
- *    bound to a parent component prop).
- */
 function collectRawProps(
   node: FigNode,
   componentSymbol: FigNode | null,
@@ -426,12 +335,6 @@ function collectRawProps(
   return Object.keys(out).length > 0 ? out : null;
 }
 
-/**
- * A resolved Figma component prop value, normalized across the (legacy)
- * `value` and (modern) `varValue` shapes. Only the fields we actually act on
- * are extracted: bool (for VISIBLE), text (for TEXT_DATA), and guid (for
- * OVERRIDDEN_SYMBOL_ID and SLOT_CONTENT_ID).
- */
 interface ResolvedPropValue {
   bool?: boolean;
   text?: string;
@@ -489,12 +392,6 @@ function buildPropEnv(
   return next;
 }
 
-/**
- * Apply parent-instance prop overrides to a node. Returns either the same
- * node (no overrides), a shallow-cloned node with `textData` / `symbolData`
- * patched, or `null` to indicate the node should be hidden by a VISIBLE
- * prop ref resolving to false.
- */
 function applyPropRefs(
   node: FigNode,
   env: Map<string, ResolvedPropValue>,
@@ -510,8 +407,6 @@ function applyPropRefs(
     if (!v) continue;
     const field = ref.componentPropNodeField;
     if (field === "VISIBLE" && v.bool === false) return null;
-    // A master hides an optional layer and a BOOL prop turns it on per
-    // instance, so `true` must win over the literal flag too.
     if (field === "VISIBLE" && v.bool === true && patched.visible === false) {
       patched = { ...patched, visible: true };
     }
@@ -531,11 +426,6 @@ function applyPropRefs(
   return patched;
 }
 
-/**
- * A Figma slot: a frame in a master bound to a SLOT prop draws the frame the
- * enclosing instance assigned to that prop — a hidden `isSlotContent` frame —
- * in place of its own (default) children. Null when no content is assigned.
- */
 function slotContentOf(
   node: FigNode,
   env: Map<string, ResolvedPropValue>,
@@ -553,15 +443,6 @@ function slotContentOf(
   return null;
 }
 
-/**
- * A raw symbol override entry from `symbolData.symbolOverrides`. It is
- * effectively a partial NodeChange targeting a descendant of the master
- * symbol via `guidPath`. Any field present (other than `guidPath` and
- * `overriddenSymbolID`) is shallow-merged onto the descendant node when
- * it's emitted, so layout-affecting overrides like `size`, `textAutoResize`,
- * `stackChildAlignSelf`, `stackCounterSizing`, `textAlignVertical`, etc.
- * all flow through.
- */
 interface SymbolOverride extends Partial<FigNode> {
   overriddenSymbolID?: Guid;
   guidPath?: { guids?: Guid[] };
@@ -590,9 +471,6 @@ function buildSymbolOverrideLayer(node: FigNode): Map<string, OverrideEntry> {
     const guids = o.guidPath?.guids ?? [];
     if (guids.length === 0) continue;
     const key = guids.map((g) => guidKey(g)).join("/");
-    // Multiple override entries can share the same guidPath (e.g. one with
-    // `overriddenSymbolID` for a variant swap and another with layout
-    // tweaks). Merge them so neither is lost.
     const existing = out.get(key);
     if (existing) {
       out.set(key, { ...existing, ...o });
@@ -600,14 +478,6 @@ function buildSymbolOverrideLayer(node: FigNode): Map<string, OverrideEntry> {
       out.set(key, o);
     }
   }
-  // `derivedSymbolData` is Figma's resolved layout for this instance's
-  // descendants — geometry, and the `size`/`transform` auto-layout and the
-  // instance's own resize gave them — keyed by the same guidPaths as
-  // `symbolOverrides`. The master's stored values describe the master, not
-  // this instance: 45% of instance descendants in one 266-screen file drew at
-  // the master's size (p50 219px off) until these were taken.
-  // `derivedTextData` is read only for icon-font glyph outlines; the text
-  // itself is re-laid by the browser.
   for (const d of (
     node as {
       derivedSymbolData?: Array<
@@ -632,25 +502,14 @@ function buildSymbolOverrideLayer(node: FigNode): Map<string, OverrideEntry> {
   return out;
 }
 
-/**
- * Apply any matching override entry from the active override layers to a
- * node about to be emitted. Visibility is left to the caller: an override that
- * does not mention it must not hide a layer a VISIBLE prop turns on.
- */
 function applyOverrideLayers(
   node: FigNode,
   layers: OverrideLayer[],
   instancePath: string[],
 ): FigNode {
   if (layers.length === 0) return node;
-  // The lookup key for THIS node within a layer is the chain of inner
-  // INSTANCE overrideKeys we've descended into since that layer was pushed,
-  // followed by this node's own overrideKey. Override paths only grow at
-  // INSTANCE boundaries — descending through plain frames/groups within the
-  // same master keeps the path the same length.
   const nodeKey = guidKey(node.overrideKey ?? node.guid);
   if (!nodeKey) return node;
-  // Collect every layer that targets this node, outermost first.
   const matches: OverrideEntry[] = [];
   for (const layer of layers) {
     const prefix = instancePath.slice(layer.startIndex);
@@ -661,32 +520,13 @@ function applyOverrideLayers(
   }
   if (matches.length === 0) return node;
 
-  // Figma resolves a descendant against the OUTERMOST instance that overrides
-  // it: that entry is the edit someone made on the instance they actually
-  // placed, while a nested instance's entry belongs to the component it came
-  // from. Merging outer-to-inner lets the component's own value win and
-  // silently undo the edit — Untitled UI's header rendered "Resources /
-  // Resources" because the outer instance said "Products" and the inner
-  // `Buttons/Button` said "Resources" one layer later.
-  //
-  // So merge INNER-first and let outer values land last. A field the outer
-  // entry never mentions still falls through to the inner one, which is what
-  // keeps layout overrides like `size` working across nesting.
   const merged: FigNode = { ...node };
   for (let i = matches.length - 1; i >= 0; i--) {
     const entry = matches[i]!;
-    // Shallow-merge every field present on the override (except the routing
-    // fields and `overriddenSymbolID`, which goes into symbolData). This
-    // applies layout overrides like `size`, `textAutoResize`,
-    // `stackChildAlignSelf`, `stackCounterSizing`, `textAlignVertical`,
-    // styling fields, etc., in addition to text/visibility.
     for (const [field, value] of Object.entries(entry)) {
       if (field === "guidPath" || field === "overriddenSymbolID") continue;
       if (value === undefined) continue;
       if (field === "componentPropAssignments" && Array.isArray(value)) {
-        // Per prop, not wholesale: an outer override setting a nested
-        // instance's label must not drop that instance's own BOOL that hides
-        // an optional line.
         const byDef = new Map(
           ((merged.componentPropAssignments ?? []) as Array<{ defID?: Guid }>)
             .concat(value as Array<{ defID?: Guid }>)
@@ -750,16 +590,9 @@ function num(n: number | null | undefined): number | null {
 
 interface TextRun {
   text: string;
-  /** Inline style when a per-character override differs from the base style. */
   style?: string;
 }
 
-/**
- * The text Figma draws. `textData.lines` is the kiwi twin of REST `lineTypes`:
- * one entry per line Figma actually laid out, and the only reliable statement
- * of how many of the stored break characters are real. It differs from the
- * break count on 17 of the 18 break-bearing nodes in one real file.
- */
 function textCharacters(node: FigNode): string {
   return figmaDrawnText(
     node.textData?.characters ?? "",
@@ -767,12 +600,6 @@ function textCharacters(node: FigNode): string {
   );
 }
 
-/**
- * Split TEXT into styled runs from `characterStyleIDs` + `styleOverrideTable`
- * (how one node mixes colours, sizes, weights or families). Overridden runs
- * carry an inline style; base runs inherit the element's. One plain run when
- * unstyled.
- */
 function textStyleRuns(node: FigNode, ctx: Ctx): TextRun[] {
   const chars = textCharacters(node);
   const ids = node.textData?.characterStyleIDs;
@@ -785,7 +612,6 @@ function textStyleRuns(node: FigNode, ctx: Ctx): TextRun[] {
   for (const entry of table) {
     if (entry?.styleID == null) continue;
     const css: Record<string, string | number> = {};
-    // Topmost visible solid in the override's fill list.
     let solid: Paint | undefined;
     for (const p of entry.fillPaints ?? []) {
       if (p.visible !== false && p.type === "SOLID") solid = p;
@@ -849,8 +675,6 @@ function textStyleRuns(node: FigNode, ctx: Ctx): TextRun[] {
 }
 
 function tagFor(type: string | undefined): string {
-  // Everything renders as a real DOM tag rather than a synthetic component.
-  // TEXT becomes <span> so it inlines nicely; everything else is <div>.
   if (type === "TEXT") return "span";
   return "div";
 }
@@ -860,11 +684,6 @@ const STACK_ALIGN: Record<string, string> = {
   CENTER: "center",
   MAX: "flex-end",
   BASELINE: "baseline",
-  // Kiwi spells Figma's "Space between" as SPACE_EVENLY; the REST API spells
-  // the same setting SPACE_BETWEEN. Both appear in real files, and an
-  // unmapped value fell through to `flex-start` — 17 rows on the Positivus
-  // page and 98 on the Untitled UI kit packed to the left instead of
-  // distributing.
   SPACE_EVENLY: "space-between",
   SPACE_BETWEEN: "space-between",
 };
@@ -878,10 +697,6 @@ const TEXT_ALIGN: Record<string, string> = {
 
 function fontWeightFromStyle(style: string | undefined): number | null {
   if (!style) return null;
-  // Figma writes these with spaces — "Semi Bold", "Extra Bold", "Ultra Light" —
-  // so matching only the joined spellings let "Semi Bold" fall past the 600
-  // test to the plain `bold` one and render 700. On Untitled UI that is the
-  // most common style on the page: 427 of 1046 text nodes came out too heavy.
   const s = style.toLowerCase().replace(/[^a-z]/g, "");
   if (s.includes("thin")) return 100;
   if (s.includes("extralight") || s.includes("ultralight")) return 200;
@@ -909,41 +724,6 @@ function lengthFromUnits(
   return num(v.value);
 }
 
-/**
- * Figma writes an AUTO line height as `{ value: 100, units: "PERCENT" }`, and
- * that 100 is NOT a percentage of the font size — the REST API reports the same
- * nodes as `lineHeightUnit: "INTRINSIC_%"` with `lineHeightPercentFontSize:
- * null`, resolving 60px Space Grotesk to 76.56px rather than 60px. Treating it
- * as `100% * fontSize` made every auto-height text box ~28% short, so cards
- * shrank and the error accumulated down the page — 17px per row on the
- * Positivus landing page. `normal` is the CSS spelling of the same rule: use
- * the font's own metrics.
- *
- * The 100 sentinel is ambiguous with a line height a designer explicitly typed
- * as 100%, which Figma encodes identically. Nothing in the kiwi payload
- * separates them, and AUTO is overwhelmingly the common case.
- *
- * Any other percentage IS relative to the font size (REST: `FONT_SIZE_%`),
- * which is exactly what a CSS percentage line-height means, so it falls
- * through to the shared helper.
- */
-/**
- * The ratio Figma resolves an AUTO line height to, per font, read out of the
- * document's own geometry.
- *
- * Figma stores AUTO as `{value: 100, units: "PERCENT"}` and never tells us the
- * pixel value it resolved — but for text that hugs BOTH axes the box height IS
- * `round(lines * lineHeight)`, so the ratio falls out of numbers Figma already
- * gave us. It is font-specific: measured across real files it ranges from 1.20
- * to 1.50, which is why a single constant would be wrong.
- *
- * `line-height: normal` was the previous answer and it is the browser's own
- * idea of the font's default, not Figma's — 4px lower on a 32px heading, and
- * AUTO covers 77-83% of the text in some real designs.
- *
- * The sample with the most `lines * fontSize` wins: the box height is rounded
- * to a whole pixel, so the largest sample carries the least rounding error.
- */
 function deriveAutoLineHeights(nodes: FigNode[]): Map<string, number> {
   const best = new Map<string, { ratio: number; weight: number }>();
   for (const node of nodes) {
@@ -978,19 +758,11 @@ function lineHeightCss(
   autoRatio?: number,
 ): string | number | null {
   if (v && v.units === "PERCENT" && v.value === 100) {
-    // Figma's own resolved ratio when the document revealed one; `normal`
-    // only when nothing in it did, since that is the browser's idea of the
-    // font's default rather than Figma's.
     return autoRatio ? `${num(autoRatio * (fontSize ?? 0))}px` : "normal";
   }
   return lengthFromUnits(v, fontSize);
 }
 
-/**
- * Normalize a Figma image hash into a hex string. The kiwi decoder emits
- * the hash as a Uint8Array / number[]; the JSON-roundtripped form is
- * already a hex string.
- */
 function hashToHex(
   h: string | Uint8Array | number[] | undefined,
 ): string | null {
@@ -1000,36 +772,18 @@ function hashToHex(
   return arr.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/**
- * Resolve an image hash to a usable URL path. Looks up the actual filename
- * (which may be `<hash>` or `<hash>.png` depending on whether the source
- * was a zip-format or kiwi-format `.fig`) in the ctx imageMap.
- */
 function imageUrl(hashHex: string, ctx: Ctx): string {
   const resolved = ctx.imageMap.get(hashHex);
   if (!resolved && ctx.missingImageUrl) return ctx.missingImageUrl;
   return imageRefUrl(resolved ?? hashHex, ctx.imageRefBase);
 }
 
-/**
- * Where an image reference points. Storage providers may hand back a
- * root-relative URL ("/api/…"), so only a bare filename goes under the
- * export's image directory. The one-pass import substitutes URLs through this
- * too, so the two can never disagree.
- */
 export function imageRefUrl(filename: string, base = "images"): string {
   return /^(?:https?:|blob:|about:|data:|file:|\/)/i.test(filename)
     ? filename
     : `${base}/${filename}`;
 }
 
-/**
- * Resolve a style reference (`styleIdForFill` / `styleIdForStroke` /
- * `styleIdForText`) to the actual style node. Style refs come in two
- * flavors: a local `guid` for in-document styles and an `assetRef.key`
- * for library styles. Library style definitions get embedded in the
- * document under the same `key`, so we look them up via `ctx.byKey`.
- */
 function resolveStyleNode(
   ref: { guid?: Guid; assetRef?: { key?: string } } | undefined,
   ctx: Ctx,
@@ -1072,30 +826,6 @@ function effectiveStrokePaints(node: FigNode, ctx: Ctx): Paint[] | undefined {
   return node.strokePaints;
 }
 
-/**
- * Build the defs and the CSS property that reproduce a Figma mask node, in the
- * PARENT's coordinate space.
- *
- * Figma masks the siblings painted after the mask node, and the mask node
- * itself is never drawn — only its alpha is used. Ignoring that paints the
- * masked content at full size, which is how a 1153x703 rounded rectangle ended
- * up covering the Positivus contact form as a solid black box: the black
- * rectangle is real, and in Figma it is only visible through a starburst.
- *
- * Two shapes of mask, because Figma has two:
- *
- *  - A mask that PAINTS A FILL becomes a `<clipPath>`. Hard-edged geometry we
- *    already decode, and referencing an inline `<clipPath>` from an HTML
- *    element has long, uniform support.
- *  - A mask that only STROKES has no fill area at all. Filling its outline
- *    instead turns a fan of hairlines into a solid blob — the Positivus
- *    sunburst went from thin rays to a filled star that way. Those become an
- *    SVG `<mask>` with `fill="none"` and the stroke painted white, which is
- *    the one construct that can express a stroked alpha.
- *
- * Returns null when the mask has no geometry we can express, so the caller can
- * leave the run unmasked and say so.
- */
 function maskMarkup(
   maskNode: FigNode,
   parent: FigNode | null,
@@ -1103,17 +833,10 @@ function maskMarkup(
   id: string,
 ): { defs: string; css: string } | null {
   const t = maskNode.transform;
-  // The mask's geometry is in its own local space; the run it clips lives in
-  // the parent's. The node's relativeTransform is exactly that change of basis.
   const matrix = t
     ? `matrix(${num(t.m00)} ${num(t.m10)} ${num(t.m01)} ${num(t.m11)} ${num(t.m02)} ${num(t.m12)})`
     : "";
   const placement = matrix ? ` transform="${matrix}"` : "";
-  // A vector NETWORK's coordinates are in `normalizedSize` space, not the
-  // node's box — the same scale the vector renderer applies before drawing
-  // one. Flattened `fillGeometry` is already in the node's box and takes no
-  // scale. Without it a 553-unit blob was clipping a 98px avatar, so the mask
-  // clipped nothing and a card's photo spilled across the whole card.
   const normalized = maskNode.vectorData?.normalizedSize;
   const scaleX = normalized?.x
     ? (maskNode.size?.x || normalized.x) / normalized.x
@@ -1137,8 +860,6 @@ function maskMarkup(
   }
 
   if (!shapes.length) {
-    // A mask drawn as an editable vector carries no flattened `fillGeometry`;
-    // its shape only exists in the vector network.
     const networkBlob = maskNode.vectorData?.vectorNetworkBlob;
     const d =
       typeof networkBlob === "number"
@@ -1150,10 +871,6 @@ function maskMarkup(
     const parentWidth = parent?.size?.x;
     const parentHeight = parent?.size?.y;
     if (d && strokeOnly && parentWidth && parentHeight) {
-      // A standalone SVG document as a `mask-image` data URI, NOT `mask:
-      // url(#id)` against an inline `<mask>`: Chrome ignores the fragment form
-      // on an HTML element, which drops the declaration and paints the masked
-      // run unmasked — measurably worse than no mask handling at all.
       const weight = maskNode.strokeWeight ?? 1;
       const svg =
         `<svg xmlns="http://www.w3.org/2000/svg" width="${num(parentWidth)}" height="${num(parentHeight)}" ` +
@@ -1172,7 +889,6 @@ function maskMarkup(
   }
 
   if (!shapes.length) {
-    // Rectangles and frames mask without carrying any path geometry.
     const w = maskNode.size?.x;
     const h = maskNode.size?.y;
     if (!w || !h) return null;
@@ -1190,11 +906,6 @@ function maskMarkup(
   };
 }
 
-/**
- * A mask shape only clips cleanly when it is fully opaque. Anything that makes
- * its alpha vary across the shape produces a soft edge in Figma that a
- * `clip-path` cannot reproduce.
- */
 function maskHasSoftAlpha(maskNode: FigNode): boolean {
   if (typeof maskNode.opacity === "number" && maskNode.opacity < 1) return true;
   return (maskNode.fillPaints ?? []).some(
@@ -1204,12 +915,6 @@ function maskHasSoftAlpha(maskNode: FigNode): boolean {
   );
 }
 
-/**
- * True when an ELLIPSE sweeps a full turn with no inner radius — i.e. a plain
- * ellipse that `border-radius: 50%` reproduces exactly. Figma writes the sweep
- * in radians, and a full circle comes through as 6.2831854820251465 rather
- * than exactly 2*PI, so the comparison has to carry a tolerance.
- */
 function isFullTurnArc(arc: FigNode["arcData"]): boolean {
   if (!arc) return true;
   if ((arc.innerRadius ?? 0) > 1e-6) return false;
@@ -1217,24 +922,6 @@ function isFullTurnArc(arc: FigNode["arcData"]): boolean {
   return sweep >= Math.PI * 2 - 1e-3;
 }
 
-/**
- * Build the outline of a STAR or REGULAR_POLYGON from its parameters.
- *
- * A clipboard payload gives these shapes no flattened `fillGeometry` and no
- * vector network — just `count` and `starInnerScale` — so without this they
- * have no drawable geometry at all and get dropped. Positivus' CTA
- * illustration lost its ten-point starburst that way. Figma fits the shape to
- * the node's box, so the radii are the half-extents and the first point is at
- * twelve o'clock.
- */
-/**
- * A rectangle's outline, corners included.
- *
- * Figma's vector network stores a rectangle-derived VECTOR as its four corner
- * points and drops the rounding, which is carried on the node instead — so a
- * decoded network draws a speech bubble with square corners where Figma draws
- * radius 45. Size plus the four radii describe the shape exactly.
- */
 function roundedRectanglePath(node: FigNode): string | null {
   const w = node.size?.x;
   const h = node.size?.y;
@@ -1245,7 +932,6 @@ function roundedRectanglePath(node: FigNode): string | null {
   let tr = corner(node.rectangleTopRightCornerRadius);
   let br = corner(node.rectangleBottomRightCornerRadius);
   let bl = corner(node.rectangleBottomLeftCornerRadius);
-  // Figma scales every radius down together when neighbours would overlap.
   const fit = Math.min(
     1,
     w / (tl + tr),
@@ -1271,11 +957,6 @@ function roundedRectanglePath(node: FigNode): string | null {
   );
 }
 
-/**
- * The rounded rectangle a node still describes itself as, when its own
- * geometry would lose the rounding. Only when a radius is actually set: a
- * square-cornered rectangle's decoded network is already right.
- */
 function roundedRectangleOverride(node: FigNode): string | null {
   if (node.rectangleTopLeftCornerRadius === undefined) return null;
   const radii = [
@@ -1291,13 +972,6 @@ function roundedRectangleOverride(node: FigNode): string | null {
 function parametricShapePath(node: FigNode): string | null {
   const w = node.size?.x;
   const h = node.size?.y;
-  // A Figma LINE is always the straight segment (0,0) -> (size.x, 0) in its
-  // own space, so its shape is fully known without any geometry at all. The
-  // clipboard ships neither flattened geometry nor a vector network for one,
-  // and every rule on the page was being dropped as "no decodable geometry" —
-  // ten of them on the Positivus page, including the divider under each
-  // process step. Its zero height is also why the `!w || !h` guard below has
-  // to come after this.
   if (node.type === "LINE") {
     const length = w ?? h;
     if (!length) return null;
@@ -1338,14 +1012,6 @@ function parametricShapePath(node: FigNode): string | null {
   return `M${points.join(" L")} Z`;
 }
 
-/**
- * Drop icon-font glyphs. A Private Use Area codepoint means nothing outside
- * the font that assigned it, and a `.fig` import has no rendered PNG to fall
- * back on the way the REST walker does — so a browser draws .notdef boxes
- * across a sidebar Figma draws icons in. Stripping runs AFTER
- * `textStyleRuns`: `characterStyleIDs` indexes the stored characters, so
- * removing any before the split would shift every colour run.
- */
 function withoutPrivateUse(text: string): string {
   if (!hasPrivateUseCharacters(text)) return text;
   return Array.from(text)
@@ -1353,17 +1019,9 @@ function withoutPrivateUse(text: string): string {
     .join("");
 }
 
-/**
- * Private Use Area text — SF Symbols and other icon fonts — drawn from the
- * glyph outlines Figma stored with the text: no browser font can draw those
- * codepoints, but the file carries the exact paths Figma drew. Outlines are
- * em-unit, y-up paths placed at each glyph's baseline origin.
- */
 function glyphOutlineSvg(node: FigNode, ctx: Ctx): string | null {
   const data = node.derivedTextData;
   if (!data?.glyphs?.length) return null;
-  // The layout must be of THIS text: an override that changed the characters
-  // without new derived data leaves the master's glyphs behind.
   const characters = Array.from(node.textData?.characters ?? "").length;
   const baselines = data.baselines ?? [];
   if (baselines[baselines.length - 1]?.endCharacter !== characters) {
@@ -1376,7 +1034,6 @@ function glyphOutlineSvg(node: FigNode, ctx: Ctx): string | null {
         ? ""
         : decodePathCommands(ctx.blobs[glyph.commandsBlob]);
     const size = glyph.fontSize ?? node.fontSize;
-    // A space has no outline.
     if (!d || !glyph.position || !size) continue;
     paths.push(
       `<path transform="translate(${num(glyph.position.x)} ${num(glyph.position.y)}) scale(${num(size)} ${num(-size)})" d="${d}"/>`,
@@ -1390,11 +1047,6 @@ function glyphOutlineSvg(node: FigNode, ctx: Ctx): string | null {
   );
 }
 
-/**
- * Record one fidelity note against a node the renderer could not reproduce
- * exactly. One entry per node: a component inlined on 200 screens is one
- * approximated node, not 200.
- */
 function recordApproximation(node: FigNode, ctx: Ctx, note: string): void {
   const nodeId = guidKey(node.guid);
   const existing = ctx.approximationByNode.get(nodeId);
@@ -1457,16 +1109,7 @@ function paintToBackground(p: Paint, node: FigNode, ctx: Ctx): string | null {
       return `radial-gradient(${stops})`;
     }
     if (p.type === "GRADIENT_ANGULAR") {
-      // CSS `conic-gradient` starts its sweep at 12 o'clock; Figma's angular
-      // gradient aims along the centre->vertex ray, which for an identity
-      // transform points EAST. `rotationDeg` is that ray, and `fromDeg` was
-      // neither it nor corrected for the quarter turn — the fixture's sweep
-      // came out 90 degrees off, green at the top where Figma puts it right.
       if (geometry) {
-        // Everything in NORMALIZED space, which is where Figma computes the
-        // sweep — and it has to be, because a non-square box renders this
-        // through an overlay that draws into a SQUARE and scales. A pixel
-        // centre would land at the wrong height inside that square.
         const { start, end } = geometry.handles;
         const centerX = (start.x + end.x) / 2;
         const centerY = (start.y + end.y) / 2;
@@ -1481,13 +1124,6 @@ function paintToBackground(p: Paint, node: FigNode, ctx: Ctx): string | null {
           `at ${num(centerX * 100)}% ${num(centerY * 100)}%, ${stops})`
         );
       }
-      // Figma sweeps an angular gradient in the node's NORMALIZED space — the
-      // box treated as a unit square, then stretched — while CSS
-      // `conic-gradient()` sweeps at a true uniform angular rate in real
-      // pixels. The two agree only on the axes, so on a non-square box the
-      // mid-sweep colours land early — which is why a non-square angular fill
-      // renders through `paintOverlayMarkup`, drawn into a square and scaled,
-      // rather than as a background layer. This is the square case.
       return `conic-gradient(${stops})`;
     }
     if (p.type === "GRADIENT_DIAMOND") {
@@ -1512,7 +1148,6 @@ function paintToBackground(p: Paint, node: FigNode, ctx: Ctx): string | null {
 function backgroundShorthand(
   node: FigNode,
   ctx: Ctx,
-  /** Sink for paint layers that must render as a child instead of a layer. */
   overlays?: string[],
 ): {
   backgroundColor?: string;
@@ -1535,18 +1170,12 @@ function backgroundShorthand(
     backgroundBlendMode?: string;
     imageRendering?: string;
   } = {};
-  // Optimization: when there is exactly one fill and it's a plain SOLID at the
-  // bottom, emit it as `background-color` (cheaper CSS, same visual) and skip
-  // adding it to the bgImages layer list so we don't double-render it.
   const isSingleSolidOnly = fills.length === 1 && fills[0]?.type === "SOLID";
   if (isSingleSolidOnly) {
     const color = colorToCss(fills[0]!.color, fills[0]!.opacity ?? 1);
     if (color) result.backgroundColor = color;
     return result;
   }
-  // The topmost fill can move to an overlay child when CSS cannot express it
-  // in the background stack. Only the topmost: an overlay paints above the
-  // whole stack, so moving a lower layer would reorder the paint.
   const topMost = fills[fills.length - 1];
   const overlayMarkup = topMost ? paintOverlayMarkup(topMost, node, ctx) : null;
   if (overlayMarkup && overlays) overlays.push(overlayMarkup);
@@ -1559,15 +1188,11 @@ function backgroundShorthand(
   const bgBlends: string[] = [];
   for (const f of fills) {
     if (f === movedToOverlay) continue;
-    // A diamond needs FOUR tiles plus a clamp, not one layer.
     const diamond =
       f.type === "GRADIENT_DIAMOND"
         ? diamondBackgroundLayers(f, node, ctx)
         : null;
     if (diamond) {
-      // The stack is assembled bottom-first and reversed at the end, so this
-      // fill's own layers go in bottom-first too — otherwise the clamp layer
-      // ends up ON TOP and paints over the four tiles it exists to sit under.
       for (const layer of [...diamond].reverse()) {
         bgImages.push(layer.image);
         bgBlends.push(blendModeCss(f.blendMode) ?? "normal");
@@ -1579,12 +1204,6 @@ function backgroundShorthand(
     }
     const image = paintToBackground(f, node, ctx);
     if (!image) continue;
-    // A CSS background LAYER has no opacity of its own. `colorToCss` folds a
-    // solid's or a gradient's opacity into its alpha, but an image URL has
-    // nowhere to carry one, so a half-transparent photo would paint solid and
-    // hide whatever it is stacked over. Rare — zero of the four real designs
-    // measured, one synthetic fixture — but silent is what made it worth
-    // saying rather than fixing with an overlay element nothing needs yet.
     if (f.type === "IMAGE" && (f.opacity ?? 1) < 1) {
       recordApproximation(
         node,
@@ -1605,10 +1224,6 @@ function backgroundShorthand(
     bgPositions.push(scale.position);
     bgRepeats.push(scale.repeat);
   }
-  // `image-rendering` is one property for the element, not per layer, so a
-  // single magnified fill switches the whole stack to nearest — which is what
-  // Figma does too. The 1.2 tolerance keeps an effectively 1:1 fill smooth,
-  // and a photo scaled DOWN with nearest aliases badly.
   const magnified = fills.some((f) => {
     if (f.type !== "IMAGE" || !node.size) return false;
     const intrinsic = fillIntrinsicSize(hashToHex(f.image?.hash), ctx);
@@ -1638,16 +1253,6 @@ function backgroundShorthand(
   return result;
 }
 
-/**
- * A Figma diamond gradient as the four-pointed shape it actually is.
- *
- * Its falloff is an L1 distance, which is LINEAR inside each quadrant — so
- * four quadrant-tiled linear gradients reproduce it exactly, where an ellipse
- * only resembles it. The same construction the REST walker uses.
- *
- * Returns the background layers top-first, or null when the paint carries no
- * usable geometry.
- */
 function diamondBackgroundLayers(
   p: Paint,
   node: FigNode,
@@ -1658,7 +1263,6 @@ function diamondBackgroundLayers(
   const geometry = gradientGeometryFromTransform("DIAMOND", p.transform, box);
   if (!geometry || !(geometry.rx > 0) || !(geometry.ry > 0)) return null;
   const { rx, ry, center } = geometry;
-  // Each tile spans one quadrant, so a stop at 1 sits on the tile's far edge.
   const stops = p.stops
     .map(
       (stop) =>
@@ -1678,8 +1282,6 @@ function diamondBackgroundLayers(
     position: `${num(quadrant.left)}px ${num(quadrant.top)}px`,
     repeat: "no-repeat",
   }));
-  // The tiles only cover the diamond's bounding box; Figma clamps to the final
-  // stop everywhere beyond it, so a flat layer of that colour sits underneath.
   const last = p.stops[p.stops.length - 1];
   const clamp = last
     ? (colorToCss(last.color, p.opacity ?? 1) ?? "transparent")
@@ -1698,7 +1300,6 @@ function diamondBackgroundLayers(
   return layers;
 }
 
-/** One resolved background layer. */
 interface BackgroundLayer {
   image: string;
   size: string;
@@ -1706,21 +1307,6 @@ interface BackgroundLayer {
   repeat: string;
 }
 
-/**
- * Paint layers CSS cannot express in the background stack, as absolutely
- * positioned children instead. The REST walker does the same, and it is why
- * that walker scores 0.55% on the fills/effects fixture where this one scored
- * 15.26% with every node in exactly the right place.
- *
- * Only the TOPMOST fill is ever pulled out: an overlay child paints above the
- * whole background stack, so moving a lower layer would reorder the paint.
- */
-/**
- * A Figma image scale mode as the three CSS background properties that carry
- * it. All five modes reach the DOM only through these, so they are decided in
- * one place: the same mapping was written twice and the CROP and TILE work
- * landed in only one of the copies, which is how a half-fixed walker happens.
- */
 function imageScaleModeCss(
   p: Paint,
   node: FigNode,
@@ -1732,11 +1318,6 @@ function imageScaleModeCss(
   if (mode === "FIT")
     return { size: "contain", position: "center", repeat: "no-repeat" };
   if (mode === "TILE") {
-    // `auto` is what a tile's size means and it renders identically — but it
-    // is also what an unset size looks like, so the export hop could not tell
-    // a tile's dimensions and drew one stretched copy. Stating the intrinsic
-    // size is the same pixels here and a recoverable tile there. When it
-    // cannot be resolved `auto` stays and the exporter reports the lost tiling.
     const tile = fillIntrinsicSize(hashToHex(p.image?.hash), ctx);
     return {
       size:
@@ -1748,12 +1329,6 @@ function imageScaleModeCss(
     };
   }
   if (mode === "STRETCH") {
-    // STRETCH plus a paint transform is Figma's CROP: the matrix picks a
-    // sub-rectangle of the image — origin (m02, m12), size (m00, m11) in the
-    // image's own normalized space — and stretches THAT to fill the box.
-    // Drawing the whole image instead reads as the artwork zoomed out. The
-    // REST walker has done this since the Positivus service cards exposed it;
-    // this walker decoded `transform` for gradients only, never for an image.
     const t = p.transform;
     const axisAligned =
       !t || (Math.abs(t.m01) < 1e-6 && Math.abs(t.m10) < 1e-6);
@@ -1782,9 +1357,6 @@ function imageScaleModeCss(
         "Image fill has a non-axis-aligned paint transform (rotated/skewed crop); approximated with the scale-mode-only CSS mapping, without the transform matrix",
       );
     } else if (t && (t.m00 < -1e-6 || t.m11 < -1e-6)) {
-      // A negative scale is a FLIP. `background-size` has no negative form, so
-      // the crop falls through to the plain stretch as it always has; the
-      // omission is now stated rather than silent.
       recordApproximation(
         node,
         ctx,
@@ -1801,11 +1373,6 @@ function paintOverlayMarkup(p: Paint, node: FigNode, ctx: Ctx): string | null {
   if (!box || box.width <= 0 || box.height <= 0) return null;
 
   if (p.type === "GRADIENT_ANGULAR" && Math.abs(box.width - box.height) > 0.5) {
-    // Figma sweeps an angular gradient in the node's NORMALIZED space — the
-    // box treated as a unit square, then stretched — while CSS
-    // `conic-gradient()` sweeps at a true uniform angular rate in real pixels.
-    // The two agree only on the axes. Drawing it into a square and scaling
-    // that square reproduces Figma's definition exactly.
     const image = paintToBackground(p, node, ctx);
     if (!image) return null;
     const side = box.width;
@@ -1821,8 +1388,6 @@ function paintOverlayMarkup(p: Paint, node: FigNode, ctx: Ctx): string | null {
   }
 
   if (p.type === "IMAGE" && (p.opacity ?? 1) < 1) {
-    // A CSS background LAYER has no opacity of its own, so a half-transparent
-    // photo painted solid and hid the fills beneath it.
     const image = paintToBackground(p, node, ctx);
     if (!image) return null;
     const scale = imageScaleModeCss(p, node, ctx);
@@ -1838,21 +1403,6 @@ function paintOverlayMarkup(p: Paint, node: FigNode, ctx: Ctx): string | null {
   return null;
 }
 
-/**
- * An embedded image's intrinsic pixel size, read from its own header.
- *
- * Figma magnifies an image fill with NEAREST-neighbour sampling and the
- * browser smooths, so a small tile scaled up came out blurry where Figma draws
- * hard edges — the fills/effects checkerboard is a 16px tile stretched to 180.
- * Returns null when the bytes are not to hand or the format is not one we can
- * read: "unknown" must not be reported as "not magnified", so the caller only
- * ever switches sampling on a size it actually measured.
- */
-/**
- * An image fill's intrinsic size: the map decoded from bytes at import time
- * first, then the URL parser for the `data:` URLs the harness supplies. Null
- * means "cannot tell", which callers must keep distinct from a real size.
- */
 function fillIntrinsicSize(
   hashHex: string | null,
   ctx: Ctx,
@@ -1863,30 +1413,18 @@ function fillIntrinsicSize(
   );
 }
 
-/**
- * A PNG or JPEG's intrinsic pixel size, read from its own header.
- *
- * Returns null for anything it cannot decode — including WebP and GIF — which
- * callers must treat as "cannot tell", never as a size of zero. Exported so
- * the import driver can size images it holds as BYTES: reading the size out of
- * a URL only ever worked for the `data:` URLs the measurement harness
- * supplies, and every production caller passes an uploaded https URL.
- */
 export function imageSizeFromBytes(
   bytes: Uint8Array,
   kind: "png" | "jpeg",
 ): { width: number; height: number } | null {
   if (kind === "png") {
-    // 8-byte signature, then the IHDR chunk: length(4) type(4) width(4) height(4).
     if (bytes.length < 24 || readAscii(bytes, 12, 16) !== "IHDR") return null;
     return { width: readU32BE(bytes, 16), height: readU32BE(bytes, 20) };
   }
-  // JPEG: walk the marker segments to the frame header, which carries the size.
   let offset = 2;
   while (offset + 9 < bytes.length && bytes[offset] === 0xff) {
     const marker = bytes[offset + 1]!;
     const length = readU16BE(bytes, offset + 2);
-    // SOF0..SOF15, excluding the non-frame markers in that range.
     if (
       marker >= 0xc0 &&
       marker <= 0xcf &&
@@ -1904,8 +1442,6 @@ export function imageSizeFromBytes(
   return null;
 }
 
-/** Sniff the container from the first bytes, so a caller with raw bytes and no
- *  declared MIME type still gets an answer instead of a guess. */
 export function imageSizeFromUnknownBytes(
   bytes: Uint8Array,
 ): { width: number; height: number } | null {
@@ -1923,9 +1459,6 @@ function intrinsicImageSize(
     url,
   );
   if (!match) return null;
-  // No try/catch: base64 decoding does not throw in Node, it drops invalid
-  // characters — so a short/garbled buffer simply fails the length checks in
-  // the decoder and reports "cannot tell" rather than a wrong size.
   return imageSizeFromBytes(
     base64ToBytes(match[2]!),
     match[1] === "png" ? "png" : "jpeg",
@@ -1935,7 +1468,6 @@ function intrinsicImageSize(
 function borderShorthand(
   node: FigNode,
   ctx: Ctx,
-  /** Sink for a stroke drawn as a layer over the node's children. */
   strokeOverlays?: string[],
   rendersChildren = false,
 ): Record<string, string> {
@@ -1943,7 +1475,6 @@ function borderShorthand(
     (p) => p.visible !== false,
   );
   if (strokes.length === 0) return {};
-  // CSS draws one stroke paint: the top-most, which is the last.
   const paint = strokes[strokes.length - 1]!;
   const gradient = !!paint.type?.startsWith("GRADIENT_");
   const color =
@@ -1953,12 +1484,6 @@ function borderShorthand(
     return {};
   }
 
-  // Kiwi states per-side weights with `borderStrokeWeightsIndependent` and
-  // writes ONLY the sides that are set — an Untitled UI table cell carries
-  // `borderBottomWeight: 1` and nothing else, meaning a bottom rule and no
-  // others. Reading only the REST-shaped `stroke*Weight` names missed that
-  // entirely and fell back to the uniform weight on all four sides, drawing a
-  // vertical rule between every column of a table that has none.
   const independent = node.borderStrokeWeightsIndependent === true;
   const hasPerSide =
     independent ||
@@ -1969,14 +1494,9 @@ function borderShorthand(
 
   const uniformW = node.strokeWeight ?? 0;
 
-  // A dash pattern only reaches CSS through `border-style`/`outline-style`.
   const dashed = dashArrayAttr(node) !== null;
   const style = dashed ? "dashed" : "solid";
 
-  // Per-side weights. When Figma says the sides are independent, a side it
-  // did not write is ZERO — not the uniform weight, which would invent the
-  // very borders the independence flag exists to remove. Otherwise an
-  // unspecified side still falls back to the uniform weight.
   const side = (
     resolved: number | undefined,
     raw: number | undefined,
@@ -1986,9 +1506,6 @@ function borderShorthand(
   const bottomW = side(node.strokeBottomWeight, node.borderBottomWeight);
   const leftW = side(node.strokeLeftWeight, node.borderLeftWeight);
 
-  // A layer over the node: a gradient has no border colour, and Figma paints
-  // a frame's INSIDE stroke above its children, where an inset shadow paints
-  // under them — a full-bleed child hid the border entirely.
   if (
     strokeOverlays &&
     (gradient || (node.strokeAlign === "INSIDE" && rendersChildren))
@@ -2035,10 +1552,6 @@ function borderShorthand(
       return { outline: `${num(uniformW)}px ${style} ${color}` };
     }
     if (node.strokeAlign === "INSIDE") {
-      // A box-shadow keeps the border inside the element without expanding its
-      // dimensions — but it cannot be dashed. A leaf has no content whose box
-      // an inset border could shift, and `box-sizing: border-box` keeps the
-      // outer size, so a dashed leaf takes a real border instead.
       if (dashed && getChildren(node, ctx).length === 0) {
         return { border: `${num(uniformW)}px dashed ${color}` };
       }
@@ -2066,9 +1579,6 @@ function borderShorthand(
   const result: Record<string, string> = {};
 
   if (node.strokeAlign === "INSIDE") {
-    // Use border-side + border-box so the border stays within Figma's stated dimensions.
-    // For absolute children this is only exact when there's no top or left border
-    // (the common case for Fluent UI's active bottom border).
     if (topW) result.borderTop = `${num(topW)}px solid ${color}`;
     if (rightW) result.borderRight = `${num(rightW)}px solid ${color}`;
     if (bottomW) result.borderBottom = `${num(bottomW)}px solid ${color}`;
@@ -2078,7 +1588,6 @@ function borderShorthand(
   }
 
   if (node.strokeAlign === "OUTSIDE") {
-    // outline doesn't support per-side; simulate with box-shadow (no inset)
     const shadows: string[] = [];
     if (topW) shadows.push(`0 -${num(topW)}px 0 0 ${color}`);
     if (rightW) shadows.push(`${num(rightW)}px 0 0 0 ${color}`);
@@ -2087,7 +1596,6 @@ function borderShorthand(
     return shadows.length ? { boxShadow: shadows.join(", ") } : {};
   }
 
-  // CENTER: individual border-side properties
   if (topW) result.borderTop = `${num(topW)}px solid ${color}`;
   if (rightW) result.borderRight = `${num(rightW)}px solid ${color}`;
   if (bottomW) result.borderBottom = `${num(bottomW)}px solid ${color}`;
@@ -2125,13 +1633,6 @@ function radiusStyles(node: FigNode): Record<string, number | string> {
   return out;
 }
 
-/**
- * @param shadowAsFilter Render DROP_SHADOWs as `filter: drop-shadow()` instead
- *   of `box-shadow`. `box-shadow` traces the element's box, so an overflowing
- *   child (e.g. a tooltip's caret) is left shadowless and the box shadow cuts
- *   straight across behind it. `filter: drop-shadow()` follows the element's
- *   rendered alpha — body plus caret — at the cost of the (here unused) spread.
- */
 function effectStyles(
   node: FigNode,
   ctx: Ctx,
@@ -2155,24 +1656,17 @@ function effectStyles(
         );
       }
     } else if (e.type === "INNER_SHADOW") {
-      // Inner shadows have no filter equivalent; always emit as box-shadow.
       const c = colorToCss(e.color) ?? "rgba(0, 0, 0, 0.25)";
       shadows.push(
         `inset ${num(e.offset?.x ?? 0)}px ${num(e.offset?.y ?? 0)}px ${num(e.radius ?? 0)}px ${num(e.spread ?? 0)}px ${c}`,
       );
     } else if (e.type === "FOREGROUND_BLUR" || e.type === "LAYER_BLUR") {
-      // The REST walker's 0.45 is fitted against Figma's own renders; this
-      // walker's 0.5 was a guess, and an 11% wider kernel changes every pixel
-      // of a blurred region. One constant, so the two import routes cannot
-      // drift apart again.
       filters.push(
         `blur(${num((e.radius ?? 0) * FIGMA_BLUR_RADIUS_TO_CSS_BLUR)}px)`,
       );
     } else if (e.type === "BACKGROUND_BLUR") {
       backdropBlur = `blur(${num((e.radius ?? 0) * FIGMA_BLUR_RADIUS_TO_CSS_BLUR)}px)`;
     } else if (e.type === "GLASS") {
-      // Frosting is the part CSS can draw; refraction, bevel, specular light
-      // and chromatic aberration are not.
       backdropBlur = `blur(${num((e.radius ?? 0) * FIGMA_BLUR_RADIUS_TO_CSS_BLUR)}px)`;
       recordApproximation(
         node,
@@ -2204,13 +1698,6 @@ function transformStyle(node: FigNode): {
     Math.abs(t.m01 + Math.sin(angle)) < 0.01 &&
     Math.abs(t.m10 - Math.sin(angle)) < 0.01 &&
     Math.abs(t.m11 - Math.cos(angle)) < 0.01;
-  // Anything that is not a pure rotation has to go through the matrix. The
-  // previous guard asked only about scale and skew, and `hasNonTrivialScale`
-  // compares |determinant|, which erases the SIGN — so a mirror (m00 = -1,
-  // m11 = 1: determinant -1, no off-diagonal terms) satisfied neither branch
-  // and fell through to `rotate(180deg)`. A 180 degree rotation about the
-  // top-left corner moves a box up and left by its own size, which is how
-  // Positivus' flipped CTA illustration ended up 394px above its frame.
   if (hasNonTrivialScale || !isPureRotation) {
     return {
       transform: `matrix(${num(t.m00)}, ${num(t.m10)}, ${num(t.m01)}, ${num(t.m11)}, 0, 0)`,
@@ -2222,30 +1709,13 @@ function transformStyle(node: FigNode): {
   return { transform: `rotate(${num(deg)}deg)`, transformOrigin: "top left" };
 }
 
-/**
- * Figma CLAMPS a negative `stackSpacing` so the children still fill a
- * fixed-size container: the CTA row on the Positivus landing page asks for
- * -715px between a 1240px card and a 494px illustration inside a 1240px
- * content box, and Figma lays the illustration out at x=846 (flush with the
- * card's right edge), not at 625 as a literal -715 would put it —
- * 1240 + 494 - 494 = 1240 exactly fills the box.
- *
- * That clamp distributes the slack evenly between the children, which is
- * precisely `justify-content: space-between`. When the requested spacing
- * genuinely overflows the container there is no slack to distribute, Figma
- * uses the literal value, and the negative margins in `buildCss` carry it.
- */
 function overlapSpacing(node: FigNode, ctx: Ctx): number | null {
   const spacing = node.stackSpacing;
   if (typeof spacing !== "number" || spacing >= 0) return null;
   const horizontal = node.stackMode === "HORIZONTAL";
-  // Only a fixed primary axis has a container to fill; a hugging one resizes
-  // around whatever the overlap produces, so the literal value stands.
   if ((node.stackPrimarySizing ?? "RESIZE_TO_FIT") !== "FIXED") return spacing;
   const total = horizontal ? node.size?.x : node.size?.y;
   if (!total) return spacing;
-  // Start side is `stackHorizontalPadding`/`stackVerticalPadding`; the end side
-  // is its own field and is absent when zero. See `autolayoutStyles`.
   const padStart = horizontal
     ? (node.stackHorizontalPadding ?? 0)
     : (node.stackVerticalPadding ?? 0);
@@ -2260,7 +1730,6 @@ function overlapSpacing(node: FigNode, ctx: Ctx): number | null {
   let sum = 0;
   for (const child of children) {
     const size = horizontal ? child.size?.x : child.size?.y;
-    // An unknown child size makes the clamp meaningless; do not guess at it.
     if (typeof size !== "number") return spacing;
     sum += size;
   }
@@ -2280,30 +1749,11 @@ function autolayoutStyles(
   if (node.stackPrimaryAlignItems)
     out.justifyContent =
       STACK_ALIGN[node.stackPrimaryAlignItems] ?? "flex-start";
-  // Always emitted, because the two defaults disagree: Figma's counter
-  // alignment defaults to MIN, CSS's `align-items` to `stretch`. Leaving it
-  // unset let every child of an unaligned stack grow to the full width — a
-  // 195px "Read more" button came out 695px, and its whole section with it.
   out.alignItems =
     STACK_ALIGN[node.stackCounterAlignItems ?? "MIN"] ?? "flex-start";
-  // A negative `stackSpacing` overlaps the children. CSS rejects a negative
-  // `gap` outright, which drops the declaration and silently falls back to 0,
-  // overflowing the stack; the overlap is applied as a negative margin on the
-  // children instead (see `buildCss`).
-  //
-  // Under SPACE_BETWEEN, Figma ignores the spacing entirely — the field is
-  // disabled and the gap comes from the free space — but it still stores the
-  // last value set. CSS treats `gap` as a MINIMUM that space-between then
-  // distributes on top of, so emitting both spaces the row by the stale
-  // number: Positivus' logo row came out at 206px instead of its real 96px on
-  // the REST path, pushing the last logo 550px out of the frame.
   const primaryDistributes =
     node.stackPrimaryAlignItems === "SPACE_EVENLY" ||
     node.stackPrimaryAlignItems === "SPACE_BETWEEN";
-  // A wrapping stack runs onto more than one line, and Figma keeps the gap
-  // BETWEEN those lines in its own field. Without the wrap the row simply
-  // stayed one line: a 380x54 two-line tag row came out 380x23, with the tags
-  // that should have wrapped sitting 360px off the right edge instead.
   const wraps = node.stackWrap === "WRAP";
   if (wraps) out.flexWrap = "wrap";
   const spacing =
@@ -2321,17 +1771,6 @@ function autolayoutStyles(
   if (lineSpacing !== null)
     out.gap = `${num(lineSpacing)}px ${num(spacing ?? 0)}px`;
   else if (spacing !== null) out.gap = `${num(spacing)}px`;
-  // `stackHorizontalPadding` and `stackVerticalPadding` are the LEFT and TOP
-  // fields, not symmetric shorthands — the end sides live in
-  // `stackPaddingRight` / `stackPaddingBottom`, which kiwi omits when they are
-  // 0. Mirroring the start side into a missing end side invented padding on
-  // every top-only or left-only frame: Untitled UI's hero section came out
-  // 1036px tall against Figma's 940, and every section below it sat 96px low.
-  //
-  // Measured across four captured payloads: `stackPaddingLeft` and
-  // `stackPaddingTop` never appear at all, and of 1655 nodes carrying a
-  // vertical padding 1603 also carry an explicit bottom — so kiwi does NOT
-  // drop the end side when it happens to match. Absent means zero.
   const pl = node.stackHorizontalPadding;
   const pr = node.stackPaddingRight;
   const pt = node.stackVerticalPadding;
@@ -2342,12 +1781,6 @@ function autolayoutStyles(
   return out;
 }
 
-/**
- * A family plus a metric-compatible fallback stack, so a missing family never
- * lands on the UA serif. Apple's own families cannot be named in a browser;
- * `system-ui` reaches the same faces on Apple platforms and the platform UI
- * font elsewhere, where the generic stack would fall through to Arial.
- */
 function fontFamilyCss(fam: string): string {
   const quoted = /\s/.test(fam) ? `"${fam}"` : fam;
   if (/mono|courier|code|consol|menlo|fira code|source code/i.test(fam)) {
@@ -2360,16 +1793,10 @@ function fontFamilyCss(fam: string): string {
   return `${quoted}, ${system}-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif`;
 }
 
-/**
- * Platform and commercial families Google Fonts does not serve. Asking for one
- * fails the whole css2 request with HTTP 400 when it is the only family.
- */
 const NON_GOOGLE_FONT_FAMILY =
   /^(SF\b|San Francisco|New York|\.?AppleSystem|Helvetica|Arial|Segoe|Graphik|Avenir|Proxima Nova|Circular)/i;
 
 function textVerticalAlign(node: FigNode): string | null {
-  // Only a box taller than its text has room to align in; a hugging one
-  // has none.
   if (
     node.textAutoResize === "WIDTH_AND_HEIGHT" ||
     node.textAutoResize === "HEIGHT"
@@ -2381,10 +1808,6 @@ function textVerticalAlign(node: FigNode): string | null {
   return null;
 }
 
-/**
- * Figma's "truncate text": an ellipsis where the text stops fitting — after
- * `maxLines`, or after as many lines as the fixed box holds.
- */
 function textTruncationCss(
   node: FigNode,
   ctx: Ctx,
@@ -2421,11 +1844,6 @@ function textTruncationCss(
 function textStyles(node: FigNode, ctx?: Ctx): Record<string, string | number> {
   if (node.type !== "TEXT") return {};
   const out: Record<string, string | number> = {};
-  // A TEXT node may reference a shared text style (`styleIdForText`) whose
-  // font properties (family, weight, size, line-height, letter-spacing,
-  // alignment) override the values cached on the node itself. The cached
-  // values are often stale snapshots of the master and don't reflect the
-  // current style — prefer the style node when present.
   const styleNode = ctx
     ? resolveStyleNode(node.styleIdForText, ctx)
     : undefined;
@@ -2442,8 +1860,6 @@ function textStyles(node: FigNode, ctx?: Ctx): Record<string, string | number> {
   if (fontName?.family) out.fontFamily = fontFamilyCss(fontName.family);
   const weight = fontWeightFromStyle(fontName?.style);
   if (weight !== null) out.fontWeight = weight;
-  // Track this family/weight/italic combo so the frame template can request
-  // it from Google Fonts in <head>.
   if (ctx && fontName?.family) {
     const italic = !!(fontName.style && /italic|oblique/i.test(fontName.style));
     ctx.fontUsage.add(`${fontName.family}|${weight ?? 400}|${italic ? 1 : 0}`);
@@ -2462,9 +1878,6 @@ function textStyles(node: FigNode, ctx?: Ctx): Record<string, string | number> {
   if (ls !== null && ls !== undefined) out.letterSpacing = ls;
   if (textAlignHorizontal)
     out.textAlign = TEXT_ALIGN[textAlignHorizontal] ?? "left";
-  // Figma's own casing and decoration, which this walker was dropping: the
-  // typography fixture's underline, strikethrough and uppercase label all
-  // rendered as plain lower-case text. Same mappings the REST walker uses.
   const textCase = styleNode?.textCase ?? node.textCase;
   const textDecoration = styleNode?.textDecoration ?? node.textDecoration;
   const transform = textTransformCss(textCase as never);
@@ -2473,11 +1886,6 @@ function textStyles(node: FigNode, ctx?: Ctx): Record<string, string | number> {
   if (decoration) out.textDecoration = decoration;
   const underlinePosition = textUnderlinePositionCss(textDecoration as never);
   if (underlinePosition) out.textUnderlinePosition = underlinePosition;
-  // Text Figma laid out on ONE line, in a box only one line tall, must not
-  // wrap: our advances run a hair wider on some strings, and the extra line
-  // pushes every sibling down and reads as broken where a few pixels of
-  // overflow does not. `nowrap` rather than `pre` because this walker uses
-  // <br> for explicit breaks and relies on ordinary whitespace collapsing.
   const lineCount = node.textData?.lines?.length ?? 1;
   const boxHeight = node.size?.y;
   const resolvedLineHeight = lengthFromUnits(lineHeight, fontSize);
@@ -2490,17 +1898,10 @@ function textStyles(node: FigNode, ctx?: Ctx): Record<string, string | number> {
     boxHeight &&
     lineHeightPx &&
     Math.round(boxHeight / lineHeightPx) === 1 &&
-    // Only where the box IS the text's own resolved size. Kiwi `size` goes
-    // stale on the descendants of an instance this walker cannot fully
-    // resolve, and a stale one-line box turns genuinely wrapping text into a
-    // single overflowing line — it cost the card-grid fixture 0.3 points.
     node.textAutoResize === "WIDTH_AND_HEIGHT"
   ) {
     out.whiteSpace = "nowrap";
   }
-  // A fixed box centres or bottom-aligns its lines; the runs move into one
-  // inner span (see `emitNode`) so they stay inline under the flex column,
-  // and a truncation moves there with them.
   const verticalAlign = textVerticalAlign(node);
   if (verticalAlign) {
     out.display = "flex";
@@ -2545,17 +1946,6 @@ function isAutolayout(parent: FigNode | null): boolean {
   return !!(parent && parent.stackMode && parent.stackMode !== "NONE");
 }
 
-/**
- * Compose an INSTANCE node with its inlined master's autolayout / padding /
- * sizing properties. After a variant swap the instance's cached `stack*`
- * fields are a stale snapshot of the variant it ORIGINALLY pointed at, so the
- * rendered master wins — except on a field where the instance differs from
- * that original master, which is an override the instance made (a changed
- * alignment or padding) and survives the swap, as it does in Figma. Taking
- * the master wholesale dropped those: 150 stacks in one file lost an
- * instance's counter-axis centring. Per-axis sizing (`size`) stays on the
- * instance.
- */
 const STACK_LAYOUT_FIELDS: (keyof FigNode)[] = [
   "stackMode",
   "stackPrimaryAlignItems",
@@ -2578,9 +1968,6 @@ function withMasterLayout(
 ): FigNode {
   const layoutFields = STACK_LAYOUT_FIELDS;
   const merged: FigNode = { ...instance };
-  // A field the instance did not override comes from the master wholesale —
-  // including `undefined` — so a stale `stackPrimarySizing="FIXED"` from a
-  // HORIZONTAL variant cannot leak onto a VERTICAL one that leaves it HUG.
   const masterDrivesLayout =
     typeof master.stackMode === "string" && master.stackMode !== "NONE";
   for (const f of layoutFields) {
@@ -2596,11 +1983,6 @@ function withMasterLayout(
   return merged;
 }
 
-/**
- * A slot frame arranges the content assigned to it by that content's own
- * layout: the content frame, not the master's placeholder, carries the
- * spacing and padding Figma lays the slot out with.
- */
 function withSlotLayout(slot: FigNode, content: FigNode): FigNode {
   const merged: FigNode = { ...slot };
   for (const f of STACK_LAYOUT_FIELDS) {
@@ -2609,16 +1991,6 @@ function withSlotLayout(slot: FigNode, content: FigNode): FigNode {
   return merged;
 }
 
-/**
- * Derive the Figma plugin API's `layoutSizingHorizontal` / `layoutSizingVertical`
- * for a node. The kiwi document doesn't store these directly — they're
- * computed from the underlying stack/sizing/grow fields the same way
- * `figma.currentPage.selection[i].layoutSizingHorizontal` is.
- *
- * Returns "FIXED" | "HUG" | "FILL" per axis. The cached `node.size` always
- * carries a baked pixel value, so callers must consult the derived sizing
- * before deciding whether to emit an explicit `width`/`height`.
- */
 function layoutSizing(
   node: FigNode,
   parent: FigNode | null,
@@ -2629,14 +2001,7 @@ function layoutSizing(
   let horizontal: "FIXED" | "HUG" | "FILL" = "FIXED";
   let vertical: "FIXED" | "HUG" | "FILL" = "FIXED";
 
-  // 1) Self auto-layout (this node has its own stack). Kiwi default for an
-  //    omitted `stackPrimarySizing`/`stackCounterSizing` is HUG, not FIXED.
   if (node.stackMode && node.stackMode !== "NONE") {
-    // An omitted `stackPrimarySizing` is HUG (Figma writes it only when set,
-    // and it's only ever written as FIXED). An omitted `stackCounterSizing`,
-    // however, behaves as FIXED: Figma bakes the counter-axis size (a HUG
-    // badge would collapse to its content height, but the design keeps its
-    // fixed height). Treat only an explicit RESIZE_TO_FIT* as HUG.
     const primaryHug = (node.stackPrimarySizing ?? "RESIZE_TO_FIT") !== "FIXED";
     const counterHug = (node.stackCounterSizing ?? "FIXED") !== "FIXED";
     if (node.stackMode === "HORIZONTAL") {
@@ -2648,13 +2013,7 @@ function layoutSizing(
     }
   }
 
-  // 2) Non-autolayout frames (e.g. Figma groups) position their children
-  //    absolutely in this renderer, and CSS `width/height: auto` cannot hug
-  //    out-of-flow children — a hugged group would collapse to 0×0 and clip
-  //    everything inside it. The baked `node.size` already equals the group's
-  //    content bounds, so keep it FIXED rather than honoring `resizeToFit`.
 
-  // 3) TEXT auto-resize hugs along the indicated axis/axes.
   if (node.type === "TEXT" && node.textAutoResize) {
     if (node.textAutoResize === "WIDTH_AND_HEIGHT") {
       horizontal = "HUG";
@@ -2664,9 +2023,6 @@ function layoutSizing(
     }
   }
 
-  // 4) Auto-layout child of an auto-layout parent: grow/stretch -> FILL.
-  //    A child that ignores auto-layout (stackPositioning ABSOLUTE) is not a
-  //    flex item, so it keeps its FIXED pixel size from `node.size`.
   if (
     parent &&
     parent.stackMode &&
@@ -2675,20 +2031,7 @@ function layoutSizing(
   ) {
     const grow = (node.stackChildPrimaryGrow ?? 0) > 0;
     const stretch = node.stackChildAlignSelf === "STRETCH";
-    // A FILL child inside a parent that HUGS the same axis has nothing to
-    // fill, and Figma falls back to the child's own size. CSS instead resolves
-    // the circle — parent sizes to child, child stretches to parent — down to
-    // the content. A dashboard's table cells are a FIXED 121 wide and stretch
-    // inside a hugging column: the column came out 103, its text's width, and
-    // took all eight cells with it. `layoutSizing(parent, null)` is the
-    // parent's OWN sizing, which is exactly the question being asked.
     const parentSelf = layoutSizing(parent, null);
-    // The node's OWN hug wins over the parent's stretch. Figma treats "hug
-    // contents" and "fill container" as mutually exclusive on an axis, so a
-    // node carrying both has a stale `stackChildAlignSelf` from an earlier
-    // state — and honouring the stale one pins a frame that should grow. A
-    // dashboard's main column hugs its 1066px of content inside a 960px
-    // frame; stretching it cut 106px off the bottom.
     if (parent.stackMode === "HORIZONTAL") {
       if (grow && parentSelf.horizontal !== "HUG" && horizontal !== "HUG")
         horizontal = "FILL";
@@ -2705,27 +2048,6 @@ function layoutSizing(
   return { horizontal, vertical };
 }
 
-/**
- * Re-lay the children of a container that renders at a different size from
- * the one its children were placed against.
- *
- * Figma re-lays children by their constraints when their parent resizes, and
- * only writes the result back where auto-layout moved them. An instance of a
- * narrower component is the common case: DashStack's dashboard has a 1440-wide
- * instance of a 1202-wide component, and the full-bleed background inside it
- * (`horizontalConstraint: SCALE`) painted only the first 1202px. A frame inside
- * an instance that Figma resized (its derived size), or a slot whose content
- * was authored at another size, is the same problem one level down — children
- * of the resized frame kept the master's offsets against the new edges.
- *
- * Fixing it here, once, at the boundary means every downstream consumer —
- * CSS, masks, auto-layout, the export walk — sees geometry that is already
- * correct, instead of each of them having to know about the resize.
- *
- * Children of an auto-layout parent are placed by the stack, not constraints,
- * unless they ignore it. Children are shared across every instance of a
- * master, so they are cloned rather than mutated.
- */
 function relayoutResizedChildren(
   children: readonly FigNode[],
   authored: { x: number; y: number } | undefined,
@@ -2742,8 +2064,6 @@ function relayoutResizedChildren(
   if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return children;
   const sx = iw / mw;
   const sy = ih / mh;
-  // Figma's default when a node carries no constraint is MIN — pinned to the
-  // start edge at its own size — which is what leaving it alone produces.
   const axis = (
     constraint: string | undefined,
     pos: number,
@@ -2780,16 +2100,6 @@ function relayoutResizedChildren(
   });
 }
 
-/**
- * Pin an absolutely-positioned node to the edge(s) implied by its Figma
- * constraint on one axis. MIN keeps the start offset (top/left); MAX anchors
- * to the end edge (bottom/right) so the node stays put when the container is
- * taller/wider than Figma's baked size; STRETCH pins both edges and returns
- * `true` to drop the fixed size on that axis. CENTER/SCALE fall back to the
- * baked start offset. Anchoring to the end edge needs the parent's size; when
- * it's unknown we fall back to the start offset. Returns whether the axis's
- * fixed width/height should be suppressed.
- */
 function applyAxisConstraint(
   css: Record<string, unknown>,
   constraint: string | undefined,
@@ -2823,12 +2133,6 @@ function positionRelativeToParent(
 ): { x: number | null; y: number | null } {
   const transform = node.transform;
   if (!transform) return { x: null, y: null };
-  // Figma/Kiwi node transforms are already expressed relative to the parent
-  // (the node's `relativeTransform`), so the translation is the parent-local
-  // offset at every depth — including direct children of a top-level frame,
-  // whose own canvas position is dropped when the frame becomes a screen root.
-  // Subtracting the parent's canvas translation here double-counts the frame
-  // offset and flings direct children off-canvas.
   return { x: num(transform.m02), y: num(transform.m12) };
 }
 
@@ -2840,24 +2144,13 @@ function buildCss(
   vectorLike = false,
   hasAbsoluteChild = false,
   shadowAsFilter = false,
-  /** Sink for paint layers that render as a child instead of a layer. */
   overlays?: string[],
-  /** Whether any child actually renders; defaults to "has stored children". */
   rendersChildren?: boolean,
-  /** Sink for strokes that render as a last child, above the others. */
   strokeOverlays?: string[],
 ): Record<string, unknown> {
   const css: Record<string, unknown> = {};
-  // An absolutely-positioned node is out of the parent's flex flow, so it must
-  // not receive flex-child hints (flex-grow / align-self) below.
   const parentFlex = !isPositioned && isAutolayout(parent);
 
-  // Position / size — mirrors smart-export:
-  //   parent is auto-layout  -> position: relative, no left/top, dimensions
-  //                             may be replaced by flex hints below.
-  //   parent is not          -> position: absolute with left/top/width/height.
-  // Constraints decide which edges an absolutely-positioned node is pinned to.
-  // STRETCH pins both edges (and drops the fixed size on that axis).
   let suppressWidth = false;
   let suppressHeight = false;
   if (isPositioned) {
@@ -2888,23 +2181,10 @@ function buildCss(
   } else if (parentFlex) {
     css.position = "relative";
   } else if (hasAbsoluteChild) {
-    // Establish a positioning context so an "ignore auto layout" child
-    // (position: absolute) is offset relative to this container rather than
-    // the page. Top-level frames are otherwise statically positioned.
     css.position = "relative";
   }
 
-  // Decide whether to emit width/height. The Figma plugin API exposes a
-  // unified `layoutSizingHorizontal`/`layoutSizingVertical` derived from the
-  // raw stack/grow/textAutoResize fields (kiwi doesn't store those derived
-  // values). Only emit a pixel dimension on a FIXED axis — HUG and FILL both
-  // mean "let CSS size it" via flex / intrinsic content.
   const sizing = layoutSizing(node, parent);
-  // HUG means "size to content", so it only holds when there IS content.
-  // Figma keeps a childless auto-layout frame at the size it resolved rather
-  // than collapsing it, and the baked `node.size` is that size; letting CSS
-  // hug nothing collapses the box to 0x0 and deletes it from the render. A
-  // frame whose only child is hidden hugs nothing too.
   const hugsNothing =
     node.type !== "TEXT" &&
     !(rendersChildren ?? getChildren(node, ctx).length > 0);
@@ -2921,24 +2201,6 @@ function buildCss(
     if (h !== null && emitHeight && !suppressHeight) css.height = `${h}px`;
   }
 
-  // A hugging TEXT box takes the size Figma resolved for it, the same way the
-  // REST walker does. Figma rounds these to whole pixels and lays the siblings
-  // out against the rounded number, and where our advances differ by a hair a
-  // line wraps on one side and not the other — a 40px two-line label came out
-  // A hugging TEXT box takes the size Figma resolved for it as a MINIMUM, the
-  // same way the REST walker does: Figma rounds these to whole pixels and lays
-  // the siblings out against the rounded number, and where our advances differ
-  // by a hair a line wraps on one side and not the other. A 40px two-line label
-  // came out 20px and pulled everything under it up — 90 of the 93 nodes this
-  // walker had off by more than 1.5px on one page.
-  //
-  // A minimum, never a fixed size — this is where the two walkers genuinely
-  // differ. REST reads `absoluteBoundingBox`, Figma's RESOLVED layout box,
-  // which is always current. Kiwi `size` is the STORED size, and for a
-  // descendant of an instance this walker could not fully resolve it is the
-  // master's, not the instance's. Pinning that is a hard error: it dropped
-  // Positivus' service headings 30px (4.25% -> 4.53%). As a minimum the same
-  // stale number degrades instead of dictating, and both paths improve.
   if (node.type === "TEXT" && node.size) {
     const hugsWidth = sizing.horizontal === "HUG";
     const hugsHeight = sizing.vertical === "HUG";
@@ -2947,37 +2209,18 @@ function buildCss(
     if (hugsWidth && w !== null && !suppressWidth && !css.width) {
       css.minWidth = `${w}px`;
     }
-    // Only where the text can WRAP. A minimum here guards against our line
-    // count differing from Figma's; text hugging both axes cannot wrap, so it
-    // has nothing to guard — and giving it one lets a stale stored size push
-    // its siblings, which is exactly what dropped Positivus' headings 30px.
-    // Text hugging BOTH axes cannot wrap, so its line count is fixed by the
-    // break characters and its height is Figma's `round(lines * lineHeight)`
-    // exactly — taken outright, not as a minimum, because the browser's own
-    // line box rounds the other way and every such label came out 1px tall
-    // over. On the auto-layout fixture that 1px moved all 29 nodes.
-    //
-    // Wrapping text keeps a MINIMUM: there our line count genuinely can differ
-    // from Figma's, and a stale stored size must degrade rather than dictate.
     if (hugsHeight && h !== null && !suppressHeight && !css.height) {
       if (hugsWidth) css.height = `${h}px`;
       else css.minHeight = `${h}px`;
     }
   }
 
-  // Line vectors (horizontal/vertical strokes) have a 0-size axis. A 0-size
-  // <svg> viewport is dropped by the browser even with `overflow: visible`, so
-  // give the degenerate axis a minimal non-zero size; the stroke, arrowheads,
-  // and caps still paint at native coords because the SVG has no viewBox here.
   if (vectorLike) {
     const minAxis = Math.max(1, num(node.strokeWeight) ?? 1);
     if (css.width === "0px") css.width = `${minAxis}px`;
     if (css.height === "0px") css.height = `${minAxis}px`;
   }
 
-  // Auto-layout min/max size constraints. Each axis is independent and may be
-  // unconstrained (null). Only emit positive values — a zero constraint is a
-  // no-op and a min-width keeps a hugging container (e.g. a badge) circular.
   const minX = num(node.minSize?.value?.x);
   const minY = num(node.minSize?.value?.y);
   const maxX = num(node.maxSize?.value?.x);
@@ -2987,14 +2230,8 @@ function buildCss(
   if (maxX !== null && maxX > 0) css.maxWidth = `${maxX}px`;
   if (maxY !== null && maxY > 0) css.maxHeight = `${maxY}px`;
 
-  // Auto-layout child hints (flex-grow / align-self). Skipped for children
-  // that ignore auto-layout — they're positioned absolutely, not as flex items.
   if (parentFlex && node.stackPositioning !== "ABSOLUTE") {
     if ((node.stackChildPrimaryGrow ?? 0) > 0) {
-      // A growing child whose parent HUGS the same axis has nothing to grow
-      // into, and Figma falls back to the child's own size. `flex: 1 0 0` in an
-      // auto-sized flex container collapses it to zero instead, which silently
-      // deletes the child and pulls every later sibling up by its size.
       const parentPrimaryHug =
         (parent?.stackPrimarySizing ?? "RESIZE_TO_FIT") !== "FIXED";
       const ownMain =
@@ -3004,27 +2241,13 @@ function buildCss(
         if (parent?.stackMode === "HORIZONTAL") css.width = `${ownMain}px`;
         else css.height = `${ownMain}px`;
       } else if (typeof ownMain === "number" && ownMain > 0) {
-        // Figma gives FILL siblings equal OUTER sizes. A `0` basis grows from
-        // the padding box instead, so three 96px cells with different padding
-        // came out 106.7/74.7/106.7. Figma's resolved size as the basis starts
-        // each from where Figma put it and shares any difference evenly.
         css.flex = `1 1 ${num(ownMain)}px`;
       } else {
         css.flex = "1 0 0";
       }
     } else {
-      // Figma never shrinks an auto-layout child that is not growing: it keeps
-      // its own size and the parent overflows. CSS flex items shrink by
-      // default, so an overflowing row quietly redistributed the deficit and
-      // made every child the wrong width — Positivus' CTA card came out 897px
-      // instead of 1240px. Only a growing child is elastic.
       css.flexShrink = "0";
     }
-    // CSS rejects a negative gap, so a parent that overlaps its children
-    // expresses it here instead; see the parent's `stackSpacing` handling.
-    // The sibling lookup is guarded on a negative spacing because it is rare,
-    // and doing it unconditionally would sort the parent's children once per
-    // child on trees with tens of thousands of nodes.
     const overlap = parent ? overlapSpacing(parent, ctx) : null;
     if (overlap !== null && overlap < 0 && parent) {
       const siblings = getChildren(parent, ctx);
@@ -3038,13 +2261,6 @@ function buildCss(
     }
     if (node.stackChildAlignSelf) {
       const a = STACK_ALIGN[node.stackChildAlignSelf];
-      // STRETCH is dropped on an axis this node HUGS. Figma treats "hug
-      // contents" and "fill container" as mutually exclusive, so a node
-      // carrying both has a stale `stackChildAlignSelf` from an earlier state
-      // — and `align-self: stretch` pins the box where Figma lets it grow. A
-      // dashboard's main column hugs 1066px of content inside a 960px frame,
-      // and stretching it cut 106px off the bottom. The derived sizing above
-      // already knows which axis that is.
       const stretchAxisHugs =
         parent?.stackMode === "HORIZONTAL"
           ? sizing.vertical === "HUG"
@@ -3057,15 +2273,6 @@ function buildCss(
     }
   }
 
-  // A vector with no decodable geometry must not paint its bounding box as a
-  // solid fill (that renders the shape as a block); render nothing instead.
-  //
-  // A FULL ellipse is the exception: `border-radius: 50%` reproduces it
-  // exactly, fill and stroke included, so suppressing it just deletes the
-  // shape. Positivus' CTA illustration is three stroke-only ellipses and they
-  // vanished entirely. An arc or donut (`arcData` narrower than a full turn,
-  // or a non-zero inner radius) is NOT expressible that way and stays
-  // suppressed — but reported, so the hole is visible rather than silent.
   const isFullEllipse = node.type === "ELLIPSE" && isFullTurnArc(node.arcData);
   const geometrylessVector =
     !!node.type &&
@@ -3083,14 +2290,10 @@ function buildCss(
     );
   }
 
-  // Background (TEXT uses fillPaints for color, not background; vector
-  // nodes paint via <path fill> inside the <svg>).
   if (node.type !== "TEXT" && !vectorLike && !geometrylessVector) {
     Object.assign(css, backgroundShorthand(node, ctx, overlays));
   }
 
-  // Border / outline (skipped for vector nodes — strokes go on <path>).
-  // Merge box-shadows from border (e.g. INSIDE strokes) and effects so neither overwrites the other.
   const borderStyle =
     !vectorLike && !geometrylessVector
       ? borderShorthand(
@@ -3102,9 +2305,7 @@ function buildCss(
       : {};
   const { boxShadow: borderBoxShadow, ...restBorderStyle } = borderStyle;
   Object.assign(css, restBorderStyle);
-  // Radius
   Object.assign(css, radiusStyles(node));
-  // Effects (shadows, blurs)
   const effectStyle = effectStyles(node, ctx, shadowAsFilter);
   const { boxShadow: effectBoxShadow, ...restEffectStyle } = effectStyle;
   Object.assign(css, restEffectStyle);
@@ -3112,15 +2313,7 @@ function buildCss(
     [borderBoxShadow, effectBoxShadow] as Array<string | undefined>
   ).filter(Boolean);
   if (mergedBoxShadows.length > 0) css.boxShadow = mergedBoxShadows.join(", ");
-  // Rotation
   Object.assign(css, transformStyle(node));
-  // A CSS transform does not change an element's LAYOUT size, but Figma lays a
-  // rotated auto-layout child out by its rotated footprint. A vertical rule is
-  // the common case: Figma stores it as a 186x0 line turned 90 degrees, so it
-  // takes no width in the row — ours took the full 186px and shoved every
-  // later sibling across. Flex children pivot about their centre so the
-  // margins below keep the visual in place; an absolutely positioned node
-  // keeps `top left`, which is what pairs with its transform's translation.
   if (parentFlex && node.stackPositioning !== "ABSOLUTE" && css.transform) {
     const t = node.transform;
     const w = num(node.size?.x) ?? 0;
@@ -3143,12 +2336,9 @@ function buildCss(
       }
     }
   }
-  // Text styling
   Object.assign(css, textStyles(node, ctx));
-  // Autolayout (flex)
   Object.assign(css, autolayoutStyles(node, ctx));
 
-  // Opacity / blend mode / overflow / visibility
   if (typeof node.opacity === "number" && node.opacity < 0.999)
     css.opacity = node.opacity;
   if (node.blendMode) {
@@ -3167,22 +2357,13 @@ function buildCss(
   if (
     (node.type === "FRAME" || node.type === "INSTANCE") &&
     node.frameMaskDisabled !== true &&
-    // `resizeToFit` marks a group/hug container that sizes to its children and
-    // never clips in Figma — its children legitimately overflow the baked box,
-    // so clipping here would crop content that should be visible.
     node.resizeToFit !== true
   ) {
     css.overflow = "hidden";
   }
-  // Vector <svg> elements default to clipping content to their viewport. Figma
-  // vector bounds are the path's *fill* box, but strokes, arrowheads, and line
-  // caps extend beyond it (and horizontal/vertical lines have a 0-size box), so
-  // clipping erases them. `overflow: visible` lets the full geometry paint.
   if (vectorLike) {
     css.overflow = "visible";
   }
-  // (Hidden nodes are dropped entirely in emitNode; no display:none needed.)
-  // Overlay layers are `inset`, so they need this box as their containing block.
   if (!css.position && (overlays?.length || strokeOverlays?.length)) {
     css.position = "relative";
   }
@@ -3190,7 +2371,6 @@ function buildCss(
   return css;
 }
 
-/** Render a css object as a single inline `style` declaration string. */
 function formatStyleString(css: Record<string, unknown>): string {
   return Object.entries(css)
     .map(([k, v]) => `${kebabCase(k)}: ${String(v)}`)
@@ -3199,40 +2379,20 @@ function formatStyleString(css: Record<string, unknown>): string {
 
 interface Ctx {
   byGuid: Map<string, FigNode>;
-  // Library style nodes (and other keyed nodes) indexed by their stable
-  // `key` so we can resolve `styleIdForFill.assetRef.key` lookups.
   byKey: Map<string, FigNode>;
   childrenOf: Map<string, FigNode[]>;
   sortedChildren: Map<string, readonly FigNode[]>;
   symbolByGuid: Map<string, FigNode>;
-  // Boolean visibility vars often carry no variableSetID; this index maps mode id → owning set.
   modeToSet: Map<string, string>;
   imageRefBase?: string;
-  /** Raw blob bytes (for path command decoding). Indexed by blob index. */
   blobs: Uint8Array[];
-  /** Hex hash -> on-disk filename (e.g. `<hash>` or `<hash>.png`). */
   imageMap: Map<string, string>;
-  /** Intrinsic pixel size per image hash, decoded from the image BYTES at
-   *  import time. Reading it back out of the URL only ever worked for the
-   *  `data:` URLs the harness supplies; production passes uploaded https. */
   imageSizes: Map<string, { width: number; height: number }>;
-  /**
-   * `family|style` -> the line-height ratio Figma resolves AUTO to for that
-   * font, derived from the document's own boxes. See `deriveAutoLineHeights`.
-   */
   autoLineHeight: Map<string, number>;
   missingImageUrl?: string;
-  /** When true, per-node IMAGE fills with no imageMap entry emit data-figma-image-ref. */
   trackUnresolvedImageRefs?: boolean;
-  /** Populated by buildAttrs() when trackUnresolvedImageRefs is true. */
   unresolvedImageRefs?: Set<string>;
-  /**
-   * Set of `family|weight|italic` triples seen while emitting the current
-   * frame. We use it to build a Google Fonts <link> in <head> so the custom
-   * font families used in the design are actually loaded by the browser.
-   */
   fontUsage: Set<string>;
-  /** SYMBOLs currently being inlined (cycle guard). */
   inliningStack: Set<string>;
   renderedNodeCount: number;
   maxRenderedNodes: number;
@@ -3240,24 +2400,11 @@ interface Ctx {
   maxFrameOutputBytes: number;
   maxTotalOutputBytes: number;
   totalOutputBytes: number;
-  /** Monotonic id suffix for SVG <defs> entries; ids must be document-unique. */
   svgDefSeq: number;
-  /** Collect fidelity verdicts for approximated nodes. */
   approximatedNodes: RenderHtmlFidelityEntry[];
   approximationByNode: Map<string, RenderHtmlFidelityEntry>;
 }
 
-/**
- * Figma's path-command blob format. A stream of:
- *   [op:byte] [args:float32 * N]
- * Opcodes (discovered empirically and confirmed against rounded rect /
- * vector / ellipse blobs):
- *   0 = ClosePath  (no args)
- *   1 = MoveTo     (x, y)
- *   2 = LineTo     (x, y)
- *   3 = QuadTo     (x1, y1, x, y)
- *   4 = CubicTo    (x1, y1, x2, y2, x, y)
- */
 function decodePathCommands(bytes: Uint8Array | undefined): string {
   if (!bytes || bytes.length === 0) return "";
   const out: string[] = [];
@@ -3272,8 +2419,6 @@ function decodePathCommands(bytes: Uint8Array | undefined): string {
     let n = 0;
     let letter = "";
     if (op === 0 && out.length === 0) {
-      // Glyph outlines open with a ClosePath. SVG path data must start with a
-      // MoveTo or the whole path is in error and draws nothing.
       i += 1;
       continue;
     } else if (op === 0) {
@@ -3292,8 +2437,6 @@ function decodePathCommands(bytes: Uint8Array | undefined): string {
       letter = "C";
       n = 6;
     } else {
-      // Unknown opcode — stop decoding gracefully so we don't run off
-      // the end of the buffer.
       break;
     }
     if (i + 1 + n * 4 > bytes.length) break;
@@ -3319,7 +2462,6 @@ function decodePathCommands(bytes: Uint8Array | undefined): string {
  */
 interface DecodedVectorNetwork {
   d: string;
-  /** End stroke-cap is an arrow/marker type (cap enum ≥ 3; 0/1/2 = none/round/square). */
   arrowEnd: boolean;
 }
 
@@ -3374,8 +2516,6 @@ function decodeVectorNetwork(
 
   for (let start = 0; start < segs.length; start++) {
     if (used[start]) continue;
-    // Trace a connected chain: each segment's end vertex feeds the next
-    // segment's start vertex.
     const chain: Seg[] = [];
     let cur: number | null = start;
     while (cur !== null && !used[cur]) {
@@ -3416,16 +2556,6 @@ function decodeVectorNetwork(
   return { d: out.join(" "), arrowEnd };
 }
 
-/**
- * SVG paint attribute (fill / stroke) for the visible paint. Figma composites
- * a node's paint list bottom-to-top, so the LAST paint SVG can express is the
- * one actually seen — e.g. a stroke stacked `[cyan, pink]` renders pink. Pick
- * the topmost expressible paint rather than the first.
- *
- * Gradients become a paint server pushed onto `defs`; the returned `color` is
- * then a `url(#id)` reference and the alpha rides on the stops, so there is no
- * separate opacity to apply.
- */
 function paintToSvgFill(
   paints: Paint[] | undefined,
   node: FigNode,
@@ -3441,10 +2571,6 @@ function paintToSvgFill(
       paint = candidate;
   }
   if (!paint) {
-    // An IMAGE fill routes to the CSS `background-image` path before it ever
-    // gets here (see isVectorLike), so this is an image *stroke* or a paint
-    // type we do not know. Either way the layer loses its paint — say so
-    // rather than handing back a silent `fill="none"`.
     recordApproximation(
       node,
       ctx,
@@ -3463,19 +2589,11 @@ function solidSvgFill(
   if (!color) return null;
   const opacity = color.a * (paintOpacity ?? 1);
   return {
-    // Alpha lives in the separate fill-opacity / stroke-opacity attribute.
     color: colorToCss({ ...color, a: 1 })!,
     opacity: opacity < 0.999 ? Number(opacity.toFixed(3)) : undefined,
   };
 }
 
-/**
- * Gradient paint → an SVG paint server pushed onto `defs`, referenced as
- * `url(#id)`. Mirrors the REST importer's `paintToSvgFill`
- * (packages/core/src/ingestion/figma-node-to-html.ts) so both import paths
- * emit the same markup; the only difference is the geometry source, which is
- * a node-to-gradient matrix here instead of REST handle positions.
- */
 function gradientSvgFill(
   paint: Paint,
   node: FigNode,
@@ -3485,7 +2603,6 @@ function gradientSvgFill(
 ): { color: string; opacity?: number } | null {
   const stops = paint.stops ?? [];
   if (stops.length === 0) return null;
-  // Visible, approximate, and reported beats a vanished layer.
   const firstStop = () => solidSvgFill(stops[0]!.color, paint.opacity);
   const kind = paint.type!.slice("GRADIENT_".length) as
     | "LINEAR"
@@ -3522,10 +2639,6 @@ function gradientSvgFill(
     )
     .join("");
   if (kind === "LINEAR") {
-    // Handles are already normalized to the node's box, which is exactly SVG
-    // `objectBoundingBox` space — no angle derivation or stop remapping (the
-    // CSS path needs both only because a CSS gradient line spans the box
-    // diagonal rather than the handles).
     const { start, end } = geometry.handles;
     defs.push(
       `<linearGradient id="${id}" x1="${q(start.x)}" y1="${q(start.y)}" x2="${q(end.x)}" y2="${q(end.y)}">${stopMarkup}</linearGradient>`,
@@ -3540,9 +2653,6 @@ function gradientSvgFill(
     );
     return firstStop();
   }
-  // A unit circle transformed into the ellipse Figma's two radius handles
-  // describe — the SVG equivalent of the `radial-gradient(ellipse ...)`
-  // mapping the CSS path uses for non-vector nodes.
   defs.push(
     `<radialGradient id="${id}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(${q(geometry.center.x)} ${q(geometry.center.y)}) scale(${q(geometry.rx)} ${q(geometry.ry)})">${stopMarkup}</radialGradient>`,
   );
@@ -3569,56 +2679,21 @@ const VECTOR_LIKE_TYPES = new Set([
 
 function isVectorLike(node: FigNode, ctx?: Ctx): boolean {
   if (!node.type || !VECTOR_LIKE_TYPES.has(node.type)) return false;
-  // A UNION whose operands all decode draws as one shape, and its operands
-  // must NOT also render on their own — Figma never paints them, and their own
-  // paints are not the boolean's (a testimonial bubble's rounded rect carries
-  // a white stroke where the union it belongs to carries the green one).
   if (ctx && booleanUnionOperands(node, ctx)) return true;
-  // Flattened geometry (saved .fig / REST) OR an editable vector network
-  // (clipboard paste) — either lets us draw the real shape as <svg>.
   const hasFlatGeometry =
     (node.fillGeometry?.length ?? 0) > 0 ||
     (node.strokeGeometry?.length ?? 0) > 0;
   const hasNetwork = typeof node.vectorData?.vectorNetworkBlob === "number";
-  // A STAR / REGULAR_POLYGON carries neither in a clipboard payload, but its
-  // parameters describe the outline exactly.
   const hasParametricShape = parametricShapePath(node) !== null;
   if (!hasFlatGeometry && !hasNetwork && !hasParametricShape) {
-    // Not a loss on its own: a full ELLIPSE still draws exactly through
-    // `border-radius: 50%`, and a LINE through a bordered box. The nodes that
-    // genuinely lose their shape are reported where they are emitted as an
-    // empty box, which is the only place that knows nothing was drawn.
     return false;
   }
-  // Nodes with an IMAGE fill render better as a regular <div> with
-  // `background-image` (and `background-color` as a fallback) than as an
-  // <svg> with a <pattern>. Skip the vector path so backgroundShorthand
-  // can stack image + color fills via CSS.
   if (node.fillPaints?.some((p) => p.visible !== false && p.type === "IMAGE")) {
     return false;
   }
   return true;
 }
 
-/**
- * Render a vector-like node as an inline `<svg>`. The element itself keeps
- * the same outer attrs (data-agent-native-layer-name, position/size style)
- * as a regular div
- * so it slots into auto-layout / absolute positioning identically; the
- * vector geometry lives inside as `<path>` children.
- */
-/**
- * The operands of a UNION boolean, each as a path in the boolean's own space.
- *
- * A clipboard paste carries only the operands, never the flattened outline
- * Figma computes — but a UNION does not need the outline. Filling the operands
- * together IS the union region, and stroking each one with the others' filled
- * interiors masked away IS the union's outline, because the boundary of a
- * union is exactly each part's boundary outside every other part.
- *
- * Returns null for anything else: SUBTRACT, INTERSECT and EXCLUDE genuinely
- * need computed geometry, and a wrong shape is worse than a reported hole.
- */
 function booleanUnionOperands(
   node: FigNode,
   ctx: Ctx,
@@ -3653,7 +2728,6 @@ function booleanUnionOperands(
   return operands.length ? operands : null;
 }
 
-/** A node's own outline in its own box, however this file can get at one. */
 function nodeOutlinePath(
   node: FigNode,
   ctx: Ctx,
@@ -3681,14 +2755,6 @@ function nodeOutlinePath(
   return parametric ? { d: parametric, scaleX: 1, scaleY: 1 } : null;
 }
 
-/**
- * Figma's dash pattern as `stroke-dasharray`.
- *
- * REST hands us the dashes already outlined into `strokeGeometry`, so that
- * path gets them for free; a `.fig` or clipboard payload carries the pattern
- * as numbers and we stroke a live path, which draws solid without this. Ten
- * nodes on one page — every connector between the feature icons.
- */
 function dashArrayAttr(node: FigNode): string | null {
   const pattern = node.dashPattern;
   if (!pattern?.length || !pattern.some((value) => value > 0)) return null;
@@ -3701,8 +2767,6 @@ function emitSvgBody(
   indent: string,
   out: string[],
 ): void {
-  // Buffered so gradient <defs> can be written ahead of the paths that
-  // reference them, and skipped entirely when no path survives decoding.
   const lines: string[] = [];
   const defs: string[] = [];
   const w = node.size?.x ?? 0;
@@ -3741,27 +2805,15 @@ function emitSvgBody(
       );
     }
     if (strokePaint && strokeWeight > 0) {
-      // The union's outline is each operand's boundary MINUS every other
-      // operand's interior — the seams where the parts meet are inside the
-      // union, and drop out. SVG strokes are always centred, so the mask
-      // carries the alignment band too: keep the operand's own interior for
-      // INSIDE, everything outside the union for OUTSIDE, both for CENTER.
       const align = node.strokeAlign ?? "CENTER";
       const bandWidth = strokeWeight * (align === "CENTER" ? 1 : 2);
       const maskBase = `bool-${guidKey(node.guid).replace(/[^a-z0-9]/gi, "")}`;
       const pad = bandWidth + 1;
       const box = `x="${num(-pad)}" y="${num(-pad)}" width="${num(w + pad * 2)}" height="${num(h + pad * 2)}"`;
-      // In a mask white and black ARE the alpha channel ("keep" / "drop"),
       // not themeable colours: a token would make the mask follow the viewer's
-      // theme and eat the shape it reveals.
       const keep = (operand: { d: string; transform: string }) =>
         // guard:allow-raw-color — mask alpha, see above
         `<path d="${operand.d}"${operand.transform} fill="#fff" />`;
-      // Stroked as well as filled: operands often only TOUCH along an edge
-      // rather than overlap, and a shared edge has no interior to mask with.
-      // Dropping a band around the other operand's boundary removes the seam —
-      // a speech bubble's tail meets its box exactly on the box's bottom edge,
-      // and without this the outline drew straight across the tail's mouth.
       const drop = (operand: { d: string; transform: string }) =>
         // guard:allow-raw-color — mask alpha, see above
         `<path d="${operand.d}"${operand.transform} fill="#000" stroke="#000" stroke-width="${num(bandWidth)}" />`;
@@ -3789,10 +2841,6 @@ function emitSvgBody(
         if (strokePaint.opacity !== undefined) {
           attrs.push(`stroke-opacity="${strokePaint.opacity}"`);
         }
-        // The mask must sit on a wrapper, not the path: a `userSpaceOnUse`
-        // mask resolves in the coordinate system in effect where it is
-        // referenced, so putting it on the transformed path would apply the
-        // operand's own transform to the mask content a second time.
         lines.push(
           `${indent}  <g mask="url(#${maskId})"><path ${attrs.join(" ")}${operand.transform} /></g>`,
         );
@@ -3801,7 +2849,6 @@ function emitSvgBody(
     emittedFlat = true;
   }
 
-  // Fill paths
   for (const g of node.fillGeometry ?? []) {
     if (typeof g.commandsBlob !== "number") continue;
     const d = decodePathCommands(ctx.blobs[g.commandsBlob]);
@@ -3817,14 +2864,7 @@ function emitSvgBody(
     }
     lines.push(`${indent}  <path ${attrs.join(" ")} />`);
   }
-  // Stroke paths
   if (strokePaint && strokeWeight > 0) {
-    // `strokeGeometry` is the stroke ALREADY OUTLINED into a closed region —
-    // weight, joins, caps and dashes are baked into its outline. Re-stroking
-    // it draws a band of `strokeWeight` around that outline, so every vector
-    // stroke came out roughly twice as thick and spilled past Figma's
-    // silhouette. It is filled, exactly as the REST walker does
-    // (figma-node-to-html.ts, `emit(node.strokeGeometry, ...)`).
     const outlined = node.strokeGeometry ?? [];
     if (outlined.length > 0) {
       const strokeStart = lines.length;
@@ -3842,11 +2882,6 @@ function emitSvgBody(
           attrs.push(`fill-opacity="${strokePaint.opacity}"`);
         lines.push(`${indent}  <path ${attrs.join(" ")} />`);
       }
-      // That outlined region is not clipped to the alignment Figma states: on
-      // an INSIDE stroke it still reaches outside the shape, and a mitred
-      // corner reaches a long way. Clipping it to the fill shape is what
-      // INSIDE means. Node-scoped id: a bare one would collide across the many
-      // inline SVGs in a document, and `url(#id)` takes the first match.
       if (
         node.strokeAlign === "INSIDE" &&
         lines.length > strokeStart &&
@@ -3874,8 +2909,6 @@ function emitSvgBody(
       }
     } else
       for (const g of node.fillGeometry ?? []) {
-        // No outlined region: the stroke is described only by the shape's own
-        // path, so a real centred SVG stroke IS the right rendering here.
         if (typeof g.commandsBlob !== "number") continue;
         const d = decodePathCommands(ctx.blobs[g.commandsBlob]);
         if (!d) continue;
@@ -3898,10 +2931,6 @@ function emitSvgBody(
       }
   }
 
-  // Vector-network fallback (clipboard paste ships only the editable network,
-  // not flattened geometry). Decode it to a path and paint it with the node's
-  // fill/stroke. Network coords are in `normalizedSize` space, so scale into
-  // the node's box (the SVG viewBox is 0 0 w h).
   if (!emittedFlat && typeof node.vectorData?.vectorNetworkBlob !== "number") {
     const d = parametricShapePath(node);
     if (d) {
@@ -3936,8 +2965,6 @@ function emitSvgBody(
       const sy = ns && ns.y ? (h || ns.y) / ns.y : 1;
       const scaled = Math.abs(sx - 1) > 1e-6 || Math.abs(sy - 1) > 1e-6;
       const inner = scaled ? `${indent}  ` : indent;
-      // Arrow end-cap → SVG `<marker>` (SVG strokes have no arrow linecap). It
-      // scales with stroke width and auto-orients to the path's end direction.
       const arrowId =
         net.arrowEnd && strokePaint && strokeWeight > 0
           ? `ah-${guidKey(node.guid).replace(/[^a-z0-9]/gi, "")}`
@@ -3984,8 +3011,6 @@ function emitSvgBody(
   out.push(...lines);
 }
 
-/** Children in paint order, sorted once per parent: every emitted node asks
- *  several times, and a master's children are asked for once per instance. */
 function getChildren(node: FigNode, ctx: Ctx): readonly FigNode[] {
   const key = guidKey(node.guid);
   let sorted = ctx.sortedChildren.get(key);
@@ -4015,20 +3040,12 @@ function buildAttrs(
 ): string[] {
   const attrs: string[] = [];
 
-  // Keep Figma's human name in the same source attribute used by the REST
-  // importer and the Layers projection, so both import paths round-trip.
   if (node.name)
     attrs.push(`data-agent-native-layer-name="${escapeHtmlAttr(node.name)}"`);
 
-  // The node's own Figma id, in the same `sessionID:localID` spelling the REST
-  // importer emits — so a design imported this way is traceable back to Figma
-  // the same way, and so a per-node audit can line this walker's output up
-  // against the REST references frame for frame.
   const nodeId = guidKey(node.guid);
   if (nodeId) attrs.push(`data-figma-node-id="${escapeHtmlAttr(nodeId)}"`);
 
-  // Component metadata: pulled from the SYMBOL master that an INSTANCE renders,
-  // or from the SYMBOL itself when emitting a master directly.
   const symbolForMeta =
     componentSymbol ??
     (node.type === "SYMBOL" || node.type === "INSTANCE" ? node : null);
@@ -4036,9 +3053,6 @@ function buildAttrs(
     const { base, variant } = resolveComponentIdentity(symbolForMeta, ctx);
     if (base) attrs.push(`data-component-name="${escapeHtmlAttr(base)}"`);
     if (variant) attrs.push(`data-variant-name="${escapeHtmlAttr(variant)}"`);
-    // Expose individual variant key/value pairs as parsed JSON so consumers
-    // can read e.g. `Style=Action` directly without re-parsing the variant
-    // string. Mirrors how the figma-plugin surfaces variant props.
     if (variant && /=/.test(variant)) {
       const variantProps: Record<string, string> = {};
       for (const pair of variant.split(/,\s*/)) {
@@ -4073,19 +3087,12 @@ function buildAttrs(
       );
   }
 
-  // `props`: a stringified JSON object of the raw Figma component props on
-  // this node. Includes the prop definitions on a SYMBOL/INSTANCE and the
-  // assignments/refs that override them.
   const rawProps = collectRawProps(node, componentSymbol);
   if (rawProps) {
-    // Use single-quoted attribute value so the inner JSON's double quotes
-    // stay readable (no `&quot;` noise). Escape stray single quotes inside
-    // the JSON for safety.
     const json = JSON.stringify(rawProps).replace(/'/g, "&#39;");
     attrs.push(`props='${json}'`);
   }
 
-  // Per-node annotations (Figma's annotation feature).
   if (Array.isArray(node.annotations) && node.annotations.length > 0) {
     const labels = node.annotations
       .map((a) => htmlToPlain(a.labelV2 || a.label))
@@ -4110,10 +3117,6 @@ function buildAttrs(
     attrs.push(`style="${escapeHtmlAttr(formatStyleString(css))}"`);
   }
 
-  // Stamp data-figma-image-ref on elements whose IMAGE fills have no imageMap
-  // entry. The sentinel placeholder URLs in the style (written by imageUrl())
-  // can then be swapped for real URLs by hydrate-figma-paste-images without a
-  // full re-render. Only active when the caller opts in via trackUnresolvedImageRefs.
   if (ctx.trackUnresolvedImageRefs) {
     const unresolvedHashes = (effectiveFillPaints(node, ctx) ?? [])
       .filter((p) => p.visible !== false && p.type === "IMAGE")
@@ -4129,7 +3132,6 @@ function buildAttrs(
   return attrs;
 }
 
-// Prefer published key (stable across documents) so consumers and the mode→set index agree.
 function canonicalSetId(setNode: FigNode | undefined): string | null {
   if (!setNode) return null;
   if (setNode.key) return `key:${setNode.key}`;
@@ -4137,7 +3139,6 @@ function canonicalSetId(setNode: FigNode | undefined): string | null {
   return null;
 }
 
-// Resolves through the actual set node so the result matches canonicalSetId regardless of reference form.
 function refSetId(ref: VariableSetRef | undefined, ctx: Ctx): string | null {
   const setNode = ref?.assetRef?.key
     ? ctx.byKey.get(ref.assetRef.key)
@@ -4160,8 +3161,6 @@ function lookupVarNode(
   return undefined;
 }
 
-// Boolean vars often carry no variableSetID; owning set is recovered via ctx.modeToSet.
-// Falls back to the first declared value when no active mode applies.
 function resolveVarBool(
   v: FigNode | undefined,
   varModes: Map<string, string>,
@@ -4188,7 +3187,6 @@ function resolveVarBool(
   return false;
 }
 
-// Variant props (e.g. "Arrow position") are stored in symbolOverrides, not just variableModeBySetMap.
 function collectInstanceVarModes(node: FigNode, ctx: Ctx): Map<string, string> {
   const out = new Map<string, string>();
   const apply = (
@@ -4208,8 +3206,6 @@ function collectInstanceVarModes(node: FigNode, ctx: Ctx): Map<string, string> {
   return out;
 }
 
-// Returns undefined when no VISIBLE binding exists (caller falls back to literal `visible`).
-// Masters hide all variant layers by default; the active mode enables exactly one.
 function resolveBoundVisibility(
   node: FigNode,
   varModes: Map<string, string>,
@@ -4244,11 +3240,6 @@ function resolveBoundVisibility(
   return undefined;
 }
 
-/**
- * The node as it renders under its enclosing instances — overrides and prop
- * refs applied — or null when a variable binding, its own flag, an override or
- * a VISIBLE prop hides it.
- */
 function resolveRenderedNode(
   node: FigNode,
   propEnv: Map<string, ResolvedPropValue>,
@@ -4257,10 +3248,6 @@ function resolveRenderedNode(
   varModes: Map<string, string>,
   ctx: Ctx,
 ): FigNode | null {
-  // Variable bindings override the literal flag — masters hide all variant
-  // layers by default and the active mode turns one on. An override or a
-  // VISIBLE prop can likewise show a layer the master hides, so the literal
-  // flag is only read once they have been applied.
   const boundVisible = resolveBoundVisibility(node, varModes, ctx);
   if (boundVisible === false) return null;
   const overridden = applyOverrideLayers(
@@ -4280,26 +3267,8 @@ function emitNode(
   parentIsFlex: boolean,
   lines: string[],
   propEnv: Map<string, ResolvedPropValue> = new Map(),
-  /**
-   * Stack of active symbol-override scopes contributed by enclosing
-   * INSTANCEs. Each layer's keys are descendant guidPaths RELATIVE to where
-   * that instance was entered (matching what Figma stores in
-   * `symbolOverrides[].guidPath` and `derivedSymbolData[].guidPath`).
-   * Lookup uses `instancePath.slice(layer.startIndex)` plus the current
-   * node's overrideKey as the leaf segment.
-   *
-   * Outer layers stay active across nested inner instances so that deep
-   * overrides like `[outerInstanceKey, innerNodeKey]` still match.
-   */
   overrideLayers: OverrideLayer[] = [],
-  /**
-   * Stack of INSTANCE overrideKeys we've descended INTO (i.e., crossed the
-   * instance->master boundary). Plain frame/group nesting does NOT grow this
-   * path. Used together with `overrideLayers` to look up `symbolOverrides` /
-   * `derivedSymbolData` entries that target a descendant by library guidPath.
-   */
   instancePath: string[] = [],
-  /** Active variable mode per set (set id → mode guid) inherited from enclosing INSTANCEs. */
   varModes: Map<string, string> = new Map(),
 ): void {
   if (depth > ctx.maxTreeDepth) {
@@ -4309,7 +3278,6 @@ function emitNode(
   if (ctx.renderedNodeCount > ctx.maxRenderedNodes) {
     throw new Error(".fig render exceeded its expanded-node budget.");
   }
-  // Match smart-export: skip invisible nodes entirely.
   const originalSymbol =
     node.type === "INSTANCE"
       ? ctx.symbolByGuid.get(guidKey(node.symbolData?.symbolID))
@@ -4327,9 +3295,6 @@ function emitNode(
 
   const indent = "  ".repeat(depth);
 
-  // INSTANCE: inline the master SYMBOL's children inside this element so the
-  // implementation is self-contained. Cycle guard: don't recursively inline a
-  // SYMBOL that's already being inlined further up the chain.
   let inlinedSymbol: FigNode | null = null;
   if (node.type === "INSTANCE" && node.symbolData?.symbolID) {
     const symKey = guidKey(node.symbolData.symbolID);
@@ -4340,20 +3305,8 @@ function emitNode(
   }
   const slotContent = inlinedSymbol ? null : slotContentOf(node, propEnv, ctx);
 
-  // When entering an INSTANCE, extend the prop env with its assignments so
-  // descendants (whether the instance's own children or the inlined SYMBOL's
-  // children) see the override values. Likewise build a fresh
-  // symbolOverrides map (overrides scope to a single instance), and reset
-  // the current path so descendant guidPaths are evaluated against the new
-  // master.
   let childPropEnv =
     node.type === "INSTANCE" ? buildPropEnv(node, propEnv) : propEnv;
-  // When entering an INSTANCE that will inline a master, descendants live
-  // one level deeper in the instance-path. Push the new override layer with
-  // startIndex pointing at that future depth so its keys (relative paths
-  // inside this instance's master) are evaluated against an empty prefix at
-  // the master's first level. Outer layers stay active so deeper overrides
-  // from enclosing instances still apply across nested boundaries.
   let childInstancePath =
     node.type === "INSTANCE" && inlinedSymbol
       ? [...instancePath, guidKey(node.overrideKey ?? node.guid)]
@@ -4368,14 +3321,11 @@ function emitNode(
       ];
     }
   }
-  // Slot content is ordinary document content, not part of the enclosing
-  // master: none of the instance's overrides or props address it.
   if (slotContent) {
     childPropEnv = new Map();
     childInstancePath = [];
     childOverrideLayers = [];
   }
-  // Layer this instance's variant prop modes over inherited ones before descending into the master.
   let childVarModes = varModes;
   if (node.type === "INSTANCE") {
     const added = collectInstanceVarModes(node, ctx);
@@ -4385,11 +3335,6 @@ function emitNode(
     }
   }
 
-  // A node is rendered as an SVG when it has its own vector geometry, OR
-  // when it's an INSTANCE of a SYMBOL whose root is itself a vector (e.g.
-  // single-shape icon components). For the latter we paint the master's
-  // geometry inside the instance element so the icon actually shows up
-  // instead of an empty div.
   const selfVector = isVectorLike(node, ctx);
   const symbolVector = !!inlinedSymbol && isVectorLike(inlinedSymbol, ctx);
   const vectorLike = selfVector || symbolVector;
@@ -4399,24 +3344,14 @@ function emitNode(
       ? inlinedSymbol!
       : node;
   const tag = vectorLike ? "svg" : tagFor(node.type);
-  // Children of a flex (autolayout) parent flow normally; otherwise absolute.
-  // A child can opt out of the stack with `stackPositioning: "ABSOLUTE"`
-  // (e.g. a tooltip's caret that overlaps the body): it ignores its parent's
-  // auto-layout and is positioned by its own transform even inside a flex
-  // parent (Figma's "ignore auto layout").
   const isPositioned = !parentIsFlex || node.stackPositioning === "ABSOLUTE";
 
-  // An INSTANCE arranges its children by its master's layout, bar the fields
-  // it overrode (see `withMasterLayout`); a slot by its assigned content's.
   let layoutNode = inlinedSymbol
     ? withMasterLayout(node, inlinedSymbol, originalSymbol ?? inlinedSymbol)
     : slotContent
       ? withSlotLayout(node, slotContent)
       : node;
   const childSource = slotContent ?? inlinedSymbol ?? node;
-  // Children were placed against the size of the node that holds them in the
-  // document — the master, the slot content, or this frame as stored — which
-  // is not the size this node renders at once an instance resized it.
   const children: readonly FigNode[] =
     vectorLike || node.type === "TEXT"
       ? []
@@ -4438,8 +3373,6 @@ function emitNode(
       childVarModes,
       ctx,
     ) !== null;
-  // Figma centres a lone child under "space between"; CSS `space-between`
-  // puts it at the start edge.
   if (
     (layoutNode.stackPrimaryAlignItems === "SPACE_EVENLY" ||
       layoutNode.stackPrimaryAlignItems === "SPACE_BETWEEN") &&
@@ -4449,32 +3382,15 @@ function emitNode(
   ) {
     layoutNode = { ...layoutNode, stackPrimaryAlignItems: "CENTER" };
   }
-  // If any rendered child ignores auto-layout (position: absolute), this
-  // container must establish a positioning context so the child is offset
-  // relative to it. Check the actually-rendered children (the inlined
-  // master's, for an INSTANCE).
   const childrenOfSource = ctx.childrenOf.get(guidKey(childSource.guid)) ?? [];
   const hasAbsoluteChild =
     childrenOfSource.some((c) => c.stackPositioning === "ABSOLUTE") ||
-    // Non-autolayout frames/instances that are NOT themselves absolutely
-    // positioned need position:relative so their absolutely-positioned children
-    // (all children in non-flex mode) are offset relative to THIS element, not
-    // the nearest positioned ancestor further up the tree (e.g. <html> for
-    // top-level frames). Without this, children near the bottom of a frame
-    // escape the frame's overflow:hidden box and appear at wrong viewport coords.
     (!isPositioned &&
       (!layoutNode.stackMode || layoutNode.stackMode === "NONE") &&
       childrenOfSource.length > 0);
-  // A container whose drop shadow must wrap an overflowing absolute child
-  // (e.g. a tooltip caret) needs `filter: drop-shadow()` rather than
-  // `box-shadow`, which would only trace the body's box. Children render from
-  // the inlined master for an INSTANCE.
   const shadowAsFilter = getChildren(childSource, ctx).some(
     (c) => c.stackPositioning === "ABSOLUTE" && c.visible !== false,
   );
-  // Paint layers CSS cannot express in the background stack render as the
-  // node's first children instead; see `paintOverlayMarkup`. Strokes drawn as
-  // layers render as its last, above the real children.
   const paintOverlays: string[] = [];
   const strokeOverlays: string[] = [];
   const attrs = buildAttrs(
@@ -4493,19 +3409,10 @@ function emitNode(
     strokeOverlays,
   );
   if (vectorLike) {
-    // viewBox prefers the geometry source node's intrinsic size so the
-    // SVG draws correctly when the instance is scaled differently from
-    // the master.
     const vw = vectorSourceNode.size?.x ?? node.size?.x ?? 0;
     const vh = vectorSourceNode.size?.y ?? node.size?.y ?? 0;
-    // A viewBox with a 0 (or sub-pixel, rounds-to-0) dimension is degenerate —
-    // the browser can't map coordinates and drops the whole SVG. Horizontal /
-    // vertical line vectors have exactly this shape (one dimension ~0), so emit
-    // a viewBox only when both dimensions survive rounding; otherwise the SVG
-    // paints its geometry at native 1:1 coords under `overflow: visible`.
     if (num(vw)! > 0 && num(vh)! > 0) {
       attrs.push(`viewBox="0 0 ${num(vw)} ${num(vh)}"`);
-      // Figma stretches vector geometry with its box; the SVG default letterboxes.
       attrs.push(`preserveAspectRatio="none"`);
     }
     attrs.push(`xmlns="http://www.w3.org/2000/svg"`);
@@ -4514,8 +3421,6 @@ function emitNode(
 
   const isFlex = layoutNode.stackMode && layoutNode.stackMode !== "NONE";
 
-  // Single HTML comment above the element with component name + description
-  // + doc links, when present. (Same metadata is also on data-* attrs.)
   const symbolForMeta = inlinedSymbol ?? (node.type === "SYMBOL" ? node : null);
   if (symbolForMeta) {
     const desc = htmlToPlain(symbolForMeta.description);
@@ -4524,7 +3429,6 @@ function emitNode(
       const parts = [
         `Component: ${(symbolForMeta.name ?? "<unnamed>").replace(/--/g, "\u2013")}`,
       ];
-      // HTML comments must not contain "--" — replace any with an en-dash.
       if (desc) parts.push(desc.replace(/--/g, "\u2013"));
       if (links.length > 0) parts.push(`docs: ${links.join(", ")}`);
       lines.push(`${indent}<!-- ${parts.join(" \u2014 ")} -->`);
@@ -4542,8 +3446,6 @@ function emitNode(
     emitOpenWithChildren(tag, attrs, indent, lines, paintOverlays);
     const stored = textCharacters(node);
     const chars = withoutPrivateUse(stored);
-    // Outlines replace the whole text, so only icon-only text takes them: a
-    // label beside a symbol stays live text the editor and agent can read.
     const outlines =
       chars !== stored && chars.trim() === ""
         ? glyphOutlineSvg(node, ctx)
@@ -4558,12 +3460,8 @@ function emitNode(
       );
     }
     if (!outlines && chars.length > 0) {
-      // Preserve newlines in the source by splitting into <br>-separated lines
-      // (HTML otherwise collapses whitespace).
       const runs = textStyleRuns(node, ctx);
       const toHtml = (s: string) => escapeHtmlText(s).replace(/\n/g, "<br>");
-      // Per-character style runs → one <span> per run; base runs inherit the
-      // element's style, overridden runs carry their own.
       let html =
         runs.length <= 1
           ? toHtml(chars)
@@ -4604,15 +3502,7 @@ function emitNode(
       return;
     }
     emitOpenWithChildren(tag, attrs, indent, lines, paintOverlays);
-    // When inlining a SYMBOL, its child positions are relative to the SYMBOL's
-    // own frame, which now coincides with this INSTANCE's frame. So they keep
-    // their original transforms.
     const childParentIsFlex = !!isFlex;
-    // `relayoutResizedChildren` puts the master's children into the
-    // INSTANCE's coordinate space, so the parent the constraint code measures
-    // against has to be that size too — otherwise a MAX or STRETCH child
-    // resolves its end edge against the component's width and lands outside.
-    // It keeps the children's source guid, which is how siblings are found.
     const childParentNode =
       childSource === node
         ? layoutNode
@@ -4621,10 +3511,6 @@ function emitNode(
             guid: childSource.guid,
             size: node.size ?? childSource.size,
           };
-    // A Figma mask clips the siblings painted after it, up to the next mask,
-    // and is never drawn itself. `openMaskRun` tracks the wrapper holding the
-    // current run so it closes before the next mask opens one and before the
-    // parent's own closing tag.
     let openMaskRun = false;
     const closeMaskRun = () => {
       if (!openMaskRun) return;
@@ -4645,9 +3531,6 @@ function emitNode(
           continue;
         }
         if (childParentIsFlex) {
-          // The wrapper must be out of flow to keep the clip in the parent's
-          // coordinate space, and taking it out of flow inside an auto-layout
-          // parent would pull the run out of the stack it belongs to.
           recordApproximation(
             child,
             ctx,
@@ -4694,7 +3577,6 @@ function emitOpenWithChildren(
   attrs: string[],
   indent: string,
   lines: string[],
-  /** Absolutely-positioned paint children, emitted before the real ones. */
   overlays?: string[],
 ): void {
   const withOverlays = (): void => {
@@ -4705,7 +3587,6 @@ function emitOpenWithChildren(
     withOverlays();
     return;
   }
-  // Single-line for short attribute lists; multi-line otherwise.
   const oneLine = `${indent}<${tag} ${attrs.join(" ")}>`;
   if (attrs.length <= 2 && oneLine.length <= 200) {
     lines.push(oneLine);
@@ -4718,11 +3599,6 @@ function emitOpenWithChildren(
   withOverlays();
 }
 
-/**
- * Build a Google Fonts CSS2 URL from the set of font family/weight/italic
- * combos collected while emitting a frame. Returns null when no fonts are
- * recorded.
- */
 function buildGoogleFontsUrl(fontUsage: Set<string>): string | null {
   if (fontUsage.size === 0) return null;
   const byFamily = new Map<
@@ -4760,7 +3636,6 @@ function buildGoogleFontsUrl(fontUsage: Set<string>): string | null {
 }
 
 function emitFrameTemplate(frame: FigNode, ctx: Ctx, pageName: string): string {
-  // Reset per-frame font usage; emitNode populates it via textStyles.
   ctx.fontUsage.clear();
   const bodyLines: string[] = new BudgetedLines(ctx.maxFrameOutputBytes);
   emitNode(frame, null, ctx, 1, true, bodyLines, new Map(), [], []);
@@ -4776,22 +3651,10 @@ function emitFrameTemplate(frame: FigNode, ctx: Ctx, pageName: string): string {
   lines.push(
     `  <title>${escapeHtmlText(`${pageName} \u2014 ${frame.name ?? "frame"}`)}</title>`,
   );
-  // Figma sizes are border-box (stroke INSIDE; size includes padding + border).
-  // Default CSS content-box would inflate every explicit width/height/min-size
-  // by the padding + border, so normalize to border-box.
   lines.push(
-    // `text-rendering: geometricPrecision` for the same reason the REST import
-    // sets it: Figma lays glyphs out on exact outlines while the browser hints
-    // them by default, snapping stems to the pixel grid and nudging advances.
-    // That is right for body text on a web page and wrong for reproducing a
-    // design tool, and it is why this walker trailed the REST one on every
-    // case that has text even where the geometry already matched node for node.
     "  <style>*, *::before, *::after { box-sizing: border-box; } body { margin: 0; padding: 0; }" +
       " * { text-rendering: geometricPrecision; }</style>",
   );
-  // Custom font families used by the frame -> request them from Google
-  // Fonts. (Smart-export does the same for design hand-off so the layout
-  // renders with the intended typography.)
   const fontsUrl = buildGoogleFontsUrl(ctx.fontUsage);
   if (fontsUrl) {
     lines.push('  <link rel="preconnect" href="https://fonts.googleapis.com">');
@@ -4831,15 +3694,11 @@ export interface RenderedFrame {
   pageName: string;
   pageDirName: string;
   frameName: string;
-  /** Sanitized + de-duplicated filename including the `.html` extension. */
   fileName: string;
-  /** Path relative to the render root, e.g. `page-1/login.html`. */
   relativePath: string;
   html: string;
   width?: number;
   height?: number;
-  /** Top-left of the frame's bounding box on its page, in the same space as
-   *  width/height; sections are flattened. Consumers normalize. */
   x: number;
   y: number;
   nodeKey: string;
@@ -4856,29 +3715,16 @@ export interface RenderHtmlResult {
   pageCount: number;
   frameCount: number;
   frames: RenderedFrame[];
-  /** Populated when `trackUnresolvedImageRefs` is true in RenderHtmlOptions. */
   unresolvedImageRefs?: Set<string>;
-  /** Approximated nodes collected during rendering. */
   approximatedNodes: RenderHtmlFidelityEntry[];
 }
 
 export interface RenderHtmlOptions {
-  /** Optional prefix for image url() references (default: "../images") */
   imageRefBase?: string;
-  /** Pre-built `hash -> filename` map for image references. */
   imageMap?: Map<string, string>;
-  /** Intrinsic pixel size per image hash, from the decoded image bytes. */
   imageSizes?: Map<string, { width: number; height: number }>;
-  /** Safe URL used when an embedded image was omitted (for example no storage provider). */
   missingImageUrl?: string;
-  /**
-   * When true, any node whose IMAGE fill hash is absent from `imageMap` gets a
-   * `data-figma-image-ref="<hexHash>"` attribute stamped on its rendered element.
-   * The collected set is returned as `unresolvedImageRefs` in the result so
-   * callers know which hashes need retroactive resolution.
-   */
   trackUnresolvedImageRefs?: boolean;
-  /*** Optional set of page (CANVAS) and/or frame GUID keys */
   selection?: Set<string>;
   maxFrames?: number;
   maxRenderedNodes?: number;
@@ -4895,23 +3741,6 @@ const DEFAULT_MAX_TOTAL_OUTPUT_BYTES = 24 * 1024 * 1024;
 
 const TOP_LEVEL_RENDERABLE_TYPES = new Set(["FRAME", "SYMBOL", "INSTANCE"]);
 
-/**
- * Collect the renderable top-level units on a page. Figma allows SECTION
- * nodes (and nested sections) to wrap frames; sections are organizational
- * containers, not standalone designs, so we recurse THROUGH them and
- * collect the frames inside. Anything that isn't a SECTION or a
- * renderable type is ignored.
- *
- * The traversal itself walks children in `parentIndex.position` order (the
- * layer stacking/creation order), but that has no necessary relation to how
- * frames are actually laid out on the canvas — a designer can duplicate or
- * reorder frames in the layers panel without moving them, or create later
- * frames to the LEFT of earlier ones. Once collected, the top-level frames
- * are re-sorted by the minimum X/Y of their transformed canvas bounds (then
- * the traversal order for exact ties) so multi-frame flows import left-to-right
- * in the same reading order they have in Figma, instead of in creation/layer
- * order.
- */
 export function collectTopLevelFrames(
   parent: FigNode,
   childrenOf: Map<string, FigNode[]>,
@@ -5022,13 +3851,7 @@ function collectTopLevelFrameBounds(
     .sort((a, b) => a.x - b.x || a.y - b.y || a.index - b.index)
     .map(({ node, x, y }) => ({ node, x, y }));
 }
-// Maps a Figma `variableField` (on a node's variableConsumptionMap entry) to
-// the literal FigNode field it overrides. Only layout-affecting numeric fields
-// are listed — colors/text tokens are resolved elsewhere or left as baked.
 const VARIABLE_FIELD_TO_PROP: Record<string, keyof FigNode> = {
-  // Kiwi keeps the LEFT and TOP padding in `stackHorizontalPadding` /
-  // `stackVerticalPadding` (see `autolayoutStyles`); `stackPaddingLeft/Top`
-  // are never read, so a binding resolved into them did nothing.
   STACK_PADDING_LEFT: "stackHorizontalPadding",
   STACK_PADDING_RIGHT: "stackPaddingRight",
   STACK_PADDING_TOP: "stackVerticalPadding",
@@ -5068,8 +3891,6 @@ function resolveVariableBindings(
   byGuid: Map<string, FigNode>,
   byKey: Map<string, FigNode>,
 ): void {
-  // Published variables indexed by name. A name shared by multiple published
-  // variables is ambiguous (stored as null) and never used for redirection.
   const publishedByName = new Map<string, FigNode | null>();
   for (const n of nodes) {
     if (n.type !== "VARIABLE" || !n.key || !n.name) continue;
@@ -5087,7 +3908,6 @@ function resolveVariableBindings(
       : alias?.assetRef?.key
         ? byKey.get(alias.assetRef.key)
         : undefined;
-    // Redirect a stale local variable to its unique published counterpart.
     if (direct && !direct.key && direct.name) {
       const published = publishedByName.get(direct.name);
       if (published) return published;
@@ -5100,9 +3920,6 @@ function resolveVariableBindings(
     return undefined;
   };
 
-  // Active mode for a variable's owning set. `explicit` is true when the mode
-  // came from a `variableModeBySetMap` entry on the consumer or an ancestor;
-  // false when we fell back to the set's first declared mode (a guess).
   const activeModeForSet = (
     consumer: FigNode,
     setId: string,
@@ -5121,9 +3938,6 @@ function resolveVariableBindings(
     return { mode: null, explicit: false };
   };
 
-  // Resolve the alias chain to a number, tracking whether every mode choice
-  // was made with confidence (explicit override, or an unambiguous single-mode
-  // set) so a present literal can be safely overwritten.
   const resolve = (
     value: VariableValue | undefined,
     consumer: FigNode,
@@ -5194,8 +4008,6 @@ export function renderHtmlTemplates(
   };
   const nodes = doc.nodeChanges ?? [];
 
-  // The decoder hands blobs over as bytes (Buffer is a Uint8Array). Anything
-  // else would silently erase every path that indexes it, so it is refused.
   const blobs: Uint8Array[] = (doc.blobs ?? []).map((b) => {
     const v = b?.bytes;
     if (v === undefined) return new Uint8Array(0);
@@ -5232,9 +4044,6 @@ export function renderHtmlTemplates(
     arr.push(n);
   }
 
-  // Bake variable-bound layout values (padding/radius/spacing/border) into the
-  // literal fields the renderer reads, before any rendering or master/instance
-  // composition consults them.
   resolveVariableBindings(nodes, byGuid, byKey);
 
   const ctx: Ctx = {

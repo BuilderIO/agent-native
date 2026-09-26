@@ -1,9 +1,3 @@
-/**
- * List top viewers of a recording by watch time.
- *
- * Usage:
- *   pnpm action list-viewers --recordingId=<id> [--limit=12]
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";

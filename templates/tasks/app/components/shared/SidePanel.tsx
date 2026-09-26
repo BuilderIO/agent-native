@@ -8,9 +8,6 @@ import { cn } from "@/lib/utils";
 const AGENT_SIDEBAR_WIDTH_KEY = "agent-native-sidebar-width";
 const DEFAULT_AGENT_SIDEBAR_WIDTH = 380;
 
-/** Match AgentSidebar width so app-owned panels sit flush on the right edge.
- *  Uses the same localStorage key the framework writes on resize (280–700px).
- *  Reads once on mount only — live agent-sidebar drags do not update this hook. */
 function useAgentSidebarWidth() {
   const [width, setWidth] = useState(DEFAULT_AGENT_SIDEBAR_WIDTH);
 

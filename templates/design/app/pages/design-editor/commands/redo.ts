@@ -142,7 +142,6 @@ export interface RedoArgs {
   allowPendingLiveEdits?: boolean;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
-  /** See UndoArgs's matching field doc comment (undo.ts). */
   codeLayerOwnerByNodeIdRef: RefObject<Map<string, { node: CodeLayerNode }>>;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
   contentRedoSelectionStackRef: RefObject<
@@ -484,8 +483,6 @@ export function runRedo({
   };
   trace("history", "redo", {});
   if (!canEditDesign && !allowPendingLiveEdits) return;
-  // U10: see the matching guard in handleUndo — don't redo into a document
-  // state an in-progress, uncommitted drag is about to overwrite anyway.
   if (activeEditorDragRef.current) return;
   if (fileHistoryMutationPendingRef.current) return;
   resetGeometryCommitCoalescing?.();
@@ -530,10 +527,6 @@ export function runRedo({
     const redoSourceEdit =
       pendingLiveStructureRedoSourceEdit(pendingNonStyleRedo);
     const redoCommand = pendingStructureRedoCommand(redoSourceEdit);
-    // A removal has no bridge echo to wait for: re-issuing the delete under
-    // the same requestId is the whole replay, so move the entry back onto
-    // the undo stack here instead of arming pendingStructureRedoReplayRef
-    // for a `visual-structure-change` that will never arrive.
     if (redoCommand.kind === "delete") {
       const redoneEdit = pendingNonStyleRedo.edit;
       if (
@@ -765,10 +758,6 @@ export function runRedo({
       ],
     });
     setPendingLiveNonStyleEdits(nextPending);
-    // Bug fix — same stale-inspector-panel issue as handleUndo. Redo
-    // reapplies pendingTextRedo.edit.value/html via
-    // setPendingTextRevertRequest above, but never resynced
-    // selectedElement, so resync with the same values here.
     if (pendingTextRedo.edit.screenId === activeFile?.id) {
       const {
         sourceId: redoneSourceId,
@@ -843,9 +832,6 @@ export function runRedo({
       setPendingVisualStyleBaselineResetRequest?.(requestId);
     }
     setPendingVisualStyleEdits(nextPending);
-    // Keep the inspector cache in sync with the replay request. Runtime
-    // messages are asynchronous, so this is intentionally optimistic just
-    // like the forward live-style path.
     setSelectedElement((prev) => {
       if (!prev) return prev;
       const redoneTarget = redoneTargets.find(
@@ -943,13 +929,6 @@ export function runRedo({
     if (scope !== "global" && um?.canRedo()) {
       const beforeRedoContent = ydoc?.getText("content").toJSON();
       const redoneItem = um.redo();
-      // Figma parity: redo re-selects whatever the original gesture left
-      // selected (the new group, the pasted copy, the duplicate) — see the
-      // matching note on the geometry branch below and
-      // stampYjsUndoSelectionAfter's doc comment. Overrides the
-      // refresh-from-content heuristic, which can only ever keep or drop
-      // whatever is CURRENTLY selected and has no way to reach forward to a
-      // node that didn't exist until this redo created it.
       const restoredAfterSelection = readYjsRedoSelection(redoneItem);
       if (ydoc && activeFile && beforeRedoContent !== undefined) {
         const ytext = ydoc.getText("content");
@@ -973,10 +952,6 @@ export function runRedo({
           expectedVersionHash: sourceContentHash(beforeRedoContent),
           syncCollab: !(ydoc && isSynced),
         });
-        // Holistic flash pipeline: see the matching comment in handleUndo —
-        // only fall back to a full srcdoc rebuild when the in-place bridge
-        // patch genuinely failed, instead of always reloading the iframe on
-        // top of an already-successful in-place replace.
         if (
           previewContentReplaceNeedsRenderFallback(
             replacePreviewContent(next, null, {
@@ -986,7 +961,6 @@ export function runRedo({
         ) {
           setContentRenderRevision((revision) => revision + 1);
         }
-        // Clear stale selection if the redo removed the selected element.
         setSelectedElement((prev) => {
           if (restoredAfterSelection)
             return resolveLocalHistorySelection(
@@ -1007,7 +981,6 @@ export function runRedo({
             fileId: activeFile.id,
           });
         });
-        // U18: keep the layers-panel highlight in sync too.
         setSelectedLayerIdsState((prev) =>
           restoredAfterSelection
             ? resolveLocalHistorySelection(
@@ -1020,8 +993,6 @@ export function runRedo({
                 fileId: activeFile.id,
               }),
         );
-        // Restore the local fallback mirror (see U3) that undoContent()
-        // dropped, so it survives a UndoManager teardown right after redo.
         if (
           typeof beforeRedoContent === "string" &&
           beforeRedoContent !== next
@@ -1058,8 +1029,6 @@ export function runRedo({
             ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
             "content",
           ];
-          // U20: route a live-snapshot screen's replay through
-          // updateLiveScreenSnapshotContent — see the matching note above.
           if (liveScreenSnapshotsById[entry.fileId]) {
             updateLiveScreenSnapshotContent(entry.fileId, entry.after, {
               recordHistory: false,
@@ -1087,7 +1056,6 @@ export function runRedo({
               fileId: entry.fileId,
             });
           });
-          // U18: keep the layers-panel highlight in sync too.
           setSelectedLayerIdsState((prev) =>
             refreshSelectedLayerIdsFromContent(entry.after, prev, {
               kind: "design-file",
@@ -1110,13 +1078,6 @@ export function runRedo({
       contentRedoSelectionStackRef.current[
         contentRedoSelectionStackRef.current.length - 1
       ];
-    // Figma parity: redo re-selects whatever the original gesture left
-    // selected (the new group, the pasted copy, the duplicate) when it
-    // stamped one — see ContentHistorySelectionAfterMap's doc comment for
-    // why this is a lookup by the entry's own object identity rather than a
-    // second index-aligned slot, and why it silently falls back to the
-    // pre-gesture `entrySelection` (this stack's pre-existing redo
-    // behavior) once that identity no longer survives a rebuild.
     const entrySelectionAfter =
       contentHistorySelectionAfterRef.current.get(entry) ?? entrySelection;
     const { available: changes, remainder } = partitionContentHistoryEntry(
@@ -1150,9 +1111,6 @@ export function runRedo({
     try {
       for (const change of changes) {
         if (change.before === change.after) continue;
-        // U20: see the matching note in handleUndo — route a live-snapshot
-        // screen's replay through updateLiveScreenSnapshotContent instead
-        // of the regular content path.
         if (liveScreenSnapshotsById[change.fileId]) {
           acceptedContents.set(change.fileId, change.after);
           updateLiveScreenSnapshotContent(change.fileId, change.after, {
@@ -1257,7 +1215,6 @@ export function runRedo({
           fileId: activeChange.fileId,
         });
       });
-      // U18: keep the layers-panel highlight in sync too.
       setSelectedLayerIdsState((prev) =>
         refreshSelectedLayerIdsFromContent(activeChange.after, prev, {
           kind: "design-file",
@@ -1277,9 +1234,6 @@ export function runRedo({
     if (!canUseOverviewHistory) return false;
     const entry = geometryRedoStackRef.current.pop();
     if (!entry) return false;
-    // Freshness guard: when this entry was undone it wrote `entry.before`. If
-    // a peer/agent has since moved any touched frame, replaying `entry.after`
-    // would clobber that change — drop this entry and try the next redo.
     const stale = staleGeometryFrameIds(
       entry,
       liveFrameGeometryRef.current,
@@ -1301,8 +1255,6 @@ export function runRedo({
       ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
       "geometry",
     ];
-    // U11: see the matching undoGeometry note — merge this entry's diff
-    // onto the current live map instead of replacing it wholesale.
     writeFrameGeometrySnapshot(
       applyGeometryHistoryDiff(
         getCanvasFrameGeometry(designDataJsonRef.current),
@@ -1317,9 +1269,6 @@ export function runRedo({
         ),
       },
     );
-    // Figma parity: redo re-selects whatever was selected when this
-    // gesture's change was originally made (i.e. the selection AFTER the
-    // gesture committed, matching what undo just took away).
     if (entry.linkedContentChanges?.length) {
       applyGeometryHistoryContentChanges?.(entry.linkedContentChanges, "redo");
     }
@@ -1334,8 +1283,6 @@ export function runRedo({
     );
     return true;
   };
-  // Figma parity (ground-truth Round 4): redo a plain selection change — see
-  // SelectionHistoryEntry's doc comment and undo.ts's undoSelection.
   const redoSelection = () => {
     if (!canUseOverviewHistory) return false;
     const entry = selectionRedoStackRef.current.pop();
@@ -1351,10 +1298,6 @@ export function runRedo({
     restoreHistorySelection(entry.after);
     return true;
   };
-  // U12: redo a screen create/duplicate by recreating the file with the
-  // same filename/content/fileType and restoring its recorded geometry.
-  // This is async (createFileMutation), unlike every other redo path here, so
-  // keep history pending until both the file and its metadata persist.
   const redoFileCreation = () => {
     if (!canUseOverviewHistory) return false;
     const redoStack = fileCreationRedoStackRef.current;
@@ -1779,13 +1722,6 @@ export function runRedo({
         break;
       }
       if (didRedo) {
-        // Figma parity (ground-truth Round 4, Part B): redoing a real edit
-        // consumes any selection-only step still sitting above it on the
-        // redo ledger instead of replaying it — undo walked back through
-        // that trailing selection change, but redo does not reconstruct it.
-        // `preferred` can only route to redoSelection() when it is exactly
-        // "selection" (see redoByOrder above), so anything else here means a
-        // real edit was what just redid.
         if (preferred !== "selection") {
           while (
             redoOrderRef.current[redoOrderRef.current.length - 1] ===

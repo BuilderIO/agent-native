@@ -28,17 +28,12 @@ import { getRequestContext } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { resolveBuilderStatus } from "../shared/builder-app.js";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
-/** The default Builder app host — mirrors the constant in builder-browser.ts. */
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 
-/** Resolve the Builder app host from env, matching core builder-browser.ts. */
 function resolveBuilderAppHost(): string {
   return (
     process.env.BUILDER_APP_HOST ||
@@ -47,19 +42,11 @@ function resolveBuilderAppHost(): string {
   );
 }
 
-/**
- * Build the connect URL for the current deployment's origin.
- * Mirrors the shape returned by `getBuilderBrowserConnectUrl` in core, but
- * without requiring the H3 event — uses the request-context origin instead.
- */
 function buildConnectUrl(origin: string): string {
   const base = origin.replace(/\/+$/, "");
   return `${base}/_agent-native/builder/connect`;
 }
 
-// ---------------------------------------------------------------------------
-// Action
-// ---------------------------------------------------------------------------
 
 export default defineAction({
   description:
@@ -79,8 +66,6 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async ({ designId }) => {
-    // Require at least viewer access so unauthenticated callers cannot
-    // probe Builder connection state.
     const access = await resolveAccess("design", designId);
     if (!access) {
       throw new Error("Design not found");
@@ -88,15 +73,11 @@ export default defineAction({
 
     const status = await resolveBuilderStatus();
 
-    // Resolve the connect URL from the current request origin so it points
-    // to this exact deployment (same origin as the signed connect token the
-    // server mints for cli-auth flows).
     const origin = getRequestContext()?.requestOrigin ?? "";
     const connectUrl = buildConnectUrl(origin);
 
     const appHost = resolveBuilderAppHost();
 
-    // Surface the env-level branch project id for informational use only.
     // (Credential values are never included.)
     const branchProjectId =
       status.branchProjectId || getBuilderBranchProjectId() || undefined;
@@ -146,7 +127,6 @@ export default defineAction({
       };
     }
 
-    // Fully configured — ready for migration.
     return {
       connected: true,
       builderEnabled: true,

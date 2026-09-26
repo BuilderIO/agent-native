@@ -8,9 +8,6 @@ import { RecordingTagsBar } from "./recording-tags-bar";
 
 const mocks = vi.hoisted(() => ({
   calls: [] as { recordingId: string; tag: string; op: string }[],
-  // Writes stay unsettled until a test settles them, so an assertion can run
-  // while one is genuinely in flight. A mock that resolves synchronously makes
-  // every ordering question in this component untestable.
   inflight: [] as {
     promise: Promise<unknown>;
     resolve: () => void;
@@ -51,7 +48,6 @@ vi.mock("sonner", () => ({
   toast: { error: (...args: unknown[]) => mocks.toastError(...args) },
 }));
 
-// The bar's own logic is the subject here — TagInput has its own surface.
 vi.mock("@/components/library/tag-input", () => ({
   TagInput: ({
     value,
@@ -102,11 +98,6 @@ function render(props: Partial<React.ComponentProps<typeof RecordingTagsBar>>) {
   });
 }
 
-/**
- * Drive TagInput's onChange with the next tag array, then let the per-tag
- * queue dispatch: even the first write goes through a promise chain, so it
- * reaches the action a microtask after the click.
- */
 async function emit(next: string[]) {
   const button = container.querySelector<HTMLButtonElement>(
     "[data-testid=tag-input]",
@@ -124,7 +115,6 @@ function shown() {
     ?.getAttribute("data-value");
 }
 
-/** Settle writes currently in flight and let any queued work dispatch. */
 async function settle(count = mocks.inflight.length) {
   const batch = mocks.inflight.splice(0, count);
   await act(async () => {
@@ -171,16 +161,12 @@ describe("RecordingTagsBar", () => {
     await emit(["alpha", "beta"]);
     expect(shown()).toBe("alpha,beta");
 
-    // The write succeeds but invalidation has not returned yet, so the prop is
-    // still the pre-edit set. The tag must not blink out.
     await settle();
     expect(shown()).toBe("alpha,beta");
 
-    // It survives further stale renders too.
     render({ canEdit: true, tags: ["alpha"] });
     expect(shown()).toBe("alpha,beta");
 
-    // Once the server agrees, the overlay is forgotten and the prop rules.
     render({ canEdit: true, tags: ["alpha", "beta"] });
     expect(shown()).toBe("alpha,beta");
   });
@@ -193,19 +179,15 @@ describe("RecordingTagsBar", () => {
     render({ canEdit: true, tags: ["alpha", "beta"] });
     expect(shown()).toBe("alpha,beta");
 
-    // Someone else removes beta. The intention has been forgotten, so our
-    // overlay must not resurrect it.
     render({ canEdit: true, tags: ["alpha"] });
     expect(shown()).toBe("alpha");
   });
 
   it("queues opposing writes for the same tag instead of racing them", async () => {
     render({ canEdit: true, tags: ["alpha"] });
-    await emit([]); // remove alpha
-    await emit(["alpha"]); // re-add it before the remove has settled
+    await emit([]);
+    await emit(["alpha"]);
 
-    // Only the first is dispatched; the second waits its turn, so the server
-    // cannot apply them in the opposite order.
     expect(mocks.calls).toEqual([
       { recordingId: "rec_1", tag: "alpha", op: "remove" },
     ]);
@@ -221,9 +203,8 @@ describe("RecordingTagsBar", () => {
 
   it("ignores a stale failure from a recording switched away from", async () => {
     render({ canEdit: true, tags: [] });
-    await emit(["shared"]); // write for rec_1, unsettled
+    await emit(["shared"]);
 
-    // rec_2 legitimately has a tag of the same name.
     render({ canEdit: true, recordingId: "rec_2", tags: ["shared"] });
     expect(shown()).toBe("shared");
 
@@ -238,15 +219,12 @@ describe("RecordingTagsBar", () => {
 
   it("a stale failure must not roll back the new recording's own edit", async () => {
     render({ canEdit: true, tags: [] });
-    await emit(["shared"]); // rec_1 write for "shared", unsettled
+    await emit(["shared"]);
 
-    // The same tag name is then added on a different recording.
     render({ canEdit: true, recordingId: "rec_2", tags: [] });
     await emit(["shared"]);
     expect(shown()).toBe("shared");
 
-    // rec_1's write fails. It must not cancel rec_2's pending intention just
-    // because the tag happens to be spelled the same.
     const stale = mocks.inflight.splice(0, 1)[0];
     await act(async () => {
       stale.reject(new Error("nope"));
@@ -258,10 +236,10 @@ describe("RecordingTagsBar", () => {
 
   it("ignores a stale completion while the new recording has its own edit", async () => {
     render({ canEdit: true, tags: [] });
-    await emit(["old"]); // rec_1 write, unsettled
+    await emit(["old"]);
 
     render({ canEdit: true, recordingId: "rec_2", tags: ["keepme"] });
-    await emit(["keepme", "fresh"]); // rec_2 write, unsettled
+    await emit(["keepme", "fresh"]);
     expect(shown()).toBe("keepme,fresh");
 
     const stale = mocks.inflight.splice(0, 1)[0];
@@ -292,20 +270,16 @@ describe("RecordingTagsBar", () => {
 
   it("forgets an intention the server already satisfies, even if its value never changed", async () => {
     render({ canEdit: true, tags: [] });
-    await emit(["x"]); // add x  — op1
-    await emit([]); //    remove x — op2, queued behind op1
+    await emit(["x"]);
+    await emit([]);
 
-    // op1 fails. The rollback must not fire (x's outstanding intention is now
-    // "remove"), so the overlay keeps {x: remove}.
     const first = mocks.inflight.splice(0, 1)[0];
     await act(async () => {
       first.reject(new Error("nope"));
       await Promise.allSettled([first.promise]);
     });
-    // op2 succeeds, but removing an absent tag leaves the server unchanged.
     await settle();
 
-    // Someone else now adds x. The stale "remove" must not hide it.
     render({ canEdit: true, tags: ["x"] });
     expect(shown()).toBe("x");
   });

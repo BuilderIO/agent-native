@@ -108,8 +108,6 @@ function attemptCreatePrimitive(
       setRuntimeStructureInsertRequest: () => {},
       t: (key) => key,
       viewModeRef: { current: "single" },
-      // The creation command uses these to resolve the exact active screen
-      // iframe before deciding whether the selected host is computed flow.
       activeBreakpointWidthState: undefined,
       overviewScreens: [
         {

@@ -6,16 +6,6 @@ import { getDb, schema } from "../server/db/index.js";
 import type { PlanContent } from "../shared/plan-content.js";
 import createVisualPlan from "./create-visual-plan.js";
 
-/**
- * DEV-ONLY one-off seed: creates a real, persisted plan packed with `tabs`
- * blocks in `orientation: "vertical"` so the vertical side-rail layout can be
- * exercised by hand. Covers the cases most likely to surface bugs: a baseline,
- * a long tab list that should scroll the rail, very long labels that should
- * truncate, tabs full of heavy nested blocks, a single-tab edge case, a
- * horizontal block for side-by-side comparison, and tabs nested inside tabs.
- * Made public so it opens at /plans/<id> without a session. Run against a
- * throwaway local PGlite database; safe to delete.
- */
 
 const SAMPLE_TS = `export function renderTab(tab: TabsTab, active: boolean) {
   return (
@@ -54,7 +44,6 @@ const DIFF_AFTER = `<div className={cx(
   ))}
 </div>`;
 
-// Ten tabs to exercise the scrollable side rail (max-h-[62vh] + overflow-y-auto).
 const manyTabs = Array.from({ length: 10 }, (_, i) => {
   const n = i + 1;
   return {
@@ -96,7 +85,6 @@ const content: PlanContent = {
       },
     },
 
-    // 1 — Baseline
     {
       id: "h-basic",
       type: "rich-text",
@@ -158,7 +146,6 @@ const content: PlanContent = {
       },
     },
 
-    // 2 — Long list (scrollable rail)
     {
       id: "h-many",
       type: "rich-text",
@@ -176,7 +163,6 @@ const content: PlanContent = {
       },
     },
 
-    // 3 — Long labels (truncation)
     {
       id: "h-long",
       type: "rich-text",
@@ -233,7 +219,6 @@ const content: PlanContent = {
       },
     },
 
-    // 4 — Heavy nested content
     {
       id: "h-heavy",
       type: "rich-text",
@@ -378,7 +363,6 @@ const content: PlanContent = {
       },
     },
 
-    // 5 — Single tab edge case
     {
       id: "h-single",
       type: "rich-text",
@@ -411,7 +395,6 @@ const content: PlanContent = {
       },
     },
 
-    // 6 — Horizontal comparison
     {
       id: "h-horizontal",
       type: "rich-text",
@@ -472,7 +455,6 @@ const content: PlanContent = {
       },
     },
 
-    // 7 — Nested tabs
     {
       id: "h-nested",
       type: "rich-text",
@@ -579,9 +561,6 @@ export default defineAction({
     } as never)) as { planId: string };
 
     const planId = result.planId;
-    // Keep it PRIVATE so the local single-user identity (which an unauthenticated
-    // localhost browser resolves to) stays the owner and can EDIT it. Marking it
-    // public would flip the browser into a read-only public-viewer session.
     await getDb()
       .update(schema.plans)
       .set({ visibility: "private" })

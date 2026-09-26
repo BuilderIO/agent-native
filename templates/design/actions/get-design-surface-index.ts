@@ -10,7 +10,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { readLiveSourceFile } from "../server/source-workspace.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import {
   buildCodeLayerProjection,
@@ -32,7 +32,6 @@ import type {
 } from "../shared/design-surface-index.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function liveContent(
   fileId: string,
@@ -51,12 +50,11 @@ async function liveContent(
   ).content;
 }
 
-/** Lightweight hash for change detection — djb2 over the UTF-16 code units. */
 function contentHash(s: string): string {
   let h = 5381;
   for (let i = 0; i < s.length; i++) {
     h = ((h << 5) + h) ^ s.charCodeAt(i);
-    h |= 0; // coerce to int32
+    h |= 0;
   }
   return (h >>> 0).toString(16);
 }
@@ -70,7 +68,6 @@ function parseJson<T>(raw: string | null | undefined, fallback: T): T {
   }
 }
 
-// ─── Node extraction from projection ─────────────────────────────────────────
 
 function extractNodes(
   html: string,
@@ -96,7 +93,6 @@ function extractNodes(
   return nodeMap;
 }
 
-// ─── Alpine component extraction ──────────────────────────────────────────────
 
 function extractAlpineComponents(
   html: string,
@@ -131,7 +127,6 @@ function extractAlpineComponents(
   return Array.from(componentMap.values());
 }
 
-// ─── Token extraction from CSS :root vars ─────────────────────────────────────
 
 function guessTokenKind(
   varName: string,
@@ -196,7 +191,6 @@ function friendlyLabel(cssVar: string): string {
 
 function extractTokensFromHtml(html: string): DesignSurfaceToken[] {
   const tokens: DesignSurfaceToken[] = [];
-  // Match :root { ... } block(s) and parse CSS custom-property declarations.
   const rootBlocks = html.match(/:root\s*\{([^}]*)\}/g) ?? [];
   const seen = new Set<string>();
 
@@ -225,7 +219,6 @@ function extractTokensFromHtml(html: string): DesignSurfaceToken[] {
   return tokens;
 }
 
-// ─── Motion timeline extraction ───────────────────────────────────────────────
 
 async function fetchMotionTimelines(
   db: ReturnType<typeof getDb>,
@@ -233,9 +226,6 @@ async function fetchMotionTimelines(
   fileId?: string,
 ): Promise<Record<string, DesignSurfaceMotionTimeline>> {
   // guard:allow-unscoped — run() resolves design access via
-  // resolveAccess("design", designId) and throws on null before calling this
-  // helper; rows are scoped by designId (motion timelines are children of the
-  // design, not independently shareable).
   const rows = await db
     .select({
       id: schema.motionTimeline.id,
@@ -249,7 +239,6 @@ async function fetchMotionTimelines(
 
   const result: Record<string, DesignSurfaceMotionTimeline> = {};
   for (const row of rows) {
-    // Optionally filter to the active file's source ref when provided.
     if (fileId && row.sourceRef && row.sourceRef !== fileId) continue;
 
     const rawTracks = parseJson<
@@ -284,16 +273,12 @@ async function fetchMotionTimelines(
   return result;
 }
 
-// ─── Design state extraction ──────────────────────────────────────────────────
 
 async function fetchDesignStates(
   db: ReturnType<typeof getDb>,
   designId: string,
 ): Promise<DesignSurfaceState[]> {
   // guard:allow-unscoped — run() resolves design access via
-  // resolveAccess("design", designId) and throws on null before calling this
-  // helper; rows are scoped by designId (design states are children of the
-  // design, not independently shareable).
   const rows = await db
     .select({
       id: schema.designState.id,
@@ -319,16 +304,12 @@ async function fetchDesignStates(
   }));
 }
 
-// ─── Review snapshot extraction ───────────────────────────────────────────────
 
 async function fetchLatestReview(
   db: ReturnType<typeof getDb>,
   designId: string,
 ): Promise<DesignSurfaceReview | undefined> {
   // guard:allow-unscoped — run() resolves design access via
-  // resolveAccess("design", designId) and throws on null before calling this
-  // helper; rows are scoped by designId (review snapshots are children of the
-  // design, not independently shareable).
   const rows = await db
     .select({
       id: schema.designReviewSnapshot.id,
@@ -388,7 +369,6 @@ async function fetchLatestReview(
   };
 }
 
-// ─── Action definition ────────────────────────────────────────────────────────
 
 export default defineAction({
   description:
@@ -458,7 +438,6 @@ export default defineAction({
 
     const db = getDb();
 
-    // ── Resolve source type ──────────────────────────────────────────────────
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);
     const capabilities = resolveSourceCapabilities(sourceType);
@@ -466,7 +445,6 @@ export default defineAction({
       .filter(([, entry]) => entry.status === "available")
       .map(([name]) => name as DesignCapabilityName);
 
-    // ── Resolve HTML file ────────────────────────────────────────────────────
     const fileConditions = [
       accessFilter(schema.designs, schema.designShares, undefined, "viewer", {
         includePublic: true,
@@ -512,8 +490,6 @@ export default defineAction({
       filename: file.filename,
     };
 
-    // ── Build sections in parallel ───────────────────────────────────────────
-    // Captured routes and preview refs are editor data even when the design is public.
     const [motionTimelines, designStates, review] = await Promise.all([
       fetchMotionTimelines(db, designId, file.id),
       roleSatisfies(access.role, "editor")
@@ -524,7 +500,6 @@ export default defineAction({
         : Promise.resolve(undefined),
     ]);
 
-    // Nodes and tokens parse from HTML — only for inline sources today.
     let nodes: Record<string, DesignSurfaceNode> | undefined;
     let components: DesignSurfaceComponent[] | undefined;
     let tokens: DesignSurfaceToken[] | undefined;

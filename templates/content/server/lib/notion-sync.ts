@@ -1,5 +1,4 @@
 // @ts-nocheck — Drizzle ORM types from core vs local resolve to different instances
-// in pnpm's node_modules. Logic is correct; types just don't unify across instances.
 import crypto from "node:crypto";
 
 import {
@@ -42,7 +41,6 @@ function iconAfterNotionSync(
   localIcon: string | null,
   remoteIcon: IconValue | null,
 ): string | null {
-  // Notion cannot represent Tabler icons, so they remain local to Content.
   return parseIconValue(localIcon)?.kind === "library"
     ? localIcon
     : serializeIconValue(remoteIcon);
@@ -89,9 +87,6 @@ async function replaceDocumentFromExternal(args: {
       args.title !== args.document.title ||
       args.content !== args.document.content
     ) {
-      // Keep the recovery snapshot in the same transaction as the replacement:
-      // a lost CAS creates no phantom version, and a snapshot failure rolls the
-      // destructive replacement back instead of leaving it unrecoverable.
       const versionId = nanoid();
       const checkpointAt = nowIso();
       await tx.insert(schema.documentVersions).values({
@@ -115,12 +110,6 @@ async function replaceDocumentFromExternal(args: {
   });
 }
 
-/**
- * Hash of the canonical content. Two documents with the same hash are
- * byte-identical once canonicalized, so this is the authoritative "did the
- * content actually change" signal — immune to timestamp jitter and to the
- * normalization differences that previously made no-op syncs look like edits.
- */
 function hashContent(content: string | null | undefined): string {
   return crypto
     .createHash("sha256")
@@ -228,11 +217,6 @@ function buildStatus(args: {
     link?.lastPulledRemoteUpdatedAt &&
     remoteKnown > link.lastPulledRemoteUpdatedAt,
   );
-  // Prefer content-hash change detection: the local doc differs from the
-  // last-synced state only if its canonical content hash differs. This is the
-  // key fix for the drift — a no-op editor save (identical canonical content)
-  // no longer registers as a local change. Fall back to timestamps for links
-  // synced before the hash column existed.
   const localChanged =
     args.documentContent != null && link?.lastSyncedContentHash
       ? hashContent(args.documentContent) !== link.lastSyncedContentHash
@@ -290,18 +274,6 @@ export async function getSyncLink(documentId: string, owner?: string) {
 
 const SYNC_CLAIM_STALE_MS = 30_000;
 
-/**
- * Best-effort cross-instance mutual exclusion for a single document's Notion
- * sync. Unlike the in-process `lastRefreshAt` throttle (which only protects a
- * single process against rapid repeat calls), this uses a conditional UPDATE
- * on `document_sync_links.sync_claimed_at` so two concurrent syncs for the
- * same document — different browser tabs, different serverless instances —
- * don't both proceed to mutate Notion/the document row at once. A stale claim
- * (older than SYNC_CLAIM_STALE_MS, e.g. a crashed request) is treated as free.
- *
- * Returns true if the claim was acquired. Callers MUST release the claim in a
- * finally block.
- */
 async function tryClaimSyncLink(
   documentId: string,
   owner: string,
@@ -326,9 +298,6 @@ async function tryClaimSyncLink(
       .returning({ documentId: schema.documentSyncLinks.documentId });
     return Boolean(claimed && claimed.length > 0);
   } catch {
-    // If the claim mechanism itself fails (e.g. column not yet migrated on
-    // an old replica), fail open rather than blocking sync entirely — this
-    // is a best-effort narrowing of the race window, not a hard lock.
     return true;
   }
 }
@@ -357,14 +326,6 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Claim the sync link for a user-triggered pull/push, waiting briefly and
- * retrying a couple times on contention instead of giving up immediately —
- * the other holder (another tab's poll, a concurrent manual action) is
- * usually mid-flight for well under a second. Returns false only if the
- * claim is still held after all retries, in which case the caller must not
- * proceed and should report the current (non-mutating) status instead.
- */
 async function claimSyncLinkWithRetry(
   documentId: string,
   owner: string,
@@ -637,15 +598,6 @@ async function syncChildPagesFromPulledContent(args: {
     const position = basePosition + index;
 
     if (!childId) {
-      // Re-check for an existing link immediately before creating a
-      // placeholder. `args.remotePageDocumentIdByPageId` can be stale — it
-      // was loaded once at the start of this pull chain, so a concurrent
-      // pull (another tab, another serverless instance) may have already
-      // created and committed a placeholder for this same remote page in the
-      // meantime. Without this re-query, both pulls insert their own
-      // document row for the same Notion child page, and both stay attached
-      // forever because the detach loop above only removes children whose
-      // remote page id is no longer referenced.
       const freshLookup = await loadRemotePageDocumentLookup(args.owner);
       childId = freshLookup.get(ref.pageId) ?? null;
       if (childId) {
@@ -745,12 +697,6 @@ export async function unlinkDocumentFromNotion(
       ),
     );
 
-  // Clean up comment linkage so relinking to a different Notion page doesn't
-  // permanently exclude previously-synced local comments from being pushed
-  // again (sync-notion-comments only pushes rows with a NULL notionCommentId).
-  // Remove pulled Notion-origin comments outright (they belong to the old
-  // page and would otherwise look like stale local content), and clear the
-  // notionCommentId on the rest so they become re-pushable.
   await db
     .delete(schema.documentComments)
     .where(
@@ -818,11 +764,7 @@ export async function getDocumentSyncStatus(
       hasConflict: Boolean(link.hasConflict),
     });
     const next = await getSyncLink(documentId, owner);
-    // A 401 means the user revoked the integration — report the connection
-    // itself as broken (connected: false) instead of connected-with-error, so
-    // the client's fast auto-sync poll backs off and the UI can fall back to
     // the normal "connect Notion" flow instead of hammering a dead token
-    // every ~2s forever.
     const connected = !(
       error instanceof NotionApiError && error.status === 401
     );
@@ -921,16 +863,8 @@ async function pullDocumentFromNotionInner(
     link.remotePageId,
   );
 
-  // Re-read the document row after the (multi-second) Notion round-trip so a
-  // local save that landed while we were fetching is detected instead of
-  // silently overwritten below. All change detection and the CAS write use
-  // this fresh snapshot, not the pre-fetch `document`.
   const freshDocument = await getDocument(documentId, owner);
 
-  // Content-hash change detection: a side "changed" only if its canonical
-  // content actually differs from the last-synced baseline. This is immune to
-  // the normalization mismatches and timestamp jitter that previously made
-  // every no-op pull look like a fresh edit and drove the drift.
   const localChanged = link.lastSyncedContentHash
     ? hashContent(freshDocument.content) !== link.lastSyncedContentHash
     : Boolean(
@@ -945,9 +879,6 @@ async function pullDocumentFromNotionInner(
         pageContent.lastEditedTime > link.lastPulledRemoteUpdatedAt,
       );
 
-  // Both sides already agree (e.g. our own prior push already landed this
-  // exact content) — converge the baseline instead of flagging a phantom
-  // conflict below.
   if (
     localChanged &&
     remoteChanged &&
@@ -1012,15 +943,10 @@ async function pullDocumentFromNotionInner(
     newContent !== freshDocument.content ||
     newIcon !== freshDocument.icon;
 
-  // Only bump documents.updated_at when something actually changed. A no-op
-  // pull must not move the local-clock forward, otherwise the next conflict
-  // check will mistake the unchanged document for a fresh local edit.
   const updatedAt = contentChanged
     ? nextDocumentUpdatedAt(freshDocument.updatedAt)
     : freshDocument.updatedAt;
   if (contentChanged) {
-    // Snapshot + compare-and-swap are one transaction: only the winning
-    // replacement gets a recovery version, and snapshot failure rolls it back.
     const applied = await replaceDocumentFromExternal({
       document: freshDocument,
       expectedUpdatedAt: freshDocument.updatedAt,
@@ -1031,9 +957,6 @@ async function pullDocumentFromNotionInner(
     });
 
     if (!applied) {
-      // A newer local save raced in after our re-read. Do not adopt the
-      // pulled content or advance the hash baseline — surface a conflict so
-      // the user resolves it explicitly instead of silently losing the edit.
       await upsertSyncLink({
         owner,
         documentId,
@@ -1157,11 +1080,6 @@ async function pushDocumentToNotionInner(
 
   const page = await fetchNotionPage(connection.accessToken, link.remotePageId);
   const remoteUpdatedAt = page.last_edited_time || null;
-  // Cheap fast-path signal: last_edited_time is minute-granular, so a bump is
-  // only a *candidate* remote change. When we have a content baseline, confirm
-  // (or rule out) same-minute remote edits by reading the actual content —
-  // otherwise a same-minute Notion edit would never be detected and would get
-  // force-overwritten by this push.
   const timestampBumped = Boolean(
     link.lastKnownRemoteUpdatedAt &&
     remoteUpdatedAt &&
@@ -1186,9 +1104,6 @@ async function pushDocumentToNotionInner(
         document.updatedAt > link.lastPushedLocalUpdatedAt,
       );
 
-  // Both sides already agree byte-for-byte (e.g. a prior push already landed
-  // this exact content and only the baseline metadata was stale) — converge
-  // instead of flagging a phantom conflict or re-pushing needlessly.
   if (
     remotePageContent &&
     localChanged &&
@@ -1254,12 +1169,6 @@ async function pushDocumentToNotionInner(
     icon: document.icon,
   });
 
-  // Adopt Notion's post-push normalization locally so both sides are
-  // byte-identical and the next sync sees no change. For canonical content this
-  // is a no-op (the converter matches Notion's emission); it only does work in
-  // the rare case Notion normalizes a construct differently, immediately
-  // converging instead of ping-ponging. Re-read the row first so a local save
-  // that landed during the multi-round-trip push isn't clobbered below.
   const freshDocument = await getDocument(documentId, owner);
   const newContent = remote.content ?? document.content;
   const newTitle = remote.title || document.title;
@@ -1271,17 +1180,8 @@ async function pushDocumentToNotionInner(
   const pushedAt = contentChanged
     ? nextDocumentUpdatedAt(freshDocument.updatedAt)
     : freshDocument.updatedAt;
-  // Tracks whatever content the `documents` row actually ends up holding, so
-  // the baseline hash we persist below is never out of sync with the row —
-  // otherwise Notion normalizing anything makes every later status check
-  // report a phantom localChanged and burns an extra convergence round-trip.
-  // Defaults to the pushed content (the no-op case: the row already holds
-  // exactly what we pushed, since contentChanged is false).
   let baselineContent = document.content;
   if (contentChanged) {
-    // Snapshot + compare-and-swap are atomic. If a concurrent save changed the
-    // row since `document` was read, skip both the provider readback adoption
-    // and its recovery version; the newer local edit remains localChanged.
     const applied = await replaceDocumentFromExternal({
       document: freshDocument,
       expectedUpdatedAt: document.updatedAt,
@@ -1292,8 +1192,6 @@ async function pushDocumentToNotionInner(
     });
 
     if (applied) {
-      // The CAS landed — the row now holds Notion's normalized readback, so
-      // the baseline must match that, not the pre-push content we sent.
       baselineContent = newContent;
       // Preserve the live Y.Doc and let the updatedAt-gated editor reconcile
       // apply this provider-normalized snapshot. Clearing collab persistence
@@ -1334,10 +1232,6 @@ async function pushDocumentToNotionInner(
 
 const lastRefreshAt = new Map<string, number>();
 const REFRESH_THROTTLE_MS = 10_000;
-// When auto-sync is on, the user has explicitly opted into fast polling so
-// downstream Notion changes surface within a couple seconds. We still throttle
-// to at most one real Notion request per doc per ~2s to stay well under
-// Notion's ~3 req/s per-integration rate limit.
 const REFRESH_THROTTLE_AUTO_SYNC_MS = 2_000;
 
 export async function refreshDocumentSyncStatus(
@@ -1345,8 +1239,6 @@ export async function refreshDocumentSyncStatus(
   documentId: string,
   options?: { autoSync?: boolean },
 ): Promise<DocumentSyncStatus> {
-  // Throttle Notion API calls per document (prevents excessive requests from
-  // multiple tabs or rapid polling). Best-effort in serverless environments.
   const throttleMs = options?.autoSync
     ? REFRESH_THROTTLE_AUTO_SYNC_MS
     : REFRESH_THROTTLE_MS;
@@ -1368,25 +1260,9 @@ export async function refreshDocumentSyncStatus(
 
   const status = await getDocumentSyncStatus(owner, documentId);
   if (status.connected && status.pageId && !status.hasConflict) {
-    // Only auto-pull/auto-push when the user has explicitly enabled auto-sync.
-    // A plain status poll (autoSync off) must never mutate the document — it
-    // just reports remoteChanged/localChanged so the UI can offer a manual
-    // Pull/Push action. `force: false` lets pull's own re-check (based on a
-    // fresh re-read of the row) turn a racing local edit into a conflict
-    // instead of silently overwriting it.
     if (options?.autoSync && status.remoteChanged && !status.localChanged) {
-      // Best-effort cross-instance claim: multiple browser tabs or
-      // serverless instances can reach this branch for the same document at
-      // once (the in-process `lastRefreshAt` throttle above only protects a
-      // single process). If another instance is already mid-pull for this
-      // document, skip this cycle and report the cheap DB-only status
-      // instead of starting a second concurrent pull.
       if (await tryClaimSyncLink(documentId, owner)) {
         try {
-          // skipClaim: this branch already holds the claim above — letting
-          // pullDocumentFromNotion claim again would be a harmless no-op at
-          // best, but skipping keeps claim/release paired 1:1 with the code
-          // that actually acquired it.
           return await pullDocumentFromNotion(owner, documentId, false, {
             skipClaim: true,
           });
@@ -1408,19 +1284,9 @@ export async function refreshDocumentSyncStatus(
       }
       return status;
     }
-    // Both sides changed since last sync — mark as conflict so the user can
-    // pick which side wins. Take the same per-document claim used by pull/push
-    // before persisting that state: a save-triggered push can be between its
-    // remote write and baseline update here, making both sides look changed
-    // for a few hundred milliseconds. If that push owns the claim, let it
-    // finish instead of flashing a conflict that it immediately clears.
     if (status.localChanged && status.remoteChanged) {
       if (!(await tryClaimSyncLink(documentId, owner))) return status;
       try {
-        // The competing push may have finished after the status snapshot but
-        // before this poll acquired the claim. Re-read the local/link state
-        // under the claim so stale change flags cannot recreate the conflict
-        // immediately after that push resolved it.
         const document = await getDocument(documentId, owner);
         const link = await getSyncLink(documentId, owner);
         if (link) {
@@ -1437,10 +1303,6 @@ export async function refreshDocumentSyncStatus(
           }
           let conflictDocument = document;
 
-          // Notion timestamps are only a cheap candidate signal. Confirm the
-          // remote content against the authoritative hash baseline before
-          // persisting a conflict; our own completed push (or any metadata-only
-          // timestamp bump) can otherwise look like a remote content edit.
           if (link.lastSyncedContentHash) {
             const connection = await getNotionConnectionForOwner(owner);
             if (!connection) return claimedStatus;
@@ -1454,14 +1316,9 @@ export async function refreshDocumentSyncStatus(
                 link.remotePageId,
               );
             } catch {
-              // Fail closed: an unverified timestamp bump is not enough to
-              // interrupt editing with a conflict warning.
               return claimedStatus;
             }
 
-            // Local saves do not take the Notion sync claim, so the editor can
-            // keep writing while the remote content request is in flight.
-            // Classify the conflict against the latest local row.
             const verifiedDocument = await getDocument(documentId, owner);
             conflictDocument = verifiedDocument;
             const baselineHash = link.lastSyncedContentHash;
@@ -1552,9 +1409,6 @@ export async function resolveDocumentSyncConflict(
   documentId: string,
   direction: "pull" | "push",
 ) {
-  // Defense in depth: callers (routes, actions) should already validate this,
-  // but treating anything other than the literal "pull" as "push" would make
-  // an undefined/typo'd direction silently force-overwrite the Notion page.
   if (direction !== "pull" && direction !== "push") {
     throw new Error('direction must be "pull" or "push"');
   }
@@ -1575,13 +1429,6 @@ export async function createAndLinkNotionPage(
   );
   const document = await getDocument(documentId, owner);
 
-  // Idempotency: if the document is already linked, do NOT create another
-  // Notion page. Without this check, retrying after a transient failure (or
-  // calling create-and-link on an already-linked doc) creates a duplicate
-  // page and silently repoints the link, orphaning the previous page. A
-  // transient pull failure here must not escape either — the caller may
-  // retry, and retrying must stay idempotent rather than surface an error
-  // that invites falling back to some other (page-creating) recovery path.
   const existingLink = await getSyncLink(documentId, owner);
   if (existingLink) {
     try {
@@ -1647,15 +1494,6 @@ export async function createAndLinkNotionPage(
     hasConflict: false,
   });
 
-  // Establish the same pulled baseline as linking an existing page. Without a
-  // `lastPulledRemoteUpdatedAt`, later Notion edits are never considered remote
-  // changes, so create-and-link can look like inbound sync is broken.
-  //
-  // The page was already created and linked above — if this initial pull
-  // fails (e.g. a transient 429/network blip), do NOT let the error escape
-  // and invite a retry that would create a second duplicate Notion page.
-  // Return a status built from the link we just upserted; the next regular
-  // sync cycle will complete the pull.
   try {
     return await pullDocumentFromNotion(owner, documentId, true);
   } catch (error) {

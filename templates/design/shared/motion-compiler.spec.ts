@@ -1,12 +1,3 @@
-/**
- * motion-compiler.spec.ts
- *
- * Regression tests for the motion compiler and its CSS validation guards.
- *
- * Issue 1 regression: track.property was not validated, allowing CSS injection.
- * The assertSafeMotionCssProperty helper must reject any property string that
- * could break out of a CSS declaration or <style> block context.
- */
 
 import { describe, expect, it } from "vitest";
 
@@ -22,7 +13,6 @@ import {
 } from "./motion-compiler";
 import type { MotionTimeline } from "./motion-timeline";
 
-// ─── Helper ──────────────────────────────────────────────────────────────────
 
 function makeTimeline(property: string): MotionTimeline {
   return {
@@ -48,7 +38,6 @@ function makeTimeline(property: string): MotionTimeline {
   };
 }
 
-// ─── Property validation (Issue 1 regression) ────────────────────────────────
 
 describe("assertSafeCssProperty — allowlist validation", () => {
   it("accepts standard animatable CSS properties", () => {
@@ -84,9 +73,6 @@ describe("assertSafeCssProperty — allowlist validation", () => {
   });
 
   it("REJECTS injection payload containing colon (CSS declaration breakout)", () => {
-    // Before the fix, this would compile as:
-    //   color:red} body{display:none: <value>;
-    // breaking out of the @keyframes block.
     expect(() =>
       assertSafeMotionCssProperty(
         "color:red} body{display:none",
@@ -144,7 +130,6 @@ describe("assertSafeCssProperty — allowlist validation", () => {
   });
 });
 
-// ─── Value/easing validation ─────────────────────────────────────────────────
 
 describe("assertSafeMotionCssToken — CSS injection validation", () => {
   it("accepts common motion values and easing functions", () => {
@@ -181,7 +166,6 @@ describe("assertSafeMotionCssToken — CSS injection validation", () => {
   });
 });
 
-// ─── Compiler output does not contain injected payload ───────────────────────
 
 describe("compile — property is emitted safely", () => {
   it("emits the property name verbatim for valid identifiers", () => {
@@ -191,7 +175,6 @@ describe("compile — property is emitted safely", () => {
 
   it("emits exactly one @keyframes block for a single-track timeline", () => {
     const { css } = compile(makeTimeline("transform"));
-    // Valid CSS: exactly one @keyframes block and one element rule block.
     const kfMatches = css.match(/@keyframes/g);
     expect(kfMatches).toHaveLength(1);
   });
@@ -232,8 +215,6 @@ describe("compile — property is emitted safely", () => {
     ];
 
     const { css } = compile(timeline);
-    // Count element rules outside the reduced-motion media query (which now
-    // also selects animated nodes by id).
     const beforeMedia = css.slice(0, css.indexOf("@media"));
     const ruleMatches = beforeMedia.match(
       /\[data-agent-native-node-id="node1"\]\s*\{/g,
@@ -328,7 +309,6 @@ describe("parse — managed style fallback", () => {
 
     const { css } = compile(timeline);
 
-    // Sanitised names carry a short hash of the raw id to avoid collisions.
     expect(css).toMatch(
       /@keyframes an-motion-hero_button_[a-z0-9]+--transform/,
     );
@@ -364,7 +344,6 @@ describe("parse — managed style fallback", () => {
     expect(names).toHaveLength(2);
     expect(new Set(names).size).toBe(2);
 
-    // Both tracks recover with their exact raw node ids.
     const recovered = parse(css);
     expect(recovered.map((track) => track.targetNodeId).sort()).toEqual([
       "a:b",
@@ -373,7 +352,6 @@ describe("parse — managed style fallback", () => {
   });
 });
 
-// ─── Keyframe stop formatting + ordering ─────────────────────────────────────
 
 describe("compile — keyframe stop edge cases", () => {
   it("keeps a near-100% stop distinct from a real 100% stop", () => {
@@ -385,8 +363,6 @@ describe("compile — keyframe stop edge cases", () => {
     ];
 
     const { css } = compile(timeline);
-    // The interior stop must not round onto the 100% selector (duplicate
-    // selectors silently drop one of the two values).
     expect(css).toContain("99.99% {");
     expect(css.match(/100% \{/g)).toHaveLength(1);
   });
@@ -406,7 +382,6 @@ describe("compile — keyframe stop edge cases", () => {
 
   it("sorts unsorted keyframes and reads the element-rule ease from the first sorted stop", () => {
     const timeline = makeTimeline("opacity");
-    // Deliberately out of order: the t=0 stop (ease-out) is listed last.
     timeline.tracks[0].keyframes = [
       { t: 1, value: "1", ease: "linear" },
       { t: 0.5, value: "0.5", ease: "ease-in" },
@@ -414,32 +389,25 @@ describe("compile — keyframe stop edge cases", () => {
     ];
 
     const { css } = compile(timeline);
-    // Stops emitted in time order.
     const stopOrder = [...css.matchAll(/(\d+(?:\.\d+)?)% \{/g)].map((m) =>
       parseFloat(m[1]),
     );
     expect(stopOrder).toEqual([0, 50, 100]);
-    // Element rule ease comes from the SORTED first keyframe (t=0 → ease-out),
-    // not from whatever happened to be first in array order.
     expect(css).toContain("animation-timing-function: ease-out;");
   });
 });
 
-// ─── Reduced motion scoping ──────────────────────────────────────────────────
 
 describe("compile — reduced-motion block scoping", () => {
   it("targets only the animated node ids, not every stamped node", () => {
     const { css } = compile(makeTimeline("opacity"));
     const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion"));
     expect(reduced).toContain('[data-agent-native-node-id="node1"]');
-    // No blanket selector that would disable animations on unrelated nodes,
-    // and no dead [style*=…] selectors.
     expect(reduced).not.toMatch(/\[data-agent-native-node-id\]/);
     expect(reduced).not.toContain('[style*="');
   });
 });
 
-// ─── Duration recovery ───────────────────────────────────────────────────────
 
 describe("parseFirstAnimationDurationMs", () => {
   it("recovers the compiled duration from managed CSS", () => {
@@ -472,7 +440,6 @@ describe("parseFirstAnimationDurationMs", () => {
   });
 });
 
-// ─── Figma Motion parity: playback modes, offsets, springs ───────────────────
 
 function fullTimeline(overrides: Partial<MotionTimeline>): MotionTimeline {
   return {
@@ -507,7 +474,6 @@ describe("compile — playback modes", () => {
     expect(css).not.toContain("animation-iteration-count");
     expect(css).not.toContain("animation-direction");
     expect(css).not.toContain("animation-delay");
-    // Identical to a timeline that omits playbackMode entirely.
     expect(css).toBe(compile(fullTimeline({ tracks: [fadeTrack()] })).css);
   });
 
@@ -583,7 +549,6 @@ describe("compile — per-track offsets and durations", () => {
     expect(node1.durationMs).toBe(500);
     const node2 = parsed.find((t) => t.targetNodeId === "node2")!;
     expect(node2.delayMs).toBeUndefined();
-    // node2 spans the timeline: no explicit per-track duration recovered.
     expect(node2.durationMs).toBeUndefined();
   });
 });
@@ -623,22 +588,11 @@ describe("compile — spring easing → CSS linear()", () => {
       "0px 4px",
       "0px 0px",
     ]);
-    // The spring's ease comes back as its compiled linear() (still a valid,
-    // evaluable ease); the bezier survives verbatim.
     expect(parsed.keyframes[0].ease).toMatch(/^linear\(/);
     expect(parsed.keyframes[1].ease).toBe("cubic-bezier(0.42, 0, 0.58, 1)");
   });
 });
 
-// ─── At-cap tolerance: 64 tracks × 128 keyframes each ────────────────────────
-//
-// apply-motion-edit.ts rejects requests above 64 tracks / 128 keyframes per
-// track / 120000ms duration (DoS guards), but compile() itself must not
-// assume any smaller bound — it should tolerate a timeline sitting EXACTLY at
-// those caps and still produce valid, non-throwing CSS in reasonable time.
-// compile() iterates tracks once and sorts each track's keyframes once
-// (O(tracks * keyframes log keyframes)), so 64 * 128 is trivially fast; this
-// test is a correctness + no-blowup smoke check, not a perf benchmark.
 
 const MAX_MOTION_TRACKS = 64;
 const MAX_MOTION_KEYFRAMES_PER_TRACK = 128;
@@ -689,16 +643,13 @@ describe("compile — at-cap tolerance (64 tracks × 128 keyframes)", () => {
     expect(css.length).toBeGreaterThan(0);
     expect(typeof hash).toBe("string");
 
-    // One @keyframes block per track.
     const kfMatches = css.match(/@keyframes/g) ?? [];
     expect(kfMatches).toHaveLength(MAX_MOTION_TRACKS);
 
-    // One element rule per distinct target node id.
     for (let i = 0; i < MAX_MOTION_TRACKS; i++) {
       expect(css).toContain(`[data-agent-native-node-id="node-${i}"]`);
     }
 
-    // Balanced braces — a structurally sound stylesheet.
     const opens = (css.match(/\{/g) ?? []).length;
     const closes = (css.match(/\}/g) ?? []).length;
     expect(opens).toBe(closes);
@@ -711,8 +662,6 @@ describe("compile — at-cap tolerance (64 tracks × 128 keyframes)", () => {
     const start = performance.now();
     compile(timeline);
     const elapsedMs = performance.now() - start;
-    // Generous ceiling — this is a smoke check against accidental quadratic
-    // blowup, not a tight perf budget. 64 * 128 = 8192 keyframe entries.
     expect(elapsedMs).toBeLessThan(500);
   });
 

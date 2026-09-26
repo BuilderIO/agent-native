@@ -257,7 +257,6 @@ test("new Screen W/H commits keep frame and metadata geometry in sync", async ({
   expect(initialCanvasFrame).toBeTruthy();
 
   // Keep these commits adjacent. A create/resize race can be hidden by waiting
-  // for the width save before typing height.
   await width.fill("360");
   await width.press("Enter");
   await height.fill("315");

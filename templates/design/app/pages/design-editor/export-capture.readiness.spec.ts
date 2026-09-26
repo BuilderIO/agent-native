@@ -50,8 +50,6 @@ describe("waitForExportReady", () => {
       settled = true;
     });
 
-    // Must not resolve while fonts are still "loading", however long the
-    // stylesheet-stabilization poll takes on its own.
     await new Promise((r) => setTimeout(r, 20));
     expect(settled).toBe(false);
 
@@ -69,8 +67,6 @@ describe("waitForExportReady", () => {
     const start = Date.now();
     await waitForExportReady(document, { timeoutMs: 150 });
     const elapsed = Date.now() - start;
-    // Bounded: should not wait anywhere close to "forever". Generous upper
-    // bound to avoid CI flakiness while still catching a real hang.
     expect(elapsed).toBeLessThan(2000);
   });
 
@@ -98,8 +94,6 @@ describe("waitForExportReady", () => {
       configurable: true,
       value: { ready: Promise.reject(new Error("font load failed")) },
     });
-    // Swallow the unhandled-rejection warning from the raw promise itself;
-    // the function under test must still resolve cleanly.
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     await expect(
       waitForExportReady(document, { timeoutMs: 200 }),

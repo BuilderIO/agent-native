@@ -26,8 +26,8 @@ import { and, eq, isNull, lt, notInArray, or } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 import { ensureRecordingThumbnail } from "../lib/ensure-recording-thumbnail.js";
 
-const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 min
-const STALE_THRESHOLD_MS = 5 * 60 * 1000; // recording must be idle 5 min
+const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+const STALE_THRESHOLD_MS = 5 * 60 * 1000;
 const BATCH_SIZE = 10;
 let skippingLogged = false;
 let running = false;
@@ -44,7 +44,6 @@ export async function runThumbnailSweepOnce(): Promise<void> {
     }>;
     try {
       // guard:allow-unscoped — background recovery scans every owner for
-      // recordings whose thumbnail dispatch never landed.
       candidates = await db
         .select({
           id: schema.recordings.id,

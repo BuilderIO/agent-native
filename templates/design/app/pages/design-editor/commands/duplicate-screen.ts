@@ -277,10 +277,6 @@ export function runDuplicateScreen(
         pendingDuplicateGeometriesRef.current,
       );
   pendingDuplicateGeometriesRef.current.set(filename, createdGeometry);
-  // Carry screen dimensions/height mode for every duplicate so the new frame
-  // uses the same overview scale. Runtime metadata also keeps localhost/fusion
-  // duplicates URL-backed. The carry must be path-addressed or it replaces a
-  // peer's metadata for every other screen.
   const sourceMetadataById = getDesignDataRecord(
     designDataJsonRef.current,
     "screenMetadata",
@@ -323,9 +319,6 @@ export function runDuplicateScreen(
     recoveryState && "localhostScreen" in recoveryState
       ? recoveryState.localhostScreen
       : currentLocalhostMetadata;
-  // Per-call mutate callbacks, not a promise, would silently strand every
-  // duplicate but the last: a second mutate() detaches the observer from
-  // the first mutation, so only the newest call's onSuccess ever runs.
   let createdFileId: string | undefined;
   const canCleanupCreatedFile = recoveredFileId === undefined;
   const createFile = () =>
@@ -411,10 +404,6 @@ export function runDuplicateScreen(
         );
       }
       if (canCleanupCreatedFile) createdFileId = nextId;
-      // Optimistic geometry keeps frame, selection, and camera agreeing
-      // before the refetch. Write it before the file enters `screens`, or
-      // the geometry-sync effect can render a fallback frame first and
-      // preserve that stale position over the requested drop point.
       writeFrameGeometrySnapshot({
         ...getCanvasFrameGeometry(designDataJsonRef.current),
         [nextId]: createdGeometry,

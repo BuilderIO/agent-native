@@ -179,9 +179,6 @@ interface EmailListProps {
   isFetching?: boolean;
   emailsError?: Error | null;
   accountErrors?: AccountError[];
-  /** Override the labels this list renders chips from — the inbox view
-   * passes the same labels its tab bar used, so chips never disagree with
-   * the tab counts. Falls back to this component's own fetch otherwise. */
   labels?: Label[];
   refetchEmails?: () => unknown;
   hasNextPage?: boolean;
@@ -209,10 +206,7 @@ interface EmailListProps {
   onSortModeChange?: (mode: MailSortMode) => void;
 }
 
-// ─── Inbox Zero ─────────────────────────────────────────────────────────────
 
-// Curated collection of stunning landscape/nature photos from Unsplash.
-// Using direct Unsplash photo IDs for reliable, high-quality images.
 const INBOX_ZERO_PHOTOS = [
   "photo-1506744038136-46273834b3fb", // Yosemite valley
   "photo-1470071459604-3b5ec3a7fe05", // Misty green mountains
@@ -277,13 +271,11 @@ export function InboxZero() {
   const [loaded, setLoaded] = useState(false);
   const isEmbedded = isMcpEmbedSurface();
 
-  // Toggle class on root so the header can go transparent
   useEffect(() => {
     document.documentElement.classList.add("inbox-zero");
     return () => document.documentElement.classList.remove("inbox-zero");
   }, []);
 
-  // Pick a photo based on the day of the year
   const today = new Date();
   const dayOfYear = Math.floor(
     (today.getTime() - new Date(today.getFullYear(), 0, 0).getTime()) /
@@ -356,14 +348,6 @@ function MailLoadingState({
   );
 }
 
-// ─── Error state ────────────────────────────────────────────────────────────
-// Rendered when the emails query fails. The "Try again" button must give
-// visible feedback during the refetch — without it, clicking on a persistent
-// rate-limit error looks like nothing happens (the same error re-renders
-// identically so the user assumes the button is broken). For 429/quota errors
-// we auto-schedule one retry after a short delay so recovery is hands-off,
-// and gate the manual button behind a 15s cooldown so a flurry of clicks
-// can't itself trip the rate limit.
 
 const RATE_LIMIT_RETRY_MS = 60_000;
 
@@ -371,8 +355,6 @@ function getRateLimitRetryMs(error: {
   message?: string;
   retryAfterMs?: number;
 }): number {
-  // Prefer the server's Retry-After header — the error message is
-  // deliberately jargon-free and may not carry a parseable delay at all.
   if (
     typeof error.retryAfterMs === "number" &&
     Number.isFinite(error.retryAfterMs) &&
@@ -414,10 +396,6 @@ function EmailErrorState({
     autoRetryFired.current = false;
   }, [rateLimitRetryMs]);
 
-  // Tick the cooldown countdown every second. Depend on the boolean so the
-  // effect only re-runs when the cooldown starts or stops — not on every tick.
-  // The functional setter pattern reads `prev` from the latest state, so we
-  // don't need `cooldownRemaining` in the deps array.
   const isCoolingDown = cooldownRemaining > 0;
   useEffect(() => {
     if (!isCoolingDown) return;
@@ -427,8 +405,6 @@ function EmailErrorState({
     return () => clearInterval(handle);
   }, [isCoolingDown]);
 
-  // Auto-retry once when a rate-limit cooldown elapses so the user doesn't
-  // have to babysit the screen waiting for Google to recover.
   useEffect(() => {
     if (!isQuotaError) return;
     if (autoRetryFired.current) return;
@@ -487,9 +463,6 @@ function EmailErrorState({
   );
 }
 
-// No visible rows are available while one or more connected accounts failed.
-// Keep this out of populated cached lists so a transient refresh failure does
-// not turn usable cached mail into a warning banner.
 function AccountErrorsNotice({ errors }: { errors: AccountError[] }) {
   const t = useT();
   return (
@@ -504,7 +477,6 @@ function AccountErrorsNotice({ errors }: { errors: AccountError[] }) {
   );
 }
 
-// ─── Email List ─────────────────────────────────────────────────────────────
 
 export function EmailList({
   emails: emailsProp,
@@ -953,9 +925,6 @@ export function EmailList({
     (t) => t.latestMessage.id === focusedId,
   );
 
-  // Refs so keyboard handlers always read the latest values without stale closures.
-  // Without this, rapid j/k presses fire before React re-renders, causing the
-  // second press to compute the same next index as the first (appears to "skip").
   const focusedIndexRef = useRef(focusedIndex);
   focusedIndexRef.current = focusedIndex;
   const focusedIdRef = useRef(focusedId);
@@ -1008,7 +977,6 @@ export function EmailList({
       setSelectedIds(new Set());
       if (threads.length === 0) return;
       let current = focusedIndexRef.current;
-      // If index is stale (-1), re-derive from the current focusedId
       if (current === -1 && focusedIdRef.current) {
         current = threads.findIndex(
           (t) => t.latestMessage.id === focusedIdRef.current,
@@ -1040,8 +1008,6 @@ export function EmailList({
 
       setSelectedIds((prev) => {
         const updated = new Set(prev);
-        // Include anchor on first shift-move — derive the thread key from the
-        // currently focused email id.
         if (prev.size === 0 && focusedIdRef.current) {
           const anchorThread = threads.find(
             (t) => t.latestMessage.id === focusedIdRef.current,
@@ -1064,8 +1030,6 @@ export function EmailList({
     [threads, setFocusedId, setSelectedIds],
   );
 
-  // Returns thread keys (latestMessage.threadId || latestMessage.id) of the
-  // emails to act on — multi-selection if present, else the focused row.
   const getActionThreadKeys = useCallback((): string[] => {
     if (selectedIdsRef.current.size > 0)
       return Array.from(selectedIdsRef.current);
@@ -1083,8 +1047,6 @@ export function EmailList({
     const thread = threads.find((t) => t.latestMessage.id === id);
     if (!thread) return;
     const targetThreadId = thread.latestMessage.threadId || id;
-    // Enter on a single focused row is a single-thread action — clear any
-    // in-progress multi-selection so shortcuts in detail view start fresh.
     setSelectedIds(new Set());
     void ensureThread(targetThreadId, thread.latestMessage.accountEmail).catch(
       () => {},
@@ -1116,7 +1078,6 @@ export function EmailList({
       if (threadKeys.length === 0) return;
       const actionKeySet = new Set(threadKeys);
 
-      // Resolve each thread key to its latestMessage + accountEmail up front.
       const targets = threadKeys
         .map((key) =>
           threads.find(
@@ -1131,7 +1092,6 @@ export function EmailList({
         threadId: t.latestMessage.threadId || t.latestMessage.id,
       }));
 
-      // Move focus to the next non-selected thread (or previous if at end)
       const lastIdx = threads.findIndex(
         (t) =>
           (t.latestMessage.threadId || t.latestMessage.id) ===
@@ -1145,8 +1105,6 @@ export function EmailList({
         const nextIdx = Math.min(lastIdx, remaining.length - 1);
         const nextThread = remaining[nextIdx];
         setFocusedId(nextThread.latestMessage.id);
-        // Warm the thread that's about to take focus so repeated `e` stays
-        // instant down the list.
         const nextTid =
           nextThread.latestMessage.threadId || nextThread.latestMessage.id;
         void ensureThread(nextTid, nextThread.latestMessage.accountEmail).catch(
@@ -1156,7 +1114,6 @@ export function EmailList({
         setFocusedId(null);
       }
 
-      // Snapshot removed thread emails so undo can restore them
       const snapshots: EmailMessage[] = [];
       for (const key of threadKeys) {
         snapshots.push(...emails.filter((e) => (e.threadId || e.id) === key));
@@ -1201,7 +1158,6 @@ export function EmailList({
             { queryKey: ["emails"] },
             (old) => {
               if (!old) return old;
-              // Re-insert snapshots into the first page
               const firstPage = old.pages[0];
               const restored = [
                 ...(firstPage?.emails ?? []),
@@ -1243,8 +1199,6 @@ export function EmailList({
       );
       setUndoToastId(toastId);
       if (targets.length > 1) {
-        // Bulk selection: one action call (server batches into one Gmail
-        // call per account) + one optimistic cache update instead of N.
         bulkArchiveEmails.mutate({
           targets: targets.map((t) => ({
             id: t.latestMessage.id,
@@ -1255,8 +1209,6 @@ export function EmailList({
           suppressionToken,
         });
       } else {
-        // Single-item shortcut (e.g. `e` on the focused row) keeps its
-        // existing per-item path, including label-view removeLabel support.
         for (const t of targets) {
           archiveEmail.mutate({
             id: t.latestMessage.id,
@@ -1305,7 +1257,6 @@ export function EmailList({
         threadId: t.latestMessage.threadId || t.latestMessage.id,
       }));
 
-      // Move focus to the next non-selected thread
       const lastIdx = threads.findIndex(
         (t) =>
           (t.latestMessage.threadId || t.latestMessage.id) ===
@@ -1322,7 +1273,6 @@ export function EmailList({
         setFocusedId(null);
       }
 
-      // Snapshot removed thread emails so undo can restore them
       const snapshots: EmailMessage[] = [];
       for (const key of threadKeys) {
         snapshots.push(...emails.filter((e) => (e.threadId || e.id) === key));
@@ -1407,9 +1357,6 @@ export function EmailList({
       );
       setUndoToastId(toastId);
       if (targets.length > 1) {
-        // Bulk selection: one action call, bounded-concurrency on the server
-        // (Gmail has no batch trash endpoint) instead of N parallel mutate()
-        // calls each with their own optimistic cache write/rollback.
         bulkTrashEmails.mutate({
           targets: targets.map((t) => ({
             id: t.latestMessage.id,
@@ -1672,9 +1619,6 @@ export function EmailList({
     if (keys.length === 0) return;
     const targets = resolveTargets(keys);
     if (targets.length > 1) {
-      // Bulk selection: split into "becoming starred" / "becoming unstarred"
-      // groups (each thread toggles relative to its own current state) and
-      // send one action call per group instead of one per message.
       const toStar = targets.filter((t) => !t.hasStarred);
       const toUnstar = targets.filter((t) => t.hasStarred);
       if (toStar.length > 0) {
@@ -1688,10 +1632,6 @@ export function EmailList({
         });
       }
       if (toUnstar.length > 0) {
-        // Unstarring a thread means unstarring every starred message in it,
-        // which setThreadStarred already resolves per thread — keep that
-        // per-thread resolution but still fan the actual mutations out
-        // through the same per-item path since counts here are small.
         for (const t of toUnstar) setThreadStarred(t, false);
       }
     } else {
@@ -1732,7 +1672,6 @@ export function EmailList({
     [setSelectedIds],
   );
 
-  // Keyboard navigation — Gmail / Superhuman standard shortcuts
   useKeyboardShortcuts([
     { key: "a", meta: true, handler: selectAllThreads },
     { key: "j", handler: () => moveFocus(1) },
@@ -1758,7 +1697,6 @@ export function EmailList({
     { key: "Escape", handler: clearSelection },
   ]);
 
-  // Auto-focus first thread when list loads, or reset if focused email was removed
   useEffect(() => {
     if (threads.length === 0) return;
     if (!focusedId || !threads.some((t) => t.latestMessage.id === focusedId)) {
@@ -1766,8 +1704,6 @@ export function EmailList({
     }
   }, [threads, focusedId, setFocusedId]);
 
-  // Warm only the first few visible threads on list load. Direct clicks still
-  // fetch immediately, while background work stays below Gmail's quota.
   useEffect(() => {
     if (threads.length === 0) return;
     warmThreads(
@@ -1778,7 +1714,6 @@ export function EmailList({
     );
   }, [threads]);
 
-  // When focus moves, prefetch the focused row and its closest neighbors only.
   useEffect(() => {
     if (!focusedId || threads.length === 0) return;
     const idx = threads.findIndex((t) => t.latestMessage.id === focusedId);
@@ -1794,10 +1729,6 @@ export function EmailList({
     );
   }, [focusedId, threads]);
 
-  // Row height matches the CSS `h-[48px] sm:h-[38px]` breakpoint (Tailwind's
-  // `sm` = 640px) so the virtualizer's estimate lines up with the real row on
-  // first paint; `measureElement` still corrects it if a row wraps or the
-  // breakpoint is mid-transition.
   const [rowHeightEstimate, setRowHeightEstimate] = useState(() =>
     typeof window !== "undefined" && window.innerWidth >= 640 ? 38 : 48,
   );
@@ -1817,17 +1748,11 @@ export function EmailList({
     getItemKey: (index) => threads[index]?.latestMessage.id ?? index,
   });
 
-  // Keep keyboard-focused rows in view. Mounted rows no longer span the full
-  // list once virtualized, so `scrollIntoView` on a queried DOM node can't be
-  // relied on — ask the virtualizer to scroll to the row's index instead.
   useEffect(() => {
     if (focusedIndex < 0) return;
     rowVirtualizer.scrollToIndex(focusedIndex, { align: "auto" });
   }, [focusedIndex, rowVirtualizer]);
 
-  // Infinite scroll — fetch next page when the sentinel enters the viewport.
-  // Re-arm the observer when a fetch completes so a still-visible sentinel can
-  // walk through consecutive pages with no client-side filtered matches.
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = sentinelRef.current;
@@ -1841,7 +1766,6 @@ export function EmailList({
     });
   }, [hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
 
-  // Advance selection when an email is snoozed (same logic as archiveFocused)
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (
@@ -1884,10 +1808,7 @@ export function EmailList({
         view,
       });
       setFocusedId(email.id);
-      // A plain click is a single-thread action — clear any in-progress
-      // multi-selection so the next keyboard shortcut doesn't act on a stale set.
       setSelectedIds(new Set());
-      // Draft emails: open in compose window instead of thread view
       if (email.isDraft && onDraftOpen) {
         onDraftOpen(email);
         return;
@@ -2029,11 +1950,6 @@ export function EmailList({
     [getScheduledJobId, cancelScheduledJob, t],
   );
 
-  // ── Swipe gesture handlers ─────────────────────────────────────────────
-  // Swipe targets exactly one thread (the swiped one) — unlike the keyboard
-  // `e` shortcut, which respects multi-selection. We also clear any existing
-  // multi-selection so the next keyboard shortcut (e/d/u/s) doesn't act on a
-  // stale set — getActionThreadKeys() prefers selectedIds over focusedId.
   const handleSwipeArchive = useCallback(
     (thread: ThreadSummary) => {
       const id = thread.latestMessage.id;
@@ -2042,7 +1958,6 @@ export function EmailList({
 
       setSelectedIds(new Set());
 
-      // Advance focus past the row that's about to disappear.
       const idx = threads.findIndex((t) => t.latestMessage.id === id);
       if (threads.length > 1) {
         const nextIdx =
@@ -2052,7 +1967,6 @@ export function EmailList({
         setFocusedId(null);
       }
 
-      // Snapshot so undo can restore.
       const snapshots = emails.filter((e) => (e.threadId || e.id) === tid);
       onArchived?.(id);
 
@@ -2120,10 +2034,6 @@ export function EmailList({
     ],
   );
 
-  // Snooze fires a global event that AppLayout's SnoozeModal listens for.
-  // Routing through an event (instead of prop drilling) avoids coupling
-  // the list to the layout's modal state. Clear multi-selection for the
-  // same reason as handleSwipeArchive.
   const handleSwipeSnooze = useCallback(
     (thread: ThreadSummary) => {
       setSelectedIds(new Set());
@@ -2422,7 +2332,6 @@ export function EmailList({
   );
   useSetHeaderActions(headerActions);
 
-  // Error state
   if (emailsError) {
     const needsCredentials =
       emailsError.message?.includes("GOOGLE_CLIENT_ID") ||
@@ -2436,9 +2345,6 @@ export function EmailList({
       );
     }
 
-    // The server signals a Gmail quota cooldown via HTTP 429 and keeps the
-    // message itself deliberately jargon-free, so status is the primary
-    // signal; the regex is a fallback for errors that arrive without one.
     const isQuotaError =
       (emailsError as { status?: number }).status === 429 ||
       /\((429|403)\)|quota|rate limit/i.test(emailsError.message ?? "");
@@ -2455,7 +2361,6 @@ export function EmailList({
     );
   }
 
-  // Loading skeleton — Superhuman-style single-line rows
   if (isLoading) {
     return <MailLoadingState containerRef={containerRef} />;
   }
@@ -2467,9 +2372,6 @@ export function EmailList({
     return <MailLoadingState containerRef={containerRef} />;
   }
 
-  // Client-sliced inbox tabs can have no matches on the first page even when
-  // later inbox pages contain matching threads. Keep the sentinel mounted so
-  // the infinite query can continue before showing an empty state.
   if (threads.length === 0 && hasNextPage) {
     return (
       <div className="flex h-full flex-col" ref={containerRef}>
@@ -2505,7 +2407,6 @@ export function EmailList({
     );
   }
 
-  // Empty state
   if (threads.length === 0) {
     if (searchQuery) {
       return (

@@ -10,8 +10,6 @@ export type DocumentContextPathEntry = {
   description: string;
 };
 
-/** Focused-read context only: owned descriptions stay on their objects; this
- * assembles the live path without copying ancestor prose into descendants. */
 export async function getDocumentContextPath(
   document: Pick<typeof schema.documents.$inferSelect, "id" | "parentId">,
   options: { databaseId?: string } = {},
@@ -23,7 +21,6 @@ export async function getDocumentContextPath(
   while (parentId && !seen.has(parentId)) {
     seen.add(parentId);
     const parentAccess = await resolveAccess("document", parentId);
-    // A child share must not disclose prose from an inaccessible ancestor.
     if (!parentAccess) break;
     const parent = parentAccess.resource;
     const [database] = await db

@@ -238,8 +238,6 @@ type HostConfig = {
   candidateRunIds?: string[];
 };
 
-// Preselect the library whose title/description best matches a free-text brand
-// or use-case hint. Falls back to no match (caller uses the first library).
 function matchLibraryByHint(
   libraries: Library[],
   hint: string | undefined,
@@ -508,15 +506,6 @@ function previewFetchCredentials(
   }
 }
 
-/**
- * True when `url` points at a different origin than the current document.
- * Inline embeds load under `Cross-Origin-Embedder-Policy: require-corp`, which
- * blocks cross-origin `<img>` subresources unless they opt in via CORS. Marking
- * cross-origin previews `crossOrigin="anonymous"` makes the browser CORS-fetch
- * them (the asset CDN sends `Access-Control-Allow-Origin: *`), satisfying COEP.
- * Same-origin and `data:`/`blob:` URLs return false so their cookies / inline
- * bytes are untouched.
- */
 function isCrossOriginPreview(url: string | undefined): boolean {
   if (!url || typeof window === "undefined") return false;
   if (url.startsWith("data:") || url.startsWith("blob:")) return false;
@@ -600,7 +589,6 @@ function selectedAssetFollowUpMessage(
     .join("\n");
 }
 
-/** Compact, agent-usable context — not the full internal payload. */
 function selectedAssetContext(payload: ReturnType<typeof assetPayload>) {
   const url = payload.url ?? payload.downloadUrl ?? payload.previewUrl;
   const width = Number(payload.width);
@@ -1152,10 +1140,6 @@ function AllAssetsBrowser({
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchParamsKey = searchParams.toString();
-  // The root Library view keeps its tab/search in the URL so deep links,
-  // refreshes, and agent `navigate` commands are honored (the framework's
-  // useNavigationState reads the same `?tab=`/`?q=` params). Absent a tab param,
-  // default to Drafts.
   const urlAssetTab = useMemo<AssetTab>(() => {
     const tab = new URLSearchParams(searchParamsKey).get("tab");
     return tab === "drafts" || tab === "generated" || tab === "references"
@@ -1192,8 +1176,6 @@ function AllAssetsBrowser({
 
   const isDraftsTab = assetTab === "drafts";
 
-  // The Drafts tab renders its own candidate queries via LibraryCandidateStage,
-  // so skip the cross-library asset scan while it is the active tab.
   const {
     data: assetData,
     isLoading,
@@ -1230,8 +1212,6 @@ function AllAssetsBrowser({
     visibleAssets.every((asset) => selectedAssetIds.has(asset.id));
   const deleting = deleteAssets.isPending || deletingAssetIds.size > 0;
   const visibleAssetCount = visibleAssets.length;
-  // The badge only renders on the Generated/References tabs, which are always a
-  // filtered subset, so report the shown count rather than the library total.
   const assetCountLabel = isLoading
     ? t("library.loading")
     : t("library.shownCount", { count: visibleAssetCount });
@@ -1368,8 +1348,6 @@ function AllAssetsBrowser({
     );
   }
 
-  // Keep local state in sync when the URL changes externally (back/forward,
-  // agent navigation, deep links) since the component stays mounted.
   useEffect(() => {
     setAssetTab(urlAssetTab);
   }, [urlAssetTab]);
@@ -1427,7 +1405,6 @@ function AllAssetsBrowser({
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
-          // Drafts is the default, so keep it out of the URL for clean links.
           if (value === "drafts") next.delete("tab");
           else next.set("tab", value);
           return next;
@@ -1442,8 +1419,6 @@ function AllAssetsBrowser({
     setQuery(value);
   }, []);
 
-  // The Drafts tab's candidate queries live inside LibraryCandidateStage;
-  // refetch them by key so the error state offers a working retry.
   const retryDrafts = useCallback(() => {
     void queryClient.refetchQueries({
       queryKey: ["app-state", assetVariantStateKey(null)],
@@ -2052,9 +2027,6 @@ function LibraryCandidateStage({
         .sort((left, right) => String(right.id).localeCompare(String(left.id))),
     [libraryAssets, liveAssetIds],
   );
-  // Approving is per kit: this stage can show candidates from several kits at
-  // once, and the caller may be an editor in one and a viewer in the next. Ask
-  // once per kit on screen rather than assuming, or showing a Save that 403s.
   const stageLibraryIds = useMemo(() => {
     const ids = new Set<string>();
     if (activeLibraryId) ids.add(activeLibraryId);
@@ -2087,8 +2059,6 @@ function LibraryCandidateStage({
     [approvableLibraryIds],
   );
   const totalCount = slots.length + draftAssets.length;
-  // Don't flash the empty state before the candidate sources have resolved, and
-  // don't misreport a load failure as "no drafts".
   const candidatesLoading =
     variantsLoading || (isAllAssetsStage && allCandidatesLoading);
   const candidatesError =
@@ -2464,9 +2434,6 @@ export function AssetPickerSurface() {
       ? tab
       : null;
   }, [searchParamsKey]);
-  // The active tab is the only host-irrelevant search param. Exclude it from the
-  // host-config key so toggling tabs (which writes `?tab=`) doesn't retrigger the
-  // effect that resets media type / query / library from the URL.
   const hostParamsKey = useMemo(() => {
     const params = new URLSearchParams(searchParamsKey);
     params.delete("tab");
@@ -2542,11 +2509,6 @@ export function AssetPickerSurface() {
   const [visibleCandidateRunIds, setVisibleCandidateRunIds] = useState<
     string[]
   >(() => hostConfig.candidateRunIds ?? []);
-  // The picker generates with the composer's default image model
-  // (`imageGenerationModel`); it does not pick a model itself. Read that default
-  // so the aspect-ratio choices can be constrained for models that only support
-  // a subset (e.g. gpt-image-2 → 1:1 / 2:3 / 3:2). Read-once is enough here: the
-  // embedded picker has no image-model control of its own.
   const [imageModelDefault, setImageModelDefault] = useState<ImageModel | null>(
     null,
   );
@@ -2563,9 +2525,6 @@ export function AssetPickerSurface() {
       cancelled = true;
     };
   }, []);
-  // Only override the picker's curated ratio list when the selected image model
-  // actually restricts ratios; otherwise keep the full curated set. Video mode
-  // is unaffected by the image model.
   const ratioOptions = useMemo<readonly string[]>(() => {
     if (mediaType !== "image") return ASPECT_RATIOS;
     return (
@@ -2588,15 +2547,10 @@ export function AssetPickerSurface() {
   }, [urlHostConfig]);
 
   useEffect(() => {
-    // Reset to "all" when the tab param is removed (e.g. back/forward nav)
-    // since the component stays mounted across search-param changes.
     setAssetTab(urlAssetTab ?? "all");
   }, [urlAssetTab]);
 
   useEffect(() => {
-    // If the current ratio isn't valid for the selected model (e.g. a 16:9
-    // default while gpt-image-2 is active), snap to the first supported ratio so
-    // the picker can't submit an unsupported pairing.
     if (!ratioOptions.includes(aspectRatio)) {
       setAspectRatio(ratioOptions[0]);
     }
@@ -2605,8 +2559,6 @@ export function AssetPickerSurface() {
   const handleAssetTabChange = useCallback(
     (value: AssetTab) => {
       setAssetTab(value);
-      // Keep the tab reflected in the URL so it survives refresh/share and
-      // stays consistent with the `?tab=` deep link from the home page.
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -2706,24 +2658,17 @@ export function AssetPickerSurface() {
     Boolean(waitingForPresetData);
   const mediaLabel = mediaType === "video" ? "video" : "image";
   const viewingDrafts = assetTab === "drafts";
-  // The standalone Library "Drafts" tab mirrors the home Recent Drafts section:
-  // every unsaved draft across all accessible libraries, regardless of media
-  // type. The embedded picker keeps its library + media-type scope so an
-  // image-only picker never surfaces video drafts.
   const draftsGlobalView = viewingDrafts && !embedded;
   const assetsParams = useMemo(
     () => ({
       libraryId: selectedLibraryId,
       mediaType,
-      // Drafts are exactly generated candidates — filter them server-side
-      // instead of fetching the whole library and filtering on the client.
       role: viewingDrafts ? "generated" : undefined,
       status: viewingDrafts ? "candidate" : undefined,
       query: query.trim() || undefined,
       includeCandidates:
         viewingDrafts ||
         (mediaType === "image" && visibleCandidateRunIds.length > 0),
-      // The Drafts tab shows every unsaved draft, not just the latest run batch.
       candidateRunIds:
         !viewingDrafts && visibleCandidateRunIds.length > 0
           ? visibleCandidateRunIds
@@ -2956,8 +2901,6 @@ export function AssetPickerSurface() {
         setQuery("");
       },
       onError: (error: Error) => {
-        // Allow the auto-create effect to retry after a transient failure;
-        // otherwise the picker stays stuck on "Preparing..." until reload.
         autoCreateLibraryRef.current = false;
         toast.error(error.message || t("library.couldNotPrepareImageLibrary"));
       },
@@ -3024,7 +2967,6 @@ export function AssetPickerSurface() {
           presetTitle: selectedPreset?.title ?? null,
           tier: hostConfig.tier,
           styleStrength: hostConfig.styleStrength ?? "balanced",
-          // Omit when unset so the selected preset's logo setting drives it.
           includeLogo: hostConfig.includeLogo,
         }),
         submit: true,
@@ -3049,7 +2991,6 @@ export function AssetPickerSurface() {
       })),
       tier: hostConfig.tier,
       styleStrength: hostConfig.styleStrength ?? "balanced",
-      // Omit when unset so the selected preset's logo setting drives it.
       includeLogo: hostConfig.includeLogo,
       source: "ui",
       callerAppId: hostConfig.callerAppId,

@@ -8,13 +8,6 @@ import { chromium, type FullConfig } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { designE2eRunRoot } from "./global-teardown";
 
-/**
- * Global setup: authenticate a test user (email/password; there is no dev auth
- * bypass) and seed one design with a known fixture HTML so specs run against
- * deterministic content. Writes:
- *   e2e/.auth/state.json  - signed session storageState
- *   e2e/.auth/seed.json   - { designId } of the seeded design
- */
 
 export const E2E_EMAIL = "e2e+autoz@local.test";
 export const E2E_MENTION_EMAIL = "alice+e2e@local.test";
@@ -102,11 +95,6 @@ async function startLoopbackProvider(port: number): Promise<void> {
   }
 }
 
-/**
- * Fixture HTML with distinct, text-identifiable elements. Plain inline styles
- * (no CDN) so the layout is deterministic and offline. The flex row of two
- * buttons exercises reorder/move; headings and paragraphs exercise select.
- */
 export const FIXTURE_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -429,7 +417,6 @@ export default async function globalSetup(config: FullConfig) {
 
     await context.storageState({ path: STATE_PATH });
 
-    // Seed a design + fixture file via the authenticated action surface.
     const created = await postAction(
       context.request,
       baseURL,
@@ -461,10 +448,6 @@ export default async function globalSetup(config: FullConfig) {
     // eslint-disable-next-line no-console
     console.log(`[e2e] seeded design ${designId} for ${E2E_EMAIL}`);
 
-    // Compile the editor once, here, instead of inside the first test's 30s
-    // budget. DesignEditor.tsx is past Babel's 500KB deopt threshold, so a
-    // cold dev server can take ~40s to first paint — which is why the first
-    // spec in a shard was the one that flaked.
     const warmupPage = await context.newPage();
     try {
       await warmupPage.goto(`${baseURL}/design/${designId}`, {
@@ -476,8 +459,6 @@ export default async function globalSetup(config: FullConfig) {
       // eslint-disable-next-line no-console
       console.log("[e2e] editor warm");
     } catch (error) {
-      // Not fatal — the suite still runs, the first test just pays the
-      // compile again. Say so out loud rather than reporting a warm editor.
       // eslint-disable-next-line no-console
       console.warn(
         `[e2e] editor warmup did not finish (${(error as Error).message.split("\n")[0]}); ` +

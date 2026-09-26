@@ -4,12 +4,6 @@ import { FileIcon } from "../explorer/file-icons";
 import { useWorkbench } from "../store";
 import { parseWorkbenchUri } from "../workspace/types";
 
-/**
- * 24px breadcrumb row for the active tab's path, folder segments then the
- * filename with its file icon. VS Code parity: muted 11px, chevron
- * separators, no interactivity beyond hover (segment click-to-navigate is
- * out of scope for this pass).
- */
 export function Breadcrumbs() {
   const { state } = useWorkbench();
   if (!state.activeUri) return null;

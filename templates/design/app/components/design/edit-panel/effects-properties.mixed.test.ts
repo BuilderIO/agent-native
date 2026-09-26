@@ -1,29 +1,3 @@
-/**
- * Effects-section bug-hunt fixes (Figma-parity pass).
- *
- * 1. `effectsSelectionIsMixed` — Effects had no multi-select "Mixed" handling
- *    at all, unlike Fill/Stroke. `parseShadowLayers("Mixed")` would parse the
- *    literal sentinel string as a bogus single shadow layer (color: "Mixed"),
- *    and editing any of its fields would commit an invalid
- *    `box-shadow: ... Mixed` to every selected element. The section now gates
- *    on this predicate and shows a "Click + to replace" hint instead, same as
- *    Fill/Stroke.
- * 2. The hidden-effect stash (used by the eye-toggle on shadows/layer-blur/
- *    backdrop-blur) was keyed by `elementIdentityKey`, which folds in the
- *    element's bounding rect and therefore changes on every resize/move.
- *    Hiding an effect, then resizing/moving the element, then showing it
- *    again silently lost the stashed original value and fell back to a
- *    generic default instead. Fixed by keying the stash with
- *    `elementStableKey` (element-identity.ts) instead — the same helper
- *    `useAspectRatioLock` uses for the identical reason. This file
- *    previously carried its own local copy of that helper
- *    (`stableEffectElementKey`) with a `??`-vs-`||` bug matching the one
- *    fixed in element-identity.ts (an empty-string `sourceId` — the bridge's
- *    reported value for non-source-backed elements — short-circuited past
- *    `id`/`selector` under `??`, collapsing every such element to the same
- *    key); it now imports the shared, already-fixed helper instead of
- *    duplicating it.
- */
 
 import { describe, expect, it } from "vitest";
 
@@ -78,8 +52,6 @@ describe("effectsSelectionIsMixed", () => {
   });
 
   it('does not false-positive on a real value that merely contains the word "mixed"', () => {
-    // isMixedValue only matches the exact sentinel string "Mixed", not any
-    // value that happens to contain it as a substring.
     expect(
       effectsSelectionIsMixed({ boxShadow: "0px 0px 0px 0px Mixed City" }),
     ).toBe(false);

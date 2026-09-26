@@ -441,11 +441,7 @@ export function BrandKitDetailRoute({
   }, [headerMode, libraryId]);
 
   const library = data?.library;
-  // Generating a candidate only needs read access; saving one into the kit
-  // needs editor. Drop the save affordances rather than letting them 403.
   const canApprove = canApproveWithRole(library?.accessRole);
-  // Rerunning reuses a run's prompt and settings and refreshing mutates its
-  // row, so both stay with the run's author unless the caller can approve.
   const canRerunRun = (run: { ownerEmail?: string | null }) => {
     if (canApprove) return true;
     const mine = session?.email?.trim().toLowerCase();
@@ -1583,7 +1579,6 @@ function RunCard({
 }: {
   run: any;
   assetById?: Map<string, any>;
-  /** Omitted when this caller may not rerun or refresh someone else's run. */
   onRerun?: () => void;
   onCreateHandoff: () => void;
   rerunning?: boolean;
@@ -1851,9 +1846,6 @@ function assetDisplayTitle(asset: any): string {
   );
 }
 
-// Content-only references are images attached as subject/content for a single
-// request. They are not part of the curated brand kit, so they are kept out of
-// the References grid (matching how list-libraries excludes them from counts).
 function isContentOnlyReference(asset: any): boolean {
   return (
     asset?.role === "subject_reference" || asset?.metadata?.intent === "subject"
@@ -3566,11 +3558,6 @@ export function LiveCandidatesStage({
   allowCreateFolder?: boolean;
   savingSlotId: string | null;
   promotingReferenceKeys: Set<string>;
-  /**
-   * Approving is per kit: this stage can list candidates from several kits, and
-   * the caller may be an editor in one and a viewer in the next. Omit it when
-   * every candidate on screen belongs to one kit the handlers already cover.
-   */
   canApproveLibrary?: (libraryId?: string | null) => boolean;
   onSave?: (slot: VariantSlot, folderId: string | null) => void;
   onSaveDraft?: (asset: any, folderId: string | null) => void;
@@ -3580,8 +3567,6 @@ export function LiveCandidatesStage({
   onUseDraft?: (asset: any) => void;
 }) {
   const t = useT();
-  // No predicate means every candidate on screen belongs to a kit the passed
-  // handlers already cover; live slots always belong to the stage's own kit.
   const mayApproveIn = (candidateLibraryId?: string | null) =>
     canApproveLibrary
       ? canApproveLibrary(candidateLibraryId ?? libraryId)

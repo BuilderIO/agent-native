@@ -1,24 +1,3 @@
-/**
- * Generate images using Gemini with reference images for style matching.
- *
- * Usage:
- *   pnpm action generate-image --prompt "description"
- *   pnpm action generate-image --prompt "description" --slide-content "<div>...</div>"
- *   pnpm action generate-image --prompt "description" --deck-id "vkkvhkbJ_Q" --slide-id "sko-21"
- *   pnpm action generate-image --prompt "description" --count 3 --output public/assets/generated/img
- *
- * Options:
- *   --prompt              Image description (required)
- *   --slide-content       HTML content of the current slide (primary context)
- *   --deck-id             Deck ID to load full deck text as secondary context
- *   --slide-id            Slide ID within the deck (used with --deck-id to highlight current slide)
- *   --model               Provider: 'gemini', 'openai', or 'auto' (default: auto)
- *   --reference-image-urls  Comma-separated URLs of extra reference images
- *   --count               Number of variations to generate (default: 1)
- *   --output              Output file path prefix (e.g. public/assets/generated/slide21)
- *                         Files will be named {prefix}-v1.png, {prefix}-v2.png, etc.
- *   --help                Show this help
- */
 
 const config = async () => {
   try {
@@ -44,10 +23,6 @@ import {
 } from "../server/lib/assets-image-delegation.js";
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
 
-/**
- * `--output` promises files on disk, so a delegated generation has to download
- * what Assets produced instead of only printing the reply.
- */
 async function saveDelegatedImages(
   reply: string,
   outputPrefix: string,
@@ -63,8 +38,6 @@ async function saveDelegatedImages(
   mkdirSync(dirname(outputPrefix), { recursive: true });
   let failures = 0;
   for (const [i, url] of urls.entries()) {
-    // ssrfSafeFetch validates at connect time and on every redirect hop, so a
-    // DNS rebind between check and connect cannot reach an internal address.
     const res = await ssrfSafeFetch(
       url,
       { signal: AbortSignal.timeout(30_000) },
@@ -84,8 +57,6 @@ async function saveDelegatedImages(
     writeFileSync(filePath, Buffer.from(await res.arrayBuffer()));
     console.log(`Saved: ${filePath}`);
   }
-  // `--output` is a promise of files on disk, so exiting 0 with some of them
-  // missing sends the caller on to paths that do not exist.
   if (failures > 0) {
     console.error(
       `${failures} of ${urls.length} generated image(s) could not be saved to ${outputPrefix}.`,
@@ -112,12 +83,10 @@ function parseArgs(args: string[]): Record<string, string> {
   return result;
 }
 
-/** Load a deck JSON and extract text context */
 function loadDeckContext(
   deckId: string,
   slideId?: string,
 ): { slideContent?: string; deckText: string } {
-  // Try to find the deck file
   const deckPath = join("data", "decks", `${deckId}.json`);
   try {
     const raw = readFileSync(deckPath, "utf-8");
@@ -181,8 +150,6 @@ Options:
     ? opts["reference-image-urls"].split(",").map((u) => u.trim())
     : [];
 
-  // Build context from slide content and/or deck. This runs before delegation
-  // so Assets receives the real slide text, not a bare deck id.
   let slideContent = opts["slide-content"];
   let deckText = "";
 
@@ -195,9 +162,6 @@ Options:
     console.log(`Loaded deck context: ${deckCtx.deckText.length} chars`);
   }
 
-  // Assets owns image generation. Only fall through to the local providers
-  // below when it cannot be reached, so a standalone slides deploy still
-  // works. See the `image-generation-via-a2a` skill for the contract.
   const delegation = await delegateImageGenerationToAssets({
     prompt,
     count,
@@ -209,15 +173,11 @@ Options:
       : {}),
   });
   if (delegation.status === "delegated") {
-    // Print the reply verbatim so the calling agent parses URLs the Assets
-    // agent actually returned.
     console.log(delegation.reply);
     const previewUrl = extractAssetUrl(delegation.reply, {
       baseUrl: delegation.target,
     });
     if (previewUrl) {
-      // Hand back finished markdown: a bare link renders as text in chat, so
-      // the user would see no image at all.
       console.log(
         `\nShow this to the user verbatim so the image renders inline:\n` +
           imagePreviewMarkdown(prompt, previewUrl),
@@ -251,7 +211,6 @@ Options:
       `using the local fallback provider — output will not be brand-grounded.`,
   );
 
-  // Validate that at least one provider is configured
   const { getProvider } =
     await import("../server/handlers/image-providers/index.js");
   const modelChoice = opts["model"] || "auto";
@@ -268,14 +227,11 @@ Options:
   const context =
     slideContent || deckText ? { slideContent, deckText } : undefined;
 
-  // Always include default style references + any extra ones
   const referenceUrls = [
     ...DEFAULT_STYLE_REFERENCE_URLS,
     ...extraReferenceUrls,
   ];
 
-  // Load reference images from URLs in parallel (capped concurrency to avoid
-  // overwhelming the network and to keep the agent within its run budget).
   const refFetchLimit = pLimit(4);
   const refImages = (
     await Promise.all(
@@ -283,8 +239,6 @@ Options:
         refFetchLimit(async () => {
           try {
             console.log(`Loading reference image: ${url}`);
-            // SSRF guard: extra reference URLs are agent-supplied. Block
-            // private/internal targets and do not follow redirects into them.
             if (await isBlockedExtensionUrlWithDns(url)) {
               console.warn(`Blocked private/internal reference image: ${url}`);
               return null;
@@ -328,14 +282,10 @@ Options:
     );
   }
 
-  // Ensure output directory exists
   if (outputPrefix) {
     mkdirSync(dirname(outputPrefix), { recursive: true });
   }
 
-  // Generate variations concurrently. Default to 2 in flight to stay under the
-  // image-provider rate limits (Gemini and OpenAI both have low TPM/RPM caps);
-  // tunable via IMAGE_GEN_CONCURRENCY without redeploying.
   const genLimit = pLimit(
     Math.max(1, Number(process.env.IMAGE_GEN_CONCURRENCY) || 2),
   );

@@ -1,13 +1,3 @@
-/**
- * The typed data the record page needs and no existing action exposes: the
- * object's attribute schema, the CURRENT bitemporal values, the record's list
- * memberships with their entry values, and the upstream deep link.
- *
- * It deliberately does not replace `get-crm-record`. That action is the one
- * that verifies provider read-through permission for a mirrored record, so the
- * page calls both: this one for the typed surface, that one for the verified
- * remote view, evidence, tasks, and relationships.
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -44,11 +34,6 @@ interface StoredValueRow {
   jsonValue: string | null;
 }
 
-/**
- * Decode using the attribute's declared storage column, never by sniffing which
- * column is non-null — a `false` checkbox and an empty text field are otherwise
- * the same row. Unreadable JSON is a typed failure, not an absent value.
- */
 function decodeValue(
   attribute: Pick<
     CrmAttributeDefinition,
@@ -117,8 +102,6 @@ export default defineAction({
       .where(
         and(
           eq(schema.crmFieldPolicies.target, "object"),
-          // `object_type` is populated on every row including the ones the
-          // provider adapters write; `target_id` is not.
           eq(schema.crmFieldPolicies.objectType, record.objectType),
           eq(schema.crmFieldPolicies.connectionId, record.connectionId),
           eq(schema.crmFieldPolicies.archived, false),
@@ -157,8 +140,6 @@ export default defineAction({
       .where(
         and(
           eq(schema.crmRecordFields.recordId, record.id),
-          // `record_id` is populated on entry rows too, so the record-vs-entry
-          // discriminator is `entry_id IS NULL`.
           isNull(schema.crmRecordFields.entryId),
           isNull(schema.crmRecordFields.activeUntil),
           accessFilter(schema.crmRecordFields, schema.crmRecordFieldShares),
@@ -236,8 +217,6 @@ export default defineAction({
         apiSlug: first.listApiSlug,
         parentObjectType: first.listParentObjectType,
         attributes: listAttributes.map(attributeSummary),
-        // A record may hold more than one entry in the same list; each entry is
-        // its own row here rather than being collapsed into a membership flag.
         entries: listRows.map((row) => {
           const entry = entryValues.get(row.entryId) ?? {
             values: {},
@@ -278,8 +257,6 @@ export default defineAction({
       listMembershipsTruncated:
         membershipRows.length >= MAX_LIST_MEMBERSHIPS ||
         new Set(membershipRows.map((row) => row.listId)).size > listIds.length,
-      // Absent link and unavailable link are different states: a native record
-      // has no upstream record at all, and both fields stay null for it.
       recordUrl: link?.available ? link.url : null,
       recordUrlUnavailableReason: link && !link.available ? link.reason : null,
     };

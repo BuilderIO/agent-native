@@ -19,9 +19,6 @@ export interface FrameGeometry {
   y: number;
   width: number;
   height: number;
-  /** Rotation in degrees, matching a CSS `rotate(deg)` applied around the
-   *  frame's own center. Optional — most geometry helpers here ignore it
-   *  unless documented otherwise (see the rotation-aware helpers below). */
   rotation?: number;
 }
 
@@ -63,29 +60,17 @@ export interface CanvasSnapOptions {
   thresholdScreenPx?: number;
   zoom: number;
   bypass?: boolean;
-  /** Axes the caller has already pinned (a Shift dominant-axis drag). Both the
-   *  offset and the guides skip these, so the chrome never describes a
-   *  position the object is not at. */
   lockedAxes?: { x?: boolean; y?: boolean };
-  /** Pre-resolved AABBs, so a per-rAF caller does not rebuild them for each
-   *  stage of the drag-snap stack. */
   stationaryBounds?: FrameBounds[];
 }
 
 export type SpacingSnapOptions = CanvasSnapOptions;
 
 export interface DragSnapOptions extends CanvasSnapOptions {
-  /** Grid step to land on: `WHOLE_PIXEL_SNAP_STEP` for Figma's "snap to pixel
-   *  grid", the frame's layout grid size when it has one. Omitted means the
-   *  caller wants the raw snapped position and will quantize itself. */
   snapStep?: number;
-  /** How far a neighbour can be, in screen px, and still get a distance
-   *  readout. Beyond this the measurement is noise stretched across empty
-   *  canvas rather than something the user is positioning against. */
   proximityRangeScreenPx?: number;
 }
 
-/** The distance from the moving frame to its nearest neighbour on one axis. */
 export interface ProximityMeasurement {
   orientation: "vertical" | "horizontal";
   gap: number;
@@ -101,24 +86,12 @@ export interface DragSnapResult {
 }
 
 export interface ResizeSnapOptions extends CanvasSnapOptions {
-  /** When set, only the single closest-matching axis snap is applied and the
-   *  other axis is rescaled to match, so a shift-held aspect-ratio resize
-   *  never gets distorted by independently snapping both axes to different
-   *  sibling edges. Pass the frame's aspect ratio (width / height) *before*
-   *  this resize's own aspect-preserving delta was applied. */
   preserveAspectRatio?: boolean;
-  /** Minimum width/height the snapped result is clamped to, matching the
-   *  same per-call minimum passed to the non-snap resize path (e.g.
-   *  `resizeFrameFromDelta`'s `minWidth`/`minHeight`). Defaults to the
-   *  120px screen-frame minimum so existing callers that don't pass these
-   *  are unaffected — pass the small per-primitive minimum (e.g. 1-8px) so
-   *  a snap near a sibling edge doesn't force-inflate a small shape. */
   minWidth?: number;
   minHeight?: number;
   maxWidth?: number;
   maxHeight?: number;
   resizeFromCenter?: boolean;
-  /** The resize counterpart of `DragSnapOptions.snapStep`. */
   snapStep?: number;
 }
 
@@ -149,12 +122,7 @@ export interface DraftGeometryOptions {
   minHeight?: number;
   defaultWidth?: number;
   defaultHeight?: number;
-  /** Constrain to equal width/height (square/circle) while drawing — the
-   *  larger of the two dragged dimensions wins, matching Figma's shift-drag
-   *  behavior for rect/ellipse tools. */
   square?: boolean;
-  /** Draw outward from `start` in both directions (start is the shape's
-   *  center) instead of from one corner to the opposite corner. */
   fromCenter?: boolean;
 }
 
@@ -165,12 +133,6 @@ export interface AlignmentGuide {
   end: number;
 }
 
-/** One equal-spacing "gap band" — the empty space between the moving frame
- *  and one neighboring stationary frame, on a given axis. `crossStart`/
- *  `crossEnd` are the band's extent on the OTHER axis (e.g. for a
- *  horizontal gap, that's the vertical span the tick marks/label should
- *  draw across), matching how `AlignmentGuide.start`/`end` describe a
- *  guide line's own extent. */
 export interface DistanceGuideBand {
   gapStart: number;
   gapEnd: number;
@@ -178,17 +140,9 @@ export interface DistanceGuideBand {
   crossEnd: number;
 }
 
-/** A pair of equal-sized gaps around the moving frame — Figma's "smart
- *  spacing" indicator: dragging a frame so it's evenly spaced between two
- *  neighbors (or continues an existing rhythm of equally spaced siblings)
- *  highlights both gaps with the shared distance. */
 export interface EqualGapGuide {
   orientation: "vertical" | "horizontal";
-  /** The shared gap size, in canvas units, every band agrees on. */
   gap: number;
-  /** At least two: the gap(s) around the moving frame, plus every other gap
-   *  in the same row/column that matches, so a run of evenly spaced frames
-   *  lights up as one rhythm instead of just the pair being snapped. */
   bands: DistanceGuideBand[];
 }
 
@@ -238,11 +192,8 @@ export interface RulerTickOptions {
   maxTicks?: number;
 }
 
-/** Default spacing and snap interval for a frame's layout grid. */
 export const DEFAULT_GRID_STEP_PX = 8;
 
-/** Snapping's floor. A frame with no layout grid still lands on whole pixels,
- *  so "no grid" is a size-1 grid and the snap stack needs no on/off branch. */
 export const WHOLE_PIXEL_SNAP_STEP = 1;
 
 export const DEFAULT_SMALL_NUDGE_PX = 1;
@@ -309,14 +260,8 @@ export const DEFAULT_ASSIGNED_REGION_MAX_COLUMNS = 3;
 export const DEFAULT_CANVAS_MIN_ZOOM = 2;
 export const DEFAULT_CANVAS_MAX_ZOOM = 25600;
 
-/**
- * Floor for the AUTOMATIC shrink-to-fit that runs on a screen-count change —
- * never for an explicit Zoom to fit, which must be free to reach MIN_ZOOM or a
- * board of more than ~9 screens in a row stops fitting.
- */
 export const DEFAULT_CANVAS_AUTOFIT_MIN_ZOOM = 10;
 
-/** Breathing room a fit leaves around the fitted bounds, in screen px. */
 export const CANVAS_FIT_PADDING_PX = 64;
 
 export function screenToCanvasPoint(
@@ -427,19 +372,6 @@ export function getRotatedFrameAngle(
   };
 }
 
-/**
- * Rotates a group of frames together around a single shared pivot (the
- * group's own center), for multi-selection rotate: each frame's own
- * rotation increases by `deltaDegrees` (so it keeps spinning around its own
- * center visually), AND its center orbits `groupCenter` by the same delta,
- * so the whole selection rotates rigidly as one unit rather than each frame
- * spinning in place where it already sits.
- *
- * `frames` must carry each frame's ORIGINAL (drag-start) geometry — this is
- * a pure function of the origin snapshot and the total delta so far, not an
- * incremental transform, matching the convention `resizeFrameGroupFromDelta`
- * already uses for group resize.
- */
 export function rotateFrameGroupAroundCenter(
   frames: FrameEntry[],
   groupCenter: CanvasPoint,
@@ -495,15 +427,6 @@ export function getFrameGroupBounds(
   });
 }
 
-/**
- * Zoom-to-selection (Shift+2) must fit the selected element's own bounds when
- * only an in-screen element is selected (no screen-frame selection) — Figma
- * zooms tighter to just that element, not the whole design. `localRect` is
- * the element's bounding rect in its owning screen's own document coordinate
- * space (`ElementInfo.boundingRect`); `screenGeometry` is that screen's
- * canvas/world-space frame. A screen renders its content 1:1 with its frame
- * geometry, so translating one into the other is a plain offset.
- */
 export function getElementWorldBoundsForZoomFit(
   screenGeometry: FrameGeometry,
   localRect: { x: number; y: number; width: number; height: number },
@@ -642,9 +565,6 @@ export function getNudgeDelta(
   };
 }
 
-/** Nearest multiple of `step`, defaulting to the whole-pixel floor. Non-finite
- *  input passes through unrounded so an upstream NaN stays visible rather than
- *  reading as a real coordinate. */
 export function quantizeToStep(
   value: number,
   step: number = WHOLE_PIXEL_SNAP_STEP,
@@ -666,9 +586,6 @@ export function quantizeCanvasPoint(
   };
 }
 
-/** Whole-pixel x/y/width/height. Size rounds alongside position because a
- *  fractional width puts the opposite edge back on a fraction, and the next
- *  object aligned or resized against that edge inherits it. */
 function quantizeCanvasGeometry<T extends FrameGeometry>(geometry: T): T {
   return {
     ...geometry,
@@ -691,18 +608,11 @@ export function getDraftGeometryFromPoints(
     fromCenter = false,
   }: DraftGeometryOptions = {},
 ): FrameGeometry {
-  // When drawing from the center, `end` marks one edge/corner of the shape
-  // rather than the opposite corner from `start` — the pointer's distance
-  // from center is a HALF-extent, so the full width/height is double the
-  // raw drag distance.
   const centerMultiplier = fromCenter ? 2 : 1;
   let rawWidth = Math.abs(end.x - start.x) * centerMultiplier;
   let rawHeight = Math.abs(end.y - start.y) * centerMultiplier;
 
   if (square) {
-    // Figma's shift-drag: the larger dragged dimension wins, both axes match
-    // it. Preserve each axis's own drag direction (handled below via
-    // drawingLeft/drawingUp) — only the magnitude is unified here.
     const side = Math.max(rawWidth, rawHeight);
     rawWidth = side;
     rawHeight = side;
@@ -712,19 +622,12 @@ export function getDraftGeometryFromPoints(
   let height = Math.max(rawHeight || defaultHeight || 0, minHeight);
 
   if (square && width !== height) {
-    // Zero-drag (a plain click before any movement) falls through to
-    // defaultWidth/defaultHeight and minWidth/minHeight independently, which
-    // can disagree even though rawWidth/rawHeight were already unified
-    // above. Re-unify using the larger side so a square/circle click-to-
-    // place still starts out square instead of using mismatched defaults.
     const side = Math.max(width, height);
     width = side;
     height = side;
   }
 
   if (fromCenter) {
-    // `start` is the shape's center — grow outward symmetrically in both
-    // directions instead of anchoring one corner at `start`.
     return quantizeCanvasGeometry({
       x: start.x - width / 2,
       y: start.y - height / 2,
@@ -769,9 +672,6 @@ export function computeMoveSnap(
   }
 
   const threshold = getCanvasSnapThreshold(options);
-  // Use the rotated (world-space) AABB rather than the unrotated local
-  // bounds, so a rotated frame snaps by its visual silhouette instead of an
-  // AABB that doesn't match anything on screen.
   const movingBounds = moving.map((entry) =>
     getRotatedFrameAABB(entry.geometry),
   );
@@ -779,9 +679,6 @@ export function computeMoveSnap(
     options.stationaryBounds ??
     stationary.map((entry) => getRotatedFrameAABB(entry.geometry));
 
-  // A locked axis must be locked before the guides are built: derive both the
-  // offset and the guides from the same position, or the lines describe a
-  // place the frame is not.
   const dx = options.lockedAxes?.x
     ? null
     : findAxisSnapOffset("x", movingBounds, stationaryBounds, threshold);
@@ -807,12 +704,6 @@ export function computeMoveSnap(
   };
 }
 
-/**
- * Figma-style "smart spacing" snap: centers the frame between two neighbors,
- * or matches an existing gap in the same row/column. `lockedAxes` are the
- * axes computeMoveSnap already claimed — moving one would pull the frame off
- * the alignment guide the user can already see.
- */
 export function computeSpacingSnap(
   moving: FrameGeometry,
   stationary: FrameEntry[],
@@ -843,8 +734,6 @@ export function computeSpacingSnap(
     ? idle
     : findSpacingSnapOffset("y", bounds, stationaryBounds, tolerance);
 
-  // Guides are drawn at the tight tolerance, not the snap pull: a near-equal
-  // pair must not get labelled as an equal gap it does not actually have.
   const snapped = translateBounds(bounds, x.offset, y.offset);
   return {
     dx: x.offset,
@@ -873,13 +762,6 @@ export function computeSpacingSnap(
   };
 }
 
-/**
- * Distance to the nearest neighbour on each axis, for the frame's settled
- * position. Stock Figma only surfaces a distance when it matches an existing
- * gap; showing the nearest one unconditionally is a deliberate divergence,
- * range-limited so a lone frame across the canvas does not draw a measurement
- * over empty space.
- */
 export function computeProximityMeasurements(
   moving: FrameGeometry,
   stationary: FrameEntry[],
@@ -917,19 +799,11 @@ export function computeProximityMeasurements(
   return measurements;
 }
 
-/**
- * The whole Figma move-snap stack in one call, in precedence order: an
- * edge/center alignment wins, spacing only gets the axes alignment left free,
- * and the pixel grid only gets the axes with no guide drawn on them at all —
- * rounding an axis that has a visible guide would move the frame off the line
- * the user is looking at.
- */
 export function computeDragSnap(
   moving: FrameEntry[],
   stationary: FrameEntry[],
   options: DragSnapOptions,
 ): DragSnapResult {
-  // One AABB pass feeds all three stages; this runs every rAF of a drag.
   const stationaryBounds = stationary.map((entry) =>
     getRotatedFrameAABB(entry.geometry),
   );
@@ -940,7 +814,6 @@ export function computeDragSnap(
   const claimedX = alignment.guides.some((g) => g.orientation === "vertical");
   const claimedY = alignment.guides.some((g) => g.orientation === "horizontal");
 
-  // Figma drops spacing guides for a multi-select drag; so do we.
   const single = moving.length === 1 ? moving[0] : null;
   const spacing = single
     ? computeSpacingSnap(
@@ -974,17 +847,12 @@ export function computeDragSnap(
   const anchor = moving[0];
   const snapStep = options.snapStep ?? 0;
   if (snapStep > 0 && anchor && !options.bypass) {
-    // Keyed on what actually moved the frame, not on what got drawn: a
-    // spacing snap that produced no chrome is still a position the user
-    // chose, and rounding it away undoes the snap they just felt.
     const claimed = (orientation: "vertical" | "horizontal") =>
       alignment.guides.some((g) => g.orientation === orientation) ||
       spacing.guides.some((g) => g.orientation === orientation) ||
       (orientation === "vertical"
         ? spacing.movedAxes?.x
         : spacing.movedAxes?.y);
-    // Only the anchor rounds; the rest of a multi-select rides the same
-    // delta, so a group keeps its internal fractional offsets.
     if (!claimed("vertical") && !options.lockedAxes?.x) {
       dx = quantizeToStep(anchor.geometry.x + dx, snapStep) - anchor.geometry.x;
     }
@@ -993,8 +861,6 @@ export function computeDragSnap(
     }
   }
 
-  // An axis whose spacing guide already prints the gap does not also need a
-  // proximity readout of the same number.
   const settled = single
     ? {
         ...single.geometry,
@@ -1026,8 +892,6 @@ export function computeDragSnap(
 }
 
 interface GapCandidate {
-  /** "before" = stationary frame is to the left/above the moving frame;
-   *  "after" = to the right/below. */
   side: "before" | "after";
   gap: number;
   gapStart: number;
@@ -1043,9 +907,6 @@ function collectAxisGapCandidates(
 ): GapCandidate[] {
   const candidates: GapCandidate[] = [];
   for (const bounds of stationary) {
-    // Only frames that overlap the moving frame's extent on the OTHER axis
-    // produce a meaningful "gap between them" — otherwise the empty space
-    // isn't really a corridor connecting the two shapes.
     if (!crossAxisOverlaps(axis, bounds, movingBounds)) continue;
 
     const crossStart = Math.max(
@@ -1080,9 +941,6 @@ function collectAxisGapCandidates(
   return candidates;
 }
 
-// Closest gap on each side is the one a user is most likely dragging toward,
-// so only the single closest candidate per side is ever paired — otherwise a
-// busy canvas surfaces every combinatorial pair of same-ish gaps at once.
 function closestGapCandidate(
   candidates: GapCandidate[],
   side: "before" | "after",
@@ -1125,8 +983,6 @@ function buildEqualGapPair(
   ];
 }
 
-/** Every gap already in the row/column that matches `gap`. Figma and tldraw
- *  both light the whole run, not only the pair the snap landed on. */
 function matchingRhythmBands(
   rhythms: { gap: number; band: DistanceGuideBand }[],
   gap: number,
@@ -1184,32 +1040,9 @@ export function resizeFrameFromDelta(
     minHeight,
     options.maxHeight ?? Number.POSITIVE_INFINITY,
   );
-  // Real Figma flips a shape when a resize handle is dragged past its
-  // opposite edge instead of pinning the size at the minimum: the handle's
-  // role effectively swaps (e.g. dragging "e" left past the frame's own west
-  // edge starts growing the frame leftward-of-that-point, i.e. what visually
-  // reads as the west edge). This only makes sense for objects whose minimum
-  // is a small "never fully collapse" floor (draft shapes/text/frames — the
-  // 1-8px minimums the primitive-resize call sites pass); callers relying on
-  // the 120px screen-frame default keep today's pin-at-minimum clamp exactly,
-  // since that default represents a true hard floor a frame shouldn't shrink
-  // below OR flip past.
   const allowFlipWidth = minWidth < MIN_CANVAS_FRAME_WIDTH;
   const allowFlipHeight = minHeight < MIN_CANVAS_FRAME_HEIGHT;
 
-  // Raw signed sizes (post aspect-ratio derivation, pre min-clamp) — negative
-  // means the drag crossed past the opposite edge/anchor (for a directly
-  // dragged axis), or that a directly dragged axis on the OTHER axis flipped
-  // and this axis's aspect-derived magnitude inherited its sign. Only a
-  // directly dragged axis ("affects*") uses the anchor-swap position formula
-  // below; an axis the handle doesn't touch (derived purely via
-  // preserveAspectRatio) and a `resizeFromCenter` drag (which keeps the
-  // CENTER fixed rather than an opposite edge — mirroring around the anchor
-  // point, matching Figma's alt-resize) both always resolve through the
-  // existing centered-growth formula in getResizedAxisStart — but that
-  // formula (and the min-clamp below) still need the axis's MAGNITUDE, not
-  // its possibly-negative derived value, whenever this axis's own minimum is
-  // small enough to allow a flip at all.
   const rawWidth = width;
   const rawHeight = height;
   const widthMagnitude = allowFlipWidth ? Math.abs(rawWidth) : rawWidth;
@@ -1236,8 +1069,6 @@ export function resizeFrameFromDelta(
     } else if (heightAtLimit && !widthAtLimit) {
       width = Math.min(maxWidth, Math.max(minWidth, height * ratio));
     } else if (widthAtLimit && heightAtLimit) {
-      // If the requested ratio cannot satisfy both axes' limits, width remains
-      // the primary axis when both hit a bound at once.
       height = width / ratio;
     }
   }
@@ -1384,15 +1215,6 @@ export function resizeFrameGroupToBounds(
   }));
 }
 
-/**
- * Rotates `point` around `center` by `degrees` in the *forward* direction —
- * i.e. the same direction as a CSS `transform: rotate(degrees deg)` applied
- * to an element whose `transform-origin` is `center`. Use this to map a
- * frame-local (unrotated) point into world space.
- *
- * Pass `-degrees` to do the inverse mapping (world space into a frame's local
- * unrotated space).
- */
 export function rotatePoint(
   point: CanvasPoint,
   center: CanvasPoint,
@@ -1410,9 +1232,6 @@ export function rotatePoint(
   };
 }
 
-/** Rotates a free vector (no translation component) by `degrees`. Use this to
- *  map a world-space pointer delta into a rotated frame's local axes (pass
- *  `-degrees`), or a local delta back into world space (pass `+degrees`). */
 export function rotateVector(
   vector: CanvasPoint,
   degrees: number,
@@ -1427,8 +1246,6 @@ export function rotateVector(
   };
 }
 
-/** Returns the four corners of `geometry`'s rotated bounding box, in world
- *  space, in top-left/top-right/bottom-right/bottom-left order. */
 export function getRotatedFrameCorners(
   geometry: FrameGeometry,
 ): [CanvasPoint, CanvasPoint, CanvasPoint, CanvasPoint] {
@@ -1449,11 +1266,6 @@ export function getRotatedFrameCorners(
   ];
 }
 
-/** Returns the axis-aligned bounding box that encloses `geometry` after its
- *  rotation is applied — i.e. the world-space AABB of the rotated rect,
- *  rather than the unrotated local rect. Frames with no rotation return their
- *  own bounds unchanged. Use this for snap-candidate generation and marquee
- *  hit-testing against rotated frames instead of the unrotated `FrameBounds`. */
 export function getRotatedFrameAABB(geometry: FrameGeometry): FrameBounds {
   const degrees = geometry.rotation ?? 0;
   if (!degrees) return getFrameBounds(geometry);
@@ -1472,8 +1284,6 @@ export function getRotatedFrameAABB(geometry: FrameGeometry): FrameBounds {
   });
 }
 
-/** An axis-aligned rectangle in `{x, y, width, height}` form, as used by a
- *  marquee-selection drag rect. */
 export interface AxisRect {
   x: number;
   y: number;
@@ -1481,7 +1291,6 @@ export interface AxisRect {
   height: number;
 }
 
-/** An axis-aligned bounds rect in `{left, top, right, bottom}` form. */
 export interface AxisBounds {
   left: number;
   top: number;
@@ -1489,28 +1298,6 @@ export interface AxisBounds {
   bottom: number;
 }
 
-/**
- * Tests whether an axis-aligned rect (e.g. a marquee-selection drag rect)
- * intersects `bounds` (an unrotated rect) after `bounds` is rotated by
- * `degrees` around `center`.
- *
- * `center` defaults to the center of `bounds` itself — the common case of a
- * single rotated frame. Pass an explicit `center` when `bounds` describes a
- * child element that rotates rigidly with an ancestor frame around the
- * frame's own center rather than its own (e.g. layer-marquee hit-testing
- * against an element inside a rotated screen frame).
- *
- * A corner-containment check alone (only asking "is a corner of A inside B,
- * or a corner of B inside A") misses cases where the two rects cross like a
- * plus/hash sign — each one's edges pierce through the other without either
- * shape's corners landing inside the other, e.g. a thin marquee crossing the
- * middle of a thin rotated frame. This uses the Separating Axis Theorem
- * (SAT): two convex polygons do NOT intersect if and only if there exists an
- * axis (from either polygon's edge normals) onto which their projections
- * don't overlap. For an axis-aligned rect vs. a rotated rect there are
- * exactly 4 candidate axes to test — the rect's own x/y axes, and the
- * rotated rect's two (perpendicular) edge directions.
- */
 export function rotatedRectIntersects(
   rect: AxisRect,
   bounds: AxisBounds,
@@ -1543,9 +1330,6 @@ export function rotatedRectIntersects(
     { x: bounds.left, y: bounds.bottom },
   ].map((corner) => rotatePoint(corner, center, degrees));
   const rad = (degrees * Math.PI) / 180;
-  // The rotated rect's two perpendicular edge directions, plus the axis
-  // rect's own x/y axes, are the full set of SAT candidate axes for two
-  // rectangles (each rectangle only contributes 2 unique edge normals).
   const axes: CanvasPoint[] = [
     { x: 1, y: 0 },
     { x: 0, y: 1 },
@@ -1572,36 +1356,6 @@ function projectionsOverlap(
   return minA <= maxB && minB <= maxA;
 }
 
-/**
- * Resize-aware transform for a single rotated frame, so dragging a resize
- * handle behaves the way it looks: the handle direction follows the frame's
- * own rotated axes, and the opposite anchor edge/corner stays visually fixed
- * in world space (not just in unrotated local space).
- *
- * `worldDx`/`worldDy` are the raw pointer delta in world (canvas) space, the
- * same values `resizeFrameFromDelta` normally takes directly. This wrapper:
- *  1. Rotates the world delta into the frame's local (unrotated) axes.
- *  2. Runs the existing unrotated `resizeFrameFromDelta` in that local space.
- *  3. Re-anchors the result so the corner/edge the handle keeps fixed in
- *     local space also stays fixed in world space, by translating the new
- *     geometry so its own rotation (around its own new center) reproduces the
- *     original world-space anchor point.
- *
- * For `origin.rotation` falsy this is identical to calling
- * `resizeFrameFromDelta` directly.
- */
-/**
- * Shared re-anchor step used by both resizeRotatedFrameFromDelta and its
- * snap-aware counterpart below: given the frame's ORIGIN geometry (still
- * carrying its rotation) and a candidate RESIZED-LOCAL geometry (unrotated,
- * already grown/shrunk along the frame's own local axes — optionally
- * adjusted by a snap pass in between), translates the resized-local geometry
- * so the same handle-opposite anchor point (or the frame's own center, for
- * an alt/option "resize from center" drag) stays fixed in WORLD space once
- * rotation is re-applied. See resizeRotatedFrameFromDelta's original inline
- * comment (kept there) for why alt-resize anchors on the center instead of
- * the opposite corner/edge.
- */
 function reanchorRotatedResizeToWorld(
   origin: FrameGeometry,
   handle: ResizeHandle,
@@ -1655,9 +1409,6 @@ export function resizeRotatedFrameFromDelta(
     return resizeFrameFromDelta(origin, handle, worldDx, worldDy, options);
   }
 
-  // Map the world-space pointer delta into the frame's own unrotated axes so
-  // dragging "outward along the handle" behaves the same regardless of how
-  // the frame is rotated.
   const localDelta = rotateVector({ x: worldDx, y: worldDy }, -degrees);
 
   const resizedLocal = resizeFrameFromDelta(
@@ -1677,8 +1428,6 @@ export function resizeRotatedFrameFromDelta(
   );
 }
 
-/** Resize handles in clockwise screen order (y grows downward), so rotating a
- *  handle by one 90° quadrant clockwise is a +2 step through this ring. */
 const RESIZE_HANDLES_CLOCKWISE: readonly ResizeHandle[] = [
   "n",
   "ne",
@@ -1690,10 +1439,6 @@ const RESIZE_HANDLES_CLOCKWISE: readonly ResizeHandle[] = [
   "nw",
 ];
 
-/** Maps a local resize handle to the world-space direction it points after
- *  rotating the frame clockwise by `quadrants` 90° steps (CSS-positive
- *  rotation is clockwise on screen): at 90°, the local east handle points
- *  due south in world space, so "e" → "s". */
 function rotateHandleByQuadrants(
   handle: ResizeHandle,
   quadrants: number,
@@ -1702,36 +1447,8 @@ function rotateHandleByQuadrants(
   return RESIZE_HANDLES_CLOCKWISE[(index + 2 * ((quadrants % 4) + 4)) % 8]!;
 }
 
-/**
- * Beyond this many degrees away from the nearest axis-aligned orientation
- * (0/90/180/270), resize snapping is skipped for rotated frames: the frame's
- * true edges diverge too far from any axis-aligned box for edge/center
- * alignment against siblings to mean anything, and a wrong-axis guide is
- * worse than none.
- */
 const ROTATED_RESIZE_SNAP_MAX_OFF_AXIS_DEGREES = 30;
 
-/**
- * Rotation-aware counterpart to resizeRotatedFrameFromDelta that also snaps
- * to nearby stationary siblings, matching computeResizeSnap's contract for
- * the unrotated group-resize path (CV-style: same threshold/guide shape).
- *
- * How rotated snapping works (see WORK ITEM 2 in the canvas bug pass this was
- * added for, reworked in the pre-ship review): the unsnapped rotated resize
- * is computed first, then its actual world-space AABB is snapped against
- * stationary siblings' world bounds with the exact same computeResizeSnap
- * machinery a non-rotated resize uses — with the resize handle mapped into
- * its world orientation by the frame's nearest 90° quadrant (at ~90° the
- * local east edge faces due south in world space, so "e" snaps the AABB's
- * bottom edge; at ~180° it faces west; etc.). Any snap offset is then fed
- * back into the rotated resize as extra world pointer travel, so anchoring
- * stays exact. This is edge-exact at 0/90/180/270 (the AABB edges ARE the
- * frame's edges there) and approximate in between (pointer travel maps to
- * AABB-edge movement with a cos² factor); once the rotation is more than
- * ROTATED_RESIZE_SNAP_MAX_OFF_AXIS_DEGREES from every axis-aligned
- * orientation, snapping is skipped entirely (no guides) rather than snapping
- * an axis that no longer matches what the user sees.
- */
 export function resizeRotatedFrameFromDeltaWithSnap(
   origin: FrameGeometry,
   handle: ResizeHandle,
@@ -1763,13 +1480,6 @@ export function resizeRotatedFrameFromDeltaWithSnap(
     options,
   );
 
-  // Snapping is skipped outright for a rotated frame whenever the caller's
-  // aspect-preserve flag is set (shift-held or the K scale tool):
-  // independently snapping x and y against the local-bounds approximation
-  // above would distort the locked ratio the aspect-preserving resize above
-  // just computed, and computeAspectPreservingResizeSnap's own single-locked-
-  // ratio reasoning only holds against the frame's true (rotated) shape, not
-  // this approximation. No snap beats a wrong one here.
   if (snapOptions.preserveAspectRatio || snapOptions.bypass) {
     return {
       frame: reanchorRotatedResizeToWorld(
@@ -1791,9 +1501,6 @@ export function resizeRotatedFrameFromDeltaWithSnap(
     options,
   );
 
-  // Map the resize handle into its world orientation by the nearest 90°
-  // quadrant (see the doc comment above). Far off-axis, skip snapping
-  // outright — a wrong-axis snap/guide is worse than none.
   const normalizedDegrees = ((degrees % 360) + 360) % 360;
   const nearestQuadrant = Math.round(normalizedDegrees / 90) % 4;
   const offAxisDegrees = Math.abs(
@@ -1811,7 +1518,6 @@ export function resizeRotatedFrameFromDeltaWithSnap(
     width: aabb.width,
     height: aabb.height,
   };
-  // Min sizes are per-axis, so they swap with the axes at 90/270.
   const worldSnapOptions =
     nearestQuadrant % 2 === 1
       ? {
@@ -1833,10 +1539,6 @@ export function resizeRotatedFrameFromDeltaWithSnap(
     return { frame: unsnapped, guides: [] };
   }
 
-  // The snap moved the dragged world edge(s) of the AABB; express that
-  // movement as extra world pointer travel and recompute the rotated resize,
-  // so the anchor-fixing translation stays exact instead of being applied to
-  // an already-snapped box.
   const snapDx = handleAffectsEast(worldHandle)
     ? snap.frame.x + snap.frame.width - (worldBox.x + worldBox.width)
     : handleAffectsWest(worldHandle)
@@ -1860,9 +1562,6 @@ export function resizeRotatedFrameFromDeltaWithSnap(
   };
 }
 
-/** The local (unrotated) point that a given resize handle keeps fixed: the
- *  edge/corner opposite the handle, or the center of an axis the handle
- *  doesn't affect at all (e.g. "n" leaves the horizontal axis untouched). */
 function getResizeAnchorPoint(
   geometry: FrameGeometry,
   handle: ResizeHandle,
@@ -1881,9 +1580,6 @@ function getResizeAnchorPoint(
   return { x, y };
 }
 
-/** Unrotated visual angle of each resize handle, in degrees, matching CSS
- *  cursor convention (0 = east/right, increasing clockwise since canvas y
- *  grows downward) — "e" points right, "se" points down-right, etc. */
 const RESIZE_HANDLE_ANGLES: Record<ResizeHandle, number> = {
   e: 0,
   se: 45,
@@ -1902,17 +1598,6 @@ const RESIZE_CURSOR_BY_QUADRANT = [
   "nesw-resize",
 ] as const;
 
-/**
- * Returns the resize cursor for `handle` on a frame rotated by `rotationDeg`
- * degrees, so the cursor always matches how the handle actually looks and
- * moves on screen instead of a static per-handle cursor that's only correct
- * when the frame isn't rotated.
- *
- * Cursor CSS only offers 4 distinct resize cursors, each valid across a pair
- * of opposite directions (`ew-resize` covers both due east and due west).
- * This adds the handle's own unrotated angle to the frame's rotation and
- * quantizes to the nearest 45 degrees to pick which of the 4 to use.
- */
 export function getResizeCursorForHandle(
   handle: ResizeHandle,
   rotationDeg = 0,
@@ -2050,9 +1735,6 @@ function guidesMatchingResizedEdges(
   });
 }
 
-/** Skips any axis an alignment guide claimed, which would pull the edge off the
- *  line the user is looking at. An aspect-locked resize quantizes only its
- *  origin: rounding both sizes is what breaks the ratio it must hold. */
 function applyResizeSnapStep(
   frame: FrameGeometry,
   guides: readonly AlignmentGuide[],
@@ -2078,30 +1760,11 @@ function applyResizeSnapStep(
   };
 }
 
-// ---------------------------------------------------------------------------
-// 3D transform (rotateX/rotateY/rotateZ/perspective) parse + compose
-// ---------------------------------------------------------------------------
-//
-// These helpers operate on an element's authored CSS `transform` string (the
-// inspector's inline-style domain), not the frame-gesture rotation math
-// above — kept in this file per the inspector's convention of pushing pure
-// transform math out of EditPanel.tsx for testability.
-//
-// Sign convention: unlike Figma's plugin-API `rotation` (counterclockwise-
-// positive), our canonical model is real CSS, so these helpers keep the
-// standard CSS convention as-is (positive `rotateZ(deg)`/`rotateX(deg)`/
-// `rotateY(deg)` exactly as the browser interprets them) — no sign flip is
-// applied here. See EditPanel.tsx's `mergeRotationValue`/`ROTATE_FN_PATTERN`
-// for the existing (unflipped) 2D rotate() convention this extends.
 
-/** The 3D rotation + perspective parts of a composed `transform` value. All
- *  angles are plain CSS degrees (browser convention, not Figma's). */
 export interface Transform3DParts {
   rotateX: number;
   rotateY: number;
   rotateZ: number;
-  /** `perspective(Npx)` distance in px. 0 means "no perspective" (omitted
-   *  from the composed string). */
   perspective: number;
 }
 
@@ -2112,8 +1775,6 @@ const TRANSFORM_3D_ALL_ZERO: Transform3DParts = {
   perspective: 0,
 };
 
-/** Matches a single `fn(value<unit>)` token, e.g. `rotateX(30deg)` or
- *  `perspective(800px)`. Case-insensitive to tolerate authored CSS. */
 function matchTransformFn(
   transform: string,
   fnName: string,
@@ -2165,7 +1826,6 @@ export function parseTransform3DParts(
 
   const rotateX = angleFnToDegrees(value, "rotateX") ?? 0;
   const rotateY = angleFnToDegrees(value, "rotateY") ?? 0;
-  // A bare rotate()/rotateZ() are equivalent for a 2D Z-axis rotation.
   const rotateZ =
     angleFnToDegrees(value, "rotateZ") ??
     angleFnToDegrees(value, "rotate") ??
@@ -2175,7 +1835,6 @@ export function parseTransform3DParts(
   let perspective = 0;
   if (perspectiveMatch) {
     if (perspectiveMatch.unit !== "" && perspectiveMatch.unit !== "px") {
-      // Unrecognized perspective unit — bail to "custom" rather than guess.
       return null;
     }
     perspective = perspectiveMatch.value;
@@ -2184,38 +1843,11 @@ export function parseTransform3DParts(
   return { rotateX, rotateY, rotateZ, perspective };
 }
 
-/**
- * Composes a `transform` string from 3D rotation/perspective parts,
- * preserving every non-rotation, non-perspective function already present
- * (translate/scale/skew/etc.) in its original relative order, with the 3D
- * chain appended in the fixed, documented order:
- *
- *   perspective(Npx) rotateX(Xdeg) rotateY(Ydeg) rotateZ(Zdeg) <rest>
- *
- * Order matters in CSS transforms (each function is applied to the
- * coordinate space produced by the ones before it, reading left to right).
- * `perspective()` must come first so it establishes the viewing distance
- * before any rotation is applied; X then Y then Z is the common 3D-engine
- * convention (e.g. Three.js's default Euler order) and is fixed here so
- * round-tripping is stable — there is no Figma precedent to match since 3D
- * transforms are unshipped there (see research-transforms3d.md).
- *
- * When `perspective` and both `rotateX`/`rotateY` are zero, this emits the
- * plain 2D form (`rotateZ(Zdeg)` merged via the existing `rotate()` slot)
- * with no `perspective()`/`rotateX()`/`rotateY()` tokens at all, so existing
- * 2D-only designs round-trip through this helper with zero output churn.
- * Callers that already have a 2D-only mergeRotationValue-style helper (see
- * EditPanel.tsx) may prefer that path for the pure-2D case; this function
- * supports it too so a single code path can serve both.
- */
 export function composeTransform3D(
   transform: string | undefined,
   parts: Transform3DParts,
 ): string {
   const base = !transform || transform === "none" ? "" : transform;
-  // Strip any existing rotateX/rotateY/rotateZ/rotate/perspective/matrix3d
-  // tokens so we don't compound with stale ones; everything else (translate,
-  // scale, skew) is preserved as-is, in place.
   const stripped = base
     .replace(/perspective\([^)]*\)/gi, "")
     .replace(/rotate[XYZxyz]?\([^)]*\)/gi, "")
@@ -2238,12 +1870,8 @@ export function composeTransform3D(
     if (perspective > 0) chainTokens.push(`perspective(${perspective}px)`);
     if (rotateX !== 0) chainTokens.push(`rotateX(${rotateX}deg)`);
     if (rotateY !== 0) chainTokens.push(`rotateY(${rotateY}deg)`);
-    // Always include rotateZ once 3D is active (even at 0deg) so the fixed
-    // X/Y/Z order is unambiguous and stable to re-parse.
     chainTokens.push(`rotateZ(${rotateZ}deg)`);
   } else if (rotateZ !== 0) {
-    // Zero-churn 2D form: plain rotate(), matching the existing 2D field's
-    // `mergeRotationValue` output exactly.
     chainTokens.push(`rotate(${rotateZ}deg)`);
   }
 
@@ -2252,25 +1880,10 @@ export function composeTransform3D(
   return stripped ? `${chain} ${stripped}` : chain;
 }
 
-/**
- * True when `transform` is 3D-active per `composeTransform3D`'s own
- * definition (non-zero perspective, rotateX, or rotateY) — i.e. whether
- * `transform-style: preserve-3d` / 3D inspector fields should be considered
- * "on" for this element. Exported so EditPanel doesn't need to re-derive the
- * same threshold independently.
- */
 export function isTransform3DActive(parts: Transform3DParts): boolean {
   return parts.perspective > 0 || parts.rotateX !== 0 || parts.rotateY !== 0;
 }
 
-/**
- * Aspect-ratio-safe variant of the independent-axis snap above. Snapping x
- * and y independently can each pull toward a different sibling edge, which
- * distorts a shift-held (aspect-locked) resize away from its ratio. Instead:
- * evaluate both axes' snap candidates, apply only the single closest one,
- * then rescale the other axis from `frame`'s own aspect ratio so the shape
- * stays locked to it.
- */
 function computeAspectPreservingResizeSnap(
   frame: FrameGeometry,
   stationary: FrameEntry[],
@@ -2309,10 +1922,6 @@ function computeAspectPreservingResizeSnap(
       sizeLimits,
     );
     const nextHeight = snappedX.width / ratio;
-    // Matches resizeFrameFromDelta's own convention: when a handle that
-    // doesn't touch the vertical axis (e.g. "e") grows height only because
-    // aspect-ratio derives it, that growth is centered vertically rather
-    // than anchored to the original y.
     const rescaled = {
       ...snappedX,
       height: nextHeight,
@@ -2371,22 +1980,6 @@ function getResizedAxisStart(
   return originStart;
 }
 
-/**
- * Flip-aware counterpart to `getResizedAxisStart` for a directly-dragged
- * axis whose raw (pre-clamp, pre-abs) size went negative — i.e. the handle
- * was dragged past its opposite edge/anchor. `rawSize` is the SIGNED size
- * before the `Math.abs`/minimum clamp was applied; `nextSize` is the final
- * (always positive) clamped size actually being used.
- *
- * The anchor is the edge the handle does NOT move: `affectsStart` (west/
- * north) handles anchor the end edge (`originStart + originSize`);
- * `affectsEnd` (east/south) handles anchor the start edge (`originStart`).
- * The dragged edge's raw (possibly past-anchor) position is derived from the
- * anchor and the raw signed size; the frame's new start is whichever of the
- * two edges (anchor vs. dragged) is smaller, and `nextSize` (already
- * `abs`+min-clamped) is used for the final width/height so a tiny overshoot
- * still respects the caller's own minimum floor.
- */
 function getFlippedAxisStart(
   originStart: number,
   originSize: number,
@@ -2397,11 +1990,6 @@ function getFlippedAxisStart(
   const anchor = affectsStart ? originStart + originSize : originStart;
   const draggedEdge = affectsStart ? anchor - rawSize : anchor + rawSize;
   const start = Math.min(anchor, draggedEdge);
-  // If the min-clamp floor pushed nextSize above the raw overshoot distance
-  // (e.g. rawSize is only slightly negative but nextSize floors up to the
-  // caller's minimum), keep the anchor fixed and extend the frame outward
-  // from it by the floored size instead of trusting the (too-small) raw
-  // dragged-edge position.
   const rawSpan = Math.abs(draggedEdge - anchor);
   if (nextSize > rawSpan) {
     return anchor < draggedEdge ? anchor - nextSize : anchor;
@@ -2421,9 +2009,6 @@ function getCanvasSnapThreshold({
 }
 
 const SNAP_ALIGN_EPSILON = 1e-6;
-/** Screen px. Every other tolerance in this module is screen-constant via
- *  getCanvasSnapThreshold; a fixed canvas-px value would make the equal-gap
- *  claim 16x stricter at 25% zoom than at 400%. */
 const SPACING_MATCH_SCREEN_PX = 0.5;
 
 function getAxisSnapValues(bounds: FrameBounds, axis: "x" | "y") {
@@ -2503,11 +2088,6 @@ function findAxisSnapOffset(
   return offset;
 }
 
-/** Every guide line the snapped position actually sits on, not just the one
- *  that won the snap: three frames sharing a left edge draw one line through
- *  all three, and an edge match plus a center match on the same axis draw
- *  both, matching Figma. Call with post-snap bounds — the line's extent is
- *  the union of the frames it connects. */
 function buildAxisGuides(
   axis: "x" | "y",
   moving: FrameBounds[],
@@ -2550,8 +2130,6 @@ function buildAxisGuides(
   })) as AlignmentGuide[];
 }
 
-/** Gaps that already exist between two side-by-side stationary frames in the
- *  moving frame's own row/column — the rhythm a Figma spacing snap matches. */
 function collectRhythmGaps(
   axis: "x" | "y",
   movingBounds: FrameBounds,
@@ -2561,9 +2139,6 @@ function collectRhythmGaps(
     .filter(
       (bounds) =>
         crossAxisOverlaps(axis, bounds, movingBounds) &&
-        // A frame that spans the whole moving frame — a parent content box,
-        // a backdrop — is a wrapper, not a neighbour in the rhythm, and its
-        // span would swallow every real gap in the row.
         !(
           getAxisStart(bounds, axis) <= getAxisStart(movingBounds, axis) &&
           getAxisEnd(bounds, axis) >= getAxisEnd(movingBounds, axis)
@@ -2601,9 +2176,6 @@ function collectRhythmGaps(
   return gaps;
 }
 
-/** The offset plus which neighbour it was measured against, so the guide is
- *  drawn on the side the snap actually used. Picking a side independently
- *  builds chrome for a gap that was never matched. */
 function findSpacingSnapOffset(
   axis: "x" | "y",
   movingBounds: FrameBounds,
@@ -2634,9 +2206,6 @@ function findSpacingSnapOffset(
   return { offset, side };
 }
 
-/** The pair of gap bands to draw once `findSpacingSnapOffset` has landed:
- *  the two equal gaps around the frame, or the frame's gap plus the existing
- *  gap it matched. Call with post-snap bounds. */
 function buildSpacingGuides(
   axis: "x" | "y",
   movingBounds: FrameBounds,
@@ -2709,8 +2278,6 @@ function getResizeSnapCandidate(
         : frameBounds.bottom;
 
   return stationary.reduce<SnapCandidate | null>((best, entry) => {
-    // Rotated (world-space) AABB, not the unrotated local bounds, so
-    // resizing snaps against a rotated sibling's visual silhouette.
     const stationaryBounds = getRotatedFrameAABB(entry.geometry);
     const targetValues =
       axis === "x"

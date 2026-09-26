@@ -95,10 +95,6 @@ import {
   SavedDraftOwnershipError,
 } from "../lib/saved-draft-ownership.js";
 import { resolveGoogleSenderIdentity } from "../lib/sender-identity.js";
-// State-change operations (archive/unarchive/star/trash/untrash/markRead) have
-// been migrated to the action surface; their handlers have been removed. The
-// shared lib functions in ../lib/email-state.js remain the single source of
-// truth and are called directly from the action definitions.
 import {
   threadMessagesCache,
   THREAD_CACHE_TTL,
@@ -106,26 +102,16 @@ import {
   invalidateThreadCache,
 } from "../lib/thread-cache.js";
 
-/**
- * Strip CRLF from any value that flows into an RFC 2822 header line. Without
- * this, any `\r\n` in `to`/`cc`/`bcc`/`subject`/`from` injects a new header
- * (`Subject: hi\r\nBcc: attacker@evil` would silently BCC the attacker via
- * the user's connected Gmail account). See email-templates.ts for the same
- * pattern applied to system emails.
- */
 function stripCrlf(s: string): string {
   return s.replace(/[\r\n]+/g, " ").trim();
 }
 
-// ---------------------------------------------------------------------------
-// Label map cache — avoids re-fetching label names from Gmail on every request
-// ---------------------------------------------------------------------------
 
 const labelMapCache = new Map<
   string,
   { map: Map<string, string>; expiresAt: number }
 >();
-const LABEL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const LABEL_CACHE_TTL = 5 * 60 * 1000;
 
 type MailAccountError = { email: string; error: string };
 type AccountTokenResult = {
@@ -159,7 +145,6 @@ function setMailAccountErrorsHeader(
 async function getCachedLabelMap(
   accountTokens: Array<{ email: string; accessToken: string }>,
 ): Promise<Map<string, string>> {
-  // Build a cache key from sorted account emails
   const cacheKey = accountTokens
     .map((a) => a.email)
     .sort()
@@ -195,7 +180,6 @@ async function getAccessToken(
   return client?.accessToken ?? null;
 }
 
-/** Get tokens for accounts connected to this owner, including a managed grant. */
 async function getAccountTokens(
   forEmail: string,
   requestedAccountEmails?: readonly string[],
@@ -218,7 +202,6 @@ async function getAccountTokens(
   );
 
   for (const account of oauthAccounts) {
-    // Seed in-memory cache from SQL on first load
     if (account.displayName && !getAccountDisplayName(account.accountId)) {
       setAccountDisplayName(account.accountId, account.displayName);
     }
@@ -231,7 +214,6 @@ async function getAccountTokens(
     ) {
       continue;
     }
-    // Mark as attempted immediately so concurrent requests don't re-fire.
     setAccountDisplayName(client.email, client.email);
     googleFetch(
       `https://www.googleapis.com/oauth2/v2/userinfo`,
@@ -254,7 +236,6 @@ async function getAccountTokens(
   };
 }
 
-/** Resolve an account from this owner's connected mailbox set. */
 async function resolveAccountEmail(
   requestAccountEmail: string | undefined,
   ownerEmail: string,
@@ -361,7 +342,6 @@ async function resolveGmailAccess(
   return { ok: true, accountEmail, accessToken };
 }
 
-/** Extract the logged-in user's email from the request session. */
 async function userEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
   if (!session?.email) {
@@ -370,7 +350,6 @@ async function userEmail(event: H3Event): Promise<string> {
   return session.email;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function reqSource(event: H3Event) {
   return getHeader(event, "x-request-source") || undefined;
@@ -470,9 +449,6 @@ function parseEmailPageLimit(value: string | undefined): number {
   return Math.min(Math.max(Math.floor(n), 10), 50);
 }
 
-// Gmail errors carry their HTTP status in the message text ("(404)"),
-// except quota cooldowns, whose message is deliberately jargon-free — those
-// must be classified by type so the client sees 429 + Retry-After.
 function gmailErrorStatus(error: unknown): {
   status: number;
   retryAfterSeconds?: number;
@@ -490,7 +466,6 @@ function gmailErrorStatus(error: unknown): {
   return { status: parsed ? Number(parsed) : 502 };
 }
 
-// ─── Email list ───────────────────────────────────────────────────────────────
 
 export const listEmails = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
@@ -519,11 +494,9 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     return { emails };
   }
 
-  // If Google is connected, fetch from Gmail directly (skip demo data)
   if (await isConnected(email)) {
     try {
       const { pageToken } = getQuery(event) as { pageToken?: string };
-      // Decode composite page tokens (one per Gmail account)
       let pageTokens: Record<string, string> | undefined;
       if (pageToken) {
         try {
@@ -535,18 +508,13 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         }
       }
 
-      // Fence list responses before token resolution so an in-flight request
-      // cannot repopulate the old shared snapshot while force-refresh waits.
       if (forceRefresh) invalidateListCacheForOwner(email);
 
-      // Fetch label name mapping from all accounts (cached)
       const { tokens: accountTokens, errors: tokenErrors } =
         await getAccountTokens(email);
       if (forceRefresh) {
         for (const account of accountTokens)
           invalidateHistoryCacheForAccount(account.email);
-        // Requests that started during token resolution may have read the old
-        // history window; fence their list-cache writes after evicting it.
         invalidateListCacheForOwner(email);
       }
       const labelMap = await getCachedLabelMap(accountTokens);
@@ -567,8 +535,6 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         label,
         limit: pageLimit,
         pageTokens,
-        // Metadata responses omit MIME parts. Saved-filter partitioning
-        // needs attachment filenames for has:attachment/filename queries.
         threadFormat:
           view === "drafts" || hasAttachmentSavedFilter ? "full" : "metadata",
         threadCandidateLimit: q ? 80 : undefined,
@@ -578,7 +544,6 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
 
       if (!listResult.ok) {
         setMailAccountErrorsHeader(event, tokenErrors);
-        // All accounts failed — surface as error
         if (listResult.isQuotaError) {
           setResponseStatus(event, 429);
           setResponseHeader(
@@ -600,13 +565,8 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       } = listResult;
       const errors = mergeMailAccountErrors(listErrors, tokenErrors);
 
-      // If some accounts failed but others succeeded, add warning header.
-      // HTTP headers must be ByteString (code points <= 255), so strip any
-      // UTF-8 that might land in an error message (em dashes, smart quotes,
-      // etc. from Google error responses). Otherwise the whole handler 500s.
       setMailAccountErrorsHeader(event, errors);
 
-      // Encode next page token for the frontend
       let nextPageToken: string | undefined;
       if (nextPageTokens) {
         nextPageToken = Buffer.from(JSON.stringify(nextPageTokens)).toString(
@@ -637,7 +597,6 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       new Set([email.toLowerCase()]),
     );
   } else {
-    // Filter by view
     switch (view) {
       case "inbox":
         emails = emails.filter(
@@ -673,7 +632,6 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         if (label) emails = filterLabelMessages(emails, label);
         break;
       default:
-        // label: prefixed or raw label id
         const labelId = view.startsWith("label:")
           ? view.replace("label:", "")
           : view;
@@ -683,12 +641,10 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Full-text search
   if (q) {
     emails = emails.filter((e) => emailMessageMatchesSearch(e, q));
   }
 
-  // Filter out snoozed emails. Skip when searching so snoozed hits surface too.
   if (!q && (view === "inbox" || view === "unread")) {
     const snoozedIds = await getSnoozedThreadIds(email);
     if (snoozedIds.size > 0) {
@@ -698,14 +654,10 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Sort by date descending
   emails.sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   );
 
-  // Paginate the same way the Gmail-connected branch above does, so local/demo
-  // mode doesn't load the entire filtered list in one unbounded response and
-  // infinite scroll (which relies on nextPageToken) actually has a next page.
   const { pageToken: localPageToken } = getQuery(event) as {
     pageToken?: string;
   };
@@ -725,15 +677,12 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
   };
 });
 
-// ─── Thread messages ─────────────────────────────────────────────────────────
 
 export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const threadId = getRouterParam(event, "threadId") as string;
   const { accountEmail } = getQuery(event) as { accountEmail?: string };
 
-  // Cache hit: skip Gmail entirely. Survives prefetch → navigate within TTL,
-  // and across sibling j/k navigation for the same thread.
   const cacheKey = threadCacheKey(email, threadId);
   const cached = threadMessagesCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
@@ -771,9 +720,6 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
       setMailAccountErrorsHeader(event, errors);
       const labelMap = await getCachedLabelMap(accountTokens);
 
-      // When the list row tells us which connected account owns the thread,
-      // fetch only that account. Otherwise fall back to scanning all accounts
-      // for older callers and copied URLs.
       for (const { email: acctEmail, accessToken } of candidateTokens) {
         try {
           const threadRes = await gmailGetThread(accessToken, threadId, "full");
@@ -784,7 +730,6 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
               labelMap,
             ),
           );
-          // Sort oldest first
           messages.sort(
             (a: any, b: any) =>
               new Date(a.date).getTime() - new Date(b.date).getTime(),
@@ -830,7 +775,6 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Demo data: find all emails with matching threadId
   const emails = await readEmails(email);
   const threadMessages = emails
     .filter((e) => e.threadId === threadId)
@@ -844,7 +788,6 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
   return threadMessages;
 });
 
-// ─── Single email ─────────────────────────────────────────────────────────────
 
 export const getEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
@@ -900,7 +843,6 @@ export const getEmail = defineEventHandler(async (event: H3Event) => {
   return found;
 });
 
-// ─── Report spam ──────────────────────────────────────────────────────────────
 
 export const reportSpam = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
@@ -916,13 +858,11 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
     const { accountEmail: acct, accessToken } = gmailAccess;
     try {
       const id = getRouterParam(event, "id") as string;
-      // Get the threadId from the message if not provided
       let threadId = bodyThreadId;
       if (!threadId) {
         const msg = await gmailGetMessage(accessToken, id, "minimal");
         threadId = msg.threadId;
       }
-      // Report spam on entire thread
       const updated = (await gmailModifyThread(
         accessToken,
         threadId!,
@@ -943,7 +883,6 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Local fallback: move to trash with a spam label
   return withLocalEmailMutationLock(email, async () => {
     const emails = await readEmails(email);
     const target = emails.find((e) => e.id === getRouterParam(event, "id"));
@@ -972,7 +911,6 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-// ─── Block sender ─────────────────────────────────────────────────────────────
 
 async function readBlockedSenders(email: string): Promise<string[]> {
   const data = await getUserSetting(email, "blocked-senders");
@@ -1003,7 +941,6 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
     return { error: "Missing senderEmail" };
   }
 
-  // If Gmail is connected, create a filter to auto-delete + report spam
   if (await isConnected(email)) {
     const gmailAccess = await resolveGmailAccess(event, email, accountEmail);
     if (!gmailAccess.ok) return gmailAccess.response;
@@ -1011,7 +948,6 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
     try {
       const id = getRouterParam(event, "id") as string;
 
-      // Report the entire thread as spam
       const msg = await gmailGetMessage(accessToken, id, "minimal");
       const updated = (await gmailModifyThread(
         accessToken,
@@ -1026,7 +962,6 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
         providerHistoryId: updated?.historyId,
       });
 
-      // Create a filter to auto-delete future emails from this sender
       try {
         await googleFetch(
           `https://gmail.googleapis.com/gmail/v1/users/me/settings/filters`,
@@ -1041,7 +976,6 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
           },
         );
       } catch (filterErr: any) {
-        // Filter creation may fail (permissions), but spam report still worked
         console.error(
           "[blockSender] filter creation failed:",
           filterErr.message,
@@ -1056,7 +990,6 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Local fallback: add to blocked list + trash the thread
   const blocked = await readBlockedSenders(email);
   if (!blocked.includes(senderEmail.toLowerCase())) {
     blocked.push(senderEmail.toLowerCase());
@@ -1093,7 +1026,6 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-// ─── Mute thread ──────────────────────────────────────────────────────────────
 
 async function readMutedThreads(email: string): Promise<string[]> {
   const data = await getUserSetting(email, "muted-threads");
@@ -1124,7 +1056,6 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
     const { accountEmail: acct, accessToken } = gmailAccess;
     try {
       const threadId = getRouterParam(event, "threadId") as string;
-      // Gmail "mute" = remove from inbox; future replies also skip inbox
       const updated = (await gmailModifyThread(
         accessToken,
         threadId,
@@ -1144,7 +1075,6 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Local fallback: archive all messages in thread + record as muted
   const threadId = getRouterParam(event, "threadId") as string;
   const muted = await readMutedThreads(email);
   if (!muted.includes(threadId)) {
@@ -1171,7 +1101,6 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-// ─── Delete permanently ───────────────────────────────────────────────────────
 
 export const deleteEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
@@ -1187,7 +1116,6 @@ export const deleteEmail = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-// ─── Send / compose ───────────────────────────────────────────────────────────
 
 export const sendEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
@@ -1200,9 +1128,6 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
     return { error: "Missing required fields: to, subject, body" };
   }
 
-  // Validate address-list shape after stripCrlf — guards against header
-  // injection where the attacker supplies a `\r\n`-laced subject or
-  // recipient and tries to smuggle Bcc/Reply-To headers into the raw email.
   const cleanedTo = stripCrlf(to);
   const cleanedCc = cc ? stripCrlf(cc) : "";
   const cleanedBcc = bcc ? stripCrlf(bcc) : "";
@@ -1233,7 +1158,6 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
     };
   }
 
-  // If Gmail is connected, send via Gmail API
   if (await isConnected(email)) {
     try {
       let selectedEmail = await resolveAccountEmail(accountEmail, email);
@@ -1251,7 +1175,6 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
       let references: string | undefined;
 
       if (replyToId) {
-        // Find which account owns the original message and use that for the reply
         for (const { email: acctEmail, accessToken } of accountTokens) {
           try {
             const original = await gmailGetMessage(
@@ -1357,15 +1280,11 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
         );
       }
 
-      // Bust the server-side thread cache so the next fetch shows the new
-      // message. Without this, replies sent within the 5-min TTL don't
-      // appear until the cache entry expires.
       if (sent.threadId) {
         invalidateThreadCache(email, sent.threadId);
       }
       invalidateListCacheForOwner(email);
 
-      // Track contact frequency for all recipients
       const allRecipients = [to, cc, bcc]
         .filter(Boolean)
         .flatMap((field: string) =>
@@ -1379,7 +1298,6 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
         .filter((r) => r.email);
       incrementSendFrequency(email, allRecipients).catch(() => {});
 
-      // Emit mail.message.sent event (best-effort)
       try {
         emit(
           "mail.message.sent",
@@ -1416,7 +1334,6 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Local fallback: store as sent email
   return withLocalEmailMutationLock(email, async () => {
     const emails = await readEmails(email);
 
@@ -1477,7 +1394,6 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-// ─── Save draft (persistent, Gmail-style) ─────────────────────────────────────
 
 export const saveDraft = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
@@ -1502,9 +1418,6 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 400);
     return { error: "Invalid saved draft backend" };
   }
-  // Validate header values after stripCrlf — same protection as sendEmail.
-  // Drafts go through the same buildRawEmail path so they need the same
-  // header-injection guard.
   if (
     !isValidAddressList(to ? stripCrlf(to) : "") ||
     !isValidAddressList(cc ? stripCrlf(cc) : "") ||
@@ -1561,7 +1474,6 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     return { error: error.message };
   }
 
-  // Keep existing drafts on their owning backend when connection state changes.
   if (draftBackend === "gmail") {
     if (!(gmailConnected ?? (await isConnected(email)))) {
       setResponseStatus(event, 401);
@@ -1587,7 +1499,6 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
       });
 
       if (savedDraftId) {
-        // Update existing Gmail draft
         try {
           const updated = await googleFetch(
             `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(savedDraftId)}`,
@@ -1611,7 +1522,6 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
           // A deleted Gmail draft is safe to replace with a new one.
         }
       }
-      // Create new Gmail draft
       const created = await googleFetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/drafts`,
         accessToken,
@@ -1634,7 +1544,6 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Local fallback: save as EmailMessage with isDraft=true
   return withLocalEmailMutationLock(email, async () => {
     const emails = await readEmails(email);
     const existingIdx = savedDraftId
@@ -1718,11 +1627,6 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-/**
- * Build a tracking context for an outgoing message. Returns undefined when
- * both open- and click-tracking are disabled so the caller skips injection
- * entirely.
- */
 function buildTrackingContext(
   event: H3Event,
   body: string,
@@ -1750,7 +1654,6 @@ function buildTrackingContext(
   };
 }
 
-// ─── Delete draft ─────────────────────────────────────────────────────────────
 
 export const deleteDraft = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
@@ -1777,7 +1680,6 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
     return { ok: true };
   }
 
-  // Local fallback
   return withLocalEmailMutationLock(email, async () => {
     const emails = await readEmails(email);
     const filtered = emails.filter((e) => !(e.id === id && e.isDraft));
@@ -1788,7 +1690,6 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-// ─── Contacts (extracted from email history) ─────────────────────────────────
 
 export type ContactEntry = { name: string; email: string; count: number };
 export type ContactLookupResult = {
@@ -1796,7 +1697,6 @@ export type ContactLookupResult = {
   errors: MailAccountError[];
 };
 
-// Contact cache: keyed by user email, TTL 10 minutes
 const contactCache = new Map<
   string,
   {
@@ -1805,14 +1705,8 @@ const contactCache = new Map<
     expiresAt: number;
   }
 >();
-const CONTACT_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const CONTACT_CACHE_TTL = 10 * 60 * 1000;
 
-/**
- * Load (or return cached) contacts for the given user, ranked by send/receive
- * frequency. Exposed so agent actions like `find-contact` can reuse the same
- * waterfall (saved contacts → other contacts → recent Gmail headers → local
- * fallback) without duplicating the People API calls or the cache.
- */
 export async function loadContactsForEmail(
   email: string,
 ): Promise<ContactLookupResult> {
@@ -1829,7 +1723,6 @@ export async function loadContactsForEmail(
     >();
 
     for (const { email: accountEmail, accessToken } of accountTokens) {
-      // Fetch saved contacts (People API connections)
       try {
         let nextPageToken: string | undefined;
         do {
@@ -1847,7 +1740,7 @@ export async function loadContactsForEmail(
               const key = em.value.toLowerCase();
               const existing = contactMap.get(key);
               if (existing) {
-                existing.count += 5; // boost saved contacts
+                existing.count += 5;
                 if (
                   name &&
                   name !== em.value &&
@@ -1871,7 +1764,6 @@ export async function loadContactsForEmail(
         errors.push({ email: accountEmail, error: err.message });
       }
 
-      // Fetch "other contacts" (people you've interacted with but haven't saved)
       try {
         let nextPageToken: string | undefined;
         do {
@@ -1904,12 +1796,6 @@ export async function loadContactsForEmail(
       }
     }
 
-    // Always merge in addresses from Gmail headers. People API's
-    // otherContacts only surfaces senders, so people the user has emailed
-    // (but who haven't replied) won't appear unless we scan sent messages.
-    // We query sent first to ensure outgoing recipients are captured, then
-    // fall back to a general scan when People API returned nothing (e.g.
-    // missing scopes).
     const gmailQueries = contactMap.size === 0 ? ["in:sent", ""] : ["in:sent"];
     for (const query of gmailQueries) {
       try {
@@ -1964,7 +1850,6 @@ export async function loadContactsForEmail(
       }
     }
 
-    // Merge SQL-tracked send frequency into contact counts
     let freqMap: Map<string, number>;
     try {
       freqMap = await getContactFrequencyMap(email);
@@ -2053,7 +1938,6 @@ export const listContacts = defineEventHandler(async (event: H3Event) => {
   return result.contacts;
 });
 
-// ─── Labels ───────────────────────────────────────────────────────────────────
 
 export const listLabels = defineEventHandler(async (_event: H3Event) => {
   const email = await userEmail(_event);
@@ -2069,7 +1953,6 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
       const { tokens: accountTokens, errors: tokenErrors } =
         await getAccountTokens(email, accountEmails);
       setMailAccountErrorsHeader(_event, tokenErrors);
-      // Deduplicate by derived short-name id (not Gmail label ID)
       const labelMap = new Map<
         string,
         {
@@ -2081,10 +1964,7 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
         }
       >();
       let successfulAccountReads = 0;
-      // A workspace lookup failure can hide a managed mailbox from this
-      // unfiltered inventory just as an OAuth refresh failure can.
       let failedAccountReads = tokenErrors.length;
-      // Fetch labels from each account sequentially to avoid race conditions on the shared map
       for (const { accessToken } of accountTokens) {
         try {
           const res = await gmailListLabels(accessToken);
@@ -2112,8 +1992,6 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
               Number(label.threadsUnread ?? label.messagesUnread ?? 0) || 0;
             const totalCount =
               Number(label.threadsTotal ?? label.messagesTotal ?? 0) || 0;
-            // Use and display the full label name so Gmail nesting survives
-            // import. The sidebar indents slash-delimited paths.
             const normalizedSystem = systemLabelIds[gmailId];
             const fullId =
               normalizedSystem?.id ?? name.toLowerCase().replace(/_/g, " ");
@@ -2134,8 +2012,6 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
             }
           }
         } catch {
-          // A partial label map is not safe to return because it drops labels
-          // from accounts that failed and makes counts look authoritative.
           failedAccountReads += 1;
         }
       }
@@ -2155,7 +2031,6 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
       }
       const labels: Label[] = Array.from(labelMap.values());
 
-      // Normalize Gmail category labels with friendly names
       const gmailCategories: Record<string, string> = {
         important: "Important",
         "note-to-self": "Note to Self",
@@ -2167,7 +2042,6 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
       for (const [id, name] of Object.entries(gmailCategories)) {
         const existing = labels.findIndex((l) => l.id === id);
         if (existing >= 0) {
-          // Fix casing (Gmail returns "IMPORTANT", we want "Important")
           labels[existing].name = name;
         } else {
           labels.push({
@@ -2193,7 +2067,6 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
   );
 });
 
-// ─── Calendar RSVP ───────────────────────────────────────────────────────────
 
 export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
@@ -2223,14 +2096,12 @@ export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
   try {
     const calId = calendarId || "primary";
 
-    // Get the event first to preserve existing data
     const calEvent = await calendarGetEvent(accessToken, calId, eventId);
     if (!calEvent) {
       setResponseStatus(event, 404);
       return { error: "Event not found" };
     }
 
-    // Find the current user's attendee entry and update their response
     const settings = await readSettings(email);
     const myEmail = settings.email?.toLowerCase();
     const attendees = calEvent.attendees || [];
@@ -2244,7 +2115,6 @@ export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
     }
 
     if (!found) {
-      // Add self as attendee with the response
       attendees.push({
         email: myEmail,
         responseStatus: response,
@@ -2262,7 +2132,6 @@ export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
   }
 });
 
-// ─── Unsubscribe ─────────────────────────────────────────────────────────────
 
 export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
@@ -2296,7 +2165,6 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
       return { error: "No unsubscribe header found" };
     }
 
-    // Extract URLs from the header
     const entries = listUnsub.match(/<[^>]+>/g) || [];
     let url: string | undefined;
     let mailto: string | undefined;
@@ -2313,13 +2181,6 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
       !!listUnsubPost &&
       listUnsubPost.toLowerCase().includes("list-unsubscribe=one-click");
 
-    // Try RFC 8058 one-click unsubscribe first.
-    //
-    // SSRF: the URL comes from an inbound email's `List-Unsubscribe` header
-    // — fully attacker-controlled. Without this guard a phishing email can
-    // make the production server POST to AWS IMDS (`http://169.254.169.254/`),
-    // localhost loopback, or internal cluster services and exfiltrate cloud
-    // creds / hit authenticated internal endpoints.
     if (oneClick && url) {
       try {
         const res = await ssrfSafeFetch(
@@ -2338,34 +2199,23 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
           console.warn(
             "[unsubscribe] one-click POST blocked: SSRF-protected URL",
           );
-          // Don't echo the URL — that would let an attacker probe via the
-          // error response to map internal infrastructure.
           setResponseStatus(event, 400);
           return { error: "Unsubscribe URL is not allowed" };
         }
-        // One-click failed, fall through to other methods
         console.warn("[unsubscribe] one-click POST failed:", e.message);
       }
     }
 
-    // Try mailto unsubscribe
     if (mailto) {
       try {
-        // Parse mailto for optional subject/body
         const [address, query] = mailto.split("?");
         const params = new URLSearchParams(query || "");
         const subject = params.get("subject") || "Unsubscribe";
         const bodyText = params.get("body") || "";
 
-        // CRLF-strip every header value flowing into the raw RFC 2822
-        // message — the address/subject/body all come from inbound email
-        // headers and are attacker-controlled. Without this an unsubscribe
-        // mailto URI of `mailto:victim@target?subject=Hi%0D%0ABcc:attacker`
-        // injects a Bcc through the user's connected Gmail account.
         const safeAddress = stripCrlf(address || "");
         const safeSubject = stripCrlf(subject);
 
-        // Build RFC 2822 email
         const raw = Buffer.from(
           `To: ${safeAddress}\r\nSubject: ${safeSubject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${bodyText}`,
         )
@@ -2381,7 +2231,6 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
       }
     }
 
-    // Return the URL for the client to open manually
     if (url) {
       return { ok: true, method: "url-only", url };
     }

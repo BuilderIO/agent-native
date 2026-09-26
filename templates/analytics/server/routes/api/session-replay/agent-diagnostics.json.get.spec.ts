@@ -257,7 +257,6 @@ describe("session replay agent diagnostics route", () => {
       expect(page3.console.entries).toHaveLength(5);
       expect(page3.console.hasMore).toBe(false);
 
-      // Pages union to the full 25-entry set with no overlap.
       const union = [
         ...page1.console.entries,
         ...page2.console.entries,
@@ -289,7 +288,6 @@ describe("session replay agent diagnostics route", () => {
 
     it("echoes fromMs/toMs and windows the response, with totals reflecting the window", async () => {
       mockReplayEvents(manyConsoleEvents(10));
-      // offsetMs values: 0,10,20,...,90 (startedAt = 1000)
 
       const result = await (handler as any)(
         makeEvent({
@@ -396,9 +394,6 @@ describe("session replay agent diagnostics route", () => {
       expect(result).not.toHaveProperty("offset");
       expect(result).not.toHaveProperty("fromMs");
       expect(result).not.toHaveProperty("toMs");
-      // Default (no paging params) behavior is unchanged: errors-first is
-      // exercised in the builder spec; here we just confirm the route still
-      // returns the full unbounded set with no page params echoed.
       expect(result.console.entries.length).toBeGreaterThan(0);
     });
   });

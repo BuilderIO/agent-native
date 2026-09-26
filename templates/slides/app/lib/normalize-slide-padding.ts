@@ -3,7 +3,6 @@ function fmdSlideClass(openingTag: string): RegExpExecArray | null {
   return classMatch && /\bfmd-slide\b/i.test(classMatch[2]) ? classMatch : null;
 }
 
-/** The start tag of the outer `.fmd-slide` wrapper, as written. */
 function fmdSlideStartTag(html: string): string | null {
   for (const match of html.matchAll(/<div\b[^>]*>/gi)) {
     if (fmdSlideClass(match[0])) return match[0];
@@ -11,13 +10,6 @@ function fmdSlideStartTag(html: string): string | null {
   return null;
 }
 
-/**
- * Ensure the outer `.fmd-slide` wrapper has a padding declaration.
- *
- * Explicit padding is part of the slide layout, so preserve it. In particular,
- * an overflow repair often needs to reduce vertical padding; rewriting that
- * value here makes a successful-looking agent edit a no-op in the renderer.
- */
 export function normalizeSlidePadding(html: string): string {
   for (const match of html.matchAll(/<div\b[^>]*>/gi)) {
     const openingTag = match[0];
@@ -62,12 +54,6 @@ export function normalizeSlidePadding(html: string): string {
   return html;
 }
 
-/**
- * Padding for a content write to an existing slide: only when the write
- * changed the `.fmd-slide` start tag. A slide padded by its stylesheet has no
- * inline padding, and re-padding it on every text edit moved its layout.
- * `previous` is undefined for a new slide.
- */
 export function normalizeSlidePaddingForWrite(
   previous: string | undefined,
   next: string,

@@ -1,14 +1,4 @@
-// Camera/microphone grants for the chrome-extension:// origin, and the one
-// failure they produce that does not mean "the user cancelled".
-//
 // Chrome only shows the permission prompt for a real extension page, so the
-// headless offscreen recorder can never answer one: an ungranted getUserMedia()
-// there rejects immediately with NotAllowedError "Permission dismissed". The
-// cached grant below is what lets a recording get that far — it can outlive the
-// real grant (Chrome revokes permissions for origins it considers unused, and
-// clearing site data drops them), and nothing but reinstalling the extension
-// used to clear it. So a dismissal from a headless context is a missing grant to
-// recover from, never a cancellation to report back as-is.
 
 const CACHE_KEY = "clipsMediaPermission";
 
@@ -60,17 +50,12 @@ export class MediaPermissionRequiredError extends Error {
     super(mediaPermissionRequiredMessage(device));
     this.name = "MediaPermissionRequiredError";
     this.device = device;
-    // `cause` is set here rather than through the Error options bag: the
-    // extension's TS lib target predates it, and the original NotAllowedError
-    // is what makes the Sentry report diagnosable.
     if (options && "cause" in options) {
       (this as { cause?: unknown }).cause = options.cause;
     }
   }
 }
 
-// True only for the "Chrome would have to ask, and nobody can answer" family. A
-// system-level denial (macOS/Windows privacy settings) reads the same to the
 // page but cannot be fixed from the permission page, so it stays a raw failure.
 export function isMediaPermissionDeniedError(error: unknown): boolean {
   const text =
@@ -86,7 +71,6 @@ export function isMediaPermissionDeniedError(error: unknown): boolean {
   );
 }
 
-// Wraps a getUserMedia() call made where Chrome cannot prompt.
 export async function requireMediaPermission<T>(
   device: MediaPermissionDevice,
   request: () => Promise<T>,
@@ -99,8 +83,6 @@ export async function requireMediaPermission<T>(
   }
 }
 
-// Rebuilds the typed error on the receiving side of a message reply, so a
-// missing grant stays branchable instead of decaying into a message string.
 export function mediaPermissionErrorFromResponse(response: {
   errorCode?: string;
   errorDevice?: string;
@@ -147,9 +129,6 @@ export async function writeCachedMediaPermission(
   });
 }
 
-// Device labels are exposed only while the origin holds a live grant, so this
-// separates a cached grant Chrome still honors from one it revoked — without the
-// prompt that neither the popup nor the offscreen document can show.
 export async function hasGrantedDeviceLabels(
   device: MediaPermissionDevice,
 ): Promise<boolean> {
@@ -159,7 +138,6 @@ export async function hasGrantedDeviceLabels(
     return devices.some((entry) => entry.kind === kind && Boolean(entry.label));
   } catch {
     // coercion-ok: unreadable is not "revoked", but the only caller treats both
-    // the same — it routes through the permission page either way, which recovers.
     return false;
   }
 }

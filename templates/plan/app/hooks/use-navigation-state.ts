@@ -25,7 +25,6 @@ export function useNavigationState() {
   const lastProcessedDedupKeyRef = useRef<string | null>(null);
   const stateKey = (key: string) => `${key}:${TAB_ID}`;
 
-  // Sync current route to application state
   useEffect(() => {
     const state: NavigationState = {
       view: viewForPath(location.pathname),
@@ -60,10 +59,6 @@ export function useNavigationState() {
     ).catch(() => {});
   }, [location.pathname, location.search]);
 
-  // Listen for one-shot navigate commands from the agent. useDbSync
-  // invalidates this exact key when the shared SSE/poll transport receives an
-  // app-state:navigate event, so this stays idle between real commands instead
-  // of charging the host for a request every two seconds.
   const { data: navCommand } = useQuery({
     queryKey: ["navigate-command", TAB_ID],
     queryFn: async () => {
@@ -75,7 +70,6 @@ export function useNavigationState() {
       if (!res.ok) return null;
       const data = await res.json();
       if (data) {
-        // Return with a timestamp to ensure uniqueness
         return { ...data, _ts: Date.now() };
       }
       return null;
@@ -116,7 +110,6 @@ export function useNavigationState() {
     }
     lastProcessedDedupKeyRef.current = dedupKey;
 
-    // Delete the one-shot command AFTER reading it.
     deleteCommand();
     const path = planNavigateCommandPath(cmd);
     void prewarmPlanRoutePath(path);
@@ -136,8 +129,6 @@ export function useNavigationState() {
 
 function viewForPath(pathname: string): string {
   const normalizedPathname = pathname.replace(/\/+$/, "") || "/";
-  // Recaps are a kind of plan; both detail routes map to the "plan" view so the
-  // agent's navigation/selection state is the same surface regardless of route.
   if (
     normalizedPathname.startsWith("/plans/") ||
     normalizedPathname.startsWith("/recaps/") ||
@@ -220,8 +211,6 @@ function routerPath(path: string): string {
   const basePath = appBasePath();
   if (!basePath) return path;
   let result = path;
-  // React Router is already scoped to the app basename. Strip mounted URLs so
-  // navigate() receives router-local paths and does not duplicate the prefix.
   for (let i = 0; i < 4; i += 1) {
     if (result === basePath) return "/";
     if (result.startsWith(`${basePath}/`)) {

@@ -11,20 +11,6 @@ type BridgeMessage = {
   };
 };
 
-/**
- * Exercises the REAL `frameworkDebugProvenance` shipped inside
- * `editor-chrome.bridge.ts`, pulled out of the compiled bridge string the same
- * way editor-chrome-bridge.snap.test.ts isolates the snap math — the function
- * only reads `Object.keys(el)` and the fiber graph, so a plain object stands in
- * for a DOM element and no browser is needed.
- *
- * Fixtures below are the shapes React actually produces:
- *   • React <=18 — `_debugSource` with authored file/line/column.
- *   • React 19 — `_debugStack` owner stacks (Vite `/@fs/` + plain dev-server
- *     URLs, and webpack-internal:/// for Next.js/CRA).
- * The Vite fixtures are copied from a live React 19 + Vite dev server (a <Card>
- * authored directly plus three from ITEMS.map()).
- */
 
 interface FrameworkDebugProvenance {
   framework?: "html" | "react" | "vue" | "svelte" | "angular" | "lwc";
@@ -105,11 +91,6 @@ function viteStack(frame: string): { stack: string } {
   };
 }
 
-/**
- * A project with no root `node_modules` (the exact fixture shape) gets its
- * Vite dependency cache served from a root-level `.vite/deps/`, not
- * `node_modules/.vite/deps/` — the frame the noise filter previously missed.
- */
 function rootViteStack(frame: string): { stack: string } {
   return {
     stack: [
@@ -135,7 +116,6 @@ function hydratedBridgeScript(): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
-/** Host fiber for a <button> inside Card, rendered by a <Card> in App.jsx. */
 function mappedCardButton(key: string | null) {
   const cardFiber = {
     type: Card,
@@ -245,10 +225,6 @@ describe("editor-chrome bridge — frameworkDebugProvenance", () => {
       }),
     );
 
-    // /@fs/ only exempts dist/build (a locally built package): third-party
-    // code always arrives at its real node_modules path (Vite resolves
-    // symlinks), so the createElement frame must still be dropped as noise
-    // and the walk falls through to the authored Card/App frames below it.
     expect(provenance.sourceFile).toMatch(/\/src\/components\/Card\.jsx$/);
     expect(provenance.ownerSourceFile).toMatch(/\/src\/App\.jsx$/);
   });
@@ -318,10 +294,6 @@ describe("editor-chrome bridge — frameworkDebugProvenance", () => {
   });
 
   it("keeps an authored helper legitimately named `jsx` instead of dropping it by name", () => {
-    // The old function-name rule matched `jsx` itself — indistinguishable by
-    // name from the JSX runtime factory — and wrongly dropped this authored
-    // frame too. The module rule only recognizes the runtime's OWN file, so
-    // an application helper that happens to be named `jsx` still resolves.
     const provenance = frameworkDebugProvenance(
       elementWithFiber({
         type: "button",
@@ -351,10 +323,6 @@ describe("editor-chrome bridge — frameworkDebugProvenance", () => {
   });
 
   it("keeps an authored file merely NAMED react.js when it is outside any Vite deps directory", () => {
-    // A basename-only rule would drop this: "react.js" matches the runtime
-    // module regex regardless of where it lives. The runtime is only ever
-    // served from inside a Vite optimizer deps directory, so an authored
-    // src/helpers/react.js must resolve like any other application file.
     const provenance = frameworkDebugProvenance(
       elementWithFiber({
         type: "button",
@@ -375,9 +343,6 @@ describe("editor-chrome bridge — frameworkDebugProvenance", () => {
   });
 
   it("recognizes the JSX runtime by module name under a non-.vite custom cacheDir (jsxDEV and classic createElement)", () => {
-    // No path segment here is noise (no node_modules/.vite/dist/…) — only
-    // the module-name rule can drop these, proving it runs independent of
-    // the segment-based noise check.
     const jsxDevUnderCustomCacheDir = frameworkDebugProvenance(
       elementWithFiber({
         type: "button",
@@ -697,7 +662,6 @@ describe("editor-chrome bridge — frameworkDebugProvenance", () => {
       frameworkDebugProvenance(mappedCardButton(key)),
     );
 
-    // Own location is the button's line in Card.jsx for every instance.
     for (const provenance of [direct, ...mapped]) {
       expect(provenance.sourceFile).toBe("src/components/Card.jsx");
       expect(provenance.line).toBe(25);
@@ -729,7 +693,6 @@ describe("editor-chrome bridge — frameworkDebugProvenance", () => {
     );
     expect(structured.method).toBe("debug-source");
 
-    // The React 19 case: the line is Vite's transformed output, not line 7.
     const fromStack = frameworkDebugProvenance(
       elementWithFiber({
         type: "button",
@@ -742,8 +705,6 @@ describe("editor-chrome bridge — frameworkDebugProvenance", () => {
     );
     expect(fromStack.method).toBe("debug-stack");
 
-    // The owner site is labelled separately: the two tiers can differ on one
-    // element, so a single `method` would misreport one of them.
     const mapped = frameworkDebugProvenance(mappedCardButton("b"));
     expect(mapped.ownerMethod).toBe("debug-stack");
     expect(

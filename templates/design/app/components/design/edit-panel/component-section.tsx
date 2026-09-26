@@ -84,12 +84,7 @@ function isLocalhostWriteConsentError(error: unknown): boolean {
   );
 }
 
-// ─── Make it real — inline upgrade card (§3, §6.6) ──────────────────────────
 
-/**
- * Payload shape returned by `connect-builder-app`.  Only the fields used by
- * the card UI are typed here; the action may return additional fields.
- */
 interface ConnectBuilderAppResult {
   connected: boolean;
   builderEnabled: boolean;
@@ -131,13 +126,7 @@ function MakeItRealCard({
   designId,
   featureLabel,
 }: {
-  /** The active design id — required to call connect-builder-app. */
   designId: string;
-  /**
-   * Short human-readable label for the gated feature (e.g. "token write-back",
-   * "component source jump", "live captures"). Shown in the card body so the
-   * user understands exactly what they're unlocking.
-   */
   featureLabel: string;
 }) {
   const t = useT();
@@ -163,8 +152,6 @@ function MakeItRealCard({
 
   const migrateMutation = useActionMutation("migrate-inline-design-to-app");
 
-  // While fetching status, show a muted placeholder that matches the card
-  // height so the inspector doesn't jump when the data arrives.
   if (isLoading || !data) {
     return (
       <div className="flex h-7 items-center rounded-[5px] bg-[var(--design-editor-control-bg)] px-2">
@@ -173,17 +160,13 @@ function MakeItRealCard({
     );
   }
 
-  // Determine which CTA to show.
   const cta = data.cta;
 
-  // Already fully enabled — no CTA needed (caller should already have gated
-  // this component away, but guard here for safety).
   if (!cta) return null;
 
   const isPending = migrateMutation.isPending;
   const migrateError = migrateMutation.error;
 
-  // "Make it real" primary action: open the connect URL or migrate.
   const handlePrimary = () => {
     if (cta.kind === "configure-project") {
       window.open(cta.connectUrl, "_blank", "noopener,noreferrer");
@@ -195,7 +178,6 @@ function MakeItRealCard({
     migrateMutation.mutate({ designId });
   };
 
-  // Migration result — show branch link.
   const migrateResult = migrateMutation.data as
     | {
         status: "processing";
@@ -308,12 +290,7 @@ function MakeItRealCard({
   );
 }
 
-// ─── Component section (§6.1) ─────────────────────────────────────────────────
 
-/**
- * Shape returned by `get-component-details`.  Only the fields the UI needs are
- * typed here; the action may return additional fields.
- */
 interface ComponentDetailsResult {
   nodeId: string;
   name: string;
@@ -324,7 +301,6 @@ interface ComponentDetailsResult {
   literalProps?: Array<{ name: string; value: string }>;
   persistedVariants: Record<string, string[]>;
   sourceLocation?: { filePath: string; exportName?: string } | null;
-  /** Component instance shape, including the Alpine `x-data` expression. */
   instance?: {
     alpineData?: string | null;
     nodeId?: string;
@@ -370,7 +346,6 @@ export interface RuntimeComponentDetails {
   local?: ComponentLocalSource;
 }
 
-/** Shape returned by `go-to-main-component`. */
 interface GoToMainComponentResult {
   isMain?: boolean;
   ctaRequired?: boolean;
@@ -378,7 +353,6 @@ interface GoToMainComponentResult {
   note?: string;
 }
 
-/** Shape returned by `swap-component-instance`. */
 interface SwapComponentInstanceResult {
   swapped?: boolean;
   conflict?: boolean;
@@ -393,7 +367,6 @@ interface SwapComponentInstanceResult {
   updatedAt?: string;
 }
 
-/** Shape returned by `detach-component-instance`. */
 interface DetachComponentInstanceResult {
   detached?: boolean;
   conflict?: boolean;
@@ -406,18 +379,14 @@ interface DetachComponentInstanceResult {
   updatedAt?: string;
 }
 
-/** Each editable row: name + current value + how it persists + its options. */
 export type PropRow = {
   name: string;
   value: string;
   literalValue?: string;
-  /** Variant/enum options when the prop is a known group. */
   options?: string[];
-  /** Persist surface for this prop. */
   surface: "alpineData" | "attribute";
 };
 
-/** Whether a selected linked instance subtree carries explicit override keys. */
 export function componentInstanceHasLocalOverrides(
   projection: CodeLayerProjection,
   root: CodeLayerNode | null | undefined,
@@ -450,16 +419,6 @@ export function componentInstanceHasLocalOverrides(
   });
 }
 
-/**
- * Build the editable prop rows for a component instance from
- * `get-component-details`'s response: Alpine `x-data` keys first (they drive
- * the live variant/state), then observed `data-agent-native-prop-*`
- * attributes not already covered by x-data, then any persisted variant group
- * that has never been observed on this instance at all (seeded to its first
- * option).
- *
- * Pure — exported for tests.
- */
 export function buildComponentPropRows(data: {
   instance?: { alpineData?: string | null } | null;
   observedProps: Array<{ name: string; value: string }>;
@@ -480,7 +439,6 @@ export function buildComponentPropRows(data: {
   const rows: PropRow[] = [];
   const seen = new Set<string>();
 
-  // 1) Alpine x-data keys come first — they drive the live variant/state.
   if (alpineData) {
     for (const [key, value] of Object.entries(alpineData)) {
       rows.push({
@@ -493,7 +451,6 @@ export function buildComponentPropRows(data: {
     }
   }
 
-  // 2) data-agent-native-prop-* attributes not already covered by x-data.
   for (const prop of observedProps) {
     if (seen.has(prop.name)) continue;
     rows.push({
@@ -508,7 +465,6 @@ export function buildComponentPropRows(data: {
     seen.add(prop.name);
   }
 
-  // 3) Verified literal invocation props that are not reflected in the host DOM.
   for (const prop of literalProps) {
     if (seen.has(prop.name)) continue;
     rows.push({
@@ -521,19 +477,6 @@ export function buildComponentPropRows(data: {
     seen.add(prop.name);
   }
 
-  // 4) persistedVariant groups with no observed value yet (default to first).
-  // Surface is always "attribute" here, NOT "alpineData" even when this
-  // instance's x-data happens to be non-empty for other keys: x-data blocks
-  // for a real component instance are written with every prop the component
-  // declares initialized up front (e.g. `{ variant: 'solid', size: 'md' }`),
-  // so a group that never showed up in step 1 was never a x-data key on this
-  // instance in the first place — it is attribute-driven. Guessing
-  // "alpineData" from unrelated sibling keys used to route the very first
-  // edit of such a prop into a surgical/rebuild x-data write that either
-  // silently wrote a key nothing in the template reads, or hit the "can't
-  // safely edit this prop inline" bail-out when the sibling x-data content
-  // was too complex to rebuild — even though the plain attribute write would
-  // have worked fine.
   for (const [group, options] of Object.entries(persistedVariants)) {
     if (seen.has(group)) continue;
     rows.push({
@@ -551,20 +494,6 @@ export function buildComponentPropRows(data: {
   return rows;
 }
 
-/**
- * True when a "message" event's source window matches one of this document's
- * own embedded design-preview iframes.
- *
- * `postMessage` has no origin/source check built in, so without this any
- * window — including a spoofed one from a compromised/unrelated frame — could
- * post `{ type: "element-select" }` at the parent and force this section to
- * refetch. Mirrors the DOM-identity check DesignCanvas's
- * `isTrustedCanvasBridgeMessage` and MultiScreenCanvas's cross-screen-drag
- * handler use: trust comes from matching `iframe.contentWindow` against
- * `event.source`, not from anything in the message payload.
- *
- * Exported for tests.
- */
 export function isMessageFromOwnPreviewIframe(
   source: MessageEventSource | null,
 ): boolean {
@@ -576,19 +505,6 @@ export function isMessageFromOwnPreviewIframe(
   ).some((iframe) => iframe.contentWindow === source);
 }
 
-/**
- * Contextual COMPONENT section rendered inside the Design tab when the
- * selected element is a component instance (carries
- * `data-agent-native-component`).
- *
- * Shows: component name, source path (when capability available), observed
- * prop values, variant/size/state controls from `get-component-details`, and
- * an "Edit component source" action.  Real-app features are gated by the
- * capabilities returned by the action; Alpine gets a lightweight read-only
- * view plus a Connect-Builder CTA.
- *
- * Matches the workbench artboard spec in DESIGN-STUDIO-PLAN.md §6.1.
- */
 export function ComponentSection({
   designId,
   fileId,
@@ -610,35 +526,24 @@ export function ComponentSection({
 }: {
   designId: string;
   fileId?: string;
-  /** Reserved board file id for the dedicated board preview iframe. */
   boardFileId?: string;
-  /** Host iframe id for live prop previews when several frames are mounted. */
   previewFrameId?: string;
   activeContent?: string;
   activeFileUpdatedAt?: string | null;
-  /** Current hashes for every HTML file when a linked prop edit spans Screens. */
   getExpectedFiles?: () => Array<{ fileId: string; versionHash: string }>;
-  /** Whether the selected component is present in the accepted source snapshot. */
   componentDetailsReady?: boolean;
   nodeId: string;
-  /** Increment to open the Swap instance picker from another UI entry point. */
   swapPickerRequest?: number;
-  /** True when the selected linked instance subtree has local override keys. */
   hasLocalOverrides?: boolean;
-  /** Reset the selected linked instance through the editor's mutation queue. */
   onResetOverrides?: () => void;
-  /** Restore the selected linked component through the editor's mutation queue. */
   onRestoreComponent?: () => void;
   onComponentPropApplied?: (
     fileId: string,
     content: string,
     updatedAt?: string,
   ) => void;
-  /** Capability names advertised by the current source. */
   sourceCapabilities?: string[];
-  /** Live component metadata used when a URL file stores only its route URL. */
   runtime?: RuntimeComponentDetails;
-  /** Request the existing localhost write-consent dialog before source writes. */
   requestLocalhostWrite?: (opts: {
     files: string[];
     onGranted: LocalhostWriteConsentPayload["onGranted"];
@@ -726,7 +631,6 @@ export function ComponentSection({
   const detachMutation = useActionMutation("detach-component-instance");
   const swapMutation = useActionMutation("swap-component-instance");
 
-  // ── Swap instance picker (searchable popover) ─────────────────────────────
   const [swapPickerOpen, setSwapPickerOpen] = useState(false);
   const [swapQuery, setSwapQuery] = useState("");
   useEffect(() => {
@@ -742,11 +646,6 @@ export function ComponentSection({
     c.name.toLowerCase().includes(swapQuery.trim().toLowerCase()),
   );
 
-  // Refresh the component section + design canvas after a detach/swap
-  // mutates the design file, mirroring persistPropEdit's onSettled below.
-  // Plain function (not memoized) — matches this file's existing
-  // persistPropEdit/commitProp convention of re-creating handlers per render
-  // rather than threading useCallback dependency arrays through them.
   const refreshAfterInstanceMutation = (result: {
     fileId?: string;
     content?: string;
@@ -937,9 +836,6 @@ export function ComponentSection({
     });
   };
 
-  // Persist a single prop change through apply-component-prop-edit. Attribute
-  // props also preview immediately in the iframe so the selected component
-  // changes without waiting for the write/refetch round-trip.
   const persistPropEdit = (
     edit:
       | { kind: "alpineData"; value: string }
@@ -1126,7 +1022,6 @@ export function ComponentSection({
     };
   }, [refetch]);
 
-  // While loading, show a compact skeleton that matches the section width.
   if (isLoading || !componentDetailsReady) {
     return (
       <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
@@ -1141,8 +1036,6 @@ export function ComponentSection({
     );
   }
 
-  // Hard error (node not found, no access, etc.) — collapse silently so
-  // the rest of the inspector is not disrupted.
   if (error || !data) return null;
 
   const {
@@ -1160,13 +1053,6 @@ export function ComponentSection({
       ? serverCanRestore
       : sourceRestoreState === "valid";
 
-  // ── Editable prop model ───────────────────────────────────────────────────
-  // Inline/Alpine designs persist through apply-component-prop-edit. Two write
-  // surfaces:
-  //   • x-data keys      → kind "alpineData" (rewrites the whole object)
-  //   • data-prop-* attrs → kind "attribute"  (data-agent-native-prop-<kebab>)
-  // Real-app sources keep the deeper source-prop controls gated as-is, so for
-  // non-inline sources the controls are read-only here.
   const isInline = sourceType === "inline";
   const editingEnabled =
     (isInline || Boolean(effectiveRuntime?.local)) && capabilities.canEditProps;
@@ -1181,16 +1067,10 @@ export function ComponentSection({
 
   const hasRows = rows.length > 0;
 
-  // Build the apply-component-prop-edit payload for a single prop change.
   const commitProp = (row: PropRow, nextValue: string) => {
     if (!editingEnabled || nextValue === row.value) return;
 
     if (row.surface === "alpineData") {
-      // Surgically replace only the edited key's value inside the original
-      // x-data string so methods, nested objects, escaped strings, quoted
-      // keys, and whitespace survive byte-for-byte. A full
-      // parse→mutate→serialize round-trip would drop anything
-      // parseAlpineDataObject can't model (e.g. `toggle() { … }`).
       const original = instance?.alpineData ?? "";
       const surgical = replaceAlpineDataKeyValue(original, row.name, nextValue);
 
@@ -1198,16 +1078,9 @@ export function ComponentSection({
       if (surgical != null) {
         serialized = surgical;
       } else if (canRebuildAlpineDataLosslessly(original)) {
-        // The key isn't present yet (or there is no original literal). Rebuild
-        // from the flat map — safe here precisely because the original holds
-        // nothing richer than the flat literals serialize already preserves.
         const nextData = { ...(alpineData ?? {}), [row.name]: nextValue };
         serialized = serializeAlpineDataObject(nextData);
       } else {
-        // The original carries content (methods / nested / expressions) we
-        // can't rewrite for this key without dropping it. Fail safe: skip the
-        // edit rather than persist a lossy rewrite, and tell the user why so
-        // the change doesn't silently vanish.
         toast.error(t("designEditor.componentProps.alpineTooComplexToEdit"));
         return;
       }
@@ -1226,13 +1099,11 @@ export function ComponentSection({
     }
   };
 
-  // ── Capability gates ──
   const canJumpToSource =
     capabilities.canResolveToFile &&
     Boolean(sourceLocation?.filePath) &&
     sourceCapabilities.includes("resolveNodeToFile");
 
-  // ── Source chip text ──
   const sourceChip = sourceLocation?.exportName
     ? `${sourceLocation.exportName} — ${sourceLocation.filePath}`
     : (sourceLocation?.filePath ?? null);
@@ -1498,7 +1369,6 @@ export function ComponentSection({
                   </InspectorGridCell>
                   <InspectorGridCell span={20}>
                     {hasOptions ? (
-                      // Dropdown for variant / enum groups.
                       <Select
                         value={row.value || row.options![0] || ""}
                         onValueChange={(v) => commitProp(row, v)}
@@ -1520,7 +1390,6 @@ export function ComponentSection({
                         </SelectContent>
                       </Select>
                     ) : isBoolean ? (
-                      // Toggle for boolean props.
                       <div className="flex min-w-0 items-center">
                         <Switch
                           checked={row.value.trim().toLowerCase() === "true"}
@@ -1535,7 +1404,6 @@ export function ComponentSection({
                         />
                       </div>
                     ) : (
-                      // Text input for string props (e.g. a label).
                       <Input
                         defaultValue={row.value}
                         key={`${row.name}:${row.value}`}

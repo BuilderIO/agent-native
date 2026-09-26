@@ -27,20 +27,8 @@ interface TimeZoneGridProps {
   onSelect: (start: string) => void;
   loading?: boolean;
   errorMessage?: string;
-  /** Hosts (owner + eligible overlay hosts) with a resolved time zone. */
   hosts: TimeZoneGridHost[];
-  /**
-   * The calendar date the visitor selected (yyyy-MM-dd, in the owner's
-   * zone) — the date shown in the step header above this grid. Used to flag
-   * any row, including the visitor's own, whose local day for a given slot
-   * doesn't match that date.
-   */
   selectedDate: string;
-  /**
-   * Manually added extra time zones. Lifted to the parent so they survive
-   * this component unmounting — e.g. toggling "Hide time zones" swaps this
-   * component out for TimeSlotPicker, which would otherwise reset local state.
-   */
   extraTimezones: string[];
   onExtraTimezonesChange: (timezones: string[]) => void;
 }
@@ -57,8 +45,6 @@ function formatInTimeZone(iso: string, timeZone: string): string {
   }
 }
 
-// Sortable/comparable calendar-day key in a given time zone, used to detect
-// when a slot lands on a different day than the visitor's selected date.
 function dateKeyInTimeZone(iso: string, timeZone: string): string {
   try {
     return new Intl.DateTimeFormat("en-CA", {
@@ -69,9 +55,6 @@ function dateKeyInTimeZone(iso: string, timeZone: string): string {
     }).format(new Date(iso));
   } catch {
     // coercion-ok: display-only key for the date-crossing badge; timeZone
-    // values here are always pre-validated IANA zones from resolved hosts
-    // or Intl.supportedValuesOf, so a formatting failure can only suppress
-    // that badge, not corrupt the slot data.
     return "";
   }
 }
@@ -85,7 +68,6 @@ function formatShortDate(iso: string, timeZone: string): string {
     }).format(new Date(iso));
   } catch {
     // coercion-ok: display-only label next to the date-crossing badge; see
-    // dateKeyInTimeZone above for why the input time zones are trusted.
     return "";
   }
 }
@@ -104,8 +86,6 @@ export function TimeZoneGrid({
   const t = useT();
   const [addingTimezone, setAddingTimezone] = useState(false);
   const [hoveredSlot, setHoveredSlot] = useState<string | null>(null);
-  // Resolved after mount only — the browser's timezone can differ from the
-  // server's, so computing it during render would cause a hydration mismatch.
   const [browserTimezone, setBrowserTimezone] = useState<string | null>(null);
 
   useEffect(() => {
@@ -120,9 +100,6 @@ export function TimeZoneGrid({
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
-  // Re-checks whenever the slot/row count changes the content width, not
-  // just on scroll — e.g. switching dates can flip between fitting and
-  // overflowing without the user ever scrolling.
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;

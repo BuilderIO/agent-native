@@ -1,7 +1,3 @@
-// Transition-rule tests for the CRM status lifecycle. These cover the pure rule
-// surface — every blocked case and the sentence it answers with. The bulk
-// partition, the concurrency claim, and the bitemporal write are covered against
-// a real database in actions/crm-lifecycle-actions.test.ts.
 
 import { describe, expect, it } from "vitest";
 
@@ -78,8 +74,6 @@ describe("crmStatusBlockReason", () => {
   });
 
   it("always allows LEAVING an archived status", () => {
-    // The way out of a retired stage must not itself be blocked, or every row
-    // parked there when it was archived is stuck forever.
     expect(
       crmStatusBlockReason(lifecycle(), { from: "lost", to: "new" }),
     ).toBeNull();
@@ -142,8 +136,6 @@ describe("crmStatusBlockReason", () => {
   });
 
   it("reports the attribute problem before the value problem", () => {
-    // Telling someone their stage name is wrong when the real problem is that
-    // the provider owns the attribute sends them to fix the wrong thing.
     expect(
       crmStatusBlockReason(lifecycle({ authority: "provider" }), {
         from: "new",

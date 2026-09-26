@@ -325,8 +325,6 @@ function parseData(value: string | null): RuntimeRecord {
     const parsed = JSON.parse(raw);
     return isRecord(parsed) ? parsed : {};
   } catch {
-    // Agent-authored prototype snippets often use Alpine-style object literals.
-    // Normalize the safe subset we support into JSON; never execute it.
     try {
       const normalized = raw
         .replace(/([{,]\s*)([A-Za-z_$][\w$-]*)\s*:/g, '$1"$2":')

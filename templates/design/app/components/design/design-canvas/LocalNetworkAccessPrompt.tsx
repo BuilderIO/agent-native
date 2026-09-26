@@ -16,11 +16,6 @@ import {
 
 import type { BridgeRegistrationFailureKind } from "./external-preview";
 
-/**
- * Shows the localhost bridge permission/retry affordance. The failure state is
- * a non-blocking card over the running app; first-land permission is a dialog
- * so the browser's user-gesture requirement is clear before editing starts.
- */
 export function LocalNetworkAccessPrompt({
   kind,
   connecting,
@@ -34,10 +29,7 @@ export function LocalNetworkAccessPrompt({
   onDismiss: () => void;
   proactive?: boolean;
 }) {
-  // "unreachable" is the one confident case (permission is confirmed
-  // granted, so it's confirmed NOT the cause) — every other kind is
   // deliberately hedged copy, never a diagnosed permission claim. See
-  // classifyBridgeRegistrationFailure's doc comment for why.
   const isConfirmedUnreachable = kind === "unreachable";
   const isStalePreviewToken = kind === "stalePreviewToken";
   const title = proactive

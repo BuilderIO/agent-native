@@ -1,35 +1,13 @@
-/**
- * html2canvas measures layout inside the preview iframe but paints text with
- * `ctx.font` on a canvas created in the *editor* document, and derives its
- * baseline from a probe element appended to the *editor* body
- * (`CanvasRenderer` -> `document.createElement('canvas')` /
- * `new FontMetrics(document)`).
- *
- * A generated design loads its webfonts inside the preview iframe, so the
- * editor document has usually never heard of them. Every box - background,
- * gradient, underline, shadow, border - is placed from the iframe's real
- * layout, while the glyphs on top are drawn with whatever fallback the editor
- * document resolves. The two disagree, and the decoration reads as "shifted"
- * relative to its text. Measured on a 290px headline: glyphs rendered 18px
- * (6%) narrow and 5px high.
- *
- * Loading the same faces into the document that owns the canvas removes the
- * disagreement at its source, so every raster export (PNG/JPG/WEBP, PDF,
- * Copy as PNG) lines up with the live canvas. The mirrored faces are removed
- * again after the capture so a design's fonts can never restyle editor chrome.
- */
 
 const MIRROR_STYLE_MARKER = "data-agent-native-export-fontface";
 
 export interface MirroredFonts {
   faceCount: number;
   requestedSpecs: number;
-  /** Stylesheets whose @font-face rules could not be read or fetched. */
   unreadableStylesheets: string[];
   dispose: () => void;
 }
 
-/** Rewrite every `url(...)` in a CSS chunk to an absolute URL. */
 export function absolutizeCssUrls(cssText: string, baseUrl: string): string {
   return cssText.replace(
     /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi,
@@ -45,16 +23,6 @@ export function absolutizeCssUrls(cssText: string, baseUrl: string): string {
   );
 }
 
-/**
- * Remove CSS comments without touching string literals.
- *
- * The raw scanners below balance braces, and a brace inside a comment throws
- * that off: `@font-face { /* { *\/ src: url(a) }` leaves the scan one level
- * deep, so it runs on and captures the following `body { display: none }` into
- * the block mirrored into the editor document. That is the one thing this
- * module promises never to do, so comments go before anything else looks at
- * the text.
- */
 export function stripCssComments(cssText: string): string {
   let output = "";
   let index = 0;
@@ -80,7 +48,6 @@ export function stripCssComments(cssText: string): string {
     }
     if (cssText.startsWith("/*", index)) {
       const end = cssText.indexOf("*/", index + 2);
-      // An unterminated comment runs to the end of the sheet.
       index = end === -1 ? cssText.length : end + 2;
       output += " ";
       continue;
@@ -91,7 +58,6 @@ export function stripCssComments(cssText: string): string {
   return output;
 }
 
-/** Index just past the `}` closing the block whose `{` sits at `openIndex`. */
 function findBlockEnd(cssText: string, openIndex: number): number {
   let depth = 1;
   let quote = "";
@@ -128,17 +94,6 @@ export type ConditionFilter = (
 
 const ALLOW_ALL_CONDITIONS: ConditionFilter = () => true;
 
-/**
- * Pull only `@font-face` blocks out of a stylesheet's text. Everything else is
- * dropped on purpose: this CSS comes from a user-generated design and is about
- * to be injected into the editor's own document, where a stray layout or color
- * rule would restyle the app.
- *
- * Conditional groups are entered only when they applied in the preview. A
- * fetched sheet can carry a print-only or unsupported face, and mirroring it
- * unconditionally would activate in the editor a face the preview never used —
- * the same metric mismatch this module exists to remove.
- */
 export function extractFontFaceRules(
   cssText: string,
   baseUrl: string,
@@ -156,7 +111,6 @@ export function extractFontFaceRules(
       if (terminator === ";") continue;
       const openIndex = match.index + match[0].length - 1;
       const blockEnd = findBlockEnd(source, openIndex);
-      // An unterminated block cannot be trusted; stop rather than guess.
       if (blockEnd === -1) return;
       atRule.lastIndex = blockEnd;
       const name = keyword!.toLowerCase();
@@ -184,7 +138,6 @@ export function extractFontFaceRules(
       ) {
         continue;
       }
-      // `@layer` carries no condition, and a matching group is walked inside.
       visit(openIndex + 1, blockEnd - 1);
     }
   };
@@ -192,7 +145,6 @@ export function extractFontFaceRules(
   return rules;
 }
 
-/** Elements that hold text nodes but paint nothing. */
 const NON_RENDERED_TAGS = new Set([
   "STYLE",
   "SCRIPT",
@@ -204,12 +156,6 @@ const NON_RENDERED_TAGS = new Set([
   "TEMPLATE",
 ]);
 
-/**
- * html2canvas resolves `::before` / `::after` into real painted elements
- * (`DocumentCloner.resolvePseudoContent`), so their fonts need requesting too.
- * An icon `<i class="icon"></i>` carries no direct text at all, so without
- * this its family was never requested and the glyph rasterized as fallback.
- */
 function pseudoContentIsPainted(content: string | null | undefined): boolean {
   if (!content) return false;
   const value = content.trim();
@@ -225,12 +171,6 @@ function fontSpecFrom(style: CSSStyleDeclaration): string | null {
   return `${fontStyle} ${weight} ${size} ${family}`;
 }
 
-/**
- * The text a control paints without owning a text node. html2canvas renders
- * these through `InputElementContainer` / `SelectElementContainer` /
- * `TextareaElementContainer`, reading `.value` (or the selected option's
- * text), so a control with a custom font needs that font requested too.
- */
 function paintedControlValue(element: HTMLElement): string {
   const tag = element.tagName;
   if (tag === "INPUT") {
@@ -276,7 +216,6 @@ function directText(element: HTMLElement): string {
     .join("");
 }
 
-/** Unquote a CSS `content` value so its glyphs can be requested. */
 function pseudoContentText(content: string): string {
   return content
     .trim()
@@ -285,28 +224,12 @@ function pseudoContentText(content: string): string {
 }
 
 export interface FontRequest {
-  /** A CSS `font` shorthand accepted by `FontFaceSet.load`. */
   spec: string;
-  /** Representative glyphs painted with that shorthand. */
   text: string;
 }
 
-/**
- * `FontFaceSet.load` defaults its sample text to a single space, and only
- * downloads faces whose `unicode-range` covers the sample. An icon face
- * restricted to the private-use area, or a CJK subset that omits U+0020, is
- * therefore never fetched however correctly it was mirrored — html2canvas then
- * paints fallback glyphs anyway. Carry the characters actually painted with
- * each shorthand so the right subsets load.
- */
 const MAX_SAMPLE_CHARACTERS = 200;
 
-/**
- * The CSS `font` shorthands actually painted in the preview, each with sample
- * text. `fonts.ready` alone is not enough in the editor document: nothing
- * there uses these families, so the faces would stay unloaded and `ctx.font`
- * would still fall back. Each spec has to be requested explicitly.
- */
 export function collectFontRequests(doc: Document): FontRequest[] {
   const view = doc.defaultView;
   if (!view) return [];
@@ -352,36 +275,19 @@ export function collectFontRequests(doc: Document): FontRequest[] {
 
   return Array.from(samples, ([spec, sample]) => ({
     spec,
-    // A space keeps the sample valid when every painted glyph was whitespace.
     text: sample.size > 0 ? Array.from(sample).join("") : " ",
   }));
 }
 
-// CSSOM rule type constants; `CSSRule` is not a global outside the browser.
 const FONT_FACE_RULE = 5;
 const IMPORT_RULE = 3;
 
 interface FontFaceHarvest {
   rules: string[];
   unreadable: string[];
-  /** Whether a condition held in the preview; see conditionFilterFor. */
   conditionApplies: ConditionFilter;
 }
 
-/**
- * Does a grouping rule (`@media`, `@supports`, `@layer`) apply in the preview?
- *
- * Faces are mirrored unconditionally, so a face nested in a non-matching
- * `@media` would become active in the editor document while the preview laid
- * out without it - the same metric mismatch this module exists to remove, just
- * inverted. Re-emitting the condition instead would be worse: it would be
- * evaluated against the editor window, whose width and features differ from
- * the artboard-sized preview iframe. Resolve the question where the layout
- * actually happened, then emit the survivors unconditionally.
- *
- * An unevaluable condition keeps the face: a spurious extra face costs a font
- * request, a missing one silently restores the fallback-metrics bug.
- */
 function conditionFilterFor(view: Window | null): ConditionFilter {
   return (kind, condition) => {
     if (!condition) return true;
@@ -411,7 +317,6 @@ function groupingRuleAppliesInPreview(
   if (mediaText) return conditionApplies("media", mediaText);
   const conditionText = (rule as CSSSupportsRule).conditionText;
   if (conditionText) return conditionApplies("supports", conditionText);
-  // `@layer` and anything else with no condition is always in play.
   return true;
 }
 
@@ -429,7 +334,6 @@ function harvestFontFaceRules(
     if (rule.type === IMPORT_RULE) {
       const importRule = rule as CSSImportRule;
       // `@import url(print-fonts.css) print` contributes nothing to a screen
-      // preview, so following it would mirror faces the preview never used.
       const importMedia = importRule.media?.mediaText;
       if (importMedia && !harvest.conditionApplies("media", importMedia)) {
         continue;
@@ -442,10 +346,6 @@ function harvestFontFaceRules(
       } catch {
         importedBase = baseUrl;
       }
-      // Reading `.styleSheet` is itself a cross-origin access and can throw,
-      // so it has to sit inside the same guard as `.cssRules`. Distinguish
-      // "already walked" from "could not read": collapsing them would drop a
-      // whole imported sheet with nothing reported.
       let imported: CSSStyleSheet | null = null;
       let nestedRules: CSSRule[] | null = null;
       let alreadyWalked = false;
@@ -494,9 +394,6 @@ function collectPreviewFontFaceCss(doc: Document): FontFaceHarvest {
     try {
       cssRules = Array.from((sheet as CSSStyleSheet).cssRules ?? []);
     } catch {
-      // Cross-origin stylesheet (Google Fonts is the common case). Its text is
-      // still fetchable, so record it for the network pass rather than losing
-      // the faces silently.
       if (sheet.href) harvest.unreadable.push(sheet.href);
       continue;
     }
@@ -514,7 +411,6 @@ function collectPreviewFontFaceCss(doc: Document): FontFaceHarvest {
  */
 export interface CssImport {
   href: string;
-  /** The import's media query, if it declared one. */
   media: string;
 }
 
@@ -531,8 +427,6 @@ export function extractImportUrls(
   while ((match = pattern.exec(source))) {
     const raw = (match[2] ?? match[4] ?? "").trim();
     if (!raw) continue;
-    // Everything between the target and the `;` is layer()/supports()/media;
-    // only the media query decides whether the preview applied it.
     const media = (match[5] ?? "")
       .replace(/\b(?:layer|supports)\([^)]*\)/gi, "")
       .replace(/\blayer\b/gi, "")
@@ -557,7 +451,6 @@ interface FetchContext {
   failed: string[];
   conditionApplies: ConditionFilter;
   visited: Set<string>;
-  /** Sheets that produced an answer, so a timeout cannot look like success. */
   resolved: Set<string>;
   signal?: AbortSignal;
   remainingMs: () => number;
@@ -603,22 +496,12 @@ async function fetchFontFaceRulesDeep(
   return rules;
 }
 
-/**
- * Load the preview document's webfaces into `targetDoc` (the document that
- * owns the export canvas) and wait for them. A design whose fonts cannot be
- * mirrored still exports, with the pre-existing fallback metrics; which
- * stylesheets were lost is reported in the result rather than swallowed.
- */
 export async function mirrorPreviewWebFonts(
   previewDoc: Document,
   targetDoc: Document,
   options?: { timeoutMs?: number },
 ): Promise<MirroredFonts> {
   const timeoutMs = options?.timeoutMs ?? 4000;
-  // One budget for the whole operation. Fetching and font loading used to get
-  // a full window each, so a slow stylesheet followed by slow fonts could add
-  // roughly double the intended delay to an export that is already waiting on
-  // waitForExportReady.
   const deadlineAt = Date.now() + timeoutMs;
   const remainingMs = () => Math.max(0, deadlineAt - Date.now());
   const { rules, unreadable } = collectPreviewFontFaceCss(previewDoc);
@@ -637,9 +520,6 @@ export async function mirrorPreviewWebFonts(
     signal: controller?.signal,
     remainingMs,
   };
-  // Abort only asks nicely; a fetch implementation that ignores the signal
-  // would otherwise hang the export forever. The deadline has to bound the
-  // phase itself, not just the request.
   const fetched = await Promise.race([
     Promise.all(
       unreadable.map((href) => fetchFontFaceRulesDeep(href, fetchContext)),
@@ -650,7 +530,6 @@ export async function mirrorPreviewWebFonts(
   ]);
   if (fetchTimer) clearTimeout(fetchTimer);
   for (const group of fetched) rules.push(...group);
-  // A sheet the timeout cut short is neither mirrored nor yet reported.
   for (const href of unreadable) {
     if (!fetchContext.resolved.has(href) && !failed.includes(href)) {
       failed.push(href);

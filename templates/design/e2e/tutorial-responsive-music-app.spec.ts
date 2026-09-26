@@ -13,35 +13,6 @@ import {
   pickFrameMode,
 } from "./helpers";
 
-/*
- * Tutorial source map (product adaptation, not a step-for-step clone):
- * - Auto layout fundamentals: applies direction, gap, padding, wrap, and
- *   Fixed/Fill/Hug sizing to Screen, Workspace, rows, and cards. Input path:
- *   Shift+A on Screen; nested frames use turnIntoAutoLayout, then inspector
- *   buttons, fields, menus, and checkboxes.
- * - Responsive podcast-card project: createPodcastRow/createPodcastCard build
- *   artwork and metadata, image plus gradient fill, right/bottom play control,
- *   Lato title/creator, one-line truncation, card spacing, wrap, min/max, and
- *   responsive sizing. Input path: canvas Frame/Text tools, Layers reparent/
- *   rename, Fill picker image upload, then inspector constraint/typography UI.
- * - Figma Auto Layout's "Arrange or reorder objects" step reorders children
- *   in horizontal flow. This test uses the Layers-panel drag path and checks
- *   source/DOM order plus rendered x-position; the input surface is adapted.
- * - App-variant path: duplicate Screen and edit dimensions for Mobile/Tablet;
- *   saved source is read back before and after reload.
- * - Deliberate differences: this builds a Screen-root Sonora desktop/mobile/
- *   tablet app with navigation, greeting, two card rows, and a player. Artwork
- *   is fixed at 242px high and metadata hugs; the play control is a 48px SVG
- *   frame instead of a 40px circle plus polygon, and uses Fixed artwork/Hug
- *   metadata instead of Fill/Fixed. It does not make the Figma button/card
- *   components or flatten a polygon. Assertions cover the mapped interactions
- *   and responsive behavior, not pixel-for-pixel parity.
- *
- * Sources:
- * https://help.figma.com/hc/en-us/articles/31351261703063-FD4B-Auto-layout-fundamentals
- * https://help.figma.com/hc/en-us/articles/18894664907287-Create-a-responsive-card-with-auto-layout-and-constraints
- * https://help.figma.com/hc/en-us/articles/31289464393751-Use-the-horizontal-and-vertical-flows-in-auto-layout
- */
 
 type DesignRecord = {
   data?: unknown;
@@ -2134,7 +2105,6 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   await verticalPadding.press("Enter");
   await setFillHex(page, "0C101A", "desktop-screen-fill");
 
-  // The desktop composition is Screen > Workspace > navigation, Sidebar, Main Content.
   await drawInScreen(page, screenId, "Frame", {
     x: 10,
     y: 10,
@@ -2491,8 +2461,6 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
       liveCardPositionsBefore: beforePositions,
     };
     try {
-      // Figma's auto-layout reorder moves a child and changes its flow position;
-      // this test uses the equivalent Layers-panel drag input path.
       await cardA.dragTo(cardB, { targetPosition: { x: 24, y: 2 } });
       await expect.poll(savedCardOrder).toEqual(reorderedNames);
       proof.sourceOrderAfterMove = await savedCardOrder();
@@ -2653,7 +2621,6 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     ],
   );
 
-  // The persistent player is a second direct Screen child, below Workspace.
   await panOverviewCanvas(page, -480);
   await drawInScreen(page, screenId, "Frame", {
     x: 10,
@@ -2754,8 +2721,6 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     "FFFFFF",
   );
 
-  // Save the first full-app checkpoint with native UI-created Screen,
-  // Workspace, Sidebar, Main Content, and text children.
   const saved = await readDesign(page, designId);
   const content =
     saved.files?.find((file) => file.id === screenId)?.content ?? "";
@@ -2917,8 +2882,6 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   });
   await captureEditorScreenshot(page, "music-app-desktop-editor.png");
 
-  // Build a mobile Screen as a sibling artboard so its responsive sizing is
-  // authored and measured independently from the desktop shell.
   const beforeMobile = await readDesign(page, designId);
   const existingMobileIds = new Set(beforeMobile.files?.map((file) => file.id));
   await pickFrameMode(page, "Screen");
@@ -3440,10 +3403,6 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     contentType: "application/json",
   });
   await captureEditorScreenshot(page, "music-app-mobile-editor.png");
-  // Duplicate the desktop Screen through the canvas UI, then resize the copy
-  // to the measured 768 × 1366 tablet artboard. The card rows already use
-  // native Fill/min-max and Wrap controls, so the narrower Main Content must
-  // stack one card per line without changing the source card constraints.
   const filesBeforeTablet = new Set(
     (await readDesign(page, designId)).files?.map((file) => file.id),
   );

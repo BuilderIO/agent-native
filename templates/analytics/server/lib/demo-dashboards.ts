@@ -253,9 +253,6 @@ export async function ensureDemoDashboardsForUser(
         throw new Error(`Demo dashboard seed not found: ${demo.seedId}`);
       const config = applyDemoMetadata(seed, demo.id);
       const row = await upsertDashboard(dashboardId, "sql", config, privateCtx);
-      // SQL is the source of truth and collab state can seed lazily. Do not
-      // hold first-open installation (and the whole app shell) behind a remote
-      // collab read/write that may be slow or temporarily unavailable.
       queueDashboardCollabSync(dashboardId, config, "agent");
       archivedAt = row.archivedAt;
       created = !existing;

@@ -43,7 +43,6 @@ export function isCrmEnrichmentSlot(
   );
 }
 
-/** What a slot can be asked about one record. */
 export interface CrmEnrichmentTarget {
   recordId: string;
   displayName: string;
@@ -53,7 +52,6 @@ export interface CrmEnrichmentTarget {
   companyName?: string | null;
 }
 
-/** One normalized value a slot produced, with the page it came from. */
 export interface CrmSlotFact {
   key: string;
   value: string | number | boolean;
@@ -61,7 +59,6 @@ export interface CrmSlotFact {
 }
 
 export type CrmEnrichmentSlotOutcome =
-  /** No credential is granted for this slot. Nothing was called, nothing spent. */
   | { slot: CrmEnrichmentSlot; status: "unconfigured"; reason: string }
   /** The record lacks the identifier this slot resolves against. Not called. */
   | { slot: CrmEnrichmentSlot; status: "skipped"; reason: string }
@@ -79,7 +76,6 @@ export type CrmEnrichmentSlotOutcome =
 
 export type CrmEnrichmentPhase = "verify" | "spend";
 
-/** Longest fact string persisted; facts are metadata, never payload bodies. */
 const MAX_FACT_CHARS = 500;
 const MAX_FACTS_PER_SLOT = 20;
 
@@ -87,14 +83,8 @@ interface CrmEnrichmentSlotDriver {
   provider: ProviderApiId;
   /** Credential the slot needs. Checked for presence; its value is never read here. */
   credentialKey: string;
-  /**
-   * True when the response can carry an email or phone number. Phase A (the
-   * unpaid verification pass) may never run one of these — see `verifySlots`.
-   */
   carriesContactData: boolean;
-  /** Normalized fact key -> dot path into the provider response body. */
   factPaths: Readonly<Record<string, string>>;
-  /** null when the target lacks the identifier this provider resolves against. */
   buildRequest(target: CrmEnrichmentTarget): ProviderApiRequestArgs | null;
 }
 
@@ -161,8 +151,6 @@ const SLOT_DRIVERS: Record<CrmEnrichmentSlot, CrmEnrichmentSlotDriver> = {
   contact: {
     provider: "apollo",
     credentialKey: "APOLLO_API_KEY",
-    // The reveal flags below are what makes this request billable, and they are
-    // the only reason phase A exists.
     carriesContactData: true,
     factPaths: {
       email: "person.email",
@@ -239,10 +227,6 @@ const ENRICHMENT_PROVIDER_IDS = Array.from(
   new Set(Object.values(SLOT_DRIVERS).map((driver) => driver.provider)),
 ) as ProviderApiId[];
 
-// A second runtime rather than the CRM one: `server/lib/provider-api.ts` is the
-// user-facing HubSpot/Salesforce escape hatch, and widening its allow-list would
-// let `provider-api-request` reach enrichment vendors it has no business
-// reaching. Same app id, so credentials still resolve through the same grants.
 const enrichmentRuntime = createProviderApiRuntime({
   appId: CRM_APP_ID,
   providerIds: ENRICHMENT_PROVIDER_IDS,
@@ -258,7 +242,6 @@ const enrichmentRuntime = createProviderApiRuntime({
   },
 });
 
-/** Seam the tests drive; production binds it to the provider API substrate. */
 export interface CrmEnrichmentSlotDeps {
   checkCredential(input: {
     provider: ProviderApiId;
@@ -282,10 +265,6 @@ export const providerApiSlotDeps: CrmEnrichmentSlotDeps = {
       userEmail: context.userEmail,
       orgId: context.orgId ?? null,
     });
-    // Deliberately does not read `resolution.value` — presence is the question.
-    // The resolver's own `reason` names the provider ("no available apollo
-    // workspace connection…"), which would put a vendor on the wire; its
-    // `status` is a vendor-free enum and carries the same distinction.
     return {
       available: resolution.available,
       reason: resolution.available
@@ -310,15 +289,12 @@ export type CrmEnrichmentSlotCredential =
 
 export interface CrmEnrichmentSlotDescription {
   slot: CrmEnrichmentSlot;
-  /** Which pass the slot belongs to: the free evidence pass or the paid one. */
   phase: CrmEnrichmentPhase;
   carriesContactData: boolean;
-  /** Normalized fact keys the slot can produce. Never provider field names. */
   factKeys: string[];
   credential: CrmEnrichmentSlotCredential;
 }
 
-/** Every slot with its live credential state. Reads nothing, spends nothing. */
 export async function describeEnrichmentSlots(
   deps: CrmEnrichmentSlotDeps = providerApiSlotDeps,
 ): Promise<CrmEnrichmentSlotDescription[]> {
@@ -350,18 +326,12 @@ export async function describeEnrichmentSlots(
   );
 }
 
-/**
- * The slots phase A may run: every requested slot that cannot carry contact
- * data. Phase A produces evidence a human approves; it must never be the pass
- * that buys an email, or the approval gate guards nothing.
- */
 export function verifySlots(
   requested: readonly CrmEnrichmentSlot[],
 ): CrmEnrichmentSlot[] {
   return requested.filter((slot) => !SLOT_DRIVERS[slot].carriesContactData);
 }
 
-/** The slots phase B pays for: the contact-bearing ones among those requested. */
 export function spendSlots(
   requested: readonly CrmEnrichmentSlot[],
 ): CrmEnrichmentSlot[] {
@@ -372,7 +342,6 @@ export function slotCarriesContactData(slot: CrmEnrichmentSlot): boolean {
   return SLOT_DRIVERS[slot].carriesContactData;
 }
 
-/** Value at a dot path, walking objects and numeric array indexes. */
 function readPath(body: unknown, path: string): unknown {
   let cursor: unknown = body;
   for (const segment of path.split(".")) {
@@ -389,10 +358,6 @@ function readPath(body: unknown, path: string): unknown {
   return cursor;
 }
 
-/**
- * The provider's response body. `executeRequest` wraps it, and the wrapper shape
- * varies by staging options, so unwrap what is there rather than assuming.
- */
 function responseBody(response: unknown): unknown {
   if (response && typeof response === "object" && !Array.isArray(response)) {
     const record = response as Record<string, unknown>;
@@ -425,15 +390,6 @@ export function extractSlotFacts(
   return facts;
 }
 
-/**
- * Run one slot against one record.
- *
- * Never throws for a provider problem — the problem becomes an `error` outcome
- * so a five-record run reports four successes and one preserved failure instead
- * of losing all five. It DOES throw when asked to run a contact-bearing slot in
- * the verification phase: that is a programming error in the caller, and
- * degrading it to an outcome would let phase A quietly spend money.
- */
 export async function runEnrichmentSlot(input: {
   slot: CrmEnrichmentSlot;
   target: CrmEnrichmentTarget;
@@ -458,7 +414,6 @@ export async function runEnrichmentSlot(input: {
     });
   } catch (error) {
     // A credential check that itself failed is NOT "unconfigured" — we do not
-    // know whether the credential exists.
     return { slot, status: "error", error: messageOf(error) };
   }
   if (!credential.available) {
@@ -486,7 +441,6 @@ export async function runEnrichmentSlot(input: {
   }
 }
 
-/** Run a set of slots for one record, concurrently. */
 export async function runEnrichmentSlots(input: {
   slots: readonly CrmEnrichmentSlot[];
   target: CrmEnrichmentTarget;
@@ -505,7 +459,6 @@ export async function runEnrichmentSlots(input: {
   );
 }
 
-/** True when a record produced at least one usable fact worth paying to enrich. */
 export function hasVerifiedEvidence(
   outcomes: readonly CrmEnrichmentSlotOutcome[],
 ): boolean {

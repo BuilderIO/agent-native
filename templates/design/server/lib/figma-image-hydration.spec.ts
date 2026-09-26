@@ -75,7 +75,6 @@ import {
 
 const FIG_BYTES = Buffer.from("fake-fig-bytes");
 
-// The decode-once index the handler now builds and hands to the resolvers.
 function figImageMap(
   images: Array<{ hash: string; ext: string }>,
 ): Map<string, { hash: string; ext: string; bytes: Buffer }> {
@@ -128,7 +127,7 @@ describe("resolveFigImageHashes", () => {
 
     expect(resolved.get("aaa")).toBe("https://cdn.example.com/figma-aaa.png");
     expect(resolved.has("ccc")).toBe(false);
-    expect(resolved.has("bbb")).toBe(false); // not requested
+    expect(resolved.has("bbb")).toBe(false);
     expect(mocks.uploadFile).toHaveBeenCalledTimes(1);
     expect(mocks.uploadFile.mock.calls[0]![0].mimeType).toBe("image/png");
   });

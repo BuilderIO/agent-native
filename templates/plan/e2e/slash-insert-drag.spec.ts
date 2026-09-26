@@ -1,24 +1,5 @@
 import { test, expect, type Page, type APIResponse } from "@playwright/test";
 
-/*
- * SLASH-INSERT + DRAG-REORDER + NOTION-SYNC SLASH FILTER — interactive E2E.
- *
- * These cover the single-document plan editor affordances that can't be driven
- * reliably through raw CDP `execCommand` (they need real ProseMirror keyboard /
- * mouse input): typing "/" to INSERT a custom block, dragging a block's grip to
- * REORDER it, and the slash menu's Notion-compatible-only filtering.
- *
- * The editor is ONE ProseMirror doc (`SharedRichEditor`, wrapper
- * `.plan-document-editor-surface`, contenteditable `.an-rich-md-prose`). Custom
- * blocks are inline `planBlock` NodeViews (`.plan-block-node[data-block-id]`).
- * The "/" menu is `.an-rich-md-slash-menu` with `.an-rich-md-slash-item` rows
- * (each carrying an `.an-rich-md-slash-title`). The left-margin drag grip is
- * `.drag-handle`. Every edit serializes the whole doc back to `blocks[]` and
- * autosaves via `update-visual-plan` `{ op: "replace-blocks" }` (no debounce).
- *
- * Asserts CORRECT behavior; a failing assertion IS the bug. retries:2 absorbs
- * transient HMR reloads on the shared dev server.
- */
 
 const UPDATE_ACTION = "/_agent-native/actions/update-visual-plan";
 const CREATE_ACTION = "/_agent-native/actions/create-visual-plan";
@@ -52,7 +33,6 @@ async function readJson(res: APIResponse): Promise<Record<string, unknown>> {
   }
 }
 
-/** Create a fresh plan fixture via the authed action surface; return its id. */
 async function createPlanFixture(
   page: Page,
   content: PlanContentInput,
@@ -77,7 +57,6 @@ async function createPlanFixture(
   return planId as string;
 }
 
-/** Read the current stored blocks for order/type assertions. */
 async function getPlanBlocks(page: Page, planId: string): Promise<PlanBlock[]> {
   const res = await page.request.get(
     `${GET_ACTION}?id=${encodeURIComponent(planId)}`,
@@ -96,7 +75,6 @@ function proseFor(page: Page) {
     .first();
 }
 
-/** Open the plan and wait for the editable single-document surface. */
 async function openPlanForEditing(page: Page, planId: string) {
   await page.goto(`/plans/${planId}`);
   const prose = proseFor(page);
@@ -111,7 +89,6 @@ const slashMenu = (page: Page) => page.locator(".an-rich-md-slash-menu");
 const slashTitles = (page: Page) =>
   page.locator(".an-rich-md-slash-menu .an-rich-md-slash-title");
 
-/** Place caret at the doc end, open a fresh line, and type a slash query. */
 async function openSlashMenu(
   page: Page,
   prose: ReturnType<typeof proseFor>,
@@ -143,8 +120,6 @@ test.describe("single-document slash-insert, drag-reorder, notion filter", () =>
     });
     const prose = await openPlanForEditing(page, planId);
 
-    // Open the menu filtered to Callout. The block command's description is the
-    // block type ("callout"), so "/callout" narrows to the single Callout item.
     await openSlashMenu(page, prose, "/callout");
     await expect(slashTitles(page).filter({ hasText: "Callout" })).toHaveCount(
       1,
@@ -158,8 +133,6 @@ test.describe("single-document slash-insert, drag-reorder, notion filter", () =>
       { timeout: 20_000 },
     );
 
-    // Selecting the item inserts a `planBlock` node; the editor seeds its data
-    // from the spec's empty() and autosaves the whole doc.
     await page
       .locator(".an-rich-md-slash-item")
       .filter({ hasText: "Callout" })
@@ -168,7 +141,6 @@ test.describe("single-document slash-insert, drag-reorder, notion filter", () =>
 
     await okSave;
 
-    // A callout block now exists in the persisted content (it did not before).
     await expect
       .poll(
         async () =>
@@ -179,7 +151,6 @@ test.describe("single-document slash-insert, drag-reorder, notion filter", () =>
       )
       .toBe(1);
 
-    // And it renders as an inline block NodeView after a reload.
     await page.reload();
     await expect(
       page.locator(".plan-document-editor-surface .plan-block-node").first(),
@@ -209,7 +180,6 @@ test.describe("single-document slash-insert, drag-reorder, notion filter", () =>
     });
     const prose = await openPlanForEditing(page, planId);
 
-    // Sanity: initial order is [rich-text, callout].
     const before = await getPlanBlocks(page, planId);
     expect(before[0]?.type).toBe("rich-text");
     expect(before[1]?.type).toBe("callout");
@@ -217,8 +187,6 @@ test.describe("single-document slash-insert, drag-reorder, notion filter", () =>
     const callout = page.locator('.plan-block-node[data-block-id="cal-mid"]');
     await expect(callout).toBeVisible({ timeout: 20_000 });
 
-    // Hover the callout so the DragHandle binds its grip to that node, then read
-    // the grip box. (The grip appears on hover and is anchored to the wrapper.)
     await callout.hover();
     const grip = page.locator(".drag-handle");
     await expect(grip).toBeVisible({ timeout: 8_000 });
@@ -234,8 +202,6 @@ test.describe("single-document slash-insert, drag-reorder, notion filter", () =>
       { timeout: 20_000 },
     );
 
-    // Drag the grip up to just below the very top of the document — drop the
-    // callout before the first prose block.
     await page.mouse.move(
       gripBox!.x + gripBox!.width / 2,
       gripBox!.y + gripBox!.height / 2,
@@ -246,7 +212,6 @@ test.describe("single-document slash-insert, drag-reorder, notion filter", () =>
 
     await okSave;
 
-    // The callout is now the FIRST block (order flipped); ids are preserved.
     await expect
       .poll(async () => (await getPlanBlocks(page, planId))[0]?.type, {
         timeout: 15_000,
@@ -273,7 +238,6 @@ test.describe("single-document slash-insert, drag-reorder, notion filter", () =>
       ],
     });
 
-    // Turn on Notion sync deterministically via the targeted patch op.
     const patchRes = await page.request.post(UPDATE_ACTION, {
       data: {
         planId,
@@ -285,28 +249,22 @@ test.describe("single-document slash-insert, drag-reorder, notion filter", () =>
     const prose = await openPlanForEditing(page, planId);
     await openSlashMenu(page, prose, "/");
 
-    // Notion-compatible registry blocks stay offered…
     for (const label of ["Callout", "Checklist"]) {
       await expect(
         slashTitles(page).filter({ hasText: new RegExp(`^${label}$`) }),
       ).toHaveCount(1);
     }
-    // The structured `table` registry block stays offered too, but is now
-    // labeled "Structured table" to disambiguate it from the prose markdown
-    // table command (which remains "Table"). So each appears exactly once.
     await expect(
       slashTitles(page).filter({ hasText: /^Structured table$/ }),
     ).toHaveCount(1);
     await expect(slashTitles(page).filter({ hasText: /^Table$/ })).toHaveCount(
       1,
     );
-    // …and the NFM-incompatible ones are filtered out.
     for (const label of ["Wireframe", "Diagram", "Code tabs", "Tabs"]) {
       await expect(
         slashTitles(page).filter({ hasText: new RegExp(`^${label}$`) }),
       ).toHaveCount(0);
     }
-    // The "HTML / Tailwind" (html) registry block is also hidden.
     await expect(
       slashTitles(page).filter({ hasText: "HTML / Tailwind" }),
     ).toHaveCount(0);

@@ -1,9 +1,3 @@
-/**
- * Update the text of a comment.
- *
- * Usage:
- *   pnpm action update-comment --id=<id> --content="Updated text"
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
@@ -58,8 +52,6 @@ export default defineAction({
       .limit(1);
     if (!existing) throw new Error(`Comment not found: ${args.id}`);
 
-    // Any signed-in viewer with access to the recording may edit their own
-    // comment, matching add-comment's top-level comment gate.
     const access = await assertAccess(
       "recording",
       existing.recordingId,

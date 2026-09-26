@@ -90,7 +90,6 @@ const ALLOWED_ATTRS = new Set([
   "width",
 ]);
 
-/** List numbering, which only means something on its own tag. */
 const TAG_ATTRS: Readonly<Record<string, ReadonlySet<string>>> = {
   ol: new Set(["reversed", "start", "type"]),
   li: new Set(["value"]),
@@ -155,8 +154,6 @@ export function sanitizeSlideUrl(
       : null;
   }
 
-  // Local object URLs are only a client-side rendering affordance. They must
-  // be explicitly enabled so the default sanitizer cannot persist them.
   if (lower.startsWith("blob:")) {
     return kind === "image" && options?.allowBlob ? value : null;
   }
@@ -328,24 +325,10 @@ function cleanNode(
   return out;
 }
 
-/**
- * Elements whose unclosed start tag swallows the rest of the document in a real
- * parser. `embed` is deliberately absent: it is void, so it never has a closing
- * tag and requiring one would truncate every slide that contains a valid one.
- */
 const SWALLOWING_ELEMENTS = /^(script|style|textarea|iframe|object|svg|math)$/i;
 
-/** Elements whose children the HTML parser reads as text rather than markup. */
 const RAW_TEXT_ELEMENTS = /^(script|style|textarea|title)$/i;
 
-/**
- * Start-tag positions in `html`, skipping comments and anything inside a quoted
- * attribute value.
- *
- * Scanning the serialized string with a bare regex cannot tell a tag from text:
- * `<p title="Use <style> here">` reads as a `<style>` start tag, and truncating
- * there drops the rest of a perfectly valid slide.
- */
 function startTagPositions(
   html: string,
 ): { name: string; index: number; end: number }[] {
@@ -358,8 +341,6 @@ function startTagPositions(
       continue;
     }
     const name = /^<([a-z][a-z0-9-]*)/i.exec(html.slice(i, i + 32))?.[1];
-    // Walk to this tag's `>`, stepping over quoted values so a `<` or `>`
-    // inside one is not read as markup.
     let cursor = i + 1;
     let quote = "";
     while (cursor < html.length) {
@@ -380,11 +361,6 @@ function startTagPositions(
     const lower = name.toLowerCase();
     found.push({ name: lower, index: i, end: cursor });
     if (RAW_TEXT_ELEMENTS.test(lower)) {
-      // A raw-text element's body is text, not markup — `content: "<script>"`
-      // inside a stylesheet is a CSS string, and reading it as a start tag
-      // truncated everything after it. Skip to the close tag; no close tag is
-      // the unclosed case the caller is looking for, and everything past it is
-      // swallowed anyway, so there is nothing further to find.
       const closing = new RegExp(`</\\s*${lower}\\s*>`, "i").exec(
         html.slice(cursor),
       );
@@ -397,16 +373,6 @@ function startTagPositions(
   return found;
 }
 
-/**
- * Truncates at the first swallowing element that never closes.
- *
- * The regex path has to drop the remainder to agree with `cleanNode`. It must
- * check for the closing tag to do that: the sweep used to match any of these
- * tags and cut to the end of the string unconditionally, which ate the
- * sanitized `<style>` block the pass above it had just emitted — and every
- * heading and paragraph after it. A deck with one stylesheet rendered as an
- * empty slide on the SSR'd share and present pages.
- */
 function dropFromFirstUnclosedRawText(html: string): string {
   for (const { name, index } of startTagPositions(html)) {
     if (!SWALLOWING_ELEMENTS.test(name)) continue;
@@ -416,23 +382,12 @@ function dropFromFirstUnclosedRawText(html: string): string {
   return html;
 }
 
-/**
- * Rewrites `/` attribute separators inside start tags as spaces.
- *
- * `/` is a legal separator between attributes, so `<img src="x"/onerror="…">`
- * is an image with a live handler — and every attribute scrub below is anchored
- * on whitespace, so none of them matched it. Normalizing here rather than
- * widening each scrub to `[\s/]+` is what keeps a legitimate value intact: a
- * URL like `https://cdn.example/onerror=logo.png` lives inside quotes, and this
- * only touches separators outside them.
- */
 function normalizeTagAttributeSeparators(html: string): string {
   const tags = startTagPositions(html);
   if (!tags.length) return html;
   let out = "";
   let copied = 0;
   for (const { index, end } of tags) {
-    // Start after the tag name so `</p>` and the opening `<` are untouched.
     const nameEnd = /^<[a-z][a-z0-9-]*/i.exec(html.slice(index, end))?.[0]
       .length;
     if (nameEnd === undefined) continue;

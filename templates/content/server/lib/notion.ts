@@ -28,11 +28,6 @@ export const NOTION_PROVIDER = "notion";
 export const NOTION_API_BASE = "https://api.notion.com/v1";
 export const NOTION_API_VERSION = "2026-03-11";
 
-// Name of the short-lived HttpOnly cookie that binds an in-flight OAuth
-// flow to the browser session that started it. The callback compares this
-// value against the `n` nonce embedded in `state` (see `encodeState`) and
-// refuses to save tokens on any mismatch or absence — this is the CSRF
-// binding the bare `state` nonce alone did not provide.
 export const NOTION_OAUTH_STATE_COOKIE = "notion_oauth_state";
 
 type NotionTokens = {
@@ -96,8 +91,6 @@ function iconFromNotion(icon: NotionPage["icon"]): IconValue | null {
   if (icon?.type === "emoji" && icon.emoji) {
     return { version: 1, kind: "emoji", emoji: icon.emoji };
   }
-  // Notion file and custom-emoji URLs are short-lived signed URLs. Only the
-  // external variant is durable enough to retain as icon identity.
   const url = icon?.external?.url;
   return url
     ? {
@@ -154,13 +147,6 @@ function getStateSecret(): string | null {
   );
 }
 
-/**
- * Sign `redirectPath` the same way `callback.get.ts`'s `verifyStateSignature`
- * expects: HMAC-SHA256 over `redirectPath:${redirectPath}`, base64url-encoded.
- * Without this, the callback's signature check always fails and every OAuth
- * connect silently drops the user on `/` regardless of where they started —
- * the `redirect` query param threaded through `auth-url.get.ts` was a no-op.
- */
 function signRedirectPath(redirectPath: string): string | null {
   const secret = getStateSecret();
   if (!secret) return null;
@@ -378,11 +364,6 @@ export function normalizeNotionPageId(input: string): string {
 }
 
 const NOTION_FETCH_TIMEOUT_MS = 15_000;
-// Cap how long we'll sleep in-process honoring a Notion Retry-After header.
-// Notion can legally send arbitrarily large values (e.g. during an outage);
-// sleeping for them would stall a request handler well past the hosted run's
-// wall-clock budget. Anything above the cap surfaces as a normal 429 error
-// instead of blocking.
 const NOTION_RETRY_AFTER_CAP_SECONDS = 5;
 
 export async function notionFetch<T>(
@@ -480,12 +461,6 @@ export async function pushDocumentToNotionPage(args: {
   const notionIcon = iconForNotion(args.icon);
   const page = await fetchNotionPage(args.accessToken, args.pageId);
 
-  // The canonical content already contains `<page>`/`<database>` tags for any
-  // child pages/databases (they round-trip through the converter), so they stay
-  // in place. We must NOT re-append them — per the NFM spec an existing-URL
-  // `<page>` tag MOVES that child, which previously reordered children to the
-  // bottom of the page on every push. `allow_deleting_content: false` remains
-  // the backstop against accidental removal.
   const markdown = canonicalizeNfm(args.content);
 
   try {
@@ -601,16 +576,6 @@ export async function getNotionConnectionForOwner(owner: string) {
   };
 }
 
-/**
- * Resolve the owner's Notion account connection, or throw an error that says
- * which of the two Notion connections is missing.
- *
- * Settings > Integrations connects the Notion MCP server; Content's link and
- * sync features need the per-user Notion account OAuth grant. A bare "Notion
- * not connected" reads as false to anyone looking at a green badge in
- * Settings, so name the distinction whenever the MCP side is in fact
- * connected.
- */
 export async function requireNotionConnectionForOwner(
   owner: string,
   intent: string,
@@ -675,11 +640,6 @@ export async function buildNotionAuthUrl(
     nonce,
   );
 
-  // Bind this OAuth flow to the browser session that started it. The
-  // callback compares this cookie against the `n` nonce carried in `state`
-  // and refuses to save tokens on any mismatch or absence, closing the CSRF
-  // hole where an attacker could otherwise send a victim their own
-  // completed-but-unfinished OAuth callback URL.
   setCookie(event, NOTION_OAUTH_STATE_COOKIE, nonce, {
     httpOnly: true,
     sameSite: "lax",
@@ -738,12 +698,6 @@ export async function saveNotionTokensForOwner(
     owner,
   );
 
-  // Enforce single-connection semantics: the UI/action model (and
-  // getNotionConnectionForOwner below) assume one Notion workspace per
-  // owner. Without this, connecting a second workspace leaves two rows and
-  // getNotionConnectionForOwner's `accounts[0]` pick becomes arbitrary DB row
-  // order instead of "most recently connected". Clean up any other Notion
-  // accounts this owner holds so the one just saved is unambiguously active.
   const accounts = await listOAuthAccountsByOwner(NOTION_PROVIDER, owner);
   await Promise.all(
     accounts
@@ -754,35 +708,17 @@ export async function saveNotionTokensForOwner(
   return accountId;
 }
 
-// ─── Notion Comments API ────────────────────────────────────────
 
 export interface NotionComment {
   id: string;
   rich_text: Array<{ plain_text: string }>;
   created_time: string;
   created_by: { id: string };
-  // Notion groups a top-level comment and all of its replies under the same
-  // discussion_id. Creating a comment WITH this id (instead of a `parent`
-  // page reference) appends it as a reply to that thread rather than
-  // starting a new unrelated top-level comment — this is what
-  // sync-notion-comments uses to preserve reply threading in both
-  // directions.
   discussion_id?: string;
 }
 
 const MAX_COMMENT_PAGES = 20;
 
-/**
- * List open comments on a Notion page. The endpoint is cursor-paginated
- * (max 100 results per page); this follows `has_more`/`next_cursor` until
- * exhausted (capped at MAX_COMMENT_PAGES as a safety bound) so pages with
- * more than one page of comments don't silently lose the remainder.
- *
- * Auth/permission/rate-limit failures (401/403/404/429) are rethrown rather
- * than swallowed into an empty array — callers (sync-notion-comments) need
- * to distinguish "no comments" from "the API call failed" so they don't
- * report a broken sync as a successful no-op.
- */
 export async function listNotionComments(
   pageId: string,
   accessToken: string,
@@ -808,8 +744,6 @@ export async function listNotionComments(
       ) {
         throw error;
       }
-      // Unexpected shape on a page we've already partially fetched — return
-      // what we have rather than losing already-fetched comments.
       if (results.length > 0) break;
       throw error;
     }

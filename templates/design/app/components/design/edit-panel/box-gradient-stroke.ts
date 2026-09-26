@@ -5,12 +5,6 @@ import {
   splitCssLayers,
 } from "./fill-gradient-helpers";
 
-/**
- * A box's gradient stroke is the background layer clipped to `border-area`
- * (the painted border, radius and dashes included) under a transparent
- * border. It is always layer 0 so it paints above every fill layer; the Fill
- * section never sees it (see `withoutBoxStrokeLayer`).
- */
 
 const LAYER_PROPERTIES = [
   "backgroundImage",
@@ -105,7 +99,6 @@ function serialize(arrays: LayerArrays): Record<string, string> {
   return patch;
 }
 
-/** The styles the Fill section should read: every layer but the stroke's. */
 export function withoutBoxStrokeLayer(
   styles: Record<string, string>,
 ): Record<string, string> {
@@ -115,10 +108,6 @@ export function withoutBoxStrokeLayer(
   return { ...styles, ...serialize(withoutIndex(arrays, index)) };
 }
 
-/**
- * Rewrites the background layer lists with `layer` as the stroke (or with no
- * stroke when null), leaving every fill layer as it was.
- */
 export function boxStrokeLayerPatch(
   styles: Record<string, string>,
   layer: string | null,
@@ -137,8 +126,6 @@ export function boxStrokeLayerPatch(
           ? BOX_STROKE_HIDDEN_SIZE
           : STROKE_LAYER_VALUES[property];
     next[property] = [strokeValue, ...fills[property]];
-    // background-color takes the bottom layer's clip; as the only layer the
-    // stroke would clip the fill to the border.
     if (fills.backgroundImage.length === 0) {
       next[property].push(LAYER_DEFAULTS[property]);
     }
@@ -146,11 +133,6 @@ export function boxStrokeLayerPatch(
   return serialize(next);
 }
 
-/**
- * A Fill-section patch is written against `withoutBoxStrokeLayer`; put the
- * stroke layer back on top so a fill edit can't drop it or shift its clip
- * onto a fill layer.
- */
 export function withBoxStrokeLayer(
   styles: Record<string, string>,
   fillPatch: Record<string, string>,

@@ -1,10 +1,5 @@
 import type { WorkspaceFileEntry } from "./types";
 
-/**
- * Pure file-tree construction for the explorer. Given a flat list of
- * root-relative paths, builds a folders-first, case-insensitive alphabetical
- * tree — matching VS Code explorer ordering.
- */
 
 export interface TreeFileNode {
   kind: "file";
@@ -37,11 +32,6 @@ function sortTree(nodes: TreeNode[]): TreeNode[] {
   return [...folders, ...files];
 }
 
-/**
- * Build a folders-first tree from a flat list of workspace file entries.
- * Folders are derived from `/`-separated path segments; each level is sorted
- * alphabetically (case-insensitive) with folders before files.
- */
 export function buildFileTree(entries: WorkspaceFileEntry[]): TreeNode[] {
   const root: TreeNode[] = [];
   const folderIndex = new Map<string, TreeFolderNode>();
@@ -86,11 +76,6 @@ export interface FlatTreeRow {
   parentPath: string | null;
 }
 
-/**
- * Flatten a tree into the currently visible rows given a set of expanded
- * folder paths. Used for keyboard nav (Up/Down/typeahead) over the rendered
- * rows without re-deriving DOM order.
- */
 export function flattenVisibleTree(
   nodes: TreeNode[],
   expandedPaths: ReadonlySet<string> | readonly string[],

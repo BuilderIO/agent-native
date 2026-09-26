@@ -1,19 +1,3 @@
-/**
- * S3-compatible file upload provider.
- *
- * Works with AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO, Backblaze B2,
- * and any other S3-compatible object storage. Uses SigV4 signing via Web Crypto
- * — no SDK dependency.
- *
- * Env vars (S3_* or R2_* prefix, first found wins):
- *   S3_BUCKET | R2_BUCKET                — required
- *   S3_ACCESS_KEY_ID | R2_ACCESS_KEY_ID  — required
- *   S3_SECRET_ACCESS_KEY | R2_SECRET_ACCESS_KEY — required
- *   S3_ENDPOINT | R2_ENDPOINT            — required (e.g. https://s3.us-east-1.amazonaws.com
- *                                           or https://<acct>.r2.cloudflarestorage.com)
- *   S3_REGION | R2_REGION                — optional, default "auto"
- *   S3_PUBLIC_BASE_URL | R2_PUBLIC_BASE_URL — optional (for public read URLs)
- */
 
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import type { FileUploadProvider } from "@agent-native/core/file-upload";
@@ -43,11 +27,6 @@ function cleanValue(value: string | null | undefined): string | undefined {
   return cleaned ? cleaned : undefined;
 }
 
-// A hung S3-compatible endpoint (flaky VPN, misconfigured security group that
-// accepts the TCP connection but never responds, etc.) would otherwise leave
-// finalize-recording — and the request that triggered it — waiting forever.
-// PUT gets a generous budget since it uploads the full recording; DELETE is a
-// small best-effort cleanup call and can fail fast.
 const S3_PUT_TIMEOUT_MS = 120_000;
 const S3_DELETE_TIMEOUT_MS = 30_000;
 const S3_MULTIPART_MIN_PART_BYTES = 5 * 1024 * 1024;
@@ -235,7 +214,6 @@ async function readOrganizationLogoS3Config(
   });
 }
 
-// ── SigV4 helpers (Web Crypto, no SDK) ────────────────────────────────
 
 async function hmac(key: ArrayBuffer, msg: string): Promise<ArrayBuffer> {
   const k = await crypto.subtle.importKey(
@@ -628,7 +606,6 @@ export const clipsOrganizationLogoPrivateBlobProvider: PrivateBlobProvider = {
   },
 };
 
-/** Read pre-handle S3 logo URLs from the currently configured bucket. */
 export async function fetchS3OrganizationLogoByLegacyUrl(
   url: string,
   organizationId: string,
@@ -801,11 +778,6 @@ async function verifyCompletedMultipartObject(
     );
   }
 
-  // New sessions record every uploaded part size, which lets a retry
-  // distinguish this completed object from an older object at the same
-  // deterministic recording key. Older in-flight sessions did not persist
-  // sizes, so object existence remains their only recoverable completion
-  // signal.
   const hasAllPartSizes = meta.parts.every(
     (part) => typeof part.sizeBytes === "number",
   );
@@ -869,7 +841,6 @@ export async function fetchS3ObjectByUrl(
   });
 }
 
-// ── Provider ──────────────────────────────────────────────────────────
 
 export const s3FileUploadProvider: FileUploadProvider = {
   id: "s3",
@@ -1022,8 +993,6 @@ export const s3FileUploadProvider: FileUploadProvider = {
           timeoutMs: S3_PUT_TIMEOUT_MS,
         });
       } catch (error) {
-        // R2 can finish the object while the HTTP response is lost. Reconcile
-        // that ambiguous case before the caller aborts the provider session.
         try {
           if (await verifyCompletedMultipartObject(cfg, meta)) {
             await deleteObject(cfg, meta.stagingKey).catch((cleanupError) => {
@@ -1048,12 +1017,6 @@ export const s3FileUploadProvider: FileUploadProvider = {
       }
       const body = await res.text().catch(() => "");
       if (!res.ok || /<Error(?:\s|>)/.test(body)) {
-        // CompleteMultipartUpload is not idempotent at the S3 API level. If
-        // completion succeeded but the caller failed while verifying or
-        // persisting the URL, its retry receives NoSuchUpload because the
-        // upload id has already been consumed. Recover only when the object at
-        // this session's deterministic key exists (and, for new sessions, has
-        // the exact completed byte length).
         if (
           xmlElement(body, "Code") === "NoSuchUpload" &&
           (await verifyCompletedMultipartObject(cfg, meta))

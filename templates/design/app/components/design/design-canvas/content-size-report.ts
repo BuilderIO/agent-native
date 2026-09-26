@@ -1,16 +1,5 @@
 import { injectDocumentMarkup } from "@agent-native/core/shared";
 
-/**
- * Content-size reporter injected into every canvas iframe (primary + each
- * breakpoint) so a frame can grow to fit its own content instead of inheriting
- * the primary frame's aspect ratio. The iframes are sandbox="allow-scripts"
- * (opaque origin), so the parent can't read contentDocument — this measures
- * the viewport extent and natural body content, then posts both heights keyed
- * by event.source. It first pins full-height utilities to a fixed per-frame
- * --agent-native-device-vh so a min-h-screen hero can't chase the growing frame
- * (runaway), then remaps raw viewport-height units in authored CSS to the same
- * fixed device viewport.
- */
 
 const CONTENT_SIZE_REPORT_BRIDGE = `
 <style data-agent-native-content-size-guard>
@@ -293,12 +282,6 @@ export type ContentSizeSample = {
   width: number;
 };
 
-/**
- * A document using raw viewport-height CSS can report a larger scrollHeight
- * every time its iframe grows. Keep the first useful height when subsequent
- * growth tracks the viewport growth; later content changes at a stable
- * viewport are still accepted.
- */
 export function resolveStableContentSizeSample(
   previous: ContentSizeSample | undefined,
   next: Omit<ContentSizeSample, "acceptedHeight">,
@@ -317,14 +300,10 @@ export function resolveStableContentSizeSample(
   };
 }
 
-/** Appends the reporter + full-height guard, mirroring appendHitTestResponder's
- * marker handling so it runs regardless of document structure. */
 export function appendContentSizeReporter(html: string): string {
   return injectDocumentMarkup(html, CONTENT_SIZE_REPORT_BRIDGE);
 }
 
-/** Uses the same overlay-excluding natural-height measurement as the iframe
- * reporter, so exports agree with the Hug height shown by the live canvas. */
 export function measureNaturalDocumentHeight(doc: Document): number | null {
   const view = doc.defaultView as
     | (Window & { __agentNativeMeasureNaturalHeight?: () => number })

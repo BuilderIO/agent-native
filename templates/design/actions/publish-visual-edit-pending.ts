@@ -52,8 +52,6 @@ export default defineAction({
       });
     }
 
-    // Same-origin metadata is CSRF defense only; the scoped page capability
-    // is what grants a signed-out visual-edit session editor access.
     const access = await assertAccess("design", designId, "editor");
     const design = access.resource as typeof schema.designs.$inferSelect;
     const now = new Date().toISOString();

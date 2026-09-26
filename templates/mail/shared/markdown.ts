@@ -202,7 +202,6 @@ export function renderInlineMarkdown(markdown: string): string {
   return store.restore(escaped);
 }
 
-/** Linkify plain-text email bodies without interpreting their other characters as Markdown. */
 export function renderPlainTextLinks(text: string): string {
   const ranges = findPlainTextLinkRanges(text);
   if (ranges.length === 0) return escapeHtml(text);
@@ -220,8 +219,6 @@ export function renderPlainTextLinks(text: string): string {
 
 export function extractMarkdownUrls(markdown: string): string[] {
   const urls = new Set<string>();
-  // Each pass rewrites what it matched so a later pattern cannot rematch it;
-  // only add() escapes, so the final string is deliberately never read.
   // oxlint-disable-next-line no-unused-vars
   let text = decodeCommonHtmlEntities(normalizeMarkdownHardBreaks(markdown));
 

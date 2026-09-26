@@ -7,7 +7,7 @@ import { resolveAnalyticsProviderCredential } from "./provider-credentials";
 export type Workspace = "primary" | "secondary";
 
 const cache = new Map<string, { data: unknown; ts: number }>();
-const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
+const CACHE_TTL_MS = 2 * 60 * 1000;
 const MAX_CACHE = 200;
 const MAX_CHANNEL_PAGES = 10;
 const MAX_USER_PAGES = 10;
@@ -85,7 +85,6 @@ async function slackApi<T>(
   return data as T;
 }
 
-// -- Types --
 
 export interface SlackChannel {
   id: string;
@@ -169,10 +168,8 @@ export interface SlackAuthorCoverageMetadata {
   truncation_reasons: string[];
 }
 
-// User cache (keyed by workspace + userId)
 const userCache = new Map<string, SlackUser>();
 
-// -- API functions --
 
 export async function getTeamInfo(
   workspace: Workspace,
@@ -183,9 +180,7 @@ export async function getTeamInfo(
     undefined,
     true,
   );
-  // auth.test returns flat fields, not nested team object
   const teamData = data as any;
-  // Need team.info for full team name
   try {
     const info = await slackApi<{ team: SlackTeamInfo }>(
       workspace,
@@ -217,7 +212,6 @@ export async function listChannelsWithCoverage(
   let cursor = requestCursor;
   let pagesFetched = 0;
 
-  // Paginate through the bounded channel directory.
   for (let i = 0; i < MAX_CHANNEL_PAGES; i++) {
     const params: Record<string, string> = {
       types: "public_channel",
@@ -229,7 +223,7 @@ export async function listChannelsWithCoverage(
     const data = await slackApi<{
       channels: SlackChannel[];
       response_metadata?: { next_cursor?: string };
-    }>(workspace, "conversations.list", params, !cursor); // cache first page only
+    }>(workspace, "conversations.list", params, !cursor);
 
     all.push(...(data.channels || []));
     pagesFetched += 1;
@@ -268,7 +262,7 @@ export async function listChannels(
 export interface ChannelHistoryResult {
   messages: SlackMessage[];
   has_more: boolean;
-  next_cursor?: string; // timestamp of last message
+  next_cursor?: string;
   truncated: boolean;
   pagination: SlackPaginationMetadata;
   coverage: SlackCoverageMetadata;
@@ -472,7 +466,6 @@ export async function resolveUsersWithCoverage(
     }
   }
 
-  // Resolve bot users from messages that have bot_id but no user
   let resolvedBots = 0;
   const unresolvedBotIds: string[] = [];
   const botIds: string[] = [];
@@ -502,7 +495,6 @@ export async function resolveUsersWithCoverage(
           };
         } catch {
           unresolvedBotIds.push(botId);
-          // Use the username from the message if available
           const msg = messages.find((m) => m.bot_id === botId);
           results[botId] = {
             id: botId,
@@ -568,22 +560,12 @@ function fallbackSlackUser(id: string): SlackUser {
   };
 }
 
-/**
- * Send a direct message to a user by email.
- * First looks up the user by email, then opens/retrieves a DM channel, then sends the message.
- *
- * @param workspace - Which Slack workspace to use
- * @param email - User's email address
- * @param message - Message text to send (supports Slack mrkdwn formatting)
- * @returns true if successful, false if user not found or message failed
- */
 export async function sendDirectMessage(
   workspace: Workspace,
   email: string,
   message: string,
 ): Promise<boolean> {
   try {
-    // Step 1: Look up user by email
     const userLookup = await slackApi<{ user?: { id: string } }>(
       workspace,
       "users.lookupByEmail",
@@ -598,7 +580,6 @@ export async function sendDirectMessage(
 
     const userId = userLookup.user.id;
 
-    // Step 2: Open/get DM channel
     const token = await getToken(workspace);
     const openRes = await fetch("https://slack.com/api/conversations.open", {
       method: "POST",
@@ -617,7 +598,6 @@ export async function sendDirectMessage(
 
     const channelId = openData.channel.id;
 
-    // Step 3: Send message
     const msgRes = await fetch("https://slack.com/api/chat.postMessage", {
       method: "POST",
       headers: {

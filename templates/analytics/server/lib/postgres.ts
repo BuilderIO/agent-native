@@ -1,6 +1,3 @@
-// PostgreSQL client helper
-// Runs queries against an external Postgres database
-// Requires the `postgres` package: pnpm add postgres
 
 import { createHash } from "crypto";
 
@@ -28,8 +25,6 @@ export async function getPostgresClient(): Promise<any> {
   {
     try {
       // @ts-ignore -- postgres is an optional dependency, installed by user;
-      // its types may or may not resolve depending on the install, so this
-      // suppression must not itself error when the module does resolve.
       const pg = await import("postgres");
       const postgres = pg.default;
       const client = postgres(url, {

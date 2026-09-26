@@ -47,7 +47,6 @@ import {
 } from "./estimate-crm-enrichment.js";
 import { protectedBy, type CurrentFieldRow } from "./run-crm-attribute-fill.js";
 
-/** Ceiling on the stored evidence blob. Past it the run stores summaries only. */
 const MAX_OUTCOMES_CHARS = 200_000;
 
 interface RecordOutcome {
@@ -72,7 +71,6 @@ export interface RunCrmEnrichmentArgs {
   approvedRecordIds?: string[];
 }
 
-/** Injectable provider substrate. Production leaves it unset. */
 export interface EnrichmentDeps {
   slots?: CrmEnrichmentSlotDeps;
 }
@@ -132,13 +130,6 @@ export default defineAction({
   run: (args, ctx?: ActionRunContext) => runCrmEnrichment(args, ctx),
 });
 
-/**
- * The action body, callable with an injected provider substrate.
- *
- * `defineAction` wraps `run` and forwards only `(args, ctx)`, so an extra
- * parameter on `run` itself is silently dropped. The seam has to live here or
- * every test of the spend gate would have to reach a real provider to run.
- */
 export async function runCrmEnrichment(
   args: RunCrmEnrichmentArgs,
   ctx?: ActionRunContext,
@@ -189,10 +180,6 @@ export async function runCrmEnrichment(
     .limit(1);
   assertNoInFlightRun({ scope: plan.scope, phase: args.phase, inFlight });
 
-  // Persisted BEFORE any provider call: a crash between here and the call
-  // leaves a claimable row instead of spend nobody recorded. `slots` is the
-  // phase's own slot set, and `inputRecordIdsJson` is the frozen input — for
-  // phase spend it was constructed from the approvals and contains nothing else.
   const runId = crypto.randomUUID();
   const startedAt = new Date().toISOString();
   await db.insert(schema.crmEnrichmentRuns).values({
@@ -241,8 +228,6 @@ export async function runCrmEnrichment(
     },
   });
   if (!won) {
-    // Somebody else owns this row's provider calls. Report it rather than
-    // running anyway — a lost claim is exactly what prevents double spend.
     return {
       runId,
       phase: args.phase,
@@ -276,8 +261,6 @@ export async function runCrmEnrichment(
     outcomes.push({
       recordId: target.recordId,
       slots: slotOutcomes,
-      // Only the paid pass ingests values; the verify pass produces evidence
-      // for a human to approve and writes nothing to the record.
       ...(args.phase === "spend"
         ? {
             writes: await ingestFacts({
@@ -293,9 +276,6 @@ export async function runCrmEnrichment(
 
   const completedAt = new Date().toISOString();
   const stored = storeableOutcomes(outcomes);
-  // Booked from what actually reached a provider, not from the quote: a slot
-  // that was unconfigured or skipped cost nothing, and period-to-date spend
-  // is summed from this column.
   const costUnits = actualEnrichmentCost(outcomes);
   await db
     .update(schema.crmEnrichmentRuns)
@@ -345,13 +325,6 @@ async function planVerify(
   return { scope, recordIds, targets: await loadTargets(recordIds) };
 }
 
-/**
- * The paid pass's plan.
- *
- * The input set comes out of `buildPhaseBInput`, which is handed only the
- * approved entries. An id the verify run never saw is refused rather than
- * quietly enriched — an approval has to be an approval OF something.
- */
 async function planSpend(args: {
   sourceRunId?: string;
   approvedRecordIds?: string[];
@@ -411,7 +384,6 @@ async function planSpend(args: {
   };
 }
 
-/** Record ids the verify run actually produced evidence for. */
 function parseVerifiedRecords(
   runId: string,
   outcomesJson: string,
@@ -475,15 +447,6 @@ async function loadTargets(
   });
 }
 
-/**
- * Merge a record's bought facts into its attributes.
- *
- * A fact lands on the attribute whose api slug matches its key. Merge, never
- * upsert: a value a human edited is kept and reported as such, an unchanged
- * value is not rewritten (which is what keeps bitemporal history from
- * exploding), and a fact with no matching attribute is reported as
- * `no-attribute` rather than dropped.
- */
 async function ingestFacts(input: {
   recordId: string;
   outcomes: CrmEnrichmentSlotOutcome[];
@@ -558,7 +521,6 @@ async function ingestFacts(input: {
       target: { recordId: input.recordId },
       attribute,
       value: fact.value,
-      // A provider bought this value; the agent only routed it.
       actor: { type: "provider", id: input.actorId },
       ownership: input.ownership,
       provenanceJson: toJson(
@@ -566,7 +528,6 @@ async function ingestFacts(input: {
           {
             fieldName: attribute.apiSlug,
             provider: "enrichment",
-            // What makes a later free fill keep this value instead of clobbering it.
             paid: true,
             ...(fact.sourceUrl ? { sourceUrl: fact.sourceUrl } : {}),
             observedAt: now,
@@ -619,14 +580,6 @@ async function loadCurrentFieldRows(recordId: string, slugs: string[]) {
   );
 }
 
-/**
- * The evidence blob to persist.
- *
- * A run over thousands of records can produce more evidence than belongs in a
- * text column. Past the ceiling it stores per-record STATUS COUNTS and says so
- * with `kind: "summary-only"` — a visible, different value. It never silently
- * truncates, and it never fails a run whose money is already spent.
- */
 function storeableOutcomes(outcomes: RecordOutcome[]): {
   json: string;
   kind: "full" | "summary-only";

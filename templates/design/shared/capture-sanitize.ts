@@ -1,20 +1,8 @@
 import { decodeHTML } from "entities";
 import { parseFragment } from "parse5";
 
-/**
- * Shared sanitization helpers for design state capture payloads.
- *
- * Used by both create-design-state and capture-design-state to enforce a
- * consistent stored-XSS guard and size cap before persisting arbitrary
- * caller-supplied markup / DOM snapshots into `design_state` rows.
- */
 
-/**
- * Maximum serialised size of a captured/replayed `captureData` or
- * `fixtureData` payload. Caps single-row size to protect the DB and the
- * shareable content each row feeds.
- */
-export const CAPTURE_DATA_MAX_BYTES = 256 * 1024; // 256 KB
+export const CAPTURE_DATA_MAX_BYTES = 256 * 1024;
 
 const URL_ATTRIBUTE_NAMES = new Set([
   "action",
@@ -144,13 +132,6 @@ function stripSourceRanges(html: string, ranges: SourceRange[]): string {
     );
 }
 
-/**
- * Strip stored-XSS vectors out of an HTML/markup string before it is persisted
- * and later replayed into shareable design content. Mirrors the framework's
- * text-edit HTML sanitiser: removes script/style/iframe/object/embed/link/meta/
- * base tags, inline `on*` handlers, and URL attributes whose decoded schemes
- * are not on the small http(s)/mailto/tel allow-list.
- */
 export function sanitizeMarkup(html: string): string {
   const withoutUnsafeUrlAttributes = stripSourceRanges(
     html,
@@ -172,21 +153,10 @@ export function sanitizeMarkup(html: string): string {
     );
 }
 
-/**
- * A string "looks like markup" — and is therefore worth sanitising — when it
- * contains an angle-bracket tag opener or an Alpine `x-`/`@`/`:` binding that
- * could carry script. Plain data strings (route names, ids) are left untouched.
- */
 export function looksLikeMarkup(value: string): boolean {
   return /<[a-zA-Z!/]/.test(value) || value.includes("</");
 }
 
-/**
- * Recursively sanitise every string value inside a captured/replayed
- * `captureData` or `fixtureData` object (e.g. `domHtml`, `domSnapshot`,
- * `x-data` markup) so no untrusted DOM is persisted raw. Non-string leaves
- * pass through unchanged.
- */
 export function sanitizeCaptureData(value: unknown): unknown {
   if (typeof value === "string") {
     return looksLikeMarkup(value) ? sanitizeMarkup(value) : value;

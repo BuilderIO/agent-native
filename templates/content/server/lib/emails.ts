@@ -1,15 +1,8 @@
-/**
- * Catalog entries for the transactional emails Documents sends.
- *
- * Registered from `server/plugins/transactional-emails.ts` so Dispatch can list
- * and preview them without the app having sent anything yet.
- */
 
 import { defineTransactionalEmail } from "@agent-native/core/email-catalog";
 
 import { renderDocumentCommentEmail } from "./comment-notifications.js";
 
-/** Obviously-fake sample data — these render in a preview pane, never send. */
 const SAMPLE_TITLE = "Q3 launch brief";
 const SAMPLE_URL = "https://example.com/page/doc_sample";
 const SAMPLE_COMMENT =

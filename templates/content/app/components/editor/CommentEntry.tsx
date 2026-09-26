@@ -38,10 +38,6 @@ import type { MentionMember } from "@/hooks/use-mention-members";
 import { useCommentDraft } from "./comment-drafts";
 import { CommentComposer, type MentionEntry } from "./CommentComposer";
 
-/**
- * Render a comment body, styling any `@mention` tokens that match the comment's
- * stored mentions. Raw HTML is never interpreted.
- */
 function commentMentionSpans(
   mentions: CommentMention[],
 ): InlineMarkdownProtectedSpan[] {
@@ -65,7 +61,6 @@ function renderCommentBody(content: string, mentions: CommentMention[]) {
   );
 }
 
-/** Mentions whose label still appears in the text, serialized for storage. */
 function mentionsJsonFor(
   text: string,
   mentions: MentionEntry[],

@@ -20,7 +20,6 @@ export function meta() {
   return [{ title: mailMessages.mail.routeTitles.emailThread }];
 }
 
-// ─── Message Card ────────────────────────────────────────────────────────────
 
 function MessageCard({ message }: { message: EmailMessage }) {
   const fromName = message.from.name || message.from.email;
@@ -71,7 +70,6 @@ function MessageCard({ message }: { message: EmailMessage }) {
   );
 }
 
-// ─── Error State ─────────────────────────────────────────────────────────────
 
 function ErrorState({ message }: { message: string }) {
   const t = useT();
@@ -87,7 +85,6 @@ function ErrorState({ message }: { message: string }) {
   );
 }
 
-// ─── Loading Skeleton ─────────────────────────────────────────────────────────
 
 function LoadingSkeleton() {
   return (
@@ -110,7 +107,6 @@ function LoadingSkeleton() {
   );
 }
 
-// ─── Route ────────────────────────────────────────────────────────────────────
 
 export default function EmailEmbedRoute() {
   const t = useT();

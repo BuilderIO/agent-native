@@ -52,8 +52,6 @@ export default createAgentChatPlugin({
   initialToolNames: INITIAL_TOOL_NAMES,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
-  // When a user tags an @template, embed its aesthetics/philosophy into the
-  // model-facing message so the agent internalizes the brief before generating.
   prepareRequest: ({ message, references }) =>
     prepareTemplateChatContext({ message, references }),
   mentionProviders: {

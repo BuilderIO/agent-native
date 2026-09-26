@@ -1,11 +1,3 @@
-/**
- * "Your generation finished" notifications.
- *
- * Only terminal transitions that happen *out of band* call this — a polled video
- * run landing, or a stale image run being declared interrupted. Synchronous
- * `generate-image` hands the result straight back to the caller, so emailing
- * there would mail a user who is already looking at the image.
- */
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { getUserSetting } from "@agent-native/core/settings";
 
@@ -30,7 +22,6 @@ export interface GenerationRunNotificationResult {
 async function wantsEmail(email: string): Promise<boolean> {
   const stored = await getUserSetting(email, ASSETS_USER_PREFS_KEY);
   if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
-    // No stored preference is a real state, and its meaning is "opted in".
     return true;
   }
   return (stored as AssetsUserPrefs).emailNotifications !== false;
@@ -70,7 +61,6 @@ export async function notifyGenerationRunFinished(
           runId: run.id,
           libraryId: run.libraryId,
           outcome,
-          // The email channel is a no-op without explicit recipients.
           ...(emailed ? { emailRecipients: [owner], emailSubject: title } : {}),
         },
       },
@@ -78,8 +68,6 @@ export async function notifyGenerationRunFinished(
     );
     return { status: "notified", emailed };
   } catch (err) {
-    // A generation that produced an asset must not be reported as failed just
-    // because the mail server was down.
     console.error(
       `[assets] Could not notify ${owner} that run ${run.id} ${outcome}:`,
       err instanceof Error ? err.message : String(err),

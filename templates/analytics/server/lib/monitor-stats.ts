@@ -22,11 +22,7 @@ import { and, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 import type { AccessCtx, MonitorStatus } from "./uptime-monitors.js";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
-/** Coarse health of a single timeline bucket. */
 export type BucketStatus = "up" | "down" | "degraded" | "no-data";
 
 export interface UptimeWindows {
@@ -37,12 +33,9 @@ export interface UptimeWindows {
 }
 
 export interface UptimeBucket {
-  /** ISO timestamp for the inclusive start of the bucket. */
   start: string;
-  /** ISO timestamp for the exclusive end of the bucket. */
   end: string;
   status: BucketStatus;
-  /** Uptime percentage in the bucket (null when there were no checks). */
   uptimePct: number | null;
   total: number;
   downCount: number;
@@ -50,7 +43,6 @@ export interface UptimeBucket {
 }
 
 export interface ResponseTimePoint {
-  /** ISO timestamp for the start of the bucket. */
   bucketStart: string;
   avg: number | null;
   min: number | null;
@@ -60,33 +52,23 @@ export interface ResponseTimePoint {
 
 export interface MonitorStats {
   monitorId: string;
-  /** Current status from the monitor row (up/down/degraded/…), null if never run. */
   status: MonitorStatus | null;
   lastCheckedAt: string | null;
   lastLatencyMs: number | null;
   windows: UptimeWindows;
-  /** Bucketed uptime timeline, oldest → newest (default: 90 daily buckets). */
   timeline: UptimeBucket[];
-  /** Downsampled recent response-time series, oldest → newest. */
   responseSeries: ResponseTimePoint[];
-  /** Count-weighted average response time across `responseSeries`. */
   avgResponseMs: number | null;
   incidentCount: number;
-  /** Mean time between failures over the 90d window, in ms (null if <1 failure). */
   mtbfMs: number | null;
 }
 
 export interface MonitorStatsOptions {
   now?: Date;
-  /** How many trailing daily buckets to include in `timeline`. Default 90. */
   timelineDays?: number;
-  /** Trailing window (hours) for the hourly `responseSeries`. Default 24. */
   responseWindowHours?: number;
 }
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -95,9 +77,6 @@ const DEFAULT_RESPONSE_WINDOW_HOURS = 24;
 const MAX_TIMELINE_DAYS = 365;
 const MAX_RESPONSE_WINDOW_HOURS = 24 * 90;
 
-// ---------------------------------------------------------------------------
-// Pure math (unit-tested)
-// ---------------------------------------------------------------------------
 
 export interface UptimeWindowAggregate {
   total24h: number;
@@ -125,9 +104,7 @@ export function computeUptimePercents(
   };
 }
 
-/** Daily aggregate for a single monitor+day, as produced by the DB reader. */
 export interface DailyBucketRow {
-  /** UTC calendar day key, `YYYY-MM-DD`. */
   day: string;
   total: number;
   ok: number;
@@ -150,11 +127,6 @@ function utcDayKey(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-/**
- * Expand per-day aggregates into a dense, gap-filled trailing timeline of
- * `days` calendar-day buckets (oldest → newest). Days with no checks become
- * `no-data` buckets so the rendered strip stays a fixed width.
- */
 export function assembleDailyTimeline(
   rows: DailyBucketRow[],
   opts: { now?: Date; days?: number } = {},
@@ -174,7 +146,6 @@ export function assembleDailyTimeline(
     const dayKey = utcDayKey(dayMs);
     const startMs = Date.parse(`${dayKey}T00:00:00.000Z`);
     const nextDayStartMs = startMs + DAY_MS;
-    // The most recent bucket ends "now", not at the end of the calendar day.
     const endMs = i === 0 ? Math.max(nowMs, startMs) : nextDayStartMs;
     const row = byDay.get(dayKey);
     const total = row?.total ?? 0;
@@ -199,11 +170,6 @@ export interface IncidentWindowRow {
   resolvedAt: string | null;
 }
 
-/**
- * Mean time between failures over a window, in ms. Defined as operational time
- * (window length minus clamped downtime) divided by the number of failures.
- * Returns null when there were no failures in the window.
- */
 export function computeMtbf(
   incidents: IncidentWindowRow[],
   opts: { windowStartMs: number; nowMs: number },
@@ -241,9 +207,6 @@ export function averageResponse(series: ResponseTimePoint[]): number | null {
   return count > 0 ? weighted / count : null;
 }
 
-// ---------------------------------------------------------------------------
-// Owner scoping (mirrors uptime-monitors.ts)
-// ---------------------------------------------------------------------------
 
 function ownerScope(table: { ownerEmail: any; orgId: any }, ctx: AccessCtx) {
   return and(
@@ -252,7 +215,6 @@ function ownerScope(table: { ownerEmail: any; orgId: any }, ctx: AccessCtx) {
   );
 }
 
-/** All monitor ids owned by `ctx` (used when a caller wants stats for "all"). */
 export async function listOwnedMonitorIds(ctx: AccessCtx): Promise<string[]> {
   const db = getDb() as any;
   const rows = await db
@@ -262,14 +224,7 @@ export async function listOwnedMonitorIds(ctx: AccessCtx): Promise<string[]> {
   return rows.map((row: any) => row.id as string);
 }
 
-// ---------------------------------------------------------------------------
-// DB reader
-// ---------------------------------------------------------------------------
 
-/**
- * Compute aggregated stats for the given monitor ids, scoped to `ctx`. Returns
- * a Map keyed by monitor id. Ids the caller doesn't own are simply absent.
- */
 export async function getMonitorStats(
   ctx: AccessCtx,
   monitorIds: string[],

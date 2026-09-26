@@ -54,13 +54,6 @@ export function mergeStableGoogleAuthStatus(
   return changed ? { ...status, accounts } : status;
 }
 
-/**
- * Defensive JSON fetch. Auth proxies sometimes return HTML 401/404 pages,
- * empty 502 bodies, or text errors — calling `.json()` on those throws an
- * opaque "Unexpected end of JSON input". This helper reads the body as text
- * first, attempts JSON.parse, and surfaces a clear error on non-2xx
- * responses without ever exploding on malformed bodies.
- */
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -69,8 +62,6 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
     const cause = err instanceof Error ? err.message : String(err);
     throw new Error(`Network error: ${cause}`);
   }
-  // Track read failures separately from "no body" so a transport hiccup on a
-  // 2xx response doesn't silently turn into a `null` success.
   let raw = "";
   let readFailed = false;
   let readError: unknown;
@@ -86,7 +77,6 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
     try {
       body = JSON.parse(raw);
     } catch {
-      // not JSON — leave body undefined and use the raw text in errors
       parseFailed = true;
     }
   }
@@ -100,9 +90,6 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
     (error as any).status = res.status;
     throw error;
   }
-  // 2xx but the body couldn't be read at all (stream interruption, decode
-  // failure, etc.). Surface the failure rather than treating it as
-  // "no data == not connected".
   if (readFailed) {
     const cause =
       readError instanceof Error ? readError.message : String(readError);
@@ -110,10 +97,6 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
     (error as any).status = res.status;
     throw error;
   }
-  // 2xx with a non-empty, non-JSON body — this is almost always a bug in the
-  // auth proxy or server (e.g. HTML status page returned with status 200).
-  // Throw so callers like useGoogleAuthUrl don't silently treat the user as
-  // "not connected" or kick off a navigation to `undefined`.
   if (parseFailed) {
     const error = new Error(
       `Unexpected non-JSON response (HTTP ${res.status}): ${raw.slice(0, 200)}`,
@@ -163,15 +146,12 @@ export function useGoogleAuthUrl(enabled = false) {
   return query;
 }
 
-/** Hook for adding an additional Google account (user is already logged in). */
 export function useGoogleAddAccountUrl(enabled = false) {
   const queryClient = useQueryClient();
   const query = useQuery<{ url: string }>({
     queryKey: ["google-add-account-url"],
     queryFn: async () => {
       const redirectUri = oauthRedirectUri("/_agent-native/google/callback");
-      // Use the main callback URL — the server-side state param carries the
-      // add-account flag so only one redirect URI needs Google Console registration.
       return fetchJson<{ url: string }>(
         agentNativePath(
           `/_agent-native/google/add-account/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}`,

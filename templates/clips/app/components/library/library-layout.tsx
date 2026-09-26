@@ -194,8 +194,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const t = useT();
   const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
   const wisprFlowLabEnabled = useLab(CLIPS_WISPRFLOW.key);
-  // Bind chat to the currently-open recording (`/r/:id` or `/share/:id`).
-  // Library, spaces, meetings, dictate, and settings stay unscoped.
   const recordingScope = useMemo(() => {
     const match = location.pathname.match(/^\/(?:r|share)\/([^/]+)/);
     const recordingId = match?.[1];
@@ -231,8 +229,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     { enabled: hasActiveOrg && Boolean(currentOrganizationId) },
   );
 
-  // Clip count for the "Library" nav item — count-only, no row payload or
-  // title polling across the app shell.
   const { data: libraryCount } = useRecordingsCount({ view: "library" });
   const { data: sharedCount } = useRecordingsCount({ view: "shared" });
 
@@ -333,8 +329,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       </TooltipContent>
     </Tooltip>
   ) : null;
-  // Routes whose page renders its own h-12 toolbar. Layout still mounts Sidebar
-  // + AgentSidebar, but skips its own header so there's no double-header.
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");

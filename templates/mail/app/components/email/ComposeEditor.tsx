@@ -70,7 +70,6 @@ interface ComposeEditorProps {
     context?: string;
     submit?: boolean;
   }) => void;
-  /** Uploads an image file and resolves to its hosted URL, for pasted/dropped/slash-inserted images. */
   onUploadImage: (file: File) => Promise<string>;
 }
 
@@ -111,9 +110,6 @@ export const ComposeEditor = forwardRef<
     [],
   );
   const isSettingContent = useRef(false);
-  // Last time the user actually typed (not merely had focus). Used to let an
-  // external/agent edit reconcile in even while the editor is focused but idle,
-  // without yanking text out from under in-progress keystrokes.
   const lastTypedAtRef = useRef(0);
   const pendingComposeContentRef = useRef<string | null>(null);
   const onChangeRef = useRef(onChange);
@@ -125,12 +121,6 @@ export const ComposeEditor = forwardRef<
   onCloseRef.current = onClose;
   onUploadImageRef.current = onUploadImage;
 
-  // Inserts a placeholder image node showing a local object URL immediately,
-  // then swaps in the hosted URL (or removes the node on failure) once the
-  // upload settles, so pasted/dropped screenshots appear inline right away.
-  // Operates on the raw ProseMirror view (rather than the Tiptap `Editor`)
-  // because it must run from inside `editorProps.handlePaste`/`handleDrop`,
-  // which fire before the `Editor` instance returned by `useEditor` exists.
   const insertUploadingImage = (
     view: EditorView,
     file: File,
@@ -272,9 +262,6 @@ export const ComposeEditor = forwardRef<
       },
     },
     onUpdate: ({ editor }) => {
-      // Only a genuine local keystroke marks the user as "actively typing".
-      // setContent (external/agent reconcile) sets isSettingContent first, so
-      // those updates don't extend the typing grace window.
       if (isSettingContent.current) return;
       lastTypedAtRef.current = Date.now();
       try {
@@ -299,11 +286,6 @@ export const ComposeEditor = forwardRef<
     refreshComposeAutocomplete(editor.view);
   }, [autocompleteEnabled, editor, isMobile]);
 
-  // Reconcile external content into the editor when the agent (or another
-  // surface) updates compose-{id} app-state — the `compose-drafts` query
-  // refetches and feeds the new body in via `content`. We adopt it live even
-  // while the editor is focused, EXCEPT when the user is actively typing right
-  // now; in that case we retry shortly so the edit still lands once they pause.
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
 
@@ -337,8 +319,6 @@ export const ComposeEditor = forwardRef<
           now: Date.now(),
         })
       ) {
-        // Differs but the user is mid-keystroke — re-check once they pause so
-        // the agent edit still appears without clobbering their typing.
         retryTimer = setTimeout(run, COMPOSE_TYPING_GRACE_MS);
         return;
       }

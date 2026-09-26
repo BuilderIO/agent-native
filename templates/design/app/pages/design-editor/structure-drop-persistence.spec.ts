@@ -18,10 +18,6 @@ describe("flow-to-absolute structure drop persistence", () => {
     expect(absoluteDropBranches).toHaveLength(1);
     expect(overviewWrapper).toContain("runVisualStructureChange");
 
-    // The overview wrapper delegates to the same implementation, which applies
-    // the absolute style before consulting the old source node's positioning.
-    // This makes flow -> root/absolute-container survive reload instead of
-    // reverting after the bridge's optimistic DOM move.
     const absoluteDropIndex = implementation.indexOf(
       'details?.dropMode === "absolute-container"',
     );

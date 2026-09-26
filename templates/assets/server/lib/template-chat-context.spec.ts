@@ -52,7 +52,6 @@ function ref(refId: string) {
   };
 }
 
-/** Feed each `select().from().where()` call the next queued row set. */
 function createDb(rowSets: unknown[][]) {
   const select = vi.fn(() => ({
     from: vi.fn(() => ({
@@ -129,20 +128,15 @@ describe("prepareTemplateChatContext", () => {
     });
 
     const message = (result as { message: string }).message;
-    // User's original text is preserved.
     expect(message).toContain("make a launch hero for the new phone");
-    // Template identity + philosophy embedded.
     expect(message).toContain('Template "Campaign Hero" (id: preset-1)');
     expect(message).toContain(
       "Cinematic, aspirational, product front and center",
     );
-    // Brand aesthetics pulled from the library style brief.
     expect(message).toContain("mood: confident");
     expect(message).toContain("dramatic rim light");
     expect(message).toContain("Avoid: clip art; stock smiles.");
-    // Logo intent from template settings.
     expect(message).toContain("canonical logo is composited");
-    // Instruction to internalize before generating + pass templateId.
     expect(message).toContain("Before generating anything, study");
     expect(message).toContain("pass the matching templateId");
   });
@@ -170,7 +164,6 @@ describe("prepareTemplateChatContext", () => {
       references: [ref("preset-1"), ref("preset-1")],
     });
 
-    // First inArray call is the template lookup; it should get one deduped id.
     expect(vi.mocked(inArray).mock.calls[0][1]).toEqual(["preset-1"]);
   });
 

@@ -62,11 +62,6 @@ export type ReplayDevToolsDiagnostics = {
 export type ConsoleLevelFilter = "all" | "log" | "info" | "warn" | "error";
 export type NetworkKindFilter = "all" | "fetch" | "xhr" | "failed";
 
-/**
- * Pulls the embedded `agent-native.console` / `agent-native.network` rrweb
- * custom events out of a sanitized replay event stream. Offsets are relative
- * to the first replay event, matching how the player timeline computes time.
- */
 export function extractReplayDiagnostics(
   events: readonly AnyReplayEvent[],
 ): ReplayDevToolsDiagnostics {
@@ -183,7 +178,6 @@ function firstReplayTimestamp(events: readonly AnyReplayEvent[]): number {
   return 0;
 }
 
-/** Chip bucket for a console level; `debug` folds into the Log chip. */
 export function consoleLevelBucket(
   level: SessionReplayConsoleLevel,
 ): Exclude<ConsoleLevelFilter, "all"> {
@@ -230,11 +224,6 @@ export function filterNetworkEntries(
   });
 }
 
-/**
- * Index of the latest entry at/before the current playback time (250ms
- * tolerance, matching the timeline's active-marker window), or -1.
- * Entries must be sorted by offsetMs ascending.
- */
 export function latestEntryIndexAt(
   entries: ReadonlyArray<{ offsetMs: number }>,
   timeMs: number,
@@ -247,7 +236,6 @@ export function latestEntryIndexAt(
   return active;
 }
 
-/** Middle-truncates long strings, keeping the start and the tail visible. */
 export function middleTruncate(value: string, max = 64): string {
   if (value.length <= max) return value;
   const head = Math.ceil((max - 1) * 0.6);
@@ -255,7 +243,6 @@ export function middleTruncate(value: string, max = 64): string {
   return `${value.slice(0, head)}…${value.slice(value.length - tail)}`;
 }
 
-/** Prefers path + query for parseable URLs so rows read like a network tab. */
 export function networkDisplayUrl(url: string): string {
   try {
     const parsed = new URL(url);

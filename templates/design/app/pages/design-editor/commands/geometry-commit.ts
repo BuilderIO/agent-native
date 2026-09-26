@@ -79,15 +79,8 @@ export function runGeometryCommit(
   },
 ) {
   const beforeSnapshot = cloneCanvasFrameGeometry(before);
-  // K-scale commits preserve the fractional geometry that produced their
-  // linked style snapshot; ordinary frame gestures retain pixel quantization.
   const hasKScaleGeometry =
     Object.keys(options?.kScaleStyleChangesByFrameId ?? {}).length > 0;
-  // Geometry-persist guard: refuse absurd committed geometry HERE (not
-  // only inside the save functions) so the undo stack and the mid-gesture
-  // query-cache write below stay consistent with what actually persists —
-  // an insane frame falls back to its own pre-gesture geometry, and a
-  // commit whose every change was refused becomes a no-op.
   const { geometryById: afterSnapshot } = sanitizeCanvasFrameGeometryForPersist(
     hasKScaleGeometry
       ? cloneCanvasFrameGeometry(after)
@@ -127,27 +120,7 @@ export function runGeometryCommit(
     return false;
   }
   const linkedContentChanges = linkedContentChangesResult ?? [];
-  // Keep the freshness guard on the accepted persisted snapshot, not the
-  // render-time geometry that React may not have committed before Undo.
   liveFrameGeometryRef.current = afterSnapshot;
-  // U9: keyboard nudge (arrow-key auto-repeat) fires one onGeometryCommit
-  // per tick, each previously pushing its own undo entry AND its own
-  // immediate (non-debounced) server write — a held arrow key could evict
-  // the 50-entry undo cap in well under a second and hammer the server.
-  // Coalesce consecutive commits into one undo entry (mirroring Yjs's own
-  // captureTimeout) when the new commit continues straight from the last
-  // one (same "before" as the prior "after") within a ~800ms window, and
-  // route the write through the same debounced save queue used for drags
-  // instead of firing an immediate mutation per tick.
-  //
-  // This coalescing must only apply to KEYBOARD nudge auto-repeat, not to
-  // two independent pointer gestures (e.g. two separate drags) that
-  // happen to land within the same 800ms window — those are discrete
-  // user actions and each must be its own undo step, matching Figma.
-  // Pointer gestures and keyboard nudges both use this shared callback, so
-  // track the previous source, history action, and selection as well as the
-  // current ones. A keyboard nudge after a pointer gesture, content action,
-  // or selection change is a separate undo step even inside the window.
   const source = options?.source ?? "pointer";
   const now = Date.now();
   const selectionAfter = captureCurrentSelection();
@@ -165,14 +138,6 @@ export function runGeometryCommit(
     geometrySnapshotsEqual(lastEntry.after, beforeSnapshot);
   lastGeometryCommitAtRef.current = now;
   lastGeometryCommitSourceRef.current = source;
-  // Figma-parity undo/redo selection restore: selectionAfter always
-  // reflects the CURRENT selection at this commit tick (so redo restores
-  // whatever was selected when the gesture finished), while
-  // selectionBefore is only captured on the FIRST tick of a gesture and
-  // then carried forward unchanged through every coalesced continuation —
-  // otherwise a held arrow key would keep overwriting selectionBefore
-  // with the selection at the START of each individual tick instead of
-  // the whole gesture's actual starting selection.
   if (continuesLastGesture) {
     geometryUndoStackRef.current = [
       ...geometryUndoStackRef.current.slice(0, -1),
@@ -216,9 +181,6 @@ export function runGeometryCommit(
     afterSnapshot,
   );
   if (continuesLastGesture) {
-    // Mid-gesture tick: keep the query cache current for a responsive
-    // canvas, but debounce the actual network write so a held key
-    // doesn't send one mutation per tick.
     queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
       if (!old || typeof old !== "object") return old;
       const nextData = {

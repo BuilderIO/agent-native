@@ -1,12 +1,4 @@
 /// <reference lib="dom" />
-/**
- * Pixel comparison for Figma fidelity runs.
- *
- * Decoding happens inside the Chromium page the harness already launches for
- * rendering, so no image-codec dependency is needed. A dimension mismatch is a
- * reported failure rather than a silent resize: scaling one side to fit would
- * let a wrongly-sized import score as a near match.
- */
 import type { Browser } from "@playwright/test";
 
 export interface GridCell {
@@ -24,31 +16,20 @@ export interface CompareResult {
   reference: { width: number; height: number };
   candidate: { width: number; height: number };
   dimensionMismatch: boolean;
-  /** Pixels whose max channel delta exceeded `threshold`, over the compared area. */
   diffPixels: number;
   comparedPixels: number;
-  /** Area left out via `excludeRects`; 0 unless a case asked for exclusions. */
   excludedPixels: number;
   diffRatio: number;
   maxDelta: number;
   meanDelta: number;
-  /** Worst-offending grid cells, most-different first. */
   worstCells: GridCell[];
   diffPng: Buffer;
 }
 
 export interface CompareOptions {
-  /** Per-channel 0-255 delta below which two pixels count as equal. */
   threshold?: number;
   gridCols?: number;
   gridRows?: number;
-  /**
-   * Rectangles to leave out of the score. Only for content the candidate could
-   * not have produced from its input — a clipboard payload carries image
-   * hashes but no image bytes, so those boxes measure a documented absence
-   * rather than the converter. Excluded area is always reported alongside the
-   * ratio so a shrinking denominator can never read as a rising score.
-   */
   excludeRects?: Array<{ x: number; y: number; width: number; height: number }>;
 }
 
@@ -99,8 +80,6 @@ async function compareInPage(input: CompareInput) {
   const candW = cand.naturalWidth;
   const candH = cand.naturalHeight;
 
-  // Compare the overlapping region only. Anything outside it is reported via
-  // dimensionMismatch; stretching to fit would hide a real sizing error.
   const w = Math.min(refW, candW);
   const h = Math.min(refH, candH);
   const refData = pixels(ref, refW, refH);
@@ -113,7 +92,6 @@ async function compareInPage(input: CompareInput) {
   outCtx.drawImage(ref, 0, 0);
   const overlay = outCtx.getImageData(0, 0, refW, refH);
   const o = overlay.data;
-  // Dim the reference so diff pixels read clearly on top of it.
   for (let i = 0; i < o.length; i += 4) {
     o[i] = 32 + o[i] * 0.18;
     o[i + 1] = 32 + o[i + 1] * 0.18;
@@ -131,7 +109,6 @@ async function compareInPage(input: CompareInput) {
   let deltaSum = 0;
   let excludedPixels = 0;
 
-  // A per-pixel mask beats testing every rect per pixel on an 8000px-tall page.
   const excluded = excludeRects.length > 0 ? new Uint8Array(w * h) : null;
   if (excluded) {
     for (const r of excludeRects) {
@@ -151,8 +128,6 @@ async function compareInPage(input: CompareInput) {
       if (excluded && excluded[y * w + x]) continue;
       const ri = (y * refW + x) * 4;
       const ci = (y * candW + x) * 4;
-      // Composite both against the same ground so a transparent pixel and an
-      // identically-coloured opaque pixel are not treated as equal.
       const ra = refData[ri + 3] / 255;
       const ca = candData[ci + 3] / 255;
       const dr = Math.abs(refData[ri] * ra - candData[ci] * ca);
@@ -181,8 +156,6 @@ async function compareInPage(input: CompareInput) {
     }
   }
 
-  // Area outside the overlap gets a distinct colour so a size mismatch shows up
-  // in the artifact, not only in the numbers.
   for (let y = 0; y < refH; y++) {
     for (let x = 0; x < refW; x++) {
       if (x < w && y < h) continue;
@@ -238,10 +211,6 @@ export async function comparePngs(
   const page = await browser.newPage();
   try {
     await page.setContent("<!doctype html><body></body>");
-    // tsx/esbuild compiles this file with keepNames, which wraps every function
-    // in a `__name(...)` call that does not exist inside the page. Defined as a
-    // string so esbuild leaves it alone. addInitScript does not help here:
-    // setContent on about:blank does not re-run init scripts.
     await page.evaluate("globalThis.__name ||= (fn) => fn;");
     const result = await page.evaluate(compareInPage, {
       referenceUrl: `data:image/png;base64,${referencePng.toString("base64")}`,

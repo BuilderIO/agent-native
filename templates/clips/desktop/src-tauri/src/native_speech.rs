@@ -1,31 +1,3 @@
-//! Native macOS dictation via Apple's Speech framework.
-//!
-//! Web Speech API (`webkitSpeechRecognition`) doesn't reliably fire results
-//! inside a Tauri WKWebView — Apple gates `WebSpeechAPIEnabled` to false in
-//! embedded WKWebViews, so the recognition session starts but no `onresult`
-//! ever fires. This module drives `SFSpeechRecognizer` + `AVAudioEngine`
-//! directly from Rust and forwards partial / final transcripts to the
-//! renderer over Tauri events.
-//!
-//! Three Tauri commands:
-//!
-//! | Command                | Purpose                                                |
-//! | ---------------------- | ------------------------------------------------------ |
-//! | `native_speech_start`  | Build the engine + recognizer + tap, kick off a task.  |
-//! | `native_speech_stop`   | Stop audio, let the in-flight final result land.       |
-//! | `native_speech_cancel` | Stop audio + cancel the task (no final result).        |
-//!
-//! Events emitted on the AppHandle. `source` is always `"mic"` for this
-//! module — the parallel system-audio recognizer in `system_audio.rs`
-//! emits the same event names with `source: "system"` so the renderer
-//! can label which side of a meeting spoke.
-//!
-//!   - `voice:partial-transcript` `{ text: String, source: "mic" }` — interim hypotheses
-//!   - `voice:final-transcript`   `{ text: String, source: "mic" }` — only when `result.isFinal`
-//!   - `voice:speech-error`       `{ error: String, source: "mic" }` — any failure
-//!
-//! All ObjC interop is `unsafe` by definition; the comments above each block
-//! call out the soundness argument.
 
 use tauri::AppHandle;
 
@@ -39,14 +11,6 @@ pub async fn native_speech_start(
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        // contextual_strings (personal vocabulary) is staged separately via
-        // `native_speech_set_vocabulary` so mic metadata can flow through
-        // meeting capture without coupling vocabulary into that path.
-        //
-        // `owner` defaults to "dictation" for back-compat with callers that
-        // don't pass it. Meetings pass "meeting" (transcription-engine.ts) so
-        // a meeting's native-speech session can refuse a dictation takeover —
-        // see `SessionOwner` / the cancel-prior-session check below.
         macos::native_speech_start_impl(
             app,
             locale,
@@ -62,11 +26,6 @@ pub async fn native_speech_start(
     }
 }
 
-/// Stage the personal-vocabulary list for the NEXT `native_speech_start`
-/// call. The list is consumed once and cleared so a subsequent dictation
-/// without a vocab refresh starts from a clean slate. Best-effort: passing
-/// an empty list (or never calling this) just means no `contextualStrings`
-/// bias is applied.
 #[tauri::command]
 pub async fn native_speech_set_vocabulary(strings: Vec<String>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -169,9 +128,6 @@ pub(crate) mod macos {
                 .is_some_and(|extension| extension == "app")
     }
 
-    /// TCC does not honor the embedded development plist when `tauri dev`
-    /// launches the executable directly. Treat that process as unavailable
-    /// for Speech.framework instead of letting Apple's privacy check abort it.
     fn running_from_macos_app_bundle() -> bool {
         std::env::current_exe()
             .ok()
@@ -222,12 +178,6 @@ pub(crate) mod macos {
         }
     }
 
-    /// Who owns an in-flight `SpeechSession`. Meetings fall back to this
-    /// mic-only engine when whisper fails; a Fn/dictation press must not be
-    /// able to silently kill a meeting's live capture (D10). Priority rule:
-    /// meeting beats dictation. All other combinations (same owner
-    /// replacing itself, or a meeting evicting a dictation session) keep the
-    /// original unconditional cancel+replace behavior.
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     pub(crate) enum SessionOwner {
         Dictation,
@@ -235,8 +185,6 @@ pub(crate) mod macos {
     }
 
     impl SessionOwner {
-        /// Parses the Tauri command's `owner` string param, defaulting to
-        /// `Dictation` for back-compat with callers that omit it.
         pub(crate) fn from_param(owner: Option<String>) -> Self {
             match owner.as_deref() {
                 Some("meeting") => SessionOwner::Meeting,
@@ -247,9 +195,6 @@ pub(crate) mod macos {
 
     fn native_speech_voice_processing_mode(owner: SessionOwner) -> MicVoiceProcessingMode {
         match owner {
-            // Meeting-owned native speech is the last-resort path after local
-            // Whisper capture fails. It still needs a VPIO allocation to share
-            // the mic with call apps, but must not process their live uplink.
             SessionOwner::Meeting => MicVoiceProcessingMode::Bypassed,
             SessionOwner::Dictation => MicVoiceProcessingMode::Disabled,
         }
@@ -271,18 +216,9 @@ pub(crate) mod macos {
         engine: Retained<AVAudioEngine>,
         request: Retained<SFSpeechAudioBufferRecognitionRequest>,
         task: Retained<SFSpeechRecognitionTask>,
-        /// Set by `cancel()` so the result handler stops emitting events
-        /// after the user dismissed the dictation.
         cancelled: Arc<AtomicBool>,
-        /// Set by `stop()` so the result handler suppresses further partials
-        /// but still emits the final transcript when it arrives.
         stopped: Arc<AtomicBool>,
-        /// Guards against double-removal of the audio tap. `removeTapOnBus`
-        /// throws NSException (aborting the process) if called when no tap is
-        /// installed; we swap this to false on the first removal and skip
-        /// subsequent calls.
         tap_installed: AtomicBool,
-        /// Who started this session — see `SessionOwner`.
         owner: SessionOwner,
     }
 
@@ -335,9 +271,6 @@ pub(crate) mod macos {
         target: Arc<Mutex<Option<RawMicTapTarget>>>,
     }
 
-    /// Process-global session slot. We only allow one dictation at a time —
-    /// starting a new one while another is in flight cancels the old one
-    /// first.
     fn session_slot() -> &'static Mutex<Option<SpeechSession>> {
         static SLOT: OnceLock<Mutex<Option<SpeechSession>>> = OnceLock::new();
         SLOT.get_or_init(|| Mutex::new(None))
@@ -348,27 +281,16 @@ pub(crate) mod macos {
         SLOT.get_or_init(|| Mutex::new(None))
     }
 
-    /// Bumped at the start of every `native_speech_start_impl` call. The
-    /// auto-restart thread captures the value at decision time and skips the
-    /// restart if a newer session has since been requested.
     fn session_generation() -> &'static AtomicU64 {
         static GEN: OnceLock<AtomicU64> = OnceLock::new();
         GEN.get_or_init(|| AtomicU64::new(0))
     }
 
-    /// Cap on consecutive transient-error auto-restarts (see
-    /// `native_speech_start_impl`'s `restart_attempt` param) before we give up
-    /// and surface `voice:speech-error` instead of retrying forever. A
-    /// persistently silent mic (codes 203/1110) would otherwise restart every
-    /// ~300ms indefinitely.
     const MAX_TRANSIENT_RESTARTS: u32 = 5;
 
     #[derive(Serialize, Clone)]
     struct PartialPayload {
         text: String,
-        /// Always `"mic"` for this module — the parallel system-audio
-        /// recognizer in `system_audio.rs` emits `"system"` so the renderer
-        /// can label which side spoke.
         source: &'static str,
     }
 
@@ -390,9 +312,6 @@ pub(crate) mod macos {
         pub source: &'static str,
     }
 
-    /// Cheap peak-magnitude meter across all channels of a PCM buffer. Returns a
-    /// value in `0..=1`. Used by both the mic tap (here) and the system-audio
-    /// tap (in `system_audio.rs`) to drive the dual-stream waveform.
     pub(crate) fn peak_level_for_pcm(buf: &AVAudioPCMBuffer) -> f32 {
         // SAFETY: AVAudioPCMBuffer with float format exposes `floatChannelData`
         // as a pointer to `channelCount` pointers, each pointing at
@@ -412,7 +331,6 @@ pub(crate) mod macos {
                 return 0.0;
             }
             let mut peak: f32 = 0.0;
-            // Sample sparsely — we don't need every frame for a meter.
             let step = (frames / 64).max(1);
             for channel in 0..channel_count {
                 let channel_ptr = (*channels_ptr.add(channel)).as_ptr();
@@ -484,12 +402,8 @@ pub(crate) mod macos {
     /// system has an answer. The handler itself only sends a value on a
     /// channel; no ObjC interop, no UI work.
     fn ensure_authorized() -> Result<(), String> {
-        // macOS aborts the process, rather than returning an error, when
-        // Speech.framework is touched without this usage description. This
-        // guard keeps `tauri dev` and malformed bundles recoverable.
         ensure_speech_usage_description()?;
 
-        // Fast path: already known.
         let current = unsafe { SFSpeechRecognizer::authorizationStatus() };
         if current == SFSpeechRecognizerAuthorizationStatus::Authorized {
             return Ok(());
@@ -504,8 +418,6 @@ pub(crate) mod macos {
             return Err("Speech recognition is restricted on this device.".into());
         }
 
-        // NotDetermined — prompt the user. Bridge the async callback into a
-        // sync wait via mpsc.
         let (tx, rx) = std::sync::mpsc::sync_channel::<SFSpeechRecognizerAuthorizationStatus>(1);
         let tx = Mutex::new(Some(tx));
         // SAFETY: the handler is owned by the system until it fires once;
@@ -541,8 +453,6 @@ pub(crate) mod macos {
         ensure_authorized().map(|_| true)
     }
 
-    /// Build a fresh recognizer for the given locale (defaulting to en-US if
-    /// the user didn't pass one or the BCP-47 string was unsupported).
     fn build_recognizer(locale: Option<&str>) -> Result<Retained<SFSpeechRecognizer>, String> {
         let identifier = locale.unwrap_or("en-US");
         // SAFETY: `NSString::from_str` and
@@ -560,8 +470,6 @@ pub(crate) mod macos {
         };
         let recognizer = recognizer
             .ok_or_else(|| format!("SFSpeechRecognizer init failed for locale {identifier}"))?;
-        // Guard against the recognizer being temporarily offline (e.g. for a
-        // locale that requires Apple's servers and we have no network).
         if !unsafe { recognizer.isAvailable() } {
             return Err("SFSpeechRecognizer is not currently available (network down?).".into());
         }
@@ -721,9 +629,6 @@ pub(crate) mod macos {
 
     fn enable_bypassed_voice_processing(input_node: &AVAudioInputNode) -> Result<(), String> {
         enable_voice_processing(input_node)?;
-        // VPIO owns a shareable voice input path, but Clips should receive and
-        // forward the unprocessed microphone signal. This also prevents AGC
-        // from changing the level seen by the live-call app.
         unsafe {
             input_node.setVoiceProcessingBypassed(true);
             input_node.setVoiceProcessingAGCEnabled(false);
@@ -733,8 +638,6 @@ pub(crate) mod macos {
     }
 
     fn disable_voice_processing_ducking(input_node: &AVAudioInputNode) {
-        // Disable other-audio ducking so the separately-captured system audio
-        // isn't dropped to near-silent while the mic VPIO runs.
         unsafe {
             let responds: bool = objc2::msg_send![
                 input_node,
@@ -751,10 +654,6 @@ pub(crate) mod macos {
         }
     }
 
-    /// Keep Zoom/Meet/Teams' own mic uplink alive while Clips opens a parallel
-    /// AVAudioEngine tap. Without MixWithOthers, PlayAndRecord takes exclusive
-    /// session ownership and other apps' live calls get ducked or starved even
-    /// when VoiceProcessingIO is off.
     fn configure_shared_mic_audio_session() {
         unsafe {
             let session = AVAudioSession::sharedInstance();
@@ -790,8 +689,6 @@ pub(crate) mod macos {
         if should_reuse {
             slot.take()
         } else {
-            // A selected mic changed while the engine was warm. Drop the stale
-            // engine so the next start configures the requested device.
             if let Some(stale) = slot.take() {
                 discard_warmed_raw_mic_engine(stale);
             }
@@ -892,9 +789,6 @@ pub(crate) mod macos {
         configure_engine_input_device(&engine, mic_device_id, mic_device_label)?;
         let input_node: Retained<AVAudioInputNode> = unsafe { engine.inputNode() };
         let _ = enable_voice_processing(&input_node);
-        // Finalize input format negotiation once. Dictation-owned Whisper starts
-        // can then reuse this stopped VPIO engine instead of paying the
-        // per-press VoiceProcessingIO setup cost.
         objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe { engine.prepare() }))
             .map_err(|e| format!("AVAudioEngine prepare threw: {e:?}"))?;
         let target = Arc::new(Mutex::new(None));
@@ -908,9 +802,6 @@ pub(crate) mod macos {
         })
     }
 
-    /// Tear down whatever session is currently running. Called from `start`
-    /// to guarantee a fresh slate, and from `cancel` / `stop` for explicit
-    /// teardown.
     fn stop_engine_and_remove_tap(session: &SpeechSession) {
         // SAFETY: `AVAudioEngine` and `AVAudioInputNode` are
         // message-thread-safe per Apple's docs. `inputNode` returns a
@@ -932,9 +823,6 @@ pub(crate) mod macos {
         }
     }
 
-    /// Helper for the result handler — clears the global session slot once a
-    /// terminal event (final result or error) has been emitted, so a
-    /// subsequent `start()` doesn't try to cancel a defunct task.
     fn clear_session_slot() {
         if let Ok(mut slot) = session_slot().lock() {
             if let Some(session) = slot.take() {
@@ -943,8 +831,6 @@ pub(crate) mod macos {
         }
     }
 
-    /// Pull a human-readable string out of an NSError. Falls back to the raw
-    /// error code if `localizedDescription` is missing.
     fn ns_error_message(err: &NSError) -> String {
         // SAFETY: `localizedDescription` always returns a non-nil NSString
         // per Apple's docs.
@@ -957,21 +843,11 @@ pub(crate) mod macos {
         }
     }
 
-    /// Benign end-of-utterance errors from SFSpeechRecognizer allow auto-restart;
-    /// config/auth errors do not. Keys off the stable NSError domain + code rather
-    /// than localizedDescription, which is locale-dependent.
-    ///
-    /// kAFAssistantErrorDomain codes (internal but stable across macOS versions):
-    ///   203 — no speech detected
-    ///   1110 — recognition request timed out
     fn is_transient_recognizer_error(err: &NSError) -> bool {
         let domain: Retained<NSString> = unsafe { objc2::msg_send![err, domain] };
         domain.to_string() == "kAFAssistantErrorDomain" && matches!(err.code(), 203 | 1110)
     }
 
-    /// Pending personal-vocabulary list staged by
-    /// `native_speech_set_vocabulary`. Consumed (taken) by the next
-    /// `native_speech_start_impl` call.
     fn pending_vocabulary_slot() -> &'static Mutex<Vec<String>> {
         static SLOT: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
         SLOT.get_or_init(|| Mutex::new(Vec::new()))
@@ -1000,13 +876,6 @@ pub(crate) mod macos {
         native_speech_start_impl_inner(app, locale, mic_device_id, mic_device_label, owner, 0)
     }
 
-    /// `restart_attempt` counts consecutive transient-error auto-restarts of
-    /// the *same* logical session lineage (see `MAX_TRANSIENT_RESTARTS`). Every
-    /// externally-visible entry point (the public `native_speech_start_impl`
-    /// above) passes `0`; only the auto-restart thread below increments it.
-    /// The auto-restart thread always passes the original session's `owner`
-    /// through unchanged, so a meeting's own transient-error restart is never
-    /// misclassified as a foreign dictation takeover.
     fn native_speech_start_impl_inner(
         app: AppHandle,
         locale: Option<String>,
@@ -1015,11 +884,6 @@ pub(crate) mod macos {
         owner: SessionOwner,
         restart_attempt: u32,
     ) -> Result<(), String> {
-        // Priority rule (D10): a meeting-owned session must never be
-        // silently evicted by a dictation takeover. Check (without taking)
-        // BEFORE bumping the generation or touching the slot, so a refused
-        // dictation start leaves the meeting's session — and its own
-        // transient-restart lineage — completely untouched.
         {
             let slot = session_slot().lock().map_err(|e| e.to_string())?;
             if let Some(prev) = slot.as_ref() {
@@ -1029,24 +893,14 @@ pub(crate) mod macos {
             }
         }
 
-        // Validate TCC prerequisites before touching a live session. In an
-        // unbundled `tauri dev` process this returns a recoverable error; it
-        // must happen before any Speech.framework call because macOS aborts
-        // the process when the privacy description is not bundle-backed.
         ensure_authorized()?;
 
-        // Bump the generation so any pending auto-restart for the previous
-        // session's transient error will see the counter has changed and abort.
         let my_gen = session_generation().fetch_add(1, Ordering::SeqCst) + 1;
 
         let contextual_strings = {
             let v = take_pending_vocabulary();
             (!v.is_empty()).then_some(v)
         };
-        // Cancel any prior session first — there's only one mic tap per input
-        // node, and we want a deterministic state going in. (Any other
-        // owner combination — same-owner replacement, or meeting evicting
-        // dictation — keeps this unconditional cancel+replace behavior.)
         {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
             if let Some(prev) = slot.take() {
@@ -1106,10 +960,6 @@ pub(crate) mod macos {
             MicVoiceProcessingMode::Enabled => enable_voice_processing(&input_node).is_ok(),
             MicVoiceProcessingMode::Disabled => false,
         };
-        // `prepare()` must run after pinning the device so the AUHAL adopts
-        // the new hardware format before we install a tap. It can throw
-        // NSException when a Bluetooth device (e.g. AirPods) is mid-SCO↔A2DP
-        // codec switch — catch it and surface as a recoverable Rust error.
         objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe { engine.prepare() }))
             .map_err(|e| format!("AVAudioEngine prepare threw: {e:?}"))?;
 
@@ -1127,10 +977,6 @@ pub(crate) mod macos {
         {
             let request_for_tap = request.clone();
             let app_for_level = app.clone();
-            // Throttle level emission to ~25 Hz so we don't drown the
-            // renderer in events. The audio thread fires this block every
-            // ~22 ms at 48k/1024-frame buffers, so emitting on every other
-            // tick is plenty for the waveform animation.
             let level_tick = std::sync::atomic::AtomicU32::new(0);
             let level_tick = std::sync::Arc::new(level_tick);
             let tap_block = StackBlock::new(
@@ -1142,8 +988,6 @@ pub(crate) mod macos {
                     unsafe {
                         request_for_tap.appendAudioPCMBuffer(buf);
                     }
-                    // Cheap RMS over channel 0 for the waveform — emit every
-                    // 2nd buffer so the bus stays below 25 Hz.
                     let n = level_tick.fetch_add(1, Ordering::Relaxed);
                     if n % 2 == 0 {
                         let level = peak_level_for_pcm(buf);
@@ -1162,9 +1006,6 @@ pub(crate) mod macos {
                 dyn Fn(std::ptr::NonNull<AVAudioPCMBuffer>, std::ptr::NonNull<AVAudioTime>)
                     + 'static,
             > = (&*tap_block) as *const _ as *mut _;
-            // `installTapOnBus` throws NSException if the hardware is
-            // unavailable. Catch it so we return a clean Err instead of
-            // aborting the process.
             objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
                 input_node.installTapOnBus_bufferSize_format_block(
                     0, 1024,
@@ -1175,8 +1016,6 @@ pub(crate) mod macos {
             .map_err(|e| format!("installTapOnBus threw: {e:?}"))?;
         }
 
-        // Start the engine; if it fails tear down the tap so the next start
-        // doesn't see a stale tap on the input node.
         objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
             engine.prepare();
             engine.startAndReturnError()
@@ -1194,7 +1033,6 @@ pub(crate) mod macos {
             disable_voice_processing_ducking(&input_node);
         }
 
-        // Cancel + stop flags shared with the result handler.
         let cancelled = Arc::new(AtomicBool::new(false));
         let stopped = Arc::new(AtomicBool::new(false));
 
@@ -1216,7 +1054,6 @@ pub(crate) mod macos {
             move |result_ptr: *mut SFSpeechRecognitionResult, error_ptr: *mut NSError| {
                 let is_cancelled = cancelled.load(Ordering::SeqCst);
                 let is_stopped = stopped.load(Ordering::SeqCst);
-                // Error path: surface and clean up the slot.
                 if !error_ptr.is_null() && result_ptr.is_null() {
                     let err = unsafe { &*error_ptr };
                     let msg = ns_error_message(err);
@@ -1256,7 +1093,6 @@ pub(crate) mod macos {
                         let mic_device_label = mic_device_label.clone();
                         std::thread::spawn(move || {
                             std::thread::sleep(std::time::Duration::from_millis(300));
-                            // A newer session was started during the wait — don't clobber it.
                             if session_generation().load(Ordering::SeqCst) != gen {
                                 return;
                             }
@@ -1318,7 +1154,6 @@ pub(crate) mod macos {
             recognizer.recognitionTaskWithRequest_resultHandler(&request, &result_handler)
         };
 
-        // Stash the session for `stop()` / `cancel()` to find.
         {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
             *slot = Some(SpeechSession {
@@ -1335,8 +1170,6 @@ pub(crate) mod macos {
         Ok(())
     }
 
-    /// Handle for a running raw mic capture. `stop()` either tears down the tap
-    /// or parks a dictation-owned VPIO engine for the next press.
     pub(crate) struct RawMicCapture {
         engine: Retained<AVAudioEngine>,
         input_node: Retained<AVAudioInputNode>,
@@ -1349,8 +1182,6 @@ pub(crate) mod macos {
     unsafe impl Send for RawMicCapture {}
 
     impl RawMicCapture {
-        /// Hardware sample rate of the mic tap (e.g. 48000) — callers resample
-        /// to Whisper's 16 kHz from this.
         pub(crate) fn sample_rate(&self) -> f64 {
             self.sample_rate
         }
@@ -1428,9 +1259,6 @@ pub(crate) mod macos {
             return Err(msg);
         }
 
-        // Read the format only after the engine has started — at this point the
-        // engine has committed to its I/O configuration and the sample rate
-        // matches what the tap will actually deliver.
         let format = unsafe { warmed.input_node.outputFormatForBus(0) };
         let sample_rate = unsafe { format.sampleRate() };
         eprintln!(
@@ -1457,16 +1285,9 @@ pub(crate) mod macos {
     pub(crate) enum MicVoiceProcessingMode {
         Disabled,
         Enabled,
-        /// Allocate VoiceProcessingIO so a live-call app cannot starve this
-        /// parallel mic tap, but bypass its uplink processing so Clips does not
-        /// alter the microphone signal Zoom, Meet, or Teams receives.
         Bypassed,
     }
 
-    /// Start mic capture and forward a mono mix of every available channel to
-    /// `on_samples`. Recordings can keep VPIO disabled before ScreenCaptureKit
-    /// opens the microphone; legacy meeting capture uses bypassed VPIO so it
-    /// receives buffers without processing the live-call uplink.
     pub(crate) fn start_raw_mic_capture(
         app: AppHandle,
         mic_device_id: Option<String>,
@@ -1492,10 +1313,6 @@ pub(crate) mod macos {
 
         let voice_processing_enabled = match voice_processing {
             MicVoiceProcessingMode::Bypassed => {
-                // This mode exists specifically to close the shared-mic gap.
-                // If VPIO cannot be allocated, fail loudly so the caller can
-                // move to its next transcription fallback instead of silently
-                // running the known-unreliable raw meeting tap.
                 enable_bypassed_voice_processing(&input_node)?;
                 true
             }
@@ -1505,7 +1322,6 @@ pub(crate) mod macos {
                 false
             }
         };
-        // Finalize input format negotiation.
         objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe { engine.prepare() }))
             .map_err(|e| format!("AVAudioEngine prepare threw: {e:?}"))?;
 
@@ -1555,9 +1371,6 @@ pub(crate) mod macos {
             return Err(format!("AVAudioEngine start failed: {msg}"));
         }
 
-        // Read the format only after the engine has started — at this point the
-        // engine has committed to its I/O configuration and the sample rate
-        // matches what the tap will actually deliver.
         let format = unsafe { input_node.outputFormatForBus(0) };
         let sample_rate = unsafe { format.sampleRate() };
         eprintln!(
@@ -1579,10 +1392,6 @@ pub(crate) mod macos {
     }
 
     pub fn native_speech_stop_impl(_app: AppHandle) -> Result<(), String> {
-        // Take the session out so subsequent `stop()` calls are no-ops. We
-        // KEEP the recognition task running — calling `endAudio()` lets it
-        // deliver a final result via the handler, which then emits
-        // `voice:final-transcript`.
         let session = {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
             slot.take()
@@ -1600,9 +1409,6 @@ pub(crate) mod macos {
         // refs stay alive until the final result lands.
         unsafe { session.request.endAudio() };
 
-        // Re-stash the session so the result handler can find the
-        // cancelled/stopped atomics if it races. The handler will clear it
-        // on the final result via `clear_session_slot()`.
         {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
             *slot = Some(session);

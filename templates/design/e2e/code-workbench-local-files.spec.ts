@@ -180,8 +180,6 @@ test.beforeAll(async ({ request }, workerInfo) => {
 
   devServer = http.createServer((req, res) => {
     if (req.url?.startsWith("/visual-edit-dead")) {
-      // A closed socket models the actual dead-port failure: there is no
-      // document for the iframe or snapshot endpoint to reuse.
       req.socket.destroy();
       return;
     }
@@ -983,8 +981,6 @@ test("keeps a URL screen selected when its static snapshot fails", async ({
 
   await page.getByRole("button", { name: "Static", exact: true }).click();
 
-  // The failed bridge snapshot must leave the persisted source and the
-  // inspector in URL mode, while still giving the user a visible error.
   await expect(page.getByLabel("Screen URL")).toBeVisible();
   await expect
     .poll(async () => {

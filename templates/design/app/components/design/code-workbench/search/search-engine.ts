@@ -1,10 +1,5 @@
 import type { WorkspaceFileEntry, WorkspaceProvider } from "../workspace/types";
 
-/**
- * Pure + async search engine for the workbench Search view. The matching
- * core (`findMatchesInText`) is pure and unit-testable; `searchWorkspace`
- * orchestrates reading provider files through an in-memory content cache.
- */
 
 export interface SearchMatch {
   line: number;
@@ -19,17 +14,13 @@ export interface SearchOptions {
   regex: boolean;
 }
 
-const MAX_FILE_BYTES = 1 * 1024 * 1024; // 1 MB
+const MAX_FILE_BYTES = 1 * 1024 * 1024;
 const MAX_TOTAL_MATCHES = 5000;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/**
- * Build the search RegExp for a query + options. Throws on invalid regex
- * input (caller surfaces as an inline error, never a toast loop).
- */
 export function buildSearchRegExp(
   query: string,
   options: Pick<SearchOptions, "matchCase" | "wholeWord" | "regex">,
@@ -40,11 +31,6 @@ export function buildSearchRegExp(
   return new RegExp(bounded, flags);
 }
 
-/**
- * Pure matching core: find all matches of `query` in `text` given options.
- * Returns per-line matches with 1-based line/column, matching Monaco's
- * position convention.
- */
 export function findMatchesInText(
   text: string,
   query: string,
@@ -104,7 +90,6 @@ function cacheKey(providerKey: string, path: string): string {
   return `${providerKey}::${path}`;
 }
 
-/** Invalidate one cached file, or the whole cache when called with no args. */
 export function invalidate(providerKey?: string, path?: string): void {
   if (!providerKey) {
     contentCache.clear();
@@ -147,10 +132,6 @@ export interface SearchWorkspaceArgs {
   signal?: AbortSignal;
 }
 
-/**
- * Search all files across the given providers. Caps at 1 MB per file and
- * 5,000 total matches (returns `capped: true` once the cap is hit).
- */
 export async function searchWorkspace(
   args: SearchWorkspaceArgs,
 ): Promise<SearchResults> {
@@ -214,11 +195,6 @@ export async function searchWorkspace(
   return { files: results, totalMatches, capped };
 }
 
-/**
- * Read-modify-write a single match/all-matches replacement into one file
- * through the provider. Caller is responsible for computing the replacement
- * text per match (this just persists the final content).
- */
 export async function replaceInFile(
   provider: WorkspaceProvider,
   path: string,
@@ -230,26 +206,13 @@ export async function replaceInFile(
 }
 
 export interface ReplaceAllFilePlan {
-  /** "open-buffer" routes through the live Monaco model; "provider" reads
-   * and writes the file directly through the workspace provider. */
   route: "open-buffer" | "provider";
 }
 
-/**
- * Replace All per-file routing decision: a file with a live open buffer must
- * have its replacement applied through the Monaco model (so undo/dirty
- * tracking and the versioned save pipeline stay correct) instead of a raw
- * provider read/write, which would silently clobber unsaved edits. Pure so
- * the routing logic is unit-testable without Monaco/DOM.
- */
 export function planReplaceAllFile(hasOpenBuffer: boolean): ReplaceAllFilePlan {
   return { route: hasOpenBuffer ? "open-buffer" : "provider" };
 }
 
-/**
- * Apply a find/replace across text, honoring the same match options as
- * search. Pure helper used by Replace All.
- */
 export function replaceMatchesInText(
   text: string,
   query: string,
@@ -267,12 +230,6 @@ export function replaceMatchesInText(
   const content = text.replace(regex, (...matchArgs) => {
     count += 1;
     if (options.regex) {
-      // Support $1, $2, ... backreferences the way String.replace does.
-      // The callback args are (match, ...captureGroups, offset, string[,
-      // namedGroups]) — `namedGroups` is only appended when the pattern has
-      // named capture groups, so it must be dropped before slicing off the
-      // trailing offset/string pair, or a `$N` beyond the real group count
-      // would silently resolve to the match offset instead of "".
       let rest = matchArgs.slice(1);
       if (typeof rest[rest.length - 1] === "object") {
         rest = rest.slice(0, -1);

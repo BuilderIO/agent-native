@@ -1,13 +1,3 @@
-/**
- * builder-media-compression — recurring job (every 5 min).
- *
- * Clips upload completion intentionally skips Builder's inline video
- * compression wait so recording saves do not inherit the upload API's timeout
- * risk. This job finishes that work out of band: trigger Builder's existing
- * compress-media endpoint, poll the deterministic `/compressed` object, and
- * swap the recording row once it exists. The original media URL remains usable
- * the whole time.
- */
 
 import { runBuilderMediaCompressionSweepOnce } from "../lib/builder-media-compression.js";
 

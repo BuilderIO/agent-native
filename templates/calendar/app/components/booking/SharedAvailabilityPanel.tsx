@@ -43,14 +43,6 @@ function statusLabelKey(status: HostOverlayStatusResult | undefined) {
   return "bookingLinks.workingHoursNotAppliedLabel" as const;
 }
 
-/**
- * Manages the peers whose real working hours can back a booking link.
- *
- * The same overlay list also draws peer events on the grid, but the two jobs
- * live on different surfaces: the sidebar owns colour and visibility, this
- * panel owns the relationship. Removing someone here is the only place the
- * relationship can be severed, which is why it asks first.
- */
 export function SharedAvailabilityPanel() {
   const t = useT();
   const [addCalendarOpen, setAddCalendarOpen] = useState(false);
@@ -64,7 +56,6 @@ export function SharedAvailabilityPanel() {
     ? rawOverlayPeople
     : [];
 
-  // Sorted so the query key stays stable as people are added or removed.
   const emails = useMemo(
     () =>
       overlayPeople
@@ -72,9 +63,6 @@ export function SharedAvailabilityPanel() {
         .sort((a, b) => a.localeCompare(b)),
     [overlayPeople],
   );
-  // No bookingLinkId: the action resolves the owner to the caller, which is
-  // right here because this panel only ever manages the signed-in user's own
-  // peers rather than some shared link's host list.
   const { data: statuses } = useHostOverlayStatus(
     emails,
     undefined,

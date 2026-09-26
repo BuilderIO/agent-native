@@ -1,23 +1,3 @@
-/**
- * DesignEditor.singleScreenCreation.spec.ts
- *
- * P4 (single-screen tool placement) + vector-edit foundations pure-helper
- * coverage:
- *
- * - getSingleScreenCreationTool: maps the editor's active DesignTool + view
- *   mode to the CreationTool DesignCanvas's single-screen click-to-place
- *   overlay understands (or null when it should stay unmounted).
- * - createPrimitiveInsertFromSpec: converts a CreatePrimitiveSpec (screen-
- *   content space, emitted by the single-screen overlay) into the shared
- *   CanvasPrimitiveInsert shape the existing overview commit path already
- *   knows how to persist.
- * - parsePenPathFromSerializedD: the deliberate inverse of pen-path.ts's
- *   serializePenPath, used as a fallback to recover a structured PenPath
- *   (for data-an-pen-nodes) from flattened `d` when an insert does not carry
- *   the structured model directly. Round-tripped against the real serializer/
- *   pen-path helpers rather than hand-written `d` strings, so this pins the
- *   actual serializePenPath grammar rather than an assumption about it.
- */
 
 import { describe, expect, it } from "vitest";
 
@@ -249,9 +229,6 @@ describe("parsePenPathFromSerializedD (inverse of serializePenPath)", () => {
     const d = serializePenPath(path);
     const parsed = parsePenPathFromSerializedD(d);
     expect(parsed).not.toBeNull();
-    // Re-serializing the parsed-back path must reproduce the exact same `d`
-    // string — the real invariant this parser exists for (data-an-pen-nodes
-    // round-tripping through commit -> re-hydrate -> re-commit).
     expect(serializePenPath(parsed!)).toBe(d);
     expect(parsed!.closed).toBe(path.closed);
     expect(parsed!.nodes).toHaveLength(path.nodes.length);
@@ -314,11 +291,6 @@ describe("parsePenPathFromSerializedD (inverse of serializePenPath)", () => {
   });
 
   it("round-trips an asymmetric cusp node (handleOut only, no handleIn) in the middle of an open path", () => {
-    // The cusp's incoming segment renders as a straight "L" (its handleIn is
-    // absent) while its outgoing segment renders as a curve "C" (it has a
-    // handleOut) — the reconstructed node must come back with exactly that
-    // one-sided handle shape, not gain a phantom handleIn nor lose the
-    // handleOut.
     const cusp = createSmoothNode(
       { x: 50, y: 50 },
       { x: 90, y: 30 },
@@ -358,8 +330,6 @@ describe("parsePenPathFromSerializedD (inverse of serializePenPath)", () => {
     expect(parsePenPathFromSerializedD("not a path")).toBeNull();
   });
 
-  // closePenPath (pen-path.ts) requires >1 node to actually close; reimplemented
-  // minimally here rather than importing internal test-only behavior twice.
   function closePenPathForTest(path: PenPath): PenPath {
     const cloned = clonePenPath(path);
     return { nodes: cloned.nodes, closed: cloned.nodes.length > 1 };

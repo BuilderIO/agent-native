@@ -13,9 +13,6 @@ import action, {
   setAttributeOnMarkup,
 } from "./swap-component-instance.js";
 
-// ---------------------------------------------------------------------------
-// Schema
-// ---------------------------------------------------------------------------
 
 describe("swap-component-instance schema", () => {
   const base = { designId: "design_1", nodeId: "node_1" };
@@ -46,9 +43,6 @@ describe("swap-component-instance schema", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// findOpenTagEnd
-// ---------------------------------------------------------------------------
 
 describe("findOpenTagEnd", () => {
   it("finds the end of a simple opening tag", () => {
@@ -68,9 +62,6 @@ describe("findOpenTagEnd", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// setAttributeOnMarkup
-// ---------------------------------------------------------------------------
 
 describe("setAttributeOnMarkup", () => {
   it("replaces an existing attribute value", () => {
@@ -111,9 +102,6 @@ describe("setAttributeOnMarkup", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// mergeComponentSwapOverrides
-// ---------------------------------------------------------------------------
 
 describe("mergeComponentSwapOverrides", () => {
   it("carries over overrides for prop names both components share", () => {
@@ -138,13 +126,9 @@ describe("mergeComponentSwapOverrides", () => {
       "btn1",
     );
 
-    // "variant" was overridden onto the new markup.
     expect(result.markup).toContain('data-agent-native-prop-variant="solid"');
-    // "size" was not overridden by the caller — keeps the target's default.
     expect(result.markup).toContain('data-agent-native-prop-size="md"');
-    // The selected instance's stable node id is stamped onto the result.
     expect(result.markup).toContain('data-agent-native-node-id="btn1"');
-    // The target's own x-data is left untouched (not merged).
     expect(result.markup).toContain(
       "x-data=\"{ variant: 'outline', size: 'md' }\"",
     );

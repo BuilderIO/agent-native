@@ -46,24 +46,17 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-/** The exact directory route. Registered as a publicPath so the core auth
- * guard does not 401 the peer call before our own JWT check runs (same
- * pattern as the identity-sso plugin's authorize route). */
 export const ORG_APPS_PATH = "/_agent-native/org/apps";
 
-/** A2A tokens are signed HS256 by core's `signA2AToken`. */
 const A2A_JWT_ALG = "HS256";
 
 export interface VerifiedA2APayload {
-  /** Caller email (JWT `sub`). */
   email: string;
-  /** Org domain the caller asserted (JWT `org_domain`), lower-cased. */
   orgDomain: string;
 }
 
 function base64UrlDecodeToBuffer(input: string): Buffer | null {
   if (typeof input !== "string" || input.length === 0) return null;
-  // Reject anything outside the base64url alphabet up front.
   if (!/^[A-Za-z0-9_-]+$/.test(input)) return null;
   const pad = input.length % 4 === 0 ? "" : "=".repeat(4 - (input.length % 4));
   try {
@@ -123,7 +116,6 @@ export function decodeJwtUnverified(token: string): DecodedJwt | null {
   return { header, payload, signingInput: `${h}.${p}`, signature };
 }
 
-/** Read the bearer token from an Authorization header value. */
 export function extractBearerToken(
   authHeader: string | null | undefined,
 ): string | null {
@@ -133,14 +125,6 @@ export function extractBearerToken(
   return tok && tok.length > 0 ? tok : null;
 }
 
-/**
- * Verify a candidate HS256 JWT against one secret. Returns the payload on a
- * valid signature + unexpired token, else null. This is exactly the
- * verification jose performs for HS256 (HMAC-SHA256 over
- * `base64url(header).base64url(payload)`, constant-time signature compare,
- * `exp` enforcement) — implemented with Node built-ins so this template does
- * not need a third-party JWT dependency.
- */
 function verifyWithSecret(
   decoded: DecodedJwt,
   secret: string,
@@ -153,7 +137,6 @@ function verifyWithSecret(
   if (expected.length !== decoded.signature.length) return null;
   if (!timingSafeEqual(expected, decoded.signature)) return null;
 
-  // Enforce `exp` (and `nbf` when present) like jose's jwtVerify default.
   const exp = decoded.payload.exp;
   if (typeof exp === "number" && nowSeconds >= exp) return null;
   const nbf = decoded.payload.nbf;
@@ -217,12 +200,6 @@ export async function verifyA2ABearerToken(input: {
     .map((secret) => verifyWithSecret(decoded, secret, now))
     .find((candidate) => candidate !== null);
   if (payload) {
-    // The org directory is a general A2A-peer endpoint. Reject tokens
-    // minted for a different single purpose — SSO identity assertions
-    // (`scope: "identity"`) or MCP-connect personal tokens
-    // (`scope: "mcp-connect"`) — so a leaked or replayed privileged token
-    // cannot enumerate the org's apps. General A2A peer tokens carry no
-    // `scope` claim and are still accepted.
     const scope =
       typeof (payload as { scope?: unknown }).scope === "string"
         ? ((payload as { scope: string }).scope as string)
@@ -233,42 +210,26 @@ export async function verifyA2ABearerToken(input: {
       typeof sub === "string" && sub.trim() ? sub.trim() : undefined;
     if (!email) return null;
     // The verified token MUST carry an org_domain — the directory is
-    // strictly org-scoped, and the same-org check needs it. A token with
-    // no org_domain (e.g. a personal/no-org caller) cannot be tied to an
-    // org and is rejected.
     return { email, orgDomain: assertedDomain };
   }
   return null;
 }
 
 export interface OrgAppDirectoryEntry {
-  /** Stable app id (e.g. "mail", "calendar"). */
   id: string;
-  /** Human-readable app name. */
   name: string;
-  /** App base URL. */
   url: string;
-  /** A2A JSON-RPC endpoint for the app. */
   a2aUrl: string;
-  /** Optional one-line capability/description hint. */
   capabilities?: string;
 }
 
 export interface OrgAppDirectoryResponse {
-  /** The org this directory is scoped to (domain when known, else org id). */
   org: string;
   apps: OrgAppDirectoryEntry[];
 }
 
-/** The documented agent-native A2A JSON-RPC path. */
 const A2A_ENDPOINT_PATH = "/_agent-native/a2a";
 
-/**
- * Build the A2A endpoint URL for an app base URL. New agent-native apps
- * expose `/_agent-native/a2a` (see the a2a-protocol skill + core
- * `mountA2A`); the A2A client also probes `/a2a` for legacy peers, but the
- * canonical endpoint we advertise is `/_agent-native/a2a`.
- */
 export function toA2aUrl(appUrl: string): string {
   const trimmed = appUrl.replace(/\/+$/, "");
   return `${trimmed}${A2A_ENDPOINT_PATH}`;
@@ -286,10 +247,6 @@ export interface OrgDirectorySuccessCache<T> {
   clear(): void;
 }
 
-/**
- * Tenant-keyed success cache with single-flight refreshes. Rejections are
- * never cached and an expired value is never served after a failed refresh.
- */
 export function createOrgDirectorySuccessCache<T>(input?: {
   ttlMs?: number;
   now?: () => number;
@@ -325,16 +282,6 @@ export function createOrgDirectorySuccessCache<T>(input?: {
   };
 }
 
-/**
- * Shape the discovered-agent list into the directory response. The input is
- * Dispatch's EXISTING connected-apps registry — `discoverAgents()`
- * from `@agent-native/core/server/agent-discovery`, the same source
- * `list-connected-agents` and the `call-agent` delegation path use. It is
- * already allow-list-respecting (hidden first-party templates are excluded
- * from `BUILTIN_AGENTS` unless `defaultAgent`), so no second filter is
- * needed here; we only drop entries without a usable absolute http(s) URL.
- * Callers that identify themselves may also request self-filtering.
- */
 export function buildOrgAppsResponse(input: {
   org: string;
   apps: DiscoveredAppLike[];

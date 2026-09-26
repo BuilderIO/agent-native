@@ -1,10 +1,3 @@
-/**
- * VS Code-ish fuzzy matcher for quick open / command palette rows.
- *
- * Pure and deterministic: same (query, target) always yields the same score
- * and match indices. Higher score = better match. Returns `null` when the
- * query's characters cannot be found in order within the target.
- */
 
 export interface FuzzyMatch {
   score: number;
@@ -32,11 +25,6 @@ function isWordChar(char: string): boolean {
   return /[a-zA-Z0-9]/.test(char);
 }
 
-/**
- * Whether the character at `index` in `target` starts a "word": the very
- * first character, follows a path/word separator, follows a camelCase
- * transition, or follows a non-word character.
- */
 function isBoundaryStart(
   target: string,
   index: number,
@@ -52,17 +40,6 @@ function isBoundaryStart(
   return null;
 }
 
-/**
- * Score a fuzzy match of `query` against `target`. Characters must appear in
- * `target` in the same order as `query` (case-insensitively), not necessarily
- * contiguous. Returns `null` when no valid match exists.
- *
- * Uses a greedy-with-lookback single pass: for each query character we pick
- * the earliest occurrence at or after the previous match position that keeps
- * the match valid, preferring boundary starts to maximize bonuses. This is a
- * simplified (non-DP) scorer — deterministic and fast, in the spirit of VS
- * Code's `fuzzyScore`.
- */
 export function score(query: string, target: string): FuzzyMatch | null {
   if (!query) return { score: 0, matches: [] };
   if (!target) return null;
@@ -119,7 +96,6 @@ export function score(query: string, target: string): FuzzyMatch | null {
     targetIndex = foundIndex + 1;
   }
 
-  // Reward tighter overall matches (smaller span relative to target length).
   const span = matches[matches.length - 1]! - matches[0]! + 1;
   const compactnessBonus = Math.max(
     0,
@@ -130,20 +106,12 @@ export function score(query: string, target: string): FuzzyMatch | null {
   return { score: totalScore, matches };
 }
 
-/**
- * Score a fuzzy match of `query` against a file path, weighting matches in
- * the basename above matches in the directory portion (VS Code quick-open
- * behavior: `foo` should rank `src/foo.ts` above `foo/bar.ts` equally on the
- * basename, but a basename hit always beats a pure directory hit).
- */
 export function scoreFilePath(query: string, path: string): FuzzyMatch | null {
   if (!query) return { score: 0, matches: [] };
 
   const lastSlash = path.lastIndexOf("/");
   const basenameStart = lastSlash + 1;
 
-  // First, try matching entirely (or mostly) within the basename — this is
-  // the common case and should dominate ranking.
   const fullMatch = score(query, path);
   if (!fullMatch) return null;
 
@@ -152,14 +120,9 @@ export function scoreFilePath(query: string, path: string): FuzzyMatch | null {
   ).length;
   const matchesInDir = fullMatch.matches.length - matchesInBasename;
 
-  // Bonus proportional to how much of the query matched inside the basename,
-  // and a penalty for characters that only matched in the directory portion.
   const basenameBonus = matchesInBasename * 35;
   const dirPenalty = matchesInDir * 10;
 
-  // Extra bonus if the match run that reaches the end of the string starts
-  // at or after the basename boundary (i.e. the tail of the query lands in
-  // the filename, not the directory).
   const lastMatchIndex = fullMatch.matches[fullMatch.matches.length - 1] ?? -1;
   const endsInBasename = lastMatchIndex >= basenameStart ? 20 : 0;
 

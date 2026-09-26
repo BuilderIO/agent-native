@@ -82,8 +82,6 @@ describe("Design session replay iframe wiring", () => {
   });
 
   it("covers the home thumbnail and Present route srcdoc documents", () => {
-    // The thumbnail moved out of Index.tsx so the editor's first-run rail can
-    // render the same previews; the wiring travels with it.
     const thumbnail = source("./DesignThumbnail.tsx");
     const present = source("../../pages/Present.tsx");
 

@@ -1,6 +1,3 @@
-/**
- * Analytics HTTP surface for reading a stored data program and its latest run.
- */
 import { defineAction } from "@agent-native/core/action";
 import {
   getDataProgram,
@@ -22,10 +19,6 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
-  // Not `grounding`: this reads the stored program plus its last-run summary,
-  // and even `includeRows` replays rows cached by an earlier run rather than
-  // querying the source. The flag means evidence retrieved at call time, which
-  // is why `get-analysis` is excluded too.
   run: async (args) => {
     const ctx = getCredentialContext();
     if (!ctx) throw new Error("No authenticated context for get-data-program.");

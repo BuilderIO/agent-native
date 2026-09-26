@@ -38,8 +38,6 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Skeleton } from "./ui/skeleton";
 
-// Sentinel scope value for searching every authorized space at once; the
-// request simply omits spaceId, and the server still scopes by access.
 const ALL_SPACES = "all";
 
 export type ModifiedDateFilter =
@@ -114,9 +112,6 @@ function SearchChoice({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         onCloseAutoFocus={(event) => {
-          // Without this, focus lands back on the trigger inside the filter
-          // toolbar, whose key handler swallows arrows and Enter before the
-          // command menu sees them.
           event.preventDefault();
           focusInput();
         }}
@@ -165,11 +160,6 @@ export function SearchEmptyOption() {
   );
 }
 
-// Radix portals DropdownMenuContent to document.body, so focus restoration
-// from a filter menu's close event cannot walk up to the picker dialog from
-// that element; walk up from the filter toolbar (which lives inside the
-// dialog) instead of searching the document, where another mounted dialog
-// could win document order.
 function focusSearchInput(control: HTMLElement | null) {
   control
     ?.closest('[role="dialog"]')
@@ -177,9 +167,6 @@ function focusSearchInput(control: HTMLElement | null) {
     ?.focus();
 }
 
-// sourceUpdatedAt is persisted as text and may hold a bare epoch number or
-// another unparseable form; normalize it or drop the freshness line rather
-// than letting formatDate throw.
 function normalizeTimestamp(value: string): string | null {
   const date = new Date(/^\d+$/.test(value) ? Number(value) : value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
@@ -486,8 +473,6 @@ export function ContentCommandSearchResults({
     spaces: spaces.data?.spaces ?? [],
     storedSpaceId,
   });
-  // null follows the sidebar's selected space; "all" searches every
-  // authorized space; a space id pins the search to that space.
   const searchingAll = chosenScope === ALL_SPACES;
   const scopeId =
     chosenScope && chosenScope !== ALL_SPACES ? chosenScope : selectedSpace?.id;

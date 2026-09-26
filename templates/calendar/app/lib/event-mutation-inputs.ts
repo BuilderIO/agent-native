@@ -13,7 +13,6 @@ export type DeleteEventMutationInput = DeleteEventOptions & {
   cacheEventIdentity?: CalendarEventSourceIdentity;
 };
 
-/** Keep the event's connected account attached to every delete variant. */
 export function buildDeleteEventMutationInput(
   event: Pick<CalendarEvent, "id" | "accountEmail"> & EventSourceIdentityInput,
   options: DeleteEventOptions = {},

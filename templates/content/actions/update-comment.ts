@@ -106,7 +106,6 @@ export default defineAction({
 
     if (args.resolved !== undefined) {
       await db.transaction(async (tx) => {
-        // Serialize replies and resolution before either takes its write snapshot.
         await tx
           .select({ id: schema.documentComments.id })
           .from(schema.documentComments)

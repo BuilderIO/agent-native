@@ -19,12 +19,6 @@ describe("sources route pointer-lock guards", () => {
   it("defers opening the tune-source Sheet until the row menu's layer unlocks", () => {
     const source = readRouteSource("./sources.tsx");
 
-    // "Tune source" is a DropdownMenuItem; selecting it opens the setupOpen
-    // Sheet (three nested Selects) in the same tick the menu's own
-    // dismissable layer is still unregistering. Mounting a new
-    // disableOutsidePointerEvents layer before that unregister flushes is
-    // the exact race that leaves document.body.style.pointerEvents stuck at
-    // "none" forever (see packages/toolkit/src/ui/pointer-lock.ts).
     expect(source).toContain(
       "onTune={() => afterBodyPointerUnlock(() => openEdit(source))}",
     );
@@ -50,9 +44,6 @@ describe("sources route pointer-lock guards", () => {
       source.indexOf("async function confirmArchiveSource()"),
     );
 
-    // setupOpen has three nested Selects; closing it while immediately
-    // mounting the handoff Dialog is the same close-then-open race as the
-    // tune-source case above.
     expect(submitSourceBlock).toContain(
       "afterBodyPointerUnlock(() => setIngestHandoff(handoff));",
     );
@@ -75,8 +66,6 @@ describe("add source drawer config validation", () => {
       source.indexOf("function numberValue("),
     );
 
-    // A second local parser is how the field and its validator drift apart:
-    // the drawer would accept a value the validator never saw.
     expect(splitLines).toContain("return sourceListValues(value);");
     expect(splitLines).not.toContain(".split(");
   });
@@ -108,8 +97,6 @@ describe("add source drawer config validation", () => {
   it("explains a Slack DM separately from a malformed channel", () => {
     const source = readRouteSource("./sources.tsx");
 
-    // "use a channel ID like C0123456789" is actively wrong advice for someone
-    // who typed D0123456789, which already is an ID.
     expect(source).toContain('issue.code === "slack_direct_message"');
     expect(source).toContain('t("sources.invalidSlackDirectMessages"');
   });

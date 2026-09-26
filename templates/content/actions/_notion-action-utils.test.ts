@@ -48,10 +48,6 @@ describe("getCurrentNotionOwner", () => {
 
 describe("getNotionDocumentOwner", () => {
   it("resolves to the document owner, not the requesting editor", async () => {
-    // Regression test for n3: a shared editor calling a Notion action must
-    // scope by the document's actual owner (whose Notion OAuth connection and
-    // sync-link rows are keyed by owner email), matching the route-layer
-    // getDocumentOwnerEmail behavior — not by the requester's own email.
     mocks.getRequestUserEmail.mockReturnValue("editor-b@example.com");
     mocks.getRequestOrgId.mockReturnValue("org-1");
     mocks.assertAccess.mockResolvedValue({

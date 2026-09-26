@@ -21,8 +21,6 @@ import {
 } from "./ui/dropdown-menu";
 import { useRowMenu } from "./useRowMenu";
 
-// Live mic level meter — the analyser owns the path so silence stays flat and
-// the meter disappears with the microphone rather than implying input exists.
 function MicWave({ deviceId, active }: { deviceId: string; active: boolean }) {
   const pathRef = useMicMeter({ deviceId, active });
 

@@ -6,11 +6,6 @@ import {
   MediaPermissionRequiredError,
 } from "./media-permission";
 
-// The offscreen document registers a chrome.runtime.onMessage listener as
-// soon as the module loads, so the chrome stub must be in place before
-// offscreen.ts is imported — a dynamic import() (rather than a static one,
-// which ES modules hoist above this file's own top-level code) keeps the
-// load until after the stub below runs.
 let displayConstraints: (
   surface: ScreenCaptureSurface,
   wantsMic: boolean,

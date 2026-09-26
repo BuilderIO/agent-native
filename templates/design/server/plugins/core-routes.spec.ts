@@ -11,11 +11,6 @@ const ROUTES_DIR = resolve(
   "../../app/routes",
 );
 
-/**
- * Flat-route filenames turned into matchable path patterns, minus the splat
- * routes. `$.tsx` matches every path, so leaving it in would make a deep link
- * to a non-existent route look valid here while the browser renders not-found.
- */
 function concreteRoutePatterns(): RegExp[] {
   return readdirSync(ROUTES_DIR)
     .filter((file) => /\.tsx$/.test(file) && !/\.(test|spec)\.tsx$/.test(file))
@@ -68,10 +63,6 @@ describe("resolveDesignOpenPath", () => {
     expect(resolveDesignOpenPath({ view: "templates", params: {} })).toBeNull();
   });
 
-  // `/_agent-native/open?app=design&view=editor&…` is both the embed target and
-  // the "open outside the frame" link a host offers when the embed iframe
-  // fails. A resolver that answers with a path no route serves makes both dead
-  // ends at once, and the only visible symptom is a 404 page.
   it("resolves every editor deep link to a real design route", () => {
     const patterns = concreteRoutePatterns();
     expect(patterns.length).toBeGreaterThan(5);

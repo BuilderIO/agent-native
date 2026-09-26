@@ -159,8 +159,6 @@ describe("filterSuppressedThreads", () => {
     const row = () => [makeEmail("msg-archived", "thread-archived")];
 
     expect(filterSuppressedThreads(row(), "archive")).toHaveLength(1);
-    // Archiving removes only INBOX, so All Mail and every label it carries
-    // still list the thread.
     expect(filterSuppressedThreads(row(), "all")).toHaveLength(1);
     expect(filterSuppressedThreads(row(), "all", "Projects")).toHaveLength(1);
   });
@@ -234,8 +232,6 @@ describe("suppression evidence", () => {
       views: ["inbox", "unread"],
     });
 
-    // Provider evidence can retire the active suppression before the toast's
-    // Undo callback runs.
     expect(settleSuppression(threadId, id)).toBe(true);
     expect(releaseSuppressionClaims(threadId, [id])).toBe(true);
     expect(releaseSuppressionClaims(threadId, [])).toBe(false);
@@ -253,8 +249,6 @@ describe("suppression evidence", () => {
     expect(settleSuppression(threadId, muted)).toBe(true);
     expect(releaseSuppressionClaims(threadId, [archived])).toBe(false);
 
-    // Releasing the newer committed claim removes its tombstone, so the
-    // older Undo can be honored after the newer action is explicitly undone.
     expect(releaseSuppressionClaims(threadId, [muted])).toBe(true);
   });
 
@@ -539,10 +533,6 @@ describe("useMarkThreadRead", () => {
   });
 
   it("sends accountEmail with the mark-thread-read call so multi-account owners don't 401", () => {
-    // Repro: the mutation used to take a bare threadId, so the server fell
-    // back to the request owner's login email — wrong whenever that isn't
-    // the Gmail account the thread belongs to (a second/personal account,
-    // or local dev where the owner's login isn't a connected Gmail address).
     const source = emailsHookSource();
     const hook = source.slice(
       source.indexOf("export function useMarkThreadRead()"),
@@ -713,8 +703,6 @@ describe("apiFetch quota signaling", () => {
 });
 
 describe("inbox-thread cache rollback on mutation error", () => {
-  // Inbox optimistic state is a journal overlay. Errors retire only their own
-  // entry, so overlapping mutations never restore an older cache snapshot.
   const boundaries: Array<[string, string]> = [
     ["export function useMarkRead()", "export function useMarkThreadRead()"],
     ["export function useMarkThreadRead()", "export function useToggleStar()"],
@@ -848,8 +836,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
     expect(hook).toContain(
       "releaseSuppression(threadId, context.suppressionIds[threadId])",
     );
-    // Restoring the whole ["emails"] snapshot here would also revert a move
-    // that completed while this one was still pending.
     expect(hook).not.toContain("previous.forEach");
   });
 
@@ -861,8 +847,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
       views: ["inbox", "unread"],
     });
 
-    // The move failed for its own thread only; an archive that landed while it
-    // was still pending must stay hidden.
     releaseSuppression("thread-moved", moved);
 
     const visible = filterSuppressedThreads(
@@ -878,8 +862,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
   });
 
   it("keeps the same thread hidden when an overlapping mutation rolls back", () => {
-    // Move, then archive the same thread, then fail the move. The archive is
-    // still pending, so releasing the move's claim must not reveal the row.
     const moved = suppressThread("thread-both", "move", {
       views: ["inbox", "unread"],
     });
@@ -919,8 +901,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
   });
 
   it("lets the newest claim decide where an overlapping thread stays visible", () => {
-    // Archive then trash the same thread: Trash is its final location, so the
-    // older archive claim must not keep hiding it there.
     const archived = suppressThread("thread-relocated", "archive", {
       views: ["inbox", "unread"],
     });
@@ -931,7 +911,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
 
     expect(filterSuppressedThreads(row(), "trash")).toHaveLength(1);
     expect(filterSuppressedThreads(row(), "archive")).toEqual([]);
-    // Trash leaves All Mail and every label behind as well.
     expect(filterSuppressedThreads(row(), "all")).toEqual([]);
     expect(filterSuppressedThreads(row(), "all", "Projects")).toEqual([]);
 
@@ -940,8 +919,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
   });
 
   it("keeps a moved thread in the labels it still carries", () => {
-    // Moving out of the inbox with no source label leaves every label the
-    // thread already had attached, so only the inbox loses the row.
     const moved = suppressThread("thread-filed", "move", {
       views: ["inbox", "unread"],
     });
@@ -956,8 +933,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
   });
 
   it("hides a moved thread only in the source label it was moved out of", () => {
-    // A mailbox-wide label tab fetches with view "all" plus the active label,
-    // so only the label the move actually removed may stop listing it.
     const moved = suppressThread("thread-refiled", "move", {
       views: ["inbox", "unread"],
       label: "Marketing",
@@ -973,8 +948,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
   });
 
   it("hides an archived thread only in the label the archive removed", () => {
-    // Archiving from a label view passes removeLabel, so that label stops
-    // listing the thread while every other label it carries keeps it.
     const archived = suppressThread("thread-filed-away", "archive", {
       views: ["inbox", "unread"],
       label: "Marketing",
@@ -1012,8 +985,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
       expect(hook).toContain(
         "settleInboxMutationIfObserved(qc, context?.inboxMutationId)",
       );
-      // A whole-snapshot restore here would revert mutations that landed after
-      // this one started — the bug class this hook set was rewritten to avoid.
       expect(hook).not.toContain("previous.forEach");
     }
   });

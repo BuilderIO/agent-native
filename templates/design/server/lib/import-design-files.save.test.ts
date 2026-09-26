@@ -1,18 +1,3 @@
-/**
- * Tests for saveImportedDesignFiles (server/lib/import-design-files.ts).
- *
- * Coverage focus: imported HTML screens (import-design-source.ts's
- * html-string / figma-paste-html paths) now get missing
- * data-agent-native-node-id attributes stamped before persisting
- * (shared/screen-annotation.ts), same as generate-design/create-file/
- * present-design-variants, so an imported screen is fully addressable by
- * id-keyed editor operations immediately instead of depending on a
- * client-side backfill the first time someone opens it.
- *
- * See import-design-files.test.ts (sibling file) for the pure
- * normalizeImportedHtmlDocument/sanitizeImportedFilename helper tests, which
- * don't need DB mocking.
- */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -205,8 +190,6 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
     expect(insertedValues.content).toContain("data-agent-native-node-id");
     expect(insertedValues.content).toContain("<button");
 
-    // seedFromText/applyText get the SAME annotated content, not the
-    // pre-annotation raw import string.
     expect(mocks.seedFromText).toHaveBeenCalledWith(
       expect.any(String),
       insertedValues.content,
@@ -339,8 +322,6 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
       ],
     });
 
-    // The existing screen paints 1440 + 24 + 390 world pixels. A new import
-    // needs to start after that responsive row and the normal 96px gap.
     expect(result.placedFrames[0]?.frame).toMatchObject({
       x: 1950,
       width: 1440,
@@ -418,8 +399,6 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
       ],
     });
 
-    // The unrotated footprint would end at 424 + 96 = 520. The 45° group
-    // reaches farther right around the primary frame's center.
     expect(result.placedFrames[0]?.frame.x).toBeGreaterThan(520);
   });
 
@@ -554,14 +533,12 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
   it("places a placement group at the origin its first batch stored", async () => {
     mocks.setExistingFiles([
       { id: "existing-screen", filename: "existing.html", fileType: "html" },
-      // Content edits clear the row marker; group membership must not need it.
       { id: "earlier-batch", filename: "earlier.html", fileType: "html" },
       { id: "added-mid-import", filename: "added.html", fileType: "html" },
     ]);
     mocks.setDesignData({
       canvasFrames: {
         "existing-screen": { x: 0, y: 0, width: 400, height: 300, z: 0 },
-        // An earlier batch of the same import, placed at origin 496 + 0.
         "earlier-batch": { x: 496, y: 0, width: 200, height: 300, z: 1 },
         "added-mid-import": { x: 3000, y: 0, width: 200, height: 300, z: 2 },
       },

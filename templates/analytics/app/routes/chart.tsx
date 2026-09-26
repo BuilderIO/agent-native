@@ -21,8 +21,6 @@ const VALID_CHART_TYPES = new Set([
   "heatmap",
   "callout",
 ]);
-// Embed URLs accept external sources plus the restricted first-party analytics
-// source. They intentionally do not expose arbitrary app database querying.
 const VALID_SOURCES = new Set([
   "bigquery",
   "ga4",

@@ -1,27 +1,3 @@
-/**
- * Inject a correct `Duration` into a MediaRecorder-produced WebM.
- *
- * MediaRecorder writes a streamable WebM whose top-level `Segment` uses the
- * "unknown size" encoding and whose `Info` element omits the `Duration`
- * element entirely. Players then have to *estimate* length from cluster
- * timestamps, and a recorder driven with a `timeslice` consistently lands
- * short by up to one slice (the trailing partial cluster isn't counted) —
- * which is why the separate local-recording camera file comes out ~2s
- * shorter than the natively-muxed desktop MP4 it's paired with.
- *
- * This patches the finished file in place: it locates `Segment → Info`,
- * sets (or inserts) a `Duration` float computed from the wall-clock length
- * we recorded, fixes the `Info` size, and leaves every other byte — the
- * EBML header, Tracks, all Clusters, Cues — untouched.
- *
- * Hard safety contract: this is recording code. On *any* unexpected
- * structure the function returns the input bytes unchanged. The worst case
- * is the pre-existing (slightly-short) duration; we never emit a file that
- * is more broken than what MediaRecorder gave us.
- *
- * Pure `DataView`/`Uint8Array` — no Node `Buffer`, no dependencies — so it
- * runs as-is inside the Tauri webview.
- */
 
 const ID_EBML = 0x1a45dfa3;
 const ID_SEGMENT = 0x18538067;
@@ -29,23 +5,17 @@ const ID_INFO = 0x1549a966;
 const ID_DURATION = 0x4489;
 const ID_TIMECODE_SCALE = 0x2ad7b1;
 
-const DEFAULT_TIMECODE_SCALE = 1_000_000; // ns per tick → 1ms ticks
+const DEFAULT_TIMECODE_SCALE = 1_000_000;
 
 interface Element {
   id: number;
-  /** Offset of the element's first ID byte. */
   start: number;
-  /** Raw bytes of the size vint. */
   sizeBytes: Uint8Array;
-  /** Offset of the first data byte. */
   dataStart: number;
-  /** Offset just past the element's data. */
   dataEnd: number;
-  /** True when the size vint is the reserved "unknown size" pattern. */
   unknownSize: boolean;
 }
 
-/** Number of bytes a vint occupies, from its first byte (0 ⇒ invalid). */
 function vintLength(firstByte: number): number {
   if (firstByte === 0) return 0;
   let mask = 0x80;
@@ -56,7 +26,6 @@ function vintLength(firstByte: number): number {
   return 0;
 }
 
-/** Read an element ID (kept *with* its length-marker bits) at `offset`. */
 function readId(
   buf: Uint8Array,
   offset: number,
@@ -69,7 +38,6 @@ function readId(
   return { id, length };
 }
 
-/** Read a size vint at `offset`. */
 function readSize(
   buf: Uint8Array,
   offset: number,
@@ -77,7 +45,6 @@ function readSize(
   if (offset >= buf.length) return null;
   const length = vintLength(buf[offset]);
   if (length === 0 || offset + length > buf.length) return null;
-  // Strip the length-marker bit from the first byte.
   let value = buf[offset] & (0xff >> length);
   let unknown = value === 0xff >> length;
   for (let i = 1; i < length; i++) {
@@ -87,7 +54,6 @@ function readSize(
   return { value, length, unknown };
 }
 
-/** Parse the direct child elements contained in `[start, end)`. */
 function parseChildren(
   buf: Uint8Array,
   start: number,
@@ -116,11 +82,9 @@ function parseChildren(
   return out;
 }
 
-/** Encode `value` as the shortest definite-length EBML size vint. */
 function encodeVint(value: number): Uint8Array {
   for (let len = 1; len <= 8; len++) {
     const valueBits = 7 * len;
-    // 2^valueBits - 1 is reserved (unknown size) — stay strictly below it.
     const max = Math.pow(2, valueBits) - 1;
     if (value < max) {
       const out = new Uint8Array(len);
@@ -133,7 +97,6 @@ function encodeVint(value: number): Uint8Array {
       return out;
     }
   }
-  // Unreachable for any real recording length.
   return new Uint8Array([0x01, 0, 0, 0, 0, 0, 0, 0]);
 }
 
@@ -154,11 +117,6 @@ function concat(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-/**
- * Return a copy of `input` with a correct `Duration` written into
- * `Segment → Info`, or the original bytes unchanged if the file isn't a
- * MediaRecorder-shaped WebM we can safely patch.
- */
 export function injectWebmDuration(
   input: Uint8Array,
   durationMs: number,
@@ -182,7 +140,6 @@ export function injectWebmDuration(
   const infoChildren = parseChildren(input, info.dataStart, info.dataEnd);
   if (!infoChildren) return input;
 
-  // TimecodeScale is ns-per-tick; Duration is expressed in those ticks.
   let timecodeScale = DEFAULT_TIMECODE_SCALE;
   const scaleEl = infoChildren.find((el) => el.id === ID_TIMECODE_SCALE);
   if (scaleEl) {
@@ -194,8 +151,6 @@ export function injectWebmDuration(
   }
   const durationTicks = (durationMs * 1_000_000) / timecodeScale;
 
-  // Rebuild Info's body: keep every child verbatim except Duration, which
-  // we replace with a fresh 8-byte float (or append if it was missing).
   const durationEl = concat([
     new Uint8Array([0x44, 0x89]), // Duration ID
     encodeVint(8),
@@ -214,9 +169,6 @@ export function injectWebmDuration(
     newInfoBody,
   ]);
 
-  // Rebuild Segment's body with the patched Info spliced back in. The
-  // Segment retains MediaRecorder's "unknown size" header verbatim, so we
-  // never have to recompute (or overflow) a giant size field.
   const segParts: Uint8Array[] = [];
   for (let i = 0; i < segChildren.length; i++) {
     const child = segChildren[i];
@@ -232,7 +184,6 @@ export function injectWebmDuration(
     newSegmentBody,
   ]);
 
-  // Reassemble the file: every root element verbatim, Segment replaced.
   const fileParts: Uint8Array[] = [];
   for (const el of root) {
     fileParts.push(

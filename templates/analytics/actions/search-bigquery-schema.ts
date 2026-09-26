@@ -301,8 +301,6 @@ async function searchAcrossDatasets(
 
   if (datasetsScanned < datasetCount) truncated = true;
 
-  // Inspect table metadata in bounded batches so a search can match columns,
-  // not only table names, without issuing an unbounded burst of requests.
   const matches: ReturnType<typeof compactTable>[] = [];
   const errors: Array<{
     projectId?: string;

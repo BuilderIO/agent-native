@@ -1,14 +1,3 @@
-/**
- * send-fusion-message — relay a freeform prompt to the fusion app's
- * in-container coding agent.
- *
- * This is how the Design agent hands off user requests that go beyond
- * discrete queued visual edits — e.g. "add a new page", "wire up this API",
- * "fix this bug" — to the app's own coding agent for fusion-backed designs.
- * Unlike queue-fusion-edit/apply-fusion-edits (which batch small visual
- * tweaks), this sends immediately and does not persist a design_fusion_edits
- * row.
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
@@ -18,7 +7,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { FULL_APP_BUILDING, readFusionApp } from "../shared/full-app.js";
 
 export default defineAction({

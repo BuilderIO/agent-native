@@ -1,13 +1,3 @@
-/**
- * Tests for the URL/`navigate`-command → overview camera-fit wiring.
- *
- * A command naming a screen (`screen=`/`fileId=` etc. — see
- * screen-command-utils.ts) only ever comes from a URL query string or an
- * equivalent `navigate` app-state write, never an ordinary in-canvas
- * interaction. Landing in overview mode with such a command should reveal
- * the named screen the same way a freshly-created screen is revealed
- * (`focusCreatedScreen`), instead of leaving the camera wherever it was.
- */
 import { describe, expect, it, vi } from "vitest";
 
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";

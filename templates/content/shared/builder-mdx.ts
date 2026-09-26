@@ -2470,8 +2470,6 @@ function freshVideoBlock(node: MdxNode, raw: string): unknown {
     "playsinline",
     "width",
     "height",
-    // Content persists title for native playback, but Builder's built-in
-    // Video options do not expose it. Validate that it is literal, then omit.
     "title",
   ]);
   const values = new Map<string, string | null>();

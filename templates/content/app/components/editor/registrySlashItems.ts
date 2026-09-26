@@ -9,31 +9,7 @@ import { IconComponents } from "@tabler/icons-react";
 
 import { createContentBlockId } from "./extensions/registryBlocks";
 
-/**
- * Registry-derived slash command items for content's `SlashCommandMenu`.
- *
- * Content applies an explicit authoring policy to the shared registry. Blocks
- * remain registered for rendering and round-tripping even when they are absent
- * from the slash menu. Choosing an allowed item inserts a `registryBlock` atom
- * node seeded with a fresh `blockId` and the spec's `empty()` data.
- *
- * Content has NO sidecar block store: a registry block's authority is the inline
- * MDX preserved on the node as `__raw` (see `VisualEditor`'s `useRegistryBlockStore`).
- * So instead of seeding a separate side-map entry like plan does, we serialize the
- * spec's `empty()` data to its exact MDX element via the shared core serializer
- * and stamp it onto the node's `__raw`. The side-map's lazy `getBlock` then
- * hydrates the typed `data` from that `__raw` on first render — identical to how
- * a block loaded from a saved document hydrates — and the existing NFM save path
- * persists it verbatim. No new plumbing, byte-identical to a saved block.
- *
- * Notion gating: when `notionCompatibleOnly` is set (the open document is linked
- * to a Notion page), only specs that round-trip to Notion-Flavored Markdown
- * (`spec.notionCompatible`, the single registry-level allowlist from T3) are
- * offered, so authors can't add blocks that would silently drop on push. When it
- * is unset, Content's authorable registry blocks are offered.
- */
 
-/** The shape content's `SlashCommandMenu` consumes (mirrors its `CommandItem`). */
 export interface RegistrySlashItem {
   title: string;
   description: string;
@@ -89,11 +65,6 @@ export function contentRegistryBlockIsAuthorable(
   return false;
 }
 
-/**
- * The minimal Tiptap editor surface a registry slash item drives: a focus +
- * `insertContent` chain. Kept structural so this module needs no direct
- * `@tiptap/react` import beyond what `SlashCommandMenu` already pulls in.
- */
 export interface RegistrySlashEditor {
   chain: () => {
     focus: () => {
@@ -102,13 +73,6 @@ export interface RegistrySlashEditor {
   };
 }
 
-/**
- * Serialize a spec's `empty()` seed to its inline MDX element so a freshly
- * inserted `registryBlock` node carries the same `__raw` a saved block would.
- * Returns an empty string when the spec has no `empty()` factory (the side-map
- * then shows its loading placeholder until edited), or when serialization fails
- * for an unexpected reason — never throws into the insert path.
- */
 export function seedRegistryBlockRaw(spec: BlockSpec, blockId: string): string {
   if (!spec.empty) return "";
   try {
@@ -121,10 +85,6 @@ export function seedRegistryBlockRaw(spec: BlockSpec, blockId: string): string {
   }
 }
 
-/**
- * Build Content's policy-filtered registry slash items. The caller supplies
- * evaluated Labs settings; unknown types fail closed.
- */
 export function buildRegistrySlashItems(
   registry: BlockRegistry,
   options: {
@@ -132,8 +92,6 @@ export function buildRegistrySlashItems(
     policy?: ContentRegistrySlashPolicy;
   } = {},
 ): RegistrySlashItem[] {
-  // The shared builder owns registry enumeration and Notion compatibility.
-  // Content owns which registered formats are offered for new insertion.
   return buildRegistryBlockSlashItems<
     RegistrySlashItem,
     RegistrySlashEditor,

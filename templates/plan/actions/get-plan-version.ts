@@ -54,7 +54,6 @@ export default defineAction({
       id: planId,
       title: snapshot.plan.title,
       brief: snapshot.plan.brief,
-      // kind is a property of the plan, not of the versioned snapshot content.
       kind: current.kind ?? "plan",
       status: snapshot.plan.status,
       source: snapshot.plan.source,

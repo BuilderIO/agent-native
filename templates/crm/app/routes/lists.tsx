@@ -1,8 +1,3 @@
-/**
- * Lists index. A list is the workflow overlay over one object type: its entries
- * and their attribute values are local on every backend, so a pipeline works
- * over a HubSpot or Salesforce mirror without a provider write.
- */
 
 import {
   useActionMutation,
@@ -54,7 +49,6 @@ interface ListsResponse {
 
 const OBJECT_TYPES = ["accounts", "people", "opportunities"] as const;
 
-/** Opens the list's default view, or an ad-hoc board when it has none. */
 export function listHref(listId: string): string {
   return `/views?list=${encodeURIComponent(listId)}`;
 }

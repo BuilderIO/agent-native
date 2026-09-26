@@ -8,17 +8,6 @@ import rough from "roughjs";
 
 import { cn } from "@/lib/utils";
 
-/**
- * LEGACY region-based wireframe renderer — FALLBACK ONLY.
- *
- * New generation never emits region geometry (it emits a declarative kit tree;
- * see `Wireframe.tsx`). This module keeps rendering old / imported plans that
- * still carry `{ viewport, template, regions[] }` data so we never lose them.
- * Do NOT delete it; do NOT lossily migrate old plans to empty kit trees.
- *
- * It uses per-box rough.js (the old approach). The new kit-tree renderer uses a
- * single Screen-level wobble filter instead.
- */
 
 const roughGenerator = rough.generator();
 
@@ -528,11 +517,6 @@ function RegionScaffold({
   return null;
 }
 
-/**
- * Single SVG sketchy rounded-rect using the rough.js generator with a stable
- * seed derived from `id`. Legacy per-box "wobble". The new kit-tree renderer
- * uses one Screen-level filter instead.
- */
 export function RoughBox({ id, emphasis }: { id: string; emphasis?: boolean }) {
   const paths = roughGenerator.toPaths(
     roughGenerator.path(roundedRectPath(), {

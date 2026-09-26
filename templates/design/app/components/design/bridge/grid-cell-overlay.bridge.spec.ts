@@ -19,7 +19,6 @@ function hydratedEditorChromeBridgeScript(): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, () => JSON.stringify(""));
 }
 
-/** A grid whose fixed tracks do not fill it, so the distribution keywords move them. */
 const gridDocument = (containerStyle: string) =>
   `<!doctype html><html><head></head><body style="margin:0">
     <div data-agent-native-node-id="grid" data-agent-native-layer-name="Grid" style="position:absolute;left:40px;top:40px;width:400px;height:300px;display:grid;grid-template-columns:100px 100px;grid-template-rows:80px 80px;gap:20px;${containerStyle}">
@@ -59,7 +58,6 @@ async function withBridgedGrid(
   }
 }
 
-/** Offset between a painted cell and the real grid item that occupies it. */
 async function cellDrift(
   page: Page,
   cell: string,

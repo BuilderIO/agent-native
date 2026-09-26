@@ -90,8 +90,6 @@ async function insertionGuideKind(
   page: Page,
 ): Promise<"inside" | "line" | null> {
   return preview(page).evaluate(() => {
-    // Editor chrome is mounted under the iframe's <html> element so it can
-    // sit above the preview content; scoping the locator to <body> misses it.
     const guide = Array.from(
       document.documentElement.querySelectorAll<HTMLElement>(
         "[data-agent-native-insertion-guide]",

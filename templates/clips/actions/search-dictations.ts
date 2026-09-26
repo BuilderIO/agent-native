@@ -1,4 +1,3 @@
-/** Search dictation history by its native or cleaned transcript text. */
 
 import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";

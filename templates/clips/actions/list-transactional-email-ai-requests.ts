@@ -78,9 +78,6 @@ async function claimantMayClaim(
   if (normalizeEmail(job.requestedBy) !== claimantEmail) return false;
 
   const db = getDb();
-  // Resolve private/public/share access through one projected query. Org-visible
-  // rows use the authoritative by-ID resolver below so owner, membership,
-  // explicit-share, and federation semantics stay identical.
   const [accessibleCandidates, directShares, countedViews] = await Promise.all([
     db
       .select({

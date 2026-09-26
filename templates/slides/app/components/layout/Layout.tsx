@@ -52,13 +52,9 @@ interface EditorSidebarOverride {
   collapsed: boolean;
 }
 
-/** Routes whose pages render their own toolbar — Layout still renders chrome
- * (sidebar + AgentSidebar wrapper) but skips its own Header. */
 function pageHasOwnToolbar(pathname: string): boolean {
   if (pathname === "/chat" || pathname.startsWith("/chat/")) return true;
   if (pathname.startsWith("/deck/")) return true;
-  // /extensions (list) and /extensions/<id> (viewer) both render their own headers
-  // from @agent-native/core/client/extensions.
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
     return true;
   return false;
@@ -130,10 +126,6 @@ export function Layout({ children }: LayoutProps) {
       );
   }, []);
 
-  // Scope new chats to the deck the user is currently editing. The route
-  // is `/deck/:id`; everywhere else (list, presentation) leaves
-  // scope null so chats stay in the general pool. Keep the visible label
-  // semantic so an imported deck id never leaks into the composer chip.
   const deckScope = useMemo(() => {
     const match = location.pathname.match(/^\/deck\/([^/]+)/);
     const deckId = match?.[1];
@@ -256,10 +248,6 @@ export function Layout({ children }: LayoutProps) {
           >
             <Sidebar
               collapsed={effectiveSidebarCollapsed && !sidebarOpen}
-              // In the mobile drawer the sidebar is forced expanded, so the
-              // desktop collapse toggle would be a silent no-op (worse: it'd
-              // mutate the desktop preference). Hide it while the drawer is
-              // open.
               onToggleCollapsed={
                 sidebarOpen ? undefined : toggleSidebarCollapsed
               }

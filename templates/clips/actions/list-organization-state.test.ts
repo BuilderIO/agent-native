@@ -71,11 +71,6 @@ import action from "./list-organization-state";
 
 type Builder = Record<string, unknown> & { label: string; thenCalls: number };
 
-/**
- * A drizzle-like builder: chain methods return itself and awaiting it resolves
- * `rows`. `gate` holds every read open so a test can see which reads were
- * issued before any of them settled.
- */
 function builder(
   label: string,
   rows: unknown[] = [],
@@ -103,10 +98,6 @@ beforeEach(() => {
 
 describe("list-organization-state action", () => {
   it("returns the personal-scope state after the caller deletes their only organization", async () => {
-    // Slack thread 1789039718.548769: deleting the last organization left
-    // Settings > Organization showing "Couldn't load organization branding."
-    // beside a create-organization card that already rendered the same state.
-    // No org is absent, not unreadable, so this must not throw.
     mockGetActiveOrganizationId.mockResolvedValue(null);
 
     const result = await action.run({}, undefined);
@@ -125,8 +116,6 @@ describe("list-organization-state action", () => {
   });
 
   it("still enforces access when an organization is resolved", async () => {
-    // An organization the caller may not read stays a real failure — the
-    // no-org branch must not swallow a denied read into an empty result.
     mockGetActiveOrganizationId.mockResolvedValue("org_1");
     mockRequireOrganizationAccess.mockRejectedValue(
       Object.assign(new Error("Organization not found or access denied"), {
@@ -208,11 +197,8 @@ describe("list-organization-state action", () => {
     const pending = action.run({}, undefined);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // All seven awaited reads are in flight before any of them has settled.
     const awaited = builders.filter((b) => b.thenCalls > 0);
     expect(awaited).toHaveLength(7);
-    // The members read feeds both the member list and the profile lookup,
-    // but must hit the database once.
     expect(builders[1].thenCalls).toBe(1);
 
     release();

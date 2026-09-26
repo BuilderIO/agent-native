@@ -41,11 +41,6 @@ export type DesignCanvasInteractionHandlers = Pick<
 
 export interface CreateDesignCanvasInteractionAdapterOptions {
   shortcuts: DesignCanvasInteractionHandlers;
-  /**
-   * The shared command contract intentionally does not carry DOM events.
-   * Design provides the original event at this seam when it dispatches from
-   * its existing hotkey loop, preserving source/editor behavior.
-   */
   getHotkeyDetails?: (command: CanvasCommand) => DesignHotkeyDetails | null;
 }
 
@@ -82,13 +77,6 @@ export const DESIGN_CANVAS_INTERACTION_CAPABILITIES = {
   textEditing: true,
 } satisfies CanvasInteractionCapabilities;
 
-/**
- * Design's equivalent subset of the shared canvas command registry. The
- * broader Figma shortcut catalogue remains in `useDesignHotkeys`: it has
- * Design-only commands and platform rules which should not be projected onto
- * other canvases. These entries are intentionally semantic rather than tied
- * to the iframe/source persistence implementation.
- */
 export const DESIGN_CANVAS_SHORTCUTS: readonly CanvasShortcut[] = [
   { command: "select-all", key: "a", modifiers: ["primary"] },
   { command: "undo", key: "z", modifiers: ["primary"] },
@@ -139,7 +127,6 @@ export const DESIGN_CANVAS_SHORTCUTS: readonly CanvasShortcut[] = [
   },
 ];
 
-/** Shared semantic lookup used by Design's live hotkey shell. */
 export function resolveDesignCanvasShortcut(
   input: CanvasShortcutInput,
 ): CanvasCommandId | null {
@@ -309,16 +296,6 @@ function runDistributeHandler(
   return { handled: true };
 }
 
-/**
- * The Design adapter is deliberately small. `DesignEditor` remains the owner
- * of selection canonicalization and source writes; a future Toolkit canvas
- * controller can call this object without importing the iframe bridge.
- *
- * Wiring points:
- * - DesignCanvas onElementSelect / onElementDblClickText -> selection
- * - DesignCanvas visual/text callbacks -> persistence
- * - useDesignHotkeys handlers -> shortcuts
- */
 export function createDesignCanvasInteractionAdapter(
   options: CreateDesignCanvasInteractionAdapterOptions,
 ): DesignCanvasInteractionAdapter {

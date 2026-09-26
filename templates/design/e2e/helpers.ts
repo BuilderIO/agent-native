@@ -11,20 +11,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML, SEED_TITLE } from "./global-setup";
 
-/**
- * Helpers for driving the Design visual editor in real Chrome.
- *
- * Hard-won facts for this editor:
- *  - The design renders inside an iframe, so tests should use a frame locator
- *    (`page.frameLocator('iframe')`) instead of parent-page CSS selectors.
- *  - A pointer-capturing shield `<div data-agent-native-edit-overlay="shield">`
- *    sits on top inside the iframe. Targeted tests use a physical pointer
- *    click with the platform's primary modifier to select the requested node.
- *  - Selection/edits are reported to the parent via postMessage
- *    (`element-select`, `element-hover`, `visual-style-change`,
- *    `visual-structure-change`). Assert on those + the parent inspector DOM.
- *  - `page.screenshot()` HANGS (the page never idles). Use `cdpScreenshot()`.
- */
 
 export async function readSeedDesignId(): Promise<string> {
   const authDir = process.env.E2E_AUTH_DIR
@@ -89,14 +75,6 @@ export async function createFixtureDesign(
   return designId;
 }
 
-/**
- * Screen px per content px for the first mounted screen.
- *
- * The canvas opens well below 1:1, so a gesture offset written as a screen-px
- * literal covers several content px. Offsets meant to land in a gap between
- * two elements overshoot into a neighbour, and tolerances stated in content px
- * demand sub-pixel pointer precision. Size both through this.
- */
 export async function canvasZoom(page: Page): Promise<number> {
   const card = await page.locator("[data-screen-card]").first().boundingBox();
   if (!card) throw new Error("no screen card to measure zoom against");
@@ -110,15 +88,6 @@ export async function canvasZoom(page: Page): Promise<number> {
   return card.width / contentWidth;
 }
 
-/**
- * Flags registered by `server/plugins/feature-flags.ts` are default-off, so a
- * spec covering flagged chrome must turn its flag on or it asserts against an
- * editor that deliberately renders nothing.
- *
- * A flag rule is org-wide state in the shared database, so leaving one on
- * leaks into every later spec in the same shard — returns a disposer, and
- * callers must run it.
- */
 export async function enableFeatureFlag(
   page: Page,
   key: string,
@@ -149,9 +118,6 @@ export function appPath(path: string): string {
   const route = new URL(path, "http://agent-native.local");
   if (E2E_BASE_URL && E2E_BASE_PATH) {
     const url = new URL(E2E_BASE_URL);
-    // dev-lazy strips the app mount (/design) before handing the request to the
-    // app, so the editor's own /design/:id route intentionally becomes
-    // /design/design/:id when E2E_BASE_URL points at the gateway mount.
     url.pathname = `${E2E_BASE_PATH}${route.pathname}`;
     url.search = route.search;
     url.hash = route.hash;
@@ -208,12 +174,10 @@ function screenFrameSelector(screenTarget?: string): string {
 function screenFrame(page: Page, screenTarget?: string): FrameLocator {
   const matchingFrames = page.locator(screenFrameSelector(screenTarget));
   // ponytail: no route target uses the last Screen; inspect editor state if exact focus matters.
-  // Route targets stay strict so ambiguous filenames cannot select the wrong Screen.
   const iframe = screenTarget ? matchingFrames : matchingFrames.last();
   return iframe.contentFrame();
 }
 
-/** Frame identity: explicit target, URL screen target, then last authored Screen. */
 export function designFrame(page: Page, screenId?: string): FrameLocator {
   return screenFrame(page, screenId ?? activeScreenTargetFromUrl(page));
 }
@@ -246,10 +210,6 @@ async function selectableNodeByText(
     const candidate = candidates.nth(index);
     const { candidateText, priority } = await candidate.evaluate((node) => ({
       candidateText: (node.textContent ?? "").replace(/\s+/g, " ").trim(),
-      // Ancestors repeat the same text as their text-bearing descendants.
-      // Prefer a layer root when one is stamped, then an explicit text root,
-      // then a leaf, so the physical click lands inside the selectable area
-      // instead of a generated text span that may sit under canvas chrome.
       priority: node.hasAttribute("data-agent-native-layer-name")
         ? 0
         : node.hasAttribute("data-an-text")
@@ -282,24 +242,11 @@ async function selectableNodeByText(
   return scrolledIntoView(exactText.first());
 }
 
-/**
- * A screen card is taller than the browser viewport, so anything low in the
- * fixture sits below the fold with a real bounding box. Clicking those page
- * coordinates lands outside the window and selects nothing at all.
- */
 async function scrolledIntoView(locator: Locator): Promise<Locator> {
   await locator.scrollIntoViewIfNeeded({ timeout: 5_000 }).catch(() => {});
   return locator;
 }
 
-/**
- * Expand every collapsed row in the layers tree.
- *
- * The terminal condition is "nothing collapsed left", not a trip count.
- * Clicking a locator that matches nothing waits out the full `actionTimeout`
- * and, once caught, is indistinguishable from a successful expand — six
- * hand-rolled copies of this loop were each burning 15s per surplus trip.
- */
 export async function expandAllLayers(page: Page): Promise<void> {
   await page
     .getByRole("tree", { name: "Layers" })
@@ -322,10 +269,6 @@ export async function expandAllLayers(page: Page): Promise<void> {
   }
 }
 
-/**
- * The frame/screen tool button. Its label follows the active mode, so a
- * `name: "Frame"` lookup silently stops matching after a switch to Screen.
- */
 export function frameToolButton(page: Page): Locator {
   return page
     .locator(
@@ -335,11 +278,6 @@ export function frameToolButton(page: Page): Locator {
     .first();
 }
 
-/**
- * Frame is the primary tool; Screen lives in its dropdown and only that mode
- * turns an empty-canvas draw into a screen file. The trigger's label follows
- * the active mode, so match either.
- */
 export async function pickFrameMode(
   page: Page,
   mode: "Frame" | "Screen",
@@ -354,25 +292,12 @@ export async function pickFrameMode(
   await page.getByRole("menuitem").filter({ hasText: mode }).first().click();
 }
 
-/**
- * Drop the persisted canvas camera before opening the editor.
- *
- * `design-selection` carries overview mode, zoom and selection, and it lives
- * in SQL — so it outlives the spec that set it. Each test gets a fresh browser
- * tab, so the per-tab `design-selection:<tabId>` rows are irrelevant; it is
- * the global fallback row that hands one spec's zoom to the next and makes
- * coordinate-sensitive canvas tests pass alone but flake inside a shard.
- */
 export async function resetPersistedCanvasState(page: Page): Promise<void> {
   for (const key of ["design-selection", "navigation"]) {
     const response = await page.request.delete(
       appPath(`/_agent-native/application-state/${key}`),
-      // State-changing requests need the same-origin marker or the server
-      // answers 403 CSRF.
       { headers: { "X-Agent-Native-CSRF": "1" } },
     );
-    // 404 means "already absent", which is the state we want. Anything else is
-    // a harness failure worth surfacing rather than swallowing.
     if (!response.ok() && response.status() !== 404) {
       throw new Error(
         `could not clear ${key}: ${response.status()} ${await response.text()}`,
@@ -381,17 +306,6 @@ export async function resetPersistedCanvasState(page: Page): Promise<void> {
   }
 }
 
-/**
- * Open the editor for a design and wait for the toolbar + iframe to be ready.
- *
- * Camera state is NOT reset. `design-selection` in `application_state` holds
- * overview mode, zoom and the selected element, and it persists in SQL across
- * spec files — so a spec that leaves the canvas panned or zoomed hands that
- * camera to whatever runs next. That is why several coordinate-sensitive tests
- * pass alone and flake inside a shard. Until the harness clears those keys,
- * navigate with explicit `?view=overview&zoom=N` when a test depends on where
- * the canvas actually is.
- */
 export async function gotoEditor(page: Page, designId: string): Promise<void> {
   await resetPersistedCanvasState(page);
   await page.goto(appPath(`/design/${designId}`), {
@@ -412,7 +326,6 @@ async function waitForDesignBridgeReady(page: Page): Promise<void> {
     .first()
     .isVisible()
     .catch(() => false);
-  // Wait for the iframe bridge to stamp at least one selectable node.
   await expect
     .poll(
       async () => {
@@ -453,14 +366,6 @@ async function waitForDesignBridgeReady(page: Page): Promise<void> {
   }
 }
 
-/**
- * Put the canvas in the state where elements can be selected and edited.
- *
- * Editing only exists in the screen overview. Focusing one screen — from the
- * sidebar row or a card's own button — swaps in the responsive interactive
- * preview, which mounts no editor chrome, no pointer shield, and no tool
- * buttons, so there is no way back to editing except returning here.
- */
 export async function enterDirectMode(
   page: Page,
   _options?: { screenId?: string },
@@ -478,8 +383,6 @@ export async function enterDirectMode(
     await expect(allScreens).toHaveAttribute("aria-current", "page");
   }
   await waitForDesignBridgeReady(page);
-  // Selection is this helper's whole promise, and the shield is what turns a
-  // click into one. Without it every caller fails much later, somewhere else.
   await expect(
     designFrame(page, screenId)
       .locator('[data-agent-native-edit-overlay="shield"]')
@@ -487,10 +390,6 @@ export async function enterDirectMode(
   ).toBeAttached({ timeout: 15_000 });
 }
 
-/**
- * The responsive interactive preview for a single screen: the app runs for
- * real, so nothing here is selectable. Use `enterDirectMode` to edit.
- */
 export async function enterInteractView(
   page: Page,
   options?: { screenId?: string },
@@ -514,9 +413,6 @@ export async function enterInteractView(
   await expect(previewIframe).toBeVisible();
   const previewIframeHandle = await previewIframe.elementHandle();
   if (!previewIframeHandle) throw new Error("screen preview iframe is missing");
-  // The screen card can extend beneath the fixed inspector at narrow canvas
-  // widths; invoke the button without relying on the panel's overlapping
-  // physical hit area.
   await fullView.evaluate((element) => {
     (element as HTMLButtonElement).click();
   });
@@ -536,7 +432,6 @@ export async function enterInteractView(
       ),
     ),
   ).toBe(true);
-  // The focused responsive preview keeps its original iframe in the DOM.
   await expect
     .poll(
       async () =>
@@ -554,7 +449,6 @@ export async function enterInteractView(
     .toBeGreaterThan(400);
 }
 
-/** Start capturing bridge postMessages on the parent window. */
 export async function installBridge(page: Page): Promise<void> {
   await page.evaluate(() => {
     const win = window as any;
@@ -578,7 +472,6 @@ export async function bridgeMessages(page: Page): Promise<any[]> {
   return page.evaluate(() => (window as any).__bridge ?? []);
 }
 
-/** Wait until a bridge message of `type` arrives, returning its payload. */
 export async function waitForBridge(
   page: Page,
   type: string,
@@ -595,10 +488,6 @@ export async function waitForBridge(
   return handle.jsonValue();
 }
 
-/**
- * Select the exact text-bearing node through the bridge and return its
- * `element-select` payload.
- */
 export async function selectByText(
   page: Page,
   text: string,
@@ -624,9 +513,6 @@ export async function selectByText(
   }
   await page.evaluate(() => ((window as any).__bridge = []));
 
-  // Locator.boundingBox() uses main-frame CSS coordinates, including the
-  // preview iframe's transform. Hold the modifier around a real pointer click;
-  // synthetic shield events do not follow the same coordinate path.
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
   await page.keyboard.down(modifier);
   try {
@@ -665,16 +551,10 @@ export async function selectByText(
   return payload;
 }
 
-/** Number of inputs in the right-hand inspector (proxy for "inspector populated"). */
 export async function inspectorInputCount(page: Page): Promise<number> {
   return page.locator("input").count();
 }
 
-/**
- * Drag an element inside the iframe by `(dx, dy)` parent-page pixels using real
- * pointer events (the canvas bridge handles mousedown/mousemove/mouseup).
- * Selects it first so the move/reorder interaction is armed.
- */
 export async function dragCanvasByText(
   page: Page,
   text: string,
@@ -702,7 +582,6 @@ export async function dragCanvasByText(
   return [...new Set(msgs.map((m) => m.type))];
 }
 
-/** Screenshot via CDP; bypasses Playwright's stability wait, which never settles. */
 export async function cdpScreenshot(
   page: Page,
   filePath: string,
@@ -715,8 +594,6 @@ export async function cdpScreenshot(
   await writeFile(filePath, Buffer.from(data, "base64"));
 }
 
-/** Inner markup of one node, matched by walking tag depth from its open tag —
- * a non-greedy regex would stop at the first `</div>` of a nested child. */
 export function elementInner(html: string, nodeId: string): string {
   const openIndex = html.indexOf(`data-agent-native-node-id="${nodeId}"`);
   if (openIndex < 0) throw new Error(`node ${nodeId} not found`);
@@ -751,9 +628,6 @@ const VOID_TAGS = new Set([
   "wbr",
 ]);
 
-/** Node ids of one node's direct children, in DOM order. A subtree-wide scan
- * also collects the generated `<span data-an-text>` ids inside painted or
- * padded text leaves, which are not flow children of this node. */
 export function childNodeIds(html: string, parentId: string): string[] {
   const ids: string[] = [];
   let depth = 0;

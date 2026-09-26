@@ -1,20 +1,3 @@
-/**
- * Navigate the UI to a view or a specific recording / space / folder / share.
- *
- * Writes a navigate command to `application_state` which the UI reads and
- * auto-deletes. This is a one-shot command — it will not persist across
- * navigations.
- *
- * Usage:
- *   pnpm action navigate --view=library
- *   pnpm action navigate --view=shared
- *   pnpm action navigate --view=recording --recordingId=<id>
- *   pnpm action navigate --view=recording --recordingId=<id> --panel=transcript --atMs=42000
- *   pnpm action navigate --view=meeting --meetingId=<id>
- *   pnpm action navigate --view=dictate
- *   pnpm action navigate --view=space --spaceId=<id>
- *   pnpm action navigate --path=/r/rec_abc
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";

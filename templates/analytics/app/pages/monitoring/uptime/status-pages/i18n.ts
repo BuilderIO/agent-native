@@ -4,7 +4,6 @@ export { fmt } from "../i18n";
 
 const MESSAGES = {
   "en-US": {
-    // Entry / index
     title: "Status pages", // i18n-ignore feature-local i18n source
     subtitle: // i18n-ignore feature-local i18n source
       "Publish a public page that shows the live health of the monitors you choose.",
@@ -25,13 +24,11 @@ const MESSAGES = {
     openPage: "Open",
     edit: "Edit",
     delete: "Delete",
-    // Delete dialog
     deleteTitle: "Delete status page?",
     deleteDescription:
       "This permanently deletes “{title}” and its public link at /status/{slug}.",
     deleteConfirm: "Delete",
     cancel: "Cancel",
-    // Editor
     createTitle: "New status page",
     editTitle: "Edit status page",
     createSubtitle:
@@ -72,13 +69,11 @@ const MESSAGES = {
     moveUp: "Move up",
     moveDown: "Move down",
     remove: "Remove",
-    // Preview
     sectionPreview: "Live preview",
     previewHint: "Reflects your last save.",
     previewSaveFirst: "Save the page to see a live preview.",
     previewDraftNote:
       "This page is a draft — publish it to make the link live.",
-    // Validation / toasts
     titleRequired: "Give the page a title.",
     slugInvalid: "Use lowercase letters, numbers, and dashes.",
     savedToast: "Status page saved.",

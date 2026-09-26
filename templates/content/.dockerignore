@@ -46,7 +46,6 @@ tests
 fixtures-pages
 fixtures-apps
 
-# Netlify
 .netlify
 packages/ml-air/lib
 packages/ml-air/bin

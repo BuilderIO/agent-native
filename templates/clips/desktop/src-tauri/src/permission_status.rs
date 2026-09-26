@@ -19,11 +19,6 @@ pub fn check_permission_statuses() -> PermissionStatuses {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        // Windows and Linux permissions are granted through the WebView and,
-        // on Linux, the XDG desktop portal. There is no reliable synchronous
-        // preflight equivalent to macOS TCC here, so report unavailable rather
-        // than claiming permissions were granted. The non-macOS UI relies on
-        // the actual media prompt and does not render these values.
         PermissionStatuses {
             screen: false,
             camera: false,
@@ -44,7 +39,6 @@ mod macos {
 
     extern "C" {
         fn CGPreflightScreenCaptureAccess() -> bool;
-        // This is the preflight for the CGEventTap used by the Fn listener.
         fn CGPreflightListenEventAccess() -> bool;
     }
 
@@ -64,7 +58,6 @@ mod macos {
     }
 
     fn check_av_capture(media_type: &str) -> bool {
-        // AVAuthorizationStatus: notDetermined=0, restricted=1, denied=2, authorized=3
         unsafe {
             let cls = class!(AVCaptureDevice);
             let ns_type = NSString::from_str(media_type);

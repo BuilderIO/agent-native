@@ -35,7 +35,6 @@ export interface AlignmentMatrixProps {
   labels?: Partial<AlignmentMatrixLabels>;
   disabled?: boolean;
   className?: string;
-  /** Auto-layout flow direction — controls bar orientation in active cell */
   direction?: FlowDirection;
 }
 
@@ -68,7 +67,6 @@ const MATRIX_OPTIONS: Array<{
   { horizontal: "right", vertical: "bottom", labelKey: "alignBottomRight" },
 ];
 
-/** design-editor alignment cell: blue bars when active, faint dot when inactive. */
 function AlignmentCell({
   horizontal,
   vertical,
@@ -120,17 +118,6 @@ function AlignmentCell({
   );
 }
 
-/**
- * Renders the design-editor blue bars for the active alignment cell.
- *
- * Bar orientation matches the flow direction:
- * - HORIZONTAL flow → VERTICAL bars (tall, narrow), packed to the active
- *   horizontal edge (left/center/right), then aligned vertically.
- * - VERTICAL flow  → HORIZONTAL bars (wide, short), packed to the active
- *   vertical edge (top/middle/bottom), then aligned horizontally.
- *
- * No outer frame rect — the design editor's active cell shows only the bars.
- */
 function AlignmentBars({
   horizontal,
   vertical,
@@ -141,7 +128,7 @@ function AlignmentBars({
   direction: FlowDirection;
 }) {
   const accent = "var(--design-editor-accent-color, #18a0fb)";
-  const size = 14; // SVG canvas size
+  const size = 14;
 
   return (
     <svg
@@ -170,11 +157,6 @@ function AlignmentBars({
   );
 }
 
-/**
- * HORIZONTAL flow: items are laid out left→right.
- * Bars are VERTICAL (tall, narrow) representing child items.
- * Packed toward the active horizontal edge; aligned vertically.
- */
 function HorizontalFlowBars({
   horizontal,
   vertical,
@@ -186,13 +168,11 @@ function HorizontalFlowBars({
   accent: string;
   size: number;
 }) {
-  // Two vertical bars of slightly different heights for visual interest
-  const barW = 2; // bar width
-  const barH = [7, 5]; // bar heights
-  const gap = 2; // gap between bars
-  const margin = 1.5; // distance from edge
+  const barW = 2;
+  const barH = [7, 5];
+  const gap = 2;
+  const margin = 1.5;
 
-  // X positions: bars packed toward the horizontal alignment edge
   const totalW = barW * 2 + gap;
   const xStart =
     horizontal === "left"
@@ -201,7 +181,6 @@ function HorizontalFlowBars({
         ? size - margin - totalW
         : (size - totalW) / 2;
 
-  // Y positions: each bar aligned to the vertical edge
   const getBarY = (h: number) => {
     if (vertical === "top") return margin;
     if (vertical === "bottom") return size - margin - h;
@@ -230,11 +209,6 @@ function HorizontalFlowBars({
   );
 }
 
-/**
- * VERTICAL flow: items are laid out top→bottom.
- * Bars are HORIZONTAL (wide, short) representing child items.
- * Packed toward the active vertical edge; aligned horizontally.
- */
 function VerticalFlowBars({
   horizontal,
   vertical,
@@ -246,13 +220,11 @@ function VerticalFlowBars({
   accent: string;
   size: number;
 }) {
-  // Two horizontal bars of slightly different widths for visual interest
-  const barH = 2; // bar height
-  const barW = [7, 5]; // bar widths
-  const gap = 2; // gap between bars
-  const margin = 1.5; // distance from edge
+  const barH = 2;
+  const barW = [7, 5];
+  const gap = 2;
+  const margin = 1.5;
 
-  // Y positions: bars packed toward the vertical alignment edge
   const totalH = barH * 2 + gap;
   const yStart =
     vertical === "top"
@@ -261,7 +233,6 @@ function VerticalFlowBars({
         ? size - margin - totalH
         : (size - totalH) / 2;
 
-  // X positions: each bar aligned to the horizontal edge
   const getBarX = (w: number) => {
     if (horizontal === "left") return margin;
     if (horizontal === "right") return size - margin - w;

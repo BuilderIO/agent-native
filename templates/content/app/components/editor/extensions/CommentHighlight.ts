@@ -3,17 +3,6 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
-/**
- * Inline comment highlights, rendered as ProseMirror decorations (NOT marks).
- *
- * The highlights are a pure presentation overlay derived from the comment
- * anchors stored in SQL — nothing is written into the document content, so the
- * NFM / markdown / Notion round-trip is completely untouched. The React layer
- * resolves each open thread's stored anchor to a `{ from, to }` range and pushes
- * the resolved specs in through `setCommentHighlights`; in between pushes the
- * plugin maps the ranges through every transaction so the highlights follow the
- * text live as the user types, exactly like Notion / Google Docs.
- */
 export interface CommentHighlightSpec {
   threadId: string;
   from: number;
@@ -120,9 +109,6 @@ export function createCommentHighlightPlugin() {
           if (meta.activeId !== undefined) activeId = meta.activeId;
           if (meta.hoveredId !== undefined) hoveredId = meta.hoveredId;
         } else if (tr.docChanged) {
-          // Map ranges through the edit. Bias the start right and the end
-          // left so typing exactly at a boundary does not extend the
-          // highlight (Notion behavior); typing inside grows it.
           specs = specs
             .map((s) => ({
               threadId: s.threadId,
@@ -136,7 +122,6 @@ export function createCommentHighlightPlugin() {
             pending = to > from ? { from, to } : null;
           }
         } else {
-          // No doc change and no meta — nothing to recompute.
           return value;
         }
 
@@ -171,10 +156,6 @@ export const CommentHighlight = Extension.create({
   },
 });
 
-/**
- * Push resolved highlight specs, a pending range, and selected or hovered thread
- * ids into the plugin. Any field left `undefined` is preserved.
- */
 export function setCommentHighlights(
   view: EditorView,
   meta: CommentHighlightMeta,

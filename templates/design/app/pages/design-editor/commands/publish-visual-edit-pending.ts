@@ -27,7 +27,6 @@ export interface PublishVisualEditPendingArgs {
     name: "publish-visual-edit-pending",
     payload: PendingVisualEditHandoff,
   ) => Promise<unknown>;
-  /** Only account/editor-capability sessions can publish the durable handoff. */
   canPublishDurableHandoff: boolean;
   designId: string;
   fetchImpl: typeof fetch;
@@ -126,8 +125,6 @@ export async function runPublishVisualEditPending(
       throw new Error(`Bridge returned HTTP ${response.status}`);
     }
   } catch (error) {
-    // The bridge is optional for static screens; durable MCP publication
-    // remains authoritative when the local app is offline.
     console.warn(
       "[design:visual-edit] local bridge handoff publication failed",
       error,

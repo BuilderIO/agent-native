@@ -36,9 +36,6 @@ describe("Calendar mini-calendar navigation", () => {
     expect(source).toContain("function otherCalendarLabel");
     expect(source).toContain("interface OtherCalendarItem");
     expect(source).toContain("const otherCalendarItems = useMemo");
-    // Both sources are looked up by the same lowercased email so a person
-    // who is both a shared Google calendar and an overlay pin gets one row,
-    // not two.
     expect(source).toContain("calendar.calendarId.toLowerCase()");
     expect(source).toContain("person.email.toLowerCase()");
   });

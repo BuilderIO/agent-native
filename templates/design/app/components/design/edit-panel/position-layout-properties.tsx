@@ -81,21 +81,6 @@ import {
   parseScaleValue,
 } from "./transform-helpers";
 
-/**
- * `authoredStyleValue()` returns the *inline* value when one is set, but
- * falls back to the *computed* style otherwise — and `getComputedStyle()`
- * reports "auto" for left/right/top/bottom on any element that has never had
- * one of those offsets explicitly authored (the ordinary case for a plain,
- * not-yet-repositioned element). A bare "auto" is not a real authored pin,
- * and the cross-selection Mixed sentinel isn't either. Without this guard,
- * `authoredLeft && authoredRight` truthiness checks below treated "auto" as
- * "yes, pinned", so a completely unconstrained element read as "left-right"/
- * "top-bottom" (pinned to both edges) in the Constraints preview, the X/Y
- * fields showed a parsed "0" instead of the element's real on-canvas
- * position, and picking "Left"/"Top" from an unconstrained element could
- * write the literal string `"auto"` as the new `left`/`top` value instead of
- * anchoring it at its current position. Exported for tests.
- */
 export function definiteAuthoredOffset(
   raw: string | undefined,
 ): string | undefined {
@@ -114,16 +99,10 @@ function geometryPercent(value: number, total: number): string {
   return `${Number(((value / total) * 100).toFixed(6))}%`;
 }
 
-/** Whole px: every value through here is a coordinate or box edge derived from
- *  a bounding rect, and its subpixel is never something anyone chose. */
 function geometryPx(value: number): string {
   return `${quantizeToStep(value)}px`;
 }
 
-/** Once the bridge supplies an inline-style snapshot, absence is meaningful:
- * an absolutely-positioned left-only element still has a computed `right`,
- * but that resolved value is not an authored right pin. Older payloads omit
- * `inlineStyles` entirely, so only those fall back to computed styles. */
 function authoredConstraintValue(
   element: ElementInfo,
   property: string,
@@ -135,14 +114,6 @@ function authoredConstraintValue(
   return element.computedStyles[property];
 }
 
-/**
- * Derives the Constraints preview/widget state from an element's authored
- * left/right/top/bottom/width/height/transform. Pulled out as a standalone
- * pure function (mirrors `autoLayoutStylesForFlow` in layout-properties.tsx)
- * so the "auto"/Mixed-safe derivation fixed by `definiteAuthoredOffset` above
- * is directly unit-testable without rendering the whole panel. Exported for
- * tests.
- */
 export function deriveConstraintsValue(element: ElementInfo): ConstraintsValue {
   const authoredLeft = authoredConstraintValue(element, "left");
   const authoredRight = authoredConstraintValue(element, "right");
@@ -170,8 +141,7 @@ export function deriveConstraintsValue(element: ElementInfo): ConstraintsValue {
   return {
     horizontal: horizontalMixed
       ? "mixed"
-      : // Check scale before left+right: "scale" writes width:100% and clears
-        // left/right to auto, but legacy data may have 0px values that are truthy.
+      :
         authoredWidth === "100%" ||
           (percentageLength(authoredWidth) && percentageLength(definiteLeft))
         ? "scale"
@@ -197,12 +167,6 @@ export function deriveConstraintsValue(element: ElementInfo): ConstraintsValue {
   };
 }
 
-/** Build the complete constraints edit before writing anything. The previous
- * implementation emitted position, four offsets, size, and transform as
- * separate writes, producing visible intermediate layouts and one undo entry
- * per property. Keeping this pure also makes the exact atomic patch directly
- * regression-testable. A mixed axis is intentionally left untouched until the
- * user chooses a concrete value for that axis. */
 export function constraintsStylePatch(
   element: ElementInfo,
   value: ConstraintsValue,
@@ -319,7 +283,6 @@ export function constraintsStylePatch(
   return patch;
 }
 
-/** Position, size, and spacing properties */
 export function PositionLayoutProperties({
   element,
   onStyleChange,
@@ -332,19 +295,9 @@ export function PositionLayoutProperties({
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
-  /**
-   * Moves the selection itself (Figma's real "Alignment" row semantics):
-   * aligns to the combined selection bounding box for a 2+ multi-selection,
-   * or to the parent for a single selected object. When provided, the
-   * alignment row's six buttons call this instead of writing flex-alignment
-   * properties on the selected element. See the `onAlignSelection` contract
-   * note above `PositionLayoutProperties` usage in this file for the exact
-   * edge semantics the caller (DesignEditor) must implement.
-   */
   onAlignSelection?: (
     edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
   ) => void;
-  /** True when `onAlignSelection` would refuse this selection. */
   alignSelectionDisabled?: boolean;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
@@ -357,15 +310,6 @@ export function PositionLayoutProperties({
   const constrainedPosition =
     styles.position === "absolute" || styles.position === "fixed";
   const alignmentDisabled = alignSelectionDisabled || !onAlignSelection;
-  // NOTE: this row used to also write flex alignment (justifyContent/
-  // alignItems) on the selected element when it was a flex container —
-  // i.e. it aligned the element's own children. That duplicated exactly
-  // what FlexContainerControls' AutoLayoutMatrix already offers via its
-  // CompactAlignmentMatrix (onAlignmentChange, wired a few hundred lines
-  // up in this file) and was never real Figma behavior: Figma's Alignment
-  // row in the Position section always moves the selected object(s), not
-  // their children. That fallback has been removed — flex child alignment
-  // now lives exclusively in the auto-layout section's alignment matrix.
   const handlePositionAlignH = (value: AlignmentMatrixValue["horizontal"]) => {
     onAlignSelection?.(
       value === "left" ? "left" : value === "right" ? "right" : "center-h",
@@ -376,12 +320,6 @@ export function PositionLayoutProperties({
       value === "top" ? "top" : value === "bottom" ? "bottom" : "center-v",
     );
   };
-  // Authored (not computed) left/top: used directly (not through
-  // `definiteAuthoredOffset`) below because the X/Y fields need to tell
-  // "Mixed" apart from "unset", and handleConstraintsChange's own fallback
-  // already normalizes through `definiteAuthoredOffset` at its call sites.
-  // Right/bottom and the scale/rotation checks needed for the Constraints
-  // preview live in `deriveConstraintsValue` (above) instead.
   const authoredLeft = authoredStyleValue(element, "left");
   const authoredTop = authoredStyleValue(element, "top");
   const liveDragPosition = useLiveDragPosition(element.selector);
@@ -393,18 +331,11 @@ export function PositionLayoutProperties({
     : (authoredTransform ?? styles.transform);
   const constraintsValue = deriveConstraintsValue(element);
   const [constraintsExpanded, setConstraintsExpanded] = useState(false);
-  // position:absolute/fixed takes a child out of the parent's flex flow, so it
-  // still anchors and keeps constraints.
   const constraintsSuppressed =
     element.isFlexChild &&
     !["absolute", "fixed"].includes(
       (element.computedStyles?.position ?? "").toLowerCase(),
     );
-  // 3D rotation/perspective progressive-disclosure expander — mirrors
-  // CornerRadiusControl's showIndependentCorners pattern. Default-expanded
-  // when the authored transform already has non-zero X/Y rotation or
-  // perspective, so an element edited elsewhere (e.g. by the agent) doesn't
-  // hide its active 3D state behind a collapsed control.
   const initialTransform3DParts = parseTransform3DParts(
     isMixedValue(authoredTransform) ? undefined : authoredTransform,
   );
@@ -538,11 +469,6 @@ export function PositionLayoutProperties({
               placeholder={element.boundingRect.x}
               inputClassName="h-6"
               onChange={(v, meta) => {
-                // Typing X/Y on a static (non-positioned) element is a no-op on
-                // canvas unless we first give it a position to offset from —
-                // mirror handleConstraintsChange, which always sets
-                // position:absolute (the convention canvas drag/resize and
-                // primitive creation both use) before writing left/top.
                 commitStylePatch(
                   {
                     ...(!constrainedPosition
@@ -675,11 +601,6 @@ export function PositionLayoutProperties({
               hideIcon={false}
               icon={IconAngle}
               labelClassName="[&>span]:sr-only"
-              // Detect the Mixed sentinel BEFORE parsing: parseRotationValue
-              // would silently turn "Mixed" into 0 and render "0deg" instead
-              // of the mixed state (mirrors the opacity field's guard).
-              // CSS positive rotation is clockwise on screen; the inspector
-              // exposes Figma's counter-clockwise-positive degree domain.
               value={
                 isMixedValue(styles.transform)
                   ? MIXED_VALUE
@@ -692,8 +613,6 @@ export function PositionLayoutProperties({
                 const hasPerTargetOperation =
                   typeof meta?.relativeDelta === "number" ||
                   meta?.relativeExpression !== undefined;
-                // A typed absolute value on a mixed selection still needs
-                // each layer's existing transform functions preserved.
                 const perTargetMeta =
                   mixedRotation && !hasPerTargetOperation
                     ? {
@@ -705,17 +624,10 @@ export function PositionLayoutProperties({
                       }
                     : meta;
                 onStyleChange(
-                  // `rotation` is a per-target edit domain, translated back
-                  // to each target's CSS transform by the per-layer writer.
                   mixedRotation &&
                     (hasPerTargetOperation || perTargetMeta?.relativeExpression)
                     ? "rotation"
                     : "transform",
-                  // From a mixed selection the sentinel is not a transform —
-                  // this value is ignored by the per-target writer, while
-                  // `perTargetMeta` applies it without dropping each layer's
-                  // translation and scale. This field writes the Z rotation —
-                  // existing designs' `transform: rotate()` remains supported.
                   mergeRotationValue(rotationTransform, -v),
                   perTargetMeta,
                 );
@@ -797,25 +709,6 @@ export function PositionLayoutProperties({
   );
 }
 
-/**
- * Progressive-disclosure X/Y/Z rotation + perspective controls, revealed by
- * the 3D-rotation expander next to the plain (Z-axis) rotation field. See
- * `composeTransform3D`/`parseTransform3DParts` (shared/canvas-math.ts) for
- * the parse/compose contract this wraps.
- *
- * - Transform composition order: `perspective(Npx) rotateX(Xdeg)
- *   rotateY(Ydeg) rotateZ(Zdeg) <preserved translate/scale/etc>` — see the
- *   `composeTransform3D` doc comment for the full rationale (X→Y→Z is a
- *   common 3D-engine Euler convention; Figma hasn't published a composition
- *   order since 3D transforms are unshipped there as of this build).
- * - When X, Y, and Perspective are all zero/empty, the composed transform is
- *   the plain 2D `rotate(Zdeg)` form — zero output churn for existing
- *   designs that never touch this expander.
- * - `transform-style: preserve-3d` is intentionally NOT applied here:
- *   defaulting to flattened (no preserve-3d) matches the conservative,
- *   minimal-footprint choice for this first pass — see the build report for
- *   the preserve-3d-on-children tradeoff.
- */
 function Rotation3DControls({
   styles,
   onStyleChange,
@@ -826,12 +719,6 @@ function Rotation3DControls({
   const t = useT();
   const transformMixed = isMixedValue(styles.transform);
   const parts = transformMixed ? null : parseTransform3DParts(styles.transform);
-  // `parts === null` (and not mixed) means the authored transform is a
-  // matrix()/matrix3d()/rotate3d() composite (or an unrecognized token) that
-  // parseTransform3DParts can't safely invert into independent X/Y/Z/
-  // perspective fields — show the fields disabled with a note instead of
-  // guessing, matching how Mixed values disable commit rather than silently
-  // defaulting to 0. See parseTransform3DParts's doc comment.
   const isCustomTransform = !transformMixed && parts === null;
   const disabled = transformMixed || isCustomTransform;
   const displayParts: Transform3DParts = parts ?? {

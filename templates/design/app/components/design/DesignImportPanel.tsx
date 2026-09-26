@@ -133,7 +133,6 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   const pendingFigImportRef = useRef<PreparedFigImport | null>(null);
   const unmountedRef = useRef(false);
 
-  // A prepared import holds a Worker with the decoded document in it.
   useEffect(() => {
     unmountedRef.current = false;
     return () => {
@@ -302,7 +301,6 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       await finishImport(result, t("designEditor.import.figmaUrlSuccess"));
       setFigmaRateLimitError(null);
     } catch (error) {
-      // A rejected credential should not linger in component state or the DOM.
       setFigmaAccessToken("");
       const { result, isRateLimited } = readFigmaImportFailure(
         error,
@@ -416,9 +414,6 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       try {
         let prepared: PreparedFigImport;
         try {
-          // Loaded on demand: the decoder and the kiwi walker are ~5.5k lines
-          // plus three codec packages, and an editor that never opens a `.fig`
-          // should not pay for them on first paint.
           const { prepareFigImport, shouldWarnForFigImport } =
             await import("@/lib/fig-client-import");
           prepared = await prepareFigImport(file, ({ phase }) => {
@@ -1057,7 +1052,6 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   );
 }
 
-/** Memoized: toggling one of a few hundred frames re-renders only its row. */
 const FigImportFrameRow = memo(function FigImportFrameRow({
   frame,
   checked,

@@ -1,12 +1,3 @@
-/**
- * Pop the most-recently-added excluded trim from a recording.
- *
- * There is no redo stack — this action is a simple LIFO pop over
- * `editsJson.trims.filter(t => t.excluded)`. Split markers are ignored.
- *
- * Usage:
- *   pnpm action undo-edit --recordingId=<id>
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";

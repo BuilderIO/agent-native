@@ -1,9 +1,4 @@
-// Read-side action contracts. The record/read-through cases stay mocked — they
-// are about which adapter is consulted — while the list, navigation, and
-// view-screen cases run against a real PGlite database with the app's own
 // migrations, because what they protect (the resolved ownership scope bounding
-// the returned rows, a saved view's grouping, a query-string flag) cannot be
-// observed through a stubbed query builder.
 
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -44,7 +39,6 @@ vi.mock("../server/crm/adapter.js", () => ({
   isConnectedCrmProvider: (provider: string) =>
     provider === "hubspot" || provider === "salesforce",
 }));
-// The connected-adapter factory is stubbed, but scope resolution is the real
 // thing: a mock that answers "which scope?" cannot prove the scope bounds rows.
 vi.mock("../server/crm/native-adapter.js", async (importOriginal) => {
   const actual =
@@ -262,8 +256,6 @@ describe("CRM read actions", () => {
       ),
     )) as any;
 
-    // rec_3 stores a scope the connection no longer grants, so the resolved
-    // scope — not the row's own access filter — is what withholds it.
     expect(page.records.map((record: any) => record.id)).toEqual([
       "rec_1",
       "rec_2",
@@ -495,7 +487,6 @@ describe("CRM read actions", () => {
     } as never)) as any;
 
     expect(screen.record).toMatchObject({ id: "record-1" });
-    // No path was published, so an absent list/view id is unknown, not empty.
     expect(screen.selection).toMatchObject({
       pathReadable: false,
       recordId: "record-1",
@@ -564,8 +555,6 @@ describe("navigate", () => {
     await expect(
       navigate.run(navigate.schema.parse({ view: "record" }) as never),
     ).rejects.toThrow(/recordId is required/);
-    // /views on its own is the index, so a board with no target would look like
-    // a successful navigation to a board that never opened.
     await expect(
       navigate.run(navigate.schema.parse({ view: "board" }) as never),
     ).rejects.toThrow(/listId or viewId is required/);

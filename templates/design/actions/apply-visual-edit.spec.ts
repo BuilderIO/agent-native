@@ -39,15 +39,12 @@ describe("apply-visual-edit schema", () => {
       intent: styleIntent,
     };
 
-    // omitted — fine
     expect(action.schema.safeParse(base).success).toBe(true);
 
-    // null — fine
     expect(
       action.schema.safeParse({ ...base, activeBreakpoint: null }).success,
     ).toBe(true);
 
-    // valid prefix values
     for (const bp of ["base", "sm", "md", "lg", "xl", "2xl"] as const) {
       expect(
         action.schema.safeParse({ ...base, activeBreakpoint: bp }).success,
@@ -55,7 +52,6 @@ describe("apply-visual-edit schema", () => {
       ).toBe(true);
     }
 
-    // invalid value
     expect(
       action.schema.safeParse({ ...base, activeBreakpoint: "3xl" }).success,
     ).toBe(false);
@@ -120,7 +116,6 @@ describe("apply-visual-edit schema", () => {
       action.schema.safeParse({ ...base, activeFrameWidthPx: null }).success,
     ).toBe(true);
 
-    // non-positive width is rejected
     expect(
       action.schema.safeParse({ ...base, activeFrameWidthPx: 0 }).success,
     ).toBe(false);
@@ -130,9 +125,6 @@ describe("apply-visual-edit schema", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Breakpoint-aware class-edit integration (inline-html path, no DB needed)
-// ---------------------------------------------------------------------------
 
 const html = `<div id="card" class="text-sm p-4">Hello</div>`;
 
@@ -151,7 +143,6 @@ describe("apply-visual-edit breakpoint-aware class edits", () => {
 
     expect(result.result.status).toBe("applied");
     expect(result.patchedContent).toContain("font-bold");
-    // No breakpoint prefix on the added class
     expect(result.patchedContent).not.toContain("md:font-bold");
   });
 
@@ -169,14 +160,11 @@ describe("apply-visual-edit breakpoint-aware class edits", () => {
     });
 
     expect(result.result.status).toBe("applied");
-    // The class should be added with the md: prefix, not globally
     expect(result.patchedContent).toContain("md:text-base");
-    // The base text-sm class should be untouched
     expect(result.patchedContent).toContain("text-sm");
   });
 
   it("derives the breakpoint from activeFrameWidthPx when activeBreakpoint is omitted", async () => {
-    // 768px maps to "md:" prefix via widthToPrefix
     const result = await action.run({
       source: { kind: "inline-html", html },
       intent: {
@@ -194,7 +182,6 @@ describe("apply-visual-edit breakpoint-aware class edits", () => {
   });
 
   it("activeBreakpoint takes priority over activeFrameWidthPx", async () => {
-    // activeBreakpoint=lg should win, even though 768px would normally be "md"
     const result = await action.run({
       source: { kind: "inline-html", html },
       intent: {
@@ -232,7 +219,6 @@ describe("apply-visual-edit breakpoint-aware class edits", () => {
   });
 
   it("scopes a 'replace' class edit to the active breakpoint", async () => {
-    // The node already has text-sm; replacing text-sm → text-base at md:
     const result = await action.run({
       source: { kind: "inline-html", html },
       intent: {
@@ -247,18 +233,11 @@ describe("apply-visual-edit breakpoint-aware class edits", () => {
     });
 
     expect(result.result.status).toBe("applied");
-    // replace at md: sets the md: utility (uses setPropertyClass)
     expect(result.patchedContent).toContain("md:text-base");
-    // base text-sm should still be in the class string
     expect(result.patchedContent).toContain("text-sm");
   });
 
   it("reports conflict for a breakpoint-scoped 'replace' when 'from' does not match the current utility (VE1 regression)", async () => {
-    // Stale selection: caller believes the md: font-size utility is
-    // "text-lg", but the node's md: override is actually "text-base" (or
-    // absent). scopeClassIntentToBreakpoint must thread `from` through to the
-    // responsive-class conversion so the mismatch is rejected instead of
-    // silently overwriting the wrong utility.
     const htmlWithOverride = `<div id="card" class="text-sm md:text-base p-4">Hello</div>`;
 
     const result = await action.run({
@@ -276,7 +255,6 @@ describe("apply-visual-edit breakpoint-aware class edits", () => {
 
     expect(result.result.status).toBe("conflict");
     expect(result.result.changed).toBe(false);
-    // Content must be untouched — no silent overwrite of the wrong utility.
     expect(result.patchedContent).toBe(htmlWithOverride);
   });
 
@@ -296,9 +274,7 @@ describe("apply-visual-edit breakpoint-aware class edits", () => {
     });
 
     expect(result.result.status).toBe("applied");
-    // The md: override should be removed
     expect(result.patchedContent).not.toContain("md:text-base");
-    // The base class should remain
     expect(result.patchedContent).toContain("text-sm");
   });
 
@@ -316,7 +292,6 @@ describe("apply-visual-edit breakpoint-aware class edits", () => {
     });
 
     expect(result.result.status).toBe("applied");
-    // set replaces all classes globally (no md: prefix)
     expect(result.patchedContent).toContain('class="p-8 text-lg"');
   });
 
@@ -372,7 +347,6 @@ describe("apply-visual-edit Framer-scoped edits (maxWidthPx)", () => {
 
     expect(result.result.status).toBe("applied");
     expect(result.patchedContent).toContain("max-[809px]:text-lg");
-    // Base class untouched — it keeps rendering at wider viewports.
     expect(result.patchedContent).toContain("text-sm");
   });
 
@@ -395,7 +369,6 @@ describe("apply-visual-edit Framer-scoped edits (maxWidthPx)", () => {
     );
     expect(result.patchedContent).toContain("@media (max-width: 809px)");
     expect(result.patchedContent).toContain("left: 137px;");
-    // No base inline style written.
     expect(result.patchedContent).not.toContain('style="left');
   });
 
@@ -458,9 +431,6 @@ describe("apply-visual-edit Framer-scoped edits (maxWidthPx)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Batched intents: a later failure must roll back both content AND projection
-// ---------------------------------------------------------------------------
 
 describe("apply-visual-edit batched intent failure", () => {
   it("returns a projection consistent with the rolled-back content when a later intent fails", async () => {
@@ -475,8 +445,6 @@ describe("apply-visual-edit batched intent failure", () => {
         },
         {
           kind: "style",
-          // No such node — forces the batch to fail on the second intent
-          // after the first has already been applied in memory.
           target: { selector: "#missing" },
           property: "color",
           value: "red",
@@ -486,10 +454,7 @@ describe("apply-visual-edit batched intent failure", () => {
     });
 
     expect(result.result.status).not.toBe("applied");
-    // Content rolls back to the pre-batch source.
     expect(result.patchedContent).toBe(html);
-    // The returned projection must describe that same rolled-back source —
-    // not the in-memory state after the first (discarded) intent applied.
     const cardNode = result.projection.nodes.find((node) =>
       node.selectors.includes("#card"),
     );

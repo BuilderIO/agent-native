@@ -114,7 +114,6 @@ export function textContent(doc: SuggestionNode): string {
   return result;
 }
 
-/** Stable, dependency-free digest suitable for detecting a proposal base. */
 export function digest(value: string): string {
   let hash = 2166136261;
   for (let i = 0; i < value.length; i += 1) {

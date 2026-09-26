@@ -35,11 +35,6 @@ export default function PresenterView({
   designSystem,
 }: PresenterViewProps) {
   const t = useT();
-  // `startIndex` is a raw index into the full (unfiltered) deck.slides array.
-  // Skipped slides are absent from safeSlides below, so translate it to the
-  // nearest visible slide's position within safeSlides — matching
-  // PresentationView, whose filtered currentIndex this view's `index` state
-  // otherwise mirrors via the BroadcastChannel.
   const initialIndex = useMemo(() => {
     const rawSlides = (Array.isArray(slides) ? slides : []).filter(Boolean);
     if (rawSlides.length === 0) return 0;
@@ -141,13 +136,6 @@ export default function PresenterView({
   }, [goNext, goPrev]);
 
   // One atomic effect handles both cases so they can't race each other:
-  // - A genuine deep link or deck switch (startIndex/deckId changed) reseeds
-  //   from initialIndex. This route is reused across decks (see the
-  //   BroadcastChannel effect above, keyed on deckId).
-  // - Otherwise, a skip toggle or reorder changed safeSlides without a new
-  //   deep link. A length-only clamp would silently swap in a different
-  //   slide at the same index, so follow the previously-shown slide's id to
-  //   its new position, falling back to a raw clamp only when it's gone.
   const prevDeepLinkKeyRef = useRef({ startIndex, deckId });
   const prevSafeSlideIdsRef = useRef<string[]>(safeSlides.map((s) => s.id));
   useEffect(() => {
@@ -162,9 +150,6 @@ export default function PresenterView({
       return;
     }
 
-    // Read the prior ids before overwriting the ref below — the lookup
-    // needs the slide order from before this update, not the one it's
-    // producing.
     const activeId = prevSafeSlideIdsRef.current[indexRef.current];
     const newIds = safeSlides.map((s) => s.id);
     const followedIndex = activeId ? newIds.indexOf(activeId) : -1;

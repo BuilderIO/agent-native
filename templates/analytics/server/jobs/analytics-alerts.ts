@@ -20,10 +20,6 @@ function maxRulesPerSweep(input?: number): number {
     : DEFAULT_MAX_RULES_PER_SWEEP;
 }
 
-/**
- * Run one analytics alert sweep. Exported for deployment-specific scheduled
- * functions that should not rely on a long-lived Node process.
- */
 export async function runAnalyticsAlertsOnce(
   options: {
     ownerEmail?: string;
@@ -56,10 +52,6 @@ export async function runAnalyticsAlertsOnce(
         orgId: options.orgId,
       });
     } catch (err) {
-      // Schema not migrated yet (e.g. a deploy that hasn't picked up the
-      // analytics_alert_rules migration) or a transient DB error — don't let
-      // one bad sweep crash the whole interval/cron invocation every time it
-      // fires. Log once per process so the failure is still visible.
       if (!listRulesFailureLogged) {
         console.error(
           "[analytics-alerts] Failed to list enabled alert rules; skipping this sweep:",

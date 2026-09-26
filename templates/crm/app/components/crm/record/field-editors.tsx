@@ -1,12 +1,3 @@
-/**
- * The record panel's display and inline editors.
- *
- * What a value says, which option it resolves to, and how typed input parses
- * back all come from `../shared/attribute-value`, the one registry the
- * spreadsheet grid reads too. This file owns only the panel's own affordances:
- * a labelled full-width row, a shadcn `Select` instead of the grid's popover,
- * and commit-on-blur instead of the grid's commit-and-advance.
- */
 
 import { useT } from "@agent-native/core/client/i18n";
 import { IconAlertTriangle, IconPlus, IconX } from "@tabler/icons-react";
@@ -54,7 +45,6 @@ import {
   type FieldLockReason,
 } from "./record-data";
 
-/** Sentinel for "clear this option" — shadcn `SelectItem` rejects an empty value. */
 const CLEAR_OPTION = "__crm_clear__";
 
 type EditableAttribute = Pick<
@@ -124,11 +114,6 @@ export function FieldLockNote({ reason }: { reason: FieldLockReason }) {
   );
 }
 
-/**
- * One editable value. Options and checkboxes commit on change; free text
- * commits on blur or Enter and reverts on Escape. `onCommit` is expected to be
- * optimistic — nothing here blocks on the write.
- */
 export function FieldEditor({
   attribute,
   value,
@@ -147,12 +132,8 @@ export function FieldEditor({
   const [state, setState] = useState(() => editorDraftFor(undefined, seed));
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  // Set the moment the input takes focus, cleared by the click that follows.
-  // See `selectOnFocus` below.
   const selectedOnFocus = useRef(false);
 
-  // Re-seeded during render, not from an effect: an effect re-seed lands after
-  // the browser has already applied the keystroke it is about to overwrite.
   const current = editorDraftFor(state, seed);
   if (current !== state) setState(current);
   const draft = current.draft;
@@ -162,28 +143,9 @@ export function FieldEditor({
     const input = inputRef.current;
     if (!input) return;
     input.focus();
-    // Select here as well as in `onFocus`, not instead of it. A programmatic
-    // `focus()` fires no focus event while the document itself is unfocused
-    // (a background tab, a devtools-driven run), so an `onFocus`-only select
-    // silently leaves the caret at the end of the old value and the first
-    // thing typed is appended to it.
     input.select();
   }, [autoFocus]);
 
-  /**
-   * Select the whole value whenever the field takes focus, so the next thing
-   * typed *replaces* it.
-   *
-   * This hangs off focus rather than off `autoFocus` alone because
-   * `FieldEditor` is also rendered as an always-live input (list entry rows),
-   * where nothing ever mounts it focused: a caller that does not pass
-   * `autoFocus` would otherwise get an editor that appends to the old value.
-   * Selecting is the editor's own property, not something each caller has to
-   * remember — that is how the same append bug came back twice.
-   *
-   * The `mouseUp` half matters: when focus came from a click, the browser
-   * places the caret on mouse-up and would drop the selection made here.
-   */
   const selectOnFocus = {
     onFocus: (event: React.FocusEvent<HTMLInputElement>) => {
       selectedOnFocus.current = true;
@@ -239,12 +201,6 @@ export function FieldEditor({
     onDone?.();
   }
 
-  /**
-   * Commit a typed value the picker produced directly. It skips text parsing —
-   * a reference display name may contain the comma a multi value splits on —
-   * but not the editability gate, which is what keeps a doomed write off the
-   * wire.
-   */
   function commitValue(next: CrmValue) {
     if (!fieldEditability(attribute).editable) {
       setError(t("record.notEditable"));
@@ -341,12 +297,6 @@ export function FieldEditor({
   );
 }
 
-/**
- * A link to another record: a searchable popover, and the committed value as
- * chips. `multi` toggles membership instead of replacing, and a chip carries
- * its own unlink control — the popover would otherwise be the only way to
- * remove one, which needs the user to search for a record they can already see.
- */
 function ReferenceField({
   attribute,
   value,
@@ -356,8 +306,6 @@ function ReferenceField({
 }: {
   attribute: EditableAttribute;
   value: CrmValue | undefined;
-  /** The row was just activated, so open the search straight away rather than
-   *  making the user click the value twice to get to a picker. */
   autoFocus: boolean;
   onCommit: (next: CrmValue) => void;
   onDone?: () => void;
@@ -374,8 +322,6 @@ function ReferenceField({
     }
   }
 
-  // `toggleReferenceValue` is a *pick*: on a single reference it replaces, so
-  // reusing it here would re-write the value the user is trying to remove.
   function unlink(member: string) {
     onCommit(
       attribute.multi ? toggleReferenceValue(value, member, true) : null,

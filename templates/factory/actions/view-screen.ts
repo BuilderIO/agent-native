@@ -1,11 +1,3 @@
-/**
- * See what the user is currently looking at on screen.
- *
- * Reads and returns the current navigation state from application state.
- *
- * Usage:
- *   pnpm action view-screen
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { readAppStateForCurrentTab } from "@agent-native/core/application-state";

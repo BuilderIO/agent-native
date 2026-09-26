@@ -27,8 +27,6 @@ type ExistingConnection = {
 
 let existingConnection: ExistingConnection | null = null;
 let legacyConnections: ExistingConnection[] = [];
-// Row returned by the upsert. `undefined` mirrors `insertedValues`; set it
-// explicitly to model a race winner or a cross-user no-op.
 let upsertedRow: { bridgeToken: string | null } | null | undefined = undefined;
 let previewTokenUpdate: Record<string, unknown> | null = null;
 let previewTokenUpdateWhere: unknown;
@@ -343,11 +341,9 @@ describe("connect-localhost", () => {
       rootPath: "/tmp/app",
     });
 
-    // Insert reuses the existing token; the conflict set uses a coalesce()
     // expression that fills a null token but never clobbers an existing one.
     expect(insertedValues?.bridgeToken).toBe("existing_bridge_token");
     expect(upsertConfig?.set.bridgeToken).toBeInstanceOf(SQL);
-    // The action returns the token the row actually holds (read back).
     expect(result.bridgeToken).toBe("existing_bridge_token");
     expect(result.previewToken).toBe(
       derivePreviewToken("existing_bridge_token"),
@@ -360,7 +356,7 @@ describe("connect-localhost", () => {
       orgId: "org_1",
       bridgeToken: "old_bridge_token",
     };
-    upsertedRow = { bridgeToken: "new_bridge_token" }; // DB state after overwrite
+    upsertedRow = { bridgeToken: "new_bridge_token" };
 
     const result = await action.run({
       id: "conn_1",
@@ -370,7 +366,6 @@ describe("connect-localhost", () => {
       bridgeToken: " new_bridge_token ",
     });
 
-    // An explicit token overwrites unconditionally (literal, not coalesce).
     expect(insertedValues?.bridgeToken).toBe("new_bridge_token");
     expect(upsertConfig?.set.bridgeToken).toBe("new_bridge_token");
     expect(result.bridgeToken).toBe("new_bridge_token");
@@ -390,8 +385,6 @@ describe("connect-localhost", () => {
       rootPath: "/tmp/app",
     });
 
-    // A fresh 64-hex token is minted and carried on the insert, and the conflict
-    // set coalesces so a null legacy row gets filled instead of staying tokenless.
     expect(insertedValues?.bridgeToken).toMatch(/^[0-9a-f]{64}$/);
     expect(upsertConfig?.set.bridgeToken).toBeInstanceOf(SQL);
     // The caller always receives a usable token (never null/undefined).
@@ -426,8 +419,6 @@ describe("connect-localhost", () => {
   });
 
   it("fails closed when the guarded upsert did not persist for this owner", async () => {
-    // Pre-check passes, but the owner-scoped upsert returns no row because a
-    // concurrent insert by another user made it a no-op.
     existingConnection = null;
     upsertedRow = null;
 
@@ -465,11 +456,8 @@ describe("connect-localhost", () => {
       rootPath: "/tmp/app",
     });
 
-    // Insert values and upsert set carry the same owner scoping.
     expect(insertedValues?.ownerEmail).toBe("user@example.com");
     expect(upsertConfig?.set.ownerEmail).toBe("user@example.com");
-    // setWhere must be present so a cross-user conflict filters to a no-op
-    // instead of overwriting the other user's row.
     expect(upsertConfig?.setWhere).toBeDefined();
   });
 
@@ -489,7 +477,6 @@ describe("connect-localhost", () => {
       }),
     ).rejects.toThrow(/another user/);
 
-    // Nothing may be written for the colliding id.
     expect(insertedValues).toBeNull();
     expect(upsertConfig).toBeNull();
   });

@@ -6,11 +6,6 @@ import {
   text,
 } from "@agent-native/core/db/schema";
 
-/**
- * Short-lived, owner-scoped continuation state for the external Mail
- * inventory. It intentionally contains compact metadata only; credentials,
- * bodies, HTML and attachments never enter this table.
- */
 export const mailInventoryCursors = table("mail_inventory_cursors", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull(),
@@ -111,12 +106,6 @@ export const snippets = table("snippets", {
   updatedAt: integer("updated_at").notNull(),
 });
 
-/**
- * Per-account Gmail sync watermark for the inbox store. One row per
- * `${ownerEmail}:${accountEmail}`. `historyId` null means the account hasn't
- * completed its first full sync yet; the `full_sync_*` columns track a
- * resumable full-sync page walk.
- */
 export const mailSyncAccounts = table(
   "mail_sync_accounts",
   {
@@ -139,8 +128,6 @@ export const mailSyncAccounts = table(
       .default(0),
     syncClaimId: text("sync_claim_id"),
     syncClaimedAt: integer("sync_claimed_at"),
-    // Compact cached labels.list result: [{id,name,type,color?,messagesTotal?,
-    // messagesUnread?,threadsTotal?,threadsUnread?}]
     labelsJson: text("labels_json"),
     labelsUpdatedAt: integer("labels_updated_at"),
     createdAt: integer("created_at").notNull(),
@@ -165,10 +152,6 @@ export const mailInboxPushInvalidations = table(
   ],
 );
 
-/**
- * SQL mirror of each connected account's INBOX threads, kept fresh by
- * `server/lib/inbox-sync.ts`. Metadata only — no bodies, no HTML.
- */
 export const mailInboxThreads = table(
   "mail_inbox_threads",
   {

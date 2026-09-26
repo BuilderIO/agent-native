@@ -32,8 +32,6 @@ beforeEach(() => {
   getRequestTimezoneMock.mockReturnValue("Pacific/Auckland");
   putSettingMock.mockResolvedValue(undefined);
   putUserSettingMock.mockResolvedValue(undefined);
-  // The default updater reads the same stored row a database-backed atomic
-  // write would begin from. Individual tests override it for races.
   mutateUserSettingMock.mockImplementation(
     async (
       email: string,
@@ -96,8 +94,6 @@ describe("readCalendarSettings", () => {
     expect(updater(concurrentlySaved)).toBe(concurrentlySaved);
   });
 
-  // A different user's first-time read must never touch the shared/global
-  // key that backs another owner's already-customized public booking page.
   it("never writes the shared global key from a read, even when persisting", async () => {
     getUserSettingMock.mockResolvedValue(null);
     await readCalendarSettings(EMAIL, { persistDetected: true });
@@ -121,7 +117,6 @@ describe("readCalendarSettings", () => {
 });
 
 describe("readPublicCalendarSettings", () => {
-  // A visitor's own zone must never shift the owner's published booking times.
   it("uses the fixed default rather than the visitor's zone", async () => {
     getSettingMock.mockResolvedValue(null);
     await expect(readPublicCalendarSettings()).resolves.toMatchObject({
@@ -196,8 +191,6 @@ describe("saveCalendarSettings", () => {
     expect(saved).not.toHaveProperty("__calendarEventRuleUndoClaims");
   });
 
-  // Saving an unrelated field must not quietly move an account to the fixed
-  // default zone after it was read as the caller's.
   it("does not overwrite the timezone a read would have returned", async () => {
     getUserSettingMock.mockResolvedValue(null);
 
@@ -217,8 +210,6 @@ describe("saveCalendarSettings", () => {
 });
 
 describe("getCalendarTimezone", () => {
-  // The grid and the settings page resolve through the same read, so they can
-  // never render an account in different zones.
   it("matches what the settings read returns", async () => {
     for (const stored of [
       null,

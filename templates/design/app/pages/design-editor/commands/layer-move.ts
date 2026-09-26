@@ -162,25 +162,6 @@ export interface LayerMoveArgs {
   visualScreenFileIds: Set<string>;
 }
 
-/**
- * Alt-drag-duplicate in the Layers panel (Figma parity: unique-paths.md #2).
- * Clones the dragged node's markup in place — as a fresh-id same-parent
- * sibling — then moves that CLONE to the intended drop position; the
- * original is never touched. A pure string/projection transform so it can
- * run ahead of runLayerMove's codeLayerOwnerByNodeId-keyed branches, which
- * don't know about the freshly-minted clone until the next render.
- *
- * Clone generation reuses `prepareClonedHtmlLayer` — the same DOM-based
- * remapping the canvas alt-drag/duplicate/paste paths use — so authored
- * `id="…"` attributes are re-keyed (not just `data-agent-native-node-id`)
- * and the returned `nodeIdMap` lets the caller carry motion tracks over to
- * the clone, instead of a bespoke regex that only touched one attribute.
- *
- * Returns null when the drop doesn't fit this single-node, same-document
- * fast path (target missing, no `document` to clone through, or the move
- * step reports anything but "applied") — callers must refuse the gesture
- * rather than fall back to a plain, non-duplicating move of the original.
- */
 export function duplicateNodeForPanelDrop(
   content: string,
   draggedNodeId: string,
@@ -268,12 +249,6 @@ function isNodeParentFlow(
   return isFlowDisplay(node.layout.parentDisplay);
 }
 
-/**
- * Attempts the alt-drag-duplicate fast path for a single-node panel drop;
- * returns "handled" once it has applied the content update and selection
- * itself, or "skip" when the shape isn't one this fast path supports (the
- * caller then runs its normal, non-duplicating move).
- */
 function tryDuplicateOnPanelDrop(
   intent: LayersPanelMoveIntent,
   targetOwner: CodeLayerOwner,
@@ -361,11 +336,6 @@ function tryDuplicateOnPanelDrop(
     {
       recordHistory: true,
       refreshPreview: false,
-      // The clone lands as a fresh sibling elsewhere in the tree; the bridge's
-      // scoped single-selector morph only reconciles whatever is currently
-      // selected and returns early, so a structural insert outside that
-      // subtree would otherwise never reach the live iframe (see the same
-      // note on the plain-move persist calls below).
       forcePreviewFullDocument: true,
     },
   );
@@ -506,10 +476,6 @@ export function runLayerMove(
           })
         : "skip";
     if (outcome === "handled") return;
-    // A duplicate drop that can't be honoured (multi-selection, cross-file,
-    // runtime-only, or a locked source) must refuse rather than fall
-    // through to the plain move below, which would silently move — not
-    // copy — the original.
     toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
     return;
   }
@@ -613,11 +579,6 @@ export function runLayerMove(
       targetScreenIsLive,
     });
     if (executionMode === "screen-bridge") {
-      // Keep the existing fast, optimistic in-iframe path when one
-      // screen-scoped bridge owns both runtime endpoints. Cross-screen or
-      // mixed runtime/source ownership cannot be represented by that
-      // one-screen StructureMove message and must go through the semantic
-      // coding-agent handoff below.
       runtimeStructureMoveRevisionRef.current += 1;
       setRuntimeStructureMoveRequest({
         requestId: runtimeStructureMoveRevisionRef.current,
@@ -641,9 +602,6 @@ export function runLayerMove(
     );
     return;
   }
-  // L8: locked/hidden is no longer a blocker for using this row as a drop
-  // anchor (see canMoveLayer) — only dragging a LOCKED row is blocked,
-  // checked per-draggedId below. Hidden rows are draggable.
   const freshActiveContent = getFreshActiveContent();
   const destFile = files.find((file) => file.id === targetOwner.fileId);
   const destContent =
@@ -654,20 +612,6 @@ export function runLayerMove(
         : "";
   if (!destContent) return;
 
-  // L17: a single ordered insert pipeline for a MIXED same-file/cross-file
-  // multi-drag. Previously same-file drags were all applied as one batch
-  // (each inserted at the shared anchor), THEN cross-file drags were
-  // applied as a second batch — so a selection like [same-file A,
-  // cross-file B, same-file C] (in panel-visual order) would always end
-  // up as A,C,B relative to the anchor instead of preserving A,B,C,
-  // because the two source kinds never interleaved against one another.
-  // Fix: classify each dragged id but keep ONE combined list in the
-  // original intent.draggedIds order (already translated from panel order
-  // into DOM order at the LayersPanel callback boundary), then iterate
-  // that single list once, dispatching each item through the same-file or
-  // cross-file primitive against the shared running nextDestContent /
-  // sourceContentMap state so mixed sequences interleave in the intended
-  // order.
   const movedNodeSnapshots = new Map<string, CodeLayerNode>();
   type ClassifiedDrag =
     | { draggedId: string; kind: "same-file" }
@@ -678,33 +622,16 @@ export function runLayerMove(
     if (
       draggedId === intent.targetId ||
       !draggedOwner ||
-      // L8: only LOCKED dragged rows are blocked; hidden rows may be
-      // dragged/reordered like any other layer.
       effectiveCodeLayerState.lockedIds.has(draggedId)
     ) {
       continue;
     }
     if (draggedOwner.runtimeOnly) {
-      // The single-drag runtimeOnly branch above only fires when the WHOLE
-      // intent is one runtime-only id; a mixed multi-select drag reaches
-      // here with a runtime-only item still in the list. It has no
-      // sourceHtml counterpart, so applyVisualEdit/moveNodeBetweenDocuments
-      // below would fail with a raw "no code layer node exists"/"not found
-      // in sourceHtml" id string instead of moving anything — refuse with
-      // the same plain-language copy every other per-drag failure here
-      // uses, rather than let that technical message reach the user.
       toast.error(t("designEditor.toasts.layerMoveFailed"), {
         duration: 4000,
       });
       continue;
     }
-    // L15: mirror canMoveLayer's per-drag ancestor-of-target guard here.
-    // canMoveLayer only gates the whole intent (true if ANY dragged id is
-    // valid), so a mixed multi-drag where one id is an ancestor of the
-    // drop target would otherwise reach applyVisualEdit/moveNode for that
-    // id, which always reports "conflict" (the anchor is inside the
-    // dragged element) — a spurious per-id failure toast for a case we
-    // can just silently skip, exactly like the other guards above.
     if (
       draggedOwner.fileId === targetOwner.fileId &&
       collectCodeLayerAncestors(targetOwner.tree, intent.targetId).includes(
@@ -825,10 +752,6 @@ export function runLayerMove(
     }
   }
 
-  // L25: track each dragged node's former parent (by fileId + stable
-  // data-agent-native-node-id), so that once every move in this intent
-  // is applied we can sweep each touched file for now-empty generated
-  // "Group" wrappers left behind by the move.
   const formerParentAttrIdsByFileId = new Map<string, Set<string>>();
   for (const drag of classifiedDrags) {
     const draggedOwner = codeLayerOwnerByNodeId.get(drag.draggedId);
@@ -863,9 +786,6 @@ export function runLayerMove(
         });
         continue;
       }
-      // A Layers drop can reparent the node rather than reorder siblings.
-      // Keep world position for freeform targets; moveNode already normalizes
-      // a child entering auto layout into flow.
       const targetOwnerNode = codeLayerOwnerByNodeId.get(intent.targetId);
       const newParentId =
         intent.placement === "inside"
@@ -956,9 +876,6 @@ export function runLayerMove(
         continue;
       }
       nextDestContent = patch.content;
-      // Preserve the auto-layout ignore state only when it existed in the
-      // source parent. Absolute positioning in a regular Frame is freeform
-      // placement, not an instruction to ignore the new parent's flow.
       if (
         isCrossParent &&
         newParentId &&
@@ -970,14 +887,6 @@ export function runLayerMove(
               n.dataAttributes["data-agent-native-node-id"] === draggedNodeId ||
               n.id === draggedNodeId,
           )?.dataAttributes["data-agent-native-node-id"] ?? draggedNodeId;
-        // getAbsolutePositioningForNodeInHtml/setAbsolutePositioningForNodeInHtml
-        // select elements by their literal data-agent-native-node-id DOM
-        // attribute, not this internal projection id (nodeIdFor always
-        // derives a synthetic "html:<hash>" id, even for an element that
-        // already carries an explicit attribute) — resolve both ends
-        // through their owners first, or the lookups below silently miss
-        // and the rebase never happens, leaving the dragged node's old
-        // parent-relative left/top to render against the new parent.
         const draggedAttrId = draggedNodeId;
         const newParentAttrId =
           newParentId === intent.targetId
@@ -994,11 +903,6 @@ export function runLayerMove(
           newParentAttrId,
         );
         if (sourcePosition && targetPosition) {
-          // Same parent-relative rebase as the canvas reparent path —
-          // computeReparentedChildPosition also strips the historic
-          // board-surface offset poison (65536-multiples) from either
-          // side so a panel move of a poisoned nested board child heals
-          // its coordinates instead of preserving them.
           nextDestContent = setAbsolutePositioningForNodeInHtml(
             nextDestContent,
             movedNodeAttrId,
@@ -1125,10 +1029,6 @@ export function runLayerMove(
 
   if (!moved) return;
 
-  // L25: sweep every touched file for now-empty generated "Group"
-  // wrappers left behind once their last child moved away, and remove
-  // them. Applied per-file against whichever content variable currently
-  // holds that file's post-move state.
   for (const [fileId, parentAttrIds] of formerParentAttrIdsByFileId) {
     if (fileId === targetOwner.fileId) {
       nextDestContent = removeEmptyGeneratedGroupWrappers(
@@ -1167,10 +1067,6 @@ export function runLayerMove(
 
   const hasCrossFileMoves = sourceContentMap.size > 0;
 
-  // Once a linked MAIN was selected for atomic planning, a failed member
-  // cannot fall back to publishing the successful subset locally. That would
-  // split one Layers gesture across the component action and the local Yjs
-  // writer and leave the linked instances out of sync.
   if (
     linkedComponentTarget &&
     movedNodeIdByDraggedId.size !== linkedStructureIntents.length
@@ -1178,10 +1074,6 @@ export function runLayerMove(
     return;
   }
 
-  // A same-file move whose affected parents all belong to one canonical MAIN
-  // must go through the linked-component action before any local writer or
-  // history reservation. The target is resolved before the planning loop so
-  // the default code-layer refusal remains in force for every other move.
   if (
     applyLinkedComponentEdit &&
     !hasCrossFileMoves &&
@@ -1275,13 +1167,6 @@ export function runLayerMove(
         : []),
     ];
     crossFileHistoryChanges = crossFileChanges;
-    // recordContentHistoryEntry writes to the overview-only global stack
-    // and (when the change touches the active file) clears the live
-    // single-mode Yjs undo stack as a side effect. Outside overview mode
-    // that stack is never consulted by handleUndo, so a cross-file move
-    // made while a single screen is focused would both go unrecorded and
-    // wipe that screen's undo history (see U5). Record into the local
-    // per-file stack instead so single-mode Cmd+Z can reach it.
     if (viewModeRef.current === "overview") {
       recordContentHistoryEntry({ changes: crossFileChanges });
     } else {
@@ -1291,7 +1176,6 @@ export function runLayerMove(
     }
   }
 
-  // Persist source files that changed.
   let allSourcePublicationsAccepted = true;
   for (const [sourceFileId, newSourceContent] of sourceContentMap) {
     const publication = applyFileContentUpdate(sourceFileId, newSourceContent, {
@@ -1313,14 +1197,6 @@ export function runLayerMove(
     }
   }
 
-  // Persist dest file (which may also be the active file). A layer move can
-  // reorder or reparent a node relative to SIBLINGS outside its own subtree
-  // (e.g. two absolutely positioned cards swapping stacking order) — the
-  // bridge's non-forced replace only re-morphs whichever node the CURRENT
-  // selection resolves to and returns without ever touching the rest of the
-  // body, so a structural move must always force the whole-document (still
-  // in-place, keyed) morph or a sibling reorder outside that one subtree
-  // never reaches the live iframe.
   if (nextDestContent !== destContent) {
     const publication = applyFileContentUpdate(
       targetOwner.fileId,

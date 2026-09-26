@@ -204,8 +204,6 @@ describe("draft booking availability previews", () => {
     mocks.insertedBookings.length = 0;
     mocks.dbUpdates.length = 0;
     bookingLink.conferencing = undefined;
-    // Slot generation drops anything before `Date.now()`, so the Monday this
-    // asserts on has to stay in the future or every slot vanishes.
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-10T12:00:00.000Z"));
     mocks.getSession.mockResolvedValue({

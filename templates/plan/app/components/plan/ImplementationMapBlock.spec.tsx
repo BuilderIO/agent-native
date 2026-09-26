@@ -9,22 +9,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PlanBlockView } from "./DocumentArea";
 import { createPlanBlockRenderContext, planBlockRegistry } from "./planBlocks";
 
-/**
- * Contract guard for the deprecated `implementation-map` block: `PlanBlockView`
- * display-converts it to a `file-tree` block at render time (storage stays
- * intact — no write-back), so old stored plans get the modern file explorer
- * instead of the retired two-pane layout.
- *
- * This also preserves the spirit of the original selection regression: a single
- * file legitimately appears in several rows (one workflow file touched three
- * different ways). The legacy block once keyed selection on `file.path`, so
- * same-path rows selected together. The file-tree keys per-row disclosure on the
- * flat entry INDEX, so duplicate paths stay independent rows.
- *
- * `file-tree` renders through the block registry, so the spec mounts
- * `BlockRegistryProvider` with the real plan registry — the same way
- * `PlanContentRenderer` mounts it in the app.
- */
 
 function fileRowButtons(container: HTMLElement): HTMLButtonElement[] {
   return Array.from(
@@ -102,14 +86,10 @@ describe("implementation-map display-time conversion to file-tree", () => {
   it("renders as a file-tree with one row per entry, even when rows share a path", () => {
     renderBlock();
 
-    // The conversion keeps the block id and renders the file-tree explorer —
-    // never the "Unsupported block" placeholder.
     const section = container.querySelector('[data-block-id="impl-1"]');
     expect(section).not.toBeNull();
     expect(container.textContent).not.toContain("Unsupported block");
 
-    // Three same-path files stay three distinct rows (index-keyed, not
-    // path-keyed), and each carries its note.
     const rows = fileRowButtons(container);
     expect(rows).toHaveLength(3);
     expect(container.textContent).toContain("3 files");
@@ -124,10 +104,8 @@ describe("implementation-map display-time conversion to file-tree", () => {
     const rows = fileRowButtons(container);
     expect(rows).toHaveLength(3);
 
-    // All rows start collapsed.
     expect(expandedRowIndexes(rows)).toEqual([]);
 
-    // Clicking the second row expands ONLY the second — not every same-path row.
     act(() => {
       rows[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
@@ -135,7 +113,6 @@ describe("implementation-map display-time conversion to file-tree", () => {
     const afterClick = fileRowButtons(container);
     expect(expandedRowIndexes(afterClick)).toEqual([1]);
 
-    // The expanded detail paragraph carries the second row's note.
     const detail = Array.from(container.querySelectorAll("p")).find((p) =>
       p.textContent?.includes("NOTE_CLAUDE"),
     );

@@ -102,8 +102,6 @@ export async function saveDocumentWithRebase({
         if (owner.current().version !== owner.version) {
           return { status: "superseded", document: winner };
         }
-        // This queued operation was not authored from the winning revision.
-        // Preserve it as displaced work before adopting the canonical winner.
         return { status: "displaced", document: winner, localDraft: candidate };
       }
       if (plan.status === "applied") {

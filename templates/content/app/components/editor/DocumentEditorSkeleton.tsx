@@ -21,8 +21,6 @@ export function DocumentEditorSkeleton({ title }: { title?: string | null }) {
         <div className="mx-auto w-full max-w-3xl px-4 pt-14 pb-16 sm:px-8 md:px-16 md:pt-16">
           <Skeleton className="mb-4 h-12 w-12 rounded-lg" />
           {title ? (
-            // Same typography and box as the editor's title textarea so the
-            // authoritative title replaces it without any layout shift.
             <div className="block w-full break-words bg-transparent p-0 font-bold leading-tight text-foreground text-3xl md:text-4xl">
               {title}
             </div>

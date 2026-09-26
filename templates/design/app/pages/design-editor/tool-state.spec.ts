@@ -19,8 +19,6 @@ describe("resolveModeChangeView", () => {
   it.each(["edit", "annotate"] as const)(
     "returns to the canvas when %s is chosen from a focused screen",
     (next) => {
-      // overview -> Interact -> %s must land back on the infinite canvas, not
-      // leave the screen focused in a single-screen editing state.
       expect(resolveModeChangeView({ next, viewMode: "single" })).toBe(
         "enter-overview",
       );
@@ -64,8 +62,6 @@ describe("getDesignBottomToolbarMode", () => {
   });
 
   it("gives an editor the tools before any file exists", () => {
-    // A new design has no file rows; the draw tools create the first one, so
-    // gating the toolbar on a file hid it exactly when it was needed.
     expect(
       getDesignBottomToolbarMode({
         isSignedIn: true,
@@ -205,12 +201,6 @@ describe("shouldRevealLayersOnFirstCreate", () => {
 });
 
 describe("resolveSpaceForwardTransition", () => {
-  // Figma parity (unique-paths): Space held mid-drag is forwarded into the
-  // preview iframes so the bridge keeps the dragged node's parent. The
-  // release path is the one that regressed — the drag is already over by the
-  // time Space comes up, so a keyup that re-checks "is a drag running" never
-  // sends held:false and the NEXT drag starts with reparenting still
-  // suppressed.
   it("arms and forwards held:true when Space lands during a drag", () => {
     expect(resolveSpaceForwardTransition("keydown", false, true)).toEqual({
       armed: true,

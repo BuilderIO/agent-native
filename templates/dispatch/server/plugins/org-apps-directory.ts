@@ -95,7 +95,6 @@ export const orgAppsHandler = defineEventHandler(
       return jsonResponse({ error: "method_not_allowed" }, 405);
     }
 
-    // ---- A2A peer auth (reuses core's A2A verification recipe) ----------
     const token = extractBearerToken(getRequestHeader(event, "authorization"));
     if (!token) {
       return jsonResponse(
@@ -127,9 +126,6 @@ export const orgAppsHandler = defineEventHandler(
       );
     }
 
-    // ---- Same-org enforcement ------------------------------------------
-    // The verified org_domain MUST resolve to a local org. This both
-    // confirms the caller is the SAME org Dispatch serves and gives us the
     // org identity to scope the (read-only) discovery to.
     let localOrg: { orgId: string; orgName: string } | null = null;
     try {
@@ -138,8 +134,6 @@ export const orgAppsHandler = defineEventHandler(
       localOrg = null;
     }
     if (!localOrg) {
-      // Either the domain is unknown here, or it belongs to a different org
-      // than this Dispatch serves — do not disclose anything cross-org.
       return jsonResponse(
         {
           error: "forbidden",
@@ -150,10 +144,6 @@ export const orgAppsHandler = defineEventHandler(
       );
     }
 
-    // ---- Build the directory from Dispatch's existing registry ---------
-    // Scope discovery to the verified caller's org/user so org-tracked
-    // custom/remote agents resolve correctly (discoverAgents reads request
-    // context). No DB writes; this is strictly read-only.
     const includeDirectoryApp =
       getRequestHeader(event, "x-agent-native-include-directory-app") === "1";
     const preferLocalUrls =
@@ -220,8 +210,6 @@ export const orgAppsHandler = defineEventHandler(
       selfId: includeDirectoryApp ? undefined : SELF_APP_ID,
     });
 
-    // Short, cacheable, read-only. Private (per-org) so shared caches must
-    // not store it; a small max-age lets the caller poll cheaply.
     return jsonResponse(body, 200, {
       "Cache-Control": "private, max-age=60",
     });
@@ -232,11 +220,6 @@ export function _resetOrgAppsDirectoryCache(): void {
   directoryCache.clear();
 }
 
-/**
- * Dispatch org-app-directory plugin. The primary Dispatch auth plugin owns
- * the exact public-path registration so this handler can perform its own JWT
- * and same-org checks without racing a second auth initializer.
- */
 export default async (nitroApp: any) => {
   getH3App(nitroApp).use(ORG_APPS_PATH, orgAppsHandler);
 };

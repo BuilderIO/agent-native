@@ -4,23 +4,10 @@ import { PENDING_TEXT_INTERCEPT_CAP_MS } from "../app/components/design/design-c
 import { FIXTURE_HTML } from "./global-setup";
 import { appPath, createFixtureDesign, gotoEditor } from "./helpers";
 
-/**
- * Regression coverage for "Text tool click on empty board space, then type
- * immediately". The board's own DesignCanvas does not exist until the board
- * file has content — and the creating insert is what gives it content — so the
- * keystroke buffer has to be armed at the host level, by the gesture, before
- * any canvas is asked to open the session. See
- * design-canvas/pending-text-capture.ts and primitive-created.ts.
- * Conventions (postAction/get-design polling, board-gutter panning) mirror
- * canvas-tools.spec.ts's "board text" test.
- */
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 const BOARD_IFRAME = "[data-board-surface-layer] iframe";
 
-// Same viewport canvas-tools.spec.ts pins: at the default 1280x720 the left
-// board gutter a click needs is below the visible overview surface and the
-// click never reaches the board at all.
 test.use({ viewport: { width: 1440, height: 1000 } });
 
 async function postAction(
@@ -113,10 +100,6 @@ async function waitForBoardFile(page: Page, designId: string): Promise<void> {
     .toBe(true);
 }
 
-/** Pans the overview canvas until there is real empty space to the left of
- *  every screen card, so a click there reliably lands on the board surface
- *  instead of a screen card, the sidebar, or the toolbar. Copied from
- *  canvas-tools.spec.ts's proven-working "board text" test. */
 async function ensureOverviewLeftGutter(
   page: Page,
   requiredGutter: number,
@@ -174,14 +157,10 @@ test("board target: text tool click then immediate typing is captured and layer 
 }) => {
   const designId = await createFixtureDesign(page, "Text tool board creation");
   try {
-    // A second screen so the board (empty overview canvas outside any screen
-    // card) is a real target with more than one screen canvas mounted.
     await addSecondScreen(page, designId);
     await gotoEditor(page, designId);
     await waitForBoardFile(page, designId);
 
-    // The board file exists but is empty, so its own canvas is NOT mounted.
-    // That is the race: the creating insert is what mounts it.
     await expect(page.locator(BOARD_IFRAME)).toHaveCount(0);
     const screensBefore = {
       index: await fileContent(page, designId, "index.html"),
@@ -199,8 +178,6 @@ test("board target: text tool click then immediate typing is captured and layer 
     await page.keyboard.press("t");
     await expect(textToolButton(page)).toHaveAttribute("aria-pressed", "true");
 
-    // Click well to the left of every screen card (empty board space), then
-    // type WITH NO DELAY.
     await page.mouse.click(
       Math.min(...screenBoxes.map((box) => box.x)) - 240,
       cardBox.y + 120,
@@ -233,7 +210,6 @@ test("board target: text tool click then immediate typing is captured and layer 
     expect(created.text).toBe("Standalone");
     expect(created.layerName).toBe("Standalone");
 
-    // Board creation must not write into any screen.
     expect(await fileContent(page, designId, "index.html")).toBe(
       screensBefore.index,
     );
@@ -264,8 +240,6 @@ test("single-screen control: text tool click then immediate typing still works",
     await page.keyboard.press("t");
     await expect(textToolButton(page)).toHaveAttribute("aria-pressed", "true");
 
-    // The owning canvas is already mounted here, so this guards the
-    // synchronous begin fast path the board fix must not regress.
     await page.mouse.click(
       cardBox.x + cardBox.width * 0.42,
       cardBox.y + cardBox.height * 0.42,
@@ -329,10 +303,6 @@ test("board target: abandoning a creation by pointing away, then creating anothe
     await page.mouse.click(boardX, cardBox.y + 120);
     await page.keyboard.type("A");
 
-    // Pointing away at host chrome stands the first creation's whole request
-    // down by design — buffer, delayed activation and retry ladder alike.
-    // Capture supersession WITHOUT an intervening pointerdown is only directly
-    // testable in pending-text-capture.spec.ts.
     const leftShell = await page
       .locator('[data-design-chrome-region="left-shell"]')
       .boundingBox();
@@ -342,9 +312,6 @@ test("board target: abandoning a creation by pointing away, then creating anothe
       leftShell.y + leftShell.height - 16,
     );
 
-    // The click blurs the first creation's session, but the blur commit is a
-    // round trip: pressing "t" into a still-live editable types a character
-    // instead of arming the tool.
     await expect(
       boardFrame(page).locator("[data-agent-native-text-editing]"),
     ).toHaveCount(0, { timeout: 20_000 });
@@ -365,8 +332,6 @@ test("board target: abandoning a creation by pointing away, then creating anothe
         { timeout: 20_000 },
       )
       .toBe(true);
-    // Let the abandoned creation's retry ladder exhaust, so a node it left
-    // behind would have been persisted by now.
     await page.waitForTimeout(6_000); // e2e-harness-ignore negative assertion: the abandoned creation must leave nothing behind, so its ladder has to actually exhaust
 
     const primitives = await textPrimitives(
@@ -376,8 +341,6 @@ test("board target: abandoning a creation by pointing away, then creating anothe
     const second = primitives.filter((primitive) => primitive.text === "Bee");
     expect(second).toHaveLength(1);
     expect(second[0].layerName).toBe("Bee");
-    // The abandoned node must not have adopted the second creation's keys, and
-    // must not linger as an invisible empty layer either.
     for (const primitive of primitives) {
       expect(primitive.text.length).toBeGreaterThan(0);
       expect(primitive.text).not.toContain("ABee");
@@ -421,9 +384,6 @@ test("board target: two committed text creations in a row keep their own text an
       await expect(boardFrame(page).locator("body")).toContainText(text, {
         timeout: 20_000,
       });
-      // Re-press rather than wait longer: the commit chord is lost outright if
-      // it lands while the board iframe is mid-swap, and with no session live
-      // the host ignores it (its Enter shortcut is unmodified).
       await expect
         .poll(
           async () => {
@@ -438,14 +398,11 @@ test("board target: two committed text creations in a row keep their own text an
     };
 
     await createBoardText(cardBox.y + 120, "Alpha");
-    // Back on Move between the two, exactly as the toolbar leaves it after a
-    // commit: the second creation must arm a fresh capture, not inherit one.
     await expect(
       page.locator('button[aria-label="Move"]').first(),
     ).toHaveAttribute("aria-pressed", "true");
     await createBoardText(cardBox.y + 360, "Beta");
 
-    // Past both retry ladders and the empty-node cleanup retry.
     await page.waitForTimeout(6_000); // e2e-harness-ignore negative assertion: no third primitive may appear after both ladders and the cleanup retry
     const primitives = await textPrimitives(
       page,
@@ -483,8 +440,6 @@ test("board target: Escape right after typing keeps the text, with nothing typed
     await expect(textToolButton(page)).toHaveAttribute("aria-pressed", "true");
     await page.mouse.click(boardX, cardBox.y + 120);
     await page.keyboard.type("Sta");
-    // Inside the activation delay: the keystrokes are still host-side and no
-    // edit session exists yet. Escape must end the creation KEEPING them.
     await page.waitForTimeout(200);
     await page.keyboard.press("Escape");
 
@@ -496,9 +451,6 @@ test("board target: Escape right after typing keeps the text, with nothing typed
       )
       .toBe(true);
 
-    // A second creation escaped with nothing typed leaves no empty layer. Wait
-    // out the first commit's session first: pressing "t" into a live editable
-    // types a character instead of arming the tool.
     await expect(
       boardFrame(page).locator("[data-agent-native-text-editing]"),
     ).toHaveCount(0, { timeout: 20_000 });
@@ -508,7 +460,6 @@ test("board target: Escape right after typing keeps the text, with nothing typed
     await page.waitForTimeout(200);
     await page.keyboard.press("Escape");
 
-    // Past both retry ladders and the empty-node cleanup retry.
     await page.waitForTimeout(8_000); // e2e-harness-ignore negative assertion: an Escaped empty creation must persist nothing once the ladder and cleanup are done
     const primitives = await textPrimitives(
       page,
@@ -530,9 +481,6 @@ test("board target: the FIRST creation on an unmounted board, escaped with nothi
     await addSecondScreen(page, designId);
     await gotoEditor(page, designId);
     await waitForBoardFile(page, designId);
-    // The cold board: its canvas does not exist until this very insert gives
-    // the file content, so the board's own content has not reached the client
-    // file map either — which is what the cleanup has to survive.
     await expect(page.locator(BOARD_IFRAME)).toHaveCount(0);
 
     const screenBoxes = await ensureOverviewLeftGutter(page, 280);
@@ -551,7 +499,6 @@ test("board target: the FIRST creation on an unmounted board, escaped with nothi
     await page.waitForTimeout(200);
     await page.keyboard.press("Escape");
 
-    // Past the retry ladder and every cleanup retry.
     await expect
       .poll(
         async () =>
@@ -595,12 +542,10 @@ test("board target: undo before the board canvas mounts leaves no node and swall
     await page.keyboard.press(`${MOD}+z`);
     await page.keyboard.press("r");
 
-    // A capture still armed for the undone node would have eaten this.
     await expect(
       page.locator('button[aria-label="Rectangle"]').first(),
     ).toHaveAttribute("aria-pressed", "true");
 
-    // Past the retry ladder and the empty-node cleanup retry.
     await page.waitForTimeout(6_000); // e2e-harness-ignore negative assertion: the undone node must never be persisted, so the ladder must exhaust first
     const boardHtml = await fileContent(page, designId, "__board__.html");
     expect(await textPrimitives(page, boardHtml)).toEqual([]);
@@ -622,9 +567,6 @@ test("board target: text typed while the board frame loads slower than the inter
     await gotoEditor(page, designId);
     await waitForBoardFile(page, designId);
 
-    // A blocking script in the board document's head holds the frame's bridge
-    // (injected before </body>) until the route answers. The body stays empty,
-    // so the board canvas still mounts only when the creation lands in it.
     const boardFile = (await designFiles(page, designId)).find(
       (file) => file.filename === "__board__.html",
     ) as { id?: string; content: string } | undefined;
@@ -680,7 +622,6 @@ test("board target: text typed while the board frame loads slower than the inter
     await expect(page.locator(BOARD_IFRAME)).toHaveCount(1, {
       timeout: 20_000,
     });
-    // Held past the cap, then opened holding everything typed before it.
     await expect(boardFrame(page).locator("body")).toContainText("Standalone", {
       timeout: PENDING_TEXT_INTERCEPT_CAP_MS + 30_000,
     });

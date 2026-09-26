@@ -1,7 +1,3 @@
-/**
- * Run the text-model cleanup pass on a dictation's raw transcript text.
- * Persists `cleanedText` on the dictation row.
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";

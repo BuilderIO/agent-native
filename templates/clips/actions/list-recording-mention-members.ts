@@ -1,10 +1,3 @@
-/**
- * Return the org members for a recording's organization so comment composers
- * can autocomplete @mentions against the right roster.
- *
- * Usage:
- *   pnpm action list-recording-mention-members --recordingId=<id>
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { orgMembers } from "@agent-native/core/org";

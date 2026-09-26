@@ -87,7 +87,6 @@ function importCalls() {
   );
 }
 
-/** Echo one saved file per frame, like the batch API. */
 function acceptFrames(input: { frames: Array<{ clientImportId: string }> }) {
   return {
     designId: "design-1",
@@ -265,7 +264,6 @@ describe("importFigInBrowser", () => {
   });
 
   it("leaves positions to the server when frames come from several pages", async () => {
-    // Each page has its own coordinate space: both frames sit at (0, 40).
     mocks.renderFigImport.mockReturnValue({
       ...rendered([
         { x: 0, y: 40, pageName: "Page 1" },

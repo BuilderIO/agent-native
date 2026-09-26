@@ -34,12 +34,6 @@ test.describe("reparenting and reordering", () => {
     await page.mouse.up();
     await page.waitForTimeout(2500); // e2e-harness-ignore moved verbatim by the drag-and-drop split
 
-    // Scope to the authored screen iframe, not `.first()`: a canvas Move
-    // drag always posts cross-screen claim messages (even within one
-    // screen) and that mounts a board-surface iframe ahead of it — same
-    // `[data-design-preview-iframe]` attribute, no `data-screen-iframe-id`,
-    // and none of this screen's own content. See `node()` in
-    // e2e/drag-and-drop.shared.ts, which guards against the same trap.
     const nested = await page
       .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
       .first()
@@ -64,11 +58,6 @@ test.describe("reparenting and reordering", () => {
     await openEditor(page, id);
     const first = (await node(page, "chip-1").boundingBox())!;
     const third = (await node(page, "chip-3").boundingBox())!;
-    // Select on the canvas, not via the tree: the bridge owns drag state and
-    // a Layers-panel selection does not arm it. A plain click is
-    // container-first (Figma parity: it selects Row, the outermost child of
-    // scope) — drilling into the chip itself needs the double-click that
-    // descends one level, same as structure-selection.spec.ts.
     await page.mouse.click(
       first.x + first.width / 2,
       first.y + first.height / 2,
@@ -84,8 +73,6 @@ test.describe("reparenting and reordering", () => {
       first.y + first.height / 2,
     );
     await page.mouse.down();
-    // A short first move starts the native drag; jumping straight to the
-    // target never leaves the source and no reorder is ever computed.
     await page.mouse.move(
       first.x + first.width / 2 + 12,
       first.y + first.height / 2,
@@ -109,9 +96,6 @@ test.describe("reparenting and reordering", () => {
     ).toBeGreaterThan(html.indexOf("chip-3"));
   });
 
-  // "Container" in the fixture is an empty painted div, which projects as a
-  // shape — the panel deliberately offers no inside-drop zone on a leaf, so
-  // the container this exercises is the flex Row that really holds children.
   test("dragging a layer row onto a container row reparents it", async ({
     page,
   }) => {

@@ -1,33 +1,13 @@
-/**
- * poll-calendars — recurring job (every 5 min).
- *
- * Sweeps every connected calendar_accounts row and refreshes its events.
- * Runs as a Nitro plugin via `startIntervalJob` (matches the mail-jobs
- * pattern — works on every host that keeps a long-lived process; on
- * serverless the deployment plugin should call `runPollCalendarsOnce` from
- * a scheduled function instead).
- *
- * Token refresh + per-account error capture happens inside the
- * `sync-calendars` action; this job is just a thin scheduler.
- */
 
 import { startIntervalJob } from "@agent-native/core/server/interval-job";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
 import syncCalendars from "../../actions/sync-calendars.js";
 
-const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 min
+const POLL_INTERVAL_MS = 5 * 60 * 1000;
 let skippingLogged = false;
 
-/**
- * Run a single poll pass. Exported so deployment-specific schedulers
- * (e.g. Netlify Scheduled Functions) can invoke it directly without
- * relying on a long-lived process. Throws on failure so a scheduled
- * invocation records a failed run rather than a silent empty one.
- */
 export async function runPollCalendarsOnce(): Promise<void> {
-  // No request context — this job runs as the system. The sync-calendars
-  // action accepts `allAccounts: true` to skip the per-user accessFilter.
   await runWithRequestContext({}, async () => {
     const result = await syncCalendars.run(
       { allAccounts: true } as any,
@@ -41,12 +21,6 @@ export async function runPollCalendarsOnce(): Promise<void> {
   });
 }
 
-/**
- * Nitro plugin entry — register the recurring poll. Mirrors the dev/prod
- * gating used by `templates/mail/server/plugins/mail-jobs.ts`: opt-out in
- * dev (every connected dev server would otherwise duplicate calls and
- * burn refresh tokens), opt-in via `RUN_BACKGROUND_JOBS=1`.
- */
 export default function registerPollCalendarsJob(): void {
   const isProd = process.env.NODE_ENV === "production";
   const flag = process.env.RUN_BACKGROUND_JOBS;
@@ -60,9 +34,6 @@ export default function registerPollCalendarsJob(): void {
     }
     return;
   }
-  // sync-calendars calls Google's Calendar API with no fetch-level timeout of
-  // its own, so the overlap guard and the hung-sweep timeout both come from
-  // startIntervalJob rather than a module-level `running` flag here.
   startIntervalJob(() => runPollCalendarsOnce(), {
     intervalMs: POLL_INTERVAL_MS,
     leading: false,

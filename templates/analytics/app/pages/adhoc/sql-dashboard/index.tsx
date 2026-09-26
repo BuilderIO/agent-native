@@ -262,15 +262,6 @@ function DashboardDragPreview({ panel }: { panel: SqlPanel | null }) {
   );
 }
 
-/**
- * A single chart cell, memoized so that drag interactions — which re-render the
- * dashboard page on every drop-slot change — do NOT re-render every chart's
- * Recharts subtree. During a drag the panel, vars, remoteEditor, and the
- * stable callbacks below don't change, so React skips these cells entirely and
- * only the lightweight drop-line indicators update. This keeps dragging smooth
- * on dense dashboards. Outside a drag, prop changes (filter/vars edits, remote
- * collaborator highlights, panel edits) still re-render normally.
- */
 const PanelCell = memo(function PanelCell({
   panel,
   vars,
@@ -578,16 +569,6 @@ function DashboardReportCaptureSurface({
   );
 }
 
-/**
- * Save dashboard config via the update-dashboard action. Throws on error so
- * callers (e.g. the panel editor dialog) can surface BigQuery validation
- * errors inline instead of silently swallowing them.
- *
- * `expectedUpdatedAt` fences the save against a concurrent writer (another
- * tab, user, or the agent): the server rejects the write with a conflict
- * error instead of silently overwriting whatever they saved in between. Omit
- * it only when there is no prior read to fence against.
- */
 async function saveDashboard(
   dashboardId: string,
   data: SqlDashboardConfig,
@@ -683,12 +664,6 @@ function SqlDashboardPageContent({
   );
   const viewedDashboardIdRef = useRef<string | null>(null);
   const pendingConfigRef = useRef<DashboardAdoptionHold | null>(null);
-  // Fences the next save's `expectedUpdatedAt`. Kept in sync with the
-  // `dashboardUpdatedAt` state below AND bumped directly from each save's own
-  // response — the latter matters because two saves queued back-to-back in
-  // the same tab (e.g. deleting a panel, then editing another before the
-  // delete's refetch lands) must fence the second save against the first
-  // one's result, not wait on a query refetch that hasn't resolved yet.
   const dashboardUpdatedAtRef = useRef<string | null>(null);
   useEffect(() => {
     dashboardUpdatedAtRef.current = dashboardUpdatedAt;
@@ -774,8 +749,6 @@ function SqlDashboardPageContent({
         undoRevisionIndex < dashboardRevisions.length - 1));
   const canRedo = canEdit && !!dashboardId && redoRevisionIds.length > 0;
 
-  // Dashboard writes emit their own change event; unrelated agent actions do
-  // not need to restart this query.
   const sync = useChangeVersion("dashboards");
   const dashboardQuery = useQuery({
     queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope, sync],
@@ -809,11 +782,9 @@ function SqlDashboardPageContent({
     },
   });
 
-  // Panel edit dialog state
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingPanel, setEditingPanel] = useState<SqlPanel | null>(null);
 
-  // ── Collaborative editing ──────────────────────────────────────────
   const currentUser: CollabUser | undefined =
     !reportScreenshot && session?.email
       ? {
@@ -872,7 +843,6 @@ function SqlDashboardPageContent({
     );
   }, [dashboardId, dashboardScope, dashboardUpdatedAt, queryClient]);
 
-  // Track which panels remote users are editing (from awareness)
   const [remoteEditingPanels, setRemoteEditingPanels] = useState<
     Map<string, { color: string; name: string }>
   >(new Map());
@@ -900,8 +870,6 @@ function SqlDashboardPageContent({
     };
   }, [awareness, ydoc]);
 
-  // Listen for remote collab changes — when the Y.Text("content") changes
-  // from a remote update, parse it and update dashboard state.
   useEffect(() => {
     if (!ydoc || !collabSynced) return;
     const ytext = ydoc.getText("content");
@@ -936,7 +904,6 @@ function SqlDashboardPageContent({
     updateCachedDashboardConfig,
   ]);
 
-  // Per-user saved filter state
   const filterPrefKey = dashboardId ? `dashboard-filters:${dashboardId}` : "";
   const {
     data: savedFilters,
@@ -945,10 +912,8 @@ function SqlDashboardPageContent({
     save: saveFilterPref,
   } = useUserPref<{ filters: Record<string, string> }>(filterPrefKey);
 
-  // Dashboard views
   const { saveView } = useDashboardViews(dashboardId ?? undefined);
 
-  // Track whether we've applied saved filters on initial load
   const appliedSaved = useRef(false);
 
   useEffect(() => {
@@ -1052,7 +1017,6 @@ function SqlDashboardPageContent({
     resetRevisionNavigation,
   ]);
 
-  // Apply saved filters on initial load if no filter URL params are present
   useEffect(() => {
     if (
       reportScreenshot ||
@@ -1065,19 +1029,14 @@ function SqlDashboardPageContent({
       return;
     appliedSaved.current = true;
 
-    // Check if there's a view param — if so, load view filters
     const viewId = searchParams.get("view");
-    if (viewId) return; // View filters are applied by the view param handler
+    if (viewId) return;
 
-    // Check if any f_ params are already in the URL
     const hasUrlFilters = Array.from(searchParams.keys()).some((k) =>
       k.startsWith(FILTER_PARAM_PREFIX),
     );
     if (hasUrlFilters) return;
 
-    // If the agent just wrote the URL via set-search-params (URLSync in
-    // AgentPanel.tsx sets this), don't clobber it with saved defaults.
-    // The agent's write is authoritative for the current intent.
     try {
       const appliedAt = Number(
         sessionStorage.getItem("__agentUrlAppliedAt__") || 0,
@@ -1087,8 +1046,6 @@ function SqlDashboardPageContent({
       // sessionStorage unavailable — fall through.
     }
 
-    // Apply saved filter defaults — use replace so the restore doesn't
-    // leave an extra history entry behind the user's actual nav.
     if (savedFilters?.filters && Object.keys(savedFilters.filters).length > 0) {
       setSearchParams(
         (prev) => {
@@ -1112,7 +1069,6 @@ function SqlDashboardPageContent({
     setSearchParams,
   ]);
 
-  // Auto-save filter state when URL params change (debounced)
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => {
     if (
@@ -1130,9 +1086,6 @@ function SqlDashboardPageContent({
           currentFilters[k] = v;
         }
       });
-      // Opening a dashboard restores the saved filters into the URL, so
-      // without this the mere act of loading a page writes the value back —
-      // one round-trip plus a sync event that invalidates every mounted query.
       if (sameFilterMap(savedFilters?.filters, currentFilters)) return;
       saveFilterPref({ filters: currentFilters });
     }, 1500);
@@ -1158,10 +1111,6 @@ function SqlDashboardPageContent({
               config,
               dashboardUpdatedAtRef.current ?? undefined,
             );
-            // Advance the fence immediately from this save's own response —
-            // the next queued save (already enqueued from stale-by-then local
-            // state) must fence against what THIS save just wrote, not wait
-            // for the query invalidation below to refetch and adopt it.
             if (typeof result?.updatedAt === "string") {
               dashboardUpdatedAtRef.current = result.updatedAt;
             }
@@ -1173,12 +1122,6 @@ function SqlDashboardPageContent({
     [],
   );
 
-  /**
-   * Persist without throwing — background save used for drag reorder, width
-   * toggle, title/description edits, and panel delete. If the save fails
-   * (e.g. a panel's SQL becomes invalid after an earlier edit), surface a
-   * toast so the user knows and the error isn't silently swallowed.
-   */
   const persist = useCallback(
     (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
@@ -1210,11 +1153,6 @@ function SqlDashboardPageContent({
           });
         })
         .catch((err) => {
-          // The save failed (including a stale-write conflict from another
-          // tab/user/agent) after `dashboard` state was already optimistically
-          // updated above. Drop the adoption hold and refetch so the page
-          // reconciles to what the server actually has instead of continuing
-          // to show a change that was never persisted.
           pendingConfigRef.current = null;
           void queryClient.invalidateQueries({
             queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
@@ -1241,10 +1179,6 @@ function SqlDashboardPageContent({
     ],
   );
 
-  /**
-   * Persist that throws — used by the panel editor dialog so it can keep the
-   * dialog open and display the BigQuery validation error inline.
-   */
   const persistThrow = useCallback(
     async (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
@@ -1257,9 +1191,6 @@ function SqlDashboardPageContent({
       try {
         ({ isLatest } = await enqueueDashboardSave(dashboardId, updated));
       } catch (err) {
-        // Same reconciliation as `persist`'s catch: a rejected save (e.g. a
-        // stale-write conflict) must not leave the page pointed at state the
-        // server never accepted.
         pendingConfigRef.current = null;
         void queryClient.invalidateQueries({
           queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
@@ -1484,7 +1415,6 @@ function SqlDashboardPageContent({
     [awareness],
   );
 
-  // Clear awareness when panel editor closes
   const handleEditorOpenChange = useCallback(
     (open: boolean) => {
       setEditorOpen(open);
@@ -1622,8 +1552,6 @@ function SqlDashboardPageContent({
     [reportSettingsRequested, setSearchParams],
   );
 
-  // Distinct tab values across panels in declaration order. When this is
-  // non-empty the dashboard renders a tab strip and filters panels by tab.
   const tabs = useMemo<string[]>(() => {
     if (!dashboard) return [];
     const seen = new Set<string>();
@@ -1645,8 +1573,6 @@ function SqlDashboardPageContent({
         ? requestedTab
         : tabs[0]
       : null;
-  // The report URL carries no `tab` parameter and must show every panel, so
-  // the normal first-tab fallback does not apply in report mode.
   const activeTab = reportScreenshot ? null : selectedTab;
   const groupedTabs = useMemo(() => groupDashboardTabs(tabs), [tabs]);
   const activeTabGroup = activeTab
@@ -1684,9 +1610,6 @@ function SqlDashboardPageContent({
     [groupedTabs.groups, handleTabChange],
   );
 
-  // Panels visible under the current tab. Untagged panels appear on every
-  // tab; tagged panels only on their own tab. When no tabs are defined the
-  // dashboard shows every panel as before.
   const visiblePanels = useMemo(() => {
     if (!dashboard) return [];
     return activeTab
@@ -1694,9 +1617,6 @@ function SqlDashboardPageContent({
       : dashboard.panels;
   }, [dashboard, activeTab]);
 
-  // Group panels into "section blocks": each section starts a new block whose
-  // grid uses the section's `columns` (falling back to the dashboard default).
-  // Panels before any section go in an initial unsectioned block.
   const panelGroups = useMemo(() => {
     return buildDashboardPanelGroups(visiblePanels, dashboardColumns);
   }, [visiblePanels, dashboardColumns]);

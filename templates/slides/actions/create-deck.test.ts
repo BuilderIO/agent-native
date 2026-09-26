@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// --- Mock dependencies BEFORE importing the action ---
 
 const mockAssertAccess = vi.fn();
 const mockWriteAppState = vi.fn();
@@ -44,14 +43,10 @@ let titleQueryRows: Array<{ id: string }> = [];
 let insertedRow: Record<string, unknown> | undefined = undefined;
 let updatedFields: Record<string, unknown> | undefined = undefined;
 
-// db.select().from(...).where(...).limit(...)
 const limitFn = vi.fn(async () => (existingDeckRow ? [existingDeckRow] : []));
 const defaultDesignSystemLimitFn = vi.fn(async () =>
   defaultDesignSystemId ? [{ id: defaultDesignSystemId }] : [],
 );
-// resolveDesignSystemIdByTitle has no `.limit()` — it awaits `.where(...)`
-// directly, so its clause is distinguished by the accessFilter sentinel that
-// leads its `and(...)` conditions rather than by a subsequent chained call.
 const titleWhereFn = vi.fn(async () => titleQueryRows);
 const whereSelectFn = vi.fn((condition: unknown, table?: unknown) => {
   const clauses = (condition as { and?: unknown[] } | undefined)?.and;
@@ -73,13 +68,11 @@ const fromFn = vi.fn((table: unknown) => ({
 }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
 
-// db.insert().values(...)
 const valuesFn = vi.fn(async (row: Record<string, unknown>) => {
   insertedRow = row;
 });
 const insertFn = vi.fn(() => ({ values: valuesFn }));
 
-// db.update().set(...).where(...)
 const whereUpdateFn = vi.fn(async () => ({ rowsAffected: 1 }));
 const setFn = vi.fn((fields: Record<string, unknown>) => {
   updatedFields = fields;

@@ -1,13 +1,3 @@
-/**
- * Append a trim range to the recording's non-destructive edits.
- *
- * The range is stored in `editsJson.trims` with `excluded: true`. Playback
- * skips excluded ranges; the source video is never modified. If the new range
- * is adjacent to or overlaps an existing excluded range, they are merged.
- *
- * Usage:
- *   pnpm action trim-recording --recordingId=<id> --startMs=12000 --endMs=15000
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";

@@ -1,8 +1,6 @@
 import type { FigmaPasteLayer } from "@shared/figma-paste-plan";
 
-/** Client helpers for a Figma paste: target screen and layer HTML. */
 
-/** The screen whose selection receives the paste, or null for none. */
 export function resolveFigmaPasteTargetScreenId(args: {
   viewMode: "single" | "overview";
   activeFileId: string | undefined;
@@ -25,7 +23,6 @@ export function resolveFigmaPasteTargetScreenId(args: {
     : null;
 }
 
-/** The layer to insert, plus the stylesheet links its fonts need. */
 export function figmaPasteLayerHtml(
   layer: Pick<FigmaPasteLayer, "content" | "wrapsLooseNode">,
 ): { html: string; headLinks: string[] } | null {

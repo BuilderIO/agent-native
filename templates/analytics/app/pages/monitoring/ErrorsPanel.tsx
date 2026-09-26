@@ -59,8 +59,6 @@ export function ErrorsPanel() {
 
   const issues = useMemo(() => (Array.isArray(data) ? data : []), [data]);
 
-  // Refresh list + detail when a capture or agent edit records an
-  // "error-issues" change (useDbSync bumps the version this hook reads).
   useEffect(() => {
     void queryClient.invalidateQueries({
       queryKey: ["action", "list-error-issues"],
@@ -76,7 +74,6 @@ export function ErrorsPanel() {
     [issues, selectedId],
   );
 
-  // Mirror the current selection into application_state for the agent.
   useEffect(() => {
     const value = selectedIssue
       ? {

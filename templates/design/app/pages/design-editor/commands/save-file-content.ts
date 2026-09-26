@@ -21,14 +21,8 @@ import {
   patchProofStatusAfterPersistedSave,
 } from "@/pages/design-editor/save-failure";
 
-// Sonner's `id` only dedupes a toast while the earlier one is still mounted —
-// once it auto-dismisses, the same id shows again on the next call. Track
-// warned designs ourselves so a design that stays over the checkpoint size
-// threshold gets exactly one "version history unavailable" toast per design,
-// not one on every autosave.
 const warnedVersionHistoryDesigns = new Set<string>();
 
-/** Test-only: this module-level set otherwise leaks a warned designId across specs. */
 export function __clearVersionHistoryWarningsForTests(): void {
   warnedVersionHistoryDesigns.clear();
 }
@@ -227,9 +221,6 @@ export function runFileContentSaveKeepalive(
   }: SaveFileContentKeepaliveArgs,
   pending: FileContentSaveRequest,
 ) {
-  // Keep the folded oldest-base entry durable while the direct request uses
-  // this edit's own base. If the predecessor never lands, replay must start
-  // from the oldest known version rather than the successor's base.
   const durableEntry = createFileSaveOutboxEntry(pending);
   const keepaliveEntry = createFileSaveOutboxEntry(
     prepareFileContentSaveKeepalive(pending),
@@ -318,7 +309,6 @@ export function runSaveFileContent(
     .catch(() => {})
     .then(async () => {
       // An identity migration is disposable. Never send a queued old snapshot
-      // after a newer source publication or user edit has replaced it.
       if (
         pending.identityMigrationSourceContent !== undefined &&
         latestFileSaveForUnloadRef.current[pending.id] !== pending
@@ -384,8 +374,6 @@ export function runSaveFileContent(
           pending.identityMigrationSourceContent !== undefined &&
           latestFileSaveForUnloadRef.current[pending.id] === pending
         ) {
-          // Identity repair has landed. Retire its raw-base marker so the next
-          // user edit publishes against the canonical bytes it already sees.
           markPendingLocalFileContent(pending.id, pending.content);
         }
         if (persistedContentMatches && outboxEntry)
@@ -424,11 +412,6 @@ export function runSaveFileContent(
               id: `design-version-history-unavailable:${designId}`,
             });
           }
-          // The pending overlay retires only once the row's updatedAt moves
-          // (shouldRetirePendingLocalFileContent), and a read already in
-          // flight may carry pre-write bytes; invalidating cancels it. Only a
-          // server-confirmed updatedAt with no read in flight can skip
-          // refetching every file's content.
           if (
             persistedUpdatedAt === undefined ||
             queryClient.isFetching({ queryKey: designQueryKey }) > 0
@@ -438,11 +421,6 @@ export function runSaveFileContent(
             });
           }
         } else if (!persistedContentMatches) {
-          // A stale/no-op save result is a source conflict, not a lost
-          // connection. Drop the rejected overlay before refetch — leaving
-          // it active keeps painting the skipped snapshot and can write it
-          // back into Yjs when newer remote content arrives. expectedContent
-          // keeps a newer in-flight overlay (the user kept typing).
           rollbackPendingLocalFileContent(pending.id, pending.content);
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
@@ -489,11 +467,8 @@ export function runSaveFileContent(
             void acknowledgeOutboxEntry(queuedOutboxEntry).catch(() => {});
           return "failed";
         }
-        // The queued source hash stays paired with its content until the
-        // editor adopts a fresh source and creates a new save request.
         const failureKind = classifyDesignSaveFailure(error, navigator.onLine);
         if (failureKind === "conflict") {
-          // Roll back our optimistic bytes before the refetch can race ahead.
           rollbackPendingLocalFileContent(pending.id, pending.content);
           if (latestFileSaveForUnloadRef.current[pending.id] === pending) {
             delete latestFileSaveForUnloadRef.current[pending.id];
@@ -509,7 +484,6 @@ export function runSaveFileContent(
             id: `design-save-error:${pending.id}`,
           });
         } else if (failureKind === "conflict") {
-          // A fresh source read is needed before the next edit can be saved.
           toast.error(t("designEditor.toasts.saveConflict"), {
             id: `design-save-conflict:${pending.id}`,
           });

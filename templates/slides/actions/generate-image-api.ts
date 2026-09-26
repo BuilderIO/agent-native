@@ -21,7 +21,7 @@ import getDeckAction from "./get-deck.js";
 import updateSlideAction from "./update-slide.js";
 
 interface ReferenceImage {
-  data: string; // base64
+  data: string;
   mimeType: string;
 }
 
@@ -194,8 +194,6 @@ export default defineAction({
       return {
         source: "assets-a2a" as const,
         prompt,
-        // The reply is the Assets agent's own text. Pass it through verbatim
-        // rather than guessing at URLs it did not return.
         reply: delegation.reply,
         ...(url ? { url, showToUser: imagePreviewMarkdown(prompt, url) } : {}),
         ...insertion,
@@ -215,9 +213,6 @@ export default defineAction({
       );
     }
 
-    // Assets is unreachable - standalone-deploy fallback. The caller is told
-    // which path ran and why, so a brand-inconsistent image is never reported
-    // as a library-grounded one.
     const { getProvider } =
       await import("../server/handlers/image-providers/index.js");
     const provider = await getProvider(args.model || "auto");

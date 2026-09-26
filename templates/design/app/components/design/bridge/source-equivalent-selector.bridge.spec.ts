@@ -17,7 +17,6 @@ function hydrated(): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
-// The manual Alpine fixture supplies both the sibling rows and their lookup ownership.
 const PAGE = `<!doctype html><html><head><style>
   body{margin:0} ul{list-style:none;padding:0;margin:0}
   li{height:40px;border:1px solid #ccc}
@@ -85,11 +84,6 @@ async function selectAndRead(
     for (const selector of selectors) {
       const box = await page.locator(selector).first().boundingBox();
       if (!box) throw new Error(`no box for ${selector}`);
-      // Both targets sit two levels below the screen root (ul > li), so a
-      // plain click now resolves container-first (Figma parity) onto the
-      // shared <ul> for every row alike. Select the row directly — what
-      // these tests prove is the sourceId/editCapabilities a selected row
-      // reports, not click resolution.
       const before = await page.evaluate(
         () => (window as unknown as { __sel: string[] }).__sel.length,
       );
@@ -142,8 +136,6 @@ it(
   async () => {
     const [clone = ""] = await selectAndRead(["li:nth-of-type(2)"]);
 
-    // Empty sourceId: borrowing the stamped <ul>'s anchor produced a selector
-    // that resolved onto the static row and reported the write as applied.
     expect(clone.split("|")[0]).toBe("");
     expect(clone).toContain("unsupported");
   },

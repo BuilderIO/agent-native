@@ -280,8 +280,6 @@ function draftFromBookingLink(link: BookingLink): DraftLink {
     customFields: link.customFields || [],
     conferencing: link.conferencing || { type: "none" },
     isActive: link.isActive,
-    // Always lock the slug for saved links — changing a saved URL would
-    // break existing shared links. Users can still edit the slug manually.
     slugManuallyEdited: true,
   };
 }
@@ -305,7 +303,6 @@ function normalizeHostEmail(value: string) {
   return EMAIL_RE.test(email) ? email : null;
 }
 
-/** Format "09:00" → "9 am", "17:00" → "5 pm" */
 function formatTime12(time: string) {
   const [h, m] = time.split(":").map(Number);
   const suffix = h >= 12 ? "pm" : "am";
@@ -315,7 +312,6 @@ function formatTime12(time: string) {
     : `${hour} ${suffix}`;
 }
 
-/** Summarize availability, e.g. "Weekdays, 9 am - 5 pm" */
 function formatAvailabilitySummary(
   config: AvailabilityConfig,
   t: ReturnType<typeof useT>,
@@ -334,7 +330,6 @@ function formatAvailabilitySummary(
   const enabledDays = allDays.filter((d) => ws[d].enabled);
   if (enabledDays.length === 0) return t("bookingLinks.noAvailabilitySet");
 
-  // Determine day label
   const weekdaysOn = weekdayKeys.every((d) => ws[d].enabled);
   const weekendsOn = weekendKeys.every((d) => ws[d].enabled);
   const weekdaysOff = weekdayKeys.every((d) => !ws[d].enabled);
@@ -648,37 +643,20 @@ function BookingHostsEditor({
     onChange(hosts.filter((host) => host.email !== email));
   }
 
-  // Sorted so the query key stays stable when chips are reordered — the key is
-  // hashed from param content, so reordering hosts must not look like a new
-  // query. Queried for every host, not just the ones the signed-in editor's
-  // own overlay list already recognizes: a shared editor's overlay list can
-  // differ from the link owner's, and the server only ever reports statuses
-  // for hosts on the owner's own list, so its response is the source of
-  // truth for which hosts are calendar-managed.
   const allHostEmails = hosts.map((host) => host.email).sort();
   const { data: hostStatuses } = useHostOverlayStatus(
     allHostEmails,
     bookingLinkId,
-    // Never fire with an ambiguous identity: either this is genuinely a new
-    // draft (no id yet, caller is the presumptive owner), or the real link
-    // and its bookingLinkId have finished loading.
     allHostEmails.length > 0 && (isNewDraft || !!bookingLinkId),
   );
 
   function isOverlayHost(host: BookingHost) {
     const normalized = normalizeHostEmail(host.email);
-    // Once the owner-scoped status list has loaded, it is authoritative.
     if (hostStatuses) {
       return hostStatuses.some(
         (entry) => normalizeHostEmail(entry.email) === normalized,
       );
     }
-    // Before that, the signed-in user's own overlay list is only a safe
-    // stand-in for a brand-new, unsaved draft, where they are certainly the
-    // eventual owner. For a real link, a shared (non-owner) editor's own
-    // list can disagree with the owner's — guessing from it would briefly
-    // render an owner-managed host as manual, so show manual (undetermined)
-    // instead until the real status resolves.
     return isNewDraft
       ? overlayPeople.some(
           (person) => normalizeHostEmail(person.email) === normalized,
@@ -696,9 +674,6 @@ function BookingHostsEditor({
     const overlayColor = overlayPeople.find(
       (person) => normalizeHostEmail(person.email) === normalized,
     )?.color;
-    // Only overlay chips have a server-reported status. A missing row means
-    // loading, an error, or a client/server disagreement about overlay
-    // membership — all three render nothing rather than a guessed state.
     const status = options.overlay
       ? hostStatuses?.find(
           (entry) => normalizeHostEmail(entry.email) === normalized,
@@ -920,9 +895,6 @@ export default function BookingLinksPage({
   const updateBookingLink = useUpdateBookingLink();
   const deleteBookingLink = useDeleteBookingLink();
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
-  // The sidebar links straight to `?tab=shared`, which does not remount this
-  // page when it is already open — so follow the param rather than only
-  // reading it once.
   useEffect(() => {
     const tab = searchParams.get("tab");
     if (tab) setActiveTab(tab as Tab);
@@ -941,7 +913,6 @@ export default function BookingLinksPage({
   const [showCustomDurationInput, setShowCustomDurationInput] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
-  // Availability state
   const { data: availability } = useAvailability();
   const updateAvailability = useUpdateAvailability();
   const [schedule, setSchedule] = useState<
@@ -966,12 +937,10 @@ export default function BookingLinksPage({
   const zoomStatus = useZoomStatus();
   const connectZoom = useConnectZoom();
 
-  // Derive a default username from the Google email (e.g. "steve" from "steve@builder.io")
   const suggestedUsername = useMemo(() => {
     const email = googleStatus.data?.accounts?.[0]?.email;
     if (!email) return "";
     const local = email.split("@")[0];
-    // Convert "sewell.steve" → "sewell-steve"
     return local.replace(/[^a-z0-9]/gi, "-").toLowerCase();
   }, [googleStatus.data]);
 
@@ -1056,7 +1025,6 @@ export default function BookingLinksPage({
     );
   }
 
-  // Navigate back to list if the selected link was deleted
   useEffect(() => {
     if (
       selectedId &&
@@ -1071,9 +1039,6 @@ export default function BookingLinksPage({
     () => bookingLinks.find((link) => link.id === selectedId) ?? null,
     [bookingLinks, selectedId],
   );
-  // An optimistic id is assigned client-side the moment a new link is created,
-  // before the route ever loads, so it is never ambiguous with an existing
-  // link that simply hasn't finished loading yet.
   const isNewBookingLinkDraft =
     typeof selectedId === "string" && selectedId.startsWith(OPTIMISTIC_PREFIX);
   const hostOverlayBookingLinkId =
@@ -1108,7 +1073,6 @@ export default function BookingLinksPage({
           : `https://${PRODUCTION_DOMAIN}`;
       return `${host}/book/${bookingUsername}/${slug}`;
     }
-    // Fallback for no username set
     if (typeof window === "undefined") return `/book/${slug}`;
     return `${window.location.origin}/book/${slug}`;
   }
@@ -1155,8 +1119,6 @@ export default function BookingLinksPage({
       toast.error(t("bookingLinks.durationMinError"));
       return;
     }
-    // Pre-generate an optimistic id so we can navigate instantly; the mutation
-    // inserts the row into the list cache synchronously via onMutate.
     const optimisticId = `optimistic_${nanoid()}`;
     createBookingLink.mutate(
       {
@@ -1169,12 +1131,10 @@ export default function BookingLinksPage({
       },
       {
         onSuccess: (created) => {
-          // Swap URL from optimistic id to the real one without a back-stack entry.
           void navigate(`/booking-links/${created.id}`, { replace: true });
           toast.success(t("bookingLinks.bookingLinkCreated"));
         },
         onError: (error) => {
-          // Cache was rolled back by the hook's onError. Bring the user back.
           void navigate("/booking-links", { replace: true });
           toast.error(
             error instanceof Error
@@ -1184,7 +1144,6 @@ export default function BookingLinksPage({
         },
       },
     );
-    // Navigate *immediately* — the optimistic row is already in the list cache.
     void navigate(`/booking-links/${optimisticId}`);
     setCreateDialogOpen(false);
   }
@@ -1192,7 +1151,6 @@ export default function BookingLinksPage({
   async function handleSave() {
     if (!draft.id) return;
     if (!hasUnsavedChanges) return;
-    // Optimistic row hasn't resolved to a real ID yet — wait for it
     if (draft.id.startsWith(OPTIMISTIC_PREFIX)) {
       toast.error(t("bookingLinks.stillCreating"));
       return;
@@ -1404,7 +1362,6 @@ export default function BookingLinksPage({
 
   const hasLinks = bookingLinks.length > 0;
 
-  // If a link is selected, show the detail/edit view
   if (selectedId) {
     if (bookingLinksError && !isLoading) {
       return (
@@ -1530,7 +1487,6 @@ export default function BookingLinksPage({
                                 : [...prev.durations, minutes].sort(
                                     (a, b) => a - b,
                                   );
-                              // Must keep at least one
                               if (next.length === 0) return prev;
                               return {
                                 ...prev,
@@ -1910,8 +1866,6 @@ export default function BookingLinksPage({
             tab: v,
           });
           setActiveTab(v as Tab);
-          // Keep the param in step, so the effect above can't snap the user
-          // back to a tab they navigated away from.
           setSearchParams(
             (current) => {
               const next = new URLSearchParams(current);
@@ -2361,9 +2315,6 @@ export default function BookingLinksPage({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Inline booking page preview — mirrors BookingPage layout, updates live
-// ---------------------------------------------------------------------------
 
 const WEEKDAY_HEADER_KEYS = [
   "sundayShort",
@@ -2425,14 +2376,10 @@ function BookingPreview({
   const today = startOfDay(new Date());
   const maxDate = addDays(today, availability?.maxAdvanceDays ?? 60);
 
-  // Interactive state
   const [viewMonth, setViewMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedDuration, setSelectedDuration] = useState<number | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
-  // Identity for the selected live slot, kept separate from the `h:mm a`
-  // display label above because a fall-back DST date can have two distinct
-  // ISO instants that format to the same label.
   const [selectedSlotStart, setSelectedSlotStart] = useState<string | null>(
     null,
   );
@@ -2466,7 +2413,6 @@ function BookingPreview({
   );
   const hasLiveAvailability = Boolean(bookingSourceSlug && selectedDate);
 
-  // Reset selections when durations change
   useEffect(() => {
     setSelectedDuration(null);
     setSelectedSlot(null);
@@ -2478,7 +2424,6 @@ function BookingPreview({
     setPreviewConfirmed(false);
   }, [selectedDate, selectedDuration, selectedSlot]);
 
-  // Calendar data for viewed month
   const monthStart = startOfMonth(viewMonth);
   const monthEnd = endOfMonth(viewMonth);
   const calStart = startOfWeek(monthStart, { weekStartsOn });
@@ -2495,7 +2440,6 @@ function BookingPreview({
     return false;
   }
 
-  // Generate realistic time slots based on availability
   const timeSlots = useMemo(() => {
     if (hasLiveAvailability) {
       return liveSlots.map((slot) => format(parseISO(slot.start), "h:mm a"));
@@ -2539,21 +2483,10 @@ function BookingPreview({
     liveSlots,
   ]);
 
-  // The time-zone grid needs the raw ISO instant to convert per-row, which
-  // only exists once the link is saved and real availability is loaded —
-  // the synthetic placeholder slots above have no absolute timestamp.
-  //
-  // The admin's own booking-link fetch doesn't resolve peer timezones (that
-  // enrichment only runs for public visitors), so fetch the real public
-  // response here to preview it accurately instead of only showing the
-  // owner's own timezone.
   const { data: previewPublicLink } = usePublicBookingLink(
     showPreviewTimeZones ? bookingSourceSlug : undefined,
     bookingUsername,
   );
-  // A redirect-only response (unsynced/stale username) has no `id` or
-  // enrichment fields — fall through to the settings/hosts data below
-  // instead of rendering an empty preview.
   const resolvedPreviewPublicLink =
     previewPublicLink && !previewPublicLink.redirectPath
       ? previewPublicLink
@@ -2578,10 +2511,6 @@ function BookingPreview({
           })),
       ]
     : [
-        // No public response yet (unsaved link, or still loading) — peer
-        // time zones are only resolved server-side for public visitors, so
-        // this admin-only fallback can show the owner's own zone but not
-        // any host's, unlike the branch above.
         ...(settings?.timezone
           ? [
               {
@@ -2594,7 +2523,6 @@ function BookingPreview({
       ];
   const selectedLiveSlotStart = hasLiveAvailability ? selectedSlotStart : null;
 
-  // Determine which step to show
   const [forcedStep, setForcedStep] = useState<BookingPreviewStep | null>(null);
 
   let naturalStep: BookingPreviewStep = "date";

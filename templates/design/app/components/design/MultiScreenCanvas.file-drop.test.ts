@@ -85,8 +85,6 @@ describe("findTopFrameEntryAtPoint (OS file drop-target resolution)", () => {
   });
 
   it("accounts for frame rotation when hit-testing", () => {
-    // A 100x40 frame centered at (50,20), rotated 90deg, occupies a tall
-    // silhouette in world space even though its unrotated bounds are wide.
     const entries = [
       frame("rotated", {
         x: 0,
@@ -96,13 +94,9 @@ describe("findTopFrameEntryAtPoint (OS file drop-target resolution)", () => {
         rotation: 90,
       }),
     ];
-    // (50, 20) is the frame's center — always inside regardless of rotation.
     expect(findTopFrameEntryAtPoint(entries, { x: 50, y: 20 })?.id).toBe(
       "rotated",
     );
-    // (90, 20) sits inside the UNROTATED bounds (x:0-100,y:0-40) but outside
-    // the rotated silhouette (which after a 90deg turn spans roughly
-    // x:30-70, y:-30..70 around the same center) — must NOT match.
     expect(findTopFrameEntryAtPoint(entries, { x: 90, y: 20 })).toBeUndefined();
   });
 });
@@ -124,9 +118,7 @@ describe("getCameraForBounds (Figma zoom-to-fit camera math, reused by cameraCom
       { width: 1000, height: 800 },
       { paddingScreenPx: 64, minZoom: 2, maxZoom: 800, fallbackZoom: 100 },
     );
-    // Height-constrained: (800 - 128) / 2560 ≈ 26.25% zoom.
     expect(camera.zoom).toBeCloseTo(26.25, 1);
-    // The fitted content should be horizontally centered in the viewport.
     const scale = camera.zoom / 100;
     const contentCenterX = camera.x + bounds.centerX * scale;
     expect(contentCenterX).toBeCloseTo(500, 0);

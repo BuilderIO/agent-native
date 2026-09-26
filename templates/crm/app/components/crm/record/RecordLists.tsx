@@ -1,10 +1,3 @@
-/**
- * List memberships for one record.
- *
- * A record may hold more than one entry in the same list — two open renewals on
- * one account — so every entry is its own card. Collapsing them into a
- * membership flag would silently drop the second pipeline.
- */
 
 import {
   useActionMutation,
@@ -124,12 +117,6 @@ function ListCard({
             ) : null}
             {list.attributes.length ? (
               list.attributes.map((attribute) => (
-                /* An entry attribute is the list's own workflow value, not the
-                   record's — an opportunity's `Stage` and a pipeline's `Stage`
-                   are different fields, and moving one does not move the other.
-                   This label still reads identically to the object attribute
-                   above; qualifying it needs a new i18n key, which is reported
-                   rather than added here. */
                 <AttributeRowShell
                   key={attribute.id}
                   type={attribute.attributeType}

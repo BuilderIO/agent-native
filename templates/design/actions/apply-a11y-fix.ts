@@ -1,23 +1,3 @@
-/**
- * apply-a11y-fix — apply an inline accessibility remediation to a design's
- * SQL-backed HTML content.
- *
- * The Review panel surfaces a11y findings from `run-design-audit`. Many common
- * fixes — raising text contrast, enlarging a tap target, adding a
- * focus-visible ring — are ordinary style / class edits that the deterministic
- * edit engine (`applyVisualEdit`, also used by `apply-visual-edit`) can apply to
- * inline HTML. This action takes one such finding, derives the deterministic
- * edit via the shared `a11yFindingToEdit` mapping, applies it, and persists the
- * patched content. The canvas re-renders from the written content — no iframe
- * postMessage is needed.
- *
- * Fixes that need a new attribute (alt / aria-label) or a semantic/structural
- * rewrite are NOT expressible through the deterministic engine and remain
- * "real-app only": `a11yFindingToEdit` returns `null` for them and this action
- * reports them as not auto-fixable instead of writing.
- *
- * Access is gated: only an editor of the design may apply a fix.
- */
 
 import { defineAction } from "@agent-native/core/action";
 import {
@@ -45,15 +25,7 @@ import {
   type A11yFinding,
 } from "../shared/design-review.js";
 
-// ---------------------------------------------------------------------------
-// Schemas
-// ---------------------------------------------------------------------------
 
-/**
- * The subset of an {@link A11yFinding} the fix needs. The full finding is
- * accepted (extra fields are stripped) so callers can forward what they already
- * have from `run-design-audit` / `get-design-review` verbatim.
- */
 const findingSchema = z
   .object({
     id: z.string(),
@@ -77,9 +49,6 @@ const findingSchema = z
     }
   });
 
-// ---------------------------------------------------------------------------
-// Live-content + resolve/persist helpers (mirrors apply-visual-edit's scoped path)
-// ---------------------------------------------------------------------------
 
 async function resolveEditableDesignFile(source: {
   designId?: string;
@@ -137,15 +106,8 @@ async function resolveEditableDesignFile(source: {
     );
   }
 
-  // Writes require editor access to the owning design.
   await assertAccess("design", file.designId, "editor");
 
-  // Read the LIVE base (collab text when present, else the SQL row) ONCE
-  // here and capture its versionHash. This is the actual base the deterministic
-  // edit engine transforms in run() below, so this hash — not a fresh re-read
-  // computed at persist time — is what proves the transform's input is still
-  // current when persistDesignFileEdit writes. Mirrors apply-visual-edit.ts's
-  // resolveEditableDesignFile/persistDesignFileEdit split.
   const workspaceFile: SourceWorkspaceFile = {
     id: file.id,
     designId: file.designId,
@@ -173,24 +135,10 @@ async function persistDesignFileEdit(file: {
   content: string;
   expectedVersionHash: string;
 }): Promise<void> {
-  // Re-assert at the write boundary so the persist path is independently scoped.
   await assertAccess("design", file.designId, "editor");
 
   agentEnterDocument(file.id);
   try {
-    // Pass through the versionHash captured in resolveEditableDesignFile at
-    // the SAME read the transform used as its base (NOT a fresh re-read of
-    // the (already-transformed) content here — re-reading here would always
-    // observe whatever is live "now" and trivially match itself, proving
-    // nothing about whether a sibling write landed between the transform's
-    // base read and this persist). writeInlineSourceFile re-reads the live
-    // text immediately before its own applyText/DB write and rejects if it no
-    // longer matches this hash — closing the race window where a concurrent
-    // editor/agent write lands between the base read (used to compute this
-    // patch) and this persist call (the same stale-diff-base bug fixed for
-    // insert-design-native-asset.ts / insert-asset.ts: a diff computed from a
-    // stale base, char-diffed into a collab doc that has since moved on,
-    // corrupts or drops the other writer's change).
     const workspaceFile: SourceWorkspaceFile = {
       id: file.id,
       designId: file.designId,
@@ -212,9 +160,6 @@ async function persistDesignFileEdit(file: {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Action
-// ---------------------------------------------------------------------------
 
 export default defineAction({
   description:

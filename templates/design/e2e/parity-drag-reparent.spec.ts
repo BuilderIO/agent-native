@@ -9,18 +9,6 @@ import {
   gotoEditor,
 } from "./helpers";
 
-/**
- * Figma-parity check for §2 Move / auto-nesting (Part 3 resolutions): drag an
- * element into a container to nest it, drag it back out to the screen root,
- * cross the screen<->board boundary, Space suppresses reparenting, and one
- * undo restores both parent and position after any reparent.
- *
- * Fixture: screen "index.html" has header/main/footer landmark containers
- * with root gaps between them (so a drop point can hit document.body
- * directly, not any container) plus a movable Widget inside main and a
- * FooterItem already inside footer. Screen "page-two.html" is a second,
- * mostly-empty screen for cross-screen drops.
- */
 
 const SCREEN_ONE = `<!doctype html>
 <html lang="en">
@@ -56,7 +44,6 @@ const SCREEN_TWO = `<!doctype html>
   </body>
 </html>`;
 
-// The source class rules are deliberately absent from the destination.
 const STYLE_CARRY_SOURCE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Style Carry Source</title>
@@ -214,13 +201,6 @@ async function layerParentName(
   });
 }
 
-/**
- * Immediate-parent node id of `nodeId` inside `html`, using a real tag-depth
- * walk (not a non-greedy regex, which stops at the wrong closing tag as soon
- * as a candidate container has a same-named-tag child of its own — e.g. a
- * `<div>` child closing before the container's real close). Only looks at
- * the small set of tags this fixture actually uses.
- */
 function parentOf(html: string, nodeId: string): string | null {
   const tagRe =
     /<(header|main|footer|section|div)\b([^>]*)>|<\/(header|main|footer|section|div)>/gi;
@@ -342,8 +322,6 @@ test.describe("drag reparent parity", () => {
     );
     await page.waitForTimeout(400);
 
-    // Highlight assertion BEFORE mouseup: the insertion guide should be
-    // visible and roughly cover the footer container.
     const guide = designFrame(page, screenId).locator(
       "[data-agent-native-insertion-guide]",
     );
@@ -651,7 +629,6 @@ test.describe("drag reparent parity", () => {
     await gotoEditor(page, id);
     const screenId = await fileIdFor(page, id, "index.html");
 
-    // Draw a rectangle on the empty board first (Rectangle tool).
     const boardPoint = await emptyBoardPoint(page);
     await page
       .locator('[data-design-bottom-toolbar] button[aria-label="Rectangle"]')
@@ -930,10 +907,6 @@ test.describe("drag reparent parity", () => {
     await page.waitForTimeout(400);
     await page.mouse.up();
 
-    // Precondition is the same screen-to-board drag exercised (and asserted)
-    // by "dragging an element from inside a screen onto the empty board..."
-    // above; not skipped here — if that drag is broken this fails for the
-    // real reason instead of silently passing an untested undo.
     await expect
       .poll(
         async () => {
@@ -979,16 +952,10 @@ test.describe("drag reparent parity", () => {
   }) => {
     const id = await newTwoScreenDesign(page);
     await gotoEditor(page, id);
-    // Both screens must be on-screen at once for a real cross-screen drag —
-    // the second screen is placed well below the first by default. Zoom-fit
-    // needs canvas focus, not e.g. a panel that swallows the keystroke.
     await page.keyboard.press("Shift+1");
     const screenOneId = await fileIdFor(page, id, "index.html");
     const screenTwoId = await fileIdFor(page, id, "page-two.html");
 
-    // Shift+1 (zoom-to-fit) is a CSS transition with no completion event —
-    // poll the target's own box until two consecutive reads agree, so the
-    // drag below computes coordinates against the settled layout.
     let lastTargetBox: { x: number; y: number } | null = null;
     await expect
       .poll(
@@ -1215,8 +1182,6 @@ test.describe("drag reparent parity", () => {
     const sourceNode = designFrame(page, screenOneId).locator(
       '[data-agent-native-node-id="style-card"]',
     );
-    // Read the class-authored appearance directly off the live source node
-    // rather than hardcoding the browser's keyword/hex-to-rgb() conversion.
     const [colorBefore, backgroundBefore] = await sourceNode.evaluate((el) => {
       const cs = getComputedStyle(el);
       return [cs.color, cs.backgroundColor];
@@ -1253,8 +1218,6 @@ test.describe("drag reparent parity", () => {
     const trace = await dumpTrace(page);
     await page.mouse.up();
 
-    // Source and destination files save independently, so poll both to confirm
-    // the move has settled in each.
     let screenTwoHtml = "";
     let screenOneHtmlAfter = "";
     await expect
@@ -1281,7 +1244,6 @@ test.describe("drag reparent parity", () => {
       )
       .toBe(true);
 
-    // The destination has no `.card` rule; carried styles must render inline.
     const destNode = designFrame(page, screenTwoId).locator(
       '[data-agent-native-node-id="style-card"]',
     );
@@ -1294,15 +1256,10 @@ test.describe("drag reparent parity", () => {
       )
       .toEqual([colorBefore, backgroundBefore]);
 
-    // Read computed width inside the iframe; overview zoom affects canvas
-    // coordinates, not this layout value.
     expect(
       styleOf(screenTwoHtml, "style-card"),
       "Style Card must persist width:320px as inline style after landing in screen two",
     ).toMatch(/width\s*:\s*320px/);
-    // computed style inside the frame, not an on-screen boundingBox() — the
-    // overview canvas can render screen two below 1:1 zoom, which would
-    // shrink a raw pixel bounding box without the carried width being wrong.
     expect(await destNode.evaluate((el) => getComputedStyle(el).width)).toBe(
       "320px",
     );

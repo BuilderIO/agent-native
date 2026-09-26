@@ -317,10 +317,6 @@ function contentLocalComponentsPlugin(): Plugin {
         });
         return refreshPromise;
       };
-      // Coalesce rapid successive component-file writes (agents and editor
-      // atomic saves fire several add/unlink events per logical change) into
-      // a single full reload. Module invalidation stays immediate so the next
-      // request always sees fresh content.
       let fullReloadTimer: ReturnType<typeof setTimeout> | null = null;
       const scheduleFullReload = () => {
         if (fullReloadTimer) clearTimeout(fullReloadTimer);
@@ -399,7 +395,6 @@ export default defineConfig({
         ...(localWorkspaceRoot ? [localWorkspaceRoot] : []),
         ...dynamicLocalComponentDirs,
       ],
-      // shiki only runs in AssistantChat's useEffect — keep it out of SSR bundles.
       ssrStubs: ["shiki"],
     }),
   ],

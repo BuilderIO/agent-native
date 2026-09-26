@@ -1,9 +1,3 @@
-/**
- * See what the user is currently looking at on screen.
- *
- * Usage:
- *   pnpm action view-screen
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
@@ -24,7 +18,6 @@ import { getTask, listTasks, requireUserEmail } from "../server/tasks/store.js";
 import { getTaskCardFieldIds } from "../server/user-config/store.js";
 import { buildListViewScreen } from "./view-screen-helpers.js";
 
-/** Max tasks in the agent tool payload (token budget). The UI may show more rows; */
 const AGENT_TASKS_LIST_CAP = 25;
 const AGENT_INBOX_ITEMS_LIST_CAP = 25;
 const AGENT_FIELDS_LIST_CAP = 25;

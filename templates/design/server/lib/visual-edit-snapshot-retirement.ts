@@ -7,7 +7,6 @@ import { queueVisualEditSnapshotBlobCleanupInTransaction } from "./visual-edit-s
 
 const MAX_CAPTURE_REVISION = 9_223_372_036_854_775_807n;
 
-/** Retire a Localhost snapshot in the same transaction as its source change. */
 export async function retireVisualEditSnapshotInTransaction(args: {
   tx: DesignDataMutationTransaction;
   designId: string;

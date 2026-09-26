@@ -29,7 +29,6 @@ export default defineAction({
       .limit(1);
     if (!run) throw new Error("Generation run not found.");
     await requireLibrary(run.libraryId);
-    // Same rule as the run list: reading one by id is not a way around it.
     const scope = await resolveDraftReadScope([run.libraryId]);
     if (!canReadRun(scope, run)) {
       throw new Error("Generation run not found.");

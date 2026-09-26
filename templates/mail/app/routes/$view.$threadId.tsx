@@ -11,8 +11,6 @@ const SEO_TITLE =
 const SEO_DESCRIPTION =
   "Open Source AI email client for Gmail triage, drafting, organization, follow-ups, and inbox workflows built around shared actions.";
 
-// Same rationale as $view.tsx's loader: this route also matches unknown
-// `/:view/:threadId` paths and must not serve them as 200.
 export function loader({ params }: { params: { view?: string } }) {
   if (!isKnownMailView(params.view)) {
     return data(null, { status: 404 });

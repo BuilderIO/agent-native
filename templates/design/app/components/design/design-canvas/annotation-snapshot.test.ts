@@ -8,8 +8,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: (...args: unknown[]) => callAction(...args),
 }));
 
-// Imported after the mock so the module under test picks up the mocked
-// `callAction` binding.
 const { captureAnnotatedScreenshot, drawAnnotationsOnContext } =
   await import("./annotation-snapshot");
 
@@ -41,10 +39,6 @@ function textAnnotation(
   };
 }
 
-// ---------------------------------------------------------------------------
-// drawAnnotationsOnContext — pure rasterization, no real canvas needed since
-// it only depends on a handful of CanvasRenderingContext2D methods/setters.
-// ---------------------------------------------------------------------------
 
 describe("drawAnnotationsOnContext", () => {
   function fakeCtx() {
@@ -98,9 +92,6 @@ describe("drawAnnotationsOnContext", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// captureAnnotatedScreenshot — orchestration + graceful-degradation contract
-// ---------------------------------------------------------------------------
 
 describe("captureAnnotatedScreenshot", () => {
   afterEach(() => {
@@ -180,7 +171,6 @@ describe("captureAnnotatedScreenshot", () => {
     });
     const result = await captureAnnotatedScreenshot(baseOptions);
     expect(result).toBeNull();
-    // Never reaches the upload-image call once compositing fails.
     expect(callAction).toHaveBeenCalledTimes(1);
   });
 
@@ -226,7 +216,6 @@ describe("captureAnnotatedScreenshot", () => {
       onload: (() => void) | null = null;
       onerror: (() => void) | null = null;
       set src(_value: string) {
-        // Resolve asynchronously like a real Image decode.
         queueMicrotask(() => this.onload?.());
       }
     }

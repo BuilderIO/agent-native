@@ -585,10 +585,6 @@ export async function listPropertiesForDocument(
     options,
   );
   if (!database) return [];
-  // Read path: PURE read. Seeding the primary Blocks field happens at create
-  // time and via the one-time startup repair (repairUnseededBlocksFields) —
-  // never here. A viewer opening a shared/legacy row must not trigger writes on
-  // another owner's database.
   return listPropertiesForDatabase(database.id, document, {
     includeContainerDerivedValues: options.requireDatabaseAccess !== false,
   });
@@ -675,9 +671,6 @@ export async function listPropertiesForDatabase(
       ? await databaseRowNumbersByDocumentId(databaseId)
       : new Map<string, number>();
 
-  // Additional (non-primary) Blocks fields keep their content in their own
-  // store, keyed by (documentId, propertyId). Load this row's contents up front
-  // so each Blocks field resolves to its OWN independent content.
   const blockContentByPropertyId = valueDocument
     ? await blockFieldContentsForDocument(valueDocument.id)
     : new Map<string, string>();
@@ -726,8 +719,7 @@ export async function listPropertiesForDatabase(
             databaseRowNumber: rowNumberByDocumentId.get(valueDocument.id),
           })
         : valueDocument && isBlocksPropertyType(type)
-          ? // Each Blocks field reads from exactly one place: the primary from
-            // the document body, additional fields from their own store.
+          ?
             resolveBlocksFieldValue({
               options,
               documentBody: valueDocument.content,
@@ -1206,17 +1198,7 @@ export function normalizedValueJson(
   return serializePropertyValue(normalizePropertyValue(type, value));
 }
 
-// --- Blocks fields ---------------------------------------------------------
-//
-// Storage model: the default/primary "Content" Blocks field is backed by
-// `documents.content`. Every ADDITIONAL Blocks field stores its content in its
-// own row in `document_block_field_contents`, keyed by (documentId,
-// propertyId). This guarantees independence — no two Blocks fields ever share
-// content.
 
-// Load all additional-Blocks-field contents for a single document, keyed by
-// propertyId. The primary field is intentionally absent here (its content lives
-// on the document itself).
 export async function blockFieldContentsForDocument(
   documentId: string,
 ): Promise<Map<string, string>> {
@@ -1248,11 +1230,6 @@ export async function readBlockFieldContent(
   return row?.content ?? "";
 }
 
-// Upsert the content for an additional (non-primary) Blocks field.
-//
-// Atomic insert-or-update on the UNIQUE (document_id, property_id) index — no
-// read-then-write window. Two concurrent first-saves can no longer race into a
-// duplicate-key throw: the loser falls through to the conflict UPDATE branch.
 export async function writeBlockFieldContent(args: {
   documentId: string;
   propertyId: string;
@@ -1281,7 +1258,6 @@ export async function writeBlockFieldContent(args: {
     });
 }
 
-// Write the primary Blocks field's content — i.e. the document body.
 export async function writePrimaryBlocksContent(args: {
   documentId: string;
   content: string;
@@ -1299,7 +1275,6 @@ export async function writePrimaryBlocksContent(args: {
     .where(eq(schema.documents.id, args.documentId));
 }
 
-// Fetch a single property definition scoped to a database (and owner).
 export async function getPropertyDefinitionForDatabase(args: {
   propertyId: string;
   databaseId: string;
@@ -1319,9 +1294,6 @@ export async function getPropertyDefinitionForDatabase(args: {
   return definition ?? null;
 }
 
-// How many Blocks-type property definitions a database has. Used to drive the
-// solo (chromeless) vs. multi (headers + collapsible) rendering decision and
-// the "only Blocks field" delete warning.
 export async function countBlocksFieldsForDatabase(
   databaseId: string,
 ): Promise<number> {
@@ -1335,9 +1307,6 @@ export async function countBlocksFieldsForDatabase(
   ).length;
 }
 
-// The id of a database's existing primary Blocks definition, if any. Used to
-// adopt a legacy primary created by the old read-path seeder rather than
-// creating a duplicate.
 async function findExistingPrimaryBlocksDefinition(
   databaseId: string,
   db: DbClient = getDb(),
@@ -1358,16 +1327,6 @@ async function findExistingPrimaryBlocksDefinition(
   return primary?.id ?? null;
 }
 
-// Seed the primary "Content" Blocks field for a database exactly ONCE.
-//
-// `content_databases.primary_blocks_property_id` is the single source of truth
-// and the concurrency guard. The deterministic primary definition is inserted
-// before the database row is marked seeded, so we never publish blocks_seeded=1
-// before the definition row exists. Two concurrent calls converge on the same
-// property id and the loser returns the already-claimed id.
-//
-// Returns the primary property id (existing or newly created). Never reseeds a
-// database whose primary was intentionally deleted (blocks_seeded=1, id NULL).
 export async function seedDefaultBlocksField(args: {
   databaseId: string;
   ownerEmail: string;
@@ -1377,16 +1336,8 @@ export async function seedDefaultBlocksField(args: {
 }): Promise<string | null> {
   const db = args.db ?? getDb();
 
-  // Deterministic id keyed to the database so concurrent claimants converge on
-  // the same value; the UNIQUE primary-key on definitions also rejects a
-  // duplicate insert if two callers somehow both attempt it.
   const id = `blocks_primary_${args.databaseId}`;
 
-  // Legacy adoption: a database seeded by the OLD read-path safety net already
-  // has a primary "Content" definition but a NULL column (if the v52 backfill
-  // somehow didn't run for it). Adopt that existing definition instead of
-  // creating a second primary — guarantees the invariant even off the migration
-  // path. The atomic UPDATE (column still NULL) makes this race-safe.
   const existingPrimary = await findExistingPrimaryBlocksDefinition(
     args.databaseId,
     db,
@@ -1478,16 +1429,6 @@ export async function seedDefaultBlocksField(args: {
   return null;
 }
 
-// One-time startup repair for LEGACY databases that have never been seeded —
-// i.e. databases created before the Blocks type existed and which have NO
-// primary Blocks field yet (blocks_seeded = 0). Their `documents.content` body
-// still works; seeding the primary field exposes it as a first-class property.
-//
-// Runs at boot from the migration plugin, NOT from any read path, so opening a
-// shared/legacy row never triggers a write. Uses each database's own owner/org
-// (no request context). Idempotent: the atomic claim in seedDefaultBlocksField
-// makes re-runs no-ops, and databases whose primary was intentionally deleted
-// (blocks_seeded = 1) are skipped.
 export async function repairUnseededBlocksFields(): Promise<number> {
   const db = getDb();
   const databases = await db

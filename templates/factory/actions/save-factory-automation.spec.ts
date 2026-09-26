@@ -206,11 +206,6 @@ describe("save-factory-automation", () => {
   });
 
   it("does not bump the version when an already-unset optional field is resent as an empty string", async () => {
-    // The form always resends every field, including unset optional
-    // destination fields as "" rather than omitting them. A freshly-read
-    // config reports these as null, so "" vs null must not look like a
-    // real change — otherwise every resave (e.g. toggling enabled alone)
-    // would bump the version for nothing.
     const { default: action } = await import("./save-factory-automation.js");
     const result = await action.run(
       {

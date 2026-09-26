@@ -1,7 +1,3 @@
-//! Local validation and activity trail for bounded Rewind evidence.
-//!
-//! This module never sends a network request. It only validates a bounded text
-//! packet and records intent before a future caller is allowed to send it.
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -424,8 +420,6 @@ fn prepare_evidence(
         packet_bytes,
         error: None,
     };
-    // This durable append is deliberately before the packet is returned to a
-    // caller that might send it.
     store.append(&event)?;
     Ok(RewindEgressPrepared {
         request_id,

@@ -1,13 +1,3 @@
-/**
- * Remove a personal-vocabulary entry.
- *
- * Lets a user correct a bad auto-learned term (see `add-vocabulary-term`) or
- * clear a manually-added one. Owner-scoped delete — a row can only be removed
- * by the user who owns it.
- *
- * Usage:
- *   pnpm action remove-vocabulary-term --id=<id>
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";

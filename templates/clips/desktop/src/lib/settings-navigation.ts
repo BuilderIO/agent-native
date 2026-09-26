@@ -1,4 +1,3 @@
-// Order is the settings nav order; app.tsx's settingsTabs labels/icons follow it.
 export const DESKTOP_SETTINGS_TABS = [
   "general",
   "recording",
@@ -16,7 +15,6 @@ export function initialDesktopSettingsTab(
   return tab ?? "general";
 }
 
-/** `#settings/<tab>` detail → a known tab, or undefined for anything else. */
 export function asDesktopSettingsTab(
   value: string | undefined,
 ): DesktopSettingsTab | undefined {

@@ -30,11 +30,6 @@ import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 
-// TEMPORARY diagnostic — remove once we've read a few real conflicts in prod.
-// Conflicts are benign 409s the framework no longer error-logs, so they are
-// otherwise invisible in Netlify. Every remaining one should be a genuine
-// concurrent writer now that core's ydoc-manager re-checks the stored version
-// instead of answering from whatever this instance loaded first.
 function logSaveConflictDebug(
   event: string,
   detail: Record<string, unknown>,
@@ -42,10 +37,6 @@ function logSaveConflictDebug(
   console.warn(`[update-file:debug] ${event}`, detail);
 }
 
-// 404 via statusCode (NOT status — the action route only reads statusCode) so
-// the client save-outbox treats a gone file as terminal and drops it, instead
-// of looping a masked 500. Used at every missing-file guard, including the
-// post-lock rereads a concurrent delete can hit.
 function fileNotFound(id: string): Error & { statusCode?: number } {
   const err = new Error(`File not found: ${id}`) as Error & {
     statusCode?: number;
@@ -54,41 +45,6 @@ function fileNotFound(id: string): Error & { statusCode?: number } {
   return err;
 }
 
-/**
- * Returns `{ id, updated: true }` on success, matching the pre-existing
- * contract — callers that only check `result.updated === true` see no
- * behavior change.
- *
- * `skippedStaleMirror?: true` is added to the result ONLY in the narrow
- * SQL-mirror-only staleness case: `content` was provided, `syncCollab` was
- * explicitly `false`, a live collaboration document exists for this file,
- * and the caller's `expectedVersionHash` matches NEITHER the live collab
- * text, NOR the `content` being written (an own edit that raced ahead via
- * Yjs), NOR the current SQL mirror content. A caller whose hash matches the
- * current mirror is the mirror column's own lineage (mirror-lineage rescue):
- * it proceeds instead of skipping, advancing the mirror while the client
- * remains responsible for its CRDT operations.
- * In the genuinely-stale case the content column is intentionally left
- * untouched (the live
- * collab document remains the source of truth) while any `filename`/
- * `fileType` updates in the same call still apply, and the action returns
- * success instead of throwing. The field is omitted (not `false`) in every
- * other case, so existing callers that don't check for it observe no
- * difference. When `expectedVersionHash` is omitted entirely, or the hash
- * matches, or `syncCollab` is left at its default `true`, or no collab state
- * exists yet for the file, this skip path never triggers.
- *
- * Versioned browser saves additionally return `versionHash` for the content
- * that remains persisted. `skippedStaleOperation?: true` means an equal or
- * newer revision from that same browser tab was already accepted, so this
- * late request was treated as an idempotent content no-op.
- *
- * `checkpoint: { skipped: true, reason }` means the write above succeeded but
- * the auxiliary pre-write version-history checkpoint could not be captured
- * (e.g. a design over 256 KiB with no private-blob provider configured for
- * this owner) — content is NOT lost, only that checkpoint. Omitted in every
- * other case.
- */
 export default defineAction({
   description:
     "Update an existing file in a design project. " +
@@ -214,7 +170,6 @@ export default defineAction({
     },
     context,
   ) => {
-    // Path traversal guard on filename
     if (
       filename &&
       (filename.includes("..") ||
@@ -227,7 +182,6 @@ export default defineAction({
     const db = getDb();
     const now = new Date().toISOString();
 
-    // Look up the file to get its designId for access check
     const [file] = await db
       .select({
         id: schema.designFiles.id,
@@ -296,31 +250,6 @@ export default defineAction({
       };
     }
 
-    // Optimistic-concurrency guard (cross-pipeline write-race fix): a content
-    // update here is a FULL-document write that, when syncCollab runs, is
-    // char-diffed against the live collaboration text (applyText). If the
-    // caller computed `content` from a since-stale read — e.g. a base Fill
-    // style commit queued while a shader apply-source-edit landed for the
-    // same file — that silent diff-merge is exactly how the shader/fill
-    // interleave corrupted or lost screen content. When the caller supplies
-    // the hash of the content it based this write on, verify the file still
-    // matches before writing and fail loud otherwise, mirroring
-    // writeInlineSourceFile's expectedVersionHash contract.
-    //
-    // TOCTOU fix: the hash check alone is NOT enough — two concurrent
-    // update-file calls can each read the same live text, each pass the hash
-    // check, and then both proceed to write, with the second one silently
-    // winning over a base it never actually re-validated against. Route the
-    // whole hash-check -> write -> collab-sync critical section through the
-    // SAME per-file in-process lock writeInlineSourceFile uses
-    // (withSourceFileWriteLock, server/source-workspace.ts), keyed by file
-    // id, so a second guarded caller's hash check runs AFTER the first
-    // caller's write has fully landed and observes the true current state
-    // (and is rejected by the hash guard instead of interleaving). Callers
-    // that don't pass a hash keep today's last-write-wins behavior for the
-    // VALUE they write, but the write itself is still serialized under the
-    // same lock so it can't interleave with a concurrent guarded writer's own
-    // read-check-write.
     let skippedStaleMirror = false;
     let skippedStaleOperation = false;
     let exactOperationAlreadyPersisted = false;
@@ -349,8 +278,6 @@ export default defineAction({
             .where(eq(schema.designFiles.id, id))
             .limit(1);
           if (!persistedFile) {
-            // Delete-race: the row passed the access check but is gone now.
-            // Same 404 as the outer guard, not a bare 500 the outbox retries.
             throw fileNotFound(id);
           }
 
@@ -391,9 +318,6 @@ export default defineAction({
                 fileType ?? persistedFile.fileType ?? file.fileType ?? "html",
             });
           }
-          // Applicability belongs to the guard, which cheaply short-circuits
-          // when neither side carries a lock. Gating on the REQUEST's fileType
-          // let a content-only save add a lock the live document never had.
           if (content !== undefined && context?.caller !== "frontend") {
             assertLockedLayersPreserved(liveContent, content);
           }
@@ -407,11 +331,6 @@ export default defineAction({
             persistedFile.contentOperationSource === operationSource &&
             typeof persistedFile.contentOperationRevision === "number";
 
-          // A pagehide keepalive can overtake the older normal fetch for this
-          // same tab. Once the newer revision has committed, the late request is
-          // an idempotent no-op regardless of its stale expectedVersionHash. Do
-          // this before the content hash guard so request arrival order cannot
-          // turn a correct latest save into a conflict or overwrite.
           if (
             sameOperationSource &&
             requestedOperationRevision !== null &&
@@ -419,11 +338,6 @@ export default defineAction({
               persistedFile.contentOperationRevision!
           ) {
             skippedStaleOperation = true;
-            // The SQL CAS may have committed before the separate collab apply
-            // failed. A retry of that exact operation must be allowed to finish
-            // convergence; an older revision must remain a strict no-op. Require
-            // both persisted hashes to prove the requested content is exactly
-            // what this operation committed before re-running any side effect.
             exactOperationAlreadyPersisted =
               requestedOperationRevision ===
                 persistedFile.contentOperationRevision &&
@@ -432,36 +346,6 @@ export default defineAction({
               persistedFile.contentOperationResultHash === persistedContentHash;
           }
 
-          // SQL-mirror-only skip path: when the caller explicitly opted OUT of
-          // collab sync (syncCollab: false) and supplied an expectedVersionHash
-          // that no longer matches the LIVE collab text, and a live collab doc
-          // actually exists for this file, the caller's `content` was computed
-          // from a base that a live editor has since moved past. Overwriting the
-          // SQL mirror column with that stale content here would silently regress
-          // it out from under the live document (which stays the source of
-          // truth) the next time it's read back out of SQL. Skip the content
-          // write instead of throwing: filename/fileType updates in the same call
-          // still proceed, and the caller gets `skippedStaleMirror: true` back
-          // instead of a thrown error, because they explicitly said they weren't
-          // trying to sync into collab in the first place. Every other
-          // expectedVersionHash combination (syncCollab true/default, or no live
-          // collab state, or a matching hash, or no hash at all) is UNCHANGED.
-          //
-          // Own-edit false-positive fix: a single client's own edit reaches the
-          // live collab doc via TWO independent, unordered paths — the Yjs
-          // update (~80ms client debounce, applied to the server's in-memory doc
-          // as soon as its POST lands) and this guarded update-file call (~400ms
-          // client debounce). The Yjs path usually wins the race, so by the time
-          // this call's hash check runs, `liveContent` often already equals the
-          // very `content` this call is trying to write — that is NOT a
-          // divergent concurrent edit, it's the same edit having arrived early
-          // by a different transport. Comparing hashes first would reject that
-          // as "stale" and permanently skip the SQL mirror write (there is no
-          // background job that later reconciles design_files.content from the
-          // live collab doc — see hasCollabState below), silently losing writes
-          // on every edit after the first in a session. Check content equality
-          // BEFORE the hash comparison so this exact-match case always proceeds
-          // as a normal write instead of hitting either the skip or throw path.
           let skipContentWrite = skippedStaleOperation;
           if (
             !skippedStaleOperation &&
@@ -473,9 +357,6 @@ export default defineAction({
               sourceContentHash(liveContent) !== expectedVersionHash
             ) {
               if (syncCollab === false && collabExists) {
-                // A delayed client transport does not invalidate the SQL lineage.
-                // Preserve the mirror CAS, but keep CRDT authorship with the client:
-                // its original deltas can still arrive after this HTTP save.
                 if (persistedContentHash !== expectedVersionHash) {
                   skipContentWrite = true;
                   skippedStaleMirror = true;
@@ -491,9 +372,6 @@ export default defineAction({
                   liveContentHash: sourceContentHash(liveContent),
                   persistedMirrorHash: persistedContentHash,
                 });
-                // 409 (statusCode), not a bare 500: an expected optimistic-
-                // concurrency outcome the framework returns verbatim and the client
-                // rebases from, instead of a Sentry-captured fault + retry storm.
                 const conflict = new Error(
                   "File changed since it was read. Re-read the file and retry.",
                 ) as Error & { statusCode?: number };
@@ -515,9 +393,6 @@ export default defineAction({
               updates.contentOperationRevision = operationRevision;
               updates.contentOperationResultHash = persistedVersionHash;
             } else {
-              // An unversioned writer starts a different lineage. Clearing the
-              // browser operation marker prevents a later request from treating
-              // stale transport metadata as proof that no writer intervened.
               updates.contentOperationSource = null;
               updates.contentOperationRevision = null;
               updates.contentOperationResultHash = null;
@@ -526,12 +401,6 @@ export default defineAction({
           if (filename !== undefined) updates.filename = filename;
           if (fileType !== undefined) updates.fileType = fileType;
 
-          // The JS lock above is intentionally fast but process-local. Versioned
-          // browser writes also need a database CAS so two serverless instances
-          // cannot both validate the same snapshot and let the later SQL update
-          // clobber the winner. If another instance moves any part of the content
-          // lineage first, rowsAffected is zero and this request fails with a
-          // typed conflict; the prepared lease is never reused for a retry.
           const requiresContentCas =
             hasVersionedContentOperation && !skipContentWrite;
           const contentCasWhere = requiresContentCas
@@ -558,12 +427,6 @@ export default defineAction({
               )
             : undefined;
 
-          // When a durable collaboration row already exists, mirror-only saves
-          // still need to claim it before changing SQL. This no-op CAS locks
-          // the live version in this transaction, so a peer edit either happens
-          // afterward or maps to a typed conflict instead of being overwritten
-          // by the mirror. Keep absent rows SQL-only until a real collab writer
-          // creates them.
           if (
             content !== undefined &&
             !syncCollab &&
@@ -593,9 +456,6 @@ export default defineAction({
           let updateResult: unknown;
 
           if (filename !== undefined) {
-            // The surrounding design-scoped transaction already holds the
-            // advisory lock, so collision validation and the guarded update share
-            // one serialized boundary.
             const [collision] = await tx
               .select({ id: schema.designFiles.id })
               .from(schema.designFiles)
@@ -673,8 +533,6 @@ export default defineAction({
             }
           }
 
-          // Only the declared server writer authors CRDT operations. A mirror-only
-          // save must not duplicate a delayed client's insertions.
           const shouldConvergePersistedRetry =
             exactOperationAlreadyPersisted && syncCollab;
           if (

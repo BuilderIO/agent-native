@@ -8,18 +8,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { appPath } from "./helpers";
 
-/**
- * Figma parity — Pan/Zoom (spec §14). Mouse-driven cases prove plain wheel
- * pan, shift+wheel horizontal pan, cmd/ctrl+wheel zoom-at-cursor,
- * middle-mouse drag pan, space+drag pan, and that panning never selects/moves
- * elements. The final regression covers toolbar and keyboard zoom racing a
- * fit command while the readout tracks the real canvas scale.
- *
- * See templates/design/.claude/skills/design-editor-architecture/SKILL.md
- * ("prove the gesture, not just the outcome") and
- * .../scratchpad/arch-map.md §1 (MultiScreenCanvas.tsx beginPan :3927,
- * wheel :7470-7567; DesignCanvas.tsx EMBEDDED_WHEEL_BRIDGE_SCRIPT).
- */
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
@@ -80,7 +68,6 @@ async function createDesign(request: APIRequestContext) {
   return { designId, fileId };
 }
 
-/** The world layer's own transform: `{x, y}` translate plus scale. */
 async function worldTransform(
   page: Page,
 ): Promise<{ x: number; y: number; scale: number } | null> {
@@ -105,8 +92,6 @@ async function openOverview(page: Page, designId: string) {
       timeout: 40_000,
     })
     .toBeGreaterThan(0);
-  // The initial zoom-to-fit is a CSS transition with no completion event —
-  // poll the world transform until two consecutive reads agree.
   let last: { x: number; y: number; scale: number } | null = null;
   await expect
     .poll(
@@ -126,8 +111,6 @@ async function openOverview(page: Page, designId: string) {
     .toBe(true);
 }
 
-/** Centre of the live screen preview content — where gestures were reported
- *  jumpy/swallowed vs. the empty canvas. */
 async function screenContentPoint(page: Page) {
   const box = await page.locator("[data-screen-card]").first().boundingBox();
   if (!box) throw new Error("no screen card rendered");
@@ -137,10 +120,6 @@ async function screenContentPoint(page: Page) {
   };
 }
 
-/** A point definitely off every screen card but still over the canvas
- *  surface — below the card, never under the left layers panel or the right
- *  inspector rail (which, at 1600px viewport width, leaves less gap to the
- *  card's right than a fixed +150px offset assumed). */
 async function emptyCanvasPoint(page: Page) {
   const box = await page.locator("[data-screen-card]").first().boundingBox();
   if (!box) throw new Error("no screen card rendered");
@@ -151,7 +130,6 @@ function selectedLayerRowCount(page: Page) {
   return page.locator('[role="treeitem"][aria-selected="true"]').count();
 }
 
-/** The toolbar zoom readout button, e.g. "100%". */
 function zoomReadout(page: Page) {
   return page.getByRole("button", { name: /^\d+%$/ }).first();
 }
@@ -175,8 +153,6 @@ test("plain wheel pans vertically by the wheel delta", async ({
 
     const after = await worldTransform(page);
     expect(after).not.toBeNull();
-    // A wheel scroll of +120 (down) pans content up: the world's y
-    // translate must move, x must not, and scale must be unchanged.
     expect(after!.y).not.toBeCloseTo(before!.y, 0);
     expect(after!.x).toBeCloseTo(before!.x, 0);
     expect(after!.scale).toBeCloseTo(before!.scale, 3);
@@ -189,9 +165,6 @@ test("plain wheel pans vertically starting over screen content, not just empty c
   page,
   request,
 }) => {
-  // Logan: "middle-mouse pan is jumpy when it starts over content" — the
-  // sibling report for wheel-pan is that a gesture beginning over an
-  // iframe's live content must reach the host at all, not be swallowed.
   const { designId } = await createDesign(request);
   try {
     await openOverview(page, designId);
@@ -243,8 +216,6 @@ test("cmd/ctrl+wheel zooms around the cursor: the point under the cursor stays f
     const before = await worldTransform(page);
     expect(before).not.toBeNull();
 
-    // Canvas-space coordinate under the cursor before zooming, computed from
-    // the world transform: canvasPoint = (screenPoint - translate) / scale.
     const canvasPointBefore = {
       x: (point.x - before!.x) / before!.scale,
       y: (point.y - before!.y) / before!.scale,
@@ -258,8 +229,6 @@ test("cmd/ctrl+wheel zooms around the cursor: the point under the cursor stays f
     const after = await worldTransform(page);
     expect(after!.scale).toBeGreaterThan(before!.scale);
 
-    // Reproject the SAME canvas point through the new transform: it must
-    // still land under the cursor (within a couple of px of rounding).
     const reprojected = {
       x: canvasPointBefore.x * after!.scale + after!.x,
       y: canvasPointBefore.y * after!.scale + after!.y,
@@ -291,8 +260,6 @@ test("middle-mouse drag pans smoothly with 1:1 deltas over empty canvas", async 
 
     const after = await worldTransform(page);
     expect(after).not.toBeNull();
-    // 1:1: the world must translate by exactly the pointer delta (scale
-    // unchanged, within a rounding pixel), not some fraction/multiple of it.
     expect(Math.abs(after!.x - before!.x - dx)).toBeLessThan(2);
     expect(Math.abs(after!.y - before!.y - dy)).toBeLessThan(2);
     expect(after!.scale).toBeCloseTo(before!.scale, 3);
@@ -305,9 +272,6 @@ test("middle-mouse drag pans smoothly with 1:1 deltas starting over screen conte
   page,
   request,
 }) => {
-  // This is the exact Logan repro: "jumpy when starting over content".
-  // PR #4827 claims fixed — verify with real 1:1 deltas, not just "some pan
-  // happened".
   const { designId } = await createDesign(request);
   try {
     await openOverview(page, designId);
@@ -366,8 +330,6 @@ test("panning never selects or moves an element under the drag path", async ({
   const { designId } = await createDesign(request);
   try {
     await openOverview(page, designId);
-    // Drag the middle mouse button directly across the CTA button's screen
-    // position — a left-drag through the same path would select/move it.
     const box = await page.locator("[data-screen-card]").first().boundingBox();
     if (!box) throw new Error("no screen card");
     const start = { x: box.x + 60, y: box.y + 200 };
@@ -428,8 +390,6 @@ test("toolbar and keyboard zoom updates survive a pending fit without refresh", 
     expect(beforeScale).not.toBeNull();
     expect(beforeLabel).toMatch(/^\d+%$/);
 
-    // Shift+1 schedules the camera command; the keyboard zoom must win before
-    // the command's debounced commit can write its fit camera back.
     await page.keyboard.press("Shift+1");
     await expect
       .poll(async () => (await worldTransform(page))?.scale ?? null, {
@@ -449,8 +409,6 @@ test("toolbar and keyboard zoom updates survive a pending fit without refresh", 
     expect(afterKeyboardScale).toBeGreaterThan(afterFitScale!);
     expect(afterKeyboardLabel).not.toBe(beforeLabel);
 
-    // The toolbar uses the same controlled path. Verify its visible transform
-    // and readout update without reloading the editor.
     await readout.click();
     await page.getByRole("menuitem", { name: "Zoom out" }).click();
     await expect

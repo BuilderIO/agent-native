@@ -115,9 +115,7 @@ export interface FirstPartyAnalyticsBackfillOptions {
 }
 
 export interface FirstPartyAnalyticsInsertOptions {
-  /** Maximum rows in one BigQuery insertAll request. */
   maxRowsPerRequest?: number;
-  /** Maximum insertAll requests in flight for a dedicated backfill worker. */
   maxConcurrentRequests?: number;
 }
 
@@ -591,11 +589,6 @@ async function insertPayloadRowsWithResults(
   }
 }
 
-/**
- * Create a long-lived inserter for a dedicated backfill process. The table is
- * resolved once, while the token is refreshed through the existing scoped
- * resolver for every page so a multi-hour run does not use an expired token.
- */
 export async function createFirstPartyAnalyticsInserter(
   configuredTable?: string | null,
   options: FirstPartyAnalyticsInsertOptions = {},
@@ -830,14 +823,6 @@ function maskSqlLiterals(sql: string): string {
 
 const SQL_LITERAL_PLACEHOLDER_PREFIX = "_fpa_lit_";
 
-/**
- * Same intent as `rewriteOutsideSqlLiterals`, but `rewrite` sees one string
- * with each literal stood in for by an identifier-shaped placeholder rather
- * than a sequence of fragments split at every quote. A cast operand routinely
- * sits on the far side of a literal — `'2026-08-01'::date`,
- * `(COALESCE(properties, '{}'))::text` — and the fragment view cuts that
- * operand in half, which is why both read as "invalid PostgreSQL cast".
- */
 function rewriteWithMaskedSqlLiterals(
   sql: string,
   rewrite: (code: string) => string,
@@ -1006,13 +991,6 @@ function coerceDateComparisonOperands(sql: string): string {
   );
 }
 
-/**
- * Extent of the operand a `::` cast at `castIndex` applies to.
- *
- * The function-call case is the trap: stopping at the matching `(` leaves the
- * function name outside the rewritten CAST, so `sum(x)::numeric` became
- * `sumCAST((x) AS NUMERIC)` and BigQuery answered `Function not found: SUMCAST`.
- */
 function postgresCastOperandBounds(
   code: string,
   castIndex: number,
@@ -1135,11 +1113,6 @@ function replaceBigQueryDateArithmetic(code: string): string {
   return translated;
 }
 
-/**
- * PostgreSQL truncates to the start of the ISO week (Monday); BigQuery's bare
- * `WEEK` starts on Sunday, so the week mapping must name the weekday or the
- * same query silently buckets differently on each backend.
- */
 const BIGQUERY_DATE_TRUNC_PARTS: Record<string, string> = {
   day: "DAY",
   week: "WEEK(MONDAY)",
@@ -1148,12 +1121,6 @@ const BIGQUERY_DATE_TRUNC_PARTS: Record<string, string> = {
   year: "YEAR",
 };
 
-/**
- * BigQuery JSONPath field names are always quoted here rather than only when
- * they look unusual: an unquoted `$.$ai_model` is rejected outright, and an
- * unquoted `$.page.title` silently reads a nested field the caller never asked
- * for.
- */
 function bigQueryJsonPath(key: string): string {
   return `'$."${key.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"'`;
 }
@@ -1260,9 +1227,6 @@ function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
     [/\bAT\s+TIME\s+ZONE\b/i, "AT TIME ZONE"],
     [/\bFILTER\s*\(\s*WHERE\b/i, "FILTER (WHERE ...)"],
     [/\bDISTINCT\s+ON\b/i, "SELECT DISTINCT ON"],
-    // Anything the JSON translation above could not consume. BigQuery has no
-    // such operators, so leaving it through buys a provider 400 instead of a
-    // rendered explanation.
     [/->>|->|#>>|@>/, "PostgreSQL JSON operators"],
   ];
   const incompatible = unsupported.find(([pattern]) => pattern.test(code));
@@ -1278,8 +1242,6 @@ function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
 function qualifyQuerySources(sql: string, table: BigQueryTableRef): string {
   const physical = firstPartyAnalyticsPhysicalTables(table);
   const sourceMap: Record<string, string> = {
-    // Event predicates are injected by scopedAnalyticsSql. Use the raw table
-    // here so those predicates run before the retry-deduplication window.
     analytics_events: firstPartyAnalyticsRawTable(table),
     analytics_event_daily_rollups: physical.dailyRollups,
     analytics_user_days: physical.userDays,
@@ -1341,7 +1303,6 @@ function addPartitionPrunedEventDeduplication(
       }
     }
     // ponytail: insertAll is at-least-once; staging + MERGE is the upgrade path
-    // for physical exactly-once if the warehouse contract requires it.
     result +=
       sql.slice(cursor, predicateEnd) +
       " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1" +
@@ -1351,12 +1312,6 @@ function addPartitionPrunedEventDeduplication(
   return result;
 }
 
-/**
- * Throws `FirstPartyAnalyticsUnsupportedSqlError` when this SQL has no BigQuery
- * translation. Save-time validation runs on the panel's own (unscoped) SQL,
- * which is a subset of what the read path translates, so a pass here cannot
- * pass a construct through that the read path would then reject.
- */
 export function assertFirstPartyAnalyticsBigQuerySql(sql: string): void {
   translateFirstPartyAnalyticsBigQuerySql(sql);
 }
@@ -1366,9 +1321,6 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   args: Array<string | null>,
   table: BigQueryTableRef,
 ): string {
-  // The Postgres scope builder uses a text fallback for nullable event
-  // dates. BigQuery's event_date is a DATE, and the fallback is unnecessary
-  // because the sink normalizes it before insert.
   const normalizedScopeSql = scopedSql.replace(
     /\(COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= (\$\d+|\?)\)/g,
     (_match, placeholder: string) => `(event_date <= ${placeholder})`,
@@ -1875,8 +1827,6 @@ export async function backfillFirstPartyAnalyticsBatch(
   const selectedRows = rows.slice(0, boundedLimit);
   if (!selectedRows.length) {
     return {
-      // An empty shard has no tuple cursor. Returning the sentinel empty
-      // cursor makes the shard worker reject an otherwise successful drain.
       nextCursor: parsedCursor.receivedAt
         ? serializeBackfillCursor(parsedCursor)
         : null,

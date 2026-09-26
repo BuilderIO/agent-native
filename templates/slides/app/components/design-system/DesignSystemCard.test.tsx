@@ -74,10 +74,6 @@ describe("DesignSystemCard swatch/action layout", () => {
     const swatches = screen.getByTestId("design-system-swatches");
     const actions = screen.getByTestId("design-system-actions");
 
-    // Regression guard for the reported overlap: the action cluster must no
-    // longer be pulled out of flow with `absolute` positioning on top of the
-    // swatches. Both groups must live in the same flex row so the layout
-    // engine keeps them apart instead of stacking one over the other.
     expect(actions.className).not.toMatch(/\babsolute\b/);
     expect(swatches.className).not.toMatch(/\babsolute\b/);
 
@@ -85,22 +81,13 @@ describe("DesignSystemCard swatch/action layout", () => {
     expect(row).toBe(actions.parentElement);
     expect(row?.className).toMatch(/\bjustify-between\b/);
 
-    // The swatch group must be able to wrap or shrink (min-w-0 + flex-wrap)
-    // so it never reserves more width than the row has left after the fixed
-    // action cluster, at any swatch count.
     expect(swatches.className).toMatch(/\bflex-wrap\b/);
     expect(swatches.className).toMatch(/\bmin-w-0\b/);
 
-    // The action cluster must not shrink to make room for swatches, which
-    // would let a swatch render underneath it.
     expect(actions.className).toMatch(/\bshrink-0\b/);
   });
 
   it("keeps the same non-overlapping layout when the swatch group is much wider than the preview", () => {
-    // Simulate a narrow card by widening every swatch. Even though the
-    // component currently renders a fixed 5-swatch palette, the layout must
-    // hold for any number/width of swatches since the row wraps instead of
-    // letting swatches render under the action buttons.
     const { container } = renderCard();
     const swatchDots = container.querySelectorAll<HTMLElement>(
       '[data-testid="design-system-swatches"] > div',
@@ -112,8 +99,6 @@ describe("DesignSystemCard swatch/action layout", () => {
       dot.style.width = "200px";
     });
 
-    // Wrapping is declared via `flex-wrap`; wrapped swatches move to a new
-    // line below the action row rather than sliding underneath it.
     expect(
       container
         .querySelector('[data-testid="design-system-swatches"]')

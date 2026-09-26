@@ -1,14 +1,3 @@
-/**
- * playwright-runtime.ts — shared headless-Chromium bootstrap used by every
- * server-side action that needs a real rendered DOM (as opposed to static
- * HTML/CSS analysis): `take-design-screenshot.ts`'s visual diagnostics pass
- * and `design-to-figma-svg.ts`'s scene extractor for the Figma SVG export.
- *
- * Extracted out of `take-design-screenshot.ts` (which originally owned this
- * logic) so `server/lib/*` modules can share it without an inverted
- * lib -> action dependency. `take-design-screenshot.ts` re-exports these same
- * names for backward compatibility with its existing spec/imports.
- */
 
 import { randomUUID } from "node:crypto";
 
@@ -21,15 +10,6 @@ export type PlaywrightModule = {
   chromium: import("@playwright/test").BrowserType;
 };
 
-/**
- * Dynamic import of the runtime `playwright` dependency. Falls back to the
- * `playwright-core` package copied into serverless functions, then to
- * `@playwright/test` for local development setups that only install the test
- * runner. Non-literal specifiers keep bundlers from including browser binaries.
- *
- * When no package is available, the first error names the runtime dependency
- * instead of telling users to install the test runner.
- */
 export async function importPlaywright(
   loadModule: (specifier: string) => Promise<unknown> = (specifier) =>
     import(/* @vite-ignore */ specifier),
@@ -56,7 +36,6 @@ const SYSTEM_CHROME_EXECUTABLES = [
   "/usr/bin/chromium",
 ];
 
-/** Pure classifier for "no Chromium binary available" errors. */
 export function isMissingBrowserError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
   return /Executable doesn't exist|playwright install|browser.*not found|chromium.*not found/i.test(
@@ -126,7 +105,6 @@ async function launchLocalChromium(
   throw missingBrowserError;
 }
 
-/** Connects to Builder Browser first, then falls back to local/system Chrome. */
 export async function launchChromium(
   chromium: import("@playwright/test").BrowserType,
 ): Promise<import("@playwright/test").Browser> {
@@ -147,8 +125,3 @@ export async function launchChromium(
     );
   }
 }
-
-// NOTE: no shared `chromiumUnavailableReason` here on purpose — each caller's
-// message should name ITS OWN fallback (e.g. `take-design-screenshot.ts`
-// points at `run-design-audit`; the Figma SVG export points at `export-svg`),
-// so that stays a small, action-local export next to each call site.

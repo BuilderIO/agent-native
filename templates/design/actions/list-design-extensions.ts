@@ -23,12 +23,11 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-// ─── First-party extension catalog ───────────────────────────────────────────
 
 export type DesignExtensionAvailability =
-  | "available" // ships now; can be used immediately
-  | "preview-only" // read / preview possible; write/apply is gated
-  | "planned"; // exists in the plan; not yet implemented
+  | "available"
+  | "preview-only"
+  | "planned";
 
 export interface DesignExtensionCapabilityEntry {
   id: string;
@@ -38,32 +37,18 @@ export interface DesignExtensionCapabilityEntry {
 }
 
 export interface FirstPartyDesignExtension {
-  /** Stable machine identifier — used by run-design-extension-action. */
   id: string;
   name: string;
   description: string;
-  /** Tabler icon name (without the `Icon` prefix). */
   icon: string;
-  /**
-   * Overall availability of this extension.
-   * Individual capabilities may be more restrictive.
-   */
   availability: DesignExtensionAvailability;
-  /** Human-readable availability note shown in the UI. */
   availabilityNote: string;
-  /** Fine-grained capability breakdown. */
   capabilities: DesignExtensionCapabilityEntry[];
-  /** Design Studio actions that power this extension. */
   actions: string[];
-  /**
-   * Whether this extension is registered in the `design.editor.inspector`
-   * extension slot as an installable first-party item.
-   */
   slotId: "design.editor.inspector";
 }
 
 const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
-  // ── 1. Asset Library ─────────────────────────────────────────────────────
   {
     id: "design.asset-library",
     name: "Asset Library",
@@ -120,7 +105,6 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
     slotId: "design.editor.inspector",
   },
 
-  // ── 2. Shader Fills ──────────────────────────────────────────────────────
   {
     id: "design.shader-fills",
     name: "Shader Fills",
@@ -175,7 +159,6 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
     slotId: "design.editor.inspector",
   },
 
-  // ── 3. Token Auditor ─────────────────────────────────────────────────────
   {
     id: "design.token-auditor",
     name: "Token Auditor",
@@ -227,7 +210,6 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
     slotId: "design.editor.inspector",
   },
 
-  // ── 4. Motion Presets ────────────────────────────────────────────────────
   {
     id: "design.motion-presets",
     name: "Motion Presets",
@@ -274,7 +256,6 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
   },
 ];
 
-// ─── Action ──────────────────────────────────────────────────────────────────
 
 export default defineAction({
   description: `

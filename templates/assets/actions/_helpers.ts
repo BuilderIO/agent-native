@@ -41,14 +41,6 @@ export async function requireLibraryAccess(id: string, ctx?: AccessCtx) {
   return access;
 }
 
-/**
- * Resolve a generation session a write is about to attach to.
- *
- * Belonging to the kit is not enough: a session is one person's drafting
- * workspace, and attaching a candidate to it also moves its `activeAssetId`.
- * So a below-editor caller may only target a session they created. Pass the
- * access already resolved for this kit to skip a second lookup.
- */
 export async function requireGenerationSessionInLibrary(
   sessionId: string,
   libraryId: string,
@@ -438,11 +430,6 @@ export function serializeAsset(
   };
 }
 
-/**
- * Caller-facing generation result. Generation internals are replayed into the
- * model context on later turns and can be truncated by delegated/ledger caps;
- * full details remain available through get-asset and the audit-run actions.
- */
 export function serializeAssetSummary(row: {
   id: string;
   generationRunId?: string | null;

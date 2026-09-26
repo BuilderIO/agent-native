@@ -40,8 +40,6 @@ function isDrizzleTable(value: unknown): value is DrizzleTable {
   return (
     !!value &&
     typeof value === "object" &&
-    // Drizzle tables carry a Symbol-keyed metadata bag; plain exports (types,
-    // functions) don't.
     Object.getOwnPropertySymbols(value).some((s) =>
       s.toString().includes("drizzle"),
     )
@@ -84,30 +82,7 @@ describe("clips db migrations cover every schema.ts column", () => {
   }
 });
 
-/**
- * Guard for the name-based migration tracking convention (see the
- * `runMigrations` doc comment in packages/core/src/db/migrations.ts for the
- * full rationale — this is the fix for the shared-DB version-collision
- * failure class, confirmed live on this template's own database: v41 was
- * recorded as applied in `clips_migrations` yet none of its 8 indexes
- * existed on the live table).
- *
- * Extracts every `{ version: N, ... }` migration entry from the raw db.ts
- * source (matching the exact object-literal shape this file uses: `version:`
- * immediately followed, a few lines later, by an optional `name: "..."`) and
- * asserts:
- *
- *   (a) every declared `name` is unique across the whole list, and
- *   (b) every entry whose version is > 44 (the template's own max
- *       pre-existing version, i.e. every migration going forward) has a
- *       `name`.
- */
 describe("clips db.ts migration entries follow the naming convention", () => {
-  // Matches one migration entry's `version: N` followed later (before the
-  // next `version:`) by an optional `name: "..."`. Entries in this file are
-  // written as `{ version: N, [name: "...",] sql: ... }`, so scanning for
-  // `version:` occurrences and capturing an optional immediately-following
-  // `name:` is sufficient without a full parser.
   const entryRe = /version:\s*(\d+),\s*(?:name:\s*"([^"]+)",\s*)?/g;
 
   function extractEntries(source: string): Array<{
@@ -243,15 +218,6 @@ describe("recording failure code migration", () => {
   });
 });
 
-/**
- * Belt-and-braces guard for the same bug class: even with the regression
- * guard above, a future column could still ship without a migration if
- * someone forgets to update this file. `ensureAdditiveColumns` (from
- * @agent-native/core/db) is the framework-level safety net that patches any
- * gap at boot. This asserts db.ts actually wires it in — after the
- * migrations plugin function completes so hand-written migrations stay
- * authoritative — not just that the regex guard above passes.
- */
 describe("clips db.ts wires ensureAdditiveColumns after migrations", () => {
   it("imports ensureAdditiveColumns from @agent-native/core/db", () => {
     expect(dbTsSource).toMatch(
@@ -266,8 +232,6 @@ describe("clips db.ts wires ensureAdditiveColumns after migrations", () => {
     expect(ensureCallIdx).toBeGreaterThan(-1);
     expect(ensureCallIdx).toBeGreaterThan(migrationsCallIdx);
 
-    // The migrations plugin function must be awaited before
-    // ensureAdditiveColumns runs, not just textually after it.
     expect(dbTsSource).toMatch(
       /await\s+migrations\([^)]*\)[\s\S]*?ensureAdditiveColumns\(\{/,
     );

@@ -128,8 +128,6 @@ function placementAgainstLatest(
     width: choose("width"),
     height: choose("height"),
     z: choose("z"),
-    // add-localhost-screens never owns rotation. A concurrent/local canvas
-    // rotation therefore survives even when this action refreshes the route.
     rotation: latest?.rotation,
   };
 }
@@ -218,10 +216,6 @@ export function routeUrl(
       );
     }
     if (equivalentLoopbackOrigin) {
-      // localhost / 127.0.0.1 / ::1 aliases can point at the same loopback
-      // server, but the bridge enforces exact same-origin fetches. Canonicalize
-      // the alias to the registered dev-server origin so live edit does not fail
-      // later with an opaque bridge 400.
       parsed.protocol = base.protocol;
       parsed.host = base.host;
     }
@@ -654,8 +648,6 @@ export default defineAction({
       .where(eq(schema.designs.id, designId))
       .limit(1);
     if (!design) throw new Error(`Design "${designId}" not found.`);
-    // Fail before touching files/collab when a legacy row contains malformed
-    // data. SQL NULL is the one supported legacy empty-data sentinel.
     const prevData = parseDesignDataSnapshot(designId, design.data);
     const existingCanvasFrames = parseCanvasFrameGeometryById(
       prevData.canvasFrames,
@@ -697,16 +689,6 @@ export default defineAction({
       height: number;
     }> = [];
     const placementIntents: PlacementIntent[] = [];
-    // Duplicate-route guard: `existingFiles`/`existingByFilename`/the
-    // route-candidate lookups below are all snapshotted ONCE above the loop
-    // and never refreshed as new files are inserted mid-loop, so two entries
-    // in the SAME `requestedRoutes` call that resolve to the same route
-    // (repeated `paths`, or a `routeId` and a `path` naming the same route)
-    // each independently see "no existing match" and each insert a fresh
-    // `design_files` row — two overlapping screens for one route. Track
-    // routeIds already processed THIS call (keyed with width/height so an
-    // intentional multi-viewport request for the same route still creates
-    // its distinct variants) and skip later duplicates outright.
     const seenRouteRequestKeys = new Set<string>();
     let placementIndex = 0;
 
@@ -966,8 +948,6 @@ export default defineAction({
           preferredFilename,
           includeOriginInFilename,
         );
-      // Reassigned below if a concurrent request wins the insert race for
-      // this exact (designId, filename) pair — see the `else` branch.
       let fileId = existing?.id ?? nanoid();
       const existingScreenMetadata = existing
         ? metadataForFile(
@@ -1052,11 +1032,6 @@ export default defineAction({
             ) {
               throw err;
             }
-            // Cross-request race: this snapshot's `existingFiles` query ran
-            // before another call committed its insert. Only adopt the
-            // winner when its persisted URL proves it is the same route;
-            // otherwise retry with a distinct filename so a lossy primary
-            // slug cannot overwrite a different route.
             const [winner] = await db
               .select()
               .from(schema.designFiles)
@@ -1222,9 +1197,6 @@ export default defineAction({
             ...(screen.routeMetadata ?? {}),
           });
 
-          // Preserve independently written legacy and canonical metadata keys.
-          // Each map keeps its own value on an unrelated same-key conflict,
-          // while localhost-owned fields above intentionally converge.
           previousMetadata[screen.id] = {
             ...currentLocalhostMetadata,
             ...currentMetadata,
@@ -1254,9 +1226,6 @@ export default defineAction({
           const ownedFrameFields: Partial<CanvasFrameGeometry> = {};
           if (placementIntent) {
             for (const key of ["x", "y", "width", "height", "z"] as const) {
-              // A newly created screen owns its initial geometry. A refresh of
-              // an existing screen only owns fields explicitly supplied by the
-              // caller; current canvas movement/resizing wins for the rest.
               if (
                 !placementIntent.existedAtStart ||
                 placementIntent.owns[key]

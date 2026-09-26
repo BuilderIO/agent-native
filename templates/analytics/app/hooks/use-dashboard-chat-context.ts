@@ -175,8 +175,6 @@ export function useDashboardChatContext(
         [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
       };
 
-      // The panel context occupies one stable composer slot, so selecting a
-      // different panel replaces the prior chip instead of accumulating chips.
       setAgentChatContextItem({
         key: DASHBOARD_PANEL_CONTEXT_KEY,
         title: displayPanelTitle,
@@ -236,9 +234,6 @@ export function useDashboardChatContext(
       window.removeEventListener("agent-chat:new-chat", handleNewChat);
   }, []);
 
-  // Dashboard metadata lands in pieces — title first, then panel count, then
-  // the access role. Publishing each piece costs a round-trip and a sync event
-  // that invalidates every mounted query, so only the settled value is sent.
   useEffect(() => {
     if (!id) return;
     suppressDashboardContextRef.current = false;

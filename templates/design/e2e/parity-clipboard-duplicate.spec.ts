@@ -8,17 +8,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { appPath, cdpScreenshot, designFrame, gotoEditor } from "./helpers";
 
-// Figma spec §6 (Copy/Paste) + Part 3 resolutions, and feedback.md's Logan
-// group-paste report:
-//  - Cmd+C / Cmd+V with nothing else selected pastes into the SAME parent
-//    (a group/container), directly above the source, keeping name + size.
-//  - With a container selected, paste goes INSIDE that container.
-//  - Copy in screen A, select screen B, paste lands in B.
-//  - Cmd+D duplicates IN PLACE (same x/y), directly above, same name,
-//    selection moves to the copy.
-//  - Shift+Cmd+V (paste-to-replace) replaces the selection.
-//  - Cmd+X removes the element (cut).
-//  - Each paste/duplicate is exactly one undo step.
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 
@@ -78,10 +67,6 @@ async function createDesign(
   return { designId, fileIds };
 }
 
-// A group containing two children: the source we copy/duplicate and a
-// sibling that renders AFTER it. This is the shape that distinguishes
-// "insert directly above the source" from "append to the end of the parent" —
-// with only one child in the group both look identical.
 const GROUP_HTML = `<!doctype html>
 <html><body style="margin:0;position:relative;min-height:900px">
 <div data-agent-native-node-id="group" data-agent-native-layer-name="Group"
@@ -101,10 +86,6 @@ const CONTAINER_AND_SOURCE_HTML = `<!doctype html>
      style="position:absolute;left:700px;top:200px;width:300px;height:200px;background:#eef"></div>
 </body></html>`;
 
-// No explicit name and no id/class/aria-label: layerNameFor() falls back to
-// the tag ("Frame" for a plain positioned div) — exercises
-// prepareClonedHtmlLayer's "tag-sourced name -> stamp literal 'Copy'" branch,
-// shared by paste AND duplicate.
 const UNNAMED_HTML = `<!doctype html>
 <html><body style="margin:0;position:relative;min-height:900px">
 <div data-agent-native-node-id="plain"
@@ -137,11 +118,6 @@ async function layerNames(page: Page): Promise<string[]> {
     );
 }
 
-// Camera pan/zoom persists across designs in application_state (see
-// gotoEditor's doc comment). A leftover pan from an earlier test can push a
-// freshly created screen at canvas (0,0) behind the left sidebar entirely,
-// so every click below misses. Force zoom=100 (no view=overview) after the
-// normal editor load, which resets pan.
 async function gotoEditorZoomed(page: Page, designId: string): Promise<void> {
   await gotoEditor(page, designId);
   await page.goto(appPath(`/design/${designId}?zoom=100`), {
@@ -150,9 +126,6 @@ async function gotoEditorZoomed(page: Page, designId: string): Promise<void> {
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
   ).toBeVisible({ timeout: 30_000 });
-  // The zoom=100 param resets pan async — poll the first screen card's box
-  // until two consecutive reads agree, so callers below click real
-  // coordinates instead of a mid-reset layout.
   let lastBox: { x: number; y: number } | null = null;
   await expect
     .poll(
@@ -174,8 +147,6 @@ async function gotoEditorZoomed(page: Page, designId: string): Promise<void> {
     .toBe(true);
 }
 
-/** Poll a locator's boundingBox until two consecutive reads agree — used
- * after a navigation/layout change with no discrete "settled" event. */
 async function stableBox(
   locator: ReturnType<Page["locator"]>,
 ): Promise<{ x: number; y: number; width: number; height: number }> {
@@ -231,11 +202,6 @@ async function selectByNodeId(page: Page, nodeId: string) {
   const box = (await el.boundingBox())!;
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
-  // A plain click selects the direct child of the screen (the container, for
-  // a nested element); an actual double-click — not two spaced single clicks
-  // — is the gesture that drills into the clicked child from there (matches
-  // parity-selection.spec.ts's working "double-click after selecting Card"
-  // pattern). A no-op dblclick on an already-leaf element is harmless.
   await page.mouse.click(cx, cy);
   await expect.poll(() => lastSelectedElementSelector(page)).not.toBeNull();
   await page.mouse.dblclick(cx, cy);
@@ -257,7 +223,6 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       await selectByNodeId(page, "original");
       await page.keyboard.press("ControlOrMeta+c");
       await page.waitForTimeout(300);
-      // Deselect ("nothing else selected") before pasting back.
       await page.keyboard.press("Escape");
       await page.waitForTimeout(200);
       await page.keyboard.press("ControlOrMeta+v");
@@ -283,9 +248,7 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
           description: JSON.stringify({ groupChildIds, copyId, trace }),
         });
       }
-      // Landed inside the group at all (not on the screen root / board).
       expect(copyId).toBeTruthy();
-      // Directly above the source in DOM/z order: [original, copy, sibling].
       expect(groupChildIds).toEqual(["original", copyId, "sibling"]);
 
       const originalBox = await frame
@@ -294,7 +257,6 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       const copyBox = await frame
         .locator(`[data-agent-native-node-id="${copyId}"]`)
         .boundingBox();
-      // Same size as the original.
       expect(Math.round(copyBox!.width)).toBe(Math.round(originalBox!.width));
       expect(Math.round(copyBox!.height)).toBe(Math.round(originalBox!.height));
 
@@ -377,17 +339,12 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       const copyBox = await frame
         .locator(`[data-agent-native-node-id="${copyId}"]`)
         .boundingBox();
-      // "In place": same on-screen position as the source (not offset).
       expect(Math.round(copyBox!.x)).toBe(Math.round(before.x));
       expect(Math.round(copyBox!.y)).toBe(Math.round(before.y));
 
       const names = await layerNames(page);
       expect(names.filter((n) => n === "Original")).toHaveLength(2);
 
-      // Selection moved to the copy. The layers-panel row exposes an internal
-      // CodeLayerNode id ("html:...", not the raw data-agent-native-node-id), so
-      // verify via __designTrace's selection-changed element selector instead
-      // (the same signal every other assertion in this file relies on).
       const trace = await dumpTrace(page);
       const selectionMatches = [
         ...(trace ?? "").matchAll(
@@ -458,12 +415,9 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       await page.keyboard.press("ControlOrMeta+c");
       await page.waitForTimeout(300);
       await selectByNodeId(page, "container");
-      // Paste-to-replace is Cmd+Shift+R here: Cmd+Shift+V is "paste over
-      // selection" instead (useDesignHotkeys.ts; Figma spec Part 3 note).
       await page.keyboard.press("ControlOrMeta+Shift+r");
 
       try {
-        // The original container node is gone, replaced by a clone of Source.
         await expect(
           frame.locator('[data-agent-native-node-id="container"]'),
         ).toHaveCount(0, { timeout: 10_000 });
@@ -528,7 +482,6 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
       const frame = designFrame(page);
       await selectByNodeId(page, "rect");
 
-      // Duplicate: one undo step.
       await page.keyboard.press("ControlOrMeta+d");
       await expect(
         frame.locator(
@@ -543,7 +496,6 @@ test.describe("clipboard + duplicate (single-screen editor)", () => {
         ),
       ).toHaveCount(1, { timeout: 10_000 });
 
-      // Copy + paste: one undo step for the paste (copy has no history entry).
       await selectByNodeId(page, "rect");
       await page.keyboard.press("ControlOrMeta+c");
       await page.waitForTimeout(300);
@@ -582,15 +534,11 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
   }) => {
     const { designId, fileIds } = await createDesign(request, SIMPLE_HTML, 2);
     try {
-      // Screen B gets different (empty) content so we can tell the two apart.
       await action(request, "update-file", {
         id: fileIds[1],
         content: `<!doctype html><html><body style="margin:0;position:relative;min-height:900px"></body></html>`,
       });
 
-      // `?view=overview&screen=<id>` both shows the screen shells and marks
-      // that screen as the active/editable one — the same navigation the
-      // existing "settled clipboard undo" spec uses for cross-screen paste.
       await page.goto(
         appPath(`/design/${designId}?view=overview&screen=${fileIds[0]}`),
         { waitUntil: "domcontentloaded" },
@@ -636,7 +584,6 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
         throw error;
       }
 
-      // Screen A keeps its own original untouched.
       const screenAFrame = designFrame(page, fileIds[0]);
       await expect(
         screenAFrame.locator('[data-agent-native-node-id="rect"]'),
@@ -701,15 +648,11 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
           { timeout: 10_000 },
         )
         .toBe(2);
-      // A second screen/frame now exists.
       expect(Object.keys(after)).toHaveLength(2);
       const originalId = fileIds[0];
       const copyId = Object.keys(after).find((id) => id !== originalId);
       expect(copyId).toBeTruthy();
-      // The original frame's own position is untouched.
       expect(after[originalId]).toEqual(before[originalId]);
-      // The duplicate frame is a distinct position, not stacked exactly on it
-      // (Figma: top-level frame duplicate offsets to the side).
       const moved =
         after[copyId!].left !== before[originalId].left ||
         after[copyId!].top !== before[originalId].top;

@@ -7,13 +7,6 @@ import {
   markDebugEventsViewed,
 } from "@/lib/debug-diagnostics-viewed";
 
-/**
- * Number to badge on the Debug tab: errors + failed requests captured since
- * the tab was last actively viewed for this recording. Set `isDebugTabActive`
- * true only while the Debug tab is the one currently open — opening it marks
- * every currently-known event as viewed, so the badge clears; new events
- * arriving on another tab bump the count back up.
- */
 export function useUnviewedDebugEventCount(
   recordingId: string | undefined,
   summary: { consoleErrorCount: number; networkFailureCount: number } | null,

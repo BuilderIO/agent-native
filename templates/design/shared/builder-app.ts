@@ -32,61 +32,25 @@ import {
 import { resolveHasCompleteBuilderConnection } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export interface BuilderConnectionStatus {
-  /** True when Builder credentials are configured and valid. */
   connected: boolean;
-  /** True when a Builder branch project is also configured (= agents can run). */
   builderEnabled: boolean;
-  /** The resolved Builder branch project ID, empty string when not configured. */
   branchProjectId: string;
-  /** The email of the currently authenticated user (for routing the Builder job). */
   ownerEmail: string | null;
 }
 
 export interface MigrationSeed {
-  /**
-   * The full migration prompt to hand to `runBuilderAgent`.
-   * Contains the design HTML, extracted CSS vars, token summary, and
-   * detailed instructions for the Builder cloud agent.
-   */
   prompt: string;
-  /**
-   * The number of design files included in the seed (capped at
-   * `MAX_SEED_FILES`).
-   */
   fileCount: number;
-  /**
-   * Total HTML bytes included in the seed (before any truncation).
-   */
   totalBytes: number;
 }
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
-/**
- * Maximum number of files to include in the migration seed.
- * Inline designs rarely exceed this; the cap keeps the Builder prompt
- * within a safe token budget.
- */
 const MAX_SEED_FILES = 10;
 
-/**
- * Maximum bytes per HTML file included in the migration seed.
- * Files larger than this are truncated with an ellipsis notice so the
- * Builder agent still sees the overall structure without exceeding its
- * prompt limit.
- */
 const MAX_HTML_BYTES_PER_FILE = 80_000;
 
-// ---------------------------------------------------------------------------
-// Connection status
-// ---------------------------------------------------------------------------
 
 /**
  * Return the Builder connection status for the current request context.
@@ -118,9 +82,6 @@ export async function resolveBuilderStatus(): Promise<BuilderConnectionStatus> {
   };
 }
 
-// ---------------------------------------------------------------------------
-// CSS-var extraction
-// ---------------------------------------------------------------------------
 
 /**
  * Extract the `:root` block(s) from a raw HTML/CSS string.
@@ -130,7 +91,6 @@ export async function resolveBuilderStatus(): Promise<BuilderConnectionStatus> {
  * stylesheet.  Falls back to the empty string when no `:root` block is found.
  */
 function extractRootCssVars(html: string): string {
-  // Match one or more :root { … } blocks (non-greedy, handles multi-block files).
   const matches = [...html.matchAll(/:root\s*\{([^}]*)\}/g)];
   if (matches.length === 0) return "";
 
@@ -139,7 +99,6 @@ function extractRootCssVars(html: string): string {
     const block = match[1] ?? "";
     for (const line of block.split("\n")) {
       const trimmed = line.trim();
-      // Only include CSS custom property declarations (--var: value;).
       if (trimmed.startsWith("--") && trimmed.includes(":")) {
         lines.push(`  ${trimmed}`);
       }
@@ -148,22 +107,7 @@ function extractRootCssVars(html: string): string {
   return lines.length > 0 ? `:root {\n${lines.join("\n")}\n}` : "";
 }
 
-// ---------------------------------------------------------------------------
-// Migration seed builder
-// ---------------------------------------------------------------------------
 
-/**
- * Build the migration seed prompt for the Builder cloud agent.
- *
- * @param params.title - Human-readable design title (used in the prompt header).
- * @param params.files - Current design files (id + filename + content + fileType).
- * @param params.resolvedCssVars - Resolved CSS-var → value map from tweak selections.
- * @param params.brandKitSummary - Optional human-readable token summary from the
- *   linked design system (e.g. from `index-design-tokens`).
- *
- * The caller is responsible for fetching the design snapshot first.  This
- * function is pure (no DB or network calls) so it is easy to test and reuse.
- */
 export function buildMigrationSeed(params: {
   title: string;
   files: Array<{
@@ -176,11 +120,9 @@ export function buildMigrationSeed(params: {
 }): MigrationSeed {
   const { title, files, resolvedCssVars, brandKitSummary } = params;
 
-  // Limit file count.
   const seedFiles = files.slice(0, MAX_SEED_FILES);
   let totalBytes = 0;
 
-  // Build per-file sections.
   const fileSections: string[] = [];
   for (const file of seedFiles) {
     const rawBytes = new TextEncoder().encode(file.content).length;
@@ -193,7 +135,6 @@ export function buildMigrationSeed(params: {
       truncationNote = `\n<!-- [TRUNCATED: original file was ${rawBytes} bytes; only the first ${MAX_HTML_BYTES_PER_FILE} bytes are shown] -->`;
     }
 
-    // Extract :root CSS vars from each file for the token block.
     const cssVars = extractRootCssVars(content);
 
     const section = [
@@ -218,7 +159,6 @@ export function buildMigrationSeed(params: {
     fileSections.push(section);
   }
 
-  // Build the resolved CSS vars block (from tweak selections).
   let resolvedVarsBlock = "";
   if (resolvedCssVars && Object.keys(resolvedCssVars).length > 0) {
     const lines = Object.entries(resolvedCssVars)
@@ -233,7 +173,6 @@ export function buildMigrationSeed(params: {
     ].join("\n");
   }
 
-  // Brand Kit summary block.
   const brandKitBlock =
     brandKitSummary && brandKitSummary.trim()
       ? [
@@ -243,7 +182,6 @@ export function buildMigrationSeed(params: {
         ].join("\n")
       : "";
 
-  // Build the full prompt.
   const omittedFilesNote =
     files.length > MAX_SEED_FILES
       ? `\n> Note: ${files.length - MAX_SEED_FILES} additional file(s) were omitted to stay within the prompt limit.\n`

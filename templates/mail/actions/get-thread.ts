@@ -153,8 +153,6 @@ export default defineAction({
           }
         : result;
     } catch (err: any) {
-      // Keep the typed cooldown (and its retryAfterMs) intact for agent
-      // callers; only generic Gmail failures get flattened to a message.
       if (err instanceof GmailQuotaCooldownError) throw err;
       if (err?.message?.includes("404")) throw new Error("Thread not found.");
       throw new Error(err?.message ?? "Gmail API error");

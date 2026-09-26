@@ -37,9 +37,6 @@ import {
 } from "./monitor-stats.js";
 import { type AccessCtx, type MonitorStatus } from "./uptime-monitors.js";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export type StatusPageDensity = "comfortable" | "compact";
 export type StatusPageAlignment = "left" | "center";
@@ -91,13 +88,10 @@ export interface StatusPageInput {
 
 export type OverallStatus = "operational" | "degraded" | "down" | "unknown";
 
-/** Sanitized, public-safe monitor projection. NO sensitive config fields. */
 export interface PublicStatusMonitor {
   id: string;
   name: string;
-  /** Host of the monitored URL — safe to show; the full URL is gated by showUrl. */
   host: string | null;
-  /** Full URL, only present when the owner enabled "show URL" for this monitor. */
   url: string | null;
   status: MonitorStatus | null;
   windows: UptimeWindows;
@@ -124,9 +118,6 @@ export interface PublicStatusPage {
   generatedAt: string;
 }
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
 const MAX_STATUS_PAGES_PER_OWNER = 50;
 const MAX_MONITORS_PER_PAGE = 50;
@@ -144,9 +135,6 @@ const EMPTY_WINDOWS: UptimeWindows = {
   uptime90d: null,
 };
 
-// ---------------------------------------------------------------------------
-// Small helpers
-// ---------------------------------------------------------------------------
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -170,11 +158,6 @@ function safeJsonParse<T>(raw: unknown, fallback: T): T {
   }
 }
 
-/**
- * Strict host extraction for the public boundary: returns ONLY the host of a
- * parseable http(s) URL, never the raw string. If the value can't be parsed we
- * return null rather than risk leaking a full URL/path/query to the public.
- */
 function safeHost(url: unknown): string | null {
   if (typeof url !== "string" || !url.trim()) return null;
   try {
@@ -187,7 +170,6 @@ function safeHost(url: unknown): string | null {
   }
 }
 
-/** Coarse tone for a monitor status (server-local; avoids importing client utils). */
 function statusToTone(
   status: MonitorStatus | null,
 ): "up" | "down" | "degraded" | "neutral" {
@@ -204,11 +186,7 @@ function statusToTone(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Pure normalization + sanitization (unit-tested)
-// ---------------------------------------------------------------------------
 
-/** URL-safe slug: lowercase, `[a-z0-9-]`, collapsed/trimmed dashes. */
 export function normalizeSlug(raw: unknown): string {
   return (
     raw == null
@@ -242,11 +220,6 @@ function normalizeDisplayName(value: unknown): string | null {
   return trimmed.slice(0, MAX_DISPLAY_NAME_LENGTH);
 }
 
-/**
- * Parse the stored `monitors` JSON into ordered, de-duplicated refs. Invalid
- * entries are dropped; `order` is assigned by position so callers never depend
- * on the stored order field being trustworthy.
- */
 export function parseStatusPageMonitors(raw: unknown): StatusPageMonitorRef[] {
   const arr = safeJsonParse<unknown[]>(raw, []);
   if (!Array.isArray(arr)) return [];
@@ -315,7 +288,6 @@ export function sanitizePublicMonitor(
   };
 }
 
-/** Raw (owner-scoped) monitor row shape needed to build the public projection. */
 export interface PublicMonitorRow {
   id: string;
   name: string;
@@ -323,13 +295,6 @@ export interface PublicMonitorRow {
   lastStatus: MonitorStatus | null;
 }
 
-/**
- * Assemble the sanitized public monitor list from the page's ordered refs, the
- * OWNER-SCOPED monitor rows, and the stats map. This is the exclusion boundary:
- * a ref whose monitor row is absent (not owned by the page owner, deleted, or
- * otherwise not returned by the owner-scoped query) is DROPPED — so a page can
- * never surface a monitor that isn't both included AND owned. Pure + unit-tested.
- */
 export function assemblePublicMonitors(
   refs: StatusPageMonitorRef[],
   monitorRows: PublicMonitorRow[],
@@ -380,7 +345,6 @@ function computeCounts(monitors: Pick<PublicStatusMonitor, "status">[]) {
   return counts;
 }
 
-/** Overall uptime per window = mean of the monitors that have data. */
 export function aggregateWindows(windowsList: UptimeWindows[]): UptimeWindows {
   const mean = (key: keyof UptimeWindows): number | null => {
     const values = windowsList
@@ -397,9 +361,6 @@ export function aggregateWindows(windowsList: UptimeWindows[]): UptimeWindows {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Row mapping + owner scoping
-// ---------------------------------------------------------------------------
 
 function rowToStatusPage(row: any): StatusPage {
   return {
@@ -441,7 +402,6 @@ function monitorsOwnerWhere(ctx: AccessCtx) {
   );
 }
 
-/** Keep only monitor refs the caller actually owns; re-number order. */
 async function resolveOwnedMonitorRefs(
   ctx: AccessCtx,
   entries: StatusPageMonitorInput[],
@@ -483,8 +443,6 @@ async function resolveOwnedMonitorRefs(
 
 async function slugIsTaken(slug: string, exceptId?: string): Promise<boolean> {
   const db = getDb() as any;
-  // Slug is a GLOBAL public namespace (`/status/<slug>`), so uniqueness is
-  // checked across all owners intentionally — not owner-scoped.
   // guard:allow-unscoped — global slug uniqueness check for the public URL namespace
   const rows = await db
     .select({ id: schema.statusPages.id })
@@ -494,9 +452,6 @@ async function slugIsTaken(slug: string, exceptId?: string): Promise<boolean> {
   return rows.some((row: any) => row.id !== exceptId);
 }
 
-// ---------------------------------------------------------------------------
-// Owner-scoped CRUD
-// ---------------------------------------------------------------------------
 
 export async function listStatusPages(ctx: AccessCtx): Promise<StatusPage[]> {
   const db = getDb() as any;
@@ -535,8 +490,6 @@ export async function saveStatusPage(
   const title = (input.title ?? existing?.title ?? "").trim();
   if (!title) throw badRequest("Status page title is required");
 
-  // Slug: normalize the provided value, else keep the existing one, else derive
-  // it from the title (with a short random suffix as a last resort).
   let slug =
     input.slug != null ? normalizeSlug(input.slug) : (existing?.slug ?? "");
   if (!slug) slug = normalizeSlug(title);
@@ -627,9 +580,6 @@ export async function deleteStatusPage(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Monitor membership management
-// ---------------------------------------------------------------------------
 
 async function persistMonitorRefs(
   page: StatusPage,
@@ -697,16 +647,12 @@ export async function reorderStatusPageMonitors(
     const ref = byId.get(id);
     if (ref && !next.includes(ref)) next.push(ref);
   }
-  // Append any monitors the caller didn't mention so none are silently dropped.
   for (const ref of page.monitors) {
     if (!next.includes(ref)) next.push(ref);
   }
   return persistMonitorRefs(page, next, ctx);
 }
 
-// ---------------------------------------------------------------------------
-// View assembly (shared by public read + owner preview)
-// ---------------------------------------------------------------------------
 
 async function buildStatusPageView(
   page: StatusPage,
@@ -724,8 +670,6 @@ async function buildStatusPageView(
   if (page.monitors.length > 0) {
     const db = getDb() as any;
     const ids = page.monitors.map((ref) => ref.monitorId);
-    // Resolve the included monitors scoped strictly to the PAGE OWNER — an
-    // anonymous viewer never widens this beyond the owner's own monitors.
     const monitorRows = await db
       .select({
         id: schema.monitors.id,
@@ -770,10 +714,6 @@ async function buildStatusPageView(
   };
 }
 
-/**
- * UNAUTHENTICATED read by slug. Returns the sanitized public view only for a
- * PUBLISHED page, or null (unknown/unpublished → 404 on the route).
- */
 export async function getPublicStatusPage(
   slug: string,
 ): Promise<PublicStatusPage | null> {
@@ -781,9 +721,6 @@ export async function getPublicStatusPage(
   if (!normalized) return null;
   const db = getDb() as any;
   const table = schema.statusPages;
-  // Public viewer endpoint: look up strictly by slug AND published=true. Not
-  // owner-scoped by design (there is no authenticated requester); the included
-  // monitors are re-scoped to the page owner inside buildStatusPageView.
   // guard:allow-unscoped — public status page viewer; published-only, monitor reads re-scoped to page owner
   const [row] = await db
     .select()
@@ -794,11 +731,6 @@ export async function getPublicStatusPage(
   return buildStatusPageView(rowToStatusPage(row));
 }
 
-/**
- * Owner-scoped preview of the exact public view, for the in-app config UI so it
- * can render the same output the public page will show (including unpublished
- * drafts). Returns null when the page isn't owned by the caller.
- */
 export async function getStatusPagePreview(
   id: string,
   ctx: AccessCtx,

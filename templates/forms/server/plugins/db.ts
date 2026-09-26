@@ -6,12 +6,6 @@ import {
 
 import * as schema from "../db/schema.js";
 
-/**
- * Every Drizzle table exported from schema.ts. Filters out type-only and
- * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
- * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
- * exports don't.
- */
 function isDrizzleTable(value: unknown): value is object {
   return (
     !!value &&
@@ -25,9 +19,6 @@ function isDrizzleTable(value: unknown): value is object {
 const schemaTables = Object.values(schema).filter(isDrizzleTable);
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
-// packages/core/src/db/migrations.ts for the full rationale). Version numbers
-// alone are not a safe identity across parallel branches that each extend
-// this list independently against the shared `forms_migrations` table.
 export const runFormsMigrations = runMigrations(
   [
     {
@@ -90,30 +81,18 @@ CREATE TABLE IF NOT EXISTS form_shares (
       },
     },
     {
-      // Performance indexes. Plain CREATE INDEX IF NOT EXISTS is sufficient.
-      // - forms list query filters on owner_email/org_id (via accessFilter)
-      //   and orders by updated_at.
-      // - responses are filtered by form_id on every form open and listed
-      //   ordered by submitted_at; the composite covers both.
-      // - form_shares lookups join on resource_id + principal_type/id.
       version: 10,
       sql: `CREATE INDEX IF NOT EXISTS forms_owner_org_updated_idx ON forms (owner_email, org_id, updated_at);
 CREATE INDEX IF NOT EXISTS responses_form_id_idx ON responses (form_id, submitted_at);
 CREATE INDEX IF NOT EXISTS form_shares_resource_idx ON form_shares (resource_id, principal_type, principal_id)`,
     },
     {
-      // Page URL the respondent was on, forwarded by trusted embeds (e.g. the
-      // framework FeedbackButton) as a hidden pass-through field so owners can
-      // see which screen feedback came from in the responses table.
       version: 11,
       sql: {
         postgres: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS page_url TEXT`,
       },
     },
     {
-      // Client surface (web/electron/tauri) the respondent submitted from,
-      // forwarded by trusted embeds as a hidden pass-through field so owners can
-      // see whether feedback came from a desktop app or the browser.
       version: 12,
       sql: {
         postgres: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS client_surface TEXT`,
@@ -202,8 +181,6 @@ export default async (nitroApp: any): Promise<void> => {
       );
     }
   } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
     console.warn(
       "[db] ensureAdditiveColumns failed (non-fatal):",
       err instanceof Error ? err.message : err,

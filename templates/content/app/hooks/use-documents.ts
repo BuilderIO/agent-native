@@ -245,22 +245,13 @@ export function documentPropertiesQueryKey(
   ] as const;
 }
 
-// Extends the shared request/response shapes with the optional
-// compare-and-swap fields the action supports but shared/api.ts does not
-// (yet) declare. See actions/update-document.ts for the CAS contract.
 export type DocumentUpdateRequestWithCas = DocumentUpdateRequest & {
   id: string;
-  /** updatedAt of the snapshot this save is based on; enables CAS for content saves. */
   baseUpdatedAt?: string;
-  /** Opaque body revision from get-document; ignores unrelated metadata writes. */
   baseRevision?: string;
-  /** Exact title baseline when a title and body are saved together. */
   baseTitle?: string;
-  /** Stable browser-tab identity for recovery-draft ordering. */
   editorSessionId?: string;
-  /** Monotonic intentional edit generation within editorSessionId. */
   editorEditGeneration?: number;
-  /** Complete editor snapshot represented by this generation. */
   editorSnapshotTitle?: string;
   editorSnapshotContent?: string;
 };
@@ -269,10 +260,6 @@ export type DocumentUpdateResult =
   | DocumentUpdateResponse
   | DocumentUpdateConflictResponse;
 
-// Accepts anything `persistDocumentUpdates`/`updateDocument.mutateAsync` can
-// resolve with — including a bare `Document` from the local-file-source
-// fallback path, which never CAS-conflicts but shares this call site's
-// narrowing.
 export function isDocumentUpdateConflict(
   result: Document | DocumentUpdateResult,
 ): result is DocumentUpdateConflictResponse {
@@ -552,12 +539,6 @@ export function seedDatabaseItemDocumentCaches(
   queryClient: Pick<QueryClient, "getQueryData" | "setQueryData">,
   item: ContentDatabaseItem,
 ) {
-  // Database table responses are list snapshots, not authoritative editable
-  // bodies. Even a cold cache can race a just-saved collaborative edit: seeding
-  // it marks the row snapshot fresh and can mount ProseMirror before the
-  // dedicated get-document request returns. Keep document bodies exclusively
-  // owned by get-document; the table may still warm the separately scoped
-  // property cache below.
   if (
     queryClient.getQueryData(
       documentPropertiesQueryKey(item.document.id, item.databaseId),
@@ -596,11 +577,6 @@ export function useDocuments(options?: { enabled?: boolean }) {
 }
 
 export const DOCUMENT_QUERY_FRESHNESS_OPTIONS = {
-  // Database/list snapshots may seed this cache before the page opens. Their
-  // body can lag a just-saved collaborative edit, so never treat that seed as
-  // authoritative for mounting the editor. The dedicated get-document action
-  // must win once per page mount; subsequent background refetches can keep the
-  // already-mounted editor current without remounting it.
   staleTime: 0,
   refetchOnMount: "always" as const,
   retry: false,
@@ -623,8 +599,6 @@ export function useDocument(
       : undefined,
     {
       enabled: !!id,
-      // Doc-not-found / no-access errors are deterministic — retrying just keeps
-      // the spinner up for ~7s before the UI can render "Not found".
       ...DOCUMENT_QUERY_FRESHNESS_OPTIONS,
     },
   );
@@ -652,10 +626,6 @@ export function usePreviewDocumentDraft(
     documentId ? { documentId } : undefined,
     {
       enabled: !!documentId && options.enabled !== false,
-      // The caller gates this off while it knows creation is pending. A 403/404
-      // that still arrives for a row that young is one this connection cannot
-      // see yet rather than a refusal, so ride it out. Once the row is past its
-      // settling window a 403 is a real authorization answer and stays terminal.
       ...documentScopedReadRetryOptions(
         isWithinCreateSettlingWindow(options.createdAt),
       ),
@@ -958,11 +928,6 @@ export function useUpdateDocument() {
         )?.[1] as
           | { state?: { version: 2; sections: ContentSidebarSections } }
           | undefined;
-        // A CAS conflict is a normal (non-thrown) result, not a successful
-        // save — converge the caches to the returned server document (so the
-        // UI immediately reflects the write that actually won) but skip the
-        // save-specific side effects below, which assume `data` describes the
-        // just-applied write.
         if (isDocumentUpdateConflict(data)) {
           const serverDocument = data.document;
           queryClient.setQueriesData(
@@ -1307,7 +1272,6 @@ export function buildDocumentTree(
   const orderedDocuments: Document[] = [];
   const roots: DocumentTreeNode[] = [];
 
-  // Create nodes
   for (const doc of documents) {
     if (map.has(doc.id)) continue;
     map.set(doc.id, { ...doc, children: [] });
@@ -1329,7 +1293,6 @@ export function buildDocumentTree(
     return false;
   }
 
-  // Build tree
   for (const doc of orderedDocuments) {
     const node = map.get(doc.id)!;
     if (
@@ -1344,7 +1307,6 @@ export function buildDocumentTree(
     }
   }
 
-  // Sort children by position
   const sortChildren = (nodes: DocumentTreeNode[]) => {
     nodes.sort((a, b) => a.position - b.position);
     for (const node of nodes) sortChildren(node.children);

@@ -1,14 +1,3 @@
-/**
- * go-to-main-component — Figma's "Go to main component".
- *
- * A canonical linked component has a persisted opaque id on its main root and
- * references. Resolve that id first. Legacy name-only annotations still use
- * the earliest same-name instance as their compatibility fallback.
- *
- * Navigation-only + inline/Alpine designs only (real-app sources return a
- * CTA). Because this writes the transient `navigate` application-state
- * command, it is exposed as the default POST mutation rather than a GET.
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
@@ -17,7 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { readLiveSourceFile } from "../server/source-workspace.js";
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
 import type { CodeLayerSource } from "../shared/code-layer.js";
@@ -93,7 +82,6 @@ export default defineAction({
 
     const db = getDb();
 
-    // ── Resolve the current node + component name ──────────────────────────
     const conditions = [
       accessFilter(schema.designs, schema.designShares),
       eq(schema.designFiles.designId, designId),
@@ -149,7 +137,6 @@ export default defineAction({
       );
     }
 
-    // ── Scan every design file for instances of this component ─────────────
     const allFiles = await db
       .select({
         id: schema.designFiles.id,
@@ -171,9 +158,6 @@ export default defineAction({
       )
       .orderBy(schema.designFiles.createdAt);
 
-    // Use the freshest content we already read for the current file so the
-    // instance we just resolved (possibly from a live collab doc) matches up
-    // with `node.id` exactly.
     const filesForScan = allFiles.map((row) =>
       row.id === file.id ? { ...row, content: currentHtml } : row,
     );
@@ -188,7 +172,6 @@ export default defineAction({
       : entriesForComponent(entries, componentName!);
 
     if (matches.length === 0) {
-      // Shouldn't happen (the current node itself matches), but guard anyway.
       throw new Error(
         `No instances of component "${componentName ?? componentId}" found across the design's files.`,
       );
@@ -204,10 +187,6 @@ export default defineAction({
       ? (matches.find((entry) => entry.componentId === componentId) ??
         matches[0])
       : matches[0];
-    // Compare against the caller's own stable `nodeId` param (a durable
-    // data-agent-native-node-id), not `node.id` (an ephemeral id scoped to
-    // this projection call) — `scanComponentLibrary` resolves the same
-    // durable id for every entry, so this is an apples-to-apples comparison.
     const isMain = main.fileId === file.id && main.nodeId === nodeId;
 
     if (isMain) {

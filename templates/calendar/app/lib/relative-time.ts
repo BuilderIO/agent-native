@@ -6,13 +6,6 @@ const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ["minute", 60 * 1000],
 ];
 
-/**
- * Formats a past ISO timestamp as "3 hours ago".
- *
- * Returns `""` for an unparseable timestamp rather than a plausible-looking
- * "just now" — an unreadable value must stay visibly different from a recent
- * one.
- */
 export function formatRelativeTimeFromNow(
   iso: string,
   now: number = Date.now(),
@@ -21,9 +14,6 @@ export function formatRelativeTimeFromNow(
   const diffMs = now - Date.parse(iso);
   if (!Number.isFinite(diffMs)) return "";
 
-  // `numeric: "auto"` lets ICU supply the locale-correct word for the
-  // sub-minute case (e.g. "now" / "ahora" / "現在") instead of a hardcoded
-  // English literal, without changing the numeric phrasing of larger units.
   const formatter = new Intl.RelativeTimeFormat(locale, {
     style: "long",
     numeric: "auto",

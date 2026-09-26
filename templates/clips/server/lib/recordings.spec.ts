@@ -108,10 +108,6 @@ describe("getEventOwnerContext", () => {
   });
 });
 
-/**
- * Two counts come back per call — one per table — so the fake resolves each
- * `.where()` against the table the builder was pointed at.
- */
 function createDb(rowsByTable: { viewers?: unknown[]; views?: unknown[] }) {
   const calls: {
     tables: unknown[];
@@ -305,11 +301,6 @@ describe("requireActiveOrganizationId", () => {
   });
 });
 
-/**
- * Both legacy sources outlive the organization they name and neither is scoped
- * to a caller, so each id they hand back has to be vetted before it becomes an
- * active org id. `select` is called once per lookup, in order.
- */
 function stubSelects(...results: unknown[][]) {
   const calls: unknown[] = [];
   mocks.getDb.mockReturnValue({
@@ -334,14 +325,10 @@ describe("getActiveOrganizationId legacy fallbacks", () => {
     mocks.implicitServiceOrgRole.mockReturnValue(null);
     mocks.readAppState.mockResolvedValue(null);
     mocks.getUserSetting.mockResolvedValue(null);
-    // The legacy sources are only consulted when the framework resolver could
-    // not answer at all; a definite answer ends the search before them.
     mocks.resolveOrgIdForEmail.mockRejectedValue(new Error("unavailable"));
   });
 
   it("honors a definite no-org answer instead of reviving a legacy workspace", async () => {
-    // `resolveOrgIdForEmail` returns null both for no membership and for an
-    // explicit Personal selection. Either way it has answered, and the
     // caller-unscoped legacy sources must not reactivate org scope.
     mocks.getRequestUserEmail.mockReturnValue("personal@example.test");
     mocks.resolveOrgIdForEmail.mockResolvedValue(null);
@@ -354,19 +341,14 @@ describe("getActiveOrganizationId legacy fallbacks", () => {
   });
 
   it("ignores a `current-workspace` key naming a deleted organization", async () => {
-    // Deleting an org clears org_members but not this app-state key, so an
-    // unvetted id here resurrects the deleted org as a 403 on every read.
     mocks.getRequestUserEmail.mockReturnValue("owner@example.test");
     mocks.readAppState.mockResolvedValue({ id: "org_deleted" });
-    // organizations lookup (gone), then the deprecated workspaces lookup.
     stubSelects([], []);
 
     await expect(getActiveOrganizationId()).resolves.toBeNull();
   });
 
   it("ignores a surviving workspace the caller is not a member of", async () => {
-    // The workspaces lookup takes the globally newest row, which can belong to
-    // another user entirely. Personal scope is the correct answer, not 403.
     mocks.getRequestUserEmail.mockReturnValue("nomember@example.test");
     stubSelects([{ id: "org_someone_else" }], [{ id: "org_someone_else" }], []);
 
@@ -385,7 +367,6 @@ describe("getActiveOrganizationId legacy fallbacks", () => {
   });
 
   it("accepts an existing legacy workspace when there is no caller identity", async () => {
-    // CLI and solo dev have no email to scope by, so an existing org is the
     // best available answer rather than a silent downgrade to personal scope.
     mocks.getRequestUserEmail.mockReturnValue(null);
     stubSelects([{ id: "org_solo" }], [{ id: "org_solo" }]);

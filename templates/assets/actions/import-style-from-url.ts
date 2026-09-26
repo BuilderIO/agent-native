@@ -11,12 +11,6 @@ import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
 import { assertCanApprove } from "../server/lib/library-access.js";
 import type { StyleBrief } from "../shared/api.js";
 
-/**
- * Render a public website once and merge its computed visual language into an
- * Assets library or collection style brief. This intentionally shares the
- * exact browser extractor used by Design and Slides instead of maintaining a
- * second image-only or static-HTML interpretation of the page.
- */
 export default defineAction({
   description:
     "Render a website in a real browser and merge its design.md-style visual " +

@@ -25,7 +25,6 @@ async function getHubSpotKey(event: H3Event): Promise<string | undefined> {
   return getHubSpotApiKey(sessionId);
 }
 
-// POST /api/hubspot/validate — verify a key without saving it
 export const hubspotValidate = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event).catch(() => ({}));
   const apiKey = (body as { apiKey?: unknown })?.apiKey;
@@ -38,7 +37,6 @@ export const hubspotValidate = defineEventHandler(async (event: H3Event) => {
   return result;
 });
 
-// GET /api/hubspot/contact?email=...
 export const hubspotContactLookup = defineEventHandler(
   async (event: H3Event) => {
     const { email } = getQuery(event);

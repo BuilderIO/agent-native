@@ -78,9 +78,6 @@ describe("submitDesignAnnotations", () => {
   });
 
   it("keeps queued pins and draw mode intact when delivery is not confirmed (silent drop)", async () => {
-    // Mirrors sendToAgentChatAndConfirm resolving `delivered: false` (e.g. no
-    // LLM/agent engine configured) — the caller turns that into a rejection
-    // instead of resolving silently, so the annotation work is never lost.
     const markQueuedPinsSubmitted = vi.fn();
     const exitDrawMode = vi.fn();
     const onError = vi.fn();

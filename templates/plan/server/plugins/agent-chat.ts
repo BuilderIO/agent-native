@@ -95,9 +95,6 @@ async function autosavePlanAfterAgentTurn(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Register plan event-bus events
-// ---------------------------------------------------------------------------
 
 registerEvent({
   name: "plan.created",
@@ -216,8 +213,6 @@ const planAgentChatOptions = {
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   frameworkTools: PLAN_FRAMEWORK_TOOLS,
   mcp: {
-    // Plan mounts MCP from a dedicated early plugin (`00-mcp.ts`) so its
-    // external connector does not wait on chat plugin initialization.
     enabled: false,
     connectorCatalog: PLAN_CONNECTOR_CATALOG,
   },

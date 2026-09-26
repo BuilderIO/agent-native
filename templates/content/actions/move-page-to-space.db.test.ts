@@ -206,7 +206,6 @@ describe("moving a page between Content spaces", () => {
       createDocument.run({ title: "Notes", parentId: page.id }),
     );
 
-    // Org visibility alone only grants viewing.
     await expect(
       as(EDITOR, () =>
         moveDocument.run({
@@ -269,7 +268,6 @@ describe("moving a page between Content spaces", () => {
     const page = await as(OWNER, () =>
       createDocument.run({ title: "Nest me" }),
     );
-    // Editing someone else's page is not enough to nest under it.
     await share(othersPage.id, OWNER, "editor");
 
     await expect(

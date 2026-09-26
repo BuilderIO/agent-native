@@ -11,23 +11,9 @@ import {
   waitForBridge,
 } from "./helpers";
 
-/**
- * Figma parity — Selection (spec §1 + Part 3 resolutions).
- *
- * Covers: click selects the outermost child of the current container (not the
- * deep child — Logan's report), double-click drills in, cmd+click deep-selects,
- * shift+click toggles, Esc backs out a level, Enter descends, empty-canvas
- * click deselects, marquee selects everything it INTERSECTS (not full
- * enclosure), cmd+marquee reaches nested children, Tab/Shift+Tab cycles
- * siblings — across elements inside a screen and board objects on the
- * overview canvas.
- */
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
-// A container with two children, plus two loose top-level siblings, mirrors
-// the shape a real Figma file uses to test "click hits the container, not
-// the child": Card is the current container; Kid A / Kid B are its children.
 const FIXTURE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Selection parity</title></head>
@@ -46,11 +32,6 @@ const FIXTURE = `<!doctype html>
   </body>
 </html>`;
 
-// A dedicated board-surface file. Set as `boardFileId`, this renders as the
-// overview canvas's board layer that screens sit on top of — the real
-// mechanism behind "board objects", per MultiScreenCanvas.tsx boardFileId
-// wiring (shared/board-objects.ts's JSON boardObjects array is unused by the
-// renderer).
 const BOARD_FIXTURE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Board</title></head>
@@ -154,10 +135,6 @@ async function click(
   box: { x: number; y: number; width: number; height: number },
   modifiers?: ("Meta" | "Shift" | "Control")[],
 ) {
-  // page.mouse.click's `modifiers` option is unreliable against this canvas
-  // (see reference_browser_modifier_keys_not_delivered) — hold the keys with
-  // keyboard.down/up around a plain click instead, matching what a real user
-  // does with their hand on the modifier key.
   if (modifiers?.length) for (const m of modifiers) await page.keyboard.down(m);
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   if (modifiers?.length) for (const m of modifiers) await page.keyboard.up(m);
@@ -190,13 +167,6 @@ test.beforeEach(async ({ page }, testInfo) => {
 });
 
 // PR #5644 ("Use direct selection inside design screens") made a plain click
-// inside a SCREEN select the deepest block under the pointer directly — a
-// documented, human-directed exception to Figma (see
-// editor-chrome.bridge.ts's plainClickSelectionTarget). The infinite-canvas
-// board surface keeps the original Figma container-first behavior, so these
-// two tests run the same nested Card/Kid A fixture as a board object
-// (newBoardDesign) instead of a screen (newDesign) to assert the contract
-// where it still holds.
 test.describe("click selects the container on the board surface, not the deep child", () => {
   test("clicking a child inside Card selects Card, not Kid A", async ({
     page,
@@ -278,8 +248,6 @@ test.describe("click selects the container on the board surface, not the deep ch
     const id = await newDesign(page);
     await openEditorAndExpandLayers(page, id);
     const card = (await node(page, "card").boundingBox())!;
-    // Card's own padding, below both children: a plain click here selects
-    // the container directly (it is already top-level).
     await page.mouse.click(card.x + card.width / 2, card.y + card.height - 20);
     await expect
       .poll(async () => (await selectedLayerNames(page)).join("|"), {
@@ -359,9 +327,6 @@ test.describe("shift+click toggles membership", () => {
   });
 });
 
-// Same PR #5644 exception as above: a drilled-in child only exists on the
-// board surface for a plain first click, since a screen now selects Kid A
-// directly. Uses newBoardDesign(FIXTURE) so the "Card" precondition holds.
 test.describe("Esc / Enter traversal from a real drill-in", () => {
   test("Escape clears the selection entirely, even from a drilled-in child", async ({
     page,
@@ -388,8 +353,6 @@ test.describe("Esc / Enter traversal from a real drill-in", () => {
       .toContain("Kid A");
 
     await page.keyboard.press("Escape");
-    // Figma: Escape clears the selection entirely — it does not back out one
-    // level to the parent container.
     await expect
       .poll(async () => selectedLayerNames(page), {
         timeout: 10_000,
@@ -434,8 +397,6 @@ test("clicking empty canvas inside the screen deselects everything", async ({
     })
     .toBe(1);
 
-  // A point with no data-agent-native-node-id under it at all: below every
-  // fixture element but still inside the screen's own body background.
   const px = await canvasZoom(page);
   const empty = { x: soloA.x, y: soloA.y + 260 * px, width: 0, height: 0 };
   await click(page, empty);
@@ -453,8 +414,6 @@ test.describe("marquee semantics", () => {
     await openEditorAndExpandLayers(page, id);
     const soloA = (await node(page, "solo-a").boundingBox())!;
     const soloB = (await node(page, "solo-b").boundingBox())!;
-    // Start the band mid-way through Solo A and end it mid-way through
-    // Solo B: neither box is ever fully enclosed.
     await sweep(
       page,
       { x: soloA.x + soloA.width / 2, y: soloA.y - 20 },
@@ -604,10 +563,6 @@ test.describe("board objects on the overview canvas", () => {
   test("cmd+click a child of an already-selected Card on the board surface replaces the selection with the child", async ({
     page,
   }) => {
-    // Reuses the nested Card/Kid A/Kid B fixture as the board file's content
-    // — the bug this guards is generic to the shared bridge/host round trip
-    // both the board surface and screen iframes funnel through, not specific
-    // to either one.
     const id = await newBoardDesign(page, FIXTURE);
     await openEditorAndExpandLayers(page, id);
     const card = (await node(page, "card").boundingBox())!;
@@ -713,13 +668,6 @@ function screenCard(page: Page, index: number): Locator {
   return page.locator("[data-screen-card]").nth(index);
 }
 
-/**
- * Double-click a named leaf inside a specific screen's iframe (overview
- * mode). A plain single click always selects the outer content frame under
- * the pointer (see e2e/helpers.ts's selectableNodeByText); only a real
- * double-click descends to the exact leaf, which is what "a nested element
- * is selected" needs here.
- */
 async function selectByTextDeepInScreen(
   page: Page,
   screenId: string,
@@ -756,10 +704,6 @@ async function selectByTextDeepInScreen(
   await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
   const message = await waitForBridge(page, "element-select");
   expect(String(message?.payload?.componentName ?? "")).toBe(text);
-  // A double-click on a text-bearing leaf also enters text editing, moving
-  // DOM focus inside the iframe — Escape exits editing without losing the
-  // shape selection, restoring the outer window as the hotkey listener's
-  // keydown target.
   await page.keyboard.press("Escape");
   await page.waitForTimeout(100);
 }
@@ -789,10 +733,6 @@ test.describe
       })
       .toBe(1);
 
-    // Click Screen 2's name label (chrome above the card, never overlapping
-    // its content) WITHOUT deselecting the nested element first — clicking
-    // inside the card's rendered content selects the content element under
-    // the pointer instead, same as any other overview element click.
     await page
       .locator('[data-frame-title][title="page-two.html"]')
       .click({ force: true });
@@ -818,12 +758,6 @@ test.describe
   test("marquee-selecting Screen 2 after a nested Screen 1 element replaces the layer selection, so Cmd+A selects all Screens", async ({
     page,
   }) => {
-    // The two screens stack with only a few px of gap between Screen 1's
-    // card and Screen 2's full frame (label included), so a marquee that
-    // fully encloses Screen 2's frame unavoidably clips into Screen 1's
-    // card too. Drag Screen 2 far away first — a real, independent gesture
-    // — so the marquee below can fully enclose it with generous padding on
-    // every side and unambiguously test screen-marquee selection alone.
     const label = page.locator('[data-frame-title][title="page-two.html"]');
     const labelBox = (await label.boundingBox())!;
     await page.mouse.move(
@@ -839,8 +773,6 @@ test.describe
     await page.mouse.up();
     await page.waitForTimeout(300);
 
-    // Re-establish the repro precondition after the reposition above (which
-    // itself selects Screen 2 as a side effect of the drag).
     await selectByTextDeepInScreen(page, screen1Id, "Alpha Button");
     await expandAllLayers(page);
     await expect

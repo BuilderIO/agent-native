@@ -5,11 +5,6 @@ import {
 } from "@/components/design/multi-screen/iframe-targeting";
 import type { ElementInfo } from "@/components/design/types";
 
-/**
- * Asks only the selection's own document to scale it. The selector is not
- * unique across documents, so broadcasting also scaled breakpoint previews
- * and any other screen with a matching element.
- */
 export function runScaleSelection(
   args: {
     selectedElement: ElementInfo | null;
@@ -23,8 +18,6 @@ export function runScaleSelection(
   const selector = args.selectedElement?.selector;
   if (!selector) return;
   const screenId = args.selectedElement?.sourceLayerIdentity?.screenId;
-  // While a breakpoint is being edited, its own frame holds the selection
-  // at that width; the screen's primary frame would scale the wrong size.
   const breakpointIframe =
     screenId && args.activeBreakpointWidthPx !== undefined
       ? findCanvasIframeForScreen(

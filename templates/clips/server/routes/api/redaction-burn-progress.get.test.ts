@@ -1,13 +1,3 @@
-/**
- * The poll behind the burn progress bar.
- *
- * The case that matters is the first one: `resolveAccess` reads the asker from
- * the framework's request context, and a plain nitro route is not inside one,
- * so calling it bare answered "no access" for the owner of the recording and
- * every poll came back 403. The editor cannot tell a refused poll from a
- * running job — the bar stayed at zero and the page never learned the burn had
- * finished. Shipped that way, and only caught on production.
- */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -50,7 +40,6 @@ describe("GET /api/redaction-burn-progress", () => {
       email: "owner@example.com",
       orgId: "org_1",
     });
-    // The real one establishes the request context and runs the callback.
     mockRunWithRequestContext.mockImplementation(
       async (_context: unknown, fn: () => unknown) => fn(),
     );
@@ -63,7 +52,6 @@ describe("GET /api/redaction-burn-progress", () => {
 
     expect(result).toEqual({ status: "running", percent: 42 });
     expect(mockSetResponseStatus).not.toHaveBeenCalled();
-    // The regression: resolveAccess must be called with the session on it.
     expect(mockRunWithRequestContext).toHaveBeenCalledWith(
       { userEmail: "owner@example.com", orgId: "org_1" },
       expect.any(Function),

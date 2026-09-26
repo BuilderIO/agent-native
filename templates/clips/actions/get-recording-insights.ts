@@ -1,19 +1,3 @@
-/**
- * Aggregate analytics for a recording.
- *
- * Owner-only — uses assertAccess at editor level (owners always satisfy).
- *
- * Returns: views (total counted human view sessions, so a returning viewer
- * counts again), agentViews (outside agents reading the clip's agent APIs),
- * uniqueViewers (distinct people behind those views), completionRate,
- * dropOff (100 buckets), ctaConversionRate.
- *
- * completionRate and ctaConversionRate are null — never 0 — when no human
- * viewer has been counted yet, so an agent-only clip does not read as 0%.
- *
- * Usage:
- *   pnpm action get-recording-insights --recordingId=<id>
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -66,28 +50,14 @@ export default defineAction({
           .where(eq(schema.recordingReactions.recordingId, args.recordingId)),
       ]);
 
-    // Same definition as `countedViewCondition`, applied to rows already in
-    // memory so this action keeps its single viewer-row read. One row per
-    // person, so this is the distinct-viewer count, not the view total. Rows
-    // that have not met the view threshold are still useful in the Views tab,
-    // but must not lower the counted-view completion rate.
     const countedViewerRows = viewerRows.filter(isCountedViewerRow);
     const countedViewers = countedViewerRows.length;
     const uniqueViewers = new Set(
       countedViewerRows.map((v) => v.viewerEmail ?? `anon:${v.id}`),
     ).size;
 
-    // Mirrors `countRecordingViews`: `recording_views` only exists from
-    // migration v46, so clips recorded before it have zero log rows. Floor the
-    // total at the counted-viewer count so those clips keep reporting a real
-    // number instead of 0, and so total can never read below uniqueViewers.
     const views = Math.max(Number(viewLogRow?.value ?? 0), countedViewers);
 
-    // Completion is a human-playback average. Agents read a clip through the
-    // agent APIs and never report progress, so a clip whose only audience is
-    // agents has no completion sample — null, not 0. "Nobody has watched it"
-    // and "everyone bounced at the first frame" are different facts, and only
-    // the second one is 0%.
     const completionRate =
       countedViewers === 0
         ? null
@@ -96,8 +66,6 @@ export default defineAction({
             0,
           ) / countedViewers;
 
-    // Drop-off: 100 buckets across the video's duration.
-    // Use the recording's duration as the denominator.
     const [rec] = await db
       .select({ durationMs: schema.recordings.durationMs })
       .from(schema.recordings)
@@ -112,22 +80,18 @@ export default defineAction({
 
     for (const v of viewerRows) {
       const pct = clampCompletionPct(v.completedPct);
-      // Each viewer contributes to all buckets up to their max reached.
       for (let i = 0; i < pct; i++) {
         buckets[i].watching += 1;
       }
     }
 
     const ctaClicks = events.filter((e) => e.kind === "cta-click").length;
-    // CTA conversion is per person, so the denominator is counted viewers — not
-    // `views`, which counts repeat sessions from the same viewer.
     const ctaConversionRate =
       countedViewers === 0
         ? null
         : Math.min(100, (ctaClicks / countedViewers) * 100);
     const reactions = Number(reactionCountRow?.value ?? 0);
 
-    // Top viewers by total watch ms
     const topViewers = (
       await hydrateViewerNames(
         viewerRows

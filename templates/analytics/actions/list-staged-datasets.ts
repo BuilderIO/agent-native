@@ -1,6 +1,3 @@
-/**
- * Thin analytics re-export of the core list-staged-datasets action.
- */
 import { createListStagedDatasetsAction } from "@agent-native/core/provider-api/actions/staged-datasets";
 import { z } from "zod";
 

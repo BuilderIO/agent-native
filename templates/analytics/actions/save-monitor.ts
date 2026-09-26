@@ -9,11 +9,6 @@ import { z } from "zod";
 
 import { hostFromUrl, saveMonitor } from "../server/lib/uptime-monitors";
 
-/**
- * Friendly default name from a URL: the host without a leading `www.`
- * (e.g. `example.com` from `https://www.example.com/health`). Keeps
- * agent-created monitors sensible when no name is provided.
- */
 function deriveNameFromUrl(url: string): string {
   return hostFromUrl((url ?? "").trim()).replace(/^www\./i, "");
 }

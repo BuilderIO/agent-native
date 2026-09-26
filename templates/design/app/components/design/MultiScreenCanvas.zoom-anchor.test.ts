@@ -34,8 +34,6 @@ describe("MultiScreenCanvas overview zoom-prop anchor", () => {
   const surfaceSize = { width: 523, height: 756 };
   const oldZoom = 60;
   const nextZoom = 375;
-  // Pan as committed before the reactive zoom-scale jump (matches the
-  // observed repro: an empty board's pan never moved from its default).
   const priorPan = { x: 0, y: 0 };
 
   function frameCenterScreenPoint(pan: { x: number; y: number }, zoom: number) {
@@ -80,9 +78,6 @@ describe("MultiScreenCanvas overview zoom-prop anchor", () => {
 
     const after = frameCenterScreenPoint(nextPan, nextZoom);
 
-    // The frame's on-screen position moves by hundreds of px and lands well
-    // outside the visible [0, surfaceSize] viewport — this is the "solid
-    // black overview canvas" symptom (nothing painted anywhere on screen).
     const movedBy = Math.hypot(after.x - before.x, after.y - before.y);
     expect(movedBy).toBeGreaterThan(300);
     const isOutsideViewport =
@@ -94,11 +89,6 @@ describe("MultiScreenCanvas overview zoom-prop anchor", () => {
   });
 
   it("is a no-op anchor point when the frame IS already at the surface center", () => {
-    // Sanity check: when the reference frame's center genuinely coincides
-    // with the surface center, both anchor strategies agree (no behavior
-    // change for that coincidental case). canvasToScreenPoint scales by
-    // oldZoom/100 before adding pan, so the world-space center has to be
-    // back-solved through that scale factor, not just SURFACE_PADDING.
     const scale = oldZoom / 100;
     const centeredFrame: FrameGeometry = {
       x: surfaceSize.width / 2 / scale - SURFACE_PADDING - 20,

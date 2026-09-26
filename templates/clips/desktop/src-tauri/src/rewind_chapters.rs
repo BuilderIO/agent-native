@@ -1,7 +1,3 @@
-//! Retention-bound, local-only work chapters for the Rewind buffer.
-//!
-//! This deliberately stores references and bounded context only. Segments remain
-//! the retention authority; a missing or invalid chapter manifest is disposable.
 
 #[cfg(test)]
 use crate::config::RewindCaptureMode;
@@ -16,8 +12,6 @@ use std::path::Path;
 const CHAPTERS_FILE: &str = "chapters.json";
 const HARD_GAP_MS: i64 = 1_500;
 const SCENE_SLICE_MS: i64 = 30_000;
-// A safety bound, not a product boundary. Coherent work commonly lasts longer
-// than the 15–20 minute acceptance samples and must not split merely by age.
 const MAX_CHAPTER_SPAN_MS: i64 = 60 * 60 * 1_000;
 const TRANSIENT_SCENE_MS: i64 = 75_000;
 const MIN_SEMANTIC_TOPIC_MS: i64 = 120_000;
@@ -592,8 +586,6 @@ fn accessibility_keywords(event: &ScreenMemoryEvent) -> BTreeMap<String, usize> 
     .into_iter()
     .flatten()
     {
-        // Roles describe the accessibility API, not the user's work. Ingesting
-        // them recursively produced labels such as "Working on AXTextArea".
         for text in [
             node.title.as_deref(),
             node.description.as_deref(),
@@ -908,11 +900,6 @@ fn group_semantic_scenes(scenes: &[SceneItem]) -> Vec<Vec<SceneItem>> {
         }
     }
 
-    // A bounded audit or retained archive can begin in the middle of a task.
-    // When the first observed foreground context changes almost immediately,
-    // there is no earlier evidence with which to prove a genuine chapter
-    // boundary. Keep that open-edge sliver with the first durable chapter and
-    // let the next rebuild recover the original boundary if more history exists.
     if groups.len() > 1 {
         let first_duration_ms = groups[0]
             .last()
@@ -942,10 +929,6 @@ fn should_split_semantically(
         return true;
     }
 
-    // Window titles and accessibility summaries can change every few seconds
-    // inside one app. Treat the foreground application as the stable surface;
-    // semantic evidence below remains responsible for finding topic changes
-    // within that surface.
     let context_changed =
         !same_foreground_context(previous.scene.context.as_ref(), next.scene.context.as_ref());
     let current_group_ms = (previous.end - group[0].start).num_milliseconds();
@@ -1013,9 +996,6 @@ fn should_split_semantically(
         return semantics_persist_for(next, following, MIN_SEMANTIC_TOPIC_MS);
     }
 
-    // A context seen only at the open edge of the retained/audited range is not
-    // enough evidence for a new chapter. The next rebuild can split at the
-    // original boundary once the foreground change has actually persisted.
     false
 }
 
@@ -1361,8 +1341,6 @@ fn top_label_keywords(counts: &BTreeMap<String, usize>, limit: usize) -> Vec<Str
                 && (words.len() == 1 || **count >= 2)
         })
         .map(|(keyword, count)| {
-            // Repeated clean phrases are more human than isolated words, but a
-            // fixed bonus prevents long OCR fragments from winning by length.
             let words = keyword.split_whitespace().count();
             let phrase_weight = if words > 1 { words + 2 } else { 1 };
             (keyword.clone(), count.saturating_mul(phrase_weight))
@@ -2193,9 +2171,6 @@ mod tests {
 
     #[test]
     fn three_repository_safe_gold_samples_meet_boundary_precision_and_recall_gate() {
-        // These hand-authored annotations preserve only the timing and topic
-        // shape of the private dogfood cases: cross-app continuation, a
-        // same-app topic change, and a short interruption plus a hard gap.
         let origin = parse_utc("2026-01-01T00:00:00Z").unwrap();
 
         let cross_app_segments = vec![
@@ -2355,8 +2330,6 @@ mod tests {
         assert!(!interrupted.chapters[0].label.contains("dragon"));
     }
 
-    /// Read-only dogfood harness. It is ignored unless a developer explicitly
-    /// supplies a local Screen Memory directory; no archive path is committed.
     #[test]
     #[ignore = "requires CLIPS_REWIND_AUDIT_DIR and prints local derived evidence"]
     fn audits_an_explicit_local_store_without_rewriting_it() {

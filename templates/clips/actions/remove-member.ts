@@ -1,11 +1,3 @@
-/**
- * Remove a member from the active organization.
- *
- * Admin-only. Refuses to remove the organization owner.
- *
- * Usage:
- *   pnpm action remove-member --email=alice@example.com
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";

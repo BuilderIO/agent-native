@@ -3,16 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * Selection is a hot path, and the two gestures below used to rebuild the full
- * `getElementInfo` payload — which snapshots portable computed styles for an
- * element AND its whole subtree — once per candidate, per frame.
- *
- * These assert bounded WORK, not elapsed time: a timing threshold would be
- * flaky on shared CI, while "how many elements did we build info for" and "how
- * many computed-style reads did the gesture cost" are exactly the quantities
- * that regressed, and they are deterministic.
- */
 function hydratedBridge(): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
@@ -45,8 +35,6 @@ const CARDS = 60;
 const LARGE_CANDIDATES = 849;
 const LARGE_DOM_ELEMENTS = 883;
 
-/** A grid of cards, each with three children — the shape of a generated
- *  screen, at a size where per-candidate work is measurable. */
 function fixture(): string {
   const cols = 6;
   let html = `<!doctype html><html><body style="margin:0;width:800px;height:${
@@ -64,13 +52,6 @@ function fixture(): string {
   return `${html}</body></html>`;
 }
 
-/**
- * Keep the benchmark close to the large-canvas trace: 169 repeated cards give
- * 849 selectable elements, while 34 inert script nodes make the portable root
- * snapshot 883 elements. Every card and its header overlap with the root and
- * each other, so the request-local portable-style cache has real work to
- * eliminate without making the payload itself unbounded.
- */
 function largeFixture(): string {
   const columns = 13;
   let html =
@@ -115,7 +96,6 @@ function stablePayloadValue(value: unknown): unknown {
 
 async function openBridgePage(page: Page) {
   await page.setContent(fixture());
-  // Count computed-style reads; the gesture's cost is dominated by them.
   await page.evaluate(`
     window.__styleReads = 0;
     var rawGetComputedStyle = window.getComputedStyle.bind(window);
@@ -371,10 +351,6 @@ async function collectLargeFramesConcurrently(
 }
 
 function comparablePayload(payload: CollectedInfo[]) {
-  // Keep every serializable payload field in the comparison. In particular,
-  // this includes all computed/portable style values, provenance, runtime
-  // component identity, and edit capability metadata rather than only their
-  // key sets.
   return payload.map((info) => stablePayloadValue(info));
 }
 
@@ -419,7 +395,6 @@ describe("selectable-rects collect is bounded by the point it was asked about", 
       page.on("pageerror", (error) => errors.push(error.message));
       await openBridgePage(page);
 
-      // Inside card-0's "Body" child: the chain is card-0 > body-0.
       const point = { x: 60, y: 70 };
       const all = await collectSelectableRects(page, { deep: true });
       const atPoint = await collectSelectableRects(page, {
@@ -428,12 +403,8 @@ describe("selectable-rects collect is bounded by the point it was asked about", 
       });
 
       expect(errors, errors.join("\n")).toEqual([]);
-      // Guard the fixture itself: the unfiltered collect must be big, or the
-      // comparison below proves nothing.
       expect(all.length).toBeGreaterThan(200);
 
-      // The host re-filters in board space (drillInChainAtPoint), so this pass
-      // must never DROP a candidate the host would have kept.
       const hostWouldKeep = all
         .filter((info) => rectContainsPoint(info, point))
         .map((info) => info.sourceId)
@@ -442,9 +413,6 @@ describe("selectable-rects collect is bounded by the point it was asked about", 
       expect(hostWouldKeep.length).toBeGreaterThan(0);
       expect(returned).toEqual(expect.arrayContaining(hostWouldKeep));
 
-      // ...and it must be a small superset, not the whole document. This is
-      // the regression guard: an unfiltered collect here is what pushed
-      // double-click drill-in past the host's 400 ms reply timeout.
       expect(atPoint.length).toBeLessThan(all.length / 10);
       expect(atPoint.length).toBeLessThanOrEqual(hostWouldKeep.length + 4);
     } finally {
@@ -462,19 +430,12 @@ describe("selectable-rects collect is bounded by the point it was asked about", 
       page.on("pageerror", (error) => errors.push(error.message));
       await openBridgePage(page);
 
-      // The host derives `atPoint` by inverting the same mapping it applied to
-      // `info.boundingRect`, and rectInfoForElement reports that rect in
-      // DOCUMENT space (client rect + scroll). Scrolling is where a filter
-      // written in viewport space would silently drop the element under the
-      // pointer, so pin the two spaces against each other with the page
-      // scrolled well past the first row.
       await page.evaluate("window.scrollTo(0, 420);");
       await page.waitForTimeout(50);
       const scrollY = await page.evaluate(() => window.scrollY);
       expect(scrollY).toBeGreaterThan(0);
 
       const all = await collectSelectableRects(page, { deep: true });
-      // Pick a small, deep target that is on screen after the scroll.
       const target = all.find((info) => info.sourceId?.startsWith("action-"));
       expect(target).toBeDefined();
       const centre = {
@@ -489,7 +450,6 @@ describe("selectable-rects collect is bounded by the point it was asked about", 
 
       expect(errors, errors.join("\n")).toEqual([]);
       expect(atPoint.map((info) => info.sourceId)).toContain(target!.sourceId);
-      // Still narrowed, not silently widened back to the whole document.
       expect(atPoint.length).toBeLessThan(all.length / 10);
     } finally {
       await browser.close();
@@ -507,9 +467,6 @@ describe("selectable-rects collect is bounded by the point it was asked about", 
         deep: true,
         atPoint: { x: 60, y: 70 },
       });
-      // Narrowing the candidate set must not also lean out the payload: the
-      // host canonicalizes this into `selectedElement`, and style commits,
-      // nudge, paste-over and motion all read `computedStyles` off it.
       expect(atPoint.length).toBeGreaterThan(0);
       for (const info of atPoint) {
         expect(Object.keys(info.computedStyles ?? {}).length).toBeGreaterThan(
@@ -888,8 +845,6 @@ describe("large concurrent selectable-rects requests", () => {
         child.getBoundingClientRect = () => {
           const rect = nativeRect();
           reads += 1;
-          // The parent snapshot cached the leaf before this overlapping child
-          // snapshot. These effect mutations leave the animation state intact.
           if (reads === 2) {
             if (mutationMethod === "setKeyframes") {
               effect.setKeyframes([
@@ -979,9 +934,6 @@ describe("large concurrent selectable-rects requests", () => {
         const child = document.querySelector<HTMLElement>("#child");
         if (!child)
           throw new Error("mid-request animation fixture missing child");
-        // Create the animation before the bridge installs its CSSOM hooks, then
-        // cancel it so the request starts with no animation to observe. Calling
-        // play() later changes inherited styles without a DOM mutation.
         const animation = child.animate(
           [{ color: "rgb(255, 0, 0)" }, { color: "rgb(0, 0, 255)" }],
           { duration: 1000, fill: "both" },
@@ -1146,8 +1098,6 @@ describe("large concurrent selectable-rects requests", () => {
         child.getBoundingClientRect = () => {
           const rect = nativeRect();
           reads += 1;
-          // The parent snapshot has already cached the leaf by the time the
-          // overlapping child snapshot reaches this second rect read.
           if (reads === 2) leaf.style.color = "rgb(0, 0, 255)";
           return rect;
         };
@@ -1201,8 +1151,6 @@ describe("large concurrent selectable-rects requests", () => {
         child.getBoundingClientRect = () => {
           const rect = nativeRect();
           reads += 1;
-          // The parent snapshot has already cached the leaf by the time the
-          // overlapping child snapshot reaches this second rect read.
           if (reads === 2) {
             const style = shadow.querySelector<HTMLStyleElement>("#theme");
             if (!style)
@@ -1265,8 +1213,6 @@ describe("large concurrent selectable-rects requests", () => {
         child.getBoundingClientRect = () => {
           const rect = nativeRect();
           reads += 1;
-          // The parent snapshot has already cached the leaf by the time the
-          // overlapping child snapshot reaches this second rect read.
           if (reads === 2) {
             rule.style.setProperty("color", "rgb(0, 0, 255)");
           }
@@ -1343,8 +1289,6 @@ describe("large concurrent selectable-rects requests", () => {
         }
         try {
           const before = second.mutationGeneration;
-          // Releasing the older owner first used to restore the original
-          // descriptor and strand the newer wrapper/cache pair.
           first.restoreCssomHooks();
           rule.style.setProperty("color", "rgb(0, 0, 255)");
           const after = second.mutationGeneration;
@@ -1403,8 +1347,6 @@ describe("large concurrent selectable-rects requests", () => {
         child.getBoundingClientRect = () => {
           const rect = nativeRect();
           reads += 1;
-          // The parent snapshot has already cached the leaf by the time the
-          // overlapping child snapshot reaches this second rect read.
           if (reads === 2) {
             animation.play();
             animation.currentTime = 500;
@@ -1522,11 +1464,6 @@ describe("large concurrent selectable-rects requests", () => {
 
       const styleReads = await readLargeStyleReads(page);
       expect(styleReads).toHaveLength(2);
-      // A bounded handful of live reads per candidate plus one portable read
-      // per unique element is the expected shape. This deterministic work
-      // bound replaces a scheduler-sensitive elapsed-time threshold while
-      // still catching a repeated subtree walk that regresses toward the
-      // measured 13k-read trace.
       expect(styleReads[0]).toBeLessThanOrEqual(LARGE_DOM_ELEMENTS * 6);
       expect(styleReads[1]).toBeLessThanOrEqual(LARGE_DOM_ELEMENTS * 6);
       expect(styleReads[0]).toBeGreaterThan(LARGE_DOM_ELEMENTS * 4);
@@ -1552,10 +1489,6 @@ describe("a marquee drag does not rebuild element info every frame", () => {
       await page.mouse.move(8, 8);
       await page.mouse.down();
       await page.mouse.move(780, 700, { steps: 30 });
-      // Measure the live portion before mouseup. The final primary item is
-      // intentionally enriched with its portable subtree snapshot for copy,
-      // paste, and cross-screen fidelity; that one bounded snapshot must not
-      // be mistaken for per-frame marquee work.
       await page.waitForTimeout(80);
       const live = await page.evaluate(() => {
         const msgs = (
@@ -1580,13 +1513,9 @@ describe("a marquee drag does not rebuild element info every frame", () => {
       await page.waitForTimeout(80);
 
       expect(errors, errors.join("\n")).toEqual([]);
-      // The drag really did sweep a large hit-set over many frames.
       expect(live.messages).toBeGreaterThan(5);
       expect(live.selectedCount).toBeGreaterThan(20);
 
-      // Live reports carry only the identity/geometry descriptor. A full
-      // subtree snapshot belongs to the final primary report, so the bridge
-      // never pays that cost once per distinct hit-set while the band moves.
       expect(
         live.payloads.every(
           (info) =>
@@ -1595,11 +1524,6 @@ describe("a marquee drag does not rebuild element info every frame", () => {
         ),
       ).toBe(true);
 
-      // Before the per-gesture memo, every frame rebuilt getElementInfo for
-      // every element still inside the band, so reads scaled with
-      // frames x elements. Live work is now bounded by the swept elements,
-      // while the final primary snapshot is measured by the separate payload
-      // contract above.
       expect(live.styleReads).toBeLessThan(live.selectedCount * 25);
     } finally {
       await browser.close();
@@ -1638,8 +1562,6 @@ describe("a marquee drag does not rebuild element info every frame", () => {
         };
       });
 
-      // rAF-coalescing the move handler must not swallow or duplicate the
-      // mouseup report: the host records one undo step per gesture off it.
       expect(finals).toBe(1);
       expect(lastIsFinal).toBe(true);
       expect(lastInfos.map((info) => info.sourceId ?? "")).toEqual(

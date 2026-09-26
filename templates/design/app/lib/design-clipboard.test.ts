@@ -177,8 +177,6 @@ describe("readDesignClipboardPayload", () => {
       clipboard: sharedClipboard,
       ClipboardItem: FakeClipboardItem,
     } as unknown as DesignClipboardEnvironment);
-    // A new environment models a remounted editor or separate browser tab:
-    // there are no shared React refs, only the OS clipboard representation.
     const result = await readDesignClipboardPayloadFromSystem({
       clipboard: sharedClipboard,
       ClipboardItem: FakeClipboardItem,

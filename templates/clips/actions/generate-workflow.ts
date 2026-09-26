@@ -1,18 +1,3 @@
-/**
- * Delegate: generate a structured workflow document from a recording.
- *
- * Kinds:
- *   - pr     — pull request description / summary
- *   - sop    — standard operating procedure
- *   - ticket — a bug/issue ticket
- *   - email  — a ready-to-send email
- *
- * The agent composes the document and saves it with complete-workflow so the
- * UI can pick it up and display it.
- *
- * Usage:
- *   pnpm action generate-workflow --recordingId=<id> --kind=pr
- */
 
 import { randomUUID } from "node:crypto";
 
@@ -58,8 +43,6 @@ Output markdown.`,
 Keep it concise, warm, and professional.`,
 } as const;
 
-// Skip duplicate database work in this runtime; the multi-key CAS below also
-// prevents separate runtimes from claiming the same generation.
 const workflowGenerationLocks = new Set<string>();
 
 function isRecentGeneration(state: Record<string, unknown> | null): boolean {

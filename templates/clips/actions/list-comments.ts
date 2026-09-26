@@ -1,12 +1,3 @@
-/**
- * List threaded comments for a recording.
- *
- * Returns a flat array sorted by videoTimestampMs then createdAt. The UI
- * groups into threads client-side using threadId/parentId.
- *
- * Usage:
- *   pnpm action list-comments --recordingId=<id>
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";

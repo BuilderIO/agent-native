@@ -1,19 +1,3 @@
-/**
- * DesignEditor.fileCreationHistory.spec.ts
- *
- * Item 1 regression — screen create/duplicate undo destroys its own redo entry.
- *
- * undoFileCreation pushes the just-undone create onto the file-creation REDO
- * stack, then calls performDeleteFiles to soft-delete that same filename.
- * performDeleteFiles used to unconditionally prune the redo stack by filename,
- * which immediately dropped the entry undoFileCreation had just pushed — so
- * redo was ALWAYS empty after undoing a screen create/duplicate.
- *
- * pruneFileCreationHistoryStack captures the filename-keyed prune with an
- * opt-out (`skip`) that undoFileCreation uses on the redo stack. These tests
- * pin the invariant: the redo entry survives an undo, while a direct hard
- * delete still prunes.
- */
 
 import { describe, expect, it } from "vitest";
 
@@ -52,9 +36,6 @@ describe("pruneFileCreationHistoryStack (Item 1 — redo survives undo)", () => 
   });
 
   it("skip:true keeps the just-pushed redo entry (the core bug)", () => {
-    // Mirrors undoFileCreation: the redo stack already holds the entry for the
-    // filename that performDeleteFiles is about to soft-delete. With skip, it
-    // must survive so a subsequent redo can recreate the screen.
     const redoStack = [entry("screen-2.html")];
     const deleted = new Set(["screen-2.html"]);
     const result = pruneFileCreationHistoryStack(redoStack, deleted, {
@@ -69,7 +50,6 @@ describe("pruneFileCreationHistoryStack (Item 1 — redo survives undo)", () => 
     const redoStack = [entry("screen-2.html")];
     const deleted = new Set(["screen-2.html"]);
     const result = pruneFileCreationHistoryStack(redoStack, deleted);
-    // This is exactly the old behavior that emptied the redo stack.
     expect(result.stack).toHaveLength(0);
     expect(result.removed).toBe(1);
   });

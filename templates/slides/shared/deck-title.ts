@@ -27,11 +27,6 @@ const GENERATED_TITLE_PLACEHOLDERS = new Set([
   ...IMPORTED_TITLE_PLACEHOLDERS,
 ]);
 
-/**
- * Generated deck ids should never become user-facing titles. Keep this
- * deliberately narrow so normal titles with spaces and punctuation remain
- * valid, while catching opaque mixed-case tokens such as H3sVsnns-TEVUOpz9w.
- */
 const OPAQUE_DECK_TITLE_PATTERN = /^[A-Za-z0-9_-]{12,64}$/;
 
 export function isOpaqueDeckTitle(value: unknown): value is string {
@@ -110,11 +105,6 @@ function usableCandidate(value: string): string | null {
   return candidate;
 }
 
-/**
- * Recover a deck title from the largest title-like text in its first slide.
- * This is intentionally HTML-string based because the action runs on the
- * server without a browser DOM.
- */
 export function deriveDeckTitleFromSlideContent(
   content: unknown,
 ): string | null {
@@ -164,11 +154,6 @@ export function deriveDeckTitleFromSlideContent(
   return candidates.sort((a, b) => b.score - a.score)[0]?.text ?? null;
 }
 
-/**
- * Return a human-readable replacement only when the requested title is a
- * generated placeholder or opaque id. A meaningful existing title wins when
- * a stale full-payload save tries to replace it with a generated value.
- */
 export function repairGeneratedDeckTitle(
   requestedTitle: unknown,
   firstSlideContent: unknown,
@@ -186,12 +171,6 @@ export function repairGeneratedDeckTitle(
   );
 }
 
-/**
- * Imported files often fall back to filenames when they do not have a
- * meaningful title in their own metadata. Prefer the first slide's content
- * when it can produce a real deck title; otherwise keep a human-readable
- * fallback instead of a source filename placeholder.
- */
 export function resolveImportedDeckTitle(
   requestedTitle: unknown,
   firstSlideContent: unknown,

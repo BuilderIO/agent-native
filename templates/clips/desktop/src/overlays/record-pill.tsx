@@ -56,8 +56,6 @@ import {
 import { toolbarEnabledEffect } from "../lib/pill-session";
 import type { PillMode } from "../lib/pill-session";
 
-// Within this distance of the right screen edge the pill anchors its RIGHT
-// edge and grows left instead, so growth never runs off-screen.
 const RIGHT_EDGE_ANCHOR_PX = 200;
 const NATIVE_LAYOUT_GUARD_MS = 1_500;
 const NATIVE_DOCK_SETTLE_MS = 32;
@@ -120,8 +118,6 @@ function safeListen<T>(
 function formatTimer(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const totalMin = Math.floor(total / 60);
-  // Past 99:59 the m:ss form overflows its slot; switch to a compact h:mm so
-  // the anchored controls never shift for a marathon take.
   if (totalMin >= 100) {
     const h = Math.floor(totalMin / 60);
     const m = totalMin % 60;
@@ -137,41 +133,12 @@ function formatDurationCopy(ms: number): string {
   return `${Math.round(total / 60)} min`;
 }
 
-/**
- * The recording pill — one dark capsule with four modes: recording, paused,
- * confirm, done. The leading stop square is the recording indicator and the
- * stop/save action — red while live, grey-white while paused — with the
- * timer sharing its color, plain against the chrome. Every control is a bare
- * glyph; no rings or fills. Left edge anchored: hover extras
- * and the inline confirms grow rightward while the stop circle, timer, and
- * pause button hold position (near the right screen edge the anchor
- * mirrors). Stop swaps the
- * pill for the completion card in place; the link is copied only when the
- * user clicks Copy (an automatic copy would clear their clipboard
- * unannounced). While paused the pause circle swaps to a play glyph — the
- * amber dot carries the paused state; the button carries the way back.
- * Pure command emitter — the recorder in the popover window owns
- * capture, and drives us through the same IPC contract the old toolbar used:
- *
- *   receives → `clips:recorder-state` { paused, elapsedMs },
- *              `clips:toolbar-enabled`, `clips:toolbar-preparing`,
- *              `clips:recorder-session` { viewUrl, recordingId, localOnly },
- *              `clips:native-upload-progress` / `-finished`,
- *              `voice:audio-level` { level, source }
- *   emits    → `clips:recorder-stop`, `:pause`, `:resume`, `:restart`,
- *              `:cancel`, `clips:toolbar-ready`
- *
- * Stop must NOT close this window: it invokes `set_toolbar_finishing(true)`
- * BEFORE emitting stop so every teardown path skips the toolbar label, then
- * renders the completion card here until the user dismisses it.
- */
 export function RecordingPill() {
   const [mode, setMode] = useState<PillMode>("recording");
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [enabled, setEnabled] = useState(demoMode);
   const [toolbarVisible, setToolbarVisible] = useState(true);
-  /** Demo harness only: the meter reads capture events in the real app. */
   const [demoLevel, setDemoLevel] = useState<number | null>(null);
   const [micLevel, setMicLevel] = useState(0);
   const [micWarning, setMicWarning] =
@@ -267,13 +234,6 @@ export function RecordingPill() {
     setPlayheadDockState(dock);
   }
 
-  // Native window ops run strictly one at a time. Concurrent
-  // setSize/setPosition sequences read stale rects out from under each other
-  // and strand the window clipped and offset (a half-cut pill with content
-  // painting past the window edge). Every op re-reads geometry at execution
-  // time inside the chain. Resize requests are also coalesced: a fast hover
-  // reversal must not replay an obsolete intermediate frame after the newer
-  // layout has already won.
   const windowOpChainRef = useRef<Promise<void>>(Promise.resolve());
   const resizeGenerationRef = useRef(0);
   function queueWindowOp(op: () => Promise<void>): Promise<void> {
@@ -284,20 +244,11 @@ export function RecordingPill() {
     return queued.catch(() => {});
   }
 
-  /**
-   * Resize the native window around the content, keeping the pill's anchor
-   * edge fixed. The left edge is the anchor unless the pill sits within
-   * RIGHT_EDGE_ANCHOR_PX of the screen's right edge — then the right edge
-   * holds and growth extends left. Height keeps the bottom edge fixed so the
-   * taller completion card rises from where the pill sat.
-   */
   function resizeWindowTo(contentW: number, contentH: number): Promise<void> {
     if (!hasTauri) return Promise.resolve();
     const resizeGeneration = ++resizeGenerationRef.current;
     return queueWindowOp(async () => {
       if (resizeGeneration !== resizeGenerationRef.current) return;
-      // Tauri emits `moved` for these programmatic anchor corrections too;
-      // keep them out of the persisted user drag position.
       animatingUntilRef.current = Date.now() + NATIVE_LAYOUT_GUARD_MS;
       const win = getCurrentWindow();
       const [pos, size, scale, monitor] = await Promise.all([
@@ -339,20 +290,13 @@ export function RecordingPill() {
             pos.x + size.width >=
             monRight - Math.round(RIGHT_EDGE_ANCHOR_PX * scale);
           if (nearRightEdge) x = pos.x + size.width - w;
-          // Never let growth push past the screen edge — macOS shoves the
-          // window back and the correction fights the next resize.
           x = Math.min(x, monRight - w);
           x = Math.max(x, monitor.position.x);
           const monBottom = monitor.position.y + monitor.size.height;
-          // The vertical pill's bottom anchor can land below the visible
-          // desktop when it is pulled away from an edge and becomes horizontal.
           y = Math.min(y, monBottom - h);
           y = Math.max(y, monitor.position.y);
         }
       }
-      // Position and size must land in one native frame transaction. Applying
-      // them separately makes a right-docked confirmation collapse against
-      // its old left edge before the small pill moves back to the right.
       await invoke("toolbar_set_bounds", { x, y, width: w, height: h });
       if (dockToPersist && pendingNativeDockRef.current === dockToPersist) {
         pendingNativeDockRef.current = null;
@@ -441,10 +385,6 @@ export function RecordingPill() {
     const nearBottom =
       position.y + size.height >= monitorBottom - gutter - edgeThreshold;
 
-    // Docking is a post-drag decision. While the renderer-owned drag is active,
-    // the webview must not resize itself or fight the cursor-follow loop.
-    // Pulling a pill clear of every edge is the escape hatch back to a normal
-    // horizontal floating playhead.
     const dock: RecordingPlayheadDockLocation | null = nearLeft
       ? "left"
       : nearRight
@@ -457,8 +397,6 @@ export function RecordingPill() {
     if (!dock) {
       const horizontalWidth = sizes.horizontal.width;
       const horizontalHeight = sizes.horizontal.height;
-      // Preserve the point the user was holding through the axis change. A
-      // bottom-edge anchor makes a vertical pill leap when it becomes wide.
       const nextX = Math.max(
         monitor.position.x + gutter,
         Math.min(
@@ -559,12 +497,9 @@ export function RecordingPill() {
   function syncWindowToContent() {
     const el = cardRef.current;
     if (!el) return;
-    // offsetWidth/Height are layout metrics, immune to the card's scale-in
-    // entrance — a rect measured mid-animation locks the window too narrow.
     resizeWindowTo(el.offsetWidth, el.offsetHeight);
   }
 
-  /** Return the outer overlay to its idle state when a session ends. */
   function resetToRest() {
     revealedRef.current = false;
     modeRef.current = "recording";
@@ -581,10 +516,6 @@ export function RecordingPill() {
     null,
   );
 
-  // The recorder reports state every 500ms; rendering only those ticks makes
-  // the clock feel like it starts late and counts in lurches. Interpolate
-  // from the last report at 250ms so the timer runs the moment capture is
-  // live and re-anchors on every real tick.
   useEffect(() => {
     if (!enabled || paused || mode === "done") return;
     const t = setInterval(() => {
@@ -613,8 +544,6 @@ export function RecordingPill() {
   }
 
   function stop() {
-    // Guarded through the ref: the tray-stop listener holds a first-render
-    // closure of this function, where the `enabled` state is still false.
     if (
       !enabledRef.current ||
       modeRef.current === "done" ||
@@ -622,25 +551,16 @@ export function RecordingPill() {
     )
       return;
     setDoneDurationMs(elapsedRef.current);
-    // Every stop — hosted or local-only — starts as "finishing" and is only
-    // called done by the completion event the stop actually produces. A
-    // local-only export that fails must not have already claimed it saved.
     setDoneStage("finishing");
-    // Anchor the card on THIS take. The window is reused across restarts, so
-    // anything a previous session's late completion left behind has to go.
     setViewUrl(sessionRef.current.viewUrl ?? null);
     setSavedLocally(false);
     setCopied(false);
     completionActionsRef.current = null;
     setCompletionActionError(null);
     setCompletionActionBusy(false);
-    // Hold the window open BEFORE the stop event so the recorder's teardown
-    // can't close us out from under the card.
     void safeInvoke("set_toolbar_finishing", { hold: true }).then(() => {
       void safeEmit("clips:recorder-stop");
     });
-    // Pre-grow the window for the card so its entrance never renders clipped;
-    // the done-mode effect refits to the exact card rect one frame later.
     resizeWindowTo(340, 180);
     setMode("done");
     if (demoMode) {
@@ -672,9 +592,6 @@ export function RecordingPill() {
     if (intent === "restart") {
       setPendingAction("restart");
       setElapsed(0);
-      // Hide immediately — the restart teardown follows. The replacement
-      // session's `clips:toolbar-preparing` re-shows the disabled pill for its
-      // countdown, reusing this window when the finishing hold keeps it alive.
       toolbarDismissedRef.current = true;
       setToolbarVisible(false);
       setEnabled(false);
@@ -694,8 +611,6 @@ export function RecordingPill() {
       return;
     }
     setPendingAction("cancel");
-    // Vanish now — feedback must not wait on the recorder's teardown. The
-    // window close (or its 3s fallback) follows behind.
     toolbarDismissedRef.current = true;
     setToolbarVisible(false);
     setEnabled(false);
@@ -765,12 +680,6 @@ export function RecordingPill() {
   }
 
   function handleUploadFinished(payload: NativeUploadFinished) {
-    // A completion only means something to a card that is on screen. While
-    // the pill is recording there is no card, and anything applied here would
-    // sit in state waiting to surface on the NEXT take's card — which is how
-    // a discarded take's URL reached its replacement. Nothing is lost by
-    // dropping these: the done-mode effect drains both the stored result and
-    // the localStorage hand-off when a card does open.
     if (modeRef.current !== "done") return;
     const completion = resolveCompletion(
       sessionRef.current.recordingId,
@@ -779,13 +688,10 @@ export function RecordingPill() {
     if (!completion) return;
     if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
     setSavedLocally(completion.savedLocally);
-    // The session already published this clip's link so Stop could offer Copy
-    // immediately; a payload without one must not take it away.
     if (completion.viewUrl) setViewUrl(completion.viewUrl);
     setDoneStage(completion.stage);
   }
 
-  // ---- listeners ----
 
   useEffect(() => {
     const unlistens: Array<() => void> = [];
@@ -905,7 +811,6 @@ export function RecordingPill() {
         if (payload && !elapsedAnchorRef.current) {
           elapsedAnchorRef.current = { elapsedMs: 0, at: performance.now() };
         }
-        // A live session owns the pill now: release any restart hold.
         if (payload) void safeInvoke("set_toolbar_finishing", { hold: false });
         switch (toolbarEnabledEffect(!!payload, modeRef.current)) {
           case "adopt-new-session":
@@ -977,8 +882,6 @@ export function RecordingPill() {
         progress?: number | null;
       }>("clips:native-upload-progress", (payload) => {
         if (modeRef.current !== "done") return;
-        // A local-only take never uploads, so any native upload progress
-        // reaching this card belongs to some other recording.
         if (sessionRef.current.localOnly) return;
         if (!isCompletionForSession(sessionRef.current.recordingId, payload)) {
           return;
@@ -1001,22 +904,11 @@ export function RecordingPill() {
       ),
     );
     track(
-      // The menu-bar status item doubles as a Stop button while recording;
-      // route its click through the same stop flow so the finishing hold and
-      // completion card run. Before capture is live there is nothing to stop,
-      // so the click falls back to opening Clips.
       safeListen("clips:tray-stop-request", () => {
         if (enabledRef.current && modeRef.current !== "done") stop();
         else void safeInvoke("show_popover");
       }),
     );
-    // The handshake goes out only once our own listeners exist. The recorder
-    // answers `toolbar-ready` immediately, and `listen()` is asynchronous, so
-    // emitting first can drop the reply — costing the pill its enable and its
-    // session identity until some later event happens to arrive.
-    //
-    // The audio-level listener that used to sit here is gone: the meter is the
-    // shared `LiveWaveform`, which subscribes to capture itself.
     void Promise.allSettled(registrations).then((results) => {
       const failures = results.flatMap((r) =>
         r.status === "rejected" ? [r.reason] : [],
@@ -1047,7 +939,6 @@ export function RecordingPill() {
     };
   }, []);
 
-  // Fit the native window to the measured pill once fonts have settled.
   useEffect(() => {
     let cancelled = false;
     const fit = () => {
@@ -1082,8 +973,6 @@ export function RecordingPill() {
     };
   }, []);
 
-  // Done mode: card replaces the pill in place — refit the window to the
-  // card and drain any completion result the events may have raced past.
   useEffect(() => {
     if (mode !== "done") return;
     requestAnimationFrame(() => syncWindowToContent());
@@ -1109,7 +998,6 @@ export function RecordingPill() {
     });
   }, [mode]);
 
-  // Demo drive for browser previews (no Tauri): tick the timer and meter.
   useEffect(() => {
     if (!demoMode) return;
     const t = setInterval(() => {
@@ -1128,10 +1016,6 @@ export function RecordingPill() {
     };
   }, []);
 
-  // Self-healing size net: whatever strands the window at the wrong size —
-  // a resize racing a transition, a throttled animation clock finishing
-  // late, a font swap — the pill's layout size is the truth, so any drift
-  // outside a choreographed transition re-syncs the window to it.
   useEffect(() => {
     if (!hasTauri) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -1148,9 +1032,6 @@ export function RecordingPill() {
     };
   }, [mode]);
 
-  // The pill owns its window's visibility: shown in its disabled state while
-  // preparing/counting down, enabled once capture is live, and kept up while
-  // the completion card is open. Rust never shows this window itself.
   const visibleRef = useRef(false);
   useEffect(() => {
     if (!hasTauri) return;
@@ -1163,15 +1044,7 @@ export function RecordingPill() {
     });
   }, [toolbarVisible]);
 
-  // The pill is also the single writer of the menu bar's recording mode:
-  // stop square + ticking timer exactly while capture is live, the app logo
-  // otherwise. Rust infers nothing; a window-destroyed backstop covers the
-  // one report this effect can never send.
   const trayLive = enabled && mode !== "done";
-  // One ordered writer. These calls used to be two independent fire-and-forget
-  // invokes, so a timer update issued just before a stop could land after the
-  // stop's inactive write and put the stop square back for a session that had
-  // already ended, until the dead-man cleared it seconds later.
   const trayOpChainRef = useRef<Promise<unknown>>(Promise.resolve());
   function writeTrayStatus(active: boolean, title: string | null) {
     trayOpChainRef.current = trayOpChainRef.current.then(() =>
@@ -1185,17 +1058,12 @@ export function RecordingPill() {
     if (!hasTauri) return;
     writeTrayStatus(trayLive, trayLive ? liveTrayTitle() : null);
   }, [trayLive, elapsed, paused]);
-  // The tray's dead-man clears the status item after 2.5s without a write.
-  // While paused, `elapsed` stops advancing and `paused` stops changing, so
-  // the effect above stops firing and the menu bar would drop a recording
-  // that is still very much live. This heartbeat is what keeps it.
   useEffect(() => {
     if (!hasTauri || !trayLive) return;
     const beat = setInterval(() => writeTrayStatus(true, liveTrayTitle()), 800);
     return () => clearInterval(beat);
   }, [trayLive]);
 
-  // ---- interactions ----
 
   function queueToolbarDragMove(
     generation: number,
@@ -1280,8 +1148,6 @@ export function RecordingPill() {
       ) {
         return;
       }
-      // Rust reads the live cursor, so keep one move in flight and retain only
-      // the newest pending frame instead of replaying stale cursor samples.
       void queueToolbarDragMove(generation, startPromise);
     });
   }
@@ -1327,9 +1193,6 @@ export function RecordingPill() {
       : card.tone === "warn"
         ? "bg-[var(--pill-card-badge-warn-bg)] text-[var(--pill-card-badge-warn)]"
         : "bg-[var(--pill-card-well)] text-[var(--pill-card-ink-2)]";
-  // Announce what the card actually says, when it says it. Stop announced
-  // "Recording saved" the moment it was clicked, before the export or upload
-  // had returned anything to say that about.
   const cardTitle = mode === "done" ? card.title : null;
   useEffect(() => {
     if (cardTitle) setAnnouncement(cardTitle);

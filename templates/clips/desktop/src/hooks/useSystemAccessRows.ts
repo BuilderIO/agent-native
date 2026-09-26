@@ -13,7 +13,6 @@ export type SystemAccessRow = {
   key: string;
   label: string;
   description: string;
-  /** `null` means the grant could not be read — never render it as denied. */
   granted: boolean | null;
   onGrant: () => void;
 };
@@ -45,19 +44,12 @@ export function useSystemAccessRows({
     void readPermissionStatuses().then(setStatuses);
   }, []);
 
-  // Grants are changed in System Settings, outside this window. Re-reading on
-  // focus is what stops a row from still demanding "Grant" after the user did.
   useEffect(() => {
     recheck();
     window.addEventListener("focus", recheck);
     return () => window.removeEventListener("focus", recheck);
   }, [recheck]);
 
-  // One row per OS grant, worded exactly like the recorder's readiness panel —
-  // the same grant must read as the same thing on both surfaces, and each
-  // Grant button must open exactly the pane its row names. The earlier
-  // combined capture row walked three panes one click at a time, which read
-  // as one grant that mysteriously kept not taking.
   const definitions: SystemAccessDefinition[] = [
     {
       key: "screen",

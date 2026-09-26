@@ -1,10 +1,3 @@
-/**
- * Toggle or set the resolved state on a comment.
- *
- * Usage:
- *   pnpm action resolve-comment --id=<id>             # toggle
- *   pnpm action resolve-comment --id=<id> --resolved=true
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";

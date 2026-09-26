@@ -25,8 +25,6 @@ vi.mock("@agent-native/core/client/labs", () => ({
     isSuccess: true,
   }),
 }));
-// A new `t` each render would re-run the editor's unmount cleanup and end
-// every edit; the app's `t` is stable.
 const t = (key: string) => key;
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -105,7 +103,6 @@ describe("SlideEditor with a newer version of the edited slide", () => {
     );
   });
 
-  /** Opens an edit on the caption and waits for its first draft. */
   async function editWithDraft() {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     vi.spyOn(console, "error").mockImplementation(() => {});

@@ -1,20 +1,6 @@
-/**
- * Tracks how many "worth surfacing" debug events (console errors + failed
- * network requests) the viewer has already seen for a recording, so the
- * Debug tab badge shows only the count of *new* events since the tab was
- * last opened, not "any failure ever recorded" (the old always-on red dot).
- *
- * Keyed by recordingId and capped to the most recently viewed 50 recordings
- * so the value never grows unbounded across a long-lived browser profile.
- */
 const STORAGE_KEY = "clips:debug-diagnostics-viewed.v1";
 const MAX_ENTRIES = 50;
 
-/**
- * Console warnings alone are too noisy to page (nearly every recording has
- * some); only errors and failed network requests count toward the Debug
- * tab's unviewed badge.
- */
 export function countSurfacedDebugEvents(
   summary: { consoleErrorCount: number; networkFailureCount: number } | null,
 ): number {
@@ -22,7 +8,6 @@ export function countSurfacedDebugEvents(
   return summary.consoleErrorCount + summary.networkFailureCount;
 }
 
-/** Unviewed count to badge on the Debug tab; never negative. */
 export function countUnviewedDebugEvents(
   totalCount: number,
   viewedCount: number,
@@ -56,7 +41,6 @@ function readAll(): Record<string, ViewedEntry> {
     return entries;
   } catch {
     // coercion-ok: corrupted/unavailable storage only means the viewer sees
-    // an already-seen badge count again; it must never block the Debug tab.
     return {};
   }
 }
@@ -71,20 +55,15 @@ function writeAll(entries: Record<string, ViewedEntry>): void {
   }
 }
 
-/** Debug events already viewed for `recordingId`, or 0 if never viewed. */
 export function getViewedDebugEventCount(recordingId: string): number {
   return readAll()[recordingId]?.count ?? 0;
 }
 
-/** Records that the viewer has now seen up through `count` debug events. */
 export function markDebugEventsViewed(
   recordingId: string,
   count: number,
 ): void {
   const entries = readAll();
-  // A monotonic sequence (rather than a wall-clock timestamp) decides which
-  // entries survive eviction, so rapid successive calls in the same
-  // millisecond still evict the oldest recording, not an arbitrary one.
   const nextSeq =
     Math.max(0, ...Object.values(entries).map((entry) => entry.seq)) + 1;
   entries[recordingId] = { count, seq: nextSeq };

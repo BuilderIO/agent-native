@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// In-memory documentComments rows, filtered by mocked and()/eq() conditions —
-// same pattern as sync-notion-comments.test.ts, chosen so thread-wide
-// resolve/reopen updates (which touch multiple rows) are exercised for real.
 type Row = {
   id: string;
   documentId: string;
@@ -179,7 +176,7 @@ describe("update-comment (action) — reopen permission", () => {
       "editor",
     );
     expect(state.rows[0].resolved).toBe(0);
-    expect(state.rows[1].resolved).toBe(0); // whole thread reopened
+    expect(state.rows[1].resolved).toBe(0);
   });
 
   it("rejects reopening for a caller with only viewer access", async () => {
@@ -207,8 +204,8 @@ describe("update-comment (action) — reopen permission", () => {
       "editor",
     );
     expect(state.locked).toEqual(["c-1"]);
-    expect(state.rows[1].resolved).toBe(1); // whole thread resolved
-    expect(state.rows[2].resolved).toBe(0); // sibling thread unchanged
+    expect(state.rows[1].resolved).toBe(1);
+    expect(state.rows[2].resolved).toBe(0);
   });
 
   it("updates content and resolves the full thread in one transaction", async () => {

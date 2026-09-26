@@ -1,5 +1,3 @@
-// Gong sales call intelligence API helper
-// Fetches calls, transcripts, and users
 
 import { scopedCredentialCacheKey } from "./credentials-context";
 import {
@@ -816,14 +814,6 @@ export async function searchCallsForQueries(
   });
 }
 
-/**
- * Assemble the final search result from the matched calls. In `exhaustive` mode
- * EVERY match is returned (newest-first, untruncated) — the caller has already
- * bounded the set with a date window / cohort queries, so re-capping here would
- * silently drop matches and reintroduce the "only captured a subset" failure.
- * Otherwise the newest `normalizedLimit` are returned and truncation reflects
- * the cap or a remaining cursor. Exported for unit testing.
- */
 export function buildGongSearchResult(
   matchedCalls: (GongCall & { matchedQueries?: string[] })[],
   normalizedLimit: number,

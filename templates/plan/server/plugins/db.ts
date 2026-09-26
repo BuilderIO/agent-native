@@ -1,5 +1,4 @@
 // guard:allow-unscoped -- schema migrations and data backfills run system-wide
-// during startup, not in a user-scoped request path.
 import {
   ensureAdditiveColumns,
   getDbExec,
@@ -8,12 +7,6 @@ import {
 
 import * as schema from "../db/schema.js";
 
-/**
- * Every Drizzle table exported from schema.ts. Filters out type-only and
- * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
- * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
- * exports don't.
- */
 function isDrizzleTable(value: unknown): value is object {
   return (
     !!value &&
@@ -27,9 +20,6 @@ function isDrizzleTable(value: unknown): value is object {
 const schemaTables = Object.values(schema).filter(isDrizzleTable);
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
-// packages/core/src/db/migrations.ts for the full rationale). Version numbers
-// alone are not a safe identity across parallel branches that each extend
-// this list independently.
 export const runPlanMigrations = runMigrations(
   [
     {
@@ -188,9 +178,6 @@ CREATE INDEX IF NOT EXISTS plan_comments_resolution_idx ON plan_comments(plan_id
 CREATE INDEX IF NOT EXISTS plan_versions_plan_owner_created_idx ON plan_versions(plan_id, owner_email, created_at)`,
     },
     {
-      // `kind` distinguishes read-only visual recaps from editable plans. Add it
-      // with a 'plan' default, then backfill existing recaps (identified by the
-      // recap-review focus the create-visual-recap action sets).
       version: 19,
       sql: {
         postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'plan';
@@ -198,19 +185,10 @@ UPDATE plans SET kind = 'recap' WHERE kind = 'plan' AND current_focus = 'visual 
       },
     },
     {
-      // plan_events is an append-only log shared across every plan. loadPlanBundle
-      // reads `WHERE plan_id = $1 ORDER BY created_at` on each plan open, which
-      // seq-scanned the whole growing table (plan_sections.plan_id and
-      // plan_comments.plan_id are already covered by v7/v8/v17 composites; this
-      // was the one hot-path lookup left unindexed).
       version: 20,
       sql: `CREATE INDEX IF NOT EXISTS plan_events_plan_created_idx ON plan_events(plan_id, created_at)`,
     },
     {
-      // Token usage + derived cost for the LLM run that produced a recap. All
-      // nullable and additive — only populated for kind="recap" rows by the PR
-      // Visual Recap workflow. Cost is centicents (1/100¢), matching core's
-      // token_usage.cost_cents_x100 so the two surfaces are directly comparable.
       version: 21,
       sql: {
         postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS usage_agent TEXT;
@@ -317,10 +295,6 @@ ALTER TABLE plans ADD COLUMN IF NOT EXISTS source_author_login TEXT`,
       },
     },
     {
-      // Repair migration for hosted databases that recorded an earlier migration
-      // while still missing additive columns now present in schema.ts. Missing
-      // optional plan columns make Drizzle's full-row access lookup throw before
-      // plan pages can render or show a clean access error.
       version: 36,
       sql: {
         postgres: `ALTER TABLE plans ADD COLUMN IF NOT EXISTS deleted_at TEXT;
@@ -342,22 +316,6 @@ CREATE INDEX IF NOT EXISTS plan_comments_plan_deleted_created_idx ON plan_commen
       },
     },
     {
-      // Denormalized summary fields for plan_versions, populated at snapshot-write
-      // time (createPlanVersionSnapshot). list-plan-versions previously ran a
-      // bare `.select()` that pulled every row's full snapshot_json (the entire
-      // plan + sections blob) just to JSON.parse it and compute these same small
-      // values via summarizePlanVersion on every list call. Nullable so existing
-      // rows fall back to the legacy parse-on-read path until they're
-      // re-snapshotted.
-      //
-      // Confirmed swallowed on the live plan Neon DB: plans_migrations' recorded
-      // MAX(version) was 36 (this v37 entry had never actually run — a parallel
-      // branch's DB state advanced past v37 without ever applying this specific
-      // DDL), and information_schema confirmed plan_versions was missing all
-      // seven of these columns. Named so it applies by name on next boot
-      // regardless of any database's recorded MAX(version) — its SQL was
-      // already idempotent (ADD COLUMN IF NOT EXISTS on postgres) before this
-      // name was added.
       version: 37,
       name: "plan-versions-summary-columns",
       sql: {
@@ -412,8 +370,6 @@ export default async (nitroApp: any): Promise<void> => {
       );
     }
   } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
     console.warn(
       "[db] ensureAdditiveColumns failed (non-fatal):",
       err instanceof Error ? err.message : err,

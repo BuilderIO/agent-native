@@ -725,8 +725,6 @@ describe("s3FileUploadProvider", () => {
     await expect(
       resumable.completeSession(session, "recording.webm"),
     ).resolves.toBe("https://cdn.example.com/media/clips/recording.webm");
-    // Simulate finalize failing after S3 completion but before it could delete
-    // the persisted resumable session, then retrying with the same upload id.
     await expect(
       resumable.completeSession(session, "recording.webm"),
     ).resolves.toBe("https://cdn.example.com/media/clips/recording.webm");

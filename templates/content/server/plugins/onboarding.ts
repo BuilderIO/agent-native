@@ -1,10 +1,3 @@
-/**
- * Custom onboarding plugin for Content.
- *
- * Mounts the framework default onboarding routes and adds an optional
- * "Media uploads" step so document media blocks point users at Builder.io file
- * storage when they need uploads.
- */
 
 import { getActiveFileUploadProvider } from "@agent-native/core/file-upload";
 import {

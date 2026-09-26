@@ -39,13 +39,6 @@ export function QuestionFlow({
   const t = useT();
   const guidedQuestions = questions as GuidedQuestion[];
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
-  // Guards against a rapid double-click (or two events firing within the
-  // same React batch) triggering onSubmit/onSkip twice before the parent
-  // hook clears the persisted question payload and this component unmounts.
-  // Both handlers post a message to the agent chat, so firing twice would
-  // duplicate the turn. A ref is required (not just state) because the gate
-  // must be visible synchronously to a second click handled in the same
-  // task, before React has flushed the re-render that disables the button.
   const respondedRef = useRef(false);
   const [responded, setResponded] = useState(false);
   const questionsFingerprint = useMemo(
@@ -77,9 +70,6 @@ export function QuestionFlow({
   const allRequiredAnswered = requiredAnswered === requiredQuestions.length;
 
   return (
-    /* `items-start` is what makes the trailing space real: stretched, this
-       column overflows its own padding box, so its `pb` renders above the
-       overflow and the scroll container's `py` bottom is dropped. */
     <div className="flex h-full w-full items-start justify-center overflow-y-auto bg-transparent px-5 py-8 text-[13px] text-foreground sm:px-8 lg:px-10">
       <main className="w-full min-w-0 max-w-[820px] pb-16">
         <div className="mb-6 border-b border-[var(--design-editor-panel-divider-color)] pb-5">
@@ -514,9 +504,6 @@ function SliderQuestion({
   const current =
     typeof value === "number" ? value : Math.round((min + max) / 2);
 
-  // Do not auto-fill on mount: a required slider must be explicitly moved by
-  // the user before it counts as answered. `current` already provides a
-  // display-only midpoint fallback for the rendered slider position.
 
   return (
     <div className="max-w-xl rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-3 py-3">

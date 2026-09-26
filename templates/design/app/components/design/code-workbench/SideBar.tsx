@@ -44,11 +44,6 @@ const VIEW_TABS: SideBarTab[] = [
   },
 ];
 
-/**
- * Sidebar shell: top view tabs + the active view. Both the explorer
- * and search views stay mounted (hidden via CSS) so search query/results and
- * explorer scroll/expansion state survive switching between them.
- */
 export function SideBar({
   designId,
   searchSeed,

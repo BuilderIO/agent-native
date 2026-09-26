@@ -1,8 +1,3 @@
-/**
- * Serve an uploaded media file by id (brand logos, etc.).
- *
- * GET /api/media/:id
- */
 
 import fs from "node:fs";
 import path from "node:path";

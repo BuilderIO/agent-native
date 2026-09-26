@@ -18,33 +18,7 @@ import {
 } from "./extensions/registryBlocks";
 import { seedRegistryBlockRaw } from "./registrySlashItems";
 
-/**
- * THE MAKE-OR-BREAK round-trip guard for the editor-unification work.
- *
- * Content stores a whole document as a SINGLE NFM markdown string. The 8 new
- * registry blocks live INLINE in that string as MDX-style components (no DB
- * sidecar). So for every block type a user can insert, two things must hold or
- * the feature silently loses data:
- *
- *   1. IDEMPOTENCY — opening a saved document and re-saving with no edit must be
- *      byte-stable: `nfm === docToNfm(nfmToDoc(nfm))`. If it isn't, every
- *      synced/Notion-pushed document drifts on open.
- *
- *   2. TYPED-DATA SURVIVAL — the inline `__raw` must micro-parse back to the
- *      block's typed `data` via the same `parseRegistryBlockData` the editor
- *      side-map uses to hydrate a saved block. If it doesn't, the block renders
- *      empty/placeholder after a reload even though the source survived.
- *
- * We drive each case off the block's REAL `empty()` seed serialized through
- * `seedRegistryBlockRaw` — the exact path a slash-menu insert takes — so the
- * fixtures can never drift from what the app actually writes.
- *
- * `sibling: true` wraps the block between two paragraphs to exercise the
- * surrounding-block boundary handling (the registry open/close scanner in
- * nfm.ts), which a lone top-level block would not.
- */
 
-/** The dev-doc / OpenAPI blocks the unification added, by registry `type`. */
 const DEV_DOC_BLOCK_TYPES = [
   "mermaid",
   "api-endpoint",
@@ -56,7 +30,6 @@ const DEV_DOC_BLOCK_TYPES = [
   "openapi-spec",
 ] as const;
 
-/** Build the inline NFM for a block type via the real slash-insert seed path. */
 function seedNfm(type: string, blockId: string): string {
   const spec = contentBlockRegistry.get(type);
   if (!spec)
@@ -101,7 +74,6 @@ describe("registry blocks — NFM inline round-trip (the dev-doc blocks)", () =>
         expect(block?.attrs?.blockType).toBe(type);
         expect(block?.attrs?.blockId).toBe(`${type}-atom`);
         expect(typeof block?.attrs?.__raw).toBe("string");
-        // The preserved __raw is exactly the inline source we seeded.
         expect(block?.attrs?.__raw).toBe(nfm);
       });
 
@@ -116,10 +88,7 @@ describe("registry blocks — NFM inline round-trip (the dev-doc blocks)", () =>
         expect(parsed?.type).toBe(type);
         expect(parsed?.base.id).toBe(blockId);
 
-        // Re-serializing the recovered typed data must reproduce the same MDX
-        // bytes — proves the round-trip is lossless, not just non-null.
         const reSerialized = seedRegistryBlockRaw(
-          // Force the recovered data through the same serializer with the same id.
           {
             ...contentBlockRegistry.get(type)!,
             empty: () => parsed!.data,
@@ -400,12 +369,6 @@ describe("registry blocks — source component markers", () => {
   });
 });
 
-/**
- * Block-type-specific data-fidelity assertions: confirm the *meaningful* fields
- * of each block's seed actually survive the parse (a generic re-serialize check
- * could pass even if a field were silently dropped on both sides, so we also
- * pin concrete values here).
- */
 describe("registry blocks — typed-field fidelity per block type", () => {
   async function dataOf(type: string): Promise<any> {
     const raw = seedNfm(type, `${type}-fid`);

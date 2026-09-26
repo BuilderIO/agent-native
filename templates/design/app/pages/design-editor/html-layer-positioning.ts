@@ -17,13 +17,6 @@ const ABS_POSITION_PROPS = [
   "bottom",
 ] as const;
 
-// Flex/grid-item-only inline properties. Mirrors FLEX_ITEM_INLINE_PROPS in
-// editor-chrome.bridge.ts's prepareFlowMembersForAbsoluteDrop (the live
-// in-iframe optimistic strip) — a former flow child persisted here as
-// position:absolute must lose these too, or the source round-trip re-adds
-// back exactly the flex-item styling the live DOM already dropped, and any
-// later reparent back into flow (including undo) resurrects a stale,
-// source-parent-relative grow/shrink/basis/align-self/order.
 const FLEX_ITEM_PROPS = [
   "flex",
   "flex-grow",
@@ -42,12 +35,6 @@ function isCodeBackedFrame(element: HTMLElement): boolean {
   return primitiveKind === "frame";
 }
 
-/**
- * Apply a CSS mutation through the DOM API, then patch only that element's
- * style attribute back into the authored source. DOMParser adds an implicit
- * document wrapper around fragments; returning its outerHTML would promote a
- * valid fragment to a complete document during a positioning edit.
- */
 function patchNodeStyleInHtml(
   content: string,
   nodeAttrId: string,
@@ -84,16 +71,6 @@ function patchNodeStyleInHtml(
   return patched ?? content;
 }
 
-/**
- * Remove absolute-positioning style properties from the element identified by
- * `data-agent-native-node-id` so that it becomes a flow child after being
- * reparented into a container. Returns the updated HTML, or the original HTML
- * if the node cannot be found or parsing is unavailable.
- *
- * Uses DOMParser + CSSStyleDeclaration.removeProperty() rather than
- * applyVisualEdit({kind:"style",value:""}) because the substrate rejects
- * empty-string values in isSafeStyleValue, making that approach a silent no-op.
- */
 export function removeAbsolutePositioningFromNodeInHtml(
   content: string,
   nodeAttrId: string,
@@ -112,11 +89,6 @@ export function removeAbsolutePositioningFromNodeInHtml(
   });
 }
 
-/** Root-absolute authored left/top by walking positioned ancestors.
- * A node's own computed left/top is containing-block relative, which is
- * wrong once clones insert at the document root. Returns null when the
- * subject has no inline left/top so callers can fall through to computed
- * styles instead of treating a class-positioned 0,0 walk as resolved. */
 export function authoredDocumentPositionForNode(
   content: string,
   nodeAttrId: string,
@@ -136,13 +108,6 @@ export function authoredDocumentPositionForNode(
   }
 }
 
-/** Document-root position of the nearest ancestor with inline
- * absolute/fixed/relative/sticky left/top. Used when the subject itself is
- * class-positioned: its computed left/top is containing-block relative, so
- * paste-over adds this ancestor offset instead of writing iframe boundingRect
- * as CSS. Returns null when an in-between ancestor is positioned without
- * resolvable inline coords — that remaining nested class-in-class case
- * cannot be composed from HTML. */
 export function authoredContainingBlockPositionForNode(
   content: string,
   nodeAttrId: string,
@@ -207,11 +172,6 @@ function isUnresolvedContainingBlock(element: Element): boolean {
   return POSITION_CLASS_RE.test(className);
 }
 
-/** Persist the bridge's narrow fallback for a flow insertion whose authored
- * stylesheet still resolves the moved child to absolute/fixed after its
- * editable inline/utility positioning has been stripped. `!important` is
- * intentional: the stylesheet declaration that forced this path may itself
- * be important. */
 export function setFlowPositioningOverrideForNodeInHtml(
   content: string,
   nodeAttrId: string,
@@ -250,10 +210,6 @@ function isDocumentRootAnchorSelector(selector?: string): boolean {
   );
 }
 
-/** Offset to persist for an absolute-container drop.
- * Inside drops use sourceRect − anchorRect (anchor is the new containing
- * block). Before/after anchors and document-root inside anchors are not
- * that block — use the bridge's already-rebased inline left/top. */
 export function rawAbsoluteContainerOffsetFromDrop(args: {
   dropMode?: "flow-insert" | "absolute-container";
   placement: "before" | "after" | "inside";
@@ -323,32 +279,12 @@ export function getAbsolutePositioningForNodeInHtml(
       `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
     ) as HTMLElement | null;
     if (!element) return null;
-    // Walk every ancestor up to <body> (authoredElementPosition, shared with
-    // MultiScreenCanvas's drop-target math) instead of reading only this
-    // node's own inline left/top. A node nested two-plus containers deep has
-    // a style.left/top that's relative to its OWN immediate parent, not the
-    // screen root, so a flat read here previously fed
-    // computeReparentedChildPosition two positions from different coordinate
-    // spaces whenever the source/target containers weren't both direct
-    // children of the screen root — producing a garbage delta and making the
-    // dropped element jump away from the cursor. For a root-level node this
-    // walk terminates after one step and returns the exact same left/top as
-    // before, so root-level reparents are unaffected.
     return authoredElementPosition(element);
   } catch {
     return null;
   }
 }
 
-/**
- * Finding 4: normalizePoisonedBoardNestedCoords (shared/board-file.ts)
- * heuristically rewrites persisted nested board coords with no built-in
- * trace of its own (kept side-effect-free so it stays safely callable from
- * any context — see its doc comment). Every call site that applies its
- * result and persists it goes through this shared logger instead, so a bad
- * heuristic firing in the wild is visible: file id, how many nodes were
- * rebased, and a small before/after sample.
- */
 export function warnIfPoisonedBoardCoordsNormalized(
   fileId: string,
   result: ReturnType<typeof normalizePoisonedBoardNestedCoords>,
@@ -404,9 +340,6 @@ export function setCodeLayerAttributeInHtml(
   return `${content.slice(0, insertAt)}${replacement}${content.slice(insertAt)}`;
 }
 
-/** Scan to the real end of a tag: `[^>]*` stops at a `>` inside a quoted
- *  attribute (an Alpine `x-data="{ w: a > b }"` is enough), which splices the
- *  rewrite into the middle of that attribute. */
 function findBodyOpenTag(
   content: string,
 ): { start: number; end: number; tag: string } | null {
@@ -434,9 +367,6 @@ function findBodyOpenTag(
   return null;
 }
 
-/** Quoted or unquoted: `style=background:red` is valid markup, and treating it
- *  as absent appends a second style attribute that HTML then ignores, so the
- *  edit silently does nothing. */
 const BODY_STYLE_ATTRIBUTE =
   /(\sstyle\s*=\s*)("([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i;
 
@@ -450,8 +380,6 @@ function decodeHtmlAttributeValue(value: string): string {
     .replace(/&amp;/g, "&");
 }
 
-/** Split on top-level `;` only: a `data:` URL and a quoted font stack both
- *  carry semicolons that a naive split truncates. */
 function splitStyleDeclarations(style: string): string[] {
   const parts: string[] = [];
   let depth = 0;
@@ -481,9 +409,6 @@ function splitStyleDeclarations(style: string): string[] {
   return parts;
 }
 
-/** Longhands the inspector resolves out of a shorthand. Clearing one has to
- *  drop the shorthand too, or the value it was read from survives and the edit
- *  looks like it did nothing. */
 const SHORTHAND_FOR_LONGHAND: Record<string, string> = {
   "background-color": "background",
   "background-image": "background",
@@ -492,14 +417,6 @@ const SHORTHAND_FOR_LONGHAND: Record<string, string> = {
   "background-size": "background",
 };
 
-/**
- * Patch the `<body>` open tag's inline styles in place. Surgical on purpose:
- * re-serializing a parsed document rewrites attribute order, entities and
- * self-closing tags across the user's whole file, so this only rewrites the
- * one `style` attribute. Returns null when there is no `<body>` to patch — a
- * URL-backed live screen has none, and silently returning the input would look
- * like a saved edit.
- */
 export function setBodyInlineStyles(
   content: string,
   patch: Record<string, string | null>,
@@ -510,9 +427,6 @@ export function setBodyInlineStyles(
   const rawStyle = styleMatch
     ? (styleMatch[3] ?? styleMatch[4] ?? styleMatch[5] ?? "")
     : "";
-  // Read through the same decode the browser applies, so an existing
-  // `&amp;` in a query string is one `&` here and is re-encoded once below
-  // rather than compounding on every save.
   const declarations = new Map<string, string>();
   for (const part of splitStyleDeclarations(
     decodeHtmlAttributeValue(rawStyle),
@@ -558,8 +472,6 @@ const SCREEN_DEFAULT_HEIGHT_STYLE =
 const SCREEN_HEIGHT_MODE_META =
   /<meta\b(?=[^>]*\bdata-agent-native-screen-height-mode(?:[=\s>]))[^>]*\s*\/?>/gi; // i18n-ignore regex syntax is not user-facing text
 
-/** Toggle the blank Screen viewport floor and mark explicit Hug for the
- * content reporter. Authored page constraints remain intact. */
 export function setScreenRootDefaultHeightMode(
   content: string,
   heightMode: "auto" | "fixed" | "hug",

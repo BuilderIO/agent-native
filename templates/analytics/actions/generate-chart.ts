@@ -61,17 +61,6 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/**
- * Returned alongside any validation `error` so the agent gets an unambiguous
- * recovery path. The previous behavior (a bare error string) led to retry
- * loops where the agent reformatted JSON until it gave up — and from the
- * user's chair, the chat said "I'll do something else" and no chart appeared.
- *
- * For in-chat data questions the right answer is always the live `/chart`
- * embed (see the `data-querying` skill's "Inline Charts In Chat" section for
- * the full shape). Only `save-analysis` artifacts need a static image, and
- * those flows have full data in hand before they call here.
- */
 const CHART_FALLBACK_HINT =
   "If you're answering an in-chat data question, do not retry generate-chart, and do not type this action's title/labels/data/type parameters as plain chat text (e.g. `/chart type=bar title=... labels=[...] data=[...]`) — that is not the supported syntax and only a best-effort compatibility fallback may recover a chart from it. Switch to the live /chart embed instead — it accepts a SqlPanel object directly and doesn't require pre-stringified JSON params. See the data-querying skill's \"Inline Charts In Chat\" section for the exact ```embed fence syntax. Only use generate-chart when you're building a save-analysis artifact.";
 

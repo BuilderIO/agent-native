@@ -3,10 +3,6 @@ import {
   unsubscribe,
   registerEvent,
 } from "@agent-native/core/event-bus";
-/**
- * Verifies that the plan event-bus helper functions emit the expected events.
- * Uses subscribe() to intercept emissions — no DB or action runner required.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -17,9 +13,6 @@ import {
   emitPlanStatusChanged,
 } from "./plans.js";
 
-// Register the plan events so the bus can validate payloads.
-// These registrations are normally done in the server plugin at startup.
-// Registering twice is safe — the registry dedupes by name.
 function registerPlanEvents() {
   registerEvent({
     name: "plan.created",
@@ -263,8 +256,6 @@ describe("plan event-bus helpers", () => {
   });
 
   it("emit helpers are fire-and-forget — exceptions inside emit do not propagate", () => {
-    // emit() itself swallows internal errors in the try/catch wrappers;
-    // verify the helper does not throw even on a totally invalid payload.
     expect(() =>
       emitPlanCreated({
         planId: "plan-abc",

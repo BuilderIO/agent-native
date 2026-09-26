@@ -1,21 +1,5 @@
 import { Extension, Node, mergeAttributes } from "@tiptap/core";
 
-/**
- * Fidelity extensions that let the TipTap schema losslessly represent the
- * Notion-flavored-Markdown features the sync converter (`shared/nfm.ts`) needs:
- *
- *   - Block colors (`{color="red"}`) on paragraphs, headings, quotes, table
- *     cells/rows.
- *   - Visual indentation (Notion lets any block be a child of another). We model
- *     it as an `indent` attribute on paragraphs/headings, set by Tab — matching
- *     Notion, where Tab indents a block rather than turning it into a quote.
- *   - Synced blocks as a real container node so their children round-trip
- *     instead of being dropped (the previous atom modelling silently lost the
- *     synced content, risking deletion on push).
- *
- * These keep the editor's ProseMirror JSON a faithful mirror of the Notion
- * block tree so `docToNfm(editor.getJSON())` is byte-stable.
- */
 
 const COLOR_TYPES = [
   "paragraph",
@@ -122,10 +106,6 @@ export const NotionBlockIndentAttr = Extension.create({
   },
 });
 
-/**
- * A synced block container. Children are real editor blocks so the synced
- * content round-trips to/from Notion instead of being discarded.
- */
 export const NotionSyncedBlock = Node.create({
   name: "notionSyncedBlock",
   group: "block",

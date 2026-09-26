@@ -6,10 +6,6 @@ import { tasks, type StoredItem } from "../db/schema.js";
 import type { DbHandle } from "../db/transaction.js";
 import { AuthError, NotFoundError, UserInputError } from "../errors.js";
 
-/**
- * Storage layer on the unified `tasks` table.
- * All methods take `promotedToTask`; there is no inbox/task split at this layer.
- */
 
 export type { StoredItem };
 
@@ -229,7 +225,6 @@ export async function updateStoredItem(
   return item;
 }
 
-/** Deletes without checking existence first; callers assert when they need to. */
 export async function deleteStoredItems(
   input: {
     ownerEmail: string;
@@ -425,7 +420,6 @@ async function applySortOrderUpdates(
   });
 }
 
-/** Set `promotedToTask` from false → true on existing stored items (same ids). */
 export async function promoteStoredItemsToTasks(
   input: {
     ownerEmail: string;

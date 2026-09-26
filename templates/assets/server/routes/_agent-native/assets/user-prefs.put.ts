@@ -18,7 +18,6 @@ export default defineEventHandler(async (event) => {
     return { error: "Invalid settings payload" };
   }
 
-  // Merge so a partial save never wipes preferences written elsewhere.
   const stored = await getUserSetting(session.email, ASSETS_USER_PREFS_KEY);
   // coercion-ok: a null read means this user has no preferences yet, which is a real state.
   const existing = stored ?? {};

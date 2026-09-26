@@ -344,8 +344,6 @@ function StyleInput({
         className="h-8 bg-background/80 text-xs"
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => {
-          // Only commit when the draft actually changed to avoid spamming
-          // plan updates and version snapshots on every focus-out.
           if (draft !== value) onCommit(draft);
         }}
         onKeyDown={(event) => {

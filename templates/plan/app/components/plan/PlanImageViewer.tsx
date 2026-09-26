@@ -30,41 +30,16 @@ import {
   type ImageActionMessages,
 } from "./image-actions";
 
-/**
- * Shared image presentation for every plan surface — the editor's image node
- * view, the read-only markdown reader, and structured `image` blocks. It renders
- * the image plus a hover toolbar (a zoom button that opens a full-size lightbox
- * and a three-dots menu with swap / download / copy / open) so images behave the
- * same everywhere a plan is viewed or edited.
- *
- * The root is a `<span>` (not a `<div>`) so it stays valid inside the paragraph
- * react-markdown wraps standalone images in — keeping the read/SSR path
- * hydration-safe. Heavy overlays (the lightbox, the dropdown) portal to `body`.
- */
 export type PlanImageViewerProps = {
   src: string;
   alt?: string;
-  /** Extra classes on the wrapper `<span>`. */
   className?: string;
-  /** Extra classes on the `<img>` (sizing / fit / borders per surface). */
   imgClassName?: string;
   loading?: "lazy" | "eager";
-  /** Render full-width block layout (structured blocks) vs. intrinsic inline. */
   block?: boolean;
-  /**
-   * When provided, an "Edit details" item appears in the menu (image blocks wire
-   * it to a form for url/alt/caption/fit). Read-only surfaces and inline
-   * markdown images omit it.
-   */
   onEdit?: () => void;
-  /**
-   * When provided, a "Replace image" item appears in the menu. The editor wires
-   * this to a file picker + re-upload; read-only surfaces omit it.
-   */
   onReplace?: () => void;
-  /** Force the toolbar visible (e.g. the node is selected in the editor). */
   showControls?: boolean;
-  /** Render an uploading / empty placeholder instead of the image. */
   uploading?: boolean;
 };
 
@@ -113,7 +88,6 @@ export function PlanImageViewer({
     );
   }
 
-  // Keep the editor from grabbing the selection when the toolbar is clicked.
   function swallowMouseDown(event: MouseEvent) {
     event.preventDefault();
   }
@@ -167,9 +141,6 @@ export function PlanImageViewer({
           <DropdownMenuContent
             align="end"
             className="w-44"
-            // Don't restore focus to the ⋯ trigger on close: when an item opens
-            // a popover/dialog (e.g. "Edit details"), the focus-restore would
-            // steal focus from it (dismissing it / breaking its auto-focus).
             onCloseAutoFocus={(event) => event.preventDefault()}
           >
             {onEdit || onReplace ? (

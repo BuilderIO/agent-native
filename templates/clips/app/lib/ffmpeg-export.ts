@@ -1,24 +1,3 @@
-/**
- * Lazy-loaded ffmpeg.wasm wrapper for exporting edited recordings to MP4.
- *
- * Implementation notes / assumed limits:
- *  - ffmpeg.wasm is ~30MB, so we lazy-load it only when the user actually
- *    clicks Export.
- *  - Memory ceiling is ~2GB (single-threaded WASM). We've been able to export
- *    up to about 10 minutes of 1080p WebM → MP4 in practice; longer than that
- *    and the browser tab tends to OOM, which is why the UI warns before
- *    exporting anything longer.
- *  - We use filter_complex with the concat filter to cut out the excluded
- *    ranges rather than the demuxer `-f concat` + intermediate files; that's
- *    both simpler and robust against keyframe boundaries.
- *  - We transcode to H.264 + AAC so the result plays in every browser. If the
- *    source was already MP4/H.264, we could attempt `-c copy` as an
- *    optimisation but the concat filter requires re-encoding anyway.
- *
- * Usage:
- *   const result = await exportMp4(recording, edits, (p) => setProgress(p));
- *   const url = URL.createObjectURL(result.blob);
- */
 
 import {
   effectiveDuration,
@@ -28,11 +7,8 @@ import {
 } from "./timestamp-mapping";
 
 export interface ExportProgress {
-  /** 0..1 */
   progress: number;
-  /** Current stage for UI display. */
   stage: "loading-ffmpeg" | "preparing" | "encoding" | "finalizing";
-  /** Free-form message to surface in the UI (e.g. ffmpeg logs). */
   message?: string;
 }
 
@@ -56,22 +32,11 @@ export interface ConcatExportResult {
   height: number;
 }
 
-/** Threshold above which the UI should warn the user before exporting. */
 export const LONG_EXPORT_THRESHOLD_MS = 10 * 60 * 1000;
 
 let ffmpegInstancePromise: Promise<any> | null = null;
 let ffmpegLogListeners: Array<(msg: string) => void> = [];
 
-/**
- * Lazy-load ffmpeg.wasm once per tab. Subsequent calls resolve to the same
- * instance. The wasm core is fetched from the CDN matching the version we
- * declared in package.json.
- *
- * Multiple callers may pass `onLog` — every listener registered through this
- * function is invoked for every wasm log line. Pair each `onLog` with a later
- * `removeFfmpegLogListener(onLog)` so failed paths (e.g. compression error)
- * don't leak subscribers across recordings.
- */
 export async function loadFfmpeg(onLog?: (msg: string) => void): Promise<any> {
   if (typeof window === "undefined") {
     throw new Error("ffmpeg.wasm is only available in the browser");
@@ -83,11 +48,6 @@ export async function loadFfmpeg(onLog?: (msg: string) => void): Promise<any> {
         import("@ffmpeg/util"),
       ]);
       const ffmpeg = new FFmpeg();
-      // Single shared `log` subscription that fans out to every caller's
-      // optional logger. Subscribing per-call against the wasm instance
-      // would mean we'd have to track every (instance, listener) pair
-      // for cleanup; instead we keep one wasm subscription and a small
-      // module-level listener list.
       ffmpeg.on("log", ({ message }: { message: string }) => {
         for (const listener of ffmpegLogListeners) {
           try {
@@ -97,7 +57,6 @@ export async function loadFfmpeg(onLog?: (msg: string) => void): Promise<any> {
           }
         }
       });
-      // Match the version of @ffmpeg/ffmpeg installed in package.json.
       const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
       await ffmpeg.load({
         coreURL: await util.toBlobURL(
@@ -117,42 +76,21 @@ export async function loadFfmpeg(onLog?: (msg: string) => void): Promise<any> {
   }
 
   if (onLog && !ffmpegLogListeners.includes(onLog)) {
-    // De-dup so callers that re-enter `loadFfmpeg` with the same listener
-    // reference (e.g. a stable function from the recorder engine that
-    // outlives a single export run) don't end up registered N times — that
-    // would emit each ffmpeg log line N times to the same handler.
     ffmpegLogListeners.push(onLog);
   }
 
   return ffmpegInstancePromise;
 }
 
-/**
- * Remove a log listener registered via `loadFfmpeg`. Safe to call with a
- * listener that was never registered.
- */
 export function removeFfmpegLogListener(listener: (msg: string) => void): void {
   ffmpegLogListeners = ffmpegLogListeners.filter((l) => l !== listener);
 }
 
-/**
- * Drop the cached ffmpeg.wasm instance so the next `loadFfmpeg` call boots a
- * fresh worker. Call this after `ffmpeg.terminate()` — per ffmpeg.wasm docs
- * the instance state is undefined once an in-flight operation is aborted, so
- * future callers must reinitialize. Also clears any registered log listeners
- * so they don't leak across the boundary.
- */
 export function resetFfmpegInstance(): void {
   ffmpegInstancePromise = null;
   ffmpegLogListeners = [];
 }
 
-/**
- * Export a recording with its non-destructive edits applied. Currently
- * supports cutting out excluded ranges and re-encoding to H.264+AAC MP4.
- * Blurs are not yet applied in this first pass — the MP4 export is primarily
- * for clean "remove the umms" style cuts.
- */
 export async function exportMp4(
   recording: ExportRecording,
   editsJsonRaw: EditsJson | string | null | undefined,
@@ -168,15 +106,12 @@ export async function exportMp4(
       : (editsJsonRaw ?? parseEdits("{}"));
 
   onProgress?.({ progress: 0, stage: "loading-ffmpeg" });
-  // Stable reference so we can remove it in `finally` — without this the
-  // listener piles up across exports and ffmpeg log lines fan out N×.
   let lastProgress = 0;
   const onLog = (msg: string) => {
     onProgress?.({ progress: lastProgress, stage: "encoding", message: msg });
   };
   const ffmpeg = await loadFfmpeg(onLog);
 
-  // Hook ffmpeg progress events — they fire per frame written.
   const handleProgress = ({ progress }: { progress: number }) => {
     lastProgress = Math.max(0, Math.min(1, progress));
     onProgress?.({
@@ -189,7 +124,6 @@ export async function exportMp4(
   try {
     onProgress?.({ progress: 0, stage: "preparing" });
 
-    // Fetch the source video into WASM's virtual FS.
     const { fetchFile } = await import("@ffmpeg/util");
     const inputName = `input.${recording.videoFormat ?? "webm"}`;
     const outputName = "output.mp4";
@@ -198,7 +132,6 @@ export async function exportMp4(
     const kept = getKeptRanges(recording.durationMs, edits);
     const effective = effectiveDuration(recording.durationMs, edits);
 
-    // Fast path: no trims — just transcode.
     if (
       kept.length === 1 &&
       kept[0].startMs === 0 &&
@@ -222,7 +155,6 @@ export async function exportMp4(
         outputName,
       ]);
     } else {
-      // Build a filter_complex that trims each kept range and concats them.
       const filterParts: string[] = [];
       const concatInputs: string[] = [];
       kept.forEach((range, i) => {
@@ -270,7 +202,6 @@ export async function exportMp4(
     const data = (await ffmpeg.readFile(outputName)) as Uint8Array;
     const blob = new Blob([data as BlobPart], { type: "video/mp4" });
 
-    // Best-effort cleanup so WASM memory is freed up for another export.
     try {
       await ffmpeg.deleteFile(inputName);
       await ffmpeg.deleteFile(outputName);
@@ -293,11 +224,6 @@ export async function exportMp4(
   }
 }
 
-/**
- * Generate an animated GIF from a slice of the video. Used by the thumbnail
- * picker's "Animated GIF" tab. Keeps GIF small by scaling to 320px wide and
- * 15fps — more than enough for a library thumbnail.
- */
 export async function exportGif(
   recording: ExportRecording,
   startMs: number,
@@ -350,10 +276,6 @@ export async function exportGif(
   }
 }
 
-/**
- * Client-side concat of N videos into a single MP4. Used by the Stitch dialog
- * before calling the `stitch-recordings` action with the uploaded URL.
- */
 export async function exportConcat(
   sources: Array<{
     url: string;
@@ -422,7 +344,6 @@ export async function exportConcat(
   const ffmpeg = await loadFfmpeg();
   const { fetchFile } = await import("@ffmpeg/util");
 
-  // Load all inputs
   onProgress?.({ progress: 0, stage: "preparing" });
   for (let i = 0; i < sources.length; i++) {
     const name = `src${i}.${sources[i].format ?? "webm"}`;

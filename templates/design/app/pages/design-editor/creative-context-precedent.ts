@@ -2,8 +2,6 @@ import { callAction } from "@agent-native/core/client/hooks";
 import { delimitUntrustedReference } from "@agent-native/creative-context/client";
 
 const MEMBERSHIP_PAGE_LIMIT = 100;
-// Bounded so a pathological context can't turn generation into an unbounded
-// membership crawl; large enough that any realistic context is covered.
 const MEMBERSHIP_FETCH_CAP = 500;
 const DESIGN_NATIVE_KINDS = new Set(["design-project", "design-frame"]);
 
@@ -13,7 +11,6 @@ export interface CreativeContextPrecedentMatch {
   title: string;
   kind: string;
   artifactKey: string | null;
-  /** Design id when this member is one of Design's own governed snapshots. */
   designResourceId: string | null;
 }
 
@@ -46,11 +43,6 @@ function errorReason(error: unknown): string {
   return error instanceof Error ? error.message : "unknown membership failure";
 }
 
-/**
- * Design's capture adapter writes artifactKey as design:design:<id> and
- * canonicalUrl as /design/<id>; either yields the resourceId the native clone
- * action needs.
- */
 function designResourceId(
   kind: string,
   artifactKey: string | null,
@@ -102,10 +94,6 @@ function toMatches(
   return [...byItemId.values()];
 }
 
-/**
- * Loads the Creative Context the user picked for this generation. The ref is
- * explicit: nothing here guesses at a context the user did not choose.
- */
 export async function loadCreativeContextPrecedent(
   contextId: string | null | undefined,
 ): Promise<CreativeContextPrecedent> {

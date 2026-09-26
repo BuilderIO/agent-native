@@ -276,8 +276,6 @@ export default defineAction({
       "Apply granular MDX source patches and persist the normalized visual plan.",
   },
   run: async (args, ctx) => {
-    // Only agent invocations (in-app tool loop / A2A → "tool"; external MCP →
-    // "mcp") light the AI presence flag.
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
     await assertPlanEditor(args.planId);
@@ -377,8 +375,6 @@ export default defineAction({
       createdBy: "agent",
     });
 
-    // Surface AI presence + a lingering highlight on the patched block(s) via the
-    // plan-presence doc. Best-effort — never fail the save on presence.
     if (isAgentCaller) {
       try {
         const patchIds = new Set<string>();

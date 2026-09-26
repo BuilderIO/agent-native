@@ -303,7 +303,6 @@ describe("removeInboxThreadsOptimistic", () => {
       total: 2,
       unread: 1,
     });
-    // Other tabs are left alone — we can't know their membership client-side.
     expect(result.tabs.find((t) => t.id === "other")).toMatchObject({
       total: 1,
       unread: 1,
@@ -393,7 +392,6 @@ describe("adjustInboxThreadUnreadOptimistic", () => {
     const item = result.items.find((i) => i.id === "m1")!;
     expect(item.unreadCount).toBe(1);
     expect(item.isRead).toBe(false);
-    // No boundary crossed (still unread) — tab count untouched.
     expect(result.tabs.find((t) => t.id === "important")?.unread).toBe(2);
   });
 
@@ -463,12 +461,10 @@ describe("adjustInboxThreadUnreadOptimistic", () => {
       }),
     );
 
-    // Reading an already-read message must not push unreadCount negative.
     adjustInboxThreadUnreadOptimistic(qc, "t1", -1);
 
     let result = visibleResult(qc);
     expect(result.items.find((i) => i.id === "m1")?.unreadCount).toBe(0);
-    // No change means no crossing — tab count untouched.
     expect(result.tabs.find((t) => t.id === "important")?.unread).toBe(2);
 
     const fullUnreadClient = makeClient(
@@ -486,7 +482,6 @@ describe("adjustInboxThreadUnreadOptimistic", () => {
       }),
     );
 
-    // Marking unread past messageCount must clamp at messageCount, not exceed it.
     adjustInboxThreadUnreadOptimistic(fullUnreadClient, "t1", 1);
 
     result = visibleResult(fullUnreadClient);
@@ -584,7 +579,6 @@ describe("snapshotInboxThreads / restoreInboxThreadsOptimistic", () => {
     const snapshot = snapshotInboxThreads(qc);
     const mutationId = removeInboxThreadsOptimistic(qc, new Set(["t1"]));
 
-    // Sanity: the optimistic write actually landed before we roll it back.
     expect(visibleResult(qc).items.map((i) => i.id)).toEqual(["m2"]);
 
     clearInboxThreadRemoval(qc, "t1", [mutationId]);
@@ -629,7 +623,6 @@ describe("synced inbox mutation consistency", () => {
       unreadCount: 1,
     });
 
-    // Keep the second mutation alive until its server evidence arrives.
     expect(readId).toMatch(/^inbox-mutation-/);
   });
 

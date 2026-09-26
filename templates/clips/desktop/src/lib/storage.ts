@@ -1,6 +1,3 @@
-// Thin localStorage helpers shared across the desktop popover. Every accessor
-// swallows storage failures so a locked-down or private-mode WebView never
-// throws just from reading or writing a preference.
 
 export function loadString(key: string, fallback: string): string {
   try {

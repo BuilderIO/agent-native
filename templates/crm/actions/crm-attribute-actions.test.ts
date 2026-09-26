@@ -1,7 +1,3 @@
-// Integration tests for the typed attribute surface. These run against a real
-// PGlite database with the real migrations and the real sharing registry —
-// mocking `accessFilter` would make the access-scoping assertions vacuous,
-// which is the one thing about these actions worth proving.
 
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -42,7 +38,6 @@ function asUser<T>(userEmail: string, fn: () => Promise<T>): Promise<T> {
 const ctxFor = (userEmail: string) =>
   ({ caller: "frontend", userEmail }) as never;
 
-/** Run an action end to end the way a signed-in caller would. */
 function run<T>(
   action: { run: (args: never, ctx: never) => Promise<T> },
   args: unknown,
@@ -113,8 +108,6 @@ describe("create/list/update/archive round trip", () => {
       multi: false,
     });
 
-    // Both target columns are written: `object_type` is what the legacy unique
-    // index guards, `target_id` is the typed one.
     const [row] = await getDb()
       .select()
       .from(schema.crmFieldPolicies)
@@ -169,7 +162,6 @@ describe("create/list/update/archive round trip", () => {
       required: true,
       historyTracked: false,
       position: 7,
-      // The slug is minted once and never follows the title.
       apiSlug: created.apiSlug,
     });
     expect(updated.config).toEqual({ hint: "initials" });
@@ -291,7 +283,6 @@ describe("immutability", () => {
       run(updateAttribute, { attributeId: created.id, type: "number" }),
     ).rejects.toThrow(/cannot change/);
 
-    // Restating the current values is not a change.
     const unchanged = await run(updateAttribute, {
       attributeId: created.id,
       apiSlug: created.apiSlug,

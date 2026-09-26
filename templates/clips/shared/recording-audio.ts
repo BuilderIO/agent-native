@@ -1,22 +1,4 @@
-/**
- * The canonical Clips "ready" chime, shared by every recorder surface so they
- * all sound identical:
- *   - the web app recorder   (app/lib/countdown-audio-cue.ts)
- *   - the Chrome extension   (chrome-extension/src/offscreen.ts)
- *   - mirrors the desktop app's start cue
- *
- * Framework-free Web Audio — safe to import anywhere; the functions only touch
- * `window`/`AudioContext` when called, so importing the module is SSR-safe.
- */
 
-/**
- * Schedule the "ready" chime on an already-running {@link AudioContext}: a soft
- * rising two-note (D5 → A5) with a faint high shimmer (A6). Each voice has a
- * fast attack and a smooth exponential tail so it reads as a gentle
- * confirmation rather than a harsh beep. Kept under ~380ms so it lands cleanly
- * just as capture begins. The caller owns the context lifecycle; resolves once
- * the last voice has finished.
- */
 export function scheduleReadyChime(ctx: AudioContext): Promise<void> {
   return new Promise<void>((resolve) => {
     const t0 = ctx.currentTime + 0.005;

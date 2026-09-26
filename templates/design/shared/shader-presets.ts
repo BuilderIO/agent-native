@@ -1,25 +1,6 @@
-/**
- * Single source of truth for the shader preset catalogs:
- *
- * 1. The 8 curated GPU presets backed by @paper-design/shaders-react
- *    (legacy CSS-approximation persist path — `SHADER_PRESETS`).
- * 2. The code-backed GLSL preset library (`GLSL_SHADER_PRESETS`, bottom of
- *    this file) — full fragment sources + uniform manifests persisted
- *    verbatim into screen HTML per shared/shader-fills.ts, readable and
- *    editable in the Code panel. This is the library behind the "Shader"
- *    paint type's Presets section and the Shader effect entry.
- *
- * This file intentionally does NOT import @paper-design/shaders-react (and
- * imports only types from shader-fills.ts) so it remains SSR-safe and can be
- * imported in Vitest without a DOM. All legacy param metadata is inlined from
- * the package defaults (v0.0.76).
- */
 
 import type { GlslShaderMode, GlslUniformManifest } from "./shader-fills";
 
-// ---------------------------------------------------------------------------
-// Core types
-// ---------------------------------------------------------------------------
 
 export type ParamKind = "number" | "color" | "enum" | "bool" | "colors";
 
@@ -28,20 +9,11 @@ export interface ParamDef {
   kind: ParamKind;
   label: string;
   default: number | boolean | string | string[];
-  /** Inclusive minimum — only for kind "number" */
   min?: number;
-  /** Inclusive maximum — only for kind "number" */
   max?: number;
-  /** Slider step — only for kind "number" */
   step?: number;
-  /** Allowed values — only for kind "enum" */
   options?: string[];
-  /** Maximum array length — only for kind "colors" */
   maxCount?: number;
-  /**
-   * True when updating this param triggers a full shader recompile.
-   * Show a warning in the UI for grainMixer / grainOverlay.
-   */
   isExpensive?: boolean;
 }
 
@@ -55,16 +27,9 @@ export type ShaderPresetName =
   | "Dithering"
   | "PaperTexture";
 
-/**
- * The serialisable descriptor stored on a layer / design token.
- * Universal sizing params (fit, scale, rotation, offsetX, offsetY) live here
- * at the top level; shader-specific params live in `params`.
- */
 export interface ShaderDescriptor {
   preset: ShaderPresetName;
-  /** Shader-specific numeric / enum / bool params (not colors, not universal sizing). */
   params: Record<string, number | boolean | string>;
-  /** Color array for shaders that accept a variable-length palette. */
   colors?: string[];
   speed?: number;
   frame?: number;
@@ -79,37 +44,17 @@ export interface ShaderPresetDef {
   name: ShaderPresetName;
   label: string;
   description: string;
-  /** Default value for the `colors[]` array, if the shader accepts one. */
   defaultColors?: string[];
-  /** Default value for the `colorBack` single-color param. */
   defaultColorBack?: string;
-  /** Default value for the `colorFront` single-color param. */
   defaultColorFront?: string;
-  /** Default value for the `colorBloom` single-color param (GodRays). */
   defaultColorBloom?: string;
-  /** Default value for the `colorGlow` single-color param (Voronoi). */
   defaultColorGlow?: string;
-  /** Default value for the `colorGap` single-color param (Voronoi). */
   defaultColorGap?: string;
-  /**
-   * Shader-specific param definitions.
-   * Does NOT include the universal sizing/animation params
-   * (fit, scale, rotation, offsetX, offsetY, originX, originY, speed, frame).
-   */
   params: ParamDef[];
-  /** Maximum number of entries in the colors[] array. */
   maxColorCount?: number;
-  /**
-   * True when the shader is intended as a composited overlay effect
-   * rather than a standalone background (e.g. Dithering).
-   */
   isEffect?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Universal params — shared by every shader
-// These are surfaced at the ShaderDescriptor top level, not in params{}.
-// ---------------------------------------------------------------------------
 
 export const UNIVERSAL_PARAMS: ParamDef[] = [
   {
@@ -175,14 +120,8 @@ export const UNIVERSAL_PARAMS: ParamDef[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Preset definitions
-// ---------------------------------------------------------------------------
 
 export const SHADER_PRESETS: readonly ShaderPresetDef[] = [
-  // -------------------------------------------------------------------------
-  // MeshGradient
-  // -------------------------------------------------------------------------
   {
     name: "MeshGradient",
     label: "Mesh Gradient",
@@ -232,9 +171,6 @@ export const SHADER_PRESETS: readonly ShaderPresetDef[] = [
     ],
   },
 
-  // -------------------------------------------------------------------------
-  // GrainGradient
-  // -------------------------------------------------------------------------
   {
     name: "GrainGradient",
     label: "Grain Gradient",
@@ -288,9 +224,6 @@ export const SHADER_PRESETS: readonly ShaderPresetDef[] = [
     ],
   },
 
-  // -------------------------------------------------------------------------
-  // Voronoi
-  // -------------------------------------------------------------------------
   {
     name: "Voronoi",
     label: "Voronoi",
@@ -351,9 +284,6 @@ export const SHADER_PRESETS: readonly ShaderPresetDef[] = [
     ],
   },
 
-  // -------------------------------------------------------------------------
-  // Metaballs
-  // -------------------------------------------------------------------------
   {
     name: "Metaballs",
     label: "Metaballs",
@@ -383,9 +313,6 @@ export const SHADER_PRESETS: readonly ShaderPresetDef[] = [
     ],
   },
 
-  // -------------------------------------------------------------------------
-  // Warp
-  // -------------------------------------------------------------------------
   {
     name: "Warp",
     label: "Warp",
@@ -457,9 +384,6 @@ export const SHADER_PRESETS: readonly ShaderPresetDef[] = [
     ],
   },
 
-  // -------------------------------------------------------------------------
-  // GodRays
-  // -------------------------------------------------------------------------
   {
     name: "GodRays",
     label: "God Rays",
@@ -532,9 +456,6 @@ export const SHADER_PRESETS: readonly ShaderPresetDef[] = [
     ],
   },
 
-  // -------------------------------------------------------------------------
-  // Dithering
-  // -------------------------------------------------------------------------
   {
     name: "Dithering",
     label: "Dithering",
@@ -590,9 +511,6 @@ export const SHADER_PRESETS: readonly ShaderPresetDef[] = [
     ],
   },
 
-  // -------------------------------------------------------------------------
-  // PaperTexture
-  // -------------------------------------------------------------------------
   {
     name: "PaperTexture",
     label: "Paper Texture",
@@ -716,9 +634,6 @@ export const SHADER_PRESETS: readonly ShaderPresetDef[] = [
   },
 ] as const;
 
-// ---------------------------------------------------------------------------
-// Derived lookups
-// ---------------------------------------------------------------------------
 
 export const SHADER_PRESET_MAP: Record<ShaderPresetName, ShaderPresetDef> =
   Object.fromEntries(SHADER_PRESETS.map((p) => [p.name, p])) as Record<
@@ -726,19 +641,11 @@ export const SHADER_PRESET_MAP: Record<ShaderPresetName, ShaderPresetDef> =
     ShaderPresetDef
   >;
 
-// ---------------------------------------------------------------------------
-// Helper functions
-// ---------------------------------------------------------------------------
 
-/** Return a preset by name, or undefined if not found. */
 export function getPreset(name: string): ShaderPresetDef | undefined {
   return SHADER_PRESET_MAP[name as ShaderPresetName];
 }
 
-/**
- * Validate a ShaderDescriptor against the manifest.
- * Returns { valid: true } or { valid: false, errors: string[] }.
- */
 export function validateDescriptor(descriptor: ShaderDescriptor): {
   valid: boolean;
   errors: string[];
@@ -802,18 +709,6 @@ export function validateDescriptor(descriptor: ShaderDescriptor): {
   return { valid: errors.length === 0, errors };
 }
 
-// ===========================================================================
-// Code-backed GLSL preset library
-// ===========================================================================
-//
-// Each preset carries a complete WebGL1 (GLSL ES 1.00) fragment source plus
-// a uniforms manifest matching shared/shader-fills.ts. Applying a preset
-// stamps the source into the screen HTML — after that it is the user's (and
-// the agent's) code: fully editable in the Code panel, knobs driven by the
-// manifest. Fills paint standalone backgrounds; effects render transparent
-// overlays composited above the element's content.
-//
-// Built-ins available to every preset: u_time (seconds), u_resolution (px).
 
 export type GlslShaderPresetCategory =
   | "gradient-flow"
@@ -836,13 +731,11 @@ export const GLSL_SHADER_PRESET_CATEGORY_LABELS: Record<
 };
 
 export interface GlslShaderPreset {
-  /** Stable kebab-case preset id — seeds new shader ids/names. */
   name: string;
   label: string;
   description: string;
   category: GlslShaderPresetCategory;
   mode: GlslShaderMode;
-  /** Static CSS approximation used for preset-grid thumbnails (no WebGL). */
   previewCss: string;
   uniforms: GlslUniformManifest;
   glsl: string;
@@ -879,7 +772,6 @@ float anFbm(vec2 p) {
 `.trim();
 
 export const GLSL_SHADER_PRESETS: readonly GlslShaderPreset[] = [
-  // ── Fills ─────────────────────────────────────────────────────────────────
   {
     name: "mesh-gradient",
     label: "Mesh Gradient",
@@ -1464,7 +1356,6 @@ void main() {
 }
 `.trim(),
   },
-  // ── Effects (transparent overlays above the element's content) ───────────
   {
     name: "film-grain",
     label: "Film Grain",
@@ -1632,7 +1523,6 @@ void main() {
 export const GLSL_SHADER_PRESET_MAP: Record<string, GlslShaderPreset> =
   Object.fromEntries(GLSL_SHADER_PRESETS.map((p) => [p.name, p]));
 
-/** Return a GLSL preset by name, or undefined if not found. */
 export function getGlslShaderPreset(
   name: string,
 ): GlslShaderPreset | undefined {

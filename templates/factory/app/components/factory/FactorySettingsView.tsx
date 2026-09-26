@@ -123,8 +123,6 @@ export function FactorySettingsView({
   useEffect(() => {
     const data = query.data as TriageConfig | undefined;
     if (!data) return;
-    // A background refetch must never overwrite edits the user has not saved
-    // yet: the sticky bar is the only signal those edits still exist.
     if (hydratedRef.current && dirtyRef.current) return;
     const next = formStateFromConfig(data);
     applyForm(next);

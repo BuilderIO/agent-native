@@ -595,7 +595,6 @@ describe("import-file PDF source extraction", () => {
     mockParsePdfFidelity.mockResolvedValue([
       {
         pageNumber: 1,
-        // 10in x 7.5in in EMU (914400 EMU/in) — the standard 4:3 PPTX page.
         widthEmu: 9144000,
         heightEmu: 6858000,
         backgroundColor: undefined,
@@ -692,12 +691,6 @@ describe("import-file PDF source extraction", () => {
     });
   });
 
-  /**
-   * The deck's own theme palette/fonts are what `export-pptx` writes back
-   * into a generated PPTX's `ppt/theme/theme1.xml`. `parsePptx` returns it,
-   * but nothing used to persist it onto `decks.data`, so every imported deck
-   * exported with the stock Office palette instead of its own.
-   */
   function pptxDeckHarness(existingSlides: unknown[], existingData = {}) {
     mockParsePptx.mockResolvedValue({
       title: "Themed deck",

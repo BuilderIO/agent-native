@@ -119,13 +119,6 @@ export function runLayerRename(
       ];
     });
 
-    // Rename is one atomic server mutation: it validates uniqueness and
-    // updates the filename plus every exact data-screen reference (self
-    // links included) in one transaction. Apply the filename optimistically
-    // because it does not rebuild iframe content; the committed HTML
-    // snapshots returned below are then patched into live previews/Yjs in
-    // place, avoiding the old rename -> N independent save race and white
-    // flashes from srcdoc reloads.
     queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
       if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
         return old;
@@ -199,9 +192,6 @@ export function runLayerRename(
           );
         },
         onError: (error) => {
-          // Roll back only this optimistic filename. Do not restore a
-          // whole cached design snapshot because the user or a peer may
-          // have edited content while the mutation was in flight.
           queryClient.setQueryData(
             ["action", "get-design", { id }],
             (old: any) => {

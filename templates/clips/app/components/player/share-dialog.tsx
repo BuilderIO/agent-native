@@ -110,21 +110,8 @@ export interface ShareRecordingPopoverProps {
   isLoomRecording?: boolean;
   hasPassword?: boolean;
   expiresAt?: string | null;
-  /**
-   * Restricts the dialog to a bare copy-link control for viewers who can
-   * reshare a public/org clip's link but have no edit access: it skips
-   * `list-resource-shares` (which returns every individually-shared
-   * principal's email to any reader) and hides access management entirely.
-   */
   viewerReshareOnly?: boolean;
-  /**
-   * Redaction boxes placed on this recording but not yet burned into the file.
-   * While there are any, sharing is held back: the stored video still shows
-   * everything under them, so a link handed out now hands out the unredacted
-   * clip. The editor is where they get burned in.
-   */
   pendingRedactions?: number;
-  /** Trigger element rendered as the popover anchor (usually the Share button). */
   children: ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -138,11 +125,6 @@ type ShareRecordingDialogProps = Omit<
   onOpenChange: (open: boolean) => void;
 };
 
-/**
- * Clips share popover — anchored to a trigger button. The default view keeps
- * copy, invite, and access together; secondary destinations replace the body
- * so advanced controls never compete with the primary sharing path.
- */
 export function ShareRecordingPopover({
   recordingId,
   recordingTitle,
@@ -182,10 +164,6 @@ export function ShareRecordingPopover({
   );
 
   const copyShareLink = async () => {
-    // The copy button is the other half of the same control, and it hands the
-    // link straight to the clipboard without opening anything — so it has to
-    // refuse for the same reason, and say so, rather than quietly copying a
-    // link to a video whose redactions are still only drawn on.
     if (pendingRedactions > 0) {
       toast.warning(t("shareDialog.redactionsPendingTitle"), {
         description: t("shareDialog.redactionsPendingBody", {
@@ -254,9 +232,6 @@ export function ShareRecordingPopover({
         className="z-[260] w-[360px] max-w-[calc(100vw-1rem)] overflow-hidden border-border p-0"
       >
         {pendingRedactions > 0 ? (
-          // Deliberately not the sharing controls at all: an explanation and
-          // nothing to click. Coming back to finish an edit is normal; handing
-          // the link out with the redactions still only drawn on is not.
           <div className="space-y-2 p-4">
             <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
               {t("shareDialog.redactionsPendingTitle")}
@@ -287,11 +262,6 @@ export function ShareRecordingPopover({
   );
 }
 
-/**
- * Dialog shell for menu-driven Share actions. Radix popovers need a real
- * anchor; opening one from a dropdown item with an invisible trigger can
- * be dismissed by the same click/focus cycle that closes the menu.
- */
 export function ShareRecordingDialog({
   recordingId,
   recordingTitle,
@@ -318,9 +288,6 @@ export function ShareRecordingDialog({
             : t("shareDialog.shareRecording")}
         </DialogTitle>
         {pendingRedactions > 0 ? (
-          // Deliberately not the sharing controls at all: an explanation and
-          // nothing to click. Coming back to finish an edit is normal; handing
-          // the link out with the redactions still only drawn on is not.
           <div className="space-y-2 p-4">
             <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
               {t("shareDialog.redactionsPendingTitle")}
@@ -409,27 +376,14 @@ function ShareRecordingContent({
   const data = viewerReshareOnly ? undefined : sharesQuery.data;
   const role = data?.role ?? initialRole;
   const canManage = role === "owner" || role === "admin";
-  // Editors could always see (read-only) who a clip is shared with; only
-  // gate invite mutations behind canManage. Commenters are
-  // grouped with plain viewers here -- neither can manage shares.
   const canViewShares =
     role === "owner" || role === "admin" || role === "editor";
   const visibility =
     (data?.visibility as Visibility | null | undefined) ??
     initialVisibility ??
     null;
-  // A plain viewer/commenter can't produce a working embed for a non-public
-  // clip (they have no way to make it public), so don't dangle the tab in
-  // front of them only to show an "ask the owner" dead end. Owner/admin/
-  // editor keep it regardless of visibility since they can flip to public
-  // from inside it.
   const canEmbed = canViewShares || visibility === "public";
 
-  // Attribution `via` must be a stable non-PII id, never an email. The only
-  // owner id available client-side is the *current* session's userId, which is
-  // the clip owner only when the viewer is the owner. Anyone else (e.g. a
-  // share-admin) gets an untagged `via` so we never attribute the link to the
-  // wrong person or leak the owner's email.
   const { session } = useSession();
   const ownerViaId =
     data?.role === "owner" ? (session?.userId ?? undefined) : undefined;
@@ -602,9 +556,6 @@ function ShareOptionRow({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Primary view — invite, access, and progressively disclosed destinations
-// ---------------------------------------------------------------------------
 
 function PeopleTab({
   recordingId,
@@ -1125,9 +1076,6 @@ function formatExpiry(iso: string | null): string {
   }).format(date);
 }
 
-// ---------------------------------------------------------------------------
-// Social tab — destination-first share intents, no provider account required
-// ---------------------------------------------------------------------------
 
 function SocialTab({
   shareUrl,
@@ -1267,9 +1215,6 @@ function SocialTab({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Embed tab — Clips-specific configurator
-// ---------------------------------------------------------------------------
 
 function ClipsEmbedConfigurator({
   recordingId,
@@ -1308,7 +1253,6 @@ function ClipsEmbedConfigurator({
     if (autoplay) params.push("autoplay=1");
     if (startMs > 0) params.push(`t=${Math.round(startMs / 1000)}`);
     const qs = params.length ? `?${params.join("&")}` : "";
-    // Keep autoplay/t intact and also self-attribute the embed.
     return withShareAttribution(
       absoluteAppUrl(`/embed/${recordingId}${qs}`),
       ownerViaId,

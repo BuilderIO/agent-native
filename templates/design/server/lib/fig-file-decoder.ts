@@ -24,7 +24,6 @@ import {
   MAX_FIG_FILE_BYTES,
 } from "./fig-file-limits.js";
 
-/** Route and decoder caps are intentionally conservative: `.fig` is untrusted input. */
 const MAX_DECOMPRESSED_CHUNK_BYTES = 48 * 1024 * 1024;
 const MAX_SCHEMA_BYTES = 4 * 1024 * 1024;
 const MAX_KIWI_CHUNKS = 4_096;
@@ -32,9 +31,6 @@ const MAX_ZIP_ENTRIES = 2_048;
 const MAX_ZIP_NAME_BYTES = 512;
 const MAX_COMPRESSION_RATIO = 1_000;
 const MAX_DECODE_DEPTH = 256;
-// Sized with ~15x headroom over a real 11 MB corpus .fig (~530k objects,
-// ~1.5M items, longest single collection ~7.6k) so genuine files decode while a
-// crafted document still hits a finite total-work ceiling.
 const MAX_DECODED_OBJECTS = 8_000_000;
 const MAX_COLLECTION_LENGTH = 2_000_000;
 const MAX_COLLECTION_ITEMS = 24_000_000;
@@ -43,8 +39,6 @@ const MAX_DECODED_BINARY_BYTES = 32 * 1024 * 1024;
 const MAX_DECODED_BINARY_FIELD_BYTES = 4 * 1024 * 1024;
 const MAX_DECODED_STRING_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_STRING_BYTES = 32 * 1024 * 1024;
-// Roots the budgeted decoder produced. They were bounded while decoding, so the
-// renderer-side safety walk can skip them; only the decoder adds to this set.
 const decodedDocuments = new WeakSet<object>();
 const ZSTD_MAGIC = new Uint8Array([0x28, 0xb5, 0x2f, 0xfd]);
 const FIG_KIWI_MAGIC = asciiBytes("fig-kiwi");
@@ -63,7 +57,6 @@ export interface DecodedFigKiwi {
 }
 
 export interface DecodedFigImage {
-  /** SHA1 of the blob bytes — matches what the document references. */
   hash: string;
   ext: string;
   bytes: Uint8Array;
@@ -79,7 +72,6 @@ export interface DecodedFig {
 }
 
 export interface DecodeFigOptions {
-  /** `null` removes only the raw-file cap for browser-local decoding. */
   maxFileBytes?: number | null;
 }
 
@@ -118,11 +110,6 @@ function checkDecompressedSize(buf: Uint8Array): Uint8Array {
   return buf;
 }
 
-/**
- * Reject Zstandard frames that advertise a window or content size above our
- * cap before the decoder allocates that window. The Figma container uses a
- * single standard Zstd frame per chunk.
- */
 function assertSafeZstdFrameHeader(buf: Uint8Array): void {
   if (buf.length < 6) throw new Error("Truncated Zstandard .fig chunk.");
   const descriptor = buf[4]!;
@@ -283,10 +270,6 @@ interface ZipEntry {
   data: Uint8Array;
 }
 
-/**
- * Minimal zip reader: supports stored (method 0) and deflate (method 8)
- * entries, no encryption, no zip64. Sufficient for legacy `.fig` archives.
- */
 function readZip(file: Uint8Array): ZipEntry[] {
   const EOCD_SIG = 0x06054b50;
   const maxScan = Math.min(file.length, 65557);
@@ -436,7 +419,6 @@ function isZip(file: Uint8Array): boolean {
   return file.length >= 4 && bytesEqual(file.subarray(0, 4), ZIP_MAGIC);
 }
 
-/** Re-check direct documents before renderer traversal. */
 export function assertSafeDecodedFigDocument(value: unknown): void {
   if (
     value !== null &&
@@ -516,8 +498,6 @@ interface KiwiByteBufferState {
 
 const utf8Decoder = new TextDecoder("utf-8", { ignoreBOM: true });
 const REPLACEMENT_CHARACTER = String.fromCharCode(0xfffd);
-// Chrome's TextDecoder costs more per call than building a short ASCII string
-// directly, and most .fig strings are short ASCII names.
 const SHORT_ASCII_STRING_BYTES = 64;
 
 function isAscii(bytes: Uint8Array): boolean {
@@ -527,12 +507,6 @@ function isAscii(bytes: Uint8Array): boolean {
   return true;
 }
 
-/**
- * Enforces every document budget while kiwi decodes, so the decoded object
- * graph can be handed to the renderer as-is. Arrays count as objects and as a
- * nesting level, and fields and array items share one item budget, matching
- * {@link assertSafeDecodedFigDocument} for direct documents.
- */
 class BudgetByteBuffer extends ByteBuffer {
   private binaryBytes = 0;
   private collectionItems = 0;
@@ -546,7 +520,6 @@ class BudgetByteBuffer extends ByteBuffer {
     return super.readByte();
   }
 
-  // Budgeted from the declared length, before kiwi would allocate and copy it.
   override readByteArray(): Uint8Array {
     const length = this.readVarUint();
     if (
@@ -564,17 +537,10 @@ class BudgetByteBuffer extends ByteBuffer {
     return state._data.slice(start, end);
   }
 
-  // kiwi builds strings one character at a time, which leaves each one as a
-  // rope of pieces (2-3x the heap of the flat string). Valid UTF-8 decodes to
-  // the same text in one call. Malformed input (TextDecoder marks it with
-  // U+FFFD) takes kiwi's own path, because kiwi consumes a different number of
-  // bytes there; a genuine U+FFFD takes it too and decodes the same either way.
   override readString(): string {
     const state = this as unknown as KiwiByteBufferState;
     const start = state._index;
     const end = state._data.indexOf(0, start);
-    // Charge the whole scan even when kiwi's path takes over: kiwi can stop
-    // early (an overlong NUL), and the next string rescans the same span.
     this.chargeReads((end >= 0 ? end + 1 : state._data.length) - start);
     if (end >= 0) {
       if (end - start > MAX_DECODED_STRING_BYTES) {
@@ -686,10 +652,6 @@ function replaceCounted(
   return { source: patched, count };
 }
 
-// The budget hooks are spliced into kiwi's generated source rather than
-// wrapped around each decode function: one shared wrapper makes every nested
-// decode call megamorphic. A kiwi upgrade that changes the generated shape
-// must fail here, not decode without budgets.
 function compileBudgetedSchema(schema: Schema): CompiledDecoder {
   const decoders = schema.definitions.filter((d) => d.kind !== "ENUM").length;
   let source = compileSchemaJS(schema);
@@ -713,7 +675,6 @@ function compileBudgetedSchema(schema: Schema): CompiledDecoder {
     /for \(var i = 0; i < length; i\+\+\) values\[i\] = [^\n]*;\n/g,
     (match) => `${match}bb.leaveDecodedArray();\n`,
   );
-  // Last definition wins for a repeated name, as in kiwi's own lookup.
   const byName = new Map(schema.definitions.map((d) => [d.name, d]));
   const enumFields = schema.definitions
     .filter((d) => d.kind !== "ENUM")
@@ -742,9 +703,6 @@ function compileBudgetedSchema(schema: Schema): CompiledDecoder {
   return compiled;
 }
 
-// Returns null on any decode failure so callers can still surface the raw
-// document buffer. Also returns an optional decodeError string so callers can
-// surface the reason rather than falling back to a generic message.
 function decodeKiwiDocument(
   schemaBuf: Uint8Array,
   documentBuf: Uint8Array,
@@ -759,13 +717,7 @@ function decodeKiwiDocument(
       decodeError: `Schema parsing failed: ${e instanceof Error ? e.message : String(e)}`,
     };
   }
-  // kiwi-schema compiles the schema with `new Function`, so never pass names
-  // from an untrusted binary schema to it without strict identifier and size
-  // validation. Real Figma schemas use ordinary identifiers and a `Message`
-  // root; anything else is an unsupported/probably hostile variant.
   const definitionNames = new Set(schema.definitions.map((d) => d.name));
-  // The decoded object graph reaches the renderer as-is, and a generated
-  // `result["__proto__"] = value` would replace a prototype, not set a field.
   const isSafeIdentifier = (name: string) =>
     /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) && name !== "__proto__";
   const primitiveTypes = new Set([
@@ -810,8 +762,6 @@ function decodeKiwiDocument(
       }
     }
   }
-  // Current Figma .fig files use "Message" as root; fall back to the first
-  // MESSAGE definition when the name differs (schema evolution resilience).
   const rootMessage =
     schema.definitions.find(
       (d) => d.name === "Message" && d.kind === "MESSAGE",
@@ -953,7 +903,6 @@ function collectZipImages(
   ]);
 }
 
-/** The embedded images of a `.fig`, without decoding its kiwi document. */
 export function decodeFigImages(
   file: Uint8Array,
   options?: DecodeFigOptions,
@@ -966,8 +915,6 @@ export function decodeFigImages(
   return collectImagesFromBlobs(decodeKiwiContainer(file, options).blobs);
 }
 
-// Handles both modern fig-kiwi files and legacy zip-format archives.
-// `document` is null if kiwi decoding failed.
 export function decodeFig(
   file: Uint8Array,
   options?: DecodeFigOptions,

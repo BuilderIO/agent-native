@@ -100,8 +100,6 @@ import { uploadChunkRequest } from "@/lib/upload-request";
 import { cn } from "@/lib/utils";
 import { probeVideoMetadata, resolveVideoMimeType } from "@/lib/video-metadata";
 
-// Client-side app-state writer (the server module pulls in Node's `events`
-// and cannot be bundled for the browser).
 async function writeAppState(key: string, value: unknown): Promise<void> {
   await fetch(
     agentNativePath(
@@ -331,10 +329,6 @@ function directRecorderUrl(opts?: {
 }
 
 function isPermissionError(message: string): boolean {
-  // Device-busy errors ("That camera is busy in another app", "Microphone is
-  // currently in use") mention the device name but are not permission failures
-  // — sending the user to enable a permission they already have wastes their
-  // time. Require an explicit permission/denied/blocked keyword to qualify.
   const isDeviceBusy =
     /\b(busy|in use|already in use|in another (app|application|tab)|currently used|conflicting)\b/i.test(
       message,
@@ -413,8 +407,6 @@ function permissionGuidance(
     return "Browser site permissions are not the blocker here. Open Clips directly in a browser tab, or use an app frame that delegates the selected capture sources.";
   }
   if (isScreenPermissionError(message)) {
-    // The desktop shell hosts the recorder in its own webview, so "open it in a
-    // real tab" is not advice a desktop user can act on.
     if (isEmbeddedWindow() && getCaptureHostApp().kind !== "desktop") {
       return "The web client is running Clips inside a frame. Open the recorder in its own tab, then start recording; Chrome can block screen sharing in embedded pages even when macOS access is enabled.";
     }
@@ -545,8 +537,6 @@ function uploadTooLargeMessage(size: number, detail?: string): string {
   )}) after automatic compression. Trim or export a shorter copy and upload again.`;
 }
 
-/** Pre-upload size rejection for a picked file — no compression has been
- * attempted yet, so the message must not imply it has. */
 function fileTooLargeMessage(size: number): string {
   return `This file is too large to upload (${formatMb(
     size,
@@ -650,9 +640,6 @@ async function createRecordingRequest(
       return response;
     }
 
-    // A transient response can mean the server already claimed the one-use
-    // intake and is still attaching its recording. Retrying the same signed
-    // request lets the idempotent action recover the attached row.
     await new Promise((resolve) =>
       window.setTimeout(
         resolve,
@@ -944,8 +931,6 @@ export default function RecordRoute() {
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
-  // Named distinctly from the local `session` upload-attempt counters used
-  // inside uploadFile/startFlow below — this is the signed-in visitor.
   const { session: authSession } = useSession();
   const {
     dismiss: dismissUploadToast,
@@ -954,10 +939,6 @@ export default function RecordRoute() {
     start: startUploadToast,
     success: completeUploadToast,
   } = useSonnerLifecycleToast();
-  // A clipboard write can be refused (insecure origin, unfocused document, no
-  // transient activation). Never let the success toast imply the link was
-  // copied when it wasn't — offer a click instead, which restores the user
-  // gesture the browser is asking for.
   const showSavedToast = useCallback(
     (message: string, copied: boolean, recordingId: string) => {
       if (copied) {
@@ -986,39 +967,23 @@ export default function RecordRoute() {
   const visibilityAutoPausedRef = useRef(false);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const playheadConfirmOpenRef = useRef(false);
-  // Tracks whether opening the discard-confirm dialog paused the recording
-  // itself (vs. the user having already paused) — so "Resume" only resumes
-  // when we're the ones who paused it, and the dialog never gets captured in
-  // the recorded screen.
   const discardAutoPausedRef = useRef(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraSize, setCameraSize] = useState<CameraBubbleSize>(
     () => loadRecorderPreferences().cameraSize ?? "md",
   );
-  // Remember the bubble size across visits alongside the panel's selections.
   const handleCameraSizeChange = useCallback((size: CameraBubbleSize) => {
     setCameraSize(size);
     saveRecorderPreferences({ cameraSize: size });
   }, []);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
-  // The capture surface the user actually picked in the browser's native screen
-  // picker (authority over the requested `displaySurface` hint). Drives whether
-  // the live camera bubble is hidden during full-screen recording.
   const [resolvedDisplaySurface, setResolvedDisplaySurface] =
     useState<DisplaySurface | null>(null);
   const [recordingMode, setRecordingMode] =
     useState<RecordingMode>("screen+camera");
-  // Surfaced during the post-stop compression pass so the spinner can show
-  // "Compressing… 42%" instead of "Saving your recording…" — otherwise
-  // multi-minute encodes on long screen recordings look frozen.
   const [compressionProgress, setCompressionProgress] = useState<number | null>(
     null,
   );
-  // Fraction (0-1) of upload chunks confirmed sent so far. Chunks are fixed-size
-  // slices of the already-recorded blob, so chunksSent / totalChunks is a
-  // truthful proxy for bytes uploaded — not simulated. Null means the total
-  // chunk count isn't known yet (e.g. the brief live-streaming remainder
-  // upload), so the overlay falls back to an indeterminate spinner.
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   const queryClient = useQueryClient();
@@ -1029,8 +994,6 @@ export default function RecordRoute() {
   );
   const storageQuery = useVideoStorageStatus(!clipIntake);
 
-  // When the user clicks "Record for this space/folder", the empty-state CTA
-  // appends ?spaceId or ?folderId so the new recording lands there.
   const spaceIdFromUrl = useMemo(() => {
     const params = new URLSearchParams(location.search);
     return params.get("spaceId") || null;
@@ -1131,8 +1094,6 @@ export default function RecordRoute() {
   const pendingRef = useRef<PendingRecording | null>(null);
   const countdownAudioCueRef = useRef<CountdownAudioCue | null>(null);
   const confettiRef = useRef<ConfettiHandle>(null);
-  // Stable ref to doStop so engine callbacks created during startFlow always
-  // call the latest version (avoids stale-closure problems with useCallback deps).
   const doStopRef = useRef<() => Promise<void>>(async () => {});
   const pendingStartOptsRef = useRef<{
     mode: RecordingMode;
@@ -1143,24 +1104,14 @@ export default function RecordRoute() {
   } | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const fileUploadAbortRef = useRef<AbortController | null>(null);
-  // Set to the recording row created by uploadFile() for the duration of
-  // that upload, so doCancel() can trash it directly — createdId otherwise
-  // only lives in uploadFile's own closure and never reaches pendingRef.
   const fileUploadRecordingIdRef = useRef<string | null>(null);
   const fileUploadAbortUrlRef = useRef<string | null>(null);
   const browserDiagnosticsRef = useRef<BrowserDiagnosticsCapture | null>(null);
-  // Bumped by doCancel() to invalidate any in-flight startFlow().
   const startSessionRef = useRef(0);
   const cancelledStartSessionRef = useRef<number | null>(null);
   const restartInFlightRef = useRef<Promise<void> | null>(null);
 
-  // Elapsed-time display now ticks inside RecordingToolbar itself (via
-  // `active` + `getElapsedMs`) so the ~4x/sec poll doesn't re-render this
-  // whole route — see the `active`/`getElapsedMs` props passed below.
 
-  // -------------------------------------------------------------------------
-  // Wire preview stream into its video element.
-  // -------------------------------------------------------------------------
   useEffect(() => {
     if (!previewVideoRef.current) return;
     previewVideoRef.current.srcObject = previewStream;
@@ -1201,9 +1152,6 @@ export default function RecordRoute() {
     [failUploadToast, t],
   );
 
-  // -------------------------------------------------------------------------
-  // Acquire media, create recording row, start countdown.
-  // -------------------------------------------------------------------------
   const startFlow = useCallback(
     async (opts: {
       mode: RecordingMode;
@@ -1227,7 +1175,6 @@ export default function RecordRoute() {
         return;
       }
 
-      // Claim a session id; doCancel() bumps the ref to invalidate us.
       const session = startSessionRef.current + 1;
       startSessionRef.current = session;
       const isStale = () => startSessionRef.current !== session;
@@ -1238,18 +1185,12 @@ export default function RecordRoute() {
       setSavingKind(null);
       setRecordingMode(opts.mode);
       pendingStartOptsRef.current = opts;
-      // Clear any surface resolved by a previous capture; the engine reports the
-      // new one once the user picks in the browser's screen dialog.
       setResolvedDisplaySurface(null);
       flushSync(() => {
         setUiState("pickingSources");
       });
 
       try {
-        // Build the engine and trigger browser media prompts before any
-        // network await. Brave drops the transient user activation after async
-        // work, so calling getDisplayMedia after create-recording can fail
-        // silently without showing a picker.
         const engine = new RecorderEngine({
           recordingId: "__pending__",
           mode: opts.mode,
@@ -1266,64 +1207,32 @@ export default function RecordRoute() {
             setError(err.message);
             setUiState("error");
           },
-          // Non-fatal device drops (camera unplugged, mic disconnected) — the
-          // recording keeps going; just let the user know what happened.
           onWarning: (message) => {
             toast.warning(message);
           },
-          // Camera track ended mid-recording (unplugged, permission revoked,
-          // device asleep). The recorded composite already drops the bubble;
-          // clear the on-page preview stream too so it doesn't keep showing a
-          // frozen last frame that no longer matches the recorded output.
           onCameraEnded: () => {
             setCameraStream(null);
           },
-          // Track the surface the user actually chose (and any mid-recording
-          // switch) so the live camera bubble is hidden only when the full
-          // screen — including this tab's overlay — is being captured.
           onResolvedDisplaySurface: (surface) => {
             setResolvedDisplaySurface(surface);
           },
           onState: (state) => {
-            // Mirror the engine's compression pass into the UI so the
-            // "Saving your recording…" spinner becomes "Compressing…" for
-            // the duration. Other engine states are managed by the UI's
-            // own state machine in startFlow / doStop.
             if (state === "compressing") {
               setUiState("compressing");
             } else if (state === "uploading") {
-              // Reset compression progress when the engine moves on to
-              // upload — applies whether or not we just came from
-              // compressing.
               setCompressionProgress(null);
-              // Reset upload progress at the start of each upload attempt so
-              // a retry doesn't briefly show the previous attempt's percent.
               setUploadProgress(null);
-              // Always sync the UI back to "uploading"; if we were already
-              // there from doStop's pre-stop transition, this is a no-op.
               setUiState("uploading");
             }
           },
           onChunk: ({ index, total }) => {
-            // `total` is only known once the full recording is sliced into
-            // fixed-size chunks after stop(); the live per-chunk uploads
-            // during recording report `total: null` and don't drive this bar.
             const fraction = total ? (index + 1) / total : null;
             setUploadProgress(fraction);
           },
-          // When the user clicks the browser's native "Stop sharing" button,
-          // delegate to doStop() so the UI runs its full stop flow:
-          // transcription flush, state updates, and navigation.
-          // Using a ref so we always call the latest version of doStop even
-          // though startFlow itself has empty deps.
           onDisplayTrackEnded: () => {
             void doStopRef.current();
           },
           onCompressionProgress: ({ stage, progress }) => {
-            // The recorder engine is responsible for transitioning into the
-            // `compressing` state. We mirror that into the UI via the
-            // generic onState handler below; here we just track the
-            // numeric progress so the spinner can show a percentage.
             if (stage === "encoding" && typeof progress === "number") {
               setCompressionProgress(progress);
             } else if (stage === "loading-ffmpeg" || stage === "preparing") {
@@ -1335,8 +1244,6 @@ export default function RecordRoute() {
         });
         engineRef.current = engine;
 
-        // 1. Acquire media (triggers permission prompts) while the click's
-        // transient activation is still live.
         const { previewStream: ps, cameraStream: cs } = await engine.acquire();
         if (isStale()) {
           await engine.cancel("unknown").catch(() => {});
@@ -1349,14 +1256,6 @@ export default function RecordRoute() {
         });
 
         const wantsMic = opts.micDeviceId !== NO_MIC_DEVICE_ID;
-        // Web Speech does not let us pin a microphone device. If the user
-        // chose a specific mic, do not start a parallel system-default mic
-        // session for instant transcription; the recorded audio still uses
-        // the exact selected device and can be transcribed after upload.
-        //
-        // The engine reports whether the final recorded mic stream really is
-        // the system default; corrected explicit fallbacks must not start Web
-        // Speech because it would listen to a different device.
         const usingDefaultMic = engine.didMicUseSystemDefault();
         if (wantsMic && usingDefaultMic && liveTranscription.supported) {
           liveTranscription.start();
@@ -1383,7 +1282,6 @@ export default function RecordRoute() {
           }
         }
 
-        // 2. Create the recording row server-side once permissions are granted.
         const reportContext = bugReportContextRef.current;
         const reportTitle = reportContext
           ? `Bug report: ${bugReportTitle(reportContext)}`
@@ -1448,7 +1346,6 @@ export default function RecordRoute() {
         if (!info?.id) {
           throw new Error("create-recording did not return an id");
         }
-        // Cancelled mid-POST: pendingRef is still null, so trash directly.
         if (isStale()) {
           const userCancelled = cancelledStartSessionRef.current === session;
           if (userCancelled) cancelledStartSessionRef.current = null;
@@ -1498,7 +1395,6 @@ export default function RecordRoute() {
         setCameraStream(cs);
         setUiState("countdown");
       } catch (err) {
-        // doCancel() owns teardown if a cancel raced ahead — don't clobber it.
         if (isStale()) return;
         const message =
           err instanceof Error
@@ -1506,10 +1402,6 @@ export default function RecordRoute() {
             : t("recordRoute.couldNotStartRecording");
         const pickerDismissed = isDismissedCapturePicker(err, message);
         await liveTranscription.stopAndWait().catch(() => "");
-        // If the recording row was created before the failure, trash it so it
-        // doesn't sit in the library forever in 'uploading' status. This
-        // is the bug that produced "stuck UPLOADING" cards from failed
-        // record attempts.
         const orphan = pendingRef.current;
         if (orphan?.id) {
           const intake = clipIntakeRef.current;
@@ -1530,7 +1422,6 @@ export default function RecordRoute() {
             }).catch(() => {});
           }
         }
-        // Release any tracks the engine grabbed before failing.
         try {
           await engineRef.current?.cancel("upload_failed");
         } catch {
@@ -1558,13 +1449,6 @@ export default function RecordRoute() {
     [liveTranscription, markStorageConfigured, showRecordingErrorToast],
   );
 
-  // -------------------------------------------------------------------------
-  // Upload a local video file as a Clip.
-  // Reads metadata via a hidden <video>, creates the recording row, then
-  // streams the file to /api/uploads/:id/chunk in slices small enough for
-  // Netlify's effective binary function payload limit. Mirrors the recorder's
-  // upload pipeline so finalize-recording handles it identically.
-  // -------------------------------------------------------------------------
   const UPLOAD_PARALLELISM = 4;
 
   const uploadFile = useCallback(
@@ -1596,11 +1480,6 @@ export default function RecordRoute() {
         return;
       }
 
-      // Fail fast on oversized files before we probe metadata, attempt
-      // compression, or open the upload session — no point spending time or
-      // chunking bytes for a file the server will reject anyway. Uses the
-      // same MAX_UPLOAD_BYTES ceiling as the (currently compression-gated)
-      // post-compression check below and the server chunk/finalize routes.
       if (file.size > MAX_UPLOAD_BYTES) {
         const message = fileTooLargeMessage(file.size);
         if (fileUploadAbortRef.current === abort) {
@@ -2183,9 +2062,6 @@ export default function RecordRoute() {
     [extensionCapture],
   );
 
-  // -------------------------------------------------------------------------
-  // After countdown → actually start MediaRecorder.
-  // -------------------------------------------------------------------------
   const onCountdownComplete = useCallback(async () => {
     const engine = engineRef.current;
     if (!engine) return;
@@ -2253,20 +2129,12 @@ export default function RecordRoute() {
     showRecordingErrorToast,
   ]);
 
-  // -------------------------------------------------------------------------
-  // Stop / upload / navigate.
-  // -------------------------------------------------------------------------
   const finishSavedRecording = useCallback(
     async (
       recordingId: string,
       result: RecorderFinalizeResult,
-      // Started by the caller the moment the recording became durable, so the
-      // clipboard write happens closer to the user's stop gesture than to the
-      // end of the post-save bookkeeping.
       pendingCopy?: Promise<boolean>,
     ) => {
-      // Recording is fully saved — clear refs so that if anything below throws
-      // and the user clicks "Try again", doCancel() won't trash a good recording.
       pendingRef.current = null;
       engineRef.current = null;
       setCameraStream(null);
@@ -2331,8 +2199,6 @@ export default function RecordRoute() {
     const engine = engineRef.current;
     const pending = pendingRef.current;
     if (!engine || !pending) return;
-    // Guard against concurrent calls (e.g. browser "Stop sharing" fires at the
-    // same time the user also clicks the in-app stop button).
     const engineState = engine.getState();
     if (
       engineState === "stopping" ||
@@ -2344,21 +2210,12 @@ export default function RecordRoute() {
     setSavingKind("recording");
     setUiState("uploading");
     startUploadToast(t("recordRoute.savingRecording"));
-    // End diagnostics at the stop gesture. Transcript writes and media
-    // finalization can outlive the recording and must not extend this window.
     const diagnosticsSave = saveBrowserDiagnostics(pending.id).catch((err) => {
       console.warn("[recorder] browser diagnostics save failed:", err);
     });
     try {
-      // Stop live transcription and save the native web transcript before the
-      // engine finalizes. This gives the recording an instant transcript
-      // (from Web Speech API) with no API key required.
       const browserTranscript = await liveTranscription.stopAndWait();
       const trimmedTranscript = browserTranscript.trim();
-      // Non-null when Web Speech died before we asked it to stop, so whatever
-      // it captured covers only part of the recording. Send it with the text:
-      // a partial transcript must never be stored as the finished one, or the
-      // cloud fallback is suppressed and the user keeps the first few lines.
       const incompleteReason = liveTranscription.getIncompleteReason();
       if (trimmedTranscript) {
         const transcriptRes = await fetch(
@@ -2409,8 +2266,6 @@ export default function RecordRoute() {
       }
 
       const stopResult = await engine.stop();
-      // Start the clipboard write once the recording is durable so it isn't
-      // pushed further from the stop gesture that authorized it.
       const pendingCopy =
         stopResult.waitingForStorage || bugReportContextRef.current
           ? undefined
@@ -2422,23 +2277,7 @@ export default function RecordRoute() {
     } catch (err) {
       const message =
         err instanceof Error ? err.message : t("recordRoute.uploadFailed");
-      // Distinguish user-initiated cancel from real failure. When the user
-      // clicks Cancel mid-compression, engine.cancel() aborts the in-flight
-      // compression pass; the still-pending engine.stop() above then throws
-      // an error with `name === "AbortError"`. The recording was
-      // intentionally discarded — surfacing it as "Upload failed" is
-      // misleading (and was the original bug). So skip the error toast on
-      // the cancel path; doCancel() owns the UI teardown. Anything else
-      // (real upload failures, compression timeouts — which throw with
-      // `name === "TimeoutError"` — network errors) keeps the existing
-      // error toast.
-      //
       // Detection is name-only. The abort invariant is: every cancel-shaped
-      // error from the engine arrives with `name === "AbortError"` —
-      // `RecorderEngine.cancel()` sets the name on the abort reason it
-      // creates, and downstream sites that interpret abort signals
-      // (`compress.ts`, the reset-chunks fetch catch in `recorder-engine`)
-      // preserve that identity. So we don't need to grep error messages.
       if (err instanceof Error && err.name === "AbortError") {
         return;
       }
@@ -2471,7 +2310,6 @@ export default function RecordRoute() {
     t,
   ]);
 
-  // Keep the ref current so engine callbacks always invoke the latest doStop.
   doStopRef.current = doStop;
 
   const retryFailedUpload = useCallback(async () => {
@@ -2535,7 +2373,6 @@ export default function RecordRoute() {
   }, []);
 
   const doCancel = useCallback(async () => {
-    // Invalidate any in-flight startFlow().
     dismissUploadToast();
     cancelledStartSessionRef.current = startSessionRef.current;
     startSessionRef.current += 1;
@@ -2570,14 +2407,6 @@ export default function RecordRoute() {
       // ignore
     }
     if (pendingId) {
-      // The recording may have already finished uploading server-side (the
-      // final chunk can land, and the row can flip to "ready", while we're
-      // still awaiting saveBrowserDiagnostics/finishSavedRecording on the
-      // client). A separate GET-status-then-POST-trash sequence would still
-      // race finalize between the two calls, so ask the server to trash
-      // atomically instead: `skipIfReady` makes the trash a conditional
-      // no-op if the row is already "ready" by the time the UPDATE runs, so a
-      // fully saved video is never silently discarded.
       if (pendingAbortUrl && clipIntakeRef.current) {
         fetch(pendingAbortUrl, {
           method: "POST",
@@ -2597,11 +2426,6 @@ export default function RecordRoute() {
       }
     }
     if (uploadRecordingId) {
-      // A local file import (as opposed to a live recording) never
-      // populates pendingRef — its row id only exists in uploadFile's own
-      // closure. Without this, discarding mid-upload aborts the transfer
-      // but leaves the row merely marked "failed" instead of trashed, which
-      // contradicts the confirmation dialog's "permanently deleted" copy.
       if (uploadAbortUrl) {
         fetch(uploadAbortUrl, {
           method: "POST",
@@ -2634,9 +2458,6 @@ export default function RecordRoute() {
   const togglePause = useCallback(() => {
     const engine = engineRef.current;
     if (!engine) return;
-    // A direct user gesture owns the paused state from this point forward.
-    // In particular, returning to the foreground must not auto-resume a clip
-    // that the user deliberately left paused.
     visibilityAutoPausedRef.current = false;
     if (engine.getState() === "paused") {
       engine.resume();
@@ -2649,10 +2470,6 @@ export default function RecordRoute() {
     }
   }, [liveTranscription]);
 
-  // Discarding an in-progress recording is permanent (see doCancel — it
-  // trashes the pending row with no recovery), so route it through a confirm
-  // dialog instead of firing immediately. While live, pause capture first so
-  // the confirmation itself never ends up in the recorded video.
   const requestDiscard = useCallback(() => {
     const engine = engineRef.current;
     if (uiState === "recording" && engine && engine.getState() !== "paused") {
@@ -2681,11 +2498,6 @@ export default function RecordRoute() {
     void doCancel();
   }, [doCancel]);
 
-  // A background upload (e.g. importing a local video file) can finish
-  // independently of user interaction while this dialog is open -- it isn't
-  // gated behind uiState. Once the recording leaves a discardable state,
-  // Discard would be a no-op (there's nothing left for doCancel to abort or
-  // trash), so close the prompt rather than leave a misleading control open.
   useEffect(() => {
     if (!discardConfirmOpen) return;
     if (
@@ -2819,9 +2631,6 @@ export default function RecordRoute() {
     confettiRef.current?.burst();
   }, []);
 
-  // -------------------------------------------------------------------------
-  // Keyboard shortcuts.
-  // -------------------------------------------------------------------------
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (discardConfirmOpen || playheadConfirmOpenRef.current) return;
@@ -2831,8 +2640,6 @@ export default function RecordRoute() {
       const ctrl = e.ctrlKey;
       const k = e.key.toLowerCase();
 
-      // Esc cancels the pre-record countdown. Once recording is live, it
-      // finishes the clip just like the stop button.
       const isEscape =
         e.key === "Escape" || e.key === "Esc" || e.code === "Escape";
       if (isEscape) {
@@ -2855,7 +2662,6 @@ export default function RecordRoute() {
         }
       }
 
-      // Opt/Alt+Shift+P — pause/resume
       if (alt && shift && k === "p") {
         if (uiState === "recording") {
           e.preventDefault();
@@ -2864,10 +2670,6 @@ export default function RecordRoute() {
         }
       }
 
-      // Opt/Alt+Shift+C -- cancel. Route the same states that show a
-      // discard/cancel control (the recording toolbar and the
-      // uploading/compressing overlay) through the confirm dialog, so the
-      // shortcut can't bypass what the equivalent on-screen button requires.
       if (alt && shift && k === "c") {
         if (
           uiState === "recording" ||
@@ -2885,7 +2687,6 @@ export default function RecordRoute() {
         }
       }
 
-      // Opt/Alt+Shift+R — quick restart
       if (alt && shift && k === "r") {
         if (uiState === "recording" || uiState === "countdown") {
           e.preventDefault();
@@ -2894,7 +2695,6 @@ export default function RecordRoute() {
         }
       }
 
-      // Ctrl+Cmd+C OR Ctrl+Alt+C — confetti
       if ((ctrl && meta && k === "c") || (ctrl && alt && k === "c")) {
         if (uiState === "recording") {
           e.preventDefault();
@@ -2916,10 +2716,6 @@ export default function RecordRoute() {
     fireConfetti,
   ]);
 
-  // Query params can preselect recorder controls, but browser capture must
-  // still start from the user's Start click. Calling getDisplayMedia from an
-  // effect loses Chrome's transient user activation and looks like a fake
-  // permission failure even when Camera and Microphone are already allowed.
 
   useEffect(() => {
     let released = false;
@@ -2962,13 +2758,6 @@ export default function RecordRoute() {
     };
   }, [extensionCapture, stopLiveTranscription]);
 
-  // In-app navigation (e.g. a Library link) unmounts this route the same way
-  // a tab close does, but the browser never fires `beforeunload` for it — so
-  // without this, the cleanup effect above ran `releaseCapture()`
-  // unconditionally and silently killed an at-risk recording. Route every
-  // in-app navigation attempt through the same `hasRecordingAtRisk()` check
-  // `warnBeforeDiscard` uses, so both exits are gated by one check instead of
-  // two divergent ones.
   const {
     leavePromptOpen,
     onDialogOpenChange,
@@ -2978,9 +2767,6 @@ export default function RecordRoute() {
     useCallback(() => !!engineRef.current?.hasRecordingAtRisk(), []),
   );
 
-  // -------------------------------------------------------------------------
-  // Render.
-  // -------------------------------------------------------------------------
   const showRecordingUi = uiState === "recording";
   const showSavingUi =
     (uiState === "uploading" || uiState === "complete") &&
@@ -2991,25 +2777,13 @@ export default function RecordRoute() {
   const showCameraBubble =
     cameraStream !== null && recordingMode !== "screen" && uiState !== "idle";
   const rememberedRecorderOptions = pendingStartOptsRef.current;
-  // The requested `displaySurface` is only a hint — the user picks the real
-  // surface in the browser's native dialog and can even switch it mid-recording
-  // (`surfaceSwitching: include`). Prefer the surface the engine resolved from
-  // the live track, falling back to the requested one only when the browser
-  // doesn't expose the resolved value (Firefox/Safari are partial).
   const effectiveDisplaySurface =
     resolvedDisplaySurface ?? rememberedRecorderOptions?.displaySurface ?? null;
-  // Full-screen capture records this tab's own bubble, which the composite
-  // already bakes into the video — hide the live overlay while recording so it
-  // doesn't appear twice. Countdown isn't recorded; window/tab captures don't
-  // include the overlay, so both keep it.
   const hideBubbleForFullScreenCapture =
     effectiveDisplaySurface === "monitor" &&
     recordingMode === "screen+camera" &&
     uiState === "recording";
 
-  // `/record` is a fullscreen route outside the `_app` shell, so it has no
-  // sidebar back-affordance. Source picking gets its own explicit Cancel
-  // action; in-flight recording and saving states use their dedicated controls.
   const showBackButton = uiState === "idle" || uiState === "error";
 
   return (
@@ -3024,9 +2798,6 @@ export default function RecordRoute() {
                 size="icon"
                 aria-label={t("recordRoute.backToLibrary")}
                 onClick={() => {
-                  // If we landed in `error` after partial media acquisition,
-                  // the engine may still hold live tracks. doCancel() releases
-                  // hardware synchronously while its server cleanup settles.
                   void doCancel();
                   void navigate("/library");
                 }}
@@ -3364,8 +3135,6 @@ export default function RecordRoute() {
                 if (engineRef.current?.canRetryUpload()) {
                   void retryFailedUpload();
                 } else {
-                  // Re-run the same flow with the current mode/surface — users
-                  // expect "Try again" to retry, not to wipe their selections.
                   void restart();
                 }
               }}

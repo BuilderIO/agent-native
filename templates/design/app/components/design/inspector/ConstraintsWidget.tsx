@@ -77,41 +77,17 @@ const DEFAULT_LABELS: ConstraintsWidgetLabels = {
   mixed: "Mixed", // i18n-ignore fallback component label
 };
 
-// ── pin-box geometry ────────────────────────────────────────────────────────
-// The preview box is 40×40px (size-10). Inside it sits an 18×14px inner rect
-// (representing a child element) centered at (20,20). The proportions match
-// the design editor's "little box" widget — inner rect is ~45–50% of the outer box width
-// and slightly shorter in height to resemble a real element.
-//
-// Edge pins: 5px long, 2px wide, placed 2px from the box edge (flush to border).
-//   left  : x=2..7,   y center=20
-//   right : x=33..38, y center=20
-//   top   : x center=20, y=2..7
-//   bottom: x center=20, y=33..38
-//
-// Gap between pin tip and inner rect edge:
-//   left  : inner left edge at x=11 → gap from x=7 to x=11  (4px)
-//   right : inner right edge at x=29 → gap from x=29 to x=33 (4px)
-//   top   : inner top edge at y=13  → gap from y=7 to y=13  (6px)
-//   bottom: inner bottom edge at y=27 → gap from y=27 to y=33 (6px)
-//
-// Center marker: for h=center or v=center, a single accent line runs through
-// the full width/height of the box (including through the inner rect), drawn
-// on top at the midpoint — matching the design editor's solid crosshair treatment.
-//
-// Scale mode: all four pins on that axis render dashed, accent color.
 
-const BOX = 40; // viewBox width/height (matches size-10 = 40px)
-const INNER_W = 18; // inner rect width
-const INNER_H = 14; // inner rect height (slightly shorter than wide = realistic element)
-const INNER_X = (BOX - INNER_W) / 2; // 11
-const INNER_Y = (BOX - INNER_H) / 2; // 13
-const PIN_LEN = 5; // visual pin length
-const PIN_W = 2; // pin stroke width (design editor: 2px thick pins)
-const MARGIN = 2; // gap between outer box edge and pin start
-const CENTER = BOX / 2; // 20
+const BOX = 40;
+const INNER_W = 18;
+const INNER_H = 14;
+const INNER_X = (BOX - INNER_W) / 2;
+const INNER_Y = (BOX - INNER_H) / 2;
+const PIN_LEN = 5;
+const PIN_W = 2;
+const MARGIN = 2;
+const CENTER = BOX / 2;
 
-// Returns whether a given horizontal pin should be active (solid/accent).
 function hPinActive(side: "left" | "right", h: HorizontalConstraint): boolean {
   if (side === "left") return h === "left" || h === "left-right";
   return h === "right" || h === "left-right";
@@ -122,11 +98,6 @@ function vPinActive(side: "top" | "bottom", v: VerticalConstraint): boolean {
   return v === "bottom" || v === "top-bottom";
 }
 
-// Clicking a left/right pin cycles the constraint:
-//   - if that side is the only active one → "left-right"
-//   - if "left-right" or scale/center → single side
-//   - if neither active → single side
-// Can't clear both sides; reverts to single side instead.
 function toggleHPin(
   side: "left" | "right",
   current: HorizontalConstraint,
@@ -138,13 +109,13 @@ function toggleHPin(
     if (nextLeft && rightOn) return "left-right";
     if (nextLeft) return "left";
     if (rightOn) return "right";
-    return "left"; // can't clear both — revert to left
+    return "left";
   } else {
     const nextRight = !rightOn;
     if (leftOn && nextRight) return "left-right";
     if (nextRight) return "right";
     if (leftOn) return "left";
-    return "right"; // can't clear both — revert to right
+    return "right";
   }
 }
 
@@ -169,7 +140,6 @@ function toggleVPin(
   }
 }
 
-// ── PinBox SVG ───────────────────────────────────────────────────────────────
 
 interface PinBoxProps {
   value: ConstraintsValue;
@@ -207,22 +177,14 @@ function PinBox({
   const hScale = value.horizontal === "scale";
   const vScale = value.vertical === "scale";
 
-  // Colors:
-  //   active / scale → accent (primary)
-  //   hovered inactive → slightly brighter muted
-  //   inactive → muted (30% foreground opacity)
   const ACCENT = "var(--design-editor-accent-color, hsl(var(--primary)))";
-  // Hover: lighten inactive pins on hover — use 55% opacity instead of 30%
   const MUTED = "hsl(var(--foreground) / 0.30)";
   const MUTED_HOVER = "hsl(var(--foreground) / 0.60)";
   const SCALE_DASH = "3 2";
 
-  // Hit-area size for each pin (larger than the visual stroke for easy clicking
-  // — 10px wide / 14px tall centered on the pin midpoint).
-  const HIT_CROSS = 10; // perpendicular extent of hit area
-  const HIT_LONG = 14; // along-pin extent of hit area (covers pin + gap to inner rect)
+  const HIT_CROSS = 10;
+  const HIT_LONG = 14;
 
-  // Pin color: accent when active or scale; hover-boosted or muted when inactive.
   function pinColor(
     side: "left" | "right" | "top" | "bottom",
     isActive: boolean,
@@ -243,11 +205,6 @@ function PinBox({
   const tDash = vScale ? SCALE_DASH : undefined;
   const bDash = vScale ? SCALE_DASH : undefined;
 
-  // Pin end coordinates (tip = closer to inner rect)
-  // left pin:   x from MARGIN to MARGIN+PIN_LEN, y=CENTER
-  // right pin:  x from BOX-MARGIN to BOX-MARGIN-PIN_LEN, y=CENTER
-  // top pin:    x=CENTER, y from MARGIN to MARGIN+PIN_LEN
-  // bottom pin: x=CENTER, y from BOX-MARGIN to BOX-MARGIN-PIN_LEN
 
   return (
     <svg
@@ -427,7 +384,6 @@ function PinBox({
   );
 }
 
-// ── Main widget ──────────────────────────────────────────────────────────────
 
 export function ConstraintsPreview({
   value,

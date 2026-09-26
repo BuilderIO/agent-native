@@ -248,12 +248,6 @@ type ContentDatabaseSourceMetadataMutationPatch = Pick<
     >
   >;
 
-/**
- * Merge source metadata against the latest persisted row and compare-and-swap
- * both JSON envelopes. Refresh ownership lives in metadataJson, so every
- * unrelated writer must retry from the winning value instead of restoring a
- * stale claim snapshot.
- */
 export async function mutateContentDatabaseSourceMetadata(args: {
   sourceId: string;
   now: string;
@@ -323,8 +317,6 @@ export function builderCmsSourceContinuationIsCurrent(
   );
 }
 
-// Content's hosted request wall is 75 seconds. Keep the orphan-recovery lease
-// well beyond that so an expired owner cannot still be executing mutations.
 export const BUILDER_CMS_REFRESH_CLAIM_LEASE_MS = 30 * 60 * 1000;
 
 export async function claimBuilderCmsSourceRefresh(args: {
@@ -669,9 +661,6 @@ function sourceSnapshotRowSelection(args: {
   };
 }
 
-// Snapshot reads need document titles for change-set summaries. Body text is
-// required only by write/review paths that explicitly request heavy Builder
-// body values; routine list and source reads must not transfer it.
 export function sourceSnapshotDocumentSelection(
   includeHeavyBuilderBodyValues: true,
 ): {
@@ -775,12 +764,6 @@ function serializeExecution(
   };
 }
 
-/**
- * A blocked execution with neither an attempt token nor a response proves it
- * stopped before the Builder dispatch claim. This includes a blocked dry run
- * and a validated plan stopped by the final live preflight. Any other state or
- * remote evidence stays frozen until normal reconciliation resolves it.
- */
 export function builderExecutionIsProvablyLocallyBlockedUnsent(execution: {
   state: string;
   payloadJson: string;
@@ -880,8 +863,6 @@ function reviewedChangeSet(args: {
   };
 }
 
-// Stable, key-order-insensitive serialization so two same-shape property values
-// (source baseline vs local) don't false-diff purely on key order.
 function stableValueString(value: unknown): string {
   if (value === null || value === undefined) return "null";
   if (Array.isArray(value)) {
@@ -917,8 +898,6 @@ export function reviewedBuilderChangeSetRevisionId(
   return `${changeSet.id}-revision-${revision}`;
 }
 
-// Equal when both normalize the same. null/undefined/"" are all "empty"; strings
-// are trimmed; objects compared by stable serialization.
 function sameSourceFieldValue(a: unknown, b: unknown): boolean {
   const normalize = (value: unknown) => {
     if (value === null || value === undefined) return "";
@@ -945,8 +924,6 @@ function sameMappedSourceFieldValue(
     Array.isArray(normalizedLocalValue) &&
     Array.isArray(normalizedSourceValue)
   ) {
-    // Builder option order is not meaningful. Compare the canonical option IDs
-    // as sets so a reordered response does not become an outbound edit.
     return sameSourceFieldValue(
       [...normalizedLocalValue].sort((a, b) => a.localeCompare(b)),
       [...normalizedSourceValue].sort((a, b) => a.localeCompare(b)),
@@ -1309,9 +1286,6 @@ export async function refreshBuilderBodySourceValuesFromStoredLossless(
   entry: BuilderCmsSourceEntry,
 ) {
   if (entry.rawEntry && builderEntryBlocks(entry.rawEntry).length > 0) {
-    // A fresh single-entry Builder read is the authoritative preflight
-    // representation. Never replace its raw block hash with a hash rebuilt
-    // from generated lossless MDX.
     return entry;
   }
   const losslessContent = stringSourceValue(
@@ -1447,10 +1421,6 @@ async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
       ...liveEntry.sourceValues,
     },
   };
-  // This entry came from a fresh Builder response. Preserve the block hash
-  // computed from those authoritative raw blocks; rebuilding the generated
-  // lossless MDX can normalize block details and produce a different hash than
-  // the execute-time live preflight sees for the same response.
   const refreshedEntry = await withBuilderBodySourceValues(
     entryWithStoredValues,
   );
@@ -2419,10 +2389,6 @@ async function processBuilderBodyHydrationJob(
       wroteBody = Boolean(updatedDocument);
     }
     if (shouldWriteBody && !wroteBody) {
-      // Only mark the item pending if our queue row still exists. If a
-      // concurrent processor already completed (and deleted) this job, it
-      // owns the final `hydrated` status — resetting to pending here would
-      // strand the item as a zombie (pending with no queue row).
       const [stillQueued] = await tx
         .update(schema.contentDatabaseBodyHydrationQueue)
         .set({
@@ -2495,11 +2461,6 @@ async function processBuilderBodyHydrationJob(
       .where(queueRowCas)
       .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
     if (!deleted) {
-      // Our delete matched nothing: either a NEWER job version replaced this
-      // row (same id, different sourceEntryJson — mark pending so the newer
-      // job's processor owns it), or a concurrent processor completed and
-      // deleted the job — in which case it already set `hydrated`, and
-      // resetting to pending would strand the item with no queue row.
       const [replacedByNewerJob] = await tx
         .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
         .from(schema.contentDatabaseBodyHydrationQueue)
@@ -2749,8 +2710,6 @@ async function persistPristineBuilderBodyHydrationsInBulk(
             id: schema.contentDatabaseBodyHydrationQueue.id,
           });
         if (deletedQueueRows.length !== batch.length) {
-          // This guarded delete is the queue-ownership CAS for the whole
-          // transaction; a miss rolls back the preceding document/source writes.
           throw new PristineBuilderBodyHydrationCasMiss(
             "Builder body hydration queue changed.",
           );
@@ -3365,10 +3324,6 @@ export async function builderBodyChangeForLocalContent(args: {
   const localContent = args.localContent ?? "";
   if (!currentHash && !currentContent && !localContent.trim()) return null;
   if (!currentContent?.trim() && !losslessContent?.trim()) return null;
-  // Native media is converter-owned output. Re-run it even when the editable
-  // Markdown text is byte-for-byte unchanged: a converter upgrade can turn a
-  // legacy Text block containing a Markdown image into a real Builder Image
-  // (or emit a native Video) without changing the document text at all.
   const usesCurrentMediaConverter =
     builderBodyUsesCurrentMediaConverter(localContent);
   const normalizedLocalContent =
@@ -3555,9 +3510,6 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
   if (args.row) {
     const identity = builderCmsSourceRowIdentityState({ row: args.row });
     if (identity.isSyntheticFixture) {
-      // Fixture rows are local placeholders, not imported Builder baselines.
-      // Execution resolves their synthetic identity to create_draft, so their
-      // local body must follow the same create path even before hydration.
       return builderBodyChangeForUnsourcedLocalCreate({
         localContent: args.localContent,
       });
@@ -3582,8 +3534,6 @@ export function buildBuilderLocalOutboundChangeSets(args: {
   rowRows: ContentDatabaseSourceRecordRowDb[];
   documentTitleById: Map<string, string>;
   storedChangeSets: ContentDatabaseSourceChangeSet[];
-  // Optional inputs that enable new-row creates. When omitted (e.g. legacy
-  // callers/tests) the function behaves exactly as before (title diffs only).
   databaseItems?: Array<{ databaseItemId: string; documentId: string }>;
   localValuesByDocument?: Map<string, Map<string, unknown>>;
   writableFields?: Array<{
@@ -3596,25 +3546,11 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     sourceFieldType?: string;
     sourceFieldModel?: string;
   }>;
-  // Row-union scoping (multi-source). Documents owned by ANOTHER source must
-  // never be create candidates for this one — each row belongs to exactly one
-  // collection. And a truly unsourced ("Local") row creates only against the
-  // primary, not every attached collection. Both default to the single-source
-  // behavior when omitted (no other owners; creates allowed).
   otherSourceDocumentIds?: Set<string>;
   allowUnsourcedCreates?: boolean;
-  // Per-document ownership from the visible "Source" select tag (documentId →
-  // owning sourceId). A new, still-unlinked row tagged for a specific
-  // collection is adopted as a create_draft by THAT collection only; an
-  // untagged / "Local" row falls back to the primary (allowUnsourcedCreates).
   taggedSourceByDocumentId?: Map<string, string>;
   bodyChangeByDocumentId?: Map<string, ContentDatabaseSourceBodyChange>;
   sourceImportedDocumentIds?: Set<string>;
-  /**
-   * Rejected change-sets that are provably cancellations of a prepared,
-   * pre-dispatch Builder gate. Their exact snapshot remains durable audit
-   * history and suppresses only the byte-equivalent local-vs-source diff.
-   */
   cancelledRejectedChangeSetIds?: Set<string>;
 }): ContentDatabaseSourceChangeSet[] {
   if (normalizeSourceType(args.source.sourceType) !== "builder-cms") return [];
@@ -3765,9 +3701,6 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         proposedValue: localTitle,
       });
     }
-    // Diff every mapped property field: local value vs the synced source
-    // baseline (same-shape DocumentPropertyValue, stable compare). An absent
-    // local value means "not loaded", not "cleared" — skip it.
     const rowLocalValues = args.localValuesByDocument?.get(row.documentId);
     if (rowLocalValues) {
       for (const field of args.writableFields ?? []) {
@@ -3808,8 +3741,6 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     }
     const bodyChange = args.bodyChangeByDocumentId?.get(row.documentId) ?? null;
     if (fieldChanges.length === 0 && !bodyChange) continue;
-    // Skip if this row already has a live (non-rejected/applied) stored outbound
-    // autosave change-set — the stored one is what's being reviewed/pushed.
     const matchesStoredChange = args.storedChangeSets.some((changeSet) => {
       if (
         changeSet.direction !== "outbound" ||
@@ -3850,10 +3781,6 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     const now = new Date().toISOString();
     const displayTitle = localTitle || sourceTitle;
     const candidate: ContentDatabaseSourceChangeSet = {
-      // Keep the synthetic identity stable while body hydration catches up.
-      // The lightweight UI snapshot may initially see only field changes while
-      // the authoritative write snapshot also sees a body diff. The payload
-      // fingerprint, not an ID suffix, distinguishes material revisions.
       id: `local-pending-${row.id}-change`,
       databaseItemId: row.databaseItemId,
       documentId: row.documentId,
@@ -3887,10 +3814,6 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     }
   }
 
-  // New-row creates: a local database item NOT linked to a Builder entry (no
-  // source row) and with a non-empty title becomes a create_draft change-set.
-  // No baseline comparison here — we send the local values; the create_draft
-  // effect (derived from a null target entryId) writes the entry as a draft.
   if (args.databaseItems && args.databaseItems.length > 0) {
     const linkedDocumentIds = new Set(
       args.rowRows.map((row) => row.documentId),
@@ -3909,18 +3832,13 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     for (const item of args.databaseItems) {
       if (linkedDocumentIds.has(item.documentId)) continue;
       if (args.sourceImportedDocumentIds?.has(item.documentId)) continue;
-      // Owned by another collection's row identity — not this source's to create.
       if (args.otherSourceDocumentIds?.has(item.documentId)) continue;
       const taggedSourceId = args.taggedSourceByDocumentId?.get(
         item.documentId,
       );
       if (taggedSourceId) {
-        // Explicitly tagged for a collection via the "Source" property: only
-        // that collection adopts it (regardless of primary/non-primary).
         if (taggedSourceId !== args.source.id) continue;
       } else if (!allowUnsourcedCreates) {
-        // Untagged / "Local": only the primary adopts it as a create; other
-        // collections leave it alone until it's explicitly assigned to them.
         continue;
       }
       if (documentIdsWithStoredChange.has(item.documentId)) continue;
@@ -4038,11 +3956,6 @@ export async function getContentDatabaseSourceSnapshot(
   });
 }
 
-/**
- * Load one specific attached source by id (scoped to the database). Multi-source
- * write paths use this so an action can target a non-primary source; single-source
- * callers keep using {@link getContentDatabaseSourceSnapshot} (the primary).
- */
 export async function getContentDatabaseSourceSnapshotById(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId: string,
@@ -4063,12 +3976,6 @@ export async function getContentDatabaseSourceSnapshotById(
   });
 }
 
-/**
- * Resolve the source an action should operate on: the explicit `sourceId` when
- * given (multi-source), otherwise the primary (back-compat single-source). The
- * default path is byte-for-byte the old behavior, so existing callers that omit
- * `sourceId` are unaffected.
- */
 export async function getContentDatabaseSourceSnapshotForWrite(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
@@ -4192,12 +4099,6 @@ async function findBuilderReviewBodyCandidateDocumentIds(args: {
   return rows.map((row) => row.documentId);
 }
 
-/**
- * Load a complete Builder review snapshot without transferring every heavy
- * Builder body baseline. A light pass identifies field/stored changes, while a
- * narrow body index compares the editable document with the readable baseline.
- * Only candidate documents then load lossless body data and sidecars.
- */
 export async function getContentDatabaseSourceSnapshotForReview(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
@@ -4242,12 +4143,6 @@ export async function getContentDatabaseSourceSnapshotForReview(
         changeSet.state === "staged_revision" ||
         changeSet.state === "approved"),
   );
-  // The interactive review surface is capped at 100 rows. When a complete
-  // pending batch is already known, load heavy body/sidecar data only for those
-  // documents instead of first discovering body-only candidates. When no
-  // pending batch exists, the fallback compares bodies inside SQL and returns
-  // only candidate document IDs; article bodies never cross into application
-  // memory merely to prove that they are unchanged.
   const knownReviewDocumentIds = knownBuilderReviewDocumentIds(
     reviewableChanges,
     100,
@@ -4281,11 +4176,6 @@ export async function getContentDatabaseSourceSnapshotForReview(
   });
 }
 
-/**
- * Load every source attached to a database (oldest first → `[0]` is the
- * primary). Federation joins read this; single-source callers keep using
- * `getContentDatabaseSourceSnapshot`, which returns the primary.
- */
 export async function getAllContentDatabaseSourceSnapshots(
   database: ContentDatabaseRow | ContentDatabase,
   options: { documentIds?: string[] } = {},
@@ -4357,8 +4247,6 @@ async function readSourceSnapshotRowsOnce(args: {
         : eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
     )
     .orderBy(asc(schema.contentDatabaseSourceRows.createdAt));
-  // For Builder sources, load ALL database items (not just synced source rows)
-  // so brand-new local rows (no source link) can become create_draft change-sets.
   const databaseItemRows = args.isBuilderSource
     ? await db
         .select({
@@ -4714,11 +4602,6 @@ async function loadSourceSnapshot(
       sourceFieldModel: builderModelFieldBySourceKey.get(row.sourceFieldKey)
         ?.model,
     }));
-  // Row-union ownership scoping (Builder only). Determine which documents belong
-  // to OTHER sources and whether this source is the primary (oldest), so the
-  // create-candidate logic never claims another collection's rows and unsourced
-  // "Local" rows only create against the primary. Single-source: no other
-  // sources ⇒ empty set, isPrimary ⇒ identical to the old behavior.
   let otherSourceDocumentIds = new Set<string>();
   let isPrimarySource = true;
   let taggedSourceByDocumentId = new Map<string, string>();
@@ -4751,11 +4634,6 @@ async function loadSourceSnapshot(
         );
       otherSourceDocumentIds = new Set(ownedRows.map((row) => row.documentId));
     }
-    // Multi-source: a row's visible "Source" tag value IS its owning source id
-    // (the Source option id equals the source id), so adoption is pure id
-    // matching — no source-name hop, immune to duplicate names or a "Local"
-    // collision. The "Local" sentinel isn't a real source id, so untagged rows
-    // fall through to the primary-only path.
     if (dbSources.length > 1) {
       const [sourceProp] = await db
         .select({ id: schema.documentPropertyDefinitions.id })
@@ -4801,9 +4679,6 @@ async function loadSourceSnapshot(
       allDocumentIds.map(async (documentId) => {
         const row = sourceRowByDocumentId.get(documentId);
         let bodyChange: ContentDatabaseSourceBodyChange | null = null;
-        // Only the primary source may adopt a genuinely local row with no source
-        // identity. Synthetic fixture rows already belong to this source, but
-        // still represent create_draft targets rather than imported baselines.
         const allowUnsourcedCreate =
           isPrimarySource &&
           !otherSourceDocumentIds.has(documentId) &&
@@ -4821,11 +4696,6 @@ async function loadSourceSnapshot(
     );
   }
 
-  // A locally blocked dry run never crossed the Builder dispatch boundary, so
-  // its approved body payload may be refreshed from the current document. This
-  // is deliberately narrower than ordinary "retryable" state: running,
-  // response-bearing, failed, reconciliatory, and otherwise ambiguous gates
-  // retain the exact body that was originally approved.
   if (isBuilderSource && bodyChangeByDocumentId.size > 0) {
     const executionRowsByChangeSetId = new Map<
       string,
@@ -4837,9 +4707,6 @@ async function loadSourceSnapshot(
       executionRowsByChangeSetId.set(execution.changeSetId, rows);
     }
     storedChangeSets = storedChangeSets.map((changeSet) => {
-      // Rejected snapshots are durable review/audit evidence. In particular,
-      // a cancelled gate must retain the exact diff the user cancelled so a
-      // later local or remote body change can be distinguished from it.
       if (changeSet.state !== "approved") return changeSet;
       const currentBody = changeSet.documentId
         ? bodyChangeByDocumentId.get(changeSet.documentId)
@@ -4930,9 +4797,6 @@ async function loadSourceSnapshot(
         changeSet,
         source,
         rowByDocumentId,
-        // Synthetic current diffs deliberately reuse a stable identity. A
-        // closed stored revision with that ID is historical evidence, not the
-        // execution state of this new payload.
         reviewEvents: [],
         executions: [],
       }),
@@ -4955,8 +4819,6 @@ async function loadSourceSnapshot(
     capabilities.liveWritesEnabled = normalizedWriteMode !== "read_only";
   }
 
-  // A local-table source shows the target database's *live* title, so renaming
-  // the underlying table is reflected here instead of the name frozen at attach.
   let displaySourceName = source.sourceName;
   if (sourceType === "local-table") {
     const [target] = await db
@@ -5132,9 +4994,6 @@ async function sourceBodyHydrationSummary(args: {
   return summary;
 }
 
-// Pass a stored federation block through only when it has the shape the join
-// engine relies on; anything malformed degrades to undefined (no federation),
-// keeping a single-source database working.
 export function normalizeSourceFederation(
   value: ContentDatabaseSourceFederation | null | undefined,
 ): ContentDatabaseSourceFederation | undefined {
@@ -5361,12 +5220,6 @@ function isBuilderReferenceModelField(field: BuilderCmsModelFieldSummary) {
     .some((value) => /\b(reference|relation)\b/i.test(value));
 }
 
-/**
- * A raw Builder entry can teach required-field setup the reference model even
- * when Builder's model endpoint omits it. Refreshes must not throw that
- * provider-native enrichment away: the canonical local value is only an entry
- * id, and dispatch needs the learned model to reconstruct a Builder reference.
- */
 export function mergeBuilderCmsModelFieldsPreservingReferenceModels(args: {
   existing?: BuilderCmsModelFieldSummary[];
   refreshed?: BuilderCmsModelFieldSummary[];
@@ -5542,15 +5395,6 @@ export async function seedMockSourceFields(args: {
       createdAt: args.now,
       updatedAt: args.now,
     },
-    // The auto-created "Source" property is internal row-tagging (which
-    // collection a row belongs to). It must NEVER become a writable Builder
-    // source field — otherwise its local option-id value diffs against an
-    // absent baseline and every row shows a phantom pending change, and a push
-    // would try to write the internal tag to Builder. Match the SAME shape
-    // ensureDatabaseSourceProperty uses to identify it (a `select` named
-    // "Source") and only for Builder sources, so a user's own field happening
-    // to be named "Source" — or any non-Builder/local-table source — is left
-    // untouched.
     ...(isBuilder
       ? builderSourcePropertyAssignments({
           properties: args.properties,
@@ -6001,10 +5845,6 @@ function builderSourceValuesWithPreservedBodyBaseline(args: {
         args.existingLastSourceUpdatedAt;
     }
   }
-  // Required-reference materialization stores the canonical Builder entry id
-  // beside the readable projection. Refresh receives only that projection, so
-  // retain the id while the projected value is unchanged. If the remote label
-  // changes, discard the old id instead of pairing stale identity with it.
   const referenceIdPrefix = "__agent_native_builder_reference_id:";
   for (const [key, value] of Object.entries(existing)) {
     if (!key.startsWith(referenceIdPrefix)) continue;
@@ -6550,10 +6390,6 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
   now: string;
   sourceTable: string;
   existingSourceRows?: ContentDatabaseSourceRecordRowDb[];
-  // When importing an ADDITIONAL source (row-union), two collections may share
-  // a title legitimately, so the cross-database title dedup must be skipped —
-  // per-source re-import idempotency is still handled by
-  // builderCmsEntryAlreadyRepresented (existingSourceRows).
   skipTitleDedup?: boolean;
 }): Promise<{
   imported: number;
@@ -6643,9 +6479,6 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
       .map((row) => row.documentId)
       .filter((documentId): documentId is string => Boolean(documentId)),
   );
-  // Builder entry IDs, not titles, are the remote identity. Preserve every
-  // same-title entry in a collection while retaining the legacy guard against
-  // adopting an already-present local row during source replacement.
   const existingUnlinkedTitles = new Set(
     currentItems
       .filter((row) => !representedDocumentIds.has(row.document.id))
@@ -6655,11 +6488,6 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
     currentItems.map((row) => [row.document.id, row]),
   );
 
-  // Reads MAX(position) for both `documents` and `content_database_items`
-  // then batch-inserts at MAX+1.. — serialize the whole read-through-write
-  // span per scope so a concurrent import/add/move targeting the same parent
-  // document or the same database can't read the same MAX (see
-  // _position-utils.ts).
   return withPositionLock(
     documentsPositionScope(args.database.ownerEmail, args.database.documentId),
     () =>
@@ -6711,10 +6539,6 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
             const existingDeterministicRow =
               currentRowByDocumentId.get(documentId);
             if (existingDeterministicRow?.item.id === itemId) {
-              // A prior attach can commit the deterministic document/item and
-              // fail before linking its source row. Treat that pair as the
-              // same Builder identity so refresh repairs the missing link
-              // without synthesizing a duplicate response item.
               importedEntriesByDocumentId.set(documentId, entry);
               continue;
             }
@@ -7268,14 +7092,6 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       now: args.now,
     });
   }
-  // Row-union: a resync must only (re)link items that BELONG to this source —
-  // never claim every database item. With a single source, all items belong to
-  // it (back-compat). With multiple sources, link only this source's
-  // remote-backed rows when the read is live (this self-heals any prior
-  // over-claim, since rows are deleted then reseeded); when offline, preserve
-  // just the rows already owned so nothing is orphaned. New / "Local" /
-  // other-collection rows stay unlinked, so the Source-tag create path can
-  // adopt them into the right collection.
   const databaseSourceCount = (
     await db
       .select({ id: schema.contentDatabaseSources.id })
@@ -7505,10 +7321,6 @@ export async function replaceSourceMetadata(args: {
   return sourceId;
 }
 
-/**
- * Insert an ADDITIONAL source without touching existing sources — the primary
- * keeps its fields and rows. Used to federate a read-only second source.
- */
 export async function insertSecondarySource(args: {
   database: ContentDatabaseRow;
   expectedPrimarySourceId: string;
@@ -7571,12 +7383,6 @@ export async function insertSecondarySource(args: {
   return sourceId;
 }
 
-/**
- * Store a read-only secondary source's entries as join-by-key rows. They have no
- * local document (`documentId`/`databaseItemId` are empty sentinels) — the read
- * engine matches them purely by normalized canonical key. Replaces any prior
- * rows for the source so a re-store is idempotent.
- */
 export async function storeSecondarySourceRows(args: {
   sourceId: string;
   ownerEmail: string;
@@ -7618,11 +7424,6 @@ export async function storeSecondarySourceRows(args: {
   );
 }
 
-/**
- * Seed read-only field mappings for a secondary source from its model fields
- * (and any keys seen in a sample entry). Every field is read-only — write
- * fan-out is a LATER, live-write feature. Replaces any prior fields.
- */
 export async function seedSecondarySourceFields(args: {
   sourceId: string;
   ownerEmail: string;
@@ -7705,7 +7506,6 @@ export async function seedSecondarySourceFields(args: {
   );
 }
 
-/** Merge a federation block into a source's stored metadata (primary or secondary). */
 export async function writeSourceFederation(args: {
   sourceId: string;
   federation: ContentDatabaseSourceFederation;
@@ -7871,7 +7671,6 @@ export async function getExistingSource(databaseId: string) {
   return source ?? null;
 }
 
-/** The source DB row for one attached source by id (scoped to the database). */
 export async function getExistingSourceById(
   databaseId: string,
   sourceId: string,
@@ -7889,7 +7688,6 @@ export async function getExistingSourceById(
   return source ?? null;
 }
 
-/** The source DB row for an action: explicit `sourceId` when given, else primary. */
 export async function getExistingSourceForWrite(
   databaseId: string,
   sourceId?: string | null,
@@ -7899,7 +7697,6 @@ export async function getExistingSourceForWrite(
     : getExistingSource(databaseId);
 }
 
-/** Whether a source for this model (sourceTable) is already attached. */
 export async function databaseSourceExistsForTable(
   databaseId: string,
   sourceTable: string,
@@ -7918,8 +7715,6 @@ export async function databaseSourceExistsForTable(
 }
 
 export const SOURCE_PROPERTY_NAME = "Source";
-// The "Local" (no collection) option id. A fixed non-UUID sentinel so it never
-// collides with a source id (which is what every collection option's id is).
 export const SOURCE_LOCAL_OPTION_ID = "local";
 
 const SOURCE_OPTION_PALETTE: DocumentPropertyOptionColor[] = [
@@ -7961,13 +7756,6 @@ export function sourcePropertyOptionsForSources(
   ];
 }
 
-/**
- * Ensure a "Source" select property exists tagging each row with the collection
- * it belongs to, and (re)set every item's value. Rows with no source binding are
- * "Local" — the same first-class state a brand-new local row has. Only runs once
- * a database has 2+ sources (row-union); a single-source database doesn't need
- * the tag. Option ids are preserved across re-runs so colors/filters stay stable.
- */
 export async function ensureDatabaseSourceProperty(args: {
   database: ContentDatabaseRow;
   now: string;
@@ -8004,10 +7792,6 @@ export async function ensureDatabaseSourceProperty(args: {
   const priorOptions = existing
     ? (parsePropertyOptions(existing.optionsJson).options ?? [])
     : [];
-  // Each source option's id IS the sourceId (and "Local" uses a fixed sentinel
-  // that can't collide with a UUID source id). Resolving a row's tag back to a
-  // source is then pure id matching — no source-name hop — so duplicate display
-  // names or a collection literally named "Local" can never misroute a row.
   const options = sourcePropertyOptionsForSources(sources, priorOptions);
   const optionsJson = serializePropertyOptions({ options });
 
@@ -8046,8 +7830,6 @@ export async function ensureDatabaseSourceProperty(args: {
     );
   }
 
-  // A row's Source value IS its owning source id (= the option id); unsourced
-  // rows get the "Local" sentinel. Pure id mapping, no source-name hop.
   const rows = await db
     .select({
       documentId: schema.contentDatabaseSourceRows.documentId,

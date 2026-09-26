@@ -27,10 +27,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
-// ---------------------------------------------------------------------------
-// Fake @agent-native/core/collab backed by a real per-docId Y.Doc registry,
-// with a real deterministic prefix/suffix-trim diff for applyText.
-// ---------------------------------------------------------------------------
 const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
 
 function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
@@ -127,10 +123,6 @@ vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: vi.fn().mockReturnValue(undefined),
 }));
 
-// ---------------------------------------------------------------------------
-// Minimal fake Drizzle app-DB layer backing a single design_files row, same
-// query shape as insert-design-native-asset.interleave.spec.ts.
-// ---------------------------------------------------------------------------
 interface FileRow {
   id: string;
   designId: string;
@@ -286,9 +278,6 @@ describe("apply-shader-fill collab-aware persist (contract-bypass fix)", () => {
   });
 
   it("a concurrent sibling collab write landing between the base read and the persist is NOT silently dropped — both changes survive", async () => {
-    // Model a live editor session already holding an open collab doc for
-    // this file, with a sibling caption-text edit baked in, so
-    // apply-shader-fill's readLiveSourceFile call observes it as the base.
     const preFillLive = await readLiveSourceFile(currentFileRef());
     await (
       await import("@agent-native/core/collab")
@@ -298,14 +287,12 @@ describe("apply-shader-fill collab-aware persist (contract-bypass fix)", () => {
       "Caption text (edited by sibling)",
     );
     await applyText(FILE_ID, siblingEdited, "content", "agent");
-    seedFile(siblingEdited); // mirror SQL the way a guarded write would
+    seedFile(siblingEdited);
 
     const result = await action.run(shaderFillArgs() as never);
 
     expect(result.persisted).toBe(true);
     const finalLive = await readLiveSourceFile(currentFileRef());
-    // BOTH changes present: the sibling's caption edit AND the new shader
-    // background.
     expect(finalLive.content).toContain("Caption text (edited by sibling)");
     expect(finalLive.content).toContain("background:");
   });
@@ -349,8 +336,6 @@ describe("apply-shader-fill collab-aware persist (contract-bypass fix)", () => {
       "Caption text (edited concurrently)",
     );
     await applyText(FILE_ID, concurrentLive, "content", "agent");
-    // Deliberately leave SQL at persistedBase with the matching revision. The
-    // live Y.Text is the independent third value that must win the conflict.
 
     const result = await action.run(
       shaderFillArgs({
@@ -378,9 +363,6 @@ describe("apply-shader-fill collab-aware persist (contract-bypass fix)", () => {
   it("rejects loud (ShaderFillRevisionConflictError shape) instead of silently clobbering when currentContent has gone stale by write time", async () => {
     const staleBase = baseDoc();
 
-    // A concurrent writer changes the live collab doc AFTER staleBase was
-    // captured by the caller but BEFORE this action runs — modeled by
-    // seeding collab state directly, then landing a further edit on it.
     await (
       await import("@agent-native/core/collab")
     ).seedFromText(FILE_ID, staleBase);
@@ -391,13 +373,9 @@ describe("apply-shader-fill collab-aware persist (contract-bypass fix)", () => {
     await applyText(FILE_ID, concurrentContent, "content", "agent");
     seedFile(concurrentContent, "2026-07-06T00:05:00.000Z");
 
-    // Sanity: the live doc has already diverged from staleBase.
     const liveNow = await readLiveSourceFile(currentFileRef());
     expect(liveNow.content).not.toBe(staleBase);
 
-    // Caller supplies the now-stale snapshot as currentContent with a
-    // matching revision stamp equal to the ORIGINAL file.updatedAt — but the
-    // live doc has since moved on, so the write must be rejected loud.
     const result = await action.run(
       shaderFillArgs({
         source: {
@@ -414,8 +392,6 @@ describe("apply-shader-fill collab-aware persist (contract-bypass fix)", () => {
     expect(result.persisted).toBe(false);
     expect(result.conflict).toBe(true);
 
-    // The concurrent edit must survive untouched — no corruption, no lost
-    // update.
     const finalLive = await readLiveSourceFile(currentFileRef());
     expect(finalLive.content).toContain("Caption text (edited concurrently)");
     expect(finalLive.content).not.toContain("background:");

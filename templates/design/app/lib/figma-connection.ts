@@ -22,7 +22,6 @@ export interface FigmaConnectionStatus {
   docsUrl?: string;
   last4?: string;
   updatedAt?: number;
-  /** True when the runtime supplies Figma without a user-vault token. */
   managed?: boolean;
 }
 
@@ -63,10 +62,6 @@ function redactSubmittedSecret(message: string, secret: string): string {
     );
 }
 
-/**
- * Read Figma connection metadata without ever returning the token value.
- * Both the chat URL affordance and Import panel should share this helper.
- */
 export async function getFigmaConnectionStatus(options?: {
   signal?: AbortSignal;
 }): Promise<FigmaConnectionStatus> {
@@ -90,10 +85,7 @@ export async function getFigmaConnectionStatus(options?: {
   }
 
   // An invalid user-vault token wins over any managed fallback because the
-  // importer resolves that scoped row first. Prompt the user to replace it.
-  // For an unset vault row, ask the authenticated runtime whether it has a
   // usable managed credential. This returns only a boolean and follows the
-  // same request-scoped resolver as Figma imports.
   const managedAvailable =
     figma.status === "unset"
       ? await callAction<{ available: boolean }>(
@@ -141,9 +133,6 @@ export async function saveFigmaAccessToken(
       },
     );
   } catch (reason) {
-    // Transport errors can be constructed by an intermediary and may reflect
-    // request headers or bodies. Redact the raw, encoded, and JSON-escaped
-    // submitted token before the message can reach a toast or error boundary.
     const message =
       reason instanceof Error && reason.message.trim()
         ? reason.message
@@ -152,8 +141,6 @@ export async function saveFigmaAccessToken(
   }
   if (!response.ok) {
     const message = await responseError(response, "Could not connect Figma");
-    // The server already redacts validator/storage errors. Keep a final client
-    // boundary so a misbehaving intermediary cannot reflect the submitted key.
     throw new Error(redactSubmittedSecret(message, token));
   }
 

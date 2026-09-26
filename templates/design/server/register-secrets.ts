@@ -1,8 +1,5 @@
 import { registerRequiredSecret } from "@agent-native/core/secrets";
 
-// Optional: enables design-system import from private GitHub repositories.
-// The import-github action reads this server-side via resolveSecret(); tokens
-// should never be pasted into chat or passed as action parameters.
 registerRequiredSecret({
   key: "GITHUB_TOKEN",
   label: "GitHub token",
@@ -44,8 +41,6 @@ registerRequiredSecret({
   },
 });
 
-// Optional: connects Figma frame import, library browsing, and open-ended REST
-// reads in agent chat. The provider API injects this server-side as
 // X-Figma-Token; never pass it through action parameters or chat.
 registerRequiredSecret({
   key: "FIGMA_ACCESS_TOKEN",

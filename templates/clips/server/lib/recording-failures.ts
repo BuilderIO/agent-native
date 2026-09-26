@@ -67,7 +67,6 @@ export function normalizeRecordingPlatform(value: unknown): RecordingPlatform {
     : "unknown";
 }
 
-// Canonical identity comes from the verified request context, never the email.
 export function recordingTrackingSource(userId: string) {
   const authUserId = getRequestContext()?.authUserId;
   return { userId, ...(authUserId ? { authUserId } : {}) };

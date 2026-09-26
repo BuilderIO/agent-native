@@ -1,26 +1,6 @@
-/**
- * Source capability vocabulary for the Design Studio.
- *
- * Every source (inline, localhost, fusion) advertises an explicit capability
- * set.  The UI gates controls on this — never on `sourceType` alone.  The
- * agent reads the same map and never claims a write the source cannot perform.
- *
- * Relation to `source-mode.ts`:
- * - `DesignBridgeOperation` ("select" | "resolveNodeToFile" | "readFile" |
- *   "applyEdit" | "writeFile" | "captureSnapshot" | "captureState" |
- *   "listFiles") describes
- *   the low-level bridge RPC surface.
- * - `DesignCapabilityName` below is the *higher-level* capability vocabulary
- *   that UI panels and agent actions read.  Several capabilities build on one
- *   or more bridge operations; others (e.g. `previewMotion`, `writeTokens`) are
- *   implemented above the bridge layer and have no direct bridge op.
- * - `DesignBridgeOperationStatus` ("available" | "planned" | "disabled") is
- *   reused here as `CapabilityStatus`.
- */
 
 import type { DesignBridgeOperationStatus } from "./source-mode";
 
-// ─── Capability name vocabulary ──────────────────────────────────────────────
 
 /**
  * The full set of named capabilities a design source can advertise.
@@ -62,27 +42,15 @@ export const DESIGN_CAPABILITY_NAMES = [
 
 export type DesignCapabilityName = (typeof DESIGN_CAPABILITY_NAMES)[number];
 
-// ─── Status ───────────────────────────────────────────────────────────────────
 
-/**
- * Mirrors `DesignBridgeOperationStatus` from `source-mode.ts` so callers can
- * import a single type.
- *
- * - `available`   — the source can perform this operation right now.
- * - `planned`     — the operation is understood but not yet hardened/enabled.
- * - `unavailable` — not supported for this source type; show a migration CTA.
- */
 export type CapabilityStatus = DesignBridgeOperationStatus | "unavailable";
 
-// ─── Per-capability entry ─────────────────────────────────────────────────────
 
 export interface DesignSourceCapabilityEntry {
   status: CapabilityStatus;
-  /** Optional human-readable explanation surfaced in CTA / tooltip copy. */
   reason?: string;
 }
 
-// ─── Full capability map ──────────────────────────────────────────────────────
 
 /**
  * A map of every `DesignCapabilityName` to its status for a given source.
@@ -94,17 +62,7 @@ export type DesignSourceCapabilities = Record<
   DesignSourceCapabilityEntry
 >;
 
-// ─── Helper ───────────────────────────────────────────────────────────────────
 
-/**
- * Pure helper — returns `true` only when the named capability is `available`.
- * All other statuses ("planned", "unavailable", "disabled") return `false`.
- *
- * Usage:
- * ```ts
- * if (hasCapability(caps, "writeTokens")) { ... }
- * ```
- */
 export function hasCapability(
   caps: DesignSourceCapabilities,
   name: DesignCapabilityName,
@@ -112,28 +70,15 @@ export function hasCapability(
   return caps[name]?.status === "available";
 }
 
-// ─── Factory helpers ──────────────────────────────────────────────────────────
 
-/**
- * Build a `DesignSourceCapabilityEntry` with status `available`.
- * Convenience for constructing canonical capability maps.
- */
 export function available(reason?: string): DesignSourceCapabilityEntry {
   return { status: "available", ...(reason !== undefined ? { reason } : {}) };
 }
 
-/**
- * Build a `DesignSourceCapabilityEntry` with status `planned`.
- * Used for capabilities that are understood by the bridge but not yet hardened.
- */
 export function planned(reason?: string): DesignSourceCapabilityEntry {
   return { status: "planned", ...(reason !== undefined ? { reason } : {}) };
 }
 
-/**
- * Build a `DesignSourceCapabilityEntry` with status `unavailable`.
- * Used to signal a migration CTA to the UI.
- */
 export function unavailable(reason?: string): DesignSourceCapabilityEntry {
   return {
     status: "unavailable",
@@ -141,7 +86,6 @@ export function unavailable(reason?: string): DesignSourceCapabilityEntry {
   };
 }
 
-// ─── Well-known default maps per source tier ──────────────────────────────────
 
 /**
  * Default capability map for **inline** (HTML/Alpine/SQL) designs.
@@ -211,17 +155,6 @@ export const LOCALHOST_DEFAULT_CAPABILITIES: DesignSourceCapabilities = {
   deploy: unavailable("Deploy requires a connected Builder app"),
 };
 
-/**
- * Default capability map for a **fusion** (Builder-hosted) design where Builder
- * is **not yet connected** (no credentials / no branch project configured).
- *
- * Preview-only: the canvas can render and snapshot the remote app but no
- * real-app operations (`indexComponents`, `branch`, `deployPreview`, `deploy`,
- * write ops) are available until Builder credentials are confirmed.
- *
- * Use `FUSION_CONNECTED_CAPABILITIES` once `resolveHasCompleteBuilderConnection`
- * returns `true` and a branch project is configured.
- */
 export const FUSION_DISCONNECTED_CAPABILITIES: DesignSourceCapabilities = {
   readFile: planned(
     "Connect Builder (free tier available) to enable file reads on fusion sources",
@@ -257,17 +190,6 @@ export const FUSION_DISCONNECTED_CAPABILITIES: DesignSourceCapabilities = {
   deploy: unavailable("Connect Builder (free tier available) to deploy"),
 };
 
-/**
- * Capability map for a **fusion** (Builder-hosted) design where Builder **is
- * connected** (credentials present + branch project configured).
- *
- * Per DESIGN-STUDIO-PLAN.md §5:
- * - `indexComponents`, `branch`, `deployPreview`, `deploy` are **available**.
- * - Source writes (`writeFile`, `writeTokens`, `writeMotion` to real source)
- *   remain **planned** until bridge hardening is complete.
- * - `readFile`, `applyEdit`, `previewPatch`, `diffPatch`, `captureSnapshot`,
- *   `captureState`, `indexTokens`, and `previewMotion` are **available**.
- */
 export const FUSION_CONNECTED_CAPABILITIES: DesignSourceCapabilities = {
   readFile: available(),
   writeFile: planned(

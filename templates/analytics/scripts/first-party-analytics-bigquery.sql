@@ -1,10 +1,8 @@
--- Builder.io production first-party Analytics warehouse.
--- Run this once with the authenticated Builder Google Cloud account:
---   bq query --use_legacy_sql=false < templates/analytics/scripts/first-party-analytics-bigquery.sql
---
--- The raw table is append-only. The query view removes retry duplicates by the
--- stable Postgres event id, and the two aggregate views preserve the existing
--- dashboard SQL names without writing rollups back to Neon.
+
+
+
+
+
 
 CREATE SCHEMA IF NOT EXISTS `builder-3b0a2.analytics`
 OPTIONS (location = "US");
@@ -103,18 +101,18 @@ SELECT
 FROM tenant_user_days
 GROUP BY tenant_key, event_date, user_key;
 
--- Canonical action.response reliability/latency shape — mirrors
--- ACTION_RESPONSE_WEIGHT_SQL / ACTION_RESPONSE_OUTCOME_CLASS_SQL in
--- templates/analytics/server/lib/first-party-metric-catalog.ts. Row-level
--- (not pre-aggregated) so BigQuery callers can group by whatever window or
--- dimension subset they need, same as the Postgres catalog does. `weight`
--- must be SUMmed for counts and used to bucket `duration_ms` into a
--- cumulative-weight quantile — never a raw COUNT/APPROX_QUANTILES, which
--- would count each 10%-sampled fast success as one call instead of
--- `sample_weight` many. `outcome_class = 'cancelled'` (a superseded/unmounted
--- browser fetch) and `'suspended'` (a hidden-tab timeout, no real server
--- wait) must stay out of both the success and failure side of a reliability
--- rate.
+
+
+
+
+
+
+
+
+
+
+
+
 CREATE OR REPLACE VIEW `builder-3b0a2.analytics.first_party_action_responses` AS
 SELECT
   CASE
@@ -125,10 +123,10 @@ SELECT
   org_id,
   event_date,
   session_id,
-  -- Mirrors TEMPLATE_EXPR in first-party-metric-catalog.ts: template (and its
-  -- properties fallbacks) win over app, so a row like template='chat' /
-  -- app='cs-account-health' attributes the same way here as on the Postgres
-  -- sink.
+
+
+
+
   COALESCE(
     NULLIF(template, ''),
     NULLIF(JSON_VALUE(properties, '$.templateId'), ''),
@@ -173,9 +171,9 @@ SELECT
   END AS weight,
   SAFE_CAST(JSON_VALUE(properties, '$.duration_ms') AS FLOAT64) AS duration_ms,
   SAFE_CAST(JSON_VALUE(properties, '$.status_code') AS INT64) AS status_code,
-  -- Wall-clock duration for a call spanning a backgrounded tab is inflated by
-  -- browser timer throttling, not by the server or network; exclude these
-  -- from any latency quantile computed against this view.
+
+
+
   NULLIF(JSON_VALUE(properties, '$.page_hidden'), '') AS page_hidden
 FROM `builder-3b0a2.analytics.first_party_analytics_events_raw_query`
 WHERE event_name = 'action.response' AND event_date IS NOT NULL;

@@ -1,9 +1,3 @@
-/**
- * Dependency-free regression coverage for public form submission validation.
- *
- * Forms does not currently wire Vitest into package scripts, so run with:
- *   node_modules/.bin/tsx templates/forms/server/lib/submission-validation.spec.ts
- */
 
 import { isConditionalFieldVisible } from "../../shared/conditional.js";
 import type { FormField } from "../../shared/types.js";

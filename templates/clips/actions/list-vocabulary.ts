@@ -1,14 +1,3 @@
-/**
- * List the current user's learned vocabulary terms.
- *
- * Used by the desktop dictation start path: before kicking off
- * `native_speech_start`, the renderer fetches this list and passes the
- * `replacement` strings into `SFSpeechRecognizer.contextualStrings` so the
- * recognizer biases toward the user's preferred spellings.
- *
- * Usage:
- *   pnpm action list-vocabulary
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";

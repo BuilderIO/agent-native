@@ -25,9 +25,8 @@ async function waitForHubSpotSearchSlot(): Promise<void> {
   await scheduled;
 }
 
-// In-memory cache
 const cache = new Map<string, { data: unknown; ts: number }>();
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 120;
 
 async function getToken(): Promise<string> {
@@ -134,7 +133,6 @@ async function apiPost<T>(
   return data as T;
 }
 
-// -- Types --
 
 export const HUBSPOT_OBJECT_TYPES = [
   "contacts",
@@ -253,7 +251,6 @@ interface PipelineListResponse {
   }[];
 }
 
-// -- API functions --
 
 const REQUIRED_DEAL_PROPERTIES = [
   "dealname",
@@ -291,7 +288,6 @@ const OPTIONAL_DEAL_PROPERTIES = [
   "risk_status_last_updated",
   "total_contract_value",
   "churn_notes",
-  // POV stage entry dates (hs_v2_date_entered_{stageId})
   "hs_v2_date_entered_2121599", // Enterprise: New Business — S2 - Proof of Value
   "hs_v2_date_entered_1166928645", // Enterprise: Expansion — S2 - Proof of Value
 ];
@@ -606,7 +602,6 @@ export async function getDealPipelines(): Promise<Pipeline[]> {
   }));
 }
 
-// Pipelines to exclude from metrics — single-stage auto-complete or non-core
 const EXCLUDED_PIPELINE_LABELS = [
   "self-serve: new subscription",
   "self-serve: expansion",
@@ -614,7 +609,6 @@ const EXCLUDED_PIPELINE_LABELS = [
   "partner onboarding pipeline",
 ];
 
-// Pipelines to hide from the Kanban board
 const HIDDEN_KANBAN_LABELS = [
   "self serve pipeline",
   "enterprise: white label",
@@ -676,7 +670,6 @@ export async function getAllDeals(
 ): Promise<Deal[]> {
   const properties = await resolveDealProperties(extraProperties);
   const propertyKey = properties.slice().sort().join(",");
-  // Check full-result cache first
   const fullCacheKey = scopedCredentialCacheKey(
     `all-deals-full:${propertyKey}`,
     "HUBSPOT_ACCESS_TOKEN",
@@ -690,7 +683,6 @@ export async function getAllDeals(
   let after: string | undefined;
   const props = properties.join(",");
 
-  // Paginate through all deals (up to 10K)
   for (let i = 0; i < 100; i++) {
     const url = `/crm/v3/objects/deals?limit=100&properties=${props}${after ? `&after=${after}` : ""}`;
     const res = await hubspotFetch(`${API_BASE}${url}`, {
@@ -706,14 +698,11 @@ export async function getAllDeals(
     if (!after) break;
   }
 
-  // Cache the full result
   cache.set(fullCacheKey, { data: all, ts: Date.now() });
   return all;
 }
 
-// -- Computed metrics --
 
-// Known POV stage IDs — used for hs_v2_date_entered_ lookups
 const POV_STAGE_IDS = [
   "2121599", // Enterprise: New Business
   "1166928645", // Enterprise: Expansion
@@ -747,7 +736,6 @@ export function computeSalesMetrics(
   pipelines: Pipeline[],
   filterToMetricsPipelines = true,
 ): SalesMetrics {
-  // Filter deals to only enterprise/relevant pipelines for metrics
   const metricsPipelines = filterToMetricsPipelines
     ? getMetricsPipelines(pipelines)
     : pipelines;
@@ -755,7 +743,6 @@ export function computeSalesMetrics(
   const filteredDeals = deals.filter((d) =>
     metricsPipelineIds.has(d.properties.pipeline),
   );
-  // Build stage lookup — keyed by stageId
   const stageMap = new Map<string, DealStage>();
   const wonStageIds = new Set<string>();
   const lostStageIds = new Set<string>();
@@ -782,13 +769,11 @@ export function computeSalesMetrics(
   let lostDeals = 0;
   let lostValue = 0;
 
-  // POV tracking using actual stage entry dates (hs_v2_date_entered_)
   let povEntered = 0;
   let povWon = 0;
 
   const stageCount = new Map<string, { count: number; value: number }>();
 
-  // Track won deal amounts for ACV calculation
   const wonAmounts: number[] = [];
 
   for (const deal of filteredDeals) {
@@ -797,7 +782,6 @@ export function computeSalesMetrics(
 
     totalPipelineValue += amount;
 
-    // Count by stage
     const existing = stageCount.get(stageId) ?? { count: 0, value: 0 };
     existing.count++;
     existing.value += amount;
@@ -815,7 +799,6 @@ export function computeSalesMetrics(
       openPipelineValue += amount;
     }
 
-    // POV success: check hs_v2_date_entered_ for each known POV stage
     const enteredPov = POV_STAGE_IDS.some(
       (sid) => !!deal.properties[`hs_v2_date_entered_${sid}`],
     );
@@ -833,7 +816,6 @@ export function computeSalesMetrics(
     wonAmounts.length > 0
       ? wonAmounts.reduce((a, b) => a + b, 0) / wonAmounts.length
       : 0;
-  // Landing ACV: median of won deal amounts (less skewed by outliers)
   const sortedAmounts = [...wonAmounts].sort((a, b) => a - b);
   const landingAcv =
     sortedAmounts.length > 0
@@ -841,7 +823,6 @@ export function computeSalesMetrics(
       : 0;
   const povSuccessRate = povEntered > 0 ? povWon / povEntered : 0;
 
-  // Build stage breakdown
   const dealsByStage: SalesMetrics["dealsByStage"] = [];
   for (const [stageId, data] of stageCount) {
     const stage = stageMap.get(stageId);

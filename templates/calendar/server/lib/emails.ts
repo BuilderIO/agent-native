@@ -1,9 +1,3 @@
-/**
- * Catalog entries for the transactional emails Calendar sends.
- *
- * Registered from `server/plugins/transactional-emails.ts` so Dispatch can list
- * and preview them without the app having sent anything yet.
- */
 
 import { defineTransactionalEmail } from "@agent-native/core/email-catalog";
 
@@ -16,7 +10,6 @@ import {
 import { renderEventGuestNote } from "./event-guest-notifications.js";
 import { renderOverlayRequestEmail } from "./overlay-request-emails.js";
 
-/** Obviously-fake sample data — these render in a preview pane, never send. */
 const SAMPLE_TITLE = "Intro call";
 const SAMPLE_WHEN = "Tuesday, March 4, 2025, 10:00 AM - 10:30 AM PST";
 const SAMPLE_HOST = "dana.hill@example.com";

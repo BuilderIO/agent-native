@@ -1,10 +1,3 @@
-/**
- * The "changed from X to Y" affordance next to a history-tracked attribute.
- *
- * A dialog rather than a hover card: the template ships no popover primitive,
- * and the house rule forbids hand-rolling one. History is fetched only when the
- * dialog opens — the panel would otherwise issue one query per attribute.
- */
 
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -111,8 +104,6 @@ function FieldHistoryBody({
     );
   const data = query.data;
   if (!data) return null;
-  // Not tracked and no changes are different answers: one says history is off
-  // for this attribute, the other says it is on and empty.
   if (!data.historyTracked)
     return (
       <p className="text-sm text-muted-foreground">

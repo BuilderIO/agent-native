@@ -60,8 +60,6 @@ it.each([false, true])(
 
 it("cancels a pending creation only on its OWN session-ended report", () => {
   const b = { screenId: "board", nodeId: "text-b" };
-  // Session A ending after creation B armed on the same surface. Cancelling on
-  // the bare signal settled B's ladder, which then deleted B's node.
   expect(
     endedTextEditMatchesPendingCreation(b, {
       active: false,
@@ -76,8 +74,6 @@ it("cancels a pending creation only on its OWN session-ended report", () => {
       sourceId: "text-b",
     }),
   ).toBe(true);
-  // Same node id on a different surface, an unidentified report, and a session
-  // that is still live are all "not this creation".
   expect(
     endedTextEditMatchesPendingCreation(b, {
       active: false,
@@ -137,9 +133,6 @@ it("stops requesting activation once the creation is abandoned", async () => {
   });
   await vi.advanceTimersByTimeAsync(5000);
 
-  // No focus yanked back into a node the user pointed away from — but the
-  // ladder still settles on its own deadline, so the untouched node is still
-  // cleaned up rather than left behind invisibly.
   expect(
     post.mock.calls.filter(([message]) => message.type === "begin-text-edit"),
   ).toHaveLength(0);
@@ -147,8 +140,6 @@ it("stops requesting activation once the creation is abandoned", async () => {
 });
 
 it("derives the keystroke buffer's deadline from the ladder, not beside it", () => {
-  // The ladder climbs, so its largest delay is its last attempt — the moment
-  // after which nothing more will ask the iframe to open the session.
   expect([...BEGIN_TEXT_EDIT_RETRY_DELAYS_MS].sort((a, b) => a - b)).toEqual(
     BEGIN_TEXT_EDIT_RETRY_DELAYS_MS,
   );
@@ -160,8 +151,6 @@ it("derives the keystroke buffer's deadline from the ladder, not beside it", () 
 });
 
 it("keeps a live session when an earlier one on the same screen reports ended", () => {
-  // Overview shares one text-editing state across every canvas. Creation A's
-  // late active:false used to close creation B's live session on that surface.
   const b = { screenId: "board", sourceId: "text-b" };
   expect(
     endedTextEditClosesActiveSession(b, {
@@ -181,20 +170,13 @@ it("keeps a live session when an earlier one on the same screen reports ended", 
       sourceId: "text-b",
     }),
   ).toBe(false);
-  // A report or a session without element identity still closes its screen's
-  // session rather than stranding it active forever.
   expect(endedTextEditClosesActiveSession(b, { screenId: "board" })).toBe(true);
-  // An IDENTIFIED ended report names the session it closed. Letting it close an
-  // unidentified live session closed whichever session happened to be open —
-  // creation A's late report ending the session the user was typing into.
   expect(
     endedTextEditClosesActiveSession(
       { screenId: "board" },
       { screenId: "board", sourceId: "text-a" },
     ),
   ).toBe(false);
-  // Neither side claims an identity: the report still closes its screen's
-  // session instead of stranding it active forever.
   expect(
     endedTextEditClosesActiveSession(
       { screenId: "board" },
@@ -238,8 +220,6 @@ it("never settles early on a live session once the creation is abandoned", async
     onExhausted,
   });
   await vi.advanceTimersByTimeAsync(400);
-  // An abandoned session that happens to be active is not evidence the user
-  // is still typing: settling here would skip the empty-node cleanup.
   expect(onExhausted).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(5000);
   expect(onExhausted).toHaveBeenCalledExactlyOnceWith("active");

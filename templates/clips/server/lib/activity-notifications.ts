@@ -1,12 +1,3 @@
-/**
- * Email notifications for Activity events (comments, replies, reactions).
- *
- * Recipient resolution and delivery reporting live in
- * `@agent-native/core/server`; this module only knows which Clips rows are
- * involved and which template to render. Share invites are deliberately NOT
- * routed through the Clips notification preferences - they have their own
- * delivery path.
- */
 
 import {
   notifyActivity,
@@ -22,11 +13,6 @@ import { filterClipsNotificationRecipients } from "./notification-preferences.js
 import { canReceiveRecordingActivity } from "./recording-page-access.js";
 import { sendClipsTransactionalEmail } from "./transactional-email-templates.js";
 
-/**
- * `recording-missing` is kept distinct from `no-recipients`: one means the row
- * we were asked to notify about could not be read, the other means nobody
- * wanted the email.
- */
 export type ClipsActivityNotificationResult =
   | ActivityNotificationResult
   | { status: "recording-missing"; sent: []; failed: [] };
@@ -110,8 +96,6 @@ async function deliverRecordingCommentEmails(
     );
   }
 
-  // Thread rows are history, not an access grant: a viewer whose share was
-  // revoked must stop receiving the recording's comment bodies.
   const clipsAllowed = candidates.filter((email) =>
     canReceiveRecordingActivity({
       ownerEmail: recording.ownerEmail,

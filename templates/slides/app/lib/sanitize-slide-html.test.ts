@@ -59,8 +59,6 @@ describe("sanitizeSlideHtml", () => {
   });
 
   it("heals a stylesheet scoped by an earlier save to a single scope", () => {
-    // Saving the rendered DOM stored scoped selectors; each render then
-    // prefixed another scope, and the chained selectors matched nothing.
     const html = sanitizeSlideHtml(
       '<style>[data-slide-content-scope="slide-a"] [data-slide-content-scope="slide-b"] .card { color: red; } [data-slide-content-scope="slide-a"], [data-slide-content-scope="slide-a"] * { margin: 0; }</style><div class="card">ok</div>',
       { scopeSelector: '[data-slide-content-scope="slide-c"]' },

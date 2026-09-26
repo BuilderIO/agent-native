@@ -142,12 +142,6 @@ function alignIcon(textAlign: string) {
   return IconAlignLeft;
 }
 
-/**
- * Horizontal counterpart to the style dock: the same snapshot and patch
- * callback, presented as a row above the canvas so the slide keeps full width.
- * Controls past the first few live in grouped popovers — a flat row overflows
- * once the agent sidebar and slide rail take their share of the width.
- */
 export function SlideContextToolbar({
   snapshot,
   background,
@@ -176,17 +170,11 @@ export function SlideContextToolbar({
   background: string | undefined;
   designSystem?: DesignSystemData;
   className?: string;
-  /** Selection-independent actions pinned to the head of the row. */
   leading?: ReactNode;
-  /** Whether the canvas currently has an element selected. */
   hasSelectedElement?: boolean;
-  /** Whether the selected-element transitions panel is open. */
   animationsOpen?: boolean;
-  /** Open transitions for the current canvas selection. */
   onOpenAnimations?: () => void;
-  /** Whether the current user can add comments to this deck. */
   canComment?: boolean;
-  /** Start a comment anchored to the selected slide object. */
   onComment?: () => void;
   onChange: (patch: SlideStylePatch) => void;
   onBackgroundChange: (background: string) => void;
@@ -242,15 +230,9 @@ export function SlideContextToolbar({
           ...baseFontFamilyOptions,
         ],
   );
-  // A mixed selection has no single state to reflect, so the toggle reads as
-  // off and one click makes the whole selection consistent.
   const isItalic =
     !mixedTextStyles.includes("fontStyle") &&
     (snapshot?.fontStyle ?? "").startsWith("italic");
-  // A mixed selection has no single size, so the scrub input reports a step as
-  // a relative delta rather than a value. Writing that delta as an absolute
-  // size would set the whole selection to a few pixels; step from the block's
-  // own size instead, which also makes the selection consistent in one click.
   const sizeFor = (value: number, meta?: { relativeDelta?: number }) => {
     const delta = meta?.relativeDelta;
     if (typeof delta !== "number") return value;
@@ -259,8 +241,6 @@ export function SlideContextToolbar({
   const decorationMixed = mixedTextStyles.includes("textDecoration");
   const isUnderline =
     !decorationMixed && (snapshot?.textDecoration ?? "").includes("underline");
-  // Text can carry more than one decoration, and the agent writes
-  // line-through even though no control exposes it. Editing the underline
   // token in place keeps the rest; writing a bare "none" would erase them.
   const underlinePatch = () => {
     if (decorationMixed) return "underline";
@@ -272,8 +252,6 @@ export function SlideContextToolbar({
       : [...tokens, "underline"];
     return next.length > 0 ? next.join(" ") : "none";
   };
-  // Null means the slide uses a background this picker cannot represent (named
-  // utility, gradient); surface that as Mixed rather than guessing a hex.
   const slideBackground = backgroundCssValue(background);
   const hasMultiObjectSelection = objectSelectionCount >= 2;
   const canDistributeObjects = objectSelectionCount >= 3;

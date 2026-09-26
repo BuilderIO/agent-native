@@ -54,11 +54,6 @@ function uniqueTitle(label: string): string {
   return `Registry ${label} ${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 }
 
-/**
- * Create a document fixture through the authed action surface and return its id.
- * The shared dev server can HMR/reload mid-request (a transient 500), so retry a
- * few times — a fixture hiccup must never read as the render bug under test.
- */
 async function createDocFixture(
   page: Page,
   opts: { title: string; content: string },
@@ -89,7 +84,6 @@ async function createDocFixture(
   return id as string;
 }
 
-/** Read the document's persisted NFM content (for the "no wipe" assertion). */
 async function getDocContent(page: Page, id: string): Promise<string> {
   const res = await page.request.get(
     `${GET_ACTION}?id=${encodeURIComponent(id)}`,
@@ -100,17 +94,14 @@ async function getDocContent(page: Page, id: string): Promise<string> {
   return typeof body.content === "string" ? body.content : "";
 }
 
-/** The editable ProseMirror editor surface for the open document. */
 function prose(page: Page) {
   return page.locator(".notion-editor.ProseMirror").first();
 }
 
-/** The shared registry-block NodeView wrapper for a given block id. */
 function blockNode(page: Page, blockId: string) {
   return page.locator(`.plan-block-node[data-block-id="${blockId}"]`).first();
 }
 
-/** Open the document and wait for the editor surface to be ready + editable. */
 async function openDoc(page: Page, id: string) {
   await page.goto(`/page/${id}`);
   const editor = prose(page);
@@ -122,17 +113,10 @@ async function openDoc(page: Page, id: string) {
 }
 
 test.describe("content editor renders inline registry blocks", () => {
-  // api-endpoint -> `<Endpoint>` -> ApiEndpointRead: the colored method pill
-  // ("GET") + the monospace path. Authored as valid inline NFM (the exact shape
-  // content's serializer round-trips — see shared/nfm.registry.spec.ts).
   test("api-endpoint (<Endpoint>) renders the GET pill + path, survives reload AND dark mode", async ({
     page,
   }) => {
     const blockId = "e-render-1";
-    // Canonical NFM verified to round-trip byte-exact and parse to a single
-    // `api-endpoint` registryBlock (see shared/nfm.registry.spec.ts shapes; the
-    // children form `>…</Endpoint>` is what content's serializer emits when a
-    // `summary` attr is present). A brace-free path keeps it a plain string attr.
     const path = "/api/users/by-id";
     const nfm = [
       "# API reference",
@@ -145,8 +129,6 @@ test.describe("content editor renders inline registry blocks", () => {
       "Outro prose below the endpoint.",
     ].join("\n");
 
-    // Surface any uncaught page error so a render crash is reported clearly
-    // (and is never masked by a passing visibility assertion).
     const pageErrors: string[] = [];
     page.on("pageerror", (err) => pageErrors.push(String(err?.message ?? err)));
 
@@ -155,7 +137,6 @@ test.describe("content editor renders inline registry blocks", () => {
       content: nfm,
     });
 
-    // Sanity: the inline registry block persisted in the stored NFM.
     expect(
       (await getDocContent(page, id)).includes(`<Endpoint id="${blockId}"`),
       "the <Endpoint> block should persist in the stored NFM",
@@ -163,16 +144,12 @@ test.describe("content editor renders inline registry blocks", () => {
 
     await openDoc(page, id);
 
-    // The shared NodeView mounts for THIS block id...
     const node = blockNode(page, blockId);
     await expect(
       node,
       `the registryBlock NodeView for "${blockId}" should mount in the content editor`,
     ).toBeVisible({ timeout: 30_000 });
 
-    // ...and ApiEndpointRead renders the collapsed row: the "GET" method pill +
-    // the verbatim path. This is the load-bearing proof that BlockView -> the
-    // React Read component actually ran in the browser, not just round-tripped.
     await expect(node).toContainText("GET", {
       timeout: BLOCK_RENDER_TIMEOUT,
     });
@@ -183,7 +160,6 @@ test.describe("content editor renders inline registry blocks", () => {
       `no uncaught page errors while rendering the api-endpoint block: ${pageErrors.join(" | ")}`,
     ).toEqual([]);
 
-    // Survives a full reload (re-parse from the stored NFM, re-mount the NodeView).
     await page.reload();
     await openDocAfterReload(page, id, blockId);
     await expect(blockNode(page, blockId)).toContainText("GET", {
@@ -191,8 +167,6 @@ test.describe("content editor renders inline registry blocks", () => {
     });
     await expect(blockNode(page, blockId)).toContainText(path);
 
-    // Dark mode: next-themes toggles `.dark` on <html>; the block must still
-    // render its content without throwing.
     await page.evaluate(() => {
       const root = document.documentElement;
       root.classList.remove("light");
@@ -214,7 +188,6 @@ test.describe("content editor renders inline registry blocks", () => {
       `no uncaught page errors after reload + dark-mode toggle: ${pageErrors.join(" | ")}`,
     ).toEqual([]);
 
-    // The block is NOT wiped from the stored NFM by opening/reloading.
     await expect
       .poll(
         async () => (await getDocContent(page, id)).includes(`id="${blockId}"`),
@@ -226,16 +199,10 @@ test.describe("content editor renders inline registry blocks", () => {
   });
 
   // diff -> `<Diff>` -> DiffRead: the filename header + a token that exists only
-  // on the ADDED side (proves the diff body rendered, not just the chrome).
   test("diff (<Diff>) renders the filename + an added-only token and survives reload", async ({
     page,
   }) => {
     const blockId = "d-render-1";
-    // Canonical NFM verified to round-trip byte-exact and parse to a single
-    // `diff` registryBlock. `before`/`after` carry real newlines, so content's
-    // serializer emits them as JSX-expression attrs (`before={"…\n…"}`) — the
-    // `\n` below is a literal backslash-n inside that expression string, exactly
-    // what the serializer produces. `a: number` exists ONLY on the added side.
     const nfm =
       `# Change\n` +
       `<Diff id="${blockId}" filename="src/add.ts" language="ts" ` +
@@ -263,7 +230,6 @@ test.describe("content editor renders inline registry blocks", () => {
     ).toBeVisible({ timeout: 30_000 });
 
     // Filename header (always rendered) + a token that ONLY exists on the added
-    // side (the typed signature) — proves DiffRead computed and rendered the body.
     await expect(node).toContainText("src/add.ts", {
       timeout: BLOCK_RENDER_TIMEOUT,
     });
@@ -283,7 +249,6 @@ test.describe("content editor renders inline registry blocks", () => {
   });
 });
 
-/** After a reload, wait for the editor + the block NodeView to re-mount. */
 async function openDocAfterReload(page: Page, _id: string, blockId: string) {
   const editor = prose(page);
   await expect(editor).toBeVisible({ timeout: 30_000 });

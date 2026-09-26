@@ -51,7 +51,6 @@ describe("landingTitleHintFromState", () => {
       title: "Plan",
     });
     readClientAppState.mockRejectedValue(new Error("state unavailable"));
-    // Failures are not coerced into a fake hint; the caller keeps the skeleton.
     await expect(fetchLandingTitleHint()).rejects.toThrow("state unavailable");
   });
 });

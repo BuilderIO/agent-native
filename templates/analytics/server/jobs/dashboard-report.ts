@@ -15,11 +15,6 @@ declare global {
 
 let running = false;
 const DEFAULT_MAX_REPORTS_PER_SWEEP = 5;
-// Bounds snapshot/panel/render work per subscription. Originally only applied
-// in serverless mode to fit the function's execution limit; it now also
-// backstops the long-running in-process cron, where a hung query or render
-// call would otherwise leave `running` stuck forever instead of just
-// delaying the next sweep.
 const SERVERLESS_REPORT_DELIVERY_BUDGET_MS = 220_000;
 const SERVERLESS_MAX_REPORTS_PER_SWEEP = 1;
 
@@ -63,11 +58,6 @@ async function persistDashboardReportCaptureOutcome(
   }
 }
 
-/**
- * Tell the owner when a scheduled report is finally given up on. Retries stay
- * silent — only an exhausted retry window means the report they expected will
- * never arrive, and a log line alone leaves them waiting on nothing.
- */
 async function notifyDashboardReportGaveUp(
   sub: {
     id: string;
@@ -88,7 +78,6 @@ async function notifyDashboardReportGaveUp(
           kind: "dashboard_report_failure",
           subscriptionId: sub.id,
           path: "/dashboard-reports",
-          // The email channel is a no-op without explicit recipients.
           emailRecipients: [sub.ownerEmail],
           emailSubject: "Your scheduled dashboard report did not send",
         },
@@ -115,10 +104,6 @@ function maxReportsPerSweep(): number {
     : DEFAULT_MAX_REPORTS_PER_SWEEP;
 }
 
-/**
- * Run one dashboard report sweep. Exported for deployment-specific scheduled
- * functions that should not rely on a long-lived Node process.
- */
 export async function runDashboardReportsOnce(): Promise<{
   processed: number;
   failed: number;

@@ -92,9 +92,6 @@ export function FigmaLinkComposerBubble({
           !controller.signal.aborted &&
           version === refreshVersionRef.current
         ) {
-          // Preserve the last known status on a transient refresh failure. A
-          // failed GET must never turn a connected user into an apparent
-          // disconnected user and prompt them to paste their token again.
           setError(
             reason instanceof Error
               ? reason.message

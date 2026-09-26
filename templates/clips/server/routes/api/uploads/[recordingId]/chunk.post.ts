@@ -1,17 +1,3 @@
-/**
- * Accept one recording chunk. The recorder-engine streams chunks here as the
- * browser's MediaRecorder emits `ondataavailable`. Each chunk is a binary POST
- * body; query params tell us where it sits in the sequence.
- *
- * Query params:
- *   index    — 0-based chunk index
- *   total    — expected total chunks (may be updated on the final chunk)
- *   isFinal  — "1" when this is the last chunk; triggers finalize-recording
- *   mimeType — optional override for the assembled blob MIME type
- *   durationMs / width / height / hasAudio / hasCamera — forwarded to finalize
- *
- * Route: POST /api/uploads/:recordingId/chunk?index=N&total=T&isFinal=0|1
- */
 
 import {
   compareAndSetAppState,
@@ -70,9 +56,6 @@ import {
 
 const RECORDING_TOO_LARGE_REASON = `Recording exceeds the ${Math.round(MAX_RECORDING_UPLOAD_BYTES / (1024 * 1024))} MB size limit. Please record a shorter clip.`;
 
-// Netlify functions have a 6 MB buffered request cap, but binary requests
-// are base64 encoded by the gateway and effectively cap out around 4.5 MB.
-// Keep our own cap lower so dev/local failures match production.
 const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 const RETRY_OWNERSHIP_HEARTBEAT_MS = 10 * 1000;
 
@@ -202,8 +185,6 @@ function trackUploadBlockingFailure(
         output_id: recordingId,
         output_type: "clip",
         recording_id: recordingId,
-        // Keep this stable for the recording lifecycle; upload_attempt_id
-        // disambiguates resumable retries without breaking the join to start.
         recording_attempt_id: recordingId,
         ...(attemptId ? { upload_attempt_id: attemptId } : {}),
         recording_platform: recordingPlatform ?? "unknown",
@@ -272,9 +253,6 @@ export async function handleRecordingChunk(
   const index = Number(query.index ?? 0);
   const total = Number(query.total ?? 0);
   const isFinal = query.isFinal === "1" || query.isFinal === "true";
-  // The client (recorder-engine) knows the exact mimeType it picked for the
-  // whole recording and sends it on every chunk. Never guess — a wrong
-  // default writes the wrong Content-Type to storage.
   const mimeType = normalizeRecordingMimeType(query.mimeType);
   if (!mimeType) {
     throw createError({
@@ -329,8 +307,6 @@ export async function handleRecordingChunk(
   return runWithRequestContext(requestContext, async () => {
     const db = getDb();
 
-    // Verify the recording belongs to the current user. Everything else about
-    // its state comes back from the lease renewal below.
     const [existing] = await db
       .select({
         id: schema.recordings.id,
@@ -367,9 +343,6 @@ export async function handleRecordingChunk(
       };
     };
 
-    // The first renewal admits the request. Later renewals immediately before
-    // every durable write/finalization boundary close the body-read/provider
-    // gap where /abort can otherwise commit while this request is in flight.
     if ((existing.uploadGenerationId ?? null) !== uploadGenerationId) {
       setResponseStatus(event, 409);
       return {
@@ -483,7 +456,6 @@ export async function handleRecordingChunk(
       }
     }
 
-    // Resumable streaming path — forward chunks directly to the provider.
     const resumableSession = await getResumableSession(
       recordingId,
       uploadGenerationId,
@@ -509,7 +481,6 @@ export async function handleRecordingChunk(
       );
     }
 
-    // Store chunks in application_state, assemble on finalize.
     if (await shouldRejectVideoUploadWithoutStorage()) {
       const leaseFailure = await rejectIfLeaseLost();
       if (leaseFailure) return leaseFailure;
@@ -566,18 +537,10 @@ export async function handleRecordingChunk(
       return { error: "Chunk too large" };
     }
 
-    // An empty body is only a problem for non-final chunks. The final sentinel
-    // POST the client sends after MediaRecorder.stop() is intentionally empty
-    // (all the real bytes arrived in earlier chunks); rejecting it with 400
-    // here meant finalize never ran and the recording got stuck in 'uploading'
-    // forever. For isFinal we just skip the chunk write and fall through to
-    // the finalize branch below.
     if (!isFinal && bodySize === 0) {
       throw createError({ statusCode: 400, message: "Empty chunk body" });
     }
 
-    // readRawBody(event, false) returns Uint8Array. Buffer is a Uint8Array
-    // subclass on Node, so this is safe whether we're on Node or workerd.
     const bytes: Uint8Array = raw ?? new Uint8Array(0);
     const expectedDataChunks = isFinal
       ? expectedDataChunksForFinalPost(index, bytes.byteLength)
@@ -643,11 +606,7 @@ export async function handleRecordingChunk(
       };
     };
 
-    // Only persist non-empty chunks. The final sentinel can legitimately be
-    // empty — writing a zero-byte chunk would just clutter application_state.
     if (bytes.byteLength > 0) {
-      // Pad index to 6 digits so string-sort order matches numeric order if the
-      // finalize path ever sorts lexically. (finalize also parses back to a number.)
       const paddedIndex = String(index).padStart(6, "0");
       const chunkKey = `recording-chunks-${recordingId}${uploadGenerationId ? `-${uploadGenerationId}` : ""}-${paddedIndex}`;
       const previousChunk = await readAppState(chunkKey);
@@ -684,11 +643,6 @@ export async function handleRecordingChunk(
       }
     }
 
-    // Update upload progress (best-effort). If total is unknown we treat it as
-    // indeterminate and keep progress at its last known value.
-    // Chunks may arrive out of order when uploaded in parallel, so take the
-    // max of the current persisted value and the incoming index to keep
-    // progress monotonically non-decreasing.
     if (total > 0) {
       const chunksReceived = Math.max(
         stateNumber(uploadState, "chunksReceived") ?? 0,
@@ -744,8 +698,6 @@ export async function handleRecordingChunk(
       });
     }
 
-    // Final chunk — kick off finalize. We await so the client gets a single
-    // "done" response with the final URL (instead of needing to poll).
     if (isFinal) {
       const leaseFailure = await rejectIfLeaseLost();
       if (leaseFailure) return leaseFailure;
@@ -1016,8 +968,6 @@ function buildFinalizeArgs(
   };
 }
 
-// Resumable streaming path: each chunk is forwarded directly to the upload
-// provider. Always returns a response — never falls through to the buffered path.
 async function handleResumableChunk(
   event: H3Event,
   session: StoredResumableSession,
@@ -1120,9 +1070,6 @@ async function handleResumableChunk(
         error: lease.failureReason ?? "Recording upload has already failed.",
       };
     }
-    // 0-byte sentinel from the recorder after stop(). All data chunks have
-    // already been PUT to the provider; send Content-Range: bytes */<total>
-    // to close the session before handing off to finalize-recording.
     if (session.providerClosed) {
       // A prior close response was accepted but its caller lost ownership.
       // The durable marker makes replay a no-op before idempotent finalization.
@@ -1228,12 +1175,6 @@ async function handleResumableChunk(
       }
     }
   } else {
-    // Idempotent replay guard: a client retry (after a lost response) can
-    // re-send a chunk we already committed. Re-PUTing it at the new offset
-    // would corrupt the file — detect the duplicate by index and skip the PUT.
-    // Chunks are strictly sequential, so any index <= last committed is a replay.
-    // A replayed non-final is acked here; a replayed final falls through to
-    // finalize, which is idempotent.
     const isReplay = index <= (session.lastCommittedIndex ?? -1);
     if (isReplay) {
       console.warn(
@@ -1260,8 +1201,6 @@ async function handleResumableChunk(
           error: lease.failureReason ?? "Recording upload has already failed.",
         };
       }
-      // Forward the data chunk to the provider and advance offsets only after
-      // the provider confirms receipt (308 Resume Incomplete for non-final, 2xx for final).
       const start = session.bytesUploaded;
       const end = start + bytes.byteLength - 1;
       const contentRange = isFinal
@@ -1381,8 +1320,6 @@ async function handleResumableChunk(
     }
   }
 
-  // isFinal — delegate to finalize-recording, which reads the resumable
-  // session and calls provider.resumable.completeSession.
   const finalLease = await renewUploadLease(recordingId, {
     attemptId,
     generationId: uploadGenerationId,

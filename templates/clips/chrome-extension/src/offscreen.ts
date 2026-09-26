@@ -1,20 +1,3 @@
-// Offscreen recording engine (Loom-style, MV3).
-//
-// This document holds the getDisplayMedia()/getUserMedia() stream and the
-// MediaRecorder. Living in an offscreen document (reason DISPLAY_MEDIA) is what
-// lets a recording survive page navigations — the capture is decoupled from any
-// tab. Controls render as on-page overlays. For SCREEN+CAMERA we capture the
-// camera HERE and composite it (canvas) into the recording, because the on-page
-// bubble can't get the camera on pages that send `Permissions-Policy: camera=()`
-// (an iframe can't escape its parent's policy). Screen-only records the display
-// directly; camera-only records the webcam directly.
-//
-// Lifecycle: ACQUIRE (show picker, hold stream) → BEGIN (start recorder after
-// the countdown) → PAUSE/RESUME → STOP/CANCEL, plus RESTART (discard and start
-// over on the same stream).
-//
-// MIME selection and the chunk-upload URL/param protocol are shared with the web
-// app recorder via @shared/recording-core so the server contract can't drift.
 
 import {
   chooseFallbackAudioInput,
@@ -131,8 +114,6 @@ type AcquireMessage = {
   mode: CaptureMode;
   surface: "browser" | "window" | "monitor";
   includeMicrophone: boolean;
-  // Screen+camera: capture the camera here and composite it into the recording
-  // (the on-page bubble can be blocked by the page's Permissions-Policy).
   includeCamera: boolean;
   videoDeviceId?: string;
   audioDeviceId?: string;
@@ -145,11 +126,7 @@ type BeginMessage = {
   uploadUrl: string;
   uploadMode?: UploadMode;
   hasCamera?: boolean;
-  // Pre-roll countdown delay, owned here in the offscreen document (a reliable
-  // context) rather than the service worker (which can suspend and drop timers).
   startDelayMs?: number;
-  // Bearer token so chunk uploads authenticate the same way create-recording
-  // does. The offscreen document has no Clips session cookie of its own.
   authToken?: string;
   transcriptUrl?: string;
 };
@@ -221,27 +198,15 @@ type ActiveRecording = {
   uploadChain: Promise<void>;
   uploadPromises: Promise<unknown>[];
   uploadFailure: Error | null;
-  // Local safety buffer: every recorded blob is kept here (browser-managed,
-  // disk-backed Blob refs — not raw heap) so that if the upload fails (storage
-  // not connected, network drop, size cap) we can still save the finished
-  // recording to disk instead of losing it. Mirrors the web/desktop recorders.
   recordedBlobs: Blob[];
   recordedBytes: number;
-  // Set if the recording grew past the buffer ceiling and we stopped retaining
-  // — at that point a local save can't be guaranteed, so we don't promise one.
   localBufferOverflow: boolean;
   pendingStreamBlobs: Blob[];
   pendingStreamBytes: number;
   cancelled: boolean;
-  // Set when the recorder is being torn down to start over on the same source
-  // streams, so the stop handler skips the usual track cleanup.
   restarting: boolean;
-  // Pending pre-roll timer; non-null means the recorder hasn't started yet.
   startTimer: ReturnType<typeof setTimeout> | null;
-  // Canvas compositor draw loop (screen+camera only); stop it on teardown.
   stopCompositor: (() => void) | null;
-  // Original capture streams, kept distinct so restart can re-home exactly the
-  // right ones (sourceStreams also holds the derived canvas stream).
   displaySource: MediaStream | null;
   cameraSource: MediaStream | null;
   micSource: MediaStream | null;
@@ -258,21 +223,14 @@ type ActiveRecording = {
 };
 
 const GCS_CHUNK_ALIGN_BYTES = 256 * 1024;
-const STREAM_CHUNK_BYTES = 15 * GCS_CHUNK_ALIGN_BYTES; // 3.75 MiB
+const STREAM_CHUNK_BYTES = 15 * GCS_CHUNK_ALIGN_BYTES;
 const UPLOAD_SLICE_BYTES = 3 * 1024 * 1024;
 
-// Don't retain more than the upload ceiling — past it the server rejects the
-// recording anyway, so there is nothing a local save could recover.
 const MAX_LOCAL_BUFFER_BYTES = MAX_UPLOAD_BYTES;
-// Below this, a failed recording is too short to be worth dumping a file into
-// the user's Downloads (e.g. the storage gate was bypassed and the very first
-// chunk was rejected ~2s in). The connect-storage message is enough there.
 const MIN_LOCAL_SAVE_BYTES = 2 * 1024 * 1024;
 
 let prepared: PreparedStreams | null = null;
 let activeRecording: ActiveRecording | null = null;
-// Blob URLs handed to the background for save-to-disk recovery downloads. Kept
-// alive until the next recording starts so the download can finish reading.
 const pendingSaveUrls = new Set<string>();
 
 function releasePendingSaveUrls(): void {
@@ -333,9 +291,6 @@ async function streamDimensions(
   };
 }
 
-// Gates screen/tab audio on the same "Include microphone" toggle the popup
-// shows for the mic stream — see screenCaptureDisplayOptions for why: mic off
-// is the only signal the user gets to say "capture no audio at all".
 export function displayConstraints(
   surface: ScreenCaptureSurface,
   wantsMic: boolean,
@@ -346,7 +301,6 @@ export function displayConstraints(
   ) as MediaStreamConstraints;
 }
 
-// The user's chosen camera/mic devices (set in the popup, saved to storage).
 async function readDeviceIds(overrides?: {
   video?: string;
   audio?: string;
@@ -375,10 +329,7 @@ async function readDeviceIds(overrides?: {
   }
 }
 
-// Best-effort label lookup for the requested mic id, used only to soften audio
-// processing constraints for phone/Continuity-style mics (see
 // isLikelyPhoneMic). Device labels are only populated once permission has
-// already been granted, which is always true by the time acquire() runs.
 async function lookupAudioDeviceLabel(deviceId: string): Promise<string> {
   if (!deviceId) return "";
   try {
@@ -440,9 +391,6 @@ async function getCameraStream(deviceId: string): Promise<MediaStream> {
   }
 }
 
-// Let the browser apply its built-in voice processing. Device labels are not a
-// reliable signal for whether a hardware path already processed its audio, so
-// do not branch capture quality on a label heuristic.
 async function chooseFallbackMicDevice(
   requestedLabel: string,
   avoidDeviceIds: string[] = [],
@@ -654,13 +602,6 @@ async function correctMicStreamIfNeeded(
   }
 }
 
-// Defense in depth against the popup/storage layer ever saving a "default" or
-// stale device id again (see popup.ts device-menu filtering): after acquiring
-// a stream, compare what was actually granted against what was requested, and
-// surface a loud warning + Sentry breadcrumb if they don't match. Chrome
-// resolves `deviceId: { exact: "<id>" }` against the device active AT CAPTURE
-// TIME, so a mismatch here means the OS silently switched inputs (e.g. macOS
-// Continuity promoting a nearby iPhone to system default).
 function warnIfTrackDeviceMismatch(
   kind: "mic" | "camera",
   requestedDeviceId: string,
@@ -690,13 +631,7 @@ function warnIfTrackDeviceMismatch(
   );
 }
 
-/* ----------------------------------------------------- camera compositing --- */
 
-// On many pages the on-page camera bubble can't run (the page sets
-// `Permissions-Policy: camera=()`, which an iframe cannot escape). So for
-// screen+camera we capture the camera HERE in the offscreen document (extension
-// origin — always allowed) and draw it into a canvas on top of the screen, then
-// record the canvas. The face ends up in the video on every page.
 
 async function readyVideo(stream: MediaStream): Promise<HTMLVideoElement> {
   const video = document.createElement("video");
@@ -729,7 +664,6 @@ function drawCameraBubble(
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.closePath();
   ctx.clip();
-  // Mirror the camera horizontally to match how people expect to see themselves.
   ctx.translate(cx, cy);
   ctx.scale(-1, 1);
   ctx.drawImage(camera, -dw / 2, -dh / 2, dw, dh);
@@ -811,17 +745,10 @@ async function createMixedAudio(
   await audioContext.resume().catch(() => undefined);
   const destination = audioContext.createMediaStreamDestination();
   for (const input of audioInputs) {
-    // One source per track (not per stream) so each input is isolated in the
-    // mix graph and can be detached independently.
     const source = audioContext.createMediaStreamSource(
       new MediaStream([input.track]),
     );
     source.connect(destination);
-    // A mixed input track can end mid-recording — most commonly the shared
-    // tab's audio track when the user refreshes the captured tab. Disconnect
-    // just that dead source so the mixed output keeps carrying the surviving
-    // inputs (the microphone). Without this the whole mixed destination can go
-    // silent, dropping both the tab audio and the mic for the rest of the clip.
     input.track.addEventListener("ended", () => {
       try {
         source.disconnect();
@@ -1065,10 +992,6 @@ export async function abortServerUpload(
   }
 }
 
-// Keep a local copy of every recorded blob so a failed upload can still be
-// saved to disk. Blob references are browser-managed (often disk-backed), so
-// this is far cheaper than holding ArrayBuffers. We stop retaining past the
-// upload ceiling (a larger recording can't be uploaded anyway).
 function retainRecordedBlob(recording: ActiveRecording, blob: Blob): void {
   if (recording.localBufferOverflow) return;
   if (recording.recordedBytes + blob.size > MAX_LOCAL_BUFFER_BYTES) {
@@ -1142,7 +1065,6 @@ function cleanup(recording: ActiveRecording): void {
   void recording.audioContext?.close().catch(() => undefined);
 }
 
-/* ---------------------------------------------------------------- acquire --- */
 
 async function acquire(message: AcquireMessage): Promise<{
   ok: boolean;
@@ -1150,10 +1072,8 @@ async function acquire(message: AcquireMessage): Promise<{
   height: number;
 }> {
   if (activeRecording) throw new Error("Clips is already recording.");
-  // Discard any half-prepared capture from a cancelled attempt.
   stopPreparedStreams();
   disposePrepared();
-  // A prior recording's recovery download has finished by now; free its URL.
   releasePendingSaveUrls();
 
   let displayStream: MediaStream | null = null;
@@ -1164,9 +1084,6 @@ async function acquire(message: AcquireMessage): Promise<{
     audio: message.audioDeviceId,
   });
 
-  // Chrome cannot prompt for camera/mic in this headless document, so an
-  // ungranted device rejects as a dismissal. requireMediaPermission types that
-  // apart from a real cancellation; the worker sends the user to the permission
   // page instead of surfacing Chrome's "Permission dismissed" as a dead end.
   const acquireMicStream = async (): Promise<MediaStream> => {
     const audioLabel = await lookupAudioDeviceLabel(devices.audio);
@@ -1184,17 +1101,12 @@ async function acquire(message: AcquireMessage): Promise<{
         micStream = await acquireMicStream();
       }
     } else {
-      // Native "Choose what to share" picker. This is the screenshot Steve showed.
       displayStream = await navigator.mediaDevices.getDisplayMedia(
         displayConstraints(message.surface, message.includeMicrophone),
       );
       if (message.includeMicrophone) {
         micStream = await acquireMicStream();
       }
-      // The screen+camera face comes from the on-page bubble (captured in the
-      // display pixels), NOT composited here: canvas/requestAnimationFrame does
-      // not run in a hidden offscreen document, so compositing produced an empty
-      // recording ("No chunks found"). We record the display stream directly.
       void message.includeCamera;
     }
 
@@ -1203,8 +1115,6 @@ async function acquire(message: AcquireMessage): Promise<{
       throw new Error("No media stream was available to record.");
     const { width, height } = await streamDimensions(videoStream);
 
-    // If the user stops sharing via Chrome's native control, tell the worker so it
-    // can run the normal stop/finalize flow.
     const endedTrack = videoStream.getVideoTracks()[0] ?? null;
     const endedListener = () => {
       void chrome.runtime.sendMessage({
@@ -1241,7 +1151,6 @@ function stopPreparedStreams(): void {
   ]);
 }
 
-/* ------------------------------------------------------------------ begin --- */
 
 async function begin(message: BeginMessage): Promise<{
   ok: boolean;
@@ -1260,8 +1169,6 @@ async function begin(message: BeginMessage): Promise<{
   const directVideoTrack = videoStream?.getVideoTracks()[0];
   if (!directVideoTrack) throw new Error("Capture video track was lost.");
 
-  // Screen + camera → composite the camera bubble into a canvas and record that,
-  // so the face is in the video even on pages that block the on-page bubble.
   let compositor: Compositor | null = null;
   let videoTrack = directVideoTrack;
   if (ready.displayStream && ready.cameraStream) {
@@ -1289,11 +1196,6 @@ async function begin(message: BeginMessage): Promise<{
   const mimeType = pickMimeType() || "video/webm";
   const recorder = new MediaRecorder(outputStream, {
     mimeType,
-    // Crisp 1080p capture — matches the web/desktop recorders. displayConstraints()
-    // (see screenCaptureVideoConstraints in @shared/recording-capture) caps retina/5K
-    // surfaces down to 1920x1080 before this point, so the software VP8 encoder is
-    // never fed native-resolution frames. Files upload directly (no client-side
-    // shrink), so within that cap we favor sharpness over a bitrate budget.
     videoBitsPerSecond: 8_000_000,
     audioBitsPerSecond: 128_000,
   });
@@ -1358,7 +1260,6 @@ async function begin(message: BeginMessage): Promise<{
     resolveStopped,
     rejectStopped,
   };
-  // The prepared streams are now owned by the active recording.
   prepared = null;
   activeRecording = recording;
 
@@ -1366,16 +1267,8 @@ async function begin(message: BeginMessage): Promise<{
     if (recording.cancelled || !event.data || event.data.size === 0) {
       return;
     }
-    // Always keep a local copy first — even after an upload failure — so the
-    // saved-to-disk fallback can assemble the COMPLETE recording. Without this,
-    // a recording whose upload is rejected (storage disconnected, network drop,
-    // size cap) would be lost; the extension has no other on-disk copy.
     retainRecordedBlob(recording, event.data);
     if (recording.uploadFailure) return;
-    // Record the failure and stop, but do NOT re-throw: re-throwing leaves a
-    // rejected promise that surfaces as an "Uncaught (in promise)" error (bad
-    // look in a Chrome Web Store review). finalizeStop reads recording.upload-
-    // Failure and surfaces it through the normal error path instead.
     const upload = recording.uploadChain
       .then(() =>
         recording.cancelled || recording.uploadFailure
@@ -1412,8 +1305,6 @@ async function begin(message: BeginMessage): Promise<{
     void finalizeStop(recording);
   });
 
-  // Run the pre-roll countdown here (reliable) then start the recorder. The
-  // worker is told "recording" via reportStatus once it actually starts.
   const delay = Math.max(0, message.startDelayMs ?? 0);
   if (delay > 0) {
     recording.startTimer = setTimeout(() => {
@@ -1433,8 +1324,6 @@ async function begin(message: BeginMessage): Promise<{
   };
 }
 
-// The canonical Clips "ready" chime when recording starts — shared with the web
-// app recorder (and matching the desktop app) so every surface sounds the same.
 function playStartChime(): void {
   try {
     const ctx = new AudioContext();
@@ -1450,7 +1339,6 @@ function playStartChime(): void {
 function startRecorderNow(recording: ActiveRecording): void {
   if (recording.cancelled) return;
   try {
-    // Chime first (on "Go") so it mostly lands before the recording begins.
     playStartChime();
     recording.recorder.start(2000);
     recording.nativeTranscription.start();
@@ -1508,8 +1396,6 @@ async function saveNativeTranscript(recording: ActiveRecording): Promise<void> {
   recording.nativeTranscript = captured.text.trim();
   recording.nativeTranscriptFailure = captured.failureReason;
 
-  // A partial capture must carry its reason too — the server treats text
-  // without a reason as a complete transcript and skips the cloud fallback.
   const body = {
     recordingId: recording.recordingId,
     fullText: recording.nativeTranscript,
@@ -1539,10 +1425,6 @@ async function saveNativeTranscript(recording: ActiveRecording): Promise<void> {
   recording.nativeTranscriptSaved = true;
 }
 
-// Last-resort recovery: if a finished recording can't be uploaded, save the
-// locally-buffered bytes to the user's Downloads so the recording is never
-// lost. The offscreen document can't call chrome.downloads, so it hands the
-// background a blob URL to download. The URL is revoked on the next acquire().
 async function saveRecordingToDisk(
   recording: ActiveRecording,
 ): Promise<{ savedToDisk: boolean; savedFilename?: string }> {
@@ -1568,7 +1450,6 @@ async function saveRecordingToDisk(
       filename,
     })) as { ok?: boolean } | undefined;
     if (response?.ok) return { savedToDisk: true, savedFilename: filename };
-    // The download was not accepted — drop the URL we just created.
     pendingSaveUrls.delete(objectUrl);
     URL.revokeObjectURL(objectUrl);
     return { savedToDisk: false };
@@ -1586,7 +1467,6 @@ async function saveRecordingToDisk(
 
 async function finalizeStop(recording: ActiveRecording): Promise<void> {
   if (recording.restarting) {
-    // restart() re-homes the source streams; do not stop or upload anything.
     return;
   }
   if (recording.cancelled) {
@@ -1595,9 +1475,6 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
     recording.resolveStopped({ ok: true, status: "cancelled" });
     return;
   }
-  // Freeze the media duration as soon as MediaRecorder stops. Waiting for
-  // outstanding uploads below must not make the clip appear longer, and time
-  // spent paused is excluded by pauseRecordingDuration().
   recording.duration = pauseRecordingDuration(recording.duration, Date.now());
   const durationMs = recording.duration.elapsedMs;
   try {
@@ -1626,9 +1503,6 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
         ? rejected.reason
         : new Error(String(rejected.reason));
     }
-    // Surface WHY a finalize might fail before the server's cryptic "No chunks
-    // found": 0 chunks means the recorder emitted no non-empty data (empty
-    // capture / never started), which is a different problem than an auth 401.
     if (recording.chunkIndex === 0) {
       console.warn(
         "[clips-offscreen] finalizing with 0 chunks — empty recording.",
@@ -1726,7 +1600,6 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
         durationMs,
       },
     });
-    // The upload failed — save the buffered recording to disk so it isn't lost.
     const saved = await saveRecordingToDisk(recording);
     if (!(error as { storageSetupRequired?: boolean }).storageSetupRequired) {
       const details = error as Error & {
@@ -1756,7 +1629,6 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
   }
 }
 
-/* ------------------------------------------------------- pause/resume/stop --- */
 
 function pause(message: SimpleMessage): { ok: boolean } {
   const recording = activeRecording;
@@ -1802,8 +1674,6 @@ async function stop(
     throw new Error("No active Clips recording was found.");
   }
   if (recording.startTimer !== null) {
-    // Stopped during the pre-roll, before the recorder ever started: there is
-    // nothing to save, so discard instead of hanging on `stopped`.
     clearTimeout(recording.startTimer);
     recording.startTimer = null;
     recording.cancelled = true;
@@ -1841,7 +1711,6 @@ async function cancel(message: SimpleMessage): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
-// Skip the remaining pre-roll: start the recorder right now.
 function startNow(message: SimpleMessage): { ok: boolean } {
   const recording = activeRecording;
   if (
@@ -1872,9 +1741,6 @@ function getRecordingState(): {
   };
 }
 
-// Restart: discard the in-progress recording but keep the same source streams
-// (so the user does not have to re-pick a screen), then re-home them into a
-// prepared slot. A fresh recorder is built on the next BEGIN.
 async function restart(
   message: SimpleMessage,
 ): Promise<{ ok: boolean; width: number; height: number }> {
@@ -1882,14 +1748,10 @@ async function restart(
   if (!recording || recording.sessionId !== message.sessionId) {
     throw new Error("No active Clips recording to restart.");
   }
-  // restarting + cancelled => the stop handler returns early and the dataavailable
-  // handler ignores the final flush, so the source tracks stay live.
   recording.restarting = true;
   recording.cancelled = true;
   recording.nativeTranscription.cancel();
   if (recording.recorder.state !== "inactive") recording.recorder.stop();
-  // Tear down the old compositor + mixing context; keep the capture tracks alive
-  // so the next BEGIN can build a fresh compositor/recorder on the same streams.
   recording.stopCompositor?.();
   recording.cleanupAudio();
   void recording.audioContext?.close().catch(() => undefined);
@@ -1956,8 +1818,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
-// Errors cross the message boundary as plain data, so a missing grant has to
-// carry its code with it — the worker cannot recover from a bare message.
 export function errorResponse(error: unknown): {
   ok: false;
   error: string;

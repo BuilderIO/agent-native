@@ -1,8 +1,4 @@
 // @vitest-environment happy-dom
-//
-// duplicateNodeForPanelDrop now clones through prepareClonedHtmlLayer (see
-// clone-and-pen-edit.ts), which needs a real `document` to build the clone
-// through — the default node test environment has none.
 import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
@@ -27,12 +23,6 @@ import {
   type LayerMoveArgs,
 } from "./layer-move";
 
-/**
- * unique-paths-1: Alt-drag inside the Layers panel must duplicate the
- * dragged layer at the drop position and leave the original untouched —
- * before this fix, LayersPanel.tsx's handleDrop had no altKey branch at
- * all, so the drag only ever reordered/reparented the original node.
- */
 describe("duplicateNodeForPanelDrop", () => {
   const html = `<!doctype html><html><body>
     <div data-agent-native-node-id="alpha" data-agent-native-layer-name="Alpha Button">Alpha</div>
@@ -56,8 +46,6 @@ describe("duplicateNodeForPanelDrop", () => {
     const { content, duplicatedNodeId } = result!;
     expect(duplicatedNodeId).not.toBe("alpha");
 
-    // The original must survive unchanged — exactly one "alpha" and one
-    // "beta" node id, plus the fresh clone.
     expect(content.match(/data-agent-native-node-id="alpha"/g)).toHaveLength(1);
     expect(content.match(/data-agent-native-node-id="beta"/g)).toHaveLength(1);
     expect(
@@ -96,7 +84,6 @@ describe("duplicateNodeForPanelDrop", () => {
     expect(result).not.toBeNull();
     const { content, nodeIdMap } = result!;
 
-    // The authored id must not be duplicated in the DOM.
     expect(content.match(/id="card"/g)).toHaveLength(1);
     expect(nodeIdMap.get("alpha")).toBeTruthy();
     expect(nodeIdMap.get("alpha")).not.toBe("alpha");
@@ -110,8 +97,6 @@ describe("duplicateNodeForPanelDrop", () => {
     expect(result).not.toBeNull();
     const { nodeIdMap, duplicatedNodeId } = result!;
 
-    // Mirrors DesignEditor.tsx's remapMotionTracksForClone: a track keyed
-    // to the original node id gets a cloned entry retargeted to the copy.
     const motionTracks = [{ targetNodeId: "alpha", property: "opacity" }];
     const remapped = motionTracks
       .filter((track) => nodeIdMap.has(track.targetNodeId))
@@ -125,12 +110,6 @@ describe("duplicateNodeForPanelDrop", () => {
   });
 });
 
-/**
- * unique-paths-2: an Alt-drag duplicate that cannot be honoured (multi-
- * selection, cross-file, runtime-only, or a locked source) must refuse
- * instead of silently falling through to a destructive move of the
- * original.
- */
 describe("runLayerMove: duplicate intent that can't be honoured", () => {
   const CONTENT = `<body>
     <div data-agent-native-node-id="alpha" data-agent-native-layer-name="Alpha">Alpha</div>

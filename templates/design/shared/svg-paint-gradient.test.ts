@@ -118,11 +118,9 @@ describe("border-area gradient stroke fallback in source", () => {
       written.indexOf(" border-image"),
     );
 
-    // An unrelated edit keeps the real size, not the fallback.
     html = edit(html, "border-width", "4px");
     expect(style(html)).toContain("border-area): 100% 100%, auto;");
 
-    // Removing the stroke layer restores a plain background-size and drops the fallback.
     html = edit(html, "background-clip", "border-box");
     expect(style(html)).not.toContain("webkit");
     expect(style(html)).not.toContain("border-image");

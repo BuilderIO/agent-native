@@ -1,15 +1,7 @@
-/**
- * Shared types between client and server for the design template.
- */
 
 export const API_BASE = "/api";
 
-// --- Design Systems / Brand Kits ---
 
-// The shared, template-agnostic token model lives in
-// `@agent-native/core/brand-kit` (a "Brand Kit" = design tokens + brand assets
-// + custom instructions). This template narrows it with the page-oriented
-// `spacing.pagePadding` and `defaults` keys it persists.
 import type {
   BrandKitData,
   BrandKitDefaults,
@@ -47,7 +39,6 @@ export interface DesignSystemData extends BrandKitData {
   defaults: BrandKitDefaults;
 }
 
-// --- Design Projects ---
 
 export interface DesignProject {
   id: string;
@@ -69,7 +60,6 @@ export interface DesignFile {
   fileType: "html" | "css" | "jsx" | "asset";
 }
 
-// --- Tweaks ---
 
 export interface TweakDefinition {
   id: string;
@@ -81,11 +71,9 @@ export interface TweakDefinition {
   step?: number;
   defaultValue: string | number | boolean;
   cssVar?: string;
-  /** CSS unit to append when resolving a numeric slider value, e.g. "px" or "rem". When omitted, "px" is inferred for vars whose name contains "radius" and no unit is added for others. */
   unit?: string;
 }
 
-// --- Question Flow ---
 
 export interface QuestionFlowQuestion {
   id: string;

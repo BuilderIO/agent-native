@@ -42,10 +42,6 @@ import {
 import type { PlanComment } from "../shared/types.js";
 import { normalizePlanContent } from "./plan-content.js";
 
-// Server-side plan block registry. Registered specs (currently the editable
-// callout) drive serialize/parse via the registry; every other block type still
-// falls through to the legacy `serializeBlock`/`parseBlock` below, so stored
-// `.mdx` round-trips byte-compatibly. See `plan-block-registry.ts`.
 const planMdxRegistry = new BlockRegistry();
 registerPlanBlocks(planMdxRegistry);
 
@@ -123,11 +119,6 @@ export const planMdxFileSchema = z.object({
   "canvas.mdx": z.string().optional(),
   "prototype.mdx": z.string().optional(),
   ".plan-state.json": z.string().optional(),
-  /**
-   * Optional image assets keyed by filename (e.g. `"screenshot.png"`), base64-encoded.
-   * Accepted formats: png, jpg/jpeg, gif, webp, svg.
-   * Size caps: 2 MB per asset, 10 MB total per plan.
-   */
   "assets/": z.record(z.string(), z.string()).optional(),
 });
 
@@ -312,16 +303,6 @@ const BLOCK_COMPONENTS = new Set([
   "VisualQuestions",
 ]);
 
-// Forgiving parse: common WRONG block tags map to the canonical tag so an
-// aliased element goes through the EXACT same block parse path (attrs, children,
-// JSON props) as the real tag instead of being silently swallowed into prose.
-// Resolution happens once, before dispatch (see `parseBlock`). Keep this list in
-// sync with the "Common mistakes" section of the visual-recap skill.
-//
-// Note on tabs: `TabsBlock` encodes its tabs (labels + nested child blocks) as a
-// single JSON `tabs={[…]}` prop — there is NO nested-MDX tab-child element in
-// this dialect. So `Tabs` aliases to `TabsBlock`, and a stray `<Tab>` is a
-// genuinely unknown block (it fails loud with a "did you mean TabsBlock?" hint).
 const BLOCK_TAG_ALIASES: Record<string, string> = {
   JsonExplorer: "Json",
   Tabs: "TabsBlock",
@@ -411,11 +392,6 @@ function restoreRawPayloadCodeFences(source: string, fences: string[]) {
   );
 }
 
-// `prop`, `escapeAttr`, `jsonExpression`, and the attribute reader
-// (`attributeValue` + its estree literal walker) now live in
-// `@agent-native/core/blocks` and are imported above. They are the MDX
-// round-trip contract — shared verbatim so registry-driven and legacy blocks
-// encode/decode identically.
 
 function serializeNode(node: PlanWireframeNode, indent = ""): string {
   const name = NODE_TO_COMPONENT[node.el] ?? "Box";
@@ -463,9 +439,6 @@ function serializeBlock(block: PlanBlock): string {
   if (block.type === "columns") {
     return serializeColumnsBlock(block);
   }
-  // Registry-first: a registered block type serializes through its spec's `mdx`
-  // config (byte-identical to the legacy branch below). Unregistered types fall
-  // through to the hand-written switch, so unconverted blocks are unchanged.
   const registered = planMdxRegistry.get(block.type);
   if (registered) {
     return serializeSpecBlock(registered, {
@@ -678,14 +651,8 @@ function visualUrlForMdx(input: Pick<ExportPlanMdxInput, "planId" | "url">) {
   }
 }
 
-/** Base URL prefix for plan-asset serving route (local SQL-backed assets). */
 const PLAN_ASSET_ROUTE_PREFIX = "/_agent-native/plan-asset/";
 
-/**
- * Collect image blocks with `assetId` or a local plan-asset URL. Returns a
- * map from assetId → block ref so the caller can load asset data from the DB
- * and rewrite the block.
- */
 function collectAssetRefs(blocks: PlanBlock[]): Map<string, PlanBlock> {
   const refs = new Map<string, PlanBlock>();
   for (const block of blocks) {
@@ -696,7 +663,6 @@ function collectAssetRefs(blocks: PlanBlock[]): Map<string, PlanBlock> {
       block.data.url &&
       block.data.url.startsWith(PLAN_ASSET_ROUTE_PREFIX)
     ) {
-      // Extract assetId from URL path: /_agent-native/plan-asset/<assetId>/...
       const rest = block.data.url.slice(PLAN_ASSET_ROUTE_PREFIX.length);
       const assetId = decodeURIComponent(rest.split("/")[0] ?? "");
       if (assetId) refs.set(assetId, block);
@@ -705,15 +671,6 @@ function collectAssetRefs(blocks: PlanBlock[]): Map<string, PlanBlock> {
   return refs;
 }
 
-/**
- * Load asset records for export. Returns a map from assetId → { filename,
- * base64 } for SQL-fallback assets, and assetId → { filename, cdnUrl } for
- * CDN-backed assets.
- *
- * We do a lazy import of the DB so this module can be used in tests without
- * requiring a live DB connection (the import only resolves when called at
- * runtime).
- */
 async function loadAssetDataForExport(
   assetIds: string[],
 ): Promise<
@@ -753,7 +710,6 @@ async function loadAssetDataForExport(
     }
     return result;
   } catch {
-    // DB unavailable (e.g. in tests without a live DB) — return empty map.
     return new Map();
   }
 }
@@ -786,27 +742,19 @@ export async function exportPlanContentToMdxFolder(
     ) ?? planContentSchema.parse({ version: PLAN_CONTENT_VERSION, blocks: [] });
   const visualUrl = visualUrlForMdx(input);
 
-  // ── Asset export ──────────────────────────────────────────────────────────
-  // Collect image blocks that reference local plan assets (by assetId or by
-  // the local plan-asset route URL). Load their data, emit `assets/<filename>`
-  // entries in the folder, and rewrite the block refs to relative asset paths.
   const assetRefs = collectAssetRefs(content.blocks);
   const assetData = await loadAssetDataForExport([...assetRefs.keys()]);
 
-  // Build a map from assetId → relative asset path (for MDX rewriting) and
-  // accumulate the assets/ entries.
   const assetsFolder: Record<string, string> = {};
   const assetIdToRelativePath = new Map<string, string>();
 
   for (const [assetId, assetInfo] of assetData) {
     if (assetInfo.cdnUrl) {
-      // CDN asset: the block keeps the CDN url; nothing to emit in assets/.
       assetIdToRelativePath.set(assetId, assetInfo.cdnUrl);
       continue;
     }
     if (!assetInfo.base64) continue;
 
-    // Validate size before emitting.
     const bytes = Buffer.from(assetInfo.base64, "base64");
     if (bytes.byteLength > PLAN_ASSET_MAX_SINGLE_BYTES) continue;
 
@@ -816,15 +764,12 @@ export async function exportPlanContentToMdxFolder(
     assetIdToRelativePath.set(assetId, relPath);
   }
 
-  // Rewrite image blocks: replace assetId refs with relative asset paths or
-  // CDN URLs so the exported MDX is self-contained.
   const rewrittenBlocks = content.blocks.map((block): PlanBlock => {
     if (block.type !== "image") return block;
     const targetId = block.data.assetId;
     if (!targetId) return block;
     const resolvedPath = assetIdToRelativePath.get(targetId);
     if (!resolvedPath) return block;
-    // Replace assetId with url so the exported MDX uses a plain url= attr.
     return {
       ...block,
       data: {
@@ -1392,20 +1337,12 @@ function findAttribute(node: MdxNode, name: string): MdxAttribute | undefined {
   );
 }
 
-// `attributeValue` and its estree literal walker now come from
-// `@agent-native/core/blocks` (imported above) — the shared parse-side contract.
 
 function stringAttr(node: MdxNode, name: string): string | undefined {
   const value = attributeValue(findAttribute(node, name));
   return typeof value === "string" ? value : undefined;
 }
 
-/**
- * Resolve a `<Screen>`/wireframe string attribute that must be a string when
- * present. Absent → undefined; present but not a string (number, object, or an
- * expression that can't be statically evaluated) → THROW, so a malformed
- * wireframe fails the import instead of silently dropping the value.
- */
 function requiredStringAttr(node: MdxNode, name: string): string | undefined {
   const attr = findAttribute(node, name);
   if (!attr) return undefined;
@@ -1447,50 +1384,31 @@ function baseBlock(node: MdxNode) {
   };
 }
 
-// Wireframe component tags (`Screen` plus every kit component like
-// `FrameScreen`/`Row`/`Btn`/…). These are only valid INSIDE a `<WireframeBlock>`
-// (plan.mdx) or an `<Artboard>` (canvas.mdx). If one appears as a standalone
-// block-level node it is a malformed wireframe — we must fail loudly rather than
-// let it fall through into rich-text and render as raw `<Screen .../>` source.
 const WIREFRAME_ONLY_COMPONENTS = new Set<string>([
   "Screen",
   ...Object.keys(COMPONENT_TO_NODE),
 ]);
 
-// Capitalized component tags that are legitimately NESTED inside a block (not a
-// standalone block themselves) — so the block-level fail-loud check does not
-// flag them. `Column` lives inside `Columns`; the wireframe kit (`Screen` + kit
-// nodes) lives inside `WireframeBlock`/`Artboard` and is handled by its own
-// loud check above. Canvas-only structural tags are not reached here (canvas.mdx
-// has its own parser) but are included for completeness.
 const NESTED_BLOCK_CHILD_COMPONENTS = new Set<string>([
   "Column",
   ...WIREFRAME_ONLY_COMPONENTS,
-  // canvas.mdx structural tags (defensive — not normally seen in plan.mdx)
   "DesignBoard",
   "Section",
   "Artboard",
   "Annotation",
   "Connector",
   "LegacyWireframe",
-  // prototype.mdx structural tags
   "Prototype",
   "PrototypeScreen",
   "PrototypeTransition",
 ]);
 
-// Every capitalized tag the plan.mdx parser recognizes as a real block: the
-// registry tags (canonical block library) unioned with the legacy
-// `BLOCK_COMPONENTS` switch. Used to fail loud on genuinely unknown blocks and
-// to build the "Known blocks" list + "did you mean" hint.
 function knownBlockTags(): string[] {
   return [
     ...new Set<string>([...planMdxRegistry.tags(), ...BLOCK_COMPONENTS]),
   ].sort();
 }
 
-// Case-insensitive edit distance — small, dependency-free, only used to suggest
-// the nearest known/alias tag in the fail-loud error message.
 function editDistance(a: string, b: string): number {
   const s = a.toLowerCase();
   const t = b.toLowerCase();
@@ -1521,10 +1439,8 @@ function suggestBlockTag(name: string): string | undefined {
       best = candidate;
     }
   }
-  // Only suggest a reasonably close match (≤ 1/3 of the name's length, min 3).
   const threshold = Math.max(3, Math.ceil(name.length / 3));
   if (best && bestScore <= threshold) {
-    // If the closest match is an alias, point at the canonical tag it resolves to.
     return resolveBlockTagAlias(best);
   }
   return undefined;
@@ -1532,10 +1448,6 @@ function suggestBlockTag(name: string): string | undefined {
 
 function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
   const rawName = elementName(node);
-  // Forgiving parse: resolve common WRONG tags to the canonical tag BEFORE any
-  // dispatch, so an aliased element parses through the exact same path as the
-  // real block (attrs, children, JSON props). We work on a shallow clone with
-  // the canonical `name` so every downstream branch sees the resolved tag.
   const dispatchNode: MdxNode = rawName
     ? normalizeBlockAliasNode(node, rawName)
     : node;
@@ -1545,17 +1457,11 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
     const parsed = parseReadableColumnsBlock(node, idContext);
     if (parsed) return parsed;
   }
-  // Fail loud: a bare wireframe element (`<Screen .../>` or a stray kit node) at
-  // the block level is a malformed wireframe. Wrap it in `<WireframeBlock>` (or
-  // an `<Artboard>` in canvas.mdx). Never silently emit it as raw text.
   if (name && WIREFRAME_ONLY_COMPONENTS.has(name)) {
     throw new Error(
       `Malformed wireframe: <${name}> must be nested inside a <WireframeBlock> (plan.mdx) or <Artboard> (canvas.mdx), not used as a standalone block.`,
     );
   }
-  // Registry-first: a registered MDX tag parses through its spec. The shared
-  // attribute reader resolves props the same way the legacy readers do, and the
-  // stringified prose children feed the spec's `fromAttrs` (callout/rich-text).
   if (name && planMdxRegistry.hasTag(name)) {
     const base = baseBlock(node);
     const parsed = parseSpecBlock(
@@ -1570,13 +1476,6 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
     }
   }
   if (!name || !BLOCK_COMPONENTS.has(name)) {
-    // Fail loud: a block-level JSX element with a capitalized (component-style)
-    // tag that is NOT a known block, NOT an alias, and NOT a valid nested child
-    // must THROW rather than silently rendering as raw text (the catastrophic
-    // bug this guards against). Lowercase HTML tags (`<div>`, `<span>`, `<br>`,
-    // …) inside RichText/markdown prose are fine — only capitalized component
-    // tags are validated. Non-JSX nodes (paragraphs, headings, lists) keep
-    // returning null so they flush into the surrounding rich-text block.
     const isJsxElement =
       node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement";
     const isComponentTag = !!rawName && /^[A-Z]/.test(rawName);
@@ -1685,9 +1584,6 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
     };
   }
   if (name === "Decision") {
-    // The `decision` block was retired; a legacy `<Decision>` round-trips into a
-    // decision-tone `callout` whose body carries the question + options (matching
-    // the stored-content migration in `plan-content.ts`).
     const question = stringAttr(node, "question") ?? base.title ?? "Decision";
     const options = (arrayAttr(node, "options") ?? []) as Array<{
       label?: string;

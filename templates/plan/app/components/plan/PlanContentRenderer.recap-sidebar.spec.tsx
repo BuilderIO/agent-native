@@ -14,12 +14,6 @@ import {
   toggleWireframeStyle,
 } from "./wireframe/use-wireframe-style";
 
-/**
- * Recap changed-files wiring. The first `file-tree` block stays inline in the
- * document so it remains the editable source of truth and is never dropped on
- * save. Screenshot/export mode can still hide the changed-files block and its
- * standalone heading so generated PR recap screenshots stay focused.
- */
 
 function recapContent(): PlanContent {
   return {
@@ -30,9 +24,6 @@ function recapContent(): PlanContent {
       {
         id: "tree-1",
         type: "file-tree",
-        // Both heading sources set with a stats-laden authored title — the real
-        // recap shape that produced the duplicated heading: `title` renders as the
-        // greyed eyebrow, `data.title` as the bold summary header, stacked.
         title: "Files changed (+1529 / -534, 9 files)",
         data: {
           title: "Files changed (+1529 / -534, 9 files)",
@@ -333,7 +324,6 @@ describe("PlanContentRenderer recap changed files", () => {
       container.querySelector('[data-block-id="tree-1__aside"]'),
     ).toBeNull();
 
-    // The original stays in the document flow (editable source of truth).
     const flow = container.querySelector(".plan-document-flow");
     expect(flow?.querySelector('[data-block-id="tree-1"]')).not.toBeNull();
     const styles = Array.from(container.querySelectorAll("style"))
@@ -341,7 +331,6 @@ describe("PlanContentRenderer recap changed files", () => {
       .join("\n");
     expect(styles).not.toContain('[data-block-id="tree-1"]');
 
-    // The contents rail keeps the inline file tree and prose sections.
     const toc = container.querySelector(".plan-document-toc");
     expect(toc).not.toBeNull();
     expect(toc?.textContent).toContain("Files changed");
@@ -628,10 +617,6 @@ describe("PlanContentRenderer recap changed files", () => {
   });
 
   it("does not reserve a contents rail when hidden changed-files content leaves one section", () => {
-    // Screenshot/export mode hides the "Files changed" heading + file-tree. The
-    // contents nav should count what's LEFT (one real section) — not enough for a
-    // rail. `data-has-toc` must stay absent so the grid reserves no empty TOC
-    // column, and PlanTableOfContents renders neither rail nor accordion.
     const content = {
       version: 2,
       title: "Recap",

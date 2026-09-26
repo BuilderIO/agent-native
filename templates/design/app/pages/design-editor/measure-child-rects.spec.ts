@@ -53,8 +53,6 @@ describe("measureFreeformGeometry", () => {
       writable: true,
     });
 
-    // The child sits 10/20 below the container on screen, but the container is
-    // scrolled, so its position in the content box is 30/15 further along.
     expect(measureFreeformGeometry("box").children.kid).toMatchObject({
       x: 40,
       y: 35,

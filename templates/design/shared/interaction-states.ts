@@ -1,86 +1,5 @@
-/**
- * Managed element interaction-state block for the Design Studio.
- *
- * Element-level pseudo-class states (hover / focus / focus-visible / active /
- * disabled) — NOT to be confused with `design-state.ts` / `StatesPanel`,
- * which model whole-*screen* app states (Loading / Empty / Error, data
- * fixtures, live captures). This module edits ONE element's interactive
- * styling; that one edits which named app-level scenario the whole canvas is
- * showing. Both features coexist: a screen state (e.g. "Empty") and an
- * element interaction state (e.g. "Hover" on a button) are independent axes.
- *
- * Base overrides persist into a managed
- * `<style data-agent-native-states>` block as real, plain CSS pseudo-class
- * rules — readable and editable in the Code panel, and portable to any HTML
- * export with zero runtime dependency:
- *
- *   [data-agent-native-node-id="btn_1"]:hover {
- *     background-color: #111827;
- *   }
- *
- * State edits made in a narrower responsive frame persist separately in
- * `<style data-agent-native-state-breakpoints>` as ordinary max-width media
- * rules. That keeps (for example) mobile Hover independent from base Hover
- * while remaining portable to generated HTML and Alpine.js with no runtime.
- *
- * Follows the managed-block conventions of `breakpoint-media.ts` /
- * `motion-compiler.ts`:
- * - **Deterministic**: same model → byte-identical CSS. Node ids, states, and
- *   properties are sorted alphabetically; responsive buckets run widest to
- *   narrowest, and states within a node id follow the
- *   fixed `STATE_ORDER` (hover → focus → focus-visible → active → disabled)
- *   so cascade order is stable and predictable when two states could both
- *   apply (e.g. `:hover` and `:focus` at once).
- * - **Targets by node id**: rules use `[data-agent-native-node-id="<id>"]`
- *   selectors — no class/id coupling, consistent with breakpoint overrides
- *   and motion keyframes.
- * - **No dependencies**, pure string transforms. SSR-safe (no DOM APIs).
- *
- * ─── Forced-preview mechanism (the phase-2 bridge contract) ─────────────────
- *
- * The canvas iframe cannot reliably fake `:hover`/`:focus`/`:active` browser
- * pseudo-classes on demand (no real pointer is over the element, focus would
- * steal keyboard input, `:active` requires a held mouse button). Instead,
- * `duplicateStatePreviewRules(html)` derives a **parallel twin rule** for
- * every managed state rule, keyed off a plain HTML attribute instead of the
- * pseudo-class:
- *
- *   [data-agent-native-node-id="btn_1"]:hover { background-color: #111827; }
- *   [data-agent-native-node-id="btn_1"][data-an-state-preview="hover"] {
- *     background-color: #111827;
- *   }
- *
- * The twin rules are appended inside the SAME managed
- * `<style data-agent-native-states>` block (so exported/standalone HTML
- * always carries them — no separate stylesheet, no extra bridge script).
- * Forcing a live preview of element `btn_1`'s Hover state is then just:
- *
- *   element.setAttribute("data-an-state-preview", "hover")
- *
- * ...and clearing it is just removing that attribute. No JS re-evaluation of
- * styles, no class toggling per property, no iframe-side CSS generation —
- * the bridge's entire job is setting/clearing one attribute on the selected
- * element whenever the inspector's active state changes. This module owns
- * generating/refreshing the twin rules whenever a state rule changes; the
- * bridge and DesignEditor own driving the attribute (phase 2).
- *
- * ─── Transitions ─────────────────────────────────────────────────────────────
- *
- * `transition` (and longhand `transition-*` properties) are ordinary CSS
- * properties on the BASE element, not part of any state rule — they belong
- * whichever way the base element's styling is already authored (inline
- * `style` attribute or a class), same as any other non-interactive property.
- * This module does not special-case them: set `transition: background-color
- * 150ms ease` on the base element (via the existing inline-style / EditPanel
- * commit path) and the managed `:hover` rule above will animate exactly as
- * authored, in both the real `:hover` path and the forced-preview twin path
- * (since the twin rule only changes which selector matches — the transition
- * on the base element still applies either way).
- */
 
-// ─── Model ────────────────────────────────────────────────────────────────────
 
-/** Supported element interaction states, in fixed cascade/display order. */
 export const INTERACTION_STATES = [
   "hover",
   "focus",
@@ -99,22 +18,16 @@ export function isInteractionState(
   return typeof value === "string" && STATE_SET.has(value);
 }
 
-/**
- * Parsed managed block: node id → state → CSS property → value. Plain
- * nested records so callers can serialize/diff cheaply.
- */
 export type InteractionStatesModel = Record<
   string,
   Partial<Record<InteractionState, Record<string, string>>>
 >;
 
-/** Responsive state overrides: max-width bound → regular state model. */
 export type ResponsiveInteractionStatesModel = Record<
   string,
   InteractionStatesModel
 >;
 
-/** One flattened managed rule, as returned by {@link listAllInteractionStateDeclarations}. */
 export interface InteractionStateDeclaration {
   nodeId: string;
   state: InteractionState;
@@ -122,17 +35,10 @@ export interface InteractionStateDeclaration {
   value: string;
 }
 
-// ─── Validation ──────────────────────────────────────────────────────────────
 
 const CSS_VALUE_BREAKOUT_RE = /[;{}<>]|\/\*|\*\/|\burl\s*\(/i;
 const CSS_VALUE_CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
-/**
- * Reject caller-supplied CSS values before interpolation into the managed
- * stylesheet. Allows useful CSS functions (`calc(...)`, `var(...)`,
- * `rgb(...)`) but blocks declaration/rule breakouts and remote-resource
- * hooks — same policy as the managed breakpoint/motion blocks.
- */
 export function isSafeInteractionStateCssValue(value: string): boolean {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
@@ -143,25 +49,17 @@ export function isSafeInteractionStateCssValue(value: string): boolean {
   return true;
 }
 
-/** Valid (optionally vendor-prefixed) CSS property identifier. */
 export function isSafeInteractionStateCssProperty(property: string): boolean {
   return /^(?:--[a-zA-Z_][a-zA-Z0-9_-]*|-?[a-zA-Z][a-zA-Z0-9-]*)$/.test(
     property,
   );
 }
 
-// ─── HTML block extraction / injection ───────────────────────────────────────
 
 const OPEN_RE = /<style\b(?=[^>]*\bdata-agent-native-states\b)[^>]*>/i;
 const RESPONSIVE_OPEN_RE =
   /<style\b(?=[^>]*\bdata-agent-native-state-breakpoints\b)[^>]*>/i;
 
-/**
- * Extract the CSS body of the managed `<style data-agent-native-states>`
- * block (includes both the real pseudo-class rules and their forced-preview
- * twins — both live in the same block). Returns `null` when the document has
- * no managed block.
- */
 export function extractManagedInteractionStateCss(html: string): string | null {
   const openMatch = OPEN_RE.exec(html);
   if (!openMatch) return null;
@@ -172,11 +70,6 @@ export function extractManagedInteractionStateCss(html: string): string | null {
   return afterOpen.slice(0, closeMatch.index).trim();
 }
 
-/**
- * Inject or replace the managed block. Inserts before `</head>` when no
- * managed block exists, or at the top of the document when there is no
- * `<head>`. Passing empty CSS removes the block entirely.
- */
 export function injectManagedInteractionStateCss(
   html: string,
   css: string,
@@ -194,8 +87,6 @@ export function injectManagedInteractionStateCss(
     const closeMatch = /<\s*\/\s*style\b[^>]*>/i.exec(afterOpen);
     if (closeMatch) {
       const closeEnd = bodyStart + closeMatch.index + closeMatch[0].length;
-      // Removing the block: also swallow one trailing newline so repeated
-      // add/remove cycles don't accumulate blank lines.
       if (block === "") {
         const after = html.slice(closeEnd);
         return html.slice(0, openMatch.index) + after.replace(/^\n/, "");
@@ -212,14 +103,12 @@ export function injectManagedInteractionStateCss(
   return block + "\n" + html;
 }
 
-/** Extract the responsive interaction-state managed block. */
 export function extractManagedResponsiveInteractionStateCss(
   html: string,
 ): string | null {
   return extractManagedStyleBody(html, RESPONSIVE_OPEN_RE);
 }
 
-/** Inject, replace, or remove the responsive interaction-state block. */
 export function injectManagedResponsiveInteractionStateCss(
   html: string,
   css: string,
@@ -232,7 +121,6 @@ export function injectManagedResponsiveInteractionStateCss(
   );
 }
 
-// ─── CSS body parse / serialize ──────────────────────────────────────────────
 
 /**
  * Matches ONE real pseudo-class state rule for a node id, e.g.
@@ -246,11 +134,6 @@ function stateRuleRegex(): RegExp {
   return /\[data-agent-native-node-id="((?:\\.|[^"\\])*)"\]:(hover|focus-visible|focus|active|disabled)\s*\{([^}]*)\}/g;
 }
 
-/**
- * Parse a managed CSS body into the model. Tolerant of hand edits made in
- * the Code panel: unknown selectors (including the derived preview twins)
- * and invalid declarations are skipped, not errors.
- */
 export function parseInteractionStatesCss(css: string): InteractionStatesModel {
   const model: InteractionStatesModel = {};
   const ruleRe = stateRuleRegex();
@@ -267,11 +150,6 @@ export function parseInteractionStatesCss(css: string): InteractionStatesModel {
       const colon = declaration.indexOf(":");
       if (colon <= 0) continue;
       const property = declaration.slice(0, colon).trim();
-      // Managed declarations are serialized with `!important` so they can
-      // override the inline base styles Design authors on canvas elements.
-      // Keep that cascade implementation detail out of the persisted model:
-      // inspector fields, diffs, and subsequent writes all operate on the
-      // authored value (`red`), never `red !important`.
       const value = stripManagedImportant(declaration.slice(colon + 1));
       if (!isSafeInteractionStateCssProperty(property)) continue;
       if (!isSafeInteractionStateCssValue(value)) continue;
@@ -284,13 +162,6 @@ export function parseInteractionStatesCss(css: string): InteractionStatesModel {
   return model;
 }
 
-/**
- * Serialize the real pseudo-class rules (model → CSS body), sorted node id
- * then fixed state order then property, for byte-identical output. Does NOT
- * include the forced-preview twins — call {@link duplicateStatePreviewRules}
- * on the result (or use {@link serializeInteractionStatesModelWithPreviews})
- * to append those.
- */
 export function serializeInteractionStatesModel(
   model: InteractionStatesModel,
 ): string {
@@ -319,15 +190,6 @@ export function serializeInteractionStatesModel(
   return rules.join("\n\n");
 }
 
-/**
- * Rebuild a managed CSS body's real rules + forced-preview twins from
- * scratch, given the ALREADY-PARSED model. Re-serializing the real rules
- * (rather than reusing the raw input body verbatim) is what keeps this
- * idempotent: a body that already contains twins from a previous run parses
- * back to the same model (twins are excluded by {@link stateRuleRegex}), so
- * rebuilding from that model reproduces byte-identical output instead of
- * accumulating duplicate twin rules on every call.
- */
 function rebuildCssWithPreviews(model: InteractionStatesModel): string {
   const baseBody = serializeInteractionStatesModel(model);
   const previewRules: string[] = [];
@@ -358,17 +220,12 @@ function rebuildCssWithPreviews(model: InteractionStatesModel): string {
     : `${baseBody}\n\n${previewRules.join("\n\n")}`;
 }
 
-/**
- * Convenience: model → complete CSS body (real rules + forced-preview
- * twins), ready to pass to {@link injectManagedInteractionStateCss}.
- */
 export function serializeInteractionStatesModelWithPreviews(
   model: InteractionStatesModel,
 ): string {
   return rebuildCssWithPreviews(model);
 }
 
-/** Parse responsive `@media (max-width)` state rules from their own block. */
 export function parseResponsiveInteractionStatesCss(
   css: string,
 ): ResponsiveInteractionStatesModel {
@@ -382,10 +239,6 @@ export function parseResponsiveInteractionStatesCss(
     const body = extractCssBlock(css, bodyStart);
     if (body === null) continue;
     mediaRe.lastIndex = bodyStart + body.length + 1;
-    // Responsive rules deliberately double the node attribute selector so
-    // they beat a base state rule even if later editing moves/reinserts the
-    // base managed block after this block. Collapse that deterministic
-    // specificity boost before feeding the normal state parser.
     const parsed = parseInteractionStatesCss(
       body.replace(
         /(\[data-agent-native-node-id="(?:\\.|[^"\\])*"\])\1/g,
@@ -397,10 +250,6 @@ export function parseResponsiveInteractionStatesCss(
   return model;
 }
 
-/**
- * Serialize responsive state rules widest-first so every narrower matching
- * bucket appears later and wins, mirroring the normal breakpoint cascade.
- */
 export function serializeResponsiveInteractionStatesModel(
   model: ResponsiveInteractionStatesModel,
 ): string {
@@ -421,17 +270,6 @@ export function serializeResponsiveInteractionStatesModel(
     .join("\n\n");
 }
 
-/**
- * Regenerate the forced-preview twin rules for a whole document from its
- * current real state rules, and write the refreshed managed block back.
- * Idempotent: re-running it just recomputes byte-identical twins (rebuilt
- * from the parsed real-rule model, not by appending onto whatever twins were
- * already present). This is the function phase-2 callers reach for after any
- * state-rule mutation (or to backfill twins for a document that already has
- * real rules but was authored before this mechanism existed) — it never
- * touches anything outside the managed `<style data-agent-native-states>`
- * block.
- */
 export function duplicateStatePreviewRules(html: string): string {
   const css = extractManagedInteractionStateCss(html);
   if (css === null) return html;
@@ -439,14 +277,7 @@ export function duplicateStatePreviewRules(html: string): string {
   return injectManagedInteractionStateCss(html, rebuildCssWithPreviews(model));
 }
 
-// ─── High-level document operations ──────────────────────────────────────────
 
-/**
- * Re-derive the managed block's CSS (real rules + fresh preview twins) from
- * its current real rules and write it back. Callers that mutate the model
- * directly should route through this instead of hand-assembling the CSS, so
- * the preview twins never drift from the real rules.
- */
 function writeModel(html: string, model: InteractionStatesModel): string {
   return injectManagedInteractionStateCss(
     html,
@@ -454,7 +285,6 @@ function writeModel(html: string, model: InteractionStatesModel): string {
   );
 }
 
-/** Read the current model out of the document (real rules only). */
 function readModel(html: string): InteractionStatesModel {
   return parseInteractionStatesCss(
     extractManagedInteractionStateCss(html) ?? "",
@@ -467,10 +297,6 @@ function readResponsiveModel(html: string): ResponsiveInteractionStatesModel {
   );
 }
 
-/**
- * List every state that has at least one declaration for `nodeId`, in fixed
- * `INTERACTION_STATES` order. Empty array when the node has no overrides.
- */
 export function listInteractionStates(
   html: string,
   nodeId: string,
@@ -487,10 +313,6 @@ export function listInteractionStates(
   });
 }
 
-/**
- * All declared CSS properties/values for one node's state. Returns `{}` when
- * there is no managed block, node, or state entry.
- */
 export function readStateStyles(
   html: string,
   nodeId: string,
@@ -500,10 +322,6 @@ export function readStateStyles(
   return { ...(model[nodeId]?.[state] ?? {}) };
 }
 
-/**
- * Resolve a state's inspector values at a concrete viewport: base state
- * declarations first, then every matching responsive bucket widest→narrowest.
- */
 export function readResolvedStateStyles(
   html: string,
   nodeId: string,
@@ -529,11 +347,6 @@ export function readResolvedStateStyles(
   return resolved;
 }
 
-/**
- * Set (or overwrite) one managed declaration for a node's state, returning
- * the updated HTML. Throws on unsafe property/value — the caller decides how
- * to surface that (same contract as `setBreakpointMediaDeclaration`).
- */
 export function upsertStateStyle(
   html: string,
   nodeId: string,
@@ -544,13 +357,6 @@ export function upsertStateStyle(
   return upsertStateStyles(html, nodeId, state, { [property]: value });
 }
 
-/**
- * Batched form of {@link upsertStateStyle} — sets multiple declarations for
- * one node's state in a single parse/serialize/inject pass. Prefer this over
- * multiple sequential `upsertStateStyle` calls when committing more than one
- * property at once (e.g. a shorthand expansion), matching the
- * `onStylesChange` batched-commit convention used elsewhere in EditPanel.
- */
 export function upsertStateStyles(
   html: string,
   nodeId: string,
@@ -569,12 +375,6 @@ export function upsertStateStyles(
   return writeModel(html, model);
 }
 
-/**
- * Persist one state override at a responsive max-width bound. This is the
- * state-aware counterpart of `setBreakpointMediaDeclaration`; callers must
- * use it whenever both an interaction state and a non-base breakpoint are
- * active so a narrow-frame edit never leaks globally.
- */
 export function upsertResponsiveStateStyles(
   html: string,
   nodeId: string,
@@ -603,7 +403,6 @@ export function upsertResponsiveStateStyles(
   );
 }
 
-/** Remove one property from one responsive state scope, pruning empties. */
 export function removeResponsiveStateProperty(
   html: string,
   nodeId: string,
@@ -629,11 +428,6 @@ export function removeResponsiveStateProperty(
   );
 }
 
-/**
- * Remove one managed declaration (reset the property back to the base
- * value). Prunes empty state entries, node entries, and — when nothing is
- * left — the whole managed block.
- */
 export function removeStateProperty(
   html: string,
   nodeId: string,
@@ -656,10 +450,6 @@ export function removeStateProperty(
   return writeModel(html, model);
 }
 
-/**
- * Remove every managed declaration for a node's state (the state's full
- * "reset" affordance — clears every overridden property at once).
- */
 export function clearState(
   html: string,
   nodeId: string,
@@ -675,11 +465,6 @@ export function clearState(
   return writeModel(html, model);
 }
 
-/**
- * All managed declarations across every node/state, flattened and sorted
- * node id → fixed state order → property. Pass `nodeId` to filter to one
- * node (every state), matching `getBreakpointMediaDeclarations`'s shape.
- */
 export function listAllInteractionStateDeclarations(
   html: string,
   nodeId?: string | null,
@@ -707,9 +492,7 @@ export function listAllInteractionStateDeclarations(
   return declarations;
 }
 
-// ─── Internal helpers ────────────────────────────────────────────────────────
 
-/** Escape a string for a CSS attribute selector value (`\` and `"`). */
 function escAttr(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
@@ -718,12 +501,6 @@ function unescAttr(value: string): string {
   return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
 }
 
-/**
- * `!important` is deliberately a serialization concern, not model data.
- * Strip a caller/hand-authored suffix on read and write so repeated
- * parse/serialize cycles stay canonical and never produce
- * `!important !important`.
- */
 function stripManagedImportant(value: string): string {
   return value.replace(/\s*!important\s*$/i, "").trim();
 }
@@ -831,12 +608,6 @@ function extractCssBlock(css: string, start: number): string | null {
   return depth === 0 ? css.slice(start, index - 1) : null;
 }
 
-/**
- * Normalize a CSS property name to kebab-case (accepts either `fontSize` or
- * `font-size`). Local copy of the same normalization
- * `responsive-classes.ts`/`breakpoint-media.ts` apply, kept dependency-free
- * here since this module must stay a pure, standalone string transform.
- */
 function normalizeCssPropertyName(property: string): string {
   if (property.startsWith("--")) return property;
   return property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);

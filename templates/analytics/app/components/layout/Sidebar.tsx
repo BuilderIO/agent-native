@@ -72,7 +72,6 @@ type SidebarDashboard = {
   resourceId?: string;
   visibility?: Visibility;
   ownerEmail?: string | null;
-  /** Id of the dashboard this one nests under in the sidebar, if any. */
   parentId?: string;
 };
 
@@ -285,7 +284,6 @@ function applyOrder<T extends { id: string }>(
       idToItem.delete(id);
     }
   }
-  // Append any new items not in the saved order
   for (const item of idToItem.values()) {
     ordered.push(item);
   }
@@ -487,11 +485,9 @@ function SidebarSectionSettingsPopover({
   );
 }
 
-// --- Visibility types and helpers ---
 
 type Visibility = DashboardVisibility;
 
-// --- Shared sortable row (used by both dashboards and analyses) ---
 
 function SortableRow({
   id,
@@ -521,10 +517,7 @@ function SortableRow({
   onToggleFavorite: (key: string) => void;
   onDelete: () => Promise<void> | void;
   onRename: (name: string) => Promise<void> | void;
-  /** When provided, the menu shows Archive as the primary destructive action
-   *  and Delete becomes a confirm-gated "Delete permanently". */
   onArchive?: () => Promise<void> | void;
-  /** When provided, the menu shows a Hide item (and Unhide when `hidden`). */
   onHide?: () => Promise<void> | void;
   onUnhide?: () => Promise<void> | void;
   hidden?: boolean;
@@ -921,7 +914,6 @@ function SortableRow({
   );
 }
 
-// --- Dashboard item: wraps SortableRow + renders dashboard-specific subviews ---
 
 function SortableDashboardItem({
   d,
@@ -1556,7 +1548,6 @@ function restoreQuerySnapshots<T>(
   }
 }
 
-// --- Sidebar ---
 
 export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const location = useLocation();
@@ -1648,7 +1639,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const [dashboardOrderState, setDashboardOrderState] = useState(() =>
     typeof window === "undefined" ? [] : getDashboardOrder(),
   );
-  // Server-backed favorites
   const {
     data: favoritesData,
     isLoading: favoritesLoading,
@@ -1741,11 +1731,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     [isAskRoute, navigate, toggleAskOpen],
   );
 
-  // Fold per-source counters into sidebar list query keys so agent-driven
-  // create/rename/archive/delete shows up without a manual refresh. We
-  // Domain counters keep these lists targeted. Folding the generic `action`
-  // counter into the keys makes unrelated background work cancel and restart
-  // both sidebar reads.
   const dashboardsSync = useSettledSyncVersion(
     useChangeVersions(["dashboards"]),
   );
@@ -1780,8 +1765,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     placeholderData: (prev) => prev,
   });
 
-  // Only the active dashboard can display saved views in the sidebar, so avoid
-  // issuing one request per dashboard on every sidebar mount.
   const { views: activeDashboardViews } = useDashboardViews(
     activeDashboardId ?? undefined,
   );
@@ -1885,11 +1868,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     [auth?.email, visibleDashboards, dashFilter],
   );
 
-  // Group dashboards that declare a parentId beneath their parent. Nesting is
-  // intentionally one level deep: a dashboard only nests when its parent is
-  // itself top-level. Orphans (parent missing/filtered out), self-references,
-  // cycles, and deeper descendants all fall back to top level so nothing is
-  // ever hidden.
   const dashboardChildren = useMemo<Map<string, SidebarDashboard[]>>(() => {
     const byId = new Map(filteredDashboards.map((d) => [d.id, d]));
     const hasValidParent = (d: SidebarDashboard) =>
@@ -1934,11 +1912,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     if (dashboardListReady) dashboardListHasRendered.current = true;
   }, [dashboardListReady]);
 
-  // The flattened id order exactly as rendered (each parent immediately
-  // followed by its nested children). Drag reordering must use this so the
-  // arrayMove indices match what the user sees; the raw `visibleDashboards`
-  // order interleaves children at their sorted positions and would move the
-  // wrong rows once a dashboard is nested.
   const dashboardRenderOrderIds = useMemo(
     () =>
       topLevelDashboards.flatMap((d) => [
@@ -1961,9 +1934,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         setHiddenIds(getHiddenDashboards());
         return;
       }
-      // Optimistic: remove from the sidebar query cache immediately so the row
-      // disappears without waiting for the DELETE round-trip. Snapshot the
-      // prior value so we can roll back on failure.
       const activeKey = ["sql-dashboards-sidebar", dashboardScope] as const;
       const prevActive = getQuerySnapshots<SqlDashboardListItem[]>(
         queryClient,
@@ -1991,8 +1961,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     async (d: SidebarDashboard) => {
       if (d.source === "analysis") return;
       if (d.source === "static") {
-        // Static dashboards can only be hidden, not archived; route to delete
-        // (which calls hideDashboard for static items).
         hideDashboard(d.id);
         setHiddenIds(getHiddenDashboards());
         return;

@@ -1,7 +1,6 @@
 import { createContext, useContext } from "react";
 
 export type AccountFilterContextType = {
-  /** Set of active account emails. Empty = show all (no filtering). */
   activeAccounts: Set<string>;
   allAccounts: Array<{
     email: string;

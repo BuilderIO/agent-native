@@ -18,13 +18,6 @@ export interface CreatedScreenNavigationPlan {
   };
 }
 
-/**
- * A newly-created screen always becomes the one obvious target: active in the
- * layers panel, selected on the all-screens canvas, and revealed by a bounded
- * fit-camera move. The editor applies this plan in the same React commit as
- * its optimistic file insertion so there is no transient "nothing happened"
- * state or camera flash.
- */
 export function getCreatedScreenNavigationPlan(args: {
   screenId: string;
   geometry: CreatedScreenGeometry;

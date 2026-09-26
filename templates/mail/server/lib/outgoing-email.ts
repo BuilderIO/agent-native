@@ -53,17 +53,11 @@ function safeHeaderParam(value: string): string {
   return stripCrlf(value).replace(/["\\]/g, "_") || "attachment";
 }
 
-// RFC 2047 base64-encode a header value when it contains non-ASCII. Without
-// this, characters like the em-dash "—" arrive as mojibake (e.g. "Ã¢Â€Â\"")
-// because intermediate MTAs interpret raw UTF-8 bytes in headers as Latin-1.
 export function encodeMimeHeaderValue(value: string): string {
   if (/^[\x20-\x7e]*$/.test(value)) return value;
   return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
 }
 
-// RFC 2047 encode the display-name part of an address-list header
-// (To/From/Cc/Bcc). The bare email itself is always ASCII-safe, so we leave it
-// alone and only encode the name when needed.
 export function encodeAddressHeader(value: string): string {
   return value
     .split(",")
@@ -84,15 +78,11 @@ function encodeSingleAddress(addr: string): string {
   return encodeMimeHeaderValue(addr);
 }
 
-// Build a marked Renderer that keeps links safe for email clients (absolute
-// hrefs only, target=_blank + rel=noopener, no javascript:).
 function buildEmailRenderer(): Renderer {
   const renderer = new Renderer();
 
   renderer.link = ({ href, title, tokens }: Tokens.Link) => {
     const safeHref = href && /^https?:\/\//i.test(href) ? href : (href ?? "#");
-    // Use the parser to render the inline tokens when available; fall back to
-    // extracting raw text so the label is never empty.
     const label = (renderer as any).parser
       ? (renderer as any).parser.parseInline(tokens)
       : tokens.map((t: any) => t.text ?? "").join("") || safeHref;
@@ -198,11 +188,6 @@ export async function resolveComposeAttachments(
   const resolved: ResolvedComposeAttachment[] = [];
   for (const raw of attachments) {
     const att = raw as Partial<ComposeAttachment>;
-    // Every other failure branch below throws and is surfaced to the user as
-    // "One or more attachments could not be read" by the send/save callers.
-    // A malformed entry must fail the same way instead of being silently
-    // dropped; otherwise the user believes the file was attached when the
-    // sent email has fewer attachments than they added.
     if (!att.filename || typeof att.filename !== "string") {
       throw new Error("Attachment is missing a filename and could not be read");
     }

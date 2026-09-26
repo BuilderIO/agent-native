@@ -11,41 +11,17 @@ export const MOTION_DOCK_EXIT_FALLBACK_MS = MOTION_DOCK_TRANSITION_MS * 2 + 600;
 export const MOTION_AUTOSAVE_DELAY_MS = 500;
 export const DESIGN_SELECTION_ZOOM_SAVE_DELAY_MS = 150;
 
-/** Retry window for dropping an untouched text node whose screen content has
- *  not caught up with the insert yet — see removeEmptyTextNodeWithRetry. */
 export const EMPTY_TEXT_CLEANUP_RETRY_MS = 400;
 
-/**
- * How many times the empty-text cleanup re-asks for the screen's content before
- * giving up. A board's very first primitive is the reason this is not 1: the
- * board file's content has not reached the client map yet at that moment, and a
- * cleanup that gave up there left the node on the canvas forever with nothing
- * left to remove it.
- */
 export const EMPTY_TEXT_CLEANUP_MAX_ATTEMPTS = 8;
 
-/** Floor for an inspector-typed frame size, matching the frame tool's own
- *  drawing minimum (see getDraftGeometryForTool). */
 export const MIN_FRAME_SIZE_PX = 24;
 export const BOARD_SURFACE_SIZE = 131_072;
 
-/** Gates non-essential diagnostic console.warn calls (e.g. the cross-screen
- * anchor-stamp fallback warning) so production consoles stay quiet while
- * dev builds keep the signal. Real correctness-guard warnings (frame
- * geometry rejection, poisoned-coord normalization) stay unconditional —
- * this flag is only for lower-signal "known degraded path taken" notices. */
 export const DESIGN_EDITOR_DEBUG_LOGS = import.meta.env.DEV;
 
-/** Extensions that the localhost bridge allows to be written back to source. */
 export const LOCALHOST_WRITE_EXTENSIONS = new Set([".html", ".htm", ".css"]);
 
-/**
- * Compiled framework route extensions we can *detect* as local source but
- * cannot yet write back to (React/TS component files require build-time
- * source mapping, not a raw HTML/CSS write). "Apply to source" shows as a
- * disabled affordance with an explanatory tooltip for these instead of
- * disappearing entirely.
- */
 export const LOCALHOST_COMPILED_SOURCE_EXTENSIONS = new Set([".jsx", ".tsx"]);
 
 export const NO_LOCALHOST_WRITE_CONTENT_MESSAGE =

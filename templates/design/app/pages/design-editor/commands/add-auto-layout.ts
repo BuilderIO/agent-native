@@ -136,8 +136,6 @@ export function runAddAutoLayout({
   });
   if (!canEditDesign) return;
 
-  // Overview handles whole screens; a layer selection must still reach the
-  // element path below, as Figma applies Shift+A to whatever is selected.
   if (
     viewModeRef.current === "overview" &&
     !overviewSelectionTargetsElement({
@@ -245,9 +243,6 @@ export function runAddAutoLayout({
   const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
 
   if (nodeIds.length >= 2) {
-    // (b) multi-selection: wrap siblings into a new inferred flex
-    // container in one call (wrapNodes already strips each child's own
-    // position/left/top/right/bottom when autoLayout is true).
     const selectedNodes = nodeIds
       .map((nodeId) => nodesById.get(nodeId))
       .filter((node): node is CodeLayerNode => Boolean(node));
@@ -361,12 +356,8 @@ export function runAddAutoLayout({
     return;
   }
 
-  // (a) single selected element. Figma wraps a leaf in a new vertical,
-  // zero-padding auto-layout frame; an existing container is converted.
   const soleNode = nodesById.get(nodeIds[0]!);
   if (!soleNode) return;
-  // An empty frame is a container, not a leaf: Figma converts it in place
-  // and only wraps a true leaf (text, shape) in a new auto-layout frame.
   const soleIsFrame = soleNode.dataAttributes["data-an-primitive"] === "frame";
   if (soleNode.children.length === 0 && !soleIsFrame) {
     const wrapped = applyVisualEdit(
@@ -440,8 +431,6 @@ export function runAddAutoLayout({
   const childNodes = soleNode.children
     .map((childId) => nodesById.get(childId))
     .filter((node): node is CodeLayerNode => Boolean(node));
-  // An empty frame still takes auto layout in Figma, and
-  // inferAutoLayoutFromChildren already defaults that case to a column.
   const containerRect = rectFromCodeLayerNode(soleNode);
   const childRects = childNodes.map(rectFromCodeLayerNode);
   const inferred = inferAutoLayoutFromChildren(containerRect, childRects);
@@ -467,11 +456,6 @@ export function runAddAutoLayout({
     return;
   }
   let nextContent = patch.content;
-  // Figma reflows children when auto layout is enabled; opting one out is the
-  // explicit "ignore auto layout" toggle. wrapNodes already strips these on
-  // the multi-selection path — do the same for a single container.
-  // An empty value is rejected by isSafeStyleValue, so neutralise with CSS
-  // initial values rather than trying to remove the declarations.
   const reflowResets: Array<[string, string]> = [
     ["position", "static"],
     ["left", "auto"],

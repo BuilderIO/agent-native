@@ -16,7 +16,6 @@ import {
 } from "./inspector-grid";
 import { PanelSection } from "./panel-primitives";
 
-/** Figma's in-edit Vector section: the selected point's X/Y and mirroring. */
 export function VectorVertexMirroring({
   mirroring,
   onChange,

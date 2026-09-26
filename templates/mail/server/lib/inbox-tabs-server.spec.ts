@@ -54,8 +54,6 @@ describe("resolveInboxTabs", () => {
       "f1",
       "other",
     ]);
-    // "archive" is a collapsible system view, not a triage tab; note-to-self
-    // is excluded from the tab list even when pinned.
     expect(tabs.some((t) => t.id === "archive")).toBe(false);
     expect(tabs.find((t) => t.id === "clients")?.name).toBe("VIPs");
     expect(tabs.find((t) => t.id === "f1")?.query).toBe("is:unread");
@@ -107,7 +105,6 @@ describe("partitionInboxItems", () => {
     const byTab = partitionInboxItems([dual], tabs);
     expect(byTab.get("automated notifications")).toContain(dual);
     expect(byTab.get("f1")).toContain(dual);
-    // Matched a custom tab, so it does NOT fall into Important/Other too.
     expect(byTab.get("important")).not.toContain(dual);
     expect(byTab.get("other")).not.toContain(dual);
   });

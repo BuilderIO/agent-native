@@ -15,8 +15,6 @@ export function createQueuedTweakSave(
   return {
     selections,
     revision,
-    // Multiple knob ticks inside one debounce window are one full-snapshot
-    // edit and must retain the base observed by the first tick.
     expectedSelectionsHash:
       existingDebouncedSave?.expectedSelectionsHash ?? confirmedSelectionsHash,
   };
@@ -28,9 +26,6 @@ export function rebaseTweakSaveForSend(
 ): PendingTweakSave {
   return {
     ...pending,
-    // Saves are serialized. Resolve the base only when this request reaches
-    // the front of the chain so it follows a verified predecessor success,
-    // but not a predecessor that failed.
     expectedSelectionsHash: confirmedSelectionsHash,
   };
 }
@@ -58,9 +53,6 @@ export async function sendJournaledTweakSaveKeepalive(options: {
   send: () => TweakSaveKeepaliveAttempt;
   acknowledge: () => Promise<unknown>;
 }): Promise<boolean> {
-  // Pagehide may freeze the document at any await boundary. Establish the
-  // durable retry entry first so either the keepalive finishes or a later
-  // editor session can replay the exact same operation.
   if (!(await options.journal())) return false;
   const attempt = options.send();
   if (!attempt.accepted) return false;

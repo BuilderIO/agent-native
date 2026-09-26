@@ -270,8 +270,6 @@ describe("hubspot-deals action", () => {
     expect(result.nextOffset).toBe(10);
     expect(result.guidance).toContain("partial slice");
 
-    // Last page: still only a slice of the cohort (count < total), so
-    // `truncated` stays true even though there is no next page.
     const page3 = (await hubspotDeals.run({
       closedStatus: "lost",
       limit: 10,
@@ -284,7 +282,6 @@ describe("hubspot-deals action", () => {
     expect(page3.hasMore).toBe(false);
     expect(page3.nextOffset).toBe(null);
 
-    // Whole cohort in one page: not a partial slice.
     const full = (await hubspotDeals.run({
       closedStatus: "lost",
       limit: 50,

@@ -67,7 +67,6 @@ export function fullDayOutOfOfficeCoversDate(
   return dateString >= range.startDate && dateString < range.endDateExclusive;
 }
 
-/** Return the portion of a timed out-of-office event visible on one day. */
 export function getOutOfOfficeSegment(
   event: Pick<CalendarEvent, "start" | "end" | "startTimeZone" | "endTimeZone">,
   day: Date,

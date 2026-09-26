@@ -75,7 +75,6 @@ vi.mock("../server/lib/local-plan-files.js", () => ({
   localPlanFolder: (id: string) => `/tmp/plans-test/${id}`,
 }));
 
-// Control the publish auth resolution. By default "connected".
 const publishAuth = {
   value: { url: "https://hosted.example.com", token: "tok_device" } as {
     url: string;
@@ -253,7 +252,6 @@ describe("publish-visual-plan: connected/needsAuth branches", () => {
     );
     expect(res.hostedPlanId).toBe("hosted_abc");
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    // bearer token forwarded
     const [, init] = fetchMock.mock.calls[0];
     expect((init as any).headers.authorization).toBe("Bearer tok_device");
     expect((await rawPlan(planId)).hostedPlanId).toBe("hosted_abc");
@@ -280,7 +278,6 @@ describe("publish-visual-plan: access level required to publish", () => {
   it("an outsider with NO access cannot publish another user's private plan", async () => {
     mockImportOk();
     const planId = await createPlanAs(OWNER);
-    // loadPlanBundle -> resolveAccess null -> throws "not found"; no exfiltration.
     await expect(
       runWithRequestContext({ userEmail: OTHER }, () =>
         publishVisualPlan.run({ planId }),
@@ -289,15 +286,6 @@ describe("publish-visual-plan: access level required to publish", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  // BUG PIN: publish is a consequential distribution action that pushes the
-  // FULL plan content (incl. repoPath) to a DEVICE-scoped hosted account and
-  // mutates the plan row (hostedPlanId/hostedPlanUrl). Yet it only requires
-  // VIEWER-level read access (loadPlanBundle), unlike update-visual-plan which
-  // requires `editor`. A user/org/public viewer who can merely READ a plan can
-  // therefore exfiltrate it to their own connected instance and stamp a hosted
-  // URL onto the owner's row. This test asserts the SECURE expectation
-  // (viewer-only publish should be rejected); it currently FAILS, pinning the
-  // gap.
   it("BUG: a viewer-only share holder must NOT be able to publish (exfiltrate) the plan", async () => {
     mockImportOk();
     const planId = await createPlanAs(OWNER);
@@ -308,15 +296,9 @@ describe("publish-visual-plan: access level required to publish", () => {
         publishVisualPlan.run({ planId }),
       ),
     ).rejects.toBeTruthy();
-    // The plan's full content (repoPath included) must NOT have been forwarded
-    // to the device's hosted instance by a mere viewer.
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  // BUG PIN (related): public-link viewers can publish too. A public plan is
-  // readable by any authenticated user (and anonymous public viewers); publish
-  // only gates on read, so any of them can push the plan to their device's
-  // hosted account.
   it("BUG: a non-owner reader of a PUBLIC plan must NOT be able to publish it", async () => {
     mockImportOk();
     const planId = await createPlanAs(OWNER);
@@ -386,18 +368,10 @@ describe("publish-visual-plan: prototype.mdx round-trip", () => {
 });
 
 describe("publish-visual-plan: hostedPlanUrl write-back scope", () => {
-  // BUG PIN: the final write-back
-  //   getDb().update(plans).set({hostedPlanId, hostedPlanUrl}).where(eq(id))
-  // is UNSCOPED. Any caller who passes the read gate writes these columns. On a
-  // PUBLIC plan, a non-owner reader could overwrite the owner's hostedPlanUrl
-  // (the "Open Published Plan" link) to point at an attacker-controlled origin.
-  // This asserts the SECURE expectation (a non-owner publish on a public plan
-  // does not mutate the owner's hosted columns); it currently FAILS.
   it("BUG: a non-owner publishing a PUBLIC plan must not overwrite the owner's hostedPlanUrl", async () => {
     const planId = await createPlanAs(OWNER);
     await setVisibility(planId, "public");
 
-    // Owner first publishes to the real hosted instance.
     mockImportOk("hosted_owner");
     await runWithRequestContext({ userEmail: OWNER }, () =>
       publishVisualPlan.run({ planId }),
@@ -405,8 +379,6 @@ describe("publish-visual-plan: hostedPlanUrl write-back scope", () => {
     const ownerUrl = (await rawPlan(planId)).hostedPlanUrl as string;
     expect(ownerUrl).toContain("hosted.example.com");
 
-    // Attacker (a public-plan reader) connects THEIR device to a malicious host
-    // and publishes the same plan, hoping to poison the stored hostedPlanUrl.
     publishAuth.value = {
       url: "https://attacker.example",
       token: "tok_attacker",
@@ -423,7 +395,6 @@ describe("publish-visual-plan: hostedPlanUrl write-back scope", () => {
       publishVisualPlan.run({ planId }),
     ).catch(() => undefined);
 
-    // The owner's stored hosted URL must remain the legitimate one.
     expect((await rawPlan(planId)).hostedPlanUrl).toBe(ownerUrl);
   });
 });

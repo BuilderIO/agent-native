@@ -1,39 +1,15 @@
-//! Live chunk uploader for the custom capture pipeline.
-//!
-//! Tails the growing fragmented MP4 during recording and streams whole
-//! chunks to the server by index, then drains the tail and closes the
-//! sequence on finalize. Owns the uploader task lifecycle
-//! (`LiveUploadCtrl` / `LiveUpload`); the parent `native_screen` module
-//! decides when to attach, finalize, or abandon it.
 
 use super::*;
 
-// ---------------------------------------------------------------------------
-// Live upload (custom pipeline)
-//
-// Streams the growing fragmented MP4 to the server in UPLOAD_CHUNK_BYTES slices
-// while recording is still in progress, instead of waiting for stop+finalize.
-// Safe because the custom writer produces an append-only file (movie
-// fragments): byte ranges we upload never change. The server concatenates the
-// uploaded chunks in index order to reproduce the exact file.
-// ---------------------------------------------------------------------------
 
 const LIVE_UPLOAD_POLL_MS: u64 = 250;
-/// Attempts per chunk before the live upload gives up (the stop path then
-/// saves the clip locally for manual retry).
 const LIVE_UPLOAD_CHUNK_ATTEMPTS: u32 = 5;
-/// First retry backoff; doubles per attempt (0.5s, 1s, 2s, 4s).
 const LIVE_UPLOAD_RETRY_BASE_MS: u64 = 500;
 
 pub(super) struct LiveUploadCtrl {
-    /// Set once the writer is finalized: drain the tail and send the final post.
     pub(super) finalize: AtomicBool,
-    /// Abort without finalizing (cancel / discard / error).
     pub(super) cancelled: AtomicBool,
-    /// Recorded media duration in ms; set just before `finalize`.
     pub(super) duration_ms: AtomicU64,
-    /// Bytes acknowledged by the server. Stop snapshots this before final-tail
-    /// drainage so telemetry measures genuine progressive upload.
     pub(super) uploaded_bytes: AtomicU64,
 }
 
@@ -134,8 +110,6 @@ pub(super) fn cancel_clip_live_upload(live: &LiveUpload) {
     live.ctrl.cancelled.store(true, Ordering::SeqCst);
 }
 
-/// Spawn the background uploader and return a handle the stop path uses to
-/// finalize (or cancel) it.
 fn spawn_live_uploader(app: AppHandle, params: LiveUploadParams) -> LiveUpload {
     let ctrl = Arc::new(LiveUploadCtrl {
         finalize: AtomicBool::new(false),
@@ -155,9 +129,6 @@ fn spawn_live_uploader(app: AppHandle, params: LiveUploadParams) -> LiveUpload {
     }
 }
 
-/// Build and attach a live uploader to an already-recording session. No-op when
-/// live upload is disabled, the session isn't the custom pipeline, an uploader
-/// is already attached, or no server URL was provided (local-only recordings).
 pub(super) fn attach_live_uploader_to_session(
     app: &AppHandle,
     session: &mut NativeFullscreenSession,
@@ -220,9 +191,6 @@ pub(super) fn attach_live_uploader_to_session(
     session.had_live_upload = true;
 }
 
-/// Read exactly `len` bytes at `offset` from a file that is still being written.
-/// Safe here because the custom writer only appends, so bytes below the current
-/// length are stable.
 fn read_file_range(path: &Path, offset: u64, len: usize) -> Result<Vec<u8>, String> {
     let mut file = File::open(path).map_err(|e| format!("live upload open failed: {e}"))?;
     file.seek(SeekFrom::Start(offset))
@@ -233,8 +201,6 @@ fn read_file_range(path: &Path, offset: u64, len: usize) -> Result<Vec<u8>, Stri
     Ok(buf)
 }
 
-/// Send one live-upload POST, retrying transient failures with exponential
-/// backoff. Bails out between attempts if the upload is cancelled.
 async fn send_live_upload_post_with_retry(
     client: &reqwest::Client,
     ctrl: &LiveUploadCtrl,
@@ -249,11 +215,6 @@ async fn send_live_upload_post_with_retry(
     let rec = &params.recording_id;
     let mut attempt: u32 = 0;
     loop {
-        // The uploader task can outlive an abandoned session (pause/discard
-        // set `cancelled` and drop the handle), so bail before spending a
-        // network attempt. An already in-flight POST still runs to completion
-        // — narrow accepted race; the full re-upload path resets server
-        // chunks first, and re-uploaded indexes overwrite stale ones.
         if ctrl.cancelled.load(Ordering::SeqCst) {
             return Err("live upload cancelled".into());
         }
@@ -332,8 +293,6 @@ async fn live_upload_loop(
             .map(|m| m.len())
             .unwrap_or(offset);
 
-        // While recording, only upload whole chunks — the last partial chunk
-        // may still be growing. On finalize, drain everything that remains.
         while file_len.saturating_sub(offset) >= chunk {
             wait_logged = false;
             let bytes = read_file_range(&params.path, offset, chunk as usize)?;
@@ -368,13 +327,6 @@ async fn live_upload_loop(
             );
             emit_native_upload_progress(&app, &rec, "processing", "Uploading clip", None, None);
 
-            // The last tail chunk doubles as the final post (data + is_final).
-            // The server's resumable-session path relays chunks to GCS, whose
-            // protocol requires every NON-final chunk to be a multiple of
-            // 256 KiB — only the final chunk may have arbitrary size. Sending
-            // the arbitrary-sized tail as non-final followed by an empty final
-            // sentinel makes GCS silently commit only the aligned prefix, and
-            // the session close then fails forever with 308 (incomplete).
             let mut final_sent = false;
             let mut verification_pending = false;
             while final_len > offset {
@@ -417,9 +369,6 @@ async fn live_upload_loop(
                 final_sent = final_sent || is_last;
             }
 
-            // No tail bytes left: close with the empty final sentinel. All
-            // streamed chunks were whole UPLOAD_CHUNK_BYTES (256 KiB aligned),
-            // so the provider can close the session on the declared total.
             if !final_sent {
                 eprintln!(
                     "[live-upload] {rec}: sending final post #{index} (total={}, duration_ms={duration_ms})",

@@ -1,26 +1,3 @@
-/**
- * Data program: Risk Meeting Pylon early-warning accounts.
- *
- * Stored program payload (see the comment at the top of
- * `risk-meeting-cohort.js` in this same directory for the full explanation
- * of why this is a `.js` seed file, not a build source file, and how the
- * generic provider-access pattern works).
- *
- * This program surfaces Pylon-only risk signal: enterprise accounts Pylon
- * already flags as at-risk (by support/CS sentiment) that have NOT yet shown
- * up as a HubSpot deal in the Risk Meeting cohort. That gap is exactly the
- * "early warning" — support signal outrunning CRM signal — that a
- * single-provider dashboard could never surface, because it requires
- * excluding one provider's cohort from another provider's cohort. Nothing
- * here is a hardcoded action: it is two `providerFetchAll` calls and a
- * domain-set subtraction.
- *
- * Params (all optional):
- *   riskStatuses  string[] — same HubSpot `risk_status` values used by
- *                 risk-meeting-cohort.js, so the "already in the HubSpot
- *                 cohort" exclusion set matches that program's definition.
- *                 Defaults to the same four canonical statuses.
- */
 
 const DEFAULT_RISK_STATUSES = [
   "On the Radar",
@@ -45,11 +22,6 @@ function chunk(items, size) {
   return out;
 }
 
-/**
- * Lighter variant of risk-meeting-cohort.js's HubSpot resolution: we only
- * need the set of domains already covered by the HubSpot cohort, not the
- * full deal detail, so we skip fetching deal-only properties we won't use.
- */
 async function hubspotCohortDomains() {
   const dealSearch = await providerFetchAll(
     "hubspot",

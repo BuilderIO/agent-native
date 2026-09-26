@@ -379,8 +379,6 @@ export async function loadPublicAgentAccess(
     }
   }
 
-  // Every agent API route funnels through here, so this is the one place that
-  // sees an outside agent read a clip. Owner requests are previews, not views.
   if (!viewerIsOwner) {
     await recordAgentView(event, recording.id, {
       agentLabel: tokenAccess?.ok ? tokenAccess.agentLabel : null,
@@ -475,13 +473,9 @@ export async function loadAgentBugReport(
   return row ?? null;
 }
 
-// Most-recent console logs / network requests surfaced in the public agent
-// context. Bounded to keep the agent payload small; the summary still reports
-// the true total counts.
 const MAX_PUBLIC_AGENT_CONSOLE_LOGS = 100;
 const MAX_PUBLIC_AGENT_NETWORK_REQUESTS = 100;
 const MAX_PUBLIC_AGENT_TIMELINE_EVENTS = 100;
-// Curated warn/error highlights and failed-request highlights.
 const MAX_PUBLIC_AGENT_DIAGNOSTIC_ISSUES = 20;
 
 function toPublicConsoleEntry(
@@ -501,8 +495,6 @@ function toPublicNetworkEntry(
     timestampMs: entry.elapsedMs,
     type: entry.type,
     method: entry.method,
-    // Already sanitized at capture time: path is kept, query values are
-    // redacted, and auth/hash are stripped.
     url: entry.url,
     status: entry.status ?? null,
     error: entry.error ?? null,
@@ -552,22 +544,16 @@ function isFailedNetworkRequest(
 
 function compactBrowserDiagnostics(diagnostics: BrowserDiagnosticsData | null) {
   if (!diagnostics) return null;
-  // Full console stream (all levels: debug/log/info/warn/error), redacted at
-  // capture time and bounded to the most-recent entries.
   const consoleLogs = diagnostics.consoleLogs
     .slice(-MAX_PUBLIC_AGENT_CONSOLE_LOGS)
     .map(toPublicConsoleEntry);
-  // Warn/error highlights kept as a separate convenience list so agents can
-  // jump straight to problems without scanning the full stream.
   const consoleIssues = diagnostics.consoleLogs
     .filter((entry) => entry.level === "warn" || entry.level === "error")
     .slice(-MAX_PUBLIC_AGENT_DIAGNOSTIC_ISSUES)
     .map(toPublicConsoleEntry);
-  // Full network stream (fetch + XHR), redacted at capture time and bounded.
   const networkRequests = diagnostics.networkRequests
     .slice(-MAX_PUBLIC_AGENT_NETWORK_REQUESTS)
     .map(toPublicNetworkEntry);
-  // Failed-request highlights so agents can jump straight to problems.
   const failedNetworkRequests = diagnostics.networkRequests
     .filter(isFailedNetworkRequest)
     .slice(-MAX_PUBLIC_AGENT_DIAGNOSTIC_ISSUES)

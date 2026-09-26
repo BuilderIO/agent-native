@@ -70,7 +70,6 @@ export function MonitorDetail({
     { id: monitorId },
     { staleTime: 5_000 },
   );
-  // Aggregated windows / timeline / response series over the standard windows.
   const { data: statsData } = useActionQuery<MonitorStats[]>(
     "get-monitor-stats",
     { monitorIds: [monitorId], timelineDays: 90, responseWindowHours: 24 * 7 },

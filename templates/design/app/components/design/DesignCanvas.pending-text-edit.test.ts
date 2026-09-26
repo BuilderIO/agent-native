@@ -7,11 +7,6 @@ import {
   schedulePendingTextEditActivation,
 } from "./design-canvas/pending-text-edit";
 
-// Creation-race keystroke routing: while a begin-text-edit command is pending
-// (text element created, bridge session not yet active), host keystrokes are
-// routed through this policy so they can never hit host shortcuts — the
-// overnight failure mode was arrow keys panning and Delete deleting whole
-// layers/screens while the user believed they were typing into the new text.
 describe("routePendingTextEditKey", () => {
   it("buffers printable characters (letters, digits, space, symbols)", () => {
     expect(routePendingTextEditKey({ key: "h" })).toEqual({
@@ -30,8 +25,6 @@ describe("routePendingTextEditKey", () => {
       action: "buffer",
       char: "!",
     });
-    // Alt-composed glyphs (e.g. Option+e on macOS) still arrive as a single
-    // printable key value and belong in the text, not in host shortcuts.
     expect(routePendingTextEditKey({ key: "é", altKey: true })).toEqual({
       action: "buffer",
       char: "é",
@@ -88,9 +81,6 @@ describe("routePendingTextEditKey", () => {
   });
 
   it("keeps the stand-down timeout aligned with the bridge retry window", () => {
-    // Bridge begin-text-edit retry window is ~2s; the host buffer must
-    // outlive it (plus round-trip slack) or keys leak to shortcuts right at
-    // the end of a slow activation.
     expect(PENDING_TEXT_EDIT_TIMEOUT_MS).toBeGreaterThanOrEqual(2000);
     expect(PENDING_TEXT_EDIT_TIMEOUT_MS).toBeLessThanOrEqual(5000);
   });

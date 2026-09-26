@@ -14,11 +14,6 @@ import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 export interface CanonicalSourceContentResult {
   content: string;
   changed: boolean;
-  /**
-   * Maps projection node IDs from the input bytes to the accepted bytes.
-   * Nodes are paired only by exact source open-tag offsets transformed through
-   * the identity-only attribute edits, then checked for tag agreement.
-   */
   nodeIdMap: ReadonlyMap<string, string>;
 }
 
@@ -32,7 +27,6 @@ const canonicalSourceCache = new Map<
   {
     content: string;
     result: CanonicalSourceContentResult;
-    /** Projection of `result.content`, built for the caller's source. */
     projection?: CodeLayerProjection;
     retainedBytes: number;
     retainedNodes: number;
@@ -49,7 +43,6 @@ function removeCanonicalSourceCacheEntry(fileId: string): void {
   canonicalSourceCacheNodes -= cached.retainedNodes;
 }
 
-/** Pair source nodes through exact edits; never fall back to tree position. */
 export function mapSourceNodeIds(
   before: readonly CodeLayerNode[],
   after: readonly CodeLayerNode[],
@@ -77,7 +70,6 @@ export function mapSourceNodeIds(
   return result;
 }
 
-/** The code-layer source the editor projects a design file with. */
 export function designFileCodeLayerSource(
   designId: string | undefined,
   fileId: string,
@@ -102,12 +94,6 @@ function sameCodeLayerSource(a: CodeLayerSource, b: CodeLayerSource) {
   );
 }
 
-/**
- * The projection prepareCanonicalSourceContent already built for these exact
- * prepared bytes, when it was built for `source`. Opening a design prepares
- * every screen, so the Layers model reuses these instead of parsing each
- * screen a second time.
- */
 export function preparedSourceProjection(
   fileId: string,
   content: string,
@@ -122,14 +108,6 @@ export function preparedSourceProjection(
     : undefined;
 }
 
-/**
- * Prepare persisted HTML bytes for code-layer source publication. This is
- * deliberately identity-only: it must not wrap text or inspect runtime DOM,
- * and it leaves URL-backed screens and non-HTML source files untouched.
- * Node ids depend only on the source's fileId, so `source` (default: the bare
- * design-file source) changes nothing but the projection kept for
- * preparedSourceProjection.
- */
 export function prepareCanonicalSourceContent(
   content: string,
   options: {
@@ -163,8 +141,6 @@ export function prepareCanonicalSourceContent(
     const result: CanonicalSourceContentResult = {
       content,
       changed: false,
-      // Opening a design prepares every screen and edits almost none, so the
-      // projection behind this identity map is built only when read.
       get nodeIdMap() {
         nodeIdMap ??= new Map(
           buildCodeLayerProjection(content, { source }).nodes.map((node) => [
@@ -231,10 +207,6 @@ function cacheCanonicalSource(
       content,
       result,
       ...(projection ? { projection } : {}),
-      // Unchanged content is the caller's own file string, so while its
-      // design is open the entry retains a reference, not bytes. Charging its
-      // bytes let a large design overflow the cap, and each in-order prepare
-      // pass over its screens then evicted the entry the next lookup needed.
       retainedBytes: changedBytes,
       retainedNodes,
     });
@@ -242,8 +214,6 @@ function cacheCanonicalSource(
     canonicalSourceCacheNodes += retainedNodes;
   }
   // ponytail: a closed design's unchanged entries keep their strings until
-  // newer entries evict them by count; prune by live file ids if heap
-  // profiles show it.
   while (
     canonicalSourceCacheBytes > CANONICAL_SOURCE_CACHE_MAX_BYTES ||
     canonicalSourceCacheNodes > CANONICAL_SOURCE_CACHE_MAX_NODES ||
@@ -268,9 +238,6 @@ export function resolveSourceBaseForPublication(args: {
 }): string {
   const pendingContent = args.pending?.content;
   const migrationSource = args.pending?.identityMigrationSourceContent;
-  // Identity repair is a real full-document save. Keep its raw CAS base while
-  // that save is still in flight, but switch to the canonical pending bytes as
-  // soon as the collab or persisted mirror has acknowledged them.
   if (
     pendingContent !== undefined &&
     migrationSource !== undefined &&
@@ -291,7 +258,6 @@ export function resolveSourceBaseForPublication(args: {
   return canonical === args.beforeContent ? raw : args.beforeContent;
 }
 
-/** The same pure acceptance boundary used by writers and multi-file preflight. */
 export function prepareAcceptedSourceContent(
   content: string,
   options: {

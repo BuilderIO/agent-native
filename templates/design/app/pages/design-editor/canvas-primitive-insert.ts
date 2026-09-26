@@ -69,9 +69,6 @@ export function nextBlankScreenFilename(files: DesignFile[]): string {
 export function blankScreenHtml(title: string): string {
   const safeTitle = escapeHtmlText(title);
   const safeTitleAttribute = escapeHtmlAttributeValue(title);
-  // Blank screen = free canvas: <body> is the positioned root and drawn shapes
-  // are absolute children (x,y in the HTML). A centering grid / <main> wrapper
-  // trapped shapes at center and got auto-layout-converted on drop.
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -104,13 +101,6 @@ export function uniqueLayerId(prefix: string): string {
     : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-/**
- * Re-stamp every `data-agent-native-node-id` in duplicated screen content with a
- * fresh unique id. Without this, a duplicated screen carries the SAME node ids as
- * its source, which collapses the cross-file layer-owner map (selecting a layer
- * in one screen resolves to the other) and can produce a malformed aggregate
- * projection.
- */
 export function reassignDuplicatedNodeIds(content: string): string {
   const nodeIdMap = new Map<string, string>();
   const withNewNodeIds = content.replace(
@@ -157,13 +147,6 @@ export function reassignDuplicatedNodeIds(content: string): string {
     );
 }
 
-/**
- * Figma's default text-layer name IS its content. A freshly drawn text
- * primitive is committed with no content yet (the draft is still empty), so
- * this only produces the real name once the user's typed value is known —
- * see `runTextContentChange`'s creation-finalizing commit, which re-derives
- * the layer name from this same function once typing lands.
- */
 export function defaultTextLayerName(text: string | undefined): string {
   return text?.trim() || "Text";
 }
@@ -231,20 +214,7 @@ export function polygonPointsForHtmlShape(
     .join(" ");
 }
 
-/**
- * Marker attribute stamped on board-drawn text whose inline `color` is the
- * auto-applied board default (defaultCanvasTextColor's "#ffffff" branch),
- * NOT a user-chosen color. Mirrors BOARD_TEXT_AUTO_COLOR_MARKER in
- * editor-chrome.bridge.ts (keep both in sync) — that bridge's
- * adaptAutoTextColorForNest reads this marker to decide whether an
- * in-screen re-parent should switch the forced white to `inherit` so the
- * text doesn't render white-on-white in a light container. Cross-screen
- * drops (handleCrossScreenElementDrop below) key off the same marker via
- * adaptAutoTextColorForCrossScreenNode. Any explicit user color edit must
- * remove this attribute so the text is never "helpfully" overridden again.
- */
 
-/** Inline absolute rect, or null when the element is not absolutely placed. */
 function absoluteRect(
   element: Element,
 ): { x: number; y: number; w: number; h: number } | null {
@@ -259,8 +229,6 @@ function absoluteRect(
   const w = read(style.width);
   const h = read(style.height);
   if (x === null || y === null || w === null || h === null) return null;
-  // Inline left/top are relative to the nearest positioned ancestor, so a
-  // nested frame must add its own offsets or it matches the wrong origin.
   let originX = 0;
   let originY = 0;
   for (
@@ -283,12 +251,6 @@ function absoluteRect(
   return { x: originX + x, y: originY + y, w, h };
 }
 
-/**
- * Figma's frame is the container primitive and a rectangle is not, so only
- * `data-an-primitive="frame"` adopts. Bounds come from inline geometry
- * because this document is parsed, never laid out.
- */
-/** Inline border widths, which an absolute child's offsets resolve inside of. */
 function inlineBorderInset(element: Element): { x: number; y: number } {
   const style = (element as HTMLElement).style;
   const read = (value: string) => {
@@ -314,9 +276,6 @@ function deepestFrameContaining(
         element: Element;
         rect: { x: number; y: number; w: number; h: number };
       } =>
-        // Nest on the origin, as Figma does. Requiring the whole box to fit
-        // drops a click-created text (default width) out to the root, where
-        // it overlaps the frame it looks like it belongs to.
         candidate.rect !== null &&
         x >= candidate.rect.x &&
         y >= candidate.rect.y &&
@@ -330,14 +289,6 @@ function deepestFrameContaining(
     : null;
 }
 
-/**
- * Return the stable authored identity of the exact frame the insertion helper
- * will choose, a body marker when no frame contains the point, or `null` when
- * the content/host cannot be resolved. The command uses this only to verify the
- * host's computed layout in the target's live iframe before enabling flow
- * positioning; the inert source document itself is never used as a layout
- * oracle.
- */
 export function canvasPrimitiveInsertionHostNodeId(
   content: string,
   primitive: CanvasPrimitiveInsert,
@@ -370,25 +321,16 @@ export function appendCanvasPrimitiveToHtml(
   options?: {
     preserveNegativePosition?: boolean;
     isBoardTarget?: boolean;
-    /** Let a verified auto-layout parent place this primitive. */
     positioning?: "absolute" | "flow";
-    /** The canvas colour behind the board. The board document is transparent
-     *  by design, so its surface can only be measured from the host. */
     boardBackground?: string | null;
   },
 ): string | null {
   if (typeof window === "undefined") return null;
-  // A live/localhost screen stores its route URL here, not a document.
-  // Appending to it parses the URL as body text and returns a whole HTML file,
-  // which the caller then persists OVER the URL — the screen stops being live
-  // and the route is gone. There is no correct append for this shape.
   if (isStandaloneHttpUrl(content)) return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     if (!doc.body) return null;
     const geometry = primitive.geometry;
-    // A pen path's box is its path bounds; clamping it moves the box off the
-    // drawn path, which the path data (in absolute coordinates) never follows.
     const explicitPathData = primitive.pathData?.trim()
       ? primitive.pathData
       : null;
@@ -404,20 +346,13 @@ export function appendCanvasPrimitiveToHtml(
     const height = Math.max(1, Math.round(geometry.height));
     const nodeId = primitive.nodeId ?? uniqueLayerId(primitive.kind);
     const layerName = primitiveLayerName(primitive);
-    // Resolved once so every primitive kind nests identically, and so text can
-    // pick a fill that is legible against its actual container.
     const host = deepestFrameContaining(doc.body, left, top);
     const hostOrBody: Element = host?.element ?? doc.body;
-    // An absolute child resolves against the host's PADDING box, while
-    // host.x/host.y are its border-box origin — so a bordered frame shifts
-    // everything dropped into it by the border width.
     const hostBorder = host ? inlineBorderInset(host.element) : { x: 0, y: 0 };
     const hostLeft = host ? left - host.x - hostBorder.x : left;
     const hostTop = host ? top - host.y - hostBorder.y : top;
     const finishPrimitive = (element: Element): string => {
       if (options?.positioning === "flow") {
-        // Keep a positioned containing block for Frame children, while
-        // forcing all authored primitive kinds into the parent's layout.
         const style = (element as HTMLElement | SVGElement).style;
         for (const property of [
           "position",
@@ -476,8 +411,6 @@ export function appendCanvasPrimitiveToHtml(
         strokeWidth: primitive.strokeWidth,
       });
       path.setAttribute("fill", paint.fill);
-      // Figma fills only closed regions: a fill added to an open path stays in
-      // the file for when it closes, but must not paint the chord meanwhile.
       if (explicitPathData && !isClosedPathData(explicitPathData)) {
         hidePenPathFill(path);
       }
@@ -538,9 +471,6 @@ export function appendCanvasPrimitiveToHtml(
       }
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);
-      // Kind marker so the layers panel shows a true vector/line/arrow icon for
-      // this SVG primitive instead of falling through to the rectangle glyph.
-      // Read by treeTypeForNode in shared/code-layer.ts.
       svg.setAttribute("data-an-primitive", primitive.kind);
       svg.setAttribute(
         "viewBox",
@@ -548,14 +478,7 @@ export function appendCanvasPrimitiveToHtml(
           ? `${geometry.x} ${geometry.y} ${pathViewBoxWidth} ${pathViewBoxHeight}`
           : `0 0 ${width} ${height}`,
       );
-      // P4: without this, resizing the shape non-uniformly (e.g. dragging
-      // only the right handle) letterboxes the path inside its viewBox
-      // (SVG's default preserveAspectRatio is "xMidYMid meet") instead of
-      // stretching it to fill the new box — every other primitive kind here
-      // (polygon/star, div-based shapes) already stretches to its
-      // width/height, so pen paths/lines/arrows should match.
       svg.setAttribute("preserveAspectRatio", "none");
-      // Box and viewBox must stay 1:1, or vector edit reads a scaled SVG.
       const box = explicitPathData
         ? {
             left: hostLeft + geometry.x - left,
@@ -606,21 +529,8 @@ export function appendCanvasPrimitiveToHtml(
       polygon.setAttribute("stroke-linejoin", "round");
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);
-      // Kind marker so the layers panel shows a true polygon/star icon for this
-      // SVG primitive instead of falling through to the rectangle glyph.
-      // Read by treeTypeForNode in shared/code-layer.ts.
       svg.setAttribute("data-an-primitive", primitive.kind);
       svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-      // Without this, resizing the shape non-uniformly (e.g. dragging only
-      // the height handle) letterboxes the polygon inside its viewBox
-      // (SVG's default preserveAspectRatio is "xMidYMid meet") instead of
-      // stretching it to fill the new box — the box's own width/height
-      // still resize correctly, but the visible shape stays centered at its
-      // creation-time aspect ratio, masking any later resize (including a
-      // flip-through-zero) since the rendered polygon barely changes. The
-      // path/pen-tool primitive right above already sets this for the same
-      // reason; polygon/star never did despite the comment there claiming it
-      // did.
       svg.setAttribute("preserveAspectRatio", "none");
       svg.setAttribute(
         "style",
@@ -643,18 +553,11 @@ export function appendCanvasPrimitiveToHtml(
     const element = doc.createElement("div");
     element.setAttribute("data-agent-native-node-id", nodeId);
     element.setAttribute("data-agent-native-layer-name", layerName);
-    // Kind marker so the layers panel shows a shape/text/frame icon for this
-    // primitive (rectangle/ellipse/text/frame) instead of the generic code
-    // glyph. Read by treeTypeForNode in shared/code-layer.ts.
     element.setAttribute("data-an-primitive", primitive.kind);
     element.style.position = "absolute";
     element.style.left = `${hostLeft}px`;
     element.style.top = `${hostTop}px`;
     if (primitive.kind === "text" && primitive.autoSize) {
-      // Point text grows to its intrinsic width, independent of how much room
-      // remains between the insertion point and the screen edge. Keeping the
-      // explicit auto dimensions also lets the inspector identify this as the
-      // same auto-width mode it applies to existing text layers.
       element.style.width = "max-content";
       element.style.height = "auto";
     } else {
@@ -665,19 +568,10 @@ export function appendCanvasPrimitiveToHtml(
       element.style.transform = `rotate(${geometry.rotation}deg)`;
     }
 
-    // Use the shared canvas-primitive-style module so committed output is
-    // pixel-identical to the draft preview (fixes B5 color jump, B6 ellipse
-    // radius jump).  User-supplied fill/stroke/strokeWidth override the
-    // canonical defaults so hand-chosen colours are preserved.
     const canonical = canvasPrimitiveVisual(
       primitive.kind === "rectangle" ? "rect" : primitive.kind,
     );
     if (primitive.kind === "frame") {
-      // A committed frame carries a real surface, not the draft preview's
-      // dashed tint (editor chrome, canvas-primitive-style.ts): selection
-      // chrome only covers the frame while it stays selected, and a bare
-      // container is invisible the moment it is not.
-      // overflow:hidden matches Figma frames clipping their content.
       element.style.background = primitive.fill ?? defaultCanvasFrameFill();
       if (
         primitive.stroke !== undefined ||
@@ -690,15 +584,8 @@ export function appendCanvasPrimitiveToHtml(
       element.textContent = primitive.text ?? "";
       element.style.display = primitive.autoSize ? "inline-block" : "flex";
       if (!primitive.autoSize) {
-        // Figma defaults fixed-size text frames to TOP vertical alignment,
-        // not centered — match that instead of centering the text block.
         element.style.alignItems = "flex-start";
       }
-      // "currentColor" inherits the unstyled document's black body text, so
-      // it is invisible on any dark surface. The board renderer forces its own
-      // document transparent, so a colour on that body is never painted and
-      // measuring it would judge a surface nobody sees — a frame inside the
-      // board still can be. The canvas behind it arrives from the host.
       const boardSurfaceIsLight =
         options?.isBoardTarget === true
           ? resolveDestinationBackgroundLightnessOrNull([
@@ -717,13 +604,6 @@ export function appendCanvasPrimitiveToHtml(
       const resolvedTextColor =
         primitive.fill ?? defaultCanvasTextColor(autoTextNeedsLightFill);
       element.style.color = resolvedTextColor;
-      // Stamp the auto-color marker whenever the color came from the
-      // default (no explicit primitive.fill) rather than a user-chosen
-      // value, so a later cross-screen or in-screen re-parent (see
-      // adaptAutoTextColorForCrossScreenNode below and
-      // adaptAutoTextColorForNest in editor-chrome.bridge.ts) can safely
-      // detect "this white was auto-applied" and rewrite it to inherit
-      // instead of leaving invisible white-on-white text.
       if (primitive.fill === undefined) {
         element.setAttribute(BOARD_TEXT_AUTO_COLOR_MARKER, "");
       }
@@ -732,11 +612,6 @@ export function appendCanvasPrimitiveToHtml(
       element.style.whiteSpace = "pre-wrap";
       element.style.border = canonical.border;
       element.style.borderRadius = canonical.borderRadius;
-      // Item 2: canvas-drawn text defaulted to the browser's serif fallback
-      // (no font-family was ever set here) — match the editor's own Inter
-      // stack instead. Only applies when the caller doesn't already carry an
-      // explicit font (kept future-proof even though CanvasPrimitiveInsert
-      // has no fontFamily field today).
       element.style.fontFamily = CANVAS_TEXT_DEFAULT_FONT_FAMILY;
     } else if (primitive.kind === "ellipse") {
       element.style.background = primitive.fill ?? canonical.background;
@@ -744,9 +619,8 @@ export function appendCanvasPrimitiveToHtml(
         primitive.stroke !== undefined || primitive.strokeWidth !== undefined
           ? `${primitive.strokeWidth ?? 1}px solid ${primitive.stroke ?? canonical.border.split(" ").slice(2).join(" ")}`
           : canonical.border;
-      element.style.borderRadius = canonical.borderRadius; // "50%"
+      element.style.borderRadius = canonical.borderRadius;
     } else {
-      // rect / rectangle / frame fallthrough
       element.style.background = primitive.fill ?? canonical.background;
       element.style.border =
         primitive.stroke !== undefined || primitive.strokeWidth !== undefined
@@ -761,12 +635,6 @@ export function appendCanvasPrimitiveToHtml(
   }
 }
 
-/**
- * Extract one newly-created primitive from a temporary document as markup the
- * live iframe bridge can insert. URL-backed screens keep their route URL in the
- * Design file, so their creation path must serialize a node without ever
- * rewriting that file content.
- */
 export function extractCanvasPrimitiveHtml(
   content: string,
   nodeId: string,

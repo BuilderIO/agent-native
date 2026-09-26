@@ -24,10 +24,6 @@ const viewIdentitySchema = z.object({
     .optional(),
 });
 
-/**
- * Attach the requesting user's pinned state to already access-resolved Recent
- * rows, so Recent can offer Pin/Unpin without a second client lookup.
- */
 export async function withRecentPinnedState(
   userEmail: string,
   entries: ContentRecentResult[],
@@ -164,7 +160,6 @@ export async function resolveContentRecentEntries(
     if (entry.target.databaseId) {
       if (!database || database.documentId !== document.id) continue;
       if (entry.target.viewId) {
-        // Validate before the legacy parser, which otherwise coerces unreadable JSON to a default.
         viewIdentitySchema.parse(JSON.parse(database.viewConfigJson));
         const config = parseDatabaseViewConfig(database.viewConfigJson);
         const view = config.views.find(

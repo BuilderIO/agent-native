@@ -1,8 +1,3 @@
-/**
- * Grid state → server request, and the optimistic cache patch that goes with a
- * cell write. Kept pure: the grid must never narrow a page it already has, and
- * that is only provable if the request builder is testable on its own.
- */
 
 import type { CrmCellValue, CrmGridAttribute } from "./model";
 
@@ -28,7 +23,6 @@ export interface CrmGridQueryState {
   kind?: "account" | "person" | "opportunity";
   connectionId?: string;
   viewId?: string;
-  /** Display-name search. Sent to the server; never applied to a loaded page. */
   search?: string;
   filter?: CrmGridFilter;
   sort?: CrmGridSortEntry[];
@@ -37,10 +31,6 @@ export interface CrmGridQueryState {
 
 export const CRM_GRID_PAGE_SIZE = 50;
 
-/**
- * Parameters for `list-crm-records`. Every narrowing input is on the wire —
- * the grid has no local filter path to fall back to, by construction.
- */
 export function listRecordsParams(
   state: CrmGridQueryState,
   cursor?: string,
@@ -51,7 +41,6 @@ export function listRecordsParams(
     ...(state.connectionId ? { connectionId: state.connectionId } : {}),
     ...(state.viewId ? { viewId: state.viewId } : {}),
     ...(search ? { query: search } : {}),
-    // A saved view owns its filter; sending both is a 422 at the action.
     ...(state.filter && state.filter.conditions.length && !state.viewId
       ? { filter: state.filter }
       : {}),
@@ -61,9 +50,6 @@ export function listRecordsParams(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Column configuration — the saved view's `columns_json`
-// ---------------------------------------------------------------------------
 
 export interface CrmGridColumn {
   attributeId: string;
@@ -74,7 +60,6 @@ export interface CrmGridColumn {
 const MIN_COLUMN_WIDTH = 80;
 const MAX_COLUMN_WIDTH = 720;
 
-/** Accepts both the legacy `string[]` and the typed `columns_json` shape. */
 export function normalizeGridColumns(raw: unknown): CrmGridColumn[] {
   if (!Array.isArray(raw)) return [];
   const columns: CrmGridColumn[] = [];
@@ -101,11 +86,6 @@ export function normalizeGridColumns(raw: unknown): CrmGridColumn[] {
   return columns;
 }
 
-/**
- * The grid's column order: saved columns first, in their saved order, then any
- * attribute the saved view has never seen. A saved column whose attribute no
- * longer exists is dropped rather than rendered as a blank column.
- */
 export function resolveGridColumns(
   saved: CrmGridColumn[],
   attributes: CrmGridAttribute[],
@@ -175,9 +155,6 @@ export function moveGridColumn(
   return next;
 }
 
-// ---------------------------------------------------------------------------
-// Optimistic cell writes
-// ---------------------------------------------------------------------------
 
 export interface CrmRecordValuesEntry {
   recordId: string;
@@ -190,13 +167,6 @@ export interface CrmRecordValuesPayload {
   records: CrmRecordValuesEntry[];
 }
 
-/**
- * Immutably set one cell in a `list-crm-record-values` payload.
- *
- * Returns the SAME object when no record matched, so a caller can tell "wrote
- * optimistically" from "the row is not in this cache" instead of assuming the
- * patch landed. Rollback is restoring the previous payload.
- */
 export function patchRecordValues(
   payload: CrmRecordValuesPayload | undefined,
   recordId: string,

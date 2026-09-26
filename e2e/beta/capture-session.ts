@@ -32,14 +32,6 @@ import {
 
 const SESSION_COOKIE = /^an_session/;
 
-/**
- * Pull the email out of a session response.
- *
- * Returns the reason it could not, rather than `undefined` for both "the host
- * said not-authenticated" and "the host answered something unparseable" — the
- * operator needs to tell those apart to know whether to sign in again or look
- * at the host.
- */
 function parseSessionEmail(
   body: string,
 ): { email: string } | { reason: string } {
@@ -89,9 +81,6 @@ async function capture(): Promise<void> {
   try {
     for (const site of sites) {
       const origin = originFor(site);
-      // A fresh context per app: these are host-scoped sessions, and reusing
-      // one jar would make it impossible to tell which host actually issued
-      // a cookie.
       const context = await browser.newContext({
         extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
       });
@@ -144,8 +133,6 @@ async function capture(): Promise<void> {
 
       if (email && email !== resolved.email) {
         // Stop rather than warn: continuing emits a token map spanning two
-        // accounts, which looks like a successful capture and then fails in
-        // global setup on whichever host disagrees with BETA_E2E_EMAIL.
         throw new Error(
           `[${site.id}] signed in as ${resolved.email} but a previous app captured ${email}. The suite runs as one identity — sign in with the same account on every app and re-run.`,
         );

@@ -98,15 +98,11 @@ export function extensionOptionsWithSelectedFallback(
   return [{ id, name: id }, ...extensions];
 }
 
-/** Parsed shape of a `program` panel's `sql` field: {programId, params?}. */
 function parseProgramDescriptor(sql: string): {
   programId: string;
   paramsText: string;
 } {
   if (!sql.trim()) return { programId: "", paramsText: "" };
-  // A panel may be stored as the bare program id — the server accepts that as a
-  // complete descriptor, so the editor has to show it rather than blanking the
-  // picker on a JSON.parse it was never going to satisfy.
   if (/^dp_[A-Za-z0-9]+$/.test(sql.trim())) {
     return { programId: sql.trim(), paramsText: "" };
   }
@@ -133,8 +129,6 @@ function serializeProgramDescriptor(
   try {
     params = JSON.parse(trimmedParams);
   } catch {
-    // Preserve the raw text so the user's edits aren't discarded; the save
-    // attempt will surface the same JSON error from the server.
     throw new Error("Params must be valid JSON.");
   }
   return JSON.stringify({ programId, params });
@@ -154,11 +148,7 @@ export interface PanelFormValues {
   title: string;
   chartType: ChartType;
   source: DataSourceType;
-  /** Legacy storage field retained for existing dashboards. Row widths are
-   *  now inferred from how many panels share the row. */
   width: number;
-  /** Section panels only: number of grid columns the panels following this
-   *  section should use. Ignored when `chartType` is not `"section"`. */
   columns: number;
   sql: string;
   description: string;
@@ -245,13 +235,8 @@ export function formToPanel(
 interface PanelEditorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Existing panel when editing; null when adding. */
   panel: SqlPanel | null;
-  /** Async save. Should throw on error; dialog stays open and surfaces the
-   *  message inline. On success the dialog closes. */
   onSave: (panel: SqlPanel) => Promise<void>;
-  /** Dashboard id + existing panel titles used in the agent-chat prompt context
-   *  when the user describes a panel instead of writing it manually. */
   dashboardId: string;
   existingPanelTitles: string[];
 }
@@ -287,13 +272,11 @@ function PanelEditorContent({
   const [tab, setTab] = useState<"describe" | "manual">("describe");
   const { send, isGenerating } = useSendToAgentChat();
 
-  // Reset form whenever the dialog opens or the target panel changes.
   useEffect(() => {
     if (open) {
       setForm(panelToForm(panel));
       setError(null);
       setSaving(false);
-      // Editing an existing panel always goes straight to the manual form.
       setTab(panel ? "manual" : "describe");
     }
   }, [open, panel]);
@@ -307,8 +290,6 @@ function PanelEditorContent({
       isProgramSource
         ? parseProgramDescriptor(form.sql)
         : { programId: "", paramsText: "" },
-    // Only re-derive when switching into program mode or loading a new panel;
-    // subsequent edits are tracked in local state below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [open, panel],
   );

@@ -172,8 +172,6 @@ describe("document database layout", () => {
     expect(
       source.match(/onClick=\{\(\) => onRefreshSource\(source\.id\)\}/g),
     ).toHaveLength(2);
-    // The independent DatabaseView continuation pump still resumes an already
-    // fetching snapshot after a reload; it is not a panel-open freshness read.
     expect(source).toContain(
       'builderSourceRowFetchStatus(source) === "fetching"',
     );
@@ -184,16 +182,11 @@ describe("document database layout", () => {
   it("reduces the connected source panel to read-only status plus a diff slot", () => {
     const source = readDatabaseSource();
 
-    // Read-only is the headline signal; live writes flip the same badge.
     expect(source).toContain('dbText("readOnly")');
     expect(source).toContain('dbText("liveWritesOn")');
-    // The dormant diff slot is the single push-review entry point.
     expect(source).toContain('dbText("reviewDiff")');
-    // A failed sync surfaces inline instead of silently going stale.
     expect(source).toContain('dbText("couldntSyncRetry")');
-    // Disconnect stays available, tucked at the bottom.
     expect(source).toContain('dbText("disconnectSource")');
-    // The aggregate field-mappings list is gone (mappings live in column menus).
     expect(source).not.toContain(">Field mappings<");
   });
 

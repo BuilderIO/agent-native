@@ -1,5 +1,3 @@
-// Sentry API helper
-// Fetches projects, issues, events, and org-level stats
 
 import { resolveCredential } from "./credentials";
 import {
@@ -9,9 +7,8 @@ import {
 
 const API_BASE = "https://sentry.io/api/0";
 
-// In-memory cache
 const cache = new Map<string, { data: unknown; ts: number }>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE = 100;
 
 async function getToken(): Promise<string> {
@@ -70,7 +67,6 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
   return data as T;
 }
 
-// -- Types --
 
 export interface SentryProject {
   id: string;
@@ -137,7 +133,6 @@ export interface SentryOrgStats {
   }[];
 }
 
-// -- API functions --
 
 export async function listOrganizations(): Promise<SentryOrganization[]> {
   return apiGet<SentryOrganization[]>("/organizations/");

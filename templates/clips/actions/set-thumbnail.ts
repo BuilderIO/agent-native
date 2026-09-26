@@ -1,22 +1,3 @@
-/**
- * Set a recording's thumbnail.
- *
- * Three modes:
- *   1. `upload` — caller passes a base64 data URL (usually from the UI file
- *      picker). We decode and push it through the framework `uploadFile`.
- *   2. `frame` — caller passes a `timeMs`. This stores the time in editsJson
- *      (so the player can show a freeze-frame overlay). The UI is responsible
- *      for also capturing the frame bitmap client-side and calling this action
- *      again in `upload` mode to replace the stored image.
- *   3. `gif` — caller passes a pre-encoded animated GIF data URL (generated
- *      client-side via ffmpeg.wasm). Stored as `animatedThumbnailUrl`.
- *
- * The source-of-truth spec also lives in `editsJson.thumbnail` so the editor
- * UI can round-trip the chosen mode.
- *
- * Usage:
- *   pnpm action set-thumbnail --recordingId=<id> --kind=frame --timeMs=12000
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
@@ -101,9 +82,6 @@ export default defineAction({
       assertNativeRecordingMedia(existing);
     }
 
-    // Do the (potentially slow) upload side-effect once, up front — it does
-    // not depend on the current editsJson, so it must not be repeated on
-    // every CAS retry below.
     const basePatch: Record<string, unknown> = {};
     let thumbnailPatch: { kind: "url"; value: string } | undefined;
     let gifPatch: { kind: "gif"; value: string; url: string } | undefined;
@@ -124,7 +102,7 @@ export default defineAction({
       if (!uploaded?.url && requiresConfiguredVideoStorage()) {
         throw new Error(THUMBNAIL_STORAGE_REQUIRED_REASON);
       }
-      const url = uploaded?.url ?? args.dataUrl; // Local SQL fallback only.
+      const url = uploaded?.url ?? args.dataUrl;
       basePatch.thumbnailUrl = url;
       thumbnailPatch = { kind: "url", value: url };
     } else if (args.kind === "frame") {
@@ -146,7 +124,7 @@ export default defineAction({
       if (!uploaded?.url && requiresConfiguredVideoStorage()) {
         throw new Error(THUMBNAIL_STORAGE_REQUIRED_REASON);
       }
-      const url = uploaded?.url ?? args.dataUrl; // Local SQL fallback only.
+      const url = uploaded?.url ?? args.dataUrl;
       basePatch.animatedThumbnailUrl = url;
       basePatch.animatedThumbnailEnabled = true;
       gifPatch = {

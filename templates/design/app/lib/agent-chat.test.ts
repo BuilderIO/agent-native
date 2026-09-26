@@ -107,9 +107,6 @@ describe("Design agent chat routing", () => {
     expect(sendToBuilderChatMock).toHaveBeenCalledWith({
       message: "Apply the pending visual style edits to the source.",
       context: "Structured source instructions",
-      // Submitted, not prefilled: the prompt is generated from the pending
-      // edits, and the origin comes from the handshake rather than the
-      // loopback-blind parent sniff.
       submit: true,
       targetOrigin: "https://builder.io",
     });

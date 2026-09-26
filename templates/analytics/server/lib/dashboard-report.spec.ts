@@ -156,13 +156,8 @@ function dashboardWith(
   };
 }
 
-/** Per-panel statuses the fake `fetchReportPanelData` should report. */
 let panelStatuses: Record<string, ReportPanelData> = {};
 
-/**
- * Mirrors the real fetcher's panel classification: sections are never queried,
- * extension panels are reported as not-emailable rather than failed.
- */
 function fakePanelData(snapshot: ReportSnapshot): PanelDataMap {
   const data: PanelDataMap = new Map();
   for (const p of (snapshot.panels ?? []) as SqlPanel[]) {
@@ -416,9 +411,6 @@ describe("dashboard report email", () => {
       onCaptureOutcome,
     });
 
-    // Nothing failed, so degradedPanelIds is empty — but no panel is backed by
-    // data, so the report is a page of "open the dashboard" links and must not
-    // claim to be complete.
     expect(result.reportMode).toBe("degraded");
     expect(result.reportError).toBeDefined();
     expect(onCaptureOutcome).toHaveBeenCalledWith(
@@ -462,8 +454,6 @@ describe("dashboard report email", () => {
         return fakePanelData(args.snapshot);
       });
 
-      // Whichever bounded step notices first, the invariant is that it rejects
-      // and nothing is delivered.
       await expect(
         sendDashboardReportSubscription(subscription(), { deadlineAt }),
       ).rejects.toThrow("exceeded the report delivery deadline");

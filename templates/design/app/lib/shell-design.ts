@@ -1,8 +1,3 @@
-/**
- * Turns a host `design:init` payload into the `DesignData` the editor normally
- * fetches from `get-design`, so the canvas can run with no design row, no
- * session and no server writes. The host owns this state; it dies with the tab.
- */
 
 import {
   buildShellScreens,
@@ -28,17 +23,8 @@ export interface ShellDesign {
   screens: ShellScreensResult["screens"];
 }
 
-/**
- * `editor` because the canvas gates click-to-edit on it. Nothing it unlocks can
- * reach a server: the shell never mounts a save path, so this only opens the
- * in-memory affordances.
- */
 const SHELL_ACCESS_ROLE = "editor" as const;
 
-/**
- * Whether pending edits still describe the app the host is now pointing at. A
- * new route list is not a change of app; a new origin, branch or project is.
- */
 export function shellContextChanged(
   previous: ShellDesignInput,
   next: ShellDesignInput,
@@ -56,7 +42,6 @@ export function buildShellDesign(input: ShellDesignInput): ShellDesign {
     paths: input.routes.map((route) => route.path),
   });
 
-  // Frame geometry is keyed by fileId, the same shape the persisted canvas uses.
   const canvasFrames: Record<
     string,
     { x: number; y: number; width: number; height: number }
@@ -71,8 +56,6 @@ export function buildShellDesign(input: ShellDesignInput): ShellDesign {
     };
   }
 
-  // Fixed, not `Date.now()`: a repeated `design:init` must rebuild an identical
-  // design, or the canvas treats it as a new document and remounts the frames.
   const now = SHELL_EPOCH;
   const files: DesignFile[] = screens.map((screen) => ({
     id: screen.fileId,
@@ -91,8 +74,6 @@ export function buildShellDesign(input: ShellDesignInput): ShellDesign {
     accessRole: SHELL_ACCESS_ROLE,
     files,
     data: JSON.stringify({
-      // Without this the editor resolves the design as `inline`, which turns off
-      // the runtime layer projection and leaves the layer tree permanently empty.
       sourceType: "fusion",
       canvasFrames,
       fusionApp: {

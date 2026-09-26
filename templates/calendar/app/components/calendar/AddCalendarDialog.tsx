@@ -51,12 +51,7 @@ interface AddCalendarDialogProps {
   onOpenChange: (open: boolean) => void;
   defaultTab?: "people" | "url" | "google";
   visibleTabs?: Array<"people" | "url" | "google">;
-  /** Fires once the peer is actually saved to the overlay list, so a caller
-   *  opening this dialog mid-flow (e.g. the booking-link host picker) can
-   *  adopt the peer without making the user pick them a second time. */
   onPersonAdded?: (person: { email: string; name?: string }) => void;
-  /** Prefills the people search. Never auto-adds: a link click must not
-   *  write someone into the user's calendar without confirmation. */
   prefillPersonEmail?: string;
 }
 
@@ -73,7 +68,6 @@ export function AddCalendarDialog({
     defaultTab,
   );
 
-  // Sync default tab when dialog opens
   useEffect(() => {
     if (open) setActiveTab(defaultTab);
   }, [open, defaultTab]);
@@ -179,7 +173,6 @@ function GoogleTab() {
   );
 }
 
-// ─── People tab ──────────────────────────────────────────────────────────────
 
 function PeopleTab({
   open,
@@ -247,8 +240,6 @@ function PeopleTab({
     setActiveIndex(results.length > 0 ? 0 : -1);
   }, [results]);
 
-  // Reset on open, seeding from a deep link when present, so the later
-  // prefill effect below can't be clobbered by this one running afterward.
   useEffect(() => {
     if (!open) return;
     setQuery(prefillPersonEmail ?? "");
@@ -273,8 +264,6 @@ function PeopleTab({
   function handleAdd(email: string, name?: string) {
     addPerson.mutate(
       { email, name },
-      // Only after the overlay write lands: a rolled-back add must not leave
-      // the caller holding a peer who is not actually on the calendar.
       { onSuccess: () => onPersonAdded?.({ email, name }) },
     );
   }
@@ -429,7 +418,6 @@ function PeopleTab({
   );
 }
 
-// ─── URL / ICS tab ───────────────────────────────────────────────────────────
 
 function UrlTab({ onClose }: { onClose: () => void }) {
   const t = useT();

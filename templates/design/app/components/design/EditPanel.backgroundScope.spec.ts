@@ -31,8 +31,6 @@ describe("resolveBackgroundPanelScope", () => {
   });
 
   it("keeps the surround in the responsive interactive view, which is not an editing surface", () => {
-    // `single` standalone is the responsive view; only a host-embedded editor
-    // stays in `edit` there, so mode is what separates the two.
     expect(
       resolveBackgroundPanelScope({
         viewMode: "single",

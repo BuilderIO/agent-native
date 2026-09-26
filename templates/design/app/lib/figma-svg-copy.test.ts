@@ -14,10 +14,6 @@ import {
   type FigmaSvgExportActionResult,
 } from "./figma-svg-copy";
 
-// `background-image: none` is what every real browser computes for an element
-// with no background image; happy-dom answers "initial", which the shared
-// pipeline (correctly) reports as an unrecognized paint layer. Say it out loud
-// in the fixture rather than teaching the exporter about a test-only value.
 const NO_BG_IMAGE = "background-image: none";
 
 function rect(x: number, y: number, width: number, height: number) {
@@ -51,13 +47,6 @@ function liveDocumentFixture() {
   return { button, document, screen };
 }
 
-/**
- * The shared DOM walk measures real text with `Range.getClientRects()`, which
- * happy-dom always answers with an empty list — the same reason the server's
- * walk is exercised by the Playwright fidelity harness rather than by vitest.
- * Stand in a deterministic monospace layout so the text path (line splitting,
- * baselines, `text-transform`) is still covered here.
- */
 const CHAR_WIDTH = 6;
 const LINE_HEIGHT = 20;
 
@@ -111,7 +100,6 @@ describe("buildFigmaSvgFromLiveDocument", () => {
 
     expect(result.svg).toContain('viewBox="0 0 390 844"');
     expect(result.svg).toContain("<title>Checkout</title>");
-    // Button box: origin-relative x/y straight off the live rects.
     expect(result.svg).toContain(
       '<rect x="24" y="32" width="120" height="40" fill="rgb(0, 100, 255)"/>',
     );
@@ -125,9 +113,6 @@ describe("buildFigmaSvgFromLiveDocument", () => {
     const { document, screen } = liveDocumentFixture();
     const result = buildFigmaSvgFromLiveDocument({ document, root: screen });
 
-    // The old client emitted feDropShadow with the raw CSS color; the shared
-    // pipeline paints real shadow geometry with the alpha split off, which is
-    // what Figma imports as an editable drop shadow.
     expect(result.svg).toContain('fill="rgb(0, 0, 0)" fill-opacity="0.25"');
     expect(result.svg).toContain("<feGaussianBlur");
     expect(result.svg).not.toContain('flood-color="0px"');
@@ -140,7 +125,6 @@ describe("buildFigmaSvgFromLiveDocument", () => {
 
     expect(report.vectorized).toContain("cta");
     expect(report.vectorized).not.toContain("Screen");
-    // Scoping re-origins the scene on the selected node.
     expect(result.svg).toContain('viewBox="0 0 120 40"');
     expect(result.svg).toContain('<rect x="0" y="0" width="120" height="40"');
   });
@@ -159,9 +143,6 @@ describe("buildFigmaSvgFromLiveDocument", () => {
     const result = buildFigmaSvgFromLiveDocument({ document, root: screen });
 
     expect(result.svg).toContain("<linearGradient");
-    // A box-relative gradient renders as a flat band once the box is away from
-    // the origin; userSpaceOnUse endpoints are the server-path fix this client
-    // never had.
     expect(result.svg).toContain('gradientUnits="userSpaceOnUse"');
     expect(result.svg).toContain('fill="url(#');
   });
@@ -239,8 +220,6 @@ describe("buildFigmaSvgFromLiveDocument", () => {
     };
 
     expect(report.rasterized.map((item) => item.node)).toContain("chart");
-    // The server screenshots these; a browser tab cannot, so it must say so
-    // rather than emit an <image> pointing at nothing.
     expect(report.warnings.join(" ")).toMatch(/could not be rasterized/i);
   });
 });

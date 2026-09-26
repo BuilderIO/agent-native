@@ -1,17 +1,6 @@
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import * as React from "react";
 
-/**
- * shadcn-style AlertDialog for the Tauri tray app.
- *
- * Mirrors shadcn/ui's alert-dialog API, but styled with the desktop app's
- * plain-CSS theme tokens instead of Tailwind — this app has no Tailwind/
- * shadcn build. Deliberately skips Radix's `Portal`: the popover window is
- * sized to fit `.app`'s measured content (see `resize_popover`) and clipped
- * to its own rounded corners, so a body-portaled overlay would render past
- * the window's actual bounds. Overlay/Content use `position: absolute`
- * instead of `fixed` so they stay inside `.app`'s rounded, clipped bounds.
- */
 
 const AlertDialog = AlertDialogPrimitive.Root;
 const AlertDialogTrigger = AlertDialogPrimitive.Trigger;

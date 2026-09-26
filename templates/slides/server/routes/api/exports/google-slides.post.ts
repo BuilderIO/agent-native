@@ -32,20 +32,6 @@ function googleSlidesEditUrl(result: {
   return result.webViewLink;
 }
 
-/**
- * Uploads a PPTX into the user's Drive, letting Drive convert it to a native
- * Google Slides deck. The caller decides which exporter produced those bytes,
- * and which one is higher fidelity depends on the deck:
- *
- * - Source-imported decks go through the server `export-pptx`, which writes the
- *   source's own geometry as real vector shapes. The browser exporter cannot —
- *   `dom-to-pptx` has no custom-geometry support at all and rasterizes every
- *   vector shape to a bitmap, so Google receives silhouettes instead of curves.
- * - Editor-authored decks go through the browser exporter, the only place
- *   geometry positioned in the DOM is measurable.
- *
- * See "Export Behavior" in `templates/slides/AGENTS.md` for the routing rule.
- */
 export default defineEventHandler(async (event) => {
   const auth = await resolveSlidesRequestAuth(event);
   if (!auth.ok) {
@@ -71,9 +57,6 @@ export default defineEventHandler(async (event) => {
     return { error: "file required" };
   }
 
-  // Same request context the actions run in — Google's client credentials can
-  // be org-scoped vault secrets, and resolving them without the org reports the
-  // integration as unconfigured.
   let account: Awaited<ReturnType<typeof getGoogleDocsAccessToken>>;
   try {
     account = await runWithRequestContext(

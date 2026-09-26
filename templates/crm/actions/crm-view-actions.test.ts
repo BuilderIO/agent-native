@@ -1,6 +1,3 @@
-// Integration tests for the saved-view actions against a real PGlite database
-// and the real migrations — including the list action reading a view's stored
-// filter, which is the whole reason saved views exist.
 
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -50,7 +47,6 @@ let textAttributeId = "";
 let acme = "";
 let globex = "";
 
-/** A competing writer that lands at a distinct instant. */
 async function otherWriter(id: string, name: string): Promise<void> {
   await getDb()
     .update(schema.crmSavedViews)
@@ -273,7 +269,6 @@ describe("save-crm-saved-view", () => {
     const saved = (await save({ name: "Contended" })) as any;
     const stale = saved.updatedAt;
 
-    // Simulate the other writer out of band: two saves in the same millisecond
     // would leave `updatedAt` unchanged and the race would not be observable.
     await otherWriter(saved.id, "Renamed by someone else");
 

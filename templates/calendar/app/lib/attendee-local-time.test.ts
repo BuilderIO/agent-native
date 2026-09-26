@@ -105,7 +105,6 @@ describe("resolveAttendeeTimeZone", () => {
 
 describe("formatAttendeeLocalTime", () => {
   it("formats a short local time with zone abbreviation", () => {
-    // 2024-06-15 18:30 UTC → 2:30 PM EDT in America/New_York
     const label = formatAttendeeLocalTime(
       "2024-06-15T18:30:00.000Z",
       "America/New_York",

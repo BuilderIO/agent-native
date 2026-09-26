@@ -1,43 +1,3 @@
-/**
- * take-design-screenshot — render a design screen's stored HTML in headless
- * Chromium and return both a viewable screenshot and a text diagnostics
- * report the agent can act on immediately.
- *
- * Closes the design agent's missing visual-self-review loop: `run-design-audit`
- * is static regex/string analysis over raw HTML (it cannot compute real
- * contrast ratios or detect overflow — see its docblock), and nothing rendered
- * a screen for the agent to look at before calling a design "ready". This
- * action renders the SAME stored srcdoc-style HTML the iframe preview uses, at
- * one or more viewport widths (default: 1280 desktop + 375 mobile), and
- * returns:
- *
- *   - `screenshots[]` — a PNG per viewport, persisted through the shared
- *     `uploadFile` provider. The result carries a plain `url` per screenshot
- *     when storage is configured so a human can view it by opening the link,
- *     or the agent can embed it as
- *     `![...](url)` in its own chat reply today. NOTE: tool results are
- *     currently text-only end-to-end — this action does not attach the PNG as
- *     a model-visible image content block. The moment the engine supports
- *     image tool-result content (tracked separately), this same `screenshots[]`
- *     payload becomes vision-ready with no shape change: swap the JSON `url`
- *     hand-off for an inline image block using the same bytes.
- *   - `diagnostics` — computed IN the real rendered DOM/CSS cascade
- *     (something `run-design-audit`'s static analysis explicitly cannot do):
- *     horizontal overflow vs. viewport, elements overflowing their container,
- *     real WCAG contrast ratios for text nodes, console errors, broken
- *     images, zero-size/off-screen elements, and font-load failures. This is
- *     the actionable-today half of the loop — the agent can read and fix
- *     these findings without needing to "see" anything.
- *
- * Requires a real headless Chromium. Local dev needs Playwright's headless
- * shell (`playwright install --only-shell chromium`); plain
- * `install chromium` also downloads the full headed browser — several hundred
- * MB more disk, needed only by `pnpm e2e:headed`/`e2e:ui`, never by this
- * action. Hosted/serverless deploys do not bundle a Chromium binary, so the
- * shared runtime connects to Builder Browser before trying local/system
- * Chromium. When neither is available, this action returns a structured,
- * model-actionable `{ ok: false, reason }` rather than a raw stack trace.
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { uploadFile } from "@agent-native/core/file-upload";
@@ -49,11 +9,8 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { isAllowedFigmaSvgRenderRequest } from "../server/lib/design-to-figma-svg.js";
 import { readLiveSourceFile } from "../server/source-workspace.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export interface ScreenshotViewport {
   label: string;
@@ -63,7 +20,6 @@ export interface ScreenshotViewport {
 
 export interface DiagnosticsOverflowEntry {
   selector: string;
-  /** How far the element extends past the viewport or its parent, in px. */
   overflowPx: number;
   kind: "viewport-horizontal" | "container";
 }
@@ -72,7 +28,6 @@ export interface DiagnosticsContrastEntry {
   selector: string;
   text: string;
   ratio: number;
-  /** WCAG AA threshold used: 4.5 for normal text, 3 for large (>=18.66px bold or >=24px). */
   requiredRatio: number;
   foreground: string;
   background: string;
@@ -109,27 +64,22 @@ export type ScreenshotUploadError =
 export interface ScreenshotResult {
   viewport: ScreenshotViewport;
   url: string;
-  /** True when persisted via a durable upload provider. */
   persisted: boolean;
   uploadError?: ScreenshotUploadError;
   bytes: number;
   diagnostics: ScreenshotDiagnostics;
 }
 
-// ---------------------------------------------------------------------------
-// Default viewports
-// ---------------------------------------------------------------------------
 
 const DEFAULT_VIEWPORTS: ScreenshotViewport[] = [
   { label: "desktop", widthPx: 1280, heightPx: 800 },
   { label: "mobile", widthPx: 375, heightPx: 812 },
 ];
 
-/** Height derived from a caller-supplied width using common device aspect ratios. */
 function heightForWidth(widthPx: number): number {
-  if (widthPx <= 480) return Math.round(widthPx * (812 / 375)); // phone
-  if (widthPx <= 900) return Math.round(widthPx * (1024 / 768)); // tablet
-  return Math.round(widthPx * (800 / 1280)); // desktop
+  if (widthPx <= 480) return Math.round(widthPx * (812 / 375));
+  if (widthPx <= 900) return Math.round(widthPx * (1024 / 768));
+  return Math.round(widthPx * (800 / 1280));
 }
 
 function labelForWidth(widthPx: number): string {
@@ -138,18 +88,6 @@ function labelForWidth(widthPx: number): string {
   return `desktop-${widthPx}`;
 }
 
-/**
- * Resolve the viewport list from the optional `widths` input, defaulting to
- * desktop + mobile. `heights`, when provided, is matched index-for-index
- * against `widths` so a caller that already knows the exact content height
- * (e.g. the annotate-to-agent draw pipeline compositing over a specific
- * on-screen rect) gets a screenshot with the same aspect ratio instead of the
- * device-heuristic default — annotation coordinates are recorded in that
- * exact rect's pixel space, so a mismatched aspect ratio would misalign the
- * composited drawing against the screenshot content. A missing/undefined
- * entry at a given index falls back to `heightForWidth` unchanged, so
- * existing callers that only pass `widths` are unaffected.
- */
 export function resolveViewports(
   widths?: number[],
   heights?: number[],
@@ -162,15 +100,6 @@ export function resolveViewports(
   }));
 }
 
-// ---------------------------------------------------------------------------
-// Playwright loading (mirrors packages/core/src/cli/recap.ts's runShot: a
-// dynamic import + system-Chrome fallback, so a missing browser binary is a
-// clean, catchable failure rather than an unhandled module-resolution crash).
-// The actual bootstrap lives in `playwright-runtime.ts` so other server-side
-// Chromium consumers (e.g. the Figma SVG export's scene extractor in
-// `design-to-figma-svg.ts`) share it instead of duplicating it; re-exported
-// here for backward compatibility with this file's existing imports/spec.
-// ---------------------------------------------------------------------------
 
 export {
   importPlaywright,
@@ -183,7 +112,6 @@ import {
   type PlaywrightModule,
 } from "../server/lib/playwright-runtime.js";
 
-/** Human-readable, model-actionable message for the "no Chromium available" case. */
 export function chromiumUnavailableReason(err: unknown): string {
   const detail = err instanceof Error ? err.message : String(err);
   return (
@@ -196,9 +124,6 @@ export function chromiumUnavailableReason(err: unknown): string {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Live-content helper (matches the pattern in run-design-audit / apply-a11y-fix)
-// ---------------------------------------------------------------------------
 
 async function liveContent(
   fileId: string,
@@ -217,17 +142,8 @@ async function liveContent(
   ).content;
 }
 
-// ---------------------------------------------------------------------------
-// Contrast math — exported at module scope purely so it is unit-testable
-// without a browser. `collectPageDiagnostics` below duplicates this exact
-// logic in its own closure: Playwright's `page.evaluate` serializes a
-// function via `Function#toString()` and runs it inside the page, where it
 // cannot reference anything from this module's outer scope, so the
-// evaluate-context copy cannot simply call these exports. Keep the two copies
-// in sync if the WCAG math changes.
-// ---------------------------------------------------------------------------
 
-/** WCAG relative luminance for one sRGB channel triplet (0-255 each). */
 export function relativeLuminance(r: number, g: number, b: number): number {
   const channel = (v: number) => {
     const c = v / 255;
@@ -236,25 +152,22 @@ export function relativeLuminance(r: number, g: number, b: number): number {
   return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
 }
 
-/** WCAG contrast ratio (1-21) between two sRGB colors. */
 export function contrastRatio(fg: number[], bg: number[]): number {
   const l1 = relativeLuminance(fg[0], fg[1], fg[2]) + 0.05;
   const l2 = relativeLuminance(bg[0], bg[1], bg[2]) + 0.05;
   return l1 > l2 ? l1 / l2 : l2 / l1;
 }
 
-/** Parse a CSS `rgb()`/`rgba()` computed-style string; `null` for unparseable or fully transparent. */
 export function parseRgbColor(color: string): number[] | null {
   const m = color.match(
     /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\)/,
   );
   if (!m) return null;
   const alpha = m[4] !== undefined ? Number.parseFloat(m[4]) : 1;
-  if (alpha === 0) return null; // fully transparent — not a visible background
+  if (alpha === 0) return null;
   return [Number(m[1]), Number(m[2]), Number(m[3])];
 }
 
-/** WCAG AA contrast requirement (4.5 normal / 3 large) for a given font size/weight. */
 export function requiredContrastRatio(
   fontSizePx: number,
   fontWeight: number,
@@ -264,12 +177,6 @@ export function requiredContrastRatio(
   return isLarge ? 3 : 4.5;
 }
 
-// ---------------------------------------------------------------------------
-// In-page diagnostics script — runs INSIDE the rendered page via
-// page.evaluate, so it has a real DOM/CSS cascade unlike run-design-audit's
-// server-side static analysis. Kept as one self-contained function (no
-// closures over outer scope) since Playwright serializes it into the page.
-// ---------------------------------------------------------------------------
 
 function collectPageDiagnostics(): {
   documentWidthPx: number;
@@ -310,11 +217,10 @@ function collectPageDiagnostics(): {
     );
     if (!m) return null;
     const alpha = m[4] !== undefined ? Number.parseFloat(m[4]) : 1;
-    if (alpha === 0) return null; // fully transparent — not a visible background
+    if (alpha === 0) return null;
     return [Number(m[1]), Number(m[2]), Number(m[3])];
   }
 
-  /** Walk up the tree to find the first ancestor with a non-transparent background. */
   function effectiveBackground(el: Element): number[] {
     let node: Element | null = el;
     while (node) {
@@ -323,7 +229,7 @@ function collectPageDiagnostics(): {
       if (rgb) return rgb;
       node = node.parentElement;
     }
-    return [255, 255, 255]; // default to white canvas
+    return [255, 255, 255];
   }
 
   const docWidth = document.documentElement.scrollWidth;
@@ -345,7 +251,6 @@ function collectPageDiagnostics(): {
   for (const el of Array.from(all)) {
     const rect = el.getBoundingClientRect();
 
-    // Horizontal overflow past the viewport's right edge.
     if (
       overflowCount < MAX_FINDINGS_PER_KIND &&
       rect.right > viewportWidth + 1 &&
@@ -358,7 +263,6 @@ function collectPageDiagnostics(): {
       });
       overflowCount++;
     } else if (overflowCount < MAX_FINDINGS_PER_KIND && el.parentElement) {
-      // Overflowing its own direct parent's content box (likely a layout bug).
       const parentRect = el.parentElement.getBoundingClientRect();
       const parentStyle = getComputedStyle(el.parentElement);
       const parentOverflow = `${parentStyle.overflowX} ${parentStyle.overflowY}`;
@@ -377,7 +281,6 @@ function collectPageDiagnostics(): {
       }
     }
 
-    // Zero-size or fully off-screen elements that carry visible text/content.
     if (zeroSizeCount < MAX_FINDINGS_PER_KIND) {
       const hasText = (el.textContent || "").trim().length > 0;
       const style = getComputedStyle(el);
@@ -406,7 +309,6 @@ function collectPageDiagnostics(): {
       }
     }
 
-    // Real computed contrast ratio for leaf text nodes.
     if (contrastCount < MAX_FINDINGS_PER_KIND) {
       const isLeafWithText =
         el.children.length === 0 && (el.textContent || "").trim().length >= 2;
@@ -457,9 +359,6 @@ function collectPageDiagnostics(): {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Action definition
-// ---------------------------------------------------------------------------
 
 export default defineAction({
   description:
@@ -589,15 +488,6 @@ export default defineAction({
           viewport: { width: viewport.widthPx, height: viewport.heightPx },
           deviceScaleFactor: 2,
         });
-        // esbuild/tsx `keepNames` rewrites a named inner function inside a
-        // page.evaluate callback (e.g. `collectPageDiagnostics`'s local
-        // helpers) into `__name(fn, "name")`. Playwright serializes that
-        // callback with Function#toString() and runs it in the page, where
-        // `__name` doesn't exist — this throws `ReferenceError: __name is
-        // not defined` and the action fails outright whenever it's invoked
-        // through a tsx/esbuild-transpiled entrypoint (e.g. `pnpm action`).
-        // Mirrors the identical fix in packages/core/src/cli/recap.ts
-        // (RECAP_SHOT_NAME_SHIM) — same root cause, same shim.
         await context.addInitScript(
           "globalThis.__name = globalThis.__name || function (value) { return value; };",
         );
@@ -608,17 +498,11 @@ export default defineAction({
             await route.abort("blockedbyclient");
           }
         });
-        // A static PNG never needs a live socket. Leaving a routed WebSocket
-        // unconnected blocks the separate WebSocket transport that
-        // BrowserContext.route("**/*") does not see.
         await context.routeWebSocket("**/*", () => {});
         const page = await context.newPage();
         const consoleErrors: string[] = [];
         const fontLoadFailures: string[] = [];
         page.on("console", (msg) => {
-          // Alpine reports failed expressions at warn level, and that warning
-          // is the only place the expression and element appear — its paired
-          // `pageerror` is a bare "Invalid or unexpected token".
           if (msg.type() === "error") {
             consoleErrors.push(msg.text().slice(0, 300));
             return;
@@ -639,12 +523,6 @@ export default defineAction({
 
         try {
           await page.setContent(html, { waitUntil: "networkidle" });
-          // Bounded wait for webfonts to finish loading. `networkidle` alone
-          // is not enough: a screenshot taken while a custom Google Font is
-          // still downloading renders with fallback-font metrics — a
-          // different, often overflowing layout — which is exactly the kind
-          // of "broken layout" this action's visual self-review pass exists
-          // to catch, not produce.
           await page
             .evaluate(async () => {
               const fontsReady = document.fonts?.ready;
@@ -655,12 +533,6 @@ export default defineAction({
               ]);
             })
             .catch(() => {});
-          // Best-effort settle for Alpine.js x-init / CDN Tailwind JIT
-          // compile: wait for the page's total CSSOM rule count to stop
-          // growing across polls (a CDN stylesheet injected after
-          // `networkidle` fires looks exactly like this), instead of a flat
-          // guess that either wastes time or fires too early on a complex
-          // design with many stylesheets.
           await page
             .waitForFunction(
               () => {
@@ -695,12 +567,6 @@ export default defineAction({
             .catch(() => {});
 
           const pageDiagnostics = await page.evaluate(collectPageDiagnostics);
-          // `fullPage` is required here: Playwright's default screenshot
-          // crops to the current viewport, so any screen taller than the
-          // requested viewport height (tall landing pages, long dashboards)
-          // silently loses everything below the fold instead of erroring —
-          // this is the "PNG export produces ... broken layouts" complaint
-          // for tall complex screens, reproduced on a 1440x3200 fixture.
           const png = await page.screenshot({ type: "png", fullPage: true });
 
           let uploaded: Awaited<ReturnType<typeof uploadFile>> | null = null;

@@ -221,11 +221,8 @@ Primary color: #f97316
     expect(byVar.get("--duration-fast")).toBe("motion");
     expect(byVar.get("--ease-out-soft")).toBe("motion");
     expect(byVar.get("--elevation-card")).toBe("shadow");
-    // The design.md lines previously matched no bucket and were discarded.
     expect(byVar.get("--motion-transition-duration")).toBe("motion");
     expect(byVar.get("--shadow-elevation-raised")).toBe("shadow");
-    // "Release notes" matches the motion label pattern on "ease"; only the
-    // value guard keeps prose from becoming a token.
     expect(result.tokens.filter((t) => /release/i.test(t.cssVar))).toEqual([]);
   });
 

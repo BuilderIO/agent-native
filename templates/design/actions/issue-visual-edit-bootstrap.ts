@@ -11,11 +11,6 @@ const BOOTSTRAP_TTL_SECONDS = 5 * 60;
 const BOOTSTRAP_SCOPE_PREFIX = "capability:visual-edit-bootstrap:";
 const BOOTSTRAP_PRINCIPAL_DOMAIN = "local.visual-edit.agent-native.invalid";
 
-/**
- * Issue a short-lived bearer used only to cross the signed-out page bootstrap
- * boundary. It carries no account identity; open-visual-edit derives a fresh
- * owner partition from the opaque capability instead.
- */
 export default defineAction({
   description:
     "Issue a short-lived signed-out visual-edit bootstrap capability for the current Design page.",

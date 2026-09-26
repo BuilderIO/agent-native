@@ -1,8 +1,4 @@
 // @vitest-environment node
-// The sibling suite runs in happy-dom, which only ever exercises the DOMParser
-// branch. Public deck, share, and present pages are server-rendered, where
-// DOMParser is undefined and sanitizeSlideHtml falls back to its regex twin —
-// so that branch needs its own environment to be covered at all.
 import { describe, expect, it } from "vitest";
 
 import { sanitizeSlideHtml } from "./sanitize-slide-html";
@@ -50,16 +46,8 @@ describe("sanitizeSlideHtml without DOMParser (SSR)", () => {
   });
 });
 
-/**
- * The regex twin runs wherever DOMParser does not — the SSR'd share and present
- * pages. Two defects here were losing slide content and letting a live handler
- * through on exactly those pages.
- */
 describe("sanitizeSlideHtml regex fallback, verified against the SSR path", () => {
   it("keeps a slide's <style> block and everything after it", () => {
-    // The unclosed-raw-text sweep used to cut to the end of the string at any
-    // <style>, including the sanitized one emitted a pass earlier — so a deck
-    // with one stylesheet rendered as an empty slide.
     const html = sanitizeSlideHtml(
       '<div class="fmd-slide"><style>.a{color:red}</style><h1>Title</h1><p>Body</p></div>',
     );
@@ -69,8 +57,6 @@ describe("sanitizeSlideHtml regex fallback, verified against the SSR path", () =
   });
 
   it("still drops everything after a <style> that never closes", () => {
-    // An unclosed raw-text element swallows the rest of the document in a real
-    // parser, so the regex path has to agree with it.
     const html = sanitizeSlideHtml(
       '<div class="fmd-slide"><h1>Kept</h1><style>.a{color:red}<h1>Swallowed</h1></div>',
     );
@@ -88,8 +74,6 @@ describe("sanitizeSlideHtml regex fallback, verified against the SSR path", () =
   });
 
   it("keeps a slide containing a valid void <embed>", () => {
-    // `embed` is void, so it never has a closing tag. Requiring one truncated
-    // every slide that used it.
     const html = sanitizeSlideHtml(
       '<div class="fmd-slide"><embed src="x"><h1>After</h1></div>',
     );
@@ -97,8 +81,6 @@ describe("sanitizeSlideHtml regex fallback, verified against the SSR path", () =
   });
 
   it("does not truncate on a tag name that only appears inside an attribute", () => {
-    // Scanning the serialized string cannot tell a tag from text unless it
-    // skips quoted values: this reads as a <style> start tag otherwise.
     const html = sanitizeSlideHtml(
       '<div class="fmd-slide"><p title="Use <style> in CSS">Visible</p></div>',
     );
@@ -106,7 +88,6 @@ describe("sanitizeSlideHtml regex fallback, verified against the SSR path", () =
   });
 
   it("does not truncate on a tag name inside a stylesheet's own text", () => {
-    // A raw-text element's body is text, not markup: this is a CSS string.
     const html = sanitizeSlideHtml(
       '<div class="fmd-slide"><style>.a::after{content:"<script>"}</style><h1>Visible</h1></div>',
     );
@@ -121,8 +102,6 @@ describe("sanitizeSlideHtml regex fallback, verified against the SSR path", () =
   });
 
   it("strips a handler attached with a slash separator", () => {
-    // `/` is a legal separator, so this is an image with a live handler. Every
-    // scrub here is whitespace-anchored, so none of them saw it.
     for (const attack of [
       "<img/src=x/onerror=alert(1)>",
       '<img src="x"/onerror="alert(1)">',
@@ -142,8 +121,6 @@ describe("sanitizeSlideHtml regex fallback, verified against the SSR path", () =
   });
 
   it("does not rewrite separators inside a stylesheet's own text", () => {
-    // The normalizer must only touch start tags; CSS is not markup, and
-    // `font: 12px/1.5` is a shorthand whose slash carries meaning.
     const html = sanitizeSlideHtml(
       '<div class="fmd-slide"><style>.a{font:12px/1.5 sans-serif}</style><h1>T</h1></div>',
     );
@@ -159,8 +136,6 @@ describe("sanitizeSlideHtml regex fallback, verified against the SSR path", () =
   });
 
   it("leaves a quoted URL that merely looks like a handler intact", () => {
-    // Widening the attribute scrubs to treat `/` as a separator corrupted this
-    // — the match ran straight into the middle of a legitimate value.
     const html = sanitizeSlideHtml(
       '<div class="fmd-slide"><img src="https://cdn.example/onerror=logo.png"></div>',
     );

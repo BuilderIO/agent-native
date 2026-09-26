@@ -1,40 +1,21 @@
-/**
- * Clips user preferences that affect AI video tools.
- *
- * Stored under the shared `clips-user-prefs` user-setting key so Settings and
- * the AI tools popover both read/write the same object.
- */
 
 import type { ClipsNotificationPrefs } from "./clips-notification-prefs.js";
 
 export const CLIPS_USER_PREFS_KEY = "clips-user-prefs";
 
-/**
- * Preferred chat model when Include full video is on. Full-recording video
- * input only works with Gemini (Builder Gemini or Google/Gemini BYOK) —
- * Claude and OpenAI cannot ingest the MP4/WebM.
- */
 export const CLIPS_FULL_VIDEO_AI_ENGINE = "builder";
 export const CLIPS_FULL_VIDEO_AI_MODEL = "gemini-3-5-flash";
 
 export type ClipsAiPrefs = {
-  /**
-   * When true, Clips AI tools (default title/description, regenerate title/
-   * description/chapters, workflows) must watch the full recording — not just
-   * the transcript — before writing results. Off by default for cost/latency.
-   * Sending the full video requires a Gemini model.
-   */
   includeFullVideoInAi?: boolean;
 };
 
 export type ClipsUserPrefs = ClipsAiPrefs &
   ClipsNotificationPrefs & {
     defaultPlaybackSpeed?: string;
-    /** Overrides the organization default visibility for new recordings. */
     defaultRecordingVisibility?: ClipsDefaultVisibility;
   };
 
-/** Visibility applied to new recordings unless the creator picks another. */
 export type ClipsDefaultVisibility = "private" | "org" | "public";
 
 export const DEFAULT_CLIPS_RECORDING_VISIBILITY: ClipsDefaultVisibility =
@@ -46,10 +27,6 @@ export function isIncludeFullVideoInAiEnabled(
   return prefs?.includeFullVideoInAi === true;
 }
 
-/**
- * Extra agent instructions when the user wants AI tools to watch the clip,
- * not just read the audio transcript. Full-video understanding requires Gemini.
- */
 export function buildFullVideoAiInstructions(recordingId: string): string {
   return (
     `The user enabled "Include full video" for Clips AI. Do NOT rely on the ` +
@@ -77,7 +54,6 @@ export function withFullVideoAiInstructions(
   return `${message} ${buildFullVideoAiInstructions(recordingId)}`;
 }
 
-/** Model selection for sendToAgentChat when Include full video is enabled. */
 export function fullVideoAiModelSelection(): {
   engine: string;
   model: string;

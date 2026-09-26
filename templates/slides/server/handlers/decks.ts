@@ -5,18 +5,8 @@ import { defineEventHandler, setResponseStatus, createEventStream } from "h3";
 import { getDb, schema } from "../db/index.js";
 import { resolveSlidesRequestAuth } from "./request-auth-context.js";
 
-// --- SSE for change notifications ---
 type SSEPush = (data: string) => void;
 
-// CRITICAL: pin the client registry to globalThis.
-//
-// In Nitro dev mode, server route files (events.get.ts) are loaded by
-// vite-node/Rollup, while action files are loaded by autoDiscoverActions via
-// plain `await import(absolutePath)`. These two loaders produce SEPARATE
-// module instances of this file — a module-level `new Set()` would give the
-// SSE route and the actions two different Sets, so broadcasts from actions
-// would never reach connected clients. Pinning to globalThis forces a single
-// shared registry regardless of how this module was loaded.
 const GLOBAL_KEY = "__slidesSSEClients" as const;
 type GlobalWithClients = typeof globalThis & {
   [GLOBAL_KEY]?: Set<SSEPush>;
@@ -27,36 +17,16 @@ if (!globalRef[GLOBAL_KEY]) {
 }
 const sseClients: Set<SSEPush> = globalRef[GLOBAL_KEY]!;
 
-/**
- * Options for a deck-change broadcast. All fields are optional and additive so
- * existing consumers that only read `{ type, deckId }` keep working.
- */
 export interface NotifyClientsOptions {
-  /** SSE event type — defaults to "deck-changed". */
   type?: string;
-  /** The specific slide that changed, when known (agent slide edits). */
   slideId?: string;
-  /** Who made the change: "agent" for AI writes, "human" otherwise. */
   actor?: "agent" | "human";
-  /** Groups multiple notifications emitted by one agent turn. */
   agentChangeId?: string;
-  /** Per-user scope for access-aware events whose resource may be gone. */
   owner?: string;
   orgId?: string;
-  /** Public-resource scope for events whose resource may be gone. */
   visibility?: "public";
 }
 
-/**
- * Look up the deck's owner/org/visibility for the poll service's owned/org
- * fast path (see `canSeeChangeForUser` in packages/core/src/server/poll.ts).
- * Without these, an unowned "deck" change only carries resourceType +
- * resourceId, so the access-aware branch treats every viewer — including the
- * deck's own owner — as a cache miss on their first event: it returns
- * "pending" and holds the cursor back until the next 60s fallback poll.
- * Best-effort: on any DB error (or a since-deleted deck) fall back to an
- * unscoped event rather than blocking or failing the broadcast.
- */
 async function resolveDeckChangeScope(
   deckId: string,
 ): Promise<Pick<NotifyClientsOptions, "owner" | "orgId" | "visibility">> {
@@ -124,9 +94,6 @@ export async function notifyClients(
           ...(options.visibility ? { visibility: options.visibility } : {}),
         }
       : await resolveDeckChangeScope(deckId);
-  // Publish the same notification through Core's shared sync stream so the
-  // client does not need a second deck-specific SSE connection. Keep the
-  // legacy in-process stream below for older clients and external consumers.
   recordChange({
     source: "deck",
     type,
@@ -150,11 +117,6 @@ export async function notifyClients(
   }
 }
 
-// SSE endpoint — client subscribes for real-time change notifications.
-// Per-deckId notifications carry only the id, no row contents, so we don't
-// gate this — but we do require an authenticated session so anonymous
-// callers can't tail the stream. (The agent path runs server-side and is
-// not affected.)
 export const deckEvents = defineEventHandler(async (event) => {
   const auth = await resolveSlidesRequestAuth(event);
   if (!auth.ok) {
@@ -167,10 +129,8 @@ export const deckEvents = defineEventHandler(async (event) => {
   }
   const eventStream = createEventStream(event);
 
-  // Send initial connected event
   void eventStream.push(JSON.stringify({ type: "connected" }));
 
-  // Register this client's push function
   const push: SSEPush = (data: string) => {
     void eventStream.push(data);
   };

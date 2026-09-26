@@ -454,13 +454,6 @@ describe("<NewDeckReferenceStep>", () => {
       designSystems: [],
     });
 
-    // Regression: this used to be a plain `<a target="_blank" href="/design-systems">`,
-    // which opened a full-page route in a new tab. Since that route is itself
-    // gated by first-run onboarding, the new tab showed onboarding from the
-    // beginning instead of the design-systems page. Asserting there is no
-    // anchor here, and that the step's own open/close state never fires,
-    // guards against that pattern coming back for this or any other
-    // create-affordance reused inside an onboarding step.
     expect(
       screen.queryByRole("link", { name: "Add design system" }),
     ).toBeNull();

@@ -1,11 +1,3 @@
-/**
- * The single CRM attribute-type registry.
- *
- * Every place that needs to know "which column does this type live in", "can it
- * be multi-valued", "does it take managed options", or "which composite
- * sub-columns does it populate" reads it from here. Adding a type means adding
- * one entry to `ATTRIBUTE_TYPE_SPECS` — not another `switch` in an action.
- */
 
 export const CRM_ATTRIBUTE_TYPES = [
   "text",
@@ -29,14 +21,12 @@ export const CRM_ATTRIBUTE_TYPES = [
 
 export type CrmAttributeType = (typeof CRM_ATTRIBUTE_TYPES)[number];
 
-/** Which `crm_record_fields` value column a single (non-multi) value lands in. */
 export type CrmAttributeStorageColumn =
   | "stringValue"
   | "numberValue"
   | "booleanValue"
   | "jsonValue";
 
-/** Sparse, indexable composite columns on `crm_record_fields`. */
 export type CrmRecordFieldSubColumn =
   | "emailLocal"
   | "emailDomain"
@@ -59,14 +49,10 @@ export const CRM_RECORD_FIELD_SUB_COLUMNS = [
 ] as const satisfies readonly CrmRecordFieldSubColumn[];
 
 export interface CrmAttributeTypeSpec {
-  /** Column a single value is stored in. Multi values always use `jsonValue`. */
   storageColumn: CrmAttributeStorageColumn;
   supportsMulti: boolean;
-  /** Values must match a `crm_attribute_options` row; unknown values are a 422. */
   usesOptions: boolean;
-  /** Created by the system only — rejected in create-attribute input. */
   systemOnly: boolean;
-  /** Composite sub-columns this type derives from its value. */
   subFields: readonly CrmRecordFieldSubColumn[];
 }
 
@@ -202,10 +188,6 @@ export function isCrmAttributeType(value: unknown): value is CrmAttributeType {
   );
 }
 
-/**
- * Storage column for an attribute. A multi-valued attribute holds the whole set
- * as one JSON array — the scalar columns cannot express cardinality.
- */
 export function storageColumnFor(
   type: CrmAttributeType,
   multi: boolean,
@@ -213,9 +195,6 @@ export function storageColumnFor(
   return multi ? "jsonValue" : ATTRIBUTE_TYPE_SPECS[type].storageColumn;
 }
 
-/** The pre-typed `CrmFieldDefinition.valueType` / `crm_field_policies.value_type`
- * union. Kept here (not `crm-contract.ts`) so `legacyValueTypeFor` has no
- * import cycle back to the module that re-exports this file's types. */
 export type CrmLegacyValueType =
   | "string"
   | "number"
@@ -263,14 +242,6 @@ export function legacyValueTypeFor(
   return multi && base === "enum" ? "multi-enum" : base;
 }
 
-// ---------------------------------------------------------------------------
-// Composite value parsers.
-//
-// Each returns a discriminated union so an unparseable value is never mistaken
-// for an absent one: `absent` means nothing was supplied, `unparseable` means
-// something was supplied that this parser could not read. Callers that flatten
-// both to null lose the distinction the sparse sub-columns exist to record.
-// ---------------------------------------------------------------------------
 
 export type CrmParsedEmail =
   | { status: "absent" }
@@ -316,7 +287,6 @@ const MULTI_LABEL_PUBLIC_SUFFIXES = new Set([
   "co.kr",
 ]);
 
-/** Bare hostname for a URL-ish or hostname-ish value, or null when unreadable. */
 function hostnameOf(value: string): string | null {
   const trimmed = value.trim().toLowerCase();
   if (!trimmed) return null;
@@ -331,7 +301,6 @@ function hostnameOf(value: string): string | null {
   return bare;
 }
 
-/** Registrable domain for a hostname, URL, or email domain. Null when unreadable. */
 export function rootDomainOf(value: string | null | undefined): string | null {
   if (value == null) return null;
   const host = hostnameOf(value);
@@ -400,8 +369,6 @@ const UNAMBIGUOUS_CALLING_CODES: ReadonlyArray<[string, string]> = [
 export function parsePhone(value: string | null | undefined): CrmParsedPhone {
   if (value == null || !value.trim()) return { status: "absent" };
   const trimmed = value.trim();
-  // Only an explicitly international number can be normalized without knowing
-  // the caller's region — a bare "555 0134" is genuinely unparseable here.
   const digits = trimmed.replace(/[^\d+]/g, "");
   if (!digits.startsWith("+") || !/^\+\d{8,15}$/.test(digits)) {
     return { status: "unparseable", e164: null, country: null };
@@ -432,11 +399,6 @@ export function parsePersonalName(
   return { status: "parsed", first, last: last || null };
 }
 
-/**
- * Composite sub-columns for one value, keyed by column name. Every sub-column
- * the type declares is present (possibly null) so a caller can null the rest
- * without re-deriving which ones this type owns.
- */
 export function subFieldColumnsFor(
   type: CrmAttributeType,
   value: string | null,

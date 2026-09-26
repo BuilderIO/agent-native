@@ -26,12 +26,10 @@ import { type H3Event } from "h3";
 
 export type IntegrationProvider = "apollo" | "hubspot" | "gong" | "pylon";
 
-/** Vault credential key for a provider's API key. */
 function credentialKey(provider: IntegrationProvider): string {
   return credentialKeys(provider)[0]!;
 }
 
-/** Current provider-api-aligned key first, legacy Calendar key fallbacks after. */
 export function credentialKeys(provider: IntegrationProvider): string[] {
   switch (provider) {
     case "apollo":
@@ -49,11 +47,6 @@ export function credentialKeys(provider: IntegrationProvider): string[] {
   }
 }
 
-/**
- * Build a CredentialContext from the request's session. Returns null when the
- * request is unauthenticated. Prefers `getOrgContext` for the org id (the
- * session's active org can go stale) and falls back to the session value.
- */
 export async function getIntegrationContext(
   event: H3Event,
 ): Promise<CredentialContext | null> {
@@ -64,10 +57,6 @@ export async function getIntegrationContext(
   return { userEmail: session.email, orgId };
 }
 
-/**
- * Resolve a provider's API key for the requesting user. Returns undefined when
- * unauthenticated or not connected.
- */
 export async function getIntegrationKey(
   event: H3Event,
   provider: IntegrationProvider,
@@ -90,7 +79,6 @@ export async function getIntegrationKey(
   return undefined;
 }
 
-/** Persist a provider's API key in the encrypted vault, scoped to the user. */
 export async function saveIntegrationKey(
   event: H3Event,
   provider: IntegrationProvider,
@@ -102,7 +90,6 @@ export async function saveIntegrationKey(
   return true;
 }
 
-/** Remove a provider's API key from the user's vault. */
 export async function deleteIntegrationKey(
   event: H3Event,
   provider: IntegrationProvider,

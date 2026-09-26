@@ -1,20 +1,4 @@
-/**
- * Pure-TypeScript MP4 faststart — relocates the `moov` atom before `mdat`
- * so browsers can start playing immediately with HTTP range requests.
- *
- * If the moov is already before mdat (or the file isn't MP4), the input is
- * returned unchanged.
- *
- * Algorithm (same as qt-faststart / ffmpeg -movflags +faststart):
- *  1. Parse top-level atoms to find ftyp, moov, and mdat positions.
- *  2. If moov is already before mdat, return as-is.
- *  3. Extract the moov atom.
- *  4. Walk moov recursively to find stco (32-bit) and co64 (64-bit) chunk
- *     offset tables. Add moov.byteLength to every offset (data shifts right).
- *  5. Reassemble: [everything before mdat] + [adjusted moov] + [mdat onwards].
- */
 
-/** Read a big-endian uint32 from a buffer at the given offset. */
 function readU32(buf: Uint8Array, off: number): number {
   return (
     ((buf[off] << 24) |
@@ -25,20 +9,17 @@ function readU32(buf: Uint8Array, off: number): number {
   );
 }
 
-/** Read a big-endian uint64 from a DataView. JS numbers lose precision above 2^53. */
 function readU64(view: DataView, off: number): number {
   const hi = view.getUint32(off);
   const lo = view.getUint32(off + 4);
   return hi * 0x100000000 + lo;
 }
 
-/** Write a big-endian uint64 into a DataView. */
 function writeU64(view: DataView, off: number, val: number): void {
   view.setUint32(off, Math.floor(val / 0x100000000));
   view.setUint32(off + 4, val >>> 0);
 }
 
-/** Read a 4-byte ASCII type at the given offset. */
 function readType(buf: Uint8Array, off: number): string {
   return String.fromCharCode(
     buf[off],
@@ -55,12 +36,6 @@ interface AtomInfo {
   headerSize: number;
 }
 
-/**
- * Parse top-level atoms from an MP4 buffer.
- * Each atom: [4-byte size][4-byte type][payload].
- * If size == 1, the real size is in the next 8 bytes (extended size).
- * If size == 0, the atom extends to EOF.
- */
 function parseTopLevelAtoms(buf: Uint8Array): AtomInfo[] {
   const atoms: AtomInfo[] = [];
   let pos = 0;
@@ -87,10 +62,6 @@ function parseTopLevelAtoms(buf: Uint8Array): AtomInfo[] {
   return atoms;
 }
 
-/**
- * Walk a container atom recursively and adjust chunk offsets in stco/co64
- * boxes by `delta` bytes.
- */
 function adjustOffsets(moov: Uint8Array, delta: number): void {
   const view = new DataView(moov.buffer, moov.byteOffset, moov.byteLength);
   walkContainer(moov, view, 0, moov.byteLength, delta);
@@ -119,7 +90,6 @@ function walkContainer(
     if (size < headerSize || pos + size > end) break;
 
     if (type === "stco") {
-      // stco: [version:1][flags:3][entry_count:4][offset:4 * count]
       const payloadStart = pos + headerSize;
       const count = view.getUint32(payloadStart + 4);
       for (let i = 0; i < count; i++) {
@@ -128,7 +98,6 @@ function walkContainer(
         view.setUint32(off, old + delta);
       }
     } else if (type === "co64") {
-      // co64: [version:1][flags:3][entry_count:4][offset:8 * count]
       const payloadStart = pos + headerSize;
       const count = view.getUint32(payloadStart + 4);
       for (let i = 0; i < count; i++) {
@@ -166,14 +135,9 @@ function isContainer(type: string): boolean {
   return CONTAINER_TYPES.has(type);
 }
 
-/**
- * Apply faststart to an MP4 buffer: move moov before mdat.
- * Returns the original buffer if already faststarted or not MP4.
- */
 export function applyFaststart(data: Uint8Array): Uint8Array {
   if (data.byteLength < 8) return data;
 
-  // Quick sanity check — MP4 files start with ftyp.
   const firstType = readType(data, 4);
   if (firstType !== "ftyp") return data;
 
@@ -184,21 +148,15 @@ export function applyFaststart(data: Uint8Array): Uint8Array {
   if (!moovAtom || !mdatAtom) return data;
   if (moovAtom.offset < mdatAtom.offset) return data;
 
-  // moov is after mdat — needs relocation.
   const moovBytes = new Uint8Array(moovAtom.size);
   moovBytes.set(
     data.subarray(moovAtom.offset, moovAtom.offset + moovAtom.size),
   );
 
-  // Adjust chunk offsets: moov is moving to just before mdat, so all data
-  // chunks shift right by moov.size bytes.
   adjustOffsets(moovBytes.subarray(moovAtom.headerSize), moovAtom.size);
 
-  // Reassemble: [everything before mdat] + [adjusted moov] + [mdat to end, excluding original moov]
   const beforeMdat = data.subarray(0, mdatAtom.offset);
-  // Everything from mdat to moov start (moov is after mdat, so this includes mdat).
   const mdatToMoov = data.subarray(mdatAtom.offset, moovAtom.offset);
-  // Everything after moov (if any trailing atoms).
   const afterMoov = data.subarray(moovAtom.offset + moovAtom.size);
 
   const result = new Uint8Array(data.byteLength);
@@ -214,11 +172,6 @@ export function applyFaststart(data: Uint8Array): Uint8Array {
   return result;
 }
 
-/**
- * Return true only when an MP4 buffer has a top-level `moov` atom. Browsers
- * need this metadata to load duration/tracks; an ftyp+mdat-only file can be
- * served by storage just fine but will fail playback.
- */
 export function hasPlayableMp4Metadata(data: Uint8Array): boolean {
   if (data.byteLength < 8) return false;
   if (readType(data, 4) !== "ftyp") return false;

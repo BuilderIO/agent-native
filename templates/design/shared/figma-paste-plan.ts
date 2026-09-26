@@ -1,21 +1,11 @@
-/**
- * Where a Figma paste lands, measured against Figma: inside the selected frame
- * (or the selected layer's parent) when it is on screen, otherwise centred in
- * the viewport — inside the top-level frame that fully contains it, or at the
- * top level. These helpers are the pure part of that decision.
- */
 
 export interface FigmaPasteLayer {
   title: string;
   width: number | null;
   height: number | null;
-  /** A full HTML document whose body holds one root element. */
   content: string;
-  /** The root is a synthetic frame around one loose node; paste the node. */
   wrapsLooseNode: boolean;
-  /** Top-left on the Figma page; null when the converter could not tell. */
   origin: { x: number; y: number } | null;
-  /** Top-left relative to the frame it was copied out of in Figma. */
   sourceOffset: { x: number; y: number } | null;
 }
 
@@ -28,19 +18,15 @@ export interface PasteRect {
 
 export interface FigmaPasteContainer {
   fileId: string;
-  /** Selector of the frame layer inside the screen; null for the screen. */
   selector: string | null;
   width: number;
   height: number;
-  /** The part on screen, in the container's own coordinates. */
   visible: PasteRect | null;
-  /** Auto-layout frames take a pasted layer as their last flow child. */
   autoLayout: boolean;
 }
 
 export interface FigmaPasteScene {
   container: FigmaPasteContainer | null;
-  /** The visible canvas, in canvas coordinates. */
   viewport: PasteRect | null;
   screens: Array<PasteRect & { fileId: string }>;
 }
@@ -50,13 +36,11 @@ export type FigmaPastePlan =
       kind: "layers";
       fileId: string;
       selector: string | null;
-      /** null: append as a flow child. */
       positions: Array<{ x: number; y: number } | null>;
     }
   | { kind: "board"; positions: Array<{ x: number; y: number }> }
   | { kind: "screens"; placeAt: { x: number; y: number } | null };
 
-/** The copied layers as one box, keeping their arrangement. */
 function groupOf(layers: ReadonlyArray<FigmaPasteLayer>) {
   const origins = layers.every((layer) => layer.origin)
     ? layers.map((layer) => layer.origin!)
@@ -81,11 +65,6 @@ function clamp(value: number, max: number) {
   return Math.min(Math.max(0, value), Math.max(0, max));
 }
 
-/**
- * Figma keeps the offset from the frame the paste was copied out of when it
- * starts inside the target and the paste fits; a paste larger than the target
- * goes to its top-left; anything else is centred in the target's visible part.
- */
 export function placeInFigmaPasteContainer(
   paste: {
     width: number;

@@ -2,9 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { loader, clientLoader } from "../routes/adhoc.$id";
 
-// `/adhoc/:id` is the legacy dashboard URL. It must permanently forward to the
-// canonical `/dashboards/:id` while preserving query string and hash so old
-// bookmarks and deep links (e.g. `?id=`, `?config=`, `#panel`) keep working.
 
 function locationFromLoader(
   fn: typeof loader,

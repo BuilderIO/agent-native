@@ -1,12 +1,3 @@
-/**
- * list-calendar-accounts
- *
- * Returns the calendar accounts the current user can see. Uses the
- * framework `accessFilter` so org-shared accounts surface but accounts
- * owned by other users in other orgs do not.
- *
- * Tokens are NEVER returned — only display fields.
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -24,10 +15,6 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
-    // `accessFilter` already scopes by owner/org/shares — the same helper
-    // list-meetings uses for calendarAccounts. Do not add an extra org filter
-    // here; an `eq(orgId)` on top would hide a user's personal calendar account
-    // whenever an org is active, desyncing this list from what list-meetings reads.
     const where = [
       accessFilter(schema.calendarAccounts, schema.calendarAccountShares),
     ];

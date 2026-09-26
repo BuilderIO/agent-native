@@ -28,13 +28,9 @@ describe("Design editor mobile layout", () => {
       "flex max-w-[calc(100%-1rem)] -translate-x-1/2",
     );
     expect(bottomToolbarSource).toContain("overflow-x-auto rounded-xl");
-    // Sidebars overlay the full-bleed canvas so opening/closing chrome does
-    // not reflow pan/centering. Absolute left/right shells are required.
     expect(editorSource).toContain(
       "absolute inset-y-0 left-0 z-[70] flex min-h-0",
     );
-    // Right inspector classnames live in minimal-inspector.ts so minimal mode
-    // can swap the docked rail for a floating card without duplicating shells.
     expect(editorSource).toContain(
       "className={rightInspectorPanelClassName(minimalUi)}",
     );

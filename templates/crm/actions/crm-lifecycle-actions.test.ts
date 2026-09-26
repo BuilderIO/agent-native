@@ -1,8 +1,3 @@
-// Integration tests for the three GTM ports: the typed status lifecycle, the
-// dedupe/merge pair, and one-call workspace orientation. All three are about
-// what happens to real rows — a partition that reports what it skipped, a claim
-// that refuses to clobber a concurrent move, a merge that keeps both sides — so
-// they run against a real PGlite database with the app's migrations.
 
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -226,9 +221,6 @@ afterAll(() => {
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
-// ---------------------------------------------------------------------------
-// 1. Typed lifecycle
-// ---------------------------------------------------------------------------
 
 describe("loadCrmStatusLifecycle", () => {
   it("takes the allowed values from the attribute's options, not an enum", async () => {
@@ -311,7 +303,6 @@ describe("applyCrmStatusTransitions", () => {
       message: 'Cannot move a merged or deleted record through "Stage".',
     });
 
-    // A skipped target is not written, and an unchanged one opens no history.
     expect(await stageRows(merged)).toHaveLength(1);
     expect(await stageRows(alreadyWon)).toHaveLength(1);
     expect(await stageRows(moving)).toHaveLength(2);
@@ -367,7 +358,6 @@ describe("claimCrmStatusTransition", () => {
     const recordId = await createRecord({ displayName: "Raced" });
     await setStage(recordId, "new");
 
-    // A concurrent writer moves it between the partition read and the write.
     await setStage(recordId, "in-progress");
 
     const claimed = await asOwner(() =>
@@ -379,7 +369,6 @@ describe("claimCrmStatusTransition", () => {
     );
     expect(claimed.has(`record:${recordId}`)).toBe(false);
 
-    // Re-deciding on the value that IS current claims it.
     const reclaimed = await asOwner(() =>
       lifecycleLib.claimCrmStatusTransition({
         db: getDb(),
@@ -421,7 +410,6 @@ describe("claimCrmStatusTransition", () => {
     await setStage(stable, "new");
     await setStage(raced, "new");
 
-    // Decide on both at "new", then move one of them out from under the write.
     const expected = [
       { target: { recordId: stable }, from: "new" as string | null },
       { target: { recordId: raced }, from: "new" as string | null },
@@ -502,8 +490,6 @@ describe("lifecycle blocks that come from the attribute", () => {
         ownership,
       }),
     );
-    // Retire the stage AFTER a row is parked on it — the case an enterable-only
-    // rule has to get right.
     await getDb()
       .update(schema.crmAttributeOptions)
       .set({ archived: true })
@@ -595,8 +581,6 @@ describe("update-crm-record routes a status field through the lifecycle", () => 
   });
 
   it("leaves a provider-target status change to the proposal flow", async () => {
-    // The provider path is a handoff, not a blocked transition, so the
-    // lifecycle must not turn a working flow into an error.
     await createStatusAttribute({
       id: "attr_mirrored_stage",
       objectType: "mirrored_co",
@@ -624,9 +608,6 @@ describe("update-crm-record routes a status field through the lifecycle", () => 
   });
 });
 
-// ---------------------------------------------------------------------------
-// 2. Dedupe and merge
-// ---------------------------------------------------------------------------
 
 describe("find-crm-duplicates", () => {
   it("returns scored pairs with a reason and never changes a record", async () => {
@@ -836,7 +817,6 @@ describe("merge-crm-records", () => {
       .where(eq(schema.crmInteractions.recordId, pair.survivor));
     expect(notes.map((row: any) => row.title)).toEqual(["Duplicate note"]);
 
-    // The loser is tombstoned and points at the survivor — never hard-deleted.
     const [loser] = await getDb()
       .select()
       .from(schema.crmRecords)
@@ -854,7 +834,6 @@ describe("merge-crm-records", () => {
       relationshipType: "merged-into",
     });
 
-    // The merge is in the mutations ledger, not just in the rows it moved.
     const [ledger] = await getDb()
       .select()
       .from(schema.crmMutations)
@@ -899,7 +878,6 @@ describe("merge-crm-records", () => {
       stringValue: "won",
       attributeId: STAGE_ATTRIBUTE_ID,
     });
-    // The duplicate keeps its own history — the merge is reversible by reading.
     expect(await stageRows(duplicate)).toHaveLength(1);
   });
 
@@ -976,10 +954,6 @@ describe("merge-crm-records", () => {
   });
 
   it("is approval-gated for a WebMCP caller, not treated as human", async () => {
-    // A WebMCP call is a browser-side agent driving the page's tools, not a
-    // human directly at the keyboard. Regression for a gap where the caller
-    // classification helper left "webmcp" out of the agent list, so this
-    // destructive merge would have run immediately, unapproved.
     const args = {
       survivorRecordId: "rec_a",
       duplicateRecordId: "rec_b",
@@ -1052,9 +1026,6 @@ describe("merge-crm-records", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 3. One-call orientation
-// ---------------------------------------------------------------------------
 
 describe("get-crm-workspace", () => {
   it("derives identity, book of business, and queues from the session alone", async () => {
@@ -1157,8 +1128,6 @@ describe("get-crm-workspace", () => {
       getCrmWorkspace.run({}, { caller: "frontend" as const, userEmail: rep }),
     );
 
-    // The failure mode this exists to prevent: a broken connection reading the
-    // same as an empty book.
     expect(workspace.book.recordCount).toBe(0);
     expect(workspace.ownerStatus).toBe("unreadable");
     expect(workspace.owner).toBeNull();

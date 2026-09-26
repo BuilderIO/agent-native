@@ -68,9 +68,6 @@ async function foobarSpaceId() {
 }
 
 describe("named workspace create targets", () => {
-  // Regression: asking the agent to create entries "in my Foobar workspace"
-  // landed them in Personal, because create-document coerced an unresolved
-  // target to the personal space and still reported success.
   it("creates pages in the named workspace, not the personal default", async () => {
     const spaceId = await foobarSpaceId();
     const personalSpaceId = personalContentSpaceId(USER);
@@ -117,8 +114,6 @@ describe("named workspace create targets", () => {
       personalRows.filter((row: any) => createdIds.has(row.id)),
     ).toHaveLength(0);
 
-    // The user sees the workspace through its Files collection, so the pages
-    // must land there and not merely carry the right spaceId.
     const [files] = await getDb()
       .select()
       .from(schema.contentDatabases)

@@ -9,7 +9,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import {
   CAPTURE_DATA_MAX_BYTES,
   sanitizeMarkup,
@@ -22,10 +22,6 @@ import {
   type DesignSourceDescriptor,
 } from "../shared/source-mode.js";
 
-/**
- * Resolve the capabilities for the design's source type.
- * Falls back to inline capabilities when not present in stored data.
- */
 function resolveCapabilities(
   designData: string | null,
 ): DesignSourceCapabilities {
@@ -59,20 +55,10 @@ function resolveCapabilities(
   return resolveDescriptorCapabilities({ sourceType: "inline" });
 }
 
-/**
- * A string "looks like markup" — and is therefore worth sanitising — when it
- * contains an angle-bracket tag opener or an Alpine `x-`/`@`/`:` binding that
- * could carry script. Plain data strings (route names, ids) are left untouched.
- */
 function looksLikeMarkup(value: string): boolean {
   return /<[a-zA-Z!/]/.test(value) || value.includes("</");
 }
 
-/**
- * Recursively sanitise every string value inside a captured/replayed
- * `captureData` object (e.g. `domHtml`, `domSnapshot`, `x-data` markup) so no
- * untrusted DOM is persisted raw. Non-string leaves pass through unchanged.
- */
 function sanitizeCaptureData(value: unknown): unknown {
   if (typeof value === "string") {
     return looksLikeMarkup(value) ? sanitizeMarkup(value) : value;
@@ -151,7 +137,6 @@ export default defineAction({
 
     const db = getDb();
 
-    // Capability gate — captureState must be available for this design source.
     const [design] = await db
       .select({ data: schema.designs.data })
       .from(schema.designs)
@@ -176,8 +161,6 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
-    // Sanitise captured DOM/markup (stored-XSS guard) and enforce a size cap so
-    // a single capture can't bloat the row / the shareable content it feeds.
     const sanitizedCaptureData = sanitizeCaptureData(captureData);
     const captureDataJson = JSON.stringify(sanitizedCaptureData);
     if (Buffer.byteLength(captureDataJson, "utf8") > CAPTURE_DATA_MAX_BYTES) {

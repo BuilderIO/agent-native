@@ -24,13 +24,9 @@ import { AccountGateHeader } from "./account-gate-header";
 export interface CreateAccountDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Same-origin viewer path to restore after the account is created. */
   returnTo: string;
-  /** The action that brought an anonymous viewer into the account flow. */
   intent?: AccountGateIntent;
-  /** Fired when the viewer chooses the returning-user path. */
   onSignIn?: () => void;
-  /** Refresh the viewer after the auth flow establishes a session. */
   onAuthenticated: () => void;
 }
 

@@ -1,14 +1,3 @@
-/**
- * Deterministic key-suggestion heuristic for federating a second source.
- *
- * The actual row join is always normalize-then-EXACT (no fuzzy matching). This
- * heuristic only proposes *which field* to join on and a normalization formula,
- * by measuring Jaccard overlap of each cross-source field pair's normalized
- * value sets. A name/format nudge breaks ties toward url/slug/id-like fields.
- * The user confirms (and may tweak the formula) before anything commits — and in
- * the agent-native flow, the session agent can compose the same join record
- * directly. No model is required here.
- */
 
 import type { DocumentPropertyValue } from "../shared/api.js";
 import { evaluateNormalizationFormula } from "../shared/properties.js";
@@ -92,7 +81,6 @@ function fieldLabel(field: string): string {
   );
 }
 
-// String-valued field keys present across a set of rows.
 function stringFieldKeys(rows: ValueRow[]): string[] {
   const keys = new Set<string>();
   for (const row of rows) {
@@ -106,7 +94,7 @@ function stringFieldKeys(rows: ValueRow[]): string[] {
 interface FieldProfile {
   field: string;
   formula: string;
-  normalizedByRaw: Map<string, string>; // raw value → normalized key
+  normalizedByRaw: Map<string, string>;
   normalizedSet: Set<string>;
 }
 
@@ -165,10 +153,6 @@ function nameNudge(primaryField: string, secondaryField: string): number {
   return nudge;
 }
 
-/**
- * Propose a join between a primary source's sampled rows and a candidate
- * (secondary) source's sampled rows. Returns null when no field pair overlaps.
- */
 export function suggestJoinKey(args: {
   primaryValues: ValueRow[];
   secondaryValues: ValueRow[];
@@ -256,7 +240,6 @@ export function suggestJoinKey(args: {
 
   if (!best) return null;
 
-  // Sample matches reflect the committed formulas exactly (same evaluator).
   const sampleMatches: JoinSampleMatch[] = [];
   for (const [raw, normalized] of best.primary.normalizedByRaw) {
     let secondaryRaw = "";

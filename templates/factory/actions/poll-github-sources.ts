@@ -84,19 +84,6 @@ export const PARKED_PR_RECHECK_CONCURRENCY = 4;
 export const OPEN_ITEM_PAGE_SIZE = 50;
 export const MAX_OPEN_ITEM_PAGES = 5;
 
-/**
- * Walk provider pages applying the author filter as we go, so excluded authors
- * cannot occupy the budget and starve matching items sitting on a later page.
- * Stops at the budget or the page cap and reports whichever it hit: a run that
- * stopped early is not a run that saw the whole repository.
- *
- * The budget counts only items that are not already queued, because only those
- * consume inbox capacity. Counting every accepted item lets a backlog of
- * already-ingested rows fill the budget on page 1 and strand a genuinely new
- * item behind it. The consequence is that a fully-ingested repository never
- * fills the budget, so MAX_OPEN_ITEM_PAGES — not the budget — is what bounds
- * the walk in the steady state.
- */
 export async function collectOpenItems<T>(
   fetchPage: (page: number) => Promise<GitHubOpenItemPage<T>>,
   authorIdOf: (item: T) => string,
@@ -134,8 +121,6 @@ export async function collectOpenItems<T>(
   return { items, authorFiltered, unparsed, pagesFetched, hasMore };
 }
 
-// Live mergeability, not a resolved conflict flag: a recheck that ran before
-// GitHub finished computing must not overwrite a stored definite reading.
 type ParkedRecheck = {
   humanReviewCommentCount: number;
   humanReviewBodyCount: number;
@@ -428,7 +413,6 @@ export function selectParkedRowsForRecheck<
       extras.push(row);
     }
   }
-  // Oldest recheck first so every parked row is eventually covered by the cap.
   extras.sort((left, right) =>
     parkedRecheckSortKey(left.metadataJson).localeCompare(
       parkedRecheckSortKey(right.metadataJson),
@@ -498,11 +482,6 @@ function githubPollRollupSummary(
   return `Polled ${parts.join(" and ")}.`;
 }
 
-/**
- * Name every reason the queue got nothing. The author filter is one cause among
- * four, so attributing the whole outcome to it reports a policy skip when the
- * run actually hit a cap or left provider pages unread.
- */
 export function incompleteObservationSummary(causes: {
   authorFiltered: number;
   droppedByInboxLimit: number;
@@ -580,7 +559,6 @@ export default defineAction({
     const repository = parseGitHubRepositoryRef(repositoryRef);
     const repositoryName = `${repository.owner}/${repository.repo}`;
     const client = createGitHubClient({ ownerEmail: userEmail, orgId });
-    // One author decision for the whole run: the page walk, the parked-PR
     // recheck, and the reopen path must not disagree about who is in scope.
     const acceptsAuthor = (authorId: string): boolean =>
       !job ||
@@ -613,9 +591,6 @@ export default defineAction({
         orgId,
         factoryId,
       );
-    // Read the queued ids once so the page walk can tell a new item from one it
-    // already has. Doing it per item inside the walk would put a query behind
-    // every provider row.
     const queuedItemIds = new Set(
       (
         await db
@@ -653,9 +628,6 @@ export default defineAction({
     const pullRequests = pullRequestCollection.items;
     const authorFiltered =
       issueCollection.authorFiltered + pullRequestCollection.authorFiltered;
-    // Entries the issues endpoint returned that were pull requests. They are
-    // not missed work — the pull request endpoint fetches them — so this must
-    // not feed `truncated`, but it does explain an issue count of zero.
     const unparsed = issueCollection.unparsed + pullRequestCollection.unparsed;
     const pagesFetched =
       issueCollection.pagesFetched + pullRequestCollection.pagesFetched;
@@ -895,7 +867,6 @@ export default defineAction({
           continue;
         }
         const summary = pullRequest.body?.slice(0, 4_000) ?? null;
-        // GitHub updatedAt moves on CI and comments; head SHA is the review signal.
         const sourceChanged = hasTriageSourceChanged(existing, {
           sourceUrl: pullRequest.htmlUrl,
           title: pullRequest.title,
@@ -1225,8 +1196,6 @@ export default defineAction({
       );
     });
 
-    // Any of these means the run saw less than the repository's open set, so
-    // none of the branches below may report a complete observation.
     const truncated =
       providerHasMore || authorFiltered > 0 || droppedByInboxLimit > 0;
 
@@ -1271,9 +1240,6 @@ export default defineAction({
         factoryId,
       );
     } else if (issueCount + pullRequestCount === 0) {
-      // Open items existed but none reached the queue. Which cause did that is
-      // the whole content of this event, so the summary names every one that
-      // fired instead of blaming the author filter for all of them.
       await recordFactoryAudit(
         context,
         { userEmail, orgId },

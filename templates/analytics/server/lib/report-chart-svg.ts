@@ -64,10 +64,6 @@ export const CHART_PALETTES: Record<"dark" | "light", readonly string[]> = {
   ],
 };
 
-/**
- * The family resvg actually has bundled. Serverless runtimes ship no system
- * fonts, so asking for any other family renders every `<text>` blank.
- */
 export const REPORT_CHART_FONT_FAMILY = OG_FONT_FAMILY;
 
 const BROWSER_FONT_FAMILY =
@@ -124,11 +120,6 @@ function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 2).trimEnd()}...` : value;
 }
 
-/**
- * resvg gives no text metrics, so every width here is estimated from glyph
- * classes. Overestimating is the safe direction: layout leaves a gap, it does
- * not clip.
- */
 export function estimateTextWidth(value: string, fontSize: number): number {
   let units = 0;
   for (const char of value) {
@@ -212,7 +203,6 @@ function renderChartHeader({
   fit: boolean;
 }): { titleMarkup: string; subtitleMarkup: string; headerBottom: number } {
   const maxWidth = width - HEADER_INSET * 2;
-  // Bold glyphs run wider than the regular-weight estimate.
   const titleText = fit ? trimToWidth(title, 22 * 1.06, maxWidth) : title;
   const subtitleLines = !subtitle
     ? []
@@ -220,9 +210,6 @@ function renderChartHeader({
       ? wrapToWidth(subtitle, 13, maxWidth, 2)
       : [subtitle];
 
-  // Email cards already render the title and description as HTML, so the report
-  // path passes neither and the header collapses to nothing. Legacy callers
-  // always supply a title, so their output is unchanged.
   const collapsed = fit && !titleText && subtitleLines.length === 0;
 
   return {
@@ -293,11 +280,6 @@ function layoutLegend(
   return { rows, marker: null, markerX: 0 };
 }
 
-/**
- * Every stepped label plus both endpoints, minus any that would collide with
- * the label to its left. The final label wins ties so the range end is always
- * readable, and both endpoints are nudged inward to stay on canvas.
- */
 function layoutXLabels(
   texts: string[],
   centerFor: (index: number) => number,
@@ -356,8 +338,6 @@ function buildAxisScale(
   plotHeight: number,
 ): AxisScale {
   const min = Math.min(0, ...values);
-  // Only an axis with nothing above zero borrows a headroom of 1; forcing that
-  // floor on real data flattens a rate series that never leaves 0..1.
   const observedMax = values.length ? Math.max(...values) : 0;
   const max = observedMax > 0 ? observedMax : min < 0 ? 0 : 1;
   const span = max - min || 1;
@@ -366,10 +346,6 @@ function buildAxisScale(
   return { min, span, yFor, zeroY: yFor(0) };
 }
 
-/**
- * Segment edges for diverging bars or signed cumulative areas. The y-domain
- * has to cover every edge so mixed-sign segments stay inside the plot.
- */
 function stackSegments(
   series: ResolvedSeries[],
   seriesIndexes: number[],
@@ -447,7 +423,6 @@ function renderCartesianChartSvg({
     : subtitle
       ? header.headerBottom + 4
       : 42;
-  // A static image has no tooltip to reveal which scale a series belongs to.
   const legendSeries = dualAxis
     ? series.map((entry) =>
         entry.axis === "right"
@@ -468,8 +443,6 @@ function renderCartesianChartSvg({
 
   const stackedBars = stacked && type === "bar";
   const stackedAreas = stacked && type === "area";
-  // Stacks group per axis, matching the dashboard renderer, so a dual-axis
-  // chart never sums different units onto one scale.
   const stackedSegments =
     stackedBars || stackedAreas
       ? new Map([
@@ -520,8 +493,6 @@ function renderCartesianChartSvg({
   const slot = plotWidth / Math.max(labels.length, 1);
   const labelStep = Math.max(1, Math.ceil(labels.length / 8));
 
-  // Both scales use the same five fractional positions, so the right-hand tick
-  // labels line up with the gridlines drawn from the left scale.
   const grid = Array.from({ length: 5 }, (_, index) => {
     const fraction = (4 - index) / 4;
     const value = leftScale.min + leftScale.span * fraction;
@@ -621,8 +592,6 @@ function renderCartesianChartSvg({
         });
         return segments
           .map(({ start, points }) => {
-            // A subpath with a single moveto strokes nothing, so a point with
-            // gaps on both sides has to be drawn as its own dot or it vanishes.
             if (points.length === 1) {
               const [x, y] = points[0];
               return `<circle cx="${x}" cy="${y}" r="3.5" fill="${entry.color}"/>`;
@@ -882,11 +851,6 @@ export function renderFunnelChartSvg({
 </svg>`;
 }
 
-/**
- * Browser-facing renderer: clamps every value to a non-negative number and uses
- * a system font stack. Kept for `generate-chart`'s saved-artifact fallback; the
- * clamping makes it unsuitable for reports, where a gap must stay a gap.
- */
 export function renderStaticChartSvg({
   title,
   subtitle,
@@ -947,10 +911,6 @@ export function renderStaticChartSvg({
   });
 }
 
-/**
- * Email-report renderer: light theme, bundled font, and honest values — `null`
- * stays a gap and negatives keep their sign.
- */
 export function renderReportChartSvg({
   title,
   subtitle,

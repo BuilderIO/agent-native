@@ -17,7 +17,7 @@ const APP_ID = "analytics";
 const DASHBOARD_ID = "risk-meeting";
 const DASHBOARD_TITLE = "Risk Meeting";
 const REFRESH_MODE = "ttl" as const;
-const REFRESH_TTL_MS = 900_000; // 15 minutes.
+const REFRESH_TTL_MS = 900_000;
 
 const COHORT_PROGRAM_NAME = "risk-meeting-cohort";
 const EARLY_WARNING_PROGRAM_NAME = "risk-meeting-pylon-early-warning";
@@ -53,17 +53,6 @@ const PROGRAM_SEEDS: ProgramSeedDef[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Seed code loading.
-//
-// Mirrors the `loadDashboardSeed` pattern in `../server/lib/dashboard-seeds.ts`:
-// resolve a handful of candidate on-disk paths relative to this module and to
-// the process cwd, so the same lookup works in local dev, `pnpm action`, and
-// bundled/serverless builds where the template root may be laid out
-// differently. Unlike JSON dashboard seeds, these are stored as raw JS text —
-// see the comment atop each seed file for why `.js` under `seeds/` is the
-// stored-program payload format, not a build source file.
-// ---------------------------------------------------------------------------
 
 const seedCodeCache = new Map<string, string>();
 
@@ -74,7 +63,6 @@ function loadProgramCode(filename: string): string {
   const moduleDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates = Array.from(
     new Set([
-      // actions/ -> template root is one level up in source/dev.
       path.resolve(moduleDir, "..", "seeds", "data-programs", filename),
       path.resolve(process.cwd(), "seeds", "data-programs", filename),
       path.resolve(
@@ -130,15 +118,6 @@ export interface EnsureRiskMeetingDashboardResult {
   created: boolean;
 }
 
-/**
- * Idempotent installer: upserts the two Risk Meeting data programs (keyed by
- * stable `name`, so re-running updates the same rows instead of duplicating
- * them) and a two-panel "Risk Meeting" dashboard that binds each panel to its
- * program via the `"program"` panel source. Programs and the dashboard are
- * created under the CALLER's ownership — no credentials are required at
- * install time; HubSpot/Pylon auth resolves per-viewer the first time a panel
- * (or an agent `run-data-program` call) actually executes the program.
- */
 export async function ensureRiskMeetingDashboard(
   ctx: EnsureCtx,
 ): Promise<EnsureRiskMeetingDashboardResult> {

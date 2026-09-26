@@ -27,13 +27,6 @@ export const FONT_WEIGHT_OPTIONS = [
   { value: "900", key: "black" },
 ] as const;
 
-/**
- * True when `value` matches one of the nine standard FONT_WEIGHT_OPTIONS
- * notches. Variable-font weights (e.g. "550") or a keyword the browser
- * didn't normalize are real but "unknown" — callers should inject a
- * synthesized option for these instead of silently rendering a Select whose
- * value matches no item (blank dropdown, current weight still applied).
- */
 export function isKnownFontWeight(value: string): boolean {
   return FONT_WEIGHT_OPTIONS.some((option) => option.value === value);
 }
@@ -66,11 +59,6 @@ export function textTruncationLineCount(
   return Number.isSafeInteger(count) && count > 0 ? count : null;
 }
 
-/**
- * Legacy Chromium line clamping uses a box display that replaces authored
- * display and overflow values. Keep their raw inline values as JSON strings on
- * the node so CSS-wide keywords and absent declarations survive save/reload.
- */
 export function textTruncationStyleChanges(
   enabled: boolean,
   lineCount: number,
@@ -167,12 +155,6 @@ function lineHeightPixels(
   return font * 1.2;
 }
 
-/**
- * Read line-height in the same units the author chose. Computed styles turn
- * percentages and unitless ratios into px, so the authored inline snapshot is
- * the authority when present; a legacy unitless ratio is shown equivalently
- * as a percentage without changing the source until the user edits it.
- */
 export function resolveLineHeightFieldValue(
   authoredLineHeight: string | undefined,
   computedLineHeight: string | undefined,
@@ -242,7 +224,6 @@ function singleUnitToken(
   return { unit: matches?.[0]?.toLowerCase() };
 }
 
-/** Parse Figma-style px / percent / Auto input; bare values are pixels. */
 export function parseLineHeightInput(
   input: string,
   current: Pick<LineHeightFieldValue, "value" | "unit">,
@@ -286,8 +267,6 @@ export interface ParsedLetterSpacingInput extends LetterSpacingFieldValue {
   cssValue: string;
 }
 
-// The field accepts 2 decimal places of percent; a percent that small needs 4
-// em decimals to round-trip instead of collapsing to "0em" (e.g. 0.01% -> 0.0001em).
 const LETTER_SPACING_EM_PRECISION = 4;
 
 function letterSpacingCssValue(value: number, unit: LetterSpacingUnit): string {
@@ -299,11 +278,6 @@ function letterSpacingCssValue(value: number, unit: LetterSpacingUnit): string {
     : formatScrubValue(value, { unit: "px", precision: 2 });
 }
 
-/**
- * Figma's tracking field is a percentage of the font size, which CSS spells
- * as em. An authored em (or %) value is shown and scrubbed as a percentage so
- * a later nudge keeps the relative semantics; anything else is px.
- */
 export function resolveLetterSpacingFieldValue(
   authoredLetterSpacing: string | undefined,
   computedLetterSpacing: string | undefined,
@@ -331,7 +305,6 @@ export function resolveLetterSpacingFieldValue(
   };
 }
 
-/** Parse Figma-style px / percent / em input; bare values keep the field's unit. */
 export function parseLetterSpacingInput(
   input: string,
   current: Pick<LetterSpacingFieldValue, "value" | "unit">,
@@ -342,17 +315,7 @@ export function parseLetterSpacingInput(
   const explicitUnit = token.unit;
   const unit: LetterSpacingUnit =
     explicitUnit === "px" ? "px" : explicitUnit ? "%" : current.unit;
-  // "em" input is parsed in em (current value converted from % to em, so
-  // relative expressions like "+0.01em" stay in the right space) at 4 decimals
-  // to match LETTER_SPACING_EM_PRECISION, then converted to percent and
-  // rounded to the field's 2 decimals.
-  //
   // The `x` token has no defined base across dimensions: it's only meaningful
-  // when the explicit unit's dimension matches the field's current unit (px
-  // input against a px field, em/% input against a % field). A bare number
-  // always matches since it keeps the field's unit. When the dimensions
-  // differ, pass NaN so an `x` expression is refused; absolute input (no `x`)
-  // still parses fine against NaN.
   const nonEmUnit = explicitUnit ?? (unit === "%" ? "%" : "px");
   const nonEmBase =
     !explicitUnit || nonEmUnit === current.unit ? current.value : Number.NaN;
@@ -383,15 +346,6 @@ export function letterSpacingScrubCssValue(
   return letterSpacingCssValue(value, unit);
 }
 
-/**
- * Fallback dimension used when converting a text box from an auto (width or
- * height) resize mode to "fixed". When the box already has a real authored
- * size (not auto), that size is preserved verbatim. Otherwise this must use
- * the element's actual current on-screen size (`boundingSizePx`, from
- * `boundingRect`) rather than an arbitrary constant — converting auto-width
- * text that currently renders at, say, 340px wide to "fixed" must keep it at
- * ~340px, not silently snap it to a hardcoded default and visibly resize it.
- */
 export function resolveFixedResizeDimension(
   authoredValue: string | undefined,
   isAuto: boolean,
@@ -402,23 +356,6 @@ export function resolveFixedResizeDimension(
   return `${Math.max(1, size)}px`;
 }
 
-/**
- * Mixed-selection-safe wrapper around resolveFontFamilySelectValue.
- *
- * A multi-selection spanning different font families injects the MIXED_VALUE
- * sentinel string ("Mixed") into computedStyles.fontFamily (see
- * mixedElementFromSelection/sameOrMixed in selection-helpers.ts). Feeding
- * that sentinel straight into resolveFontFamilySelectValue happened to
- * resolve back to the literal string "Mixed" (no option's normalized stack
- * or first-family matches, so the raw fallback wins) — but only by
- * coincidence, since MIXED_VALUE itself is "Mixed". Callers must not rely on
- * that coincidence: without an explicit mixed check the caller has no signal
- * to render the value as a disabled placeholder, so "Mixed" ends up as a
- * normal, clickable SelectItem the user could select and commit as a literal
- * (nonsensical) `font-family: Mixed` style. This wrapper makes the mixed
- * state explicit so callers can branch on it the same way they already do
- * for fontWeight/fontSize/lineHeight/letterSpacing.
- */
 export function resolveFontFamilyFieldValue(
   computedFontFamily: string | undefined,
 ): string {
@@ -426,26 +363,6 @@ export function resolveFontFamilyFieldValue(
   return resolveFontFamilySelectValue(computedFontFamily);
 }
 
-/**
- * PERSISTENCE GOTCHA — commit text-decoration toggles through "text-decoration"
- * (the shorthand), never "text-decoration-line" (the longhand).
- *
- * The persisted-source style patcher (`applyStyleEdit`/`normalizeStyleProperty`
- * in `shared/code-layer.ts`) only writes properties on its `VisualStyleProperty`
- * allow-list. That list has "text-decoration" but does NOT have
- * "text-decoration-line" — so an `onStyleChange("textDecorationLine", ...)`
- * call would normalize to the unlisted kebab name, miss the allow-list, and
- * return "unsupported": the live iframe preview (which patches the DOM
- * directly via `element.style.setProperty`, no allow-list) would still
- * visually flip on the toggle tick, but the change would never reach the
- * saved HTML source and would revert on the next load/reparse — a
- * works-in-preview, doesn't-persist bug. The shorthand happily accepts a bare
- * line-keyword list ("underline", "underline line-through", "none") as its
- * value, which is valid CSS and *is* on the allow-list, so every helper below
- * reads/writes through "text-decoration" (property name "textDecoration" from
- * call sites) even though the bridge separately exposes the clean longhand
- * `textDecorationLine` computed value for reading current state.
- */
 export type TextDecorationLineToken = "underline" | "line-through" | "overline";
 
 const TEXT_DECORATION_LINE_TOKENS: readonly TextDecorationLineToken[] = [
@@ -454,13 +371,6 @@ const TEXT_DECORATION_LINE_TOKENS: readonly TextDecorationLineToken[] = [
   "overline",
 ];
 
-/**
- * Parses a text-decoration-line-ish CSS value ("none", "underline",
- * "underline line-through", or even the full shorthand computed string like
- * "underline solid rgb(0, 0, 0)") into the set of line tokens present. Works
- * on either the clean longhand or the composite shorthand since it just
- * looks for each known keyword as a whole word.
- */
 export function parseTextDecorationLineTokens(
   value: string | undefined,
 ): Set<TextDecorationLineToken> {
@@ -474,13 +384,6 @@ export function parseTextDecorationLineTokens(
   return tokens;
 }
 
-/**
- * True when `line` is active in `value`. A mixed-selection sentinel (see
- * `isMixedValue`) always reads as inactive — same convention every other
- * mixed-aware field in this panel uses (fontFamily/fontWeight/fontSize/...):
- * an indeterminate state renders as "off", not as a guess at one element's
- * value.
- */
 export function isTextDecorationLineActive(
   value: string | undefined,
   line: TextDecorationLineToken,
@@ -489,15 +392,6 @@ export function isTextDecorationLineActive(
   return parseTextDecorationLineTokens(value).has(line);
 }
 
-/**
- * Returns the "text-decoration" value to commit after toggling `line` on/off
- * against the element's current decoration-line state. A mixed selection is
- * treated as "no lines active yet" so the first click always turns the
- * toggled line ON uniformly across every selected element — matching how
- * every other Select-driven field here (fontFamily, fontWeight, ...)
- * overwrites a mixed selection with one explicit value instead of trying to
- * merge each element's own prior state.
- */
 export function nextTextDecorationLineValue(
   currentValue: string | undefined,
   line: TextDecorationLineToken,
@@ -510,12 +404,6 @@ export function nextTextDecorationLineValue(
   return current.size === 0 ? "none" : Array.from(current).join(" ");
 }
 
-/**
- * text-transform options (Figma's "Case" control). Unlike font-family/weight,
- * "text-transform" is already on the persisted-source `VisualStyleProperty`
- * allow-list under its own name, so callers can commit it directly with
- * `onStyleChange("textTransform", value)` — no shorthand workaround needed.
- */
 export const TEXT_CASE_OPTIONS = [
   { value: "none", key: "none" },
   { value: "uppercase", key: "uppercase" },

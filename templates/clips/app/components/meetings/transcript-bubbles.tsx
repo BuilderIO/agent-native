@@ -45,15 +45,8 @@ interface TranscriptBubblesProps {
   isLive: boolean;
   participants?: AttendeeStackParticipant[];
   ownerEmail?: string | null;
-  /**
-   * Imperative ref hook: parent can scroll a particular segment into view.
-   * Receives a function (segmentIndex) => void.
-   */
   registerScrollTo?: (fn: (segmentIndex: number) => void) => void;
-  /** Rendered at the left of the header row. Omit for no title (the header
-   * then shows only the search trigger, e.g. the compact share-page use). */
   title?: ReactNode;
-  /** Rendered in the header, before the search trigger (e.g. a copy button). */
   headerActions?: ReactNode;
 }
 
@@ -69,27 +62,9 @@ export interface SpeakerIdentity {
   email?: string | null;
   isOwner: boolean;
   accentClass: string;
-  /** The capture could not tell speakers apart, so this transcript names
-   *  nobody — the row renders without an avatar or label rather than claiming
-   *  a speaker we cannot know. */
   unattributed?: boolean;
 }
 
-/**
- * Whether a transcript carries enough signal to name who said what.
- *
- * A capture that only ever produced one speaker signal cannot distinguish two
- * people: the mic-only fallback engines tag every segment `mic` (the remote
- * side reaches the transcript only as bleed into the same microphone), and
- * cloud transcription of a single mixed track tags nothing at all. Attributing
- * those to the recording owner reads as fact and is wrong for every line the
- * other person spoke — including in the AI summary and action items derived
- * from it. A per-segment `speaker` label from a diarizing provider counts as
- * signal even when `source` is absent.
- *
- * Only meaningful when two people could have spoken; a solo recording that is
- * all mic genuinely is all one person.
- */
 export function transcriptDistinguishesSpeakers(
   segments: TranscriptSegment[],
   participants: AttendeeStackParticipant[],
@@ -105,44 +80,14 @@ export function transcriptDistinguishesSpeakers(
   return false;
 }
 
-/**
- * What one segment claims about who was speaking, as a comparable key.
- *
- * A generic placeholder is not an identity — it names a side of the
- * conversation, which is what `source` already says. Counting `speaker: "Me"`
- * and a plain `source: "mic"` as two different speakers would mark a mic-only
- * transcript distinguishable and hand the remote side's bleed back to the
- * owner's name, so placeholders resolve to the side they mean instead. A real
- * name wins over `source`, since a diarizing provider knows more than the
- * stream split does; a placeholder yields to it.
- */
 function speakerSignal(segment: TranscriptSegment): string | null {
   const speaker = segment.speaker?.trim();
   const side = placeholderSide(speaker);
   if (speaker && !side) return `speaker:${normalizeSpeaker(speaker)}`;
   if (segment.source) return `source:${segment.source}`;
-  // No placeholder and no source is an absence of information, not a side.
-  // Defaulting it to "system" here would make a transcript that mixes tagged
-  // and untagged segments look like two speakers.
   return side ? `source:${side}` : null;
 }
 
-/**
- * How many people could have spoken in this meeting.
- *
- * The participant roster is the calendar attendee list, which routinely omits
- * the recording owner — `create-meeting` deliberately does not synthesize a row
- * for a non-attendee owner, because that table feeds the public share payload.
- * So counting rows alone reads an owner-plus-one-attendee meeting as solo and
- * hands a mic-only transcript back to attribution, which is what labels the
- * remote side's bleed as the owner.
- *
- * A withheld owner (`null`, from the public share page) still counts: it means
- * an owner exists and is not among the participants. An owner we were never
- * told about (`undefined`) also counts, because "we cannot name them" is not
- * the same as "they are not there" — the cost of over-counting is a lost label,
- * and the cost of under-counting is a false one.
- */
 function countPossibleSpeakers(
   participants: AttendeeStackParticipant[],
   ownerEmail?: string | null,
@@ -174,14 +119,9 @@ function normalizeSpeaker(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-// Some providers (and our own seed fixture) tag unresolved segments with a
-// literal placeholder word instead of leaving `speaker` blank. These name a
-// side of the conversation rather than a person, so neither the label nor the
-// attribution check may treat one as an identity.
 const GENERIC_MIC_SPEAKER = /^(me|self|you)$/i;
 const GENERIC_SYSTEM_SPEAKER = /^them$/i;
 
-/** The side a generic placeholder names, or null when it names a person. */
 function placeholderSide(
   label: string | null | undefined,
 ): "mic" | "system" | null {
@@ -192,21 +132,10 @@ function placeholderSide(
   return null;
 }
 
-/**
- * Which side of the conversation a segment belongs to.
- *
- * `source` is the real signal, but a segment can arrive with only a
- * placeholder speaker on it. Falling straight through to "system" then drops
- * every "Me" into the remote group, which is how a transcript labelled purely
- * with placeholders renders entirely as "Them" — the original bug. Read the
- * side the placeholder names before defaulting.
- */
 function segmentSide(segment: TranscriptSegment): "mic" | "system" {
   return segment.source ?? placeholderSide(segment.speaker) ?? "system";
 }
 
-// Exported for regression testing — see transcript-bubbles.test.ts. These
-// are pure functions with no dependency on the component itself.
 export function findParticipant(
   speaker: string | null | undefined,
   participants: AttendeeStackParticipant[],
@@ -225,14 +154,6 @@ export function resolveParticipantForSpeaker(
   participants: AttendeeStackParticipant[],
   ownerEmail?: string | null,
 ): AttendeeStackParticipant | undefined {
-  // `undefined` and `null` are different signals here, not two spellings of
-  // "no owner" — a caller that never threads owner data through at all
-  // passes `undefined` (the only case where guessing via isOrganizer is
-  // acceptable, e.g. legacy data with no recorded owner). The public share
-  // page passes an explicit `null` when it *knows* the owner but withholds
-  // them for privacy (they aren't a public participant) — that still means
-  // "don't guess a different specific identity," it just can't resolve to a
-  // name, so mic segments fall through to the generic "Me" label instead.
   const ownerParticipant =
     ownerEmail === undefined
       ? participants.find((participant) => participant.isOrganizer)
@@ -243,9 +164,6 @@ export function resolveParticipantForSpeaker(
   if (source === "mic") return ownerParticipant;
   if (!ownerParticipant) return undefined;
 
-  // Generic Them/System segments can only be resolved from meeting metadata
-  // when there is exactly one possible remote participant. Do not guess in a
-  // group meeting until transcript ingestion stores a stable speaker id.
   const otherParticipants = participants.filter(
     (participant) =>
       normalizeSpeaker(participant.email) !==
@@ -276,11 +194,6 @@ export function resolveSpeaker(
     resolveParticipantForSpeaker(source, participants, ownerEmail);
   const participantName = participant?.name?.trim();
   const resolvedLabel = participantName || rawSpeaker;
-  // Treat a placeholder as "no label" so the UI falls back to the translated
-  // Me/Them string instead of rendering the raw English word verbatim. Only
-  // the placeholder matching this segment's own side counts: "Them" on a mic
-  // segment is a contradiction, not a placeholder, and keeping it visible is
-  // better than silently dropping it.
   const isGenericPlaceholderLabel =
     !!resolvedLabel &&
     (source === "mic"
@@ -305,9 +218,6 @@ export function resolveSpeaker(
   };
 }
 
-// Splits `text` into plain/matched runs for a case-insensitive substring
-// highlight. Returns the original text as a single run when there's no query
-// or no match, so callers can render uniformly either way.
 function highlightRuns(
   text: string,
   query: string,
@@ -393,7 +303,6 @@ export function TranscriptBubbles({
     return out;
   }, [segments, normalizedQuery]);
 
-  // Keep the cursor in range as matches change (typing narrows the set).
   useEffect(() => {
     setMatchCursor(0);
   }, [normalizedQuery]);
@@ -402,9 +311,6 @@ export function TranscriptBubbles({
     null,
   );
 
-  // Only scroll when the resolved target actually changes — during a live
-  // meeting the segments array (and thus matchIndexes) gets a new identity on
-  // every poll, and re-scrolling each time would fight the user's scrolling.
   const lastSearchScrollRef = useRef<string | null>(null);
   useEffect(() => {
     if (!normalizedQuery || !matchIndexes.length) {
@@ -471,10 +377,6 @@ export function TranscriptBubbles({
     }
   }, [isLive, segments.length]);
 
-  // Shared scroll-and-flash, used by both the parent's bullet-jump wiring
-  // (registerScrollTo) and in-panel search navigation below. Highlight state
-  // lives in React (not classList) so TranscriptSegmentRow can suppress its
-  // own hover styling while the flash is active — see `highlighted` there.
   const scrollToAndFlash = useRef((segmentIndex: number) => {
     const node = segmentRefs.current[segmentIndex];
     if (!node) return;
@@ -514,9 +416,6 @@ export function TranscriptBubbles({
       <div
         className={cn(
           "flex h-11 shrink-0 items-center gap-1.5 px-4",
-          // Only the last header row gets the divider below it — when
-          // search is open that's the search row, not this one, so the two
-          // read as one frame instead of stacked, separate boxes.
           !searchOpen && "border-b border-border",
         )}
       >
@@ -539,12 +438,6 @@ export function TranscriptBubbles({
                   ? t("transcriptBubbles.searchClose")
                   : t("transcriptBubbles.searchTranscript")
               }
-              // Without this, clicking here while the input is focused blurs
-              // it first (onBlur may already auto-close on an empty query),
-              // then this handler runs against state that just changed out
-              // from under it — sometimes reopening what onBlur just closed.
-              // Keeping focus on the input means blur never fires from this
-              // click at all, so there's nothing left to race.
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
             >

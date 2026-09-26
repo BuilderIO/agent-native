@@ -91,12 +91,6 @@ function formatDuration(start: string, end: string): string {
   return `${hours}h ${minutes}m`;
 }
 
-/**
- * Returns the URL only when it parses cleanly and uses http: or https:.
- * Defends against `javascript:` / `data:` / `vbscript:` URLs in
- * Google-Calendar-supplied attachment metadata reaching `<a href>` /
- * `<img src>` (audit 03 medium).
- */
 function safeUrl(u: string | undefined): string {
   if (!u) return "#";
   try {
@@ -203,7 +197,6 @@ export function EventDetailPanel({
   );
   const eventRenderKey = event ? getCalendarEventRenderKey(event) : null;
 
-  // Reset editing state when event changes
   useEffect(() => {
     setIsEditingTitle(false);
     setIsEditingDescription(false);

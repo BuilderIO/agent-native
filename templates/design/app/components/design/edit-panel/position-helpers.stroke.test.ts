@@ -1,18 +1,3 @@
-/**
- * Stroke-section bug-hunt fixes (Figma-parity pass).
- *
- * 1. `strokeShowPatch` — StrokeLayerControl's eye-toggle "show" click used to
- *    fire three sequential onStyleChange calls (color, style, width) instead
- *    of one atomic patch, unlike every other multi-property commit in this
- *    file (e.g. TextStrokeProperties' equivalent show handler, which already
- *    batched via commitStylePatch). Extracted the patch computation so the
- *    caller can commit it as one history step, and tested directly here.
- * 2. `resolveRestoredStrokeStyle` — the Stroke section's top-level "+" button
- *    restored a hidden-but-existing border with `borderStyle` hardcoded to
- *    "solid", silently discarding a dashed/dotted style; the parallel outline
- *    branch a few lines below it already preserved style correctly. Both
- *    branches now share this one helper.
- */
 
 import { describe, expect, it } from "vitest";
 
@@ -47,7 +32,6 @@ describe("strokeShowPatch", () => {
       "2px",
       "solid",
     );
-    // rgbaToCss serializes a fully-opaque color as hex, not rgba(...).
     expect(patch.borderColor).toBe("#ff0000");
   });
 
@@ -75,8 +59,6 @@ describe("strokeShowPatch", () => {
       "2px",
       "dashed",
     );
-    // A real style must be left untouched — no key written at all, so the
-    // caller's existing outlineStyle stays exactly as it was.
     expect(fromDashed.outlineStyle).toBeUndefined();
   });
 
@@ -99,8 +81,6 @@ describe("strokeShowPatch", () => {
   });
 });
 
-// Not a bug fix — existing round-trip coverage for the position <-> offset
-// math these fixes sit next to, since neither had a dedicated test file yet.
 describe("outline position <-> offset round trip", () => {
   it("outside is always offset 0px regardless of width", () => {
     expect(outlineOffsetForPosition("outside", "4px")).toBe("0px");
@@ -124,8 +104,6 @@ describe("outline position <-> offset round trip", () => {
 
 describe("whether a stroke row should exist at all", () => {
   it("does not count a width a stylesheet left behind with style none", () => {
-    // Tailwind-style preflight plus an unset outline: paints nothing, and its
-    // colour resolves to currentColor, so a row here wears the text colour.
     expect(strokeIsVisible("1.5px", "none")).toBe(false);
     expect(strokeIsVisible("0px", "solid")).toBe(false);
   });

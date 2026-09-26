@@ -45,9 +45,6 @@ export function resolveOpenAiKey(): ResolvedOpenAiKey | undefined {
     process.env.BETA_E2E_ALLOW_SHARED_KEY?.trim() ?? "",
   );
 
-  // Resolve the explicitly selected source first. A shared dispatch must not
-  // silently fall back to the dedicated key, or the run will bill the wrong
-  // credential while reporting a successful setup.
   if (allowShared) {
     const shared = process.env.BETA_E2E_SHARED_OPENAI_API_KEY?.trim();
     return shared ? { key: shared, source: "shared" } : undefined;
@@ -106,7 +103,6 @@ export function isConfirmedOpenAiEngineStatus(
   }
 }
 
-/** Validate the exact credential once before installing it on any beta host. */
 export async function validateOpenAiKey(apiKey: string): Promise<void> {
   let response: Response;
   try {
@@ -164,10 +160,6 @@ export async function validateOpenAiKey(apiKey: string): Promise<void> {
   );
 }
 
-/**
- * POST the key from inside a loaded page on the target origin. Same-origin is
- * required: the framework rejects a cross-origin credential write.
- */
 export async function installOpenAiKey(
   context: BrowserContext,
   origin: string,

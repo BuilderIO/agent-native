@@ -211,9 +211,6 @@ describe("createDemoChartTrendRows", () => {
     );
     const transformed = values(result, "value");
 
-    // Second differences remove the imposed linear rise and compare the local
-    // acceleration pattern: sharp source events should remain sharp at the
-    // same x positions rather than being replaced by arbitrary pullbacks.
     expect(
       cosineSimilarity(
         secondDifferences(source),

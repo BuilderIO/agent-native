@@ -41,7 +41,6 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
     run: async (args) => {
       const { action } = args;
 
-      // Lazy-import DB to avoid issues when running outside server context
       const { db, schema } = await import("../server/db/index.js");
 
       const ownerEmail = getRequestUserEmail();

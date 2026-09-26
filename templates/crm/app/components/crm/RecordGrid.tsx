@@ -42,8 +42,6 @@ import {
 import { Input } from "@/components/ui/input";
 import type { CrmKind, CrmRecordSummary } from "@/lib/types";
 
-/** The glyph the grid's icon column shows until a row is hovered, and the
- *  avatar shape that goes with it — round is a person, squircle is not. */
 const KIND_ICONS: Record<
   CrmKind,
   React.ComponentType<{ className?: string }>
@@ -53,9 +51,7 @@ const KIND_ICONS: Record<
   opportunity: IconRoute,
 };
 
-/** One `list-crm-record-values` request per chunk; the action caps at 200. */
 const VALUES_CHUNK = 100;
-/** Column resize fires per mouse move; only the settled layout is persisted. */
 const COLUMN_SAVE_DELAY_MS = 700;
 
 function columnStorageKey(kind: string) {
@@ -116,12 +112,6 @@ function chunk<T>(values: T[], size: number): T[][] {
 export interface RecordGridProps {
   kind: CrmKind;
   emptyTitle: string;
-  /**
-   * Accepted for source compatibility with the routes that render this grid.
-   * The grid owns its own paged, server-filtered query — a page handed in as a
-   * prop cannot be filtered or sorted without narrowing it on the client, which
-   * is the bug this grid exists to remove.
-   */
   records?: CrmRecordSummary[];
   isLoading?: boolean;
 }
@@ -324,8 +314,6 @@ export function RecordGrid({ kind, emptyTitle }: RecordGridProps) {
         ),
       );
     }
-    // Authority decides the write target: `update-crm-record` rejects a local
-    // write to a provider-owned field and vice versa.
     const target =
       commit.attribute.storagePolicy === "local-authoritative"
         ? ("local" as const)
@@ -343,8 +331,6 @@ export function RecordGrid({ kind, emptyTitle }: RecordGridProps) {
         } as never,
       );
       if (target === "provider") {
-        // A provider write is a proposal, never an upstream change. Saying
-        // "saved" here would be a lie about the connected CRM.
         toast.message(t("grid.providerProposalRecorded"));
       }
     } catch (error) {
@@ -368,8 +354,6 @@ export function RecordGrid({ kind, emptyTitle }: RecordGridProps) {
 
   return (
     // ponytail: a fixed viewport-relative height rather than a flex chain — the
-    // shell's <main> is a scroll container, not a flex column, so `flex-1` here
-    // would collapse. Switch to flex-1 if <main> ever becomes display:flex.
     <div className="flex h-[calc(100vh-9.5rem)] min-h-[320px] flex-col">
       {/* No bottom rule here: the grid header carries its own top border, and
           two adjacent lines read as a heavy divider. */}
@@ -452,8 +436,6 @@ function AddToListDialog({
     setPending(false);
     onClose();
     if (added) toast.success(t("grid.addedToList", { count: added }));
-    // A partial add is neither a success nor a silent no-op: say how many the
-    // list did not take and why.
     if (failures.length) {
       toast.error(
         t("grid.addToListFailed", {

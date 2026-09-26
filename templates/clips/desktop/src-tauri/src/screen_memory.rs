@@ -27,9 +27,6 @@ const MAX_RETENTION_HOURS: u32 = 24;
 const MIN_MAX_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_MAX_BYTES: u64 = 1024 * 1024 * 1024 * 1024;
 const ROTATOR_TICK: Duration = Duration::from_millis(500);
-/// Privacy detection must not inherit the user-facing context sampling cadence.
-/// This bounds how long recognized excluded pixels/audio may reach the current
-/// logical segment before that entire segment is discarded.
 const EXCLUSION_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const SCREEN_MEMORY_MCP_NAME: &str = "clips-screen-memory";
 
@@ -38,21 +35,13 @@ static SEGMENT_COUNTER: AtomicU64 = AtomicU64::new(0);
 #[derive(Default)]
 pub struct ScreenMemoryState {
     inner: Mutex<ScreenMemoryRuntime>,
-    /// OCR and Whisper indexing share this gate so completed segments never
-    /// fan out into concurrent CPU/memory-heavy post-processing jobs.
     indexing: Mutex<()>,
-    /// Serializes physical producer stop/start transitions. Callers that hold
-    /// this lock use `rotate_segment_inner`; ordinary callers use
-    /// `rotate_segment`, which acquires it for them.
     transition: Mutex<()>,
 }
 
 #[derive(Default)]
 struct ScreenMemoryRuntime {
     active: Option<ActiveScreenMemorySegment>,
-    /// A paused custom ScreenCaptureKit writer awaiting the end of an
-    /// ordinary recording. Keeping this separate from `active` makes the
-    /// picker handoff immediate without losing the segment's bytes.
     suspended_active: Option<SuspendedScreenMemorySegment>,
     worker_stop: Option<Arc<AtomicBool>>,
     rewind_lease_id: Option<String>,
@@ -68,8 +57,6 @@ struct ScreenMemoryRuntime {
     transcript_worker_running: bool,
     transcript_active_segment: Option<String>,
     transcript_cancelled_segments: BTreeSet<String>,
-    /// Ephemeral artifact pins. These intentionally do not survive a crash:
-    /// callers must have copied any artifact they need before relying on it.
     segment_pins: HashMap<String, BTreeSet<String>>,
 }
 
@@ -152,8 +139,6 @@ pub struct ScreenMemorySegmentMetadata {
     pub capture_mode: RewindCaptureMode,
     #[serde(default)]
     pub exclusion_tainted: bool,
-    /// Monotonic offsets from the shared capture graph; wall-clock fields stay
-    /// for human-facing local files and backwards compatibility.
     #[serde(default)]
     pub graph_epoch_id: Option<String>,
     #[serde(default)]
@@ -201,12 +186,8 @@ pub struct ScreenMemoryEvent {
     pub window_title: Option<String>,
     pub bundle_id: Option<String>,
     pub source: String,
-    /// Present only for explicit coverage-gap markers. Kept optional so old
-    /// event logs remain readable and ordinary context rows stay compact.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coverage_gap_reason: Option<String>,
-    /// A small local semantic summary, never a raw accessibility tree. Older
-    /// events intentionally deserialize without this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accessibility: Option<crate::accessibility::AccessibilityFingerprint>,
 }
@@ -278,9 +259,6 @@ pub struct ScreenMemoryExportResult {
     pub files: Vec<ScreenMemoryExportFile>,
 }
 
-/// Keep the local recorder aligned with the persisted feature config. This is
-/// called from `set_feature_config`, so any future UI or agent command that
-/// writes the config uses the same local-only backend.
 pub fn sync_from_config(app: &AppHandle, feature_config: &FeatureConfig) {
     let config = normalize_screen_memory_config(feature_config.screen_memory.clone());
     if !config.enabled || config.paused {
@@ -302,11 +280,6 @@ pub fn sync_from_config(app: &AppHandle, feature_config: &FeatureConfig) {
         })
         .is_some_and(|active_mode| active_mode != effective_mode);
     if mode_changed_while_active {
-        // Reconfigure the one physical producer at a segment boundary rather
-        // than letting its audio contract drift under an existing lease.
-        // This is deliberately unlike an ordinary rotation: the requested
-        // source set changed, so retaining the old lease would leave the graph
-        // claiming the previous mode even after the producer restarts.
         if let Err(err) = rotate_segment(app, &config) {
             record_error(app, err);
         }
@@ -746,9 +719,6 @@ fn scrub_terminal_handoff_fields(
     status: &str,
 ) {
     if matches!(status, "ready" | "declined" | "failed") {
-        // The request reason is useful while the user is reviewing or the
-        // handoff is processing, but it must not become a second durable
-        // transcript once the request reaches a terminal state.
         object.remove("reason");
     }
 }
@@ -1024,10 +994,6 @@ fn temporary_audio_lease_available(
     enabled && !paused && producer_active && (include_mic || include_system_audio)
 }
 
-/// Temporarily upgrades the active Rewind producer to its audio-capable mode.
-/// The persisted Screen Memory mode is never changed. Repeated acquisition by
-/// the same stable owner is idempotent; distinct owners refcount the effective
-/// audio demand through separate graph leases.
 pub(crate) fn acquire_temporary_audio_consumer(
     app: &AppHandle,
     owner_id: &str,
@@ -1049,10 +1015,6 @@ pub(crate) fn acquire_temporary_audio_consumer(
             runtime.exclusion_active,
         )
     };
-    // Config writes become visible before their sync callback completes. If a
-    // meeting arrives in that narrow window, finish stopping the old producer
-    // under the same transition lock before returning `None`; the caller can
-    // then open the legacy recorder without ever overlapping Rewind.
     if !config.enabled || config.paused {
         if producer_active {
             stop_active_segment_inner(app)?;
@@ -1140,23 +1102,12 @@ pub(crate) fn release_temporary_audio_consumer(
     };
     end_graph_lease(app, &consumer.graph_lease_id);
 
-    // Restoring the configured capture mode is a full producer stop/start
-    // (the SCK source contract changed) that measures ~2s. Never charge that
-    // to the releasing caller — a clip cancel must return immediately — and
-    // give re-demand a grace window: a cancel-then-retake re-acquires the
-    // same audio sources within a couple of seconds, which turns the pending
-    // restore into a no-op instead of two stop/start cycles.
     if capture_mode_restore_needed(app) {
         schedule_capture_mode_restore(app.clone());
     }
     Ok(())
 }
 
-/// How long released audio demand may keep the producer in its upgraded mode
-/// before the configured capture mode is restored. Long enough that a rapid
-/// cancel→retake reattaches to the still-running audio producer for free;
-/// short enough that the microphone stops being captured promptly after the
-/// last consumer lets go.
 const CAPTURE_MODE_RESTORE_GRACE: Duration = Duration::from_secs(5);
 
 fn schedule_capture_mode_restore(app: AppHandle) {
@@ -1170,9 +1121,6 @@ fn schedule_capture_mode_restore(app: AppHandle) {
                 return;
             }
         };
-        // Re-evaluate under the transition lock: new audio demand, a config
-        // change, or a producer stop during the grace all make this a no-op,
-        // so overlapping schedules can never double-reconfigure the producer.
         if !capture_mode_restore_needed(&app) {
             return;
         }
@@ -1199,10 +1147,6 @@ fn capture_mode_restore_needed(app: &AppHandle) -> bool {
     )
 }
 
-/// True only while the producer is running in a capture mode the current
-/// demand (persisted config plus live temporary-audio consumers) no longer
-/// asks for. Disabled/paused configs are owned by `sync_from_config`'s stop
-/// path, and a stopped producer has nothing to restore.
 fn capture_mode_restore_decision(
     enabled: bool,
     paused: bool,
@@ -1237,8 +1181,6 @@ fn end_graph_lease(app: &AppHandle, lease_id: &str) {
     }
 }
 
-/// Fence the rolling producer at an exact media-fragment edge and persist the
-/// closed logical segment while keeping the replacement capture active.
 pub(crate) fn fence_active_for_clip(
     app: &AppHandle,
 ) -> Result<ScreenMemorySegmentMetadata, String> {
@@ -1285,9 +1227,6 @@ pub(crate) fn fence_active_for_clip(
     }
 }
 
-/// Prepare an independent Clip artifact writer on the already-running Rewind
-/// producer. The transition lock keeps the backend stable while the writer is
-/// installed; no samples enter the Clip until its handle is activated at zero.
 #[cfg(target_os = "macos")]
 pub(crate) fn prepare_shared_clip_sink(
     app: &AppHandle,
@@ -1342,9 +1281,6 @@ fn ensure_running(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), St
 }
 
 fn ensure_running_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), String> {
-    // An incompatible ordinary Clip owns the physical capture graph until its
-    // final suspension lease releases. Config sync and temporary audio demand
-    // must not silently restart Rewind in the middle of that handoff.
     if crate::rewind_capture_suspension::is_active(app) {
         return Ok(());
     }
@@ -1460,17 +1396,12 @@ fn wait_for_rotation(
         }
         let now = Instant::now();
         if now >= next_exclusion_poll {
-            // Exclusion edits are privacy controls, so they must take effect on
-            // the next 250 ms poll rather than waiting for the current media
-            // segment (up to five minutes by default) to rotate.
             let live_config =
                 normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
             let (event, exclusion_reason) = sample_active_window(&live_config);
             if exclusion_transition(false, exclusion_reason.is_some())
                 == ExclusionTransition::Suspend
             {
-                // A concurrent stop/fence that wins the transition lock must
-                // still fail closed after recognition.
                 mark_active_segment_exclusion_tainted(app);
                 append_event(
                     app,
@@ -1482,8 +1413,6 @@ fn wait_for_rotation(
                 if wait_for_exclusion_to_clear(app, stop) {
                     return RotationWait::Stop;
                 }
-                // A resumed producer begins a fresh logical segment and gets a
-                // fresh rotation deadline in the outer worker loop.
                 return RotationWait::Resumed;
             }
             if now >= next_sample {
@@ -1534,8 +1463,6 @@ fn sample_active_window(config: &ScreenMemoryConfig) -> (ScreenMemoryEvent, Opti
                 bundle_id: context.bundle_id,
                 source: context.source,
                 coverage_gap_reason: None,
-                // Exclusion was checked above; this silent AX read never
-                // prompts and degrades to None when macOS denies/unreadable.
                 accessibility: owner_pid
                     .and_then(crate::accessibility::macos::semantic_fingerprint_for_pid_impl),
             },
@@ -1605,10 +1532,6 @@ fn coverage_gap_event(reason: &str) -> ScreenMemoryEvent {
     }
 }
 
-/// Stop the one physical producer and erase the complete logical segment that
-/// may contain excluded media. The rotator worker deliberately remains alive:
-/// while this state is active it does nothing except poll the recognized-window
-/// signal until a safe replacement can be started under the transition lock.
 fn suspend_for_exclusion(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<ScreenMemoryState>();
     let _transition = state.transition.lock().map_err(|error| error.to_string())?;
@@ -1629,8 +1552,6 @@ fn suspend_for_exclusion(app: &AppHandle) -> Result<(), String> {
         runtime.exclusion_active = true;
         runtime.exclusion_gap = Some(match active.as_ref() {
             Some(active) => active_exclusion_gap(
-                // The whole segment is discarded, so coverage ended when that
-                // segment began—not merely when the excluded window was noticed.
                 active.started_at,
                 active.capture_mode,
             ),
@@ -1831,15 +1752,9 @@ fn rotate_segment_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<
             let _ = app.emit(SCREEN_MEMORY_EVENT, ());
             return Ok(());
         }
-        // A normal rotation on the segmented custom SCK backend only fences
-        // the fMP4 writer. The stream and physical producer stay alive; a
-        // mode change must still stop/restart because its source contract has
-        // changed.
         if active.capture_mode == config.capture_mode {
             match fence_rotate_segment(app, active) {
                 Ok((segment, next)) => {
-                    // The physical stream is already writing the next file.
-                    // Do not let an auxiliary metadata/OCR failure drop it.
                     if let Err(error) = write_segment_metadata(app, &segment) {
                         record_error(app, error);
                     } else {
@@ -1851,9 +1766,6 @@ fn rotate_segment_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<
                     return install_rotated_segment(app, next);
                 }
                 Err(active) => {
-                    // Non-segmented fallback and failed fences retain the
-                    // old stop/start behavior. A failed fence never creates
-                    // metadata for a path that has not closed.
                     match finalize_active_segment(app, active) {
                         Ok(segment) => {
                             write_segment_metadata(app, &segment)?;
@@ -1872,10 +1784,6 @@ fn rotate_segment_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<
                 }
             }
         } else {
-            // The current graph lease must describe the actual producer source
-            // set. End it before the safe stop/start mode transition;
-            // `install_rotated_segment` starts the replacement lease from the
-            // new effective mode.
             end_rewind_lease(app);
             match finalize_active_segment(app, active) {
                 Ok(segment) => {
@@ -1885,8 +1793,6 @@ fn rotate_segment_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<
                 }
                 Err(err) => {
                     record_error(app, err);
-                    // The rolling producer has reported an error; its lease must
-                    // not imply uninterrupted coverage across the replacement.
                     end_rewind_lease(app);
                 }
             }
@@ -1944,9 +1850,6 @@ fn install_rotated_segment(app: &AppHandle, next: ActiveScreenMemorySegment) -> 
     Ok(())
 }
 
-/// Returns the fenced metadata plus the replacement logical segment while
-/// preserving the one physical custom SCK backend. On unsupported/failing
-/// backends it returns the untouched active segment for stop/start fallback.
 fn fence_rotate_segment(
     app: &AppHandle,
     active: ActiveScreenMemorySegment,
@@ -1998,9 +1901,6 @@ fn stop_active_segment(app: &AppHandle) -> Result<Option<ScreenMemorySegmentMeta
     stop_active_segment_inner(app)
 }
 
-/// Temporarily yields the one physical producer to an ordinary recorder while
-/// leaving the persisted Rewind enabled/paused setting untouched. An active
-/// privacy exclusion is already physically suspended and remains authoritative.
 pub(crate) fn suspend_physical_capture(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<ScreenMemoryState>();
     let _transition = state.transition.lock().map_err(|error| error.to_string())?;
@@ -2015,9 +1915,6 @@ pub(crate) fn suspend_physical_capture(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Restores Rewind after an ordinary recorder releases the producer. This is a
-/// no-op while disabled, paused, or privacy-excluded and therefore cannot start
-/// a competing producer or bypass the exclusion poller.
 pub(crate) fn resume_physical_capture(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<ScreenMemoryState>();
     let _transition = state.transition.lock().map_err(|error| error.to_string())?;
@@ -2125,9 +2022,6 @@ fn suspend_active_segment_inner(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    // Pause the custom writer in place. This is materially faster than waiting
-    // for a fragment fence or AVAssetWriter finalization, and it removes the
-    // competing ScreenCaptureKit producer before macOS presents its picker.
     let ended_at = Instant::now();
     let ended_at_iso = now_iso();
     let capture_source_paused = match active.backend.pause_capture_source() {
@@ -2153,9 +2047,6 @@ fn suspend_active_segment_inner(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    // Non-custom backends still use the durable stop path. The fallback is
-    // intentionally slower, but it preserves the segment rather than
-    // silently dropping the bytes.
     let result = match fence_rotate_segment(app, active) {
         Ok((segment, next)) => {
             discard_active_segment(next);
@@ -2529,8 +2420,6 @@ fn finalize_fenced_segment(
         bytes,
         system_audio_path,
         microphone_path,
-        // fMP4 finalization is asynchronous. A fence proves a fragment
-        // boundary, not that every player accepts the logical file yet.
         corrupt: native_screen::mp4_has_moov(&closed_path) == Some(false),
         error: None,
         capture_mode: active.capture_mode,
@@ -2875,8 +2764,6 @@ fn write_transcript_rows(
 fn run_transcript_job(app: &AppHandle, job: ScreenMemoryTranscriptJob) -> Result<(), String> {
     use crate::screen_memory_transcript::ScreenMemoryTranscriptStatus;
 
-    // Re-check eligibility after dequeue: retention/deletion and legacy data
-    // may have changed while the serialized worker was occupied with OCR.
     if !segment_transcript_eligible(&job.segment) || !job.segment.path.exists() {
         return write_transcript_status(
             app,
@@ -3025,17 +2912,12 @@ fn recent_segments(
     Ok(segments)
 }
 
-/// All finalized local segments, newest metadata included. This intentionally
-/// exposes no mutation or upload behavior; bounded local consumers apply their
-/// own coverage and privacy checks before reading adjacent indexes.
 pub(crate) fn finalized_segments(
     app: &AppHandle,
 ) -> Result<Vec<ScreenMemorySegmentMetadata>, String> {
     recent_segments(app, None)
 }
 
-/// Finalized logical segments overlapping a shared capture-graph interval.
-/// This is local metadata only; callers must pin before assembling an artifact.
 pub(crate) fn finalized_segments_in_graph_interval(
     app: &AppHandle,
     started_elapsed_ms: u64,
@@ -3071,8 +2953,6 @@ fn segment_overlaps_graph_interval(
         && segment.graph_ended_elapsed_ms >= started_elapsed_ms
 }
 
-/// Keep a finalized local segment from retention pruning while an in-flight
-/// artifact copies it. Pin state is intentionally process-local.
 pub(crate) fn pin_segment(app: &AppHandle, segment_id: &str, pin_id: &str) -> Result<(), String> {
     let state = app.state::<ScreenMemoryState>();
     let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
@@ -3358,9 +3238,6 @@ fn delete_segment(app: &AppHandle, segment_id: &str) -> Result<ScreenMemoryDelet
                 .insert(segment_id.to_owned());
         }
     }
-    // Wait for a currently-running derivative job to observe cancellation
-    // before removing the source and its sidecars. This makes Clear and
-    // retention deletion a real boundary instead of a hopeful suggestion.
     let _indexing = state
         .as_ref()
         .map(|state| state.indexing.lock().map_err(|error| error.to_string()))
@@ -3992,8 +3869,6 @@ command = "keep"
 
     #[test]
     fn deferred_capture_mode_restore_fires_only_for_a_stale_upgraded_producer() {
-        // The clip's audio demand is gone and the producer still runs
-        // upgraded: restore.
         assert!(capture_mode_restore_decision(
             true,
             false,
@@ -4001,9 +3876,6 @@ command = "keep"
             RewindCaptureMode::Visuals,
             0
         ));
-        // A retake (or a meeting) re-demanded audio during the grace window:
-        // the pending restore must become a no-op, not a downgrade under a
-        // live consumer.
         assert!(!capture_mode_restore_decision(
             true,
             false,
@@ -4011,7 +3883,6 @@ command = "keep"
             RewindCaptureMode::Visuals,
             1
         ));
-        // Producer already back at (or configured for) the desired mode.
         assert!(!capture_mode_restore_decision(
             true,
             false,
@@ -4026,7 +3897,6 @@ command = "keep"
             RewindCaptureMode::VisualsAudio,
             0
         ));
-        // Producer stopped during the grace window: nothing to restore.
         assert!(!capture_mode_restore_decision(
             true,
             false,
@@ -4034,7 +3904,6 @@ command = "keep"
             RewindCaptureMode::Visuals,
             0
         ));
-        // Disabled/paused teardown is owned by sync_from_config's stop path.
         assert!(!capture_mode_restore_decision(
             false,
             false,

@@ -9,12 +9,6 @@ const { PGlite } = createRequire(
 )("@electric-sql/pglite");
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 
-/**
- * `{{timeRange}}`/`{{emailFilter}}`/`{{appFilter}}` are substituted textually
- * before the panel SQL reaches Postgres (see `dashboard-catalog.spec.ts`'s
- * identical helper) — empty strings resolve every "IN ('', 'all')" branch to
- * the unfiltered default.
- */
 function interpolate(sql: string, values: Record<string, string>): string {
   return sql.replace(
     /{{\s*([A-Za-z0-9_]+)\s*}}/g,
@@ -52,7 +46,6 @@ async function seedFirstSeenEvent(
   );
 }
 
-/** `n` days before `isoDate`, computed on the date string (no local-tz drift). */
 function offsetDate(isoDate: string, n: number): string {
   const [year, month, day] = isoDate.split("-").map(Number);
   const ms = Date.UTC(year, month - 1, day) - n * 86_400_000;
@@ -77,12 +70,10 @@ describe("retention-over-time panel SQL", () => {
     ).rows[0]!.today;
     const yesterday = offsetDate(today, 1);
     const cohortADate = offsetDate(today, 20);
-    const cohortAReturnDay3 = offsetDate(cohortADate, -3); // 1-7d window
-    const cohortAReturnDay10 = offsetDate(cohortADate, -10); // 7-14d window
+    const cohortAReturnDay3 = offsetDate(cohortADate, -3);
+    const cohortAReturnDay10 = offsetDate(cohortADate, -10);
     const cohortBDate = offsetDate(today, 10);
 
-    // Cohort A: 5 users first seen 20 days ago. 3 return within the 1-7d
-    // window (day 3), 2 return within the 7-14d window (day 10).
     for (const userKey of ["a1", "a2", "a3", "a4", "a5"]) {
       await seedFirstSeenEvent(client, userKey, cohortADate);
     }
@@ -93,9 +84,6 @@ describe("retention-over-time panel SQL", () => {
       await seedFirstSeenEvent(client, userKey, cohortAReturnDay10);
     }
 
-    // Cohort B: 5 users first seen 10 days ago (no returns) — exercises the
-    // 1-7d-matured/7-14d-not-yet-matured boundary on its own anchor date,
-    // which cohort A's rolling window never reaches.
     for (const userKey of ["b1", "b2", "b3", "b4", "b5"]) {
       await seedFirstSeenEvent(client, userKey, cohortBDate);
     }
@@ -158,8 +146,6 @@ describe("retention-over-time panel SQL", () => {
     ).rows;
     const dates = [...new Set(rows.map((r) => r.date))].sort();
 
-    // `dashboardTimeRangeFilter` admits `event_date >= CURRENT_DATE - 7 days`
-    // through today: eight calendar days, oldest one inclusive.
     expect(dates).toEqual(
       Array.from({ length: 8 }, (_, n) => offsetDate(today, 7 - n)),
     );
@@ -175,8 +161,6 @@ describe("retention-over-time panel SQL", () => {
       )) as { rows: Array<{ today: string }> }
     ).rows[0]!.today;
     const oldestAnchor = offsetDate(today, 365);
-    // First seen three days before the oldest anchor (368 days ago): inside
-    // that anchor's trailing 7-day cohort window, outside a bare 365-day base.
     const cohortDate = offsetDate(today, 368);
     for (const userKey of ["o1", "o2", "o3", "o4", "o5"]) {
       await seedFirstSeenEvent(client, userKey, cohortDate);

@@ -10,22 +10,6 @@ import {
   planE2eBaseUrl,
 } from "./auth-state";
 
-/*
- * Establish a reusable authed session for the "authed" project.
- *
- * Uses the framework auth API (/_agent-native/auth/{register,login,session})
- * via a SAME-ORIGIN fetch from a loaded app page — this passes Better Auth's
- * origin check (a bare programmatic call from another origin is rejected).
- * Registers a fixed test account (idempotent: falls back to login if it already
- * exists), then saves the session cookies to this run's auth-state file.
- *
- * Guest specs opt out of this state via their own empty storageState.
- */
-// Fresh unique account per run by default. A FIXED email deadlocks across a dev
-// server restart: the account row persists in the local DB, but a restart mints a
-// new BETTER_AUTH_SECRET so the stored password hash no longer verifies — login
-// 401s AND register 409s ("already exists"), leaving every authed spec to run as a
-// guest. A per-run email always registers cleanly and logs in within the run.
 const EMAIL =
   process.env.PLAN_E2E_EMAIL ||
   `e2e+autoz-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}@plan.test`;
@@ -113,8 +97,6 @@ async function globalSetup(_config: FullConfig) {
   // eslint-disable-next-line no-console
   console.log("[global-setup] auth:", JSON.stringify(result));
   await ctx.storageState({ path: authStatePath });
-  // Record the ACTUAL authed identity so specs that assert reviewer/owner email
-  // read the real session email (the account email is generated per run to avoid
   // a fixed-account/secret-rotation deadlock) instead of a hardcoded default.
   writeFileSync(authEmailPath, String(result.sessionEmail || EMAIL).trim());
   await browser.close();

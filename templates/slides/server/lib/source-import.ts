@@ -17,7 +17,6 @@ export interface SourceImportMetadata {
   slideIds: string[];
   slides: SourceImportSlideSnapshot[];
   imagesSkipped?: number;
-  /** Count of PPTX `graphicFrame` shapes (tables, or the charts/SmartArt/OLE objects that have no shape structure to reconstruct) that could not be fully converted — same fidelity-signal contract as `imagesSkipped`. */
   tablesDegraded?: number;
 }
 
@@ -164,12 +163,6 @@ function sourceWords(value: string): Set<string> {
   );
 }
 
-/**
- * Protects an imported deck from the common "make it prettier" failure mode:
- * the agent replaces a source slide with a generic card and silently drops the
- * original artwork or most of its factual copy. Explicit rewrite requests can
- * opt out with preserveSource=false.
- */
 export function assertSourceSlidePreserved(args: {
   metadata: SourceImportMetadata | null;
   slideId: string;

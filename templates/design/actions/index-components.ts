@@ -1,19 +1,3 @@
-/**
- * index-components — read action.
- *
- * Scans the design's HTML for `data-agent-native-component` annotations and
- * returns the component list plus detected instances.
- *
- * **Inline / Alpine tier:**  parses the design HTML directly using the
- * code-layer projection.  Writes discovered component definitions into the
- * `component_index` table so subsequent reads (get-component-details) can
- * resolve persisted metadata.
- *
- * **Real-app tier (localhost / fusion):**  `indexComponents` capability is
- * required.  When the source does not yet advertise it, the action returns an
- * empty list with a `ctaRequired: true` flag and a human-readable `ctaMessage`
- * prompting the user to Connect Builder (see DESIGN-STUDIO-PLAN.md §6.1).
- */
 
 import { defineAction } from "@agent-native/core/action";
 import {
@@ -27,7 +11,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import {
   lockPreparedSourceCollaboration,
   readPreparedSourceText,
@@ -48,7 +32,6 @@ import {
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 
-// ─── Action ───────────────────────────────────────────────────────────────────
 
 export default defineAction({
   description:
@@ -73,20 +56,12 @@ export default defineAction({
   run: async ({ designId, fileId }) => {
     const db = getDb();
 
-    // ── Access check ────────────────────────────────────────────────────────
-    // This action writes component_index rows — require editor access.
     const access = await assertAccess("design", designId, "editor");
 
-    // ── Source type + capability check ──────────────────────────────────────
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);
     const caps = resolveSourceCapabilities(sourceType);
 
-    // Real-app sources gate on `indexComponents`.  For inline designs this
-    // capability is `unavailable` by default (the plan marks it as a real-app
-    // feature for deep TS/cva parse) but the *annotation scan* still works
-    // from the DOM — we always run it.  The flag tells callers whether the
-    // full real-app index is live or whether they see only annotations.
     const hasFullIndex = hasCapability(caps, "indexComponents");
     const ctaRequired =
       sourceType !== "inline" && !hasCapability(caps, "indexComponents");
@@ -107,9 +82,6 @@ export default defineAction({
       };
     }
 
-    // Resolve the lock target without holding a database lock. The source-file
-    // lock must be acquired before the transaction so index and write paths
-    // enter Yjs and SQL in the same order.
     const conditions = [
       accessFilter(schema.designs, schema.designShares),
       eq(schema.designFiles.designId, designId),
@@ -134,10 +106,6 @@ export default defineAction({
       result = await withPreparedSourceFileMutation(
         candidate.id,
         undefined,
-        // Holding the core document lock across the SQL snapshot prevents a
-        // local Yjs writer from changing the document between the row locks and
-        // the component projection. Cross-process writers are stopped by the
-        // transaction-scoped _collab_docs row lock below.
         async (lease) => {
           preparedCallbackEntered = true;
           const [file] = await db
@@ -170,9 +138,6 @@ export default defineAction({
               args: [designSourceMutationLockKey(designId)],
             });
 
-            // Lock only the selected source row and the live collab row. The
-            // latter also validates that the prepared Y.Doc still represents
-            // the durable version that this projection is about to index.
             const lockedFileResult = await tx.execute({
               sql: 'SELECT id, design_id AS "designId", filename, content FROM design_files WHERE id = ? AND design_id = ? FOR UPDATE',
               args: [file.id, designId],
@@ -213,10 +178,6 @@ export default defineAction({
             );
             let html = (lockedFile.content as string | null) ?? "";
 
-            // A missing or empty row is lazy collab state, not permission to
-            // index an unprotected SQL fallback. Seed the prepared Y.Doc in
-            // this transaction; if another writer wins the insert/CAS, the
-            // lease raises a typed conflict and the index write rolls back.
             if (preparedCollaboration.needsSeed) {
               applyTextToYDoc(lease.doc, "content", html, "agent");
               try {
@@ -244,16 +205,10 @@ export default defineAction({
             const instances = detectInstances(projection.nodes);
             const definitions = buildDefinitions(instances);
 
-            // ── Persist discovered components ────────────────────────────────────
-            // Write each distinct component name into component_index so that
-            // get-component-details can resolve metadata by node id.
             const now = new Date().toISOString();
             const selectorByNodeId = new Map(
               instances.map((instance) => [instance.nodeId, instance.selector]),
             );
-            // Derive the owner from the request user, falling back to the design's
-            // owner. Never stamp an empty-string owner (an unowned row): require a real
-            // owner before writing a new component_index row.
             const designOwner = (access.resource as { ownerEmail?: unknown })
               .ownerEmail;
             const ownerEmail =
@@ -290,7 +245,6 @@ export default defineAction({
               });
             }
 
-            // Annotate instances with their component_index id.
             const indexMap = new Map(
               definitions.map((def) => [
                 def.name,

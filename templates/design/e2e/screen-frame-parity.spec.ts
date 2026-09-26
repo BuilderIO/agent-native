@@ -7,12 +7,6 @@ import {
   readSeedDesignId,
 } from "./helpers";
 
-/**
- * A screen reads as one object, the way a Figma frame does: one row in the
- * tree, and one inspector carrying both its box and its paint. Older screens
- * stamped their title onto <body>, which listed the same screen twice and put
- * its fill on the second row.
- */
 const STAMPED_BODY_HTML = `<!DOCTYPE html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Screen 1</title></head>
@@ -21,11 +15,6 @@ const STAMPED_BODY_HTML = `<!DOCTYPE html>
   </body>
 </html>`;
 
-// PanelSection gives an empty section's title an inner "Add X" button that
-// renders the same text as the heading itself (see panel-primitives.tsx). A
-// plain `h3:text-is(...)` selector loses to that nested exact-text match, so
-// go through the accessible name instead — the h3 always carries
-// `aria-label={title}` regardless of whether it's empty or populated.
 const sectionTitle = (page: Page, name: string) =>
   page.getByRole("heading", { name, exact: true, level: 3 });
 
@@ -62,7 +51,6 @@ test("a screen and its document are one object", async ({ page }, testInfo) => {
     context,
   ).toBe(false);
 
-  // One inspector carries the box and the paint.
   await rows.first().click();
   await expect(sectionTitle(page, "Position")).toBeVisible();
   await expect(sectionTitle(page, "Fill")).toBeVisible();

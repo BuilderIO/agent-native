@@ -19,7 +19,6 @@ function mountPanel(kind: "prosemirror" | "textarea") {
   return composer as HTMLElement;
 }
 
-/** Drain the queued rAF callbacks the retry loop schedules. */
 async function frames(count: number) {
   for (let i = 0; i < count; i++) {
     await vi.advanceTimersByTimeAsync(16);
@@ -72,9 +71,6 @@ describe("focusAgentComposer", () => {
   });
 
   it("keeps trying when focus() does not move the caret", async () => {
-    // A composer rendered before its provider connects is disabled: present in
-    // the panel but not focusable, so focus() silently no-ops. happy-dom will
-    // focus anything, so the no-op is stubbed rather than reproduced.
     const composer = mountPanel("prosemirror");
     const realFocus = composer.focus.bind(composer);
     let focusable = false;

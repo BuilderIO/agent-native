@@ -121,8 +121,6 @@ export const getPublicAvailability = defineEventHandler(
       }
     }
 
-    // Username-scoped pages fail closed above; legacy links without a username
-    // still use defaults and never read the unscoped availability setting.
     return createDefaultAvailability("America/New_York");
   },
 );
@@ -133,10 +131,6 @@ export const updateAvailability = defineEventHandler(async (event: H3Event) => {
     const config: AvailabilityConfig = await readBody(event);
     const configRecord = config as unknown as Record<string, unknown>;
     await putUserSetting(email, "calendar-availability", configRecord);
-    // Do NOT also write to the deploy-wide `calendar-availability` key. The
-    // earlier dual-write let every signed-in user clobber the global config —
-    // a brand-new user's public booking link then surfaced the previous
-    // editor's working hours/timezone. See PLAN.md / 01-data-leakage.md.
     return config;
   } catch (error: any) {
     setResponseStatus(event, 500);

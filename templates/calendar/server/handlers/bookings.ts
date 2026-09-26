@@ -204,7 +204,6 @@ type AvailabilityContext = {
   effectiveConfig: AvailabilityConfig | null;
   ownerEmail?: string;
   hostEmails: string[];
-  /** Overlay-listed hosts with a saved working-hours schedule/time zone. */
   eligibleHosts: EligibleHostAvailability[];
   slug: string;
   bookingLink?: BookingLinkRow;
@@ -385,11 +384,6 @@ function getTimezoneOffsetMs(date: Date, timezone: string): number {
   return utcForLocalParts - date.getTime();
 }
 
-// Thrown by zonedTimeToUtc for a local date that a time zone skipped
-// entirely. Callers that generate availability for a specific date should
-// catch only this - it's an expected "no such date" outcome, not a bug -
-// and treat it as no availability rather than letting it surface as a
-// generic 500 or, worse, silently masking a real error the same way.
 class SkippedLocalDateError extends Error {}
 
 function zonedTimeToUtc(
@@ -405,17 +399,6 @@ function zonedTimeToUtc(
   );
   result = new Date(utcGuess - getTimezoneOffsetMs(result, timezone));
 
-  // A spring-forward DST transition skips a span of local wall-clock time —
-  // usually an hour, but zones such as Australia/Lord_Howe advance by only
-  // 30 minutes. If the requested time falls in that gap, the two-pass guess
-  // above can converge to either side of the transition, and `result`
-  // silently lands on some other real instant instead of the requested time
-  // not existing. Detect that by round-tripping back to local time, and if
-  // it doesn't match, resolve deterministically using the offset from a full
-  // day before the guess (definitely pre-transition): reapplying that fixed
-  // offset to the requested wall-clock numbers is equivalent to shifting the
-  // request forward by the transition's actual size and resolving it
-  // normally on the post-transition side, whatever that size is.
   let roundTrip = getLocalDateTimeParts(result, timezone);
   if (roundTrip.hour !== hour || roundTrip.minute !== minute) {
     const offsetBefore = getTimezoneOffsetMs(
@@ -426,13 +409,6 @@ function zonedTimeToUtc(
     roundTrip = getLocalDateTimeParts(result, timezone);
   }
 
-  // A handful of IANA zones (Pacific/Apia's 2011 international date line
-  // move, Pacific/Kiritimati's 1994 move) skip an entire calendar date
-  // rather than a span within one, so the corrected instant above can land
-  // on a different day while still round-tripping to the same hour/minute —
-  // e.g. requesting Pacific/Apia's nonexistent 2011-12-30 silently resolves
-  // to 2011-12-31. Reject that outright instead of generating availability
-  // for a date the caller never asked for.
   if (
     roundTrip.year !== year ||
     roundTrip.month !== month ||
@@ -557,10 +533,6 @@ function dateEndIso(date: string, timezone: string): string {
 
 const BOUNDARY_SKIP_SEARCH_DAYS = 3;
 
-// The requested date itself may not exist locally (a whole-date DST skip);
-// in that case there is no valid lower bound at that date, so walk back to
-// the nearest earlier date that does exist. That date's start is always an
-// earlier (and therefore still safe) lower bound for a conflict window.
 function safeRangeStartIso(date: string, timezone: string): string {
   let cursor = date;
   for (let i = 0; i <= BOUNDARY_SKIP_SEARCH_DAYS; i++) {
@@ -576,10 +548,6 @@ function safeRangeStartIso(date: string, timezone: string): string {
   );
 }
 
-// dateEndIso's boundary is exclusive (the start of the *next* date), which
-// can itself be a date the time zone skips even though `date` is perfectly
-// valid. Walk forward to the nearest later date that exists - it's still a
-// safe (only slightly wider) upper bound for a conflict window.
 function safeRangeEndIso(date: string, timezone: string): string {
   let cursor = date;
   for (let i = 0; i <= BOUNDARY_SKIP_SEARCH_DAYS; i++) {
@@ -944,12 +912,6 @@ function getScheduleWindowsForLocalDate(
   return windows;
 }
 
-/**
- * Hosts can be in a different timezone, so their local weekday can shift
- * relative to the owner's target date. Scan the day before/of/after in the
- * host's own timezone and keep only windows that actually overlap the
- * owner's absolute UTC range.
- */
 function getScheduleWindowsOverlappingRange(
   rangeStart: Date,
   rangeEnd: Date,
@@ -980,9 +942,6 @@ function getScheduleWindowsOverlappingRange(
       );
     } catch (error) {
       if (!(error instanceof SkippedLocalDateError)) throw error;
-      // This padding day doesn't exist in the host's own time zone (e.g.
-      // a whole-date DST skip) - it contributes no schedule window, so
-      // just move on instead of discarding the whole surrounding range.
       continue;
     }
     windows.push(...dayWindows);
@@ -1032,7 +991,6 @@ export function generateAvailableSlotsForDate({
   duration: number;
   config: AvailabilityConfig;
   conflictItems: ConflictItem[];
-  /** Eligible hosts' saved schedules to hard-filter against, if any. */
   hostSchedules?: EligibleHostAvailability[];
 }): TimeSlot[] {
   const timezone = config.timezone || "UTC";
@@ -1160,11 +1118,6 @@ async function requestedSlotIsCurrentlyAvailable({
     conflictSlugs: context.conflictSlugs,
     viewerEmail,
     viewerOrgId,
-    // `date` is derived from a real instant, so it can never itself be a
-    // skipped local date - but the exclusive day-after boundary used for
-    // `rangeEndIso` is plain calendar arithmetic and can still land on
-    // one (e.g. immediately before a whole-date DST skip). Widen it the
-    // same way the availability queries above do, instead of throwing.
     rangeStartIso: dateStartIso(date, timezone),
     rangeEndIso: safeRangeEndIso(date, timezone),
     timezone,
@@ -1215,7 +1168,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
   try {
     const body = await readBody(event);
 
-    // Verify captcha token
     const captchaResult = await verifyCaptcha(body.captchaToken ?? "");
     if (!captchaResult.success) {
       setResponseStatus(event, 403);
@@ -1246,7 +1198,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     ).filter((email) => email !== attendeeEmail);
     const notes = String(body.notes ?? "").trim();
 
-    // Validate required fields
     if (!attendeeName || !attendeeEmail || !body.start || !body.end) {
       setResponseStatus(event, 400);
       return { error: "name, email, start, and end are required" };
@@ -1280,8 +1231,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 404);
       return { error: "Booking link not found" };
     }
-    // After the guard above, bookingLink is either undefined (no requestedSlug)
-    // or the full DB row. Cast away the "" from the short-circuit type.
     const link = bookingLink || undefined;
 
     const viewer = await resolveBookingViewer(event, link);
@@ -1321,7 +1270,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       attendeeName,
     });
 
-    // Validate custom field responses
     let customFields: CustomField[] = [];
     if (link?.customFields) {
       try {
@@ -1330,7 +1278,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
     const rawFieldResponses: Record<string, string | boolean> =
       body.fieldResponses || {};
-    // Filter to only declared field IDs — don't persist arbitrary caller keys
     const fieldResponses: Record<string, string | boolean> = Object.fromEntries(
       customFields
         .map((f) => [f.id, rawFieldResponses[f.id]] as const)
@@ -1377,10 +1324,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         return { error: `${field.label} must be a valid email address` };
       }
       if (field.pattern && typeof value === "string" && value) {
-        // Capping the input length does not bound a catastrophically
-        // backtracking pattern: `^([A-Za-z]+\\s?)+$` already runs for hours on a
-        // 58-character value, well inside any cap. The bound has to come from
-        // refusing to evaluate patterns shaped like that at all.
         const result = testUserRegex(field.pattern, value);
         if (result.status === "unevaluated") {
           setResponseStatus(event, 400);
@@ -1399,7 +1342,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       }
     }
 
-    // Check for conflicts + insert atomically in a transaction
     const parsedConferencing = parseBookingConferencingConfig(
       link?.conferencing,
     );
@@ -1417,8 +1359,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     const db = getDb();
     const insertResult = await db.transaction(async (tx) => {
       if (viewer) {
-        // The viewer row is the stable lock shared by every booking link in
-        // the viewer's org, including links owned by different hosts.
         await tx
           .update(orgMembers)
           .set({ email: sql`${orgMembers.email}` })
@@ -1429,8 +1369,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
             ),
           );
       }
-      // Serialize booking creation per required host. The no-op write takes row
-      // locks on each host's booking links without changing user-visible data.
       for (const email of requiredHostEmails) {
         await tx
           .update(schema.bookingLinks)
@@ -1521,7 +1459,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     let zoomMeetingId: string | undefined;
     let zoomAccountId: string | undefined;
 
-    // For custom-URL conferencing, use the static URL — only http(s).
     if (conferencing?.type === "custom" && conferencing.url) {
       try {
         const parsed = new URL(conferencing.url);
@@ -1533,8 +1470,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       }
     }
 
-    // For Zoom, create a real meeting via the host's connected OAuth
-    // account. The booking link's owner_email is the host.
     if (conferencing?.type === "zoom") {
       try {
         const zoomResult = await createZoomMeeting({
@@ -1566,22 +1501,14 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           `[bookings] Failed to create Zoom meeting for ${hostEmail}:`,
           error,
         );
-        // Zoom may have created the meeting even if its response was lost or
-        // unreadable, so keep the booking to reserve the slot and prevent a
-        // retry from silently creating a duplicate meeting.
         meetingLinkPending = true;
       }
     }
 
-    // Build the manage-booking URL for the event description
     const reqUrl = getRequestURL(event);
     const origin = reqUrl.origin;
     const manageUrl = `${origin}/booking/manage/${cancelToken}`;
 
-    // Create a corresponding Google Calendar event on the booking link owner's
-    // connected Google account. Public booking requests do not have an
-    // authenticated request context, so this must be explicitly scoped to the
-    // host rather than relying on ambient user state.
     if (await googleCalendar.isConnected(hostEmail)) {
       try {
         const account =
@@ -1636,7 +1563,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           addGoogleMeet: conferencing?.type === "google_meet",
           sendUpdates: "all",
         });
-        // Google Meet link is returned by the API when created
         googleEventId = result.id;
         calendarAccountId = account.accountEmail;
         if (result.meetLink) {
@@ -1651,7 +1577,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       }
     }
 
-    // Persist provider details created after the initial booking insert.
     meetingLinkPending = meetingLinkPending && !meetingLink;
     if (meetingLink || googleEventId || meetingLinkPending) {
       const providerUpdates: {
@@ -1819,20 +1744,12 @@ async function getAvailableSlotsForQuery(
         conflictSlugs: context.conflictSlugs,
         viewerEmail: viewer?.email,
         viewerOrgId: viewer?.orgId,
-        // The literal rangeStart/rangeEnd dates can themselves be skipped
-        // by the time zone (or, for rangeEnd, the exclusive day-after
-        // boundary can be). Widen to the nearest valid neighboring date
-        // rather than failing the whole range - the per-day loop below
-        // still correctly excludes any individual skipped day.
         rangeStartIso: safeRangeStartIso(rangeStart, timezone),
         rangeEndIso: safeRangeEndIso(rangeEnd, timezone),
         timezone,
       });
     } catch (error) {
       if (!(error instanceof SkippedLocalDateError)) throw error;
-      // Only reachable if several consecutive local dates near the range
-      // boundary are all skipped - an extreme edge case with no valid
-      // conflict window to compute.
       return { dates: [] };
     }
     if (conflictResult.unavailableReason) {
@@ -1856,9 +1773,6 @@ async function getAvailableSlotsForQuery(
         });
       } catch (error) {
         if (!(error instanceof SkippedLocalDateError)) throw error;
-        // A calendar date that a time zone skipped entirely has no valid
-        // availability by definition - treat it as unavailable rather
-        // than failing the whole range.
         continue;
       }
       if (slots.length > 0) {
@@ -1877,10 +1791,6 @@ async function getAvailableSlotsForQuery(
       conflictSlugs: context.conflictSlugs,
       viewerEmail: viewer?.email,
       viewerOrgId: viewer?.orgId,
-      // `date` itself not existing is a genuine "no availability" case,
-      // caught below. The exclusive day-after boundary used for
-      // `rangeEndIso` can be skipped even when `date` is perfectly valid,
-      // so widen that side instead of discarding the requested date.
       rangeStartIso: dateStartIso(date, timezone),
       rangeEndIso: safeRangeEndIso(date, timezone),
       timezone,
@@ -1951,7 +1861,6 @@ export async function cancelBookingById(
     throw createError({ statusCode: 404, statusMessage: "Booking not found" });
   }
 
-  // Bookings have no ownerEmail of their own — scope through the booking link.
   const accessibleLinks = await db
     .select({
       slug: schema.bookingLinks.slug,
@@ -2049,7 +1958,6 @@ export const deleteBooking = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-/** Look up a booking by its cancel token (public, no auth) */
 export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
   try {
     const token = getRouterParam(event, "token") as string;
@@ -2069,7 +1977,6 @@ export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
       return { error: "Booking not found" };
     }
 
-    // Return limited info — don't expose internal IDs
     const booking = rowToBooking(row);
     const link = await getBookingLinkDetails(row.slug);
     return {
@@ -2092,7 +1999,6 @@ export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
   }
 });
 
-/** Cancel a booking by its cancel token (public, no auth) */
 export const cancelBookingByToken = defineEventHandler(
   async (event: H3Event) => {
     try {
@@ -2168,7 +2074,6 @@ export const cancelBookingByToken = defineEventHandler(
   },
 );
 
-// Helper to convert DB row to Booking type
 function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
   let fieldResponses: Record<string, string | boolean> | undefined;
   if (row.fieldResponses) {

@@ -1,22 +1,3 @@
-/**
- * Decode a `.fig` in the browser and save its frames in batches.
- *
- * The server route exists because the decoder used to be Node-only. It is not
- * any more (`shared/fig-bytes.ts`), and decoding here removes the upload
- * entirely: a Netlify function request is capped at ~6MB while real `.fig`
- * files run to tens of megabytes, which is why the server route has to chunk.
- * Nothing large crosses the network on this path — embedded images go up one
- * at a time through `upload-image`, and frames go up a few megabytes at a time.
- * The individual image budget keeps base64 action requests under the
- * serverless transport cap while the `.fig` container itself can exceed the
- * old 50 MB server upload ceiling up to a finite browser safety limit.
- *
- * Decode and render run in a Worker (`fig-import-worker.ts`): on a
- * 60k-layer file they are seconds of CPU that used to freeze the editor.
- *
- * The server route stays for callers that are not a browser (the agent, A2A,
- * the fidelity harness) and as the fallback when decoding here fails.
- */
 
 import { callAction, getBrowserTabId } from "@agent-native/core/client/hooks";
 
@@ -43,15 +24,12 @@ import {
 
 export { MAX_CLIENT_FIG_BYTES, MAX_CLIENT_IMAGE_BYTES, shouldWarnForFigImport };
 
-/** A save request stays well under the 4 MB action body budget. */
 const MAX_SAVE_BATCH_BYTES = 3 * 1024 * 1024;
 const MAX_SAVE_BATCH_FRAMES = 32;
 
 export interface FigClientImportProgress {
   phase: "decoding" | "rendering" | "images" | "saving";
-  /** 0-1 within the current phase, when it is countable. */
   ratio?: number;
-  /** `saving` only: frames the server has confirmed, of `total`. */
   saved?: number;
   total?: number;
 }
@@ -74,12 +52,10 @@ export class FigClientImportError extends Error {
   }
 }
 
-/** A decoded `.fig` waiting for its frame selection. */
 export interface PreparedFigImport {
   file: File;
   summary: FigImportSummary;
   render(selection?: ReadonlySet<string>): Promise<RenderedBrowserFigImport>;
-  /** Frees the decoded document. Call it when the import ends or is cancelled. */
   dispose(): void;
 }
 
@@ -170,8 +146,6 @@ async function callWithOneRetry<T>(
   action: string,
   input: Record<string, unknown>,
 ): Promise<T> {
-  // The importing tab ignores its own change events; finishImport refetches
-  // once at the end instead of once per request.
   const options = { headers: { "X-Request-Source": getBrowserTabId() } };
   try {
     return (await callAction(action, input, options)) as T;
@@ -206,12 +180,6 @@ function packSaveBatches<T>(frames: T[]): T[][] {
   return batches;
 }
 
-/**
- * Frame positions relative to the selection's top-left, when every frame has
- * one. Each Figma page has its own coordinate space, so frames from different
- * pages would land on top of each other; those go without positions and the
- * server lays them out in a row.
- */
 function relativeFramePositions({
   frames,
   pageCount,
@@ -232,11 +200,6 @@ function relativeFramePositions({
   }));
 }
 
-/**
- * Render in the worker, upload the embedded images one request each, then
- * save the frames in batches. Returns the same shape the server route returns
- * so the caller's success and warning handling is unchanged.
- */
 export async function importFigInBrowser(
   options: FigClientImportOptions,
 ): Promise<ImportResult> {
@@ -260,10 +223,7 @@ export async function importFigInBrowser(
   try {
     converted = await completeFigImport(rendered, {
       originalName: file.name,
-      // The upload action resolves the owner from the session; this value is only
-      // read by the server-side uploader this path replaces.
       ownerEmail: "",
-      // The action wraps the document; nothing to do here.
       normalizeHtml: (content: string) => content,
       maxFrameHtmlBytes: MAX_FIG_FRAME_HTML_BYTES,
       uploader: async ({ data, filename, mimeType }) => {
@@ -279,8 +239,6 @@ export async function importFigInBrowser(
           phase: "images",
           ratio: total ? uploaded / total : 1,
         });
-        // A null result means storage is unavailable; the converter rejects the
-        // import rather than persisting frames with missing images.
         if (!url?.url) return null;
         return {
           url: url.url,
@@ -331,8 +289,6 @@ export async function importFigInBrowser(
   try {
     onProgress?.({ phase: "saving", ratio: 0, saved: 0, total: frames.length });
     for (const [batchIndex, batch] of batches.entries()) {
-      // Do not fall back after this point: the action may have committed even
-      // if the browser lost its response.
       remoteMutationStarted = true;
       sentFrames += batch.length;
       const result = await callWithOneRetry<ImportResult>(
@@ -361,8 +317,6 @@ export async function importFigInBrowser(
       });
     }
   } catch (error) {
-    // One call removes every frame of this import, including any the server
-    // committed after the browser lost its response.
     let framesCleanupFailed = false;
     try {
       const aborted = await callWithOneRetry<{ deletedFileIds?: unknown }>(
@@ -395,9 +349,6 @@ export async function importFigInBrowser(
       remoteMutationStarted,
     );
   }
-  // Receipt release is best-effort after all frames are saved. A partial
-  // release must not roll back valid frames; the server-side receipt sweep
-  // expires abandoned staged receipts.
   await converted.finalize?.();
   return {
     ...saved,

@@ -7,11 +7,6 @@ import {
   withMeasuredFrameHeights,
 } from "./overview-camera";
 
-// A real screen created via create-file.ts always gets an explicit
-// canvasFrames entry (1440x1024) — use the same shape here rather than the
-// no-persisted-geometry fallback, which scales height to a miniature
-// preview width and would not exercise this "grows past the persisted
-// height" behavior at all.
 const PERSISTED_GEOMETRY = { x: 0, y: 0, width: 1440, height: 1024 };
 const DEFAULT_AUTO_SCREENS = [{ id: "a" }];
 const DEFAULT_AUTO_PINNED_IDS = pinnedHeightScreenIds(DEFAULT_AUTO_SCREENS);
@@ -30,7 +25,6 @@ describe("withMeasuredFrameHeights", () => {
       DEFAULT_AUTO_HEIGHT_IDS,
     );
     expect(widened[0]?.geometry.height).toBe(2400);
-    // Width and position are untouched by a height-only fit correction.
     expect(widened[0]?.geometry.width).toBe(frames[0]?.geometry.width);
     expect(widened[0]?.geometry.x).toBe(frames[0]?.geometry.x);
     expect(widened[0]?.geometry.y).toBe(frames[0]?.geometry.y);
@@ -73,11 +67,6 @@ describe("withMeasuredFrameHeights", () => {
     ).toEqual(frames);
   });
 
-  // A pinned Screen's rendered frame clips overflow at the pinned height
-  // instead of growing (canvasFrames's own autoHeight gates on the same
-  // flag) — fitting to the overflow height would zoom past what's actually
-  // on screen, so a pinned Screen must keep its persisted height even when
-  // reported content is taller.
   it("keeps the persisted height for a heightPinned screen even when measured content is taller", () => {
     const frames = getAllScreenFrameEntries({
       overviewScreens: [{ id: "a" }],

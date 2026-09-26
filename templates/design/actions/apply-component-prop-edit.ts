@@ -1,23 +1,3 @@
-/**
- * apply-component-prop-edit — persist a component prop edit.
- *
- * **Tier A (Alpine / inline):**  edits Alpine component annotations directly
- * via the deterministic `apply-visual-edit` path — the same
- * `replace-document-content` + Yjs/collab seam used for all other HTML writes.
- *
- * Supported Alpine edit kinds:
- * - `alpineData`   — replaces the `x-data` expression (class-level state,
- *                    variant selection, disabled flag, etc.).
- * - `attribute`    — sets a `data-agent-native-prop-*` attribute or any other
- *                    HTML attribute on the component root.
- * - `classReplace` — replaces one Tailwind class with another on the root node.
- *
- * **Real-app sources:** a literal JSX attribute on a single authored localhost
- * anchor uses the consented, version-guarded local-file CAS path. Transformed,
- * repeated, shared, and fusion sources still fail closed for agent handoff.
- *
- * See DESIGN-STUDIO-PLAN.md §6.1, §7 (preview/apply contract), §11 phase 2.
- */
 
 import { defineAction } from "@agent-native/core/action";
 import {
@@ -34,7 +14,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   prepareInlineSourceEdit,
@@ -377,12 +357,7 @@ function componentArchiveFailureReceipt(args: {
   };
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Escape an attribute value for safe inclusion inside a double-quoted HTML
- * attribute. Mirrors the escaping used by the deterministic patcher.
- */
 export function escapeAttributeValue(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -391,17 +366,6 @@ export function escapeAttributeValue(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-/**
- * Set (or replace) a single attribute on the *opening tag* of a component
- * root, using the node's source span. Pure — no DB / IO — so it can be unit
- * tested directly.
- *
- * - When the attribute already exists on the open tag its value is replaced.
- * - Otherwise the attribute is inserted just before the closing `>` / `/>`.
- *
- * Returns the rewritten full HTML and a `changed` flag (false when the span is
- * missing or the rewrite produced an identical open tag).
- */
 export function applyRootAttributeEdit(
   html: string,
   source: { openStart: number; openEnd: number } | null | undefined,
@@ -411,8 +375,6 @@ export function applyRootAttributeEdit(
   if (!source) return { content: html, changed: false };
 
   const openTag = html.slice(source.openStart, source.openEnd);
-  // Replace an existing attribute if present, otherwise insert before the
-  // closing `>` or `/>`.
   const attrRe = new RegExp(
     `(\\s${attrName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*=\\s*)(?:"[^"]*"|'[^']*'|[^\\s>"']+)`,
     "i",
@@ -452,17 +414,6 @@ async function persistEdit(file: {
 
   agentEnterDocument(file.id);
   try {
-    // Pass through the versionHash of the ACTUAL base the transform used
-    // (captured by the caller in run() at the same read as `html`, BEFORE
-    // applyRootAttributeEdit/applyVisualEdit computed `patchedContent` from
-    // it) — not a fresh re-read of the (already-transformed) content here.
-    // Re-reading the live/SQL state at persist time and hashing THAT would
-    // always match itself trivially, proving nothing about whether a sibling
-    // write landed between the transform's base read and this persist call.
-    // writeInlineSourceFile re-reads the live text immediately before its own
-    // applyText/DB write and rejects it if it no longer matches this hash —
-    // closing the race window (the same stale-diff-base bug fixed for
-    // insert-design-native-asset.ts / insert-asset.ts / apply-visual-edit.ts).
     const workspaceFile: SourceWorkspaceFile = {
       id: file.id,
       designId: file.designId,
@@ -832,7 +783,6 @@ async function persistLinkedComponentEdit(args: {
   }
 }
 
-// ─── Action ───────────────────────────────────────────────────────────────────
 
 export default defineAction({
   description:
@@ -985,18 +935,14 @@ export default defineAction({
       .optional(),
   }),
   run: async ({ designId, nodeId, fileId, edit, source }, context) => {
-    // ── Access check ────────────────────────────────────────────────────────
     const access = await resolveAccess("design", designId);
     if (!access) throw new Error("Design not found");
 
-    // ── Source type gate ────────────────────────────────────────────────────
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);
 
     const localSource = source?.local as LocalComponentSource | undefined;
 
-    // Literal localhost JSX props reuse the existing authored-anchor planner
-    // and consented bridge CAS. All other real-app edits stay fail-closed.
     if (sourceType !== "inline") {
       if (
         sourceType === "localhost" &&
@@ -1256,7 +1202,6 @@ export default defineAction({
       });
     }
 
-    // ── Fetch file ───────────────────────────────────────────────────────────
     const conditions = [
       accessFilter(schema.designs, schema.designShares),
       eq(schema.designFiles.designId, designId),
@@ -1313,14 +1258,9 @@ export default defineAction({
       };
     }
 
-    // The transform runs against the caller's working copy (when supplied),
-    // while the persist CAS uses the live hash that working copy is allowed to
-    // replace. Keeping those identities separate preserves rapid unsaved prop
-    // edits without weakening concurrent-writer rejection.
     const html = prepared.content;
     const baseVersionHash = prepared.expectedVersionHash;
 
-    // ── Resolve node ─────────────────────────────────────────────────────────
     const codeLayerSource: CodeLayerSource = {
       kind: "design-file",
       designId: file.designId,
@@ -1348,12 +1288,6 @@ export default defineAction({
       );
     }
 
-    // ── Apply the edit ───────────────────────────────────────────────────────
-    // - alpineData / attribute: attribute mutations on the component root are
-    //   applied with a direct HTML splice using the node's source span — the
-    //   deterministic patcher is class/style/text focused.
-    // - classReplace: routed through the deterministic apply-visual-edit
-    //   patcher (same seam as all other class edits).
 
     let patchedContent = html;
     let changed = false;
@@ -1369,7 +1303,6 @@ export default defineAction({
       patchedContent = result.content;
       changed = result.changed;
     } else {
-      // classReplace — use the deterministic patcher for class edits.
       const intent: ClassEditIntent = {
         kind: "class",
         target: { nodeId },
@@ -1384,7 +1317,6 @@ export default defineAction({
       }
     }
 
-    // ── Persist ──────────────────────────────────────────────────────────────
     const shouldPersist = changed || patchedContent !== (file.content ?? "");
 
     if (shouldPersist) {

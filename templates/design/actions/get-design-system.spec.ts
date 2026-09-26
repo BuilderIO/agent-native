@@ -86,9 +86,6 @@ describe("get-design-system", () => {
   });
 
   it("keeps named tokens, customCSS, and notes out of the truncation tail", async () => {
-    // A realistically rich local kit: enough colors to blow the old shared
-    // 2,500-char JSON budget several times over. Before sectioning, `notes`
-    // and `customCSS` were ordered last by JSON.stringify and never survived.
     mockParseBuilderDesignSystemProxyReference.mockReturnValue(null);
     mockResolveAccess.mockResolvedValue({
       resource: {

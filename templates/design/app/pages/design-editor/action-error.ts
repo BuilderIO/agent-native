@@ -1,11 +1,4 @@
-/**
- * The action HTTP surface echoes a real message only for explicit client
- * errors; an unclassified failure comes back as a 5xx "Internal server error"
- * with the cause server-log-only. Show the former as toast detail and drop the
- * latter, so a toast never reads as if it explained something when it didn't.
- */
 
-/** `callAction` prefixes every rejection with `Action <name> failed: `. */
 const CALL_ACTION_PREFIX = /^Action [\w.-]+ failed:\s*/;
 
 export function actionErrorDetail(error: unknown): string | undefined {

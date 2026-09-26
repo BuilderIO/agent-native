@@ -3,13 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * Figma parity: a marquee selects the objects at the CURRENT container
- * level (direct children of the screen by default) that it intersects; it
- * never reaches into nested descendants unless Cmd/Ctrl is held, matching
- * Cmd/Ctrl+click's own deep-select. A marquee band drawn entirely over Card
- * (which contains Kid A) must select Card only.
- */
 function hydratedEditorChromeBridgeScript(): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
@@ -79,9 +72,6 @@ describe("marquee selects at the current container level", () => {
       await page.setContent(FIXTURE);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
 
-      // Starts on empty canvas (outside Card, so the gesture arms a marquee
-      // rather than a click/drag on an element) and sweeps a band that fully
-      // encloses Card (40,40)-(320,240), including Kid A inside it.
       const selected = await marqueeSelectedIds(
         page,
         { x: 20, y: 20 },

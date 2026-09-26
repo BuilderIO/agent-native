@@ -428,8 +428,6 @@ export default defineAction({
           .returning({ id: schema.deckEvents.id });
         return renewed ? renewedPayload : null;
       } catch (error) {
-        // Keep the current payload so the next heartbeat can retry a
-        // transient database failure without dropping the claim.
         console.warn("[deck-access] notification claim renewal failed:", error);
         return claimedPayload;
       }

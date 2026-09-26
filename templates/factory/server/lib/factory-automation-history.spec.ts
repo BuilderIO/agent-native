@@ -214,12 +214,8 @@ describe("restoreFactoryAutomationVersion", () => {
           expectedContent: currentContent,
         }),
       );
-      // currentContent is promptVersion 2; restoring different content always
-      // advances past it rather than reusing the restored snapshot's own v1.
       expect(result.version).toBe(3);
       expect(result.configSavedAt).toBe("2026-09-15T13:00:00.000Z");
-      // The predecessor row stores the CURRENT content verbatim, not the
-      // restored content, and inserts before the live write commits.
       expect(insertValuesMock).toHaveBeenCalledWith(
         expect.objectContaining({
           rawContent: currentContent,

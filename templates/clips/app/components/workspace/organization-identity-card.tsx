@@ -24,11 +24,6 @@ interface OrganizationStateResponse {
   members: { email: string; role: MemberRole }[];
 }
 
-/**
- * Organization identity — name, logo, brand color, default recording
- * visibility. It sits directly above membership in the Organization tab
- * because the name and logo are what recipients see in share emails.
- */
 export function OrganizationIdentityCard() {
   const t = useT();
   const { session } = useSession();
@@ -39,18 +34,9 @@ export function OrganizationIdentityCard() {
     isError: isOrgError,
     isFetching: isOrgFetching,
   } = useOrg();
-  // Personal scope owns this surface: the framework Team card below already
-  // renders "create an organization", so an org-scoped branding fetch here
-  // has nothing to read and its failure reads as a broken page. A failed org
-  // lookup also leaves `orgInfo` undefined, so it must stay distinguishable
-  // from a loaded `orgId: null` instead of silently hiding the section.
   const activeOrgId = orgInfo?.orgId ?? null;
   const hasActiveOrg = Boolean(activeOrgId);
 
-  // Scope the request - and therefore the query key - to the active org.
-  // An unscoped key hands the next organization the previous one's cached
-  // branding while it refetches, which `BrandingEditor` would then seed its
-  // form with and save back under the new org's id.
   const { data, isPending, isError } =
     useActionQuery<OrganizationStateResponse>(
       "list-organization-state",
@@ -76,14 +62,8 @@ export function OrganizationIdentityCard() {
     </Card>
   );
 
-  // A failed load must not look like "this org has no branding", and an
-  // unreadable organization must not look like not having one.
   if (isOrgError) return loadFailed;
   if (isError) {
-    // Deleting or switching an org invalidates every query at once, so while
-    // `org-me` is still in flight `orgInfo` names the outgoing organization
-    // and this failure means "asked about the wrong org". It settles on its
-    // own; flashing the error this surface exists to remove is worse.
     return isOrgFetching ? <Skeleton className="h-64 w-full" /> : loadFailed;
   }
   if (orgLoading) return <Skeleton className="h-64 w-full" />;
@@ -130,8 +110,6 @@ export function OrganizationIdentityCard() {
   }
 
   return (
-    // Remount per organization: the editor seeds its form state from these
-    // props once, so a reused instance keeps the previous org's values.
     <BrandingEditor
       key={organization.id}
       organizationId={organization.id}

@@ -1,29 +1,3 @@
-/**
- * POST /api/view-event
- *
- * Tracks a viewer's interaction with a recording. Public endpoint — no auth
- * required so anonymous (public-share) viewers can be counted.
- *
- * Body:
- *   {
- *     recordingId: string,
- *     kind: "view-start" | "watch-progress" | "seek" | "pause" | "resume"
- *         | "cta-click" | "reaction",
- *     timestampMs?: number,
- *     payload?: object,
- *     viewerEmail?: string,      // ignored; authenticated session is authoritative
- *     viewerName?: string,
- *     sessionId: string,         // anonymous-viewer key (persisted in browser)
- *     viewSessionId?: string,    // per-player-open key for counted visits
- *     totalWatchMs?: number,     // current session's accumulated watch time
- *     completedPct?: number,     // 0–100, derived client-side
- *     scrubbedToEnd?: boolean,
- *   }
- *
- * Upserts a recording_viewers row keyed by (recordingId, viewerEmail || sessionId)
- * and inserts a recording_events row. On first satisfaction of the
- * 5s/75%/end-scrub rule, sets countedView=true.
- */
 
 import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
@@ -75,7 +49,6 @@ const ALLOWED_KINDS = new Set([
   "reaction",
 ]);
 
-// Simple in-memory rate limiter — per IP per 10s window.
 const RATE_LIMIT_WINDOW_MS = 10_000;
 const RATE_LIMIT_MAX = 60;
 const RATE_LIMIT_MAX_BUCKETS = 5000;
@@ -225,9 +198,6 @@ export default defineEventHandler(async (event) => {
     return { error: "payload must be a plain object no larger than 8 KiB" };
   }
 
-  // Rate limit by IP + sessionId.
-  // Deliberately do not opt into x-forwarded-for parsing: only the hosting
-  // adapter's resolved peer address is trusted for this process-local guard.
   const ip = getRequestIP(event) || "unknown";
   if (!rateLimit(`${ip}:${sessionId}`)) {
     setResponseStatus(event, 429);
@@ -249,17 +219,12 @@ export default defineEventHandler(async (event) => {
     async () => {
       const access = await resolveAccess("recording", recordingId);
       if (!access) {
-        // Do not leak whether a private/org-only recording exists. Public
-        // share pages and authenticated players both have resolveAccess().
         return { ok: true, ignored: true };
       }
 
       const db = getDb();
       const rec = access.resource;
 
-      // Find or create a recording_viewers row keyed by viewerEmail (if
-      // present) else sessionId. We store the session id in the viewer_name
-      // column as a best-effort fallback so anon sessions don't conflate.
       const viewerKey = viewerEmail ?? `anon:${sessionId}`;
       const countedViewSessionId = viewSessionId ?? `legacy:${sessionId}`;
 
@@ -467,16 +432,10 @@ export default defineEventHandler(async (event) => {
         }
       }
 
-      // Only broadcast a refresh signal on "meaningful" events to avoid
-      // spamming the polling clients every 2s with watch-progress
-      // heartbeats. Skip for anonymous viewers — application_state writes
-      // require an authenticated request context, and a public-share
-      // viewer has no UI tab to invalidate anyway.
       if (kind !== "watch-progress" && sessionEmail) {
         await writeAppState("refresh-signal", { ts: Date.now() });
       }
 
-      // Emit clip.viewed event on view-start — best-effort, never block the response.
       if (kind === "view-start") {
         try {
           emit(

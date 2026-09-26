@@ -44,8 +44,6 @@ describe("list-labels action", () => {
     mocks.getClientsWithErrors.mockResolvedValue({ clients: [], errors: [] });
     mocks.getUserSetting.mockResolvedValue({ labels: [] });
     mocks.readLocalEmails.mockResolvedValue([]);
-    // Default: no cache for anyone, so tests that don't care about the
-    // cache path fall straight through to the live-fetch assertions below.
     mocks.readCachedLabels.mockResolvedValue({
       labels: [],
       labelMapByAccount: new Map(),
@@ -192,12 +190,8 @@ describe("list-labels action", () => {
         ["ok@gmail.com", new Map([["Label_1", "Clients"]])],
       ]),
     });
-    // broken@gmail.com has no valid token at all (e.g. refresh failed or a
-    // managed grant could not resolve) — it must show up in
-    // `errors` instead of silently vanishing from the response.
     const result = await action.run({}, undefined as any);
 
-    // No throw: the cached account's labels still come back...
     expect(result.labels).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -207,7 +201,6 @@ describe("list-labels action", () => {
         }),
       ]),
     );
-    // ...and the connected-but-clientless account is reported, not dropped.
     expect(result.errors).toEqual([
       {
         accountEmail: "broken@gmail.com",
@@ -239,7 +232,6 @@ describe("list-labels action", () => {
 
     const result = await action.run({}, undefined as any);
 
-    // Well-known system tabs still come back with zeroed counts; nothing throws.
     expect(result.labels).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: "important" })]),
     );

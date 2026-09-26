@@ -1,24 +1,3 @@
-/**
- * The one path a CRM `status` attribute value may be changed through.
- *
- * A status is not just another typed value: stages drive SLAs, boards, pipeline
- * reporting, and celebration, so a blind status write is how a record silently
- * re-enters a stage it already left, or lands in a retired one that no board
- * column renders. The rules below are therefore stated as NAMED SETS with the
- * reason each one exists, and every blocked case answers with a sentence a
- * person can act on rather than a boolean the caller has to re-interpret.
- *
- * The allowed values come from the attribute's `crm_attribute_options` rows, not
- * from an enum in this file — a workspace renames and retires its own stages.
- *
- * Two properties are load-bearing and easy to lose in a refactor:
- *
- * 1. Bulk transitions PARTITION by eligibility. An ineligible target is
- *    reported, never quietly written and never quietly dropped.
- * 2. The observed `from` values are re-asserted in the claim query's WHERE
- *    clause, so a status that moved between the partition read and the write is
- *    left alone instead of being clobbered by a decision made about stale state.
- */
 
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull, or, type SQL } from "drizzle-orm";
@@ -32,14 +11,8 @@ import {
   type CrmWritableAttribute,
 } from "./record-fields.js";
 
-/** Most targets one bulk transition may carry. */
 export const MAX_STATUS_TRANSITION_TARGETS = 200;
 
-/**
- * A lifecycle problem the caller must fix before retrying. Shares the attribute
- * writer's 422 contract so every "your input is wrong" failure out of the CRM
- * write path looks the same to an HTTP, MCP, or agent caller.
- */
 export class CrmLifecycleError extends CrmAttributeValueError {
   constructor(code: string, message: string) {
     super(code, message);
@@ -64,15 +37,11 @@ export interface CrmStatusAttribute extends CrmWritableAttribute {
 
 export interface CrmLifecycle {
   attribute: CrmStatusAttribute;
-  /** Every declared option, board order first. */
   options: CrmStatusOption[];
-  /** Options a value may move INTO. */
   enterableValues: string[];
-  /** Every declared value, archived included — what a stored value may be. */
   knownValues: string[];
 }
 
-/** Why one target was not transitioned. Stable codes; sentences are for humans. */
 export type CrmStatusBlockCode =
   | "attribute-archived"
   | "provider-authority"
@@ -86,17 +55,7 @@ export interface CrmStatusBlock {
   message: string;
 }
 
-// ---------------------------------------------------------------------------
-// Loading
-// ---------------------------------------------------------------------------
 
-/**
- * Load one status attribute and its options.
- *
- * A non-`status` attribute is a caller bug, not a blocked transition: the
- * lifecycle governs stages, and routing an ordinary text field through it would
- * silently gain rules nothing declared.
- */
 export async function loadCrmStatusLifecycle(
   db: CrmFieldWriteDb,
   attributeId: string,
@@ -193,8 +152,6 @@ export async function loadCrmStatusLifecycle(
       archived: row.archived,
     },
     options,
-    // ENTERABLE, not "valid": an archived stage keeps every row already parked
-    // there (which is why leaving one is always allowed) but accepts nothing new.
     enterableValues: options
       .filter((option) => !option.archived)
       .map((option) => option.value),
@@ -202,24 +159,11 @@ export async function loadCrmStatusLifecycle(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Rules
-// ---------------------------------------------------------------------------
 
 function quoteList(values: readonly string[]): string {
   return values.length ? values.join(", ") : "(none defined)";
 }
 
-/**
- * The reason this transition cannot happen, or `null` when it can.
- *
- * `from === to` is deliberately allowed: a repeat write is idempotent, and the
- * bitemporal writer turns it into no write at all, so a bulk "move these to
- * Won" over a set that already contains Won rows reports them as unchanged
- * rather than blocked. Leaving ANY status — including an unknown or archived
- * one — is allowed for the same reason a retired stage still holds rows: the
- * way out of a bad state must not itself be blocked.
- */
 export function crmStatusBlockReason(
   lifecycle: CrmLifecycle,
   input: { from: string | null; to: string; recordTombstoned?: boolean },
@@ -259,13 +203,9 @@ export function crmStatusBlockReason(
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Reading current values
-// ---------------------------------------------------------------------------
 
 export interface CrmStatusTarget {
   recordId: string;
-  /** Set for a LIST-ENTRY status; omitted or null for a record status. */
   entryId?: string | null;
 }
 
@@ -280,11 +220,6 @@ function targetKey(target: CrmStatusTarget): string {
     : `record:${target.recordId}`;
 }
 
-/**
- * Current status value per target. A target with no row yet maps to `null`,
- * which is a real state (never set) and distinct from a target that is missing
- * from the map entirely (not visible to this caller).
- */
 async function readCurrentStatuses(
   db: CrmFieldWriteDb,
   lifecycle: CrmLifecycle,
@@ -354,7 +289,6 @@ async function readCurrentStatuses(
 export async function claimCrmStatusTransition(input: {
   db: CrmFieldWriteDb;
   lifecycle: CrmLifecycle;
-  /** Targets to claim, each with the status value the decision was based on. */
   expected: Array<{ target: CrmStatusTarget; from: string | null }>;
 }): Promise<Set<string>> {
   const withValue = input.expected.filter((entry) => entry.from !== null);
@@ -378,9 +312,6 @@ export async function claimCrmStatusTransition(input: {
   }
 
   if (withoutValue.length) {
-    // "No row" cannot be asserted by matching a value, so it is asserted by its
-    // absence: a target that has grown a status row since the partition read is
-    // not claimed.
     const observed = await readCurrentStatuses(
       input.db,
       input.lifecycle,
@@ -395,9 +326,6 @@ export async function claimCrmStatusTransition(input: {
   return claimed;
 }
 
-// ---------------------------------------------------------------------------
-// Bulk transition
-// ---------------------------------------------------------------------------
 
 export type CrmStatusOutcome = "changed" | "unchanged" | "skipped";
 
@@ -407,9 +335,7 @@ export interface CrmStatusTransitionRow {
   from: string | null;
   to: string;
   outcome: CrmStatusOutcome;
-  /** Present on every `skipped` row; absent otherwise. */
   block?: CrmStatusBlock;
-  /** Present on every `changed` row: how the bitemporal writer stored it. */
   mode?: "insert" | "close-and-insert" | "update-in-place";
 }
 
@@ -420,7 +346,6 @@ export interface CrmStatusTransitionReport {
   changed: number;
   unchanged: number;
   skipped: number;
-  /** Skipped counts keyed by the status they were still in — GTM's shape. */
   skippedByStatus: Record<string, number>;
   skippedByReason: Record<CrmStatusBlockCode, number>;
   rows: CrmStatusTransitionRow[];
@@ -437,19 +362,10 @@ export interface CrmStatusTransitionInput {
     orgId: string | null;
     visibility: "private" | "org" | "public";
   };
-  /** Record ids known to be tombstoned; those targets are reported, not written. */
   tombstonedRecordIds?: ReadonlySet<string>;
   now?: string;
 }
 
-/**
- * Move a bounded set of records or list entries into one status.
- *
- * Eligible targets are written through `writeCrmRecordField`, so a real move
- * closes the previous value's row and opens a new one — that pair IS the
- * time-in-stage history. Ineligible targets come back in `rows` with the
- * sentence explaining why; nothing is written for them and nothing is dropped.
- */
 export async function applyCrmStatusTransitions(
   input: CrmStatusTransitionInput,
 ): Promise<CrmStatusTransitionReport> {
@@ -562,18 +478,7 @@ export async function applyCrmStatusTransitions(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Single-target entry points
-// ---------------------------------------------------------------------------
 
-/**
- * Move one record or list entry into a status.
- *
- * A single-target caller has nowhere to put a partition report, so a blocked
- * target is raised as the sentence it must act on rather than returned as a row
- * nobody reads — including the concurrency block, whose whole point is that the
- * caller re-reads and decides again.
- */
 export async function applyOneCrmStatusTransition(
   input: Omit<CrmStatusTransitionInput, "targets"> & {
     target: CrmStatusTarget;
@@ -603,15 +508,6 @@ export async function applyOneCrmStatusTransition(
   };
 }
 
-/**
- * Throw the reason this target cannot enter `to`, or return the value it would
- * move from.
- *
- * The gate half, for a caller that owns its own atomic write and its own
- * concurrency check: `update-crm-record` is one revision-checked mutation with
- * an audit row covering the whole patch, so routing its status fields into a
- * second writer would leave that row claiming fields it did not write.
- */
 export async function assertCrmStatusTransitionAllowed(input: {
   db: CrmFieldWriteDb;
   lifecycle: CrmLifecycle;

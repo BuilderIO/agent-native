@@ -1,65 +1,6 @@
-/**
- * Code-backed GLSL shader fills + effects — canonical persisted format.
- *
- * Unlike the preset-only `shader-presets.ts` catalog (which approximates
- * shaders as CSS gradients when persisting), this module defines a fully
- * code-backed representation: the GLSL fragment source lives IN the screen
- * HTML, readable and editable in the Code panel, and a small self-contained
- * WebGL runtime (embedded in the same HTML) renders it live — in the editor,
- * in shared links, and in exported standalone HTML.
- *
- * ── Persisted format (v1) ────────────────────────────────────────────────
- *
- * 1. One definition block per shader, anywhere in the document (by
- *    convention just before `</body>`):
- *
- *    <script type="application/x-agent-native-shader"
- *            data-shader-id="an-shader-x1y2z3"
- *            data-shader-name="Water Caustics"
- *            data-shader-mode="fill">
- *    (leading GLSL block comment opened with slash-star-bang)
- *    an-shader v1
- *    { "uniforms": { "u_speed": { "type": "float", "value": 1,
- *      "min": 0, "max": 4, "step": 0.01, "label": "Speed" } } }
- *    (star-slash closes the comment)
- *    precision highp float;
- *    uniform vec2 u_resolution;
- *    uniform float u_time;
- *    uniform float u_speed;
- *    void main() { ... gl_FragColor = vec4(...); }
- *    </script>
- *
- *    The uniforms manifest rides inside a leading GLSL block comment — valid
- *    GLSL, so the whole block body is directly compilable, and the Code panel
- *    shows one readable, self-documenting artifact.
- *
- * 2. Elements reference a shader by id:
- *      data-an-shader-fill="an-shader-x1y2z3"      (canvas behind content)
- *      data-an-shader-effect="an-shader-x1y2z3"    (overlay above content)
- *    Optional per-element uniform overrides (Figma's paint-instance
- *    properties): data-an-shader-uniforms='{"u_speed":2}'
- *    For fills, the element's inline `background` holds a static fallback
- *    color so the artifact still renders without JS/WebGL.
- *
- * 3. The runtime is embedded once per document:
- *      <script data-agent-native-shader-runtime data-runtime-version="1">…
- *    (source of truth: app/components/design/bridge/shader-runtime.bridge.ts,
- *    compiled by bridge/codegen.ts — `ensureShaderRuntime()` injects/upgrades
- *    it.)
- *
- * Built-in uniforms every shader may declare (auto-driven by the runtime):
- *   uniform float u_time;        // seconds, 0 under prefers-reduced-motion
- *   uniform vec2  u_resolution;  // canvas size in physical pixels
- *
- * Keep the manifest parsing in shader-runtime.bridge.ts in sync with this
- * module.
- */
 
 import { shaderRuntimeBridgeScript } from "../.generated/bridge/shader-runtime.generated";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export type GlslUniformType = "float" | "vec2" | "color";
 
@@ -67,13 +8,10 @@ export type GlslUniformValue = number | [number, number] | string;
 
 export interface GlslUniformDef {
   type: GlslUniformType;
-  /** float → number; vec2 → [x, y]; color → "#rrggbb". */
   value: GlslUniformValue;
-  /** Knob range — only for type "float". */
   min?: number;
   max?: number;
   step?: number;
-  /** Human-readable knob label shown in the inspector. */
   label?: string;
 }
 
@@ -81,7 +19,6 @@ export type GlslUniformManifest = Record<string, GlslUniformDef>;
 
 export type GlslShaderMode = "fill" | "effect";
 
-/** One code-backed shader as persisted in the screen HTML. */
 export interface GlslShaderDef {
   id: string;
   name: string;
@@ -90,34 +27,23 @@ export interface GlslShaderDef {
   uniforms: GlslUniformManifest;
 }
 
-/** One element ↔ shader reference parsed back out of the HTML. */
 export interface GlslShaderMountRef {
   nodeId: string | null;
   shaderId: string;
   mode: GlslShaderMode;
-  /** Per-element uniform value overrides, when present. */
   values?: Record<string, GlslUniformValue>;
 }
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
 export const SHADER_SCRIPT_TYPE = "application/x-agent-native-shader";
 export const SHADER_FILL_ATTR = "data-an-shader-fill";
 export const SHADER_EFFECT_ATTR = "data-an-shader-effect";
 export const SHADER_UNIFORMS_ATTR = "data-an-shader-uniforms";
-/**
- * Per-element uniform overrides for the EFFECT mount. Fills and effects can
- * coexist on one element (Figma stacks them), so each mode gets its own
- * override attribute.
- */
 export const SHADER_EFFECT_UNIFORMS_ATTR = "data-an-shader-effect-uniforms";
 export const SHADER_RUNTIME_ATTR = "data-agent-native-shader-runtime";
 export const SHADER_RUNTIME_VERSION = "1";
 export const SHADER_MANIFEST_VERSION = 1;
 
-/** Uniform names the runtime provides automatically — reserved. */
 export const SHADER_BUILTIN_UNIFORMS = ["u_time", "u_resolution"] as const;
 
 const MAX_GLSL_LENGTH = 20000;
@@ -140,9 +66,6 @@ const VOID_TAGS = new Set([
   "wbr",
 ]);
 
-// ---------------------------------------------------------------------------
-// Small utilities
-// ---------------------------------------------------------------------------
 
 function escapeAttr(value: string): string {
   return value
@@ -166,7 +89,6 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Generate a fresh shader id: an-shader-<8 base36 chars>. */
 export function newShaderId(): string {
   let suffix = "";
   while (suffix.length < 8) {
@@ -175,9 +97,6 @@ export function newShaderId(): string {
   return "an-shader-" + suffix.slice(0, 8);
 }
 
-// ---------------------------------------------------------------------------
-// Validation
-// ---------------------------------------------------------------------------
 
 const GLSL_TYPE_FOR_UNIFORM: Record<GlslUniformType, string> = {
   float: "float",
@@ -188,7 +107,6 @@ const GLSL_TYPE_FOR_UNIFORM: Record<GlslUniformType, string> = {
 const SAFE_COLOR_RE =
   /^(#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|rgba?\([\d.,\s%/]*\)|hsla?\([\d.,\s%/deg]*\)|oklch\([\d.,\s%/deg]*\)|[a-zA-Z]{3,25})$/;
 
-/** True when a CSS color literal is safe to embed in an inline style. */
 export function isSafeShaderFallbackColor(value: string): boolean {
   const trimmed = value.trim();
   if (trimmed.length === 0 || trimmed.length > 64) return false;
@@ -196,7 +114,6 @@ export function isSafeShaderFallbackColor(value: string): boolean {
   return SAFE_COLOR_RE.test(trimmed);
 }
 
-/** Neutralize an unsafe fallback color instead of failing the whole apply. */
 export function sanitizeShaderFallbackColor(value: string | undefined): string {
   if (value && isSafeShaderFallbackColor(value)) return value.trim();
   return "#808080";
@@ -207,7 +124,6 @@ export interface ShaderValidationResult {
   errors: string[];
 }
 
-/** String-level sanity checks on a GLSL fragment source. */
 export function validateGlslSource(glsl: string): ShaderValidationResult {
   const errors: string[] = [];
   if (typeof glsl !== "string" || glsl.trim().length === 0) {
@@ -224,14 +140,6 @@ export function validateGlslSource(glsl: string): ShaderValidationResult {
   if (!/gl_FragColor/.test(glsl)) {
     errors.push("GLSL source must write gl_FragColor");
   }
-  // An opening `<script` tag is a real injection vector (it starts a brand
-  // new, arbitrary script rather than merely closing the current block), so
-  // it stays a hard rejection. A closing `</script` on its own — e.g. inside
-  // a GLSL line comment describing script-tag breakouts — is no longer
-  // rejected here: serializeShaderScriptBlock escapes it
-  // (escapeShaderScriptBreakout) before embedding, and parseShaderBlockBody
-  // reverses that escape, so the literal sequence never reaches the emitted
-  // HTML unescaped.
   if (/<script/i.test(glsl)) {
     errors.push("GLSL source must not contain an opening script tag");
   }
@@ -242,7 +150,6 @@ export function validateGlslSource(glsl: string): ShaderValidationResult {
   return { valid: errors.length === 0, errors };
 }
 
-/** Validate a uniforms manifest (names, types, values, ranges). */
 export function validateUniformManifest(
   uniforms: GlslUniformManifest,
 ): ShaderValidationResult {
@@ -333,12 +240,6 @@ export function validateUniformManifest(
   return { valid: errors.length === 0, errors };
 }
 
-/**
- * Validate a full shader definition, including the cross-check that every
- * manifest uniform is actually declared in the GLSL with the matching type
- * (float → float, vec2 → vec2, color → vec3) so every knob provably drives
- * the shader.
- */
 export function validateShaderDef(def: GlslShaderDef): ShaderValidationResult {
   const errors: string[] = [];
   if (!def || typeof def !== "object") {
@@ -387,13 +288,9 @@ export function validateShaderDef(def: GlslShaderDef): ShaderValidationResult {
   return { valid: errors.length === 0, errors };
 }
 
-// ---------------------------------------------------------------------------
-// Manifest comment + script block serialization
-// ---------------------------------------------------------------------------
 
 const MANIFEST_COMMENT_RE = /^\s*\/\*!\s*an-shader\s+v(\d+)\s*([\s\S]*?)\*\//;
 
-/** Serialize the manifest as the leading GLSL block comment. */
 export function serializeManifestComment(
   uniforms: GlslUniformManifest,
 ): string {
@@ -431,7 +328,6 @@ export function escapeShaderScriptBreakout(glsl: string): string {
   );
 }
 
-/** Reverse {@link escapeShaderScriptBreakout} — restores the original GLSL. */
 export function unescapeShaderScriptBreakout(glsl: string): string {
   return glsl.replace(
     /<\\\/script/gi,
@@ -439,16 +335,6 @@ export function unescapeShaderScriptBreakout(glsl: string): string {
   );
 }
 
-/**
- * Split a script-block body into { uniforms, glsl }. Missing/malformed
- * manifests degrade to an empty manifest with the full body as GLSL — the
- * shader still renders, it just has no knobs.
- *
- * The raw captured body may contain an escaped `</script` breakout marker
- * (see {@link escapeShaderScriptBreakout}); it is unescaped here, after
- * manifest-comment splitting, so callers always get back the original,
- * editable GLSL source.
- */
 export function parseShaderBlockBody(body: string): {
   uniforms: GlslUniformManifest;
   glsl: string;
@@ -480,7 +366,6 @@ export function parseShaderBlockBody(body: string): {
   return { uniforms, glsl };
 }
 
-/** Serialize a full `<script type="application/x-agent-native-shader">` block. */
 export function serializeShaderScriptBlock(def: GlslShaderDef): string {
   const validation = validateShaderDef(def);
   if (!validation.valid) {
@@ -512,7 +397,6 @@ function readAttrFrom(attrs: string, name: string): string | null {
   return match ? unescapeAttr(match[1]) : null;
 }
 
-/** Parse every shader definition block out of a screen HTML document. */
 export function listShadersInHtml(html: string): GlslShaderDef[] {
   const defs: GlslShaderDef[] = [];
   if (typeof html !== "string" || html.length === 0) return defs;
@@ -537,7 +421,6 @@ export function listShadersInHtml(html: string): GlslShaderDef[] {
   return defs;
 }
 
-/** Find one shader definition by id. */
 export function getShaderFromHtml(
   html: string,
   id: string,
@@ -559,7 +442,6 @@ function findShaderBlockSpan(
   return null;
 }
 
-/** Insert or replace a shader definition block in the document. */
 export function upsertShaderInHtml(html: string, def: GlslShaderDef): string {
   const block = serializeShaderScriptBlock(def);
   const existing = findShaderBlockSpan(html, def.id);
@@ -577,12 +459,10 @@ export function upsertShaderInHtml(html: string, def: GlslShaderDef): string {
   return html + "\n" + block + "\n";
 }
 
-/** Remove a shader definition block (references are left untouched). */
 export function removeShaderFromHtml(html: string, id: string): string {
   const span = findShaderBlockSpan(html, id);
   if (!span) return html;
   let start = span.start;
-  // Also consume the preceding line's indentation/newline for tidiness.
   while (start > 0 && (html[start - 1] === " " || html[start - 1] === "\t")) {
     start--;
   }
@@ -592,11 +472,7 @@ export function removeShaderFromHtml(html: string, id: string): string {
   return html.slice(0, start) + html.slice(end);
 }
 
-// ---------------------------------------------------------------------------
-// Runtime embedding
-// ---------------------------------------------------------------------------
 
-/** The compiled, self-contained WebGL runtime (see shader-runtime.bridge.ts). */
 export const SHADER_RUNTIME_SOURCE: string = shaderRuntimeBridgeScript;
 
 export function buildShaderRuntimeScriptTag(): string {
@@ -612,10 +488,6 @@ const RUNTIME_BLOCK_RE = new RegExp(
   "i",
 );
 
-/**
- * Ensure the document embeds the current shader runtime exactly once,
- * upgrading any previously-embedded copy in place. Idempotent.
- */
 export function ensureShaderRuntime(html: string): string {
   const tag = buildShaderRuntimeScriptTag();
   const existing = RUNTIME_BLOCK_RE.exec(html);
@@ -638,7 +510,6 @@ export function ensureShaderRuntime(html: string): string {
   return html + "\n" + tag + "\n";
 }
 
-/** True when the document has no shader references left. */
 export function htmlHasShaderReferences(html: string): boolean {
   return (
     html.includes(SHADER_FILL_ATTR + '="') ||
@@ -646,7 +517,6 @@ export function htmlHasShaderReferences(html: string): boolean {
   );
 }
 
-/** Remove definition blocks that no element references any more. */
 export function pruneUnusedShaders(html: string): string {
   let out = html;
   for (const def of listShadersInHtml(html)) {
@@ -659,15 +529,7 @@ export function pruneUnusedShaders(html: string): string {
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// Element annotation (pure string transforms, no DOM)
-// ---------------------------------------------------------------------------
 
-/**
- * Locate the bounds of the open tag containing the given index. Scans
- * backward for "<" and forward for ">" while respecting quoted attribute
- * values. Returns null when the index isn't inside a plausible tag.
- */
 function findTagBounds(
   html: string,
   indexInsideTag: number,
@@ -711,7 +573,6 @@ function removeAttr(tagText: string, name: string): string {
   );
 }
 
-/** Upsert one declaration inside an inline style attribute. */
 function upsertStyleProperty(
   tagText: string,
   property: string,
@@ -771,14 +632,7 @@ export interface AnnotateShaderNodeOptions {
   nodeId: string;
   shaderId: string;
   mode: GlslShaderMode;
-  /** Per-element uniform overrides serialized to data-an-shader-uniforms. */
   values?: Record<string, GlslUniformValue>;
-  /**
-   * Static fallback background written to the element's inline style
-   * (fill mode only). Unsafe values are neutralized to #808080. When
-   * omitted, the element's existing background is left untouched — pass it
-   * on the initial apply, omit it for knob-value-only updates.
-   */
   fallbackColor?: string;
 }
 
@@ -788,12 +642,6 @@ export interface HtmlTransformResult {
   errors: string[];
 }
 
-/**
- * Point an element (located by its stable data-agent-native-node-id) at a
- * shader definition. Replaces any previous shader annotation OF THE SAME
- * MODE on the node — a fill and an effect can coexist on one element,
- * mirroring Figma's paint/effect stacking.
- */
 export function annotateNodeWithShader(
   html: string,
   options: AnnotateShaderNodeOptions,
@@ -857,10 +705,6 @@ export function annotateNodeWithShader(
   return { html: nextHtml, changed: nextHtml !== html, errors };
 }
 
-/**
- * Remove shader annotations from an element (fallback background stays).
- * Pass `mode` to clear only the fill or only the effect; omit to clear both.
- */
 export function clearNodeShader(
   html: string,
   nodeId: string,
@@ -888,7 +732,6 @@ export function clearNodeShader(
   return { html: nextHtml, changed: nextHtml !== html, errors: [] };
 }
 
-/** Parse every element ↔ shader reference out of the document. */
 export function listShaderMounts(html: string): GlslShaderMountRef[] {
   const mounts: GlslShaderMountRef[] = [];
   if (typeof html !== "string" || html.length === 0) return mounts;
@@ -935,25 +778,14 @@ export function listShaderMounts(html: string): GlslShaderMountRef[] {
   return mounts;
 }
 
-// ---------------------------------------------------------------------------
-// High-level apply (the one-call transform the inspector + agent use)
-// ---------------------------------------------------------------------------
 
 export interface ApplyShaderOptions {
   nodeId: string;
   def: GlslShaderDef;
-  /** Per-element uniform value overrides. */
   values?: Record<string, GlslUniformValue>;
-  /** Fill-mode static fallback background color. */
   fallbackColor?: string;
 }
 
-/**
- * The complete persistence transform: upsert the definition block, embed or
- * upgrade the runtime, and annotate the target element. Pure string → string;
- * callers persist the result through their normal write path
- * (apply-source-edit / edit-design / collab).
- */
 export function applyShaderToHtml(
   html: string,
   options: ApplyShaderOptions,
@@ -981,11 +813,6 @@ export function applyShaderToHtml(
   };
 }
 
-/**
- * Remove a shader from an element and garbage-collect any now-unreferenced
- * definition blocks (the runtime tag stays — it is inert without mounts).
- * Pass `mode` to remove only the fill or only the effect; omit for both.
- */
 export function removeShaderFromNode(
   html: string,
   nodeId: string,
@@ -997,7 +824,6 @@ export function removeShaderFromNode(
   return { html: pruned, changed: pruned !== html, errors: [] };
 }
 
-/** Default uniform values (manifest values) for fresh knob state. */
 export function defaultUniformValues(
   def: GlslShaderDef,
 ): Record<string, GlslUniformValue> {

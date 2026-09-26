@@ -1,20 +1,3 @@
-/**
- * Generate editor-timeline filmstrip sprites for stored recordings.
- *
- * The editor shows video frames behind the waveform so a trim range can be
- * found visually. Generating them server-side with one ffmpeg pass replaces
- * per-frame decoding in the browser, which cannot read cross-origin media at
- * all and needs one seek per frame.
- *
- * Non-destructive and idempotent: a recording whose sprite already matches its
- * current media is skipped, and any failure leaves the row untouched so the
- * editor keeps its browser-side fallback.
- *
- * Usage:
- *   pnpm action generate-filmstrip --id=<recordingId>
- *   pnpm action generate-filmstrip --id=<recordingId> --force
- *   pnpm action generate-filmstrip --all --limit=20
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
@@ -107,8 +90,6 @@ export default defineAction({
       targetIds.push(...rows.map((r) => r.id));
     }
 
-    // De-dupe while preserving order, and bound the batch so one call can't run
-    // unboundedly under the hosted foreground budget.
     targetIds = Array.from(new Set(targetIds)).slice(0, MAX_TARGETS_PER_CALL);
 
     if (targetIds.length === 0) {

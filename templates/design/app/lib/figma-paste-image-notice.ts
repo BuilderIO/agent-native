@@ -1,8 +1,3 @@
-/**
- * Whether to prompt about image fills a paste could not carry. Per browser,
- * because it is a reading preference: nothing else depends on knowing it, and
- * the placeholders themselves stay visible either way.
- */
 
 const KEY = "design.figmaPasteImageNotice.dismissed";
 

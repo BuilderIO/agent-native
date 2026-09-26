@@ -94,9 +94,6 @@ function inventoryError(
       "$1=[redacted]",
     )
     .slice(0, 240);
-  // A quota cooldown's message is deliberately jargon-free (no "429"/"quota"
-  // — see GmailQuotaCooldownError in google-api.ts), so the regex alone
-  // misses it; the caller passes the structured isQuotaError flag instead.
   const rateLimited =
     opts?.rateLimited === true ||
     /\b(?:429|quota|rate.?limit)\b/i.test(bounded);
@@ -360,9 +357,6 @@ export default defineAction({
       throw new Error("Inventory limit must be an integer from 1 through 100.");
     }
 
-    // Inventory is deliberately resolved before any refresh/list call. Apart
-    // from preventing a cross-account data leak, this keeps a selected read
-    // from touching token state for accounts the caller did not choose.
     const requestedAccounts =
       args.accountEmails ?? (args.account ? [args.account] : undefined);
 
@@ -734,7 +728,6 @@ export default defineAction({
       return JSON.stringify(payload, null, 2);
     }
 
-    // Fallback: local store
     let emails = await readLocalEmails(ownerEmail);
     const localAccountsByLower = new Map<string, string>();
     for (const email of emails) {
@@ -805,8 +798,6 @@ export default defineAction({
       emails = emails.filter((e) => emailMessageMatchesSearch(e, query));
     }
 
-    // Filter out snoozed emails, matching the REST handler's demo-mode
-    // behavior. Skip when searching so snoozed hits surface too.
     if (!query && (view === "inbox" || view === "unread")) {
       const snoozedIds = await getSnoozedThreadIds(ownerEmail);
       if (snoozedIds.size > 0) {

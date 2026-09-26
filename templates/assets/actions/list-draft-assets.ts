@@ -33,10 +33,6 @@ export default defineAction({
     const libraryIds = accessibleLibraries.map((row) => row.id);
     if (!libraryIds.length) return { count: 0, assets: [] };
 
-    // Every row here is a draft, so the whole result narrows to the drafts this
-    // caller generated plus the kits where they could approve one. The narrowing
-    // is a WHERE clause, not a post-filter: paging first would drop the caller's
-    // own older drafts behind other people's newer ones.
     const scope = await resolveDraftReadScope(libraryIds);
     const draftFilter = draftReadFilter(scope, schema.assets);
     const rows = await db

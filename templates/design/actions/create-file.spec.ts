@@ -1,13 +1,3 @@
-/**
- * Tests for create-file.
- *
- * Coverage focus: create-file now stamps missing
- * data-agent-native-node-id attributes on HTML content before persisting
- * (shared/screen-annotation.ts), so a screen created directly via this
- * action — not only through generate-design — is fully addressable by
- * id-keyed editor operations from the moment it's created, instead of
- * depending on a client-side backfill the first time someone opens it.
- */
 
 import { readFileSync } from "node:fs";
 
@@ -214,9 +204,6 @@ describe("create-file: node-id annotation", () => {
     expect(insertedValues.content).toContain("<main");
     expect(insertedValues.content).toContain("<button");
 
-    // Collab state must be seeded with the SAME annotated content, not the
-    // raw pre-annotation string, so the first live edit doesn't fork from a
-    // different base than what's in SQL.
     expect(mocks.seedFromText).toHaveBeenCalledWith(
       expect.any(String),
       insertedValues.content,
@@ -350,8 +337,6 @@ describe("create-file: node-id annotation", () => {
         queryClient.getQueryState(queryKey)?.fetchStatus;
       const requestAbortedAfterInsert = requestSignal?.aborted;
 
-      // Resolve even though the fetch was cancelled to prove a late stale
-      // response cannot replace the new file row.
       resolveRead(staleResult);
       await oldRead;
       expect(immediatelyAfterInsert).toEqual(["old-file", result.id]);
@@ -383,12 +368,9 @@ describe("create-file: node-id annotation", () => {
     const insertedValues = mocks.insertValues.mock.calls[0]![0] as {
       content: string;
     };
-    // The existing clean id on <main> is preserved verbatim.
     expect(insertedValues.content).toContain(
       'data-agent-native-node-id="an-existing"',
     );
-    // Only one node-id attribute is added (for <button>), not a duplicate on
-    // <main>.
     expect(
       insertedValues.content.match(/data-agent-native-node-id="an-existing"/g),
     ).toHaveLength(1);

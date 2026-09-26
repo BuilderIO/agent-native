@@ -6,8 +6,6 @@ import { MAX_UPLOAD_BYTES } from "@/lib/upload-limits";
 export const MAX_FIG_UPLOAD_BYTES = 50 * 1024 * 1024;
 export const MAX_FIG_UPLOAD_MB = MAX_FIG_UPLOAD_BYTES / 1024 / 1024;
 
-/** Kept under the wire cap so a chunk plus its headers still clears Netlify's
- * base64-inflated 6 MB function payload. */
 const FIG_CHUNK_BYTES = 3 * 1024 * 1024;
 
 export type FigUploadValidationError = "invalid-extension" | "too-large";
@@ -36,12 +34,6 @@ export interface UploadDesignFileOptions {
   onProgress?: (progress: DesignFileUploadProgress) => void;
 }
 
-/**
- * Uploads an import file through the template's authenticated multipart route.
- * XMLHttpRequest is intentional here: unlike fetch, it exposes upload progress
- * for large local .fig files. Keep the route and transport details inside this
- * boundary rather than duplicating them in React components.
- */
 function postMultipart<T extends ImportResult>({
   designId,
   file,
@@ -105,18 +97,8 @@ function postMultipart<T extends ImportResult>({
   });
 }
 
-/** Signals that the server has no blob storage to park chunks in, so the caller
- * should retry through the single-request multipart route. */
 class ChunkStorageUnavailableError extends Error {}
 
-/**
- * Chunked `.fig` transport for files above the wire cap. Netlify base64-encodes
- * a function body into a 6 MB payload, so a real Figma export never fits in one
- * multipart request — the platform 413s with an empty body before any handler
- * runs, which is what a 9 MB `.fig` looked like to users. Each slice is posted
- * as a raw body to the same route, which parks it in private blob storage and
- * reassembles on the final slice.
- */
 async function postFigChunks<T extends ImportResult>({
   designId,
   file,
@@ -166,7 +148,6 @@ async function postFigChunks<T extends ImportResult>({
     });
 
     const text = await response.text().catch(() => {
-      // A body that cannot be read is a broken transport, not an empty result.
       throw new Error(fallbackErrorMessage);
     });
     if (response.status === 503 && /"storageUnavailable":true/.test(text)) {
@@ -180,9 +161,6 @@ async function postFigChunks<T extends ImportResult>({
       },
       fallbackErrorMessage,
     );
-    // parseUploadResponse resolves structured `{ error }` bodies rather than
-    // throwing; a failed chunk must stop the run instead of silently posting
-    // the rest of the file into a session the server already discarded.
     if (last?.error) return last;
     onProgress?.({
       loaded: end,
@@ -206,8 +184,6 @@ async function uploadFig<T extends ImportResult>(options: {
   try {
     return await postFigChunks<T>(options);
   } catch (error) {
-    // Local dev without blob storage has no gateway cap either, so the
-    // single-request route still works there.
     if (error instanceof ChunkStorageUnavailableError) {
       return postMultipart<T>(options);
     }
@@ -236,7 +212,6 @@ export interface FigHydrationResult extends ImportResult {
 export interface HydrateImagesFromFigOptions {
   designId: string;
   file: File;
-  /** design_files ids from a no-token clipboard paste to fill images for. */
   fileIds: string[];
   fallbackErrorMessage: string;
   onProgress?: (progress: DesignFileUploadProgress) => void;

@@ -19,11 +19,6 @@ const legacyAgentPages = new WeakMap<
   ComponentType<AgentPageProps>
 >();
 
-/**
- * Keep the chat scaffold runnable when its template and core package are
- * briefly out of sync during a release. Older core versions do not export
- * AgentTabsPage, but they do expose the page-level chat surface.
- */
 export function resolveAgentPageComponent(
   client: AgentClientModule,
 ): ComponentType<AgentPageProps> {

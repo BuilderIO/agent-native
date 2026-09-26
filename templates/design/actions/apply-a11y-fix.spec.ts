@@ -1,17 +1,3 @@
-/**
- * apply-a11y-fix.spec.ts
- *
- * Covers:
- *  - the pure finding→edit mapping (`a11yFindingToEdit` / `isA11yFindingAutoFixable`)
- *  - the produced HTML when the mapped edit is run through the shared
- *    `applyVisualEdit` primitive (exactly what the action does internally)
- *  - the action schema (target requirement, defaults)
- *  - the action's "not auto-fixable" early-return branch (no DB needed)
- *
- * The persisted DB path (resolveEditableDesignFile / persistDesignFileEdit)
- * requires a live DB + collab runtime and is not exercised here; the mapping +
- * applyVisualEdit composition fully determines the content that path writes.
- */
 
 import { describe, expect, it } from "vitest";
 
@@ -24,9 +10,6 @@ import {
 import action from "./apply-a11y-fix.js";
 import { checkTapTargets } from "./run-design-audit.js";
 
-// ---------------------------------------------------------------------------
-// Test fixtures
-// ---------------------------------------------------------------------------
 
 function finding(partial: Partial<A11yFinding>): A11yFinding {
   return {
@@ -39,9 +22,6 @@ function finding(partial: Partial<A11yFinding>): A11yFinding {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Mapping: which findings are auto-fixable, and to what edit
-// ---------------------------------------------------------------------------
 
 describe("a11yFindingToEdit mapping", () => {
   it("maps a contrast finding to a style color edit (default near-black)", () => {
@@ -137,9 +117,6 @@ describe("a11yFindingToEdit mapping", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Produced content: run the mapped edit through the shared primitive
-// ---------------------------------------------------------------------------
 
 describe("apply-a11y-fix produced content (via applyVisualEdit)", () => {
   function applyPlan(html: string, f: A11yFinding, color?: string) {
@@ -173,7 +150,6 @@ describe("apply-a11y-fix produced content (via applyVisualEdit)", () => {
     expect(out.result.status).toBe("applied");
     expect(out.content).toContain("min-h-[44px]");
     expect(out.content).toContain("min-w-[44px]");
-    // existing classes are preserved
     expect(out.content).toContain("h-4");
     expect(out.content).toContain("px-2");
   });
@@ -190,21 +166,15 @@ describe("apply-a11y-fix produced content (via applyVisualEdit)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Audit↔fix loop: a tap-target fix must stop the finding from re-appearing
-// (regression for the "click Fix → Fixed → finding reappears on re-audit" bug)
-// ---------------------------------------------------------------------------
 
 describe("tap-target fix clears on re-audit", () => {
   it("re-flags nothing after the inline min-size fix is applied", () => {
     const html = `<button data-agent-native-node-id="b1" class="h-4 px-2">Go</button>`;
 
-    // 1. Audit flags the tiny tap target.
     const before = checkTapTargets(html);
     expect(before).toHaveLength(1);
     expect(before[0]?.category).toBe("tap-target");
 
-    // 2. Apply the inline auto-fix the Review panel uses.
     const plan = a11yFindingToEdit(
       finding({
         category: "tap-target",
@@ -216,16 +186,12 @@ describe("tap-target fix clears on re-audit", () => {
       source: { kind: "inline-html" },
     });
     expect(fixed.content).toContain("min-h-[44px]");
-    // The original tiny class is still present — the fix only adds min-sizes.
     expect(fixed.content).toContain("h-4");
 
-    // 3. Re-audit the fixed content: the finding must be gone (previously it
-    //    persisted because min-h-[44px] wasn't recognised as satisfying 44px).
     expect(checkTapTargets(fixed.content)).toHaveLength(0);
   });
 
   it("treats equivalent ≥44px min-size declarations as satisfying the floor", () => {
-    // Arbitrary rem/em values, the Tailwind spacing scale, and full-bleed mins.
     expect(
       checkTapTargets(
         `<button class="h-4 min-h-[2.75rem] min-w-[2.75rem]">a</button>`,
@@ -240,7 +206,6 @@ describe("tap-target fix clears on re-audit", () => {
   });
 
   it("still flags a tiny target whose min-size is below 44px", () => {
-    // min-h-[24px] / min-h-5 (20px) must NOT silence the warning.
     expect(
       checkTapTargets(
         `<button class="h-4 min-h-[24px] min-w-[24px]">x</button>`,
@@ -271,9 +236,6 @@ describe("tap-target fix clears on re-audit", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Action schema
-// ---------------------------------------------------------------------------
 
 describe("apply-a11y-fix schema", () => {
   it("requires the finding to carry a node id or selector", () => {
@@ -312,9 +274,6 @@ describe("apply-a11y-fix schema", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Action run: not-auto-fixable early return (no DB access)
-// ---------------------------------------------------------------------------
 
 describe("apply-a11y-fix run — non-fixable finding", () => {
   it("reports autoFixable:false and does not write for attribute-only findings", async () => {

@@ -2,19 +2,12 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useCallback, useEffect, useState } from "react";
 
 export interface SecretStatus {
-  /** Key name to whether a value is stored for it. */
   configured: Record<string, boolean>;
-  /** Last four characters of ad-hoc secrets, when the store exposes them. */
   last4: Record<string, string>;
   loading: boolean;
   refresh: () => Promise<void>;
 }
 
-/**
- * Which API keys and storage credentials are configured. Both the video
- * storage and AI setup sections read the same three stores, so the settings
- * page resolves this once and hands it to each of them.
- */
 export function useSecretStatus(): SecretStatus {
   const [configured, setConfigured] = useState<Record<string, boolean>>({});
   const [last4, setLast4] = useState<Record<string, string>>({});

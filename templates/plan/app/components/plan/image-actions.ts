@@ -1,14 +1,6 @@
 import { toast } from "sonner";
 
-/**
- * Shared image action helpers for plan image surfaces (the editor node view, the
- * read-only markdown reader, and structured image blocks). These are pure
- * browser helpers — they fetch the image bytes client-side so download/copy work
- * for cross-origin hosted images and `data:` URLs alike, with graceful fallbacks
- * when the Clipboard/Blob APIs are unavailable.
- */
 
-/** Derive a sensible download filename from the alt text or the URL path. */
 export function imageDownloadName(src: string, alt: string): string {
   const cleanAlt = alt.trim().replace(/[^a-z0-9._-]+/gi, "-");
   if (cleanAlt) return cleanAlt.toLowerCase();
@@ -24,7 +16,6 @@ export function imageDownloadName(src: string, alt: string): string {
   return "image";
 }
 
-/** Download the image to disk, falling back to opening it in a new tab. */
 export async function downloadImage(
   src: string,
   alt: string,
@@ -58,7 +49,6 @@ export async function downloadImage(
   }
 }
 
-/** Re-encode a blob as PNG so the clipboard accepts it when the source type is unsupported. */
 async function blobToPng(blob: Blob): Promise<Blob> {
   const bitmap = await createImageBitmap(blob);
   const canvas = document.createElement("canvas");
@@ -79,7 +69,6 @@ async function blobToPng(blob: Blob): Promise<Blob> {
   return pngBlob;
 }
 
-/** Copy the rendered image to the clipboard, falling back to copying its URL. */
 export async function copyImage(
   src: string,
   messages: ImageActionMessages = defaultImageActionMessages,

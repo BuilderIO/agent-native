@@ -1,13 +1,3 @@
-/**
- * Pure logic behind the record page: what an attribute value looks like, who is
- * allowed to edit it inline, how typed input is parsed, and how bitemporal rows
- * become "changed from X to Y".
- *
- * It lives apart from the components because the template's vitest config is
- * node-only (no DOM, `.test.ts` only), so this is the layer that can be tested.
- * Anything here that returns a value must keep "absent" and "unreadable"
- * distinguishable — a field the mirror never carried is not an empty field.
- */
 
 import {
   ATTRIBUTE_TYPE_SPECS,
@@ -28,7 +18,6 @@ import {
 
 export { attributeInputValue as fieldInputValue } from "../shared/attribute-value";
 
-/** Up to six pinned attributes sit above the rest of the panel. */
 export const MAX_HIGHLIGHTS = 6;
 
 export interface CrmRecordPageEntry {
@@ -91,16 +80,7 @@ export interface CrmRecordPage {
   recordUrlUnavailableReason: string | null;
 }
 
-// ---------------------------------------------------------------------------
-// Editability
-// ---------------------------------------------------------------------------
 
-/**
- * Controls this panel implements. A type whose control is missing here is
- * locked with `unsupported-type` rather than offered a text input that would
- * store whatever the user typed — so this set and the branches in
- * `field-editors.tsx` have to move together.
- */
 const PANEL_CONTROLS: ReadonlySet<CrmAttributeControl> = new Set([
   "text",
   "number",
@@ -124,11 +104,6 @@ export type FieldEditability =
   | { editable: true }
   | { editable: false; reason: FieldLockReason };
 
-/**
- * Mirrors what `update-crm-record` will actually accept for `target: "local"`.
- * Offering an editor the action would reject is the same class of lie as a
- * success-shaped failure.
- */
 export function fieldEditability(
   attribute: Pick<
     CrmAttributeDefinition,
@@ -150,9 +125,6 @@ export function fieldEditability(
   return { editable: true };
 }
 
-// ---------------------------------------------------------------------------
-// Display
-// ---------------------------------------------------------------------------
 
 export type FieldDisplay =
   | { kind: "empty" }
@@ -163,11 +135,6 @@ export type FieldDisplay =
 
 const STRUCTURED_PREVIEW_LIMIT = 200;
 
-/**
- * The panel's own display union. Which chips a value produces, how a currency
- * or a timestamp reads, and which option a value resolves to all come from the
- * shared registry — only the union the panel renders against lives here.
- */
 export function formatFieldValue(
   attribute: Pick<
     CrmAttributeDefinition,
@@ -201,9 +168,6 @@ export function formatFieldValue(
   return { kind: "text", text: formatAttributeValue(attribute, value) };
 }
 
-// ---------------------------------------------------------------------------
-// Input parsing
-// ---------------------------------------------------------------------------
 
 export type FieldParseResult =
   | { ok: true; value: CrmValue }
@@ -240,21 +204,12 @@ export function parseFieldInput(
 
   const parsed = parseAttributeValue(attribute, raw);
   if (parsed.ok) return { ok: true, value: parsed.value };
-  // `read-only` cannot come back here — the gate above already refused those —
-  // but mapping it keeps a future registry change from turning into a wrong
-  // "invalid number" message.
   return {
     ok: false,
     code: parsed.reason === "read-only" ? "not-editable" : parsed.reason,
   };
 }
 
-/**
- * A list attribute in the shape the field editors take. List attributes are
- * local-authoritative on every backend by construction — `loadCrmListAttributes`
- * refuses to return one that is not — so they carry no provider authority to
- * check, and the summary the action returns simply omits those columns.
- */
 export function entryAttributeAsEditable(
   attribute: CrmRecordPageListAttribute,
 ): Pick<
@@ -284,16 +239,7 @@ export function entryAttributeAsEditable(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Highlights
-// ---------------------------------------------------------------------------
 
-/**
- * Curated highlight order per object `kind`. An attribute this app's schema
- * does not declare for that kind (e.g. `people` has no `name`) is simply
- * skipped by `splitHighlights`, which is how "name, or firstName+lastName
- * when there is no name" falls out of one flat list instead of a branch.
- */
 const HIGHLIGHT_ORDER: Record<string, readonly string[]> = {
   account: ["name", "domain", "industry", "ownerName", "nextContactAt"],
   person: [
@@ -313,19 +259,6 @@ function hasHighlightValue(value: CrmValue | undefined): boolean {
   return !Array.isArray(value) || value.length > 0;
 }
 
-/**
- * Highlights are a curated order for `account`/`person`/`opportunity`, and the
- * plain position order for `custom` or any other kind. There is no pinned
- * column on `crm_field_policies`, and inventing one here would be a schema
- * change in a table another slice owns — reordering the attribute is how a
- * user pins one today.
- *
- * A curated slot the schema does not declare is skipped, and leftover slots
- * backfill from position order, preferring an attribute that already carries
- * a value — otherwise a schema with a short curated list would fill its
- * remaining slots with guaranteed-empty attributes, reproducing the "mostly
- * Empty" bug this replaces.
- */
 export function splitHighlights<
   T extends { apiSlug: string; position: number },
 >(
@@ -376,9 +309,6 @@ export function splitHighlights<
   };
 }
 
-// ---------------------------------------------------------------------------
-// Duplicate attributes
-// ---------------------------------------------------------------------------
 
 function sameCrmValue(a: CrmValue, b: CrmValue | undefined): boolean {
   if (a === b) return true;
@@ -389,14 +319,6 @@ function sameCrmValue(a: CrmValue, b: CrmValue | undefined): boolean {
   return false;
 }
 
-/**
- * `displayName` duplicates `name` when the native adapter minted both from
- * the same write (`server/crm/native-adapter.ts` has stopped minting
- * `displayName` going forward, but existing rows still carry both). Suppress
- * only when `name` has a real value equal to `displayName` — an absent or
- * cleared `name` must not read the same as a suppressed duplicate, so
- * `displayName` keeps showing.
- */
 export function isSuppressedDuplicateAttribute(
   apiSlug: string,
   values: Record<string, CrmValue>,
@@ -407,7 +329,6 @@ export function isSuppressedDuplicateAttribute(
   return sameCrmValue(name, values.displayName);
 }
 
-/** Drop attributes the panel should not render twice — see above. */
 export function withoutSuppressedDuplicates<T extends { apiSlug: string }>(
   attributes: T[],
   values: Record<string, CrmValue>,
@@ -417,9 +338,6 @@ export function withoutSuppressedDuplicates<T extends { apiSlug: string }>(
   );
 }
 
-// ---------------------------------------------------------------------------
-// History
-// ---------------------------------------------------------------------------
 
 export interface FieldHistoryChange {
   id: string;
@@ -451,11 +369,6 @@ export interface FieldHistoryTransition {
   actorId: string | null;
 }
 
-/**
- * Turn the newest-first rows into "from → to" transitions. The oldest row has
- * no predecessor, so its `from` is `undefined` — deliberately not `null`, which
- * is a real stored value meaning the field was cleared.
- */
 export function historyTransitions(
   changes: FieldHistoryChange[],
 ): FieldHistoryTransition[] {
@@ -472,9 +385,6 @@ export function historyTransitions(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Activity
-// ---------------------------------------------------------------------------
 
 export interface CrmActivityItem {
   id: string;
@@ -484,11 +394,6 @@ export interface CrmActivityItem {
   actor?: string;
 }
 
-/**
- * Nothing in this app writes `crm_interactions` yet, so an empty Activity tab
- * means "we are not ingesting" and never "nothing happened". The UI must print
- * that difference instead of an ambiguous "No activity".
- */
 export type ActivityState =
   | { kind: "not-ingested" }
   | { kind: "items"; items: CrmActivityItem[] };
@@ -501,9 +406,6 @@ export function resolveActivityState(
     : { kind: "not-ingested" };
 }
 
-// ---------------------------------------------------------------------------
-// Optimistic value edits
-// ---------------------------------------------------------------------------
 
 export interface OptimisticFieldEdit {
   apiSlug: string;
@@ -511,11 +413,6 @@ export interface OptimisticFieldEdit {
   previousMeta: CrmRecordPageValueMeta | undefined;
 }
 
-/**
- * Apply an edit to a cached page and hand back what is needed to undo it. The
- * caller restores with `rollbackFieldValue` when the action rejects, so a
- * failed write never leaves the panel showing a value the server does not have.
- */
 export function applyFieldValue(
   page: CrmRecordPage,
   apiSlug: string,
@@ -588,9 +485,6 @@ export function rollbackEntryValue(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Tabs
-// ---------------------------------------------------------------------------
 
 export const RECORD_TABS = ["activity", "notes", "tasks", "related"] as const;
 

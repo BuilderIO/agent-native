@@ -38,10 +38,6 @@ export default defineAction({
     compactCatalog: true,
   },
   run: async (args) => {
-    // Project only the columns the list/summary needs. A bare `.select()` pulls
-    // every column — including the large `html`, `markdown`, and `content`
-    // blobs — for every plan the user can access, which is pure waste for a
-    // list view and the main reason the plans-list skeleton lingered.
     const accessContext = resolvePlanAccessContext(currentAccess());
     const accessWhere = accessFilter(
       schema.plans,

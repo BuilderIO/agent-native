@@ -1,27 +1,5 @@
 // @vitest-environment happy-dom
 
-/**
- * Base fill row image-layer prop wiring regression.
- *
- * `FillProperties`' base swatch renders a `<ColorInput>` whose
- * `onImageFillLayerChange` builds its commit patch from whatever ColorInput
- * computes internally from its `backgroundImage`/`backgroundSize`/
- * `backgroundRepeat`/`backgroundPosition` props (see `imageFillChangePatch`
- * in fill-gradient-helpers.ts). The base row previously only passed
- * `backgroundImage`, so ColorInput treated every sibling layer as having no
- * size/repeat/position of its own — switching the base swatch to Image then
- * rebuilt those three properties as a single-entry list against the real
- * N+1-layer backgroundImage stack, corrupting every existing gradient/image
- * layer's size/repeat/position via CSS background-layer-list cycling (e.g.
- * an existing "cover" silently became "auto").
- *
- * There is no React Testing Library in this app, but `layout-properties.test.tsx`
- * establishes the pattern of rendering with `react-dom/server` and asserting
- * on the resulting markup, so this file follows the same approach: stub out
- * `ColorInput` to surface the exact props it receives, then assert the base
- * row's `<ColorInput>` is wired with the real backgroundSize/backgroundRepeat/
- * backgroundPosition values instead of leaving them empty.
- */
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -75,8 +53,6 @@ vi.mock("./field-primitives", async (importOriginal) => {
   };
 });
 
-// Stub ColorInput so the test can inspect exactly what props the base fill
-// row wires it with, without needing to render the real popover/picker tree.
 vi.mock("./panel-primitives", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./panel-primitives")>();
   return {
@@ -326,10 +302,6 @@ describe("FillProperties base row — image layer prop wiring", () => {
       }),
     );
 
-    // Before the fix, backgroundSize/backgroundRepeat/backgroundPosition were
-    // never passed at all, so these data attributes would be missing/empty
-    // even though the element clearly has real, non-default values for all
-    // three (a genuine "cover, 100% 100%" sibling layer stack).
     expect(markup).toContain('data-background-image="url(hero.png)');
     expect(markup).toContain('data-background-size="cover, 100% 100%"');
     expect(markup).toContain('data-background-repeat="no-repeat, repeat"');

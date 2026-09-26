@@ -47,10 +47,6 @@ import applyComponentPropEditAction from "./apply-component-prop-edit.js";
 import readLocalFileAction from "./read-local-file.js";
 import writeLocalFileAction from "./write-local-file.js";
 
-/**
- * Short human-readable label describing an edit intent, shown next to the
- * agent's selection ring for live viewers (e.g. "AI — Editing text").
- */
 function editIntentLabel(intent: EditIntent): string {
   switch (intent.kind) {
     case "textContent":
@@ -78,17 +74,8 @@ function editIntentLabel(intent: EditIntent): string {
 
 type VisualEditActionSource = CodeLayerSource & { html?: string };
 
-/** Tailwind responsive prefix values accepted by the action. */
 const TAILWIND_PREFIXES = ["base", "sm", "md", "lg", "xl", "2xl"] as const;
 
-/**
- * Resolve the active breakpoint prefix for a class edit.
- *
- * - If `activeBreakpoint` is provided it is used directly.
- * - If only `activeFrameWidthPx` is provided the prefix is derived via `widthToPrefix`.
- * - If neither is provided the result is `null` (= no breakpoint scoping; global
- *   class edit, current backward-compatible behaviour).
- */
 function resolveActivePrefix(
   activeBreakpoint?: TailwindBreakpointPrefix | null,
   activeFrameWidthPx?: number | null,
@@ -108,28 +95,11 @@ function resolveActivePrefix(
  * the old first-segment heuristic, nuke unrelated utilities like `text-center`).
  */
 function stemFromToken(token: string): string {
-  // Strip any responsive prefix (e.g. "md:text-sm" → "text-sm").
   const prefixMatch = /^(?:2xl|xl|lg|md|sm):/.exec(token);
   const utility = prefixMatch ? token.slice(prefixMatch[0].length) : token;
   return utilityStem(utility);
 }
 
-/**
- * Convert a global `ClassEditIntent` into the equivalent `EditIntent` scoped to
- * the given breakpoint prefix.
- *
- * - `"add"` and `"replace"` become `"responsive-class"` edits that write /
- *   replace the utility at the target prefix.
- * - `"remove"` becomes a `"responsive-class"` remove that strips the utility
- *   stem at the target prefix.
- * - `"set"` has no direct per-breakpoint analog (it replaces the whole class
- *   list) and is passed through unchanged so existing behaviour is preserved.
- *
- * When `prefix` is `"base"`, the intent is returned unchanged because
- * `setPropertyClass(className, "base", utility)` is equivalent to a
- * global unprefixed add/replace and the existing `"class"` path already
- * handles it correctly.
- */
 function scopeClassIntentToBreakpoint(
   intent: ClassEditIntent,
   prefix: TailwindBreakpointPrefix,
@@ -174,21 +144,9 @@ function scopeClassIntentToBreakpoint(
     };
   }
 
-  // "set" — no per-breakpoint analog; fall back to global class edit.
   return intent;
 }
 
-/**
- * Convert a `class` or `style` intent into the equivalent Framer-scoped edit
- * for a desktop-down max-width bound (§6.4 breakpoint bar semantics):
- *
- * - `class` add/replace/remove → `responsive-class` with `maxWidthPx`
- *   (writes/removes a `max-[<bound>px]:` scoped token).
- * - `style` → the single class-vs-media decision (`planBreakpointStyleWrite`):
- *   Tailwind-utility values become scoped classes; raw CSS values become
- *   managed `@media (max-width: <bound>px)` rules via `breakpoint-style`.
- * - Everything else passes through unchanged.
- */
 function scopeIntentToFramerBound(
   intent: EditIntent,
   maxWidthPx: number,
@@ -224,7 +182,6 @@ function scopeIntentToFramerBound(
         stem: stemFromToken(tokens[0]),
       };
     }
-    // "set" — no per-breakpoint analog.
     return intent;
   }
 
@@ -261,16 +218,6 @@ function scopeIntentToFramerBound(
   return intent;
 }
 
-/**
- * Resolve the Framer desktop-down bound for a design-file edit from the
- * design's stored breakpoint set (+ the edited screen's primary width).
- *
- * - `{ kind: "bound" }` — a wider frame exists; scope below it.
- * - `{ kind: "base" }` — the active frame IS the widest context; edits
- *   belong to the base layer (Framer semantics).
- * - `{ kind: "unknown" }` — the design has no breakpoint set; callers fall
- *   back to the legacy min-width prefix behaviour.
- */
 function resolveFramerBoundFromDesignData(
   designData: string | null,
   fileId: string,
@@ -367,8 +314,6 @@ const targetSchema = z
       .object({
         line: z.number().int().positive(),
         column: z.number().int().positive(),
-        // Without this the deterministic writer cannot tell a React 19
-        // owner-stack line from an authored one and would seek to it.
         positionPrecision: z
           .enum(["authored", "transformed", "unknown"])
           .optional(),
@@ -680,13 +625,6 @@ async function resolveEditableDesignFile(
 
   await assertAccess("design", file.designId, "editor");
 
-  // Read the live (collab-authoritative, not just SQL-stored) content and
-  // capture its versionHash so the eventual persist can be conditioned on
-  // this exact base still being current — see persistDesignFileEdit below.
-  // Same read helper the 8 sibling actions (insert-design-native-asset.ts,
-  // insert-asset.ts, etc.) migrated to, closing the write-race window where
-  // a concurrent editor's change landed between this read and the raw
-  // unconditional write this action used to do.
   const workspaceFile: SourceWorkspaceFile = {
     id: file.id,
     designId: file.designId,
@@ -1564,9 +1502,6 @@ export default defineAction({
 
     const lastResult = batch.results[batch.results.length - 1];
     if (lastResult?.target) {
-      // Publish a RESOLVABLE selection descriptor so live viewers can render a
-      // ring over the element being edited. Prefer the stable
-      // `data-agent-native-node-id` anchor over the projection CSS selector.
       agentUpdateSelection(file.id, {
         selection: agentSelectionDescriptor(
           lastResult.target,

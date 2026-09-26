@@ -58,11 +58,6 @@ function safeFilename(
 ): string | null {
   const ext = extension.toLowerCase();
   if (!isSlidesReferenceFileExtension(ext)) return null;
-  // Filename uniqueness comes from nanoid (~21 chars, ~126 bits of entropy),
-  // not `Date.now()` — second-resolution timestamps are guessable and let
-  // someone with the per-tenant URL prefix probe the upload window. The
-  // tenant subdir already namespaces by user; nanoid makes the leaf
-  // unguessable too. (audit 10 medium / audit 01 medium).
   return `${nanoid()}${ext}`;
 }
 
@@ -231,10 +226,6 @@ export async function saveUploadedReferenceFile(args: {
     await fs.promises.writeFile(destPath, args.data);
     uploadedPath = pathForAgent(destPath);
   }
-  // For images, also push to the public file-upload provider so the agent can
-  // embed a hosted URL (in slide HTML, chat replies, etc.). The `path` above
-  // remains the private import source: a tenant path locally and an encrypted,
-  // owner-scoped blob reference in hosted deployments.
   let url: string | undefined;
   if (
     canSaveAsUploadedAsset({
@@ -252,9 +243,6 @@ export async function saveUploadedReferenceFile(args: {
         })
       ).url;
     } catch {
-      // No provider configured or upload failed — the agent still has the
-      // on-disk path. The caller's UI can prompt the user to connect a
-      // provider if it needs a public URL.
       url = undefined;
     }
   }
@@ -268,7 +256,6 @@ export async function saveUploadedReferenceFile(args: {
   };
 }
 
-// Upload one or more files
 export const uploadFiles = defineEventHandler(async (event) => {
   const auth = await resolveSlidesRequestAuth(event);
   if (!auth.ok) {

@@ -25,12 +25,6 @@ import {
   TEXT_CASE_OPTIONS,
 } from "./typography-helpers";
 
-// ---------------------------------------------------------------------------
-// splitFontFamilyList / resolveFontFamilySelectValue — font-family stack
-// parsing must be case-insensitive and quote/whitespace tolerant so a
-// computed "Inter", "'Inter', sans-serif", or " inter , sans-serif " all
-// resolve to the same known FONT_FAMILY_OPTIONS entry.
-// ---------------------------------------------------------------------------
 
 describe("splitFontFamilyList", () => {
   it("splits a plain comma-separated stack", () => {
@@ -94,8 +88,6 @@ describe("resolveFontFamilySelectValue", () => {
   });
 
   it("falls back to matching on the first family when the full stack differs", () => {
-    // e.g. a computed style tail that differs from our canonical fallback
-    // stack should still resolve by first-family name.
     expect(resolveFontFamilySelectValue("Inter, Arial, sans-serif")).toBe(
       "'Inter', sans-serif",
     );
@@ -107,8 +99,6 @@ describe("resolveFontFamilySelectValue", () => {
   });
 
   it("passes through an unrecognized font stack unchanged (no silent default)", () => {
-    // Previously any unmatched value should surface as its own trimmed raw
-    // string, not silently fall back to the first FONT_FAMILY_OPTIONS entry.
     expect(resolveFontFamilySelectValue("No Such Font, sans-serif")).toBe(
       "No Such Font, sans-serif",
     );
@@ -138,14 +128,6 @@ describe("displayFontFamilyName", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// resolveFontFamilyFieldValue — mixed-selection safety. A multi-selection
-// spanning different fonts must resolve to the MIXED_VALUE sentinel so the
-// caller can render it as a disabled placeholder instead of a normal,
-// clickable option (bug: previously this coincidentally worked because
-// MIXED_VALUE's literal text happens to be "Mixed", but nothing marked it as
-// non-selectable — see typography-properties.tsx for the fix).
-// ---------------------------------------------------------------------------
 
 describe("resolveFontFamilyFieldValue", () => {
   it("returns the MIXED_VALUE sentinel unchanged for a mixed selection", () => {
@@ -162,13 +144,6 @@ describe("resolveFontFamilyFieldValue", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// isKnownFontWeight — every FONT_WEIGHT_OPTIONS notch must be recognized;
-// a variable-font weight outside those nine must not be, so the caller can
-// inject a synthesized option (bug: previously an off-notch weight like
-// "550" left the font-weight Select's value matching no item — rendered
-// blank even though the real weight was still applied).
-// ---------------------------------------------------------------------------
 
 describe("isKnownFontWeight", () => {
   it("recognizes every standard notch", () => {
@@ -188,14 +163,6 @@ describe("isKnownFontWeight", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// resolveFixedResizeDimension — converting auto-width/auto-height text to
-// "fixed" must preserve the element's real authored size when present, and
-// otherwise fall back to its actual current rendered size (boundingRect),
-// never an arbitrary hardcoded constant (bug: the prior "200px"/"48px"
-// defaults caused a visible size jump on every auto -> fixed conversion for
-// a box that had never been explicitly sized).
-// ---------------------------------------------------------------------------
 
 describe("resolveFixedResizeDimension", () => {
   it("preserves an existing authored (non-auto) size verbatim", () => {
@@ -309,12 +276,8 @@ describe("line-height field values", () => {
   });
 
   it("rejects a malformed doubled unit suffix instead of silently stripping both", () => {
-    // Same underlying flaw as letter-spacing: parseScrubExpression strips
-    // every occurrence of the detected unit (global regex), so without a
-    // guard these would parse as "2px"/"1.5%".
     expect(parseLineHeightInput("2pxpx", { value: 16, unit: "px" })).toBeNull();
     expect(parseLineHeightInput("1.5%%", { value: 16, unit: "px" })).toBeNull();
-    // A single, well-formed unit (or none) still parses normally.
     expect(
       parseLineHeightInput("24px", { value: 16, unit: "px" }),
     ).toMatchObject({ text: "24px", value: 24, unit: "px", cssValue: "24px" });
@@ -324,13 +287,6 @@ describe("line-height field values", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// parseTextDecorationLineTokens / isTextDecorationLineActive /
-// nextTextDecorationLineValue — underline/strikethrough toggle state must be
-// read off the clean `textDecorationLine` computed longhand OR the composite
-// `textDecoration` shorthand (both can appear depending on caller), and a
-// mixed selection must never be misread as "this line is active".
-// ---------------------------------------------------------------------------
 
 describe("parseTextDecorationLineTokens", () => {
   it("returns an empty set for none/undefined/empty", () => {
@@ -406,11 +362,6 @@ describe("nextTextDecorationLineValue", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// TEXT_CASE_OPTIONS — the four text-transform notches the Case control
-// exposes must match the CSS keywords exactly (they are committed verbatim
-// through onStyleChange("textTransform", value)).
-// ---------------------------------------------------------------------------
 
 describe("TEXT_CASE_OPTIONS", () => {
   it("exposes exactly the four supported text-transform keywords", () => {
@@ -533,10 +484,6 @@ describe("text truncation styles", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// parseLetterSpacingInput — Figma's tracking field takes a percentage of the
-// font size, so "2%" is 0.02em; a bare number stays px like the scrub unit.
-// ---------------------------------------------------------------------------
 
 describe("parseLetterSpacingInput / resolveLetterSpacingFieldValue", () => {
   const px = { value: 0, unit: "px" as const };
@@ -569,16 +516,12 @@ describe("parseLetterSpacingInput / resolveLetterSpacingFieldValue", () => {
   });
 
   it("rejects a malformed doubled or mismatched unit suffix instead of silently stripping both", () => {
-    // parseScrubExpression strips every occurrence of the detected unit
-    // (global regex), so without a guard these would parse as "2px"/"2%".
     expect(parseLetterSpacingInput("2pxpx", px)).toBeNull();
     expect(parseLetterSpacingInput("2px px", px)).toBeNull();
     expect(parseLetterSpacingInput("2%%", px)).toBeNull();
     expect(parseLetterSpacingInput("2em%", px)).toBeNull();
-    // A single, well-formed unit still parses normally.
     expect(parseLetterSpacingInput("2px", pct)?.cssValue).toBe("2px");
     expect(parseLetterSpacingInput("2", px)?.cssValue).toBe("2px");
-    // A unit embedded mid-expression, followed by further arithmetic
     // (not another unit token), is not "doubled" and must keep working.
     expect(
       parseLetterSpacingInput("(x+1)px", { value: 0.64, unit: "px" }),

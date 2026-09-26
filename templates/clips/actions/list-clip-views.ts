@@ -1,17 +1,3 @@
-/**
- * List individual view records for a recording — who viewed it and when,
- * most recent first. Owner-only. This is the per-viewer timeline that backs
- * the "Viewed by" popover on the aggregate view count shown in the library
- * and clip detail insights panel.
- *
- * Distinct from `list-viewers` (aggregate per-viewer watch stats, one row per
- * viewer) — `list-clip-views` is an append-only log of counted-view moments,
- * so a returning viewer's second visit shows up as its own row with its own
- * timestamp.
- *
- * Usage:
- *   pnpm action list-clip-views --recordingId=<id> [--limit=50]
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";

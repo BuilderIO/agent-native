@@ -64,12 +64,6 @@ export async function getCredentialContextFromEvent(
   return { userEmail: session.email, orgId };
 }
 
-/**
- * Get the credential context from the active request — preferring the
- * AsyncLocalStorage context (set by the action router or by a wrapping
- * `runWithRequestContext` call) and falling back to a fresh session lookup
- * on `event` for hand-written `/api/*` routes.
- */
 export async function requireCredentialContext(
   event: H3Event,
 ): Promise<CredentialContext | null> {
@@ -78,12 +72,6 @@ export async function requireCredentialContext(
   return getCredentialContextFromEvent(event);
 }
 
-/**
- * Run `fn` with a request context derived from `event`. Use this at the top
- * of any custom `/api/*` handler before reading credentials so the
- * `accessFilter` / `assertAccess` guards (and `resolveCredential` callers
- * downstream) see the same identity.
- */
 export async function withRequestContextFromEvent<T>(
   event: H3Event,
   fn: (ctx: CredentialContext) => Promise<T>,
@@ -112,14 +100,6 @@ export async function runApiHandlerWithContext<T>(
   };
 }
 
-/**
- * Async replacement for requireEnvKey that checks the per-user / per-org
- * SQL settings store. Returns a structured "missing_api_key" response if the
- * credential is not found, or null if it exists.
- *
- * Use inside a route handler. Reads the session from `event`. Returns 401
- * via the missing-key shape when there's no signed-in user.
- */
 export async function requireCredential(
   event: H3Event,
   key: string,

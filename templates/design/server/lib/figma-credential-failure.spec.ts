@@ -72,9 +72,6 @@ describe("provider credential failures", () => {
   });
 
   it("recognizes the Design app's own missing-context refusal", () => {
-    // Raised by the getCredentialContext callback in provider-api.ts, which
-    // runs before core's equivalent check. Read the literal out of the source
-    // rather than copying it, so rewording that message fails here.
     const source = readFileSync("server/lib/provider-api.ts", "utf8");
     const message = /throw new Error\(\s*"([^"]+)"/.exec(source)?.[1];
 
@@ -98,7 +95,6 @@ describe("provider credential failures", () => {
         "figma_auth_required",
       );
       expect((error as { statusCode?: number }).statusCode).toBe(401);
-      // The credential key and any scope-gap wiring detail stay in the log.
       expect((error as Error).message).not.toMatch(/FIGMA_ACCESS_TOKEN/);
     }
   });

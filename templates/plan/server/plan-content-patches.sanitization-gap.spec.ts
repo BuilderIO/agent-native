@@ -7,23 +7,6 @@ import {
 } from "../shared/plan-content.js";
 import { sanitizeCustomHtml, serializePlanContent } from "./plan-content.js";
 
-/**
- * The patch ops `patch-wireframe-html` and `update-custom-html` claim (in code
- * comments) that the result is "re-sanitized" so "a patch can never smuggle
- * active content in." That claim rests on the zod `noFullHtmlDocument` refine,
- * whose regex is NARROWER than the runtime `sanitizeCustomHtml` allowlist.
- *
- * These tests pin the parity gap: payloads the runtime sanitizer strips but the
- * patch-validation refine lets through. In the live `update-visual-plan` flow
- * these are still cleaned because the action separately calls
- * `serializePlanContent` (which sanitizes). But `applyPlanContentPatches` on its
- * own — the surface these tests exercise — does NOT self-sanitize, contradicting
- * the inline comment.
- *
- * Tests named "GAP:" are EXPECTED-TO-FAIL pins of bugs (they assert the safe
- * behavior the comment promises). Tests named "PARITY:" assert the sanitizer's
- * own gaps directly.
- */
 
 const wireframeHtml = (html: string): PlanContent =>
   planContentSchema.parse({
@@ -41,10 +24,6 @@ const customHtml = (html: string): PlanContent =>
 
 describe("patch sanitization parity gap (re-sanitize claim)", () => {
   it("GAP: patch-wireframe-html does NOT reject a vbscript: href that the runtime sanitizer strips", () => {
-    // The runtime sanitizer turns `<a href="vbscript:...">x</a>` into `<a>x</a>`.
-    // The patch refine only screens javascript:/data:text/html:, so vbscript:
-    // survives the patch. This SHOULD throw (comment: "can never smuggle active
-    // content in"); it does not. FAILING pins the bug.
     expect(() =>
       applyPlanContentPatches(wireframeHtml("<div>x</div>"), [
         {
@@ -95,9 +74,6 @@ describe("patch sanitization parity gap (re-sanitize claim)", () => {
 
 describe("runtime sanitizer own gaps (sanitizeCustomHtml)", () => {
   it("PARITY: tab-obfuscated 'java\\tscript:' href survives the runtime sanitizer", () => {
-    // Browsers strip whitespace inside the scheme, so `java<TAB>script:` can
-    // execute. The sanitizer only matches the literal `javascript:`. SHOULD be
-    // neutralized; it is not. FAILING pins the bug.
     const dirty = '<a href="java\tscript:alert(1)">x</a>';
     const clean = sanitizeCustomHtml(dirty);
     expect(clean).not.toMatch(/java\s*script:/i);
@@ -118,10 +94,6 @@ describe("runtime sanitizer own gaps (sanitizeCustomHtml)", () => {
 
 describe("END-TO-END: obfuscated payloads survive the only stored-content sanitization layer", () => {
   it("E2E GAP: a tab-obfuscated java\\tscript: href persists through serializePlanContent into the stored JSON", () => {
-    // serializePlanContent is the sole sanitization layer for the value that
-    // update-visual-plan persists. The obfuscated scheme is not caught by the
-    // schema refine NOR by sanitizeCustomHtml, so it lands in stored content.
-    // SHOULD be neutralized; it is not. FAILING pins the bug.
     const stored = serializePlanContent({
       version: 2,
       blocks: [
@@ -132,8 +104,6 @@ describe("END-TO-END: obfuscated payloads survive the only stored-content saniti
         },
       ],
     } as unknown as PlanContent);
-    // JSON.stringify escapes the tab as the two characters backslash-t, so the
-    // surviving obfuscated scheme appears verbatim in the stored JSON string.
     expect(stored).not.toContain("java\\tscript:");
   });
 

@@ -30,12 +30,8 @@ const orgId = process.env.AGENT_ORG_ID?.trim() || undefined;
 const existingDesignId = process.env.FIGMA_STRESS_DESIGN_ID?.trim();
 
 const evidence = await runWithRequestContext({ userEmail, orgId }, async () => {
-  // Normal action routes initialize this during server bootstrap. A standalone
-  // QA entry point must initialize the template adapter before reading the
-  // encrypted credential vault.
   getDb();
   // Resolve only inside the authenticated request scope. These values are
-  // never printed, serialized, or passed as action arguments.
   const [figmaCredential, builderCredential] = await Promise.all([
     resolveSecret("FIGMA_ACCESS_TOKEN"),
     resolveBuilderPrivateKey(),
@@ -51,9 +47,6 @@ const evidence = await runWithRequestContext({ userEmail, orgId }, async () => {
       "This QA account has no request-scoped durable upload provider. Connect Builder (free tier available) in Design and retry.",
     );
   }
-  // The explicit QA flag must deterministically exercise this provider even
-  // when Builder is also connected. Registered providers win over Builder in
-  // the core upload registry, so register it whenever the flag is enabled.
   if (localQaStorageEnabled) registerLocalFigmaQaUploadProvider();
 
   const designId =
@@ -91,6 +84,4 @@ const evidence = await runWithRequestContext({ userEmail, orgId }, async () => {
   };
 });
 
-// Deliberately emit only bounded import evidence. Credentials, account ids,
-// upload URLs, and imported source never enter stdout.
 console.log(JSON.stringify(evidence, null, 2));

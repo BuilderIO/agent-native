@@ -2,11 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
 
-/**
- * Clip FFBTGvnWyEys "Fix Frame and Screen Nesting in Design Editor".
- * On the board "frame" already means a screen card (data-frame-id), so the
- * Frame tool is overloaded — these pin which surface produces which thing.
- */
 
 const BLANK = `<!doctype html>
 <html lang="en">
@@ -84,7 +79,6 @@ async function openEditor(page: Page, id: string): Promise<void> {
   await page.waitForTimeout(3500);
 }
 
-/** Screen rect in page px, plus px-per-screen-unit. */
 async function screenBox(page: Page) {
   const box = (await page
     .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
@@ -93,10 +87,6 @@ async function screenBox(page: Page) {
   return { ...box, scale: box.width / 320 };
 }
 
-/**
- * Scans for a point that actually hit-tests to the canvas surface. Computing
- * one from the screen rect lands on the inspector panel at narrow viewports.
- */
 async function emptyBoardPoint(page: Page) {
   const point = await page.evaluate(() => {
     const world = document.querySelector("[data-multi-screen-canvas-world]");
@@ -129,8 +119,6 @@ async function emptyBoardPoint(page: Page) {
   return point;
 }
 
-/** Frame is the primary tool; Screen lives in its dropdown. The trigger's
- *  label follows the active mode, so match either. */
 async function pickFrameMode(page: Page, mode: "Frame" | "Screen") {
   await page
     .locator(
@@ -246,8 +234,6 @@ test("the live board uses the light canvas theme token", async ({ page }) => {
   });
 
   await expect(page.locator("html")).toHaveClass(/light/);
-  // The wrapper paints the board; the document inside it is transparent so a
-  // colour-picker tick does not rebuild the iframe srcdoc.
   await expect(page.locator("[data-board-surface-layer]")).toHaveCSS(
     "background-color",
     "rgb(235, 235, 235)",
@@ -327,7 +313,6 @@ test("4:24 — a board frame can be dragged into a screen and become a child", a
     "precondition: the frame tool must put a frame on the board",
   ).toContain('data-an-primitive="frame"');
 
-  // Board objects live in their own iframe behind the screens.
   const boardFrame = page
     .locator("[data-board-surface-layer] iframe")
     .first()
@@ -464,14 +449,10 @@ test("the canvas does not go black and hide the screens after drawing a frame", 
     y: empty.y + 90,
   });
 
-  // The frame has to exist, or "the screens are still visible" holds for the
-  // trivial reason that nothing was drawn.
   await expect
     .poll(() => fileContent(page, id, "__board__.html"), { timeout: 20_000 })
     .toContain('data-an-primitive="frame"');
 
-  // Clip "Canvas Turns Black and Hides Frames": after the frame was created
-  // the overview painted black and every screen vanished from the canvas.
   const after = await page
     .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
     .first()

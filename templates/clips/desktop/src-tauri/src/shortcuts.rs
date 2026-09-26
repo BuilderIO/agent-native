@@ -27,7 +27,6 @@ fn numpad_enter_shortcut() -> Shortcut {
 }
 
 fn countdown_return_shortcuts() -> Vec<Shortcut> {
-    // Windows maps both keys to VK_RETURN, so registering both always fails.
     #[cfg(target_os = "windows")]
     {
         vec![enter_shortcut()]
@@ -112,11 +111,6 @@ static POPOVER_VISIBILITY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static COUNTDOWN_SHORTCUTS_ACTIVE: AtomicBool = AtomicBool::new(false);
 static COUNTDOWN_SHORTCUTS_GENERATION: AtomicU64 = AtomicU64::new(0);
 static COUNTDOWN_SHORTCUTS_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-// P1: tracks whether Escape is currently registered *for dictation-cancel*
-// specifically (independent of POPOVER_DISMISS_SHORTCUT_ACTIVE, which tracks
-// the popover's own reason to want Escape registered). Escape should stay
-// registered globally if EITHER reason wants it, and only unregister once
-// BOTH are false — see `sync_dictation_escape_shortcut`.
 static DICTATION_ESCAPE_SHORTCUT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 fn custom_voice_shortcut() -> &'static Mutex<Option<Shortcut>> {
@@ -172,10 +166,6 @@ fn parse_optional_shortcut(value: Option<String>) -> Result<Option<Shortcut>, St
         .map_err(|err| err.to_string())
 }
 
-/// Swap a stored custom shortcut to `next`, returning the previous value on
-/// success so the caller can roll back later if a sibling registration fails.
-/// On failure the previous shortcut is re-registered locally and `state` is
-/// left untouched.
 fn swap_custom_shortcut<R: tauri::Runtime>(
     gs: &tauri_plugin_global_shortcut::GlobalShortcut<R>,
     state: &Mutex<Option<Shortcut>>,
@@ -197,12 +187,6 @@ fn swap_custom_shortcut<R: tauri::Runtime>(
     if let Some(next) = next {
         if let Err(err) = gs.register(next) {
             if let Some(old) = old {
-                // Only restore the prior state if re-registration actually
-                // succeeded — otherwise the OS rejected `old` and there is
-                // nothing registered for this slot. Tracking it as Some(old)
-                // would lie to future operations (is_registered/unregister
-                // would fail); leaving it None keeps state and reality in
-                // sync at the cost of forgetting the prior shortcut.
                 if gs.register(old).is_ok() {
                     *current = Some(old);
                 }
@@ -345,9 +329,6 @@ pub async fn set_custom_shortcuts(
         match result {
             Ok(old) => previous.push((state, old, label, defaults)),
             Err(err) => {
-                // The recording slots restore their platform defaults when a
-                // custom value is cleared, so rollback must use the same
-                // boundary-aware swap instead of the generic helper.
                 for (state, old, label, defaults) in previous.into_iter().rev() {
                     if let Some(defaults) = defaults {
                         let _ = swap_custom_recording_shortcut(gs, state, old, defaults, label);
@@ -382,11 +363,6 @@ pub async fn set_fn_shortcut_enabled(app: AppHandle, enabled: bool) -> Result<()
     Ok(())
 }
 
-/// Wispr parity (P5): re-paste the last dictation on demand. Cmd+Ctrl+V on
-/// macOS; Ctrl+Alt+V elsewhere (Ctrl+Shift+V collides with several
-/// terminals' native paste override, and Shift+Alt+Z per wispr-ux.md's
-/// Windows row isn't a natural fit for our existing modifier conventions
-/// here, so we mirror our own Ctrl+Shift+L-style dual-binding instead).
 fn paste_last_dictation_shortcut() -> Shortcut {
     #[cfg(target_os = "macos")]
     {
@@ -462,9 +438,6 @@ pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
     if let Err(err) = gs.register(voice_ctrl_space) {
         eprintln!("[clips-tray] failed to register Ctrl+Shift+Space voice shortcut: {err}");
     }
-    // Non-fatal: a collision here should never block the rest of startup —
-    // paste-last-dictation is a convenience shortcut, always reachable via
-    // the tray menu regardless of whether the hotkey registered.
     if let Err(err) = gs.register(paste_last_dictation_shortcut()) {
         eprintln!("[clips-tray] failed to register paste-last-dictation shortcut: {err}");
     }
@@ -472,10 +445,6 @@ pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-/// Globally intercept Escape while the popover is visible so it dismisses even
-/// when another app is focused — Loom-style. The native Window picker also
-/// owns Escape while it is active, even if picker focus causes the popover to
-/// emit visible=false; unregistering during that handoff strands the picker.
 pub fn install_popover_dismiss_handler(app: &tauri::App) {
     #[cfg(target_os = "macos")]
     install_window_picker_escape_monitor(app);
@@ -485,12 +454,6 @@ pub fn install_popover_dismiss_handler(app: &tauri::App) {
         let payload = event.payload().to_string();
         let generation = POPOVER_VISIBILITY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
         let handle = handle.clone();
-        // Defer register/unregister to a worker thread. Calling
-        // global_shortcut::{register,unregister,is_registered} from inside
-        // a listener fired by an Escape press freezes the app on macOS:
-        // the listener runs while the Carbon hotkey callback is still on
-        // the stack, and Carbon's hotkey table is not reentrant from
-        // within its own callback.
         std::thread::spawn(move || {
             if POPOVER_VISIBILITY_GENERATION.load(Ordering::SeqCst) != generation {
                 return;
@@ -517,12 +480,6 @@ pub fn install_popover_dismiss_handler(app: &tauri::App) {
     });
 }
 
-/// The ScreenCaptureKit picker temporarily promotes the menu-bar app to a
-/// regular, active AppKit application. During that handoff the global
-/// shortcut callback can be skipped depending on which native picker surface
-/// owns the key window. Keep a picker-scoped AppKit monitor as a direct escape
-/// path; the global monitor covers events delivered outside Clips and the local
-/// monitor covers the picker window when AppKit considers Clips active.
 #[cfg(target_os = "macos")]
 fn install_window_picker_escape_monitor(app: &tauri::App) {
     use std::ptr::NonNull;
@@ -561,10 +518,6 @@ fn install_window_picker_escape_monitor(app: &tauri::App) {
     }
 }
 
-/// Ensure the Carbon shortcut is armed before the picker takes AppKit focus.
-/// The AppKit monitors above are the direct fallback, but keeping the normal
-/// shortcut registered preserves the existing cancellation path and handles
-/// picker versions that do not deliver a local key event.
 pub(crate) async fn arm_window_picker_escape(app: &AppHandle) -> Result<(), String> {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -580,38 +533,17 @@ pub(crate) async fn arm_window_picker_escape(app: &AppHandle) -> Result<(), Stri
     .map_err(|error| format!("Window picker Escape registration worker stopped: {error}"))?
 }
 
-/// P1 (Esc cancels dictation): set `DictationActive` and keep the global
-/// Escape registration in lockstep, from a single chokepoint. Every call
-/// site that flips `DictationActive` in this file should go through this
-/// function (or the cmd/ctrl-shift-space branch's own direct mutex flip,
-/// which calls `sync_dictation_escape_shortcut` immediately after) instead of
-/// calling `set_dictation_active` directly, so Escape can never be left
-/// dangling registered after a session ends. Idempotent: registering an
-/// already-registered shortcut or unregistering an absent one is a no-op via
-/// the `is_registered` guards in `sync_dictation_escape_shortcut`.
 pub fn set_dictation_active_and_sync_escape(app: &AppHandle, active: bool) {
     set_dictation_active(app, active);
     sync_dictation_escape_shortcut(app.clone(), active);
 }
 
-/// Hands-free dictation outlives the physical key press that started it, while
-/// the physical key-edge handlers disarm Escape as soon as the triggering key
-/// is released. The webview calls this command when hands-free mode starts or
-/// ends so Escape stays armed for the whole hands-free session. `hide_flow_bar`
-/// remains the final safety net and unconditionally disarms on teardown.
 #[tauri::command]
 pub fn set_dictation_escape_active(app: AppHandle, active: bool) -> Result<(), String> {
     set_dictation_active_and_sync_escape(&app, active);
     Ok(())
 }
 
-/// Register/unregister the global Escape shortcut so it only intercepts Esc
-/// while a dictation session is actually active — mirrors
-/// `install_popover_dismiss_handler`'s register-on-demand pattern (same
-/// Carbon-reentrancy hazard: never call global_shortcut::{register,
-/// unregister,is_registered} synchronously from inside a hotkey callback, so
-/// this always hops to a worker thread). Registration failure is logged and
-/// swallowed — never breaks dictation start over a hotkey conflict.
 fn sync_dictation_escape_shortcut(app: AppHandle, active: bool) {
     DICTATION_ESCAPE_SHORTCUT_ACTIVE.store(active, Ordering::SeqCst);
     thread::spawn(move || {
@@ -625,9 +557,6 @@ fn sync_dictation_escape_shortcut(app: AppHandle, active: bool) {
             }
             return;
         }
-        // Only unregister once none of the popover, countdown, or a
-        // dictation session still wants Escape — otherwise we'd steal the
-        // registration out from under whichever of those is still using it.
         if !POPOVER_DISMISS_SHORTCUT_ACTIVE.load(Ordering::SeqCst)
             && !COUNTDOWN_SHORTCUTS_ACTIVE.load(Ordering::SeqCst)
             && gs.is_registered(shortcut)
@@ -637,14 +566,6 @@ fn sync_dictation_escape_shortcut(app: AppHandle, active: bool) {
     });
 }
 
-/// Register the countdown shortcuts before its window becomes visible.
-///
-/// The event-driven synchronizer above intentionally hops off Carbon's hotkey
-/// callback stack, but that also means it cannot be used for the initial
-/// activation: a fast Return at the visible `3` can otherwise beat the worker
-/// thread and leave the recorder waiting for the full timer. The countdown
-/// command awaits this worker before showing the window, preserving the
-/// non-reentrant teardown path while making the first visible frame actionable.
 pub(crate) async fn prepare_countdown_shortcuts(app: AppHandle) -> Result<u64, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = COUNTDOWN_SHORTCUTS_LOCK
@@ -673,9 +594,6 @@ pub(crate) async fn prepare_countdown_shortcuts(app: AppHandle) -> Result<u64, S
     .map_err(|error| format!("countdown shortcut worker stopped unexpectedly: {error}"))?
 }
 
-/// Tear down only the countdown generation that the caller prepared. A late
-/// cleanup from an older overlay must not unregister Return beneath the next
-/// visible countdown.
 pub(crate) async fn finish_countdown_shortcuts(
     app: AppHandle,
     generation: u64,
@@ -763,8 +681,6 @@ fn finish_countdown_from_shortcut(app: &AppHandle, event: &'static str) {
     });
 }
 
-/// Build the global shortcut plugin with its handler. Called from `run()` to
-/// register the plugin before `.build()`.
 pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::Wry> {
     tauri_plugin_global_shortcut::Builder::new().with_handler(|app, shortcut, event| {
         let is_voice_cmd_space = shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::Space);
@@ -821,24 +737,10 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                 crate::native_screen::cancel_window_picker(app);
                 return;
             }
-            // P1: Esc cancels an active dictation (wispr-ux.md §1) —
-            // checked before the popover-dismiss fallthrough below, and
-            // BEFORE the recording-active guard, since dictation and
-            // screen-recording are independent flags and a live dictation
-            // should always win Esc regardless of what else is going on.
-            // This Escape registration is itself gated on dictation being
-            // active (see `install_dictation_escape_handler`), but the
-            // check is cheap and kept here too as defence-in-depth in case
-            // Escape is independently registered for the popover at the
-            // same moment.
             if is_dictation_active(app) {
                 let _ = app.emit("voice:cancel", ());
                 return;
             }
-            // Keep Escape reserved while the popover is parked for native
-            // capture setup. Once the menu is full-size, Escape should behave
-            // like the visible Cancel/dismiss action even if the recording
-            // flag is stale.
             if is_recording_active(app) && crate::clips::popover_is_parked(app) {
                 return;
             }
@@ -877,10 +779,6 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                     }
                     if !already_active {
                         eprintln!("[clips-tray] {source} down — starting voice dictation");
-                        // P1: keep Escape's registration in lockstep with
-                        // DictationActive even though this branch flips the
-                        // mutex directly instead of through
-                        // set_dictation_active_and_sync_escape.
                         sync_dictation_escape_shortcut(app.clone(), true);
                         emit_voice_shortcut(app, "voice:shortcut-start", source, true);
                     }
@@ -982,43 +880,10 @@ fn wake_popover_for_voice(app: &tauri::AppHandle) {
     }
     let _ = window.set_position(PhysicalPosition::new(2_i32, 2_i32));
     let _ = window.set_size(tauri::Size::Physical(PhysicalSize::new(2_u32, 2_u32)));
-    // Use orderFrontRegardless instead of Tauri's show() (which calls
-    // makeKeyAndOrderFront and steals focus from the user's foreground
-    // app). The popover is parked at 2x2 px just to keep its JS alive so
-    // it can receive the voice:shortcut-* events — the user should never
-    // notice it appearing.
     show_without_activation(&window);
     let _ = app.emit("clips:popover-visible", false);
 }
 
-/// Listen for Fn (globe) key down/up via a CoreGraphics event tap.
-///
-/// We use the lower-level `CGEventTap::new` + manual runloop registration
-/// (rather than the `with_enabled` convenience) so we can:
-///
-/// - Subscribe to `TapDisabledByTimeout` and `TapDisabledByUserInput`,
-///   which macOS posts when it auto-disables the tap after a slow
-///   callback or system event (sleep/wake, screen lock, Mission Control).
-///   Without this subscription the tap silently dies after the first
-///   dictation and Fn appears to "do nothing" on subsequent presses —
-///   which is the exact symptom we were hitting.
-/// - Hold a reference to the `CGEventTap` on the runloop thread and call
-///   `tap.enable()` between runloop ticks, so a disabled tap is revived
-///   automatically without the user having to relaunch the app.
-///
-/// Tap is `ListenOnly` so we don't swallow the user's real Fn behavior
-/// (the system globe/input-source HUD still appears unless the user sets
-/// System Settings → Keyboard → Press 🌐 key to: Do Nothing).
-///
-/// Edge-triggered on the SecondaryFn flag bit: `voice:shortcut-start` on
-/// `false → true`, `voice:shortcut-stop` on `true → false`. Other modifier
-/// flag changes (Cmd, Shift, Ctrl, Option) are ignored.
-///
-/// `DictationActive` is mirrored on every edge so the long-tail
-/// `show_flow_bar` safety timeout applies to Fn-triggered dictation too.
-///
-/// Pattern adapted from linespeed and handy-keys (proven open-source
-/// Tauri voice-dictation apps that ship to thousands of macOS users).
 #[cfg(target_os = "macos")]
 fn ensure_fn_event_tap(app: tauri::AppHandle) {
     if FN_TAP_INSTALL_STARTED.swap(true, Ordering::SeqCst) {
@@ -1071,10 +936,6 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
     let prev_down = Arc::new(AtomicBool::new(false));
     let needs_reenable = Arc::new(AtomicBool::new(false));
     let event_count = Arc::new(AtomicU64::new(0));
-    // Millis (via Instant-relative counter) at the last Fn-down edge, 0 if
-    // not currently down. Lets the up-edge detect a fast tap (< 80ms) even
-    // though `prev_down` itself is flipped synchronously on both edges —
-    // see the fast-tap handling below.
     let fn_down_at = Arc::new(AtomicU64::new(0));
     let tap_epoch = std::time::Instant::now();
 
@@ -1101,14 +962,6 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                 CGEventTapLocation::HID,
                 CGEventTapPlacement::HeadInsertEventTap,
                 CGEventTapOptions::ListenOnly,
-                // ONLY include FlagsChanged in the mask. The
-                // TapDisabledByTimeout / TapDisabledByUserInput types
-                // are NOT mask-subscribable — their numeric values
-                // (0xFFFFFFFE / 0xFFFFFFFF) overflow the `1 << n` shift
-                // the rust crate uses to build the mask, panicking the
-                // tap thread on creation. Those events are still
-                // delivered to the callback automatically when the OS
-                // disables the tap; we just match on `etype` below.
                 vec![CGEventType::FlagsChanged],
                 move |_proxy, etype, event| {
                     let n = event_count_for_cb.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1124,13 +977,8 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                             eprintln!(
                                 "[clips-tray] Fn tap disabled by timeout — flagging for re-enable"
                             );
-                            // Reset edge state so the next genuine Fn-down
-                            // is detected as a fresh transition (we may have
-                            // missed an up-edge while the tap was disabled).
                             prev_for_cb.store(false, Ordering::SeqCst);
                             needs_reenable_for_cb.store(true, Ordering::SeqCst);
-                            // Wake the runloop thread out of run_in_mode so
-                            // it can call tap.enable() before the next event.
                             CFRunLoop::get_current().stop();
                             return CallbackResult::Keep;
                         }
@@ -1159,64 +1007,23 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                     if fn_down == was_down {
                         return CallbackResult::Keep;
                     }
-                    // Safe to call from inside the tap callback: the actual
-                    // register/unregister work is deferred to a spawned
-                    // thread inside `sync_dictation_escape_shortcut` — same
-                    // reentrancy avoidance as `emit_voice_shortcut` below.
                     set_dictation_active_and_sync_escape(&app_for_cb, fn_down);
                     if fn_down {
                         dlog!("[clips-tray] Fn down — starting voice dictation");
-                        // Snapshot the frontmost app now, at press time, so a
-                        // focus change during the (possibly sub-80ms)
-                        // dictation still reactivates the app the user meant
-                        // to dictate into — mirrors emit_voice_shortcut's
-                        // remember_voice_target call for the other sources.
                         remember_voice_target(&app_for_cb);
                         fn_down_at_for_cb.store(
                             tap_epoch.elapsed().as_millis() as u64,
                             Ordering::SeqCst,
                         );
-                        // Wake the popover (parked at 2x2, no focus) so its
-                        // JS runtime is live to receive the event. Without
-                        // this, if the popover was hidden, macOS may have
-                        // suspended its webview and the listener wouldn't
-                        // fire — manifesting as "Fn key sometimes does
-                        // nothing" depending on whether the popover happened
-                        // to be open.
                         wake_popover_for_voice(&app_for_cb);
-                        // Small delay to give the popover JS a chance to
-                        // resume before we emit. wake_popover_for_voice
-                        // hops to the main thread internally so the actual
-                        // show happens slightly later than this line.
                         let app_for_emit = app_for_cb.clone();
                         let prev_for_emit = prev_for_cb.clone();
                         let fn_down_at_for_emit = fn_down_at_for_cb.clone();
                         thread::spawn(move || {
                             thread::sleep(Duration::from_millis(80));
                             let still_down = prev_for_emit.load(Ordering::SeqCst);
-                            // A tap shorter than 80ms flips `prev_for_emit`
-                            // back to false via the up-edge's synchronous
-                            // swap before we wake up here, so gating on
-                            // `still_down` alone silently drops fast taps
-                            // (start never fires, so the up-edge's earlier
-                            // voice:shortcut-stop is a no-op). Detect that
-                            // case via the down-edge timestamp — if nothing
-                            // re-armed it (no newer press), treat it as a
-                            // completed fast tap and still emit start,
-                            // immediately followed by stop, so the existing
-                            // <500ms accidental-tap discard in the TS layer
-                            // handles it uniformly instead of the event
-                            // vanishing.
                             let fast_tap = !still_down
                                 && fn_down_at_for_emit.load(Ordering::SeqCst) != 0;
-                            // For a fast tap, both `current_fn_flag_down()`
-                            // and `is_dictation_active` (inside
-                            // should_emit_delayed_voice_start) read false by
-                            // now — the up-edge already released the key and
-                            // flipped DictationActive off as part of this
-                            // same tap — so that gate only applies to the
-                            // still-held case. A completed fast tap is only
-                            // gated on the tap still being enabled.
                             let should_emit = if fast_tap {
                                 FN_TAP_ENABLED.load(Ordering::SeqCst)
                             } else {
@@ -1304,10 +1111,6 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                 "[clips-tray][fn-tap] tap enabled; entering runloop — press Fn now to test"
             );
 
-            // Run the runloop in short slices instead of `run_current()`.
-            // macOS can leave a tap created but disabled/inert after TCC or
-            // user-input churn; periodic health checks let us re-enable or
-            // rebuild it even when no further callback arrives.
             let mut consecutive_reenable_failures = 0_u8;
             loop {
                 if !FN_TAP_ENABLED.load(Ordering::SeqCst) {
@@ -1380,10 +1183,6 @@ fn install_fn_release_watchdog(
     use std::time::Duration;
 
     thread::spawn(move || {
-        // The CGEventTap occasionally misses the Fn up-edge after sleep,
-        // Mission Control, or tap re-enable churn. Poll the current HID
-        // modifier flags while we believe Fn is down; if the physical state
-        // says it is up, synthesize the missing stop event.
         thread::sleep(Duration::from_millis(120));
         while prev_down.load(Ordering::SeqCst) {
             if !current_fn_flag_down() {

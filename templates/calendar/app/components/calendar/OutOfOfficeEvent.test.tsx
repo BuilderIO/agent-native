@@ -76,11 +76,6 @@ describe("OutOfOfficeEvent", () => {
   });
 
   it("nests the drag resize handles inside the click trigger button", () => {
-    // Regression test: when the resize handles are siblings of the trigger
-    // button instead of children, a click landing on a handle (which sits
-    // right on top of the visible marker icon, z-40) bubbles past the day
-    // column's `closest("button")` create-event guard and opens a blank
-    // draft event at an unrelated hour instead of this event's popover.
     const { container, root } = renderEvent({ canDrag: true });
 
     const trigger = container.querySelector<HTMLButtonElement>(

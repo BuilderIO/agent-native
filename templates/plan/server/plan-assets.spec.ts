@@ -1,18 +1,4 @@
 import { randomUUID } from "node:crypto";
-/**
- * Plan asset round-trip and access tests.
- *
- * Strategy:
- *   1. Round-trip: image block with assetId → export emits assets/ → import
- *      recreates and resolves.
- *   2. Access: anonymous 404 on private plan's asset; 200 on public plan.
- *   3. Size-cap rejection: single asset > 2 MB, total > 10 MB.
- *   4. External URL: stays untouched in export/import.
- *
- * Uses an in-process PostgreSQL database (PostgreSQL :memory: via a temp file so
- * all connections share state) with real schema rows. The route handler is
- * tested by calling its internals directly — no HTTP server required.
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -48,9 +34,6 @@ import {
   parsePlanMdxFolder,
 } from "./plan-mdx.js";
 
-// ---------------------------------------------------------------------------
-// In-memory test DB
-// ---------------------------------------------------------------------------
 
 type SqlStatement = string | { sql: string; args?: unknown[] };
 
@@ -82,7 +65,6 @@ vi.mock("./db/index.js", () => ({
   schema: planSchema,
 }));
 
-// Prevent file-upload provider from attempting real network calls.
 vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: vi.fn(async () => null),
   getActiveFileUploadProvider: vi.fn(() => null),
@@ -178,9 +160,6 @@ beforeEach(async () => {
   `);
 });
 
-// ---------------------------------------------------------------------------
-// mimeTypeFromFilename
-// ---------------------------------------------------------------------------
 
 describe("mimeTypeFromFilename", () => {
   it("returns correct MIME for supported extensions", () => {
@@ -205,9 +184,6 @@ describe("mimeTypeFromFilename", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// upsertPlanAsset — size-cap enforcement
-// ---------------------------------------------------------------------------
 
 describe("upsertPlanAsset size caps", () => {
   const planId = "plan-size-cap-test";
@@ -236,9 +212,8 @@ describe("upsertPlanAsset size caps", () => {
   });
 
   it("rejects an asset that would push the plan over the 10 MB total", async () => {
-    // Fill to just under the total cap with small assets.
-    const chunkSize = 1 * 1024 * 1024; // 1 MB each
-    const chunks = 9; // 9 MB total
+    const chunkSize = 1 * 1024 * 1024;
+    const chunks = 9;
     for (let i = 0; i < chunks; i++) {
       await upsertPlanAsset({
         planId,
@@ -247,7 +222,6 @@ describe("upsertPlanAsset size caps", () => {
       });
     }
 
-    // An additional 2 MB asset would push to 11 MB > 10 MB.
     await expect(
       upsertPlanAsset({
         planId,
@@ -258,9 +232,6 @@ describe("upsertPlanAsset size caps", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// importPlanAssets — skip unsupported extensions, warn + continue on size err
-// ---------------------------------------------------------------------------
 
 describe("importPlanAssets", () => {
   const planId = "plan-import-assets-test";
@@ -298,9 +269,6 @@ describe("importPlanAssets", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// applyImportedAssets — rewrites blocks
-// ---------------------------------------------------------------------------
 
 describe("applyImportedAssets", () => {
   it("rewrites assets/filename url to resolved src", () => {
@@ -342,7 +310,6 @@ describe("applyImportedAssets", () => {
     });
     const block = result.blocks[0];
     if (block?.type !== "image") throw new Error("expected image");
-    // External URL should be unchanged.
     expect(block.data.url).toBe("https://cdn.example.com/image.png");
   });
 
@@ -383,9 +350,6 @@ describe("applyImportedAssets", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// MDX round-trip: image block with assetId → export → import
-// ---------------------------------------------------------------------------
 
 describe("MDX round-trip: image block with assetId", () => {
   const planId = "plan-roundtrip-test";
@@ -395,14 +359,12 @@ describe("MDX round-trip: image block with assetId", () => {
   it("export emits assets/ entry; import recreates and resolves block url", async () => {
     const pngBase64 = makeBase64(200);
 
-    // Store a plan asset directly.
     const { assetId, filename } = await upsertPlanAsset({
       planId,
       filename: "mockup.png",
       base64: pngBase64,
     });
 
-    // Build content with the assetId.
     const content: PlanContent = {
       version: 2,
       title: "Image round-trip",
@@ -415,19 +377,16 @@ describe("MDX round-trip: image block with assetId", () => {
       ],
     };
 
-    // Export: should emit assets/ with the base64.
     const folder = await exportPlanContentToMdxFolder({
       content,
       title: "Image round-trip",
       planId,
     });
 
-    // The exported MDX should reference the relative asset path.
     expect(folder["plan.mdx"]).toContain("assets/mockup.png");
     expect(folder["assets/"]).toBeDefined();
     expect(folder["assets/"]?.["mockup.png"]).toBe(pngBase64);
 
-    // Import the folder into a fresh plan.
     const importedPlanId = `plan-import-${randomUUID().slice(0, 8)}`;
     await insertPlan(importedPlanId);
 
@@ -438,7 +397,6 @@ describe("MDX round-trip: image block with assetId", () => {
     );
     const finalContent = applyImportedAssets(parsedContent, srcByFilename);
 
-    // The image block should now have a local route URL (no assetId).
     const block = finalContent.blocks.find((b) => b.id === "img-block");
     if (block?.type !== "image") throw new Error("expected image block");
     expect(block.data.url).toMatch(/\/_agent-native\/plan-asset\/passet_/);
@@ -464,11 +422,9 @@ describe("MDX round-trip: image block with assetId", () => {
       planId,
     });
 
-    // External URLs stay in the block as-is, not in assets/.
     expect(folder["plan.mdx"]).toContain("https://cdn.example.com/banner.png");
     expect(Object.keys(folder["assets/"] ?? {}).length).toBe(0);
 
-    // Import: external URL unchanged.
     const parsed = await parsePlanMdxFolder(folder);
     const block = parsed.blocks.find((b) => b.id === "ext-img");
     if (block?.type !== "image") throw new Error("expected image");
@@ -476,9 +432,6 @@ describe("MDX round-trip: image block with assetId", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Access control tests for the plan-asset route handler internals
-// ---------------------------------------------------------------------------
 
 describe("plan-asset access control", () => {
   const privatePlanId = "plan-private";
@@ -496,7 +449,6 @@ describe("plan-asset access control", () => {
       base64: makeBase64(50),
     });
 
-    // Direct DB read to verify the row exists.
     const { eq } = await import("drizzle-orm");
     const [row] = await db
       .select()
@@ -507,11 +459,8 @@ describe("plan-asset access control", () => {
   });
 
   it("rejects 404 for an asset belonging to a private plan when access is resolved without a session", async () => {
-    // This simulates what the route handler does: resolveAccess on a private
-    // plan with an empty/anonymous context returns null.
     const { resolveAccess, registerShareableResource } =
       await import("@agent-native/core/sharing");
-    // Register the resource against our test DB for this assertion.
     registerShareableResource({
       type: "plan",
       resourceTable: planSchema.plans,
@@ -528,17 +477,15 @@ describe("plan-asset access control", () => {
       base64: makeBase64(50),
     });
 
-    // Anonymous (empty context) should NOT be able to access a private plan.
     const access = await resolveAccess("plan", privatePlanId, {});
     expect(access).toBeNull();
 
-    // Verify the asset row exists but access is denied.
     const { eq } = await import("drizzle-orm");
     const [row] = await db
       .select()
       .from(planSchema.planAssets)
       .where(eq(planSchema.planAssets.id, result.assetId));
-    expect(row).toBeDefined(); // row exists
-    expect(access).toBeNull(); // but access denied
+    expect(row).toBeDefined();
+    expect(access).toBeNull();
   });
 });

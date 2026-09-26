@@ -7,7 +7,6 @@ export function externalPreviewUrlForContent(content: string): string | null {
     return url.toString();
   } catch {
     // coercion-ok: a non-parseable string is "not an external URL", which is
-    // exactly what the null return means to every caller here.
     return null;
   }
 }

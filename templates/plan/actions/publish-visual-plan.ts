@@ -72,19 +72,12 @@ export default defineAction({
       "Publish a local plan to the connected hosted instance for sharing, or report that an account must be connected first.",
   },
   run: async (args) => {
-    // Publishing exports + forwards the full plan and writes back the hosted
-    // link, so it must be gated to an editor/owner — never a viewer-share or
-    // public-link reader (who could otherwise exfiltrate a plan they don't own
-    // or repoint the owner's published link). Mirrors update-visual-plan.
     await assertPlanEditor(args.planId);
-    // Load the local plan (scoped by the current owner / local identity).
     const bundle = await loadPlanBundle(args.planId);
 
     const hostedUrl = resolvePlanHostedUrl();
     const auth = resolvePlanPublishAuth();
     if (!auth) {
-      // Not connected yet — let the client trigger lazy account creation.
-      // Do NOT throw: this is an expected branch in the local-first flow.
       return {
         needsAuth: true as const,
         connectCommand: planConnectCommand(hostedUrl),
@@ -95,8 +88,6 @@ export default defineAction({
       };
     }
 
-    // Build the source-control friendly MDX payload — the same contract the
-    // hosted import-visual-plan-source action consumes.
     const [mdx, sqlAssets] = await Promise.all([
       exportPlanContentToMdxFolder({
         content: bundle.plan.content,
@@ -108,10 +99,6 @@ export default defineAction({
       loadPlanAssetsForExport(bundle.plan.id),
     ]);
 
-    // Merge SQL-backed assets with any assets already emitted by the export
-    // (which handles assetId-based refs). The export produces the "assets/"
-    // object from assetId-resolved refs; loadPlanAssetsForExport catches any
-    // SQL assets not referenced in blocks (edge case: orphaned asset rows).
     const combinedAssets = { ...sqlAssets, ...(mdx["assets/"] ?? {}) };
 
     const existingHostedPlanId =
@@ -159,8 +146,6 @@ export default defineAction({
     }
 
     if (response.status === 401 || response.status === 403) {
-      // Token is present but rejected — treat as needing (re)connection rather
-      // than a hard failure so the client can re-run the connect flow.
       return {
         needsAuth: true as const,
         connectCommand: planConnectCommand(hostedUrl),
@@ -260,8 +245,6 @@ export default defineAction({
       hostedPlanUrl: url,
       planId: args.planId,
       hostedUrl: auth.url,
-      // The hosted copy starts private unless a visibility was requested above;
-      // invite-specific sharing is still managed on the hosted plan.
       requestedVisibility: args.visibility ?? "private",
     };
   },

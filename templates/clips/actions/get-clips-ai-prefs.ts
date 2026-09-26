@@ -1,9 +1,3 @@
-/**
- * Read Clips AI preferences for the current user (include-full-video switch).
- *
- * Usage:
- *   pnpm action get-clips-ai-prefs
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";

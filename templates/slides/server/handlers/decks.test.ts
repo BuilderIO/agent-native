@@ -17,9 +17,6 @@ vi.mock("./request-auth-context.js", () => ({
   resolveSlidesRequestAuth: vi.fn(),
 }));
 
-// Mocks the deck-row lookup `notifyClients` uses to resolve owner/org/
-// visibility when a caller doesn't already know them. `mockWhere` is the
-// terminal call in the query chain — set its return value per test.
 vi.mock("../db/index.js", () => ({
   getDb: () => ({
     select: () => ({

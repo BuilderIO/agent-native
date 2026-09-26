@@ -48,15 +48,6 @@ function injectEmbeddedFrameStyle(content: string, style: string): string {
   return `${style}${content}`;
 }
 
-/**
- * A screen's frame is sized by the board, but its document is sized by its own
- * CSS — so a body with no height rule ends where its content ends, leaving the
- * screen's fill and any border drawn short of the frame's edge. This makes the
- * document track the frame instead: `100%` resolves against the iframe, which
- * IS the frame, so it follows a resize with no writes to the file. `min-height`
- * (not `height`) keeps content taller than the frame growing as it does today,
- * and no `!important` so a document that sets its own height still wins.
- */
 const EMBEDDED_FRAME_FIT_STYLE =
   "<style data-agent-native-frame-fit>html{height:100%}body{min-height:100%}</style>";
 
@@ -66,7 +57,6 @@ export function getEmbeddedFrameDocumentContent(args: {
   transparentBackground?: boolean;
   contentOffsetX?: number;
   contentOffsetY?: number;
-  /** Board surfaces position their own content and opt out. */
   fitBodyToFrame?: boolean;
 }): string {
   const frameStyle = [

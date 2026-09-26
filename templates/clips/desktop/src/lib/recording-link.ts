@@ -3,10 +3,6 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { buildRecordingShareUrl } from "../../../shared/recording-link";
 import { normalizeServerUrl } from "./url";
 
-/**
- * Absolute, paste-ready `/share/<id>` URL. Never `/r/<id>` — that is the owner
- * dashboard and renders a sign-in prompt for anyone the link is sent to.
- */
 export function recordingShareUrl(
   recordingId: string,
   serverUrl: string,
@@ -18,9 +14,6 @@ export function recordingShareUrl(
 }
 
 export async function writeClipboardText(text: string): Promise<boolean> {
-  // Rust-side write first: at recording-stop time the popover webview is
-  // usually not focused, and `navigator.clipboard.writeText` rejects with
-  // `NotAllowedError: Document is not focused` in exactly that case.
   try {
     await writeText(text);
     return true;
@@ -54,10 +47,6 @@ export async function writeClipboardText(text: string): Promise<boolean> {
   }
 }
 
-/**
- * Copy a recording's public share URL. Resolves to whether the clipboard
- * actually took the text so callers never claim a copy that did not happen.
- */
 export async function copyRecordingShareLink(
   recordingId: string,
   serverUrl: string,

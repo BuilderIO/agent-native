@@ -68,11 +68,7 @@ function publicDocumentIdFromEvent(event: H3Event): string | null {
 
   try {
     const url = new URL(referrer);
-    // Reject off-origin referers — without this an attacker hosting a
-    // page at evil.com/p/<id> could trick same-site requests into
-    // minting an anonymous-viewer identity scoped to a doc the user
     // never opened. The lax-cookie protections we rely on assume the
-    // referer-derived doc context is same-origin.
     const appOrigin = getAppOrigin(event);
     if (appOrigin && url.origin !== appOrigin) return null;
     const match = url.pathname.match(/(?:^|\/)p\/([^/?#]+)/);
@@ -119,12 +115,6 @@ export async function resolvePublicViewerOwner(
   let viewerId = getCookie(event, PUBLIC_VIEWER_COOKIE);
 
   if (!doc) {
-    // OAuth callbacks return with Referer set to the OAuth provider, not
-    // /p/<id>. To still resolve an anonymous owner for the callback we
-    // accept the viewer cookie when the request path is exactly the
-    // builder callback. The pending-connect row written by /builder/connect
-    // (which DID require a /p/<id> Referer) is the gate that prevents
-    // arbitrary callback hits from completing.
     const rawPath = event.node?.req?.url ?? event.path ?? "";
     const pathOnly = rawPath.split("?")[0]?.split("#")[0] ?? "";
     const isBuilderCallback =

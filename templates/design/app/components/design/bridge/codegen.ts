@@ -1,27 +1,3 @@
-/**
- * Bridge codegen — compiles every *.bridge.ts in this directory to a self-contained
- * injectable string and writes the result as a generated TypeScript module under
- * .generated/bridge/<name>.generated.ts.
- *
- * Usage (from the design template root):
- *   pnpm exec tsx app/components/design/bridge/codegen.ts
- *
- * Run after editing a bridge and before building the app. The freshness guard
- * (bridge.guard.spec.ts) verifies generated output but does not write it.
- *
- * Mechanism
- * ---------
- * esbuild is invoked with bundle:true, format:'iife', platform:'browser',
- * write:false for each .bridge.ts file. This means:
- *   • Any ES import/require that CAN'T be resolved by esbuild causes a build error
- *     (self-containment guarantee for non-local deps, e.g. npm packages).
- *   • Any ES import that CAN be resolved (e.g. a relative .ts file) gets bundled
- *     inline — the guard test's regex check on source prevents this.
- *   • The output is an IIFE-wrapped, browser-runnable JS string.
- *
- * The generated module is a plain committed .ts file that any bundler (Vite, Nitro,
- * Rolldown) handles as a normal module — no Vite plugin, no SSR complications.
- */
 
 import { execSync } from "node:child_process";
 import { readdirSync, writeFileSync } from "node:fs";
@@ -47,9 +23,6 @@ async function compileBridge(srcFile: string): Promise<string> {
     platform: "browser",
     target: "es2020",
     write: false,
-    // No external packages — unresolved imports are a hard error.
-    // (Relative imports that CAN be resolved get bundled inline, which is also
-    // wrong; the guard test prevents those at the source level.)
     external: [],
   });
 
@@ -68,7 +41,6 @@ function bridgeName(filename: string): string {
 }
 
 function generatedModuleSrc(name: string, compiled: string): string {
-  // Escape backticks and ${} in the compiled string so it embeds safely.
   const escaped = compiled
     .replace(/\\/g, "\\\\")
     .replace(/`/g, "\\`")
@@ -105,7 +77,6 @@ async function runCodegen(): Promise<void> {
     console.log(`[bridge/codegen] → .generated/bridge/${name}.generated.ts`);
   }
 
-  // Run oxfmt on generated files so they pass the formatter check.
   try {
     execSync(`pnpm exec oxfmt .generated/bridge/`, {
       cwd: designRoot,

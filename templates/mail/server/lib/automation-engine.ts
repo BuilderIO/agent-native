@@ -67,7 +67,7 @@ import { getOAuth2Credentials } from "./google-auth.js";
 
 const MAX_EMAILS_PER_RUN = 50;
 const MAX_PROCESSED_IDS = 500;
-const PROCESSED_IDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const PROCESSED_IDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface StoredTokens {
   access_token: string;
@@ -98,7 +98,6 @@ interface RuleRecord {
   updatedAt: number;
 }
 
-// ─── Per-user Anthropic key ──────────────────────────────────────────────────
 
 async function resolveAnthropicKey(
   ownerEmail: string,
@@ -119,7 +118,6 @@ async function resolveAnthropicKey(
   return readDeployCredentialEnv("ANTHROPIC_API_KEY") || undefined;
 }
 
-// ─── Token helpers ───────────────────────────────────────────────────────────
 
 async function getAccessToken(accountEmail: string): Promise<string | null> {
   const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
@@ -159,7 +157,6 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
   return tokens.access_token;
 }
 
-// ─── Watermark management ────────────────────────────────────────────────────
 
 async function getWatermark(ownerEmail: string): Promise<Watermark> {
   const data = await getUserSetting(ownerEmail, "automation-watermark");
@@ -178,7 +175,6 @@ async function getProcessedIds(ownerEmail: string): Promise<Set<string>> {
   const data = await getUserSetting(ownerEmail, "automation-processed-ids");
   if (data && typeof data === "object") {
     const stored = data as unknown as ProcessedIds;
-    // Prune if too old
     if (Date.now() - stored.updatedAt > PROCESSED_IDS_MAX_AGE_MS) {
       return new Set();
     }
@@ -191,7 +187,6 @@ async function saveProcessedIds(
   ownerEmail: string,
   ids: Set<string>,
 ): Promise<void> {
-  // Keep only the last MAX_PROCESSED_IDS
   const arr = [...ids].slice(-MAX_PROCESSED_IDS);
   await putUserSetting(ownerEmail, "automation-processed-ids", {
     ids: arr,
@@ -199,7 +194,6 @@ async function saveProcessedIds(
   } as any);
 }
 
-// ─── Load rules ──────────────────────────────────────────────────────────────
 
 async function loadActiveRules(
   ownerEmail: string,
@@ -218,7 +212,6 @@ async function loadActiveRules(
   return rules as RuleRecord[];
 }
 
-// ─── Fetch new messages ──────────────────────────────────────────────────────
 
 export interface EmailSummary {
   id: string;
@@ -239,7 +232,6 @@ async function fetchNewInboxMessages(
   let messageIds: string[] = [];
   let newHistoryId: string | undefined;
 
-  // Try history-based delta detection first
   if (watermark.lastHistoryId) {
     try {
       const history = await gmailListHistory(accessToken, {
@@ -255,7 +247,6 @@ async function fetchNewInboxMessages(
         for (const entry of history.history) {
           for (const added of entry.messagesAdded || []) {
             if (added.message?.id) {
-              // Only include messages that have INBOX label
               const labels = added.message.labelIds || [];
               if (labels.includes("INBOX")) {
                 messageIds.push(added.message.id);
@@ -265,7 +256,6 @@ async function fetchNewInboxMessages(
         }
       }
     } catch (err: any) {
-      // historyId too old or invalid — fall back to listing
       console.warn(
         "[automation-engine] History list failed, falling back to message list:",
         err.message,
@@ -275,17 +265,15 @@ async function fetchNewInboxMessages(
     }
   }
 
-  // Fallback: list recent inbox messages
   if (!watermark.lastHistoryId) {
     try {
       const res = await gmailListMessages(accessToken, {
         q: "in:inbox newer_than:3d",
         maxResults: MAX_EMAILS_PER_RUN,
       });
-      newHistoryId = undefined; // We'll get it from the profile
+      newHistoryId = undefined;
       messageIds = (res.messages || []).map((m: any) => m.id);
 
-      // Get current historyId from profile for next run
       try {
         const profile = await gmailGetProfile(accessToken);
         newHistoryId = profile.historyId;
@@ -299,28 +287,20 @@ async function fetchNewInboxMessages(
     }
   }
 
-  // Filter out already-processed messages
   messageIds = messageIds.filter((id) => !processedIds.has(id));
 
-  // Limit batch size
   messageIds = messageIds.slice(0, MAX_EMAILS_PER_RUN);
 
   if (messageIds.length === 0) {
     return { messages: [], newHistoryId };
   }
 
-  // Fetch metadata for all messages in one batched call instead of one
-  // request per message.
   const batchResults = await gmailBatchGetMessages(
     accessToken,
     messageIds,
     "metadata",
   );
 
-  // Gmail's batch endpoint can return fewer sub-responses than sub-requests
-  // when it rate-limits mid-batch. Refill any gaps with individual gets so a
-  // transient partial batch doesn't drop messages a full per-message loop
-  // would have caught.
   const missing = batchResults.filter((r) => !r.data).map((r) => r.id);
   if (missing.length > 0) {
     const refills = await Promise.all(
@@ -347,9 +327,6 @@ async function fetchNewInboxMessages(
   for (const r of batchResults) {
     if (!r.data) continue;
     const msg = r.data;
-    // The list/history query is Inbox-scoped, but labels can change while the
-    // metadata batch is in flight. Do not spend on a message that is no
-    // longer in Inbox by the time evaluation starts.
     if (!msg.labelIds?.includes("INBOX")) continue;
     const headers = msg.payload?.headers || [];
     const getHeader = (name: string) =>
@@ -371,7 +348,6 @@ async function fetchNewInboxMessages(
   return { messages, newHistoryId };
 }
 
-// ─── AI rule evaluation ──────────────────────────────────────────────────────
 
 export interface RuleMatch {
   ruleId: string;
@@ -533,9 +509,6 @@ async function callModel(
       }
     }
 
-    // Attribute this call under the "automation" label so users can see
-    // how much of their spend comes from email rule evaluation vs the
-    // main chat in the Usage settings panel.
     if (usage) {
       try {
         const { recordUsage } = await import("@agent-native/core/usage");
@@ -652,7 +625,6 @@ async function evaluateRulesWithJev(
         app: "mail",
       });
     } catch (error) {
-      // Usage recording is best-effort and must not hide a valid classification.
       console.warn("[automation-engine] Jev usage recording failed:", error);
     }
   }
@@ -690,7 +662,6 @@ async function evaluateRules(
   jevCredentials?: JevContextCredentials,
   legacyTypesafeApiKey?: string,
 ): Promise<Map<string, RuleMatch[]>> {
-  // Returns: messageId → array of matched rules with model confidence/reason.
   const results = new Map<string, RuleMatch[]>();
   if (emails.length === 0 || rules.length === 0) return results;
 
@@ -705,7 +676,6 @@ async function evaluateRules(
     );
   }
 
-  // Process in batches of 10 emails per call
   const batchSize = 10;
   for (let i = 0; i < emails.length; i += batchSize) {
     const batch = emails.slice(i, i + batchSize);
@@ -756,7 +726,6 @@ Be precise: only mark a rule as matching if the email clearly fits the condition
     try {
       const text = await callModel(prompt, ownerEmail, modelSettings);
 
-      // Parse JSON from response (handle markdown code blocks)
       const jsonStr = text
         .replace(/```json?\n?/g, "")
         .replace(/```/g, "")
@@ -1123,7 +1092,6 @@ Return only the replacement instruction as one clear sentence. Keep the user's i
   return rewritten;
 }
 
-// ─── Main processor ──────────────────────────────────────────────────────────
 
 export interface ProcessResult {
   accountEmail: string;
@@ -1146,8 +1114,6 @@ export async function processAutomationsForAccount(
     suggestionsCreated: 0,
   };
 
-  // 1. Load active rules and keep the AI filter's learned baseline
-  // conservative until it has several confirmed examples.
   const aiFilterState = await getAiFilterState(ownerEmail);
   const rules = (await loadActiveRules(ownerEmail, "mail")).filter(
     (rule) =>
@@ -1158,8 +1124,6 @@ export async function processAutomationsForAccount(
   );
   if (rules.length === 0) return result;
 
-  // 2. Resolve model settings. Credentials are resolved by the selected engine
-  // under the owner's request context, so Builder-managed models work here too.
   const modelSettings = await getAutomationModelSettings(ownerEmail);
   let modelAccess: Awaited<ReturnType<typeof canUseAutomationModel>>;
   try {
@@ -1177,11 +1141,9 @@ export async function processAutomationsForAccount(
     return result;
   }
 
-  // 3. Get watermark and processed IDs
   const watermark = await getWatermark(ownerEmail);
   const processedIds = await getProcessedIds(ownerEmail);
 
-  // 4. Fetch new inbox messages
   const { messages, newHistoryId } = await fetchNewInboxMessages(
     accessToken,
     watermark,
@@ -1189,7 +1151,6 @@ export async function processAutomationsForAccount(
   );
 
   if (messages.length === 0) {
-    // Still update historyId if we got one
     if (newHistoryId) {
       await setWatermark(ownerEmail, {
         lastHistoryId: newHistoryId,
@@ -1201,7 +1162,6 @@ export async function processAutomationsForAccount(
 
   result.messagesProcessed = messages.length;
 
-  // 4b. Emit event-bus events for each new message (best-effort)
   for (const msg of messages) {
     try {
       emit(
@@ -1222,7 +1182,6 @@ export async function processAutomationsForAccount(
     }
   }
 
-  // 5. Evaluate rules with AI
   const matches = await evaluateRules(
     messages,
     rules,
@@ -1233,7 +1192,6 @@ export async function processAutomationsForAccount(
     modelAccess.legacyTypesafeApiKey,
   );
 
-  // 6. Execute matched actions
   if (matches.size > 0) {
     const labelCache = await buildLabelCache(accessToken);
     const rulesById = new Map(rules.map((r) => [r.id, r]));
@@ -1321,22 +1279,17 @@ export async function processAutomationsForAccount(
     await recordAiFilterDecisions(ownerEmail, aiDecisions);
   }
 
-  // 7. Update watermark
   await setWatermark(ownerEmail, {
     lastHistoryId: newHistoryId || watermark.lastHistoryId,
     lastTimestamp: Date.now(),
   });
 
-  // 8. Mark messages as processed
   for (const msg of messages) processedIds.add(msg.id);
   await saveProcessedIds(ownerEmail, processedIds);
 
   return result;
 }
 
-/**
- * Process automations for all connected accounts.
- */
 export async function processAutomations(ownerEmail?: string): Promise<{
   result: string;
   details: ProcessResult[];
@@ -1391,7 +1344,6 @@ export async function processAutomations(ownerEmail?: string): Promise<{
   };
 }
 
-// ─── In-memory debounce for focus trigger ────────────────────────────────────
 
 const _lastTriggerTimeByOwner = new Map<string, number>();
 const TRIGGER_DEBOUNCE_MS = 30_000;
@@ -1407,7 +1359,6 @@ export async function triggerAutomationsDebounced(ownerEmail: string): Promise<{
   }
   _lastTriggerTimeByOwner.set(ownerEmail, now);
 
-  // Fire and forget
   processAutomations(ownerEmail).catch((err) =>
     console.error("[automation-engine] Trigger failed:", err),
   );

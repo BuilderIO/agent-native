@@ -1,18 +1,3 @@
-/**
- * Pure, side-effect-free motion compiler for the Design Studio (§6.3).
- *
- * Converts a `MotionTimeline` (JSON tracks) into a single managed
- * `<style data-agent-native-motion>` block and back again.
- *
- * Guarantees:
- * - **Deterministic**: given the same input, output is byte-identical.
- * - **Targets by node id**: rules use `[data-agent-native-node-id="<id>"]`
- *   selectors — no class/id coupling.
- * - **Reduced-motion safe**: always emits an
- *   `@media (prefers-reduced-motion: reduce)` block that disables every
- *   generated animation.
- * - **No dependencies**: uses djb2 (not crypto) for hashing.
- */
 
 import { motionEaseToCss } from "./motion-easing";
 import type {
@@ -28,30 +13,12 @@ import {
   readTimelinePlaybackMode,
 } from "./motion-timeline";
 
-// ─── Public API ───────────────────────────────────────────────────────────────
 
-/** Result of {@link compile}. */
 export interface CompileResult {
-  /**
-   * Full CSS string — the body of the managed `<style data-agent-native-motion>`
-   * block (no enclosing tag).
-   */
   css: string;
-  /**
-   * djb2 decimal hash of `css`. Stored in `motion_timeline.compiled_hash` so
-   * `apply-motion-edit` can detect drift between the JSON tracks and the CSS.
-   */
   hash: string;
 }
 
-/**
- * Compile a `MotionTimeline` into the CSS body of the managed style block.
- *
- * Output order (deterministic):
- * 1. `@keyframes` blocks, sorted by animation name.
- * 2. Element animation rules, sorted by node id then property.
- * 3. `@media (prefers-reduced-motion: reduce)` block.
- */
 export function compile(timeline: MotionTimeline): CompileResult {
   const { tracks, durationMs, defaultEase } = timeline;
   assertSafeMotionCssToken(defaultEase, "defaultEase");
@@ -61,8 +28,6 @@ export function compile(timeline: MotionTimeline): CompileResult {
     return { css, hash: djb2(css) };
   }
 
-  // Timeline-level playback mode: explicit field first, then the stamp
-  // persisted in the tracks JSON, then the legacy default ("once").
   const playbackMode: MotionPlaybackMode =
     timeline.playbackMode ??
     readTimelinePlaybackMode(tracks) ??
@@ -81,7 +46,6 @@ export function compile(timeline: MotionTimeline): CompileResult {
     }
   >();
 
-  // Sort tracks for determinism: targetNodeId ASC, property ASC.
   const sorted = [...tracks].sort((a, b) => {
     const cmp = a.targetNodeId.localeCompare(b.targetNodeId);
     return cmp !== 0 ? cmp : a.property.localeCompare(b.property);
@@ -92,8 +56,6 @@ export function compile(timeline: MotionTimeline): CompileResult {
     if (!keyframes || keyframes.length === 0) continue;
     assertSafeMotionCssProperty(property, "track.property");
 
-    // Sort ONCE per track: the editor may hand us keyframes in drag order, and
-    // both the stop list and the element-rule ease must read time order.
     const sortedKeyframes = [...keyframes].sort((a, b) => a.t - b.t);
 
     const name = animationName(targetNodeId, property);
@@ -130,8 +92,6 @@ export function compile(timeline: MotionTimeline): CompileResult {
       `  animation-timing-function: ${rule.timings.join(", ")};`,
       `  animation-fill-mode: ${rule.fillModes.join(", ")};`,
     ];
-    // Emit optional lines only when used, keeping legacy timelines
-    // byte-identical to the previous compiler output.
     if (rule.hasDelay) {
       lines.push(`  animation-delay: ${rule.delays.join(", ")};`);
     }
@@ -164,14 +124,6 @@ export function compile(timeline: MotionTimeline): CompileResult {
   return { css, hash: djb2(css) };
 }
 
-/**
- * Parse the CSS body of a managed `<style data-agent-native-motion>` block
- * back into `MotionTrack[]`.
- *
- * Best-effort round-trip. Does not recover `durationMs` or `defaultEase`
- * (those live on the DB row). Sufficient for drift detection and basic
- * editing recovery.
- */
 export function parse(css: string): MotionTrack[] {
   const tracks: MotionTrack[] = [];
   const rules = parseAnimationRules(css);
@@ -197,9 +149,6 @@ export function parse(css: string): MotionTrack[] {
     if (info?.delayMs !== undefined && info.delayMs > 0) {
       track.delayMs = info.delayMs;
     }
-    // Only surface an explicit per-track duration when it differs from the
-    // timeline duration (the first animation-duration in the CSS, which
-    // CSS-recovery also uses as the recovered timeline duration).
     if (
       info?.durationMs !== undefined &&
       timelineDurationMs !== null &&
@@ -221,32 +170,14 @@ export function parse(css: string): MotionTrack[] {
   return tracks;
 }
 
-/**
- * Recover the timeline playback mode from a managed motion CSS body:
- * `animation-iteration-count: infinite` + `animation-direction: alternate`
- * → "ping-pong"; infinite alone → "loop"; finite/absent → "once". Returns
- * `null` when the CSS contains no element animation rules at all.
- */
 export function parsePlaybackMode(css: string): MotionPlaybackMode | null {
   return parseAnimationRules(css).playbackMode;
 }
 
-/**
- * Recover the timeline's total span from a managed motion CSS body: the
- * maximum `animation-delay + animation-duration` across all compiled rules
- * (i.e. when the last track finishes). More robust than the first
- * `animation-duration` when tracks carry per-track offsets/durations.
- * Returns `null` when the CSS has no parsable durations.
- */
 export function parseTimelineSpanMs(css: string): number | null {
   return timelineSpanFromRules(parseAnimationRules(css));
 }
 
-/**
- * Extract the CSS body from a managed `<style data-agent-native-motion>` block
- * inside an HTML document. Returns `null` when the document has no managed block
- * or the block is malformed.
- */
 export function extractManagedMotionCss(html: string): string | null {
   const openRe = /<style\b(?=[^>]*\bdata-agent-native-motion\b)[^>]*>/i;
   const openMatch = openRe.exec(html);
@@ -260,11 +191,6 @@ export function extractManagedMotionCss(html: string): string | null {
   return afterOpen.slice(0, closeMatch.index).trim();
 }
 
-/**
- * Inject or replace the managed `<style data-agent-native-motion>` block in an
- * HTML document. Inserts before `</head>` when no managed block exists, or at
- * the top of the document when there is no `<head>`.
- */
 export function injectManagedMotionCss(html: string, css: string): string {
   const openRe = /<style\b(?=[^>]*\bdata-agent-native-motion\b)[^>]*>/i;
   const openMatch = openRe.exec(html);
@@ -287,20 +213,10 @@ export function injectManagedMotionCss(html: string, css: string): string {
   return block + "\n" + html;
 }
 
-/**
- * Return the djb2 hash of a CSS string — useful for verifying stored
- * `compiled_hash` values without re-compiling a full timeline.
- */
 export function hashCss(css: string): string {
   return djb2(css);
 }
 
-/**
- * Parse the first `animation-duration` declaration in a managed motion CSS
- * body and return it in milliseconds, or `null` when absent/unparsable. Used
- * by CSS-recovery so a recovered timeline keeps the compiled duration instead
- * of inventing a default that the next save would then persist.
- */
 export function parseFirstAnimationDurationMs(css: string): number | null {
   const m = /animation-duration\s*:\s*([^;]+)/.exec(css);
   if (!m) return null;
@@ -313,12 +229,6 @@ export function parseFirstAnimationDurationMs(css: string): number | null {
   return ms > 0 ? Math.round(ms) : null;
 }
 
-/**
- * Reject caller-supplied CSS declaration values before interpolation into the
- * managed motion stylesheet. Motion values still allow useful CSS functions
- * such as `translateY(...)`, `calc(...)`, `cubic-bezier(...)`, and `var(...)`,
- * but block declaration/rule/style breakouts and remote-resource hooks.
- */
 export function assertSafeMotionCssToken(value: string, field: string): string {
   if (typeof value !== "string") {
     throw new Error(`Invalid ${field}: expected a CSS string value.`);
@@ -334,12 +244,6 @@ export function assertSafeMotionCssToken(value: string, field: string): string {
   return value;
 }
 
-/**
- * Validate that a CSS property name is a safe CSS identifier.
- *
- * Accepts standard and vendor-prefixed property names (e.g. "opacity",
- * "transform", "-webkit-transform") and nothing else.
- */
 export function assertSafeMotionCssProperty(
   property: string,
   field: string,
@@ -353,19 +257,10 @@ export function assertSafeMotionCssProperty(
   return property;
 }
 
-// ─── Internal helpers ─────────────────────────────────────────────────────────
 
 const CSS_TOKEN_BREAKOUT_RE = /[;{}<>]|\/\*|\*\/|\burl\s*\(/i;
 const CSS_TOKEN_CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
-/**
- * Build a deterministic CSS animation name from a node id and CSS property.
- * Non-ident characters are replaced with `_`; when sanitisation changed the
- * node id, a short hash of the RAW id is appended so distinct ids that
- * sanitise identically (e.g. "a:b" vs "a_b") never collide.
- *
- * Format: `an-motion-<nodeId>[_<hash>]--<property>`
- */
 function animationName(nodeId: string, property: string): string {
   const safe = (s: string) => s.replace(/[^a-zA-Z0-9-]/g, "_");
   const safeNode = safe(nodeId);
@@ -374,7 +269,6 @@ function animationName(nodeId: string, property: string): string {
   return `an-motion-${safeNode}${suffix}--${safe(property)}`;
 }
 
-/** Reverse `animationName` — returns `null` when the name doesn't match. */
 function decodeAnimationName(
   name: string,
 ): { targetNodeId: string; property: string } | null {
@@ -386,11 +280,6 @@ function decodeAnimationName(
   return { targetNodeId: rest.slice(0, sep), property: rest.slice(sep + 2) };
 }
 
-/**
- * Build a `@keyframes` block for one (property, keyframes) pair.
- * Each stop sets `animation-timing-function` to control easing to the NEXT
- * stop (standard CSS keyframe easing semantics).
- */
 function keyframesBlock(
   name: string,
   property: string,
@@ -413,12 +302,6 @@ function keyframesBlock(
   return `@keyframes ${name} {\n${stops.join("\n")}\n}`;
 }
 
-/**
- * Convert a model ease token to its CSS form for emission. `spring(...)`
- * tokens (not valid CSS) compile to sampled `linear(...)` stop lists; all
- * other tokens pass through unchanged. The converted output is re-validated
- * so nothing unsafe can enter the managed stylesheet.
- */
 function cssEase(ease: MotionEase): string {
   const raw = String(ease);
   const converted = motionEaseToCss(raw);
@@ -428,14 +311,6 @@ function cssEase(ease: MotionEase): string {
   return converted;
 }
 
-/**
- * Build the `@media (prefers-reduced-motion: reduce)` block.
- * Always emitted so managed blocks are easily identified by parsers.
- *
- * Selects ONLY the node ids that carry compiled motion rules — a blanket
- * `[data-agent-native-node-id]` selector would disable every animation on
- * every stamped node, including ones this compiler does not manage.
- */
 function reducedMotionBlock(targetNodeIds: string[]): string {
   if (targetNodeIds.length === 0) {
     return `@media (prefers-reduced-motion: reduce) {\n  /* no animations */\n}`;
@@ -452,18 +327,11 @@ function reducedMotionBlock(targetNodeIds: string[]): string {
   );
 }
 
-/** Format a millisecond duration as a CSS `<time>` value with trailing zeros stripped. */
 function formatDuration(ms: number): string {
   const s = (ms / 1000).toFixed(3).replace(/\.?0+$/, "");
   return `${s}s`;
 }
 
-/**
- * Format a normalised time `t ∈ [0, 1]` as a CSS percentage string.
- * Interior stops are clamped away from 0% / 100% so a stop at e.g.
- * t = 0.99997 never rounds onto a real t = 1 stop (duplicate keyframe
- * selectors silently drop one of the two values).
- */
 function formatPercent(t: number): string {
   if (t <= 0) return "0%";
   if (t >= 1) return "100%";
@@ -473,10 +341,6 @@ function formatPercent(t: number): string {
   return `${pct}%`;
 }
 
-/**
- * Escape a string for safe use as a CSS attribute selector value.
- * Escapes `\` and `"`.
- */
 function escAttr(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
@@ -487,19 +351,15 @@ function unescAttr(value: string): string {
 
 interface ParsedAnimationRuleEntry {
   targetNodeId: string;
-  /** Recovered `animation-delay` for this animation name, ms. */
   delayMs?: number;
-  /** Recovered `animation-duration` for this animation name, ms. */
   durationMs?: number;
 }
 
 interface ParsedAnimationRules {
   byName: Map<string, ParsedAnimationRuleEntry>;
-  /** Recovered playback mode, or null when no element rules exist. */
   playbackMode: MotionPlaybackMode | null;
 }
 
-/** Parse a CSS `<time>` (e.g. "0.4s", "250ms") into milliseconds, or null. */
 function parseCssTimeMs(value: string): number | null {
   const m = /^([\d.]+)(ms|s)$/.exec(value.trim());
   if (!m) return null;
@@ -508,7 +368,6 @@ function parseCssTimeMs(value: string): number | null {
   return Math.round(m[2] === "ms" ? n : n * 1000);
 }
 
-/** Max (delay + duration) across all parsed rules, or null when none. */
 function timelineSpanFromRules(rules: ParsedAnimationRules): number | null {
   let span: number | null = null;
   for (const entry of rules.byName.values()) {
@@ -564,10 +423,6 @@ function parseAnimationRules(css: string): ParsedAnimationRules {
   return { byName, playbackMode };
 }
 
-/**
- * Find the content of the CSS block that starts just after position `start`
- * (i.e., just after the opening `{`). Returns `null` on unbalanced braces.
- */
 function extractBlock(css: string, start: number): string | null {
   let depth = 1;
   let i = start;
@@ -580,7 +435,6 @@ function extractBlock(css: string, start: number): string | null {
   return css.slice(start, i - 1);
 }
 
-/** Parse the interior of a `@keyframes` block into `MotionKeyframe[]`. */
 function parseKeyframeBody(body: string, property: string): MotionKeyframe[] {
   const frames: MotionKeyframe[] = [];
   const stopRe = /([\d.]+%|from|to)\s*\{([^}]*)\}/g;
@@ -599,9 +453,6 @@ function parseKeyframeBody(body: string, property: string): MotionKeyframe[] {
     const easeMatch = content.match(/animation-timing-function\s*:\s*([^;]+)/);
     const ease = easeMatch ? (easeMatch[1].trim() as MotionEase) : undefined;
 
-    // Extract the animated property's value. The compiler emits the same
-    // property for every stop, so parsing by the decoded property avoids
-    // confusing `animation-timing-function` with the animated value.
     const propMatch = content.match(propRe);
     const value = propMatch ? propMatch[1].trim() : "";
 
@@ -615,10 +466,6 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/**
- * djb2 string hash — deterministic, no crypto dependency.
- * Returns a 32-bit unsigned integer.
- */
 function djb2Num(str: string): number {
   let hash = 5381;
   for (let i = 0; i < str.length; i++) {
@@ -628,7 +475,6 @@ function djb2Num(str: string): number {
   return hash;
 }
 
-/** {@link djb2Num} as a decimal string (stored `compiled_hash` format). */
 function djb2(str: string): string {
   return djb2Num(str).toString(10);
 }

@@ -43,9 +43,7 @@ export interface StorageSetupCardProps {
   description?: string;
   connectDescription?: string;
   connectedDescription?: string;
-  /** Analytics source for the Builder connect popup. */
   connectSource?: string;
-  /** Analytics flow for the Builder connect popup. */
   connectFlow?: string;
 }
 

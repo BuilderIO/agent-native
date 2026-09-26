@@ -1,20 +1,4 @@
-/**
- * Fragmented-MP4 helpers for the Media Source Extensions player path.
- *
- * The desktop custom recording pipeline live-streams captures as fragmented
- * MP4 (an `ftyp`+`moov` init segment followed by ~1s `moof`/`mdat` fragments,
- * brands `isom iso5 hlsf`). Those files declare no up-front duration
- * (`mvhd duration=0`, no `mehd`), so Chrome's progressive `<video src>`
- * pipeline scans the whole file over the network before firing
- * `loadedmetadata`. We instead drive playback through MSE and supply the
- * duration ourselves. These pure helpers detect that file shape and parse the
- * bits of the init segment MSE needs.
- *
- * Everything here operates on raw bytes so it can be unit-tested without a
- * browser.
- */
 
-/** Read a 4-char ASCII box type at `offset`. */
 function readType(bytes: Uint8Array, offset: number): string {
   return String.fromCharCode(
     bytes[offset],
@@ -24,7 +8,6 @@ function readType(bytes: Uint8Array, offset: number): string {
   );
 }
 
-/** Read a big-endian uint32 at `offset`. */
 function readU32(bytes: Uint8Array, offset: number): number {
   return (
     ((bytes[offset] << 24) |
@@ -35,7 +18,6 @@ function readU32(bytes: Uint8Array, offset: number): number {
   );
 }
 
-/** Find the first index of an ASCII marker at or after `from`, or -1. */
 export function indexOfAscii(
   bytes: Uint8Array,
   marker: string,
@@ -58,19 +40,11 @@ export function indexOfAscii(
 
 export interface TopLevelBox {
   type: string;
-  /** Absolute offset of the box (its size field). */
   start: number;
-  /** Total box size in bytes, or 0 when the box runs to the end of input. */
   size: number;
-  /** Bytes from `start` to the first byte of box payload. */
   headerSize: number;
 }
 
-/**
- * Walk the top-level MP4 boxes contained in `bytes`. Stops when a box header
- * would run past the buffer (i.e. the buffer is a truncated head), returning
- * whatever complete boxes were found.
- */
 export function readTopLevelBoxes(bytes: Uint8Array): TopLevelBox[] {
   const boxes: TopLevelBox[] = [];
   let offset = 0;
@@ -82,13 +56,10 @@ export function readTopLevelBoxes(bytes: Uint8Array): TopLevelBox[] {
     const type = readType(bytes, offset + 4);
 
     if (size === 1) {
-      // 64-bit largesize. We only need the low 32 bits in practice (recordings
-      // never exceed 4GB), and JS bitwise math is 32-bit, so read the low word.
       if (offset + 16 > total) break;
       headerSize = 16;
       size = readU32(bytes, offset + 12);
     } else if (size === 0) {
-      // Box extends to end of file.
       boxes.push({ type, start: offset, size: 0, headerSize });
       break;
     }
@@ -102,17 +73,13 @@ export function readTopLevelBoxes(bytes: Uint8Array): TopLevelBox[] {
 }
 
 export interface ParsedInitSegment {
-  /** Length in bytes of the init segment (end of the `moov` box). */
   initLength: number;
-  /** `codecs` string for `video/mp4; codecs="..."`. */
   codecs: string;
   hasVideo: boolean;
   hasAudio: boolean;
-  /** Declared tracks, needed to turn a fragment's `tfdt` into seconds. */
   tracks: Mp4Track[];
 }
 
-/** Boxes directly contained in `[start, end)`, with offsets relative to `bytes`. */
 function boxesIn(bytes: Uint8Array, start: number, end: number): TopLevelBox[] {
   const clampedEnd = Math.min(end, bytes.byteLength);
   if (start >= clampedEnd) return [];
@@ -124,18 +91,10 @@ function boxesIn(bytes: Uint8Array, start: number, end: number): TopLevelBox[] {
 
 export interface Mp4Track {
   trackId: number;
-  /** Ticks per second for this track's `tfdt` / `mdhd` timestamps. */
   timescale: number;
-  /** `hdlr` handler type: "vide", "soun", or "" when absent. */
   kind: string;
 }
 
-/**
- * Read each track's id and timescale from a `moov` box (passed including its
- * own header). A fragment's `tfdt` is in its own track's timescale — Clips
- * recordings carry video at 600 and audio at 48000 — so converting a fragment
- * timestamp to seconds without matching its track id is off by 80x.
- */
 export function parseTracks(moovRegion: Uint8Array): Mp4Track[] {
   const moovEnd = moovRegion.byteLength;
   if (moovEnd < 8) return [];
@@ -153,8 +112,6 @@ export function parseTracks(moovRegion: Uint8Array): Mp4Track[] {
     const mdia = trakChildren.find((b) => b.type === "mdia");
     if (!tkhd || !mdia) continue;
 
-    // FullBox payloads start with a version byte; version 1 widens the two
-    // timestamps that precede the field we want from 4 to 8 bytes each.
     const trackId = readFullBoxU32(moovRegion, tkhd, 8);
     if (trackId === null) continue;
 
@@ -183,11 +140,6 @@ export function parseTracks(moovRegion: Uint8Array): Mp4Track[] {
   return tracks;
 }
 
-/**
- * Read a uint32 from a FullBox payload at `afterTimestamps` bytes past the
- * version/flags word, accounting for the version-1 widening of the two
- * timestamp fields that precede it (`tkhd` track_ID, `mdhd` timescale).
- */
 function readFullBoxU32(
   bytes: Uint8Array,
   box: TopLevelBox,
@@ -203,19 +155,10 @@ function readFullBoxU32(
 }
 
 export interface FragmentDecodeTime {
-  /** Track the timestamp belongs to; resolve its timescale via `parseTracks`. */
   trackId: number;
   baseMediaDecodeTime: number;
 }
 
-/**
- * Read the first track fragment's decode time from the `moof` box at
- * `moofStart`. This is what makes a byte offset locatable on the timeline: it
- * answers "what presentation time does the fragment at this byte position
- * start at", which a byte-fraction estimate can only guess at.
- *
- * Returns null when the `moof` is truncated or carries no `tfdt`.
- */
 export function readFragmentDecodeTime(
   bytes: Uint8Array,
   moofStart: number,
@@ -241,7 +184,6 @@ export function readFragmentDecodeTime(
         if (payload >= bytes.byteLength) continue;
         if (bytes[payload] === 1) {
           if (payload + 12 > bytes.byteLength) continue;
-          // 64-bit: JS numbers hold this exactly for any real recording length.
           baseMediaDecodeTime =
             readU32(bytes, payload + 4) * 4294967296 +
             readU32(bytes, payload + 8);
@@ -259,13 +201,6 @@ export function readFragmentDecodeTime(
   return null;
 }
 
-/**
- * Presentation time in seconds of the fragment whose `moof` starts at
- * `moofStart`, or null when it cannot be read (truncated box, or a track id
- * absent from `tracks`). Never falls back to a different track's timescale — a
- * wrong timescale is worse than no answer, because callers use this to decide
- * where to start appending.
- */
 export function fragmentPtsSeconds(
   bytes: Uint8Array,
   moofStart: number,
@@ -278,18 +213,12 @@ export function fragmentPtsSeconds(
   return decodeTime.baseMediaDecodeTime / track.timescale;
 }
 
-/**
- * Parse the init segment from the head of a fragmented MP4. `bytes` must
- * contain the whole `ftyp`+`moov` prefix (a few hundred KB is always enough —
- * the init segment carries no per-fragment data). Returns null when `moov` is
- * incomplete or no usable video codec was found.
- */
 export function parseInitSegment(bytes: Uint8Array): ParsedInitSegment | null {
   const boxes = readTopLevelBoxes(bytes);
   const moov = boxes.find((b) => b.type === "moov");
   if (!moov || moov.size === 0) return null;
   const moovEnd = moov.start + moov.size;
-  if (moovEnd > bytes.byteLength) return null; // moov not fully present yet
+  if (moovEnd > bytes.byteLength) return null;
 
   const moovRegion = bytes.subarray(moov.start, moovEnd);
   const videoCodec = parseAvcCodec(moovRegion);
@@ -300,7 +229,6 @@ export function parseInitSegment(bytes: Uint8Array): ParsedInitSegment | null {
 
   const codecParts: string[] = [];
   if (videoCodec) codecParts.push(videoCodec);
-  // Clips fMP4 audio is always AAC-LC 48kHz stereo → mp4a.40.2.
   if (hasAudio) codecParts.push("mp4a.40.2");
 
   return {
@@ -316,16 +244,9 @@ function hex2(value: number): string {
   return value.toString(16).padStart(2, "0");
 }
 
-/**
- * Build the `avc1.PPCCLL` codec string from the `avcC` configuration box within
- * `moovRegion` (PP=profile, CC=profile-compatibility, LL=level). Returns null
- * when no `avcC` box is present.
- */
 export function parseAvcCodec(moovRegion: Uint8Array): string | null {
   const marker = indexOfAscii(moovRegion, "avcC");
   if (marker === -1) return null;
-  // avcC payload: [0] configurationVersion, [1] AVCProfileIndication,
-  // [2] profile_compatibility, [3] AVCLevelIndication.
   const config = marker + 4;
   if (config + 4 > moovRegion.byteLength) return null;
   const profile = moovRegion[config + 1];
@@ -334,12 +255,6 @@ export function parseAvcCodec(moovRegion: Uint8Array): string | null {
   return `avc1.${hex2(profile)}${hex2(compat)}${hex2(level)}`;
 }
 
-/**
- * Find the byte offset (relative to `bytes`) of the first `moof` box start — the
- * fragment boundary MSE must begin an append at. `bytes` is a chunk fetched at
- * an arbitrary byte position, so this scans for the `moof` type marker and
- * backs up 4 bytes to the box size field. Returns -1 when none is found.
- */
 export function findMoofOffset(bytes: Uint8Array): number {
   let from = 0;
   for (;;) {
@@ -350,17 +265,11 @@ export function findMoofOffset(bytes: Uint8Array): number {
     if (boxStart < 0) continue;
 
     const size = readU32(bytes, boxStart);
-    // A moof box is small; a bogus size means we hit the ASCII "moof" inside
-    // mdat payload rather than a real box header.
     if (size < 16 || size > 16 * 1024 * 1024) continue;
 
-    // A real moof always begins with an `mfhd` child box (payload starts at
-    // boxStart+8, whose first child type sits at boxStart+12).
     if (boxStart + 16 > bytes.byteLength) continue;
     if (readType(bytes, boxStart + 12) !== "mfhd") continue;
 
-    // ...and is immediately followed by its `mdat`. Require this when the
-    // follower is within the buffer; near the tail we accept the validated moof.
     const nextBox = boxStart + size;
     if (
       nextBox + 8 <= bytes.byteLength &&
@@ -373,16 +282,6 @@ export function findMoofOffset(bytes: Uint8Array): number {
   }
 }
 
-/**
- * True when the head of an MP4 shows the fragmented shape: the `hlsf` brand in
- * `ftyp`, or an `mvex` box inside `moov` (present only in fragmented files).
- * `headBytes` should be the first few KB of the file.
- *
- * Both checks walk the ISO BMFF box structure rather than scanning raw bytes.
- * Numeric fields inside moov children (timestamps, matrix values, codec config)
- * can accidentally contain the byte sequences "mvex" or "hlsf", producing false
- * positives if we just scan the whole buffer.
- */
 export function isFragmentedMp4Head(headBytes: Uint8Array): boolean {
   if (headBytes.byteLength < 8) return false;
 
@@ -392,7 +291,6 @@ export function isFragmentedMp4Head(headBytes: Uint8Array): boolean {
   if (ftypSize < 12) return false;
   const ftypEnd = Math.min(ftypSize, headBytes.byteLength);
 
-  // Offset 12 is minor_version (uint32), not a brand — start compatible brands at 16.
   if (ftypEnd >= 12 && readType(headBytes, 8) === "hlsf") return true;
   for (let i = 16; i + 4 <= ftypEnd; i += 4) {
     if (readType(headBytes, i) === "hlsf") return true;
@@ -409,7 +307,6 @@ export function isFragmentedMp4Head(headBytes: Uint8Array): boolean {
   return readTopLevelBoxes(moovPayload).some((b) => b.type === "mvex");
 }
 
-/** Cache detection by URL identity so we sniff each asset only once. */
 const detectionCache = new Map<string, Promise<boolean>>();
 
 function detectionKey(url: string): string {
@@ -419,7 +316,6 @@ function detectionKey(url: string): string {
         ? "http://clips.local"
         : window.location.href;
     const parsed = new URL(url, base);
-    // Strip volatile auth/cache-bust params so the same asset shares one entry.
     return `${parsed.origin}${parsed.pathname}`;
   } catch {
     return url;
@@ -428,11 +324,6 @@ function detectionKey(url: string): string {
 
 const SNIFF_BYTES = 4096;
 
-/**
- * Range-fetch the first few KB of an asset and report whether it is a raw
- * fragmented MP4 that needs the MSE path. Cached per asset; resolves false on
- * any network/parse error so callers fall back to the native `<video src>`.
- */
 export async function sniffFragmentedMp4(url: string): Promise<boolean> {
   const key = detectionKey(url);
   const cached = detectionCache.get(key);
@@ -452,9 +343,6 @@ export async function sniffFragmentedMp4(url: string): Promise<boolean> {
   })();
 
   detectionCache.set(key, promise);
-  // Don't cache a rejected/false-by-error result forever if it was a transient
-  // network blip: drop the entry when it resolves false so a later retry can
-  // re-sniff, but keep positive detections cached.
   void promise.then((isFrag) => {
     if (!isFrag) detectionCache.delete(key);
   });

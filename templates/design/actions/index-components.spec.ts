@@ -1,10 +1,3 @@
-/**
- * Tests for index-components action.
- *
- * Issue: the action was declared readOnly:true / GET but inserts and updates
- * component_index rows. It must be a write action (readOnly:false / POST) that
- * requires editor access.
- */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

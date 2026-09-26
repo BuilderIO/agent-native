@@ -38,7 +38,6 @@ export function slideCommentAnchorAtPoint({
   };
 }
 
-/** Convert a live text-selection range into the persisted slide coordinate. */
 export function slideCommentAnchorFromRange({
   range,
   slideRect,

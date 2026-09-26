@@ -9,37 +9,18 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { splitGfmPipeRow } from "./nfm.js";
 
-/**
- * Notion-flavored container blocks rendered to standalone export HTML.
- *
- * Canonical NFM (see `nfm.ts`) stores tables, callouts, toggles, columns, and
- * synced blocks as HTML-ish tag lines rather than as markdown, and it writes no
- * blank separator line between blocks. The exporter's block scanner is
- * line-oriented markdown, so without this module those lines fall through to
- * its paragraph branch and a table reaches the PDF as escaped `<td>` text.
- *
- * Every container tag lives in `CONTAINER_RENDERERS`: teaching the exporter a
- * new Notion container is an entry there, never another branch in the scanner's
- * block loop.
- */
 
 export interface NfmExportRenderers {
-  /** Render nested block markdown by recursing into the exporter's scanner. */
   renderBlocks: (markdown: string) => string;
-  /** Render one run of inline markdown (links, emphasis, code, math). */
   renderInline: (text: string) => string;
   escapeHtml: (text: string) => string;
 }
 
 export interface NfmExportBlockMatch {
   html: string;
-  /** Index of the first line after the consumed block. */
   nextIndex: number;
 }
 
-// The exported document is a standalone file with no access to the app's theme
-// tokens, so it carries literal values - the same ones the rest of the export
-// stylesheet in document-export.ts already uses for `pre` and `blockquote`.
 const EXPORT_BORDER = "#d4d4d4"; // guard:allow-raw-color - standalone export document, no theme tokens
 const EXPORT_RULE = "#e5e5e5"; // guard:allow-raw-color - standalone export document, no theme tokens
 const EXPORT_SURFACE = "#f6f6f6"; // guard:allow-raw-color - standalone export document, no theme tokens
@@ -55,7 +36,6 @@ const EXPORT_ICON_COLORS: Record<IconColor, string> = {
   red: "#c4554d", // guard:allow-raw-color - standalone export has no theme tokens
 }; // guard:allow-raw-color - standalone export document, no theme tokens
 
-/** Stylesheet rules the exported document needs for NFM container blocks. */
 export const NFM_EXPORT_STYLES = `
     .nfm-table-scroll { margin: 18px 0; max-width: 100%; overflow-x: auto; }
     table.nfm-table {
@@ -97,7 +77,6 @@ export const NFM_EXPORT_STYLES = `
     .nfm-column > :first-child { margin-top: 0; }
     .nfm-synced { margin: 18px 0; }`;
 
-/** Rules that belong inside the export stylesheet's `@media print` block. */
 export const NFM_EXPORT_PRINT_STYLES = `
       table.nfm-table { break-inside: auto; }
       table.nfm-table thead { display: table-header-group; }
@@ -106,7 +85,6 @@ export const NFM_EXPORT_PRINT_STYLES = `
       .nfm-callout, .nfm-columns { break-inside: avoid; }
       .nfm-details > summary { list-style: none; }`;
 
-// ── Attribute helpers (mirroring nfm.ts's HTML-ish tag grammar) ──────
 
 const OPEN_TAG_PATTERN = /^<([a-z][a-z0-9_-]*)((?:\s[^>]*)?)>$/;
 
@@ -126,11 +104,6 @@ function parseTagAttrs(raw: string): Record<string, string> {
   return attrs;
 }
 
-/**
- * Strip the one extra level of indentation NFM gives a container's children so
- * the nested markdown scanner sees them at column zero. Canonical NFM indents
- * with TABs; space-indented input from hand-authored markdown is tolerated.
- */
 function dedentChildren(lines: string[]): string {
   return lines
     .map((line) =>
@@ -152,7 +125,6 @@ function renderCellContent(
     .join("<br />");
 }
 
-// ── Block detection ─────────────────────────────────────────────────
 
 type Alignment = "left" | "center" | "right" | null;
 
@@ -174,12 +146,6 @@ interface PipeTableDescriptor {
 
 type BlockDescriptor = ContainerDescriptor | PipeTableDescriptor;
 
-/**
- * Locate the close tag that matches the container opened at `start`, counting
- * nested opens of the same tag. Returns null for an unterminated container so
- * the caller can leave it to the scanner's paragraph handling instead of
- * swallowing the rest of the document — the same degradation `nfm.ts` applies.
- */
 function findContainerClose(
   lines: string[],
   start: number,
@@ -219,11 +185,6 @@ function splitPipeRow(line: string): string[] | null {
   );
 }
 
-/**
- * Read a pipe table's delimiter row. Returns null when any cell is not a
- * `---` / `:--` / `--:` / `:-:` run, which is what separates a real GFM table
- * from a paragraph that merely contains pipes.
- */
 function parseAlignmentRow(cells: string[]): Alignment[] | null {
   const alignments: Alignment[] = [];
   for (const cell of cells) {
@@ -269,8 +230,6 @@ function detectContainer(
   index: number,
 ): ContainerDescriptor | null {
   const openTag = lines[index].trim().match(OPEN_TAG_PATTERN);
-  // hasOwn, not `in`: a tag named "constructor" or "toString" would otherwise
-  // resolve to an inherited Object member and be called as a renderer.
   if (
     !openTag ||
     !Object.prototype.hasOwnProperty.call(CONTAINER_RENDERERS, openTag[1])
@@ -293,7 +252,6 @@ function detectBlock(lines: string[], index: number): BlockDescriptor | null {
   return detectPipeTable(lines, index) ?? detectContainer(lines, index);
 }
 
-// ── Container renderers ─────────────────────────────────────────────
 
 interface ContainerInput {
   attrs: Record<string, string>;
@@ -480,8 +438,6 @@ const renderDetailsContainer: ContainerRenderer = ({
   inner,
   renderers,
 }) => {
-  // NFM keeps `<summary>` on its own line at the container's own indent; every
-  // following line is the toggle body, indented one extra level.
   const summaryMatch = inner[0]
     ?.trim()
     .match(/^<summary>([\s\S]*)<\/summary>$/);
@@ -492,8 +448,6 @@ const renderDetailsContainer: ContainerRenderer = ({
     ? renderers.renderInline(summarySource)
     : "Details";
 
-  // Always expanded: a PDF has no disclosure affordance, so a collapsed toggle
-  // would drop its body from the exported document.
   return `<details class="nfm-details" open><summary>${summary}</summary><div class="nfm-details-body">${renderers.renderBlocks(
     dedentChildren(bodyLines),
   )}</div></details>`;
@@ -556,16 +510,10 @@ function renderPipeTable(
   return `<div class="nfm-table-scroll"><table class="nfm-table">${head}${body}</table></div>`;
 }
 
-/**
- * True when `lines[index]` opens an NFM container or GFM pipe table. The
- * exporter's paragraph accumulator needs this because canonical NFM writes no
- * blank line before a container, so a paragraph would otherwise absorb it.
- */
 export function startsNfmExportBlock(lines: string[], index: number): boolean {
   return detectBlock(lines, index) !== null;
 }
 
-/** Render the NFM container or pipe table starting at `index`, if there is one. */
 export function matchNfmExportBlock(
   lines: string[],
   index: number,

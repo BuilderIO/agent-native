@@ -51,11 +51,6 @@ export interface NewDeckReferenceSelection {
   designSystemId?: string | null;
   referenceDeckId?: string | null;
   referenceFilePaths?: string[];
-  /**
-   * The one uploaded document that became `referenceDeckId`. The import
-   * controls accept multiple files but only import one, so the rest of
-   * `referenceFilePaths` still needs hydrating.
-   */
   importedReferenceFilePath?: string;
   referenceSource?: {
     kind: "google-docs" | "website" | "figma";
@@ -72,7 +67,6 @@ export interface ImportedReference {
   title: string;
   source: "pptx" | "pdf" | "docx" | "google-slides";
   referenceFilePaths?: string[];
-  /** The uploaded document this reference deck was built from, when any. */
   importedFilePath?: string;
 }
 
@@ -97,8 +91,6 @@ interface NewDeckReferenceStepProps {
   ) => Promise<ImportedReference | null>;
   onSkip: () => void | Promise<void>;
   onOpenChange: (open: boolean) => void;
-  /** Called after the inline "create a design system" dialog completes, so
-   * the caller can refetch the list and surface the new option. */
   onDesignSystemsChanged: () => void;
   importing?: boolean;
   title: string;
@@ -156,9 +148,6 @@ export function NewDeckReferenceStep({
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
 
-  // True while the picker still reflects an auto-applied default rather than
-  // an explicit user choice, so a default that resolves after this step is
-  // already open can still land - see the hydration effects below.
   const designSystemAutoRef = useRef(true);
   const referenceDeckAutoRef = useRef(true);
 
@@ -280,8 +269,6 @@ export function NewDeckReferenceStep({
     if (isAlreadySelected) {
       setSelectedSource(null);
       if (importedReference) {
-        // The import also set the reference deck. Leaving that id behind would
-        // submit a deck the UI no longer shows as selected.
         setSelectedReferenceDeckId((current) =>
           current === importedReference.id ? null : current,
         );
@@ -635,11 +622,6 @@ export function NewDeckReferenceStep({
         onClose={() => setShowDesignSystemSetup(false)}
         onComplete={() => {
           setShowDesignSystemSetup(false);
-          // Most sources hand off to the agent and complete before the row
-          // exists, so this can be a no-op; it only helps the synchronous
-          // edit/GitHub-only paths. The dropdown still catches up once the
-          // agent-created row lands, via the shared action-query sync in
-          // useDbSync (see root.tsx), not through this call.
           onDesignSystemsChanged();
         }}
       />

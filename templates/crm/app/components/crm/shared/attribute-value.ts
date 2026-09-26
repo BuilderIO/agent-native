@@ -1,16 +1,3 @@
-/**
- * The one per-attribute-type value registry, shared by the spreadsheet grid and
- * the record page's attribute panel.
- *
- * It owns everything about a value that is not layout: display text, clipboard
- * text, parsing typed input back, resolving managed options and their colours,
- * and which editing *affordance* a type calls for. It deliberately stops there.
- * A grid cell is 34px tall, keyboard-driven, and edited in place; a panel row is
- * full width, labelled, and stacked — so each surface renders the affordance in
- * its own layout wrapper and only the value logic lives here.
- *
- * Adding an attribute type means adding one entry to `ATTRIBUTE_VALUE_SPECS`.
- */
 
 import {
   ATTRIBUTE_TYPE_SPECS,
@@ -19,10 +6,6 @@ import {
 } from "../../../../shared/crm-attributes";
 import type { CrmAttributeOption } from "../../../../shared/crm-contract";
 
-/**
- * Every shape a stored CRM value can arrive in. Deliberately wider than either
- * surface's own value type so both can pass their values straight in.
- */
 export type CrmAttributeValue =
   | string
   | number
@@ -31,7 +14,6 @@ export type CrmAttributeValue =
   | Array<string | number | boolean | null>
   | { [key: string]: unknown };
 
-/** Everything a typed editor can produce — assignable to both surfaces' types. */
 export type CrmEditableValue =
   | string
   | number
@@ -39,11 +21,6 @@ export type CrmEditableValue =
   | null
   | Array<string | number | boolean>;
 
-/**
- * The editing affordance a type calls for. `none` means no surface can edit it:
- * a system-only or composite type is read-only everywhere, not read-only by
- * accident in one place.
- */
 export type CrmAttributeControl =
   | "text"
   | "number"
@@ -65,7 +42,6 @@ export type CrmValueParse =
   | { ok: true; value: CrmEditableValue }
   | { ok: false; reason: CrmValueParseFailure; detail?: string };
 
-/** The attribute subset the registry needs; both surfaces' types satisfy it. */
 export interface CrmValueShape {
   attributeType: CrmAttributeType;
   multi: boolean;
@@ -81,33 +57,17 @@ export interface CrmValueContext {
 export interface CrmValueSpec {
   control: CrmAttributeControl;
   align: "left" | "right" | "center";
-  /**
-   * `<input type>` for a single-valued text editor. The grid overrides it for
-   * numbers — spinner arrows in a 34px cell hijack the scroll wheel — but the
-   * semantic type belongs to the attribute type, so it is declared once here.
-   */
   inputType: "text" | "number" | "email" | "tel" | "date" | "datetime-local";
-  /** Display text for one scalar value. Empty string means "no value". */
   format(value: CrmAttributeValue, ctx: CrmValueContext): string;
-  /** Text for one scalar in a clipboard copy. Defaults to `format`. */
   copy?(value: CrmAttributeValue, ctx: CrmValueContext): string;
-  /** Read one scalar back from editor text or a pasted cell. */
   parse(text: string, ctx: CrmValueContext): CrmValueParse;
 }
 
-// ---------------------------------------------------------------------------
-// Options
-// ---------------------------------------------------------------------------
 
-/** Option rows a picker may offer and a write may name — the server rejects the rest. */
 export function activeOptions(attribute: CrmValueShape): CrmAttributeOption[] {
   return (attribute.options ?? []).filter((option) => !option.archived);
 }
 
-/**
- * The option a stored value refers to, archived included: a value written
- * before the option was archived still has to render with its own title.
- */
 export function resolveOption(
   attribute: CrmValueShape,
   value: unknown,
@@ -116,7 +76,6 @@ export function resolveOption(
   return attribute.options?.find((option) => option.value === value);
 }
 
-/** A rendered chip: a label and, when the option declares one, its colour. */
 export interface CrmValueToken {
   label: string;
   color?: string;
@@ -152,9 +111,6 @@ export function valueTokens(
   return tokens;
 }
 
-// ---------------------------------------------------------------------------
-// Shared coercions
-// ---------------------------------------------------------------------------
 
 function asDisplayString(value: CrmAttributeValue): string {
   if (value === null || value === undefined) return "";
@@ -164,14 +120,12 @@ function asDisplayString(value: CrmAttributeValue): string {
   return JSON.stringify(value);
 }
 
-/** ISO date (`2026-01-31`) from an ISO date or timestamp; "" when unreadable. */
 export function toDateInputValue(value: CrmAttributeValue | undefined): string {
   if (typeof value !== "string" || !value) return "";
   const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
   return match?.[1] ?? "";
 }
 
-/** `YYYY-MM-DDTHH:mm` for `<input type="datetime-local">`; "" when unreadable. */
 export function toDateTimeInputValue(
   value: CrmAttributeValue | undefined,
 ): string {
@@ -184,7 +138,6 @@ export function toDateTimeInputValue(
   )}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
 }
 
-/** The ISO 4217 code an attribute declares, normalised; null when unusable. */
 export function currencyCodeOf(
   config: Record<string, unknown> | undefined,
 ): string | null {
@@ -209,17 +162,11 @@ function formatCurrency(
       maximumFractionDigits: 2,
     }).format(value);
   } catch {
-    // An unsupported code is a configuration problem, not a reason to hide the
-    // amount: show the raw number next to the code the attribute declares.
     return `${value} ${code}`;
   }
 }
 
-// ---------------------------------------------------------------------------
-// Per-type specs
-// ---------------------------------------------------------------------------
 
-/** Ratings are a fixed five-star scale; the parser and both surfaces share it. */
 export const RATING_MAX = 5;
 
 const TEXT_SPEC: CrmValueSpec = {
@@ -239,8 +186,6 @@ function numberSpec(overrides: Partial<CrmValueSpec> = {}): CrmValueSpec {
     parse: (text) => {
       const trimmed = text.trim();
       if (!trimmed) return { ok: true, value: null };
-      // `Number("")` is 0 and `Number("12abc")` is NaN — both would otherwise
-      // land in the field as a confident wrong number.
       const parsed = Number(trimmed.replace(/[\s,]/g, ""));
       if (!Number.isFinite(parsed)) {
         return { ok: false, reason: "not-a-number", detail: trimmed };
@@ -261,8 +206,6 @@ function optionSpec(): CrmValueSpec {
       if (!raw) return "";
       return resolveOption(ctx.attribute, raw)?.title ?? raw;
     },
-    // Copy the stored value, not the title: a clipboard round-trip has to paste
-    // back through `parse`, which matches on option value first.
     copy: (value) => asDisplayString(value),
     parse: (text, ctx) => {
       const trimmed = text.trim();
@@ -273,8 +216,6 @@ function optionSpec(): CrmValueSpec {
         options.find(
           (option) => option.title.toLowerCase() === trimmed.toLowerCase(),
         );
-      // Managed options are a closed set, and the writer resolves them against
-      // non-archived rows only. Refusing here keeps a doomed write off the wire.
       if (!match)
         return { ok: false, reason: "unknown-option", detail: trimmed };
       return { ok: true, value: match.value };
@@ -352,8 +293,6 @@ export const ATTRIBUTE_VALUE_SPECS: Record<CrmAttributeType, CrmValueSpec> = {
             ctx.locale,
           )
         : "",
-    // A formatted "$1,200.00" cannot be read back as a number reliably, so both
-    // the clipboard and the editor seed carry the raw amount.
     copy: (value) => (typeof value === "number" ? String(value) : ""),
   }),
   date: {
@@ -378,8 +317,6 @@ export const ATTRIBUTE_VALUE_SPECS: Record<CrmAttributeType, CrmValueSpec> = {
     format: (value, ctx) => {
       if (typeof value !== "string" || !value) return "";
       const parsed = new Date(value);
-      // An unreadable stored timestamp shows its raw text rather than a blank
-      // field: blank would read as "no value".
       return Number.isNaN(parsed.getTime())
         ? value
         : parsed.toLocaleString(ctx.locale);
@@ -423,22 +360,10 @@ export function valueSpecFor(attribute: CrmValueShape): CrmValueSpec {
   return ATTRIBUTE_VALUE_SPECS[attribute.attributeType];
 }
 
-/**
- * The `<input>` type an inline text editor must use, for every surface.
- *
- * A numeric attribute deliberately gets `text`, not `number`. `<input
- * type="number">` reports `value === ""` for anything the control cannot parse
- * — a half-typed "91e", "1,2", a lone "-" — while `validity.badInput` is true.
- * That empty string reaches `parse` as "the user cleared the field" and is
- * stored as null, so a typed amount silently becomes NULL. Keeping the raw text
- * lets `parse` fail loudly with `not-a-number` instead. `inputMode` keeps the
- * numeric keypad on touch.
- */
 export function editorInputType(attribute: CrmValueShape): {
   type: CrmValueSpec["inputType"];
   inputMode?: "decimal";
 } {
-  // A multi value is a comma-separated list, which no typed input accepts.
   if (attribute.multi) return { type: "text" };
   const spec = valueSpecFor(attribute);
   if (spec.inputType === "number") {
@@ -474,7 +399,6 @@ export function referenceSearchKind(attribute: CrmValueShape): string | null {
   return REFERENCE_OBJECT_KINDS[objectType] ?? null;
 }
 
-/** Every type has a spec and no system-only type is editable anywhere. */
 export function assertValueRegistryComplete(): void {
   for (const type of CRM_ATTRIBUTE_TYPES) {
     const spec = ATTRIBUTE_VALUE_SPECS[type];
@@ -489,9 +413,6 @@ export function assertValueRegistryComplete(): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Multi-value handling
-// ---------------------------------------------------------------------------
 
 function scalarsOf(value: CrmAttributeValue): CrmAttributeValue[] {
   return Array.isArray(value) ? value : value === null ? [] : [value];
@@ -534,11 +455,6 @@ export function copyAttributeValue(
     .join(", ");
 }
 
-/**
- * Read editor text or a pasted cell back into a storable value. A multi-valued
- * attribute splits on commas; one bad member fails the whole value rather than
- * dropping that member.
- */
 export function parseAttributeValue(
   attribute: CrmValueShape,
   text: string,
@@ -569,10 +485,6 @@ export function parseAttributeValue(
   return { ok: true, value: values.length ? values : null };
 }
 
-/**
- * The raw text an editor starts from. Never the formatted display text: a
- * currency cell seeded with "$1,200.00" cannot be parsed back into 1200.
- */
 export function attributeInputValue(
   attribute: CrmValueShape,
   value: CrmAttributeValue | undefined,
@@ -589,26 +501,12 @@ export function attributeInputValue(
   return String(value);
 }
 
-// ---------------------------------------------------------------------------
-// Inline editor drafts
-// ---------------------------------------------------------------------------
 
-/** What an inline editor shows, plus the committed text it was seeded from. */
 export interface CrmEditorDraft {
   draft: string;
   seed: string;
 }
 
-/**
- * The draft an inline editor should hold for `seed`, returning `state` itself
- * when the committed text has not moved.
- *
- * Re-seed only on the committed text. Keying it on anything looser — the
- * attribute object, which the record panel rebuilds on every render — rewrites
- * the input's value out from under the caret mid-edit. The browser drops the
- * selection when that happens, so a select-all and retype interleaves with the
- * value being replaced instead of replacing it.
- */
 export function editorDraftFor(
   state: CrmEditorDraft | undefined,
   seed: string,
@@ -617,11 +515,7 @@ export function editorDraftFor(
   return state.seed === seed ? state : { draft: seed, seed };
 }
 
-// ---------------------------------------------------------------------------
-// Reference values
-// ---------------------------------------------------------------------------
 
-/** The individual records a reference value names, in stored order. */
 export function referenceMembers(
   value: CrmAttributeValue | undefined,
 ): string[] {
@@ -631,12 +525,6 @@ export function referenceMembers(
     .filter((entry) => entry !== "");
 }
 
-/**
- * The value a reference picker produces for `pick`. A single reference is
- * replaced outright; a multi reference toggles membership and collapses to
- * `null` — not `[]` — when the last member goes, because an empty array and no
- * value must not read as two different states downstream.
- */
 export function toggleReferenceValue(
   value: CrmAttributeValue | undefined,
   pick: string,
@@ -650,11 +538,6 @@ export function toggleReferenceValue(
   return next.length ? next : null;
 }
 
-/**
- * Days a value has sat past its status option's `targetDays`. `null` when the
- * attribute is not a status, has no SLA, or has no known `activeFrom` — an
- * unknown age is not an on-time one.
- */
 export function statusOverrunDays(input: {
   attribute: CrmValueShape;
   value: CrmAttributeValue;

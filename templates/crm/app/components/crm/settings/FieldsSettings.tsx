@@ -170,11 +170,6 @@ export function FieldsSettings() {
     { enabled: Boolean(activeTarget) } as never,
   );
 
-  /**
-   * Writes the optimistic state and hands back the undo. An error path that
-   * cannot restore the previous rows would leave the table asserting a change
-   * the server refused.
-   */
   function patchAttribute(
     attributeId: string,
     patch: Partial<CrmAttributeDefinition>,
@@ -473,11 +468,6 @@ function AttributeRow({
   );
 }
 
-/**
- * `api_slug` and the attribute type are shown, never offered: the actions
- * reject a change to either because stored value rows are keyed by the slug and
- * typed by the type.
- */
 function ImmutableField({
   label,
   value,

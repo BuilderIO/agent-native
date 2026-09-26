@@ -7,12 +7,8 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-// This is only a lost-signal recovery guard. A long deck legitimately takes
-// several minutes because each slide is written and fit-checked separately.
 export const MAX_GENERATING_MS = 30 * 60 * 1000;
 
-// Gateway continuations can briefly report a stopped chat between model/tool
-// chunks. Keep generation UI and presence steady across that transport gap.
 export const CHAT_STOP_DEBOUNCE_MS = 4_000;
 const CHAT_SUBMIT_TARGET_EVENT = "agentNative.chatSubmitTarget";
 export const SLIDES_GENERATION_STARTED_EVENT = "slides:generation-started";
@@ -65,11 +61,6 @@ type AgentGeneratingSubmitOptions = Pick<
   generationOutputId?: string;
 };
 
-/**
- * Tracks whether an agent chat submission is in progress.
- * Wraps @agent-native/core's useAgentChatGenerating hook, with a timeout
- * fallback so a run that never reports completion can't spin forever.
- */
 export function useAgentGenerating(options?: { tabId: string | null }) {
   const hasTabScope = options !== undefined;
   const scopedTabId = options?.tabId ?? null;

@@ -1,35 +1,3 @@
-/**
- * figma-node-spec.ts — the scene -> Figma NODE TREE serializer, the
- * auto-layout half of the Figma export.
- *
- * The SVG path (`figma-svg-scene.ts`) hands Figma one flat sheet of
- * absolutely-positioned geometry, because SVG has no way to say "this is a
- * row with a 16px gap". Figma's Plugin API does — `layoutMode`,
- * `itemSpacing`, `padding*`, `layoutGrow`, `layoutSizing*` — so an export
- * that builds real nodes can hand a designer frames they can actually resize
- * and re-flow, plus the text tracking and effects Figma's SVG importer drops
- * on the floor.
- *
- * Pure and DOM-free: it consumes a `FigmaSvgNode` tree (already hydrated by
- * `figma-svg-scene.ts`) and returns plain data. `figma-node-spec.test.ts`
- * covers it with hand-built scenes; there is no browser in the loop here.
- *
- * Two things make the output trustworthy rather than plausible:
- *
- *  1. Every auto-layout frame is ADMITTED BY SIMULATION. `simulateLines`
- *     replays Figma's own stacking arithmetic over the mapped properties and
- *     compares the result to the geometry the browser actually laid out. A
- *     frame only keeps `layoutMode` when the simulation reproduces every
- *     child's position within `POSITION_EPSILON`. Anything else falls back to
- *     absolute positioning AND is named in the report — a container that
- *     silently became "auto-layout" while its children drifted would be the
- *     worst possible outcome, since it looks like the feature working.
- *
- *  2. Sizing modes are derived from MEASURED geometry, never from CSS.
- *     `getComputedStyle` reports used width/height, so no in-page read can
- *     tell `width: 240px` from a content-derived width. A frame hugs only
- *     when hugging arithmetically reproduces the size the browser produced.
- */
 
 import { parseCssColorExtended } from "./color-utils.js";
 import {
@@ -42,11 +10,6 @@ import {
   type FigmaSvgTextStyle,
 } from "./figma-svg-scene.js";
 
-// ---------------------------------------------------------------------------
-// Spec types — deliberately shaped like the Plugin API properties they set,
-// so the materializing plugin script is an assignment loop and not a second
-// place where the mapping can drift.
-// ---------------------------------------------------------------------------
 
 export type FigmaLayoutMode = "NONE" | "HORIZONTAL" | "VERTICAL";
 export type FigmaPrimaryAxisAlign = "MIN" | "CENTER" | "MAX" | "SPACE_BETWEEN";
@@ -70,7 +33,6 @@ export type FigmaPaintSpec =
   | { type: "SOLID"; color: FigmaRgb; opacity: number }
   | {
       type: "GRADIENT_LINEAR";
-      /** CSS gradient angle (0 = to top, 90 = to right). */
       angleDeg: number;
       stops: FigmaGradientStop[];
     }
@@ -90,19 +52,12 @@ export interface FigmaStrokeSpec {
   paint: FigmaPaintSpec;
   weight: number;
   dashed: boolean;
-  /** [top, right, bottom, left] when the CSS sides differ in width. */
   sideWeights?: [number, number, number, number];
 }
 
 export interface FigmaTextSpec {
-  /** One entry per MEASURED visual line; joined with "\n" when materialized. */
   lines: string[];
-  /** The whole CSS `font-family` list, for a materializer that wants to run
-   *  its own fallback. */
   fontFamily: string;
-  /** The ONE family the browser actually measured with. Use this: the geometry
-   *  in this spec is that family's geometry, so materializing in a different
-   *  one silently changes every text width. */
   resolvedFontFamily?: string;
   fontSizePx: number;
   fontWeight: number;
@@ -118,7 +73,6 @@ export interface FigmaTextSpec {
 export interface FigmaAutoLayoutSpec {
   mode: FigmaLayoutMode;
   itemSpacing: number;
-  /** Between wrapped lines; only meaningful with `layoutWrap: "WRAP"`. */
   counterAxisSpacing: number;
   paddingTop: number;
   paddingRight: number;
@@ -135,7 +89,6 @@ export interface FigmaNodeSpec {
   id: string;
   name: string;
   type: "FRAME" | "TEXT" | "SVG";
-  /** Parent-relative, px, top-left origin — Figma's own x/y convention. */
   x: number;
   y: number;
   width: number;
@@ -148,10 +101,8 @@ export interface FigmaNodeSpec {
   stroke?: FigmaStrokeSpec;
   effects?: FigmaEffectSpec[];
   text?: FigmaTextSpec;
-  /** Inline `<svg>` markup for `figma.createNodeFromSvg`. */
   svgMarkup?: string;
   layout: FigmaAutoLayoutSpec;
-  /** Child-of-auto-layout properties. Set AFTER `appendChild`. */
   layoutPositioning?: "ABSOLUTE";
   layoutGrow?: number;
   layoutAlign?: "STRETCH" | "INHERIT";
@@ -168,16 +119,11 @@ export interface FigmaNodeSpecReport {
   nodeCountAfter: number;
   maxDepthBefore: number;
   maxDepthAfter: number;
-  /** Everything CSS expressed that this mapping could not carry across. */
   notes: Array<{ node: string; note: string }>;
 }
 
-/** Subpixel layout jitter that must not disqualify an auto-layout frame. */
 export const POSITION_EPSILON = 0.75;
 
-// ---------------------------------------------------------------------------
-// Paint / effect conversion
-// ---------------------------------------------------------------------------
 
 function toFigmaRgb(css: string): { color: FigmaRgb; opacity: number } | null {
   const parsed = parseCssColorExtended(css);
@@ -194,8 +140,6 @@ function toGradientStops(
   const converted: FigmaGradientStop[] = [];
   for (const stop of stops) {
     const rgb = toFigmaRgb(stop.color);
-    // A stop whose colour cannot be parsed is dropped rather than guessed at:
-    // a transparent stop and an unreadable one must not look the same.
     if (!rgb) continue;
     converted.push({
       position: stop.offset,
@@ -292,9 +236,6 @@ function toEffects(
       color: rgb.color,
       opacity: rgb.opacity,
       offset: { x: shadow.offsetX, y: shadow.offsetY },
-      // CSS blur-radius is a diameter-ish spread; Figma's is the Gaussian
-      // radius, which is half of it. This is the one conversion Figma's SVG
-      // importer never gets to do at all, because it drops shadows entirely.
       radius: shadow.blur / 2,
       spread: shadow.spread,
     });
@@ -302,11 +243,7 @@ function toEffects(
   return effects;
 }
 
-// ---------------------------------------------------------------------------
-// Layout mapping
-// ---------------------------------------------------------------------------
 
-/** `candidateMode` needs a third state that is not a Figma value. */
 type ModeCandidate = FigmaLayoutMode | "GRID_CANDIDATE";
 
 function candidateMode(node: FigmaSvgNode): ModeCandidate {
@@ -316,22 +253,12 @@ function candidateMode(node: FigmaSvgNode): ModeCandidate {
   if (display === "flex" || display === "inline-flex") {
     if (css.flexDirection === "row") return "HORIZONTAL";
     if (css.flexDirection === "column") return "VERTICAL";
-    // `row-reverse`/`column-reverse` paint in DOM order but position in
-    // reverse. Figma has no reverse; expressing it would mean reordering the
-    // children, which reorders the paint stack too.
     return "NONE";
   }
   if (display === "grid" || display === "inline-grid") return "GRID_CANDIDATE";
   return "NONE";
 }
 
-/**
- * With exactly one flow item the distribution keywords all degenerate to a
- * plain placement — CSS's own rule, not a fudge: `space-between` puts the
- * single item at the start, `space-around`/`space-evenly` centre it. Worth
- * handling because it is common: a flex row whose only ELEMENT child sits
- * beside a bare text node arrives here with one item.
- */
 function primaryAlignFrom(
   justifyContent: string,
   flowCount: number,
@@ -360,7 +287,6 @@ function primaryAlignFrom(
     case "space-between":
       return "SPACE_BETWEEN";
     default:
-      // space-around / space-evenly / stretch: Figma has no equivalent.
       return null;
   }
 }
@@ -381,7 +307,6 @@ function counterAlignFrom(
     case "end":
       return "MAX";
     case "baseline":
-      // Figma only baselines a horizontal stack.
       return mode === "HORIZONTAL" ? "BASELINE" : null;
     default:
       return null;
@@ -401,9 +326,6 @@ function stretchesCounterAxis(
   return false;
 }
 
-// ---------------------------------------------------------------------------
-// Wrapper collapsing — the "not a million wrapper divs" pass.
-// ---------------------------------------------------------------------------
 
 function isPaintNeutral(node: FigmaSvgNode): boolean {
   return (
@@ -427,13 +349,6 @@ function sameRect(a: FigmaSvgNode, b: FigmaSvgNode): boolean {
   );
 }
 
-/**
- * A paint-neutral box whose single child occupies its exact box contributes
- * nothing: whatever its own padding/gap/alignment did is already baked into
- * that child's measured rect. Replacing it with the child is provably a
- * visual no-op — but the child inherits its ITEM facts, because the child is
- * now the parent's flex item, not the wrapper's.
- */
 function passThroughOnce(node: FigmaSvgNode): FigmaSvgNode | null {
   if (!isPaintNeutral(node)) return null;
   if (node.children?.length !== 1) return null;
@@ -453,15 +368,6 @@ function passThroughOnce(node: FigmaSvgNode): FigmaSvgNode | null {
   };
 }
 
-/**
- * Inside a container that will be absolutely positioned anyway, a
- * paint-neutral box positions nothing — its children already carry
- * root-relative rects. Splicing them into the parent AT THE WRAPPER'S INDEX
- * preserves paint order exactly, and a childless one paints nothing at all.
- *
- * Deliberately NOT applied under an auto-layout parent: there the wrapper is
- * a flow item, so removing it changes spacing.
- */
 function canHoistInto(parent: FigmaSvgNode, node: FigmaSvgNode): boolean {
   return (
     isPaintNeutral(node) &&
@@ -494,9 +400,6 @@ function collapseWrappers(
   return { ...node, children: next };
 }
 
-// ---------------------------------------------------------------------------
-// Auto-layout simulation — the admission test.
-// ---------------------------------------------------------------------------
 
 interface FlowItem {
   spec: FigmaNodeSpec;
@@ -505,7 +408,6 @@ interface FlowItem {
 
 interface SimulationInput {
   mode: "HORIZONTAL" | "VERTICAL";
-  /** Container box in its own coordinates. */
   width: number;
   height: number;
   padding: { top: number; right: number; bottom: number; left: number };
@@ -513,17 +415,10 @@ interface SimulationInput {
   counterAxisSpacing: number;
   primaryAlign: FigmaPrimaryAxisAlign;
   counterAlign: FigmaCounterAxisAlign;
-  /** One entry per wrapped line; a non-wrapping stack is a single line. */
   lines: FlowItem[][];
-  /** Children whose counter-axis size Figma will stretch to the line height. */
   stretched: Set<FigmaNodeSpec>;
 }
 
-/**
- * Replays Figma's stacking over the mapped properties and returns the worst
- * per-child position error in px, or `null` when the mapping is structurally
- * unrepresentable (SPACE_BETWEEN with negative free space, for example).
- */
 export function simulateLines(input: SimulationInput): number | null {
   const horizontal = input.mode === "HORIZONTAL";
   const primaryStart = horizontal ? input.padding.left : input.padding.top;
@@ -575,8 +470,6 @@ export function simulateLines(input: SimulationInput): number | null {
       cursor += primarySizeOf(item.spec) + input.itemSpacing + extraGap;
 
       const childCounter = counterSizeOf(item.spec);
-      // Figma stretches a line's items to the LINE's counter size, not the
-      // container's — identical for a single line, different once wrapped.
       const lineExtent = input.lines.length > 1 ? lineCounter : counterSpace;
       let expectedCounter = counterCursor;
       if (input.stretched.has(item.spec)) {
@@ -586,8 +479,6 @@ export function simulateLines(input: SimulationInput): number | null {
       } else if (input.counterAlign === "MAX") {
         expectedCounter = counterCursor + lineExtent - childCounter;
       } else if (input.counterAlign === "BASELINE") {
-        // Baseline offsets are not in the scene model; treat the mapping as
-        // unverifiable rather than pretending MIN is the same thing.
         return null;
       }
       worst = Math.max(
@@ -600,10 +491,6 @@ export function simulateLines(input: SimulationInput): number | null {
   return worst;
 }
 
-/**
- * Groups flow children into the visual lines the browser actually produced,
- * by watching the primary-axis cursor go backwards.
- */
 function groupIntoLines(items: FlowItem[], horizontal: boolean): FlowItem[][] {
   const lines: FlowItem[][] = [];
   let current: FlowItem[] = [];
@@ -622,9 +509,6 @@ function groupIntoLines(items: FlowItem[], horizontal: boolean): FlowItem[][] {
   return lines;
 }
 
-// ---------------------------------------------------------------------------
-// Scene -> spec
-// ---------------------------------------------------------------------------
 
 const NO_LAYOUT: FigmaAutoLayoutSpec = {
   mode: "NONE",
@@ -688,8 +572,6 @@ function textSpecFrom(
     fontSizePx: style.fontSizePx,
     fontWeight: style.fontWeight ?? 400,
     italic: Boolean(style.italic),
-    // Figma's SVG importer drops tracking entirely; the Plugin API does not,
-    // which is one of the concrete wins of building nodes instead of SVG.
     letterSpacingPx: style.letterSpacingPx ?? 0,
     lineHeightPx: style.lineHeightPx,
     color: rgb.color,
@@ -702,9 +584,6 @@ function textSpecFrom(
           : align === "justify"
             ? "JUSTIFIED"
             : "LEFT",
-    // CSS stacks line boxes from the content-box top; with one line the box
-    // IS one line tall, so TOP and CENTER agree. `figma-svg-scene.ts` centres
-    // the single-line case for the same reason.
     textAlignVertical: lines.length > 1 ? "TOP" : "CENTER",
   };
 }
@@ -724,7 +603,6 @@ function paintPropsFor(
   "fills" | "stroke" | "effects" | "cornerRadii" | "clipsContent"
 > {
   const fills: FigmaPaintSpec[] = [];
-  // Scene fills run topmost-first; Figma paints run bottom-first.
   for (const layer of [...(node.fills ?? [])].reverse()) {
     const paint = toPaint(layer, ctx.notes, label);
     if (paint) fills.push(paint);
@@ -801,10 +679,6 @@ function buildSpec(
     if (!padded && !painted) {
       return { ...base, type: "TEXT", text };
     }
-    // A padded or painted text leaf is a button/pill/badge. A designer builds
-    // that as an auto-layout frame with padding wrapping a text layer — which
-    // is also what keeps the paint AND the text, since a Figma TEXT node's
-    // fills colour the glyphs, not a background.
     ctx.autoLayoutFrames += 1;
     return {
       ...base,
@@ -875,9 +749,6 @@ function resolveContainer(
 
   let mode: "HORIZONTAL" | "VERTICAL";
   if (candidate === "GRID_CANDIDATE") {
-    // Figma auto-layout is single-axis. A grid whose items all share one row
-    // (or one column) IS a row/column with a gap; anything else is a genuine
-    // two-axis layout with no equivalent, and gets said so out loud.
     const sameRow = flow.every(
       (item) => Math.abs(item.spec.y - flow[0].spec.y) <= POSITION_EPSILON,
     );
@@ -912,10 +783,6 @@ function resolveContainer(
   const horizontal = mode === "HORIZONTAL";
   const itemSpacing = horizontal ? css.columnGapPx : css.rowGapPx;
   const counterAxisSpacing = horizontal ? css.rowGapPx : css.columnGapPx;
-  // CSS lays children out inside padding AND border; a Figma frame's stroke
-  // does not inset its auto-layout children at all. Folding the border width
-  // into the padding is what puts a bordered card's contents where the
-  // browser put them — the simulation catches it as a 1px drift otherwise.
   const padding = contentBoxInset(node);
 
   const wraps = css.flexWrap === "wrap" || css.flexWrap === "wrap-reverse";
@@ -926,12 +793,6 @@ function resolveContainer(
     );
   }
 
-  // `align-items: stretch` only stretches an item with no explicit cross
-  // size; one that has its own height is placed at flex-start instead. Since
-  // computed styles cannot tell those apart, use the measured size: a child
-  // counts as stretched only when it already fills the extent Figma would
-  // stretch it to. Anything else is a plain MIN-aligned item, which is
-  // exactly what CSS did.
   const counterSpaceOf = (line: FlowItem[]) =>
     lines.length > 1
       ? line.reduce(
@@ -977,14 +838,6 @@ function resolveContainer(
     );
   }
 
-  // FILL along the primary axis reproduces flex-grow only when Figma's equal
-  // split of the free space lands on the size flex actually computed —
-  // flex-grow RATIOS (flex: 2 next to flex: 1) do not survive that.
-  // CSS grid `1fr` tracks compute to used pixels and grid items keep
-  // `flex-grow: 0`, so no computed style says "this track shares the free
-  // space". The even-split check below is the only honest test available:
-  // when Figma's FILL reproduces the measured track, the track behaved like
-  // `1fr` and FILL keeps the frame resizable instead of frozen.
   const growItems =
     candidate === "GRID_CANDIDATE"
       ? flow
@@ -1006,9 +859,6 @@ function resolveContainer(
     primaryFill = growItems.every(
       (item) => Math.abs(share - primaryOf(item.spec)) <= POSITION_EPSILON,
     );
-    // Only worth reporting where the author actually asked for growth:
-    // a grid track that does not split evenly is simply a fixed track, and
-    // FIXED represents it exactly.
     if (!primaryFill && candidate !== "GRID_CANDIDATE") {
       ctx.notes.push({
         node: base.name,
@@ -1041,8 +891,6 @@ function resolveContainer(
   }
   for (const spec of absolute) spec.layoutPositioning = "ABSOLUTE";
 
-  // Hug only where hugging arithmetically reproduces the measured box — a
-  // frame that hugs when it should not is a frame that silently resizes.
   const lineExtents = lines.map((line) => ({
     primary:
       line.reduce(
@@ -1095,9 +943,6 @@ function resolveContainer(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
 
 function measure(node: FigmaSvgNode): { count: number; depth: number } {
   let count = 1;
@@ -1110,11 +955,6 @@ function measure(node: FigmaSvgNode): { count: number; depth: number } {
   return { count, depth };
 }
 
-/**
- * Turns a hydrated `FigmaSvgNode` scene into a Figma node-spec tree with real
- * auto-layout, plus a report of what was collapsed and what could not be
- * represented.
- */
 export function buildFigmaNodeSpec(root: FigmaSvgNode): {
   root: FigmaNodeSpec;
   report: FigmaNodeSpecReport;

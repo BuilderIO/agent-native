@@ -1,16 +1,5 @@
 // @vitest-environment happy-dom
 
-/**
- * Regression coverage for the referral-attribution loss traced to this repo's
- * production data: `referral_source` shows up on ~2%/14d of clip signups but
- * `referrer_user` (the `via` query param) never does. Root cause — every
- * surface that auto-copies a fresh recording's share link right after it's
- * created (record.tsx's post-stop toast, the stitched-clip toast) called the
- * bare `copyRecordingShareLink(recordingId)` with no owner id, even though
- * the signed-in recorder always owns the recording they just made. `ref=` (and
- * therefore `referral_source`) still landed because `withShareAttribution`
- * sets it unconditionally; `via=` (and `referrer_user`) never did.
- */
 import { readFileSync } from "node:fs";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,8 +30,6 @@ describe("freshRecordingShareUrl", () => {
   it("omits via (never referrer_user) when there is no session", () => {
     const url = freshRecordingShareUrl("rec_1", null);
     expect(new URL(url).searchParams.has("via")).toBe(false);
-    // referral_source still derives from ref/landing_path, matching the
-    // production symptom: referral_source present, referrer_user absent.
     expect(new URL(url).searchParams.get("ref")).toBe("clip_share");
   });
 });
@@ -62,10 +49,6 @@ describe("copyFreshRecordingShareLink", () => {
   });
 });
 
-// The actual regression: these are the surfaces that auto-copy a share link
-// the moment a recording is created, with no reshare/role check needed (the
-// current user always owns what they just made or just stitched). Each must
-// route through the attributed helper, never the bare one that drops `via`.
 describe("auto-copy call sites route through the attributed helper", () => {
   it("record.tsx's post-stop/post-upload copies are all attributed", () => {
     const source = readSource("../routes/record.tsx");

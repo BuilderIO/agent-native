@@ -77,7 +77,6 @@
     if (insertionGuide) insertionGuide.style.display = "none";
   }
 
-  // keep in sync with editor-chrome.bridge.ts container/leaf/text tag lists
   var BRIDGE_CONTAINER_TAGS = [
     "div",
     "section",
@@ -130,7 +129,6 @@
     "label",
     "li",
   ];
-  // keep in sync with editor-chrome.bridge.ts BRIDGE_INTERACTIVE_LEAF_TAGS
   var BRIDGE_INTERACTIVE_LEAF_TAGS = ["button", "summary"];
 
   function isOverlayElement(el: Element | null): boolean {
@@ -151,7 +149,6 @@
     return false;
   }
 
-  // keep in sync with editor-chrome.bridge.ts hasOnlyLeafContent
   function hasOnlyLeafContent(el: Element): boolean {
     var children = el.children;
     if (!children.length) return true;
@@ -170,7 +167,6 @@
     return true;
   }
 
-  // keep in sync with editor-chrome.bridge.ts isContainerDropTarget
   function isContainerDropTarget(el: Element | null): boolean {
     if (!el || el === document.documentElement) return false;
     if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
@@ -198,7 +194,6 @@
     return BRIDGE_CONTAINER_TAGS.indexOf(tag) !== -1;
   }
 
-  // keep in sync with editor-chrome.bridge.ts elementFromEditorPoint
   function elementFromEditorPoint(
     clientX: number,
     clientY: number,
@@ -209,7 +204,6 @@
     for (var i = 0; i < targets.length; i += 1) {
       var target = targets[i];
       if (!target || target.nodeType !== 1) continue;
-      // Skip injected bridge overlays so they don't shadow real content.
       if (isOverlayElement(target)) continue;
       if (isLayerInteractionBlocked(target)) return null;
       return target;
@@ -217,7 +211,6 @@
     return null;
   }
 
-  // keep in sync with editor-chrome.bridge.ts parentFlowAxis
   function parentFlowAxis(parent: Element): string {
     var cs = window.getComputedStyle(parent);
     if (cs.display === "flex" || cs.display === "inline-flex") {
@@ -280,16 +273,7 @@
     rect: true,
   };
 
-  // KEEP IN SYNC with editor-chrome.bridge.ts — pinned by bridge.guard.spec.ts.
-  // Layout decides, not the tag: a group has no data-an-primitive and a
-  // generated container is often a <section>.
 
-  // keep in sync with editor-chrome.bridge.ts isFreeformRelativeContainer
-  // Complements isAbsolutePrimitiveContainer above, which requires the
-  // container itself to be absolute/fixed. A generated screen wraps content in
-  // a `position:relative` full-bleed div, and calling that flow strips a
-  // dropped layer's left/top into the corner. Every child must be out of flow:
-  // one absolute badge in a flex row does not make the row freeform.
   function isFreeformRelativeContainer(el: Element | null): boolean {
     if (!el || el === document.body || el === document.documentElement) {
       return false;
@@ -318,14 +302,8 @@
       ""
     ).toLowerCase();
     if (primitive) {
-      // A declared frame or rectangle is authored free-form even when empty;
-      // other drawn shapes stay leaves, matching what
-      // appendCanvasPrimitiveToHtml enforces on draw.
       if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
     } else if (!hasAbsolutePositionedChild(el)) {
-      // Unmarked markup is judged by how it positions its CHILDREN, not by its
-      // own position: an absolutely positioned card whose children are in
-      // normal flow still has slots, and pinning a drop into it is wrong.
       return false;
     }
     var cs = window.getComputedStyle(el);
@@ -384,7 +362,6 @@
     return null;
   }
 
-  // keep in sync with editor-chrome.bridge.ts edgePlacementForRect
   function edgePlacementForRect(
     rect: DOMRect,
     axis: string,
@@ -480,12 +457,6 @@
     return "";
   }
 
-  // Detects exact Alpine-generated x-for/x-if instances by the template's own
-  // lookup/current-instance references. Walk through every ancestor so a
-  // descendant inside a clone is refused too; copied stable IDs do not turn a
-  // runtime instance into an authored source node.
-  //
-  // keep in sync with editor-chrome.bridge.ts isTemplateCloneElement
   function isTemplateCloneElement(el: Element | null): boolean {
     var node: Element | null = el;
     while (node && node !== document.documentElement) {
@@ -497,17 +468,6 @@
     return false;
   }
 
-  // Anchor-candidate gate (companion to isTemplateCloneElement above): a
-  // template clone can never be used as an insertion ANCHOR — it has no
-  // counterpart in the static source HTML, so before/after placement
-  // against it can never resolve on the host. Filtering clones out of the
-  // candidate list here is what fixes drops into a container whose ONLY
-  // children are x-for clones: without this, nearestChildInsertionTarget's
-  // "nearest child" search would happily pick a clone as the anchor, and
-  // the resulting move would silently fail on the host (layerMoveFailed
-  // toast) even though the drop gesture itself was completely valid.
-  //
-  // keep in sync with editor-chrome.bridge.ts draggableElementChildren
   function draggableElementChildren(parent: Element): Element[] {
     return Array.prototype.slice.call(parent.children).filter(function (
       child: Element,
@@ -521,7 +481,6 @@
     });
   }
 
-  // keep in sync with editor-chrome.bridge.ts freshRuntimeNodeId
   function freshRuntimeNodeId(prefix: string): string {
     var random = "";
     try {
@@ -540,26 +499,9 @@
     return "an-" + String(prefix || "pending") + "-" + random;
   }
 
-  // Id-on-demand fallback (see the file header comment): when the resolved
-  // anchor has no stable id, mint one and stamp it as
-  // data-an-pending-node-id — same marker/contract as editor-chrome.bridge.ts's
-  // getElementInfo — and return it so the caller can expose it as
-  // `pendingNodeId` for a host caller to persist. Deliberately NOT read by
-  // getNodeId itself (a pending id is not a stable id until persisted).
   function getOrMintPendingNodeId(el: Element | null): string {
     if (!el || !el.getAttribute || !el.setAttribute) return "";
-    // The document body is the root fallback for an empty-screen drop, not a
-    // durable layer anchor. Minting a pending id here makes the host treat the
-    // root as an unresolved authored node and refuse the otherwise valid drop.
     if (el === document.body || el === document.documentElement) return "";
-    // Defensive guard: resolveHitTarget's anchor-candidate gates (see
-    // isTemplateCloneElement call sites there) already keep template clones
-    // out of `result.anchor`, so this should never fire in practice — but a
-    // pending id stamped on a clone would be dead weight: the clone itself
-    // has no counterpart in source HTML, so no host persist call could ever
-    // write data-agent-native-node-id anywhere durable for it, and Alpine
-    // re-renders the clone from scratch on next data change anyway (the
-    // stamped attribute would vanish). Fail closed instead of minting.
     if (isTemplateCloneElement(el)) return "";
     var existing = el.getAttribute("data-an-pending-node-id");
     if (existing) return existing;
@@ -570,29 +512,8 @@
     return minted;
   }
 
-  // ── Source-equivalent structural selector (anchorSelector) ────────────────
-  //
-  // The persisted source HTML never contains Alpine-generated runtime nodes
-  // (x-for clones, x-if instantiations) or editor-injected overlays, so a
-  // naive live-DOM nth-of-type path would mis-resolve on the host whenever
-  // any of those precede the anchor among same-tag siblings. These helpers
-  // compute nth indexes that count only source-present siblings, so the
-  // emitted path resolves to the SAME element in the host's DOMParser/
-  // projection view of the stored document.
 
   // Elements generated by an Alpine template sibling: x-for clones are the
-  // values of the template's `_x_lookup` map; the x-if instantiation is the
-  // template's `_x_currentIfEl`. Both live as DIRECT SIBLINGS of their
-  // template in the live DOM while the source only contains the template.
-  //
-  // COUPLING WARNING: `_x_lookup` / `_x_currentIfEl` are Alpine.js PRIVATE
-  // internals (verified against the Alpine 3.x line served by the prototype
-  // CDN pin). If a future Alpine major renames them, the try/catch below
-  // swallows the breakage silently and generated clones would be counted as
-  // source siblings — buildSourceEquivalentSelector could then resolve a
-  // pending node id onto the WRONG source element. When bumping Alpine,
-  // re-verify these fields and the clone-vs-source guard tests in
-  // bridge.guard.spec.ts.
   function alpineGeneratedChildrenOf(parent: Element): Element[] {
     var generated: Element[] = [];
     var children = parent.children;
@@ -639,10 +560,6 @@
     );
   }
 
-  // Body-rooted `tag:nth-of-type(n) > …` path with source-equivalent nth
-  // indexes, or "" when the anchor (or any ancestor on the way up) is itself
-  // an Alpine-generated instance — such elements have no per-instance source
-  // node, so no selector can honestly identify them in the stored document.
   function buildSourceEquivalentSelector(el: Element | null): string {
     if (!el || el === document.documentElement || el === document.body) {
       return "";
@@ -676,24 +593,6 @@
     return parts.join(" > ");
   }
 
-  // Resolves a between-children insertion inside `container` from the
-  // pointer position: the nearest visible child (by flow-axis center, or
-  // two-dimensional visual distance for wrapped flex)
-  // becomes the anchor with before/after placement, which renders as the
-  // Figma-style insertion LINE between children. Returns null when the
-  // container has no eligible children (caller falls back to "inside").
-  //
-  // This is the finding-6 fix, ported from editor-chrome.bridge.ts's own
-  // B5-4 fix (nearestChildInsertionTarget there): hovering the container's
-  // own background — its padding, or the gaps BETWEEN children, which is
-  // where the pointer naturally sits when dropping "between two cards" —
-  // used to resolve to placement "inside" (append at end) instead of
-  // inserting at the hovered slot. hit-test.bridge.ts never has a dragged
-  // element of its own (it only resolves anchors for a cross-screen/
-  // canvas-to-screen drag whose source lives in a different iframe), so
-  // this version omits the editor-chrome original's `excludeEls` parameter.
-  //
-  // keep in sync with editor-chrome.bridge.ts nearestChildInsertionTarget
   function nearestChildInsertionTarget(
     container: Element,
     clientX: number,
@@ -714,8 +613,6 @@
     var placement = "after";
     for (var j = 0; j < children.length; j += 1) {
       var rect = children[j].getBoundingClientRect();
-      // Skip zero-size children (e.g. Alpine <template> nodes, hidden
-      // elements) — they are not visible slots.
       if (rect.width <= 0 || rect.height <= 0) continue;
       var center =
         axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
@@ -754,8 +651,6 @@
     clientX: number,
     clientY: number,
   ) {
-    // Body is the authored Screen root. It has no durable node id, so anchor
-    // cross-screen flow drops to a real root child instead of absolute mode.
     if (!isAutoLayoutElement(document.body)) return null;
     var bodyRect = document.body.getBoundingClientRect();
     if (
@@ -771,13 +666,6 @@
     return nearestChildInsertionTarget(document.body, clientX, clientY);
   }
 
-  /**
-   * Resolve the deepest container element under (x, y) and a placement hint,
-   * mirroring reorderTargetForPoint from editor-chrome.bridge.ts but
-   * without a dragged element (we only need the anchor + placement).
-   *
-   * keep in sync with editor-chrome.bridge.ts reorderTargetForPoint
-   */
   function resolveHitTarget(
     clientX: number,
     clientY: number,
@@ -815,15 +703,6 @@
       if (isLayerInteractionBlocked(cursor)) return null;
       var parent: Element | null = cursor.parentElement;
       if (parent && isAutoLayoutElement(parent)) {
-        // Anchor-candidate gate: cursor is a plain flex/grid item being used
-        // as a before/after anchor — but if it's a template clone (no
-        // counterpart in source HTML), fall back to the nearest non-clone
-        // sibling via nearestChildInsertionTarget, else the container itself
-        // with "inside" placement. Mirrors editor-chrome.bridge.ts's
-        // reorderTargetForPoint / autoLayoutInsertionTargetForPoint clone
-        // fallback — this is the primary path a cursor hits when hovering
-        // directly over a rendered x-for clone item inside a flex/grid
-        // container (e.g. a filter card whose only children are clones).
         if (isTemplateCloneElement(cursor)) {
           var cloneFallback = nearestChildInsertionTarget(
             parent,
@@ -878,11 +757,6 @@
             dropMode: "flow-insert",
           };
         }
-        // finding 6: the pointer is over the container's inner area — its
-        // padding or the gap BETWEEN children (a direct child under the
-        // pointer would have been the hit instead). Resolve to the nearest
-        // child slot so the drop lands between children with the insertion
-        // LINE, instead of placement:"inside" append-after-last.
         var betweenChildren = nearestChildInsertionTarget(
           cursor,
           clientX,
@@ -921,12 +795,6 @@
       clientY,
     );
     if (absoluteTarget) return absoluteTarget;
-    // Everything above resolves only auto-layout (flex/grid) ancestors and
-    // absolute primitive containers, so an ordinary block-layout page answers
-    // every hit-test with no anchor at all and the host rejects each drop onto
-    // it as "anchor-unresolved". Block flow still has a well-defined insertion
-    // point, so fall back to appending into the nearest block container under
-    // the pointer rather than reporting no target.
     var blockCursor: Element | null = hit;
     while (blockCursor) {
       if (isContainerDropTarget(blockCursor)) {
@@ -1167,10 +1035,6 @@
   ];
   var MIN_SELECTABLE_EXTENT_PX = 4;
 
-  // keep in sync with editor-chrome.bridge.ts collectSelectableElements
-  // Same layer set as the editable bridge, by a shorter route: that one promotes
-  // svg internals to their <svg>, this one skips them, and both land on the
-  // <svg> itself. Answers only when editor chrome is absent (see the flag).
   function collectSelectableElementInfos(): unknown[] {
     var nodes = Array.prototype.slice.call(
       document.body ? document.body.querySelectorAll("*") : [],
@@ -1190,7 +1054,6 @@
         rect.width < MIN_SELECTABLE_EXTENT_PX ||
         rect.height < MIN_SELECTABLE_EXTENT_PX
       ) {
-        // keep in sync with editor-chrome.bridge.ts isPaddedAwayFromView
         var cs = window.getComputedStyle(node);
         if (cs.display === "none" || cs.visibility === "hidden") return;
       }
@@ -1206,8 +1069,6 @@
       infos.push({
         tagName: node.tagName.toLowerCase(),
         sourceId: nodeId || undefined,
-        // Not minted here: a whole-document sweep must stay read-only, and the
-        // host resolves an id-less node through this structural selector.
         selector: nodeId
           ? undefined
           : buildSourceEquivalentSelector(node) || undefined,
@@ -1336,20 +1197,12 @@
       hideInsertionGuide();
       return;
     }
-    // The only bridge injected when editor chrome is off (read-only, Interact,
-    // thumbnail overview): with no answer the host cannot tell a timeout from
-    // "nothing here is selectable".
     if (e.data.type === "agent-native:collect-selectable-rects") {
-      // The editable bridge owns this reply when it is present; see the flag it
-      // sets in editor-chrome.bridge.ts.
       if (
         (window as unknown as Record<string, boolean>).__agentNativeEditorChrome
       ) {
         return;
       }
-      // Deliberately uncaught: an undeliverable reply already surfaces as
-      // {status:"unanswered"} on the host's own timeout, and swallowing the
-      // throw here would hide the only signal that this bridge tried to answer.
       (window.parent as Window).postMessage(
         {
           type: "agent-native:selectable-rects-result",
@@ -1396,27 +1249,12 @@
     );
     if (e.data.preview) showInsertionGuideFor(result);
     var anchorNodeId: string = result ? getNodeId(result.anchor) : "";
-    // Id-on-demand fallback (see file header): only mint when there is a
-    // real resolved anchor with no stable id — never for a null/no-target
-    // result. getOrMintPendingNodeId is idempotent per-element (reuses the
-    // existing data-an-pending-node-id if already stamped), so repeated
-    // hover-phase hit-tests over the same anchor do not re-mint or spam
-    // attribute writes; a HOST caller decides whether/when to persist it.
     var pendingNodeId: string =
       result && !anchorNodeId ? getOrMintPendingNodeId(result.anchor) : "";
-    // Pending ids are newly minted runtime markers, not authored ids. They
-    // can carry the rendered document revision, but are never promoted to a
-    // unique authored-node claim.
     var targetAnchorProvenance = getAnchorNodeProvenance(
       anchorNodeId,
       result ? result.anchor : null,
     );
-    // An idless anchor needs its selector so the host can persist the pending
-    // id into the stored document. An existing stable ID also needs a
-    // selector when it is not uniquely proven; in that case only an exact
-    // rendered-source version hash authorizes the positional fallback. ""
-    // (omitted) when the anchor is an Alpine-generated instance with no
-    // source node.
     var needsSourceSelector =
       Boolean(pendingNodeId) ||
       Boolean(

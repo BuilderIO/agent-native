@@ -13,25 +13,9 @@ import {
   waitForBridge,
 } from "./helpers";
 
-/**
- * Figma parity — rare-but-real interaction paths (unique-paths.md).
- *
- * Each test drives the exact gesture a real user/tutorial uses (not the
- * nearest keyboard shortcut) and asserts both the visible outcome and the
- * document/undo outcome. Scope: canvas pointer gestures, layers panel,
- * context menu, clipboard/duplicate, group/frame structure, undo/redo, pan
- * and zoom, board objects, screens-as-frames. Items that belong to inspector
- * style edits, keyboard-shortcut plumbing, or screen resize/breakpoints are
- * still exercised here where the source names them, but attributed to codex
- * in the findings.
- */
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
-// Absolutely-positioned fixture: the shared FIXTURE_HTML's body is one big
-// flex column, so any drag on its children reorders flow order instead of
-// moving x/y (see the flex-reorder test below) — free-drag tests need their
-// own fixture where a plain move is actually a move.
 const FREE_DRAG_HTML = `<!doctype html>
 <html>
   <head><meta charset="utf-8"><title>Free-drag fixture</title></head>
@@ -133,13 +117,6 @@ test.describe.serial("rare-but-real unique paths", () => {
       .toBeGreaterThan(beforeCount);
 
     const after = await topLevelLayerNodeIds(page);
-    // A button-shaped leaf's visible text is a real wrapped <span> child
-    // (see shared/code-layer.ts's wrapBareTextLeavesInHtml), so duplicating
-    // "Alpha Button" legitimately adds that child row too — assert growth,
-    // not an exact +1, then pin down the real signal: the ORIGINAL row must
-    // still be present unchanged (a duplicate, not a move) and at least one
-    // brand-new id must now exist (a plain reorder/reparent — the pre-fix
-    // behavior — never adds any).
     expect(
       after.length,
       `alt-drag in the layers panel from ${JSON.stringify(before)} should add at least one node; got ${JSON.stringify(after)}`,
@@ -167,8 +144,6 @@ test.describe.serial("rare-but-real unique paths", () => {
   test("a marquee needs only intersection over a shape but full enclosure over a top-level screen", async ({
     page,
   }) => {
-    // Ground truth: shapes/elements select on intersect; a top-level frame
-    // (a screen, here) needs to be fully enclosed by the marquee box.
     await page.goto(appPath(`/design/${designId}?view=overview`), {
       waitUntil: "domcontentloaded",
     });
@@ -180,9 +155,6 @@ test.describe.serial("rare-but-real unique paths", () => {
       .first()
       .boundingBox())!;
 
-    // Draw a marquee box that only clips the screen's right edge — a shape
-    // there would already count as "touched", but the screen itself must
-    // stay unselected until the box fully contains it.
     await page.mouse.move(card.x + card.width - 20, card.y - 40);
     await page.mouse.down();
     await page.mouse.move(card.x + card.width + 40, card.y + 40, {
@@ -199,7 +171,6 @@ test.describe.serial("rare-but-real unique paths", () => {
       "a marquee that only clips a screen's edge must not select it (top-level frames require full enclosure)",
     ).toBe(0);
 
-    // Now fully enclose it.
     await page.mouse.move(card.x - 40, card.y - 40);
     await page.mouse.down();
     await page.mouse.move(card.x + card.width + 40, card.y + card.height + 40, {
@@ -219,11 +190,6 @@ test.describe.serial("rare-but-real unique paths", () => {
   test("Cmd+A is scope-sensitive: inside a container it selects siblings, otherwise it selects screens", async ({
     page,
   }) => {
-    // Alpha Button sits two frames deep (main > flex row > button); a plain
-    // single click (selectByText) selects the outer content frame under the
-    // pointer by design (see selectByTextDeep's doc comment) — only a real
-    // double-click descends straight to the specific leaf, which is what
-    // "a child selected" needs here.
     await selectByTextDeep(page, "Alpha Button");
     await expandAllLayersLocal(page);
     await expect
@@ -266,9 +232,6 @@ test.describe.serial("rare-but-real unique paths", () => {
     await page.keyboard.press("ControlOrMeta+d");
     const dup1 = await boxFromNextSelect(page);
 
-    // Manually drag the duplicate by a known offset (same node the
-    // duplicate command selected, tracked by id — not by re-querying text,
-    // which would just re-find the ORIGINAL "Alpha Button" too).
     await page.mouse.move(
       dup1.box.x + dup1.box.width / 2,
       dup1.box.y + dup1.box.height / 2,
@@ -304,10 +267,6 @@ test.describe.serial("rare-but-real unique paths", () => {
   test("holding Space mid-drag keeps an element a sibling instead of reparenting it into the frame it passes over", async ({
     page,
   }) => {
-    // Alpha Button sits two levels deep (main > flex row > button) — a
-    // plain single click (selectByText) only ever selects the outer <main>
-    // (see selectByTextDeep's doc comment), so this drag needs the real
-    // leaf selected first via selectByTextDeep, not selectByText.
     await selectByTextDeep(page, "Alpha Button");
     const target = await frameNode(page, "Alpha Button");
     const box = (await target.boundingBox())!;
@@ -341,10 +300,6 @@ test.describe.serial("rare-but-real unique paths", () => {
     await expect.poll(() => getFileHtml(page)).not.toBe(beforeHtml);
 
     const html = await getFileHtml(page);
-    // The fixture's "Fixture Card Title" h2 carries no explicit
-    // data-agent-native-layer-name attribute (only its own text content) —
-    // search for that rendered text directly, not a layer-name attribute
-    // that is never persisted for this unnamed leaf.
     const sectionOpen = html.indexOf(">Fixture Card Title<");
     const alphaIdx = html.indexOf(
       'data-agent-native-node-id="e2e-alpha-button"',
@@ -367,15 +322,6 @@ test.describe.serial("rare-but-real unique paths", () => {
         alphaIdx > sectionCloseIdx,
       "Alpha Button must not land inside the section while Space is held during the drag",
     ).toBe(true);
-    // "Positioned after the section's close tag" alone doesn't prove Alpha
-    // became a real sibling of the section at the screen root — it would
-    // equally be satisfied by an accidental wrap in some OTHER new container
-    // placed after the section. Pin down the actual parent, both in the
-    // persisted document and in the live iframe: the screen root here is
-    // <body> (isScreenRootElementInfo's boundary), not the <main> content
-    // wrapper — Space's "keep the current parent" reparents up to the root
-    // when the element is dragged out from under everything, same as
-    // dragging it out of the flex-row would.
     const afterParentTag = parentTagNameOf(html, "e2e-alpha-button");
     expect(
       afterParentTag,
@@ -403,21 +349,11 @@ test.describe.serial("rare-but-real unique paths", () => {
       `one undo must restore Alpha Button's live position; before=(${box.x},${box.y}) after-undo=(${restoredBox.x},${restoredBox.y})`,
     ).toBe(true);
 
-    // Reselect Alpha explicitly via the Layers panel — frameNode only reads
-    // a box, it never clicks anything, and a raw drag off whatever undo left
-    // selected could grab an ancestor instead of Alpha itself (it sits two
-    // levels deep: main > flex row > button). The Layers panel picks the
-    // exact layer directly, unlike a canvas double-click drill-in, which is
-    // timing-sensitive right after undo's own re-render.
     await layerRowButton(page, "Alpha Button").click();
     await page.waitForTimeout(100);
     const restoredTargetBox = (await (
       await frameNode(page, "Alpha Button")
     ).boundingBox())!;
-    // frameNode's smallest-bounding-box tie-break resolves "Fixture Card
-    // Title" to the <h2> itself, not the <section> around it — go straight
-    // to the section element so the drop point below is computed against
-    // its real box, not the heading's.
     await enterDirectMode(page);
     const currentSectionBox = (await designFrame(page)
       .locator("section")
@@ -428,9 +364,6 @@ test.describe.serial("rare-but-real unique paths", () => {
       restoredTargetBox.y + restoredTargetBox.height / 2,
     );
     await page.mouse.down();
-    // A small initial move registers drag-start (vs. a plain click) before
-    // jumping to the target — matches the footer-nesting drag in
-    // parity-drag-reparent.spec.ts.
     await page.mouse.move(
       restoredTargetBox.x + restoredTargetBox.width / 2 + 10,
       restoredTargetBox.y + restoredTargetBox.height / 2,
@@ -441,8 +374,6 @@ test.describe.serial("rare-but-real unique paths", () => {
       currentSectionBox.y + currentSectionBox.height / 2,
       { steps: 20 },
     );
-    // Let the hover/insertion-guide detection settle before releasing —
-    // it is debounced, same as the footer-nesting drag above.
     await page.waitForTimeout(400);
     await page.mouse.up();
 
@@ -453,10 +384,6 @@ test.describe.serial("rare-but-real unique paths", () => {
           const movedAlphaIdx = movedHtml.indexOf(
             'data-agent-native-node-id="e2e-alpha-button"',
           );
-          // DOM containment via the persisted `<section` open tag itself,
-          // not the heading's text position — Alpha landing BEFORE the
-          // heading (still between `<section>` and `</section>`) is a
-          // valid order and must not fail this check.
           const movedSectionOpen = movedHtml.indexOf("<section");
           const movedSectionClose = movedHtml.indexOf(
             "</section>",
@@ -483,15 +410,6 @@ test.describe.serial("rare-but-real unique paths", () => {
     await openLayerSearch(page, "Button");
     const rowA = layerRow(page, "Alpha Button");
     const rowB = layerRow(page, "Beta Button");
-    // Drives the gesture via the LOCK icon rather than the eye/hide icon:
-    // the hide icon is the row's rightmost, sitting directly under the
-    // panel's own width-resize separator (role="separator", position
-    // absolute at the panel's right edge) — real geometry, but one a
-    // synthetic pointer can land a pixel short of depending on the exact
-    // panel width, unrelated to the click-drag-across-a-run behavior this
-    // test exists to prove. Lock sits one icon further from that edge and
-    // exercises the identical onMouseDown/onMouseEnter continuation path
-    // (see LayersPanel.tsx) — same fix, a geometrically stable target.
     const lockA = rowA
       .locator(
         'button[aria-label="Lock layer"], button[aria-label="Unlock layer"]',
@@ -507,12 +425,6 @@ test.describe.serial("rare-but-real unique paths", () => {
       return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
     };
 
-    // The lock/hide icon column only occupies real layout space while its
-    // OWN row is genuinely :hover'd (`group-hover:w-auto` — collapsed to
-    // `w-0 overflow-hidden` otherwise), so lockB's position can only be read
-    // AFTER the mouse has actually moved into row B, not pre-computed
-    // up front alongside lockA's (which would read it mid-collapse, off in
-    // whatever the zero-width column's overflow happens to lay out to).
     await rowA.hover();
     const start = await centerOf(lockA);
     await page.mouse.move(start.x, start.y);
@@ -523,10 +435,6 @@ test.describe.serial("rare-but-real unique paths", () => {
       rowBBox.y + rowBBox.height / 2,
       { steps: 6 },
     );
-    // lockB.hover() (not a raw page.mouse.move to a pre-read box):
-    // Playwright re-resolves the element's position itself right before
-    // moving, so it reflects the `group-hover:w-auto` reveal instead of
-    // racing it.
     await lockB.hover({ force: true });
     await page.mouse.up();
     await page.waitForTimeout(200);
@@ -595,10 +503,6 @@ test.describe.serial("rare-but-real unique paths", () => {
   test("Ctrl-dragging a child overrides auto-layout resistance and drags it out cleanly", async ({
     page,
   }) => {
-    // The fixture's button row is a flex container; Figma parity says a
-    // Ctrl-drag should let an auto-layout child leave (or move freely
-    // within) its flex parent, bypassing the reorder-only resistance a
-    // plain drag has there.
     await selectByTextDeep(page, "Alpha Button");
     const box = (await (await frameNode(page, "Alpha Button")).boundingBox())!;
     const dropTarget = (await (
@@ -810,9 +714,6 @@ test.describe.serial("rare-but-real unique paths", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Local helpers (spec-scoped; do not touch e2e/helpers.ts).
-// ---------------------------------------------------------------------------
 
 function layerTree(page: Page) {
   return page.getByRole("tree", { name: "Layers" });
@@ -899,16 +800,6 @@ async function openLayerSearch(page: Page, query: string): Promise<void> {
   await page.waitForTimeout(200);
 }
 
-/**
- * Every ancestor of a matched leaf also carries a (bridge-auto-assigned)
- * `data-agent-native-node-id` and its aggregated textContent still contains
- * the leaf's text, so `{ hasText }` matches the whole chain up to the
- * fixture's `<main>`. `.first()` returned that outermost ancestor in
- * document order instead of the actual named element — every caller reading
- * a position/size/computed-style off "Alpha Button" or "Beta Button" was
- * silently reading `<main>` instead. Smallest bounding box picks the actual
- * leaf, matching `selectableNodeByText`'s tie-break in e2e/helpers.ts.
- */
 async function frameNode(page: Page, text: string): Promise<Locator> {
   await enterDirectMode(page);
   const frame = designFrame(page);
@@ -922,10 +813,6 @@ async function frameNode(page: Page, text: string): Promise<Locator> {
     const candidate = candidates.nth(index);
     const box = await candidate.boundingBox().catch(() => null);
     if (!box || box.width <= 0 || box.height <= 0) continue;
-    // shared/code-layer.ts's wrapBareTextLeavesInHtml wraps a leaf's own
-    // text in a <span>, which is smaller than its element and never carries
-    // the box/style the caller means by "this element" — skip it so the
-    // named button/div itself wins the tie-break, not its text run.
     const tag = await candidate.evaluate((el) => el.tagName);
     if (tag === "SPAN") continue;
     const area = box.width * box.height;
@@ -944,15 +831,6 @@ async function frameNode(page: Page, text: string): Promise<Locator> {
   return node;
 }
 
-/**
- * A single click (what `selectByText` sends) always selects the outer
- * content frame under the pointer (here, the fixture's `<main>`), confirmed
- * by repeated single re-clicks at the same point never drilling any deeper.
- * Only a real double-click descends straight to the specific leaf under the
- * cursor, so a target nested more than one level deep (main > flex row >
- * button) needs this — not `selectByText` — to make later position/style
- * reads act on the named element instead of its ancestor.
- */
 async function selectByTextDeep(page: Page, text: string): Promise<void> {
   await enterDirectMode(page);
   await installBridge(page);
@@ -961,20 +839,10 @@ async function selectByTextDeep(page: Page, text: string): Promise<void> {
   await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
   const message = await waitForBridge(page, "element-select");
   expect(String(message?.payload?.componentName ?? "")).toBe(text);
-  // A double-click on a text-bearing leaf also enters text editing, which
-  // moves DOM focus inside the iframe document — Escape exits editing
-  // without losing the shape selection, restoring the outer window as the
-  // keydown target the hotkey listener actually listens on.
   await page.keyboard.press("Escape");
   await page.waitForTimeout(100);
 }
 
-/**
- * Wait for the NEXT `element-select` bridge message (caller must have just
- * cleared `window.__bridge`) and resolve both its node id and current box.
- * Re-querying by node id (not text) is what lets the caller tell a
- * duplicate's node apart from the original it was copied from.
- */
 async function boxFromNextSelect(page: Page): Promise<{
   nodeId: string;
   box: { x: number; y: number; width: number; height: number };
@@ -1028,17 +896,6 @@ async function getFileHtml(page: Page): Promise<string> {
   return file.content;
 }
 
-/**
- * The tag name of `nodeIdAttr`'s immediate enclosing element in `html`, via a
- * real tag-depth stack walk (not a nearest-preceding-`<` scan, which only
- * works when the node happens to be its parent's first child — Alpha Button
- * is NOT always that, e.g. once reparented to the end of `<main>`). Used as a
- * same-parent identity check that does not depend on the parent having a
- * persisted data-agent-native-node-id (the flex-row wrapper here has none):
- * "positioned after the section's close tag" alone doesn't prove the node
- * became a real sibling of the section (a direct `<main>` child) rather than
- * landing inside some other new wrapper placed after it.
- */
 function parentTagNameOf(html: string, nodeIdAttr: string): string | null {
   const tagRe = /<([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>|<\/([a-zA-Z][a-zA-Z0-9]*)>/g;
   const stack: string[] = [];
@@ -1065,9 +922,6 @@ function parentTagNameOf(html: string, nodeIdAttr: string): string | null {
   return null;
 }
 
-/** Live-iframe counterpart of parentTagNameOf: tag name + inline
- * style of the CURRENT DOM parent of the node matched by `text`, read fresh
- * (not id-based — the flex-row wrapper has no persisted id either). */
 async function liveParentSignature(page: Page, text: string): Promise<string> {
   const node = await frameNode(page, text);
   return node.evaluate((el) => {

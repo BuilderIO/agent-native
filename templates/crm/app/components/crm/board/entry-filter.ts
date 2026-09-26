@@ -1,14 +1,3 @@
-/**
- * Translates a saved view's filter tree into the vocabulary
- * `list-crm-list-entries` speaks.
- *
- * The two surfaces were built against different dialects: records are filtered
- * with `{op, conditions:[{attributeId|field, condition, value}]}`, entries with
- * a flat `[{attribute, operator, value}]`. Anything this translator cannot
- * express is thrown, never dropped — a list board that quietly ignored half a
- * saved filter would render a full pipeline that looks exactly like a correct
- * filtered one.
- */
 
 export class BoardFilterError extends Error {
   constructor(message: string) {
@@ -50,7 +39,6 @@ const CONDITION_OPERATORS: Record<string, EntryFilterOperator> = {
   "is-any-of": "in",
 };
 
-/** `crm_records` columns `list-crm-list-entries` exposes as `record.*`. */
 const RECORD_FIELDS = new Set([
   "displayName",
   "kind",
@@ -68,10 +56,6 @@ interface AttributeRef {
   apiSlug: string;
 }
 
-/**
- * @param attributes the list's own attributes, for resolving an `attributeId`
- *   (which may be an id or an api_slug) to the slug entry filters use.
- */
 export function toEntryFilters(
   filter: unknown,
   attributes: readonly AttributeRef[],

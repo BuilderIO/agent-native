@@ -4,13 +4,6 @@ import {
   encodeOAuthState,
   isElectron,
 } from "@agent-native/core/server";
-/**
- * Start the Zoom OAuth flow.
- *
- * Returns a JSON `{ url }` the client redirects to. State encodes the
- * current session owner so the callback can attribute the tokens
- * correctly.
- */
 import {
   defineEventHandler,
   getQuery,
@@ -23,8 +16,6 @@ import { getZoomAuthUrl, isZoomConfigured } from "../../../lib/zoom.js";
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "calendar";
 
 function oauthRedirectResponse(url: string) {
-  // h3 v2 sendRedirect returns an object that can render as "[object Object]"
-  // in production auth popups. Native Response stays a real 302.
   return new Response(null, {
     status: 302,
     headers: { Location: url },

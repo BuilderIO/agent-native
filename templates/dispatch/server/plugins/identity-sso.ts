@@ -484,10 +484,6 @@ export async function isBrowserIdentitySsoEnabledForEmail(
   }).catch(() => false); // coercion-ok: unreadable rollout state must fail closed.
 }
 
-/**
- * Accept a signed org assertion from a registered first-party app. The org
- * fields are read from the verified JWT, never from a mutable request body.
- */
 export const organizationFederationHandler = defineEventHandler(
   async (event: H3Event): Promise<Response> => {
     if (getMethod(event) !== "POST") {
@@ -1149,9 +1145,6 @@ export const availabilityHandler = defineEventHandler(
     const isDesktopRequest = isDesktopWorkspaceSsoRequest(
       getHeader(event, "user-agent"),
     );
-    // Anonymous availability is only a Canary hint used by an explicit
-    // Desktop settings action. Ordinary browser requests never get a positive
-    // answer here, so this endpoint cannot become an anonymous auto-login.
     const available = session?.email
       ? await isWorkspaceSsoEnabledForSession(session)
       : isDesktopRequest
@@ -1496,9 +1489,6 @@ export const bootstrapActivationHandler = defineEventHandler(
     }
 
     try {
-      // Bootstrap has no Dispatch browser request context to prove the auth
-      // provider. Match the normal identity assertion policy before minting
-      // either Dispatch session when the target organization requires Google.
       const requiredAuthProvider = bootstrap.orgId
         ? await getRequiredAuthProviderForOrg(bootstrap.orgId)
         : (await isGoogleSignInRequiredForEmail(bootstrap.email))
@@ -1519,9 +1509,6 @@ export const bootstrapActivationHandler = defineEventHandler(
         bootstrap.email,
         bootstrap.name,
         undefined,
-        // verifyIdentityBootstrapRequest only accepts assertions that carried
-        // `email_verified: true`, so provisioning must not leave the local row
-        // unverified against a password nobody set.
         { emailVerified: true },
       );
       if (bootstrap.orgId) {
@@ -1589,8 +1576,6 @@ export const authorizeHandler = defineEventHandler(
       getHeader(event, "user-agent"),
     );
 
-    // Validate every browser-controlled protocol parameter before resolving a
-    // Dispatch session or constructing a continuation URL.
     const registration = resolveIdentitySsoApp(appId, clientId, redirectUri);
     const isCanonicalBrowserClient =
       !isDesktopRequest &&
@@ -1699,7 +1684,6 @@ export const authorizeHandler = defineEventHandler(
     const localOrg = hasFederationRollout
       ? await getOrgContext(event).catch((error) => {
           // coercion-ok: malformed or unreadable local org state omits org
-          // claims rather than turning identity SSO into an org grant.
           void error;
           return null;
         })
@@ -1869,8 +1853,6 @@ export const tokenHandler = defineEventHandler(
       }
     }
 
-    // This response is server-to-server. It is never redirected through the
-    // browser and is intentionally not rendered or logged.
     return jsonResponse(
       {
         assertion,
@@ -1885,7 +1867,6 @@ export const tokenHandler = defineEventHandler(
   },
 );
 
-/** Mount the authority and token endpoints. */
 export default async (nitroApp: any) => {
   getH3App(nitroApp).use(AVAILABILITY_PATH, availabilityHandler);
   getH3App(nitroApp).use(BOOTSTRAP_CONTINUE_PATH, bootstrapHandler);

@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 
 import { appApiPath } from "@/lib/api-path";
 
-/** Fetches settings from the public (unauthenticated) endpoint */
 export function usePublicSettings() {
   return useQuery<Settings>({
     queryKey: ["public-settings"],
@@ -15,7 +14,6 @@ export function usePublicSettings() {
   });
 }
 
-/** Fetches availability from the public (unauthenticated) endpoint */
 export function usePublicAvailability(slug?: string, username?: string) {
   return useQuery<AvailabilityConfig>({
     queryKey: ["public-availability", slug, username],

@@ -1,7 +1,6 @@
-// BigQuery on-demand pricing: $6.25 per TB
 const COST_PER_BYTE = 6.25 / 1_000_000_000_000;
 const STORAGE_KEY = "analytics_query_cost";
-const TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const TTL_MS = 24 * 60 * 60 * 1000;
 
 interface StoredCost {
   bytes: number;

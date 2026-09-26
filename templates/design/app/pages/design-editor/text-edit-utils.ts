@@ -8,15 +8,6 @@ import type { ElementInfo } from "@/components/design/types";
 
 import { queryUniqueSelector } from "./dom-utils";
 
-/**
- * Why one begin-text-edit attempt did not end up in an editing session. These
- * stay distinct on purpose: a screen whose iframe is not mounted yet
- * ("no-iframe") is a retry-worthy race, while an iframe that answered and does
- * not have the node ("node-missing") or has it un-focused ("not-editing") is a
- * different situation entirely. Collapsing them all to `false` is what made the
- * board-space text bug invisible — every probe failed identically, so nothing
- * distinguished "asked the wrong window" from "user has not typed yet".
- */
 export type BeginTextEditOutcome =
   | "active"
   | "done"
@@ -35,18 +26,6 @@ export function isTextEditSessionOutcome(
   return outcome === "active" || outcome === "done";
 }
 
-/**
- * Does a "text editing session ended" report close the session the host
- * currently believes is live? Overview renders every screen's canvas at once
- * and they all post into one shared state, so a stale report must not clobber
- * the session the user is really in. Screen alone is not an identity: two text
- * nodes on one surface (a board creation, then the next) let the first's late
- * active:false close the second's live session. An IDENTIFIED report names the
- * session it ended, so it can only close that one: letting it close an
- * unidentified live session closed whichever session happened to be open. An
- * unidentified report carries no such claim and still closes its screen's
- * session, rather than stranding it active forever.
- */
 export function endedTextEditClosesActiveSession(
   activeSession: { screenId: string; sourceId?: string } | null,
   ended: { screenId: string; sourceId?: string },
@@ -57,16 +36,6 @@ export function endedTextEditClosesActiveSession(
   return activeSession.sourceId === ended.sourceId;
 }
 
-/**
- * Does a "text editing session ended" report belong to the creation whose
- * begin-text-edit ladder is still running? The report is a per-screen
- * broadcast, not an answer about that creation: session A can report ended
- * AFTER creation B armed on the same surface, and cancelling on the bare
- * signal settled B's ladder and deleted B's just-created node. `sourceId` is
- * the ended element's own `data-agent-native-node-id`. Without both ids there
- * is no identity to match, and leaving the ladder to its own deadline is
- * recoverable where cancelling the wrong creation is not.
- */
 export function endedTextEditMatchesPendingCreation(
   pending: { screenId: string | null; nodeId: string } | null,
   ended: { active: boolean; screenId?: string; sourceId?: string },
@@ -83,14 +52,6 @@ export type TextEditRepeatIdentity = Pick<
   "sourceSelector" | "itemIndex"
 >;
 
-/**
- * Ask a single iframe's editor-chrome bridge whether a text-edit session for
- * `nodeId` is "active" (focused), "done" (non-empty committed text), or
- * neither. Replaces a direct `iframe.contentDocument` read: the bridge script
- * runs inside the iframe and already has `document.activeElement` available,
- * so it can answer the same question without the host needing same-origin
- * DOM access. See `agent-native:text-edit-status` in editor-chrome.bridge.ts.
- */
 function queryTextEditStatus(
   iframe: HTMLIFrameElement,
   nodeId: string,
@@ -111,8 +72,6 @@ function queryTextEditStatus(
         !event.data ||
         event.data.type !== "agent-native:text-edit-status-result" ||
         event.data.correlationId !== correlationId ||
-        // Require the reply to come from the iframe we asked, not just any
-        // window that happens to guess the correlationId.
         event.source !== win
       ) {
         return;
@@ -124,8 +83,6 @@ function queryTextEditStatus(
         resolve(status);
         return;
       }
-      // Older bridges answer a bare `false` for both cases; treat that as
-      // "present but not editing" so the retry ladder behaves as before.
       resolve(status === "missing" ? "node-missing" : "not-editing");
     };
     window.addEventListener("message", listener);
@@ -145,11 +102,6 @@ async function probeTextEdit(
   if (typeof document === "undefined" || !nodeId || !screenId) {
     return "no-iframe";
   }
-  // The board surface's live iframe carries no `data-screen-iframe-id`, so the
-  // old `dataset.screenIframeId === screenId` filter never matched it and every
-  // attempt fell through to broadcasting at all the *screen* iframes — none of
-  // which own a board node. findCanvasIframeForScreen is the one resolver that
-  // already knows the board's `[data-board-surface-layer]` shape.
   const iframe = findCanvasIframeForScreen(
     document.body,
     screenId,
@@ -159,10 +111,6 @@ async function probeTextEdit(
   return queryTextEditStatus(iframe, nodeId, repeat);
 }
 
-/** Probes, and asks the iframe to enter edit mode when it is not already
- *  editing. Reports `activation-requested` rather than the status observed
- *  *before* the request: that pre-activation status is not an answer about the
- *  session it just asked for. */
 async function requestTextEdit(
   screenId: string | null,
   nodeId: string,
@@ -178,10 +126,6 @@ async function requestTextEdit(
     status === "no-iframe"
   )
     return status;
-  // The user pointed away from this creation. Report what the iframe actually
-  // says instead of re-opening a session they have left; the remaining probes
-  // still run, so exhaustion (and the empty-node cleanup it drives) keeps its
-  // own timing rather than racing the commit that click just triggered.
   if (isAbandoned?.()) return status;
   const iframe = findCanvasIframeForScreen(
     document.body,
@@ -196,33 +140,12 @@ async function requestTextEdit(
   return "activation-requested";
 }
 
-/**
- * T6: schedule retried "begin-text-edit" force-reopen attempts for a newly
- * created text node, but STOP retrying as soon as an edit session is
- * actually active in the iframe (previously this only stopped on "done" —
- * i.e. non-empty committed text — so an empty node the user hadn't typed
- * into yet, or had already pressed Escape on, kept getting force-reopened
- * for the full ~4.2s window). Returns a cancel function the caller can
- * invoke early (e.g. when the bridge reports the edit session ended via
- * Escape/blur) to stop any remaining scheduled retries immediately.
- *
- * `onExhausted` fires exactly once, either when a retry finally observes
- * "active"/"done" or when every retry ran out having only ever seen `false`
- * — the caller uses this to decide whether to clean up an empty node that
- * never got a real editing session.
- */
 export function scheduleBeginTextEditForScreen(
   screenId: string | null,
   nodeId: string,
   options?: {
-    /** Board file id, so a board-space text node resolves the board surface's
-     *  iframe instead of looking for a `data-screen-iframe-id` it never has. */
     boardFileId?: string | null;
-    /** An explicit edit command must activate already-committed text once. */
     reopenExisting?: boolean;
-    /** Asked before every activation attempt: true once the creation's request
-     *  has been stood down (pointer-away), so no later retry can yank focus
-     *  back into a node the user has walked away from. */
     isAbandoned?: () => boolean;
     repeat?: TextEditRepeatIdentity;
     onExhausted?: (finalStatus: BeginTextEditOutcome) => void;
@@ -257,8 +180,6 @@ export function scheduleBeginTextEditForScreen(
         if (finished) return;
         if (status === "activation-requested") activationRequested = true;
         lastStatus = status;
-        // An abandoned creation never settles early on a live session: the
-        // caller has to decide the node's fate by its committed content, and
         // settling here would race the commit the stand-down click started.
         if (isTextEditSessionOutcome(status) && !options?.isAbandoned?.()) {
           settle(status);
@@ -269,8 +190,6 @@ export function scheduleBeginTextEditForScreen(
           settle(status);
           return;
         }
-        // Activation is still in flight, and the caller deletes untouched nodes
-        // on exhaustion. Settle on what the iframe reports, never on the request.
         const confirmTimer = window.setTimeout(() => {
           if (finished) return;
           void probeTextEdit(

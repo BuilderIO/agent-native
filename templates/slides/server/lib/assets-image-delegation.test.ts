@@ -59,8 +59,6 @@ describe("delegateImageGenerationToAssets", () => {
     expect(result.status).toBe("delegated");
   });
 
-  // A failed run used to return its status text as a successful delegation,
-  // so slides reported a brand-grounded image that never existed.
   it.each(["failed", "canceled", "input-required"])(
     "does not report a %s run as delegated",
     async (state) => {
@@ -75,8 +73,6 @@ describe("delegateImageGenerationToAssets", () => {
     },
   );
 
-  // A caller-side timeout leaves the Assets run going, so falling back would
-  // generate (and bill) the same image twice.
   it("reports a caller timeout as pending, not unavailable", async () => {
     const timeout = Object.assign(new Error("timed out"), {
       taskId: "task-9",
@@ -94,8 +90,6 @@ describe("delegateImageGenerationToAssets", () => {
     expect(result.status).toBe("unavailable");
   });
 
-  // Style references used to reach only the local fallback, so a delegated
-  // run silently ignored them.
   it("normalizes requested style references before sending to assets", async () => {
     sendAndWaitMock.mockResolvedValue(task("completed", "done"));
     await delegateImageGenerationToAssets({
@@ -113,7 +107,6 @@ describe("delegateImageGenerationToAssets", () => {
   });
 
   // Falling back locally on an auth/permission refusal would bypass the Assets
-  // access checks and hand back an off-brand image instead of the real reason.
   it.each([
     "A2A request failed (401): Invalid or expired A2A token",
     "A2A request failed (403): Forbidden",
@@ -125,8 +118,6 @@ describe("delegateImageGenerationToAssets", () => {
     if (result.status === "rejected") expect(result.state).toBe("unauthorized");
   });
 
-  // Requesting several variations means sending the same prompt repeatedly, so
-  // a content-derived key would make Assets reuse one task for every slot.
   it("sends a distinct idempotency key per identical variation request", async () => {
     sendAndWaitMock.mockResolvedValue(task("completed", "done"));
     await delegateImageGenerationToAssets({ prompt: "a hero", deckId: "d1" });
@@ -211,8 +202,6 @@ describe("extractAssetUrl", () => {
     expect(extractAssetUrl("I could not generate that image.")).toBeNull();
   });
 
-  // A --count 3 batch returns one URL per slot; keeping only the first
-  // silently drops the other candidates.
   it("returns every candidate in reply order", () => {
     const reply = [
       "previewUrl: https://cdn.example.com/a.png",
@@ -234,8 +223,6 @@ describe("extractAssetUrl", () => {
     ).toEqual(["https://cdn.example.com/a.png"]);
   });
 
-  // Both endpoints address one asset, so counting them separately would turn a
-  // two-image batch into four `-vN.png` files.
   it("pairs the preview and download endpoints of one asset", () => {
     const reply = [
       "previewUrl: https://cdn.example.com/a-preview.png",
@@ -264,8 +251,6 @@ describe("extractAssetUrl", () => {
     ]);
   });
 
-  // Assets emits origin-relative paths when the deployment has no public app
-  // URL configured; dropping them loses a completed generation entirely.
   it("resolves an origin-relative asset path against the assets origin", () => {
     expect(
       extractAssetUrl("previewUrl: /api/assets/abc123/content", {
@@ -280,8 +265,6 @@ describe("extractAssetUrl", () => {
     ).toBeNull();
   });
 
-  // A long prose gap between the key and its URL used to drop the endpoint and
-  // shift every later pairing by one.
   it("reads a url far away from its key", () => {
     const reply =
       "The previewUrl, which you can hand straight to the deck editor, is " +
@@ -304,7 +287,6 @@ describe("extractAssetUrl", () => {
 });
 
 describe("imagePreviewMarkdown", () => {
-  // A bare link renders as text in chat, so the user sees no image.
   it("builds an image, not a link", () => {
     expect(
       imagePreviewMarkdown("a monstera", "https://cdn.example.com/a.png"),

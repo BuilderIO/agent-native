@@ -1,30 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-/**
- * Clipboard paste fidelity run: a real Figma copy -> our HTML -> pixels.
- *
- * The paste path is the THIRD independent route a Figma design takes into this
- * app, after the REST importer and the `.fig` upload. It shares the `.fig`
- * walker but not its input: a clipboard payload is a kiwi buffer holding a
- * node SUBTREE with no DOCUMENT/CANVAS above it, so it goes through
- * `normalizeClipboardDocument` first, and it carries no image bytes at all —
- * only 20-byte hashes that `hydrate-figma-paste-images` resolves later.
- *
- * That last part is why the number here is read differently from the other two
- * harnesses: every image fill renders as an `about:blank` placeholder, so a
- * design with photography scores a large diff by design. `unresolvedImages`
- * is reported next to the diff so the number stays interpretable instead of
- * looking like a converter regression.
- *
- * Payloads are captured from a real Figma copy (see FIGMA_INTEROPERABILITY.md)
- * and stored under `.tmp/figma-fidelity/clipboard/`. They are inputs, not
- * fixtures — the point is that nothing here is synthesized.
- *
- * Usage:
- *   pnpm figma-fidelity:paste            # whole corpus
- *   pnpm figma-fidelity:paste <filter>   # matching ids
- */
 import { chromium } from "@playwright/test";
 
 import {
@@ -54,9 +30,6 @@ async function hydratePasteImages(
   if (!process.env.FIGMA_FIDELITY_TOKEN) return null;
   const hashes = collectImageRefHashes(html);
   if (hashes.length === 0) return null;
-  // Straight to Figma, not through the app's provider API: that path resolves
-  // a workspace credential from an authenticated request context, which a
-  // script does not have.
   const response = await fetch(
     `https://api.figma.com/v1/files/${fileKey}/images`,
     {
@@ -93,16 +66,8 @@ const MANIFEST = "templates/design/scripts/figma-fidelity/paste-corpus.json";
 
 interface PasteCase {
   id: string;
-  /** Captured clipboard HTML, relative to the repo root. */
   file: string;
-  /** Import case whose `figma.png` / `import.png` are the references. */
   reference?: string;
-  /**
-   * A reference PNG exported straight from the Figma UI, for a design the REST
-   * corpus cannot cover. Figma's account-wide quota blocks every file at once,
-   * so a UI export is the only way to grow the measured corpus while it is
-   * exhausted — and it is the same pixels `/images?scale=1` would return.
-   */
   referencePng?: string;
   notes?: string;
 }
@@ -115,9 +80,7 @@ interface CaseOutcome {
   bufferBytes?: number;
   frameCount?: number;
   nodeCount?: number;
-  /** Image fills the clipboard could not carry; they render as placeholders. */
   unresolvedImages?: number;
-  /** Image fills resolved from Figma's CDN, as the connected product does. */
   hydratedImages?: number;
   warnings?: string[];
   vsFigma?: {
@@ -130,17 +93,11 @@ interface CaseOutcome {
     meanDelta: number;
     dimensionMismatch: boolean;
   };
-  /** vsFigma with the un-carryable image fills left out, plus how much was left out. */
   vsFigmaExcludingImages?: { diffPercent: number; excludedPercent: number };
   renderWarnings?: string[];
   error?: string;
 }
 
-/**
- * Bounding boxes of the elements stamped `data-figma-image-ref` — the fills the
- * clipboard payload could not carry. Measured from the same HTML at the same
- * width the screenshot used, so the rects line up with the rendered pixels.
- */
 async function imagePlaceholderRects(
   browser: Awaited<ReturnType<typeof chromium.launch>>,
   html: string,
@@ -191,8 +148,6 @@ async function runCase(
   }
   const clipboardHtml = readFileSync(testCase.file, "utf8");
 
-  // Parse with the same helpers the paste UI uses, so a change to either the
-  // marker format or these regexes shows up here rather than in production.
   const figmeta = extractFigmeta(clipboardHtml);
   if (!figmeta?.fileKey) {
     throw new Error(
@@ -219,9 +174,6 @@ async function runCase(
   mkdirSync(dir, { recursive: true });
 
   if (result.files.length !== 1) {
-    // More than one top-level frame means the reference PNG (a single node
-    // render) does not describe what was pasted. Pin the case to one frame
-    // rather than comparing a collage against one screen.
     throw new Error(
       `Paste produced ${result.files.length} screens (${result.files
         .map((f) => f.preferredFrame?.title ?? f.filename)
@@ -229,12 +181,6 @@ async function runCase(
     );
   }
   const file = result.files[0]!;
-  // The clipboard carries image HASHES, never bytes. The product resolves them
-  // through `hydrate-figma-paste-images` once Figma is connected, so measuring
-  // the unhydrated HTML scores a documented absence rather than the converter:
-  // on the Untitled UI landing page the placeholders alone cover 16% of the
-  // page. Hydrate here when a token is available so the number matches what a
-  // connected user actually gets, and keep the unhydrated one beside it.
   const hydration = await hydratePasteImages(file.content, figmeta.fileKey);
   if (hydration) file.content = hydration.html;
   const width = file.preferredFrame?.width;
@@ -248,9 +194,6 @@ async function runCase(
     JSON.stringify(
       {
         ...result.stats,
-        // After hydration the decoder's own counts and warnings describe a
-        // document that no longer exists; leaving them would have this file
-        // report 12 unloadable images beside a render that has all 12.
         ...(hydration
           ? {
               unresolvedImageCount: hydration.missing,
@@ -276,9 +219,6 @@ async function runCase(
   });
   writeFileSync(join(dir, "paste.png"), rendered.png);
 
-  // Where the clipboard could not carry image bytes, the element renders as a
-  // placeholder. Those boxes measure a documented absence, not the converter,
-  // so they are scored separately rather than folded into one number.
   const placeholderRects = await imagePlaceholderRects(
     browser,
     file.content,

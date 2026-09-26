@@ -222,9 +222,6 @@ describe("first-party BigQuery backend", () => {
     expect(rendered).not.toContain("COALESCE(template, template, app)");
   });
 
-  // Every row here reproduced a real production BigQuery 400 or hard failure
-  // before the translator handled it, so the expectation is the output BigQuery
-  // accepts, not merely that it changed.
   it.each([
     [
       "SELECT sum(amount)::numeric AS v FROM analytics_events",
@@ -263,7 +260,6 @@ describe("first-party BigQuery backend", () => {
       "DATE_TRUNC(CAST(event_date AS DATE), DAY)",
     ],
     [
-      // PostgreSQL weeks start Monday; a bare BigQuery WEEK starts Sunday.
       "SELECT date_trunc('week', event_date) AS v FROM analytics_events",
       "DATE_TRUNC(CAST(event_date AS DATE), WEEK(MONDAY))",
     ],

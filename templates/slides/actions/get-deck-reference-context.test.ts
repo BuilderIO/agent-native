@@ -66,7 +66,6 @@ describe("buildReferenceDeckContext", () => {
 
   it("withholds the reference deck's slide sequence", () => {
     expect(context).not.toContain("Slide progression");
-    // No slide numbering that could be read as an order to follow.
     expect(context).not.toMatch(/^\d+\. \[/m);
   });
 

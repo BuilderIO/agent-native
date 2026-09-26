@@ -1,13 +1,3 @@
-/**
- * Mark a split point on a recording.
- *
- * A split is a zero-width, non-excluded entry in `editsJson.trims`. It does
- * not affect playback, but the editor UI uses it to let the user operate on
- * the segment before or after the split independently.
- *
- * Usage:
- *   pnpm action split-recording --recordingId=<id> --atMs=18500
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";

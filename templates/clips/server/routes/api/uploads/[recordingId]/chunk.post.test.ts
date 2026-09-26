@@ -248,8 +248,6 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       status: "ready",
       videoUrl: "/api/video/rec-1",
     });
-    // The lease is a compare-and-set on the recording's status, so the fake
-    // mirrors that: in-progress rows hold it, terminal rows do not.
     mockRenewUploadLease.mockImplementation(async () => {
       const row = mockSelectRows.rows[0] as Record<string, any> | undefined;
       if (row?.status === "uploading" || row?.status === "processing") {
@@ -264,9 +262,6 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         durationMs: row?.durationMs ?? null,
       };
     });
-    // Faithful in-memory application_state: chunk writes land in the same
-    // store that sumRecordingChunkBytes / deleteRecordingChunks operate on,
-    // so byte accounting and sequencing come from the route's real logic.
     mockReadAppState.mockImplementation(
       async (key: string) => mockAppState.get(key) ?? null,
     );
@@ -568,7 +563,6 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         bytesReceived: 10,
       }),
     );
-    // Progress rides along on the lease renewal — one row write per chunk.
     expect(
       mockRenewUploadLease.mock.calls.filter(
         ([, options]) => options?.uploadProgress !== undefined,
@@ -626,7 +620,6 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       mimeType: "video/webm",
       uploadAttemptId: null,
     });
-    // The empty sentinel must not be persisted as a zero-byte chunk.
     expect(chunkKeys().sort()).toEqual([
       `${CHUNK_PREFIX}000000`,
       `${CHUNK_PREFIX}000001`,
@@ -660,8 +653,6 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       expect.objectContaining({ chunksReceived: 3, progress: 75 }),
     );
 
-    // The earlier chunk arrives late: stored under its own key, and progress
-    // never regresses below the high-water mark.
     setRequest({
       query: { index: "0", total: "4", mimeType: "video/webm" },
       body: new Uint8Array([6, 7, 8, 9, 10]),
@@ -739,8 +730,6 @@ describe("/api/uploads/:recordingId/chunk route", () => {
   });
 
   it("stops before persisting when an abort lands mid-request and clears scratch chunks", async () => {
-    // /abort flips the row to failed, so the lease renewal updates zero rows.
-    // There is no window to re-check: the request cannot write past this.
     mockRenewUploadLease.mockResolvedValue({
       held: false,
       status: "failed",
@@ -1838,8 +1827,6 @@ describe("/api/uploads/:recordingId/chunk route", () => {
   it("keeps replacement-generation scratch when a stale writer loses its lease", async () => {
     (mockSelectRows.rows[0] as Record<string, unknown>).uploadGenerationId =
       "generation-a";
-    // A gets admitted and reads its body. While it is in flight, reset moves
-    // the row to B; A's pre-write renewal must then clean only A scratch.
     mockRenewUploadLease
       .mockResolvedValueOnce({ held: true })
       .mockImplementationOnce(async () => {
@@ -1861,8 +1848,6 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       expect.objectContaining({ ok: false }),
     );
 
-    // The loser may clean up only its own generation; B's scratch is never a
-    // valid target for a delayed A request.
     expect(mockDeleteRecordingChunks).toHaveBeenCalledWith(
       "owner@example.com",
       "rec-1",
@@ -1889,7 +1874,6 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       .mockResolvedValueOnce({ held: true })
       .mockResolvedValueOnce({ held: true });
     mockRelayChunk.mockImplementationOnce(async () => {
-      // B exists before A receives the delayed provider expiry.
       (mockSelectRows.rows[0] as Record<string, unknown>).uploadGenerationId =
         "generation-b";
       return { ok: false, status: 410 };
@@ -1923,8 +1907,6 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       bytesUploaded: 100,
       lastCommittedIndex: 0,
     });
-    // This test owns all three lease boundaries: A admission, A provider
-    // dispatch, then the post-provider fence after reset installed B.
     mockRenewUploadLease
       .mockResolvedValueOnce({ held: true })
       .mockResolvedValueOnce({ held: true })

@@ -18,22 +18,7 @@ type FlowStateChangePayload = {
   startedAtMs?: number;
 };
 
-/**
- * Dictation overlay — a slim dark floating panel,
- * horizontally centered. The bar only ever appears once the user has
- * triggered a voice shortcut, so it mounts in "recording" state and
- * shows the waveform immediately. State transitions arrive via Tauri
- * events as the recorder progresses through processing → complete/error.
- *
- * Events:
- *   - `voice:state-change` { state, stage?: "finalizing"|"cleaning"|"pasting" }
- *   - `voice:audio-level` { level: number } (0-1) for waveform visualization
- */
 export function FlowBar() {
-  // Default to "recording" not "idle" — there's a race between the Rust
-  // window opening and the React listener registering, so a default of
-  // "idle" caused the bar to flash an "EN" language pill that never went
-  // away if the start event was missed.
   const [state, setState] = useState<FlowState>("recording");
   const [processingStage, setProcessingStage] =
     useState<FlowProcessingStage>("finalizing");
@@ -97,11 +82,6 @@ export function FlowBar() {
   }, [startedAtMs, state]);
 
   const handleCancel = () => {
-    // Broadcast to the popover webview where voice-dictation.ts lives —
-    // it will abort any in-flight transcribe, stop recording, hide the
-    // bar without pasting text, and own the delayed defensive re-hide
-    // (gated on no new session having started since) so a fast re-press
-    // right after cancel doesn't hide a brand-new session's bar (R21).
     emit("voice:cancel").catch(() => {});
   };
 

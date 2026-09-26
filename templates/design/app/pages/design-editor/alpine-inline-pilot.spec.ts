@@ -180,8 +180,6 @@ describe("net-new HTML/Alpine visual-edit pilot", () => {
       index: 0,
     });
 
-    // The editor history stores full source snapshots. Undo and redo must
-    // therefore restore both structure and Alpine directives byte-for-byte.
     const undoSnapshot = history[history.length - 2]!;
     expect(undoSnapshot).toBe(reparentEdit.content);
     const redoSnapshot = latest(history);

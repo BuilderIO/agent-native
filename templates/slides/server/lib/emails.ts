@@ -1,9 +1,3 @@
-/**
- * Catalog entries for the transactional emails Slides sends.
- *
- * Registered from `server/plugins/transactional-emails.ts` so Dispatch can list
- * and preview them without the app having sent anything yet.
- */
 
 import {
   defineTransactionalEmail,
@@ -21,8 +15,6 @@ export const SLIDES_DECK_COMMENT_EMAIL_ID = "slides.deck-comment";
 let registered = false;
 
 export function registerSlidesEmails(): void {
-  // Nitro can re-evaluate this module during dev HMR while the core registry
-  // remains alive. Treat the existing Slides-owned entry as already registered.
   if (registered || getTransactionalEmail(SLIDES_DECK_COMMENT_EMAIL_ID)) return;
   registered = true;
 

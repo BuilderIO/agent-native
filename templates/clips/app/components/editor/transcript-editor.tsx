@@ -23,10 +23,6 @@ export interface TranscriptEditorProps {
   edits: EditsJson;
   currentMs: number;
   onSeek?: (originalMs: number) => void;
-  /**
-   * Fires with an (original) ms range when the user trims a selection — the
-   * parent should call `trim-recording` with it.
-   */
   onTrimRange?: (range: { startMs: number; endMs: number }) => void;
   className?: string;
 }
@@ -37,14 +33,6 @@ interface Selection {
   text: string;
 }
 
-/**
- * Transcript viewer with selection-to-trim support.
- *
- * Users select text → press Delete (or the "Trim selection" button) → we
- * resolve the selected text's timestamp range via `segmentsJson` and call
- * `onTrimRange` with it. Segments that fall inside an excluded range render
- * with strikethrough.
- */
 export function TranscriptEditor({
   segments,
   edits,
@@ -57,8 +45,6 @@ export function TranscriptEditor({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
 
-  // For each segment we add a data-start-ms attribute so we can resolve the
-  // browser's text Selection back to original timestamps.
   const resolveSelection = (): Selection | null => {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;

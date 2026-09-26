@@ -107,10 +107,6 @@ function parseShadowLayer(layer: string, index: number): ShadowLayer {
   const inset = tokens.includes("inset");
   const colorToken =
     tokens.find((token) => parseCssColor(token) || token === "transparent") ??
-    // Preserve a color we don't parse into RGBA (currentColor, var(--x), or any
-    // unrecognized keyword): the color is the non-inset token that doesn't look
-    // like a numeric length. Without this, tweaking x/y/blur would reset it to
-    // the hardcoded default below.
     tokens.find((token) => token !== "inset" && !/^[-+]?[\d.]/.test(token)) ??
     DEFAULT_DROP_SHADOW_COLOR;
   const numericTokens = tokens
@@ -157,8 +153,6 @@ export function serializeShadowLayers(layers: ShadowLayer[]) {
         `${roundToOneDecimal(layer.x)}px`,
         `${roundToOneDecimal(layer.y)}px`,
         `${Math.max(0, roundToOneDecimal(layer.blur))}px`,
-        // Spread radius may legitimately be negative for either inset or
-        // drop shadows — only blur-radius is clamped to >= 0 in CSS.
         `${roundToOneDecimal(layer.spread)}px`,
         layer.color,
       ]
@@ -168,11 +162,6 @@ export function serializeShadowLayers(layers: ShadowLayer[]) {
     .join(", ");
 }
 
-/**
- * `text-shadow` form of the same layers: offsets, blur, colour. CSS text-shadow
- * has no spread and no inset, so emitting the box-shadow string would produce a
- * declaration the browser drops entirely.
- */
 export function serializeTextShadowLayers(layers: ShadowLayer[]) {
   const visible = layers.filter((layer) => !layer.inset);
   if (!visible.length) return "none";
@@ -210,10 +199,6 @@ export function setBlurFilterValue(
       : blurFn;
 }
 
-/** Remove only the layer/background blur function, preserving every sibling
- * CSS filter (brightness, contrast, drop-shadow, etc.). Figma models layer
- * blur as one effect row; deleting that row must not delete the other effects
- * that happen to share CSS's `filter`/`backdrop-filter` declaration. */
 export function removeBlurFilterValue(value: string | undefined): string {
   const existing = compactCssValue(value, "");
   if (!existing || existing === "none") return "none";
@@ -224,12 +209,6 @@ export function removeBlurFilterValue(value: string | undefined): string {
   return remaining || "none";
 }
 
-/** Keep the transient original-opacity stash attached to the same shadow when
- * positional CSS layers are reordered or removed. Parsed shadow ids are
- * necessarily index-based (`shadow-0`, `shadow-1`, …); after a reorder the
- * next computed-style read regenerates those ids in the new order. Without
- * remapping, a hidden shadow's saved alpha stays at its old index and the eye
- * button restores the wrong layer (or falls back to 25%). */
 export function remapIndexedShadowStash(
   stash: Record<string, string>,
   elementKey: string,
@@ -264,19 +243,6 @@ function shadowColorWithOpacity(color: string, opacity: number): string {
       : color;
 }
 
-/**
- * True when the current multi-selection has differing box-shadow, filter,
- * or backdrop-filter values (the synthetic mixed-selection ElementInfo
- * reports the `MIXED_VALUE`/"Mixed" sentinel for any style property that
- * disagrees across the selection — see selection-helpers.ts). Effects had no
- * mixed-selection handling at all: `parseShadowLayers("Mixed")` would parse
- * the literal sentinel string as a bogus single shadow layer (color:
- * "Mixed", the rest defaulted), and editing any of its fields would commit
- * an invalid `box-shadow: ... Mixed` to every selected element. Fill and
- * Stroke both already gate their sections on an equivalent mixed check and
- * show a "Click + to replace" hint instead of rendering broken per-field
- * controls; Effects needs the same gate.
- */
 export function effectsSelectionIsMixed(styles: {
   boxShadow?: string;
   filter?: string;
@@ -635,11 +601,6 @@ export function EffectsProperties({
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
-  /**
-   * Persistence context for the code-backed Shader effect type (GLSL
-   * overlay rendered above the element's content, saved into the screen
-   * HTML). When absent the Shader entry is hidden from the Add-effect menu.
-   */
   glslShaderContext?: GlslShaderPanelContext;
   motionKeyframeContext?: MotionKeyframeFieldContext;
 }) {
@@ -647,13 +608,8 @@ export function EffectsProperties({
   const [shaderPickerOpen, setShaderPickerOpen] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const styles = element.computedStyles;
-  // M5 · Background (backdrop) blur is a distinct design effect type, backed by
-  // CSS `backdrop-filter: blur()` (vs layer blur's `filter: blur()`).
   const backdropFilterValue =
     styles.backdropFilter || styles.webkitBackdropFilter;
-  // Differing box-shadow/filter/backdrop-filter across a multi-selection —
-  // gates the whole section to a "Click + to replace" hint below, same as
-  // Fill/Stroke, instead of parsing the "Mixed" sentinel as real CSS.
   const effectsAreMixed = effectsSelectionIsMixed({
     boxShadow: styles.boxShadow,
     filter: styles.filter,
@@ -672,8 +628,6 @@ export function EffectsProperties({
   const layerBlurStashKey = `${effectStashKey}:filter:blur`;
   const backdropBlurStashKey = `${effectStashKey}:backdrop-filter:blur`;
   const shadowTargetsText = isTextElement(element);
-  // Read from the same property the writer targets, or the rows would show a
-  // box-shadow that is no longer what this element uses.
   const shadowLayers = effectsAreMixed
     ? []
     : parseShadowLayers(
@@ -683,9 +637,6 @@ export function EffectsProperties({
     setHiddenEffectStash((stash) =>
       remapIndexedShadowStash(stash, effectStashKey, layers),
     );
-    // A shadow on text belongs on the glyphs. box-shadow paints the element's
-    // BOX, which on a text node reads as a rectangle floating behind the words
-    // instead of a shadow on the letters.
     if (shadowTargetsText) {
       const textShadow = serializeTextShadowLayers(layers);
       if (onStylesChange) onStylesChange({ textShadow }, meta);
@@ -716,14 +667,6 @@ export function EffectsProperties({
     shadowLayers.length,
     reorderShadowLayers,
   );
-  // `glslShaderContext?.nodeId` is the SELECTION target's node id — it is set
-  // whenever the selected element is a valid shader-effect host, regardless
-  // of whether a shader effect actually exists on it yet (it also describes
-  // "could add a shader here"). Gating on its mere presence made the section
-  // think it had content for every plain element with no effects at all.
-  // Look up whether an effect-mode shader is actually MOUNTED on this node
-  // (same screen.mounts lookup GlslShaderEffectSection performs internally)
-  // so the gate reflects a real effect, not just a selectable target.
   const screenShaders = useScreenGlslShaders(glslShaderContext ?? {});
   const hasShaderEffect = Boolean(
     glslShaderContext?.nodeId &&
@@ -732,18 +675,6 @@ export function EffectsProperties({
         mount.nodeId === glslShaderContext.nodeId && mount.mode === "effect",
     ),
   );
-  // Whether there is anything at all to render below the header row. Each
-  // effect kind below is its own top-level sibling conditional (not one
-  // single ternary), so when every one of them is empty, JSX would still
-  // hand PanelSection a real (truthy) array of `null`s as `children` — its
-  // `children &&` guard can't tell that apart from "has content" and renders
-  // an empty spacer div under the header. Gating the whole block behind one
-  // boolean keeps `children` a real `null` in that case, matching how the
-  // other sections (e.g. Fill) stay collapsed-empty.
-  // Also true while the shader picker is open (adding a new shader effect,
-  // not applied yet) — mirrors GlslShaderEffectSection's own
-  // `!effectMount && !pickerOpen` early-return so opening the picker doesn't
-  // get swallowed by this outer gate before it can render itself.
   const hasEffectsContent =
     effectsAreMixed ||
     shadowLayers.length > 0 ||
@@ -1013,10 +944,6 @@ export function EffectsProperties({
             </>
           )}
           {glslShaderContext?.nodeId ? (
-            /* Code-backed GLSL shader effect — overlay canvas above the
-           element's content, persisted as editable GLSL in the screen HTML
-           (see shared/shader-fills.ts). Renders its row (when applied) and
-           the picker (when adding). */
             <GlslShaderEffectSection
               context={glslShaderContext}
               pickerOpen={shaderPickerOpen}

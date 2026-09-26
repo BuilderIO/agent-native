@@ -1,6 +1,4 @@
--- Query Set 3: Landing Page Performance
--- Purpose: Analyze conversion by entry page type to identify if specific pages have degraded performance
--- Expected output: Conversion rate by landing page, volume changes, recent vs baseline comparison
+
 
 WITH first_pageviews AS (
   SELECT
@@ -48,38 +46,38 @@ combined AS (
     IFNULL(s.total_signups, 0) AS total_signups,
     SAFE_DIVIDE(IFNULL(s.total_signups, 0), v.unique_visitors) AS conversion_rate
   FROM visitors_by_landing v
-  LEFT JOIN signups_by_landing s 
+  LEFT JOIN signups_by_landing s
     ON v.week = s.week AND v.landing_page_type = s.landing_page_type
 ),
 recent_vs_baseline AS (
   SELECT
     landing_page_type,
-    -- Recent 4 weeks
-    SUM(CASE WHEN week >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 4 WEEK), WEEK) 
+
+    SUM(CASE WHEN week >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 4 WEEK), WEEK)
         THEN unique_visitors ELSE 0 END) AS recent_visitors,
-    SUM(CASE WHEN week >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 4 WEEK), WEEK) 
+    SUM(CASE WHEN week >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 4 WEEK), WEEK)
         THEN total_signups ELSE 0 END) AS recent_signups,
     SAFE_DIVIDE(
-      SUM(CASE WHEN week >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 4 WEEK), WEEK) 
+      SUM(CASE WHEN week >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 4 WEEK), WEEK)
           THEN total_signups ELSE 0 END),
-      SUM(CASE WHEN week >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 4 WEEK), WEEK) 
+      SUM(CASE WHEN week >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 4 WEEK), WEEK)
           THEN unique_visitors ELSE 0 END)
     ) AS recent_conversion_rate,
-    -- Previous 4 weeks (weeks 5-8 ago)
-    SUM(CASE 
+
+    SUM(CASE
         WHEN week >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 8 WEEK), WEEK)
         AND week < DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 4 WEEK), WEEK)
         THEN unique_visitors ELSE 0 END) AS baseline_visitors,
-    SUM(CASE 
+    SUM(CASE
         WHEN week >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 8 WEEK), WEEK)
         AND week < DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 4 WEEK), WEEK)
         THEN total_signups ELSE 0 END) AS baseline_signups,
     SAFE_DIVIDE(
-      SUM(CASE 
+      SUM(CASE
           WHEN week >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 8 WEEK), WEEK)
           AND week < DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 4 WEEK), WEEK)
           THEN total_signups ELSE 0 END),
-      SUM(CASE 
+      SUM(CASE
           WHEN week >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 8 WEEK), WEEK)
           AND week < DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 4 WEEK), WEEK)
           THEN unique_visitors ELSE 0 END)
@@ -95,29 +93,23 @@ SELECT
   baseline_visitors,
   baseline_signups,
   ROUND(baseline_conversion_rate * 100, 2) AS baseline_conv_rate_pct,
-  -- Absolute change in conversion rate
+
   ROUND((recent_conversion_rate - baseline_conversion_rate) * 100, 2) AS conv_rate_change_pct,
-  -- Percentage change
+
   ROUND(SAFE_DIVIDE(
     recent_conversion_rate - baseline_conversion_rate,
     baseline_conversion_rate
   ) * 100, 1) AS pct_change,
-  -- Traffic volume change
+
   ROUND(SAFE_DIVIDE(
     recent_visitors - baseline_visitors,
     baseline_visitors
   ) * 100, 1) AS traffic_volume_change_pct,
-  -- Share of total traffic
+
   ROUND(SAFE_DIVIDE(
     recent_visitors,
     SUM(recent_visitors) OVER ()
   ) * 100, 1) AS recent_traffic_share_pct
 FROM recent_vs_baseline
-WHERE recent_visitors > 50 OR baseline_visitors > 50  -- Filter out very low volume pages
+WHERE recent_visitors > 50 OR baseline_visitors > 50
 ORDER BY recent_visitors DESC;
-
--- Interpretation Guide:
--- 1. Check if high-converting landing pages (e.g., pricing, homepage) have declined
--- 2. Look at traffic_volume_change_pct to see if users are landing on different pages
--- 3. A declining recent_traffic_share_pct for high-converting pages is a red flag
--- 4. Compare landing page mix: are more users entering via low-converting pages (e.g., blog)?

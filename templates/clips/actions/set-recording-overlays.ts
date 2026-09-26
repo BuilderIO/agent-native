@@ -1,17 +1,3 @@
-/**
- * Replace the overlay list on a recording — the redaction boxes, and whatever
- * overlay kinds come later.
- *
- * Nothing here hides anything. Overlays are metadata: the stored video still
- * has every pixel, and anyone with the link can still see what a box is drawn
- * over. `burn-recording-redactions` is what makes a redaction real. This
- * action exists so the boxes can be placed, moved and argued over first,
- * because the burn cannot be undone.
- *
- * Usage:
- *   pnpm action set-recording-overlays --recordingId=<id> \
- *     --overlays='[{"id":"redact-1","kind":"redact","style":"solid","startMs":1000,"endMs":4000,"keys":[{"atMs":1000,"x":0.1,"y":0.2,"w":0.3,"h":0.1}]}]'
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
@@ -25,7 +11,6 @@ import { getDb, schema } from "../server/db/index.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 const MAX_CAS_ATTEMPTS = 5;
-/** A guard against a runaway client, not a design limit. */
 const MAX_OVERLAYS = 200;
 
 export default defineAction({
@@ -61,9 +46,6 @@ export default defineAction({
       );
     }
 
-    // Redactions are normalized and anything malformed is dropped rather than
-    // stored: a box the burn cannot read is a box the user thinks is covering
-    // something. Overlay kinds this version does not know about pass through.
     const redactions = parseRedactions(incoming);
     const rejected =
       incoming.filter(
@@ -81,12 +63,6 @@ export default defineAction({
 
     const db = getDb();
 
-    // What the overlay list looked like on the first read. A retry is only
-    // safe while this has not moved: the caller sends a whole list, so it is
-    // saying "these are the boxes" against the state it last saw. If someone
-    // else has added or moved one in the meantime, writing this list again
-    // would delete their box — and deleting a box lifts the hold on pixels
-    // that are still in the file.
     let baseOverlays: string | null = null;
 
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
@@ -106,9 +82,6 @@ export default defineAction({
       if (baseOverlays === null) {
         baseOverlays = previousOverlays;
       } else if (previousOverlays !== baseOverlays) {
-        // A conflict caused by a trim being saved at the same moment is
-        // harmless and retried above. This one is not: refuse, and let the
-        // editor reload rather than quietly undo someone's redaction.
         throw new Error(
           "The redactions on this recording changed while this was saving. Reload the editor and make the change again.",
         );

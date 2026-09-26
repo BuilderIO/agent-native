@@ -193,7 +193,6 @@ describe("buildNotionAuthUrl", () => {
       expect(state.redirectPath).toBe("/page/abc123");
       expect(typeof state.sig).toBe("string");
 
-      // Mirrors callback.get.ts's verifyStateSignature exactly.
       const expected = crypto
         .createHmac("sha256", "test-state-secret")
         .update(`redirectPath:${state.redirectPath}`)
@@ -215,8 +214,6 @@ describe("buildNotionAuthUrl", () => {
     });
 
     it("does not mark the CSRF cookie Secure on a plain-http origin (n17)", async () => {
-      // Browsers (Safari even on http://localhost) silently drop Secure
-      // cookies set over plain http, which previously made the CSRF-binding
       // cookie never arrive and broke Connect Notion in http dev entirely.
       const event = mockEvent("http://localhost/api/notion/auth-url");
 
@@ -353,8 +350,6 @@ describe("resolveNotionMarkdownResponse", () => {
       unknown_block_ids: ["child-block"],
     });
 
-    // The hydrated subtree is present and the result is already canonical
-    // (re-canonicalizing is a no-op — no drift).
     expect(result.markdown).toContain("- notion doc");
     expect(result.markdown).toContain(
       "- access: amplitude, fullstory, sigma, jira",
@@ -427,7 +422,6 @@ describe("notionFetch", () => {
 
     expect(result).toBeInstanceOf(NotionApiError);
     expect((result as InstanceType<typeof NotionApiError>).status).toBe(429);
-    // Only the single initial call — never slept/retried for the huge value.
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -561,7 +555,6 @@ describe("saveNotionTokensForOwner", () => {
       expect.objectContaining({ access_token: "new-token" }),
       "alice@example.com",
     );
-    // The just-saved account must NOT be deleted; the other one must be.
     expect(deleteOAuthTokens).toHaveBeenCalledWith("notion", "workspace-a");
     expect(deleteOAuthTokens).not.toHaveBeenCalledWith("notion", "workspace-b");
   });
@@ -615,8 +608,6 @@ describe("createNotionPageWithMarkdown", () => {
     const request = vi.mocked(global.fetch).mock.calls[0];
     expect(request[0]).toBe("https://api.notion.com/v1/pages");
     const body = JSON.parse(String(request[1]?.body));
-    // The pushed markdown is exactly the canonical form — and canonical content
-    // is already a fixpoint, so this push will round-trip without drift.
     expect(body.markdown).toBe(canonicalizeNfm(content));
     expect(canonicalizeNfm(body.markdown)).toBe(body.markdown);
     expect(body.markdown).toContain("- parent\n\t- child");

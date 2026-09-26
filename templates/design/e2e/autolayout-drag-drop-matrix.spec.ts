@@ -8,12 +8,6 @@ import {
 import { chromeBounds } from "./drag-and-drop.shared";
 import { appPath, designFrame, expandAllLayers, gotoEditor } from "./helpers";
 
-// Oracle: Figma Guide to auto layout (D-AL/D-HV/D-IGNORE/D-COPY) and the
-// 2026-09-18 held-drag matrix in .tmp/interaction-parity. These tests assert
-// documented structure and marker orientation; marker pixel values remain
-// version/zoom dependent. Native Figma runtime telemetry is unavailable in
-// this headless lane, so the documented release semantics remain an explicit
-// oracle boundary rather than an unverified native-app claim.
 const CONTROL = "Control";
 const COMMAND = process.platform === "darwin" ? "Meta" : "Control";
 const IGNORE_AUTO_LAYOUT = process.platform === "darwin" ? "Control" : "S";
@@ -920,8 +914,6 @@ function serializedOrder(html: string, ids: string[]): string[] {
     id,
     index: html.indexOf(`data-agent-native-node-id="${id}"`),
   }));
-  // A missing marker must fail the caller's expected-order assertion rather
-  // than sorting ahead of every present marker as if it were valid HTML.
   if (positions.some(({ index }) => index < 0)) return [];
   return positions
     .sort((left, right) => left.index - right.index)
@@ -1036,10 +1028,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     page,
     request,
   }) => {
-    // Three full editor round-trips (create, drag, reload) per cell — 66s
-    // measured locally on an idle host, with no assertion failure; CI's
-    // slower runner pushed the same work past the default 90s budget. Give
-    // this and its three siblings below the same generous margin.
     test.setTimeout(150_000);
     const cells = [
       {
@@ -1244,9 +1232,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     page,
     request,
   }) => {
-    // Three full editor round-trips per cell (46s measured locally) — see
-    // the timeout note on "horizontal nowrap ... expose a held marker and
-    // persist" above.
     test.setTimeout(150_000);
     const cells = [
       { source: "free-text", name: "Free text", tag: "P" },
@@ -1330,9 +1315,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     page,
     request,
   }) => {
-    // Three full editor round-trips per cell (47.5s measured locally) — see
-    // the timeout note on "horizontal nowrap ... expose a held marker and
-    // persist" above.
     test.setTimeout(150_000);
     const cells = [
       {
@@ -1895,9 +1877,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     page,
     request,
   }) => {
-    // Five full editor round-trips (each with a 12-point held-oracle drag,
-    // 50s measured locally) — see the timeout note on "horizontal nowrap
-    // ... expose a held marker and persist" above.
     test.setTimeout(150_000);
     const cells: Array<{
       fixture: RootFixture;
@@ -2314,8 +2293,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
               })),
             ),
         };
-        // Cross-Screen uses the host drag ghost as its held overlay; the iframe
-        // insertion guide is intentionally not mounted during that handoff.
         expect(heldEvidence.ghost).toBeGreaterThan(0);
         expect(heldEvidence.screenShells).toBe(2);
         const sourceBeforeRelease = await fileHtml(
@@ -2468,9 +2445,6 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         source.y + source.height / 2,
       );
       await page.mouse.down();
-      // Cross into the overview host first. It owns focus after this handoff,
-      // The overview host owns focus after this handoff, so use the platform
-      // Ignore Auto Layout chord there instead of relying on the source iframe.
       await page.mouse.move(
         target.x + target.width / 2,
         target.y + target.height / 2,

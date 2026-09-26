@@ -1,12 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-/**
- * Builds one labelled side-by-side PNG from a run's artifacts so a whole case
- * can be eyeballed in a single image.
- *
- * Usage: pnpm figma-fidelity:sheet <caseDir> [maxWidthPerPanel]
- */
 import { chromium } from "@playwright/test";
 
 const caseDir = process.argv[2];
@@ -34,8 +28,6 @@ const browser = await chromium.launch();
 const page = await browser.newPage({
   viewport: { width: panelWidth * panels.length + 40, height: 400 },
 });
-// A local diagnostic sheet, not product UI: the dark ground and checkerboard
-// exist so red diff pixels and transparent regions read clearly.
 // guard:allow-raw-color — diagnostic artifact, not themed UI
 await page.setContent(`<!doctype html><body style="margin:0;background:#111;font:12px system-ui;color:#eee">
 <div id="sheet" style="display:inline-flex;gap:8px;padding:8px;align-items:flex-start">${cells}</div>

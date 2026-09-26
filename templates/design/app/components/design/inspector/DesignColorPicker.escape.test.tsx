@@ -1,7 +1,5 @@
 // @vitest-environment happy-dom
 
-// Radix handles Escape before canvas hotkeys, so closing the picker must
-// preserve both committed paint changes and the canvas selection.
 
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -45,9 +43,6 @@ function Harness({
   onPopoverEscape: () => void;
   onCanvasEscapeHotkey: () => void;
 }) {
-  // Mirrors DesignEditor.tsx's real `useDesignHotkeys({ ..., onEscape:
-  // handleEscapeHotkey })` call: no `target`/`capture` override, so it binds
-  // to `window` in the default bubble phase, exactly like production.
   useDesignHotkeys({ onEscape: onCanvasEscapeHotkey });
 
   return (

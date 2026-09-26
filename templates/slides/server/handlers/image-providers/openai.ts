@@ -30,10 +30,8 @@ export class OpenAIProvider implements ImageProvider {
     const apiKey = await resolveSecret("OPENAI_API_KEY");
     if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
 
-    // OpenAI doesn't support reference images natively — fold style description into prompt
     const fullPrompt = buildOpenAIPrompt(prompt, referenceImages, context);
 
-    // Map config to OpenAI parameters
     const size = mapSize(config?.aspectRatio, config?.size);
     const quality = mapQuality(config?.quality);
 
@@ -102,7 +100,6 @@ export class OpenAIProvider implements ImageProvider {
     const size = mapSize(config?.aspectRatio, config?.size);
     const quality = mapQuality(config?.quality);
 
-    // Use FormData for the edits endpoint (multipart)
     const formData = new FormData();
     formData.append(
       "image",
@@ -162,7 +159,6 @@ function mapSize(
   aspectRatio?: string,
   size?: string,
 ): "1024x1024" | "1536x1024" | "1024x1536" | "auto" {
-  // If explicit size is provided, try to use it
   if (size) {
     const sizeMap: Record<string, "1024x1024" | "1536x1024" | "1024x1536"> = {
       square: "1024x1024",
@@ -176,7 +172,6 @@ function mapSize(
     if (mapped) return mapped;
   }
 
-  // Map aspect ratio
   if (aspectRatio) {
     if (aspectRatio === "1:1" || aspectRatio === "square") return "1024x1024";
     if (
@@ -195,7 +190,6 @@ function mapSize(
       return "1024x1536";
   }
 
-  // Default to landscape for slides
   return "1536x1024";
 }
 
@@ -213,7 +207,6 @@ function buildOpenAIPrompt(
 ): string {
   let fullPrompt = prompt;
 
-  // Since OpenAI doesn't support reference images, add style guidance in text
   if (referenceImages.length > 0) {
     fullPrompt = `Create a professional, modern illustration for a presentation slide. The style should be: dark background with clean, minimal design. Use a sophisticated color palette with dark tones and subtle accent colors. No glow effects, no neon, no bloom — keep lighting flat and subtle. Match a premium tech brand aesthetic.
 
@@ -235,7 +228,6 @@ Subject: ${prompt}`;
     fullPrompt += `\n\nNon-renderable background context. Use only to understand topic and mood; do not copy or display any of these words, HTML, labels, specs, or prompt text in the image:\n${nonRenderable.join("\n")}`;
   }
 
-  // Ensure output is just the image, not a slide mockup
   fullPrompt +=
     "\n\nIMPORTANT: Generate ONLY the illustration/graphic — NOT a slide mockup. No presentation borders, no title overlays. Do not render visible words, letters, UI labels, captions, specs, or prompt text unless the user's prompt explicitly asks for exact text.";
 
@@ -273,7 +265,6 @@ async function fetchWithRetry(
     try {
       const res = await fetch(url, init);
 
-      // Retry on rate limit
       if (res.status === 429) {
         const retryAfter = res.headers.get("retry-after");
         const waitMs = retryAfter

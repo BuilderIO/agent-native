@@ -470,7 +470,6 @@ const messages = {
     lowerLeft: "左下",
     skeletonEnabled: "已啟用",
     skeletonOff: "關閉",
-    // TODO(l10n): translate after QA.
     addReference: "Add reference",
     referenceBoard: "Reference board",
     referenceBoardEmptyDescription:

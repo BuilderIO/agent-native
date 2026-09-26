@@ -96,9 +96,6 @@ export async function getAppEventsTable(
   return parseBigQueryTableRef(configured, fallbackProjectId);
 }
 
-/**
- * Resolve @app_events placeholder to the fully-qualified table name.
- */
 async function resolveTablePlaceholder(
   sql: string,
   projectId?: string,
@@ -128,12 +125,6 @@ async function resolveTablePlaceholder(
     .replace(/\b@project\./g, `${projectId}.`);
 }
 
-// --- Query cache ---
-//
-// Two tiers:
-//   L1: per-process Map (fast hits within a single invocation)
-//   L2: SQL-backed `bigquery_cache` table (shared across serverless invocations
-//       and deployments). Global scope — BigQuery results are not user-specific.
 
 interface L1Entry {
   result: QueryResult;
@@ -151,8 +142,6 @@ function getCacheKey(
   cacheScope: string,
 ): string {
   // Scope by caller as well as project so a warm server process cannot serve
-  // cached warehouse results across tenants that happen to query the same
-  // project/table names.
   return createHash("sha256")
     .update(`${cacheScope}\n${projectId}\n${sql}`)
     .digest("hex");
@@ -208,7 +197,6 @@ async function setL2(
     const now = new Date();
     const expiresAt = new Date(now.getTime() + CACHE_TTL_MS);
     const serialized = JSON.stringify(result);
-    // Upsert in one statement so the awaited persistence has a bounded DB cost.
     await db.execute({
       sql: "INSERT INTO bigquery_cache (key, sql, result, bytes_processed, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (key) DO UPDATE SET sql = EXCLUDED.sql, result = EXCLUDED.result, bytes_processed = EXCLUDED.bytes_processed, created_at = EXCLUDED.created_at, expires_at = EXCLUDED.expires_at",
       args: [
@@ -220,9 +208,6 @@ async function setL2(
         expiresAt.toISOString(),
       ],
     });
-    // Opportunistically prune expired rows so the cache table doesn't grow
-    // unbounded — the explorer accepts arbitrary SQL so the keyspace is huge.
-    // Run ~1% of the time to avoid thrashing on every write.
     if (Math.random() < 0.01) {
       await db.execute({
         sql: "DELETE FROM bigquery_cache WHERE expires_at <= $1",
@@ -234,7 +219,6 @@ async function setL2(
   }
 }
 
-// --- Query execution ---
 
 export interface QueryResult {
   rows: Record<string, unknown>[];
@@ -242,16 +226,10 @@ export interface QueryResult {
   schema: { name: string; type: string }[];
   bytesProcessed: number;
   cached?: boolean;
-  /** True when BigQuery matched more rows than this first page returned. */
   truncated?: boolean;
 }
 
 export interface RunQueryOptions {
-  /**
-   * The current agent run's abort signal. This cancels in-flight BigQuery
-   * requests and, importantly, stops the one-second job polling wait without
-   * starting another request after the parent run has ended.
-   */
   signal?: AbortSignal;
 }
 
@@ -330,16 +308,6 @@ async function cancelQueryJob(
   }
 }
 
-/**
- * Convert BigQuery REST API row format to plain objects.
- * BigQuery returns rows as { f: [{ v: value }, ...] } arrays
- * mapped to the schema fields.
- *
- * The REST API serializes every value as a string (even numeric types
- * — FLOAT64 comes back as Java-style "6.925207756232687E-4"). Coerce
- * numeric and boolean columns to real JS types using the schema so
- * downstream formatters and charts can work with them.
- */
 const NUMERIC_BQ_TYPES = new Set([
   "INTEGER",
   "INT64",
@@ -376,16 +344,6 @@ function rowsToObjects(
   });
 }
 
-/**
- * Validate a BigQuery SQL statement without executing it. Uses BigQuery's
- * `dryRun` flag, which is free (no bytes billed) and returns query-compilation
- * errors — unknown columns, type mismatches, missing tables — in the same
- * format as a real run. Use this before persisting agent-generated SQL so
- * the agent gets immediate feedback instead of saving a broken dashboard.
- *
- * Returns `null` when the query is valid; otherwise returns a short error
- * string suitable for bubbling back to the agent.
- */
 export interface DryRunQueryOptions {
   signal?: AbortSignal;
 }
@@ -510,7 +468,6 @@ export async function runQuery(
 
   let data = (await res.json()) as BigQueryQueryResponse;
 
-  // If the job isn't complete, poll until it is
   if (!data.jobComplete && data.jobReference?.jobId) {
     const jobId = data.jobReference.jobId;
     const resultsUrl = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries/${jobId}`;
@@ -556,8 +513,6 @@ export async function runQuery(
   const rows = data.rows ? rowsToObjects(data.rows, fields) : [];
   const bytesProcessed = parseInt(data.totalBytesProcessed || "0", 10);
 
-  // BigQuery reports the full match count; `rows` only holds the first page. Reporting
-  // rows.length as the total made every partial result look complete to the agent.
   const reportedTotal = Number.parseInt(data.totalRows || "", 10);
   const totalRows = Number.isFinite(reportedTotal)
     ? reportedTotal
@@ -572,8 +527,6 @@ export async function runQuery(
   };
 
   setL1(cacheKey, result);
-  // Await shared persistence when no runtime continuation hook is available;
-  // otherwise the serverless platform owns completion after the response.
   const l2Persistence = setL2(cacheKey, cacheableSql, result);
   const waitUntil = getRequestRunContext()?.waitUntil;
   if (waitUntil) waitUntil(l2Persistence);

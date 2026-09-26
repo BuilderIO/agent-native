@@ -30,7 +30,6 @@ export function composerSourceKey(source: ComposerSource) {
     const url = source.figmaUrl ?? source.url ?? "";
     const parsedUrl = z.string().url().safeParse(url);
     if (!parsedUrl.success) {
-      // Keep unparsed saved handles identifiable so failed reads remain removable.
       return `figma:unparsed:${url}:${source.nodeId ?? source.id}`;
     }
     const parts = new URL(parsedUrl.data).pathname.split("/").filter(Boolean);

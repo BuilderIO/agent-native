@@ -1,11 +1,3 @@
-/**
- * Email notifications for deck comments and replies.
- *
- * Recipient resolution, preference filtering, and delivery reporting come from
- * `@agent-native/core/server`; this module owns only the Slides rows and the
- * email copy. Share invites are not routed through the `emailNotifications`
- * preference — they have their own delivery path.
- */
 
 import {
   emailStrong,
@@ -23,10 +15,6 @@ import { SLIDES_USER_PREFS_KEY } from "../../shared/slides-user-prefs.js";
 import { getDb, schema } from "../db/index.js";
 import { SLIDES_DECK_COMMENT_EMAIL_ID } from "./emails.js";
 
-/**
- * `deck-missing` stays distinct from `no-recipients`: one means the deck could
- * not be read, the other means nobody wanted the email.
- */
 export type SlidesCommentNotificationResult =
   | ActivityNotificationResult
   | { status: "deck-missing"; sent: []; failed: [] };
@@ -41,10 +29,6 @@ function excerpt(content: string): string {
     : collapsed;
 }
 
-/**
- * The editor reads `?slide=` as a one-based ordinal, not a slide id — passing
- * `slide_2` parses to NaN and silently lands on slide 1.
- */
 function deckUrl(deckId: string, slideNumber: number | null): string {
   const base = getDeckUrl(deckId);
   return slideNumber ? `${base}?slide=${slideNumber}` : base;
@@ -55,8 +39,6 @@ function slideNumberIn(deckData: string, slideId: string): number | null {
   try {
     parsed = JSON.parse(deckData);
   } catch (error) {
-    // Unparsable deck JSON is a real anomaly, so say so — but the comment email
-    // still goes out with a deck-level link rather than being dropped.
     console.error(
       `${LOG_LABEL}: deck data could not be parsed for a slide link:`,
       error instanceof Error ? error.message : String(error),
@@ -171,8 +153,6 @@ async function deliverDeckCommentEmails(input: {
     );
   }
 
-  // Thread rows are history, not an access grant: someone removed from the
-  // deck must stop receiving its comment bodies.
   const allowed = await filterRecipientsByResourceAccess({
     resourceType: "deck",
     resourceId: deck.id,

@@ -65,11 +65,6 @@ import {
   VECTOR_START_ENDPOINT_PROPERTY,
 } from "./vector-endpoints.js";
 
-/**
- * Shown when a document transform is handed a URL-backed (localhost/fusion)
- * screen's stored content. Same wording from both producers so the message
- * doesn't depend on which gesture the user happened to use.
- */
 export const LINKED_COMPONENT_STRUCTURE_REFUSAL =
   "Changing linked component layer structure is not supported yet.";
 
@@ -256,12 +251,6 @@ export type VisualStyleProperty =
 
 export interface StyleToken {
   property: VisualStyleProperty;
-  /**
-   * The resolved value at the *base* breakpoint (unprefixed), or the inline
-   * style value.  For class-sourced tokens this is the utility string of the
-   * base class (e.g. `"text-sm"`).  Use `breakpointValues` to inspect how the
-   * value differs across responsive prefixes.
-   */
   value: string;
   token: string;
   source: "inline-style" | "class";
@@ -276,11 +265,6 @@ export interface StyleToken {
    * // breakpointValues = { base: "text-sm", md: "text-base", lg: "text-lg" }
    */
   breakpointValues?: Partial<Record<TailwindBreakpointPrefix, string>>;
-  /**
-   * For class-sourced tokens only: the prefixes (other than `"base"`) at which
-   * this property has a responsive override in the class list.  Populated when
-   * `breakpointValues` has keys other than `"base"`.
-   */
   overriddenAtPrefixes?: TailwindBreakpointPrefix[];
 }
 
@@ -319,37 +303,15 @@ export type EditCapability =
       reason?: string;
     }
   | {
-      /**
-       * Responsive-class editing — adds, replaces, or removes a Tailwind
-       * utility at a specific breakpoint prefix without touching other
-       * breakpoints.  Uses the helpers in `responsive-classes.ts`
-       * (setPropertyClass / removePropertyClass) and the same deterministic
-       * HTML-patch path as `class` edits.
-       *
-       * The `prefix` field indicates the active breakpoint scope for which
-       * this capability was computed (derived from the canvas frame width via
-       * `widthToPrefix`).  Callers may target any prefix — `prefix` is
-       * informational, not a constraint.
-       */
       kind: "responsive-class";
-      /** Active breakpoint scope (informational). */
       prefix: TailwindBreakpointPrefix;
       operations: Array<"add" | "remove" | "replace">;
-      /** Properties that currently have per-breakpoint overrides (non-empty means overrides exist). */
       overriddenProperties: string[];
       confidence: number;
       reason?: string;
     }
   | {
-      /**
-       * Breakpoint-scoped raw style editing (§6.4) — the `@media` fallback
-       * for values responsive class prefixes can't express. Writes into the
-       * managed `<style data-agent-native-breakpoints>` block via
-       * `breakpoint-media.ts`, targeting the node's stable
-       * `data-agent-native-node-id`.
-       */
       kind: "breakpoint-style";
-      /** Inclusive upper viewport bound (px) the edit was applied below. */
       maxWidthPx: number;
       operations: Array<"set" | "remove">;
       properties: string[];
@@ -369,7 +331,6 @@ export type EditCapability =
       reason?: string;
     }
   | {
-      /** Single plain-attribute writes (see AttributeEditIntent). */
       kind: "attribute";
       operations: Array<"set">;
       confidence: number;
@@ -389,11 +350,8 @@ export interface CodeLayerNode {
   dataAttributes: Record<string, string>;
   classes: string[];
   textSnippet: string | null;
-  /** Text this element holds directly, not text a child holds. */
   paintsOwnText: boolean;
-  /** The entire element is an inline text-edit/style root. */
   wholeTextStyleRoot?: boolean;
-  /** The `x-for` this node is rendered by, when it sits inside a repeat. */
   repeatXFor: string | null;
   style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   styleTokens: StyleToken[];
@@ -403,14 +361,6 @@ export interface CodeLayerNode {
   capabilities: EditCapability[];
   confidence: number;
   source: CodeLayerSourceSpan | null;
-  /**
-   * Present when the node is the root of a component instance — i.e. it
-   * carries a `data-agent-native-component` attribute (Alpine-annotated or
-   * build-time-instrumented).  The canvas uses this to draw the component
-   * outline and the inspector uses it to surface component-level controls.
-   *
-   * `undefined` when the node is not a component root.
-   */
   componentInstance?: ComponentInstance;
 }
 
@@ -450,7 +400,6 @@ export interface CodeLayerTreeNode {
   name: string;
   type: CodeLayerTreeNodeType;
   isNativeTextPrimitive?: boolean;
-  /** Identity, not shape: a button is a frame that is *also* a component. */
   isComponent?: boolean;
   tag: string;
   selector: string;
@@ -547,17 +496,6 @@ export interface TextEditIntent {
   html?: string;
 }
 
-/**
- * Node-id integrity (id-on-demand): sets or replaces a single plain HTML
- * attribute on the target element. Introduced so the host can persist the
- * bridge's minted `pendingNodeId` (see ElementInfo.pendingNodeId) as the
- * element's real `data-agent-native-node-id` the moment an id-less node is
- * selected — every subsequent id-keyed operation (move/reorder, style
- * commits, motion tracks, scrub) then resolves normally. Not limited to that
- * attribute name; kept general so other single-attribute host writes can
- * reuse the same deterministic path instead of a full-document
- * find/replace-and-resave.
- */
 export interface AttributeEditIntent {
   kind: "attribute";
   target: EditIntentTarget;
@@ -577,27 +515,11 @@ export interface MoveNodeEditIntent {
   placement: "before" | "after" | "inside";
 }
 
-/**
- * GROUP: wrap sibling nodes sharing a parent inside a new <div> wrapper.
- * Targets are reparented in source order, and the wrapper takes the stacking
- * position of the topmost selected target. The new wrapper gets a fresh
- * data-agent-native-node-id, a sequential layer name, and the
- * `data-agent-native-group-wrapper="true"` marker. Group wrappers also carry
- * the group marker unless the caller requests a frame wrapper or auto-layout.
- *
- * When autoLayout is true the wrapper also receives
- * `display:flex; flex-direction:column; gap:8px` and
- * position/left/top/right/bottom are stripped from each wrapped child.
- *
- * Returns "unsupported" if the targets don't share a common parent.
- */
 export interface WrapNodeSizeHint {
   width: number;
   height: number;
-  /** Parent-content-relative border-box position for an in-flow target. */
   left?: number;
   top?: number;
-  /** Live layout found authored CSS that removes this target from flow. */
   outOfFlow?: true;
 }
 
@@ -605,63 +527,31 @@ export interface WrapNodesEditIntent {
   kind: "wrapNodes";
   targetIds: string[];
   autoLayout?: boolean;
-  /** Defaults to a Group; auto-layout always creates a Frame. */
   wrapperKind?: "group" | "frame";
-  /**
-   * Live-rendered dimensions per projected target node id. Width/height are
-   * used as a fallback when an absolutely positioned target omits its own
-   * dimensions. left/top are parent-content-relative positions used to keep
-   * an in-flow group at its measured size while rebasing its direct children.
-   * Callers without live DOM measurements simply omit the hint and retain the
-   * source-only behavior. A unique authored node id is also accepted for
-   * direct API callers; ambiguous authored ids are never hint aliases.
-   */
   sizeHints?: Record<string, WrapNodeSizeHint>;
 }
 
-/** Create an editable SVG-backed Boolean Subtract from supported shape siblings. */
 export interface BooleanSubtractEditIntent {
   kind: "booleanSubtract";
   targetIds: string[];
 }
 
-/**
- * UNGROUP: replace the wrapper node with its children, spliced into the
- * wrapper's parent at the wrapper's position, then remove the wrapper.
- */
 export interface UnwrapEditIntent {
   kind: "unwrap";
   targetId: string;
 }
 
-/**
- * CONVERT an existing container to/from auto-layout.
- * When enabled, sets display:flex (+ flex-direction, gap) on the target and
- * strips position:absolute/left/top/right/bottom from its DIRECT children.
- * When !enabled, sets display:block (turns auto-layout off).
- */
 export interface AutoLayoutEditIntent {
   kind: "autoLayout";
   targetId: string;
   enabled: boolean;
-  /**
-   * Container declarations to write instead of the flex trio, so a grid flow
-   * also reaches the child reflow below — without it the children stay
-   * pinned where they were drawn and the new layout renders as a no-op.
-   */
   containerStyles?: Record<string, string>;
   direction?: "row" | "column";
   gap?: string;
-  /**
-   * Measured child geometry, container-relative, keyed by stable node id.
-   * Supplied when disabling so children keep their rendered positions and
-   * become freely draggable; without it they re-stack in block flow.
-   */
   childRects?: Record<
     string,
     { x: number; y: number; width: number; height: number }
   >;
-  /** Rendered size of the container, so it cannot collapse once flow empties. */
   containerRect?: { width: number; height: number };
 }
 
@@ -694,23 +584,10 @@ export interface AutoLayoutEditIntent {
 export interface ResponsiveClassEditIntent {
   kind: "responsive-class";
   target: EditIntentTarget;
-  /** Target breakpoint prefix.  Use `"base"` to edit the unprefixed class. */
   prefix: TailwindBreakpointPrefix;
   operation: "add" | "remove" | "replace";
-  /** The bare utility to add or replace (without prefix).  Required for add/replace. */
   utility?: string;
-  /**
-   * The CSS-property stem to remove (e.g. `"text"`, `"bg"`, `"p"`).
-   * Required for `"remove"` operations; ignored for add/replace (the stem is
-   * derived from `utility` instead).
-   */
   stem?: string;
-  /**
-   * Guard for `"replace"` (honoured for `"add"` too when provided): the bare
-   * utility (without prefix) the caller expects to be EFFECTIVE at `prefix`,
-   * following the Tailwind mobile-first cascade. On mismatch the edit is
-   * rejected as `"conflict"` rather than applied. Ignored for `"remove"`.
-   */
   from?: string;
   /**
    * Framer-style desktop-down scope (§6.4 breakpoint bar). When set, the
@@ -722,25 +599,11 @@ export interface ResponsiveClassEditIntent {
   maxWidthPx?: number;
 }
 
-/**
- * Breakpoint-scoped raw style edit — the `@media` fallback for values that
- * responsive class prefixes can't express (exact px positions from canvas
- * drags, rgb()/calc() values, …). Persists into the managed
- * `<style data-agent-native-breakpoints>` block as a
- * `@media (max-width: <maxWidthPx>px)` rule targeting the element's
- * `data-agent-native-node-id` (stamped automatically when missing).
- *
- * - `operation: "set"` (default) writes/overwrites the declaration.
- * - `operation: "remove"` deletes it, falling back to the base value.
- */
 export interface BreakpointStyleEditIntent {
   kind: "breakpoint-style";
   target: EditIntentTarget;
-  /** Inclusive upper viewport bound (px) the override applies below. */
   maxWidthPx: number;
-  /** CSS property (camelCase or kebab-case). */
   property: string;
-  /** CSS value. Required for `"set"`; ignored for `"remove"`. */
   value?: string;
   operation?: "set" | "remove";
 }
@@ -786,9 +649,7 @@ export interface PatchNodeSummary {
   classes: string[];
   style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   textSnippet: string | null;
-  /** Text this element holds directly, not text a child holds. */
   paintsOwnText: boolean;
-  /** The `x-for` this node is rendered by, when it sits inside a repeat. */
   repeatXFor: string | null;
 }
 
@@ -806,7 +667,6 @@ export interface PatchResult {
   after?: PatchNodeSummary;
   changed: boolean;
   message?: string;
-  /** The data-agent-native-node-id of a newly created structural wrapper. */
   wrapperNodeId?: string;
 }
 
@@ -985,18 +845,12 @@ const STYLE_PROPERTY_ALIASES: Record<string, VisualStyleProperty> = {
   radius: "border-radius",
   rotation: "rotate",
   shadow: "box-shadow",
-  // Vendor-prefixed longhands need explicit aliases: the generic camel→kebab
-  // pass in normalizeStyleProperty yields "webkit-text-stroke-*" WITHOUT the
-  // required leading dash, which would miss the allow-list entirely.
   webkitTextStrokeColor: "-webkit-text-stroke-color",
   webkitTextStrokeWidth: "-webkit-text-stroke-width",
   webkitBoxOrient: "-webkit-box-orient",
   webkitLineClamp: "-webkit-line-clamp",
 };
 
-// Matches url(...) in double-quoted, single-quoted, or unquoted form so each
-// reference inside a (possibly multi-layer) background-image value can be
-// checked individually against isSafeCssUrlReference.
 const URL_IN_VALUE_RE =
   /\burl\s*\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"]*?))\s*\)/gi;
 
@@ -1017,9 +871,6 @@ const VOID_TAGS = new Set([
   "wbr",
 ]);
 
-// Interiors that are not markup at all, plus boxless void metadata both
-// bridges already strip from the runtime snapshot. Descendants are never
-// parsed, so nothing here can ever be addressed.
 const NON_VISUAL_TAGS = new Set([
   "head",
   "script",
@@ -1043,15 +894,10 @@ const SVG_RESOURCE_TAGS = new Set([
   "stop",
 ]);
 
-// Parsed and descended into, but not a layer of its own: a `<template>`
-// measures 0x0 and both bridges refuse to select it, so a row for one is a
-// layer the canvas can never show. Its children re-parent to its own parent.
 const TRANSPARENT_TAGS = new Set(["template"]);
 
 const RAW_TEXT_VISUAL_TAGS = new Set(["textarea"]);
 
-// HTML5 elements that are implicitly closed when a sibling of the same (or
-// related) type opens, because their closing tags are optional per the spec.
 const IMPLICIT_CLOSE_TAGS: Map<string, Set<string>> = new Map([
   ["li", new Set(["li"])],
   ["p", new Set(["p"])],
@@ -1125,11 +971,6 @@ const SHAPE_LAYER_TAGS = new Set([
 ]);
 const COMPONENT_LAYER_TAGS = new Set(["button", "input", "select", "textarea"]);
 
-/**
- * Tags that format text *inside* a text layer instead of becoming their own
- * layer. A heading with one coloured `<span>` is a single Text layer with
- * runs; splitting it into three is what makes an imported page unreadable.
- */
 const INLINE_TEXT_TAGS = new Set([
   "a",
   "abbr",
@@ -1159,9 +1000,6 @@ const INLINE_TEXT_TAGS = new Set([
   "wbr",
 ]);
 
-// Keep this source-projection allowlist aligned with the bridge's
-// isInlineEditableDescendant; a single checkbox or layout child makes its
-// parent a container instead of one whole text style root.
 const INLINE_TEXT_STYLE_ROOT_TAGS = new Set([
   "a",
   "abbr",
@@ -1199,11 +1037,6 @@ const INLINE_TEXT_STYLE_ROOT_TAGS = new Set([
   "th",
 ]);
 
-/**
- * First segments of Tailwind utilities. Tailwind's stem vocabulary is closed,
- * so this is a table; the deny-list it replaces was a guess and lost — it let
- * `flex-col`, `opacity-90`, and `top-0` become layer names.
- */
 const UTILITY_CLASS_STEMS = new Set([
   "absolute",
   "accent",
@@ -1400,11 +1233,6 @@ function looksLikeUtilityClass(token: string): boolean {
   return UTILITY_CLASS_STEMS.has(bare.split("-")[0] ?? "");
 }
 
-/**
- * The four facts that decide a design node's type. Read from the class list
- * and inline style because a source projection has no layout engine — a live
- * screen can upgrade these through the bridge's computed style.
- */
 interface NodeVisualFacts {
   painted: boolean;
   padded: boolean;
@@ -1423,10 +1251,6 @@ function classDimension(
   return null;
 }
 
-/**
- * `rounded-full` alone does not mean a circle — on a wide box it is a pill,
- * which is a rounded rectangle. Equal extents are what separate the two.
- */
 function isSquare(
   classes: readonly string[],
   style: Record<string, string | undefined>,
@@ -1467,7 +1291,6 @@ function classPads(token: string): boolean {
 
 function classSizes(token: string): boolean {
   const bare = bareClassToken(token);
-  // `inset-0` on an absolute overlay is a size even though it names no axis.
   if (/^inset(-[xy])?-/.test(bare)) return !bare.endsWith("-auto");
   const match = /^(w|h|size|min-w|min-h)-(.+)$/.exec(bare);
   if (!match) return false;
@@ -1537,12 +1360,6 @@ function visualFactsOf(
   };
 }
 
-/**
- * Identity, orthogonal to shape: a form control is a Frame that is also a
- * component. Class and layer-name guessing is deliberately NOT here — it
- * painted `product-card-wrapper` violet, and the canvas copy carried no
- * utility-class guard, so one element got two colours in two panels.
- */
 function treeNodeIsComponent(node: CodeLayerNode): boolean {
   return Boolean(node.componentInstance) || COMPONENT_LAYER_TAGS.has(node.tag);
 }
@@ -1644,10 +1461,6 @@ function getAttribute(
 
 function attributeValue(element: ParsedElement, name: string): string | null {
   const value = getAttribute(element, name)?.value;
-  // Parsed attributes contain source text, so quoted values may still carry
-  // entities emitted by an earlier deterministic patch. Decode before using
-  // them semantically or reserializing; otherwise sequential style edits turn
-  // `&quot;` into `&amp;quot;` on every pass and corrupt quoted CSS url() values.
   if (typeof value === "string") return decodeBasicHtmlEntities(value);
   if (value === true) return "";
   return null;
@@ -1853,14 +1666,6 @@ type StyleDeclarationsRead =
   | { declarations: readonly StyleDeclarationRead[] }
   | { invalid: string };
 
-/**
- * Read-only parses, keyed by the decoded style text. One projection reads each
- * element's style (and its parent's) several times, and a failed parse costs
- * two exception constructions — dominant on a cold open of a large import.
- * Holds plain declarations and messages, not postcss nodes or Error instances
- * (whose captured stack frames keep their callers' closures alive); edits use
- * `parseStyleDeclarations` for a root they can mutate.
- */
 const STYLE_READ_CACHE_MAX_CHARS = 4_000_000;
 const styleReadCache = new Map<string, StyleDeclarationsRead>();
 let styleReadCacheChars = 0;
@@ -1868,9 +1673,6 @@ let styleReadCacheChars = 0;
 function readStyleDeclarations(value: string): StyleDeclarationsRead {
   const cached = styleReadCache.get(value);
   if (cached) return cached;
-  // `value` is usually a V8 sliced string that pins the whole document it was
-  // cut from, and postcss slices its values from it in turn. Key and parse a
-  // flat copy so the cache retains only the style text.
   value = (" " + value).slice(1);
   let parsed: StyleDeclarationsRead;
   try {
@@ -2030,21 +1832,6 @@ function normalizeStyleProperty(property: string): VisualStyleProperty | null {
   return normalized as VisualStyleProperty;
 }
 
-/**
- * `background-image` is the one property where `url(...)` is a legitimate,
- * expected value (image fills — see `ImageFillControls`/
- * `imageFillToBackgroundStyles`). Every `url(...)` reference in the value is
- * checked with the same scheme allowlist the breakpoint-scoped media-block
- * path uses (`isSafeCssUrlReference`, which itself rejects control
- * characters and `<>"'`): http(s), protocol-relative, relative/root paths,
- * and `data:image/...` are allowed; `javascript:` and other non-image
- * schemes are not. The `background` shorthand is deliberately NOT included
- * here — keep it on the strict no-url path below.
- *
- * A `data:image/...` URI legitimately contains a `;` before `base64,`, so a
- * validated `url(...)` is excised before the generic `<>{};` breakout check
- * below runs — that check only ever sees the CSS around the reference.
- */
 function isSafeBackgroundImageValue(value: string): string | false {
   URL_IN_VALUE_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -2057,8 +1844,6 @@ function isSafeBackgroundImageValue(value: string): string | false {
     lastIndex = URL_IN_VALUE_RE.lastIndex;
   }
   withoutValidatedParts += value.slice(lastIndex);
-  // Anything left that still looks like "url(" wasn't matched by the
-  // well-formed pattern above (malformed/unterminated) — reject.
   if (/url\s*\(/i.test(withoutValidatedParts)) return false;
   return withoutValidatedParts;
 }
@@ -2144,9 +1929,6 @@ function parseAttributes(rawTag: string, tagStart: number): ParsedAttribute[] {
   return attrs;
 }
 
-/** Index just past the `>` ending the tag at `start`, or -1 if none precedes
- *  `end`. A `>` inside a quoted attribute (`filter(a => b)`, `x-show="n > 0"`)
- *  does not end the tag. */
 function findHtmlTagEnd(
   html: string,
   start: number,
@@ -2168,20 +1950,6 @@ function findHtmlTagEnd(
   return -1;
 }
 
-// Depth-aware closing-tag scan: used for NON_VISUAL_TAGS (script/style/
-// template/etc) whose interiors are skipped wholesale rather than descended
-// into by the main parser loop. A naive "first </tag> after `from`" search
-// (the previous implementation) breaks the moment the same tag nests inside
-// itself — e.g. `<template x-if><ul><template x-for>…</template></ul>
-// </template>` (a completely ordinary Alpine x-if-wrapping-x-for pattern) —
-// because it matches the INNER `</template>` and resumes the main loop right
-// after it, leaving the outer element's true `</ul></template>` closes to be
-// mis-parsed as stray/unmatched tags against whatever unrelated element is
-// on the stack. That corrupted contentEnd tracking for enclosing elements
-// (observed: body-append/insertion offsets computed from the wrong node,
-// splicing moved content into template interiors). Track same-tag open/close
-// depth so only the tag that actually balances the ORIGINAL opening tag is
-// returned, matching real nested-template documents correctly.
 function findClosingTag(
   html: string,
   tag: string,
@@ -2205,8 +1973,6 @@ function findClosingTag(
     } else if (!selfClosing) {
       depth += 1;
     }
-    // Guard against zero-length matches causing an infinite loop (not
-    // expected given the tag-name-anchored pattern, but cheap to keep safe).
     if (tagRe.lastIndex === match.index) {
       tagRe.lastIndex += 1;
     }
@@ -2214,44 +1980,10 @@ function findClosingTag(
   return null;
 }
 
-// Defense-in-depth safety net for moveNodeBetweenDocuments: `<template>`
-// interiors (x-if/x-for/x-show templates and friends) are opaque to
-// parseHtmlElements (NON_VISUAL_TAGS) and, per the DOM spec, live in a
-// detached DocumentFragment (`template.content`) — a node inserted into a
-// template's raw markup range renders nowhere, can't be selected/queried by
-// the runtime DOM, and is invisible to every downstream querySelector-based
-// pass (getElementInfo, setAbsolutePositioningForNodeInHtml, etc). A correct
-// findClosingTag (see above) prevents the offset MISCALCULATION that used to
-// cause this, but this function is kept as an independent second guard —
-// even if some other insertion-point calculation ever computes an offset
-// that lands inside a real `<template>` block, this catches it and callers
-// redirect to a real DOM slot instead of silently splicing into markup that
-// will never render or be selectable again.
-//
-// Finding 8: when it fires, callers used to always redirect to the end of
-// <body> (or end of document) — a silent teleport that can land an anchored
-// insert far from where the user was working. `findEnclosingTemplateClose`
-// below returns the ENCLOSING outer template's closeEnd position (the
-// offset immediately after its `</template>`) when `offset` is inside a
-// template interior, so callers can redirect there instead: still a
-// guaranteed-safe real-DOM slot (immediately after a closing tag, a sibling
-// of the template rather than jumping to doc end), just much closer to the
-// anchor the caller actually asked for.
 function isOffsetInsideTemplateInterior(html: string, offset: number): boolean {
   return findEnclosingTemplateClose(html, offset) !== null;
 }
 
-// Exported ONLY for the finding-8 redirect-target unit test below: with
-// findClosingTag's offset-miscalculation bug fixed (see the doc comment
-// above), every insertAt this module's own callers compute through
-// parseHtmlElements-derived positions (anchor.start/end/contentEnd,
-// bodyEl.contentEnd) already lands OUTSIDE template interiors in practice —
-// NON_VISUAL_TAGS like <template> are skipped wholesale, so a template can
-// never itself become part of another element's registered content range.
-// That makes this guard a true defense-in-depth backstop with no reachable
-// integration-level repro through moveNodeBetweenDocuments today; testing
-// the redirect target directly against a synthetic offset is the honest way
-// to pin its behavior instead of contriving a fragile call into the guard.
 export function findEnclosingTemplateClose(
   html: string,
   offset: number,
@@ -2263,8 +1995,6 @@ export function findEnclosingTemplateClose(
     if (openEnd > offset) break;
     const close = findClosingTag(html, "template", openEnd);
     const contentEnd = close ? close.closeStart : html.length;
-    // `openEnd` IS the first content position, so a strict `>` missed the
-    // most likely insertion point of all: before the template's first child.
     if (offset >= openEnd && offset <= contentEnd) {
       return { closeEnd: close ? close.closeEnd : html.length };
     }
@@ -2303,8 +2033,6 @@ function parseHtmlElements(html: string): ParsedElement[] {
           element.end = match.index + raw.length;
           break;
         } else {
-          // Implicitly close optional-close-tag elements (e.g. <li>, <p>)
-          // without attributing the parent's close tag to them.
           element.contentEnd = match.index;
           element.end = match.index;
         }
@@ -2312,9 +2040,6 @@ function parseHtmlElements(html: string): ParsedElement[] {
       continue;
     }
 
-    // Auto-close HTML5 optional-close-tag elements when a sibling of the same
-    // type (or a related type) opens. This mirrors how browsers handle elements
-    // like <li>, <p>, <td>, <th>, <tr>, <dt>, <dd>, <option>, <optgroup>.
     const stackTopTag =
       stack.length > 0 ? elements[stack[stack.length - 1]]?.tag : undefined;
     if (stackTopTag && IMPLICIT_CLOSE_TAGS.get(tag)?.has(stackTopTag)) {
@@ -2450,8 +2175,6 @@ function selectorPart(
 
 const pathSelectors = new WeakMap<ParsedElement, string>();
 
-// Extends the nearest ancestor's path: every node's id and path read it, and
-// rebuilding it from the root each time is quadratic in depth.
 function pathSelector(
   element: ParsedElement,
   elements: ParsedElement[],
@@ -2536,7 +2259,6 @@ function stableSourceIdForElement(element: ParsedElement): string | null {
 function styleTokensFor(element: ParsedElement): StyleToken[] {
   const tokens: StyleToken[] = [];
 
-  // --- Inline styles (no breakpoint concept) ---
   const parsedInlineStyle = readStyleDeclarations(
     attributeValue(element, "style") ?? "",
   );
@@ -2555,21 +2277,15 @@ function styleTokensFor(element: ParsedElement): StyleToken[] {
     });
   }
 
-  // --- Class tokens — responsive-aware ---
-  // Group all class tokens by breakpoint prefix so we can build per-property
-  // breakpointValues maps and detect overrides.
   const classValue = attributeValue(element, "class") ?? "";
   const groups = parseClassGroups(classValue);
 
-  // For each property, collect the utility value at every prefix that has one.
-  // We key by property so we emit one token per property, not one per class.
   const propertyMap = new Map<
     VisualStyleProperty,
     {
       property: VisualStyleProperty;
       confidence: number;
       breakpointValues: Partial<Record<TailwindBreakpointPrefix, string>>;
-      /** The raw token for the base occurrence (for backward-compat `token` field). */
       baseToken: string;
     }
   >();
@@ -2590,13 +2306,12 @@ function styleTokensFor(element: ParsedElement): StyleToken[] {
       if (!mapped) continue;
       const { property, confidence } = mapped;
 
-      // Resolve the display value the same way classStyleToken does.
       const resolvedValue =
         property === "display"
           ? parsed.utility === "hidden"
             ? "none"
             : parsed.utility
-          : parsed.utility; // utility without prefix, e.g. "text-sm"
+          : parsed.utility;
 
       const existing = propertyMap.get(property);
       if (existing) {
@@ -2615,7 +2330,6 @@ function styleTokensFor(element: ParsedElement): StyleToken[] {
 
   for (const entry of propertyMap.values()) {
     const baseValue = entry.breakpointValues["base"] ?? "";
-    // The full original token for the base occurrence (for backward compat).
     const rawBaseToken = entry.baseToken;
     const overriddenAt = Object.keys(entry.breakpointValues).filter(
       (p) => p !== "base",
@@ -2623,7 +2337,6 @@ function styleTokensFor(element: ParsedElement): StyleToken[] {
 
     tokens.push({
       property: entry.property,
-      // `value` = the base utility string (backward-compatible).
       value: baseValue || rawBaseToken,
       token: rawBaseToken,
       source: "class",
@@ -2636,14 +2349,6 @@ function styleTokensFor(element: ParsedElement): StyleToken[] {
   return tokens;
 }
 
-/**
- * Map a bare Tailwind utility (without any responsive prefix, e.g. `"text-sm"`
- * not `"md:text-sm"`) to the `VisualStyleProperty` it most likely controls.
- * Returns `null` when the utility is not recognised.
- *
- * This is called by both the legacy `classStyleToken` path and the new
- * responsive-aware `styleTokensFor` implementation.
- */
 function utilityToStyleProperty(
   utility: string,
 ): { property: VisualStyleProperty; confidence: number } | null {
@@ -2775,21 +2480,13 @@ function layoutFor(
 }
 
 interface ElementTextRead {
-  /** Collapsed text, cut short once past the 160 characters a snippet keeps. */
   text: string;
   pendingSpace: boolean;
-  /** False when a tag ran past the content end, so an ancestor reading the
-   *  same bytes would split them differently and cannot reuse this read. */
   reusable: boolean;
 }
 
 const elementTextReads = new WeakMap<ParsedElement, ElementTextRead>();
 
-// Equals collapseWhitespace(decodeBasicHtmlEntities(<content with every tag
-// replaced by a space>)). Decoding run by run is equivalent because no entity
-// spans the space a tag leaves. A child's read is reused rather than re-read:
-// every ancestor's content contains its descendants', so re-reading is
-// quadratic in nesting depth.
 function readElementText(
   html: string,
   element: ParsedElement,
@@ -2867,11 +2564,6 @@ function textSnippetFor(
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
 
-/**
- * Text this element paints itself, ignoring anything a child holds. A row of
- * dot + label + checkbox paints nothing, so it is a container even though its
- * tag is one that usually carries text.
- */
 function paintsOwnTextFor(
   html: string,
   element: ParsedElement,
@@ -2921,7 +2613,6 @@ function wholeTextStyleRootFor(
   return true;
 }
 
-/** The `x-for` of the nearest enclosing template, for a node inside a repeat. */
 function repeatXForFor(
   element: ParsedElement,
   elements: readonly ParsedElement[],
@@ -2963,8 +2654,6 @@ function layerNameFor(
       : null;
   };
 
-  // A leaf is named by what it says; a container by what it is. Reversing this
-  // is how a wrapper ends up named after its entire subtree's text.
   if (element.childIndexes.length === 0) {
     const leafName = textName();
     if (leafName) return leafName;
@@ -3002,10 +2691,6 @@ function treeTypeForNode(
   if (node.dataAttributes["data-agent-native-group"] === "true") {
     return "group";
   }
-  // Canvas primitives (drawn shapes / board objects) carry their kind via
-  // data-an-primitive so the layers panel shows a true shape/text/frame icon
-  // instead of the generic code glyph. The marker wins over tag heuristics:
-  // these primitives are <div>s, which would otherwise classify as "element".
   const primitiveKind = node.dataAttributes["data-an-primitive"];
   if (primitiveKind) {
     if (primitiveKind === "text") return "text";
@@ -3024,23 +2709,16 @@ function treeTypeForNode(
     ) {
       return "ellipse";
     }
-    // SVG-based vector primitives each get their own type so the layers panel
-    // renders a true pen/line/arrow/polygon/star icon instead of falling
-    // through to the rectangle ("shape") glyph.
     if (primitiveKind === "path") return "vector";
     if (primitiveKind === "line") return "line";
     if (primitiveKind === "arrow") return "arrow";
     if (primitiveKind === "polygon") return "polygon";
     if (primitiveKind === "star") return "star";
-    // rectangle/rect and anything else still classify as a generic shape.
     return "shape";
   }
   if (IMAGE_LAYER_TAGS.has(node.tag)) return "image";
   if (SHAPE_LAYER_TAGS.has(node.tag)) return "shape";
-  // A node annotated as a component instance is always classified as "component"
-  // regardless of its tag — this is the canonical detection path.
   if (node.componentInstance) return "component";
-  // Form controls are leaf widgets with no design primitive to decompose into.
   if (COMPONENT_LAYER_TAGS.has(node.tag) && node.tag !== "button") {
     return "component";
   }
@@ -3051,8 +2729,6 @@ function treeTypeForNode(
     .filter((child): child is CodeLayerNode => Boolean(child));
 
   if (childNodes.length === 0) {
-    // A Text node's fill colours glyphs, not a background, so a painted or
-    // padded text leaf must be a frame or it loses its box (see buildSpec).
     if (node.textSnippet) {
       return facts.painted || facts.padded ? "frame" : "text";
     }
@@ -3089,11 +2765,6 @@ const TYPE_DISPLAY_NAMES: Partial<Record<CodeLayerTreeNodeType, string>> = {
   text: "Text",
 };
 
-/**
- * An element carrying only utility classes has no name of its own, and the tag
- * fallback describes the tag rather than what the element resolved to — every
- * bare `<div>` reads "Frame" whether it became a frame, a dot, or a divider.
- */
 function unnamedLayerName(
   node: CodeLayerNode,
   type: CodeLayerTreeNodeType,
@@ -3104,10 +2775,6 @@ function unnamedLayerName(
 }
 
 function isCollapsibleDocumentShellNode(node: CodeLayerTreeNode): boolean {
-  // A screen IS its document: the frame's box comes from the board and its
-  // paint from this <body>, and the inspector now shows both on the screen's
-  // own selection. Older screens stamped the screen title onto <body>, which
-  // exempted them here and listed the same object twice under one name.
   return node.tag === "html" || node.tag === "body";
 }
 
@@ -3158,8 +2825,6 @@ function capabilitiesFor(element: ParsedElement): EditCapability[] {
     },
   ];
 
-  // Responsive-class capability — detect which properties already carry
-  // breakpoint overrides so the inspector can surface override indicators.
   const classValue = attributeValue(element, "class") ?? "";
   const groups = parseClassGroups(classValue);
   const overriddenProps: string[] = [];
@@ -3173,16 +2838,12 @@ function capabilitiesFor(element: ParsedElement): EditCapability[] {
   for (const prefix of responsivePrefixes) {
     for (const rawToken of groups[prefix]) {
       const { utility } = parseClassToken(rawToken);
-      // Derive a property stem to use as the override indicator label.
       const stemPart = utility.split("-")[0];
       if (stemPart && !overriddenProps.includes(stemPart)) {
         overriddenProps.push(stemPart);
       }
     }
   }
-  // The prefix here is "base" as the default; callers that know the active
-  // frame width should use widthToPrefix() from responsive-classes.ts to
-  // determine the appropriate editing prefix.
   capabilities.push({
     kind: "responsive-class",
     prefix: "base",
@@ -3206,11 +2867,6 @@ function capabilitiesFor(element: ParsedElement): EditCapability[] {
   return capabilities;
 }
 
-// Internal nodes of an <svg> (the <path>/<polygon>/<circle>/... geometry) are
-// rendering primitives, never selectable design layers. Projecting them adds a
-// meaningless expandable child to every pen vector / line / arrow / polygon /
-// star (and to any inline SVG icon). Treat the <svg> as a leaf: skip everything
-// that has an <svg> ancestor.
 function hasSvgAncestor(
   element: ParsedElement,
   elements: ParsedElement[],
@@ -3247,8 +2903,6 @@ function buildProjection(
   html: string,
   source: CodeLayerSource,
 ): ProjectionBuild {
-  // Tolerate non-string input from any caller (e.g. content not yet loaded):
-  // an empty projection is correct; crashing the editor is not.
   if (typeof html !== "string") html = "";
   const elements = parseHtmlElements(html);
   const nodeIdByElementIndex = new Map<number, string>();
@@ -3257,8 +2911,6 @@ function buildProjection(
   for (const element of elements) {
     const styleAttribute = getAttribute(element, "style");
     if (!styleAttribute || typeof styleAttribute.value !== "string") continue;
-    // Decoded like every edit path reads it: the raw `&quot;SF Pro&quot;` a
-    // serializer writes for a quoted font family is not malformed CSS.
     const parsed = readStyleDeclarations(
       decodeBasicHtmlEntities(styleAttribute.value),
     );
@@ -3311,8 +2963,6 @@ function buildProjection(
     nodeIdByElementIndex.set(element.index, nodeId);
   }
 
-  // A transparent ancestor has no id, so its children would come back as
-  // roots. Re-parent them to the nearest ancestor that IS projected.
   const projectedParentIndex = (element: ParsedElement): number | undefined => {
     let at = element.parentIndex;
     while (at !== undefined && !nodeIdByElementIndex.has(at)) {
@@ -3344,18 +2994,6 @@ function buildProjection(
     );
     const dataAttributes = dataAttributeRecord(element);
     const layerName = layerNameFor(html, element, elements);
-    // Only alias attribute selectors that are actually STABLE, UNIQUE node
-    // identifiers (data-agent-native-node-id, data-code-layer-id, etc). Every
-    // other data-* attribute (e.g. data-an-primitive="frame", or the boolean
-    // data-agent-native-locked/hidden state flags) is shared by many/most
-    // nodes of the same kind, not a per-node identity marker. Aliasing those
-    // here previously let a single hidden/locked layer's `hiddenSelectors`/
-    // `lockedSelectors` (built from these aliases — see
-    // codeLayerSelectorAliases in design-editor/code-layer-state.ts) resolve
-    // to `[data-an-primitive="frame"]` and silently hide/lock EVERY frame-kind
-    // container in the document via applyHiddenSelectors' document-wide
-    // querySelectorAll, instead of only the one node the user actually hid or
-    // locked.
     const selectors = Array.from(
       new Set([
         selector.selector,
@@ -3407,9 +3045,6 @@ function buildProjection(
       },
     };
 
-    // Detect component instances — nodes that carry data-agent-native-component.
-    // Populate the metadata so the canvas can outline component roots and the
-    // inspector can surface component-level controls.
     if (isComponentInstance(node)) {
       const instance = instanceFromNode(node);
       if (instance) node.componentInstance = instance;
@@ -3487,9 +3122,6 @@ function projectionCacheEntryChars(html: string, sourceKey: string): number {
   return html.length + sourceKey.length + PROJECTION_CACHE_ENTRY_FLOOR_CHARS;
 }
 
-/** Every own field of the source, sorted, so adding a field to
- *  CodeLayerSource later cannot silently start returning a projection whose
- *  `.source` came from a different call. */
 function projectionSourceKey(source: CodeLayerSource): string {
   const record = source as unknown as Record<string, unknown>;
   return Object.keys(source)
@@ -3507,15 +3139,11 @@ export function buildCodeLayerProjection(
   html: string,
   options: { source?: CodeLayerSource } = {},
 ): CodeLayerProjection {
-  // Defensive: callers (memos/effects) may project before content has loaded
-  // (e.g. `activeContent` is briefly undefined on first render). Projecting a
-  // non-string must yield an empty projection, never crash the editor.
   const safeHtml = typeof html === "string" ? html : "";
   const source = options.source ?? { kind: "inline-html" };
   const sourceKey = projectionSourceKey(source);
   const bySource = projectionCache.get(safeHtml);
   if (bySource) {
-    // Re-insert so both Maps' insertion order stays least-recently-used first.
     projectionCache.delete(safeHtml);
     projectionCache.set(safeHtml, bySource);
     const cached = bySource.get(sourceKey);
@@ -3553,8 +3181,6 @@ export function buildCodeLayerProjection(
   return projection;
 }
 
-/** Drops every cached projection. Exists for tests that assert projection
- *  identity/eviction; production has no reason to call it. */
 export function clearCodeLayerProjectionCache(): void {
   projectionCache.clear();
   projectionCacheChars = 0;
@@ -3568,12 +3194,6 @@ const TEXT_WRAP_SKIP_TAGS = new Set([
   "title",
 ]);
 
-/**
- * Give every painted or padded text leaf a real `<span>` child so a button
- * projects as a frame wrapping Text. Idempotent: a wrapped element is no
- * longer a leaf. Mixed content is skipped — wrapping the loose runs of
- * `<p>Hi <b>there</b></p>` would turn one sentence into three layers.
- */
 export function wrapBareTextLeavesInHtml(
   html: string,
   options: {
@@ -3635,13 +3255,6 @@ export function wrapBareTextLeavesInHtml(
 const STABLE_NODE_ID_ATTRIBUTE_RE =
   /\sdata-agent-native-node-id\s*=\s*(?:"[^"]*"|'[^']*'|[^\s/>]+)/gi;
 
-/**
- * True exactly when ensureCodeLayerNodeIdsInHtml would leave `html` unchanged,
- * decided from the parse alone. Building a projection costs several times the
- * parse, and a design already carrying its ids needs no projection to prove it.
- * Must select the same elements as buildProjection and apply the same
- * clean-id test as the loop below; the parity test holds the two together.
- */
 export function hasCanonicalCodeLayerNodeIds(html: string): boolean {
   const elements = parseHtmlElements(typeof html === "string" ? html : "");
   const usedIds = new Set<string>();
@@ -3902,9 +3515,6 @@ export function buildCodeLayerTree(
         node.layerNameSource === "attribute" && node.layerNameAttribute
           ? node.layerNameAttribute
           : undefined,
-      // Safe rename persistence belongs in the caller's edit action. The
-      // preferred write target is data-agent-native-layer-name; projection is
-      // intentionally read-only and never mutates source by itself.
       renamable: node.source != null,
       children: [],
     });
@@ -3918,7 +3528,6 @@ export function buildCodeLayerTree(
         : undefined;
     const treeNode = treeById.get(node.id);
     if (!parent || !treeNode || parent.id === treeNode.id) continue;
-    // Inline runs inside a Text layer are formatting, not layers of their own.
     if (parent.type === "text" && INLINE_TEXT_TAGS.has(node.tag)) continue;
     const childIds = childIdsByParentId.get(parent.id) ?? new Set<string>();
     if (childIds.has(treeNode.id)) continue;
@@ -3961,16 +3570,6 @@ function isDocumentRootSelectorPart(selectorPart: string): boolean {
   return tag === "html" || tag === "body";
 }
 
-// Removes positional `:nth-of-type(n)` suffixes from a selector. Runtime
-// bridge selectors fall back to `:nth-of-type` for elements without a durable
-// id, and that position is computed against the live (possibly Alpine-mutated)
-// DOM. When the stored source order differs, the positional index no longer
-// lines up. Dropping the suffix lets resolution fall back to the element's
-// stable signal (tag, classes, attributes, ancestor path).
-/**
- * True when every selector part that loses a `:nth-of-type` still carries a
- * class, id, or attribute qualifier of its own.
- */
 function positionStripKeepsEvidence(selector: string): boolean {
   return selector
     .split(">")
@@ -4240,22 +3839,10 @@ function resolveTarget(
     };
   }
 
-  // Strict matching found nothing. Runtime selectors anchor unstamped elements
-  // with positional `:nth-of-type(n)` parts, which drift when the live DOM
-  // order differs from the stored source (reordered or runtime-inserted nodes).
-  // Retry once with the positional suffixes dropped so an element that is still
-  // unique by its tag/classes/attributes resolves instead of surfacing a hard
-  // "did not match" error. Genuinely ambiguous results stay a conflict rather
-  // than silently editing the wrong node.
   const positionTolerantSelector = stripPositionalNthOfType(selectorValue);
   if (positionTolerantSelector && positionTolerantSelector !== selectorValue) {
     const tolerantMatches = matchesForSelector(positionTolerantSelector);
     if (tolerantMatches.length === 1 && tolerantMatches[0]) {
-      // One match is not proof it is the right element. Dropping a position
-      // is only safe while the part keeps evidence of its own; a part that
-      // degrades to a bare tag was identified by position alone, so its
-      // "unique" match is a different sibling — a runtime clone resolving
-      // onto the one static row is the reachable case.
       if (!positionStripKeepsEvidence(selectorValue)) {
         return {
           status: "conflict",
@@ -4353,11 +3940,6 @@ function replaceOrInsertAttribute(
   return `${html.slice(0, insertAt)} ${name}="${escaped}"${html.slice(insertAt)}`;
 }
 
-/**
- * Migrate generated max-width class tokens in HTML without serializing the
- * document. The existing source parser skips opaque head/script/style text;
- * reverse attribute splices keep every other byte unchanged.
- */
 export function migrateMaxWidthClassBoundsInHtml(
   html: string,
   boundMap: ReadonlyMap<number, number | null>,
@@ -4974,11 +4556,6 @@ function applyVectorStrokePositionEdit(
   return `${result.slice(0, insertAt)}${defs}${overlay}${result.slice(insertAt)}`;
 }
 
-/**
- * A drawn vector primitive's `<svg>` carries the geometry and its shape child
- * carries the paint, so fill/stroke aimed at the wrapper tints the bounding
- * box instead. Mirrored by `vectorPaintTarget` in editor-chrome.bridge.ts.
- */
 function vectorShapeChild(
   element: ParsedElement,
   elements: ParsedElement[],
@@ -5039,11 +4616,6 @@ function vectorStrokeCanAlign(
   );
 }
 
-/**
- * Folds the shape child's paint onto the wrapper node. The child is skipped by
- * `hasSvgAncestor`, so the wrapper is the only layer a reader can address —
- * without this the inspector sees no fill and offers to add a `background`.
- */
 function withVectorPaintStyle(
   element: ParsedElement,
   elements: ParsedElement[],
@@ -5096,8 +4668,6 @@ function withVectorPaintStyle(
     : null;
   const merged = { ...style };
   for (const property of VECTOR_PAINT_PROPERTIES) {
-    // An inline declaration on the child outranks its presentation
-    // attribute, the same order the cascade resolves them when painting.
     const value =
       property.startsWith("stroke") && overlayStyle
         ? (overlayStyle[property] ?? attributeValue(overlay!, property))
@@ -5133,11 +4703,6 @@ function withVectorPaintStyle(
   return merged;
 }
 
-/**
- * Box paint that a vector wrapper must never carry: it paints the bounding
- * rectangle, and the inspector no longer edits these for a vector, so a value
- * left here is unreachable from the UI.
- */
 const VECTOR_WRAPPER_BOX_PAINT = new Set([
   "background",
   "background-color",
@@ -5157,8 +4722,6 @@ function clearVectorWrapperPaint(html: string, wrapper: ParsedElement): string {
   removeStyleDeclarations(kept, [...VECTOR_WRAPPER_BOX_PAINT]);
   const next = serializeStyleDeclarations(kept);
   if (next === style) return html;
-  // Safe against the child edit that just ran: the wrapper's open tag, and so
-  // its style attribute offsets, precede every child byte.
   return replaceOrInsertAttribute(html, current, "style", next);
 }
 
@@ -5172,8 +4735,6 @@ function vectorPaintChild(
     return null;
   }
   const elements = parsedElements ?? parseHtmlElements(html);
-  // childIndexes only address this array if it is the same parse the caller's
-  // element came from; a shifted index would repaint an unrelated element.
   const parsed = elements[element.index];
   if (!parsed || parsed.start !== element.start) return null;
   if (property.startsWith("stroke")) {
@@ -5220,8 +4781,6 @@ function vectorStrokeGradientStops(value: string): FigmaSvgColorStop[] | null {
     );
   const stopParts = hasHeader ? parts.slice(1) : parts;
   if (stopParts.length < 2) return null;
-  // Use the shared CSS stop parser so omitted positions interpolate between
-  // their explicit neighbours exactly as CSS does.
   return (
     parseComputedLinearGradient(
       `linear-gradient(180deg, ${stopParts.join(", ")})`,
@@ -5998,8 +5557,6 @@ function applyVectorEndpointEdit(
       ? { ...endpoints, startPoint: value }
       : { ...endpoints, endPoint: value };
 
-  // Remove generated/legacy marker definitions first. Reparse after this
-  // structural splice so every later attribute write uses fresh source spans.
   let content = removeVectorEndpointMarkup(html, currentWrapper, nodeId);
   const afterRemoval = parseHtmlElements(content);
   const nextWrapper = afterRemoval.find(
@@ -6462,11 +6019,6 @@ function updateOpenPenPathFillOpacityAttribute(
 const BORDER_RADIUS_PROPERTY = /^border(-[a-z]+)*-radius$/;
 const SOURCE_PATH_DATA_ATTRIBUTE = "data-an-source-d";
 
-/**
- * A Figma-imported vector without `preserveAspectRatio` would letterbox on a
- * non-uniform resize, where Figma stretches it. Icons authored elsewhere keep
- * the SVG default.
- */
 function importedVectorLetterboxes(element: ParsedElement): boolean {
   const has = (name: string) =>
     element.attributes.some((attribute) => attribute.lowerName === name);
@@ -6475,11 +6027,6 @@ function importedVectorLetterboxes(element: ParsedElement): boolean {
   );
 }
 
-/**
- * An SVG vector's corner radius rounds its path vertices (Figma); CSS
- * border-radius on the `<svg>` would only round its box. A corner longhand
- * has no per-vertex meaning here and just clears any stale box radius.
- */
 function roundSvgVectorCorners(
   html: string,
   svgIndex: number,
@@ -6522,7 +6069,6 @@ function roundSvgVectorCorners(
   );
 }
 
-/** The vector's radius replaces every per-vertex radius, as in Figma. */
 function roundPenVectorPath(
   html: string,
   svgIndex: number,
@@ -6550,11 +6096,6 @@ function roundPenVectorPath(
   );
 }
 
-/**
- * Pasted or imported vectors keep their own coordinates: each path's original
- * `d` is kept aside, and the radius is converted into path units through the
- * viewBox and any `<g>` scale between the `<svg>` and the path.
- */
 function roundImportedSvgPaths(
   html: string,
   svgIndex: number,
@@ -6634,7 +6175,6 @@ function roundImportedSvgPaths(
   return content;
 }
 
-/** Uniform scale of an SVG `transform`; `null` when it skews. */
 function svgTransformScale(transform: string | null): number | null {
   if (!transform?.trim()) return 1;
   let scale = 1;
@@ -6917,7 +6457,6 @@ function patchElementAttributes(
   return result;
 }
 
-/** Patch attributes on projected nodes using the parser's exact attribute spans. */
 export function patchCodeLayerNodeAttributes(
   html: string,
   updates: Array<{
@@ -6942,7 +6481,6 @@ export function patchCodeLayerNodeAttributes(
   return patchElementAttributes(html, parsedUpdates);
 }
 
-/** Read an exact leaf text value through the parser spans used by edit intents. */
 export function readCodeLayerNodeTextContent(
   html: string,
   node: CodeLayerNode,
@@ -7017,8 +6555,6 @@ function applyBooleanOperandStyleEdit(
   ) {
     return "unsupported";
   }
-  // The inspector can include this companion edit before left/top because
-  // SVG operands under <defs> report a non-positioned computed style.
   if (property === "position" && intent.value.trim() !== "absolute") {
     return "unsupported";
   }
@@ -7356,10 +6892,6 @@ function applyClassEdit(
   };
 }
 
-// Same shape as the bridge's own attributeOverrides guard (editor-chrome.bridge.ts)
-// — alphanumeric/dash/colon/dot/underscore, must start with a letter, never an
-// `on*` event handler. URL-bearing values get a second scheme check below so a
-// general attribute edit cannot persist executable markup.
 const SAFE_ATTRIBUTE_NAME = /^(?!on)[a-zA-Z][a-zA-Z0-9:_.-]*$/;
 const URL_ATTRIBUTE_NAMES = new Set([
   "action",
@@ -7491,7 +7023,6 @@ function applyTextEdit(
  * Uses the helpers from `responsive-classes.ts` so the logic is shared with
  * the StatesPanel / inspector UI.
  */
-/** Mobile-first breakpoint order used to resolve the effective utility at a prefix. */
 const BREAKPOINT_CASCADE: ReadonlyArray<TailwindBreakpointPrefix> = [
   "base",
   "sm",
@@ -7537,7 +7068,6 @@ function applyResponsiveClassEdit(
   let nextClass: string;
   if (intent.operation === "remove") {
     if (!intent.stem) {
-      // stem is required for remove
       return "unsupported";
     }
     if (!isSafeClassToken(intent.stem)) return "unsupported";
@@ -7546,14 +7076,9 @@ function applyResponsiveClassEdit(
         ? removeMaxWidthPropertyClass(currentClass, maxWidthPx, intent.stem)
         : removePropertyClass(currentClass, intent.prefix, intent.stem);
   } else {
-    // "add" and "replace" both use the same replace-if-same-stem setter.
     if (!intent.utility) return "unsupported";
     if (!isSafeClassToken(intent.utility)) return "unsupported";
     if (intent.from && maxWidthPx === undefined) {
-      // `from` guard: the utility the caller expects to be effective at this
-      // prefix. On mismatch (stale selection / wrong element) reject instead
-      // of silently overwriting whatever is actually there. Max-width scopes
-      // skip the guard — the desktop-down cascade has no prefix analog.
       if (!isSafeClassToken(intent.from)) return "unsupported";
       const effective = effectivePropertyUtilities(
         currentClass,
@@ -7569,7 +7094,6 @@ function applyResponsiveClassEdit(
   }
 
   if (nextClass === currentClass) {
-    // No-op — nothing to patch.
     return {
       content: html,
       capability: {
@@ -7596,17 +7120,6 @@ function applyResponsiveClassEdit(
   };
 }
 
-/**
- * Apply a breakpoint-style edit intent: persist (or remove) one raw CSS
- * declaration for the element inside the managed
- * `<style data-agent-native-breakpoints>` block, scoped to
- * `@media (max-width: <maxWidthPx>px)`.
- *
- * The rule targets the element's `data-agent-native-node-id`; when the
- * element doesn't carry one yet it is stamped first (stable hash of the
- * node's identity, mirroring `ensureCodeLayerNodeIdsInHtml`), so the media
- * rule and the element stay linked across future edits.
- */
 function applyBreakpointStyleEdit(
   html: string,
   element: ParsedElement,
@@ -7615,10 +7128,6 @@ function applyBreakpointStyleEdit(
 ): { content: string; capability: EditCapability } | PatchResultStatus {
   const property = normalizeStyleProperty(intent.property);
   if (!property) return "unsupported";
-  // Endpoint choices change SVG marker definitions and shape attributes as a
-  // unit. A media-scoped custom property cannot express that structural
-  // rewrite, so reject the write instead of persisting a value that renders
-  // without its marker DOM.
   if (isVectorEndpointProperty(property)) return "unsupported";
   if (element.tag === "svg" && BORDER_RADIUS_PROPERTY.test(property)) {
     return "unsupported";
@@ -7629,8 +7138,6 @@ function applyBreakpointStyleEdit(
   const maxWidthPx = Math.round(intent.maxWidthPx);
   const operation = intent.operation ?? "set";
 
-  // Resolve the stable node id, stamping one when missing so the managed
-  // rule has a durable anchor.
   const existingId = attributeValue(
     element,
     "data-agent-native-node-id",
@@ -7639,8 +7146,6 @@ function applyBreakpointStyleEdit(
   let content = html;
   if (!existingId) {
     if (content.includes(`data-agent-native-node-id="${nodeId}"`)) {
-      // Extremely unlikely hash collision with another stamped node — derive
-      // a distinct id from the element's source span.
       nodeId = `an-${hashStable(`${nodeId}:${element.start}:${element.end}`)}`;
     }
     content = replaceOrInsertAttribute(
@@ -7690,7 +7195,6 @@ function applyBreakpointStyleEdit(
       },
     };
   } catch {
-    // setBreakpointMediaDeclaration throws on unsafe property/value.
     return "unsupported";
   }
 }
@@ -7749,10 +7253,6 @@ function applyMoveNodeEdit(
     element.start < rawInsertAt ? rawInsertAt - removedLength : rawInsertAt;
 
   if (insertAt < 0 || insertAt > withoutTarget.length) return "conflict";
-  // A node spliced into a template's markup range lands in a detached
-  // fragment: it renders nowhere and no querySelector pass can reach it
-  // again. moveNodeBetweenDocuments redirects past the template for the same
-  // reason; here there is no destination to fall back to.
   if (isOffsetInsideTemplateInterior(withoutTarget, insertAt)) {
     return "unsupported";
   }
@@ -7767,11 +7267,6 @@ function applyMoveNodeEdit(
   };
 }
 
-/**
- * Whether children of this element participate in normal flex/grid flow.
- * Inline style is authoritative for inspector-created auto layout; the class
- * checks cover authored Tailwind/utility layouts in standalone Alpine files.
- */
 function isFlowLayoutContainer(element: ParsedElement | undefined): boolean {
   if (!element) return false;
   const display = parseStyle(attributeValue(element, "style")).display;
@@ -7799,13 +7294,6 @@ function isOutOfFlowElement(element: ParsedElement): boolean {
   });
 }
 
-/**
- * A Figma auto-layout drop makes the moved layer a flow child. Carrying its
- * former `position:absolute` offsets into the new flex/grid parent leaves it
- * visually detached from ordering, gap, and alignment even though the layer
- * tree says it was reparented. Normalize only the moved fragment's root; its
- * descendants keep their own positioning contexts unchanged.
- */
 function prepareMovedFragmentForParent(
   fragment: string,
   destinationParent: ParsedElement | undefined,
@@ -7829,13 +7317,9 @@ function prepareMovedFragmentForParent(
       moveLayout?.forceRootIntoFlow ?? false,
     );
   }
-  // Mirror image: entering a non-flow (absolute/freeform) parent, or the
-  // document root, strips any leftover flex/grid-item-only styling instead —
-  // see stripFlexItemStylingFromChild's doc comment.
   return stripFlexItemStylingFromChild(fragment, fragmentRoot);
 }
 
-/** Generate a fresh unique data-agent-native-node-id value not already in the set. */
 function freshNodeId(usedIds: Set<string>, basis: string): string {
   const base = `an-${hashStable(basis)}`;
   let value = base;
@@ -7848,10 +7332,6 @@ function freshNodeId(usedIds: Set<string>, basis: string): string {
   return value;
 }
 
-/**
- * Strip the given CSS property names from an inline style attribute value.
- * Returns the new style string (may be empty if all declarations were removed).
- */
 function stripStyleProperties(
   styleValue: string | null,
   propertiesToRemove: string[],
@@ -7862,7 +7342,6 @@ function stripStyleProperties(
   return serializeStyleDeclarations(parsed);
 }
 
-/** Absolute-positioning properties stripped when converting a child to auto-layout flow. */
 const AUTO_LAYOUT_STRIP_PROPS = [
   "position",
   "left",
@@ -7872,16 +7351,6 @@ const AUTO_LAYOUT_STRIP_PROPS = [
   "inset",
 ] as const;
 
-/**
- * Flex/grid-item-only properties stripped when a fragment leaves auto-layout
- * flow for a non-flow (absolute/freeform) destination parent — the mirror
- * image of AUTO_LAYOUT_STRIP_PROPS. Mirrors FLEX_ITEM_INLINE_PROPS in
- * editor-chrome.bridge.ts's prepareFlowMembersForAbsoluteDrop and
- * FLEX_ITEM_PROPS in DesignEditor.tsx's setAbsolutePositioningForNodeInHtml
- * (the same-document/canvas-drag persistence paths for this exact leak);
- * this is the moveNodeBetweenDocuments seam other reparent flows (e.g. a
- * Layers-panel cross-screen move) go through instead.
- */
 const FLEX_ITEM_STRIP_PROPS = [
   "flex",
   "flex-grow",
@@ -7891,10 +7360,6 @@ const FLEX_ITEM_STRIP_PROPS = [
   "order",
 ] as const;
 
-/**
- * Properties whose old flow placement would be counted twice after a direct
- * child is pinned to its measured position inside a new relative wrapper.
- */
 const MEASURED_FLOW_REBASE_STRIP_PROPS = [
   "position",
   "left",
@@ -7921,11 +7386,6 @@ const MEASURED_FLOW_REBASE_STRIP_PROPS = [
   "margin-inline-end",
 ] as const;
 
-/**
- * Strip absolute-positioning properties from a child's inline style, applying
- * the edit directly to the html string at the child element's source spans.
- * Returns the updated html string.
- */
 function stripAbsolutePositioningFromChild(
   html: string,
   child: ParsedElement,
@@ -7959,15 +7419,6 @@ function stripAbsolutePositioningFromChild(
       ? replaceOrInsertAttribute(html, child, "style", nextStyle)
       : html;
 
-  // Source-backed Alpine/Tailwind designs commonly express positioning as
-  // utility classes instead of inline CSS. Once the layer moves into a new
-  // flex/grid parent, those utilities would keep it out of flow even though
-  // the Layers tree shows it as a child. Remove only position-mode utilities;
-  // inset utilities can remain because they are inert for a statically
-  // positioned flex/grid item, and preserving them avoids needless source
-  // churn if the user later makes the layer absolute again.
-  // Re-find THE CHILD: this also runs against whole documents (see
-  // applyAutoLayout), where the reparse's root is the container, not the child.
   const reparsed = parseHtmlElements(nextHtml);
   const childNodeId = attributeValue(child, "data-agent-native-node-id");
   const reparsedChild =
@@ -7997,31 +7448,12 @@ function stripAbsolutePositioningFromChild(
   return nextHtml;
 }
 
-/**
- * Strip flex/grid-item-only inline properties (flex-grow/shrink/basis,
- * align-self, order, the flex shorthand) from a child's inline style. Called
- * when a fragment leaves auto-layout flow for a non-flow destination parent —
- * these properties only mean anything inside a flex/grid container, so
- * leaving them on an absolute/freeform element is dead (and misleading)
- * source clutter that would silently reactivate with a stale value if the
- * element were ever reparented back into flow. No-ops harmlessly when the
- * child never had any of these set.
- */
 function stripFlexItemStylingFromChild(
   html: string,
   child: ParsedElement,
 ): string {
   const currentStyle = attributeValue(child, "style");
   if (!currentStyle) return html;
-  // Cheap presence check before touching anything: stripStyleProperties round
-  // -trips through parseStyleDeclarations/serializeStyleDeclarations, which
-  // normalizes formatting (adds "; " separators and a space after each
-  // colon) even when nothing actually needs removing. The overwhelming
-  // majority of moves into a non-flow destination involve a fragment that
-  // was never a flex/grid item, so unconditionally rewriting its style
-  // attribute would silently reformat unrelated, untouched authored CSS on
-  // every such move — exactly the kind of source churn this substrate is
-  // supposed to avoid. Only rewrite when there's actually something to strip.
   const declarations = parseStyleDeclarations(currentStyle);
   const hasFlexItemProp = declarations.declarations.some((decl) =>
     (FLEX_ITEM_STRIP_PROPS as readonly string[]).includes(
@@ -8037,11 +7469,6 @@ function stripFlexItemStylingFromChild(
   );
 }
 
-/**
- * Pin a flow child to its measured border-box position inside a relative
- * wrapper. Margins and inset values contributed to the measured position in
- * the old parent, so retaining them would offset the child a second time.
- */
 function rebaseMeasuredFlowChild(
   html: string,
   child: ParsedElement,
@@ -8061,16 +7488,6 @@ function rebaseMeasuredFlowChild(
   );
 }
 
-/**
- * L7: sequential "<baseName> N" naming. Counts existing layer names already
- * matching "<baseName>" or "<baseName> <number>" in the projection (via
- * data-agent-native-layer-name / layerName) and returns the next unused
- * name in that sequence, so repeated grouping doesn't leave multiple
- * ambiguous same-named layers. Figma names a plain ⌘G group "Group" but an
- * auto-layout wrap (Shift+A) "Frame" — same wrapper mechanics, different
- * default name — so the base name is threaded in by the caller rather than
- * hardcoded here.
- */
 function nextSequentialWrapperName(
   nodes: CodeLayerNode[],
   baseName: string,
@@ -8109,24 +7526,8 @@ interface AbsoluteUnionBounds {
   height: number;
 }
 
-/**
- * L7: computes the union bounding box of a set of sibling elements, but only
- * when EVERY element is absolutely positioned with pixel left/top/width/
- * height. Returns null otherwise (mixed/flow children have no meaningful
- * bounding box without an actual layout pass — the wrapper falls back to a
- * plain flow div in that case).
- */
 function computeAbsoluteUnionBounds(
   elements: ParsedElement[],
-  /**
-   * Live-rendered width/height fallback, keyed by exact parsed element
-   * identity, for a target whose inline style carries
-   * position/left/top but omits width/height (auto-sized content, e.g. a
-   * Text-tool node sized by its text rather than an explicit box). Never
-   * overrides an explicit inline width/height — only fills the gap that
-   * would otherwise return null and leave the wrapper with no geometry at
-   * all (a frame that doesn't enclose its own content).
-   */
   sizeHints?: ReadonlyMap<ParsedElement, WrapNodeSizeHint>,
 ): AbsoluteUnionBounds | null {
   let minLeft = Infinity;
@@ -8175,13 +7576,6 @@ interface SelectionBackgroundRectangle {
   padding: { top: number; right: number; bottom: number; left: number };
 }
 
-/**
- * A painted rectangle can be the visual background of a Shift+A selection.
- * Figma turns that layer into the frame itself, but only when it is the
- * bottom-most selected sibling and fully contains every other selected layer.
- * Partial overlaps stay ordinary auto-layout children so selecting two
- * arbitrary shapes never changes their identity or stacking semantics.
- */
 function findSelectionBackgroundRectangle(
   targetElements: ParsedElement[],
   nodeByElement: ReadonlyMap<ParsedElement, CodeLayerNode>,
@@ -8406,12 +7800,6 @@ function promoteSelectionBackgroundRectangle(
   return `${result.slice(0, insertAt)}${promoted}${result.slice(insertAt)}`;
 }
 
-/**
- * Compute a measured union for targets that currently participate in their
- * parent's flow. The wrapper stays in that flow slot, so its parent-relative
- * origin is deliberately not written to the wrapper; only its dimensions are
- * persisted and each direct child is rebased into that local origin.
- */
 function computeMeasuredFlowBounds(
   elements: ParsedElement[],
   sizeHints?: ReadonlyMap<ParsedElement, WrapNodeSizeHint>,
@@ -8459,12 +7847,6 @@ function computeMeasuredFlowBounds(
   };
 }
 
-/**
- * Origin-only variant: an auto-layout wrapper hugs its children, so it needs
- * where the selection starts but not how big it is. Absolutely positioned text
- * routinely has left/top and no width/height, and demanding all four sent it
- * back to the parent's flow origin.
- */
 function computeAbsoluteUnionOrigin(
   elements: ParsedElement[],
 ): { left: number; top: number } | null {
@@ -8483,10 +7865,6 @@ function computeAbsoluteUnionOrigin(
   return { left: minLeft, top: minTop };
 }
 
-/**
- * GROUP: wrap targetted sibling elements (sharing a common parent) in a new
- * <div> wrapper. Targets must all share the same parent element.
- */
 function applyWrapNodes(
   html: string,
   build: ProjectionBuild,
@@ -8496,15 +7874,9 @@ function applyWrapNodes(
   | PatchResultStatus {
   const { autoLayout = false } = intent;
   const wrapperIsFrame = autoLayout || intent.wrapperKind === "frame";
-  // A UI selection is unique, but action/tool callers and stale multi-select
-  // state can repeat an id. Extracting/removing the same source span twice
-  // corrupts the surrounding document and duplicates the node inside the new
-  // wrapper. Normalize at the deterministic edit boundary.
   const targetIds = Array.from(new Set(intent.targetIds));
   if (targetIds.length === 0) return "unsupported";
 
-  // Resolve selected projection identities exactly; the authored ID fallback
-  // is only for legacy callers whose ID is unique in this projection.
   const targetElements: ParsedElement[] = [];
   const nodeByElement = new Map<ParsedElement, CodeLayerNode>();
   const sizeHintsByElement = new Map<ParsedElement, WrapNodeSizeHint>();
@@ -8540,29 +7912,12 @@ function applyWrapNodes(
     if (hint) sizeHintsByElement.set(el, hint);
   }
 
-  // All targets must share the same parent.
   const parentIndexes = new Set(targetElements.map((el) => el.parentIndex));
   if (parentIndexes.size !== 1) return "unsupported";
 
-  // Sort targets by their source position (ascending).
   targetElements.sort((a, b) => a.start - b.start);
 
-  // L6: targets no longer need to be sibling-index-CONTIGUOUS. The removal +
-  // single-reinsertion-point algorithm below extracts every target
-  // (regardless of gaps) and re-inserts them together at the topmost
-  // target's stacking position — the LAST one in source order, since later
-  // source position paints on top for plain siblings with no z-index. A
-  // non-adjacent same-parent selection (e.g. sibling indexes 0, 2, 4) closes
-  // its own gaps naturally: the un-selected siblings that were between them
-  // (1, 3) end up adjacent to each other once the targets are pulled out,
-  // and the targets end up adjacent to each other inside the new wrapper.
-  // This matches Figma's group behavior: the group lands at the z-position
-  // of its topmost selected child, not its bottommost.
 
-  // Shift+A treats a painted rectangle that contains the rest of the
-  // selection as the frame's background. Reuse that source element so the
-  // promoted frame keeps the rectangle's identity and fill. Frame selection
-  // and ordinary grouping remain on the generic wrapper path.
   const backgroundPromotion = autoLayout
     ? findSelectionBackgroundRectangle(
         targetElements,
@@ -8608,7 +7963,6 @@ function applyWrapNodes(
     }
   }
 
-  // Collect existing node ids so we can generate a unique one.
   const usedIds = new Set(
     build.projection.nodes.flatMap((n) => {
       const id = n.dataAttributes["data-agent-native-node-id"];
@@ -8621,23 +7975,11 @@ function applyWrapNodes(
     `wrap:${targetElements.map((el) => el.start).join(":")}`,
   );
 
-  // L7: sequential naming — an auto-layout wrap (Shift+A) reads as a Figma
-  // "Frame", a plain wrap (⌘G) as a "Group"; count existing same-named
-  // layers already in the projection so repeated wraps don't produce
-  // multiple ambiguous layers with the same bare name.
   const wrapperLayerName = nextSequentialWrapperName(
     build.projection.nodes,
     wrapperIsFrame ? "Frame" : "Group",
   );
 
-  // L7: when EVERY target is absolutely positioned with pixel left/top (and
-  // ideally width/height), give the wrapper real computed geometry — the
-  // union bounding box of its children — instead of a zero-geometry static
-  // div. This matches Figma: grouping absolutely-positioned layers produces
-  // a group frame sized/positioned to fit them, not a layout-only wrapper.
-  // Falls back to the previous flow/auto-layout wrapper when any child isn't
-  // absolutely positioned (there is no meaningful bounding box to compute
-  // without a layout pass).
   const targetGeometry = computeAbsoluteUnionBounds(
     targetElements,
     sizeHintsByElement,
@@ -8653,21 +7995,15 @@ function applyWrapNodes(
       ? computeMeasuredFlowBounds(targetElements, sizeHintsByElement)
       : null;
 
-  // Collect the source fragments for all targets.
   const fragments = targetElements.map((el) => {
     let frag = html.slice(el.start, el.end);
     if (autoLayout) {
-      // We need a ParsedElement that reflects the fragment's own positions.
-      // Re-parse the fragment to find the root element and strip its style.
       const fragElements = parseHtmlElements(frag);
       const root = fragElements.find((fe) => fe.parentIndex === undefined);
       if (root) {
         frag = stripAbsolutePositioningFromChild(frag, root);
       }
     } else if (targetGeometry) {
-      // Rebase each child's left/top from the old parent's coordinate space
-      // into the new wrapper's coordinate space (wrapper now sits at the
-      // union's top-left origin).
       const fragElements = parseHtmlElements(frag);
       const root = fragElements.find((fe) => fe.parentIndex === undefined);
       if (root) {
@@ -8694,9 +8030,6 @@ function applyWrapNodes(
     return frag;
   });
 
-  // An auto-layout wrapper takes the union's origin but no width/height, so
-  // it hugs its children the way Figma's does. Omitting the origin drops the
-  // wrapper at the parent's flow start and teleports the selection to 0,0.
   const autoLayoutStyle = "display: flex; flex-direction: column; gap: 8px";
   const autoLayoutOrigin = autoLayout
     ? (targetGeometry ?? computeAbsoluteUnionOrigin(targetElements))
@@ -8727,24 +8060,14 @@ function applyWrapNodes(
   const wrapperClose = `</div>`;
   const wrapperContent = `${wrapperOpen}${fragments.join("")}${wrapperClose}`;
 
-  // Build the replacement: remove all targets from html (back to front) then
-  // insert the wrapper at the LAST target's position — targetElements is
-  // sorted ascending by source position, so the last entry is the topmost in
-  // stacking order. Inserting there (rather than at the first/bottommost
-  // target) is what leaves an un-selected sibling that sat between the
-  // targets (e.g. Green between Red and Blue) BELOW the new group, matching
-  // Figma. Sort by position descending to remove safely.
   const sorted = [...targetElements].sort((a, b) => b.start - a.start);
   const lastTargetStart = targetElements[targetElements.length - 1]!.start;
 
-  // Remove all targets from the html (back to front).
   let result = html;
   for (const el of sorted) {
     result = `${result.slice(0, el.start)}${result.slice(el.end)}`;
   }
 
-  // Re-compute lastTargetStart relative to the modified string: every other
-  // target removed before it shifts it left by its own length.
   let bytesRemovedBefore = 0;
   for (const el of targetElements) {
     if (el.start < lastTargetStart) {
@@ -9158,7 +8481,6 @@ function applyBooleanSubtract(
   };
 }
 
-/** Parse a CSS length like "12px" into a finite pixel number, else null. */
 function parsePixelLength(value: string | undefined): number | null {
   if (!value) return null;
   const match = /^(-?[\d.]+)px$/.exec(value.trim());
@@ -9171,15 +8493,6 @@ function formatMeasuredPixel(value: number): string {
   return `${Number(value.toFixed(4))}px`;
 }
 
-/**
- * Rebase a single child element's `left`/`top` inline-style offsets by the
- * given deltas (adding the unwrapped wrapper's own offset so the child keeps
- * its absolute screen position once reparented into the wrapper's parent).
- * No-ops (returns html unchanged) when the child isn't absolutely positioned
- * with a pixel offset — non-absolute children have no coordinate space to
- * rebase, and non-pixel units (%, calc(), var()) can't be safely combined
- * without a layout pass.
- */
 function rebaseChildOffset(
   html: string,
   child: ParsedElement,
@@ -9301,8 +8614,6 @@ function parseBooleanTransformList(
       name === "translatex" ||
       name === "translatey"
     ) {
-      // Translation is copied to each released shape. Percentages would
-      // resolve against each operand's box instead of the Boolean result.
       if (args.includes("%") || /calc\s*\(/i.test(args)) return null;
       if (
         !/^[+-]?(?:[\d.]+(?:e[+-]?\d+)?(?:px)?)(?:\s+[+-]?(?:[\d.]+(?:e[+-]?\d+)?(?:px)?))?$/i.test(
@@ -9652,8 +8963,6 @@ function releaseBooleanRoot(
     (operand): operand is string => operand !== null,
   );
   if (releasedMarkup.length !== operands.length) return "unsupported";
-  // Keep the operands in their original base-then-cutter order. The complete
-  // defs/mask/use scaffold is removed with the Boolean root.
   return {
     content: `${html.slice(0, element.start)}${releasedMarkup.join("")}${html.slice(element.end)}`,
     capability: {
@@ -9706,23 +9015,12 @@ function applyUnwrap(
   }
   if (booleanOperandFor(element)) return "unsupported";
   if (element.selfClosing || element.contentStart >= element.contentEnd) {
-    // Nothing to unwrap from an empty/void element.
     return "unsupported";
   }
   if (element.childIndexes.length === 0) {
-    // Leaf node (text-only or otherwise childless): there is nothing to
-    // "release" as children, and splicing raw inner content into the parent
-    // would destroy this element's own identity (tag/attrs/styles).
     return "unsupported";
   }
 
-  // If the wrapper has a measured flow origin or is positioned with pixel
-  // left/top, rebase each direct child's own absolute left/top before
-  // splicing, so children keep their absolute screen position once
-  // reparented. Re-parse the wrapper's inner HTML in isolation so child
-  // element spans are relative to that fragment (matches how
-  // replaceOrInsertAttribute below operates on the fragment, not the outer
-  // document offsets).
   const wrapperStyle = parseStyle(attributeValue(element, "style"));
   const wrapperLeft = parsePixelLength(wrapperStyle.left);
   const wrapperTop = parsePixelLength(wrapperStyle.top);
@@ -9742,9 +9040,6 @@ function applyUnwrap(
 
   let innerContent = html.slice(element.contentStart, element.contentEnd);
   if (shouldRebase) {
-    // A relative wrapper contributes both its normal-flow origin and its
-    // authored inset. Dropping either term shifts children when the wrapper
-    // is removed and they become siblings of the original flow parent.
     const deltaLeftPx =
       (measuredGroupLeft ?? 0) + (hasPositionedOffset ? (wrapperLeft ?? 0) : 0);
     const deltaTopPx =
@@ -9753,8 +9048,6 @@ function applyUnwrap(
     const directChildren = fragmentElements.filter(
       (fe) => fe.parentIndex === undefined,
     );
-    // Apply back-to-front so earlier offsets in the fragment stay valid as
-    // later ones are rewritten.
     for (const child of [...directChildren].sort((a, b) => b.start - a.start)) {
       innerContent = rebaseChildOffset(
         innerContent,
@@ -9765,7 +9058,6 @@ function applyUnwrap(
     }
   }
 
-  // Replace the whole element (start..end) with its inner content.
   const result = `${html.slice(0, element.start)}${innerContent}${html.slice(element.end)}`;
 
   return {
@@ -9778,10 +9070,6 @@ function applyUnwrap(
   };
 }
 
-/**
- * CONVERT: toggle auto-layout (display:flex) on an existing container.
- */
-/** Whether an existing min-width/min-height already preserves `extent` px. */
 function holdsOpen(value: string, extent: number): boolean {
   const trimmed = value.trim();
   if (!/^[\d.]+px$/i.test(trimmed)) return !/^0[a-z%]*$/i.test(trimmed);
@@ -9816,16 +9104,12 @@ function applyAutoLayout(
     };
     setOnContainer("display", "block");
     if (hasRects) {
-      // Absolute children resolve against the nearest positioned ancestor, so
-      // a static container would let them escape to the page.
       const position = effectiveStyleDeclarations(declarations).find(
         (d) => cssPropertyKey(d.prop) === "position",
       );
       if (!position || position.value === "static") {
         setOnContainer("position", "relative");
       }
-      // With every child absolute the content box is empty, so a hug-sized
-      // container collapses and overflow:hidden then hides what we just pinned.
       const rect = intent.containerRect;
       if (rect) {
         for (const [property, value] of [
@@ -9835,8 +9119,6 @@ function applyAutoLayout(
           const existing = effectiveStyleDeclarations(declarations).find(
             (d) => cssPropertyKey(d.prop) === property,
           );
-          // `min-height: 0` is the standard flex idiom and holds nothing open.
-          // Only a px minimum at least as large as the measured extent does.
           if (existing && !holdsOpen(existing.value, value)) {
             setOnContainer(property, `${Math.round(value)}px`);
           } else if (!existing) {
@@ -9862,7 +9144,6 @@ function applyAutoLayout(
         : undefined) ??
       updatedElements.find((fe) => fe.start === element.start);
     if (updatedTarget) {
-      // Reverse order keeps earlier offsets valid as each write shifts the rest.
       for (const childIndex of [...updatedTarget.childIndexes].reverse()) {
         const child = updatedElements[childIndex];
         if (!child) continue;
@@ -9875,9 +9156,6 @@ function applyAutoLayout(
         const setOnChild = (property: string, value: string) => {
           setStyleDeclaration(childDecls, property, value);
         };
-        // The measured rect is a border box placed by its margin edge, so a
-        // content-box child would grow by its padding and a margin would shift
-        // it off the position we just measured.
         setOnChild("box-sizing", "border-box");
         setOnChild("margin", "0");
         setOnChild("position", "absolute");
@@ -9912,12 +9190,6 @@ function applyAutoLayout(
     };
   }
 
-  // Enable auto-layout: set display:flex + direction + gap on the container.
-  // Apply all three style properties in a single mutation against the already-
-  // resolved element so that elements with no stable data attributes or HTML id
-  // are handled correctly.  Re-parsing after each individual property write
-  // caused a silent no-op for those elements because the re-parse-based element
-  // finder could not locate them after the first write changed the style attr.
   const currentStyle = attributeValue(element, "style");
   let declarations = parseStyleDeclarations(currentStyle);
   const setOrReplace = (prop: string, val: string) => {
@@ -9929,8 +9201,6 @@ function applyAutoLayout(
     const declared: Array<[VisualStyleProperty, string]> = [];
     for (const [rawProperty, rawValue] of Object.entries(containerStyles)) {
       const property = normalizeStyleProperty(rawProperty);
-      // All or nothing: a half-written flow (a display without its tracks) is
-      // a layout nobody asked for, and it would report as applied.
       if (!property || !isSafeStyleValue(property, rawValue)) {
         return "needsAgent";
       }
@@ -9954,13 +9224,7 @@ function applyAutoLayout(
     serializeStyleDeclarations(declarations),
   );
 
-  // Strip absolute positioning from direct children.
-  // Re-parse to get up-to-date child element positions after the style mutation.
   const updatedElements = parseHtmlElements(result);
-  // Locate the target element in the updated parse.  Prefer stable data
-  // attributes and HTML id; fall back to matching by original source position
-  // (safe because the container open-tag length only changed by the style attr
-  // rewrite, which shifts nothing before element.start).
   const stableAttrPairs: Array<[string, string]> = [];
   for (const attrName of STABLE_NODE_ID_ATTRIBUTES) {
     const v = attributeValue(element, attrName);
@@ -9979,14 +9243,11 @@ function applyAutoLayout(
     if (htmlIdValue) {
       return elements.find((fe) => attributeValue(fe, "id") === htmlIdValue);
     }
-    // Fallback: match by original start position.  The container's start offset
-    // is unchanged because only its open-tag content (style attr) was modified.
     return elements.find((fe) => fe.start === element.start);
   };
   const updatedTarget = findElementInParsed(updatedElements);
 
   if (updatedTarget) {
-    // Process children in reverse order so offsets stay valid.
     const childIndexes = [...updatedTarget.childIndexes].reverse();
     for (const childIndex of childIndexes) {
       const child = updatedElements[childIndex];
@@ -10102,11 +9363,6 @@ function applyVisualEditUnsafe(
       ),
     };
   }
-  // See moveNodeBetweenDocuments' twin guard: a URL-backed screen stores its
-  // route, not a document, and every edit below concatenates against `html`.
-  // Callers only ever check `status`, so refusing here turns ~40 gesture and
-  // action call sites into "nothing happened" instead of a screen silently
-  // unbound from the running app.
   if (isStandaloneHttpUrl(html)) {
     return {
       content: html,
@@ -10180,16 +9436,10 @@ function applyVisualEditUnsafe(
     };
   }
 
-  // --- Structural intents that don't resolve a single target node ---
 
   if (intent.kind === "wrapNodes") {
     const wrapEdit = applyWrapNodes(html, initial, intent);
     if (typeof wrapEdit === "string") {
-      // L6: a distinct, specific message per failure kind instead of one
-      // generic "group failed" toast — the previous single message
-      // ("...share a common parent element") was misleadingly shown even
-      // when the real cause was an empty selection or an unresolvable node,
-      // making it hard for the user to tell what to fix.
       const message =
         wrapEdit === "unsupported"
           ? intent.targetIds.length === 0
@@ -10204,9 +9454,6 @@ function applyVisualEditUnsafe(
         },
       };
     }
-    // Component structure validation requires this intermediate transform to
-    // change only the canonical main span. Propagation installs the document
-    // runtime after that boundary has been validated for every linked copy.
     const nextContent = options.allowMainComponentStructure
       ? wrapEdit.content
       : ensureGroupRuntime(wrapEdit.content);
@@ -10337,7 +9584,6 @@ function applyVisualEditUnsafe(
     };
   }
 
-  // --- Target-resolved intents (style / class / textContent / moveNode) ---
 
   const resolution = resolveTarget(initial, intent.target);
   if (resolution.status !== "resolved" || !resolution.node) {
@@ -10553,8 +9799,6 @@ function applyVisualEditUnsafe(
         ),
       };
     }
-    // Compute the expected post-move openStart so findAfterNode can locate the
-    // moved node even when its nodeId changes (position-based id).
     const rawInsertAt =
       intent.placement === "before"
         ? anchorElement.start
@@ -10630,7 +9874,6 @@ export function applyVisualEdit(
   intent: EditIntent,
   options: {
     source?: CodeLayerSource;
-    /** Only the atomic linked-component action may publish this transform. */
     allowMainComponentStructure?: boolean;
     moveNode?: {
       destinationIsFlow?: boolean;
@@ -10657,11 +9900,6 @@ export type VisualStyleBatchResult =
   | { status: "fallback" }
   | { status: "failed"; editIndex: number; reason: string };
 
-/**
- * Internal fast path for one gesture's ordinary inline CSS edits. Semantic
- * vector targets return `fallback` so callers can replay the whole gesture
- * through `applyVisualEdit` and retain its specialized routing.
- */
 export function applyOrdinaryVisualStyleBatch(
   html: string,
   edits: readonly {
@@ -10773,38 +10011,12 @@ export function applyOrdinaryVisualStyleBatch(
   };
 }
 
-/**
- * Attributes injected by the editor at runtime that must NOT appear in
- * on-disk source files. These are stripped before any write-back so that
- * the saved file stays clean and matches what a developer would author.
- *
- * - `data-agent-native-node-id` — stable selection id stamped by the editor.
- * - `data-agent-native-layer-name` is intentionally kept: it is a
- *   developer-authored attribute (the canonical layer-name hint) and is
- *   useful in committed source.  Only ephemeral runtime stamps are removed.
- */
 const EDITOR_ONLY_ATTRIBUTES: readonly string[] = ["data-agent-native-node-id"];
 
-/**
- * Strip editor-only runtime attributes from an HTML string, returning clean
- * source suitable for writing back to disk.
- *
- * Currently removes `data-agent-native-node-id` (and any future attributes
- * listed in EDITOR_ONLY_ATTRIBUTES). The function operates on the raw HTML
- * string with a regex that handles both quoted forms and unquoted values, and
- * is safe to apply to already-clean source (idempotent).
- *
- * @param html  The raw HTML string, potentially containing editor stamps.
- * @returns     A new string with all editor-only attributes removed.
- */
 export function stripEditorOnlyAttributes(html: string): string {
   if (!html || typeof html !== "string") return html ?? "";
   let result = html;
   for (const attr of EDITOR_ONLY_ATTRIBUTES) {
-    // Match the attribute with optional surrounding whitespace. The value may
-    // be double-quoted, single-quoted, or unquoted (no spaces / > chars).
-    // A leading \s+ is required so we only strip the attribute name+value pair
-    // and leave surrounding markup intact.
     const re = new RegExp(
       `\\s+${attr.replace(/-/g, "\\-")}\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s"'=><\`]+)`,
       "gi",
@@ -10832,33 +10044,10 @@ export interface MoveNodeBetweenDocumentsResult {
   destHtml: string;
   status: "applied" | "unsupported";
   message?: string;
-  /**
-   * The data-agent-native-node-id of the moved node in destHtml.
-   * May differ from the original nodeId when a collision caused a re-stamp.
-   * Only present when status is "applied".
-   */
   movedNodeId?: string;
-  /**
-   * Finding 8: true when the requested anchor placement fell inside a
-   * `<template>` interior and the insert was redirected to a real DOM slot
-   * instead (immediately after the enclosing template's `</template>` when
-   * that could be located, otherwise the pre-existing doc-end/body-end
-   * fallback). Hosts can use this to toast a "landed near, not exactly
-   * where you dropped it" notice instead of the previous fully silent
-   * teleport. Only meaningful when status is "applied" and an anchor was
-   * requested.
-   */
   anchorRedirected?: boolean;
 }
 
-/**
- * Move a node from sourceHtml into destHtml by stable ID or unique authored
- * selectors. ID-less source and destination nodes are stamped before the move
- * so later edits can resolve them durably. Omitting an anchor explicitly
- * appends to the body; a requested but unresolved anchor fails atomically.
- * Any node ids in the moved subtree that already exist in destHtml are
- * re-stamped to stay unique. No external dependencies.
- */
 export function moveNodeBetweenDocuments(
   sourceHtml: string,
   destHtml: string,
@@ -10875,13 +10064,6 @@ export function moveNodeBetweenDocuments(
   const originalSourceHtml = sourceHtml;
   const originalDestHtml = destHtml;
 
-  // A URL-backed (localhost/fusion) screen stores its route URL as content,
-  // not a document. Both branches below end in string concatenation against
-  // `destHtml`, so a URL destination yields "http://host/<div …>" — a screen
-  // permanently unbound from the running app, with no parse error anywhere.
-  // Refusing HERE and not only at the persist gate matters: callers move
-  // several files in one gesture and write the source screens first, so a
-  // late refusal would delete the node from its source and land it nowhere.
   if (isStandaloneHttpUrl(destHtml) || isStandaloneHttpUrl(sourceHtml)) {
     return {
       sourceHtml,
@@ -10989,7 +10171,6 @@ export function moveNodeBetweenDocuments(
   const resolvedNodeId = sourceIdentity.nodeId;
   const resolvedAnchorNodeId = destIdentity?.nodeId;
 
-  // --- Locate the identified source and destination elements ---
   const sourceElements = parseHtmlElements(sourceHtml);
   const sourceTarget = sourceElements.find(
     (el) => attributeValue(el, "data-agent-native-node-id") === resolvedNodeId,
@@ -11014,10 +10195,8 @@ export function moveNodeBetweenDocuments(
     sourceWasIgnoredInFlow,
   };
 
-  // --- Extract the subtree fragment ---
   let fragment = sourceHtml.slice(sourceTarget.start, sourceTarget.end);
 
-  // --- Collect all existing node ids in destHtml to avoid collisions ---
   const destElements = parseHtmlElements(destHtml);
   const destUsedIds = new Set<string>(
     destElements
@@ -11025,14 +10204,6 @@ export function moveNodeBetweenDocuments(
       .filter((v): v is string => v !== null),
   );
 
-  // --- Re-stamp any colliding node ids in the fragment ---
-  // We do this by parsing the fragment as its own HTML and replacing ids.
-  // Replacements are tracked PER ATTRIBUTE OCCURRENCE, not in an
-  // old-id -> new-id map: malformed/generated source can already contain the
-  // same stable id more than once. Mapping by the old string would assign the
-  // same replacement to every duplicate and leave the destination ambiguous
-  // after a cross-screen move (selection and undo would then target whichever
-  // duplicate happened to resolve first).
   const fragElements = parseHtmlElements(fragment);
   const remapEdits: Array<{ start: number; end: number; value: string }> = [];
   let movedNodeId = resolvedNodeId;
@@ -11058,19 +10229,15 @@ export function moveNodeBetweenDocuments(
     if (fragEl.parentIndex === undefined) movedNodeId = nextId;
   }
 
-  // Apply id remaps to the fragment (back to front by attribute position).
   if (remapEdits.length > 0) {
-    // Apply back to front.
     remapEdits.sort((a, b) => b.start - a.start);
     for (const edit of remapEdits) {
       fragment = `${fragment.slice(0, edit.start)}${edit.value}${fragment.slice(edit.end)}`;
     }
   }
 
-  // --- Remove node from sourceHtml ---
   const nextSourceHtml = `${sourceHtml.slice(0, sourceTarget.start)}${sourceHtml.slice(sourceTarget.end)}`;
 
-  // --- Insert fragment into destHtml ---
   let nextDestHtml: string;
   let anchorRedirected = false;
 
@@ -11096,15 +10263,6 @@ export function moveNodeBetweenDocuments(
           : anchor.selfClosing
             ? anchor.end
             : anchor.contentEnd;
-    // Never splice into a <template> interior — it renders nowhere and is
-    // unselectable afterward (see isOffsetInsideTemplateInterior doc above).
-    // Finding 8: redirect to immediately AFTER the ENCLOSING outer
-    // </template> when it can be located — still a guaranteed-safe real-DOM
-    // slot, just a sibling of the template instead of a jump all the way to
-    // the end of <body>/the document. Falls back to the old doc-end/body-end
-    // behavior only if the enclosing template's close somehow can't be
-    // resolved (defense-in-depth for a guard that should always agree with
-    // itself here).
     const enclosingTemplate = findEnclosingTemplateClose(destHtml, insertAt);
     if (enclosingTemplate) {
       insertAt = enclosingTemplate.closeEnd;
@@ -11131,26 +10289,15 @@ export function moveNodeBetweenDocuments(
     );
     nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
   } else {
-    // Default: find <body> and append inside it, or append at end of doc.
     const bodyEl = destElements.find((el) => el.tag === "body");
     let insertAt = bodyEl
       ? bodyEl.selfClosing
         ? bodyEl.end
         : bodyEl.contentEnd
       : destHtml.length;
-    // Same template-interior guard as the anchored branch above — a
-    // miscomputed bodyEl.contentEnd (or a body that itself is only reachable
-    // through a template, e.g. a fragment being treated as a full document)
-    // must never land inside template markup.
     if (isOffsetInsideTemplateInterior(destHtml, insertAt)) {
       insertAt = destHtml.length;
     }
-    // Appending inside <body> makes the moved node a flow child of the body,
-    // exactly like the anchored `placement: "inside"` branch above. When the
-    // destination body is a flex/grid container, carrying the fragment's
-    // former absolute offsets along would leave it visually detached from
-    // the body's ordering/gap/alignment, so run the same normalization
-    // (prepareMovedFragmentForParent no-ops for non-flow bodies).
     fragment = prepareMovedFragmentForParent(
       fragment,
       bodyEl,

@@ -1,56 +1,19 @@
 /// <reference lib="dom" />
-/**
- * Renders a fidelity candidate (imported HTML, or an exported SVG) to a PNG at
- * exactly the source frame's canvas size.
- *
- * Every wait here exists because skipping it produces a *plausible* screenshot
- * that silently omits content — a blank web font, an image still in flight, a
- * pending layout pass. A fidelity harness that screenshots early reports a
- * false diff and sends the next fix at the wrong target, so unmet waits are
- * raised, never swallowed.
- */
 import type { Browser, Page } from "@playwright/test";
 
 export interface RenderOptions {
   width: number;
   height: number;
-  /** 2 matches the scale the Figma REST image endpoint is asked for. */
   deviceScaleFactor?: number;
-  /** Extra <link>/<style> injected into <head> (web fonts for imports). */
   headHtml?: string;
-  /** Milliseconds to wait for fonts/images before failing. */
   timeoutMs?: number;
-  /**
-   * Element to capture instead of the whole viewport. The screen frame — not
-   * `<body>` — is what ships to Figma, and body carries page padding the frame
-   * does not.
-   */
   rootSelector?: string | null;
-  /**
-   * Where the frame's own origin sits inside the captured canvas.
-   *
-   * Figma's `/images` renders a node's INK extent (`absoluteRenderBounds`),
-   * not its frame box: an unclipped frame whose content or shadow spills out
-   * comes back larger, and when the spill is up or left the whole image is
-   * shifted too. Rendering the frame box against that compares every pixel at
-   * the wrong offset — it read as a 10% conversion defect on a table whose
-   * only sin was a 2px shadow. Draw the frame at this offset inside an
-   * ink-sized canvas so both sides cover the same region.
-   */
   contentOffset?: { left: number; top: number };
-  /**
-   * The frame's own size. The offset wrapper is a containing block, so it must
-   * carry the frame's dimensions: anything inside sized against its container
-   * (`inset: 0`, percentage widths) otherwise resolves against a zero-sized box
-   * and collapses. Defaults to the full canvas, which is the frame box whenever
-   * no offset is in play.
-   */
   contentSize?: { width: number; height: number };
 }
 
 export interface RenderResult {
   png: Buffer;
-  /** Non-fatal notes worth surfacing in the run report. */
   warnings: string[];
 }
 
@@ -92,7 +55,6 @@ async function waitForAssets(page: Page, timeoutMs: number): Promise<string[]> {
               resolve();
             };
             if (img.complete) {
-              // A broken image also reports complete; naturalWidth tells them apart.
               settle(
                 img.naturalWidth
                   ? undefined
@@ -117,9 +79,6 @@ async function waitForAssets(page: Page, timeoutMs: number): Promise<string[]> {
     );
 
     await document.fonts.ready;
-    // document.fonts.ready resolves once pending loads settle, including
-    // failures. Report families the page asked for but did not get, because a
-    // silent fallback shifts every glyph and reads as a text-mapping bug.
     const requested = new Set<string>();
     document.querySelectorAll<HTMLElement>("*").forEach((el) => {
       const family = getComputedStyle(el)
@@ -177,12 +136,6 @@ export async function renderHtmlToPng(
   }
 }
 
-/**
- * Renders a complete stored HTML document (what `design_files.content` holds)
- * at the screen's authored frame size. Unlike `renderHtmlToPng` this does not
- * wrap the markup — the document's own <head>, fonts and styles are the thing
- * under test.
- */
 export async function renderDocumentToPng(
   browser: Browser,
   documentHtml: string,
@@ -201,15 +154,11 @@ export async function renderDocumentToPng(
       timeout: timeoutMs,
     });
     await page.evaluate("globalThis.__name ||= (fn) => fn;");
-    // Alpine.js and the Tailwind CDN JIT mutate the DOM after load; the export
-    // walker waits the same 300ms, so the two sides see the same tree.
     await page.waitForTimeout(300);
     const warnings = await waitForAssets(page, timeoutMs);
     if (options.rootSelector) {
       const target = page.locator(options.rootSelector);
       if (!(await target.count())) {
-        // Silently falling back to the viewport would compare two different
-        // regions and score the mismatch as a rendering difference.
         throw new Error(
           `rootSelector matched nothing: ${options.rootSelector}`,
         );
@@ -227,10 +176,6 @@ export async function renderDocumentToPng(
   }
 }
 
-/**
- * Renders an SVG string at the size it declares. Used for the export half of
- * the round trip, where the candidate is the SVG we hand to Figma.
- */
 export async function renderSvgToPng(
   browser: Browser,
   svg: string,

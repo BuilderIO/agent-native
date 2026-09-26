@@ -1,43 +1,5 @@
 import { test, expect, type Page, type APIResponse } from "@playwright/test";
 
-/*
- * COLUMNS CONTAINER BLOCK — render, nested edit, Notion-like chrome removal,
- * MDX round-trip, and (fixme) cross-region drag. Adversarial E2E.
- *
- * Area under test: the standard `columns` container block
- * (`packages/core/src/client/blocks/library/columns.tsx` + `columns.config.ts`).
- * `columns` data is `{ columns: [{ id, label?, blocks: NestedBlock[] }] }`; each
- * column is a side-by-side panel that holds its OWN list of child blocks rendered
- * recursively through the plan's block dispatcher.
- *
- * How it renders in the single-document editor (verified against the real code):
- *   - The columns block is an inline `planBlock` NodeView wrapped in
- *     `.plan-block-node[data-block-id=<id>]` (RegistryBlockNode), and because its
- *     spec is `editSurface: "container"`, the NodeView renders the block's `Edit`
- *     (`ColumnsBlockEditor`) IN PLACE when the doc is editable — NOT the read view.
- *   - `ColumnsBlockEditor` emits a bare `div[data-columns-edit-block=<id>]`.
- *     Columns are plain document regions: there are no per-column label inputs,
- *     remove buttons, or explicit `Add column` button. New columns are created
- *     by side-dropping a block left/right of another block, like Notion.
- *   - Each column's children render through `ctx.renderBlocksEditor`, which the
- *     plan wires to `NestedPlanBlocksEditor`. That mounts a per-region editor:
- *     `.plan-nested-document-editor-region[data-region-id=<colId>][data-container-block-id=<id>]`
- *     wrapping a `SharedRichEditor` whose contenteditable surface is
- *     `.plan-nested-document-editor-surface .an-rich-md-prose`. So a column's child
- *     text is addressable INSIDE its region's prose.
- *   - Every edit (top doc OR nested region) serializes the whole doc back to
- *     `blocks[]` and autosaves through `update-visual-plan`
- *     `{ op: "replace-blocks", blocks }` (no client debounce; one POST/keystroke).
- *
- * Persistence shape (verified live): `get-visual-plan` returns the columns block
- * with `data.columns: [{ id, label?, blocks:[…] }]` intact; `export-visual-plan`
- * emits the human-readable `<Columns><Column label="…" contentId="…">…markdown…
- * </Column></Columns>` MDX form in `mdx["plan.mdx"]`.
- *
- * Asserts CORRECT behavior — a FAILING assertion IS the bug it reports. retries:2
- * + web-first auto-retrying expects absorb transient HMR reloads on the shared dev
- * server. Uses the editable surface; auth is reused from global-setup storageState.
- */
 
 const UPDATE_ACTION = "/_agent-native/actions/update-visual-plan";
 const CREATE_ACTION = "/_agent-native/actions/create-visual-plan";
@@ -79,12 +41,6 @@ async function readJson(res: APIResponse): Promise<Record<string, unknown>> {
   }
 }
 
-/**
- * Create a fresh plan fixture via the authed action surface; return its id. The
- * shared dev server can HMR/reload mid-request while other agents edit the app (a
- * transient 500), so retry a few times — a fixture hiccup must never read as the
- * render/edit bug under test.
- */
 async function createPlanFixture(
   page: Page,
   content: PlanContentInput,
@@ -116,7 +72,6 @@ async function createPlanFixture(
   return planId as string;
 }
 
-/** Read the current stored top-level blocks. */
 async function getPlanBlocks(page: Page, planId: string): Promise<PlanBlock[]> {
   const res = await page.request.get(
     `${GET_ACTION}?id=${encodeURIComponent(planId)}`,
@@ -127,7 +82,6 @@ async function getPlanBlocks(page: Page, planId: string): Promise<PlanBlock[]> {
   return plan.content?.blocks ?? [];
 }
 
-/** Find the persisted columns block (by id) and return its `data.columns`. */
 async function getColumns(
   page: Page,
   planId: string,
@@ -142,7 +96,6 @@ async function getColumns(
   return Array.isArray(columns) ? columns : null;
 }
 
-/** Export the plan and return its `plan.mdx` source (for the MDX round-trip). */
 async function getPlanMdx(page: Page, planId: string): Promise<string> {
   const res = await page.request.get(
     `${EXPORT_ACTION}?planId=${encodeURIComponent(planId)}`,
@@ -162,7 +115,6 @@ function proseFor(page: Page) {
     .first();
 }
 
-/** Open the plan and wait for the editable single-document surface to be ready. */
 async function openPlanForEditing(page: Page, planId: string) {
   await page.goto(`/plans/${planId}`);
   const prose = proseFor(page);
@@ -173,7 +125,6 @@ async function openPlanForEditing(page: Page, planId: string) {
   return prose;
 }
 
-/** The inline `planBlock` NodeView wrapper for the columns block id. */
 function columnsNode(page: Page, columnsBlockId: string) {
   return page
     .locator(
@@ -182,12 +133,10 @@ function columnsNode(page: Page, columnsBlockId: string) {
     .first();
 }
 
-/** The bare columns editor container (`editSurface: container` renders Edit). */
 function columnsEditor(page: Page, columnsBlockId: string) {
   return page.locator(`[data-columns-edit-block="${columnsBlockId}"]`).first();
 }
 
-/** The per-column nested editor region for a given column id. */
 function regionFor(page: Page, columnId: string) {
   return page
     .locator(
@@ -196,7 +145,6 @@ function regionFor(page: Page, columnId: string) {
     .first();
 }
 
-/** The editable prose surface inside a given column region. */
 function regionProse(page: Page, columnId: string) {
   return regionFor(page, columnId)
     .locator(".plan-nested-document-editor-surface .an-rich-md-prose")
@@ -208,11 +156,6 @@ const COLS_ID = "blk-cols";
 const COL_BEFORE_ID = "col-before";
 const COL_AFTER_ID = "col-after";
 
-/**
- * Seed a plan with a leading rich-text block plus a 2-column comparison block.
- * The "Before" column holds OLD text, "After" holds NEW text — the canonical
- * before/after use of `columns`.
- */
 function columnsContent(opts: {
   title: string;
   beforeMarkdown?: string;
@@ -273,8 +216,6 @@ function columnsContent(opts: {
 }
 
 test.describe("columns container block", () => {
-  // (1) RENDER — both columns + their child text render side-by-side, and the
-  // persisted columns shape survives simply opening the plan.
   test("renders both columns and their child text side-by-side", async ({
     page,
   }) => {
@@ -283,20 +224,14 @@ test.describe("columns container block", () => {
       columnsContent({ title: uniqueTitle("render") }),
     );
 
-    // Sanity at the API: the columns block persisted with two labeled columns,
-    // each holding one rich-text child (no wipe at creation).
     const seeded = await getColumns(page, planId, COLS_ID);
     expect(seeded?.map((c) => c.label)).toEqual(["Before", "After"]);
 
     await openPlanForEditing(page, planId);
 
-    // The columns block's inline NodeView mounts, and its container editor renders
-    // in place (editSurface: "container").
     await expect(columnsNode(page, COLS_ID)).toBeVisible({ timeout: 25_000 });
     await expect(columnsEditor(page, COLS_ID)).toBeVisible({ timeout: 15_000 });
 
-    // Old saved labels remain in data, but the editable surface no longer shows
-    // per-column heading boxes or an explicit Add column control.
     const editor = columnsEditor(page, COLS_ID);
     await expect(
       editor.locator('input[placeholder="Column label"]'),
@@ -311,7 +246,6 @@ test.describe("columns container block", () => {
       "empty columns are removed by deleting/moving their final block",
     ).toHaveCount(0);
 
-    // Each column's nested region renders its child rich-text verbatim.
     await expect(regionFor(page, COL_BEFORE_ID)).toBeVisible({
       timeout: 15_000,
     });
@@ -324,8 +258,6 @@ test.describe("columns container block", () => {
       "NEW unified auth flow.",
     );
 
-    // Side-by-side: the two columns sit on the SAME row (md+ grid). Their region
-    // boxes overlap vertically and the "Before" region is left of "After".
     const beforeBox = await regionFor(page, COL_BEFORE_ID).boundingBox();
     const afterBox = await regionFor(page, COL_AFTER_ID).boundingBox();
     expect(
@@ -346,15 +278,12 @@ test.describe("columns container block", () => {
       "side-by-side columns should overlap vertically (same row), not stack",
     ).toBeTruthy();
 
-    // Opening never wiped the columns shape.
     const after = await getColumns(page, planId, COLS_ID);
     expect(after?.map((c) => c.label)).toEqual(["Before", "After"]);
     expect(after?.[0]?.blocks?.[0]?.type).toBe("rich-text");
     expect(after?.[1]?.blocks?.[0]?.type).toBe("rich-text");
   });
 
-  // (2) NESTED EDIT — editing text INSIDE a column autosaves (no 5xx) and persists
-  // with the {columns:[{label,blocks}]} shape intact.
   test("editing text inside a column autosaves and persists the nested shape", async ({
     page,
   }) => {
@@ -370,7 +299,6 @@ test.describe("columns container block", () => {
       timeout: 15_000,
     });
 
-    // Record autosave statuses — a healthy nested editor must not 5xx while typing.
     const saveStatuses: number[] = [];
     page.on("response", (r) => {
       if (r.url().includes(UPDATE_ACTION) && r.request().method() === "POST") {
@@ -383,10 +311,8 @@ test.describe("columns container block", () => {
     await page.keyboard.press("Control+End");
     await page.keyboard.type(marker, { delay: 14 });
 
-    // Optimistic render inside the column.
     await expect(prose).toContainText(marker.trim(), { timeout: 5_000 });
 
-    // Let the per-keystroke autosaves settle, then assert no server error.
     await page.waitForTimeout(2500);
     expect(
       saveStatuses.length,
@@ -398,9 +324,6 @@ test.describe("columns container block", () => {
       `nested-column edit must not 5xx (statuses=[${saveStatuses.join(",")}])`,
     ).toEqual([]);
 
-    // The edit persists INSIDE the After column, and the columns envelope is
-    // intact: two labeled columns, the markdown carries the marker, and the
-    // Before column is untouched.
     await expect
       .poll(
         async () => {
@@ -423,20 +346,16 @@ test.describe("columns container block", () => {
       beforeCol?.blocks?.[0]?.data?.markdown,
       "the untouched Before column keeps its original text",
     ).toContain("OLD legacy login flow.");
-    // The After child stayed a rich-text block (not coerced/duplicated).
     expect(finalCols?.find((c) => c.id === COL_AFTER_ID)?.blocks?.length).toBe(
       1,
     );
 
-    // And the edit re-renders after a hard reload inside the column.
     await page.reload();
     await expect(regionProse(page, COL_AFTER_ID)).toContainText(marker.trim(), {
       timeout: 20_000,
     });
   });
 
-  // (3) SLASH-INSERT inside a column region — typing "/callout" in a column's
-  // nested editor inserts a callout INTO that column and persists it nested.
   test("slash-inserts a block inside a column region", async ({ page }) => {
     const planId = await createPlanFixture(
       page,
@@ -450,17 +369,12 @@ test.describe("columns container block", () => {
       timeout: 15_000,
     });
 
-    // Open the slash menu on a fresh line inside the Before column.
     await prose.click();
     await page.keyboard.press("Control+End");
     await page.keyboard.press("Enter");
     await page.keyboard.type("/callout", { delay: 20 });
 
     // Scope the menu to THIS column's region so a stray top-doc menu can't satisfy
-    // the assertion. The slash menu portals/renders within the editor flow; the
-    // ".an-rich-md-slash-menu" lives under the document. We assert the item exists
-    // and click it; the insert lands in whichever editor owns the caret (this
-    // region), which we then verify by reading the persisted nested blocks.
     const slashMenu = page.locator(".an-rich-md-slash-menu");
     await expect(slashMenu).toBeVisible({ timeout: 8_000 });
     const calloutItem = page
@@ -478,9 +392,6 @@ test.describe("columns container block", () => {
     await calloutItem.first().click();
     await okSave;
 
-    // The Before column now contains a callout child (it did not before); the
-    // After column is untouched. This proves the nested editor's slash-insert
-    // targets the correct column region, not the top document.
     await expect
       .poll(
         async () => {
@@ -499,17 +410,12 @@ test.describe("columns container block", () => {
       (afterCol?.blocks ?? []).some((b) => b.type === "callout"),
       "the After column must NOT have received the insert (region isolation)",
     ).toBe(false);
-    // Top-level block list is still [rich-text, columns] — the insert went nested,
-    // not into the main document.
     expect((await getPlanBlocks(page, planId)).map((b) => b.type)).toEqual([
       "rich-text",
       "columns",
     ]);
   });
 
-  // (4) REMOVE a column by deleting its last child block. There is deliberately
-  // no Add/Remove column chrome; Notion-style structure changes happen through
-  // normal block editing and drag/drop.
   test("deleting the last child block in a column removes that column", async ({
     page,
   }) => {
@@ -557,8 +463,6 @@ test.describe("columns container block", () => {
     await expect(regionFor(page, COL_AFTER_ID)).toHaveCount(0);
   });
 
-  // (5) MDX ROUND-TRIP — the readable <Columns><Column> source survives create →
-  // export, preserving column labels + each column's child markdown.
   test("the <Columns><Column> MDX round-trips labels and child markdown", async ({
     page,
   }) => {
@@ -573,8 +477,6 @@ test.describe("columns container block", () => {
 
     const mdx = await getPlanMdx(page, planId);
 
-    // The export uses the human-editable <Columns><Column …> form (NOT the compact
-    // self-closing JSON-prop encoding), so a reviewer can read/edit the source.
     expect(mdx, "export emits a <Columns> element").toMatch(/<Columns\b/);
     const columnsStart = mdx.indexOf("<Columns");
     const columnsEnd = mdx.indexOf("</Columns>");
@@ -584,18 +486,12 @@ test.describe("columns container block", () => {
     ).toBeTruthy();
     const columnsSrc = mdx.slice(columnsStart, columnsEnd);
 
-    // Both column labels survive as `label="…"` on `<Column>` elements.
     expect(columnsSrc).toMatch(/<Column\b[^>]*\blabel="Before"/);
     expect(columnsSrc).toMatch(/<Column\b[^>]*\blabel="After"/);
-    // The child markdown of each column survives verbatim inside its <Column>.
     expect(columnsSrc).toContain("OLD ROUNDTRIP before body.");
     expect(columnsSrc).toContain("NEW ROUNDTRIP after body.");
-    // The single rich-text child round-trips as a `contentId` reference (the
-    // serializer's compact form for one rich-text child), and the markdown sits
-    // inside the element body — not flattened away.
     expect(columnsSrc).toMatch(/<Column\b[^>]*\bcontentId=/);
 
-    // Structural ordering: "Before" content precedes "After" content in source.
     const beforeIdx = columnsSrc.indexOf("OLD ROUNDTRIP before body.");
     const afterIdx = columnsSrc.indexOf("NEW ROUNDTRIP after body.");
     expect(
@@ -604,10 +500,6 @@ test.describe("columns container block", () => {
     ).toBeTruthy();
   });
 
-  // EDGE: an empty column (no children) and a column with a structured
-  // (data-model) child both render without crashing; the structured child shows
-  // its recognizable content, and the empty column still offers an editable region
-  // to type into.
   test("EDGE: an empty column and a structured-child column both render", async ({
     page,
   }) => {
@@ -615,7 +507,6 @@ test.describe("columns container block", () => {
       page,
       columnsContent({
         title: uniqueTitle("empty+structured"),
-        // Before: a structured data-model child (a deep leaf, not just prose).
         beforeBlocks: [
           {
             id: "dm-before",
@@ -634,25 +525,19 @@ test.describe("columns container block", () => {
             },
           },
         ],
-        // After: an EMPTY column (no children at all).
         afterBlocks: [],
       }),
     );
     await openPlanForEditing(page, planId);
 
-    // The columns NodeView + editor mount without throwing.
     await expect(columnsNode(page, COLS_ID)).toBeVisible({ timeout: 25_000 });
     await expect(columnsEditor(page, COLS_ID)).toBeVisible({ timeout: 15_000 });
 
-    // The structured child renders its entity name + a field inside the Before
-    // column (the data-model block survives nesting in a column region).
     const beforeRegion = regionFor(page, COL_BEFORE_ID);
     await expect(beforeRegion).toBeVisible({ timeout: 15_000 });
     await expect(beforeRegion).toContainText("LegacyUser", { timeout: 15_000 });
     await expect(beforeRegion).toContainText("email");
 
-    // The empty After column still mounts an editable region (so a user can add
-    // content) — the empty-column case must not collapse the region away.
     const emptyRegion = regionFor(page, COL_AFTER_ID);
     await expect(emptyRegion).toBeVisible({ timeout: 15_000 });
     const emptyProse = regionProse(page, COL_AFTER_ID);
@@ -661,8 +546,6 @@ test.describe("columns container block", () => {
       timeout: 15_000,
     });
 
-    // Type into the previously-empty column and confirm it persists as a NEW child
-    // block in that column (the empty column accepts its first child).
     const okSave = page.waitForResponse(
       (r) =>
         r.url().includes(UPDATE_ACTION) &&
@@ -686,7 +569,6 @@ test.describe("columns container block", () => {
       )
       .toContain("First child of the empty column.");
 
-    // The structured Before column is untouched and still a data-model.
     const finalCols = await getColumns(page, planId, COLS_ID);
     expect(
       finalCols?.find((c) => c.id === COL_BEFORE_ID)?.blocks?.[0]?.type,
@@ -742,17 +624,6 @@ test.describe("columns container block", () => {
     });
     await openPlanForEditing(page, planId);
 
-    // Drive recipe (to stabilize when un-fixme'd):
-    // 1. Hover the top-doc callout `.plan-block-node[data-block-id="cal-movable"]`
-    //    so the top-doc `.drag-handle` binds to it; read the grip box.
-    // 2. mouse.down on the grip, mouse.move in steps toward the CENTER of the
-    //    Before region (`.plan-nested-document-editor-region[data-region-id=
-    //    "col-before"]`), mouse.up. Wait for a 200 replace-blocks save.
-    // 3. Assert via get-visual-plan that `cal-movable` now lives in the Before
-    //    column's blocks (and is gone from the top-level list).
-    // 4. Reverse: hover the now-nested callout's grip (nested editor's own
-    //    `.drag-handle`), drag it to the top document's prose area, drop, and
-    //    assert it returns to the top-level block list.
     const movable = page.locator(
       '.plan-document-editor-surface .plan-block-node[data-block-id="cal-movable"]',
     );
@@ -787,7 +658,6 @@ test.describe("columns container block", () => {
     await page.mouse.up();
     await okSave;
 
-    // The callout moved INTO the Before column and left the top-level list.
     await expect
       .poll(
         async () => {

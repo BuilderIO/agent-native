@@ -18,8 +18,6 @@ import { contentSuggestionPath } from "../shared/suggestion-link.js";
 import { resolveDocumentAccess } from "./_document-access.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 
-// The editor's suggestion anchors carry 32 characters of context on each side
-// so a rebased proposal can still find its place after unrelated edits.
 const ANCHOR_CONTEXT_CHARS = 32;
 
 const suggestDocumentEditSchema = z.object({
@@ -183,9 +181,6 @@ export default defineAction({
     }
 
     const access = await resolveDocumentAccess(id);
-    // Mirror get-document's multi-organization resolver so the documented
-    // get-document → suggest-document-edit flow works for pages visible
-    // through a Content space in another organization.
     if (!access) {
       throw Object.assign(new Error(`Document "${id}" not found`), {
         statusCode: 404,
@@ -205,10 +200,6 @@ export default defineAction({
     const existing = access.resource;
     const content = existing.content ?? "";
 
-    // A retried call with the same key must return the first receipt even when
-    // the page moved underneath it: rebuilding from current content would
-    // produce a different request hash and mask the original result. Only an
-    // identical find/replace edit counts as the same logical request.
     const effectiveSummary =
       args.summary?.trim() ||
       (args.replace
@@ -230,8 +221,6 @@ export default defineAction({
           receipt.suggestion.resourceType !== "document" ||
           receipt.suggestion.resourceId !== id
         ) {
-          // The receipt may belong to a document this caller cannot read;
-          // never disclose its identity through a mismatch error.
           throw new ActionContractError(
             "This idempotencyKey was already used for a suggestion on a different page; use a fresh key.",
             {
@@ -295,8 +284,6 @@ export default defineAction({
         resourceType: "document",
         resourceId: id,
         adapterKind: "content.document-markdown",
-        // External callers pin the exact body they read; internal callers anchor
-        // to the body this action just resolved so the base is never stale-empty.
         baseRevision:
           args.baseRevision ||
           documentRevisionToken(existing.bodyRevision, content),
@@ -304,9 +291,6 @@ export default defineAction({
         idempotencyKey: args.idempotencyKey ?? crypto.randomUUID(),
         operations: [operation],
       },
-      // The document's own organization wins when it differs from the caller's
-      // active org, so the generic path's review access check resolves the same
-      // way the read above did.
       {
         ...(ctx as ActionRunContext),
         orgId:

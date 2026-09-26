@@ -30,20 +30,13 @@ use crate::meetings_watcher::{
     should_poll, MeetingsWatcherState, SessionCredentials, UnauthorizedRetry,
 };
 
-/// How often the background watcher polls `get-feature-flags` once it has
-/// fetched successfully at least once.
 const REMOTE_FLAGS_POLL_SECS: u64 = 60;
-/// How often it retries before the first successful fetch (e.g. while
-/// waiting for the renderer to push session credentials after app launch).
 const REMOTE_FLAGS_FAST_POLL_SECS: u64 = 5;
 
 fn default_false() -> bool {
     false
 }
 
-// Explicit `rename`s (not `rename_all = "camelCase"`) because serde's
-// case conversion would turn `sck` into `Sck`, not `SCK` — these must match
-// the JSON keys from the `get-feature-flags` action exactly.
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub(crate) struct RemoteFeatureFlags {
     #[serde(rename = "useCustomSCKPipeline", default = "default_false")]
@@ -69,23 +62,16 @@ fn cache() -> &'static Mutex<RemoteFeatureFlags> {
     CACHE.get_or_init(|| Mutex::new(RemoteFeatureFlags::default()))
 }
 
-/// Last-known-good flags. Synchronous — safe to call from the non-async
-/// backend-selection code paths that choose the capture pipeline.
 pub(crate) fn current() -> RemoteFeatureFlags {
     *cache().lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Distinguishes a 401 (the caller decides whether/how to back off) and "we
-/// never sent a request" from an ordinary transport/parse failure, so
-/// `spawn_watcher` can apply `UnauthorizedRetry` only to the case it's for.
 #[derive(Debug)]
 pub(crate) enum RefreshError {
     /// Neither a cookie nor a bearer token was available — the request was
     /// never sent, since it would just 401.
     NoCredentials,
-    /// The backend rejected the credentials we sent.
     Unauthorized,
-    /// Transport, non-401 HTTP status, or body-parse failure.
     Other(String),
 }
 
@@ -99,8 +85,6 @@ impl std::fmt::Display for RefreshError {
     }
 }
 
-/// Fetch `get-feature-flags` from the backend and update the in-memory cache
-/// on success. Best-effort: any failure just leaves the cache untouched.
 pub(crate) async fn refresh(
     client: &reqwest::Client,
     server_url: &str,
@@ -141,8 +125,6 @@ pub(crate) async fn refresh(
     Ok(())
 }
 
-/// Fire a best-effort refresh in the background without blocking the caller
-/// (e.g. recording start). No-ops silently without a server URL.
 pub(crate) fn spawn_refresh(
     server_url: Option<String>,
     cookie: Option<String>,

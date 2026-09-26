@@ -1,18 +1,16 @@
--- FIRST-PARTY ANALYTICS POSTGRES RETENTION PREVIEW - READ ONLY
---
--- This file intentionally contains no INSERT, UPDATE, DELETE, TRUNCATE, or DDL.
--- It reports only rows in the explicitly resolved Builder.io organization and
--- the exact 60-day window that was copied to BigQuery by the migration.
---
--- The candidate set excludes http.response because that event class was
--- intentionally omitted from the BigQuery backfill. Rows older than the
--- lookback window and legacy owner-only rows are reported separately and are
--- never included in the candidate count. Session replay, exception issues,
--- public-key metadata, rollups, alerts, and pressure data are reported as
--- preserved SQL rows; they are not deletion candidates.
--- The organization and owner values below are intentionally fake safe
--- defaults. Supply scoped values in a local copy or SQL-client parameters;
--- never commit real organization IDs or employee addresses here.
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 WITH params AS (
   SELECT

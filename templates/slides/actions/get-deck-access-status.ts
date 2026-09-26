@@ -66,8 +66,6 @@ export default defineAction({
       access = await resolveAccess("deck", deckId, currentAccess());
     } catch (error) {
       // coercion-ok: an access probe failure must fail closed as no access so
-      // the page stays gated while a separate fallback request capability
-      // keeps the owner-notification path available.
       accessProbeFailed = true;
       console.warn(
         "[slides] deck access probe failed; treating the deck as private:",

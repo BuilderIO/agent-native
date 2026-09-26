@@ -109,8 +109,6 @@ describe("MultiScreenCanvas auto-fit framing", () => {
   }
 
   it("centres an overflowing lineup instead of pinning it against one edge", async () => {
-    // Math.max(24, ...) turned the negative centring term into a 24px pin, so
-    // content wider than the surface hung off the opposite edge entirely.
     const view = await renderScreens([4000, 4000]);
     const totalWidth = 4000 + 120 + 4000;
     const expectedVisualLeft = (SURFACE_WIDTH - totalWidth * view.scale) / 2;
@@ -122,18 +120,12 @@ describe("MultiScreenCanvas auto-fit framing", () => {
   });
 
   it("never fits below the floor where the canvas paints nothing", async () => {
-    // A generated screen root can be 16384px wide; an honest fit of two of them
-    // lands near 2% and the surface reads as empty.
     const view = await renderScreens([16384, 16384], { height: 1304 });
     expect((800 - 180) / (16384 * 2 + 120)).toBeLessThan(0.1);
     expect(view.scale).toBeCloseTo(0.1, 6);
   });
 
   it("keeps the first frame clear of the left/right chrome insets", async () => {
-    // Without chromeInsetLeft/Right, centring against the raw surface width
-    // renders the frame (and its label) underneath the left shell chrome —
-    // real-world numbers: a 64px rail + 280px panel overlaps the first
-    // screen at the default overview viewport (alt-drag-duplicate-2).
     await renderScreens([200]);
     const chromeInsetLeft = 344;
     const chromeInsetRight = 60;
@@ -141,8 +133,6 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       chromeInsetLeft,
       chromeInsetRight,
     });
-    // The single screen sits at geometry.x = 0, so its on-screen left edge
-    // is exactly the world pan's x plus the padded-world offset.
     const frameScreenLeft = view.x + SURFACE_PADDING * view.scale;
     const frameScreenRight = frameScreenLeft + 200 * view.scale;
     expect(frameScreenLeft).toBeGreaterThanOrEqual(chromeInsetLeft);
@@ -152,10 +142,6 @@ describe("MultiScreenCanvas auto-fit framing", () => {
   });
 
   it("fits the initial camera to board objects when the design has no screens", async () => {
-    // A board-only design (no screens) skipped the lineup-recenter fit
-    // entirely (it bailed out on renderedScreens.length === 0), leaving the
-    // camera at its untouched default while the board's objects sat far from
-    // the origin — clicks, marquee, and Tab-cycling all missed them.
     const boardObjectLeft = 4000;
     const boardObjectTop = 3000;
     await act(async () => {
@@ -178,9 +164,6 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       );
     });
     const view = readView(container);
-    // The board object's on-screen centre must land inside the visible
-    // surface — proof the camera actually fit to it, not just that some
-    // transform was applied.
     const centreX =
       view.x + (SURFACE_PADDING + boardObjectLeft + 100) * view.scale;
     const centreY =

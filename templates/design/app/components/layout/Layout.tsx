@@ -56,14 +56,8 @@ export function useOpenMobileSidebar() {
   return useContext(MobileSidebarContext);
 }
 
-/** Routes that render with no app shell at all (no sidebar, no header). */
 const BARE_PREFIXES = ["/present/"];
 
-/**
- * Routes where the page renders its own toolbar instead of the global Header
- * on a standalone page. Embedded surfaces opt into this mode when they own
- * the canvas chrome.
- */
 const EDITOR_PREFIXES = ["/design/", "/visual-edit/", "/extensions"];
 
 type DesignLayoutMode = "host-bare" | "standalone-editor" | "app-shell";
@@ -99,7 +93,6 @@ export function Layout({ children }: LayoutProps) {
   const builderHostEmbed = isBuilderHostEmbed();
   const embedChromeRequested = isEmbedChromeRequested();
   // The shell canvas is embedded without a session, so this cannot be the token
-  // check alone or it renders Design's own nav inside Builder.
   const embedded = builderHostEmbed || isEmbedAuthActive();
   useNavigationState(hasSession);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -120,10 +113,6 @@ export function Layout({ children }: LayoutProps) {
     onComposerTextChange: handleComposerTextChange,
   } = useDetectedFigmaComposerLink();
 
-  // Bind chat to the currently-open design. Same pattern as slides — the
-  // route is `/design/:id` for the editor and `/present/:id` for preview
-  // (which we already short-circuit as BARE). Anywhere else (list,
-  // design-systems, settings) leaves scope null so general chats keep working.
   const designScope = useMemo(() => {
     const designId = designEditorRoute(location.pathname)?.designId;
     if (!designId) return null;

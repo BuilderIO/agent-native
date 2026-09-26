@@ -1,28 +1,3 @@
-/**
- * deploy-design-preview — trigger a preview deploy when the source supports it
- * (§6.6 of DESIGN-STUDIO-PLAN.md).
- *
- * Behaviour:
- * - **Capability gate (server-side):** re-checks `deployPreview` capability.
- *   When `unavailable` (inline/localhost), returns a `ctaRequired` response with a
- *   "Make it real" CTA — never fakes a deploy call.
- * - **Builder gate:** if `resolveIsBuilderBranchingEnabled()` returns false,
- *   returns a `connectRequired` CTA.
- * - **Branch requirement:** a branch must already exist on the design (created
- *   via `create-design-branch`).  If no branch is found, returns a clear
- *   `branchRequired` message rather than silently failing.
- * - **Deploy trigger:** calls `runBuilderAgent()` with a scoped "deploy preview"
- *   prompt asking the Builder cloud agent to build and publish a preview URL for
- *   the named branch.  Builder returns `{ branchName, url, status }`.
- * - **Persistence:** updates the matching branch entry in the design's `data`
- *   JSON blob with `previewUrl` and `deployStatus`.
- *
- * The preview URL is the Builder-hosted ephemeral preview (not a permanent
- * production deploy — use the Builder Visual Editor's Publish flow for that).
- *
- * Per DESIGN-STUDIO-PLAN.md §5, `deploy` (production) is the separate step;
- * `deployPreview` is the lighter "preview build" step exposed here.
- */
 
 import { defineAction } from "@agent-native/core/action";
 import {
@@ -34,7 +9,7 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
   resolveSourceCapabilities,
@@ -43,7 +18,6 @@ import {
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function parseDesignData(raw: unknown): Record<string, unknown> {
   if (typeof raw !== "string") return {};
@@ -86,7 +60,6 @@ function parseBranches(
   );
 }
 
-/** Build a concise deploy-preview prompt for the Builder cloud agent. */
 function buildDeployPrompt(
   designTitle: string,
   branchName: string,
@@ -100,7 +73,6 @@ function buildDeployPrompt(
   ].join("\n");
 }
 
-// ─── Action ───────────────────────────────────────────────────────────────────
 
 export default defineAction({
   description:
@@ -125,7 +97,6 @@ export default defineAction({
       ),
   }),
   run: async ({ designId, branchName }) => {
-    // ── Access check (editor level required for deploys) ────────────────────
     await assertAccess("design", designId, "editor");
     const access = await resolveAccess("design", designId);
     if (!access) throw new Error("Design not found");
@@ -135,14 +106,9 @@ export default defineAction({
       data?: unknown;
     };
 
-    // ── Source type + capability check ──────────────────────────────────────
     const designData = parseDesignData(resource.data);
     const sourceType = designSourceTypeFromData(designData);
 
-    // For fusion sources, resolve the Builder connection status first so that
-    // resolveFusionCapabilities returns the CONNECTED map (with deployPreview
-    // available) when Builder is actually wired up.  For inline/localhost the
-    // generic resolver is sufficient — those sources never have deployPreview.
     const builderEnabled =
       sourceType === "fusion"
         ? await resolveIsBuilderBranchingEnabled()
@@ -153,7 +119,6 @@ export default defineAction({
         : resolveSourceCapabilities(sourceType);
 
     if (!hasCapability(caps, "deployPreview")) {
-      // For a disconnected fusion source the connect-builder CTA applies.
       const isFusion = sourceType === "fusion";
       return {
         designId,
@@ -172,11 +137,7 @@ export default defineAction({
       };
     }
 
-    // At this point sourceType === "fusion" and builderEnabled === true,
-    // so no separate Builder gate is needed — the capability check above
-    // already required a connected Builder to set deployPreview=available.
 
-    // ── Resolve branch entry ─────────────────────────────────────────────────
     const branches = parseBranches(designData);
 
     let branch: StoredBranchEntry | null = null;
@@ -205,7 +166,6 @@ export default defineAction({
       };
     }
 
-    // ── Trigger the preview deploy via the Builder cloud agent ───────────────
     const projectId = await resolveBuilderBranchProjectId();
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("No authenticated user");
@@ -222,7 +182,6 @@ export default defineAction({
       userEmail,
     });
 
-    // ── Persist preview URL + deploy status into the branch entry ────────────
     const now = new Date().toISOString();
     const targetBranchName = branch.branchName;
     await mutateDesignData({

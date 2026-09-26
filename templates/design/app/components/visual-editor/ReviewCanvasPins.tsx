@@ -1335,8 +1335,6 @@ export function ReviewCanvasPins({
             });
             successfulThreadIds.push(migration.threadId);
           } catch {
-            // Keep the local anchor for stable rendering, but allow a later
-            // review refresh to retry persistence after a transient failure.
             migratedBoardAnchorIdsRef.current.delete(migration.threadId);
           }
         }
@@ -1349,7 +1347,6 @@ export function ReviewCanvasPins({
               return next;
             });
           } catch (error) {
-            // Keep the local anchor until a later refresh can reconcile it.
             console.warn(
               "[ReviewCanvasPins] board-anchor refresh failed",
               error,
@@ -2114,8 +2111,6 @@ export function ReviewCanvasPins({
   );
 
   if (hidden || !canvas) return null;
-  // Every live editor mounts one of these; reading the canvas rect during
-  // render forces a synchronous layout of the whole board on each commit.
   if (
     !active &&
     !draftPin &&

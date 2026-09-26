@@ -34,10 +34,8 @@ export interface PlanPublishAuth {
 
 const CONFIG_PATH_ENV = "PLAN_PUBLISH_CONFIG_PATH";
 
-/** Default hosted base URL surfaced to the user when no token is configured. */
 export const DEFAULT_PLAN_HOSTED_URL = "https://plan.agent-native.com";
 
-/** Absolute path to the publish config file for this process. */
 export function planPublishConfigPath(): string {
   return path.resolve(
     process.env[CONFIG_PATH_ENV] ??
@@ -87,10 +85,6 @@ export function resolvePlanHostedUrl(): string {
   return DEFAULT_PLAN_HOSTED_URL;
 }
 
-/**
- * Resolve `{ url, token }` for publishing, or `null` when no token is available
- * (i.e. the device has not connected an account yet).
- */
 export function resolvePlanPublishAuth(): PlanPublishAuth | null {
   const envToken = firstString(
     process.env.PLAN_PUBLISH_TOKEN,
@@ -114,7 +108,6 @@ export function resolvePlanPublishAuth(): PlanPublishAuth | null {
       rec.token,
       rec.accessToken,
       rec.bearerToken,
-      // Env token can still pair with a file URL.
       envToken,
     );
     const url = firstString(rec.url, rec.baseUrl, rec.hostedUrl, envUrl);
@@ -126,7 +119,6 @@ export function resolvePlanPublishAuth(): PlanPublishAuth | null {
   }
 }
 
-/** The command a user runs to connect an account for publishing. */
 export function planConnectCommand(hostedUrl: string): string {
   return `npx @agent-native/core@latest connect ${hostedUrl}`;
 }

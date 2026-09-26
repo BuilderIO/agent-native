@@ -25,7 +25,7 @@ import { useFormResponses } from "@/hooks/use-responses";
 import { normalizeFields } from "@/lib/normalize-fields";
 import { cn } from "@/lib/utils";
 
-type SortKey = "_submitted" | (string & {}); // string = field id
+type SortKey = "_submitted" | (string & {});
 type SortDir = "asc" | "desc";
 
 function valueAsString(val: unknown): string {
@@ -39,16 +39,10 @@ function valueAsString(val: unknown): string {
     : JSON.stringify(val);
 }
 
-/** Drop the protocol for a cleaner table cell; the full URL stays the link href. */
 function formatPageUrl(url: string): string {
   return url.replace(/^https?:\/\//, "");
 }
 
-/**
- * Only http(s) URLs are safe to use as an anchor href. Page URLs arrive from
- * client `_meta` and could be spoofed by a direct POST, so reject other schemes
- * (e.g. `javascript:`) to avoid a self-XSS when the owner clicks the cell.
- */
 function safeHttpUrl(value: string): string | null {
   try {
     const u = new URL(value);
@@ -58,7 +52,6 @@ function safeHttpUrl(value: string): string | null {
   }
 }
 
-/** Friendly label for the client-surface token forwarded by feedback embeds. */
 function formatClientSurface(surface: string): string {
   switch (surface) {
     case "electron":
@@ -73,7 +66,6 @@ function formatClientSurface(surface: string): string {
 }
 
 function compareValues(a: unknown, b: unknown): number {
-  // Empty values sort last regardless of direction.
   const aEmpty = a === undefined || a === null || a === "";
   const bEmpty = b === undefined || b === null || b === "";
   if (aEmpty && bEmpty) return 0;
@@ -513,7 +505,6 @@ export function ResponsesPage() {
                               <span className="text-muted-foreground">-</span>
                             );
                           const label = formatClientSurface(surface);
-                          // Make desktop submissions pop; web stays muted text.
                           return surface === "web" ? (
                             <span className="text-muted-foreground">
                               {label}

@@ -3,21 +3,6 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-/**
- * Lightweight, dependency-free markdown renderer for registry-block internals.
- *
- * Content's registry blocks (the core dev-doc / OpenAPI library) render their
- * own structured chrome and only defer short prose strings — an endpoint
- * description, a file-tree note, an annotated-code note — to
- * `ctx.renderMarkdown`. Those strings are simple inline markdown (bold, italic,
- * inline code, links) plus the occasional fenced code block. Rather than pull in
- * `react-markdown` + `remark-gfm` (not a content dependency), this renders that
- * narrow subset directly.
- *
- * It is intentionally NOT the document editor: block prose is small, read-mostly,
- * and lives inside the block's own surface. The authoritative document prose
- * still round-trips through `docToNfm` / `nfmToDoc` in `VisualEditor`.
- */
 
 type InlineSegment =
   | { kind: "text"; value: string }
@@ -26,16 +11,8 @@ type InlineSegment =
   | { kind: "em"; value: string }
   | { kind: "link"; value: string; href: string };
 
-/**
- * Parse a single line of inline markdown into styled segments. Handles inline
- * code (`` `x` ``), bold (`**x**`), italic (`*x*` / `_x_`), and links
- * (`[label](href)`). Inline code wins first so markup inside backticks stays
- * literal. Anything unmatched is plain text.
- */
 function parseInline(line: string): InlineSegment[] {
   const segments: InlineSegment[] = [];
-  // Order matters: code first (its contents are literal), then links, then
-  // bold (`**`/`__`) before italic (`*`/`_`) so `**` is not mis-split.
   const pattern =
     /(`[^`]+`)|(\[[^\]]+\]\([^)]+\))|(\*\*[^*]+\*\*|__[^_]+__)|(\*[^*]+\*|_[^_]+_)/g;
   let lastIndex = 0;
@@ -113,7 +90,6 @@ type Block =
   | { kind: "ol"; items: string[] }
   | { kind: "p"; lines: string[] };
 
-/** Split markdown source into coarse block-level chunks. */
 function parseBlocks(markdown: string): Block[] {
   const lines = markdown.replace(/\r\n/g, "\n").split("\n");
   const blocks: Block[] = [];
@@ -128,7 +104,6 @@ function parseBlocks(markdown: string): Block[] {
       continue;
     }
 
-    // Fenced code block.
     const fence = /^```(.*)$/.exec(trimmed);
     if (fence) {
       const code: string[] = [];
@@ -137,12 +112,11 @@ function parseBlocks(markdown: string): Block[] {
         code.push(lines[i]);
         i += 1;
       }
-      i += 1; // closing fence
+      i += 1;
       blocks.push({ kind: "code", code: code.join("\n") });
       continue;
     }
 
-    // Heading.
     const heading = /^(#{1,6})\s+(.*)$/.exec(trimmed);
     if (heading) {
       blocks.push({
@@ -154,7 +128,6 @@ function parseBlocks(markdown: string): Block[] {
       continue;
     }
 
-    // Unordered list.
     if (/^[-*+]\s+/.test(trimmed)) {
       const items: string[] = [];
       while (i < lines.length && /^[-*+]\s+/.test(lines[i].trim())) {
@@ -165,7 +138,6 @@ function parseBlocks(markdown: string): Block[] {
       continue;
     }
 
-    // Ordered list.
     if (/^\d+\.\s+/.test(trimmed)) {
       const items: string[] = [];
       while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
@@ -176,7 +148,6 @@ function parseBlocks(markdown: string): Block[] {
       continue;
     }
 
-    // Paragraph: consume consecutive non-blank, non-structural lines.
     const paragraph: string[] = [];
     while (i < lines.length) {
       const next = lines[i];
@@ -270,13 +241,6 @@ export function ContentBlockMarkdown({
   );
 }
 
-/**
- * Inline markdown field editor for the schema auto-editor's `markdown()`-tagged
- * fields. None of content's registered registry blocks currently reach this
- * (each ships a custom `Edit`), but the registry contract wires it for parity
- * and forward-compat. It is a plain controlled textarea so the raw markdown
- * round-trips losslessly through the block's `data`.
- */
 export function ContentBlockMarkdownEditor({
   value,
   onChange,

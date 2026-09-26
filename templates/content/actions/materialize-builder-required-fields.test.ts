@@ -309,8 +309,6 @@ describe("safe Builder required-field materialization", () => {
           },
         ] as never,
         snapshot,
-        // Quiet Comet's existing value may be a human edit. The idempotent
-        // repair seeds AI Shell's missing value but leaves Quiet Comet alone.
         existingDocumentIds: new Set(["doc-quiet-comet"]),
       }),
     ).toEqual([

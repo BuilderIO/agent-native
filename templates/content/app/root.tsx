@@ -55,9 +55,7 @@ import type {
   ShouldRevalidateFunctionArgs,
 } from "react-router";
 
-// Styled sonner wrapper — passed via AppProviders `toaster` prop to avoid duplicate.
 import { Toaster as Sonner } from "@/components/ui/sonner";
-// shadcn useToast-based toaster — separate from sonner, must stay inline.
 import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
@@ -114,7 +112,6 @@ export function shouldRevalidate({
   return formMethod ? defaultShouldRevalidate : false;
 }
 
-// Pass args to match content's 3-way theme-cycle UX (no disableTransitionOnChange).
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
 
 const LazyAgentSidebar = lazy(async () => {
@@ -414,15 +411,8 @@ export default function Root() {
     target.focus();
   }, []);
 
-  // Public document paths (/p/*) SSR real content without the ClientOnly gate
-  // so crawlers and unauthenticated visitors receive full markup on first visit.
   const isPublicPath = location.pathname.startsWith("/p/");
 
-  // Content's 3-way theme cycle (system/light/dark) animates the transition;
-  // pass disableThemeTransitions={false} to restore that behaviour.
-  // The styled Sonner is passed via `toaster` so only one sonner instance
-  // renders; the shadcn useToast-based <Toaster /> stays inline because it is
-  // a different toasting system.
   const contentToaster = <Sonner closeButton position="bottom-left" />;
 
   if (isPublicPath) {

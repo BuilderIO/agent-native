@@ -1,39 +1,5 @@
 import { test, expect, type Page, type APIResponse } from "@playwright/test";
 
-/*
- * ATOM SAFETY + UNDO/REDO — adversarial E2E for the single-document plan editor.
- *
- * Area under test: the new `keyboardGuard` ProseMirror plugin on the registry
- * block atom (`createRegistryBlockNode` in
- * packages/core/src/client/rich-markdown-editor/RegistryBlockNode.tsx) plus the
- * editor's undo/redo history. The whole plan body is ONE ProseMirror/Tiptap doc
- * rendered by `SharedRichEditor`, wrapper class `plan-document-editor-surface`,
- * contenteditable surface `.an-rich-md-prose`. Structured blocks are inline
- * `planBlock` NodeViews wrapped in `.plan-block-node[data-block-id=<id>]`; when a
- * block atom is the active `NodeSelection` the wrapper carries the attribute
- * `data-plan-block-selected=""` (RegistryBlockNodeView passes `props.selected`).
- *
- * The reported "module box" bug: with a structured block atom node-selected,
- * typing a printable character used to fall through to ProseMirror's default
- * "replace the selected atom with typed text" — which, combined with the doc↔
- * blocks bridge re-deriving a fresh `diagram` block from `empty()`, materialized
- * a STRAY default diagram whose seeded node graph is `{ nodes: [{ label:
- * "Module" }] }` (planBlocks.tsx diagram `empty()`), i.e. a "Module box". The
- * keyboardGuard plugin now `preventDefault`s printable keys (`handleKeyDown` +
- * `handleTextInput`), `Enter`, paste (`handlePaste`), and insert `beforeinput`
- * events while a registry-block atom is node-selected, so the atom and the doc
- * must be left untouched.
- *
- * Asserts CORRECT behavior. A FAILING assertion IS the bug it reports. In
- * particular `isMutatingKey` only treats single-character keys and `Enter` as
- * mutating; if any guarded surface still lets a keystroke / paste / Enter slip
- * through, the "no stray block / atom unchanged" assertions fail and pin exactly
- * that gap.
- *
- * Resilience: the shared dev server may HMR/reload mid-run; specs use web-first
- * auto-retrying expects, tolerate a stray reload, and avoid fixed sleeps where a
- * wait-for is possible. retries:2 is configured globally in playwright.config.ts.
- */
 
 const UPDATE_ACTION = "/_agent-native/actions/update-visual-plan";
 const CREATE_ACTION = "/_agent-native/actions/create-visual-plan";
@@ -66,11 +32,6 @@ async function readJson(res: APIResponse): Promise<Record<string, unknown>> {
   }
 }
 
-/**
- * Create a fresh plan fixture via the authed action surface; return its id. The
- * shared dev server can HMR/reload mid-request (a transient 500), so retry a few
- * times — a fixture hiccup must never read as the atom/undo bug under test.
- */
 async function createPlanFixture(
   page: Page,
   content: PlanContentInput,
@@ -102,7 +63,6 @@ async function createPlanFixture(
   return planId as string;
 }
 
-/** Read the current stored blocks for count / type / data assertions. */
 async function getPlanBlocks(page: Page, planId: string): Promise<PlanBlock[]> {
   const res = await page.request.get(
     `${GET_ACTION}?id=${encodeURIComponent(planId)}`,
@@ -113,7 +73,6 @@ async function getPlanBlocks(page: Page, planId: string): Promise<PlanBlock[]> {
   return plan.content?.blocks ?? [];
 }
 
-/** Read just one block's persisted `data` by id (null if missing). */
 async function getBlockData(
   page: Page,
   planId: string,
@@ -126,7 +85,6 @@ async function getBlockData(
   > | null;
 }
 
-/** The first rich-text block's persisted markdown (null if missing). */
 async function getRichTextMarkdown(
   page: Page,
   planId: string,
@@ -143,7 +101,6 @@ function proseFor(page: Page) {
     .first();
 }
 
-/** The inline `planBlock` NodeView wrapper for a given stored block id. */
 function blockNode(page: Page, blockId: string) {
   return page
     .locator(
@@ -152,7 +109,6 @@ function blockNode(page: Page, blockId: string) {
     .first();
 }
 
-/** Open the plan and wait for the editable single-document surface to be ready. */
 async function openPlanForEditing(page: Page, planId: string) {
   await page.goto(`/plans/${planId}`);
   const prose = proseFor(page);
@@ -163,30 +119,10 @@ async function openPlanForEditing(page: Page, planId: string) {
   return prose;
 }
 
-/**
- * Select a registry-block atom as a ProseMirror `NodeSelection`. Clicking a leaf
- * atom selects the node by default; we click the block, then confirm the node's
- * outer DOM gained the class `ProseMirror-selectednode`. ProseMirror applies that
- * class SYNCHRONOUSLY to a NodeView's wrapper element (here `.plan-block-node`,
- * the `NodeViewWrapper`) whenever it is the active `NodeSelection` — see the
- * `.plan-block-node.ProseMirror-selectednode` rules in plan's global.css. That is
- * the real, reliable selection marker. (The React-rendered
- * `data-plan-block-selected=""` attribute reflects the same state but only after
- * a React re-render propagates `props.selected`, so asserting on it races; the
- * class never does.) The inner read view is `contentEditable={false}`, so a click
- * lands on the atom and PM resolves a NodeSelection over it.
- *
- * RISK: if a future read view swallows the click (e.g. an interactive child
- * captures mousedown), the atom would not select — this helper would then time
- * out and that itself is worth surfacing. We click the wrapper chrome
- * (top-left), which is the non-interactive shell, not an inner control.
- */
 async function selectBlockAtom(page: Page, blockId: string) {
   const node = blockNode(page, blockId);
   await expect(node).toBeVisible({ timeout: 20_000 });
 
-  // Click the wrapper's chrome (top-left), which is the non-interactive shell,
-  // not an inner control.
   const box = await node.boundingBox();
   if (box) {
     await page.mouse.click(box.x + 6, box.y + 6);
@@ -194,20 +130,11 @@ async function selectBlockAtom(page: Page, blockId: string) {
     await node.click({ position: { x: 6, y: 6 } });
   }
 
-  // The selection signal is the `ProseMirror-selectednode` class ProseMirror puts
-  // on the node's wrapper element. Auto-retry briefly for the dispatched
-  // NodeSelection to settle.
   await expect(node).toHaveClass(/ProseMirror-selectednode/, {
     timeout: 8_000,
   });
 }
 
-/**
- * Live record of every `update-visual-plan` autosave POST. Attach BEFORE acting.
- * Each entry is the response status; an empty list after a guarded keystroke
- * proves the editor never even serialized a doc change (the strongest signal that
- * the guard suppressed the mutation, not merely that the save round-tripped).
- */
 type SaveWatch = { statuses: number[] };
 function watchSaves(page: Page): SaveWatch {
   const watch: SaveWatch = { statuses: [] };
@@ -219,13 +146,6 @@ function watchSaves(page: Page): SaveWatch {
   return watch;
 }
 
-/**
- * A plan with a leading prose block and a `diagram` atom whose node graph carries
- * a RECOGNIZABLE label (NOT the default "Module" seed). If the atom guard fails
- * and the doc↔blocks bridge re-derives a fresh diagram from `empty()`, the stray
- * block's graph is the default `{ nodes: [{ label: "Module" }] }` — so a "Module"
- * box appearing where our "KEEP-THIS-NODE" diagram was is the exact bug.
- */
 const DIAGRAM_BLOCK_ID = "diag-keep";
 const DIAGRAM_LABEL = "KEEP-THIS-NODE";
 const RT_BLOCK_ID = "rt-intro";
@@ -258,17 +178,6 @@ function atomFixtureContent(title: string): PlanContentInput {
   };
 }
 
-// HARNESS LIMITATION (fixme, not an app failure): these verify the keyboardGuard
-// protects a node-SELECTED registry atom (the "module box" class of bug). Driving
-// a real ProseMirror NodeSelection on a React NodeView atom is not reliable via
-// Playwright — this codebase only creates the NodeSelection programmatically
-// (RegistryBlockNode.tsx `setSelection(NodeSelection.create(...))`) and reflects it
-// via a React attribute, so a synthetic click does NOT node-select the atom and
-// `selectBlockAtom` can never confirm selection. The guard's behavior (block
-// printable keys / Enter / paste while an atom is node-selected, no stray "Module"
-// box) is better covered by a unit test in packages/core/src/client/rich-markdown-editor
-// — see the review note sent to the editor thread. Kept here as executable specs so
-// they can be un-fixme'd once the editor exposes a test seam for node-selection.
 test.describe
   .fixme("atom safety: keyboardGuard blocks mutation on a node-selected block", () => {
   test("typing a printable char with a diagram atom selected inserts NO stray block and leaves the atom data unchanged", async ({
@@ -279,8 +188,6 @@ test.describe
       atomFixtureContent(uniqueTitle("type-on-atom")),
     );
 
-    // Baseline: exactly [rich-text, diagram]; the diagram keeps OUR label, NOT
-    // the default "Module" seed.
     const before = await getPlanBlocks(page, planId);
     expect(before.map((b) => b.type)).toEqual(["rich-text", "diagram"]);
     const beforeData = await getBlockData(page, planId, DIAGRAM_BLOCK_ID);
@@ -288,25 +195,17 @@ test.describe
     expect(JSON.stringify(beforeData)).not.toContain("Module");
 
     await openPlanForEditing(page, planId);
-    // The diagram renders its node label verbatim (SketchDiagram → {node.label}).
     const node = blockNode(page, DIAGRAM_BLOCK_ID);
     await expect(node).toContainText(DIAGRAM_LABEL, { timeout: 20_000 });
 
     const saves = watchSaves(page);
     await selectBlockAtom(page, DIAGRAM_BLOCK_ID);
 
-    // Type printable characters while the atom is node-selected. The guard's
-    // handleKeyDown / handleTextInput / beforeinput must each preventDefault, so
-    // NOTHING is inserted and the atom is not replaced.
     await page.keyboard.type("xyz", { delay: 30 });
-    // Also try a single space and a letter that, unguarded, would replace the
-    // atom and the bridge would re-seed a default "Module" diagram.
     await page.keyboard.press("a");
 
-    // Give any (erroneous) autosave a beat to fire, then assert nothing landed.
     await page.waitForTimeout(1500);
 
-    // (a) No new block appeared and the diagram atom is still the second block.
     await expect
       .poll(
         async () => (await getPlanBlocks(page, planId)).map((b) => b.type),
@@ -316,8 +215,6 @@ test.describe
       )
       .toEqual(["rich-text", "diagram"]);
 
-    // (b) The atom's data is byte-identical: still our label, never the default
-    // "Module" seed and never the typed characters.
     const afterData = await getBlockData(page, planId, DIAGRAM_BLOCK_ID);
     expect(
       JSON.stringify(afterData),
@@ -326,24 +223,18 @@ test.describe
       )} after=${JSON.stringify(afterData)}`,
     ).toBe(JSON.stringify(beforeData));
     expect(JSON.stringify(afterData)).not.toContain("Module");
-    // The typed characters must not have landed in the atom's data anywhere.
     expect(JSON.stringify(afterData)).not.toContain("xyz");
 
-    // (c) No stray "Module" box rendered anywhere in the document.
     await expect(
       page
         .locator(".plan-document-editor-surface .plan-block-node")
         .filter({ hasText: "Module" }),
     ).toHaveCount(0);
 
-    // (d) The leading prose is untouched too (the typed keys didn't leak into it).
     expect(await getRichTextMarkdown(page, planId, RT_BLOCK_ID)).toBe(
       "Intro paragraph above the diagram.",
     );
 
-    // (e) Strongest signal: a correctly-guarded keystroke serializes NO doc change
-    // at all, so the autosave surface stays silent. (If anything DID mutate, the
-    // editor would have fired at least one replace-blocks POST.)
     expect(
       saves.statuses,
       `guarded keystrokes must not trigger an autosave; saw statuses=[${saves.statuses.join(
@@ -367,14 +258,10 @@ test.describe
     const saves = watchSaves(page);
     await selectBlockAtom(page, DIAGRAM_BLOCK_ID);
 
-    // Enter is explicitly listed as a mutating key in `isMutatingKey`, so the
-    // guard must preventDefault it. Unguarded, Enter on a NodeSelection inserts a
-    // paragraph after the atom (and can re-trigger the bridge re-derivation).
     await page.keyboard.press("Enter");
     await page.keyboard.press("Enter");
     await page.waitForTimeout(1200);
 
-    // The block list is unchanged — no stray block, no re-derived "Module" diagram.
     await expect
       .poll(
         async () => (await getPlanBlocks(page, planId)).map((b) => b.type),
@@ -391,7 +278,6 @@ test.describe
         .locator(".plan-document-editor-surface .plan-block-node")
         .filter({ hasText: "Module" }),
     ).toHaveCount(0);
-    // Enter on a guarded atom serializes no change → no autosave.
     expect(
       saves.statuses,
       `Enter on a node-selected atom must not autosave; statuses=[${saves.statuses.join(
@@ -414,7 +300,6 @@ test.describe
     await openPlanForEditing(page, planId);
     const saves = watchSaves(page);
 
-    // Stage clipboard text that, if pasted onto the atom, would replace it.
     const pasted = "PASTED-INTO-ATOM-SHOULD-NOT-LAND";
     await page.evaluate(async (text) => {
       await navigator.clipboard.writeText(text).catch(() => {});
@@ -422,11 +307,9 @@ test.describe
 
     await selectBlockAtom(page, DIAGRAM_BLOCK_ID);
 
-    // The guard's `handlePaste` must preventDefault while the atom is selected.
     await page.keyboard.press("ControlOrMeta+V");
     await page.waitForTimeout(1500);
 
-    // No pasted text leaked into any block, no stray block, atom data intact.
     await expect
       .poll(
         async () => (await getPlanBlocks(page, planId)).map((b) => b.type),
@@ -451,7 +334,6 @@ test.describe
         .locator(".plan-document-editor-surface .plan-block-node")
         .filter({ hasText: "Module" }),
     ).toHaveCount(0);
-    // A guarded paste serializes no change → no autosave.
     expect(
       saves.statuses,
       `paste on a node-selected atom must not autosave; statuses=[${saves.statuses.join(
@@ -463,10 +345,6 @@ test.describe
   test("dedupe: a SECOND block keeps its own id and data when an atom is selected and typed on (no id collision / data bleed)", async ({
     page,
   }) => {
-    // Two diagram atoms with DISTINCT labels. Selecting one and (attempting to)
-    // mutate it must not cause the dedupe plugin to re-mint or cross-wire the
-    // OTHER atom's id/data. This guards the dedupe + keyboardGuard interaction:
-    // a no-op guarded keystroke must not perturb sibling atoms.
     const planId = await createPlanFixture(page, {
       version: 2,
       title: uniqueTitle("two-atoms"),
@@ -502,14 +380,12 @@ test.describe
     await page.waitForTimeout(1200);
 
     const blocks = await getPlanBlocks(page, planId);
-    // Both ids survive, each with its OWN label (no re-mint, no data bleed).
     const one = blocks.find((b) => b.id === "diag-one");
     const two = blocks.find((b) => b.id === "diag-two");
     expect(one, "diag-one still present by id").toBeTruthy();
     expect(two, "diag-two still present by id").toBeTruthy();
     expect(JSON.stringify(one?.data)).toContain("ALPHA-DIAGRAM");
     expect(JSON.stringify(two?.data)).toContain("BETA-DIAGRAM");
-    // No bleed, no default-seed "Module" box.
     expect(JSON.stringify(one?.data)).not.toContain("BETA-DIAGRAM");
     expect(JSON.stringify(blocks)).not.toContain("Module");
     expect(JSON.stringify(blocks)).not.toContain("zzz");
@@ -535,35 +411,26 @@ test.describe("undo / redo restores the document", () => {
     });
     const prose = await openPlanForEditing(page, planId);
 
-    // Type a recognizable token at the end of the prose.
     const typed = " UNDOABLE-EDIT";
     await prose.getByText("Original sentence.").click();
     await page.keyboard.press("End");
     await page.keyboard.type(typed, { delay: 15 });
 
-    // Optimistic render: the edit appears in the editor immediately.
     await expect(prose).toContainText("UNDOABLE-EDIT", { timeout: 5_000 });
 
-    // It also persists (autosave is per-keystroke replace-blocks).
     await expect
       .poll(async () => await getRichTextMarkdown(page, planId, RT_BLOCK_ID), {
         timeout: 15_000,
       })
       .toContain("UNDOABLE-EDIT");
 
-    // Undo. The editor uses the ProseMirror/Tiptap history; Mod+Z undoes the last
-    // input group. Repeat a few times to coalesce any per-character history steps,
-    // then assert the typed token is gone from the DOM.
-    // Keep focus in the prose; undo via the editor's ProseMirror/Tiptap history.
     await prose.click();
     for (let i = 0; i < 12; i += 1) {
       await page.keyboard.press("ControlOrMeta+z");
     }
     await expect(prose).not.toContainText("UNDOABLE-EDIT", { timeout: 8_000 });
-    // The original text survives the undo (we didn't undo past the seed).
     await expect(prose).toContainText("Original sentence", { timeout: 8_000 });
 
-    // Undo writes a NEW doc state → autosaves it; the persisted markdown must drop
     // the token. (If undo only mutated the DOM without re-serializing, this fails.)
     await expect
       .poll(async () => await getRichTextMarkdown(page, planId, RT_BLOCK_ID), {
@@ -571,7 +438,6 @@ test.describe("undo / redo restores the document", () => {
       })
       .not.toContain("UNDOABLE-EDIT");
 
-    // Redo re-applies the edit (the token comes back) and re-persists.
     for (let i = 0; i < 12; i += 1) {
       await page.keyboard.press("ControlOrMeta+y");
       await page.keyboard.press("ControlOrMeta+Shift+z");
@@ -587,11 +453,6 @@ test.describe("undo / redo restores the document", () => {
   test("EDGE: undo after editing deep inside a nested list item restores that leaf exactly", async ({
     page,
   }) => {
-    // A rich-text block whose markdown is a NESTED bullet list — the deepest leaf
-    // is an indented sub-item. Editing that leaf and undoing must restore the
-    // nested structure, not flatten or corrupt it. This exercises an undo across a
-    // deep ProseMirror leaf node (listItem > paragraph), the kind of nested region
-    // the task calls out.
     const nestedMarkdown = [
       "- Top item one",
       "- Top item two",
@@ -613,13 +474,10 @@ test.describe("undo / redo restores the document", () => {
     });
     const prose = await openPlanForEditing(page, planId);
 
-    // The nested list rendered with all four items.
     await expect(prose).toContainText("Nested leaf A", { timeout: 15_000 });
     await expect(prose).toContainText("Nested leaf B");
 
-    // Place the caret at the END of the deepest leaf ("Nested leaf B") and append
     // a token to that specific leaf. Clicking the text node, then Control+End would
-    // jump to the doc end, so click directly into the leaf and use End (line end).
     const leafB = prose
       .locator("li")
       .filter({ hasText: "Nested leaf B" })
@@ -630,13 +488,11 @@ test.describe("undo / redo restores the document", () => {
     const leafToken = "-DEEPEDIT";
     await page.keyboard.type(leafToken, { delay: 15 });
 
-    // The leaf now carries the token; sibling leaves are untouched.
     await expect(leafB).toContainText("Nested leaf B-DEEPEDIT", {
       timeout: 5_000,
     });
     await expect(prose).toContainText("Nested leaf A");
 
-    // Persist check: the appended token reached SQL inside the nested list markdown.
     await expect
       .poll(async () => await getRichTextMarkdown(page, planId, RT_BLOCK_ID), {
         timeout: 15_000,
@@ -644,14 +500,11 @@ test.describe("undo / redo restores the document", () => {
       .toContain("Nested leaf B-DEEPEDIT");
 
     // Undo the leaf edit. The nested list must be restored EXACTLY — the token
-    // gone, all four items present, and the indentation/structure intact.
     await prose.click();
     for (let i = 0; i < 12; i += 1) {
       await page.keyboard.press("ControlOrMeta+z");
     }
     await expect(prose).not.toContainText("DEEPEDIT", { timeout: 8_000 });
-    // All four original items survive — undo restored the nested region, not a
-    // flattened or truncated doc.
     for (const item of [
       "Top item one",
       "Top item two",
@@ -661,9 +514,6 @@ test.describe("undo / redo restores the document", () => {
       await expect(prose).toContainText(item, { timeout: 8_000 });
     }
 
-    // The persisted markdown is restored to the original nested list (token gone),
-    // and the nesting is preserved (an indented "Nested leaf B" line, two leading
-    // spaces, with no trailing edit token).
     await expect
       .poll(async () => await getRichTextMarkdown(page, planId, RT_BLOCK_ID), {
         timeout: 15_000,
@@ -680,9 +530,6 @@ test.describe("undo / redo restores the document", () => {
   test("EDGE: undo of an edit made AFTER a structured atom restores the prose without disturbing the atom", async ({
     page,
   }) => {
-    // Prose + a labelled diagram atom + trailing prose. Edit the trailing prose,
-    // then undo: the prose edit reverts while the diagram atom (and its data) stays
-    // exactly as seeded. Undo must not "reach into" or re-derive the atom.
     const planId = await createPlanFixture(page, {
       version: 2,
       title: uniqueTitle("undo-after-atom"),
@@ -717,11 +564,7 @@ test.describe("undo / redo restores the document", () => {
     );
     const atomBefore = await getBlockData(page, planId, DIAGRAM_BLOCK_ID);
 
-    // Edit at the very end of the post-atom tail prose run. Click directly on the
-    // tail paragraph's TEXT (centre of the run, which is inside the editable text
-    // node) so the caret lands in this specific block — clicking the far-right
     // empty edge can drop the caret outside the text node, so the token never
-    // lands. Then press End to move to the end of that line before typing.
     const tailParagraph = prose
       .locator("p")
       .filter({ hasText: "Tail prose to edit." })
@@ -738,7 +581,6 @@ test.describe("undo / redo restores the document", () => {
       })
       .toContain("TAIL-EDIT-TOKEN");
 
-    // Undo the tail edit.
     await tailParagraph.click();
     for (let i = 0; i < 12; i += 1) {
       await page.keyboard.press("ControlOrMeta+z");
@@ -747,8 +589,6 @@ test.describe("undo / redo restores the document", () => {
       timeout: 8_000,
     });
 
-    // The diagram atom is untouched: same data, same single block, label intact,
-    // and crucially NOT re-seeded to the default "Module" graph.
     await expect
       .poll(
         async () => (await getPlanBlocks(page, planId)).map((b) => b.type),
@@ -765,7 +605,6 @@ test.describe("undo / redo restores the document", () => {
     expect(JSON.stringify(atomAfter)).toContain(DIAGRAM_LABEL);
     expect(JSON.stringify(atomAfter)).not.toContain("Module");
 
-    // And the tail prose reverted to its seed.
     await expect
       .poll(async () => await getRichTextMarkdown(page, planId, "rt-tail"), {
         timeout: 15_000,

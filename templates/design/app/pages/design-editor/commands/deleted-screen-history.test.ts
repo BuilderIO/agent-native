@@ -740,8 +740,6 @@ describe("screen deletion history identity", () => {
     );
     expect(fileDeletionRedoStackRef.current).toHaveLength(1);
 
-    // This is the first baseline failure: runDeleteFiles discarded this edit
-    // because its file-scoped history still names the deleted id.
     expect(contentUndoStackRef.current).toHaveLength(1);
     const restoredChange = contentUndoStackRef
       .current[0] as ContentHistoryChange;

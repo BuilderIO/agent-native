@@ -48,13 +48,6 @@ export type SlideContentEdit =
 
 export class SlideContentEditError extends Error {
   readonly code = "slide_content_edit_failed";
-  // Every failure here names the caller's mistake — an unmatched `find`, a bad
-  // occurrence, an expectedMatches miss. The action route flattens any error it
-  // cannot recognise to "Internal server error", so without these three fields
-  // the agent is told the server broke and retries the identical arguments
-  // instead of re-reading the slide. Duck-typed to match `isActionContractError`
-  // rather than importing `fail()`, which would pull the action layer into a lib
-  // the editor also imports.
   readonly actionContractError = true;
   readonly errorCode = "slide_content_edit_failed";
   readonly statusCode = 400;
@@ -72,10 +65,6 @@ export interface SlideContentPatchResult {
   changed: boolean;
 }
 
-/**
- * Applies every edit to an in-memory string before the caller persists it.
- * A failed edit throws, so callers never write a partially applied patch list.
- */
 export async function applySlideContentEdits(
   currentContent: string,
   edits: readonly SlideContentEdit[],
@@ -105,10 +94,6 @@ export async function applySlideContentEdits(
 
 export async function formatSlideHtml(content: string): Promise<string> {
   try {
-    // prettier's main entry `import()`s all 13 parser plugins, so a bundler
-    // inlines ~3.5MB of flow/typescript/yaml/markdown parsers just to format
-    // HTML. Load the standalone core plus only the plugins the HTML printer
-    // reaches, which still formats embedded <style> and <script>.
     const [{ format }, ...plugins] = await Promise.all([
       import("prettier/standalone"),
       import("prettier/plugins/html"),
@@ -729,9 +714,6 @@ function applyInsert(
     throw new SlideContentEditError("Patch find/marker text cannot be empty");
   }
 
-  // Only pass occurrence when the caller actually gave one — defaulting it
-  // here would suppress the helper's ambiguity check for a repeated marker
-  // and silently insert at the first hit.
   const result = findTargetedMatches(content, edit.marker, {
     occurrence: edit.occurrence,
   });
@@ -753,9 +735,6 @@ function applyInsert(
     );
   }
 
-  // occurrence, if given, was already validated (positive integer, in range)
-  // by findTargetedMatches above — an out-of-range value returns
-  // "occurrence_out_of_range" and is handled in the !result.ok branch.
   const occurrence = edit.occurrence ?? 1;
   const match = matches[occurrence - 1]!;
   const insertAt = edit.op === "insert-before" ? match.index : match.end;
@@ -766,9 +745,6 @@ function applyInsert(
   };
 }
 
-/** A literal-find edit is a no-op (not an error) on zero matches when the
- * caller either asserted `expectedMatches: 0` or opted out with
- * `required: false` and didn't assert a count at all. */
 function isCountedNoOp(edit: {
   expectedMatches?: number;
   required?: boolean;
@@ -779,13 +755,6 @@ function isCountedNoOp(edit: {
   );
 }
 
-/**
- * Shared not-found / ambiguous / invalid-occurrence / out-of-range reporting
- * for the literal-find ops (replace, insert-before, insert-after). Always
- * throws — callers check the `required`/`expectedMatches` no-op case
- * themselves before reaching here (and only for a true "not_found": matches
- * exist for "occurrence_out_of_range", so that is never a no-op).
- */
 function throwLiteralMatchFailure(
   op: string,
   result: Extract<TargetedMatchesResult, { ok: false }>,
@@ -802,8 +771,6 @@ function throwLiteralMatchFailure(
     );
   }
   if (result.reason === "occurrence_out_of_range") {
-    // Restores the pre-helper validation order: an expectedMatches mismatch
-    // against the REAL total count is reported before the occurrence miss.
     if (
       expectedMatches !== undefined &&
       result.matchCount !== expectedMatches
@@ -825,11 +792,6 @@ function throwLiteralMatchFailure(
   );
 }
 
-// Candidate/ambiguous text below is echoed from the user's own slide
-// content, not a system diagnostic — wrap it so production-agent's
-// permanent-precondition classifier (broad phrases like "no authenticated
-// user", column-0-anchored) never mistakes quoted file content for a real
-// signal and stops the turn on a false positive.
 function formatCandidates(candidates: TargetedCandidate[]): string {
   if (candidates.length === 0) return "";
   const lines = candidates.map((c) => `line ${c.line}: ${c.text}`).join("\n");
@@ -876,11 +838,6 @@ function applyRegexReplace(
   edit: Extract<SlideContentEdit, { op: "regex-replace" }>,
 ): { content: string; summary: string } {
   const flags = normalizeRegexFlags(edit.flags, edit.all);
-  // `matchAll` over slide HTML is unbounded work for a pattern that backtracks
-  // exponentially, and nothing can interrupt it once V8 is inside the match.
-  // Name the mistake so the agent rewrites the pattern instead of retrying it.
-  // The flags are part of the verdict: `^(a|A)+$` is unambiguous on its own and
-  // catastrophic under `i`.
   const verdict = analyzeRegexSource(edit.pattern, flags, {
     inputBounded: false,
   });

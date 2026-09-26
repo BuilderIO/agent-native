@@ -30,7 +30,6 @@ describe("ASPECT_RATIOS constants", () => {
       const r = ASPECT_RATIOS[key];
       const pxRatio = r.width / r.height;
       const inRatio = r.pptxInches.w / r.pptxInches.h;
-      // allow tiny float drift (16:9 inches are 13.33/7.5 = 1.777..)
       expect(Math.abs(pxRatio - inRatio)).toBeLessThan(0.01);
     }
   });
@@ -74,8 +73,6 @@ describe("getAspectRatioDims", () => {
   });
 
   it("falls back to 16:9 for an unknown string at runtime", () => {
-    // Cast through unknown so the test is honest about runtime safety,
-    // not just compile-time safety.
     const bogus = "21:9" as unknown as AspectRatio;
     expect(getAspectRatioDims(bogus)).toBe(ASPECT_RATIOS["16:9"]);
   });

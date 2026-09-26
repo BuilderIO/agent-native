@@ -7,13 +7,6 @@ vi.mock("sonner", () => ({
 
 import { runRedo } from "@/pages/design-editor/commands/redo";
 
-/**
- * Redo preserves selection history while the deleted file is dormant in the
- * redo stack. Undoing that deletion can recreate it under a new id and remap
- * these original selection snapshots; pruning them at redo time would lose
- * that history. `preserveHistory` tells the shared delete action to retain the
- * stacks during this replay.
- */
 function sharedRefs() {
   return {
     redoOrderRef: {
@@ -46,7 +39,6 @@ function sharedRefs() {
     selectionUndoStackRef: {
       current: [
         {
-          // Mixed entry remains intact while screen-a is dormant.
           before: {
             overviewSelectedScreenIds: ["screen-a"],
             selectedLayerIds: ["screen-a"],
@@ -59,7 +51,6 @@ function sharedRefs() {
           },
         },
         {
-          // A screen-a-only entry remains available for a later undo restore.
           before: {
             overviewSelectedScreenIds: ["screen-a"],
             selectedLayerIds: [],
@@ -128,8 +119,6 @@ function commonArgs(refs: ReturnType<typeof sharedRefs>) {
     pendingVisualStyleEditsRef: { current: [] },
     pendingVisualStyleRedoStackRef: { current: [] },
     pendingVisualStyleUndoStackRef: { current: [] },
-    // Redo re-deletes under the SAME ids it was handed — no renaming, unlike
-    // undo's createFileMutation recreate.
     performDeleteFiles: vi.fn((filesToDelete, options) => {
       options?.onMutationSettled?.(filesToDelete, [], filesToDelete);
     }),

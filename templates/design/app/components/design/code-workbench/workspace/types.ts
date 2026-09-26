@@ -1,11 +1,3 @@
-/**
- * Workspace provider contract for the code workbench.
- *
- * A provider is one workspace root in the explorer: the design's SQL-backed
- * files (`inline`) or a connected local app's real files (`localhost`).
- * Future remote-container sources become additional providers implementing
- * this same interface.
- */
 
 export type WorkspaceRootKind = "inline" | "localhost";
 
@@ -17,7 +9,6 @@ export interface WorkspaceCapabilities {
 }
 
 export interface WorkspaceFileEntry {
-  /** Root-relative path, `/`-separated, no leading slash. */
   path: string;
   displayName?: string;
   fileId?: string;
@@ -38,22 +29,13 @@ export interface WorkspaceWriteResult {
 }
 
 export interface WorkspaceProvider {
-  /** Stable key: `inline:<designId>` or `localhost:<connectionId>`. */
   key: string;
   kind: WorkspaceRootKind;
-  /** Explorer section label, e.g. "Design files" or the local app name. */
   label: string;
-  /** Absolute connected folder path, shown only as local workspace context. */
   rootPath?: string;
   capabilities: WorkspaceCapabilities;
   listFiles(): Promise<WorkspaceFileEntry[]>;
   readFile(path: string): Promise<WorkspaceReadResult>;
-  /**
-   * Persist content. Implementations own their concurrency story (the inline
-   * provider chains preview-source-edit → apply-source-edit with version
-   * hashes). Throws on failure; throws WorkspaceStaleVersionError when the
-   * file changed underneath the caller.
-   */
   writeFile(
     path: string,
     content: string,
@@ -73,7 +55,6 @@ export class WorkspaceStaleVersionError extends Error {
 
 const URI_SEPARATOR = "::";
 
-/** Workbench-internal uri: `<providerKey>::<path>`. */
 export function workbenchUri(providerKey: string, path: string): string {
   return `${providerKey}${URI_SEPARATOR}${path.replace(/^\/+/, "")}`;
 }

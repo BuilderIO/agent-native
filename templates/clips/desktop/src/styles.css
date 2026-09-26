@@ -1,14 +1,11 @@
-/* Clips tray popover — Loom-style layout, Clips brand, dark/light modes. */
 
 :root {
   color-scheme: light dark;
 
-  /* Clips brand */
   --brand: #1a1a1a;
   --brand-hover: #2e2e2e;
   --brand-ring: rgba(26, 26, 26, 0.28);
 
-  /* Light palette */
   --bg: #ffffff;
   --surface: #f7f7f7;
   --surface-hover: #f0f0f0;
@@ -25,10 +22,6 @@
   --radius: 12px;
   --radius-sm: 8px;
   --radius-pill: 999px;
-  /* Transparent apron reserved for CSS-painted shadows on the overlays that
-     still use them (bubble, countdown). The popover and other converted
-     windows are sized to their content exactly and use the native NSWindow
-     shadow instead. */
   --overlay-shadow-gutter: 18px;
 
   --shadow-sm: 0 1px 2px rgba(23, 23, 23, 0.06);
@@ -54,7 +47,6 @@
     --border-strong: #4d4d4d;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
-    /* Invert brand on dark bg: zinc-900 would disappear, use zinc-100. */
     --brand: #f5f5f5;
     --brand-hover: #e5e5e5;
     --brand-ring: rgba(245, 245, 245, 0.28);
@@ -65,8 +57,6 @@
   box-sizing: border-box;
 }
 
-/* The main Tauri window is transparent and chromeless, so the HTML paints the
-   visible rounded popover while macOS supplies its shadow. */
 html,
 body {
   margin: 0;
@@ -113,9 +103,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   overflow: hidden;
 }
 
-/* ------------------------------------------------------------------------- */
-/* App shell                                                                  */
-/* ------------------------------------------------------------------------- */
 
 .app {
   margin: 0;
@@ -125,11 +112,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   gap: 14px;
   background: var(--bg);
   border: 1px solid var(--border);
-  /* The rounded corners shape the native NSWindow shadow — the window is
-     sized to this panel exactly, so a CSS box-shadow would just clip. */
   border-radius: 14px;
-  /* No fixed height — the Tauri window is resized to match the rendered
-     content via resize_popover, so the shell just flows naturally. */
   max-height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
@@ -143,9 +126,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   overflow: hidden;
 }
 
-/* Recorder Home keeps its navigation present even when active-recording
-   content exceeds the restored popover height. Only the content region may
-   scroll; the window shell and bottom destinations stay put. */
 .app-recorder {
   position: relative;
   gap: 0;
@@ -174,7 +154,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: var(--bg);
 }
 
-/* Header — centered capture-mode toggle */
 
 .header {
   display: grid;
@@ -184,13 +163,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 0 2px;
 }
 
-/* Center the mode toggle independently of the popover's content width. */
 .header .mode-toggle {
   justify-self: center;
 }
 
-/* Keep the capture modes visually centered inside the popover. Dismissal is
-   owned by the menubar toggle rather than a second close affordance. */
 .header.header-centered {
   position: relative;
   display: flex;
@@ -318,9 +294,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   box-shadow: 0 0 0 2px var(--brand-ring);
 }
 
-/* ------------------------------------------------------------------------- */
-/* Feedback popover                                                           */
-/* ------------------------------------------------------------------------- */
 
 .feedback-popover-content {
   width: min(320px, calc(100vw - 36px));
@@ -489,9 +462,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* ------------------------------------------------------------------------- */
-/* Source / device rows                                                       */
-/* ------------------------------------------------------------------------- */
 
 .panel {
   display: flex;
@@ -571,7 +541,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font-size: 13px;
 }
 
-/* Radix device picker trigger — the menu owns keyboard and focus behavior. */
 .row-button {
   width: 100%;
   min-width: 0;
@@ -599,9 +568,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .row-label {
-  /* Never shrink the label — the wave line gives up space first so the device
-     name always stays fully visible. Cap + ellipsis only for pathological
-     long names. */
   flex: 0 0 auto;
   max-width: 60%;
   overflow: hidden;
@@ -615,8 +581,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   cursor: default;
 }
 
-/* Flexible filler between the label and the chevron when there's no meter
-   (camera rows / mic off) — keeps the chevron pinned to the right. */
 .row-flex {
   flex: 1 1 auto;
 }
@@ -627,16 +591,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   flex-shrink: 0;
 }
 
-/* Live mic level meter — a single wave line driven by real audio, sitting
-   inline between the device label and the chevron. The ends are masked so the
-   line fades in/out instead of butting against the label or chevron. */
 .mic-wave {
   flex: 1 1 auto;
   min-width: 0;
   align-self: stretch;
   margin: 0 4px;
   pointer-events: none;
-  /* Soft fade at both ends so the line reads as ambient, not boxed-in. */
   -webkit-mask-image: linear-gradient(
     to right,
     transparent 0,
@@ -662,18 +622,13 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .mic-wave-path {
   fill: none;
-  /* Matches the recording pill's mic waveform accent. */
   stroke: rgba(74, 222, 128, 0.95);
   stroke-width: 1.25;
   stroke-linecap: round;
   stroke-linejoin: round;
-  /* Keep the line crisp regardless of the non-uniform x-stretch. */
   vector-effect: non-scaling-stroke;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Primary CTA                                                                */
-/* ------------------------------------------------------------------------- */
 
 .primary {
   width: 100%;
@@ -760,14 +715,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   z-index: 0;
   border-radius: inherit;
   pointer-events: none;
-  /* The CTA reverses foreground/background in dark mode; invert the shared
-     foreground shine so the sweep stays visible on either button fill. */
   filter: invert(1);
 }
 
-/* ------------------------------------------------------------------------- */
-/* Readiness disclosure                                                       */
-/* ------------------------------------------------------------------------- */
 
 .recorder-disclosures {
   display: flex;
@@ -1109,11 +1059,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* Active-recording state on the primary button: softened orange-red
-   (Tailwind orange-700) — semantic "recording is live" without the harsh
-   pure-red assault. White square icon + live pulsing dot still read as
-   "stop". Hover stays the same shade (no brighten-on-hover) to keep the
-   affordance calm. */
 .primary.start.rec-active {
   background: #c2410c;
   color: #fff;
@@ -1160,9 +1105,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* ------------------------------------------------------------------------- */
-/* Bottom quick-actions row                                                   */
-/* ------------------------------------------------------------------------- */
 
 .bottom-row {
   display: flex;
@@ -1286,9 +1228,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font-size: 11px;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Popover drill-in views                                                     */
-/* ------------------------------------------------------------------------- */
 
 .app-popover-view {
   gap: 0;
@@ -1686,9 +1625,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   box-shadow: 0 0 0 2px var(--bg);
 }
 
-/* ------------------------------------------------------------------------- */
-/* Recent list (collapsible)                                                  */
-/* ------------------------------------------------------------------------- */
 
 .recent-list {
   display: flex;
@@ -1753,9 +1689,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   margin-top: 1px;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Footer                                                                     */
-/* ------------------------------------------------------------------------- */
 
 .footer {
   display: flex;
@@ -1788,9 +1721,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   text-decoration: underline;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Setup overlay (server URL change)                                          */
-/* ------------------------------------------------------------------------- */
 
 .setup {
   width: 100%;
@@ -1805,9 +1735,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   overscroll-behavior: contain;
 }
 
-/* Meetings / dictation drill-ins: a touch more room under the last row so
-   content isn't flush with the panel edge. Must follow `.setup` so it wins
-   over the shorthand padding above. */
 .setup.popover-view {
   padding-bottom: 32px;
 }
@@ -1911,17 +1838,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   box-shadow: 0 0 0 2px var(--brand-ring);
 }
 
-/* ------------------------------------------------------------------------- */
-/* Tooltip (shadcn-style, Radix-backed)                                       */
-/* ------------------------------------------------------------------------- */
 
 .tooltip-content {
   z-index: 60;
   max-width: min(260px, calc(100vw - 16px));
-  /* No border: shadcn's tooltip is borderless (solid bg + shadow). A border
-     would also detach visually from the Radix arrow, whose flush base can't
-     carry a matching CSS border. Shadow alone gives separation in both
-     themes. */
   border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--fg);
@@ -1979,13 +1899,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* ------------------------------------------------------------------------- */
-/* Alert dialog                                                              */
-/* ------------------------------------------------------------------------- */
 
-/* `position: absolute`, not `fixed` — see AlertDialog.tsx: this must stay
-   inside `.app-recorder`'s clipped, rounded bounds rather than the raw
-   (square-cornered) Tauri window. */
 .alert-dialog-overlay {
   position: absolute;
   inset: 0;
@@ -2703,9 +2617,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* ------------------------------------------------------------------------- */
-/* Overlay: countdown                                                         */
-/* ------------------------------------------------------------------------- */
 
 .countdown-root {
   position: fixed;
@@ -2717,13 +2628,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   pointer-events: none;
 }
 
-/*
- * Horizontal row of [cancel] [number] [skip]. The two circular buttons are
- * absolutely centered at exactly ±200px (logical) from the row center so the
- * native cursor-poll hit-rects in clips/mod.rs (CONTROL_OFFSET_X = 200.0,
- * CONTROL_DIAMETER = 64.0) line up with the rendered controls. Keep these
- * numbers in sync with that Rust code.
- */
 .countdown-controls {
   position: relative;
   display: flex;
@@ -2756,12 +2660,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .countdown-control-cancel {
-  /* center at -200px from row center: -200 - (64 / 2) = -232px */
   left: -232px;
 }
 
 .countdown-control-skip {
-  /* center at +200px from row center: 200 - (64 / 2) = 168px */
   left: 168px;
 }
 
@@ -2780,12 +2682,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   outline-offset: 2px;
 }
 
-/*
- * Absolutely centers the number without contributing width to .countdown-controls.
- * This keeps the controls div at zero width so the cancel/skip button positions
- * (left: -232px, left: 168px) line up exactly with the Rust cursor-poll hit-rects
- * (CONTROL_OFFSET_X = 200.0) measured from the window center.
- */
 .countdown-number-wrap {
   position: absolute;
   top: 50%;
@@ -2822,9 +2718,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* ------------------------------------------------------------------------- */
-/* Overlay: recording preparation                                              */
-/* ------------------------------------------------------------------------- */
 
 .preparing-root {
   position: fixed;
@@ -2860,11 +2753,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   animation: finalizing-spin 0.9s linear infinite;
 }
 
-/*
- * Compact transparent window shown after the user clicks Stop. Keeping the OS
- * window close to the card's bounds lets its open/dismiss controls stay
- * interactive without blocking the rest of the screen.
- */
 .finalizing-root {
   position: fixed;
   inset: 0;
@@ -2890,11 +2778,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: white;
 }
 
-/*
- * CSS-only spinner — no dependency on @tabler/icons-react (the desktop
- * bundle doesn't pull that in). A ring with one highlighted quadrant is
- * rotated continuously.
- */
 .finalizing-spinner {
   width: 18px;
   height: 18px;
@@ -3003,9 +2886,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* ------------------------------------------------------------------------- */
-/* Overlay: toolbar                                                           */
-/* ------------------------------------------------------------------------- */
 
 .toolbar-root {
   position: fixed;
@@ -3142,56 +3022,26 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-color: rgba(245, 158, 11, 0.35);
 }
 
-/* ------------------------------------------------------------------------- */
-/* Overlay: camera bubble                                                     */
-/* ------------------------------------------------------------------------- */
 
-/*
- * The Tauri bubble window is sized (in Rust) to exactly the circle diameter
- * PLUS a `--bubble-controls-budget` strip at the top, so the hover pill
- * has real window real-estate to render into. Everything outside window
- * bounds is invisible no matter the CSS `overflow` — you can't paint where
- * the OS hasn't given you pixels — so we build in the budget up front.
- *
- *   ┌──────────────┐
- *   │  ·  ●        │  ← .bubble-controls pill (hover-faded)
- *   └──────────────┘
- *   ┌──────────────┐
- *   │ .bubble-root │  ← circle (drag region, data-tauri-drag-region)
- *   │     ◯        │    Canvas lives here with pointer-events: none so
- *   │              │    drags reach the drag-region parent.
- *   └──────────────┘
- */
 .bubble-wrapper {
   position: fixed;
   inset: var(--overlay-shadow-gutter);
   display: flex;
-  /* Reverse the stack so the circle stays at the bottom of the window and
-     the hover pill occupies the reserved space above it. */
   flex-direction: column-reverse;
   align-items: center;
-  /* Transparent background — the Tauri window is `transparent: true`,
-     so the circular camera surface below paints through. */
   background: transparent;
   user-select: none;
   -webkit-user-select: none;
 }
 
 .bubble-root {
-  /* Circle fills the bottom of the wrapper. We use `flex: 0 0 auto` + a
-     1:1 aspect-ratio so the circle is always square regardless of the
-     actual window height (which includes the controls budget above it). */
   flex: 0 0 auto;
   aspect-ratio: 1 / 1;
-  /* Width = 100% of wrapper → the wrapper is exactly bubble-diameter
-     wide (Rust sizes the window that way). */
   width: 100%;
   border-radius: 50%;
   overflow: hidden;
   background: #000;
-  /* Position context for absolute children (close X, canvas). */
   position: relative;
-  /* Cursor hint — the drag region is here. */
   cursor: grab;
 }
 
@@ -3207,14 +3057,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: 100%;
   object-fit: cover;
   border-radius: 50%;
-  transform: scaleX(-1); /* Mirror — feels more natural for selfie view. */
+  transform: scaleX(-1);
   /* compositing-ok: live <video> is composited regardless. */
   will-change: transform, opacity;
   backface-visibility: hidden;
-  /* CRITICAL: clicks MUST pass through the canvas to the
-     `data-tauri-drag-region` parent. Without this, the canvas swallows
-     mousedown and the bubble can't be dragged — cursor shows the grab
-     affordance but the window never moves. */
   pointer-events: none;
 }
 
@@ -3243,11 +3089,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 12px;
 }
 
-/* Hover controls — close X + size-toggle pill. */
 
 .bubble-close,
 .bubble-controls {
-  /* Snappy fade — per Steve's 150ms-max rule for decorative transitions. */
   opacity: 0;
   pointer-events: none;
   transition: opacity 150ms ease-out;
@@ -3256,14 +3100,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .bubble-close.is-visible,
 .bubble-controls.is-visible {
   opacity: 1;
-  /* Close button and pill MUST receive clicks — they sit over the
-     drag region / inside the hover wrapper but must not be treated as
-     drag surfaces. */
   pointer-events: auto;
 }
 
-/* Top-right X close button. Small circle with a subtle dark backdrop so it
-   reads against any camera feed (light or dark subjects). */
 .bubble-close {
   position: absolute;
   top: 6px;
@@ -3289,13 +3128,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: white;
 }
 
-/* Size-control pill — lives in the top strip of the wrapper (above
-   the circle). Centered horizontally, fades in on hover, matches Loom's
-   visual weight. Because it's a sibling of `.bubble-root` (not a child),
-   the border-radius clipping on the circle can't eat it. */
 .bubble-controls {
-  /* `flex: 0 0 auto` + margin-bottom creates the small gap between the
-     pill and the circle. */
   flex: 0 0 auto;
   margin-bottom: 8px;
   display: inline-flex;
@@ -3308,16 +3141,11 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   -webkit-backdrop-filter: blur(14px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   z-index: 3;
-  /* Cursor over the pill should not be a grab cursor (we're not dragging
-     the bubble when clicking its controls). */
   cursor: default;
   user-select: none;
   -webkit-user-select: none;
 }
 
-/* Dot buttons — filled circles sized to convey Small vs Medium at a glance,
-   matching Loom's tiny / slightly-larger dots. Active dot gets a white ring
-   so the current size is always legible. */
 .bubble-dot {
   border: none;
   background: rgba(255, 255, 255, 0.55);
@@ -3372,9 +3200,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: 16px;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Inline sign-in form                                                        */
-/* ------------------------------------------------------------------------- */
 
 .signin {
   display: flex;
@@ -3383,7 +3208,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 4px 2px 0;
 }
 
-/* Agent-Native's mark, so the first screen says whose app this is. */
 .signin-mark {
   display: block;
   width: 26px;
@@ -3509,12 +3333,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-color: var(--border-strong, var(--border));
 }
 
-/* --- Update banner -------------------------------------------------------
- * Slots into the top of the popover when an update is in flight or ready.
- * Two visual states:
- *  - pending: subtle inline row, just keeps the user informed.
- *  - ready:   a neutral inline row with one clear action.
- */
 .update-banner {
   display: flex;
   align-items: center;
@@ -3616,9 +3434,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* ------------------------------------------------------------------------- */
-/* Overlay: meeting notification                                              */
-/* ------------------------------------------------------------------------- */
 
 .meeting-notification-root {
   position: fixed;
@@ -3626,7 +3441,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
-  /* Keep the card and its edge controls inside the transparent window. */
   padding: 12px 32px;
   background: transparent;
   pointer-events: none;
@@ -3840,9 +3654,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: white;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Overlay: meeting nub                                                       */
-/* ------------------------------------------------------------------------- */
 
 .meeting-nub-root {
   position: fixed;
@@ -3925,15 +3736,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   cursor: grabbing;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Overlay: flow bar (voice dictation)                                        */
-/* ------------------------------------------------------------------------- */
 
-/* Wispr Flow-style dictation pill: small capsule anchored to the bottom
-   of its (transparent) overlay window. The window itself is positioned
-   bottom-center on the primary display by show_flow_bar in Rust, sized to
-   the content exactly — elevation is the native NSWindow shadow, so there
-   is no transparent shadow-gutter apron here. */
 .flow-bar-root {
   position: fixed;
   inset: 0;
@@ -3959,10 +3762,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border: 1px solid color-mix(in srgb, var(--pill-on-chrome) 6%, transparent);
   color: var(--pill-on-chrome);
   pointer-events: auto;
-  /* Subtle fade-in so the pill doesn't hard-pop on appear. */
   animation: flow-bar-in 140ms ease-out;
-  /* Fade out to opacity 0 when state goes idle (after Fn release).
-     Keeping the pill in the DOM lets the waveform fade instead of pop. */
   transition: opacity 220ms ease-out;
 }
 
@@ -3979,9 +3779,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   width: 148px;
 }
 
-/* When the dictation engine reports idle, fade the pill out without
-   unmounting it. Pointer-events go off so the invisible pill cannot
-   catch clicks. */
 .flow-bar-idle {
   opacity: 0;
   pointer-events: none;
@@ -4162,18 +3959,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: var(--status-warn);
 }
 
-/* Right-edge cancel — subtle monochrome chip, only there if the user
-   needs it. Reads as a quiet utility affordance, not an alarm. Hover
-   ramps up so the button still registers as clickable. */
 .flow-bar-cancel {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 18px;
   height: 18px;
-  /* Tight against the right edge — the chip should feel like it lives
-     at the pill's perimeter, not inset. Vertical centering is automatic
-     via flex (pill 32px ÷ chip 18px → 7px above/below). */
   margin: 0 4px 0 6px;
   padding: 0;
   border: none;
@@ -4181,7 +3972,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: var(--pill-soft);
   color: var(--pill-ghost-ink);
   cursor: pointer;
-  /* Override the root's `pointer-events: none` so the click registers. */
   pointer-events: auto;
   transition:
     background 100ms ease-out,
@@ -4207,9 +3997,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: block;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Overlay: private screen region guides                                      */
-/* ------------------------------------------------------------------------- */
 
 .region-guides-layer,
 .region-guides-editor {
@@ -4241,7 +4028,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-radius: 8px;
   /* guard:allow-raw-color — selection fill is a capture-surface affordance, not app chrome. */
   background: rgba(255, 255, 255, 0.035);
-  /* The spread creates one cheap, click-through cutout for the selected area. */
   /* guard:allow-raw-color — dimming must remain legible over light and dark desktop content. */
   box-shadow: 0 0 0 100vmax rgba(5, 8, 14, 0.64);
   pointer-events: none;
@@ -4270,7 +4056,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .region-guide-rect-editable.selected {
-  /* A dark keyline keeps the white bounds legible over pale screen content. */
   box-shadow:
     /* guard:allow-raw-color — selected bounds need fixed contrast over arbitrary captured pixels. */
     0 0 0 1px rgba(8, 11, 18, 0.92),
@@ -4502,9 +4287,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* ------------------------------------------------------------------------- */
-/* Overlay: live recording-region border                                      */
-/* ------------------------------------------------------------------------- */
 
 .region-record-border-layer {
   position: fixed;
@@ -4519,10 +4301,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   position: absolute;
   box-sizing: border-box;
   border-radius: 5px;
-  /* No fill, and the stroke is painted OUTWARD with an outset box-shadow so it
-     lands just outside the captured rect — never inside the recorded video.
-     Keep this static: a full-screen capture-excluded webview should not spend
-     its frame budget animating blurred shadows. */
   box-shadow:
     /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
     0 0 0 1px rgba(255, 255, 255, 0.96),
@@ -4555,16 +4333,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* ------------------------------------------------------------------------- */
-/* Overlay: recording pill                                                    */
-/* ------------------------------------------------------------------------- */
 
-/* Fills the window, which Rust sizes to the visible capsule exactly —
-   elevation is the native NSWindow shadow (see recording_indicator.rs), so
-   there is no transparent shadow-gutter apron here. The collapsed capsule
-   centers rather than hugging a corner: hover is polled against the window
-   frame, so slack between frame and capsule would light the pill up while
-   the cursor is nowhere near it. */
 .pill-outer {
   display: flex;
   height: 100%;
@@ -4606,25 +4375,15 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* Collapsed (not expanded). Shrinks to logo + waveform; the whole capsule is
-   the click-to-expand target and the whole capsule is what highlights. */
 .pill-inner-compact {
   width: fit-content;
   height: fit-content;
-  /* Pinned to the top of its window. The window is pre-grown before the
-     capsule opens, and a centred capsule would jump upward the instant that
-     happens — the growth has to come out of the bottom edge only. */
   align-self: flex-start;
-  /* Stadium, not a squircle — the collapsed capsule reads as a pill at any
-     height. A fixed radius on the ~44x64 vertical form looks like a rounded
-     rectangle. */
   border-radius: 999px;
   cursor: pointer;
   transition: background 120ms ease;
 }
 
-/* CSS :hover covers the focused case; .pill-hovered is the Rust-polled
-   fallback for when another app is focused (see clips:pill-hover). */
 .pill-inner-compact:hover,
 .pill-inner-compact.pill-hovered {
   background: rgba(42, 42, 42, 0.97);
@@ -4644,8 +4403,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     opacity 120ms ease;
 }
 
-/* Revealed on hover in the compact/detached bar, always visible when expanded.
-   The vertical capsule hides them outright — it expands on click instead. */
 .pill-inner-compact:hover .pill-controls,
 .pill-inner-compact.pill-hovered .pill-controls,
 .pill-inner:not(.pill-inner-compact) .pill-controls {
@@ -4684,12 +4441,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: 12px;
 }
 
-/* Collapsed = vertical capsule: logo on top, waveform below. */
 .pill-inner-compact .pill-header.pill-vertical {
   flex-direction: column;
-  /* No gap here: the transport segment owns the space above itself, so at
-     rest it contributes nothing and the capsule closes flush under the
-     meter. Spacing lives inside each group instead, all on one 8px step. */
   gap: 0;
   height: auto;
   width: auto;
@@ -4702,27 +4455,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: auto;
 }
 
-/* The collapsed capsule grows along its long axis to reveal its transport,
-   the same way the recorder pill grows to reveal its extras: the segment
-   animates its own measured size while the window is resized around it. The
-   height here is set in px by the overlay after measuring — `auto` cannot be
-   animated, and a guessed constant drifts from the real control stack. */
-/* Height and opacity are set inline by the overlay, not by a hover rule: this
-   window is never the key window, and the browser can stop advancing its
-   animations — so anything whose END state depends on a transition running is
-   invisible exactly when it matters. The transition is the polish; the inline
-   values are the truth. */
 .pill-vertical .pill-controls {
   display: flex;
   flex-direction: column;
   align-self: center;
-  /* The horizontal pill pushes its controls to the right with an auto margin;
-     in this column that is a 3px offset off the capsule's centre line. */
   margin-left: 0;
   gap: 8px;
-  /* The space above the transport is a margin, animated with the height. As
-     padding it could not collapse below its own 8px, so the capsule kept a
-     dead band under the meter while closed. */
   margin-top: 0;
   height: 0;
   min-height: 0;
@@ -4740,9 +4478,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   pointer-events: auto;
 }
 
-/* The buttons settle in a beat after the capsule starts opening, so the growth
-   reads as the capsule making room rather than a jump cut. Transform only —
-   a stalled transition leaves them 4px off instead of invisible. */
 .pill-vertical .pill-controls > * {
   transform: translateY(-4px);
   transition: transform 200ms var(--ease-out-strong);
@@ -4753,22 +4488,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   transform: translateY(0);
 }
 
-/* The note-taker shows no elapsed time anywhere, and 38px of capsule has room
-   for the two transport controls and nothing besides. */
 .pill-vertical .pill-timer,
 .pill-vertical .pill-expand-btn,
 .pill-vertical .pill-copy-btn {
   display: none;
 }
 
-/* Bare glyphs, matching the recorder pill: a red square for stop and a ghost
-   pause, with no filled circle behind either. The base styles here are the
-   compact pill's filled buttons, which is the wrong language for a capsule
-   this small — two solid discs stacked read as a traffic light. */
-/* Sized to the glyph, not to the hit target. A 22px box around a 14px icon
-   puts 4px of dead space on the rhythm, which is why evenly-spaced boxes
-   still looked uneven — the eye measures ink, not boxes. The target is an
-   overlay instead, so it costs nothing in layout. */
 .pill-vertical .pill-pause-btn,
 .pill-vertical .pill-stop-btn {
   position: relative;
@@ -4822,7 +4547,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: 14px;
 }
 
-/* Wrapper around logo + waveform. */
 .pill-media {
   display: contents;
 }
@@ -4840,15 +4564,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font-variant-numeric: tabular-nums;
 }
 
-/* The collapsed capsule is its own dark chrome with white content, and the
-   expanded panel is themed — inheriting is the only value that reads on both. */
 .pill-media-spinner {
   flex: none;
   color: currentColor;
   opacity: 0.7;
 }
 
-/* Layout only; the bars size and color themselves. */
 .pill-wave-meter {
   height: 14px;
 }
@@ -4901,7 +4622,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: rgba(255, 255, 255, 0.1);
 }
 
-/* ---- */
 
 .pill-error {
   margin: 0 10px 6px;
@@ -4916,8 +4636,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .pill-divider {
-  /* 14px matches the header's title and the transcript's own padding. A rule
-     that overhangs the text it separates is the misalignment you see first. */
   margin: 0 14px;
   height: 1px;
   flex-shrink: 0;
@@ -5162,12 +4880,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-bottom-left-radius: 4px;
 }
 
-/* ---- Expanded meeting panel: a themed reading surface --------------------
-   The collapsed capsule stays dark capture chrome (it floats over arbitrary
-   content), but the EXPANDED panel is for reading, so it follows the system
-   theme and borrows the record pill's control grammar: a red stop square as
-   the live indicator + save action, bare ghost glyphs for everything else.
-   All rules are scoped to the expanded state and override the dark base. */
 
 .pill-inner:not(.pill-inner-compact) {
   background: hsl(var(--ui-popover) / 0.98);
@@ -5180,9 +4892,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 0 8px 0 14px;
 }
 
-/* Everything in the header that is not text rides the measured shift, so the
-   glyphs sit on the title's optical centre rather than on its box centre.
-   Zero until measured, so a missing measurement changes nothing. */
 .pill-inner:not(.pill-inner-compact) .pill-controls {
   transform: translateY(var(--header-ink-shift, 0px));
 }
@@ -5200,8 +4909,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .pill-title {
-  /* Same box height as the control buttons beside it: centring two boxes of
-     equal height puts their ink on one line whatever the font metrics do. */
   line-height: 30px;
   min-width: 0;
   overflow: hidden;
@@ -5299,8 +5006,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: hsl(var(--ui-primary));
 }
 
-/* Transcript: uniform left alignment for reading — the speaker label, not
-   the side, carries who is talking. */
 .pill-inner:not(.pill-inner-compact) .lt-chat {
   gap: 10px;
   padding: 10px 14px;
@@ -5344,8 +5049,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-bottom-left-radius: 10px;
 }
 
-/* Ask composer: Stop leads the line (Wispr's pattern), then the quiet
-   rounded field on the muted fill with ghost actions. */
 .pill-stop-inline-square {
   display: block;
   width: 10px;
@@ -5360,12 +5063,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 8px 14px 12px;
 }
 
-/* Inline ask conversation: a sheet rises from the composer and holds the
-   running exchange — user questions as chat bubbles, streamed answers, and
-   contextual suggestion chips. The grip resizes it; pulling it low dismisses. */
 .pill-ask-sheet {
-  /* In the column, not over it: an overlay would cover the newest transcript
-     lines, which is the only part of a live session anyone is reading. */
   flex: none;
   min-height: 0;
   display: flex;
@@ -5374,8 +5072,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-radius: 14px 14px 0 0;
   background: hsl(var(--ui-popover));
   box-shadow: var(--elevation-sheet);
-  /* Travels rather than fades: the panel arrives from the edge it belongs to,
-     on the same curve the framework's drawers use. */
   animation: pill-ask-sheet-in 320ms var(--ease-drawer);
 }
 
@@ -5384,8 +5080,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   pointer-events: none;
 }
 
-/* The panel leads; its contents follow a beat later, so the drawer reads as
-   one object arriving instead of a card and its text appearing together. */
 .pill-ask-sheet > * {
   animation: pill-ask-sheet-content 260ms var(--ease-out-strong) both;
   animation-delay: 90ms;
@@ -5431,8 +5125,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* Motion is the affordance here, not decoration — reduced motion keeps the
-   state change, drops the travel. */
 @media (prefers-reduced-motion: reduce) {
   .pill-ask-sheet,
   .pill-ask-sheet[data-state="closing"],
@@ -5453,8 +5145,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  /* 18px of grabbable height around a 4px handle: the affordance is the
-     target, not the glyph. */
   padding: 8px 0 6px;
   cursor: grab;
   touch-action: none;
@@ -5497,8 +5187,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .pill-ask-msg-user {
   align-self: flex-end;
   max-width: 88%;
-  /* A full-radius capsule curves in on every line but the middle, so the
-     horizontal padding has to clear the corner, not just the glyph. */
   padding: 9px 17px;
   border-radius: 999px;
   background: hsl(var(--ui-primary));
@@ -5535,7 +5223,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: none;
 }
 
-/* Waiting for capture to attach: never the live red, never a running clock. */
 .pill-timer-starting {
   display: inline-flex;
   align-items: center;
@@ -5556,8 +5243,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   min-width: 0;
 }
 
-/* The trail scrolls rather than wrapping: a run of ten steps must not push the
-   answer down the sheet. Edges fade so a clipped chip reads as "more". */
 .pill-ask-chips {
   display: flex;
   align-items: center;
@@ -5565,10 +5250,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
-  /* No horizontal padding: it reads as extra space between the chip and its
-     label, on top of the row's own gap. Vertical padding has to clear the
-     active chip's scale AND its 2px ring, or `overflow-x` clips the ring —
-     one axis set to auto makes the other axis clip too. */
   padding: 4px 0;
 }
 
@@ -5585,12 +5266,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: none;
 }
 
-/* Overlapped like a stack of avatars rather than spaced out as a row: the
-   ring in the surface color is what cuts each chip out of the one behind it,
-   so the trail reads as one object with a head instead of N buttons. */
-/* A Tabler glyph inks 75% of its box, so a 12px icon put 9px of ink inside a
-   21px ring — 43%, which reads as a glyph lost in a circle rather than one
-   set in it. 15px of icon in a 20px ring is ~56%. */
 .pill-ask-chip-icon {
   position: relative;
   display: grid;
@@ -5669,7 +5344,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: hsl(var(--ui-muted) / 0.6);
 }
 
-/* Quoted like the reasoning it is, so it never reads as the answer. */
 .pill-ask-work-now,
 .pill-ask-work-list {
   margin: 5px 0 0;
@@ -5760,9 +5434,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* The field owns the fill, radius, and focus ring; the input is transparent
-   inside it and the send button sits embedded at the trailing edge (shadcn's
-   InputGroup pattern), so composing and sending read as one control. */
 .pill-inner:not(.pill-inner-compact) .pill-ask-field {
   display: flex;
   min-width: 0;
@@ -5795,8 +5466,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .pill-inner:not(.pill-inner-compact) .pill-ask-send {
-  /* Concentric with the capsule field: 34px/2 outer radius minus the 4px
-     inset = 13px inner radius, i.e. an exact 26px circle. */
   height: 26px;
   width: 26px;
   border-radius: 999px;
@@ -5846,12 +5515,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/*
- * One of these windows opens centered on every connected monitor when a
- * full-screen native recording is about to start with more than one monitor
- * attached (see `show_monitor_picker`). The window itself is already sized
- * and positioned by Rust, so the card just fills it.
- */
 .monitor-picker-root {
   position: fixed;
   inset: 0;

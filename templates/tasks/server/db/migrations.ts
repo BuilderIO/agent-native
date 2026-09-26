@@ -1,9 +1,6 @@
 import { runMigrations } from "@agent-native/core/db";
 import { loadDrizzleMigrations } from "@agent-native/core/db/drizzle-migrations";
 
-// The checked-in Drizzle metadata baseline represents this legacy schema, so
-// future `db:generate` runs produce deltas instead of recreating these tables.
-// Keep historical entries unnamed for legacy-ledger compatibility; every new
 // migration must add a stable, unique `name` slug.
 const legacyTasksMigrations = [
   {
@@ -81,9 +78,6 @@ const legacyTasksMigrations = [
       CREATE INDEX IF NOT EXISTS idx_custom_field_values_owner_field
         ON custom_field_values (owner_email, field_id)`,
   },
-  // v8: the boolean helpers map to BOOLEAN on Postgres, while the historical
-  // INTEGER columns above were adapted to BIGINT. Preserve 0/1 values while
-  // aligning the live Postgres schema with Drizzle's baseline.
   {
     version: 8,
     sql: {

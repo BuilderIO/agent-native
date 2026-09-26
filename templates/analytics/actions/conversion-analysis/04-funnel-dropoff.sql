@@ -1,6 +1,4 @@
--- Query Set 4: Funnel Drop-off Analysis
--- Purpose: Multi-step funnel to identify WHERE users are dropping off in the signup process
--- Expected output: Funnel stages with counts and conversion rates at each step
+
 
 WITH time_periods AS (
   SELECT
@@ -16,27 +14,27 @@ WITH time_periods AS (
 funnel_data AS (
   SELECT
     tp.period,
-    -- Stage 1: Unique visitors (any pageview)
+
     COUNT(DISTINCT pv.visitor_id) AS stage1_unique_visitors,
-    
-    -- Stage 2: Visited signup or pricing page
-    COUNT(DISTINCT CASE 
-      WHEN pv.page_type IN ('signup', 'pricing') THEN pv.visitor_id 
+
+
+    COUNT(DISTINCT CASE
+      WHEN pv.page_type IN ('signup', 'pricing') THEN pv.visitor_id
     END) AS stage2_visited_signup_pricing,
-    
-    -- Stage 3: Submit signup form (from Amplitude)
-    COUNT(DISTINCT CASE 
-      WHEN ae.event_type = 'submit signup form' THEN ae.user_id 
+
+
+    COUNT(DISTINCT CASE
+      WHEN ae.event_type = 'submit signup form' THEN ae.user_id
     END) AS stage3_submitted_form,
-    
-    -- Stage 4: Account signup completed
-    COUNT(DISTINCT CASE 
-      WHEN ae.event_type = 'account signup' THEN ae.user_id 
+
+
+    COUNT(DISTINCT CASE
+      WHEN ae.event_type = 'account signup' THEN ae.user_id
     END) AS stage4_account_created,
-    
-    -- Stage 5: Actual signups from product_signups table
+
+
     COUNT(DISTINCT ps.user_id) AS stage5_completed_signup
-    
+
   FROM time_periods tp
   CROSS JOIN `@project.analytics.pageviews` pv
   LEFT JOIN `@project.product_events.events` ae
@@ -51,42 +49,40 @@ funnel_data AS (
 )
 SELECT
   period,
-  -- Stage 1: Visitors
+
   stage1_unique_visitors,
   '100.0%' AS stage1_conversion_pct,
-  
-  -- Stage 2: Visited signup/pricing
+
+
   stage2_visited_signup_pricing,
   ROUND(SAFE_DIVIDE(stage2_visited_signup_pricing, stage1_unique_visitors) * 100, 1) AS stage2_conversion_pct,
   ROUND(SAFE_DIVIDE(stage1_unique_visitors - stage2_visited_signup_pricing, stage1_unique_visitors) * 100, 1) AS stage2_dropoff_pct,
-  
-  -- Stage 3: Submitted form
+
+
   stage3_submitted_form,
   ROUND(SAFE_DIVIDE(stage3_submitted_form, stage2_visited_signup_pricing) * 100, 1) AS stage3_conversion_pct,
   ROUND(SAFE_DIVIDE(stage2_visited_signup_pricing - stage3_submitted_form, stage2_visited_signup_pricing) * 100, 1) AS stage3_dropoff_pct,
-  
-  -- Stage 4: Account created
+
+
   stage4_account_created,
   ROUND(SAFE_DIVIDE(stage4_account_created, stage3_submitted_form) * 100, 1) AS stage4_conversion_pct,
   ROUND(SAFE_DIVIDE(stage3_submitted_form - stage4_account_created, stage3_submitted_form) * 100, 1) AS stage4_dropoff_pct,
-  
-  -- Stage 5: Completed signup
+
+
   stage5_completed_signup,
   ROUND(SAFE_DIVIDE(stage5_completed_signup, stage4_account_created) * 100, 1) AS stage5_conversion_pct,
   ROUND(SAFE_DIVIDE(stage4_account_created - stage5_completed_signup, stage4_account_created) * 100, 1) AS stage5_dropoff_pct,
-  
-  -- Overall conversion: visitors → completed signup
+
+
   ROUND(SAFE_DIVIDE(stage5_completed_signup, stage1_unique_visitors) * 100, 2) AS overall_conversion_pct
 
 FROM funnel_data
-ORDER BY 
-  CASE period 
-    WHEN 'Recent (Last 4 Weeks)' THEN 1 
-    WHEN 'Baseline (Weeks 5-8 Ago)' THEN 2 
+ORDER BY
+  CASE period
+    WHEN 'Recent (Last 4 Weeks)' THEN 1
+    WHEN 'Baseline (Weeks 5-8 Ago)' THEN 2
   END;
 
--- Simplified funnel (if detailed Amplitude events are not available)
--- This version only tracks: Visitors → Visited signup page → Completed signup
 
 WITH time_periods AS (
   SELECT
@@ -123,15 +119,8 @@ SELECT
   ROUND(SAFE_DIVIDE(completed_signups, visited_signup_page) * 100, 1) AS signup_completion_rate,
   ROUND(SAFE_DIVIDE(completed_signups, total_visitors) * 100, 2) AS overall_conversion_rate
 FROM simple_funnel
-ORDER BY 
-  CASE period 
-    WHEN 'Recent (Last 4 Weeks)' THEN 1 
-    WHEN 'Baseline (Weeks 5-8 Ago)' THEN 2 
+ORDER BY
+  CASE period
+    WHEN 'Recent (Last 4 Weeks)' THEN 1
+    WHEN 'Baseline (Weeks 5-8 Ago)' THEN 2
   END;
-
--- Interpretation Guide:
--- 1. Compare Recent vs Baseline periods for each funnel stage
--- 2. Identify which stage has the biggest drop in conversion rate
--- 3. If stage2_conversion_pct is down: fewer people reaching signup pages (awareness/interest issue)
--- 4. If stage3/4_conversion_pct is down: signup form or account creation flow issue
--- 5. If stage5_conversion_pct is down: post-signup activation issue

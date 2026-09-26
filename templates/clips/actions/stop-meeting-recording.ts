@@ -1,12 +1,3 @@
-/**
- * Stop a meeting recording.
- *
- * Stamps the meeting's `actualEnd`, flips a still-`uploading` recording to
- * `ready`, writes a `recording-stop-*` app-state signal so the recorder UI
- * finalizes, and bumps the refresh signal.
- *
- * The actual MediaRecorder stop and chunked-upload finalize are UI gestures.
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
@@ -91,10 +82,6 @@ export default defineAction({
       .limit(1);
     if (!meeting) throw new Error(`Meeting not found: ${args.meetingId}`);
 
-    // Only mark the transcript "ready" if a transcript actually exists —
-    // otherwise finalize-meeting has nothing to summarize and there would be
-    // no way for the UI to distinguish "notes coming" from "nothing was ever
-    // captured". Match finalize-meeting's own empty-transcript handling.
     let hasTranscript = false;
     let recordingVisibility: string | null | undefined;
     if (meeting.recordingId) {
@@ -117,13 +104,7 @@ export default defineAction({
       hasTranscript = Boolean(transcript?.fullText?.trim());
     }
 
-    // actualEnd and endReason are first-writer-wins, enforced in SQL so two
     // concurrent stops (desktop detector and a manual click, say) cannot race
-    // the read above. The reason rides the same actual_end transition, so a
-    // retry can never attach a cause to an end it did not perform.
-    // transcriptStatus stays a plain write: live rows start as "pending", so
-    // "pending" cannot be read as a finalizer claim here; finalize-meeting's
-    // own compare-and-swap guards its claim.
     await db
       .update(schema.meetings)
       .set({
@@ -156,10 +137,6 @@ export default defineAction({
       });
     }
 
-    // Public resources are intentionally link-only and therefore stay out of
-    // the signed-in Meetings/Shared lists. Calendar participants are the one
-    // known audience we can safely admit without making every public meeting
-    // discoverable, so grant them standard viewer access when the call ends.
     if (
       meeting.visibility === "public" &&
       (access.role === "owner" || access.role === "admin")

@@ -1,10 +1,3 @@
-/**
- * push-fusion-app — push a fusion branch's code to its git remote.
- *
- * Use when the user wants the in-progress app code synced to git (e.g. before
- * handing off to another tool, or as a checkpoint) without necessarily
- * deploying it.
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
@@ -13,7 +6,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { FULL_APP_BUILDING, readFusionApp } from "../shared/full-app.js";
 
 function asString(value: unknown): string | undefined {

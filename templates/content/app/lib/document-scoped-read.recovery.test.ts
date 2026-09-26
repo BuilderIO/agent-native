@@ -1,17 +1,8 @@
-// Regression coverage for the reported flow: creating a page navigated to its
-// editor before create-document committed, so the per-document draft read
-// answered 403 for a row that was about to exist. With retry: false that error
-// was terminal and the editor sat behind "Something went wrong" until the user
-// clicked Retry by hand — reported as ~10 retries before it took.
-//
-// These exercise the exact options the production hook passes, through a real
-// QueryClient, so React Query's retry semantics are part of what is asserted.
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { documentScopedReadRetryOptions } from "./document-scoped-read-retry";
 
-// A row still settling after its own create, and one long past that window.
 const SETTLING = documentScopedReadRetryOptions(true);
 const SETTLED = documentScopedReadRetryOptions(false);
 
@@ -44,7 +35,6 @@ describe("draft read during the page-creation window", () => {
       queryKey: DRAFT_QUERY_KEY,
       queryFn: async () => {
         attempts += 1;
-        // The create request is still committing for the first two reads.
         if (attempts <= 2) throw statusError(403);
         return { draft: null };
       },
@@ -68,7 +58,6 @@ describe("draft read during the page-creation window", () => {
       }),
     ).rejects.toThrow(/403/);
 
-    // A bounded budget, not an unbounded one: the failure has to surface.
     expect(attempts).toBe(5);
   });
 
@@ -91,9 +80,6 @@ describe("draft read during the page-creation window", () => {
 });
 
 describe("draft read for an established row", () => {
-  // assertAccess answers 403 for a revoked share exactly as it does for a row
-  // that is not there yet, and these reads are invalidated on sync events — so
-  // retrying a real denial would cost five unauthorized requests per poll.
   it("surfaces a revoked share immediately instead of retrying it", async () => {
     let attempts = 0;
     await expect(

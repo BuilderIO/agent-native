@@ -2,7 +2,6 @@ import { useLocale } from "@agent-native/core/client/i18n";
 
 const MESSAGES = {
   "en-US": {
-    // Toolbar / list
     searchPlaceholder: "Search monitors…", // i18n-ignore feature-local i18n source
     addMonitor: "Add monitor",
     refresh: "Refresh",
@@ -24,7 +23,6 @@ const MESSAGES = {
     uptime90d: "90d",
     enableLabel: "Toggle {name}",
     ms: "{value} ms",
-    // List "current status" overview
     overviewOperational: "All systems operational",
     overviewDegraded: "Some systems degraded",
     overviewDown: "System issues detected",
@@ -35,14 +33,12 @@ const MESSAGES = {
     overviewUptime24h: "{pct} uptime · 24h",
     overviewOpenIncidents: "{count} open",
     statusPagesButton: "Status pages",
-    // Status labels
     statusUp: "Up",
     statusDown: "Down",
     statusDegraded: "Degraded",
     statusError: "Error",
     statusRunning: "Checking",
     statusUnknown: "Pending",
-    // Detail
     back: "Back to monitors",
     edit: "Edit",
     delete: "Delete",
@@ -86,14 +82,12 @@ const MESSAGES = {
     yes: "Yes",
     no: "No",
     noAssertions: "None",
-    // Result table
     colTime: "Time",
     colStatus: "Status",
     colCode: "Code",
     colLatency: "Latency",
     colDetails: "Details",
     ok: "OK",
-    // Assertion / matcher summaries
     matcherClass: "{classes} responses",
     matcherList: "Status in {codes}",
     matcherRange: "Status {min}–{max}",
@@ -102,7 +96,6 @@ const MESSAGES = {
     assertHeaderContains: "Header {header} contains “{value}”",
     assertHeaderEquals: "Header {header} equals “{value}”",
     assertMaxLatency: "Response under {value} ms",
-    // Form page
     formCreateTitle: "New monitor",
     formEditTitle: "Edit monitor",
     formCreateSubtitle:
@@ -185,12 +178,10 @@ const MESSAGES = {
     save: "Save monitor",
     create: "Create monitor",
     saving: "Saving…",
-    // Delete dialog
     deleteTitle: "Delete monitor?",
     deleteDescription:
       "This permanently removes “{name}”, its check history, and incident records.",
     deleteConfirm: "Delete",
-    // Toasts / validation
     nameRequired: "Give the monitor a name.",
     urlRequired: "Enter an absolute http(s) URL.",
     urlInvalid: "Enter a valid http(s) URL (e.g. https://example.com).",
@@ -234,7 +225,6 @@ export function useUptimeT(): UptimeMessages {
   };
 }
 
-/** Interpolate {placeholders} in a message template. */
 export function fmt(
   template: string,
   vars: Record<string, string | number> = {},

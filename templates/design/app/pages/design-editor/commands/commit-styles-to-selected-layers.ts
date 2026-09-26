@@ -331,8 +331,6 @@ export function runCommitStylesToSelectedLayers(
         return;
       }
       entries.forEach(([property, value]) => {
-        // §6.4 — multi-selection commits route through the same
-        // class-vs-media breakpoint scoping as single-selection edits.
         const patch = applyScopedVisualStyleEdit({
           content: nextContent,
           target: { nodeId: node.id },
@@ -357,15 +355,6 @@ export function runCommitStylesToSelectedLayers(
       });
     });
     if (nextContent === baseContent) return;
-    // Multi-node commit — the change is NOT scoped to the currently
-    // selected element's subtree, so request the bridge's in-place
-    // FULL-document replace instead of `refreshPreview: true`'s srcdoc
-    // rebuild (real iframe reload, white flash — the same anti-pattern
-    // getPersistedContentHostSyncOptions' doc comment describes, and the
-    // same forcePreviewFullDocument routing undo/redo uses). Deliberately
-    // NOT the helper itself: this content is a client-authored edit that
-    // still must persist — the helper's `persist: false` would cancel the
-    // queued save and silently drop the commit.
     pendingWrites.push({ fileId, content: nextContent });
   });
 

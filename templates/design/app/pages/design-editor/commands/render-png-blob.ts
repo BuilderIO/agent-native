@@ -194,15 +194,9 @@ export async function runRenderPngBlob(
     const cropped = selectionCropRect
       ? cropCanvasToRect(rendered.canvas, selectionCropRect, rendered.scale)
       : null;
-    // An element capture that silently widens to the whole document is a
-    // preview of something the user did not ask to export, and nothing
-    // downstream can tell it apart from a real one. Whole-screen targets are
-    // explicit; unresolved targets remain typed failures above.
     if (scope === "element" && cropTarget.kind === "rect" && !cropped) {
       throw new PngCaptureError("selection-unresolved");
     }
-    // Preserve page layout while excluding ancestor paints from a selected
-    // element's transparent export area.
     outputCanvas = cropped ?? rendered.canvas;
   }
   const mimeType =

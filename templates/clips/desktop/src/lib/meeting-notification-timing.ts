@@ -1,14 +1,7 @@
-/**
- * Meeting reminder visibility policy (Granola-aligned).
- *
- * Show the overlay from 1 minute before start through 5 minutes after start,
- * unless the user dismisses it or takes an action.
- */
 
 export const MEETING_NOTIFY_LEAD_MS = 60_000;
 export const MEETING_NOTIFY_HOLD_AFTER_START_MS = 5 * 60_000;
 
-/** True when `now` is inside the show window for a meeting that starts at `startMs`. */
 export function isMeetingNotificationWindowOpen(
   startMs: number,
   nowMs: number = Date.now(),
@@ -19,10 +12,6 @@ export function isMeetingNotificationWindowOpen(
   return nowMs >= earliest && nowMs <= latest;
 }
 
-/**
- * Milliseconds until the overlay should auto-hide, assuming it is currently
- * visible. Returns 0 when the window has already closed.
- */
 export function meetingNotificationAutoHideMs(
   startMs: number,
   nowMs: number = Date.now(),
@@ -63,7 +52,6 @@ export function joinProviderLabel(provider: MeetingJoinProvider): string {
   }
 }
 
-/** Format a local time range like "9:00 AM - 9:30 AM". */
 export function formatMeetingTimeRange(
   startIso: string | null | undefined,
   endIso: string | null | undefined,

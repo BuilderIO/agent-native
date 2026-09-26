@@ -15,9 +15,6 @@ import {
   truncateOpeningTag,
 } from "./EditPanel";
 
-// ---------------------------------------------------------------------------
-// openingTagOf / truncateOpeningTag — Inspect-code at-a-glance
-// ---------------------------------------------------------------------------
 
 describe("openingTagOf", () => {
   it("extracts the opening tag with attributes from outer HTML", () => {
@@ -104,9 +101,6 @@ describe("elementHtmlPreview", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// parseAlpineDataObject / serializeAlpineDataObject — variant/state edits
-// ---------------------------------------------------------------------------
 
 describe("parseAlpineDataObject", () => {
   it("parses a flat object of strings, booleans, and numbers", () => {
@@ -131,7 +125,6 @@ describe("parseAlpineDataObject", () => {
   it("returns null for non-object / unparseable input", () => {
     expect(parseAlpineDataObject(undefined)).toBeNull();
     expect(parseAlpineDataObject("open")).toBeNull();
-    // A function expression is too complex to edit safely.
     expect(parseAlpineDataObject(`{ open() { return 1 } }`)).toBeNull();
   });
 });
@@ -164,9 +157,6 @@ describe("serializeAlpineDataObject", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// alpineDataValueLiteral — single value formatting
-// ---------------------------------------------------------------------------
 
 describe("alpineDataValueLiteral", () => {
   it("single-quotes string values and escapes single quotes", () => {
@@ -182,17 +172,12 @@ describe("alpineDataValueLiteral", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// replaceAlpineDataKeyValue — NON-LOSSY single-key x-data edit (Bug 1)
-// ---------------------------------------------------------------------------
 
 describe("replaceAlpineDataKeyValue", () => {
   it("edits one key while preserving a sibling method byte-for-byte", () => {
-    // The headline regression: editing `open` must NOT drop `toggle()`.
     const original = `{ open: false, toggle() { this.open = !this.open } }`;
     const out = replaceAlpineDataKeyValue(original, "open", "true");
     expect(out).toBe(`{ open: true, toggle() { this.open = !this.open } }`);
-    // The method body survives intact.
     expect(out).toContain("toggle() { this.open = !this.open }");
   });
 
@@ -211,7 +196,6 @@ describe("replaceAlpineDataKeyValue", () => {
   });
 
   it("does not match a key that lives inside another string value", () => {
-    // `open` appears inside the `note` string; only the real key is edited.
     const original = `{ note: 'open the door', open: false }`;
     expect(replaceAlpineDataKeyValue(original, "open", "true")).toBe(
       `{ note: 'open the door', open: true }`,
@@ -233,7 +217,6 @@ describe("replaceAlpineDataKeyValue", () => {
   });
 
   it("does not match a nested key with the same name", () => {
-    // The top-level `open` is edited; the nested `meta.open` is untouched.
     const original = `{ open: false, meta: { open: true } }`;
     expect(replaceAlpineDataKeyValue(original, "open", "true")).toBe(
       `{ open: true, meta: { open: true } }`,
@@ -247,7 +230,6 @@ describe("replaceAlpineDataKeyValue", () => {
   });
 
   it("returns null when the value is an expression, not a simple literal", () => {
-    // We must not mangle a computed value — fail safe.
     expect(
       replaceAlpineDataKeyValue(
         `{ open: someFn(), variant: 'solid' }`,
@@ -265,14 +247,10 @@ describe("replaceAlpineDataKeyValue", () => {
 
   it("does not match a key that is a prefix of a longer identifier", () => {
     const original = `{ openState: 'a', other: 'b' }`;
-    // Editing `open` (which is only a prefix of `openState`) finds nothing.
     expect(replaceAlpineDataKeyValue(original, "open", "x")).toBeNull();
   });
 });
 
-// ---------------------------------------------------------------------------
-// canRebuildAlpineDataLosslessly — fallback gate
-// ---------------------------------------------------------------------------
 
 describe("canRebuildAlpineDataLosslessly", () => {
   it("allows rebuild for an empty / absent literal", () => {
@@ -309,15 +287,7 @@ describe("canRebuildAlpineDataLosslessly", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// isBooleanPropValue — toggle detection
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// buildComponentPropRows — row model + persist-surface selection (Bug: a
-// never-observed persisted-variant group used to route its first edit to
-// whichever surface an UNRELATED sibling x-data key happened to use).
-// ---------------------------------------------------------------------------
 
 describe("buildComponentPropRows", () => {
   it("lists Alpine x-data keys first, tagged for the alpineData surface", () => {
@@ -346,16 +316,10 @@ describe("buildComponentPropRows", () => {
       value: "Save",
       surface: "attribute",
     });
-    // The x-data key isn't duplicated as an attribute row.
     expect(rows.filter((r) => r.name === "open")).toHaveLength(1);
   });
 
   it("defaults a never-observed persisted-variant group to the attribute surface even when x-data exists for other keys", () => {
-    // This instance's x-data only carries `open` — `size` is a persisted
-    // variant group that has never appeared in x-data or observedProps on
-    // this instance, meaning it must be attribute-driven. Regression: this
-    // used to key off `alpineData` being truthy for the unrelated `open`
-    // key and route `size`'s first edit into an x-data rewrite instead.
     const rows = buildComponentPropRows({
       instance: { alpineData: "{ open: false }" },
       observedProps: [],
@@ -406,9 +370,6 @@ describe("isBooleanPropValue", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// normalizeRotationDegrees / mergeRotationValue — rotation commit path
-// ---------------------------------------------------------------------------
 
 describe("normalizeRotationDegrees", () => {
   it("maps angles into (-180, 180]", () => {
@@ -451,7 +412,6 @@ describe("mergeRotationValue", () => {
   });
 
   it("rounds to one decimal before normalizing", () => {
-    // -179.96 rounds to -180, which must land back inside the range as +180.
     expect(mergeRotationValue(undefined, -179.96)).toBe("rotate(180deg)");
     expect(mergeRotationValue(undefined, 12.34)).toBe("rotate(12.3deg)");
   });

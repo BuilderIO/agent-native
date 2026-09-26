@@ -1,22 +1,3 @@
-/**
- * Real-browser compile check for the code-backed shader stack:
- *
- *   1. Every GLSL preset in shared/shader-presets.ts actually compiles and
- *      links in a real WebGL context (string-level sanity alone can't catch
- *      GLSL syntax/type errors in hand-written shaders).
- *   2. The embedded runtime (shared/shader-fills.ts SHADER_RUNTIME_SOURCE)
- *      boots inside a plain standalone HTML document — the exported-artifact
- *      path — finds persisted shader blocks + annotated elements, mounts
- *      canvases for fills AND effects on the same element, honors uniform
- *      overrides, and reports failures via data-an-shader-error.
- *
- * Uses the same headless-chromium-in-vitest pattern as bridge.guard.spec.ts.
- * When the sandboxed browser lacks GPU/SwiftShader WebGL entirely, the
- * runtime's graceful-degradation contract is asserted instead (canvas
- * removed + webgl-unavailable error attr), so the suite stays green in
- * WebGL-less CI while still hard-failing on genuine GLSL compile errors
- * wherever WebGL exists.
- */
 
 import { chromium } from "@playwright/test";
 import { describe, expect, it } from "vitest";
@@ -49,7 +30,6 @@ describe("GLSL shader runtime — real browser", () => {
         const pageErrors: string[] = [];
         page.on("pageerror", (err) => pageErrors.push(err.message));
 
-        // Probe once whether this environment has WebGL at all.
         await page.setContent("<canvas id=probe></canvas>");
         const webglAvailable = await page.evaluate(() => {
           try {
@@ -74,8 +54,6 @@ describe("GLSL shader runtime — real browser", () => {
             glsl: preset.glsl,
             uniforms: preset.uniforms,
           };
-          // Full persisted-artifact path: definition block + runtime +
-          // annotated element, all embedded in standalone HTML.
           const applied = applyShaderToHtml(PAGE, {
             nodeId: "host",
             def,
@@ -84,7 +62,6 @@ describe("GLSL shader runtime — real browser", () => {
           expect(applied.errors, `${preset.name} failed to apply`).toEqual([]);
 
           await page.setContent(applied.html, { waitUntil: "load" });
-          // The runtime scans on DOMContentLoaded; give rAF a beat.
           await page.waitForTimeout(250);
 
           const state = await page.evaluate(() => {
@@ -122,8 +99,6 @@ describe("GLSL shader runtime — real browser", () => {
               ).toBe(true);
             }
           } else {
-            // Graceful degradation contract: no canvas left behind, error
-            // attribute explains why.
             expect(state.hasCanvas).toBe(false);
             expect(state.error).toBe("webgl-unavailable");
           }
@@ -211,8 +186,6 @@ describe("GLSL shader runtime — real browser", () => {
           };
         });
 
-        // The persisted fallback background survives regardless of WebGL
-        // (browsers normalize the hex literal to rgb() in el.style).
         expect(
           state.fallbackBackground.includes("#123456") ||
             state.fallbackBackground.includes("rgb(18, 52, 86)"),
@@ -220,7 +193,6 @@ describe("GLSL shader runtime — real browser", () => {
         ).toBe(true);
         if (state.webglOk) {
           expect(state.canvasCount).toBe(2);
-          // Fill behind content (z -1), effect above it (large z).
           expect(state.zIndexes).toContain("-1");
           expect(
             state.zIndexes.some((z) => Number(z) > 1000),

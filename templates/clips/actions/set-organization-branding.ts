@@ -1,11 +1,3 @@
-/**
- * Update organization branding — org name, brand color, brand logo reference,
- * default visibility — by updating the framework `organizations` row for the
- * name and upserting the Clips-specific `organization_settings` sidecar row.
- *
- * Usage:
- *   pnpm action set-organization-branding --brandColor=<hex-color> --brandLogoUrl=clips-org-logo:v1:<reference>
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
@@ -52,8 +44,6 @@ export default defineAction({
       ["admin"],
     );
 
-    // Ensure a settings row exists. Clips' organization_settings table stores
-    // created_at/updated_at as ISO timestamp text.
     const db = getDb();
     const nowIso = new Date().toISOString();
     await db
@@ -76,7 +66,6 @@ export default defineAction({
         .where(eq(organizations.id, organizationId));
     }
 
-    // Build the settings UPDATE dynamically — only patch fields that were passed.
     const updates: Partial<typeof schema.organizationSettings.$inferInsert> =
       {};
 
@@ -97,7 +86,6 @@ export default defineAction({
         .where(eq(schema.organizationSettings.organizationId, organizationId));
     }
 
-    // Return the current values.
     const [row] = await db
       .select({
         organizationId: schema.organizationSettings.organizationId,

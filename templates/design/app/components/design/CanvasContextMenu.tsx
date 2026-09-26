@@ -33,44 +33,6 @@ import { IconText } from "./inspector/design-icons";
 import { formatShortcutLabel } from "./keyboard-shortcuts";
 import type { CanvasLayerHitCandidate } from "./types";
 
-// LIVE-VERIFIED (real Figma, UI3) canvas context menus:
-//
-// WITH a selection:
-//   Copy ⌘C · Paste here · Paste to replace ⇧⌘R · Copy/Paste as ▸
-//     (Copy as code · Copy as SVG · Copy as PNG ⇧⌘C · [sep] ·
-//      Copy properties ⌥⌘C · Paste properties ⌥⌘V · [sep] ·
-//      Copy animation · Paste animation)
-//   [sep]
-//   Bring to front ] · Send to back [
-//   [sep]
-//   Group selection ⌘G · Frame selection ⌥⌘G
-//   [sep]
-//   Add auto layout ⇧A · Create component ⌥⌘K
-//   [sep]
-//   Show/Hide ⇧⌘H · Lock/Unlock ⇧⌘L
-//   [sep]
-//   Flip horizontal ⇧H · Flip vertical ⇧V
-//
-// EMPTY canvas (no selection):
-//   Paste here
-//   [sep]
-//   Show/Hide UI ⇧\ · Show/Hide comments ⇧C
-//
-// Real Figma has no Duplicate/Delete/Select-all/Zoom items on either canvas
-// menu (all keyboard-only there) — those are intentionally NOT rendered here
-// even though some callers may still pass the callback/capability props for
-// back-compat. App-specific extras with no Figma equivalent (e.g. "Edit
-// screen") are appended at the very bottom, below one more separator, so the
-// Figma-muscle-memory zone above stays byte-identical to the real menu.
-//
-// NOTE — instance-only cluster (Go to main component / Swap instance /
-// Detach instance): added for component-instance selections, gated behind
-// `isComponentInstance` so it renders nothing for existing callers (fully
-// backward compatible). Real Figma groups these together for an instance
-// selection, but this exact placement (right after Add auto layout / Create
-// component) was NOT independently re-verified against a live Figma session
-// in this pass — reposition if a future LIVE-VERIFIED sweep finds a
-// different spot.
 export type CanvasContextMenuAction =
   | "paste-here"
   | "select-all"
@@ -119,7 +81,6 @@ export interface CanvasContextMenuPoint {
   clientY: number;
   canvasX?: number;
   canvasY?: number;
-  /** The screen canvasX/canvasY are local to, when opened over one. */
   screenId?: string;
 }
 
@@ -252,8 +213,6 @@ export interface CanvasContextMenuProps {
   isUiHidden?: boolean;
   isCommentsHidden?: boolean;
   canPasteHere?: boolean;
-  // Kept for back-compat with existing callers; real Figma has no
-  // select-all/zoom items on this menu, so these no longer render anything.
   canSelectAll?: boolean;
   canZoomToFit?: boolean;
   canZoomToSelection?: boolean;
@@ -263,8 +222,6 @@ export interface CanvasContextMenuProps {
   canPaste?: boolean;
   canPasteOver?: boolean;
   canPasteToReplace?: boolean;
-  // Kept for back-compat; real Figma has no Duplicate/Delete on this menu
-  // (keyboard-only there), so these no longer render anything.
   canDuplicate?: boolean;
   canDelete?: boolean;
   canReorder?: boolean;
@@ -275,24 +232,10 @@ export interface CanvasContextMenuProps {
   canSuggestAutoLayout?: boolean;
   canCreateComponent?: boolean;
   canReprompt?: boolean;
-  // Whether the current selection IS a component instance — gates the
-  // whole Go to main component / Swap instance / Detach instance cluster on
-  // (rather than showing them permanently disabled for non-instance
-  // selections, since real Figma doesn't show this cluster at all then).
   isComponentInstance?: boolean;
   canGoToMainComponent?: boolean;
   canSwapInstance?: boolean;
   canDetachInstance?: boolean;
-  // L12: this menu is target-agnostic — it has no built-in notion of "design
-  // title" vs "layer". Rename is enabled by default for a single selection
-  // (see the canRename default below) and fires through the onRename
-  // callback / onAction("rename", ...) regardless of what's selected. Any
-  // "only rename the design title" restriction is a CALL-SITE decision (e.g.
-  // passing canRename={false} and/or hiddenActions={["rename"]} when a layer
-  // is selected instead of the design title) — it does not live here.
-  // NOTE: real Figma's canvas menu doesn't show Rename at all — only the
-  // layer-row menu does. Kept here (opt-in via a wired-up onRename) purely
-  // for existing callers; no default UI relies on it being shown.
   canRename?: boolean;
   canToggleLocked?: boolean;
   canToggleHidden?: boolean;
@@ -322,7 +265,6 @@ export interface CanvasContextMenuProps {
     details: CanvasContextMenuActionDetails,
   ) => void;
   onPasteHere?: CanvasContextMenuActionHandler;
-  // Kept for back-compat; no longer rendered (see canSelectAll/canZoomToFit).
   onSelectAll?: CanvasContextMenuActionHandler;
   onZoomToFit?: CanvasContextMenuActionHandler;
   onZoomToSelection?: CanvasContextMenuActionHandler;
@@ -332,7 +274,6 @@ export interface CanvasContextMenuProps {
   onPaste?: CanvasContextMenuActionHandler;
   onPasteOver?: CanvasContextMenuActionHandler;
   onPasteToReplace?: CanvasContextMenuActionHandler;
-  // Kept for back-compat; no longer rendered (see canDuplicate/canDelete).
   onDuplicate?: CanvasContextMenuActionHandler;
   onDelete?: CanvasContextMenuActionHandler;
   onBringForward?: CanvasContextMenuActionHandler;
@@ -349,11 +290,6 @@ export interface CanvasContextMenuProps {
   onGoToMainComponent?: CanvasContextMenuActionHandler;
   onSwapInstance?: CanvasContextMenuActionHandler;
   onDetachInstance?: CanvasContextMenuActionHandler;
-  // L12: fired when the Rename item is selected (details.selectedCount tells
-  // the caller how many things are selected). The caller decides what
-  // "rename" means for the current target — e.g. calling a LayersPanel
-  // ref's beginRename(layerId) when exactly one layer is selected, vs.
-  // starting design-title rename when nothing is selected.
   onRename?: CanvasContextMenuActionHandler;
   onToggleLocked?: CanvasContextMenuActionHandler;
   onToggleHidden?: CanvasContextMenuActionHandler;
@@ -369,10 +305,6 @@ export interface CanvasContextMenuProps {
   onFlipVertical?: CanvasContextMenuActionHandler;
   onToggleUi?: CanvasContextMenuActionHandler;
   onToggleComments?: CanvasContextMenuActionHandler;
-  // App-specific items with no Figma equivalent (e.g. "Edit screen"). Render
-  // below a trailing separator, after the Figma-muscle-memory zone, only for
-  // the WITH-selection menu — matching the existing call site's need without
-  // polluting the empty-canvas menu.
   appendedItems?: ReactNode;
 }
 
@@ -427,8 +359,6 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
   toggleCommentsHide: "Hide comments",
 };
 
-// Platform-agnostic bindings, rendered through formatShortcutLabel at draw
-// time: a Mac glyph written in here renders verbatim to Windows users.
 const DEFAULT_SHORTCUT_BINDINGS: Record<
   keyof CanvasContextMenuShortcuts,
   string
@@ -507,19 +437,14 @@ export function dispatchContextMenuAt(
   );
 }
 
-// design-editor menu chrome: compact, dark-border, subtle shadow, no animation jitter
 const MENU_CONTENT_CLASS =
   "w-52 min-w-[200px] rounded-[6px] border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] py-[3px] px-[3px] text-[12px] text-foreground shadow-[0_4px_16px_rgba(0,0,0,0.16),0_0_0_0.5px_rgba(0,0,0,0.08)] outline-none data-[state=open]:!animate-none data-[state=closed]:!animate-none";
-// design row height ~28px, full-width highlight on hover, no icon gap waste
 const MENU_ITEM_CLASS =
   "flex h-7 cursor-default select-none items-center rounded-[4px] px-2 py-0 text-[12px] leading-none gap-0 focus:bg-[var(--design-editor-layer-hover-color)] focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-35";
-// Submenu trigger mirrors item styles + chevron sizing
 const MENU_SUB_TRIGGER_CLASS =
   "flex h-7 cursor-default select-none items-center rounded-[4px] px-2 py-0 text-[12px] leading-none focus:bg-[var(--design-editor-layer-hover-color)] focus:text-foreground data-[state=open]:bg-[var(--design-editor-layer-hover-color)] data-[state=open]:text-foreground [&>svg:last-child]:ms-auto [&>svg:last-child]:size-3 [&>svg:last-child]:opacity-50";
-// Separator: 1px, full-width flush, design-editor muted line
 const MENU_SEPARATOR_CLASS =
   "mx-0 my-[3px] h-px bg-[var(--design-editor-control-border)] opacity-80";
-// Shortcut: right-aligned, muted, use system UI for symbol rendering
 const MENU_SHORTCUT_CLASS =
   "ms-auto ps-4 font-normal !text-[11px] tracking-normal text-muted-foreground/70 tabular-nums";
 

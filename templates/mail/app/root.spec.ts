@@ -8,9 +8,7 @@ import { LABELS_QUERY_KEY } from "@/hooks/use-emails";
 import { INBOX_THREADS_QUERY_KEY } from "@/hooks/use-inbox-threads";
 import { shouldInvalidateMailQueryForActionEvent } from "@/lib/sync-invalidation";
 
-// getEmbedAuthToken keeps its real token in a module-level variable, so an
 // earlier test's URL-derived token would otherwise leak into a later test
-// via that shared memory (order-dependent false-green). Mock it directly so
 // each test controls the credential instead of the URL/sessionStorage state.
 vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/host")>()),
@@ -27,10 +25,6 @@ describe("computeSessionBypass", () => {
   });
 
   it("does not bypass for the bare embedded=1 flag with no token", () => {
-    // This is how the Electron desktop shell opens every app tab
-    // (packages/desktop-app CodeAgentsHub urlParams: { embedded: "1", chatFirst: "1" }).
-    // Without a real credential, bypassing here sends a signed-out tab into an
-    // infinite 401 poll instead of sign-in.
     window.history.replaceState(null, "", "/inbox?embedded=1&chatFirst=1");
     expect(computeSessionBypass()).toBe(false);
   });

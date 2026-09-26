@@ -59,7 +59,6 @@
  *   • Wrap everything in a self-executing IIFE.
  */
 (function () {
-  // Track the element we patched and its original background so we can undo.
   var patchedEl: HTMLElement | null = null;
   var originalBackground = "";
 
@@ -79,21 +78,6 @@
     return document.body;
   }
 
-  /**
-   * Minimal inline equivalent of isSafeStyleValue() in shared/code-layer.ts
-   * (the sanitizer the persist path runs style edits through), scoped to the
-   * one property this bridge ever writes: the `background` shorthand. Bridge
-   * files cannot import shared modules (see bridge.guard.spec.ts's no-import
-   * guard), so this duplicates the source-of-truth's rules instead of
-   * reusing them — keep in sync with isSafeStyleValue() in
-   * shared/code-layer.ts:
-   *   - reject empty values
-   *   - reject expression(...) and javascript: breakouts
-   *   - reject url(...) (only the background-image longhand is ever allowed
-   *     a url() reference on the persist path; the background shorthand
-   *     this bridge writes stays on the strict no-url path)
-   *   - reject raw <>{}; breakout characters
-   */
   function isSafeBackgroundStyleValue(value: string): boolean {
     if (typeof value !== "string") return false;
     var trimmed = value.trim();
@@ -106,10 +90,8 @@
   }
 
   function applyPreview(selector: string, nodeId: string, css: string): void {
-    // Clear any prior patch first so we don't stack patches.
     clearPreview();
     if (css && !isSafeBackgroundStyleValue(css)) {
-      // Reject silently (no style write) + tell the parent why.
       try {
         window.parent.postMessage(
           { type: "shader-fill-preview-rejected", reason: "unsafe-css-value" },
@@ -132,28 +114,6 @@
     originalBackground = "";
   }
 
-  /**
-   * Minimal inline duplicate of the STRUCTURAL (string-level) checks
-   * validateGlslSource() / validateUniformManifest() / validateShaderDef()
-   * apply on the persist path in shared/shader-fills.ts, run here before any
-   * preview/live-edit GLSL reaches the WebGL compiler. Bridge files cannot
-   * import shared modules (see bridge.guard.spec.ts's no-import guard), so
-   * this duplicates the source-of-truth's rules instead of reusing them —
-   * keep in sync with shared/shader-fills.ts. Deliberately a SUBSET: it skips
-   * the cross-check that every manifest uniform is declared in the GLSL with
-   * the matching type (a knob-completeness nicety, not a GPU-hang/injection
-   * risk), since previews render even with unused/partial knobs.
-   *
-   * Script-tag handling also intentionally differs from a naive "reject both
-   * tags" rule, to stay in sync with shader script breakout hardening in
-   * shared/shader-fills.ts: an opening `<script` tag is a real injection
-   * vector (starts a brand new, arbitrary script), so it stays a hard
-   * rejection here too. A bare closing `</script` — e.g. inside a GLSL line
-   * comment — is NOT rejected here or on the persist path: escaping
-   * (escapeShaderScriptBreakout) happens only at persist-time serialization
-   * (serializeShaderScriptBlock), not here on the preview path, since preview
-   * GLSL never gets embedded in a `<script>` block in the first place.
-   */
   var MAX_GLSL_LENGTH = 20000;
   var UNIFORM_NAME_RE = /^u_[A-Za-z0-9_]{1,48}$/;
   var SHADER_BUILTIN_UNIFORMS = ["u_time", "u_resolution"];
@@ -252,11 +212,6 @@
     return errors;
   }
 
-  /**
-   * Full structural validation for a preview/live-edit shader def. Returns an
-   * empty array when valid. Mirrors validateShaderDef()'s string-level checks
-   * (see the comment above) without the GLSL↔manifest type cross-check.
-   */
   function validatePreviewShaderDef(shader: {
     id?: unknown;
     name?: unknown;
@@ -287,27 +242,9 @@
     } catch (_err) {}
   }
 
-  // Local preview-mount bookkeeping — enforces the same cap the runtime uses
-  // (MAX_MOUNTS = 8 in shader-runtime.bridge.ts) independent of the
-  // runtime's own internal `mounts` array, which this bridge has no access
-  // to (no imports). Today's single-target glsl-shader-preview protocol only
-  // ever needs ONE live preview mount at a time (the runtime's own
-  // applyPreview() tears down any prior preview mount before creating a new
-  // one), so this counter is deliberately conservative: it counts every
-  // ACCEPTED preview request since the last explicit clear rather than
-  // trusting that every caller pairs each preview with one, so a
-  // hostile/misbehaving parent that fires many previews without ever
-  // clearing still gets capped at MAX_PREVIEW_MOUNTS instead of unbounded
-  // WebGL context churn.
   var MAX_PREVIEW_MOUNTS = 8;
   var acceptedPreviewCountSinceClear = 0;
 
-  /**
-   * The code-backed GLSL runtime (shader-runtime.bridge.ts) registers itself
-   * as window.__anShaders. It is injected immediately before this bridge in
-   * the editor, and embedded directly in persisted screen HTML. Everything
-   * here degrades to a no-op when it is missing.
-   */
   interface AnShadersGlobal {
     version: number;
     scan: () => void;
@@ -364,16 +301,11 @@
           ? e.data.shader
           : null;
       if (!shader || typeof shader.glsl !== "string") return;
-      // Reject a hostile/broken shader BEFORE it ever reaches the WebGL
-      // compiler (GPU-hang risk from arbitrary postMessage GLSL) — same
-      // structural checks the persist path runs via validateShaderDef().
       var validationErrors = validatePreviewShaderDef(shader);
       if (validationErrors.length > 0) {
         postShaderRejected(validationErrors);
         return;
       }
-      // Enforce the same mount cap the runtime uses (8), independent of the
-      // runtime's own bookkeeping — see acceptedPreviewCountSinceClear above.
       if (acceptedPreviewCountSinceClear >= MAX_PREVIEW_MOUNTS) {
         postShaderRejected([
           "too many active shader previews — max is " + MAX_PREVIEW_MOUNTS,
@@ -412,10 +344,6 @@
       var api3 = runtime();
       if (!api3) return;
       if (typeof e.data.id !== "string") return;
-      // Same structural validation as glsl-shader-preview before hot-swapping
-      // a registered shader's live GLSL/manifest — glsl-shader-update allows
-      // a partial patch (e.g. uniforms-only), so only validate whichever
-      // parts are actually present in this message.
       var updateErrors: string[] = [];
       if (typeof e.data.glsl === "string") {
         updateErrors = updateErrors.concat(

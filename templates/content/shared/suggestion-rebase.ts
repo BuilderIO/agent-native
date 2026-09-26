@@ -35,7 +35,6 @@ function blockRanges(markdown: string) {
   const serialized = blocks.map((block) =>
     docToNfm({ type: "doc", content: [block] }),
   );
-  // Only use structural offsets when serialization preserves every byte.
   if (serialized.join("\n") !== markdown) return [];
   let offset = 0;
   return blocks.map((block, index) => {
@@ -95,7 +94,6 @@ function resolveParagraphRange(
     const range = resolveOutsideChange(block.text, candidate.text, localAnchor);
     return range ? [{ ...range, ordinal, offset: candidate.from }] : [];
   });
-  // Ordinal alone is not identity: a similarly matching sibling is ambiguous.
   if (candidates.length !== 1 || candidates[0].ordinal !== index) return null;
   const range = candidates[0];
   const reverse = original.filter(
@@ -274,8 +272,6 @@ function resolveOutsideChange(
   ) {
     suffix += 1;
   }
-  // Keep every possible boundary when repeated text lets the canonical change
-  // slide left or right. A target inside that interval cannot be safely rebased.
   const changeFrom = Math.min(
     prefix,
     before.length - suffix,

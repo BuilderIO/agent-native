@@ -1,18 +1,3 @@
-/**
- * apply-shader-fill.spec.ts
- *
- * Unit tests for the persisting shader-fill apply path.
- *
- * The action itself requires a live DB + collab runtime, so (following the
- * apply-motion-edit.spec.ts pattern) these tests cover:
- *
- *  1. The pure helper that produces the value the action persists
- *     (`buildShaderFillBackground`) — proving the colour/param allowlist and the
- *     persisted CSS `background` output.
- *  2. The action's contract via static source inspection — proving it asserts
- *     editor access, only persists HTML design-file sources, validates the
- *     descriptor before writing, and goes through the deterministic HTML editor.
- */
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -26,7 +11,6 @@ import {
 } from "../shared/shader-fill";
 import type { ShaderDescriptor } from "../shared/shader-presets";
 
-// ─── 1. Persisted value: colour/param allowlist + CSS output ──────────────────
 
 describe("buildShaderFillBackground — persisted CSS background", () => {
   it("returns the same gradient the preview renders for a MeshGradient", () => {
@@ -45,7 +29,6 @@ describe("buildShaderFillBackground — persisted CSS background", () => {
   it("falls back to preset default colours when none are supplied", () => {
     const descriptor: ShaderDescriptor = { preset: "MeshGradient", params: {} };
     const { background, colors } = buildShaderFillBackground(descriptor);
-    // MeshGradient defaultColors from the manifest.
     expect(colors).toEqual(["#e0eaff", "#241d9a", "#f75092", "#9f50d3"]);
     expect(background).toContain("#e0eaff");
     expect(background).toContain("#9f50d3");
@@ -70,7 +53,6 @@ describe("buildShaderFillBackground — persisted CSS background", () => {
         colors: ["#ffffff", "red; } body { display:none"],
       };
       const { background, colors } = buildShaderFillBackground(descriptor);
-      // The unsafe entry is replaced with the neutral fallback, never echoed.
       expect(colors).toEqual(["#ffffff", "#808080"]);
       expect(background).not.toContain("display");
       expect(background).not.toContain("}");
@@ -130,7 +112,6 @@ describe("buildShaderFillBackground — persisted CSS background", () => {
   });
 });
 
-// ─── 2. Action contract via source inspection ─────────────────────────────────
 
 describe("apply-shader-fill action contract", () => {
   const actionPath = path.resolve(
@@ -150,8 +131,6 @@ describe("apply-shader-fill action contract", () => {
 
   it("validates the descriptor before any write", () => {
     expect(src).toContain("validateDescriptor(descriptor)");
-    // Validation in run() must short-circuit before the persist CALL site
-    // (`await persistDesignFileEdit(...)`), not merely before the helper def.
     const validateIdx = src.indexOf("validateDescriptor(descriptor)");
     const persistCallIdx = src.indexOf("await persistDesignFileEdit({");
     expect(validateIdx).toBeGreaterThan(-1);
@@ -168,7 +147,6 @@ describe("apply-shader-fill action contract", () => {
   it("only writes HTML design-file sources — other kinds preview, never persist", () => {
     expect(src).toContain('source.kind !== "design-file"');
     expect(src).toMatch(/persisted:\s*false/);
-    // The HTML-only guard inside resolveEditableDesignFile.
     expect(src).toContain(
       "Shader fills can only be persisted onto HTML design files",
     );

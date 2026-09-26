@@ -52,11 +52,6 @@ function decodeStoredPassword(
   return stored;
 }
 
-/**
- * Constant-time check of a supplied password against the stored (encrypted or
- * legacy-plaintext) value. Hashing both sides to a fixed width lets
- * `timingSafeEqual` run without leaking length via an early return.
- */
 export function verifySharePassword(
   supplied: string,
   stored: string | null | undefined,

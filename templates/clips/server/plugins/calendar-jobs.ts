@@ -1,9 +1,3 @@
-/**
- * Nitro plugin — registers the recurring calendar polling and meeting
- * reminder jobs. Both jobs gate on `RUN_BACKGROUND_JOBS` (see
- * `templates/mail/server/plugins/mail-jobs.ts` for the same gating
- * pattern).
- */
 
 import registerBrainExportJob from "../jobs/brain-export.js";
 import registerBuilderMediaCompressionJob from "../jobs/builder-media-compression.js";
@@ -16,9 +10,6 @@ import registerThumbnailSweeperJob from "../jobs/thumbnail-sweeper.js";
 import registerTransactionalEmailsJob from "../jobs/transactional-emails.js";
 
 export default () => {
-  // The reminder job registers the `meeting-reminder` event on every
-  // boot (idempotent), so other consumers can subscribe even when the
-  // background loop is off.
   registerMeetingRemindersJob();
   registerBuilderMediaCompressionJob();
   registerBrainExportJob();

@@ -6,9 +6,6 @@ import type {
   DataWidgetDisplay,
 } from "@agent-native/core/data-widgets";
 
-// ---------------------------------------------------------------------------
-// Form field types
-// ---------------------------------------------------------------------------
 
 export type FormFieldType =
   | "text"
@@ -48,14 +45,12 @@ export interface FormField {
   validation?: FieldValidation;
   conditional?: ConditionalRule;
   width?: "full" | "half";
-  /** File input metadata. Only used when `type` is `file`. */
   multiple?: boolean;
   accept?: string;
   maxSizeBytes?: number;
   maxFiles?: number;
 }
 
-/** Storage reference persisted for a submitted file field. */
 export interface FormFileValue {
   url: string;
   name: string;
@@ -66,9 +61,6 @@ export interface FormFileValue {
   handle?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Integrations
-// ---------------------------------------------------------------------------
 
 export type IntegrationType = "webhook" | "slack" | "discord" | "google-sheets";
 
@@ -80,9 +72,6 @@ export interface FormIntegration {
   url: string;
 }
 
-// ---------------------------------------------------------------------------
-// Form settings
-// ---------------------------------------------------------------------------
 
 export type FormCompletionMode =
   | "message"
@@ -101,19 +90,9 @@ export interface FormSettings {
   completionMode?: FormCompletionMode;
   completionRefreshSeconds?: number;
   showProgressBar?: boolean;
-  /** Send new response summaries to the form owner's account email. */
   emailOnNewResponses?: boolean;
-  /**
-   * Strict response privacy mode. When enabled, submissions do not retain the
-   * request IP, submitter identity, chat/run ids, page URL, or client surface.
-   */
   anonymous?: boolean;
   integrations?: FormIntegration[];
-  /**
-   * Origins permitted to POST submissions cross-origin (e.g. from embedded
-   * feedback popovers). Empty/unset = allow any origin (back-compat).
-   * Each entry is a full origin like "https://app.example.com".
-   */
   allowedOrigins?: string[];
 }
 
@@ -130,17 +109,6 @@ export const FORM_SETTINGS_KEYS = [
   "allowedOrigins",
 ] as const;
 
-/**
- * The subset of {@link FormSettings} that is safe to expose to anonymous
- * respondents of a published form. This is an explicit ALLOWLIST: only the
- * fields the public fill page (and SSR renderer) actually need to render and
- * submit a form are included. Owner-private settings such as
- * `integrations` (which carry Slack/Discord/generic webhook URLs) and
- * `allowedOrigins` are deliberately omitted and must never reach the client.
- *
- * When adding a new public-facing setting, add it here explicitly so the
- * default stays "private unless allowlisted".
- */
 export interface PublicFormSettings {
   submitText?: string;
   successMessage?: string;
@@ -150,7 +118,6 @@ export interface PublicFormSettings {
   showProgressBar?: boolean;
 }
 
-/** Resolve legacy forms that only have a redirect URL into the current mode. */
 export function getFormCompletionMode(
   settings: Pick<FormSettings, "completionMode" | "redirectUrl">,
 ): FormCompletionMode {
@@ -214,12 +181,6 @@ export function assertValidFormCompletionSettings(
   }
 }
 
-/**
- * Project a full {@link FormSettings} object down to the public-safe
- * {@link PublicFormSettings} allowlist. Strips integration webhook URLs,
- * allowed-origins, and any future owner-private fields so the public
- * form-fetch endpoint and SSR path never leak owner secrets.
- */
 export function toPublicFormSettings(
   settings: FormSettings | null | undefined,
 ): PublicFormSettings {
@@ -234,9 +195,6 @@ export function toPublicFormSettings(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Form
-// ---------------------------------------------------------------------------
 
 export interface Form {
   id: string;
@@ -246,35 +204,20 @@ export interface Form {
   fields: FormField[];
   settings: FormSettings;
   status: "draft" | "published" | "closed";
-  /** Effective role of the current user on this form. */
   role?: "owner" | "viewer" | "commenter" | "editor" | "admin";
   responseCount?: number;
   createdAt: string;
   updatedAt: string;
 }
 
-// ---------------------------------------------------------------------------
-// Form response
-// ---------------------------------------------------------------------------
 
 export interface FormResponse {
   id: string;
   formId: string;
   data: Record<string, unknown>;
   submittedAt: string;
-  /** Real submitter email when known; synthetic anonymous-owner ids are hidden. */
   submitterEmail?: string | null;
-  /**
-   * URL of the direct public form or trusted embed source page. Sensitive URL
-   * query keys are scrubbed before it is stored; null when no page context is
-   * available or anonymous mode suppresses response metadata.
-   */
   pageUrl?: string | null;
-  /**
-   * Runtime shell the feedback was sent from — "web", "electron", or "tauri" —
-   * forwarded by trusted embeds as a hidden pass-through field. Null when
-   * unknown or anonymous mode suppresses response metadata.
-   */
   clientSurface?: string | null;
   communityPromotion?: {
     status: "publishing" | "published" | "failed" | "unknown";
@@ -286,9 +229,6 @@ export interface FormResponse {
   } | null;
 }
 
-// ---------------------------------------------------------------------------
-// Response insight widgets
-// ---------------------------------------------------------------------------
 
 export type ResponseInsightsTableColumn = DataTableColumn;
 

@@ -7,20 +7,7 @@ import type {
   PlanSection,
 } from "../../shared/types.js";
 
-/**
- * Deep / adversarial coverage for the COMMENTING + FEEDBACK area:
- *   - actions/get-plan-feedback.ts (aggregation, ordering, anchor summaries, threads)
- *   - server/lib/comment-notifications.ts (recipients, dedupe, self-notify, leaks)
- *   - server/plans.ts comment-row builders + author identity (spoofing)
- *
- * Strategy mirrors the existing get-plan-feedback.spec.ts and
- * comment-notifications.spec.ts mock idioms so it runs against the same module
- * graph the production action surface uses.
- */
 
-// ---------------------------------------------------------------------------
-// get-plan-feedback action under test (mock the action runtime + plan loader)
-// ---------------------------------------------------------------------------
 vi.mock("@agent-native/core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core")>()),
   defineAction: (entry: unknown) => entry,
@@ -37,7 +24,6 @@ vi.mock("../plans.js", async () => {
   };
 });
 
-// comment-notifications mocks (match the existing spec exactly)
 const sendEmailMock = vi.hoisted(() => vi.fn());
 const renderEmailMock = vi.hoisted(() =>
   vi.fn((_args: unknown) => ({ html: "<p>Email</p>", text: "Email" })),
@@ -48,7 +34,6 @@ const getDbMock = vi.hoisted(() => vi.fn());
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((left: unknown, right: unknown) => ({ left, right })),
-  // plans.ts (importActual) also uses asc / inArray; provide harmless stubs.
   asc: vi.fn((col: unknown) => ({ asc: col })),
   inArray: vi.fn((col: unknown, values: unknown) => ({ col, values })),
   and: vi.fn((...args: unknown[]) => ({ and: args })),
@@ -113,9 +98,6 @@ const {
   resolveCommentAuthor,
 } = await import("../plans.js");
 
-// ---------------------------------------------------------------------------
-// fixtures
-// ---------------------------------------------------------------------------
 const plan: Plan = {
   id: "plan_1",
   title: "Invite flow",
@@ -248,9 +230,6 @@ beforeEach(() => {
   sendEmailMock.mockReset();
 });
 
-// ===========================================================================
-// get-plan-feedback: aggregation + ordering + anchors
-// ===========================================================================
 describe("get-plan-feedback aggregation", () => {
   it("returns only unconsumed human comments and excludes agent/import/consumed", async () => {
     loadPlanBundleMock.mockResolvedValueOnce(
@@ -330,9 +309,6 @@ describe("get-plan-feedback aggregation", () => {
   });
 });
 
-// ===========================================================================
-// get-plan-feedback: threads
-// ===========================================================================
 describe("get-plan-feedback threads", () => {
   it("groups a reply under its root and surfaces it as a thread with replies", async () => {
     const root = fbComment({
@@ -366,7 +342,6 @@ describe("get-plan-feedback threads", () => {
     });
     loadPlanBundleMock.mockResolvedValueOnce(feedbackBundle([root, reply]));
     const result = await getPlanFeedback.run({ planId: "plan_1" });
-    // The thread should still surface because the reply is fresh feedback.
     expect(result.threads).toHaveLength(1);
     expect(result.threads[0].comments.map((c) => c.id)).toEqual([
       "root",
@@ -384,14 +359,11 @@ describe("get-plan-feedback threads", () => {
     });
     loadPlanBundleMock.mockResolvedValueOnce(feedbackBundle([root, reply]));
     const result = await getPlanFeedback.run({ planId: "plan_1" });
-    // resolved root+reply, but they're still in the feedback set only if
-    // unconsumed human — they are. status should be "resolved".
     expect(result.threads).toHaveLength(1);
     expect(result.threads[0].status).toBe("resolved");
   });
 
   it("does not infinite-loop on a self-parenting comment (orphan cycle)", async () => {
-    // Adversarial: a comment that points at itself as parent.
     const selfRef = fbComment({ id: "self", parentCommentId: "self" });
     loadPlanBundleMock.mockResolvedValueOnce(feedbackBundle([selfRef]));
     const result = await getPlanFeedback.run({ planId: "plan_1" });
@@ -408,7 +380,6 @@ describe("get-plan-feedback threads", () => {
     });
     loadPlanBundleMock.mockResolvedValueOnce(feedbackBundle([a, b]));
     const result = await getPlanFeedback.run({ planId: "plan_1" });
-    // Should terminate and produce thread(s) without hanging.
     const total = result.threads.reduce((n, t) => n + t.commentCount, 0);
     expect(total).toBeGreaterThanOrEqual(1);
   });
@@ -422,9 +393,6 @@ describe("get-plan-feedback threads", () => {
   });
 });
 
-// ===========================================================================
-// comment notifications: recipients + dedupe + self-notify + leaks
-// ===========================================================================
 describe("plan comment notification recipients (adversarial)", () => {
   it("dedupes plan owner who is also a thread participant to a single email", () => {
     const root = notifyComment("root", { authorEmail: "owner@example.com" });
@@ -442,7 +410,6 @@ describe("plan comment notification recipients (adversarial)", () => {
   });
 
   it("normalizes email case/whitespace so self-notify is still suppressed", () => {
-    // Actor commented with mixed-case/padded email; owner is the same person.
     const c = notifyComment("self", {
       authorEmail: "  Owner@Example.COM  ",
     });
@@ -505,7 +472,6 @@ describe("plan comment notification recipients (adversarial)", () => {
     });
     const emails = recipients.map((r) => r.email);
     expect(emails).toContain("broot@example.com");
-    // aroot is in a separate thread and must NOT be notified.
     expect(emails).not.toContain("aroot@example.com");
   });
 
@@ -560,7 +526,6 @@ describe("notifyPlanCommentRecipients side effects", () => {
       insertedCommentIds: ["huge"],
     });
     const args = renderEmailMock.mock.calls[0]?.[0] as { paragraphs: string[] };
-    // 260-char cap + ellipsis, surrounded by `Comment: "..."`
     expect(args.paragraphs[1].length).toBeLessThan(400);
     expect(args.paragraphs[1]).toContain("...");
   });
@@ -599,7 +564,6 @@ describe("notifyPlanCommentRecipients side effects", () => {
         priorComments: [root],
       }),
     ).resolves.toBeUndefined();
-    // owner failed, root participant still attempted.
     expect(sendEmailMock.mock.calls.map(([a]) => a.to)).toEqual([
       "owner@example.com",
       "root@example.com",
@@ -607,9 +571,6 @@ describe("notifyPlanCommentRecipients side effects", () => {
   });
 });
 
-// ===========================================================================
-// comment row builders: identity spoofing + threading edge cases
-// ===========================================================================
 describe("comment author identity (anti-spoof)", () => {
   it("forces a human comment author to the authenticated request email, ignoring a spoofed authorEmail", () => {
     const result = resolveCommentAuthor({
@@ -769,9 +730,6 @@ describe("buildUpdatedPlanCommentRows (adversarial threading)", () => {
   });
 });
 
-// ===========================================================================
-// Additional anchor + deep-thread edge cases
-// ===========================================================================
 describe("get-plan-feedback anchor + deep thread edges", () => {
   it("summarizes a bare section-only anchor as the section title", async () => {
     const c = fbComment({
@@ -841,7 +799,6 @@ describe("get-plan-feedback anchor + deep thread edges", () => {
       feedbackBundle([root, replyB, replyA]),
     );
     const result = await getPlanFeedback.run({ planId: "plan_1" });
-    // equal createdAt -> id.localeCompare tiebreak ("a-reply" before "b-reply")
     expect(result.threads[0].replies.map((c) => c.id)).toEqual([
       "a-reply",
       "b-reply",
@@ -988,7 +945,6 @@ describe("comment-row builders self-parent + forward-reference handling", () => 
         },
       ],
     });
-    // Root must be inserted before the reply so the FK is satisfiable.
     expect(rows.map((r) => r.id)).toEqual(["root", "reply"]);
   });
 });

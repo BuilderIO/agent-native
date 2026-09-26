@@ -126,21 +126,18 @@ describe("RecipientInput autocomplete interaction", () => {
     fireEvent.change(input, { target: { value: "ad" } });
     const options = screen.getAllByRole("option");
 
-    // Step 1: ArrowDown activates the second match.
     fireEvent.keyDown(input, { key: "ArrowDown" });
     expect(options[1].getAttribute("aria-selected")).toBe("true");
     expect(input.getAttribute("aria-activedescendant")).toBe(
       options[1].getAttribute("id"),
     );
 
-    // Step 2: ArrowUp returns both the active descendant and selection to Ada.
     fireEvent.keyDown(input, { key: "ArrowUp" });
     expect(options[0].getAttribute("aria-selected")).toBe("true");
     expect(input.getAttribute("aria-activedescendant")).toBe(
       options[0].getAttribute("id"),
     );
 
-    // Step 3: Tab accepts the active result and clears the query/listbox.
     fireEvent.keyDown(input, { key: "Tab" });
     expect(screen.getByText("ada@example.test")).toBeTruthy();
     expect(input.value).toBe("");
@@ -168,17 +165,14 @@ describe("RecipientInput autocomplete interaction", () => {
     render(<RecipientHarness />);
     const input = screen.getByRole("combobox") as HTMLInputElement;
 
-    // Step 1: type a query and confirm its listbox is visible.
     fireEvent.change(input, { target: { value: "ad" } });
     expect(screen.getAllByRole("option")).toHaveLength(2);
 
-    // Step 2: Escape hides suggestions but preserves the in-progress text.
     fireEvent.keyDown(input, { key: "Escape" });
     expect(input.value).toBe("ad");
     expect(input.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryAllByRole("option")).toHaveLength(0);
 
-    // Step 3: editing the query opens the matching list again.
     fireEvent.change(input, { target: { value: "bea" } });
     expect(screen.getAllByRole("option")).toHaveLength(1);
     expect(input.getAttribute("aria-expanded")).toBe("true");
@@ -188,11 +182,9 @@ describe("RecipientInput autocomplete interaction", () => {
     render(<RecipientHarness initialValue="ADA@example.test" />);
     const input = screen.getByRole("combobox") as HTMLInputElement;
 
-    // Step 1: the existing address is omitted from suggestions regardless of case.
     fireEvent.change(input, { target: { value: "ada@" } });
     expect(screen.queryAllByRole("option")).toHaveLength(0);
 
-    // Step 2: explicitly confirming the same address still cannot duplicate a chip.
     fireEvent.change(input, { target: { value: "ada@example.test" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(screen.getAllByText("ADA@example.test")).toHaveLength(1);
@@ -219,7 +211,6 @@ describe("RecipientInput autocomplete interaction", () => {
     render(<RecipientHarness />);
     const input = screen.getByRole("combobox") as HTMLInputElement;
 
-    // The contacts hook supplies frequency order; same-name results retain it.
     fireEvent.change(input, { target: { value: "Jordan Example" } });
     const sameNameOptions = screen.getAllByRole("option");
     expect(sameNameOptions).toHaveLength(2);
@@ -231,7 +222,6 @@ describe("RecipientInput autocomplete interaction", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     expect(screen.getByText("frequent@example.test")).toBeTruthy();
 
-    // Address lookup is case-insensitive and narrows to the exact contact.
     fireEvent.change(input, { target: { value: "JORDAN@EXAMPLE.TEST" } });
     const exactAddressOptions = screen.getAllByRole("option");
     expect(exactAddressOptions).toHaveLength(1);
@@ -245,14 +235,12 @@ describe("RecipientInput autocomplete interaction", () => {
     render(<RecipientHarness />);
     const input = screen.getByRole("combobox") as HTMLInputElement;
 
-    // Step 1: a single-token paste follows native input behavior.
     fireEvent.paste(input, {
       clipboardData: { getData: () => "ada@example.test" },
     });
     fireEvent.change(input, { target: { value: "ada@example.test" } });
     expect(input.value).toBe("ada@example.test");
 
-    // Step 2: leaving the field commits a valid address as a chip.
     fireEvent.blur(input);
     expect(screen.getByText("ada@example.test")).toBeTruthy();
     expect(input.value).toBe("");
@@ -287,7 +275,6 @@ describe("RecipientInput autocomplete interaction", () => {
     render(<RecipientHarness initialValue="ADA@example.test" />);
     const input = screen.getByRole("combobox") as HTMLInputElement;
 
-    // Step 1: a multi-address paste intercepts the paste and adds valid new emails.
     fireEvent.paste(input, {
       clipboardData: {
         getData: () =>
@@ -295,8 +282,6 @@ describe("RecipientInput autocomplete interaction", () => {
       },
     });
 
-    // Step 2: existing/new duplicates are removed, valid casing is preserved,
-    // and non-address text remains editable rather than silently disappearing.
     expect(screen.getAllByText("ADA@example.test")).toHaveLength(1);
     expect(screen.getByText("BEA@example.test")).toBeTruthy();
     expect(input.value).toBe("not-an-address");

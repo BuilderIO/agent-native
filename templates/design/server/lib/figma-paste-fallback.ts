@@ -1,12 +1,3 @@
-/**
- * Shared "legacy" Figma paste fallback: saves the visible clipboard HTML
- * (markers stripped by `parseVisibleClipboardHtml`) as a new Design screen.
- *
- * Extracted from `import-design-source.ts`'s `figma-paste-html` branch so the
- * REST-first clipboard import path (`import-figma-clipboard.ts`) can fall back
- * to the exact same behavior when node resolution can't confidently match the
- * pasted content to specific Figma nodes, instead of re-implementing it.
- */
 
 import {
   normalizeImportedHtmlDocument,

@@ -1,7 +1,3 @@
-// Duplicate detection against a real PGlite database with the app's own
-// migrations applied. The whole point of this module is that it reads the sparse
-// sub-field columns the attribute writer populates, so the queries — not a
-// mocked builder — are the thing under test.
 
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -291,8 +287,6 @@ describe("email matching", () => {
         confidence: 0.2,
       },
     ]);
-    // Below the action's default floor, so a colleague never surfaces as a
-    // duplicate without someone explicitly asking for weak signals.
     expect(candidate.confidence).toBeLessThan(0.4);
   });
 
@@ -334,7 +328,6 @@ describe("domain matching", () => {
     const [candidate] = seedFor(seeds, a).candidates;
     expect(candidate.recordId).toBe(b);
     const reasons = candidate.signals.map((signal) => signal.reason).sort();
-    // Same domain AND the same normalized name — two independent signals.
     expect(reasons).toEqual(["domain", "name-and-location"]);
     expect(candidate.confidence).toBeCloseTo(0.88, 3);
   });
@@ -439,8 +432,6 @@ describe("scope and safety", () => {
     const seeds = await asOther(() =>
       findCrmDuplicateCandidates({ db: getDb(), recordIds: [hidden] }),
     );
-    // An empty seed list is "you cannot see it", which the action reports as
-    // unreadable — distinct from a seed with zero candidates.
     expect(seeds).toEqual([]);
 
     const [row] = await getDb()

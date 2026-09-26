@@ -1,6 +1,5 @@
 export const CRM_SIDEBAR_COLLAPSE_KEY = "crm.sidebar.collapsed";
 
-/** The slice of `window.localStorage` the sidebar depends on. */
 export interface CollapseStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
@@ -11,7 +10,6 @@ export function getCollapseStorage(): CollapseStorage | null {
   try {
     return window.localStorage;
   } catch {
-    // Storage can be disabled outright (private mode, blocked cookies).
     return null;
   }
 }

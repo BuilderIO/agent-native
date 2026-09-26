@@ -3,7 +3,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
@@ -19,12 +19,8 @@ import {
   resolveTweaksToCssVars,
 } from "../shared/resolve-tweaks.js";
 
-// ---------------------------------------------------------------------------
-// Token-edit patch schema (mirrors preview-design-token-edit)
-// ---------------------------------------------------------------------------
 
 const tokenEditSchema = z.object({
-  /** The CSS custom property to update, e.g. "--primary-color". */
   cssVar: z
     .string()
     .startsWith("--")
@@ -35,7 +31,6 @@ const tokenEditSchema = z.object({
       "cssVar must be a valid CSS custom property name (-- followed by letters, digits, hyphens, or underscores).",
     )
     .describe("CSS custom property to edit"),
-  /** New value string, e.g. "#3B82F6" or "0.75rem". */
   value: z
     .string()
     // The value is rendered into CSS custom-property declarations; reject
@@ -47,7 +42,6 @@ const tokenEditSchema = z.object({
     .describe("New value for the token"),
 });
 
-/** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
   return buildDeepLink({
     app: "design",
@@ -75,9 +69,6 @@ function selectionKeyForCssVar(tweaks: TweakDef[], cssVar: string): string {
   return tweaks.find((tweak) => tweak.cssVar === cssVar)?.id ?? cssVar;
 }
 
-// ---------------------------------------------------------------------------
-// Action — persist token edit through the Tweaks loop (Tier-A)
-// ---------------------------------------------------------------------------
 
 export default defineAction({
   description:
@@ -105,20 +96,10 @@ export default defineAction({
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);
 
-    // ------------------------------------------------------------------
-    // Capability check — real-app write-back (writeTokens) is gated
-    // ------------------------------------------------------------------
-    // TODO(fusion): When the bridge proves writeTokens capability, pass the
-    // resolved capabilities from the active source connection here instead of
-    // falling back to INLINE_DEFAULT_CAPABILITIES.
     const caps = INLINE_DEFAULT_CAPABILITIES;
     const canWriteTokens = hasCapability(caps, "writeTokens");
-    // sourceRef will be used once real write-back is implemented
     void sourceRef;
 
-    // Merge against the latest designs.data revision. Each retry re-resolves
-    // cssVar -> tweak id so a concurrent tweak-definition change cannot leave
-    // the value under a stale key.
     const { data: persistedData } = await mutateDesignData({
       designId,
       mutate: (prevData, { updatedAt }) => {
@@ -146,23 +127,16 @@ export default defineAction({
     const tweaks = readTweaks(persistedData);
     const newSelections = readSelections(persistedData);
 
-    // Resolve to full CSS var map for the response (so the caller can send a
-    // tweak-values postMessage without a separate round-trip)
     const resolvedCssVars = resolveTweaksToCssVars(tweaks, newSelections);
 
     return {
       designId,
       persisted: true,
-      /**
-       * Advisory when real-app source write-back is not yet available.
-       * `null` means the edit was fully applied via the Tweaks loop.
-       */
       writeTokensAdvisory: canWriteTokens
         ? null
         : "Token source write-back is not yet available for this source tier. " +
           "The value is persisted in the design's tweakSelections and reflected " +
           "live via the CSS-var bridge. Connect Builder (free tier available) to unlock real write-back.",
-      /** Resolved CSS var map — pass directly to the tweak-values postMessage. */
       resolvedCssVars,
       deepLink: designDeepLink(designId),
     };

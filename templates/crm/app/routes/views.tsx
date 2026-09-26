@@ -1,11 +1,3 @@
-/**
- * Saved views: the index, and the table/board surface for one view.
- *
- * Unsaved filter, sort, grouping, and presentation changes live in the URL
- * search params and nowhere else — a reload reverts to the stored view, and a
- * shared view is never autosaved. Committing a change is an explicit three-way
- * fork: save it, fork it into a new view, or discard it.
- */
 
 import {
   useActionMutation,
@@ -145,9 +137,6 @@ export default function SavedViewsRoute() {
   return <ViewsIndex views={views} lists={lists} />;
 }
 
-// ---------------------------------------------------------------------------
-// Index
-// ---------------------------------------------------------------------------
 
 function ViewsIndex({
   views,
@@ -266,9 +255,6 @@ function BackToViews() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// One saved view
-// ---------------------------------------------------------------------------
 
 function SavedViewSurface({
   view,
@@ -338,8 +324,6 @@ function SavedViewSurface({
 
   const effective = effectiveView(view, draft);
   const dirty = draftIsDirty(view, draft);
-  // A board view must persist an explicit grouping, so a mode switch carries
-  // whatever the board actually grouped by.
   const saveDraft: BoardDraft = {
     ...draft,
     ...(effective.viewKind === "board"
@@ -553,9 +537,6 @@ function SaveFork({
   );
 }
 
-// ---------------------------------------------------------------------------
-// A list with no default view yet
-// ---------------------------------------------------------------------------
 
 function AdHocListSurface({ listId, name }: { listId: string; name: string }) {
   const t = useT();
@@ -601,9 +582,6 @@ function AdHocListSurface({ listId, name }: { listId: string; name: string }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Create
-// ---------------------------------------------------------------------------
 
 function CreateSavedViewDialog() {
   const t = useT();

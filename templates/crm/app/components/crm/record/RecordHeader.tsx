@@ -1,6 +1,3 @@
-/**
- * Record header: identity, provenance, the upstream deep link, quick actions.
- */
 
 import { useT } from "@agent-native/core/client/i18n";
 import { IconExternalLink } from "@tabler/icons-react";
@@ -31,8 +28,6 @@ export function RecordHeader({
     : undefined;
 
   return (
-    /* 104px: the record header's fixed band. `min-h` rather than `h` so a
-       wrapped title or a second row of badges grows it instead of clipping. */
     <header className="flex min-h-[6.5rem] items-center border-b border-hairline px-5 py-4 sm:px-6">
       <div className="flex w-full flex-wrap items-center justify-between gap-4">
         <div className="flex min-w-0 items-center gap-3">
@@ -92,8 +87,6 @@ function RecordAvatar({ name, kind }: { name: string; kind: string }) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
-  // Person avatars are circles, company avatars a 30% squircle — the shape is
-  // how the two record kinds stay distinguishable at a glance.
   return (
     <div
       aria-hidden

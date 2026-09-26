@@ -773,8 +773,6 @@ export function CreateEventPopover({
     toast(t("eventForm.timeSelected"));
   }
 
-  // Keep the global shortcut for long-form fields while regular inputs submit
-  // through the form-level Enter handler below.
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -843,7 +841,6 @@ export function CreateEventPopover({
       return;
     }
 
-    // Pick up any unsubmitted typed email so users do not lose the final entry.
     const trailingAttendees =
       attendeeAutocompleteRef.current?.commitPending() ?? [];
     const finalAttendees = uniqueAttendees([

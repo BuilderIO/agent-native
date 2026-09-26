@@ -1,17 +1,3 @@
-/**
- * take-design-screenshot.spec.ts
- *
- * Covers the pure, browser-free parts of the screenshot action:
- *  - viewport resolution from the optional `widths` input
- *  - the "no Chromium available" error classifier + model-actionable message
- *  - the WCAG contrast math used by the in-page diagnostics script
- *
- * The actual render path (page.setContent / page.screenshot / page.evaluate)
- * requires a real headless Chromium and a live DB-backed design_files row; it
- * is not exercised here — see the `design-generation` skill's Phase 5 for how
- * the action is used in practice, and run-design-audit.spec.ts for the
- * sibling audit action's equivalent DB-free coverage split.
- */
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -104,9 +90,6 @@ describe("public design screenshot access", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// resolveViewports
-// ---------------------------------------------------------------------------
 
 describe("resolveViewports", () => {
   it("defaults to desktop (1280) + mobile (375) when widths is omitted", () => {
@@ -130,7 +113,6 @@ describe("resolveViewports", () => {
       widthPx: 1440,
       label: "desktop-1440",
     });
-    // Heights should scale with width, never zero or negative.
     for (const vp of viewports) {
       expect(vp.heightPx).toBeGreaterThan(0);
     }
@@ -150,9 +132,6 @@ describe("resolveViewports", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Chromium-unavailable classification + message
-// ---------------------------------------------------------------------------
 
 describe("isMissingBrowserError", () => {
   it("recognizes a missing-executable Playwright error", () => {
@@ -198,10 +177,6 @@ describe("chromiumUnavailableReason", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// WCAG contrast math (module-scope copy used for testing; the in-page
-// evaluate closure duplicates this exact logic — see the comment above it)
-// ---------------------------------------------------------------------------
 
 describe("parseRgbColor", () => {
   it("parses an rgb() string", () => {
@@ -239,7 +214,6 @@ describe("relativeLuminance + contrastRatio", () => {
   });
 
   it("flags light-gray-on-white as failing normal-text AA (< 4.5)", () => {
-    // #d1d5db (Tailwind gray-300) on white is a classic low-contrast failure.
     const ratio = contrastRatio([209, 213, 219], [255, 255, 255]);
     expect(ratio).toBeLessThan(4.5);
   });

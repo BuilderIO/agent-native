@@ -892,13 +892,6 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
     expect(anchorDivs[1]?.textContent).toContain("Selected source");
   });
   it("never leaves the dropped copy sharing the still-live source's node id", () => {
-    // Regression for B4: an alt-drag duplicate across the screen boundary
-    // leaves the ORIGINAL alive in its own file. insertClonedHtmlLayers's
-    // preserveIncomingNodeIds only reserved ids already in the destination
-    // doc, so the copy silently kept the source's own
-    // data-agent-native-node-id — two live elements, two files, one id,
-    // which broke every id-keyed lookup on either (including the
-    // subsequent Option+Arrow nudge landing on/writing to the wrong file).
     const SOURCE_SCREEN = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"></head><body>
 <div id="source-frame" data-agent-native-node-id="source-id" style="position:absolute;left:400px;top:400px;width:60px;height:60px;"><span data-agent-native-node-id="source-child-id"></span></div>
@@ -971,8 +964,6 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
     const copyIds = copyNodes.map(
       (node) => node.dataAttributes["data-agent-native-node-id"],
     );
-    // The root AND descendant must be re-stamped while the original source
-    // remains live in its own Screen.
     expect(copyIds).toHaveLength(2);
     expect(copyIds).not.toContain("source-id");
     expect(copyIds).not.toContain("source-child-id");
@@ -1660,8 +1651,6 @@ describe("runCrossScreenElementDrop real publication refusal", () => {
         };
       },
       afterDrop: ({ contentByFile }) => {
-        // Model a refetch that lands after the optimistic overlay retires but
-        // before the cross-file history publication callback runs.
         contentByFile.set("target", destinationContent);
       },
       drop: {
@@ -2758,8 +2747,6 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
           ]),
         },
         designSourceType: "localhost",
-        // The live-to-board leg is transient, so the stored board document
-        // does not contain the node even though sourceHtmlSnapshot does.
         getScreenContent: (screenId) =>
           screenId === "board" ? "" : "http://localhost:3102/library",
         id: undefined,
@@ -2920,10 +2907,6 @@ describe("runCrossScreenElementDrop runtime-only routing", () => {
 describe("runCrossScreenElementDrop — portable style capture failure", () => {
   it("refuses the move: no history entry, no file write for either file, both files' content unchanged, toast shown once", () => {
     vi.clearAllMocks();
-    // A real (mutable) per-file store, not just call-count mocks — writing
-    // TO it is what "applyFileContentUpdate" would mean, so reading it back
-    // afterward is a real "the file didn't change" assertion, not an
-    // inference from a spy never having been called.
     const screens: Record<string, string> = {
       source: SCREEN_WITH_FRAME,
       target: SCREEN_WITH_FRAME,
@@ -2982,9 +2965,6 @@ describe("runCrossScreenElementDrop — portable style capture failure", () => {
         targetDropMode: "absolute-container",
         targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
         targetLocalPoint: { x: 240, y: 300 },
-        // The capture-failed signal — distinct from `styleSnapshot: undefined`
-        // (legitimately nothing to carry), which must keep moving normally;
-        // see the "queues an inline Alt-drag copy" tests above for that case.
         styleSnapshotCaptureFailed: true,
       },
     );
@@ -2995,8 +2975,6 @@ describe("runCrossScreenElementDrop — portable style capture failure", () => {
     expect(setRuntimeStructureInsertRequest).not.toHaveBeenCalled();
     expect(setSelectedElement).not.toHaveBeenCalled();
     expect(setSelectedLayerIdsState).not.toHaveBeenCalled();
-    // Read back the store itself — not just "the write function wasn't
-    // called" — as the actual "both files unchanged" proof.
     expect(screens.source).toBe(SCREEN_WITH_FRAME);
     expect(screens.target).toBe(SCREEN_WITH_FRAME);
     expect(toast.error).toHaveBeenCalledTimes(1);

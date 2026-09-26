@@ -439,16 +439,7 @@ export function runDeleteSelection({
     return;
   }
 
-  // U19: delete is a discrete one-shot action — see the matching note in
-  // handlePasteSelection.
   undoManagerRef.current?.stopCapturing();
-  // Figma-parity undo selection restore: snapshot what's selected BEFORE
-  // this delete clears it, so a later Cmd+Z can restore selection to the
-  // undeleted element instead of landing on whatever Delete left selected
-  // (nothing) — see stampYjsUndoSelection's doc comment. undoStackTopBeforeDelete
-  // is captured in the same breath so the stamp below can tell an edit that
-  // actually pushed a new stack item from one Yjs coalesced into the
-  // existing top (or that wrote nothing at all).
   const selectionBeforeDelete = {
     selectedElement,
     selectedLayerIds: selectedLayerIdsState,
@@ -456,9 +447,6 @@ export function runDeleteSelection({
   const undoStackTopBeforeDelete = captureYjsUndoStackTop(
     undoManagerRef.current,
   );
-  // A repeat's rows are data. Removing the markup deletes the one authored row
-  // every rendered row is stamped from, and leaves the collection saying the
-  // rows are still there.
   if (activeFile && selectedElement?.repeat) {
     const edit = runRepeatItemEdit({
       content: getFreshActiveContent(),
@@ -469,10 +457,6 @@ export function runDeleteSelection({
       applyLocalContentUpdate(edit.content, {
         forcePreviewFullDocument: true,
       });
-      // Figma-parity undo selection restore, same as every other branch
-      // below — without this stamp, undoing a repeat-row delete restores
-      // the row's content but leaves selection wherever the delete left it
-      // (cleared), instead of back on the row.
       stampYjsUndoSelection(
         undoManagerRef.current,
         undoStackTopBeforeDelete,
@@ -497,10 +481,6 @@ export function runDeleteSelection({
       return;
     }
   }
-  // BUG-DELETE-LIVE-NAMESPACE: the projections below are built from the
-  // fetched source snapshot, whose node ids are a different namespace from
-  // the live document's — see liveDeleteSelectorGroups for why a selector
-  // taken from them silently removed nothing in the iframe.
   const runtimeAliasGroups = selectedLayerIdsState
     .map((layerId) => codeLayerOwnerByNodeIdRef.current.get(layerId))
     .filter((owner) => owner?.runtimeOnly)
@@ -521,13 +501,6 @@ export function runDeleteSelection({
       fallbackSelectors,
     }).forEach((aliases) => deleteRuntimeElement(aliases[0], aliases));
   };
-  // BUG-DELETE-LIVE-PENDING: a live screen's source is the running app, so
-  // the delete cannot be written into DesignFile.content the way an inline
-  // screen's is. It removes the node from the running DOM and queues a
-  // pending live edit for the coding agent — the same split
-  // handleVisualStructureChange already makes for a localhost drag-move.
-  // Recording it is also what makes Cmd+Z work: undo pops this entry and the
-  // requestId it carries tells the bridge to re-attach the node it detached.
   if (
     activeFile &&
     shouldDeleteThroughLiveScreen({
@@ -536,8 +509,6 @@ export function runDeleteSelection({
       liveSelectionSelectors,
     })
   ) {
-    // Only the active screen's canvas registers the runtime bridge, so its
-    // is the only live DOM a host-driven delete can reach.
     const runtimeTargets = selectedLayerIdsState
       .map((layerId) => codeLayerOwnerByNodeIdRef.current.get(layerId))
       .filter((owner) => owner?.runtimeOnly && owner.fileId === activeFile.id)
@@ -573,8 +544,6 @@ export function runDeleteSelection({
       recordPendingLiveStructureEdit(
         activeFile.id,
         primary,
-        // A removal has no anchor; `placement` is carried only because the
-        // pending-edit shape is shared with moves and inserts.
         "",
         "after",
         target.info,
@@ -593,21 +562,12 @@ export function runDeleteSelection({
     const activeRuntimeSelectors: string[] = [];
     let shouldDeleteActiveLiveDom = false;
     let didDelete = false;
-    // U14: motion tracks left targeting a deleted node's id would animate
-    // nothing. Collected across every deleted subtree in the active file
-    // (tracks aren't kept per-file, only for whichever file's timeline is
-    // currently loaded) and pruned from motionTracks once after the loop.
     let orphanedTrackNodeIds: Set<string> | null = null;
     for (const file of files) {
       const group = snapshots.filter(
         (snapshot) => snapshot.sourceFileId === file.id,
       );
       if (group.length === 0) continue;
-      // BUG-DELETE-LIVE-SNAPSHOT: see the matching note in
-      // getSelectedLayerSnapshots — file.content is a bare URL for a
-      // localhost/live-snapshot screen, so removeCodeLayerNodeFromHtml
-      // below could never find anything to remove. Use the live snapshot
-      // HTML when this screen has one.
       const liveSnapshot = liveScreenSnapshotsById[file.id];
       const source = liveSnapshot
         ? { kind: "inline-html" as const, fileId: file.id }
@@ -641,25 +601,7 @@ export function runDeleteSelection({
         .sort((a, b) => (b.source?.start ?? 0) - (a.source?.start ?? 0));
       if (nodes.length === 0) continue;
       const removedSelectors: string[] = [];
-      // L25: track each deleted node's former parent (by stable
-      // data-agent-native-node-id) so we can sweep for now-empty generated
-      // "Group" wrappers once every deletion in this file is applied. Only
-      // meaningful for the structural-removal path below — a
-      // breakpoint-scoped display:none write never empties a parent (the
-      // node is still in the DOM, just hidden at that width).
       const formerParentAttrIds = new Set<string>();
-      // Item 7b — while a breakpoint is the active edit target, Delete
-      // must not structurally remove the element (that would remove it at
-      // EVERY width, defeating the point of scoping). Instead it writes a
-      // display:none override scoped to the active breakpoint's upper
-      // bound, through the exact same planBreakpointStyleWrite routing
-      // regular style edits use (applyScopedVisualStyleEdit / see
-      // commitVisualStyles' matching upperBoundPx-gated branch above).
-      // Only file.id === activeFile?.id can be the breakpoint-scoped
-      // target — activeBreakpointUpperBoundPx describes the ACTIVE
-      // screen's viewport scope, not other files' — so a multi-screen
-      // overview selection spanning other screens still deletes those
-      // structurally.
       const useBreakpointScopedDelete =
         activeBreakpointWidthStateRef.current !== undefined &&
         file.id === activeFile?.id &&
@@ -682,10 +624,6 @@ export function runDeleteSelection({
           });
           if (patch.result.status !== "applied") continue;
           content = patch.content;
-          // Not a structural removal: the node stays selectable at Base /
-          // a wider breakpoint, so it must not be treated as "removed"
-          // for the runtime-selector cleanup, former-parent sweep, or
-          // motion-track pruning below.
           continue;
         }
         if (node.parentId) {
@@ -724,31 +662,15 @@ export function runDeleteSelection({
       }
       didDelete = true;
       if (liveSnapshot) {
-        // Records the same ContentHistoryChange shape as
-        // applyFileContentUpdate, so this delete gets a real undo/redo
-        // entry that now also re-syncs the live iframe (see
-        // syncLiveScreenSnapshotPreview) instead of only updating the
-        // model liveScreenSnapshotsById state.
         const updated = updateLiveScreenSnapshotContent(file.id, content);
         if (updated && useBreakpointScopedDelete) {
           syncLiveScreenSnapshotPreview(file.id, content);
         }
       } else {
-        // Item 5 (edit-flash) parity: a breakpoint-scoped write can become a
-        // width-scoped class OR a managed @media rule (planBreakpointStyleWrite),
-        // neither of which the runtime bridge's inline-style shortcut can
-        // preview correctly — force a full preview refresh the same way
-        // commitVisualStyles does for breakpoint-scoped style commits,
-        // instead of the optimistic refreshPreview:false structural-delete
-        // path.
         applyFileContentUpdate(file.id, content, {
           refreshPreview: false,
           forcePreviewFullDocument: useBreakpointScopedDelete,
         });
-        // applyFileContentUpdate routes the active file straight into
-        // applyLocalContentUpdate, so its Yjs write (when tracked) just
-        // landed synchronously above — stamp it now, before any other
-        // tracked edit can become the new stack top.
         if (file.id === activeFile?.id) {
           stampYjsUndoSelection(
             undoManagerRef.current,
@@ -758,19 +680,9 @@ export function runDeleteSelection({
         }
       }
     }
-    // A live screen's snapshot rewrite can come up empty (different id
-    // namespace) while the live-DOM delete is still the real, visible
-    // operation — bail only when NEITHER has anything to remove.
     if (!didDelete && !hasLiveDeleteTarget) return;
     if (orphanedTrackNodeIds) {
       const idsToRemove = orphanedTrackNodeIds;
-      // U14 fix: mark motion dirty when a track is actually pruned so the
-      // autosave/remove-motion-timeline path persists the cleanup. Without
-      // this the filtered tracks live only in memory and the stale managed
-      // CSS + timeline row reappear on reload. markMotionTracksDirty is only
-      // invoked when the filter drops at least one track; a redundant call
-      // (e.g. a StrictMode double render) is harmless — it just bumps the
-      // autosave revision, which the autosave effect dedupes.
       pruneMotionTracksByNodeId(idsToRemove);
     }
     if (shouldDeleteActiveLiveDom) {
@@ -794,10 +706,6 @@ export function runDeleteSelection({
       : { kind: "design-file" as const, fileId: activeFile.id }
     : undefined;
   const baseContent = activeLiveSnapshot?.html ?? getFreshActiveContent();
-  // Item 7b — same breakpoint-scoped display:none routing as the
-  // multi-layer-snapshot branch above, for the single-runtime-selected-
-  // element fallback path (e.g. single-screen canvas click-select with no
-  // layers-panel snapshot).
   if (
     activeBreakpointWidthStateRef.current !== undefined &&
     activeBreakpointUpperBoundPx != null
@@ -848,7 +756,6 @@ export function runDeleteSelection({
     selectedElement.selector,
   );
   if (!nextContent) return;
-  // U14: orphan-track cleanup for the single-element fallback path too.
   if (
     selectedElement.sourceId &&
     previousMotionFileIdRef.current === activeFile?.id
@@ -868,8 +775,6 @@ export function runDeleteSelection({
       ? collectCodeLayerSubtreeDataNodeIds(tree, targetNode.id, nodesById)
       : new Set<string>();
     if (subtreeIds.size > 0) {
-      // U14 fix: same as the multi-layer path above — persist the orphan
-      // cleanup by marking motion dirty when a track is actually pruned.
       pruneMotionTracksByNodeId(subtreeIds);
     }
   }

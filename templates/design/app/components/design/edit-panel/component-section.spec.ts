@@ -3,12 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { isMessageFromOwnPreviewIframe } from "./component-section";
 
-// ---------------------------------------------------------------------------
-// isMessageFromOwnPreviewIframe — message.source validation for the
-// "element-select" listener (Bug: component-section's window "message"
-// listener trusted event.data with zero event.source/event.origin
-// validation, unlike every other bridge listener in the app).
-// ---------------------------------------------------------------------------
 
 describe("isMessageFromOwnPreviewIframe", () => {
   function appendPreviewIframe(): HTMLIFrameElement {

@@ -43,22 +43,6 @@ import { renderWireframeIconHtml } from "./wireframe-icons";
 
 import "./html-artboard.css";
 
-/**
- * Wireframe renderer.
- *
- * PRIMARY PATH — an HTML mockup (`data.html`). The model writes a plain semantic
- * HTML screen; the renderer owns the surface footprint/aspect, the dark/light
- * theme, the hand-drawn font, and the rough.js sketch overlay. Everything is
- * laid out by the model's own (real) HTML/CSS, so there is no geometry to place.
- *
- * KIT PATH — declarative kit tree (`data.screen`). Kept for older plans; the
- * shared kit owns flex layout, fonts, spacing, and the same rough overlay.
- *
- * LEGACY PATH — coordinate region fallback for the oldest imported plans.
- *
- * All three paths share one frame shell (surface-locked aspect, theme, rough
- * overlay, clean-mode crisp frame) via `ArtboardFrame`.
- */
 
 type SurfacePreset = {
   width: number;
@@ -158,9 +142,6 @@ export function Wireframe({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Shared frame shell: surface-locked aspect + theme + rough overlay.         */
-/* -------------------------------------------------------------------------- */
 
 function ArtboardFrame({
   surface,
@@ -208,9 +189,6 @@ function ArtboardFrame({
   const paper = designMode
     ? "hsl(var(--background))"
     : "var(--plan-document, hsl(var(--background)))";
-  // Frame border for clean + skeleton modes (sketchy draws its frame via the
-  // rough overlay). Soft, matching --wf-line — not hard ink. Skeleton uses its
-  // own neutral fill so the loader frame still reads as a frame.
   const frameBorder = skeleton
     ? "var(--plan-placeholder-line, var(--plan-line, hsl(var(--border))))"
     : "var(--plan-line, hsl(var(--border)))";
@@ -332,9 +310,6 @@ function WireframeStyleToggleButton() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* HTML artboard — model-authored HTML, themed + roughened by the renderer.   */
-/* -------------------------------------------------------------------------- */
 
 function HtmlArtboard({
   data,
@@ -359,9 +334,6 @@ function HtmlArtboard({
   selectedDesignElementKey?: string | null;
   onDesignElementSelect?: (selection: DesignElementSelection) => void;
 }) {
-  // Sanitize model-authored HTML at the render point (defense-in-depth against
-  // stored XSS) — see the Core block sanitizer. Memoized so it only re-runs when the
-  // html changes, not on every theme/zoom re-render.
   const renderMode = data.renderMode ?? "wireframe";
   const designMode = renderMode === "design";
   const safeHtml = useMemo(
@@ -589,9 +561,6 @@ function renderKitScreen(
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* SketchDiagram — document + canvas import it from this module               */
-/* -------------------------------------------------------------------------- */
 
 const DIAGRAM_ROUGH_SELECTOR =
   "[data-rough],.diagram-panel,.diagram-node,.diagram-box,.diagram-pill,.diagram-card,[class*='card'],[class*='box'],[class*='panel'],[class*='pill'],[class*='chip'],[class*='badge'],hr";

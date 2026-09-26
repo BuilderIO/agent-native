@@ -1,26 +1,3 @@
-/**
- * Shared text-model cleanup pass for raw native transcripts.
- *
- * This action is the ONE narrow exception to the "all AI through agent chat"
- * rule (see CLAUDE.md rule 1 + 2). It is a media-pipeline path — input is a
- * transcript blob, output is structured cleanup. Same shape as
- * `transcribe-voice.ts`: server-side LLM call with no agent loop, no tools,
- * no chat sidebar.
- *
- * Used by:
- *   - Dictate dictation finalize (task='cleanup')
- *   - Clips finalize (task='title' / 'cleanup')
- *   - Meetings finalize (task='summary' → summary + bullets + action items)
- *
- * Provider routing:
- *   1. Builder.io Connect credentials → Builder engine with GPT-5.6 Luna.
- *   2. Fallback: user GEMINI_API_KEY direct to Google's generativelanguage
- *      API with Gemini Flash-Lite.
- *   3. Otherwise → throw FeatureNotConfiguredError.
- *
- * Usage:
- *   pnpm action cleanup-transcript --transcript="..." --task=summary
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { createBuilderEngine } from "@agent-native/core/agent/engine";
@@ -44,8 +21,6 @@ import {
 
 const BUILDER_MODEL = "gpt-5-6-luna";
 
-// BYOK direct-Google fallback keeps an explicit public model id; Builder's
-// managed path can use its own model catalog.
 const GEMINI_BYOK_MODEL = "gemini-2.0-flash-lite";
 const GEMINI_BYOK_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_BYOK_MODEL}:generateContent`;
 
@@ -74,11 +49,8 @@ const CLIPS_TRANSCRIPT_AGENT_INSTRUCTIONS = [
 
 export interface CleanupResult {
   task: "cleanup" | "title" | "summary";
-  // For task='cleanup' — the cleaned transcript text.
   cleanedText?: string;
-  // For task='title' — a short title (≤80 chars).
   title?: string;
-  // For task='summary' — markdown summary plus structured fields.
   summaryMd?: string;
   bullets?: Array<{ text: string }>;
   actionItems?: Array<{
@@ -86,7 +58,6 @@ export interface CleanupResult {
     text: string;
     dueDate?: string;
   }>;
-  // Provider that fulfilled the call — for observability.
   provider: "builder" | "gemini-byok";
 }
 
@@ -132,10 +103,7 @@ export default defineAction({
       transcript.length,
     );
 
-    // 1) Builder gateway (preferred — OAuth custody wins when connected,
-    // falls back to a legacy private key otherwise; same precedence engine.stream()
     // applies internally, so this gate must recognize the same two credential kinds
-    // or an OAuth-only-connected user gets routed straight to the BYOK fallback).
     const builderConfigured = await resolveHasBuilderGatewayCredential();
     let builderReturnedEmpty = false;
     let builderFailureMessage: string | null = null;
@@ -174,7 +142,6 @@ export default defineAction({
       }
     }
 
-    // 2) User-scoped BYOK Gemini key.
     const geminiKey = await resolveUserGeminiKey();
     if (geminiKey) {
       const text = await callGeminiByok({
@@ -361,7 +328,6 @@ function shapeResult(
   if (task === "cleanup") {
     return { task, cleanedText: applyContext(stripped), provider };
   }
-  // task === 'summary' — expect JSON.
   try {
     const parsed = JSON.parse(stripped) as {
       summaryMd?: string;
@@ -391,9 +357,6 @@ function shapeResult(
         ? parsed.actionItems
             .filter((a) => a && typeof a.text === "string" && a.text.trim())
             .map((a) => {
-              // assigneeEmail must be a non-empty string that looks like an
-              // email; everything else (null, "", "unknown", display name)
-              // collapses to undefined so the downstream UI shows "unassigned".
               const rawEmail =
                 typeof a.assigneeEmail === "string"
                   ? a.assigneeEmail.trim()
@@ -409,7 +372,6 @@ function shapeResult(
       provider,
     };
   } catch {
-    // Provider didn't return JSON — fall back to raw markdown summary.
     return {
       task,
       summaryMd: applyContext(stripped),
@@ -465,7 +427,6 @@ function buildPrompt({
     };
   }
 
-  // task === 'summary'
   return {
     system: `You summarize meeting recordings. Output a single JSON object matching this TypeScript type and nothing else:
 {

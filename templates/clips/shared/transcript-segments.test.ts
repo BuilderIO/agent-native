@@ -18,11 +18,6 @@ describe("parseTranscriptSegments", () => {
 });
 
 describe("normalizeTranscriptSegments", () => {
-  // Regression: a mic segment long enough to get rechunked into multiple
-  // captions used to lose its source/speaker on every resulting chunk,
-  // since the splitter built plain {startMs, endMs, text} objects. Every
-  // chunk of a long "mic" segment must still say "mic", not fall through to
-  // the "Them" default that an undefined source resolves to.
   it("preserves source and speaker across a long mic segment split into multiple captions", () => {
     const longMicSegment = {
       startMs: 0,

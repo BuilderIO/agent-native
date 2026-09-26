@@ -212,11 +212,7 @@ export default function Root() {
     createAgentNativeQueryClient({
       defaultOptions: {
         queries: {
-          // Brain has a faster sync cadence for source distillation status;
-          // 20 s keeps the source list fresh without hammering the server.
           staleTime: 20_000,
-          // Flat retry: Brain data fetches are rarely auth failures so a
-          // flat count is sufficient.
           retry: 1,
         },
       },

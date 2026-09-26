@@ -4,9 +4,6 @@ import { DESIGN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
 
 export default createAuthPlugin({
   workspaceAppAudience: "internal",
-  // Visual-edit, public design editor links, and presentation links can load
-  // without a session. Creating, mutating, generating, and sharing designs
-  // still go through authenticated actions.
   workspaceAppPublicPaths: ["/", "/visual-edit", "/design", "/present"],
   marketing: {
     appName: "Design",
@@ -19,18 +16,8 @@ export default createAuthPlugin({
       "Export your work or share it with a link",
     ],
   },
-  // The coding-handoff bundle endpoint is intentionally public so external
-  // coding agents (over MCP) can fetch the raw design without a browser
-  // cookie. It is not actually open: GET /api/design-handoff/:id is gated by
-  // a signed, expiring handoff token bound to the design id (see
-  // server/routes/api/design-handoff/[id].get.ts — verifyShortLivedToken).
-  // publicPaths uses prefix matching, so this covers
-  // /api/design-handoff/<id>?token=... while keeping every other /api/* and
-  // /_agent-native/* route behind auth. The listed action routes are read-only;
-  // review comment mutations remain protected by action auth and resource ACLs.
   publicPaths: [
     "/api/design-handoff",
-    // Agent-readable context link: fetched with no session cookie, so the
     // gate must not 401 before the handler verifies its scoped token.
     DESIGN_AGENT_CONTEXT_ENDPOINT,
     "/__manifest",

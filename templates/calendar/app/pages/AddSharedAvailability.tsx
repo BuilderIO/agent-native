@@ -24,14 +24,6 @@ function BackToCalendarLink({ t }: { t: ReturnType<typeof useT> }) {
   );
 }
 
-/**
- * The landing page for the "add them to my calendar" link in the
- * overlay-request email. This is a real, single-purpose route — not a modal
- * triggered by cross-tab application state — so a cold click from an email
- * client (a fresh browser tab, no prior app-state session) reliably renders
- * the right thing on first load, and gives the recipient actual context
- * instead of a bare prefilled search field.
- */
 export default function AddSharedAvailability() {
   const t = useT();
   const [searchParams] = useSearchParams();

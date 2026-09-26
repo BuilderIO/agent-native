@@ -1,4 +1,3 @@
-// Matches a 2D rotate()/rotateZ() with any CSS angle unit (not rotateX/Y/3d).
 const ROTATE_FN_PATTERN =
   /rotate[Zz]?\(\s*([+-]?[\d.]+(?:e[+-]?\d+)?)(deg|rad|turn|grad)?\s*\)/i;
 
@@ -20,8 +19,6 @@ export function parseRotationValue(transform: string | undefined): number {
       return Math.round(deg * 10) / 10;
     }
   }
-  // Fallback for rotate3d()/matrix()/skew composites: read the 2D rotation
-  // component off the resolved matrix so the panel doesn't report 0.
   if (typeof DOMMatrixReadOnly !== "undefined") {
     try {
       const m = new DOMMatrixReadOnly(transform);
@@ -33,11 +30,6 @@ export function parseRotationValue(transform: string | undefined): number {
   return 0;
 }
 
-/**
- * Parse a CSS `scale` property value (e.g. "-1 1", "1", "none") into two
- * numeric components [scaleX, scaleY]. Defaults both axes to 1 when absent
- * or unparseable, matching the CSS initial value.
- */
 export function parseScaleValue(value: string | undefined): [number, number] {
   if (!value || value === "none") return [1, 1];
   const parts = value.trim().split(/\s+/);
@@ -46,11 +38,6 @@ export function parseScaleValue(value: string | undefined): [number, number] {
   return [Number.isFinite(x) ? x : 1, Number.isFinite(y) ? y : 1];
 }
 
-/**
- * Normalize an angle in degrees into the (-180, 180] range the inspector
- * displays and commits (design-tool convention: 270° reads as -90°, a full
- * 360° turn reads as 0°). Exported for tests.
- */
 export function normalizeRotationDegrees(degrees: number): number {
   if (!Number.isFinite(degrees)) return 0;
   let normalized = degrees % 360;
@@ -59,31 +46,21 @@ export function normalizeRotationDegrees(degrees: number): number {
   return Object.is(normalized, -0) ? 0 : normalized;
 }
 
-/** Exported for tests. */
 export function mergeRotationValue(
   transform: string | undefined,
   degrees: number,
 ) {
-  // Round first, then normalize, so a rounded -179.96 → -180 still lands
-  // inside (-180, 180] as +180.
   const normalizedDegrees = normalizeRotationDegrees(
     Math.round(degrees * 10) / 10,
   );
   const nextRotate = `rotate(${normalizedDegrees}deg)`;
   if (!transform || transform === "none") return nextRotate;
-  // Replace an existing rotate()/rotateZ() in ANY unit so we don't append a
-  // second rotate() (which would compound, e.g. "rotate(0.5turn) rotate(30deg)").
   if (ROTATE_FN_PATTERN.test(transform)) {
     return transform.replace(ROTATE_FN_PATTERN, nextRotate);
   }
   return `${transform} ${nextRotate}`;
 }
 
-/**
- * Replace or remove a translateX/translateY function within an existing
- * transform string while preserving all other transform functions (rotate,
- * scale, skew, etc.). Pass `null` as `value` to strip the function.
- */
 export function mergeTranslateFunction(
   transform: string | undefined,
   axis: "X" | "Y",

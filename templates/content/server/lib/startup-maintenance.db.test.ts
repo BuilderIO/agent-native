@@ -1,8 +1,3 @@
-// Behavioral tests for the post-boot maintenance module: the additive-column
-// net and the one-time data repairs run lazily from a single memoized,
-// per-isolate trigger, log failures loudly, and retry — boot no longer awaits
-// any of them. Boots a real PGlite database and runs the actual versioned
-// migrations, then drives scheduleStartupMaintenance directly.
 
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -41,8 +36,6 @@ vi.mock("../../actions/_files-system-properties.js", async (importOriginal) => {
   };
 });
 
-// A unique on-disk PGlite directory in the OS temp dir, removed after the run.
-// It is isolated from the process-wide getDbExec singleton other test files share.
 const TEST_DB_PATH = join(
   tmpdir(),
   `startup-maintenance-test-${process.pid}-${Date.now()}.pglite`,
@@ -104,9 +97,6 @@ beforeAll(async () => {
     .repairFilesSystemPropertyDefinitions as Mock;
   const plugin = (await import("../plugins/db.js")).default;
   await plugin(undefined as any);
-  // The plugin scheduled the maintenance fire-and-forget; joining the
-  // memoized run here makes the post-boot state deterministic before any
-  // fixture rows exist.
   const { scheduleStartupMaintenance } =
     await import("./startup-maintenance.js");
   await scheduleStartupMaintenance();
@@ -190,9 +180,6 @@ describe("scheduleStartupMaintenance — lazy post-boot maintenance", () => {
           'startup maintenance "blocks-repair" failed (attempt 1/5)',
         ),
       );
-      // The memoized run must not resolve while the ~2s retry is pending:
-      // by the time the promise settles, the retry has already run and the
-      // dependent steps have seen its completion.
       expect(blocksRepair).toHaveBeenCalledTimes(2);
       expect(errorSpy).toHaveBeenCalledTimes(1);
     } finally {

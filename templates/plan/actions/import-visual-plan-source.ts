@@ -95,19 +95,9 @@ export default defineAction({
     }),
   },
   run: async (args) => {
-    // MDX parse + recap-validation failures are CLIENT errors: the supplied
-    // source is malformed (an unknown block tag, a malformed wireframe, empty
-    // recap wireframes, …). Re-classify them as a 422 carrying the real message
-    // so callers — especially the PR Visual Recap publisher — get an actionable
-    // reason instead of an opaque 500 "Internal server error". Without this the
-    // action route hides the message as a generic 500 AND the recap CLI retries
-    // a deterministic authoring error 3×.
     let content: Awaited<ReturnType<typeof parsePlanMdxFolder>>;
     try {
       content = await parsePlanMdxFolder(args.mdx, {
-        // Recaps are informational: salvage per-block (keep valid blocks, swap
-        // an "Unsupported block" placeholder for invalid ones) instead of
-        // failing the whole publish on one imperfectly-authored block.
         salvageInvalidBlocks: args.kind === "recap",
       });
       if (args.kind === "recap") {
@@ -127,9 +117,6 @@ export default defineAction({
     if (args.planId) {
       await assertPlanEditor(args.planId);
 
-      // Import assets before writing content so asset refs in blocks can be
-      // resolved to assetId/CDN URLs. Done here (after assertPlanEditor) so
-      // we know the caller has edit rights before touching asset storage.
       const incomingAssets = args.mdx["assets/"];
       if (incomingAssets && Object.keys(incomingAssets).length > 0) {
         const srcByFilename = await importPlanAssets(
@@ -139,9 +126,6 @@ export default defineAction({
         content = applyImportedAssets(content, srcByFilename);
       }
 
-      // Optimistic concurrency check: if the caller supplied expectedUpdatedAt,
-      // verify it matches the current plan before overwriting. Mirrors the CAS
-      // pattern in patch-visual-plan-source (updatedAt-scoped WHERE clause).
       if (args.expectedUpdatedAt) {
         const updatedRows = await db
           .update(schema.plans)
@@ -170,8 +154,6 @@ export default defineAction({
         .set({
           title,
           brief,
-          // Only flip kind when the caller is explicit (e.g. create-visual-recap
-          // passes "recap"); a plain source re-import never demotes a recap.
           ...(args.kind ? { kind: args.kind } : {}),
           source: args.source,
           repoPath: args.repoPath ?? null,
@@ -238,8 +220,6 @@ export default defineAction({
       currentFocus: args.currentFocus ?? "source review",
       html: null,
       markdown: args.mdx["plan.mdx"],
-      // Content is persisted after assets are imported (below) so asset refs
-      // in image blocks are resolved to IDs/URLs before the first DB write.
       content: serializePlanContent(content),
       createdAt: now,
       updatedAt: now,
@@ -252,12 +232,10 @@ export default defineAction({
         : {}),
     });
 
-    // Import assets now that the plan row exists (FK on plan_assets.plan_id).
     const incomingAssetsCreate = args.mdx["assets/"];
     if (incomingAssetsCreate && Object.keys(incomingAssetsCreate).length > 0) {
       const srcByFilename = await importPlanAssets(id, incomingAssetsCreate);
       content = applyImportedAssets(content, srcByFilename);
-      // Re-persist the content now that asset refs are resolved.
       await db
         .update(schema.plans)
         .set({ content: serializePlanContent(content) })

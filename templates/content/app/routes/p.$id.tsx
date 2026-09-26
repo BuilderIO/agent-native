@@ -87,10 +87,6 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   );
   const origin = new URL(request.url).origin;
 
-  // This is a server loader; use the server-side base-path helper
-  // (reads APP_BASE_PATH / VITE_APP_BASE_PATH at request time)
-  // instead of the client `appPath()` which relies on
-  // `import.meta.env` and is meant for browser code.
   const basePath = getConfiguredAppBasePath();
   const withBase = (path: string) => `${basePath}${path}`;
 
@@ -131,15 +127,6 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     );
   }
 
-  // Doc exists but isn't public. SSR renders impersonally (no session is read
-  // server-side, so the page can be CDN-cached for everyone), which means we
-  // must NOT redirect to sign-in from here: a signed-in viewer would loop
-  // (sign-in sees their valid session and bounces back to /p/<id>, which
-  // re-runs this anonymous loader and redirects again). Instead return the
-  // private placeholder and resolve access on the client — PrivateDocumentNotice
-  // routes the viewer to the auth-guarded `/page/<id>` editor, where the real
-  // per-user access check runs (signed-in-with-access sees the doc; everyone
-  // else gets the standard sign-in / no-access handling).
   return publicDocumentLoaderData({
     document: null,
     agentAccessToken: null,
@@ -345,12 +332,6 @@ function PrivateDocumentNotice({
   const t = useT();
   useEffect(() => {
     if (!id) return;
-    // The SSR loader can't see the viewer's session (SSR is impersonal so the
-    // page stays CDN-cacheable). Resolve access on the client by sending the
-    // viewer to the auth-guarded `/page/<id>` editor: a signed-in viewer with
-    // access lands on the document, and everyone else gets the standard
-    // sign-in / no-access handling there. This never loops back here because
-    // `/page/<id>` is guard-protected and does not redirect to `/p/<id>`.
     window.location.replace(`${basePath ?? ""}/page/${id}`);
   }, [id, basePath]);
 

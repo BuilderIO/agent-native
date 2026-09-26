@@ -82,7 +82,6 @@ export async function recordAiFilterFeedback(
   }));
 
   // ponytail: a capped settings ledger keeps this MVP small; move to a table
-  // when review history needs search, pagination, or concurrent writers.
   return saveAiFilterState(ownerEmail, {
     ...state,
     feedback: [...state.feedback, ...feedback].slice(-MAX_FEEDBACK),

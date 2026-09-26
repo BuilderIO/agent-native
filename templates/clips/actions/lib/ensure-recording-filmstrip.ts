@@ -1,16 +1,3 @@
-/**
- * Generate and attach a timeline filmstrip sprite to a stored recording.
- *
- * This is the sibling of `ensure-seekable-video.ts` and follows the same shape:
- * re-fetch the stored provider media, run one ffmpeg pass, upload the result,
- * and point the recording row at it. Nothing here is destructive — a recording
- * without a sprite still renders a filmstrip, because the editor falls back to
- * extracting frames in the browser.
- *
- * Local/dev media (relative `/api/video/...` URLs backed by application_state)
- * is skipped rather than special-cased: there is no absolute URL to fetch
- * server-side, and the browser fallback already covers that environment.
- */
 
 import {
   readAppState,
@@ -57,7 +44,6 @@ export interface EnsureFilmstripResult {
   detail?: string;
 }
 
-/** application_state key recording which media a sprite was generated from. */
 export function filmstripMarkerKey(recordingId: string): string {
   return `recording-filmstrip-${recordingId}`;
 }
@@ -76,10 +62,6 @@ async function isAlreadyGenerated(
   );
 }
 
-/**
- * Ensure one recording has a filmstrip sprite. Owner-scoped: pass the resolved
- * owner email so the lookup can only touch that owner's rows.
- */
 export async function ensureRecordingFilmstrip(params: {
   recordingId: string;
   ownerEmail: string;
@@ -207,9 +189,7 @@ export async function ensureRecordingFilmstrip(params: {
       and(
         eq(schema.recordings.id, recordingId),
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-        // Don't attach a sprite generated from media the row no longer points at.
         eq(schema.recordings.videoUrl, rec.videoUrl),
-        // Ensure no concurrent job modified filmstripUrl in the interim.
         rec.filmstripUrl
           ? eq(schema.recordings.filmstripUrl, rec.filmstripUrl)
           : isNull(schema.recordings.filmstripUrl),

@@ -8,13 +8,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { designFrame, expandAllLayers } from "./helpers";
 
-/**
- * Direct-manipulation contract: what you grab is what moves, and a drag tells
- * you what it will do before you commit it. Assertions are Figma's behaviour.
- *
- * Real hooks (discovered, do not invent others): [data-resize-handle] x8,
- * [data-rotate-handle] x4, [data-screen-hover-outline].
- */
 
 export const PAGE_W = 1440;
 export const PAGE_H = 900;
@@ -52,7 +45,6 @@ export interface Box {
 
 let baseURL = "";
 
-/** Each split spec file calls this from its own beforeEach. */
 export function setBaseURL(testInfo: TestInfo): void {
   baseURL =
     (testInfo.project.use.baseURL as string | undefined) ??
@@ -180,17 +172,13 @@ export async function openEditor(page: Page, designId: string): Promise<void> {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ timeout: 30_000 });
-  // No blind settle: expandAllLayers waits for the first layer row, which the
-  // editor cannot render before it has parsed the document.
   await expandAllLayers(page);
   await page.waitForTimeout(500);
 }
 
-/** Screen px per page px, so a drag can be expressed in page units. */
 export async function scale(page: Page): Promise<number> {
   const card = await page.locator("[data-screen-card]").first().boundingBox();
   if (!card) throw new Error("no screen card");
-  // Never assume the page size — the screen's own viewport is the truth.
   const inner = await page
     .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
     .first()
@@ -200,7 +188,6 @@ export async function scale(page: Page): Promise<number> {
   return card.width / inner;
 }
 
-/** The rect the resize/rotate handles enclose. */
 export async function chromeBounds(page: Page, screenId?: string) {
   return designFrame(page, screenId)
     .locator("body")
@@ -220,7 +207,6 @@ export async function chromeBounds(page: Page, screenId?: string) {
     });
 }
 
-/** Overlays the bridge paints inside the iframe, with a non-zero box. */
 export async function activeOverlays(
   page: Page,
   screenId?: string,
@@ -239,9 +225,6 @@ export async function activeOverlays(
 
 export async function selectViaTree(page: Page, name: string): Promise<void> {
   await layerRow(page, name).click();
-  // A drag only moves what the bridge has already painted as selected;
-  // grabbing an unselected element starts a marquee instead. The row's own
-  // state flips before the overlay exists, so wait on the overlay.
   await expect
     .poll(() => chromeBounds(page), { timeout: 15_000 })
     .not.toBeNull();
@@ -265,10 +248,6 @@ export async function dragBy(
   if (options?.cancel) await page.keyboard.press("Escape");
   await page.mouse.up();
   if (options?.modifier) await page.keyboard.up(options.modifier);
-  // The commit is not observable from here, so callers that assert a specific
-  // outcome should pass `settle: false` and poll for it instead. Callers
-  // asserting that NOTHING changed must keep this: a poll would pass on its
-  // first tick, before any write could have landed.
   if (options?.settle !== false) {
     await page.waitForTimeout(2000); // e2e-harness-ignore negative assertions need a real settle
   }

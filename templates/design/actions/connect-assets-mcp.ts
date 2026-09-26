@@ -94,9 +94,6 @@ export default defineAction({
       }
     }
 
-    // Verify the target endpoint is trusted before removing any existing
-    // server, so a transient org-directory/auth failure cannot turn a reconnect
-    // into a full disconnect for the org.
     const targetTrust = await isFirstPartyRemoteEndpointTrusted(
       orgId,
       "assets",

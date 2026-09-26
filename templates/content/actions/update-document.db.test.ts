@@ -749,8 +749,6 @@ describe("update-document compare-and-swap", () => {
     const documentId = await createDocument({ content: "original" });
     const staleSnapshot = await documentRow(documentId);
 
-    // Simulate a concurrent write (e.g. the Notion auto-pull) landing after
-    // the editor's snapshot but before this save's CAS check runs.
     const db = getDb();
     const remoteUpdatedAt = new Date(
       new Date(staleSnapshot.updatedAt).getTime() + 1000,
@@ -776,9 +774,6 @@ describe("update-document compare-and-swap", () => {
     expect(result.document.content).toBe("pulled from notion");
     expect(result.document.updatedAt).toBe(remoteUpdatedAt);
 
-    // The rejected save must not have applied ANY of its fields — including
-    // title — since a partial apply would desync fields from what the caller
-    // believes it sent.
     const current = await documentRow(documentId);
     expect(current.content).toBe("pulled from notion");
     expect(current.title).toBe("Untitled");
@@ -820,9 +815,6 @@ describe("update-document compare-and-swap", () => {
       .set({ content: "pulled from notion", updatedAt: remoteUpdatedAt })
       .where(eq(schema.documents.id, documentId));
 
-    // No `content` in this call, so baseUpdatedAt (even though stale) must
-    // not trigger the CAS path — title/metadata-only saves keep today's
-    // last-write-wins behavior.
     const result = await runWithRequestContext({ userEmail: OWNER }, () =>
       updateDocumentAction.run({
         id: documentId,

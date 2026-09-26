@@ -3,22 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { runUndo } from "@/pages/design-editor/commands/undo";
 
-/**
- * Figma parity — "deleting an element then one undo restores it with its
- * original position, name and selection" (parity-undo-redo.spec.ts). The
- * Design editor's default `/design/:id` view is overview mode (confirmed by
- * running the spec: `viewMode` is "overview", not "single"), so this is the
- * content-undo path that actually runs — `contentUndoStackRef` +
- * `restoreSelectionSnapshot`, not the Yjs `Y.UndoManager` path.
- *
- * `restoreSelectionSnapshot` (DesignEditor.tsx) only knows
- * `GeometryHistorySelection`'s own fields — layer ids, screen ids, active
- * file — it has no `ElementInfo` to give the canvas selection overlay, which
- * reads `selectedElement`, not `selectedLayerIdsState`. Before this fix undo
- * never set `selectedElement` back to the deleted node, so the overlay never
- * reappeared even though the Layers panel row (driven by
- * `selectedLayerIdsState`) correctly showed selected.
- */
 const CONTENT_WITH_BOX_A = `<!doctype html><html><body>
 <div data-agent-native-node-id="box-a" style="position:absolute;left:10px;top:10px;width:20px;height:20px"></div>
 </body></html>`;
@@ -141,9 +125,6 @@ describe("runUndo — overview content-undo restores an ElementInfo, not just th
       }),
     );
 
-    // The pre-existing refresh-from-content heuristic (a functional updater)
-    // always fires alongside this fix's direct restore — assert on the
-    // plain-value call the fix itself makes, not the total call count.
     const directRestoreCall = setSelectedElement.mock.calls.find(
       ([arg]) => typeof arg !== "function",
     );
@@ -174,8 +155,6 @@ describe("runUndo — overview content-undo restores an ElementInfo, not just th
       }),
     );
 
-    // Only the pre-existing functional-updater heuristic may run — this
-    // fix's direct plain-value restore must not fire with nothing captured.
     expect(
       setSelectedElement.mock.calls.every(([arg]) => typeof arg === "function"),
     ).toBe(true);

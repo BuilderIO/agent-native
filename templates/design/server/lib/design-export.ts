@@ -27,31 +27,14 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;");
 }
 
-// Layers toggled hidden in the editor are only visually suppressed by the
-// live editor bridge (which paints `display:none` on
-// `[data-agent-native-hidden="true"]` inside the canvas iframe). Exports never
-// go through that bridge, so without this rule hidden layers would leak back
-// into every exported artifact. Inject the same rule at export time so
-// hidden-in-editor stays hidden-in-export.
 export const HIDDEN_LAYER_EXPORT_STYLE_MARKER =
   "data-agent-native-export-hidden";
 export const HIDDEN_LAYER_EXPORT_CSS = `[data-agent-native-hidden="true"]{display:none!important}`;
 
-/**
- * Wraps the hidden-layer suppression rule in a marked <style> tag so callers
- * can idempotently check whether it's already present (e.g. before injecting
- * into HTML that may have already been through this pipeline).
- */
 export function hiddenLayerExportStyleTag(): string {
   return `<style ${HIDDEN_LAYER_EXPORT_STYLE_MARKER}>${HIDDEN_LAYER_EXPORT_CSS}</style>`;
 }
 
-/**
- * Injects the hidden-layer suppression rule into a standalone HTML document,
- * before `</head>` when present, otherwise prepended to the document. Safe to
- * call more than once — re-injection is skipped if the marked style tag is
- * already present.
- */
 export function injectHiddenLayerExportStyle(html: string): string {
   if (
     new RegExp(`<style[^>]*${HIDDEN_LAYER_EXPORT_STYLE_MARKER}\\b`, "i").test(
@@ -205,10 +188,6 @@ export function exportFilename(
 export function buildStandaloneHtml(args: {
   title: string;
   files: DesignExportFile[];
-  /**
-   * Stack multiple HTML screens in isolated viewports for the Design app's
-   * HTML download.
-   */
   screenLayout?: "merged" | "stacked";
 }): string {
   const { title, files, screenLayout = "merged" } = args;
@@ -239,15 +218,11 @@ export function buildStandaloneHtml(args: {
     /<!doctype html|<html[\s>]/i.test(indexHtml.content)
   ) {
     let html = indexHtml.content;
-    // Merge non-index HTML/JSX files into the body of the standalone document
-    // so multi-file designs still ship in one bundle.
     const extraBody = [...htmlFiles, ...jsxFiles]
       .filter((f) => f !== indexHtml)
       .map((f) => extractRenderableHtml(f.content ?? ""))
       .join("\n\n");
     if (extraBody.trim()) {
-      // Inline JS / template literals can contain `</body>` strings, so favor
-      // the final document boundary.
       const closeBody = html.lastIndexOf("</body>");
       if (closeBody !== -1) {
         html = `${html.slice(0, closeBody)}${extraBody}\n${html.slice(closeBody)}`;
@@ -256,8 +231,6 @@ export function buildStandaloneHtml(args: {
       }
     }
 
-    // Idempotency: if a prior export already injected this CSS block, skip
-    // re-injection so repeated exports don't duplicate the style tag.
     html = injectExportCss(html, combinedCss);
 
     return ensureGroupRuntime(injectHiddenLayerExportStyle(html));
@@ -308,13 +281,6 @@ function unquotedAttributeValue(valueSuffix: string): string {
   return raw;
 }
 
-/**
- * The DOM hands the client sanitizer decoded attribute values; this tokenizer
- * sees raw source text, where `javascript&#58;` and `javascript&colon;` both
- * look inert. The XML consumer decodes them back to `javascript:`, so decode
- * once here too, or the scheme check reads a different string than the
- * consumer will. One pass matches the parser: `&amp;#58;` really is text.
- */
 function isStaticXmlAttributeValue(name: string, valueSuffix: string): boolean {
   const raw = unquotedAttributeValue(valueSuffix);
   return (
@@ -323,14 +289,6 @@ function isStaticXmlAttributeValue(name: string, valueSuffix: string): boolean {
   );
 }
 
-/**
- * Convert one HTML start tag into XML-safe XHTML without touching quoted
- * values. This is a small stateful tokenizer rather than a directive-specific
- * regex: it handles arbitrary whitespace, quoted `>` characters, boolean
- * attributes, and any future framework shorthand whose name is not an XML
- * QName. Runtime directives are deliberately omitted because an exported SVG
- * is a static snapshot and cannot run the source framework scripts.
- */
 function normalizeStartTagForXml(tag: string): string {
   let cursor = 1;
   while (cursor < tag.length && !/[\s/>]/.test(tag[cursor]!)) cursor += 1;
@@ -521,8 +479,6 @@ function normalizeHtmlForSvg(html: string): string {
     "&amp;",
   );
 
-  // Wrap <script> and <style> block content in CDATA so that JS/CSS with
-  // raw `<`, `>`, or `&&` survives the XML parse required by SVG foreignObject.
   const withCdata = withEscapedBareAmpersands
     .replace(
       /(<script\b[^>]*>)([\s\S]*?)(<\/script>)/gi,

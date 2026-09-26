@@ -3,12 +3,6 @@ import {
   readGradientFillOpacity,
 } from "./gradient-opacity";
 
-/**
- * Gradient fill/stroke for SVG vectors: the CSS gradient lives on the `<svg>`
- * wrapper as a custom property and renders as a `url(#id)` paint-server def.
- * The editor bridge cannot import it; keep in sync with its
- * `vectorPaintGradientElement` copy in editor-chrome.bridge.ts.
- */
 
 export type SvgPaintGradientKind = "fill" | "stroke";
 
@@ -79,7 +73,6 @@ function splitTopLevel(value: string): string[] {
   return parts.filter(Boolean);
 }
 
-/** Reads a whole-gradient opacity written by `svgPaintGradientWithOpacity`. */
 export function svgPaintGradientOpacity(css: string): {
   gradient: string;
   opacity: number;
@@ -105,10 +98,6 @@ export function svgPaintGradientOpacity(css: string): {
   };
 }
 
-/**
- * Hides a vector gradient through its stops: an open path already spends
- * `fill-opacity: 0` on not painting its chord, so it cannot also mean hidden.
- */
 export function svgPaintGradientWithOpacity(
   css: string,
   opacity: number,
@@ -126,10 +115,6 @@ export function svgPaintGradientWithOpacity(
   return `${match[1]}(${wrapped.join(", ")})`;
 }
 
-/**
- * SVG can render linear and radial gradients; conic (angular) and the
- * closest-corner diamond have no SVG paint server, so they parse to null.
- */
 export function parseSvgPaintGradient(css: string): SvgPaintGradient | null {
   const match = css.trim().match(/^(linear|radial)-gradient\((.*)\)$/is);
   if (!match) return null;
@@ -192,10 +177,6 @@ function round(value: number): string {
   return String(Math.round(value * 1000) / 1000);
 }
 
-/**
- * User-space coordinates over the viewBox: objectBoundingBox paints nothing
- * on a straight horizontal/vertical line, whose bounding box has no height.
- */
 export function svgGradientElementSpec(
   id: string,
   gradient: SvgPaintGradient,

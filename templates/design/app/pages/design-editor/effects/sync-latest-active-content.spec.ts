@@ -82,8 +82,6 @@ it("composes a follow-up padding write from pending source when render content l
   const horizontalSource = latestActiveContentRef.current;
   expect(horizontalSource).toContain("flex-direction: row");
 
-  // A render can still carry the pre-commit source while its memoized file
-  // list catches up. The effect must read the live per-file pending source.
   syncLatestActiveContentFromRender({
     activeContent,
     activeFile: args.activeFile,

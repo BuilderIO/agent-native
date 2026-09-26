@@ -96,8 +96,6 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
     .where(eq(schema.recordings.id, recordingId))
     .limit(1);
 
-  // SSR is an impersonal cache shell. Owner-specific expiry and discovery are
-  // resolved by the authenticated public-recording payload after hydration.
   if (
     !recording ||
     recording.archivedAt ||
@@ -123,7 +121,6 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
   if (!anonymousAccess && !tokenGrantsAgentAccess) return null;
 
   // Tokenized URLs must never put the access token in a publicly cached SSR
-  // shell. The client registers tools after it has verified access instead.
   if (tokenGrantsAgentAccess) return null;
 
   const agentContextUrl = buildAgentApiUrls(recording.id, {

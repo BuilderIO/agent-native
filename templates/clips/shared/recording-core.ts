@@ -1,25 +1,4 @@
-/**
- * Framework-agnostic recording primitives shared by BOTH recorders:
- *   - the web app recorder  (app/components/recorder/recorder-engine.ts)
- *   - the Chrome extension  (chrome-extension/src/offscreen.ts)
- *
- * Keep this free of React, chrome.*, Node-only APIs, and any DOM beyond the
- * media types (MediaRecorder, URLSearchParams) so both build targets — the
- * Vite app build and the extension's separate Vite build — can import it.
- *
- * The two recorders intentionally keep their own *orchestration* and *upload
- * strategy* (the extension streams each timeslice chunk from an offscreen
- * document that survives navigation; the web app assembles + slices on stop with
- * retry/compression). What MUST stay identical is the on-the-wire contract with
- * the server's chunk-upload route and the MediaRecorder codec choice — that's
- * what lives here.
- */
 
-/** MediaRecorder codecs to try, best-supported first.
- *
- * vp8 is listed before vp9 because some display-capture streams report vp9
- * support but reject the encoder configuration; vp8 is the most broadly
- * accepted. MP4/avc1 is the Safari/WebKit fallback. */
 export function pickMimeTypeCandidates(): string[] {
   return [
     "video/webm;codecs=vp8,opus",
@@ -32,8 +11,6 @@ export function pickMimeTypeCandidates(): string[] {
   ];
 }
 
-/** First supported codec from {@link pickMimeTypeCandidates}, or "" to let the
- * browser pick its own default (callers should treat "" as "omit mimeType"). */
 export function pickMimeType(): string {
   if (typeof MediaRecorder === "undefined") return "video/webm";
   for (const type of pickMimeTypeCandidates()) {
@@ -46,12 +23,8 @@ export function pickMimeType(): string {
   return "";
 }
 
-/** How the client delivers recorded data to the server.
- *  - `"streaming"` — chunks are flushed to GCS during recording via a resumable session
- *  - `"buffered"`  — full blob assembled after stop() and uploaded in slices */
 export type UploadMode = "streaming" | "buffered";
 
-/** Keeps function payloads below the server's 4 MiB chunk cap. */
 export const UPLOAD_SLICE_BYTES = 3 * 1024 * 1024;
 
 export type UploadResponseFailureStage = "chunk_upload" | "reset_chunks";
@@ -81,10 +54,6 @@ export function classifyUploadResponseError(input: {
   };
 }
 
-/**
- * Resumable providers advance a single byte offset, so their chunks must be
- * sent in strict index order. Buffered uploads can retain bounded parallelism.
- */
 export function chunkUploadParallelism(
   uploadMode: UploadMode | undefined,
   bufferedParallelism: number,
@@ -93,9 +62,6 @@ export function chunkUploadParallelism(
   return Math.max(1, Math.floor(bufferedParallelism));
 }
 
-/** Query params understood by the chunk-upload route
- * (`/api/uploads/:id/chunk`). This is the on-the-wire contract — the route in
- * `server/routes/api/uploads/[recordingId]/chunk.post.ts` reads exactly these. */
 export type ChunkUploadParams = {
   index: number;
   total?: number;
@@ -127,8 +93,6 @@ export function normalizeChunkUploadNumber(value: unknown): number | undefined {
   return Math.max(0, Math.round(numberValue));
 }
 
-/** Encode {@link ChunkUploadParams} as the chunk-upload query string. Booleans
- * become `1`/`0` and `durationMs` is rounded — matching what the route parses. */
 export function chunkUploadQuery(params: ChunkUploadParams): string {
   const q = new URLSearchParams();
   q.set("index", String(params.index));
@@ -154,8 +118,6 @@ export function chunkUploadQuery(params: ChunkUploadParams): string {
   return q.toString();
 }
 
-/** Full chunk-upload URL: append the encoded chunk params to the per-recording
- * endpoint, preserving any capability query already present on the URL. */
 export function chunkUploadUrl(
   chunkBaseUrl: string,
   params: ChunkUploadParams,

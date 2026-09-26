@@ -1,10 +1,3 @@
-/**
- * One-off: send the two new Clips transactional emails to a real inbox so the
- * rendering can be eyeballed in a mail client. Sample data only — this never
- * touches the job queue or real recordings.
- *
- *   pnpm script send-test-emails --to someone@example.com
- */
 
 import { getEmailProvider, isEmailConfigured } from "@agent-native/core/server";
 

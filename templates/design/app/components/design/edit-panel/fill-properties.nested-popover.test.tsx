@@ -1,35 +1,5 @@
 // @vitest-environment happy-dom
 
-/**
- * Regression coverage for a cluster of fill/gradient color-picker bugs
- * reported for an *existing* background layer's own row popover (as
- * opposed to the base fill row, which already rendered a single
- * `DesignColorPicker` directly):
- *
- *   1. Clicking an existing gradient/image layer's row required a second
- *      click to reach the real color picker.
- *   2. Clicking inside the open picker's gradient editor (a stop handle)
- *      closed the picker instead of letting the user interact with it.
- *   3. Switching an existing layer's paint type closed the picker and
- *      dropped the pending change.
- *
- * Root cause: the row wrapped `DesignColorPicker` — which already owns its
- * own `Popover` — in a *second*, independent outer `Popover` for a
- * custom-looking trigger (swatch + "Linear 1" + opacity, instead of
- * DesignColorPicker's default swatch + hex). Two nested popovers meant the
- * outer one opened first (showing DesignColorPicker's own default trigger,
- * requiring a second click), and the outer popover's dismissable layer
- * treated pointer interaction with the inner picker's portaled content as
- * "outside", closing both the instant the gradient editor was touched. The
- * row was also keyed by the layer's own CSS content
- * (`` `${layer}-${index}` ``), so any edit to that layer — including a
- * paint-type switch — remounted the row and reset its open popover.
- *
- * This file renders the real `FillProperties` component with real
- * `Popover`/`DesignColorPicker`/`GradientEditor` (nothing mocked except
- * i18n, tooltips, and the unrelated motion `FieldTrailer`), so it exercises
- * the actual popover lifecycle rather than a stubbed one.
- */
 
 import { act } from "react";
 import { useState } from "react";
@@ -81,9 +51,6 @@ const GRADIENT_LAYER = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
 function gradientLayerElement(backgroundImage = GRADIENT_LAYER): ElementInfo {
   return element({
     computedStyles: {
-      // Fully transparent base color — hides the base fill row so only the
-      // layer row under test renders (matches the reported scenario: an
-      // element whose only fill is a background-image gradient layer).
       backgroundColor: "rgba(0, 0, 0, 0)",
       backgroundImage,
       backgroundSize: "",
@@ -169,8 +136,6 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
-  // Radix portals content onto document.body directly — clean up anything
-  // left behind between tests (defensive; unmount should already do this).
   document
     .querySelectorAll("[data-radix-popper-content-wrapper]")
     .forEach((node) => node.remove());
@@ -617,9 +582,6 @@ describe("FillProperties — existing layer fill popover", () => {
       trigger!.click();
     });
 
-    // Before the fix, this first click only opened an *outer* popover
-    // containing DesignColorPicker's own (still-closed) default trigger —
-    // the real gradient editor needed a second click to appear.
     expect(gradientStopsBar()).not.toBeNull();
   });
 
@@ -661,9 +623,6 @@ describe("FillProperties — existing layer fill popover", () => {
       );
     });
 
-    // Before the fix, the outer popover's dismissable layer treated this
-    // click on the inner picker's portaled content as "outside" and closed
-    // both popovers.
     expect(gradientStopsBar()).not.toBeNull();
   });
 
@@ -699,8 +658,6 @@ describe("FillProperties — existing layer fill popover", () => {
       expect.stringContaining("radial-gradient"),
       undefined,
     );
-    // The row previously remounted (content-derived key) or closed (nested
-    // popover dismissal) the instant this commit landed.
     expect(gradientStopsBar()).not.toBeNull();
   });
 
@@ -720,11 +677,6 @@ describe("FillProperties — existing layer fill popover", () => {
     });
     expect(gradientStopsBar()).not.toBeNull();
 
-    // Simulate the parent committing an edit to this same layer (e.g. a
-    // stop color/position change, or a paint-type switch) — the row was
-    // previously keyed by the layer's own CSS string, so this remounted the
-    // popover (an uncontrolled `Popover` remount always starts closed) and
-    // silently closed it.
     act(() => {
       root.render(
         <FillProperties
@@ -758,7 +710,6 @@ describe("FillProperties — existing layer fill popover", () => {
 
     expect(document.querySelector('[aria-label="Solid"]')).not.toBeNull();
     expect(document.querySelector('[aria-label="None"]')).not.toBeNull();
-    // Other supported tabs remain available alongside the conversion tabs.
     expect(document.querySelector('[aria-label="Radial"]')).not.toBeNull();
     expect(document.querySelector('[aria-label="Image"]')).not.toBeNull();
   });

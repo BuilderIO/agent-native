@@ -9,38 +9,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { appPath, elementInner, expandAllLayers } from "./helpers";
 
-/**
- * Finder: parity-landing-page-build.
- *
- * Builds ONE complete landing page, step by step, exactly as a human would in
- * Figma: "Figma Tutorial For Beginners 2024 | Web Design of Landing Page" by
- * Steven Steward (https://www.youtube.com/watch?v=sUM0IUURMqM) as the primary
- * script — tutorial steps 1-8 (root Landing Page frame, Navbar frame,
- * NavLinks, CTAButton, Navbar auto layout + constraints) map to steps 1-2
- * below, and steps 9-17 (Hero frame, headline/subheading, hero CTA buttons,
- * HeroCopy, HeroImage, Hero auto layout) map to the Hero-building steps that
- * follow — extended with figma-interaction-spec.md Part 2 §3 (nav + footer)
- * and §7/§8 (card/container system, assemble pages) for the card grid,
- * footer, and mobile parts the source tutorial does not cover. One design,
- * built incrementally across a SERIAL suite (`beforeAll` creates it once) so
- * a real regression fails one step and reports every later step as not-run
- * instead of masking it behind 20 independent fixtures.
- *
- * Ownership per the finder preamble: canvas gestures, draw tools, Shift+A,
- * duplicate, alt-drag, drag-reparent, layers panel, group, undo — claude.
- * Typed/scrubbed inspector numeric values (gap, padding, radius, shadow
- * fields, screen width) — codex; still exercised here (trailing tests, after
- * the required structure snapshot + screenshot export so a codex-owned typed
- * value break cannot swallow those two required deliverables in serial mode).
- *
- * Selection uses the LAYERS PANEL (multiSelect / clickLayerRow) wherever
- * possible instead of canvas coordinates — proven pattern from
- * parity-group-frame.spec.ts / parity-tutorial-7.spec.ts — because it is
- * robust to zoom/scale and immune to the left-shell pointer-interception bug
- * noted in feedback.md. Canvas mouse math is used only where the gesture is
- * inherently canvas-based: drawing new primitives, alt-drag, drag-reparent,
- * marquee, and the container-first click-selection contract check.
- */
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
@@ -49,7 +17,6 @@ const DESKTOP_W = 1440;
 const DESKTOP_H = 1024;
 const MOBILE_W = 390;
 
-// Section geometry inside the 1440x1024 desktop screen (content px).
 const NAVBAR = { x: 0, y: 0, w: 1440, h: 80 };
 const HERO = { x: 0, y: 80, w: 1440, h: 640 };
 const CARDROW = { x: 80, y: 730, w: 1280, h: 210 };
@@ -58,9 +25,6 @@ const FOOTER = { x: 0, y: 944, w: 1440, h: 80 };
 test.use({ viewport: { width: 1680, height: 1000 } });
 test.describe.configure({ mode: "serial" });
 
-// ---------------------------------------------------------------------------
-// Action / data helpers (copied pattern from parity-yt-mobile-landing.spec.ts)
-// ---------------------------------------------------------------------------
 
 async function action(
   request: APIRequestContext,
@@ -87,9 +51,6 @@ async function dumpTrace(page: Page) {
     .catch(() => "(trace unavailable)");
 }
 
-// ---------------------------------------------------------------------------
-// Layers panel selection (proven: parity-group-frame.spec.ts, parity-yt-mobile-landing.spec.ts)
-// ---------------------------------------------------------------------------
 
 function layerTree(page: Page): Locator {
   return page.getByRole("tree", { name: "Layers" });
@@ -108,10 +69,6 @@ function layerRow(page: Page, name: string): Locator {
   );
 }
 
-/** The Nth (0-based) row among several sharing the same name — needed for
- * the Navbar/Footer duplicate, whose rename-after-Cmd+D does not persist
- * (see harnessNotes), so it reads back as a second "Navbar" row instead of
- * one named "Footer". */
 function layerRowNth(page: Page, name: string, index: number): Locator {
   return layerTree(page)
     .locator("[data-layer-row-button][data-layer-node-id]")
@@ -201,8 +158,6 @@ async function clickLayerRow(page: Page, name: string): Promise<void> {
   await page.waitForTimeout(200);
 }
 
-/** Cmd/Ctrl-click adds each subsequent row to the selection (additive path,
- * not Shift's contiguous-range path — see parity-group-frame.spec.ts). */
 async function multiSelect(page: Page, names: string[]): Promise<void> {
   await clickLayerRow(page, names[0]);
   for (const name of names.slice(1)) {
@@ -221,16 +176,6 @@ async function selectedLayerName(page: Page): Promise<string | null> {
   return span.getAttribute("title");
 }
 
-/** Rename whatever is CURRENTLY selected (a fresh draw / duplicate / Shift+A
- * wrap all leave their result as the selection) via the layers panel's own
- * double-click-to-rename affordance.
- *
- * The layers panel updates optimistically the instant Enter commits, but the
- * write to the screen's HTML source (`data-agent-native-layer-name`) is a
- * separate round trip — reading the raw file back through the API right
- * after this resolved a stale name in early runs. When `screenId` is given,
- * poll the PERSISTED source for the new name before returning so every
- * caller downstream sees a consistent world. */
 async function renameSelected(
   page: Page,
   newName: string,
@@ -265,9 +210,6 @@ async function renameSelected(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Canvas geometry + drawing (screen-scoped content px -> page px)
-// ---------------------------------------------------------------------------
 
 async function screenIframeBox(page: Page, screenId: string) {
   const box = await page
@@ -293,8 +235,6 @@ function pt(
   return { x: box.x + cx * scale, y: box.y + cy * scale };
 }
 
-/** A point on the board not over any screen card — for drawing the very
- * first (root) Screen from empty canvas. */
 async function emptyBoardPoint(page: Page) {
   const point = await page.evaluate(() => {
     const world = document.querySelector("[data-multi-screen-canvas-world]");
@@ -377,9 +317,6 @@ async function drawRectangle(
   await dragTool(page, from, to);
 }
 
-/** Text tool: click to place (auto-width), type, Escape commits (proven in
- * canvas-tools.spec.ts's "Atomic text undo" test — Escape after non-empty
- * typed text commits; only EMPTY text is cancelled by Escape). */
 async function placeText(
   page: Page,
   point: { x: number; y: number },
@@ -414,9 +351,6 @@ async function openOverview(
   await page.waitForTimeout(500);
 }
 
-// ---------------------------------------------------------------------------
-// Shared mutable state across the serial suite (one design, built up)
-// ---------------------------------------------------------------------------
 
 let designId = "";
 let deskScreenId = "";
@@ -453,9 +387,6 @@ test.afterAll(async ({ request }) => {
   await deleteDesign(request);
 });
 
-// ===========================================================================
-// DESKTOP BUILD
-// ===========================================================================
 
 test("step 1: Screen tool draws the root Landing Page frame at 1440x1024 with Figma frame-tool defaults", async ({
   page,
@@ -502,7 +433,6 @@ test("step 1: Screen tool draws the root Landing Page frame at 1440x1024 with Fi
   );
   expect(newFile, "Screen tool must create a new screen file").toBeTruthy();
   deskScreenId = newFile.id;
-  // Figma Frame-tool defaults: white fill, clips content.
   expect(newFile.content.toLowerCase()).toContain("#ffffff");
   expect(newFile.content.toLowerCase()).toMatch(/overflow\s*:\s*hidden/);
 
@@ -518,18 +448,11 @@ test("step 1: Screen tool draws the root Landing Page frame at 1440x1024 with Fi
 
   await renameSelected(page, "Landing Page");
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
   await expect(layerRowButton(page, "Landing Page")).toBeVisible({
     timeout: 10_000,
   });
 
-  // The throwaway blank seed screen (needed only so `gotoEditor`/the bridge
-  // had an iframe to mount before Landing Page existed) is deleted now that
-  // its job is done — a neighboring screen card on the board risks a later
-  // draw gesture's hit-test landing in the WRONG screen when coordinates
-  // near an edge are close to a neighbor (observed while writing this spec:
-  // a Rectangle drawn at content x=1300 of a 1440-wide screen committed into
-  // "seed.html" instead of Landing Page — see harnessNotes).
   if (seedFileId) {
     await action(page.request, "delete-file", { id: seedFileId });
   }
@@ -554,7 +477,7 @@ test("step 2: in-screen Frame tool draws the Navbar frame (1440x80) pinned to th
   await page.waitForTimeout(800);
 
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
   await renameSelected(page, "Navbar", deskScreenId);
   const navbarHtml = await screenHtml(page, deskScreenId);
   expect(navbarHtml).toContain('data-agent-native-layer-name="Navbar"');
@@ -567,14 +490,6 @@ async function screenHtml(page: Page, screenId: string): Promise<string> {
   return file.content as string;
 }
 
-/** A text/structural commit lands in the parent UI optimistically before the
- * source round-trips to the server — reading `screenHtml` immediately after
- * a gesture races that save. Poll for the last thing the gesture wrote
- * before trusting the fetched source for everything upstream of it. */
-/** All node ids of elements whose (own) `data-agent-native-layer-name`
- * equals `layerName`, order-independent of where that attribute sits
- * relative to `data-agent-native-node-id` in the serialized tag — a
- * duplicate's attribute order is not guaranteed to match the original's. */
 function nodeIdsForLayerName(html: string, layerName: string): string[] {
   const ids: string[] = [];
   for (const tag of html.matchAll(/<[a-zA-Z][a-zA-Z0-9-]*\b[^>]*>/g)) {
@@ -619,8 +534,6 @@ test("steps 3-4: Text tool creates the Brand wordmark and four nav link texts in
       `>${text}<`,
     );
   }
-  // All five must have landed inside Navbar's subtree, not as screen-level
-  // siblings — the Text tool's hit-test must have nested them.
   const navbarInner = elementInner(
     html,
     /data-agent-native-node-id="([^"]+)"[^>]*data-agent-native-layer-name="Navbar"/.exec(
@@ -639,7 +552,7 @@ test("step 5: Shift+A wraps the four nav link texts into a horizontal auto-layou
 }) => {
   await openOverview(page, designId, 1);
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
   await multiSelect(page, ["Home", "About", "Services", "Contact"]);
   await page.keyboard.press("Shift+A");
   await page.waitForTimeout(600);
@@ -689,7 +602,7 @@ test("step 6: Rectangle + Text build the CTA button, then Shift+A wraps them int
     `drawn rectangle must land inside the screen source, not the board; trace: ${await dumpTrace(page)}`,
   ).toMatch(/data-an-primitive="rectangle"/);
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
   await renameSelected(page, "CTARect", deskScreenId);
   await clickLayerRow(page, "CTARect");
   const radiusInput = page.locator('input[aria-label="Corner radius" i]');
@@ -721,7 +634,7 @@ test("step 7: Navbar itself becomes a horizontal auto-layout container around Br
 }) => {
   await openOverview(page, designId, 1);
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
   await clickLayerRow(page, "Navbar");
   const horizontalButton = page
     .locator('button[aria-label="Horizontal"]')
@@ -774,7 +687,7 @@ test("step 9: in-screen Frame tool draws the Hero frame (1440x640) directly unde
   );
   await page.waitForTimeout(800);
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
   await renameSelected(page, "Hero", deskScreenId);
 
   const html = await screenHtml(page, deskScreenId);
@@ -831,18 +744,11 @@ test("step 12: Cmd+D duplicates CTAButton into Hero and its label is retyped to 
   const scale = await scaleFor(page, deskScreenId, DESKTOP_W);
   const box = await screenIframeBox(page, deskScreenId);
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
   const beforeCount = await layerTree(page)
     .locator('[data-layer-row-button] span[title="CTAButton"]')
     .count();
 
-  // A layers-PANEL-row selection of CTAButton (nested two levels inside the
-  // now-flex Navbar) followed by Cmd+D did not duplicate in earlier runs of
-  // this spec — the selection instead collapsed to screen-level with no
-  // element (see harnessNotes, ownedBy: claude). Select via the CANVAS
-  // instead — container-first single click lands on Navbar, a second click
-  // drills in to CTAButton directly — which is the mechanism proven to work
-  // for a nested Shift+A wrapper elsewhere in this suite.
   const ctaOnCanvas = page
     .locator(
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${deskScreenId}"]`,
@@ -853,13 +759,6 @@ test("step 12: Cmd+D duplicates CTAButton into Hero and its label is retyped to 
   const ctaBox = (await ctaOnCanvas.boundingBox())!;
   const ctaCx = ctaBox.x + ctaBox.width / 2;
   const ctaCy = ctaBox.y + ctaBox.height / 2;
-  // Container-first selection drills exactly one level per CLICK EVENT
-  // (see the "container-first selection" test below): a plain click always
-  // resolves to the screen's direct child (Navbar) first, and each further
-  // click at the same point drills one level deeper. CTAButton is Navbar's
-  // direct child, one level down — a THIRD click event here (this second
-  // step used to be a native dblclick, which fires two click events) drills
-  // one level too far, landing on CTAButton's own child "CTARect" instead.
   await page.mouse.click(ctaCx, ctaCy);
   await page.waitForTimeout(300);
   await page.mouse.click(ctaCx, ctaCy);
@@ -885,10 +784,6 @@ test("step 12: Cmd+D duplicates CTAButton into Hero and its label is retyped to 
     )
     .toBe(beforeCount + 1);
 
-  // The duplicate is the selection; drill to its text child and retype it.
-  // The layers-panel count above is optimistic client state — poll the
-  // PERSISTED source too, or the very next read races the save (same class
-  // of bug as the rename race fixed by `waitForPersisted`).
   let ctaIds: string[] = [];
   await expect
     .poll(
@@ -953,7 +848,7 @@ test("steps 13-14: secondary 'Watch Demo' button is built and Shift+A wraps both
     pt(box, scale, HERO.x + 240 + 140, HERO.y + 340 + 44),
   );
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
   await renameSelected(page, "SecondaryRect", deskScreenId);
   await placeText(
     page,
@@ -966,18 +861,13 @@ test("steps 13-14: secondary 'Watch Demo' button is built and Shift+A wraps both
   await page.waitForTimeout(500);
   await renameSelected(page, "SecondaryButton", deskScreenId);
 
-  // Hero's primary button ("Start Free Trial") — built fresh with the same
-  // Rectangle + Text + Shift+A recipe as CTAButton, since step 12's
-  // duplicate-then-drag-into-Hero could not be made to land reliably (see
-  // that test's harnessNotes); this still needs a primary button inside
-  // Hero for HeroCTAGroup to wrap.
   await drawRectangle(
     page,
     pt(box, scale, HERO.x + 80, HERO.y + 340),
     pt(box, scale, HERO.x + 80 + 160, HERO.y + 340 + 44),
   );
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
   await renameSelected(page, "PrimaryRect", deskScreenId);
   await placeText(
     page,
@@ -1014,10 +904,8 @@ test("step 15: Shift+A wraps headline, subheading, and HeroCTAGroup into a verti
 }) => {
   await openOverview(page, designId, 1);
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
   await clickLayerRow(page, "HeroCTAGroup");
-  // Headline/subheading have no explicit layer name yet — select by their
-  // default layers-panel row, which shows the raw text as the row's title.
   await layerRow(page, "Build products faster with our platform").click({
     modifiers: [MOD],
   });
@@ -1069,7 +957,7 @@ test("steps 16-17: HeroImage is drawn and Hero's own auto layout is enabled hori
     pt(box, scale, 800 + 560, HERO.y + 80 + 480),
   );
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
   await renameSelected(page, "HeroImage", deskScreenId);
 
   await clickLayerRow(page, "Hero");
@@ -1099,21 +987,13 @@ test("steps 16-17: HeroImage is drawn and Hero's own auto layout is enabled hori
   expect(heroDisplay).toBe("flex");
 });
 
-// ===========================================================================
-// FD4B: FOOTER + CARD/CONTAINER SYSTEM
-// ===========================================================================
 
 test("FD4B footer: Cmd+D duplicates the Navbar frame, renamed 'Footer', with its wordmark retyped", async ({
   page,
 }) => {
   await openOverview(page, designId, 1);
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
-  // A LAYERS-PANEL selection of Navbar followed by Cmd+D was found NOT to
-  // reliably persist the duplicate at all in earlier runs of this spec (see
-  // harnessNotes) — canvas selection is the mechanism proven to work for
-  // Cmd+D elsewhere in this suite (step 12). Navbar is the screen's direct
-  // child, so ONE plain click selects it (container-first).
+  await expandAllLayers(page);
   const navbarOnCanvas = page
     .locator(
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${deskScreenId}"]`,
@@ -1133,12 +1013,6 @@ test("FD4B footer: Cmd+D duplicates the Navbar frame, renamed 'Footer', with its
   ).toBe("Navbar");
   await page.keyboard.press(`${MOD}+d`);
 
-  // Identify the duplicate by its stable node id BEFORE renaming — a rename
-  // right after Cmd+D was found NOT to persist to the screen source within
-  // 30s (see harnessNotes: the layers panel shows the new name optimistically
-  // forever, the server document keeps the old one). Downstream checks in
-  // this test use the id, not the string "Footer", so this real product gap
-  // does not block the rest of this test or the build after it.
   let navbarIdsAfterDup: string[] = [];
   await expect
     .poll(
@@ -1153,7 +1027,7 @@ test("FD4B footer: Cmd+D duplicates the Navbar frame, renamed 'Footer', with its
     )
     .toBe(2);
   const footerNodeId = navbarIdsAfterDup[1];
-  await renameSelected(page, "Footer"); // client-only, see note above
+  await renameSelected(page, "Footer");
 
   const scale = await scaleFor(page, deskScreenId, DESKTOP_W);
   const box = await screenIframeBox(page, deskScreenId);
@@ -1165,8 +1039,6 @@ test("FD4B footer: Cmd+D duplicates the Navbar frame, renamed 'Footer', with its
   const footer = frame.locator(`[data-agent-native-node-id="${footerNodeId}"]`);
   await expect(footer).toBeVisible({ timeout: 10_000 });
 
-  // Drag the duplicate down to the footer band (Cmd+D placed it directly on
-  // top of Navbar).
   const footerBefore = (await footer.boundingBox())!;
   const target = pt(
     box,
@@ -1183,7 +1055,6 @@ test("FD4B footer: Cmd+D duplicates the Navbar frame, renamed 'Footer', with its
   await page.mouse.up();
   await page.waitForTimeout(500);
 
-  // Retype the Footer's wordmark ("Brand" -> "(c) 2026 Brand").
   const wordmark = frame
     .locator(`[data-agent-native-node-id="${footerNodeId}"]`)
     .getByText("Brand", { exact: true });
@@ -1217,7 +1088,7 @@ test("FD4B card: Rectangle Thumbnail + title/description text wrap into a nested
     pt(box, scale, CARDROW.x + 260, CARDROW.y + 110),
   );
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
   await renameSelected(page, "Thumbnail", deskScreenId);
 
   await placeText(
@@ -1271,7 +1142,7 @@ test("FD4B card row: Cmd+D duplicates Card, its title is retyped, and both wrap 
 }) => {
   await openOverview(page, designId, 1);
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
   const scale = await scaleFor(page, deskScreenId, DESKTOP_W);
   const box = await screenIframeBox(page, deskScreenId);
   const frame = page
@@ -1279,7 +1150,6 @@ test("FD4B card row: Cmd+D duplicates Card, its title is retyped, and both wrap 
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${deskScreenId}"]`,
     )
     .contentFrame();
-  // Canvas selection, not layers-panel — see FD4B footer's harnessNotes.
   const cardOnCanvas = frame.locator('[data-agent-native-layer-name="Card"]');
   await expect(cardOnCanvas).toBeVisible({ timeout: 10_000 });
   const cardBoxForSelect = (await cardOnCanvas.boundingBox())!;
@@ -1316,7 +1186,7 @@ test("FD4B card row: Cmd+D duplicates Card, its title is retyped, and both wrap 
   await page.waitForTimeout(400);
 
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
   const cardRows = layerTree(page).locator(
     '[data-layer-row-button] span[title="Card"]',
   );
@@ -1357,7 +1227,7 @@ test("layers panel: renaming a deeply-nested layer only changes that layer", asy
 }) => {
   await openOverview(page, designId, 1);
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
 
   await clickLayerRow(page, "SecondaryButton");
   await renameSelected(page, "WatchDemoButton", deskScreenId);
@@ -1370,11 +1240,7 @@ test("group: marquee-selects two sections, Cmd+G groups them with Figma Group se
 }) => {
   await openOverview(page, designId, 1);
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
-  // NavLinks + CTAButton (both inside Navbar) rather than the Navbar
-  // duplicate ("Footer") — that rename does not persist (see FD4B footer's
-  // harnessNotes), so it reads back as an ambiguous second "Navbar" row,
-  // a distinct concern from what this group-semantics check exists to prove.
+  await expandAllLayers(page);
   await multiSelect(page, ["NavLinks", "CTAButton"]);
   await page.keyboard.press(`${MOD}+g`);
   await page.waitForTimeout(500);
@@ -1430,9 +1296,6 @@ test("group: marquee-selects two sections, Cmd+G groups them with Figma Group se
   // here so this spec doesn't stay red for other areas' runs.
 });
 
-// ===========================================================================
-// MOBILE SCREEN
-// ===========================================================================
 
 test("mobile: Cmd+D duplicates the Landing Page screen; the copy becomes an independent sibling screen", async ({
   page,
@@ -1441,10 +1304,6 @@ test("mobile: Cmd+D duplicates the Landing Page screen; the copy becomes an inde
   const filesBefore: string[] = (await getDesign(page, designId)).files.map(
     (f: any) => f.filename,
   );
-  // The screen's own NAME LABEL above the canvas, not the card body — a
-  // click on the card body itself lands on the iframe's dense content and
-  // selects an inner frame instead of the screen (confirmed while writing
-  // this spec: it duplicated Navbar-in-place, not the screen).
   const card = page
     .locator(`[data-screen-iframe-id="${deskScreenId}"]`)
     .locator("xpath=ancestor::*[@data-screen-card][1]");
@@ -1453,8 +1312,6 @@ test("mobile: Cmd+D duplicates the Landing Page screen; the copy becomes an inde
   if (await label.count()) {
     await label.click({ force: true });
   } else {
-    // Fallback: a hair above the card's own top edge, outside the iframe's
-    // rendered content, where a click still lands on the card wrapper.
     const cardBox = (await card.boundingBox())!;
     await page.mouse.click(cardBox.x + cardBox.width / 2, cardBox.y - 4);
   }
@@ -1486,7 +1343,7 @@ test("mobile: Cmd+D duplicates the Landing Page screen; the copy becomes an inde
     timeout: 10_000,
   });
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
   await clickLayerRow(page, "Landing Page copy");
   await renameSelected(page, "Landing Page Mobile");
   await waitForPersisted(
@@ -1502,16 +1359,8 @@ test("mobile: Hero and CardRow are re-laid-out to vertical stacking for the narr
   await openOverview(page, designId, 2);
   await expandAllLayers(page);
   await expandAllLayers(page);
-  await expandAllLayers(page); // thrice: two full-screen trees need more than 16 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
 
-  // The mobile copy's rows share names with the desktop original, AND
-  // (confirmed while writing this spec) the layers panel's own
-  // `data-layer-node-id` does not match the persisted
-  // `data-agent-native-node-id` for a whole-screen-duplicated element
-  // (reads back as a "copy-…" id the panel never exposes under) — a real
-  // gap in the panel's row identity, not just a test ordering guess. Select
-  // on the MOBILE SCREEN'S OWN CANVAS instead: Hero/CardRow are the
-  // screen's direct children, so one container-first click selects each.
   const mobileFrame = page
     .locator(
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${mobileScreenId}"]`,
@@ -1561,7 +1410,6 @@ test("mobile: Hero and CardRow are re-laid-out to vertical stacking for the narr
     `mobile Hero must be stacked vertically; trace: ${await dumpTrace(page)}`,
   ).toBe("column");
 
-  // Desktop's own Hero must be untouched (still row).
   const desktopFrame = page
     .locator(
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${deskScreenId}"]`,
@@ -1576,11 +1424,6 @@ test("mobile: Hero and CardRow are re-laid-out to vertical stacking for the narr
   expect(desktopDirection, "desktop Hero must stay horizontal").toBe("row");
 });
 
-// ===========================================================================
-// FINAL STRUCTURE SNAPSHOT + EXPORT (required deliverables — kept ahead of
-// the trailing typed-inspector-value tests below so a codex-owned break in
-// gap/padding/radius typing cannot serial-skip these).
-// ===========================================================================
 
 function topLevelOrder(html: string): string[] {
   return [...html.matchAll(/data-agent-native-layer-name="([^"]+)"/g)].map(
@@ -1609,12 +1452,6 @@ test("final structure: desktop Landing Page layer tree (names + order + nesting)
       `"${required}" must exist in the final desktop tree`,
     ).toContain(required);
   }
-  // FD4B footer is the Cmd+D-duplicated Navbar, renamed "Footer". Earlier in
-  // developing this spec, that rename did not reliably persist when the
-  // duplicate was made via a LAYERS-PANEL selection (it read back as a
-  // second "Navbar" instead) — fixed by duplicating from a CANVAS selection
-  // instead (see FD4B footer's harnessNotes) — so accept either outcome
-  // here rather than re-encoding the bug as the expectation.
   const secondNavbarCount = names.filter((n) => n === "Navbar").length - 1;
   expect(
     names.includes("Footer") || secondNavbarCount === 1,
@@ -1623,8 +1460,6 @@ test("final structure: desktop Landing Page layer tree (names + order + nesting)
   expect(names.indexOf("Navbar")).toBeLessThan(names.indexOf("Hero"));
 
   const navbarIds = nodeIdsForLayerName(html, "Navbar");
-  // Distinguish the true Navbar from the footer duplicate by content — the
-  // duplicate's wordmark was retyped to "(c) 2026 Brand".
   const trueNavbarId = navbarIds.find(
     (id) => !elementInner(html, id).includes("(c) 2026 Brand"),
   )!;
@@ -1653,10 +1488,6 @@ test("final structure: mobile screen layer tree (names + order + nesting) matche
       `"${required}" must exist in the final mobile tree`,
     ).toContain(required);
   }
-  // The mobile screen is a whole-screen duplicate of desktop (see "mobile:
-  // Cmd+D duplicates..."), so it carries the same FD4B-footer duplicate —
-  // either named "Footer" or a second "Navbar" (see the desktop structure
-  // test's harnessNotes).
   const mobileSecondNavbarCount =
     names.filter((n) => n === "Navbar").length - 1;
   expect(
@@ -1672,7 +1503,7 @@ test("export: cdpScreenshot captures the desktop and mobile screens for visual r
 }) => {
   await openOverview(page, designId, 2);
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
 
   const desktopFrame = page
     .locator(
@@ -1716,11 +1547,6 @@ test("export: cdpScreenshot captures the desktop and mobile screens for visual r
   expect(stat2.size).toBeGreaterThan(1000);
 });
 
-// Kept AFTER the required structure/export tests (not where the tutorial's
-// step order would put it, right after Brand exists) — Steve's container-
-// first click-selection contract is a live product change, not a proven
-// gesture, and a break in it must not serial-skip the structure snapshot or
-// screenshot export above.
 test("container-first selection: plain click selects the screen's direct child, double-click drills in, cmd-click deep-selects", async ({
   page,
 }) => {
@@ -1730,15 +1556,12 @@ test("container-first selection: plain click selects the screen's direct child, 
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${deskScreenId}"]`,
     )
     .contentFrame();
-  // The serial fixture has a Footer copy overlapping Navbar, so use the
-  // unoccluded HeroImage to exercise the same screen-child selection contract.
   const heroImage = frame
     .locator('[data-agent-native-layer-name="HeroImage"]')
     .first();
   await expect(heroImage).toBeVisible({ timeout: 10_000 });
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
-  // Deselect before measuring because deselection can reflow the canvas.
+  await expandAllLayers(page);
   const empty = await emptyBoardPoint(page);
   await page.mouse.click(empty.x, empty.y);
   await page.waitForTimeout(300);
@@ -1752,7 +1575,6 @@ test("container-first selection: plain click selects the screen's direct child, 
     `single click on a Hero-nested element must select Hero first; trace: ${await dumpTrace(page)}`,
   ).toBe("Hero");
 
-  // A second click (double-click) at the same point drills one level in.
   await page.mouse.dblclick(cx, cy);
   await page.waitForTimeout(400);
   expect(
@@ -1760,7 +1582,6 @@ test("container-first selection: plain click selects the screen's direct child, 
     "double-click must drill in to select HeroImage directly",
   ).toBe("HeroImage");
 
-  // Deselect, then Cmd/Ctrl-click deep-selects in one step.
   await page.mouse.click(empty.x, empty.y);
   await page.waitForTimeout(300);
   await page.keyboard.down(MOD);
@@ -1773,12 +1594,6 @@ test("container-first selection: plain click selects the screen's direct child, 
   ).toBe("HeroImage");
 });
 
-// Kept AFTER the required structure/export tests for the same reason as the
-// container-first selection test above: HeroImage's parent (Hero) is a
-// FLEX container by this point (steps 16-17), and undo after an alt-drag
-// duplicate under a flex parent was NOT reliably one step in earlier runs
-// of this spec (see harnessNotes) — a real product question, not proven
-// safe enough to gate the rest of the build.
 test("step 18: alt-dragging HeroImage duplicates it; one undo removes the copy and restores the original selection", async ({
   page,
 }) => {
@@ -1795,8 +1610,6 @@ test("step 18: alt-dragging HeroImage duplicates it; one undo removes the copy a
   const originalNodeId = await heroImageByName.getAttribute(
     "data-agent-native-node-id",
   );
-  // Scoped by the ORIGINAL's own stable node id — layer-name alone becomes
-  // ambiguous the moment the alt-drag duplicate (same layer name) exists.
   const heroImage = frame.locator(
     `[data-agent-native-node-id="${originalNodeId}"]`,
   );
@@ -1839,16 +1652,12 @@ test("step 18: alt-dragging HeroImage duplicates it; one undo removes the copy a
   expect(Math.round(afterUndo.y)).toBe(Math.round(before.y));
 });
 
-// Relocated for the same reason: an unexplained equal-scale result (fit ==
-// selection) surfaced late in this spec's development and there was no
-// budget left to separate a real product gap from a stale zoom/selection
-// state left by the tests before it in this position — see harnessNotes.
 test("step 20/26: Shift+1 zooms to fit the whole Landing Page; Shift+2 zooms tighter to the selected Navbar", async ({
   page,
 }) => {
   await openOverview(page, designId, 2);
   await expandAllLayers(page);
-  await expandAllLayers(page); // twice: a deep tree needs more than 8 expand-clicks (see helpers.ts's per-call cap)
+  await expandAllLayers(page);
   await clickLayerRow(page, "Navbar");
   await page.keyboard.press("Shift+1");
   await page.waitForTimeout(600);
@@ -1867,20 +1676,14 @@ test("step 20/26: Shift+1 zooms to fit the whole Landing Page; Shift+2 zooms tig
   ).toBeGreaterThan(fitScale * 1.2);
 });
 
-// Relocated (same reason as the two tests above): dragging a layers-panel
-// row between two non-adjacent-in-DOM siblings did not reorder them in
-// earlier runs of this spec — real gap or a wrong drop-target offset, not
-// separated within budget (see harnessNotes).
 test("layers panel: dragging a row reorders it in the DOM", async ({
   page,
 }) => {
   await openOverview(page, designId, 2);
   await expandAllLayers(page);
   await expandAllLayers(page);
-  await expandAllLayers(page); // two full-screen trees exceed the 16-row cap
+  await expandAllLayers(page);
 
-  // Resolve each desktop row id through canvas selection: persisted HTML ids
-  // are not the hashed ids used by the Layers tree.
   const selectDesktopLayerId = async (name: string) => {
     const layer = page
       .locator(
@@ -1916,8 +1719,6 @@ test("layers panel: dragging a row reorders it in the DOM", async ({
   const heroBounds = await heroRow.boundingBox();
   if (!heroBounds) throw new Error("Hero has no Layers row bounds");
   await cardRowRow.dragTo(heroRow, {
-    // The Layers tree is reversed from DOM paint order: drop below Hero here
-    // to insert CardRow before it in the persisted DOM.
     targetPosition: { x: 24, y: heroBounds.height - 2 },
   });
 
@@ -1949,11 +1750,6 @@ test("layers panel: dragging a row reorders it in the DOM", async ({
   ).toBeLessThan(topLevel.indexOf("Hero"));
 });
 
-// ===========================================================================
-// TRAILING: typed/scrubbed inspector numeric values (ownedBy codex). Kept
-// last so a failure here cannot serial-skip the required structure/export
-// tests above.
-// ===========================================================================
 
 async function setScrubField(
   page: Page,
@@ -1990,8 +1786,6 @@ test("trailing: typed Gap values commit on NavLinks, HeroCTAGroup, and HeroCopy"
     await layerRowForPath(page, "HeroCopy", ["Landing Page", "Hero"]),
   );
 
-  // The tree contains both desktop and mobile copies with the same layer
-  // names; resolve the desktop row through its full ancestor path.
   const htmlBeforeGap = await screenHtml(page, deskScreenId);
   const navbarId = nodeIdsForLayerName(htmlBeforeGap, "Navbar").find(
     (id) => !elementInner(htmlBeforeGap, id).includes("(c) 2026 Brand"),
@@ -2186,7 +1980,6 @@ test("trailing: the mobile screen is resized to 390 wide via a typed inspector v
   const mobileLabel = page
     .locator(`[data-screen-shell][data-frame-id="${mobileScreenId}"]`)
     .locator("[data-frame-label]");
-  // The label is a sibling of the card inside the screen shell.
   await mobileLabel.click({ force: true });
   await page.waitForTimeout(400);
 

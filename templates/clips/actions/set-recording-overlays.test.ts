@@ -1,15 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * The boxes are what holds a clip back from viewers, so losing one is not a
- * lost edit — it is a clip published with the thing it was meant to cover
- * still in the file. These cover the write path's contention behaviour.
- */
 
 const state = vi.hoisted(() => ({
-  /** Rows handed back by each successive read. */
   reads: [] as Array<{ id: string; editsJson: string | null }>,
-  /** Whether each successive write finds the row unchanged. */
   writeWins: [] as boolean[],
   written: [] as Array<Record<string, unknown>>,
 }));
@@ -82,8 +75,6 @@ describe("set-recording-overlays under contention", () => {
   });
 
   it("retries when something else changed the trims", async () => {
-    // A trim saved at the same moment loses the compare-and-swap but says
-    // nothing about the boxes, so writing them again is exactly right.
     const overlays = [box("r1", 1_000)];
     state.reads = [
       { id: "rec_1", editsJson: editsWith(overlays) },
@@ -102,16 +93,12 @@ describe("set-recording-overlays under contention", () => {
     expect(state.written).toHaveLength(2);
     const saved = JSON.parse(String(state.written[1].editsJson));
     expect(saved.overlays.map((o: any) => o.id)).toEqual(["r1", "r2"]);
-    // And it rebased onto the trim rather than reverting it.
     expect(saved.trims).toEqual([
       { id: "cut-1", startMs: 1_000, endMs: 2_000, excluded: true },
     ]);
   });
 
   it("refuses to retry over a box someone else drew", async () => {
-    // This request is a whole list, written against the state it last read.
-    // Replaying it would delete the other box — and deleting a box lifts the
-    // hold on pixels that are still in the file.
     state.reads = [
       { id: "rec_1", editsJson: editsWith([box("r1", 1_000)]) },
       {

@@ -3,14 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * Reproduces "screen stays white after delete/undo": a structural morph
- * (replaceRuntimeDocument -> morphRuntimeBody -> morphElement -> morphAttributes
- * -> applyStyleAttribute) must never let an UNCHANGED source style value reset
- * a property a runtime script (a theme toggle, Tailwind's CDN build) has since
- * set to something else live. Only a source value that is new or has actually
- * changed since the previous render may win.
- */
 function hydratedEditorChromeBridgeScript(): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
@@ -60,15 +52,11 @@ describe("applyStyleAttribute preserves a runtime-set value across a structural 
       await page.setContent(initialHtml(WIDGET));
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
 
-      // The theme script's effect, arriving after the bridge has already
-      // hydrated (recorded body's source style as "background:rgb(255,255,255)").
       await page.evaluate(() => {
         document.body.style.background = "rgb(11, 11, 11)";
       });
       expect(await bodyBackground(page)).toBe("rgb(11, 11, 11)");
 
-      // A structural edit (delete-widget): the body's OWN style declaration
-      // in the source is unchanged, only a descendant is removed.
       await replaceDocument(page, initialHtml(""));
 
       expect(
@@ -99,8 +87,6 @@ describe("applyStyleAttribute preserves a runtime-set value across a structural 
       });
       expect(await bodyBackground(page)).toBe("rgb(11, 11, 11)");
 
-      // This time the SOURCE itself changes the property — a real edit must
-      // still win, or the fix would just freeze the property forever.
       const changedHtml =
         '<!doctype html><html><head></head><body data-agent-native-node-id="an-body" style="background:rgb(20,40,60)"></body></html>';
       await replaceDocument(page, changedHtml);
@@ -124,8 +110,6 @@ describe("applyStyleAttribute preserves a runtime-set value across a structural 
       await page.setContent(initialHtml(WIDGET));
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
 
-      // No runtime write this time — the live value is still exactly the
-      // source's own declared value.
       const droppedHtml =
         '<!doctype html><html><head></head><body data-agent-native-node-id="an-body">' +
         WIDGET +

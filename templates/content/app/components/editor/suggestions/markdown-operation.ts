@@ -178,9 +178,6 @@ function contiguousChange(
   );
   if (firstCandidate > lastCandidate) return null;
 
-  // Repeated text can make several positions reconstruct the same edit. Prefer
-  // paragraph, then word boundaries; otherwise retain the conventional latest
-  // common-prefix position.
   let position = lastCandidate;
   let rank = changeBoundaryRank(shorter, position);
   for (
@@ -209,11 +206,6 @@ function contiguousChange(
   };
 }
 
-/**
- * Returns a bounded Myers diff. The edit-distance cap keeps pathological
- * documents from consuming unbounded memory; callers retain one whole-document
- * replacement when the granular representation cannot be produced safely.
- */
 function diffParts(
   beforeSource: string,
   afterSource: string,
@@ -221,8 +213,6 @@ function diffParts(
   if (beforeSource.length + afterSource.length > MAX_DOCUMENT_LENGTH)
     return null;
 
-  // A hard-break token is one structural edit. Matching its letters against
-  // nearby prose can otherwise create independently invalid `<b` / `r>` hunks.
   const before = beforeSource.match(/<br\/?>|[\s\S]/g) ?? [];
   const after = afterSource.match(/<br\/?>|[\s\S]/g) ?? [];
 
@@ -366,7 +356,6 @@ function markedDiffOperations(
     if (previousChange?.to === index) previousChange.to += 1;
     else changes.push({ from: index, to: index + 1 });
   }
-  // A marked run owns its delimiters, so no independently accepted hunk may split it.
   let expanded: boolean;
   do {
     expanded = false;
@@ -417,11 +406,6 @@ function markedDiffOperations(
   return operations;
 }
 
-/**
- * Produces independent, contextual-rebase-compatible operations for each
- * disjoint markdown hunk. Every operation starts from the same canonical
- * snapshot, so accepting or rejecting one does not require another first.
- */
 export function markdownSuggestionOperations(
   before: string,
   after: string,

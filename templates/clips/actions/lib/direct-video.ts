@@ -45,8 +45,6 @@ function normalizeDirectVideoMimeType(
   return null;
 }
 
-/** Any non-Loom `https://`/`http://` URL is a candidate direct video link;
- * the real check happens after fetching, against the response content type. */
 export function isCandidateDirectVideoUrl(value: string): boolean {
   try {
     const parsed = new URL(value.trim());

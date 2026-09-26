@@ -8,12 +8,6 @@ import { getDb } from "../db/index.js";
 import * as schema from "../db/schema.js";
 import { ensureDefaultTemplatesForScopes } from "../lib/generation-presets.js";
 
-/**
- * Every Drizzle table exported from schema.ts. Filters out type-only and
- * helper exports (e.g. re-exported `eq`/`sql`) the same way db.spec.ts's
- * `isDrizzleTable` regression guard does: a real table carries a
- * Symbol-keyed drizzle metadata bag, plain exports don't.
- */
 function isDrizzleTable(value: unknown): value is object {
   return (
     !!value &&
@@ -27,10 +21,6 @@ function isDrizzleTable(value: unknown): value is object {
 const schemaTables = Object.values(schema).filter(isDrizzleTable);
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
-// packages/core/src/db/migrations.ts for the full rationale). Version numbers
-// alone are not a safe identity across parallel branches that each extend
-// this list independently — see the analytics template's v75-v83 incident
-// for the exact failure mode this guards against.
 export const runAssetsMigrations = runMigrations(
   [
     {
@@ -126,9 +116,6 @@ export const runAssetsMigrations = runMigrations(
     completed_at TEXT
   )`,
     },
-    // v6-v9: audit-log columns on image_generation_runs.
-    // Strictly additive — never rename, never drop. Each column carries
-    // identity / provenance metadata the audit-log surface filters on.
     {
       version: 6,
       sql: `ALTER TABLE image_generation_runs
@@ -149,9 +136,6 @@ export const runAssetsMigrations = runMigrations(
       sql: `ALTER TABLE image_generation_runs
             ADD COLUMN IF NOT EXISTS org_id TEXT`,
     },
-    // v10-v12: indexes that back the audit-log queries.
-    // `CREATE INDEX IF NOT EXISTS` is safe to re-run on fresh installs and
-    // on existing prod DBs that already have the rows but not the indexes.
     {
       version: 10,
       sql: `CREATE INDEX IF NOT EXISTS image_generation_runs_created_at_idx
@@ -313,14 +297,6 @@ export const runAssetsMigrations = runMigrations(
       sql: `ALTER TABLE image_generation_runs
             ADD COLUMN IF NOT EXISTS session_id TEXT`,
     },
-    // v33: indexes that back access-scoped library reads.
-    // - `image_library_shares` had no index; the shares lookup in
-    //   `accessFilter` probes (resource_id, principal_type, principal_id).
-    // - `image_libraries` list (`list-libraries`) filters by owner/org via
-    //   `accessFilter` and orders by `updated_at`; the matching composite
-    //   index avoids a full table scan + sort on large accounts.
-    // Plain `CREATE INDEX IF NOT EXISTS` (no DESC/partial/PG-only syntax) so it
-    // is safe to re-run.
     {
       version: 33,
       sql: `CREATE INDEX IF NOT EXISTS image_library_shares_resource_principal_idx
@@ -427,8 +403,6 @@ export const runAssetsMigrations = runMigrations(
       `,
     },
   ],
-  // Preserve the legacy migration table name so existing Images deployments do
-  // not rerun historical additive migrations after the app slug becomes Assets.
   { table: "images_migrations" },
 );
 
@@ -455,8 +429,6 @@ export default async (nitroApp: any): Promise<void> => {
       );
     }
   } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
     console.warn(
       "[db] ensureAdditiveColumns failed (non-fatal):",
       err instanceof Error ? err.message : err,

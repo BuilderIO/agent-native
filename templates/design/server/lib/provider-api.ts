@@ -74,9 +74,6 @@ export async function executeProviderApiRequest(args: ProviderApiRequestArgs) {
   try {
     return await runtime.executeRequest(args);
   } catch (error) {
-    // Credential resolution throws before any HTTP envelope exists, so the
-    // envelope reader never sees it. Classify here, at the one place every
-    // Design provider request passes through.
     if (args.provider === "figma") rethrowFigmaProviderFailure(error);
     throw error;
   }

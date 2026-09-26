@@ -1,6 +1,4 @@
--- Query Set 5: Cohort Comparison
--- Purpose: Compare behavior of recent cohorts vs baseline cohorts across multiple dimensions
--- Expected output: Side-by-side comparison of key metrics for recent vs baseline periods
+
 
 WITH cohort_definitions AS (
   SELECT
@@ -16,12 +14,12 @@ WITH cohort_definitions AS (
 cohort_metrics AS (
   SELECT
     cd.cohort,
-    -- Overall metrics
+
     COUNT(DISTINCT pv.visitor_id) AS total_visitors,
     COUNT(DISTINCT ps.user_id) AS total_signups,
     SAFE_DIVIDE(COUNT(DISTINCT ps.user_id), COUNT(DISTINCT pv.visitor_id)) AS conversion_rate,
-    
-    -- Traffic source distribution
+
+
     ROUND(SAFE_DIVIDE(
       COUNT(DISTINCT CASE WHEN pv.first_touch_channel = 'Organic' THEN pv.visitor_id END),
       COUNT(DISTINCT pv.visitor_id)
@@ -34,8 +32,8 @@ cohort_metrics AS (
       COUNT(DISTINCT CASE WHEN pv.first_touch_channel = 'Direct' THEN pv.visitor_id END),
       COUNT(DISTINCT pv.visitor_id)
     ) * 100, 1) AS direct_pct,
-    
-    -- Landing page distribution
+
+
     ROUND(SAFE_DIVIDE(
       COUNT(DISTINCT CASE WHEN fp.landing_page_type = 'homepage' THEN pv.visitor_id END),
       COUNT(DISTINCT pv.visitor_id)
@@ -48,29 +46,29 @@ cohort_metrics AS (
       COUNT(DISTINCT CASE WHEN fp.landing_page_type = 'blog' THEN pv.visitor_id END),
       COUNT(DISTINCT pv.visitor_id)
     ) * 100, 1) AS blog_landing_pct,
-    
-    -- Engagement metrics
+
+
     ROUND(AVG(session_pageviews.pageviews_per_session), 1) AS avg_pageviews_per_session,
     COUNT(DISTINCT CASE WHEN pv.page_type = 'signup' THEN pv.visitor_id END) AS visited_signup_page,
     ROUND(SAFE_DIVIDE(
       COUNT(DISTINCT CASE WHEN pv.page_type = 'signup' THEN pv.visitor_id END),
       COUNT(DISTINCT pv.visitor_id)
     ) * 100, 1) AS signup_page_visit_rate,
-    
-    -- ICP signups (if available)
+
+
     COUNT(DISTINCT CASE WHEN ps.icp_flag = 'ICP' THEN ps.user_id END) AS icp_signups,
     ROUND(SAFE_DIVIDE(
       COUNT(DISTINCT CASE WHEN ps.icp_flag = 'ICP' THEN ps.user_id END),
       COUNT(DISTINCT ps.user_id)
     ) * 100, 1) AS icp_signup_pct
-    
+
   FROM cohort_definitions cd
   CROSS JOIN `@project.analytics.pageviews` pv
   LEFT JOIN `@project.analytics.signups` ps
     ON pv.visitor_id = ps.user_id
     AND DATE(ps.user_create_d) BETWEEN cd.start_date AND cd.end_date
   LEFT JOIN (
-    -- First pageview per visitor for landing page analysis
+
     SELECT
       visitor_id,
       page_type AS landing_page_type
@@ -84,7 +82,7 @@ cohort_metrics AS (
     WHERE rn = 1
   ) fp ON pv.visitor_id = fp.visitor_id
   LEFT JOIN (
-    -- Session-level pageview counts
+
     SELECT
       visitor_id,
       session_id,
@@ -113,13 +111,13 @@ SELECT
   icp_signups,
   icp_signup_pct
 FROM cohort_metrics
-ORDER BY 
-  CASE cohort 
-    WHEN 'Recent (Last 8 Weeks)' THEN 1 
-    WHEN 'Baseline (Weeks 9-16 Ago)' THEN 2 
+ORDER BY
+  CASE cohort
+    WHEN 'Recent (Last 8 Weeks)' THEN 1
+    WHEN 'Baseline (Weeks 9-16 Ago)' THEN 2
   END;
 
--- Additional analysis: Day of week and time of day patterns
+
 WITH cohort_definitions AS (
   SELECT
     'Recent (Last 8 Weeks)' AS cohort,
@@ -154,10 +152,10 @@ SELECT
   signups,
   ROUND(conversion_rate * 100, 2) AS conversion_rate_pct
 FROM temporal_patterns
-ORDER BY 
-  CASE cohort 
-    WHEN 'Recent (Last 8 Weeks)' THEN 1 
-    WHEN 'Baseline (Weeks 9-16 Ago)' THEN 2 
+ORDER BY
+  CASE cohort
+    WHEN 'Recent (Last 8 Weeks)' THEN 1
+    WHEN 'Baseline (Weeks 9-16 Ago)' THEN 2
   END,
   CASE day_of_week
     WHEN 'Monday' THEN 1
@@ -168,11 +166,3 @@ ORDER BY
     WHEN 'Saturday' THEN 6
     WHEN 'Sunday' THEN 7
   END;
-
--- Interpretation Guide:
--- 1. Compare conversion_rate_pct between Recent and Baseline cohorts
--- 2. Check if traffic source mix has changed (organic_pct, paid_pct, direct_pct)
--- 3. See if landing page distribution has shifted (more blog, less pricing?)
--- 4. Check engagement metrics: avg_pageviews_per_session, signup_page_visit_rate
--- 5. Temporal patterns: has conversion changed on specific days of week?
--- 6. ICP quality: is the decline due to lower quality signups?

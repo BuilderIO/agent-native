@@ -7,7 +7,6 @@ interface UploadChunkRequestOptions {
   signal?: AbortSignal;
 }
 
-/** Retry one chunk after refreshing a browser session that returned 401. */
 export async function uploadChunkRequest({
   url,
   body,

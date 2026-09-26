@@ -1,16 +1,3 @@
-/**
- * design-to-figma-svg.spec.ts
- *
- * Covers the pure, browser-free scene -> SVG serializer with hand-built
- * `FigmaSvgNode` fixtures, plus the raw-scene hydration layer
- * (`buildFillLayersFromComputedStyle` / `hydrateRawFigmaSvgNode`), which is
- * also pure — it only consumes plain computed-style strings, no DOM. The
- * Playwright-based DOM WALK (`collectRawFigmaSvgScene`, wired into
- * `renderDesignToFigmaSvg` and the `export-design-as-figma-svg` action) needs
- * a real headless Chromium and is exercised in practice, not here — same
- * split as `take-design-screenshot.spec.ts`'s `collectPageDiagnostics` (see
- * that file's docblock).
- */
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -134,9 +121,6 @@ describe("secure image embedding", () => {
 
 describe("objectFitToPreserveAspectRatio", () => {
   it("anchors top-left when the element does", async () => {
-    // The importer anchors a fallback render top-left, because Figma's
-    // `absoluteRenderBounds` states where the ink STARTS. Centring it in the
-    // export moved the artwork back — 1.26 points of round-trip drift.
     const { objectFitToPreserveAspectRatio } =
       await import("../../shared/figma-svg-scene.js");
     expect(objectFitToPreserveAspectRatio("contain", "0px 0px")).toBe(
@@ -183,9 +167,6 @@ describe("isAllowedFigmaSvgRenderRequest", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Formatting / escaping
-// ---------------------------------------------------------------------------
 
 describe("escapeXmlAttr / escapeXmlText", () => {
   it("escapes attribute-unsafe characters", () => {
@@ -211,9 +192,6 @@ describe("isUniformRadius / isZeroRadii", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Rounded-rect path (per-corner radii)
-// ---------------------------------------------------------------------------
 
 describe("roundedRectPath", () => {
   it("emits line + arc segments for differing per-corner radii", () => {
@@ -221,7 +199,6 @@ describe("roundedRectPath", () => {
       { x: 0, y: 0, width: 100, height: 50 },
       { tl: 10, tr: 0, br: 20, bl: 5 },
     );
-    // tl=10 arc, tr=0 (no arc, sharp corner), br=20 arc, bl=5 arc.
     expect(path).toBe(
       "M 10 0 L 100 0 L 100 30 A 20 20 0 0 1 80 50 L 5 50 A 5 5 0 0 1 0 45 L 0 10 A 10 10 0 0 1 10 0 Z",
     );
@@ -232,7 +209,6 @@ describe("roundedRectPath", () => {
       { x: 0, y: 0, width: 20, height: 10 },
       { tl: 100, tr: 100, br: 100, bl: 100 },
     );
-    // maxR = min(20,10)/2 = 5, so every corner clamps to 5.
     expect(path).toContain("A 5 5 0 0 1");
     expect(path).not.toContain("A 100 100");
   });
@@ -247,9 +223,6 @@ describe("roundedRectPath", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Border stroke inset geometry
-// ---------------------------------------------------------------------------
 
 describe("insetRectForStroke / insetRadiiForStroke", () => {
   it("insets the rect by half the stroke width on every side", () => {
@@ -272,9 +245,6 @@ describe("insetRectForStroke / insetRadiiForStroke", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Gradient angle mapping
-// ---------------------------------------------------------------------------
 
 describe("gradientAngleToRotation", () => {
   it("maps CSS 90deg (to right) to SVG's unrotated default vector", () => {
@@ -334,9 +304,6 @@ describe("buildRadialGradientDef", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Computed-style parsers
-// ---------------------------------------------------------------------------
 
 describe("splitTopLevelCommas", () => {
   it("does not split commas nested inside rgba()/rgb()", () => {
@@ -444,9 +411,6 @@ describe("parseComputedRadialGradient", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// object-fit
-// ---------------------------------------------------------------------------
 
 describe("objectFitToPreserveAspectRatio", () => {
   it("maps cover to xMidYMid slice", () => {
@@ -461,13 +425,7 @@ describe("objectFitToPreserveAspectRatio", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Shadow filters
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Full node -> SVG document rendering
-// ---------------------------------------------------------------------------
 
 describe("buildFigmaSvgDocument", () => {
   it("renders a box with a solid fill and a uniform border as a plain <rect> pair with inset stroke geometry", () => {
@@ -505,10 +463,8 @@ describe("buildFigmaSvgDocument", () => {
       border: { widthPx: 2, color: "black" },
     };
     const { svg } = buildFigmaSvgDocument({ width: 100, height: 100, root });
-    // Two paths: one for the full-rect fill, one for the inset stroke.
     const pathCount = (svg.match(/<path /g) || []).length;
     expect(pathCount).toBe(2);
-    // tl/br are rounded (arcs), tr/bl are sharp (0 radius, straight lines).
     expect(svg).toContain(
       'd="M 20 0 L 100 0 L 100 80 A 20 20 0 0 1 80 100 L 0 100 L 0 20 A 20 20 0 0 1 20 0 Z"',
     );
@@ -539,7 +495,6 @@ describe("buildFigmaSvgDocument", () => {
     expect(svg).toContain("<linearGradient");
     expect(svg).toContain('<stop offset="0%" stop-color="rgb(255, 0, 0)"/>');
     expect(svg).toContain('<stop offset="100%" stop-color="rgb(0, 0, 255)"/>');
-    // 135deg on a 300x300 box runs corner to corner, top-right to bottom-left.
     expect(svg).toContain('gradientUnits="userSpaceOnUse"');
     expect(svg).toContain('x1="0" y1="0" x2="300" y2="300"');
     expect(report.approximated).toHaveLength(0);
@@ -567,8 +522,6 @@ describe("buildFigmaSvgDocument", () => {
       height: 100,
       root,
     });
-    // 90deg is left-to-right; user-space endpoints span the real 400px width,
-    // which an objectBoundingBox rotation could not express on a 4:1 box.
     expect(svg).toContain('x1="0" y1="50" x2="400" y2="50"');
     expect(report.approximated.some((a) => a.node === "Banner")).toBe(false);
   });
@@ -585,10 +538,9 @@ describe("buildFigmaSvgDocument", () => {
     };
     const { svg } = buildFigmaSvgDocument({ width: 100, height: 100, root });
     const blueIndex = svg.indexOf('fill="rgb(0, 0, 255)"');
-    // Alpha moves to fill-opacity; SVG ignores the alpha channel of `fill`.
     const redIndex = svg.indexOf('fill="rgb(255, 0, 0)" fill-opacity="0.5"');
     expect(blueIndex).toBeGreaterThan(-1);
-    expect(redIndex).toBeGreaterThan(blueIndex); // painted later == on top
+    expect(redIndex).toBeGreaterThan(blueIndex);
   });
 
   it("renders multi-line text as tspans at the exact supplied x/y positions", () => {
@@ -757,9 +709,6 @@ describe("buildFigmaSvgDocument", () => {
       id: "root",
       name: "Wrapper",
       kind: "box",
-      // Deliberately oversized vs. its single child, mirroring <body>
-      // stretching to the full render viewport while real content is
-      // narrower — this must never surface as a visible/invisible shape.
       rect: { x: 0, y: 0, width: 1440, height: 300 },
       children: [
         {
@@ -780,9 +729,7 @@ describe("buildFigmaSvgDocument", () => {
     expect(svg).toContain(
       '<rect x="0" y="0" width="400" height="300" fill="rgb(255, 255, 255)"/>',
     );
-    // Exactly one <rect> — the child's — no phantom shape for the wrapper.
     expect((svg.match(/<rect /g) || []).length).toBe(1);
-    // Still recorded as a (paint-less) vectorized layer, just no shape emitted.
     expect(report.vectorized).toContain("Wrapper");
   });
 
@@ -803,9 +750,6 @@ describe("buildFigmaSvgDocument", () => {
       ],
     };
     const { svg } = buildFigmaSvgDocument({ width: 100, height: 50, root });
-    // Figma's importer drops filter-based shadows, so the shadow is emitted as
-    // an offset, blurred, shadow-coloured shape of its own. A `fill="none"`
-    // carrier would arrive there as an invisible layer.
     expect(svg).toContain('y="4"');
     expect(svg).toContain('fill="rgb(0, 0, 0)" fill-opacity="0.3"');
     expect(svg).toContain("filter=");
@@ -824,9 +768,6 @@ describe("safeFigmaSvgFilename", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Raw scene hydration (pure — takes computed-style strings, no DOM/browser)
-// ---------------------------------------------------------------------------
 
 describe("buildFillLayersFromComputedStyle", () => {
   it("returns just the solid background-color when there is no background-image", () => {
@@ -1002,11 +943,6 @@ describe("hydrateRawFigmaSvgNode", () => {
 });
 
 describe("paints the box model cannot carry", () => {
-  // These reach the SVG as a screenshot of the element's region rather than as
-  // geometry. Each one previously left a visible hole in what Figma received:
-  // a blank tile where an angular gradient should be, and a masked element
-  // painted at full size — the Positivus contact block covered its own form
-  // with the black rectangle the mask is supposed to reveal a starburst of.
   it("hydrates a conic-gradient leaf as a raster", () => {
     const node = hydrateRawFigmaSvgNode(
       rawBoxFixture({
@@ -1031,8 +967,6 @@ describe("paints the box model cannot carry", () => {
     expect(node.raster?.reason).toContain("clip-path");
   });
 
-  // A raster whose screenshot could not be taken must still be reported, not
-  // quietly emitted as a normal box that paints its background over the design.
   it("keeps a raster node a raster even when the screenshot failed", () => {
     const node = hydrateRawFigmaSvgNode(
       rawBoxFixture({
@@ -1050,11 +984,6 @@ describe("image fills with no resolvable source", () => {
       rawBoxFixture({ backgroundImage: `url("${href}")` }),
     );
 
-  // A clipboard import cannot carry image bytes, so it points unresolved fills
-  // at about:blank until hydrate-figma-paste-images fills them in. Passing that
-  // through hands Figma a broken reference — and a renderer whose own document
-  // URL is about:blank resolves it to the document ITSELF, painting a recursive
-  // smear of the page where the design has a placeholder.
   it("keeps a resolvable http/data/blob source", () => {
     for (const href of [
       "https://example.com/a.png",
@@ -1073,9 +1002,6 @@ describe("image fills with no resolvable source", () => {
 });
 
 describe("figmaSvgSceneExtent", () => {
-  // An SVG root clips to its viewBox, so an artboard sized to the frame drops
-  // whatever the design draws past it. The Untitled UI dashboard runs 106px
-  // below its 960px frame and shipped to Figma with that strip missing.
   const child = (rect: FigmaSvgNode["rect"]): FigmaSvgNode => ({
     id: "c",
     name: "child",
@@ -1095,9 +1021,6 @@ describe("figmaSvgSceneExtent", () => {
     expect(figmaSvgSceneExtent(root)).toEqual({ right: 1440, bottom: 1066 });
   });
 
-  // Growing up or left would move the viewBox ORIGIN, shifting every
-  // coordinate in the document at once — that scored 63% on a design whose
-  // only stray node was a shadow just off the left edge.
   it("never reports past the top or left edge", () => {
     const root: FigmaSvgNode = {
       id: "root",
@@ -1111,9 +1034,6 @@ describe("figmaSvgSceneExtent", () => {
 });
 
 describe("parseComputedDropShadowFilter", () => {
-  // The REST importer emits `drop-shadow()` for a layer whose shadow Figma
-  // casts from its CONTENT and does not knock out. drop-shadow() has no
-  // spread, so the importer carries the original values in a custom property.
   it("prefers the importer's exact values, spread included", () => {
     expect(
       parseComputedDropShadowFilter(
@@ -1151,8 +1071,6 @@ describe("parseComputedDropShadowFilter", () => {
   });
 
   it("ignores a custom property that describes a different shadow", () => {
-    // Custom properties inherit, so a descendant sees its ancestor's value, and
-    // a layer whose filter changed later still carries the old one.
     expect(
       parseComputedDropShadowFilter(
         "drop-shadow(0px 24px 12px rgba(0, 0, 0, 0.5))",
@@ -1177,10 +1095,6 @@ describe("parseComputedDropShadowFilter", () => {
 });
 
 describe("background-image sizing on export", () => {
-  // Figma's four image scale modes reach the DOM only through
-  // `background-size`: FILL is cover, FIT is contain, STRETCH is 100% 100%,
-  // and a CROP is an explicit pixel size with an offset. Every layer used to
-  // export as cover, which crops the three that are not.
   const url = 'url("https://img.example/a.png")';
 
   it("keeps FIT as contain rather than cropping it", () => {
@@ -1219,8 +1133,6 @@ describe("background-image sizing on export", () => {
   });
 
   it("repeats a shorter size list across the layers, as CSS does", () => {
-    // One `contain` with two images applies to both; leaving the tail unset
-    // silently exported the second layer as cover.
     const layers = buildFillLayersFromComputedStyle(
       "rgba(0, 0, 0, 0)",
       `${url}, ${url}`,
@@ -1233,9 +1145,6 @@ describe("background-image sizing on export", () => {
   });
 
   it("carries a TILE's repeat and its tile size", () => {
-    // TILE is the one scale mode `background-size` alone cannot express: both
-    // importers emit it as a size plus `repeat`, and reading only the size
-    // exported a tiled fill as one stretched copy over the whole box.
     expect(
       buildFillLayersFromComputedStyle(
         "rgba(0, 0, 0, 0)",
@@ -1256,10 +1165,6 @@ describe("background-image sizing on export", () => {
   });
 
   it("marks a TILE whose size stayed `auto` as repeating with no known tile", () => {
-    // An unresolved intrinsic size must stay distinguishable from a resolved
-    // one: the exporter reports the tile it cannot reproduce instead of
-    // silently painting a single covering image. The fit stays the honest one
-    // — claiming a `stretch` we cannot draw would be a second wrong answer.
     expect(
       buildFillLayersFromComputedStyle(
         "rgba(0, 0, 0, 0)",
@@ -1279,12 +1184,6 @@ describe("background-image sizing on export", () => {
   });
 
   it("does not read CSS's default `repeat` as tiling intent", () => {
-    // `repeat` is the CSS INITIAL value, so getComputedStyle reports it for
-    // every background whose author never mentioned repeating. Our importers
-    // always state `no-repeat`, so no corpus case shows this — but agent
-    // HTML is full of `background-size: cover` with no repeat, and treating
-    // that as a tile exported it stretched instead of covered. What decides
-    // it is whether the image already fills the box.
     expect(
       buildFillLayersFromComputedStyle(
         "rgba(0, 0, 0, 0)",
@@ -1311,8 +1210,6 @@ describe("background-image sizing on export", () => {
   });
 
   it("keeps a tiled background's phase from background-position", () => {
-    // On a repeating background, `background-position` is the tile PHASE, not
-    // a one-off offset — dropping it anchored every tiling at the box origin.
     expect(
       buildFillLayersFromComputedStyle(
         "rgba(0, 0, 0, 0)",
@@ -1334,9 +1231,6 @@ describe("background-image sizing on export", () => {
   });
 
   it("reports `round` and `space` repeats instead of dropping them", () => {
-    // An SVG pattern repeats at the tile's own size: no `round` rescaling to a
-    // whole number of tiles, no `space` distribution. Chromium keeps both
-    // verbatim in the computed value, including two-value forms.
     for (const repeat of ["round", "space", "repeat space"]) {
       const [layer] = buildFillLayersFromComputedStyle(
         "rgba(0, 0, 0, 0)",
@@ -1350,9 +1244,6 @@ describe("background-image sizing on export", () => {
   });
 
   it("reports `round` even when the size already fills the box", () => {
-    // `round` rescales the tile to a whole count even under `cover`. Deciding
-    // it "probably does not matter here" is a judgement the report should not
-    // make silently on the reader's behalf.
     const [layer] = buildFillLayersFromComputedStyle(
       "rgba(0, 0, 0, 0)",
       url,
@@ -1364,9 +1255,6 @@ describe("background-image sizing on export", () => {
   });
 
   it("carries a non-pixel tile position for the emitter to resolve", () => {
-    // Chromium computes `center` to `50% 50%`, which the pixel scan cannot
-    // see. A percentage phase is a fraction of the box minus the tile, so it
-    // resolves where the box is known rather than here.
     const [layer] = buildFillLayersFromComputedStyle(
       "rgba(0, 0, 0, 0)",
       url,
@@ -1393,9 +1281,6 @@ describe("background-image sizing on export", () => {
   });
 
   it("reports a background-size that computed to one length", () => {
-    // Chromium computes `16px auto` — and a bare `16px` — to a single value,
-    // meaning that width with a proportional height. Without the image's
-    // intrinsic ratio the size cannot be reproduced, so it is reported.
     const [layer] = buildFillLayersFromComputedStyle(
       "rgba(0, 0, 0, 0)",
       url,
@@ -1416,9 +1301,6 @@ describe("background-image sizing on export", () => {
   });
 
   it("reads modern CSS colour functions as colours, not as hints", () => {
-    // `oklch()`, `color()` and `lab()` survive into computed values verbatim
-    // (only `hsl()` is converted to `rgb()`). Not recognising them made a
-    // valid gradient look like a standalone colour hint and rasterized it.
     for (const color of [
       "oklch(0.7 0.1 200)",
       "color(display-p3 1 0 0)",
@@ -1443,8 +1325,6 @@ describe("background-image sizing on export", () => {
   });
 
   it("keeps an ordinary transparent-to-colour fade readable", () => {
-    // The commonest real gradient in the corpus. Over-catching this would
-    // rasterize a large share of every design.
     expect(
       buildFillLayersFromComputedStyle(
         "rgba(0, 0, 0, 0)",
@@ -1454,10 +1334,6 @@ describe("background-image sizing on export", () => {
   });
 
   it("does not treat a one-axis repeat as a two-axis tile", () => {
-    // An SVG pattern repeats on both axes and has no one-axis form, so
-    // `repeat-x` coming back tiled vertically would cover rows the design
-    // leaves bare. Figma's TILE is always both axes; a one-axis repeat only
-    // reaches here from agent-authored HTML, and is reported, not guessed.
     const layers = buildFillLayersFromComputedStyle(
       "rgba(0, 0, 0, 0)",
       url,
@@ -1476,9 +1352,6 @@ describe("background-image sizing on export", () => {
   });
 
   it("reports a two-position gradient stop instead of painting it black", () => {
-    // `<colour> 0 50%` ends in a percentage, so an "ends in %" check passes it
-    // — but the parser strips only `50%` and leaves `<colour> 0` as the
-    // colour, which is an invalid `stop-color` that renders black.
     const layers = buildFillLayersFromComputedStyle(
       "rgba(0, 0, 0, 0)",
       "linear-gradient(90deg, rgb(238, 238, 238) 0 50%, rgb(255, 255, 255) 50% 100%)",
@@ -1487,9 +1360,6 @@ describe("background-image sizing on export", () => {
   });
 
   it("catches a two-position stop whose residue is also a percentage", () => {
-    // `<colour> 20% 30%` strips to `<colour> 20%`, which is still a position
-    // glued to the colour — checking only for a residual bare number or a
-    // non-percent length missed it, and the parser paints it black.
     const layers = buildFillLayersFromComputedStyle(
       "rgba(0, 0, 0, 0)",
       "linear-gradient(90deg, rgb(255, 0, 0) 20% 30%, rgb(0, 0, 255) 100%)",
@@ -1498,11 +1368,6 @@ describe("background-image sizing on export", () => {
   });
 
   it("does not mistake radial geometry for an unreadable stop", () => {
-    // `90% 40% at 50% 0%` is the gradient's GEOMETRY, not a colour stop.
-    // Recognising geometry by its shape missed this form, and stripping its
-    // trailing position left `... at 50%`, which read as a colour carrying a
-    // position — the whole gradient was dropped from the export. A stop is
-    // identified by containing a colour, which geometry never does.
     expect(
       buildFillLayersFromComputedStyle(
         "rgba(0, 0, 0, 0)",
@@ -1582,12 +1447,6 @@ describe("background-image sizing on export", () => {
 });
 
 describe("a CROP background at a non-zero origin", () => {
-  // Figma's CROP reaches the DOM as an explicit `background-size` plus a
-  // `background-position` offset. It is placed with a `userSpaceOnUse` pattern
-  // whose TILE sits at the layer's own origin; SVG pattern content is
-  // tile-relative, verified against Chromium — a tile at (100, 100) holding an
-  // `<image>` at x=0 paints, it does not come out blank. So the image carries
-  // only the background-position offset, never the layer origin as well.
   it("puts the tile at the layer origin and the image at the offset", () => {
     const root: FigmaSvgNode = {
       id: "root",
@@ -1612,7 +1471,6 @@ describe("a CROP background at a non-zero origin", () => {
     expect(svg).toContain(
       '<image href="https://img.example/a.png" x="-80" y="-30" width="640" height="400" preserveAspectRatio="none"/>',
     );
-    // The layer origin must NOT be added to the image as well.
     expect(svg).not.toContain(
       '<image href="https://img.example/a.png" x="160"',
     );
@@ -1620,8 +1478,6 @@ describe("a CROP background at a non-zero origin", () => {
 });
 
 describe("a skewed layer on export", () => {
-  // A rotation alone cannot express a skew: the box exported as a plain
-  // rectangle where the design drew a parallelogram.
   it("emits the skew alongside the rotation", () => {
     const root: FigmaSvgNode = {
       id: "root",
@@ -1639,10 +1495,6 @@ describe("a skewed layer on export", () => {
 });
 
 describe("a mirrored layer on export", () => {
-  // `rotationFromTransform` reduces a matrix to `atan2(b, a)`, which reads
-  // `matrix(-1, 0, 0, 1)` as 180 degrees — so a mirror exported as a half turn.
-  // The two are identical on a symmetric shape and wrong on every other one,
-  // and Positivus alone carries 11 of them.
   it("emits the reflection alongside the rotation", () => {
     const root: FigmaSvgNode = {
       id: "root",
@@ -1655,8 +1507,6 @@ describe("a mirrored layer on export", () => {
     };
     const { svg } = buildFigmaSvgDocument({ width: 400, height: 300, root });
 
-    // Rotation first in the string, so SVG applies the reflection first: the
-    // pair composes back to the original matrix about the rect centre.
     expect(svg).toContain(
       'transform="rotate(180 200 100) translate(200 100) matrix(1 0 0 -1 0 0) translate(-200 -100)"',
     );

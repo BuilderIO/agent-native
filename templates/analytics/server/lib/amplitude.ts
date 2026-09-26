@@ -1,5 +1,3 @@
-// Amplitude Export/Dashboard REST API helper
-// Queries events, active users, and user segmentation
 
 import { resolveCredential } from "./credentials";
 import {
@@ -9,9 +7,8 @@ import {
 
 const API_BASE = "https://amplitude.com/api/2";
 
-// In-memory cache
 const cache = new Map<string, { data: unknown; ts: number }>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE = 100;
 
 async function getCredentials(): Promise<{
@@ -58,7 +55,6 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
   return data as T;
 }
 
-// -- Types --
 
 export interface AmplitudeEvent {
   event_type: string;
@@ -87,7 +83,6 @@ export interface AmplitudeSegmentationResponse {
   };
 }
 
-// -- API functions --
 
 export async function getAmplitudeClient() {
   const creds = await getCredentials();

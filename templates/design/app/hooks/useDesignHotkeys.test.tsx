@@ -979,15 +979,6 @@ describe("useDesignHotkeys — selection alignment (Alt+A/D/W/S/H/V)", () => {
     expect(onAlignSelection.mock.calls[0]![0]).toMatchObject({ edge });
   });
 
-  // Real macOS keyboards compose Option+letter into a different character
-  // (Option+A -> "å", Option+D -> "∂", Option+W -> "∑", Option+S -> "ß",
-  // Option+H -> "˙", Option+V -> "√") — event.key carries the composed
-  // character, not the plain letter. Synthetic test events that send a
-  // clean `key` (like the block above) don't exercise this at all, which is
-  // exactly why this class of bug slipped past automated checks. These
-  // cases dispatch the real composed `key` alongside the physical `code`,
-  // matching what a real browser sends, to prove the dispatcher reads
-  // event.code (not event.key) for alt-combos.
   it.each([
     ["å", "KeyA", "left"],
     ["∂", "KeyD", "right"],

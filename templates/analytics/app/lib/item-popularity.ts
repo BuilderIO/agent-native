@@ -2,17 +2,6 @@ import { useSession } from "@agent-native/core/client/hooks";
 import { useOrg } from "@agent-native/core/client/org";
 import { useEffect, useState } from "react";
 
-/**
- * Per-user view counts for sidebar items, stored in localStorage. Used to
- * sort dashboards and analyses by how often the signed-in user actually
- * opens them. Kept local (not synced cross-device) so the sidebar stays
- * snappy and doesn't need a server round-trip on every navigation.
- *
- * Storage is namespaced by `${email}:${orgId}` so signed-in users sharing
- * the same browser (or the same user switching between orgs) don't see each
- * other's counts. Writes before the session has loaded land under
- * `anonymous:none` and are migrated on sign-in.
- */
 
 const KEY_PREFIX = "item-popularity:v1:";
 const CHANGE_EVENT = "item-popularity-change";
@@ -31,12 +20,6 @@ function scopeKey(scope: string): string {
   return `${KEY_PREFIX}${scope}`;
 }
 
-/**
- * Update the module-level scope used by imperative read/write helpers.
- * Called from `usePopularity` as soon as the session + active org resolve.
- * The first real scope absorbs any anonymous writes that happened before
- * sign-in so the user doesn't lose counts accumulated during page load.
- */
 function setScope(next: string): void {
   if (next === currentScope) return;
   const previous = currentScope;

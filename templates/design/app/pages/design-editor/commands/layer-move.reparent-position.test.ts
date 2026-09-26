@@ -4,11 +4,6 @@ import {
   buildCodeLayerTree,
 } from "@shared/code-layer";
 // @vitest-environment happy-dom
-//
-// html-layer-positioning.ts's DOMParser-based rebase helpers early-return
-// null under `typeof window === "undefined"` (the default node test
-// environment), which would make this test pass/fail independent of the
-// actual id-resolution bug this file exists to pin.
 import { afterEach, describe, expect, it } from "vitest";
 
 import { runPublishCanonicalContent } from "@/pages/design-editor/commands/publish-canonical-content";
@@ -17,15 +12,6 @@ import type { DesignFile } from "@/pages/design-editor/types";
 
 import { runLayerMove, type LayerMoveArgs } from "./layer-move";
 
-/**
- * "Sticker" is a top-level absolutely positioned sibling; "Panel" is an
- * unrelated positioned container. Panel-relative drop must rebase Sticker's
- * left/top so it keeps the same on-screen position, not just reparent it
- * with its old body-relative coordinates (which would now resolve against
- * Panel's own box instead). Matches e2e/parity-layers-panel.spec.ts's
- * "dropping an absolutely positioned layer row onto a Frame row keeps its
- * on-screen position".
- */
 const FIXTURE = `<body>
   <div data-agent-native-node-id="panel" style="position:relative;left:20px;top:20px;width:300px;height:200px"></div>
   <div data-agent-native-node-id="sticker" data-agent-native-layer-name="Sticker" style="position:absolute;left:500px;top:1000px;width:60px;height:40px"></div>
@@ -128,9 +114,6 @@ function buildArgs(
   targetId: string;
   draggedId: string;
 } {
-  // The command projects this content as the active stored Screen file. Its
-  // node IDs are file-namespaced, so the fixture owners and drag intent must
-  // use that same source identity.
   const projection = buildCodeLayerProjection(content, {
     source: { kind: "design-file", fileId: "index.html" },
   });
@@ -193,7 +176,6 @@ function buildArgs(
     viewModeRef: { current: "single" },
     visualScreenFileIds: new Set(),
   };
-  // Expose the captured result via a getter the test reads after the call.
   (args as any).__getUpdatedContent = () => updatedContent;
   return { args, targetId, draggedId };
 }
@@ -213,14 +195,9 @@ describe("runLayerMove: positioning when layers change parents", () => {
       "runLayerMove did not persist any content update",
     ).not.toBeNull();
 
-    // The bug: left/top left untouched at the old body-relative values,
-    // which now render relative to Panel's own box instead.
     expect(updatedContent).not.toMatch(/left:\s*500px/);
     expect(updatedContent).not.toMatch(/top:\s*1000px/);
 
-    // Sticker (world position 500,1000) reparented under Panel (world
-    // position 20,20) must land at Panel-relative (480, 980) so it renders
-    // at the same on-screen spot as before.
     const stickerMatch =
       /data-agent-native-node-id="sticker"[^>]*style="([^"]*)"/.exec(
         updatedContent!,

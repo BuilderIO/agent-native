@@ -1,18 +1,3 @@
-/**
- * Save a native transcript for a recording.
- *
- * Called by the web client (Web Speech API) and desktop client (whispher).
- * Native transcripts are available instantly with no API-key requirement
- * and are the primary transcript source. A non-empty result replaces the stored transcript with `fullText`. If `segments` are
- * supplied (real timestamps, e.g. from the desktop Whisper engine) they're
- * stored verbatim; otherwise evenly-paced segments are synthesized from the
- * text. Live capture that OWNS the transcript (meeting flushes re-sending the
- * cumulative text + segments) passes `overwriteReady: true` to keep updating
- * its own already-"ready" transcript past the first flush.
- *
- * Usage:
- *   pnpm action save-browser-transcript --recordingId=<id> --fullText="..."
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
@@ -29,13 +14,6 @@ import { booleanParam } from "./lib/cli-params.js";
 import { finalizeEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
 import { isAutoTitleReplaceable } from "./lib/title-source.js";
 
-// web-speech and macos-native are both mic-only engines — see
-// transcription-engine.ts's file header. When a caller sends fullText with
-// no segments (word-level timings were never captured), there's no
-// per-line source to preserve, but for these two engines there's also no
-// ambiguity: every word came from the mic. Leaving source undefined here
-// falls through to resolveSpeaker's default and renders the whole thing as
-// "Them". Whisper mixes mic + system, so it has no safe single-speaker guess.
 function nativeSegmentsJson(
   fullText: string,
   engineSource?: "web-speech" | "macos-native" | "whisper",
@@ -44,25 +22,12 @@ function nativeSegmentsJson(
   return JSON.stringify(buildCaptionSegmentsFromText(fullText, null, source));
 }
 
-// Real transcript segments supplied by a caller that already has accurate
-// timestamps (e.g. the desktop Whisper engine). When present these are stored
-// verbatim instead of synthesizing timings from the text.
-//
-// Live-capture engines can occasionally emit a segment with startMs > endMs
-// (clock-skew / chunk-boundary rounding). Repair rather than reject: a single
-// bad segment must never fail the whole array and drop the entire meeting's
-// transcript.
 const segmentSchema = z
   .object({
     startMs: z.number().nonnegative(),
     endMs: z.number().nonnegative(),
     text: z.string(),
-    // Stream the segment came from; the transcript UI maps mic→"Me", system→"Them".
     source: z.enum(["mic", "system"]).optional(),
-    // Diarized speaker for this segment, when the provider identifies one.
-    // Declared so zod keeps it: an undeclared key is stripped before the array
-    // is serialized, which would drop a provider's speaker labels on save and
-    // leave the transcript unable to tell its speakers apart on reload.
     speaker: z.string().nullable().optional(),
   })
   .transform((s) => {
@@ -112,8 +77,6 @@ export default defineAction({
     const now = new Date().toISOString();
     const fullText = args.fullText.trim();
     const failureReason = args.failureReason?.trim() || "";
-    // Prefer real caller-supplied segment timestamps; otherwise
-    // synthesize evenly-paced segments from the text.
     const segmentsJson =
       args.segments && args.segments.length > 0
         ? JSON.stringify(args.segments)
@@ -153,9 +116,6 @@ export default defineAction({
           reason: "Transcript already exists",
         };
       }
-      // An empty native result is only a diagnostic. Never create a terminal
-      // transcript row here: finalization owns creating the pending row that
-      // lets the Builder fallback run against the saved recording.
       if (current) {
         return {
           recordingId: args.recordingId,
@@ -173,23 +133,11 @@ export default defineAction({
       };
     }
 
-    // Text plus a failure reason means capture died partway (a Web Speech
-    // session that could not restart, a revoked mic). Keep the partial text,
-    // but never mark it `ready`: that is the terminal state every preserve
-    // guard checks, so a three-line partial would permanently suppress the
-    // Builder fallback that can still transcribe the whole recording.
-    // `failed` rather than `pending`/`streaming` — a fresh pending row makes
-    // finalization's own transcript job skip itself as already-pending, and a
-    // perpetual streaming row reads as normal progress that never resolves.
     const truncated = Boolean(failureReason);
     const savedStatus = truncated ? ("failed" as const) : ("ready" as const);
     const savedFailureReason = truncated ? failureReason : null;
 
     if (current) {
-      // Don't overwrite an already-segmented cloud/native transcript with a
-      // later lower-confidence native pass — UNLESS the caller owns this
-      // transcript and is intentionally re-sending its cumulative text +
-      // segments (overwriteReady, e.g. live meeting flushes).
       if (hasReadySegments && !args.overwriteReady) {
         return {
           recordingId: args.recordingId,
@@ -268,9 +216,6 @@ export default defineAction({
       rec && isAutoTitleReplaceable(rec.title, rec.titleSource)
     );
     const summaryQueued = Boolean(rec && !rec.description?.trim());
-    // A truncated capture dispatches too: the transcript job is what runs the
-    // Builder fallback, and it must not be skipped just because this clip
-    // already has a title and summary.
     if (
       rec?.status === "ready" &&
       (truncated || titleQueued || summaryQueued)

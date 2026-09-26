@@ -133,8 +133,6 @@ describe("MultiScreenCanvas camera command delivery", () => {
     const cameraCommand = { fitBounds, nonce: 1 };
     await renderCanvas(cameraCommand, { zoom: 240 });
 
-    // A toolbar or keyboard zoom can arrive while the overview remount still
-    // has a zero-sized surface. The eventual retry must not close over 240.
     await renderCanvas(cameraCommand, { zoom: 320 });
     measurable = true;
     await waitForAnimationFrame();
@@ -162,8 +160,6 @@ describe("MultiScreenCanvas camera command delivery", () => {
     const cameraCommand = { fitBounds, nonce: 1 };
     await renderCanvas(cameraCommand, { zoom: 240 });
 
-    // A value comparison alone cannot distinguish this from an untouched
-    // 240 prop. The revision must still cancel the delayed fit.
     await renderCanvas(cameraCommand, { zoom: 320 });
     await renderCanvas(cameraCommand, { zoom: 240 });
     measurable = true;
@@ -176,10 +172,6 @@ describe("MultiScreenCanvas camera command delivery", () => {
   });
 
   it("writes the chrome counter-scale on the same imperative tick as the world transform", async () => {
-    // applyViewToDom is the only place an imperative pan/zoom lands during a
-    // gesture — React state is not reconciled until the debounced commit. If
-    // the counter-scale is not written here, frame labels ride the world scale
-    // for the whole gesture and then ease back to size on settle.
     const fitBounds = {
       left: 0,
       top: 0,
@@ -240,8 +232,6 @@ describe("MultiScreenCanvas camera command delivery", () => {
     );
     expect(world?.style.transform).toContain(`scale(${expected.zoom / 100})`);
 
-    // The screen/selection update happens before the 120ms controlled zoom
-    // commit. The controlled prop is intentionally still the old 240 value.
     await renderCanvas(cameraCommand, {
       screens: [newScreen],
       selectedScreenIds: [newScreen.id],
@@ -277,8 +267,6 @@ describe("MultiScreenCanvas camera command delivery", () => {
     );
     expect(world?.style.transform).toContain(`scale(${expected.zoom / 100})`);
 
-    // Toolbar and keyboard zoom share this controlled prop. They must take
-    // ownership before the fit's debounced commit can write its old camera.
     await renderCanvas(cameraCommand, { zoom: 320 });
     expect(world?.style.transform).toContain("scale(3.2)");
 

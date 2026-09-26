@@ -2,22 +2,6 @@ import { stat, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-/**
- * Server-side error capture — OWNED BY THE ERROR CAPTURE FEATURE.
- *
- * This module is the single source of truth for Sentry-style grouping. The
- * browser SDK sends a compact, bounded exception payload (type/message/raw
- * stack/context) through the first-party analytics `$exception` event; the
- * server parses the stack, computes a stable fingerprint, upserts the grouped
- * `error_issues` row, appends an `error_events` occurrence, links it to the
- * session replay it happened in, and prunes occurrences to a bounded retention.
- *
- * Pure helpers (`parseStack`, `fingerprint`, `titleFromException`,
- * `culpritFromFrames`) have no I/O and are unit-tested. Everything is owner
- * scoped: writes derive the tenant from the resolved analytics public key, and
- * reads go through `accessFilter` so an org-scoped key surfaces its issues to
- * the whole org exactly like session recordings.
- */
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { recordChange } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
@@ -49,7 +33,6 @@ const LEVEL_RANK: Record<ExceptionLevel, number> = {
   debug: 1,
 };
 
-/** Dedicated first-party analytics event name for captured exceptions. */
 export const EXCEPTION_EVENT_NAME = "$exception";
 
 const MAX_FRAMES = 50;
@@ -59,7 +42,6 @@ const MAX_TITLE = 300;
 const MAX_BREADCRUMBS = 30;
 const MAX_TAG_KEYS = 30;
 const MAX_EXTRA_KEYS = 50;
-/** Per-issue occurrence retention. Older events are pruned at ingest. */
 const MAX_EVENTS_PER_ISSUE = 100;
 const DEFAULT_ISSUE_LIMIT = 50;
 const MAX_ISSUE_LIMIT = 100;
@@ -70,9 +52,6 @@ const SOURCE_CONTEXT_AFTER = 4;
 const MAX_SOURCE_CONTEXT_FILE_BYTES = 2_000_000;
 const MAX_SOURCE_CONTEXT_LINE_CHARS = 500;
 
-// ---------------------------------------------------------------------------
-// Pure helpers (unit tested)
-// ---------------------------------------------------------------------------
 
 export interface ParsedStackFrame {
   function: string | null;
@@ -132,7 +111,6 @@ function parseStackLine(rawLine: string): ParsedStackFrame | null {
   const line = rawLine.trim();
   if (!line) return null;
 
-  // V8 / Chrome: "at fn (loc)" or "at loc"
   if (line.startsWith("at ")) {
     let rest = line.slice(3).trim();
     rest = rest.replace(/^async\s+/, "");
@@ -156,7 +134,6 @@ function parseStackLine(rawLine: string): ParsedStackFrame | null {
     };
   }
 
-  // Firefox / Safari: "fn@loc" or "@loc"
   const atIndex = line.lastIndexOf("@");
   if (atIndex >= 0) {
     const fn = line.slice(0, atIndex).trim();
@@ -169,7 +146,6 @@ function parseStackLine(rawLine: string): ParsedStackFrame | null {
     };
   }
 
-  // Bare location line.
   if (looksLikeLocation(line)) {
     const loc = parseLocation(line);
     return {
@@ -183,7 +159,6 @@ function parseStackLine(rawLine: string): ParsedStackFrame | null {
   return null;
 }
 
-/** Parse a raw stack string into normalized frames (bounded). */
 export function parseStack(
   stack: string | null | undefined,
 ): ParsedStackFrame[] {
@@ -363,19 +338,14 @@ async function addSourceContexts(
   );
 }
 
-/** Strip content hashes + query/hash from a filename for stable grouping. */
 export function normalizeFrameFile(file: string | null): string {
   if (!file) return "";
   let out = file;
-  // Drop query string + hash fragment.
   out = out.replace(/[?#].*$/, "");
-  // Reduce URLs to pathname so host/port churn doesn't fragment groups.
   const urlMatch = out.match(/^[a-z]+:\/\/[^/]+(\/.*)$/i);
   if (urlMatch) out = urlMatch[1];
-  // Strip bundler content hashes in the basename: main.4f3a2b1c.js -> main.js
   out = out.replace(/([._-])[0-9a-fA-F]{8,}(?=\.[a-z0-9]+$)/i, "");
   out = out.replace(/([._-])[0-9a-fA-F]{8,}$/i, "");
-  // Vite also emits eight-character base64url hashes, e.g. entry-CVi_y2nS.js.
   out = out.replace(
     /([._-])(?=[A-Za-z0-9_-]{8}\.[a-z0-9]+$)(?=[A-Za-z0-9_-]*[A-Z0-9_])[A-Za-z0-9_-]{8}(?=\.[a-z0-9]+$)/,
     "",
@@ -424,22 +394,11 @@ function topFrame(frames: ParsedStackFrame[]): ParsedStackFrame | null {
   return frames.find((frame) => frame.inApp) ?? frames[0] ?? null;
 }
 
-/**
- * Stable grouping key: error type + normalized message + top in-app frame
- * (function + normalized file, ignoring line/col so small edits don't split a
- * group). The message is always part of the key — dropping it funnels every
- * error thrown through a shared frame (an action dispatcher, a minified
- * bundler helper) into one issue whose title describes only whichever error
- * happened to land there first.
- */
 export function fingerprint(
   type: string,
   frames: ParsedStackFrame[],
   message: string,
 ): string {
-  // The client uses this synthetic type for bare Error rejections. Keep it
-  // in the same group as window errors while retaining the original event
-  // type in the stored occurrence.
   const groupingType = type === "UnhandledRejection" ? "Error" : type;
   const frame = topFrame(frames);
   const normalizedMessage = normalizeMessageForFingerprint(message);
@@ -450,14 +409,12 @@ export function fingerprint(
   return hashHex(key);
 }
 
-/** Human-readable issue title: "Type: first line of message". */
 export function titleFromException(type: string, message: string): string {
   const firstLine = (message || "").split("\n")[0]?.trim() ?? "";
   const title = firstLine ? `${type}: ${firstLine}` : type;
   return title.slice(0, MAX_TITLE);
 }
 
-/** Best-effort culprit — the top in-app frame as "fn (file:line)". */
 export function culpritFromFrames(frames: ParsedStackFrame[]): string | null {
   const frame = topFrame(frames);
   if (!frame) return null;
@@ -472,13 +429,6 @@ export function culpritFromFrames(frames: ParsedStackFrame[]): string | null {
   return location ? `${fn} (${location})` : fn;
 }
 
-/**
- * Split a session console/diagnostics error line ("TypeError: x is not a
- * function") back into the `{ type, message }` the SDK sent at capture time.
- * The replay recorder serializes errors as `${name}: ${message}`, which mirrors
- * the SDK's `error.name` / `error.message`, so this recovers the exact
- * fingerprint inputs from what the sessions UI already has on screen.
- */
 export function deriveConsoleExceptionIdentity(raw: string): {
   type: string;
   message: string;
@@ -487,8 +437,6 @@ export function deriveConsoleExceptionIdentity(raw: string): {
   const idx = text.indexOf(": ");
   if (idx > 0) {
     const prefix = text.slice(0, idx);
-    // Error names are bare identifiers (TypeError, DOMException, FooError); a
-    // prefix with spaces is a plain message, not a type.
     if (/^[A-Za-z_$][\w$.]{0,79}$/.test(prefix)) {
       return { type: prefix, message: text.slice(idx + 2) };
     }
@@ -496,23 +444,13 @@ export function deriveConsoleExceptionIdentity(raw: string): {
   return { type: "Error", message: text };
 }
 
-/** A session console error line to resolve back to its grouped issue. */
 export interface ConsoleErrorSignature {
-  /** Caller-chosen id echoed back in the match result. */
   key: string;
-  /** Console source (`window-error` / `unhandledrejection` / `console`). */
   source?: string | null;
   message: string;
   stack?: string | null;
 }
 
-/**
- * Candidate fingerprints for a session console error line, computed with the
- * exact same `parseStack` + `fingerprint` helpers as ingest — so a match is
- * authoritative, not a parallel heuristic. Returns the primary fingerprint
- * plus, for an unhandled rejection of a plain `Error`, the `UnhandledRejection`
- * variant the SDK records (it renames a bare `Error` reason at capture time).
- */
 export function candidateFingerprintsForConsole(
   signature: ConsoleErrorSignature,
 ): string[] {
@@ -538,18 +476,13 @@ function coerceLevel(
     : fallback;
 }
 
-// ---------------------------------------------------------------------------
-// Ingest
-// ---------------------------------------------------------------------------
 
 export interface IngestScope {
   ownerEmail: string;
   orgId: string | null;
-  /** Resolved analytics public key id, used to link the session replay. */
   publicKeyId?: string | null;
 }
 
-/** Analytics-derived dimensions carried on the forked `$exception` event. */
 export interface DerivedExceptionFields {
   app: string | null;
   template: string | null;
@@ -558,7 +491,6 @@ export interface DerivedExceptionFields {
   anonymousId: string | null;
   userKey: string | null;
   sessionId: string | null;
-  /** ISO occurrence time (already normalized by the analytics ingest). */
   timestamp: string;
 }
 
@@ -576,11 +508,6 @@ export interface RawExceptionInput {
   breadcrumbs: unknown[];
 }
 
-/**
- * Browser request cancellation is expected during navigation and query
- * invalidation. Keep the first-party issue store aligned with the client
- * Sentry filter, while preserving other AbortError failures for triage.
- */
 export function isBenignBrowserAbortException(
   input: Pick<RawExceptionInput, "type" | "message">,
 ): boolean {
@@ -638,7 +565,6 @@ function boundedRecord(
   return out;
 }
 
-/** Extract a normalized exception payload from a forked `$exception` event. */
 export function extractExceptionInput(
   properties: Record<string, unknown>,
 ): RawExceptionInput {
@@ -741,10 +667,6 @@ async function pruneAndCountUsers(
         ),
       );
   }
-  // Count real identities only. Falling back to the per-event id made every
-  // identity-less occurrence its own "user", so an anonymous server-side flood
-  // reported broad user impact. Occurrences without an identity stay in
-  // `eventCount` and contribute nothing here.
   const [row] = await db
     .select({
       users: sql<number>`count(distinct coalesce(nullif(${schema.errorEvents.userKey}, ''), nullif(${schema.errorEvents.anonymousId}, ''), nullif(${schema.errorEvents.sessionId}, '')))`,
@@ -812,7 +734,6 @@ async function updateIssueForOccurrence(
     params.occurredAt > existing.lastSeenAt
       ? params.occurredAt
       : existing.lastSeenAt;
-  // Reopen a resolved issue on regression; leave ignored issues muted.
   const status: IssueStatus =
     existing.status === "resolved" ? "unresolved" : existing.status;
   await db
@@ -836,10 +757,6 @@ async function updateIssueForOccurrence(
   return existing.id;
 }
 
-/**
- * Insert one occurrence and upsert its grouped issue. Owner scoped; caller
- * supplies the tenant resolved from the analytics public key.
- */
 export async function ingestException(
   scope: IngestScope,
   raw: RawExceptionInput,
@@ -973,10 +890,6 @@ export async function ingestException(
   return { issueId, eventId, isNewIssue, sessionRecordingId };
 }
 
-/**
- * Fork the `$exception` events out of an analytics batch and ingest them.
- * Best-effort: a malformed exception must never reject the analytics ingest.
- */
 export async function ingestAnalyticsExceptionEvents(
   scope: IngestScope,
   events: Array<{
@@ -1022,9 +935,6 @@ async function notifyNewIssue(
           : {}),
       },
     },
-    // The notification inbox is owner-scoped; the issue's owner is the analytics
-    // key owner, so notify them (org members still see the issue in the UI via
-    // `accessFilter`).
     { owner: scope.ownerEmail },
   );
 }
@@ -1039,8 +949,6 @@ async function errorEmailNotificationsEnabled(
     );
     return prefs?.errorEmailNotifications === true;
   } catch (error) {
-    // Error email delivery must fail closed when the owner preference cannot be
-    // read; the in-app issue notification still remains available.
     console.warn(
       "[error-capture] Could not read error email preference; skipping email delivery:",
       error,
@@ -1049,9 +957,6 @@ async function errorEmailNotificationsEnabled(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Reads + triage
-// ---------------------------------------------------------------------------
 
 export interface ErrorReadScope {
   userEmail: string;
@@ -1079,7 +984,6 @@ function textContains(column: any, value: string) {
   return sql`lower(coalesce(${column}, '')) like ${`%${escaped}%`} escape '\\'`;
 }
 
-/** A session console error line resolved to its grouped, access-scoped issue. */
 export interface MatchedErrorIssue {
   issueId: string;
   status: IssueStatus;
@@ -1089,13 +993,6 @@ export interface MatchedErrorIssue {
 
 const MAX_MATCH_SIGNATURES = 100;
 
-/**
- * Resolve a batch of session console error lines to their captured issues, in a
- * single access-scoped query. Each signature's fingerprint is computed with the
- * same helpers as ingest, so a hit is the very same group the error was filed
- * under — enabling a session recording to deep-link straight to issue detail.
- * Lines with no matching captured issue are simply omitted from the result.
- */
 export async function matchErrorIssuesBySignatures(
   scope: ErrorReadScope,
   signatures: ConsoleErrorSignature[],
@@ -1179,7 +1076,6 @@ export interface ErrorIssueSummary {
   assignee: string | null;
   app: string | null;
   template: string | null;
-  /** Daily occurrence counts for the last SPARKLINE_DAYS, oldest first. */
   sparkline: number[];
 }
 
@@ -1271,8 +1167,6 @@ export async function listErrorIssues(
   if (sessionRecordingId || userId) {
     const occurrenceConditions: any[] = [
       eq(schema.errorEvents.issueId, schema.errorIssues.id),
-      // Keep the child occurrence in the same tenant as its parent issue even
-      // when the issue is visible through an org share.
       eq(schema.errorEvents.ownerEmail, schema.errorIssues.ownerEmail),
       or(
         eq(schema.errorEvents.orgId, schema.errorIssues.orgId),
@@ -1659,9 +1553,6 @@ export async function updateErrorIssue(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Test helper (drives the pipeline end-to-end without the browser SDK)
-// ---------------------------------------------------------------------------
 
 export async function captureTestError(
   scope: ErrorReadScope,

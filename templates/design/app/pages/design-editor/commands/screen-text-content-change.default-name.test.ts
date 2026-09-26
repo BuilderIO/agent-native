@@ -1,8 +1,4 @@
 // @vitest-environment happy-dom
-//
-// Same DOM requirement as text-content-change.default-name.test.ts:
-// html-layer-positioning.ts's attribute writer early-returns null under
-// `typeof window === "undefined"`.
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import { describe, expect, it, vi } from "vitest";
 
@@ -25,11 +21,6 @@ function buildArgs(
   getContent: () => string;
 } {
   let stored = content;
-  // A different id than SCREEN_ID: runScreenTextContentChange only takes
-  // this file's own (unnamed) path when screenId !== activeFile.id — the
-  // board is deliberately kept out of activeFileId on creation (see
-  // primitive-created.ts's "Board guard"), so this is the path an actual
-  // board text commit always takes.
   const activeFile: DesignFile = {
     id: "index.html",
     filename: "index.html",
@@ -56,10 +47,6 @@ function buildArgs(
     },
     canEditDesign: true,
     designSourceType: "inline",
-    // Mirrors prepareTextCreationFinalization's own contract: only this exact
-    // node's creation commit names the layer. historyHandled is deliberately
-    // false — an unrelated write can leave the undo stack stale without making
-    // this any less the creation's first commit, and the name must still land.
     prepareTextCreationFinalization: (_fileId, nodeIds) => ({
       isCreationCommit:
         isPendingCreation && nodeIds.some((id) => id === nodeId),
@@ -67,8 +54,6 @@ function buildArgs(
       confirm: () => {},
     }),
     getScreenContent: () => stored,
-    // The active-file path reports its own acceptance now; this fixture never
-    // takes that branch, but the shape has to match the contract.
     handleTextContentChange: () => "accepted",
     liveScreenSnapshotsById: {},
     overviewScreens: [],
@@ -87,8 +72,6 @@ function buildArgs(
 
 describe("runScreenTextContentChange default text-layer naming", () => {
   it("names a freshly created board text layer after its typed content", () => {
-    // Same draft shape appendCanvasPrimitiveToHtml stamps at creation: empty
-    // draft, "Text" placeholder name.
     const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Text"></div></body>`;
     const { args, nodeId, getContent } = buildArgs(content, true);
 
@@ -150,9 +133,6 @@ describe("runScreenTextContentChange refused publication", () => {
       "Standalone",
     );
 
-    // Nothing published, so the creation still owns its pending history — and
-    // the typed text is still owed. Consuming the record here left it in
-    // neither the source nor the undo stack.
     expect(status).toBe("refused");
     expect(confirm).not.toHaveBeenCalled();
     expect(getContent()).toBe(content);
@@ -169,7 +149,6 @@ describe("runScreenTextContentChange rejected live-snapshot write", () => {
       liveScreenSnapshotsById: {
         [SCREEN_ID]: { html: content } as never,
       },
-      // The snapshot vanished, or integrity validation refused this edit.
       updateLiveScreenSnapshotContent: () => false,
       prepareTextCreationFinalization: () => ({
         isCreationCommit: true,
@@ -185,7 +164,6 @@ describe("runScreenTextContentChange rejected live-snapshot write", () => {
       "Standalone",
     );
 
-    // The source is unchanged, so the creation still owns its pending history.
     expect(status).toBe("refused");
     expect(confirm).not.toHaveBeenCalled();
   });
@@ -193,13 +171,6 @@ describe("runScreenTextContentChange rejected live-snapshot write", () => {
 
 describe("runScreenTextContentChange acceptance after a source transition", () => {
   it("reports an accepted live-snapshot write as accepted, with no source readback", () => {
-    // The state a confirm-make-real / source mutation actually leaves behind.
-    // The snapshot was captured while the screen was localhost
-    // (DesignCanvas.tsx:2615, gated on sourceType === "localhost" at :2544).
-    // DesignEditor prunes liveScreenSnapshotsById only when a FILE ID
-    // disappears (DesignEditor.tsx:4513-4527) — never when sourceType changes —
-    // so flipping the metadata to fusion keeps the entry. Model that prune here
-    // rather than assuming it: the id survives, so the snapshot survives.
     const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Text">Before</div></body>`;
     const capturedWhileLocalhost = { [SCREEN_ID]: { html: content } as never };
     const liveFileIds = new Set([SCREEN_ID]);
@@ -216,8 +187,6 @@ describe("runScreenTextContentChange acceptance after a source transition", () =
     const transitioned: ScreenTextContentChangeArgs = {
       ...args,
       getScreenContent,
-      // Metadata now says fusion, so the localhost early return no longer
-      // fires and the write goes to the retained snapshot.
       overviewScreens: [{ id: SCREEN_ID, sourceType: "fusion" } as never],
       liveScreenSnapshotsById: retainedAfterTransition,
       updateLiveScreenSnapshotContent: () => true,
@@ -235,9 +204,6 @@ describe("runScreenTextContentChange acceptance after a source transition", () =
       "Standalone",
     );
 
-    // The write landed in the snapshot map. getScreenContent cannot see that,
-    // so a readback-based verdict called this accepted write lost, retried it,
-    // and finally reported the user's text unrecoverable.
     expect(status).toBe("accepted");
     expect(confirm).toHaveBeenCalledOnce();
     expect(getScreenContent).not.toHaveBeenCalled();

@@ -1,50 +1,16 @@
-/**
- * First-party metric catalog — a keyed registry of reusable, already-validated
- * first-party analytics panels.
- *
- * Why this exists: authoring a large multi-panel dashboard forces the agent to
- * stream one giant `update-dashboard` argument (SQL + chart config for every
- * panel) inside the ~40s hosted run budget. That big tool-call can't be resumed
- * mid-stream and is all-or-nothing on validation, so the agent thrashes. This
- * catalog moves panel authoring server-side: the agent names the metrics it
- * wants and the server expands each one into a full, correct panel from SQL that
- * already ships (and is exercised) in the
- * `agent-native-templates-first-party` seed. See `compose-dashboard.ts`.
- *
- * Default seed panels with matching catalog keys are generated from this file.
- * The seed can also include layout-only section panels, and the catalog can keep
- * extra reusable panels that are not on the default dashboard. Windowed metrics
- * swap the `interval 'N days'` literal for the requested window via
- * `buildSql(window)`.
- *
- * Distinct from the `<data-dictionary>` (the user/org-scoped catalog of business
- * metric definitions the agent consults before writing ad-hoc SQL). That is a
- * settings-backed knowledge layer for free-form querying; this is a code-level
- * registry of canned, validated panels for one-call dashboard composition. They
- * complement each other.
- */
 
 export type MetricWindow = "30d" | "90d" | "all";
 
 export const FIRST_PARTY_DASHBOARD_ID = "agent-native-templates-first-party";
 
 export interface FirstPartyMetric {
-  /** Stable catalog key, also used as the default panel id. */
   key: string;
   title: string;
   chartType: string;
   source: "first-party";
-  /** Default grid columns this panel spans (1..6). */
   width: number;
-  /**
-   * Build the panel SQL for an optional window. Windowed metrics substitute the
-   * `interval 'N days'` literal; non-windowed metrics ignore the argument and
-   * return their fixed SQL.
-   */
   buildSql: (window?: MetricWindow) => string;
-  /** Whether `buildSql` actually varies with `window`. */
   windowed: boolean;
-  /** Panel `config` block (chart keys, formatters, description). */
   config: Record<string, unknown>;
 }
 
@@ -61,13 +27,6 @@ const WINDOW_DAYS: Record<Exclude<MetricWindow, "all">, number> = {
   "90d": 90,
 };
 
-/**
- * Apply a window to SQL that contains `interval 'N days'` clauses.
- *
- * - "30d" / "90d": replace every `interval '<n> days'` with the requested days.
- * - "all": strip the standard date-window clause so the metric covers all
- *   time. (Other interval usage is left intact.)
- */
 function applyWindow(sql: string, window: MetricWindow): string {
   if (window === "all") {
     return sql
@@ -100,26 +59,16 @@ function applyWindow(sql: string, window: MetricWindow): string {
   return sql.replace(/interval\s*'\d+\s*days?'/gi, `interval '${days} days'`);
 }
 
-/**
- * Helper for windowed metrics: keep the canonical SQL (with its default window
- * baked in) and only rewrite when a different window is requested.
- */
 function windowed(sql: string): (window?: MetricWindow) => string {
   return (window) => (window ? applyWindow(sql, window) : sql);
 }
 
-/** Helper for fixed (non-windowed) metrics. */
 function fixed(sql: string): (window?: MetricWindow) => string {
   return () => sql;
 }
 
 const TEMPLATE_EXPR =
   "COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')";
-/**
- * The first-party catalog is intentionally narrower than every value that can
- * appear in shared browser telemetry. Preview hosts and marketing traffic can
- * use the same event table, but they are not product-template series.
- */
 export const FIRST_PARTY_TEMPLATE_NAMES = [
   "analytics",
   "assets",
@@ -185,13 +134,6 @@ const RETENTION_ROLLING_DAYS = 7;
 const RETENTION_MIN_COHORT_SIZE = 5;
 const PER_TEMPLATE_RETENTION_MIN_COHORT_SIZE = 20;
 const OBSERVED_ACTIVITY_LOOKBACK_DAYS = 365;
-/**
- * Day count for the `retention-over-time` anchor-date spine, keyed off the
- * same `{{timeRange}}` values as `dashboardTimeRangeFilter`. Unlike that
- * filter (which bounds a WHERE clause), this sizes a full calendar spine, so
- * an unrecognized/empty value must still resolve to a count ("all" -> 365)
- * rather than leaving the spine unbounded.
- */
 const RETENTION_SPINE_DAYS_SQL =
   "(CASE '{{timeRange}}' WHEN '7d' THEN 7 WHEN '30d' THEN 30 WHEN '90d' THEN 90 WHEN '180d' THEN 180 WHEN '365d' THEN 365 ELSE 365 END)";
 
@@ -367,8 +309,6 @@ const SIGNUPS_BY_TEMPLATE_SQL = `SELECT ${TEMPLATE_EXPR} AS template, COUNT(*) A
 export const LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL = `WITH all_users AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL}, user_id, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${LEGACY_SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS first_date FROM all_users GROUP BY user_key) SELECT a.event_date AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM all_users a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' AND ${dashboardTimeRangeFilter("a.event_date")} GROUP BY 1, 2 ORDER BY date, template`;
 export const LEGACY_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL = `WITH all_users AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL}, user_id, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${LEGACY_SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS first_date FROM all_users GROUP BY user_key) SELECT to_char(date_trunc('week', a.event_date::date), 'YYYY-MM-DD') AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM all_users a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' AND ${dashboardTimeRangeFilter("a.event_date")} GROUP BY 1, 2 ORDER BY date, template`;
 const OBSERVED_ACTIVITY_LOOKBACK_FILTER = `${EVENT_DATE_SQL} >= ${daysAgoSql(OBSERVED_ACTIVITY_LOOKBACK_DAYS)}`;
-// The spine's oldest anchor (365 days ago) still needs the six days of
-// first-seen events before it for its trailing cohort window.
 const RETENTION_OVER_TIME_LOOKBACK_FILTER = `${EVENT_DATE_SQL} >= ${daysAgoSql(OBSERVED_ACTIVITY_LOOKBACK_DAYS + RETENTION_ROLLING_DAYS - 1)}`;
 export const INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_SQL =
   LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL.replace(
@@ -400,19 +340,6 @@ export const PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL =
     PRODUCT_ACTIVITY_TEMPLATE_FILTER,
     `${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER}`,
   );
-/**
- * Anchor dates used to be derived from cohorts' own first-seen dates, filtered
- * to ones whose 7-14d window had already matured (`cohort_date <= now - 14d`)
- * AND fell inside the selected `{{timeRange}}` — two constraints that
- * contradict for 7d/30d ranges (an empty chart) and, once satisfied, only ever
- * emit mature rows. The chart renderer then pads the x-axis out to today and
- * zero-fills every day with no emitted row, so the last 14 days rendered as a
- * flat 0% line instead of "not yet known" (see `fillMissingDailyRows` in
- * `pivot.ts`). `anchor_dates` is now a full calendar spine over the selected
- * window (independent of cohort maturity), and each period's maturity is
- * checked per row so immature/undersized cells return NULL — which the pivot
- * preserves — instead of a fabricated 0.
- */
 const RETENTION_OVER_TIME_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${RETENTION_OVER_TIME_LOOKBACK_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS cohort_date FROM base GROUP BY user_key), digits AS (SELECT 0 AS n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9), offsets AS (SELECT ones.n + tens.n * 10 + hundreds.n * 100 AS n FROM digits ones CROSS JOIN digits tens CROSS JOIN digits hundreds WHERE hundreds.n < 8), anchor_dates AS (SELECT to_char(CURRENT_DATE - o.n, 'YYYY-MM-DD') AS date FROM offsets o WHERE o.n <= ${RETENTION_SPINE_DAYS_SQL}), cohort_windows AS (SELECT a.date, f.user_key, f.cohort_date FROM anchor_dates a JOIN first_seen f ON f.cohort_date >= ${rollingWindowStartSql()} AND f.cohort_date <= a.date), cohort_sizes AS (SELECT date, COUNT(DISTINCT user_key) AS users FROM cohort_windows GROUP BY date), periods AS (SELECT '1-7d return' AS period, ${daysAgoSql(7)} AS mature_through UNION ALL SELECT '7-14d return' AS period, ${daysAgoSql(14)} AS mature_through), retained AS (SELECT cw.date, '1-7d return' AS period, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date > cw.cohort_date AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') GROUP BY cw.date UNION ALL SELECT cw.date, '7-14d return' AS period, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date >= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '14 days', 'YYYY-MM-DD') GROUP BY cw.date) SELECT a.date, p.period, CASE WHEN a.date <= p.mature_through AND cs.users >= ${RETENTION_MIN_COHORT_SIZE} THEN COALESCE(r.retained, 0) ELSE NULL END AS retained_users, COALESCE(cs.users, 0) AS cohort_users, CASE WHEN a.date <= p.mature_through AND cs.users >= ${RETENTION_MIN_COHORT_SIZE} THEN COALESCE(r.retained, 0)::float / NULLIF(cs.users, 0) ELSE NULL END AS rate FROM anchor_dates a CROSS JOIN periods p LEFT JOIN cohort_sizes cs ON cs.date = a.date LEFT JOIN retained r ON r.date = a.date AND r.period = p.period ORDER BY a.date, p.period`;
 export const PRE_MARKETING_SITE_ONE_DAY_RETENTION_BY_TEMPLATE_SQL =
   LEGACY_ONE_DAY_RETENTION_BY_TEMPLATE_SQL.replace(
@@ -608,10 +535,6 @@ export function repairFirstPartyObservedRetentionPanels(
         : replacement,
     );
   }
-  // Persisted panels store SQL after scopeFirstPartyPanelSql injects the
-  // {{appFilter}} predicate, but every legacySql entry above is the unscoped
-  // form. Match both so already-deployed (scoped) panels are still recognized
-  // as legacy, for every replacement above, not just retention.
   for (const [id, replacement] of replacements) {
     replacements.set(id, {
       ...replacement,
@@ -776,41 +699,10 @@ const ONBOARDING_EVENTS_CTE = `WITH auth_identity_bridge AS (
     AND lower(coalesce(funnel_user_email, '')) NOT LIKE '%+autoz%'
 )`;
 const SIGNIFICANT_ACTION_FILTER = `((event_name IN ('action_completed', 'core_action_completed') AND COALESCE(properties::jsonb ->> 'success', 'true') = 'true') OR event_name = 'app.first_action' OR (event_name = 'action.response' AND COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE(upper(properties::jsonb ->> 'method'), '') <> 'GET'))`;
-/**
- * `action.response` fast-success rows are sampled at 10% client-side
- * (`sample_weight = 1/sample_rate`, always emitted since #5335); every error,
- * 4xx, and >=1000ms row is tracked at weight 1. Rows from before #5335 (and
- * from stale bundles/long-lived tabs) carry no `sample_weight` at all, so a
- * plain `COALESCE(sample_weight, 1)` under-counts their fast successes.
- * This infers the pre-#5335 weight by replicating the guaranteed-track
- * branches of `getActionResponseSampling` (use-action.ts) in reverse: a row
- * is only the 10%-sampled kind if it was a fast (<1000ms) success under 400
- * with no startup Server-Timing. Validated against every row that does carry
- * an explicit `sample_weight` today (100% match); see telemetry-sampling-bias
- * in the metrics investigation. Presence checks use `->>`/`NULLIF` rather
- * than the jsonb `?` operator because `validateFirstPartyAnalyticsSql` rejects
- * any `?` in dashboard SQL as a bind placeholder.
- */
 const ACTION_RESPONSE_WEIGHT_SQL = `CASE WHEN NULLIF(properties::jsonb ->> 'sample_weight', '') IS NOT NULL THEN (properties::jsonb ->> 'sample_weight')::numeric WHEN COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE((properties::jsonb ->> 'duration_ms')::numeric, 1000) < 1000 AND COALESCE((properties::jsonb ->> 'status_code')::int, 200) < 400 AND NULLIF(properties::jsonb ->> 'framework_ready_wait_ms', '') IS NULL AND NULLIF(properties::jsonb ->> 'startup_db_operation_wall_ms', '') IS NULL THEN 10 ELSE 1 END`;
-/**
- * `outcome = 'cancelled'` (React Query superseding/unmounting a call) is
- * emitted with `success = false` even though nothing user-facing failed —
- * excluding it from both success AND failure keeps a client-side abort from
- * inflating either side of a reliability rate. Do not fold cancelled into
- * success: some cancellations are a user giving up on a slow load, which is
- * a latency signal, not a success.
- *
- * `outcome = 'timeout'` with `page_hidden = 'true'` is a client timer
- * artifact, not an application failure: a backgrounded/throttled tab lets
- * the timer fire many minutes after the real wait ended, with no server
- * response and no `request_id`. Classify it 'suspended' and exclude it from
- * the rate the same way as 'cancelled', but keep it a distinct class so it
- * stays visible on its own instead of being silently dropped.
- */
 const ACTION_RESPONSE_OUTCOME_CLASS_SQL = `CASE WHEN COALESCE(properties::jsonb ->> 'outcome', '') = 'cancelled' THEN 'cancelled' WHEN COALESCE(properties::jsonb ->> 'outcome', '') = 'timeout' AND COALESCE(properties::jsonb ->> 'page_hidden', '') = 'true' THEN 'suspended' WHEN COALESCE(properties::jsonb ->> 'success', '') = 'true' THEN 'success' ELSE 'failure' END`;
 const ACTION_RESPONSE_CALL_TYPE_SQL = `CASE WHEN COALESCE(upper(properties::jsonb ->> 'method'), '') = 'GET' THEN 'read' ELSE 'mutation' END`;
 const ACTION_RESPONSE_AUTH_STATE_SQL = `CASE WHEN NULLIF(user_id, '') IS NOT NULL THEN 'signed_in' ELSE 'anonymous' END`;
-/** Beta template sites are published at `beta.<app>.agent-native.com`. */
 const ACTION_RESPONSE_DEPLOYMENT_ENV_SQL = `CASE WHEN hostname LIKE 'beta.%' THEN 'beta' WHEN NULLIF(hostname, '') IS NOT NULL THEN 'prod' ELSE 'unknown' END`;
 const ACTION_RESPONSE_EVENT_FILTER = `event_name = 'action.response' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${DASHBOARD_APP_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER}`;
 const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, funnel_users AS (
@@ -1050,65 +942,11 @@ LEFT JOIN attempt_summary ON attempt_summary.method_id = method_list.method_id
 ORDER BY method_list.method_id`;
 const SHARING_ACTIONS_BY_APP_SQL = `${FUNNEL_EVENTS_CTE} SELECT ${TEMPLATE_EXPR} AS app, event_name AS action, COUNT(*) AS events, COUNT(DISTINCT funnel_user_key) AS users FROM funnel_events WHERE event_name IN ('share_view', 'share_cta_click', 'share_invite_sent', 'share_visibility_change', 'share_link_copied') AND ${FUNNEL_SCOPE_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER} GROUP BY 1, 2 ORDER BY app, events DESC`;
 
-// --- Action reliability & latency (canonical action.response metric) -----
-// Cancelled and suspended (a hidden-tab timeout artifact, see
-// ACTION_RESPONSE_OUTCOME_CLASS_SQL) are excluded from both the numerator and
-// denominator; "success rate" below always means weighted success / weighted
-// (success + failure).
-//
-// `SUM(...) FILTER (WHERE ...)` and `DISTINCT ON` are plain PostgreSQL and
-// both fail BigQuery translation (`assertFirstPartyAnalyticsBigQuerySql` in
-// first-party-analytics-backend.ts), so the panels below use
-// `SUM(CASE WHEN ... THEN weight ELSE 0 END)` (which also keeps the weight
-// columns and the rate numerator 0, not NULL, on a failure-only group) and a
-// `GROUP BY` + `MIN(CASE WHEN ...)` quantile in place of the Postgres-only
-// forms.
-// `properties::jsonb` is re-parsed per column per row across these CTEs --
-// project the scalar fields once in an inner CTE if a Postgres-sink tenant's
-// window approaches FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS.
-//
-// Grouped by deployment_env as well as date/app: beta is mostly internal/QA
-// traffic, and mixing it into a production rate or latency line hides
-// whichever side is actually broken. `series` (app || ' / ' || deployment_env)
-// is the pivot key so the two environments render as separate lines per app.
-//
-// `grid` cross-joins every date the window actually has traffic on against
-// every (app, deployment_env) pair the window actually has traffic on, and
-// the final SELECT LEFT JOINs the aggregate onto it. Without this, a day
-// where one series had zero events (a quiet weekend, a beta env nobody hit)
-// emits no row at all for that (date, series) cell -- and `pivotRows` in
-// `pivot.ts` zero-fills any missing cell, so a day with no data would draw as
-// a 0% outage instead of "not yet known". The `a.date IS NULL` check keeps
-// that distinction: a real 0% (failures occurred, zero succeeded) still
-// comes through as 0, only a cell with no aggregate row at all reports NULL.
 const ACTION_SUCCESS_RATE_OVER_TIME_SQL = `WITH action_events AS (SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS app, ${ACTION_RESPONSE_DEPLOYMENT_ENV_SQL} AS deployment_env, session_id, ${ACTION_RESPONSE_OUTCOME_CLASS_SQL} AS outcome_class, ${ACTION_RESPONSE_WEIGHT_SQL} AS weight FROM analytics_events WHERE ${ACTION_RESPONSE_EVENT_FILTER}), grid AS (SELECT d.date, s.app, s.deployment_env FROM (SELECT DISTINCT date FROM action_events) d CROSS JOIN (SELECT DISTINCT app, deployment_env FROM action_events) s), agg AS (SELECT date, app, deployment_env, SUM(CASE WHEN outcome_class = 'success' THEN weight ELSE 0 END) AS success_weight, SUM(CASE WHEN outcome_class = 'failure' THEN weight ELSE 0 END) AS failure_weight, SUM(CASE WHEN outcome_class = 'cancelled' THEN weight ELSE 0 END) AS cancelled_weight, SUM(CASE WHEN outcome_class = 'suspended' THEN weight ELSE 0 END) AS suspended_weight, COUNT(DISTINCT session_id) AS sessions, COUNT(DISTINCT CASE WHEN outcome_class = 'failure' THEN session_id END) AS failure_sessions FROM action_events GROUP BY date, app, deployment_env) SELECT g.date, g.app, g.deployment_env, g.app || ' / ' || g.deployment_env AS series, COALESCE(a.success_weight, 0) AS success_weight, COALESCE(a.failure_weight, 0) AS failure_weight, COALESCE(a.cancelled_weight, 0) AS cancelled_weight, COALESCE(a.suspended_weight, 0) AS suspended_weight, CASE WHEN a.date IS NULL THEN NULL ELSE COALESCE(a.success_weight, 0)::float / NULLIF(COALESCE(a.success_weight, 0) + COALESCE(a.failure_weight, 0), 0) END AS rate, COALESCE(a.sessions, 0) AS sessions, CASE WHEN a.date IS NULL THEN NULL ELSE COALESCE(a.failure_sessions, 0)::float / NULLIF(a.sessions, 0) END AS session_failure_share FROM grid g LEFT JOIN agg a ON a.date = g.date AND a.app = g.app AND a.deployment_env = g.deployment_env ORDER BY g.date, g.app, g.deployment_env`;
-// Bucketed cumulative-weight quantile (25ms buckets), not `percentile_cont` —
-// `percentile_cont` has no weight argument, so it would count every sampled
-// fast-success row as one call instead of `sample_weight` many. One row per
-// (app, action, call_type, auth_state, deployment_env); p50/p90 are NULL when
-// that group has no successful call with a `duration_ms`. A call spanning a
-// backgrounded tab (`page_hidden`) is excluded from the latency population --
-// its wall-clock duration is inflated by browser timer throttling, not by
-// the server or network.
 const ACTION_RELIABILITY_BY_ACTION_SQL = `WITH action_events AS (SELECT ${TEMPLATE_EXPR} AS app, COALESCE(NULLIF(properties::jsonb ->> 'action', ''), 'unknown') AS action, ${ACTION_RESPONSE_CALL_TYPE_SQL} AS call_type, ${ACTION_RESPONSE_AUTH_STATE_SQL} AS auth_state, ${ACTION_RESPONSE_DEPLOYMENT_ENV_SQL} AS deployment_env, ${ACTION_RESPONSE_OUTCOME_CLASS_SQL} AS outcome_class, ${ACTION_RESPONSE_WEIGHT_SQL} AS weight, NULLIF(properties::jsonb ->> 'duration_ms', '')::numeric AS duration_ms, NULLIF(properties::jsonb ->> 'page_hidden', '') AS page_hidden FROM analytics_events WHERE ${ACTION_RESPONSE_EVENT_FILTER}), rates AS (SELECT app, action, call_type, auth_state, deployment_env, COUNT(*) AS raw_n, SUM(CASE WHEN outcome_class = 'success' THEN weight ELSE 0 END) AS success_weight, SUM(CASE WHEN outcome_class = 'failure' THEN weight ELSE 0 END) AS failure_weight, SUM(CASE WHEN outcome_class = 'cancelled' THEN weight ELSE 0 END) AS cancelled_weight, SUM(CASE WHEN outcome_class = 'suspended' THEN weight ELSE 0 END) AS suspended_weight FROM action_events GROUP BY app, action, call_type, auth_state, deployment_env), duration_buckets AS (SELECT app, action, call_type, auth_state, deployment_env, (FLOOR(duration_ms / 25) * 25) AS bucket_ms, SUM(weight) AS bucket_weight FROM action_events WHERE outcome_class = 'success' AND duration_ms IS NOT NULL AND COALESCE(page_hidden, '') <> 'true' GROUP BY app, action, call_type, auth_state, deployment_env, (FLOOR(duration_ms / 25) * 25)), duration_cumulative AS (SELECT *, SUM(bucket_weight) OVER (PARTITION BY app, action, call_type, auth_state, deployment_env ORDER BY bucket_ms) AS cumulative_weight, SUM(bucket_weight) OVER (PARTITION BY app, action, call_type, auth_state, deployment_env) AS total_success_weight FROM duration_buckets), quantiles AS (SELECT app, action, call_type, auth_state, deployment_env, MIN(CASE WHEN cumulative_weight >= total_success_weight * 0.5 THEN bucket_ms END) AS p50_ms, MIN(CASE WHEN cumulative_weight >= total_success_weight * 0.9 THEN bucket_ms END) AS p90_ms FROM duration_cumulative GROUP BY app, action, call_type, auth_state, deployment_env) SELECT r.app, r.action, r.call_type, r.auth_state, r.deployment_env, r.raw_n, r.success_weight, r.failure_weight, r.cancelled_weight, r.suspended_weight, COALESCE(r.success_weight, 0)::float / NULLIF(COALESCE(r.success_weight, 0) + COALESCE(r.failure_weight, 0), 0) AS success_rate, q.p50_ms, q.p90_ms FROM rates r LEFT JOIN quantiles q ON q.app = r.app AND q.action = r.action AND q.call_type = r.call_type AND q.auth_state = r.auth_state AND q.deployment_env = r.deployment_env WHERE COALESCE(r.success_weight, 0) + COALESCE(r.failure_weight, 0) > 0 ORDER BY (COALESCE(r.success_weight, 0) + COALESCE(r.failure_weight, 0)) DESC, r.app, r.action LIMIT 200`;
-// Sibling of ACTION_RELIABILITY_BY_ACTION_SQL's quantile, grouped by
-// date/app/deployment_env instead of action/call_type/auth_state so it can
-// sit next to ACTION_SUCCESS_RATE_OVER_TIME_SQL as a trend line. Same
-// bucketed cumulative-weight quantile over successful, foreground-tab calls
-// only -- a 'suspended' row is already outside outcome_class = 'success' so
-// it never enters this population, and page_hidden is still checked
-// explicitly for an ordinary successful call made from a tab that was
-// hidden partway through. `grid` (see ACTION_SUCCESS_RATE_OVER_TIME_SQL)
-// keeps a day with zero successful calls for a series NULL instead of
-// absent, so it doesn't draw as an instant 0ms response.
 const ACTION_LATENCY_OVER_TIME_SQL = `WITH action_events AS (SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS app, ${ACTION_RESPONSE_DEPLOYMENT_ENV_SQL} AS deployment_env, ${ACTION_RESPONSE_OUTCOME_CLASS_SQL} AS outcome_class, ${ACTION_RESPONSE_WEIGHT_SQL} AS weight, NULLIF(properties::jsonb ->> 'duration_ms', '')::numeric AS duration_ms, NULLIF(properties::jsonb ->> 'page_hidden', '') AS page_hidden FROM analytics_events WHERE ${ACTION_RESPONSE_EVENT_FILTER}), grid AS (SELECT d.date, s.app, s.deployment_env FROM (SELECT DISTINCT date FROM action_events) d CROSS JOIN (SELECT DISTINCT app, deployment_env FROM action_events) s), duration_buckets AS (SELECT date, app, deployment_env, (FLOOR(duration_ms / 25) * 25) AS bucket_ms, SUM(weight) AS bucket_weight FROM action_events WHERE outcome_class = 'success' AND duration_ms IS NOT NULL AND COALESCE(page_hidden, '') <> 'true' GROUP BY date, app, deployment_env, (FLOOR(duration_ms / 25) * 25)), duration_cumulative AS (SELECT *, SUM(bucket_weight) OVER (PARTITION BY date, app, deployment_env ORDER BY bucket_ms) AS cumulative_weight, SUM(bucket_weight) OVER (PARTITION BY date, app, deployment_env) AS total_weight FROM duration_buckets), quantiles AS (SELECT date, app, deployment_env, MIN(CASE WHEN cumulative_weight >= total_weight * 0.5 THEN bucket_ms END) AS p50_ms, MIN(CASE WHEN cumulative_weight >= total_weight * 0.9 THEN bucket_ms END) AS p90_ms FROM duration_cumulative GROUP BY date, app, deployment_env) SELECT g.date, g.app, g.deployment_env, g.app || ' / ' || g.deployment_env AS series, q.p50_ms, q.p90_ms FROM grid g LEFT JOIN quantiles q ON q.date = g.date AND q.app = g.app AND q.deployment_env = g.deployment_env ORDER BY g.date, g.app, g.deployment_env`;
 
-/**
- * Catalog entries. Order here is the default panel order when a caller passes
- * metrics; callers can reorder by listing keys in the order they want.
- */
 const ENTRIES: FirstPartyMetric[] = [
-  // --- Signups -------------------------------------------------------------
   {
     key: "total-signups",
     title: "Total Signups",
@@ -1161,7 +999,6 @@ const ENTRIES: FirstPartyMetric[] = [
     },
   },
 
-  // --- Sessions ------------------------------------------------------------
   {
     key: "sessions-by-app",
     title: "Sessions by Agent-Native App",
@@ -1269,7 +1106,6 @@ const ENTRIES: FirstPartyMetric[] = [
     },
   },
 
-  // --- Action reliability & latency -----------------------------------------
   {
     key: "action-success-rate-over-time",
     title: "Action Success Rate Over Time",
@@ -1319,11 +1155,6 @@ const ENTRIES: FirstPartyMetric[] = [
       ],
     },
   },
-  // Two panels, one shared SQL: a pivoted chart forces its y-axis to the
-  // series discovered under one valueKey (see SqlChart.tsx), so p50 and p90
-  // each need their own panel to both actually render -- a single panel
-  // carrying both as extra row fields only ever draws the one wired to the
-  // pivot's valueKey.
   {
     key: "action-latency-p50-over-time",
     title: "Action Latency p50 Over Time",
@@ -1367,7 +1198,6 @@ const ENTRIES: FirstPartyMetric[] = [
     },
   },
 
-  // --- Template / demo / CLI engagement ------------------------------------
   {
     key: "total-template-clicks",
     title: "Template Clicks",
@@ -1527,7 +1357,6 @@ const ENTRIES: FirstPartyMetric[] = [
     },
   },
 
-  // --- Activity / pageviews ------------------------------------------------
   {
     key: "pageviews-over-time",
     title: "Pageviews Over Time",
@@ -1535,8 +1364,6 @@ const ENTRIES: FirstPartyMetric[] = [
     source: "first-party",
     width: 2,
     windowed: false,
-    // Browser telemetry emits explicit `pageview` events with URL context, so
-    // keep pageview panels scoped to that event instead of all tracked events.
     buildSql: fixed(
       `SELECT ${EVENT_DATE_SQL} AS date, COALESCE(NULLIF(template, ''), NULLIF(app, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'pageview' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${FIRST_PARTY_TEMPLATE_FILTER} GROUP BY ${EVENT_DATE_SQL}, COALESCE(NULLIF(template, ''), NULLIF(app, ''), 'unknown') ORDER BY date, template`,
     ),
@@ -1787,7 +1614,6 @@ const ENTRIES: FirstPartyMetric[] = [
     },
   },
 
-  // --- Virality & referrals (windowed) ------------------------------------
   {
     key: "referred-signups-30d",
     title: "Referred Signups (30d)",
@@ -2145,17 +1971,14 @@ const CATALOG: Map<string, FirstPartyMetric> = new Map(
   ENTRIES.map((entry) => [entry.key, entry]),
 );
 
-/** All metric keys, in catalog order. */
 export function listMetricKeys(): string[] {
   return ENTRIES.map((entry) => entry.key);
 }
 
-/** All catalog entries, in catalog order. */
 export function listMetrics(): FirstPartyMetric[] {
   return [...ENTRIES];
 }
 
-/** Look up a single metric by key. Returns undefined for unknown keys. */
 export function getMetric(key: string): FirstPartyMetric | undefined {
   return CATALOG.get(key);
 }
@@ -2171,7 +1994,6 @@ export interface ComposedPanel {
 }
 
 export interface ComposePanelOverrides {
-  /** Panel id / metric key override (defaults to the metric key). */
   id?: string;
   title?: string;
   chartType?: string;
@@ -2179,11 +2001,6 @@ export interface ComposePanelOverrides {
   window?: MetricWindow;
 }
 
-/**
- * Expand a metric key into a full dashboard panel, applying optional overrides.
- * Returns null for unknown keys so callers can report them gracefully instead
- * of throwing.
- */
 export function buildPanel(
   key: string,
   overrides: ComposePanelOverrides = {},
@@ -2222,7 +2039,6 @@ export function buildPanel(
     source: "first-party",
     width,
     sql,
-    // Clone so callers can't mutate the shared catalog config object.
     config,
   };
 }

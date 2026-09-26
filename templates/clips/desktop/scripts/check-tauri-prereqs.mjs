@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// Preflight: verify Tauri's native prerequisites before invoking `tauri dev` /
-// `tauri build`. Without this, devs see a cryptic
-// `failed to run 'cargo metadata' command` error from the Tauri CLI.
 
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -28,8 +25,6 @@ function has(cmd) {
 }
 
 function cargoOnDisk() {
-  // rustup installs to ~/.cargo/bin but the shell PATH update only takes effect
-  // in new shells — detect this case so we can give a clearer "restart shell" hint.
   const bin = platform() === "win32" ? "cargo.exe" : "cargo";
   const candidate = join(homedir(), ".cargo", "bin", bin);
   return existsSync(candidate) ? candidate : null;

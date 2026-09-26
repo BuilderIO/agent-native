@@ -3,17 +3,6 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers, gotoEditor } from "./helpers";
 
-/**
- * Figma parity — Layers panel (spec §7 Layer order, §8 Visibility/Lock, §15
- * Rename, Part 3 resolutions).
- *
- * Covers: top row = topmost rendered (matches DOM order), drag-to-reorder
- * inserts exactly between two rows, dropping onto a container row reparents
- * as the topmost child, crossing the screen boundary in both directions via
- * the panel, "Could not move that layer" never appearing for ordinary
- * layers, rename via double-click / Cmd+R, hide/lock toggles from the row,
- * and one-undo-per-panel-move.
- */
 
 const baseURL = e2eBaseURL();
 
@@ -34,11 +23,6 @@ async function postAction(
   return res.json();
 }
 
-// header/nav(Shop,About,Contact)/main(Panel>PanelChild, Div, undecorated
-// default-named div)/footer, mirroring the shape of Steve's & Logan's
-// reports: a real page skeleton with a nav link list to "insert above Shop"
-// into, a container to reparent into, and a plain unnamed div standing in
-// for an "AI-generated" layer with no data-agent-native-layer-name.
 const FIXTURE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Layers panel parity</title></head>
@@ -195,20 +179,11 @@ test.describe("Figma parity — layers panel", () => {
     page,
   }) => {
     const names = await visibleLayerNames(page);
-    // DOM order is header, nav, main, footer (footer is the LAST body child).
-    // The panel's documented convention (LayersPanel.tsx flattenRows) is that
-    // the top row is the topmost-PAINTED sibling, i.e. the last DOM child —
-    // so Footer must render ABOVE Header in the panel. This is intentional
-    // Figma parity (later-added/later-in-DOM = frontmost), not the bug Steve
-    // reported; assert the concrete order so a future change that silently
-    // reverses it again is caught.
     const footerIdx = names.indexOf("Footer");
     const headerIdx = names.indexOf("Site Header");
     expect(footerIdx).toBeGreaterThan(-1);
     expect(headerIdx).toBeGreaterThan(-1);
     expect(footerIdx).toBeLessThan(headerIdx);
-    // And the full top-to-bottom sibling order should be the exact reverse
-    // of DOM order: Footer, Main, Nav, Site Header.
     const topLevelInPanelOrder = [
       names.indexOf("Footer"),
       names.indexOf("Main"),
@@ -228,9 +203,6 @@ test.describe("Figma parity — layers panel", () => {
     expect(before.indexOf("About")).toBeGreaterThan(-1);
     expect(before.indexOf("Shop")).toBeGreaterThan(-1);
 
-    // Drag "Contact" to drop precisely above "Shop" (top half of the Shop
-    // row, which the panel's own drop-zone geometry treats as "before" in
-    // panel order / above in the stack).
     const shopRow = layerRow(page, "Shop");
     const box = await shopRow.boundingBox();
     if (!box) throw new Error("Shop row has no bounding box");
@@ -245,9 +217,6 @@ test.describe("Figma parity — layers panel", () => {
           const contactIdx = names.indexOf("Contact");
           const shopIdx = names.indexOf("Shop");
           const aboutIdx = names.indexOf("About");
-          // "Above Shop" in the panel means immediately preceding Shop's row
-          // and still after About (i.e. it landed exactly between About and
-          // Shop, not just "somewhere above Shop" / at the very top).
           return (
             contactIdx > -1 &&
             shopIdx > -1 &&
@@ -274,9 +243,6 @@ test.describe("Figma parity — layers panel", () => {
     const panelRow = layerRow(page, "Panel");
     const panelBox = await panelRow.boundingBox();
     if (!panelBox) throw new Error("Panel row has no bounding box");
-    // dropPlacementForEvent treats the top/bottom 30% of a row as
-    // before/after; only the middle band resolves to "inside" reliably
-    // regardless of the container's expanded state (LayersPanel.tsx L10).
     await layerRowButton(page, "Loose Card").dragTo(panelRow, {
       targetPosition: { x: 96, y: panelBox.height / 2 },
     });
@@ -287,8 +253,6 @@ test.describe("Figma parity — layers panel", () => {
     await expect
       .poll(async () => {
         const names = await visibleLayerNames(page);
-        // Topmost child of Panel means it renders ABOVE Panel Child in the
-        // panel (Panel Child was Panel's only prior child).
         return (
           names.indexOf("Loose Card") > -1 &&
           names.indexOf("Panel Child") > -1 &&
@@ -296,7 +260,6 @@ test.describe("Figma parity — layers panel", () => {
         );
       })
       .toBe(true);
-    // Document-level check: Loose Card is now a DOM descendant of Panel.
     await expect
       .poll(() =>
         node(page, "panel").evaluate(
@@ -313,13 +276,6 @@ test.describe("Figma parity — layers panel", () => {
   test("dropping an absolutely positioned layer row onto a Frame row keeps its on-screen position", async ({
     page,
   }) => {
-    // Figma: reparenting a layer via the layers panel keeps it exactly
-    // where it was on screen — its coordinates rebase into the new parent's
-    // coordinate space rather than keeping the old parent-relative left/top
-    // (figma-ground-truth.md checks 5-6). "Sticker" is a top-level,
-    // absolutely positioned sibling; "Panel" is an unrelated container at a
-    // different position, so a naive reparent that keeps the old CSS
-    // left/top would visibly move it by Panel's offset.
     const before = await node(page, "sticker").boundingBox();
     if (!before) throw new Error("Sticker has no bounding box");
 
@@ -353,8 +309,6 @@ test.describe("Figma parity — layers panel", () => {
   test("Could not move that layer never appears for an ordinary, default-named layer (Logan's repro)", async ({
     page,
   }) => {
-    // "loose2" has no data-agent-native-layer-name, standing in for an
-    // AI-generated / auto-named layer. Reorder it against its sibling.
     const before = await visibleLayerNames(page);
     const looseCardRow = layerRow(page, "Loose Card");
     const untitledRow = layerRowButton(page, "Untitled");
@@ -368,8 +322,6 @@ test.describe("Figma parity — layers panel", () => {
     await expect(toastMessages(page)).resolves.not.toContain(
       "Could not move that layer",
     );
-    // The move must have actually happened, not silently no-op'd behind a
-    // toast-free failure — assert the order changed.
     await expect
       .poll(async () => {
         const names = await visibleLayerNames(page);
@@ -382,22 +334,17 @@ test.describe("Figma parity — layers panel", () => {
     page,
   }) => {
     await layerRowButton(page, "Loose Card").dblclick({ force: true });
-    // Once rename starts, the row's title span (what layerRowButton/layerRow
-    // match on) is replaced by the input, so it must be found by its own
-    // aria-label rather than through the by-name row locator.
     const input = renameInput(page);
     await expect(input).toBeVisible();
     await expect(input).toBeFocused();
     await expect(input).toHaveValue("Loose Card");
 
-    // Escape cancels: name reverts.
     await input.fill("Renamed Via Escape");
     await input.press("Escape");
     await expect(renameInput(page)).toHaveCount(0);
     await expect(layerRowButton(page, "Loose Card")).toBeVisible();
     await expect(layerRowButton(page, "Renamed Via Escape")).toHaveCount(0);
 
-    // Enter commits.
     await layerRowButton(page, "Loose Card").dblclick({ force: true });
     const input2 = renameInput(page);
     await expect(input2).toBeVisible();
@@ -407,7 +354,6 @@ test.describe("Figma parity — layers panel", () => {
     await expect(layerRowButton(page, "Committed Card")).toBeVisible();
     await expect(layerRowButton(page, "Loose Card")).toHaveCount(0);
 
-    // Document-level: the DOM layer-name attribute actually updated.
     await expect(node(page, "loose")).toHaveAttribute(
       "data-agent-native-layer-name",
       "Committed Card",
@@ -442,11 +388,6 @@ test.describe("Figma parity — layers panel", () => {
     await page.keyboard.down(mod);
     await page.keyboard.press("r");
     await page.keyboard.up(mod);
-    // Spec §15: "Cmd+R opens the rename-layer modal for the current
-    // selection." useDesignHotkeys.ts deliberately leaves bare Cmd/Ctrl+R
-    // unbound (kept as native browser refresh; see its comment above the
-    // Shift+Cmd+R "paste to replace" binding) — a real, intentional
-    // deviation from spec that this test is expected to fail on.
     await expect(renameInput(page)).toBeVisible({ timeout: 2000 });
   });
 
@@ -462,18 +403,15 @@ test.describe("Figma parity — layers panel", () => {
       "true",
     );
 
-    // Still selectable via the panel.
     await clickLayerRow(page, "Loose Card");
     await expect(layerRow(page, "Loose Card")).toHaveAttribute(
       "aria-selected",
       "true",
     );
 
-    // But NOT selectable by clicking it on the canvas: click the locked
-    // element directly and confirm the inspector never reports it selected.
     const box = await node(page, "loose").boundingBox();
     if (!box) throw new Error("loose node has no bounding box");
-    await clickLayerRow(page, "Site Header"); // move selection elsewhere first
+    await clickLayerRow(page, "Site Header");
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForTimeout(300);
     await expect(layerRow(page, "Loose Card")).toHaveAttribute(
@@ -482,11 +420,6 @@ test.describe("Figma parity — layers panel", () => {
     );
 
     await clickLayerAction(page, "Loose Card", "Hide layer");
-    // The persisted `data-agent-native-hidden` source attribute is not
-    // necessarily mirrored onto the live runtime DOM node (the bridge
-    // instead paints an ephemeral `data-agent-native-runtime-hidden` marker
-    // for the optimistic preview) — assert the user-visible effect instead,
-    // the same way layers-reparent.spec.ts's hide test does.
     await expect(node(page, "loose")).toBeHidden();
     await expect(
       layerRow(page, "Loose Card").locator('button[aria-label="Show layer"]'),
@@ -533,8 +466,6 @@ test.describe("Figma parity — layers panel", () => {
       .toBe(false);
     const afterUndoBox = await node(page, "loose").boundingBox();
     if (!afterUndoBox) throw new Error("no bounding box for loose after undo");
-    // Position restored too, not just parent — within a few px of layout
-    // reflow tolerance.
     expect(Math.abs(afterUndoBox.x - beforeBox.x)).toBeLessThan(5);
     expect(Math.abs(afterUndoBox.y - beforeBox.y)).toBeLessThan(5);
   });
@@ -546,9 +477,6 @@ test.describe("Figma parity — layers panel", () => {
     const names = await visibleLayerNames(page);
     expect(names.includes("Board Sticker")).toBe(true);
 
-    // Drop directly onto the screen's own row (prettyScreenName maps
-    // index.html -> "Home"), which per L19 in can-move-layer.ts appends into
-    // the screen body.
     const screenFileRowButton = layerRowButton(page, "Home");
     await expect(
       screenFileRowButton,
@@ -575,22 +503,6 @@ test.describe("Figma parity — layers panel", () => {
   });
 });
 
-// Peer-reported cross-run bug, fixed at the source: `runLayerMove`'s
-// applyFileContentUpdate calls omitted `forcePreviewFullDocument`, so
-// whenever the active selection sits outside the reordered subtree, the
-// bridge's non-forced replace (editor-chrome.bridge.ts
-// replaceRuntimeDocument) morphs only the selected node and returns without
-// ever reaching the sibling that moved. The deterministic, isolated proof of
-// that mechanism (no dev server, no UI timing) lives in
-// document-morph.bridge.spec.ts's "a same-parent reorder without
-// forceFullDocument" describe block — it fails without
-// `forcePreviewFullDocument` and passes with it. This end-to-end test below
-// exercises the same user gesture through the real editor and passed both
-// before and after the fix under Playwright's synthetic drag in this
-// environment (the exact browser-side selection/replace race the bridge
-// test isolates did not reproduce here); it is kept as a real-editor
-// regression guard for the full reorder + undo flow (file, live iframe, and
-// panel agreeing, with no iframe reload) rather than as the fix's proof.
 const SIBLING_REORDER_FIXTURE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Sibling reorder parity</title></head>
@@ -633,9 +545,6 @@ async function getIndexHtml(page: Page, designId: string): Promise<string> {
   return file.content as string;
 }
 
-// Only two flat, non-nested body children in this fixture, so a plain
-// index() comparison of the two id attributes is a correct (and much
-// simpler) stand-in for a real sibling-order parser.
 function domOrder(html: string): "AB" | "BA" {
   const aIdx = html.indexOf('data-agent-native-node-id="node-a"');
   const bIdx = html.indexOf('data-agent-native-node-id="node-b"');
@@ -654,10 +563,6 @@ async function livePreviewBodyOrder(page: Page): Promise<string[]> {
     );
 }
 
-// A whole-document bridge replace is still an in-place, keyed morph of the
-// SAME live document (see apply-local-content-update.ts's "holistic flash
-// pipeline" note) — it must never navigate/rebuild the iframe. A marker
-// stamped on the preview window only survives an in-place morph.
 async function stampPreviewWindowMarker(page: Page): Promise<void> {
   await page
     .locator("iframe[data-design-preview-iframe]")
@@ -695,25 +600,16 @@ test.describe("Figma parity — layers panel sibling reorder / preview sync", ()
     expect(domOrder(await getIndexHtml(page, siblingDesignId))).toBe("BA");
     expect(await livePreviewBodyOrder(page)).toEqual(["node-b", "node-a"]);
 
-    // A selection on a node OUTSIDE the reordered subtree is what forces the
-    // bridge's scoped single-selector morph path (replaceRuntimeDocument in
-    // editor-chrome.bridge.ts): it patches only that selected node's own
-    // subtree and returns, never reaching "wrap"'s children at all — a
-    // realistic setup, since a user has usually selected something (a
-    // completely unrelated element) before reaching for a Layers-panel drag.
     await clickLayerRow(page, "Other");
     await stampPreviewWindowMarker(page);
 
     const aRow = layerRow(page, "A");
     const aBox = await aRow.boundingBox();
     if (!aBox) throw new Error("A row has no bounding box");
-    // Top half of A's row = "before A" (same drop-zone convention the
-    // existing "above Shop" test above relies on).
     await layerRowButton(page, "B").dragTo(aRow, {
       targetPosition: { x: aBox.width / 2, y: 2 },
     });
 
-    // (a) Persisted file order flips to A,B.
     await expect
       .poll(async () => domOrder(await getIndexHtml(page, siblingDesignId)), {
         message:
@@ -721,9 +617,6 @@ test.describe("Figma parity — layers panel sibling reorder / preview sync", ()
       })
       .toBe("AB");
 
-    // (b) Live iframe DOM order matches — the peer-reported gap: with
-    // "Other" selected, a non-forced replace would morph only Other's own
-    // subtree and return, leaving this stale at node-b,node-a.
     await expect
       .poll(() => livePreviewBodyOrder(page), {
         message:
@@ -731,7 +624,6 @@ test.describe("Figma parity — layers panel sibling reorder / preview sync", ()
       })
       .toEqual(["node-a", "node-b"]);
 
-    // (c) Layers panel reflects the reorder too.
     await expect
       .poll(
         async () => {
@@ -744,14 +636,11 @@ test.describe("Figma parity — layers panel sibling reorder / preview sync", ()
       )
       .toBe(true);
 
-    // The fix is an in-place morph, not a reload: the marker stamped on the
-    // preview window before the drag must still be there.
     expect(await previewWindowMarkerSurvived(page)).toBe(true);
     await expect(toastMessages(page)).resolves.not.toContain(
       "Could not move that layer",
     );
 
-    // One undo restores B,A in all three.
     const mod = process.platform === "darwin" ? "Meta" : "Control";
     await page.keyboard.down(mod);
     await page.keyboard.press("z");
@@ -763,9 +652,6 @@ test.describe("Figma parity — layers panel sibling reorder / preview sync", ()
     await expect
       .poll(() => livePreviewBodyOrder(page))
       .toEqual(["node-b", "node-a"]);
-    // Panel row order is painter's-order (top row = last DOM child, see the
-    // "footer above header" test above) — restoring literal order B,A means
-    // A is once again the last DOM child, so A's row is back on top.
     await expect
       .poll(async () => {
         const names = await visibleLayerNames(page);

@@ -7,11 +7,6 @@ import {
 } from "@agent-native/core/server";
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 
-/**
- * Reads a Builder design-system decode job's status. The UI polls this after
- * `/api/index-design-system-sources` returns a jobId, until the `.fig` decode
- * job leaves `pending` and exposes a `branchUrl` (or reports an `error`).
- */
 export const designSystemDecodeJobStatus = defineEventHandler(async (event) => {
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {

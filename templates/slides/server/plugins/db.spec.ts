@@ -35,8 +35,6 @@ function isDrizzleTable(value: unknown): value is DrizzleTable {
   return (
     !!value &&
     typeof value === "object" &&
-    // Drizzle tables carry a Symbol-keyed metadata bag; plain exports (types,
-    // functions) don't.
     Object.getOwnPropertySymbols(value).some((s) =>
       s.toString().includes("drizzle"),
     )
@@ -50,15 +48,6 @@ function columnsOf(table: DrizzleTable): DrizzleColumn[] {
   );
 }
 
-// Known pre-existing drift: verified against the live slides Neon DB
-// (2026-07 collision audit) that these columns/tables ARE covered by the
-// migration history below, but the plain substring/word-boundary regex this
-// test uses can't always see them (e.g. a column name that only appears
-// inside a multi-column CREATE TABLE string that itself isn't re-scanned per
-// column, or a name that collides with a common word). If a future column
-// legitimately has zero mentions in db.ts, add its `table.column` here only
-// after confirming (like the audit above did for v16-v19) that it's actually
-// missing live, and prefer shipping a real migration over widening this list.
 const KNOWN_COVERAGE_EXCEPTIONS = new Set<string>();
 
 describe("slides db migrations cover every schema.ts column", () => {
@@ -107,11 +96,6 @@ describe("slides db migrations cover every schema.ts column", () => {
  * named.
  */
 describe("slides db.ts migration entries follow the naming convention", () => {
-  // Matches one migration entry's `version: N` followed later (before the
-  // next `version:`) by an optional `name: "..."`. Entries in this file are
-  // written as `{ version: N, [name: "...",] sql: ... }`, so scanning for
-  // `version:` occurrences and capturing an optional immediately-following
-  // `name:` is sufficient without a full parser.
   const entryRe = /version:\s*(\d+),\s*(?:name:\s*"([^"]+)",\s*)?/g;
 
   function extractEntries(source: string): Array<{
@@ -131,8 +115,6 @@ describe("slides db.ts migration entries follow the naming convention", () => {
   const entries = extractEntries(dbTsSource);
 
   it("finds migration entries to check (sanity guard against a regex drift)", () => {
-    // Slides currently declares exactly 19 migration entries (v1-v19, no
-    // reserved/skipped version numbers) — see db.ts.
     expect(entries.length).toBeGreaterThanOrEqual(19);
   });
 
@@ -151,15 +133,6 @@ describe("slides db.ts migration entries follow the naming convention", () => {
   });
 });
 
-/**
- * Belt-and-braces guard for the same bug class: even with the regression
- * guard above, a future column could still ship without a migration if
- * someone forgets to update this file. `ensureAdditiveColumns` (from
- * @agent-native/core/db) is the framework-level safety net that patches any
- * gap at boot. This asserts db.ts actually wires it in — after
- * `runMigrations(...)` so hand-written migrations stay authoritative — not
- * just that the regex guard above passes.
- */
 describe("slides db.ts wires ensureAdditiveColumns after runMigrations", () => {
   it("imports ensureAdditiveColumns from @agent-native/core/db", () => {
     expect(dbTsSource).toMatch(
@@ -174,8 +147,6 @@ describe("slides db.ts wires ensureAdditiveColumns after runMigrations", () => {
     expect(ensureCallIdx).toBeGreaterThan(-1);
     expect(ensureCallIdx).toBeGreaterThan(migrationsCallIdx);
 
-    // The runMigrations(...) plugin function must be awaited before
-    // ensureAdditiveColumns runs, not just textually after it.
     expect(dbTsSource).toMatch(
       /await\s+runSlidesMigrations\([^)]*\)[\s\S]*?ensureAdditiveColumns\(\{/,
     );

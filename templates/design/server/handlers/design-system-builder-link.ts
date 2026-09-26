@@ -8,18 +8,8 @@ import {
 import { resolveAccess } from "@agent-native/core/sharing";
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 
-/**
- * Looks up the Builder project/branch interactive preview URL for a
- * Builder-backed design system. The UI calls this when opening the design
- * system's details modal. `builderUrl` is frozen at index time and often
- * falls back to the Builder DSI docs page because the branch isn't cut yet,
- * so this reads `design-systems/v1/:id` for the real project/branch link once
- * it exists. Always resolves to some Builder destination, since the UI links
- * out unconditionally instead of waiting for the branch to be cut.
- */
 export const designSystemBuilderLink = defineEventHandler(async (event) => {
   // coercion-ok: an errored session lookup is treated as "no session" and
-  // rejected below with 401, not silently accepted.
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
     setResponseStatus(event, 401);
@@ -67,8 +57,6 @@ export const designSystemBuilderLink = defineEventHandler(async (event) => {
         typeof parsed.builderProjectId === "string"
           ? parsed.builderProjectId
           : undefined;
-      // Only the project id is persisted at index time, so the branch always
-      // has to come from Builder.
       const record = await fetchBuilderDesignSystemRecord(
         builderDesignSystemId,
       );

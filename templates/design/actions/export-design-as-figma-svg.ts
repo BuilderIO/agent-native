@@ -1,26 +1,3 @@
-/**
- * export-design-as-figma-svg — export a design screen (or a selected
- * subtree) as a genuinely VECTOR SVG document that Figma imports as
- * editable layers (rect/path/gradients/filters stay editable; `<text>` is
- * vectorized to outline paths on import — see the returned report's
- * `vectorizedTextCaveat`). This is a different artifact from `export-svg`,
- * which wraps the standalone HTML in a `foreignObject` for the editor's own
- * "Download SVG" parity — Figma cannot import that as vectors at all, it
- * stays an opaque embedded HTML blob.
- *
- * Resolution mirrors `take-design-screenshot.ts`: a single HTML screen
- * (`fileId`, or `designId` + `filename` defaulting to `index.html`), using
- * live collab content when the screen is actively being edited. `nodeId`
- * additionally scopes the export to one selected element's subtree via its
- * `data-agent-native-node-id` — the same attribute the editor stamps on
- * selectable layers.
- *
- * `autoLayout: true` additionally returns `nodeSpec` — the same screen as a
- * Figma NODE tree with real auto-layout (`shared/figma-node-spec.ts`), built
- * from the same hydrated scene. SVG has no way to express auto-layout, so
- * the SVG artifact always lands in Figma as absolutely-positioned geometry;
- * the node spec is for callers that materialize through the Plugin API.
- */
 
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -39,7 +16,7 @@ import { readLiveSourceFile } from "../server/source-workspace.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
 import { buildFigmaNodeSpec } from "../shared/figma-node-spec.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 async function liveContent(
   fileId: string,
@@ -58,7 +35,6 @@ async function liveContent(
   ).content;
 }
 
-/** Model-actionable message when no headless Chromium binary is available. */
 export function chromiumUnavailableReason(err: unknown): string {
   const detail = err instanceof Error ? err.message : String(err);
   return (
@@ -84,23 +60,6 @@ export interface FigmaSvgNodeResolution {
   warning?: string;
 }
 
-/**
- * Resolves a caller-supplied `nodeId` against the PERSISTED html this export
- * actually renders, before ever touching a browser. Canvas selections mint
- * live-DOM code-layer ids like `html:<hash>` (see `shared/code-layer.ts`'s
- * `nodeIdFor`) that never literally exist in stored markup as a
- * `data-agent-native-node-id` attribute — passing one straight into
- * `figmaSvgNodeSelector` builds a selector that matches nothing in the
- * rendered page, which previously surfaced as an unhandled 500
- * ("No element matched rootSelector ..."). Re-parsing the SAME persisted
- * HTML through the same code-layer projection (mirrors
- * `resolve-selection-source.ts` / `apply-visual-edit`'s target resolution)
- * recomputes the same deterministic ids/selectors, so a live id minted from
- * this content resolves to the same node without needing a live browser for
- * this step. Returns `rootSelector: null` (whole-screen export) with a
- * `warning` when the id can't be resolved at all — callers should surface
- * that warning in the export report instead of throwing.
- */
 export function resolveFigmaSvgNodeSelector(
   html: string,
   nodeId: string,
@@ -283,11 +242,6 @@ export default defineAction({
 
     const html = await liveContent(file.id, file.content ?? "");
 
-    // Prefer the screen's own saved canvas-frame dimensions (the overview
-    // board's per-file width/height) over the 1440x1200 legacy fallback, so
-    // the render viewport matches the actual screen frame instead of
-    // stretching layout-container widths (e.g. <body>) to an oversized
-    // viewport. An explicit `width`/`height` argument still wins.
     let canvasFrameWidth: number | undefined;
     let canvasFrameHeight: number | undefined;
     if (designRow?.data) {
@@ -307,12 +261,6 @@ export default defineAction({
     const resolvedWidth = width ?? canvasFrameWidth ?? 1440;
     const resolvedHeight = height ?? canvasFrameHeight ?? 1200;
 
-    // A `nodeId` may be a persisted `data-agent-native-node-id` value OR a
-    // live-DOM code-layer id (`html:<hash>`) minted by the canvas/bridge,
-    // which never exists verbatim in the persisted HTML. Resolve it against
-    // the same content this export renders before ever touching a browser,
-    // and fail soft (whole-screen export + report warning) instead of
-    // letting an unresolved id 500 the render.
     const warnings: string[] = [];
     let rootSelector: string | null = null;
     if (nodeId) {
@@ -339,9 +287,6 @@ export default defineAction({
       if (isMissingBrowserError(err)) {
         return { ok: false, reason: chromiumUnavailableReason(err) };
       }
-      // Defense in depth: even a selector resolved above can still miss the
-      // live-rendered DOM (e.g. collab content drifted since resolution).
-      // Never surface that as a 500 — retry once against the whole screen.
       if (rootSelector && isMissingRootSelectorError(err)) {
         warnings.push(
           `The resolved selector for nodeId "${nodeId}" did not match the ` +
@@ -367,8 +312,6 @@ export default defineAction({
     const filenameOut = safeFigmaSvgFilename(designRow?.title ?? file.filename);
     const saveResult = await trySaveExportFile(filenameOut, result.svg);
 
-    // Built from the SAME hydrated scene the SVG came from, so the two
-    // exports can never disagree about what the screen contains.
     const nodes = autoLayout ? buildFigmaNodeSpec(result.scene) : null;
 
     return {

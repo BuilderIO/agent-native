@@ -50,8 +50,6 @@ export default defineAction({
         .where(eq(schema.assetGenerationRuns.libraryId, id))
         .orderBy(desc(schema.assetGenerationRuns.createdAt)),
     ]);
-    // Drafts belong to whoever generated them until an editor approves one, so
-    // a below-editor caller sees their own candidates and runs, not the kit's.
     const scope = roleSatisfies(access.role, APPROVE_ROLE)
       ? unrestrictedDraftReadScope()
       : await resolveDraftReadScope([id]);
