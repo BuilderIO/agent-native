@@ -13,6 +13,7 @@ import {
   hasRequestBoundary,
   markRequestBoundaryInstalled,
   getRequestIdentityAuthenticatedAtMs,
+  getRequestIdentitySessionToken,
   markRequestIdentityAuthenticatedAtMs,
 } from "./request-context.js";
 
@@ -82,7 +83,12 @@ describe("server/request-context", () => {
   describe("request identity validation time", () => {
     it("keeps the earliest time for a matching identity and never shares it", () => {
       const event = { context: {} };
-      markRequestIdentityAuthenticatedAtMs(event, "Alice@Example.com", 1_000);
+      markRequestIdentityAuthenticatedAtMs(
+        event,
+        "Alice@Example.com",
+        1_000,
+        "alice-session",
+      );
       markRequestIdentityAuthenticatedAtMs(event, "alice@example.com", 2_000);
 
       expect(
@@ -91,14 +97,46 @@ describe("server/request-context", () => {
       expect(
         getRequestIdentityAuthenticatedAtMs(event, "bob@example.com"),
       ).toBe(undefined);
+      expect(getRequestIdentitySessionToken(event, "alice@example.com")).toBe(
+        "alice-session",
+      );
 
       markRequestIdentityAuthenticatedAtMs(event, "bob@example.com", 3_000);
       expect(
         getRequestIdentityAuthenticatedAtMs(event, "alice@example.com"),
       ).toBe(undefined);
+      expect(getRequestIdentitySessionToken(event, "alice@example.com")).toBe(
+        undefined,
+      );
       expect(
         getRequestIdentityAuthenticatedAtMs(event, "bob@example.com"),
       ).toBe(3_000);
+    });
+
+    it("inherits a source session token only for the same request identity", () => {
+      runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          identitySessionToken: "alice-session",
+        },
+        () =>
+          runWithRequestContext({ userEmail: "ALICE@example.com" }, () => {
+            expect(getRequestContext()?.identitySessionToken).toBe(
+              "alice-session",
+            );
+          }),
+      );
+
+      runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          identitySessionToken: "alice-session",
+        },
+        () =>
+          runWithRequestContext({ userEmail: "bob@example.com" }, () => {
+            expect(getRequestContext()?.identitySessionToken).toBeUndefined();
+          }),
+      );
     });
   });
 

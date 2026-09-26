@@ -298,24 +298,93 @@ async function lockEmbedSessionsForOwner(
   });
 }
 
+async function sourceSessionBelongsToOwner(
+  tx: DbExec,
+  ownerEmail: string,
+  token: string,
+): Promise<boolean> {
+  const { rows } = await tx.execute({
+    sql: `SELECT to_regclass('sessions') AS legacy_sessions, to_regclass('"session"') AS better_auth_sessions, to_regclass('"user"') AS better_auth_users`,
+    args: [],
+  });
+  const tables = rows[0] as
+    | {
+        legacy_sessions?: unknown;
+        better_auth_sessions?: unknown;
+        better_auth_users?: unknown;
+        0?: unknown;
+        1?: unknown;
+        2?: unknown;
+      }
+    | undefined;
+  if (!tables) throw new Error("Could not inspect auth session tables.");
+
+  if (tables.legacy_sessions ?? tables[0]) {
+    const legacy = await tx.execute({
+      sql: "SELECT email FROM sessions WHERE token = ? LIMIT 1",
+      args: [token],
+    });
+    if (
+      normalizedEmail(legacy.rows[0]?.email ?? legacy.rows[0]?.[0]) ===
+      normalizedEmail(ownerEmail)
+    ) {
+      return true;
+    }
+  }
+
+  if (
+    (tables.better_auth_sessions ?? tables[1]) &&
+    (tables.better_auth_users ?? tables[2])
+  ) {
+    const betterAuth = await tx.execute({
+      sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
+      args: [token],
+    });
+    return (
+      normalizedEmail(betterAuth.rows[0]?.email ?? betterAuth.rows[0]?.[0]) ===
+      normalizedEmail(ownerEmail)
+    );
+  }
+
+  return false;
+}
+
 export async function revokeEmbedSessionsForOwner(
   ownerEmail: string,
 ): Promise<void> {
-  const key = ownerHash(ownerEmail);
-  if (!key) return;
-  await ensureTable();
+  return revokeEmbedSessionsForOwners([ownerEmail]);
+}
+
+export async function revokeEmbedSessionsForOwners(
+  ownerEmails: string[],
+  inTransaction?: (tx: DbExec) => Promise<void>,
+): Promise<void> {
+  const owners = new Map<string, string>();
+  for (const email of ownerEmails) {
+    const normalized = normalizedEmail(email);
+    const key = normalized ? ownerHash(normalized) : null;
+    if (key && normalized) owners.set(key, normalized);
+  }
+  const entries = [...owners].sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  if (entries.length > 0) await ensureTable();
   const client = getDbExec();
   if (!client.transaction) {
     throw new Error("Embed session revocation requires database transactions.");
   }
   await client.transaction(async (tx) => {
-    await lockEmbedSessionsForOwner(tx, key);
-    await tx.execute({
-      sql:
-        `INSERT INTO agent_native_embed_session_revocations (owner_hash, revoked_before) VALUES (?, ?) ` +
-        `ON CONFLICT (owner_hash) DO UPDATE SET revoked_before = GREATEST(agent_native_embed_session_revocations.revoked_before, EXCLUDED.revoked_before)`,
-      args: [key, Date.now()],
-    });
+    for (const [key] of entries) await lockEmbedSessionsForOwner(tx, key);
+    const revokedBefore = Date.now();
+    for (const [key] of entries) {
+      await tx.execute({
+        sql:
+          `INSERT INTO agent_native_embed_session_revocations (owner_hash, revoked_before) VALUES (?, ?) ` +
+          `ON CONFLICT (owner_hash) DO UPDATE SET revoked_before = GREATEST(agent_native_embed_session_revocations.revoked_before, EXCLUDED.revoked_before)`,
+        args: [key, revokedBefore],
+      });
+    }
+    await inTransaction?.(tx);
   });
 }
 
@@ -711,6 +780,10 @@ export async function createEmbedSessionTicket(
   const now = Date.now();
   const context = getRequestContext();
   const contextAuthenticatedAtMs = context?.identityAuthenticatedAtMs;
+  const contextSessionToken =
+    normalizedEmail(context?.userEmail) === normalizedEmail(ownerEmail)
+      ? context?.identitySessionToken
+      : undefined;
   const authenticatedAtMs =
     normalizedEmail(context?.userEmail) === normalizedEmail(ownerEmail) &&
     typeof contextAuthenticatedAtMs === "number" &&
@@ -733,6 +806,16 @@ export async function createEmbedSessionTicket(
       const revokedBefore = await embedSessionsRevokedBefore(ownerEmail, tx);
       if (revokedBefore !== null && authenticatedAtMs <= revokedBefore) {
         throw new Error("Embed session ticket creation was revoked by logout.");
+      }
+      if (
+        contextSessionToken &&
+        !(await sourceSessionBelongsToOwner(
+          tx,
+          ownerEmail,
+          contextSessionToken,
+        ))
+      ) {
+        throw new Error("Embed session ticket source session was revoked.");
       }
     }
     await tx.execute({
@@ -793,20 +876,15 @@ export async function resolveEmbedSessionTokenForHost(
 }
 
 export async function resolveEmbedSessionCookieOwners(
-  event: H3Event,
   tokens: string[],
 ): Promise<string[]> {
   if (tokens.length === 0) return [];
-  const hostname = requestHostname(event);
-  if (!hostname) {
-    throw new Error("Cannot resolve embed session cookies without a hostname.");
-  }
-
   const owners = new Set<string>();
   for (const token of tokens) {
-    const claims = await resolveEmbedSessionTokenForHost(token, hostname);
-    const owner = normalizedEmail(claims?.ownerEmail);
-    if (owner && !isEmbedCapabilityScope(claims?.scope)) owners.add(owner);
+    const verified = verifyEmbedSessionToken(token);
+    if (!verified.ok || isEmbedCapabilityScope(verified.claims.scope)) continue;
+    const owner = normalizedEmail(verified.claims.ownerEmail);
+    if (owner) owners.add(owner);
   }
   return [...owners];
 }

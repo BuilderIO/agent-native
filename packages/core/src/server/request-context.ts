@@ -166,6 +166,8 @@ export interface RequestContext {
   userEmail?: string;
   /** Earliest authentication-resolution time for this identity in the request. */
   identityAuthenticatedAtMs?: number;
+  /** Presented framework cookie token, used to recheck ticket sources after logout. */
+  identitySessionToken?: string;
   /** Canonical id set only from a validated Better Auth session. */
   authUserId?: string;
   userName?: string;
@@ -295,12 +297,14 @@ const REQUEST_IDENTITY_AUTH_TIME_KEY = "__anRequestIdentityAuthTime";
 type RequestIdentityAuthTime = {
   email: string;
   authenticatedAtMs: number;
+  sessionToken?: string;
 };
 
 export function markRequestIdentityAuthenticatedAtMs(
   event: { context?: Record<string, unknown> },
   email: string,
   authenticatedAtMs: number,
+  sessionToken?: string,
 ): void {
   const normalizedEmail = email.trim().toLowerCase();
   if (
@@ -321,6 +325,16 @@ export function markRequestIdentityAuthenticatedAtMs(
       Number.isFinite(existing.authenticatedAtMs)
         ? Math.min(existing.authenticatedAtMs, authenticatedAtMs)
         : authenticatedAtMs,
+    ...(existing?.email === normalizedEmail &&
+    existing.authenticatedAtMs <= authenticatedAtMs
+      ? existing.sessionToken
+        ? { sessionToken: existing.sessionToken }
+        : sessionToken
+          ? { sessionToken }
+          : {}
+      : sessionToken
+        ? { sessionToken }
+        : {}),
   } satisfies RequestIdentityAuthTime;
 }
 
@@ -335,6 +349,20 @@ export function getRequestIdentityAuthenticatedAtMs(
   return identity?.email === normalizedEmail &&
     Number.isFinite(identity.authenticatedAtMs)
     ? identity.authenticatedAtMs
+    : undefined;
+}
+
+export function getRequestIdentitySessionToken(
+  event: { context?: Record<string, unknown> },
+  email: string,
+): string | undefined {
+  const normalizedEmail = email.trim().toLowerCase();
+  const identity = event.context?.[REQUEST_IDENTITY_AUTH_TIME_KEY] as
+    | RequestIdentityAuthTime
+    | undefined;
+  return identity?.email === normalizedEmail &&
+    typeof identity.sessionToken === "string"
+    ? identity.sessionToken
     : undefined;
 }
 
@@ -440,6 +468,11 @@ export function runWithRequestContext<T>(
       Number.isFinite(context.identityAuthenticatedAtMs)
         ? context.identityAuthenticatedAtMs
         : undefined;
+    const inheritedSessionToken =
+      inheritedUserEmail === contextUserEmail &&
+      typeof inheritedContext?.identitySessionToken === "string"
+        ? inheritedContext.identitySessionToken
+        : undefined;
     context = {
       ...context,
       identityAuthenticatedAtMs:
@@ -447,10 +480,17 @@ export function runWithRequestContext<T>(
         inheritedAuthTime !== undefined
           ? Math.min(inheritedAuthTime, contextAuthTime ?? inheritedAuthTime)
           : (contextAuthTime ?? Date.now()),
+      ...(context.identitySessionToken === undefined && inheritedSessionToken
+        ? { identitySessionToken: inheritedSessionToken }
+        : {}),
     };
-  } else if (context.identityAuthenticatedAtMs !== undefined) {
+  } else if (
+    context.identityAuthenticatedAtMs !== undefined ||
+    context.identitySessionToken !== undefined
+  ) {
     const contextWithoutIdentityTime = { ...context };
     delete contextWithoutIdentityTime.identityAuthenticatedAtMs;
+    delete contextWithoutIdentityTime.identitySessionToken;
     context = contextWithoutIdentityTime;
   }
   if (

@@ -29,6 +29,8 @@ import {
   consumeEmbedSessionTicket,
   createEmbedSessionTicket,
   revokeEmbedSessionsForOwner,
+  revokeEmbedSessionsForOwners,
+  resolveEmbedSessionCookieOwners,
   resolveEmbedSessionTokenForHost,
   setEmbedSessionCookie,
   signEmbedSessionToken,
@@ -117,6 +119,27 @@ describe("embed session tokens", () => {
     });
     await expect(
       resolveEmbedSessionTokenForHost(token, "calendar.example.test"),
+    ).resolves.toBeNull();
+  });
+
+  it("finds signed sibling-host cookie owners for logout without authenticating them", async () => {
+    const siblingToken = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "mail.example.test",
+      targetPath: "/inbox",
+    });
+    const capabilityToken = signEmbedSessionToken({
+      ownerEmail: "capability-owner@example.com",
+      audienceHost: "mail.example.test",
+      targetPath: "/inbox",
+      scope: "capability:calendar.read",
+    });
+
+    await expect(
+      resolveEmbedSessionCookieOwners([siblingToken, capabilityToken]),
+    ).resolves.toEqual(["owner@example.com"]);
+    await expect(
+      resolveEmbedSessionTokenForHost(siblingToken, "calendar.example.test"),
     ).resolves.toBeNull();
   });
 });
@@ -212,6 +235,73 @@ describe("embed session tickets", () => {
       ),
     ).resolves.toMatchObject({ ticket: expect.any(String) });
     expect(ticketInserted).toBe(true);
+  });
+
+  it("rejects ticket creation when the presented source session was revoked", async () => {
+    let ticketInserted = false;
+    dbExec.execute.mockImplementation(async ({ sql }) => {
+      if (sql.includes("to_regclass")) {
+        return {
+          rows: [
+            {
+              legacy_sessions: "sessions",
+              better_auth_sessions: "session",
+              better_auth_users: "user",
+            },
+          ],
+        };
+      }
+      if (sql.includes("INSERT INTO agent_native_embed_tickets")) {
+        ticketInserted = true;
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.com",
+          identityAuthenticatedAtMs: Date.now(),
+          identitySessionToken: "revoked-cookie-session",
+        },
+        () =>
+          createEmbedSessionTicket({
+            ownerEmail: "owner@example.com",
+            targetPath: "/inbox",
+          }),
+      ),
+    ).rejects.toThrow("Embed session ticket source session was revoked.");
+    expect(ticketInserted).toBe(false);
+  });
+
+  it("commits source-session deletion under the same owner locks as cutoffs", async () => {
+    const operations: string[] = [];
+    dbExec.execute.mockImplementation(async ({ sql }) => {
+      operations.push(sql);
+      return { rows: [], rowsAffected: 1 };
+    });
+    dbExec.transaction.mockImplementation(async (run) => {
+      operations.push("BEGIN");
+      await run(dbExec);
+      operations.push("COMMIT");
+    });
+
+    await revokeEmbedSessionsForOwners(["owner@example.com"], async (tx) => {
+      await tx.execute({
+        sql: "DELETE FROM sessions WHERE email = ?",
+        args: ["owner@example.com"],
+      });
+    });
+
+    expect(operations).toEqual([
+      "BEGIN",
+      "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      expect.stringContaining(
+        "INSERT INTO agent_native_embed_session_revocations",
+      ),
+      "DELETE FROM sessions WHERE email = ?",
+      "COMMIT",
+    ]);
   });
 
   it("lets a signed-in collaborator redeem a resource-scoped capability", async () => {

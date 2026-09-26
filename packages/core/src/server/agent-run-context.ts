@@ -11,6 +11,7 @@ import {
 } from "../shared/test-traffic.js";
 import {
   getRequestIdentityAuthenticatedAtMs,
+  getRequestIdentitySessionToken,
   runWithRequestContext,
   type RequestContext,
 } from "./request-context.js";
@@ -287,6 +288,10 @@ export async function resolveAgentRunRequestContext(options: {
   const timezone = readAgentRunTimezone(options.event);
   const browserSessionId = readBrowserSessionIdHeader(options.event);
   const browserTabId = readBrowserTabIdHeader(options.event);
+  const identitySessionToken = getRequestIdentitySessionToken(
+    options.event,
+    options.ownerContext.owner,
+  );
   const clientPlatform = readAnalyticsClientPlatformHeader(options.event);
   const isSyntheticTraffic = readSyntheticTrafficHeader(options.event);
   const waitUntil = requestWaitUntil(options.event);
@@ -305,6 +310,7 @@ export async function resolveAgentRunRequestContext(options: {
             options.ownerContext.identityAuthenticatedAtMs,
         }
       : {}),
+    ...(identitySessionToken ? { identitySessionToken } : {}),
     userName: options.ownerContext.name,
     orgId,
     timezone,

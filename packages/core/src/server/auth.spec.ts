@@ -1597,7 +1597,12 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => {
-          const execute = vi.fn(async () => ({ rows: [] }));
+          const execute = vi.fn(async (query: any) => {
+            const sql = typeof query === "string" ? query : query.sql;
+            return sql?.includes("to_regclass")
+              ? { rows: [{ user_table: "user", session_table: "session" }] }
+              : { rows: [] };
+          });
           return {
             execute,
             transaction: async (
@@ -1678,7 +1683,20 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
-        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        getDbExec: () => {
+          const execute = vi.fn(async (query: any) => {
+            const sql = typeof query === "string" ? query : query.sql;
+            return sql?.includes("to_regclass")
+              ? { rows: [{ user_table: "user", session_table: "session" }] }
+              : { rows: [] };
+          });
+          return {
+            execute,
+            transaction: async (
+              run: (tx: { execute: typeof execute }) => unknown,
+            ) => run({ execute }),
+          };
+        },
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
@@ -1782,7 +1800,20 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
-        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        getDbExec: () => {
+          const execute = vi.fn(async (query: any) => {
+            const sql = typeof query === "string" ? query : query.sql;
+            return sql?.includes("to_regclass")
+              ? { rows: [{ user_table: "user", session_table: "session" }] }
+              : { rows: [] };
+          });
+          return {
+            execute,
+            transaction: async (
+              run: (tx: { execute: typeof execute }) => unknown,
+            ) => run({ execute }),
+          };
+        },
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
@@ -1814,10 +1845,12 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
 
-      const revokeEmbedSessionsForOwner = vi.fn(async () => {});
+      const revokeEmbedSessionsForOwners = vi.fn(
+        async (_emails: string[]) => {},
+      );
       vi.doMock("./embed-session.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
-        revokeEmbedSessionsForOwner,
+        revokeEmbedSessionsForOwners,
       }));
       vi.doMock("./better-auth-instance.js", () => ({
         getBetterAuth: vi.fn(async () => null),
@@ -1826,6 +1859,11 @@ describe("server/auth", () => {
       const mockExecute = vi.fn(async (query: any) => {
         const sql = typeof query === "string" ? query : query.sql;
         const args = typeof query === "string" ? undefined : query.args;
+        if (sql?.includes("to_regclass")) {
+          return {
+            rows: [{ user_table: "user", session_table: "session" }],
+          };
+        }
         if (
           sql?.includes("SELECT email, created_at FROM sessions") &&
           args?.[0] === "normal-session"
@@ -1873,13 +1911,15 @@ describe("server/auth", () => {
       await expect(logoutHandler(event)).resolves.toEqual({ ok: true });
 
       expect(
-        new Set(revokeEmbedSessionsForOwner.mock.calls.map(([email]) => email)),
+        new Set(
+          revokeEmbedSessionsForOwners.mock.calls.flatMap(([emails]) => emails),
+        ),
       ).toEqual(new Set(["owner@example.com", "other-owner@example.com"]));
       expect(event.res.headers.get("set-cookie") ?? "").toContain(
         "an_embed_session=; Max-Age=0",
       );
 
-      revokeEmbedSessionsForOwner.mockRejectedValueOnce(
+      revokeEmbedSessionsForOwners.mockRejectedValueOnce(
         new Error("revocation store unavailable"),
       );
       const failedEvent = createJsonPostEvent(
@@ -1920,20 +1960,26 @@ describe("server/auth", () => {
             }
           : null,
       );
-      const revokeEmbedSessionsForOwner = vi.fn(async (email: string) => {
-        operations.push(`revoke:${email}`);
-        if (failRevocation) throw new Error("revocation store unavailable");
-      });
       const mockExecute = vi.fn(async (query: any) => {
         const sql = typeof query === "string" ? query : query.sql;
         const args = typeof query === "string" ? [] : query.args;
         if (
           failUserTableLookup &&
-          sql === 'SELECT id FROM "user" WHERE email = ?'
+          sql?.includes('SELECT u.email FROM "session"')
         ) {
           throw Object.assign(new Error('relation "user" does not exist'), {
             code: "42P01",
           });
+        }
+        if (sql?.includes("to_regclass")) {
+          return {
+            rows: [
+              {
+                user_table: failUserTableLookup ? null : "user",
+                session_table: failUserTableLookup ? null : "session",
+              },
+            ],
+          };
         }
         if (typeof sql === "string" && sql.startsWith("DELETE")) {
           operations.push(sql);
@@ -1962,6 +2008,29 @@ describe("server/auth", () => {
                   : [],
         };
       });
+      const revokeEmbedSessionsForOwners = vi.fn(
+        async (
+          emails: string[],
+          inTransaction?: (tx: {
+            execute: typeof mockExecute;
+          }) => Promise<void>,
+        ) => {
+          const operationCount = operations.length;
+          const deletedBefore = new Set(deletedLegacyEmails);
+          try {
+            for (const email of emails) operations.push(`revoke:${email}`);
+            if (failRevocation) {
+              throw new Error("revocation store unavailable");
+            }
+            await inTransaction?.({ execute: mockExecute });
+          } catch (error) {
+            deletedLegacyEmails.clear();
+            for (const email of deletedBefore) deletedLegacyEmails.add(email);
+            operations.splice(operationCount);
+            throw error;
+          }
+        },
+      );
       const auth = {
         handler: vi.fn(async () => new Response("{}")),
         api: {
@@ -1972,7 +2041,7 @@ describe("server/auth", () => {
 
       vi.doMock("./embed-session.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
-        revokeEmbedSessionsForOwner,
+        revokeEmbedSessionsForOwners,
         resolveEmbedSessionFromRequest,
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
@@ -2041,7 +2110,7 @@ describe("server/auth", () => {
       );
       await expect(logoutAllHandler(event)).resolves.toEqual({ ok: true });
       expect(
-        revokeEmbedSessionsForOwner.mock.calls.map(([email]) => email),
+        revokeEmbedSessionsForOwners.mock.calls.flatMap(([emails]) => emails),
       ).toEqual([
         "embed-owner@example.com",
         "bearer-owner@example.com",
@@ -2093,7 +2162,9 @@ describe("server/auth", () => {
             },
           ),
         ),
-      ).resolves.toBeNull();
+      ).resolves.toMatchObject({
+        email: "framework-cookie-owner@example.com",
+      });
 
       operations.length = 0;
       failDatabaseDeleteAt = null;
@@ -2121,7 +2192,7 @@ describe("server/auth", () => {
         "/_agent-native/auth/logout-all",
         {},
         {
-          cookie: `${EMBED_SESSION_COOKIE}=${embedTokens[0]}`,
+          cookie: `${EMBED_SESSION_COOKIE}=${embedTokens[0]}; ${COOKIE_NAME}=stale-token`,
           host: "localhost",
         },
       );
@@ -2157,6 +2228,11 @@ describe("server/auth", () => {
       const mockExecute = vi.fn().mockImplementation((query: any) => {
         const sql = typeof query === "string" ? query : query.sql;
         const args = typeof query === "string" ? undefined : query.args;
+        if (sql?.includes("to_regclass")) {
+          return {
+            rows: [{ user_table: "user", session_table: "session" }],
+          };
+        }
         if (typeof sql !== "string") return { rows: [] };
         if (sql.includes('DELETE FROM "session"')) {
           liveBetterAuthTokens.delete(args?.[0]);
@@ -2302,13 +2378,23 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn().mockImplementation((query: any) => {
         const sql = typeof query === "string" ? query : query.sql;
+        if (sql?.includes("to_regclass")) {
+          return {
+            rows: [{ user_table: "user", session_table: "session" }],
+          };
+        }
         if (typeof sql === "string" && sql.includes('DELETE FROM "session"')) {
           throw new Error("connection reset");
         }
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
-        getDbExec: () => ({ execute: mockExecute }),
+        getDbExec: () => ({
+          execute: mockExecute,
+          transaction: async (
+            run: (tx: { execute: typeof mockExecute }) => unknown,
+          ) => run({ execute: mockExecute }),
+        }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
@@ -2377,7 +2463,12 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
-        getDbExec: () => ({ execute: mockExecute }),
+        getDbExec: () => ({
+          execute: mockExecute,
+          transaction: async (
+            run: (tx: { execute: typeof mockExecute }) => unknown,
+          ) => run({ execute: mockExecute }),
+        }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
@@ -8008,10 +8099,14 @@ describe("server/auth", () => {
       const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
 
       try {
-        const { getRequestIdentityAuthenticatedAtMs } =
-          await import("./request-context.js");
+        const {
+          getRequestIdentityAuthenticatedAtMs,
+          getRequestIdentitySessionToken,
+        } = await import("./request-context.js");
         const { getSession } = await import("./auth.js");
-        const event = createMockEvent();
+        const event = createMockEvent({
+          headers: { cookie: "an_session=session-token" },
+        });
         const pendingSession = getSession(event);
 
         await authLookup;
@@ -8026,6 +8121,9 @@ describe("server/auth", () => {
         expect(
           getRequestIdentityAuthenticatedAtMs(event, "owner@example.com"),
         ).toBe(1_000);
+        expect(getRequestIdentitySessionToken(event, "owner@example.com")).toBe(
+          "session-token",
+        );
 
         resolveOrgBackfill("org-1");
         await expect(pendingSession).resolves.toMatchObject({

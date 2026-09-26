@@ -99,6 +99,7 @@ import { isLoopbackRequest, registerAuthPublicPaths } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import {
   getRequestIdentityAuthenticatedAtMs,
+  getRequestIdentitySessionToken,
   hasExplicitPersonalOrgScope,
   markExplicitPersonalOrgScope,
   runWithRequestContext,
@@ -803,6 +804,9 @@ function mountActionRoutesInternal(
           ? (getRequestIdentityAuthenticatedAtMs(event, userEmail) ??
             requestAuthenticationStartedAtMs)
           : undefined;
+        const identitySessionToken = userEmail
+          ? getRequestIdentitySessionToken(event, userEmail)
+          : undefined;
 
         return runWithRequestContext(
           {
@@ -810,6 +814,7 @@ function mountActionRoutesInternal(
             ...(identityAuthenticatedAtMs !== undefined
               ? { identityAuthenticatedAtMs }
               : {}),
+            ...(identitySessionToken ? { identitySessionToken } : {}),
             ...(authUserId ? { authUserId } : {}),
             userName,
             orgId,
