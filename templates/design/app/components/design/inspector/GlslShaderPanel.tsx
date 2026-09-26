@@ -1214,10 +1214,12 @@ export function GlslShaderEffectSection({
           <PopoverAnchor asChild>
             <span className="block h-0 w-full" />
           </PopoverAnchor>
+          {/* The menu handoff can move focus while the canvas reprojects. */}
           <InspectorControlPopoverContent
             title={t("editPanel.shaders.effectsTitle")}
             icon={<IconWaveSine className="size-3.5" />}
             onClose={() => onPickerOpenChange(false)}
+            onFocusOutside={(event) => event.preventDefault()}
             bodyClassName="p-0"
           >
             <GlslShaderPanel

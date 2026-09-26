@@ -49,6 +49,7 @@ export interface PrivateBlobProvider {
   id: string;
   name: string;
   isConfigured: () => boolean;
+  isConfiguredForRequest?: () => Promise<boolean>;
   put: (input: PrivateBlobPutInput) => Promise<PrivateBlobHandle>;
   read: (handle: PrivateBlobHandle) => Promise<PrivateBlobReadResult>;
   delete: (handle: PrivateBlobHandle) => Promise<PrivateBlobDeleteResult>;
