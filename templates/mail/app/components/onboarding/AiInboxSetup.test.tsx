@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     actions: ({ type: "label"; labelName: string } | { type: "archive" })[];
     enabled: boolean;
   }>,
+  rulesLoading: false,
   startBackfill: vi.fn(),
   updateSettings: vi.fn(),
   sendToAgentChat: vi.fn(),
@@ -63,6 +64,12 @@ const mocks = vi.hoisted(() => ({
     isFetching: false,
     refetch: vi.fn(),
   },
+  googleStatus: {
+    data: { accounts: [{ email: "mail-test@example.test" }] } as
+      | { accounts: { email: string }[] }
+      | undefined,
+    isLoading: false,
+  },
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -74,7 +81,10 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => (key: string, options?: { count?: number }) =>
+    key === "mail.sort.aiSetupRuleCount"
+      ? `Matched ${options?.count ?? ""}`
+      : key,
 }));
 
 vi.mock("@/components/settings/JevConnectionPrompt", () => ({
@@ -104,7 +114,10 @@ vi.mock("@/components/ui/dialog", () => ({
 }));
 
 vi.mock("@/hooks/use-automations", () => ({
-  useAutomations: () => ({ data: mocks.automations, isLoading: false }),
+  useAutomations: () => ({
+    data: mocks.automations,
+    isLoading: mocks.rulesLoading,
+  }),
   useCreateAutomation: () => ({ mutateAsync: mocks.createRule }),
   useUpdateAutomation: () => ({ mutateAsync: mocks.updateRule }),
 }));
@@ -123,10 +136,7 @@ vi.mock("@/hooks/use-emails", () => ({
 }));
 
 vi.mock("@/hooks/use-google-auth", () => ({
-  useGoogleAuthStatus: () => ({
-    data: { accounts: [{ email: "mail-test@example.test" }] },
-    isLoading: false,
-  }),
+  useGoogleAuthStatus: () => mocks.googleStatus,
 }));
 
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
@@ -140,6 +150,7 @@ describe("AiInboxSetup", () => {
   beforeEach(() => {
     let id = 0;
     mocks.automations = [];
+    mocks.rulesLoading = false;
     mocks.updateRule.mockReset();
     mocks.createRule.mockImplementation(async (input) => ({
       id: `rule-${++id}`,
@@ -154,6 +165,10 @@ describe("AiInboxSetup", () => {
     mocks.jevAvailability.data = { configured: true };
     mocks.jevAvailability.isLoading = false;
     mocks.jevAvailability.isError = false;
+    mocks.googleStatus.data = {
+      accounts: [{ email: "mail-test@example.test" }],
+    };
+    mocks.googleStatus.isLoading = false;
   });
 
   afterEach(() => {
@@ -183,6 +198,45 @@ describe("AiInboxSetup", () => {
     expect((important as HTMLInputElement).placeholder).toBe(
       "mail.sort.aiSetupImportantExample",
     );
+  });
+
+  it("keeps account and Jev loading gates when setup is force-opened", () => {
+    const { rerender } = render(<AiInboxSetup forceOpen />);
+    mocks.googleStatus.isLoading = true;
+    rerender(<AiInboxSetup forceOpen />);
+    expect(
+      screen.queryByRole("heading", {
+        name: "mail.sort.aiSetupTagsHeadline",
+      }),
+    ).toBeNull();
+
+    mocks.googleStatus.isLoading = false;
+    mocks.jevAvailability.isLoading = true;
+    rerender(<AiInboxSetup forceOpen />);
+    expect(
+      screen.queryByRole("heading", {
+        name: "mail.sort.aiSetupTagsHeadline",
+      }),
+    ).toBeNull();
+
+    mocks.jevAvailability.isLoading = false;
+    mocks.googleStatus.data = { accounts: [] };
+    rerender(<AiInboxSetup forceOpen />);
+    expect(
+      screen.queryByRole("heading", {
+        name: "mail.sort.aiSetupTagsHeadline",
+      }),
+    ).toBeNull();
+
+    mocks.googleStatus.data = {
+      accounts: [{ email: "mail-test@example.test" }],
+    };
+    rerender(<AiInboxSetup forceOpen />);
+    expect(
+      screen.getByRole("heading", {
+        name: "mail.sort.aiSetupTagsHeadline",
+      }),
+    ).not.toBeNull();
   });
 
   it("advances through setup before completing from the final step", async () => {
@@ -224,6 +278,101 @@ describe("AiInboxSetup", () => {
       }),
     );
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("waits for the initial rules load before applying setup rules", async () => {
+    mocks.rulesLoading = true;
+    const { rerender } = render(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    const sortInbox = screen.getByRole("button", {
+      name: "mail.sort.aiSetupSortInbox",
+    });
+    expect((sortInbox as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(sortInbox);
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+    expect(mocks.createRule).not.toHaveBeenCalled();
+
+    mocks.rulesLoading = false;
+    rerender(<AiInboxSetup forceOpen />);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "mail.sort.aiSetupSortInbox",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  });
+
+  it("keeps live result counts, review, and undo visible during a rules refresh", async () => {
+    mocks.startBackfill.mockImplementation(async () => {
+      mocks.rulesLoading = true;
+      return { runId: "run-1", status: "queued" };
+    });
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "completed",
+      totalThreads: 1,
+      processedThreads: 1,
+      matchedThreads: 1,
+      appliedThreads: 1,
+      failedThreads: 0,
+      perRule: [
+        {
+          ruleId: "rule-1",
+          name: "Receipts",
+          matchedCount: 1,
+          appliedCount: 1,
+          suggestedCount: 0,
+          previews: [
+            {
+              id: "thread-1",
+              from: "sender@example.test",
+              subject: "An exact-pair message",
+              labels: ["Receipts"],
+              archived: false,
+            },
+          ],
+        },
+      ],
+      undoToken: "undo-1",
+    };
+
+    render(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", {
+          name: "mail.sort.aiSetupSortingHeadline",
+        }),
+      ).not.toBeNull(),
+    );
+    expect(screen.getByText("Matched 1")).not.toBeNull();
+    expect(screen.getByText("An exact-pair message")).not.toBeNull();
+    expect(
+      screen.getByRole("link", { name: "mail.sort.aiSetupTagReceipts" }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "mail.actions.undo" }),
+    ).not.toBeNull();
   });
 
   it("does not backfill default tags after skipping the tag step", async () => {
