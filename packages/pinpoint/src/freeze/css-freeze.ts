@@ -1,3 +1,4 @@
+// MIT License
 
 const FREEZE_STYLE_ID = "__pinpoint-css-freeze";
 

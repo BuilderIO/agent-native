@@ -1,3 +1,4 @@
+// MIT License
 
 interface QueuedUpdate {
   fiber: any;
@@ -66,7 +67,6 @@ export function freezeReact(): () => void {
       try {
         update.setter(update.action);
       } catch {
-        // Update may no longer be valid
       }
     }
 

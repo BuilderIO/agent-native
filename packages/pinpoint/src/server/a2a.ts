@@ -1,3 +1,4 @@
+// MIT License
 
 import type { Application } from "express";
 

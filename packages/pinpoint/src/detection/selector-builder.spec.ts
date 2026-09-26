@@ -1,3 +1,4 @@
+// MIT License
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -160,14 +161,14 @@ describe("buildSelector (fallback path — no finder() in this environment)", ()
     const el = makeElement({
       tagName: "DIV",
       classNames: [
-        "card", // kept
-        "css-8f7g2", // Emotion hash — skipped
-        "_hash123", // CSS Modules hash — skipped
-        "sc-abcxyz", // styled-components — skipped
-        "go1234", // Goober — skipped
-        "tw-flex", // Tailwind hashed util — skipped
-        "chakra-button", // Chakra internal — skipped
-        "highlight", // kept
+        "card",
+        "css-8f7g2",
+        "_hash123",
+        "sc-abcxyz",
+        "go1234",
+        "tw-flex",
+        "chakra-button",
+        "highlight",
       ],
     });
 

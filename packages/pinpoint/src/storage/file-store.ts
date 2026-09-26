@@ -1,3 +1,4 @@
+// MIT License
 
 import { randomUUID } from "crypto";
 import {
@@ -90,7 +91,6 @@ export class FileStore implements PinStorage {
     try {
       await unlink(this.pinPath(id));
     } catch {
-      // File already deleted or doesn't exist
     }
   }
 

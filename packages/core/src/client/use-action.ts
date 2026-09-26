@@ -99,7 +99,6 @@ export function actionErrorMessage(error: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-
 /**
  * Action type registry. This interface is empty by default and gets augmented
  * by the auto-generated `.generated/action-types.d.ts` file. When augmented,
@@ -136,7 +135,6 @@ export interface ClientActionCallOptions {
   timeoutMs?: number;
   headers?: Record<string, string>;
 }
-
 
 function resolveUserTimezone(): string | undefined {
   try {
@@ -432,9 +430,6 @@ async function performActionFetch<T>(
     ) {
       (error as any).retryAfterMs = retryAfterSeconds * 1000;
     }
-    // `message` keeps the "Action <name> failed:" framing, which belongs in a
-    // console but not in a toast. Carry the unframed text separately so a UI
-    // can render it without string-surgery on the prefix.
     if (authored !== undefined) (error as any).actionMessage = authored;
     if (typeof data?.errorCode === "string") {
       (error as any).errorCode = data.errorCode;
@@ -857,7 +852,6 @@ export function tryCallActionKeepalive<
   return { accepted: true, bodyBytes, completion };
 }
 
-
 /**
  * Wraps a caller-supplied `refetchInterval` so polling stops once the query's
  * last error is a terminal auth failure (401/403) instead of reissuing the
@@ -906,7 +900,6 @@ export function useActionQuery<
     ...(apiDisabled ? { enabled: false as const } : {}),
   });
 }
-
 
 export function useActionMutation<
   TData = undefined,

@@ -1,3 +1,4 @@
+// MIT License
 
 import { createSignal, onMount, type Component } from "solid-js";
 

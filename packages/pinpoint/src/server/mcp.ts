@@ -1,3 +1,4 @@
+// MIT License
 
 import { FileStore } from "../storage/file-store.js";
 

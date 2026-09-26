@@ -1,3 +1,4 @@
+// MIT License
 
 import { onMount, onCleanup, type Component } from "solid-js";
 

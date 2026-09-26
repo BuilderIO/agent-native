@@ -1,3 +1,4 @@
+// MIT License
 
 export function freezeWAAPI(): () => void {
   const animations = document.getAnimations();
@@ -9,7 +10,6 @@ export function freezeWAAPI(): () => void {
       try {
         a.play();
       } catch {
-        // Animation may have been removed
       }
     });
   };

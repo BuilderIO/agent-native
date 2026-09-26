@@ -1,3 +1,4 @@
+// MIT License
 
 import {
   createSignal,
@@ -278,7 +279,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
           on:click={(e: Event) => e.stopPropagation()}
           style={{ display: "contents" }}
         >
-          {/* Header */}
+          { }
           <div
             style={{
               display: "flex",
@@ -296,7 +297,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
             )}
           </div>
 
-          {/* Mode tabs */}
+          { }
           <div class="pp-mode-tabs" role="tablist">
             <button
               class={`pp-mode-tab ${props.mode === "select" ? "pp-mode-tab--active" : ""}`}
@@ -330,9 +331,9 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
             </button>
           </div>
 
-          {/* SELECT MODE content */}
+          { }
           <Show when={props.mode === "select"}>
-            {/* Active indicator when no pins */}
+            { }
             {props.pins.length === 0 && (
               <div
                 style={{
@@ -348,7 +349,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
               </div>
             )}
 
-            {/* Pin list */}
+            { }
             {props.pins.length > 0 && (
               <div class="pp-pin-list">
                 <For each={props.pins}>
@@ -375,7 +376,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
                           )}
                         </div>
                       </div>
-                      {/* Select checkbox */}
+                      { }
                       <button
                         class="pp-btn--icon pp-btn--icon-sm"
                         on:click={(e: Event) => {
@@ -421,7 +422,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
               </div>
             )}
 
-            {/* Send selected button */}
+            { }
             <Show when={props.selectedPinIds.size > 0}>
               <button
                 class="pp-btn pp-btn--primary"
@@ -437,9 +438,9 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
             </Show>
           </Show>
 
-          {/* DRAW MODE content */}
+          { }
           <Show when={props.mode === "draw"}>
-            {/* Draw tool selector */}
+            { }
             <div class="pp-draw-tools">
               <button
                 class={`pp-draw-tool ${props.drawTool === "freehand" ? "pp-draw-tool--active" : ""}`}
@@ -488,7 +489,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
               />
             </div>
 
-            {/* Color picker */}
+            { }
             <div class="pp-draw-options">
               <div class="pp-draw-colors">
                 <For each={DRAW_COLORS}>
@@ -503,7 +504,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
                 </For>
               </div>
 
-              {/* Line width */}
+              { }
               <div class="pp-draw-widths">
                 <For each={LINE_WIDTHS}>
                   {(w) => (
@@ -526,7 +527,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
               </div>
             </div>
 
-            {/* Draw stroke count */}
+            { }
             <Show when={props.drawStrokeCount > 0}>
               <div
                 style={{
@@ -541,7 +542,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
             </Show>
           </Show>
 
-          {/* QUEUE MODE content */}
+          { }
           <Show when={props.mode === "queue"}>
             {props.queue.length === 0 ? (
               <div
@@ -607,7 +608,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
             )}
           </Show>
 
-          {/* Settings panel */}
+          { }
           <Show when={props.showSettings}>
             <div class="pp-settings">
               <div class="pp-settings__row">
@@ -676,7 +677,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
             </div>
           </Show>
 
-          {/* Bottom action bar */}
+          { }
           <div class="pp-actions" role="toolbar" aria-label="Pinpoint actions">
             <button
               class="pp-btn--icon"

@@ -1,3 +1,4 @@
+// MIT License
 
 import type {
   FrameworkAdapter,
@@ -133,11 +134,9 @@ export const reactAdapter: FrameworkAdapter = {
   },
 
   freeze(): void {
-    // React update freezing handled by freeze/react-freeze.ts
   },
 
   unfreeze(): void {
-    // Restore handled by freeze/react-freeze.ts
   },
 };
 

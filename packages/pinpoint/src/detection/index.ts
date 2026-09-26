@@ -1,3 +1,4 @@
+// MIT License
 
 export { ElementPicker, type ElementPickerOptions } from "./element-picker.js";
 export { buildSelector, type SelectorOptions } from "./selector-builder.js";

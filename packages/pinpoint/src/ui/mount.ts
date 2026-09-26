@@ -1,3 +1,4 @@
+// MIT License
 
 import { render } from "solid-js/web";
 

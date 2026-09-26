@@ -1,3 +1,4 @@
+// MIT License
 
 const HTML_ENTITIES: Record<string, string> = {
   "&": "&amp;",

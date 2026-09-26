@@ -1,3 +1,4 @@
+// MIT License
 
 import { freezeCSS } from "./css-freeze.js";
 import { freezeJSTimers } from "./js-freeze.js";
@@ -34,7 +35,6 @@ export function unfreeze(): void {
     try {
       cleanup();
     } catch {
-      // Best-effort cleanup
     }
   }
   cleanups = [];

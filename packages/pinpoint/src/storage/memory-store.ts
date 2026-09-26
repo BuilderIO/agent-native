@@ -1,3 +1,4 @@
+// MIT License
 
 import type { Pin, PinStatus, PinStorage } from "../types/index.js";
 
@@ -20,7 +21,7 @@ export class MemoryStore implements PinStorage {
     this.pins.set(id, {
       ...existing,
       ...patch,
-      id: existing.id, // never overwrite ID
+      id: existing.id,
       updatedAt: new Date().toISOString(),
     });
   }

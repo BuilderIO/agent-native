@@ -1,3 +1,4 @@
+// MIT License
 
 import { parseArgs, fail } from "@agent-native/core/scripts";
 

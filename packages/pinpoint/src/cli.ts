@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// MIT License
 
 import { existsSync, mkdirSync, cpSync, readdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";

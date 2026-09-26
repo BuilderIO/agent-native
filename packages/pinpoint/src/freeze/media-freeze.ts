@@ -1,3 +1,4 @@
+// MIT License
 
 export function freezeMedia(): () => void {
   const mediaElements = document.querySelectorAll("video, audio");
@@ -19,7 +20,6 @@ export function freezeMedia(): () => void {
         svg.pauseAnimations();
         pausedSVGs.push(svg);
       } catch {
-        // SVG may not support animation
       }
     }
   });
@@ -29,7 +29,6 @@ export function freezeMedia(): () => void {
       try {
         void media.play();
       } catch {
-        // Media may have been removed
       }
     });
 
@@ -37,7 +36,6 @@ export function freezeMedia(): () => void {
       try {
         svg.unpauseAnimations();
       } catch {
-        // SVG may have been removed
       }
     });
   };

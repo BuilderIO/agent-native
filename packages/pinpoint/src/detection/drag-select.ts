@@ -1,3 +1,4 @@
+// MIT License
 
 export interface DragSelectOptions {
   coverageThreshold?: number;

@@ -1,3 +1,4 @@
+// MIT License
 
 export { buildElementContext as getElementContext } from "../detection/element-info.js";
 export { extractElementInfo } from "../detection/element-info.js";

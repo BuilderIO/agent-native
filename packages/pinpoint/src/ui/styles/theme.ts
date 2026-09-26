@@ -1,3 +1,4 @@
+// MIT License
 
 export const overlayStyles = `
 :host {

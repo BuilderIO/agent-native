@@ -1,3 +1,4 @@
+// MIT License
 
 import {
   createSignal,
@@ -63,7 +64,6 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
       const { openFile } = await import("../../utils/open-file.js");
       void openFile(file);
     } catch {
-      // Can't open file
     }
   }
 
@@ -195,7 +195,7 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
     >
       {compact() ? (
         <>
-          {/* Header with chevron toggle */}
+          { }
           <div
             class="pp-popup__header"
             on:click={() => setShowDetails(!showDetails())}
@@ -208,7 +208,7 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
             />
           </div>
 
-          {/* Collapsible technical details */}
+          { }
           <div
             class={`pp-popup__details ${showDetails() ? "pp-popup__details--open" : ""}`}
           >
@@ -259,7 +259,7 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
         </>
       )}
 
-      {/* Comment textarea with voice mic */}
+      { }
       <div class="pp-popup__input-row">
         <textarea
           ref={(element) => {
@@ -282,7 +282,7 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
         )}
       </div>
 
-      {/* Actions */}
+      { }
       <div class="pp-popup__actions">
         <button
           class="pp-btn pp-btn--ghost"

@@ -1,3 +1,4 @@
+// MIT License
 
 export { MemoryStore } from "./memory-store.js";
 export { RestClient } from "./rest-client.js";

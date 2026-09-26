@@ -1,3 +1,4 @@
+// MIT License
 
 import { finder } from "@medv/finder";
 
@@ -7,18 +8,18 @@ export interface SelectorOptions {
 }
 
 const DEFAULT_SKIP_CLASSES = [
-  /^css-/, // CSS-in-JS (Emotion, etc.)
-  /^_/, // CSS Modules hashes
-  /^sc-/, // styled-components
-  /^go\d/, // Goober
-  /^tw-/, // Tailwind utilities (sometimes hashed)
-  /^chakra-/, // Chakra UI internals
+  /^css-/,
+  /^_/,
+  /^sc-/,
+  /^go\d/,
+  /^tw-/,
+  /^chakra-/,
 ];
 
 const DEFAULT_SKIP_IDS = [
   /^:r[0-9]/, // React auto-generated IDs
-  /^radix-/, // Radix UI auto IDs
-  /^headlessui-/, // HeadlessUI auto IDs
+  /^radix-/,
+  /^headlessui-/,
 ];
 
 export function buildSelector(

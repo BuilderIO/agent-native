@@ -1,3 +1,4 @@
+// MIT License
 
 export interface ElementPickerOptions {
   onHover?: (element: Element | null, rect: DOMRect | null) => void;

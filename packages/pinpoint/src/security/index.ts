@@ -1,3 +1,4 @@
+// MIT License
 
 export { isAllowedOrigin, createSecureChannel } from "./origin-validation.js";
 export {

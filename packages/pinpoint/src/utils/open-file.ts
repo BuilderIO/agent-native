@@ -1,3 +1,4 @@
+// MIT License
 
 export async function openFile(
   filePath: string,
@@ -11,7 +12,6 @@ export async function openFile(
     window.open(vsCodeUrl, "_blank");
     return;
   } catch {
-    // VS Code not available
   }
 
   try {

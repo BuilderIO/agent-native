@@ -1,3 +1,4 @@
+// MIT License
 
 const PINPOINT_SYMBOL = Symbol.for("pinpoint-internal");
 const MAX_QUEUE = 1000;
@@ -99,7 +100,6 @@ export function freezeJSTimers(): () => void {
             );
           }
         } catch {
-          // Callback may no longer be valid
         }
       }
       if (queue.length > 0) {

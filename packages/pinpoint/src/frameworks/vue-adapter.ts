@@ -1,3 +1,4 @@
+// MIT License
 
 import type {
   FrameworkAdapter,
@@ -25,7 +26,7 @@ export const vueAdapter: FrameworkAdapter = {
       name: name || "Unknown",
       displayName: name || undefined,
       filePath: instance.$options?.__file || instance.type?.__file,
-      lineNumber: undefined, // Vue doesn't expose line numbers like React
+      lineNumber: undefined,
     };
   },
 

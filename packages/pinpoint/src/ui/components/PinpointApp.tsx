@@ -1,3 +1,4 @@
+// MIT License
 
 import {
   createSignal,
@@ -150,7 +151,6 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
       }
     },
     onStableHover: (_element) => {
-      // Could load full component context here
     },
     onSelect: (element) => {
       const framework = detectFramework();
@@ -190,7 +190,6 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
 
   const textSelect = new TextSelect({
     onSelect: (_selection) => {
-      // Text selection handling
     },
   });
 
@@ -626,7 +625,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
 
   return (
     <>
-      {/* Canvas overlay for hover/selection/drawing */}
+      { }
       <OverlayCanvas
         hoveredRect={hoveredRect()}
         dragRect={dragRect()}
@@ -645,10 +644,10 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
         onTextPlace={handleTextPlace}
       />
 
-      {/* Selection label near hovered element */}
+      { }
       <SelectionLabel info={selectionLabelInfo()} />
 
-      {/* Toolbar */}
+      { }
       <Toolbar
         expanded={expanded()}
         active={active()}
@@ -706,7 +705,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
         onTogglePinSelect={togglePinSelect}
       />
 
-      {/* Pin popup for annotation */}
+      { }
       {showPopup() && selectedContext() && (
         <PinPopup
           context={selectedContext()!}
@@ -727,7 +726,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
         />
       )}
 
-      {/* Text input popup for draw-mode text annotations */}
+      { }
       {showTextInput() && (
         <TextInputPopup
           x={textInputPos().x}
@@ -738,7 +737,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
         />
       )}
 
-      {/* Context menu */}
+      { }
       {showContextMenu() && selectedElement() && (
         <ContextMenu
           position={contextMenuPos()}
@@ -778,7 +777,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
         />
       )}
 
-      {/* Prompt mode */}
+      { }
       {showPrompt() && selectedElement() && (
         <PromptMode
           element={selectedElement()!}

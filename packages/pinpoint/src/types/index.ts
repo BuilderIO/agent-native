@@ -1,3 +1,4 @@
+// MIT License
 
 export type PinStatus = "open" | "acknowledged" | "resolved" | "dismissed";
 

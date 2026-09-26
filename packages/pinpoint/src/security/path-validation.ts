@@ -1,3 +1,4 @@
+// MIT License
 
 import { resolve, relative } from "path";
 
@@ -22,7 +23,6 @@ export function stripAbsolutePath(filePath: string): string {
       return filePath.slice(cwd.length + 1);
     }
   } catch {
-    // process.cwd() not available (browser)
   }
   return filePath;
 }

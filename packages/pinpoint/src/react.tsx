@@ -1,3 +1,4 @@
+// MIT License
 
 import { useEffect } from "react";
 

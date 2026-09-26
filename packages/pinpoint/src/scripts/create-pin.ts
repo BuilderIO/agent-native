@@ -1,3 +1,4 @@
+// MIT License
 
 import { randomUUID } from "crypto";
 

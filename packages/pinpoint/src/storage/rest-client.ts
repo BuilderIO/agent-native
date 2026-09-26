@@ -1,3 +1,4 @@
+// MIT License
 
 import type { Pin, PinStatus, PinStorage } from "../types/index.js";
 import { PinSchema } from "./schemas.js";

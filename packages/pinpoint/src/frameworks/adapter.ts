@@ -1,3 +1,4 @@
+// MIT License
 
 import type {
   FrameworkAdapter,
@@ -27,7 +28,6 @@ export function detectFramework(): FrameworkAdapter {
         return adapter;
       }
     } catch {
-      // Adapter detection failed, try next
     }
   }
 
@@ -65,7 +65,7 @@ export function getAdapters(): FrameworkAdapter[] {
 
 const genericAdapter: FrameworkAdapter = {
   name: "generic",
-  detect: () => true, // Always matches as fallback
+  detect: () => true,
   getComponentInfo: () => null,
   getSourceLocation: () => null,
 };
