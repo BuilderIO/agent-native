@@ -221,7 +221,7 @@ function buildReviewSummary(
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design, comments, or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, review status and feedback queue summary, plus any pending question overlay. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design, comments, or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, live-collaboration opt-in, review status and feedback queue summary, plus any pending question overlay. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
   readOnly: true,
@@ -339,6 +339,9 @@ export default defineAction({
         screen.design = {
           id: designId,
           title: (access.resource as { title?: unknown }).title ?? null,
+          liveCollaborationEnabled:
+            (access.resource as { liveCollaborationEnabled?: unknown })
+              .liveCollaborationEnabled === true,
           // The design's own linked system, not the template's. Picking one on
           // an empty design writes it here and nowhere else, so leaving it out
           // meant the first read after the choice could not see it.

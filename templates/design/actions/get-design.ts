@@ -73,6 +73,13 @@ export default defineAction({
     // batch share a `createdAt` to the millisecond and fall back to the id
     // tiebreak. Nothing may depend on the index matching the order a generator
     // wrote in — see the order-independence case in variant-lineup.test.ts.
+    const baseFileFields = {
+      id: schema.designFiles.id,
+      filename: schema.designFiles.filename,
+      fileType: schema.designFiles.fileType,
+      createdAt: schema.designFiles.createdAt,
+      updatedAt: schema.designFiles.updatedAt,
+    };
     const fileFilter = fileId
       ? and(
           eq(schema.designFiles.designId, id),
@@ -86,25 +93,12 @@ export default defineAction({
     const files =
       includeFileContent === false
         ? await db
-            .select({
-              id: schema.designFiles.id,
-              filename: schema.designFiles.filename,
-              fileType: schema.designFiles.fileType,
-              createdAt: schema.designFiles.createdAt,
-              updatedAt: schema.designFiles.updatedAt,
-            })
+            .select(baseFileFields)
             .from(schema.designFiles)
             .where(fileFilter)
             .orderBy(...fileOrder)
         : await db
-            .select({
-              id: schema.designFiles.id,
-              filename: schema.designFiles.filename,
-              fileType: schema.designFiles.fileType,
-              content: schema.designFiles.content,
-              createdAt: schema.designFiles.createdAt,
-              updatedAt: schema.designFiles.updatedAt,
-            })
+            .select({ ...baseFileFields, content: schema.designFiles.content })
             .from(schema.designFiles)
             .where(fileFilter)
             .orderBy(...fileOrder);
@@ -133,6 +127,7 @@ export default defineAction({
       description: row.description,
       projectType: row.projectType,
       designSystemId: row.designSystemId,
+      liveCollaborationEnabled: row.liveCollaborationEnabled === true,
       designSystem,
       data: designDataForAccessRole(row.data ?? null, access.role),
       visibility: row.visibility,
