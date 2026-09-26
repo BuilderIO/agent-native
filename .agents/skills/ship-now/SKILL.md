@@ -163,9 +163,11 @@ checkout, and update the existing PR rather than creating a second one.
    fetch `origin/main`, and verify the merge commit is present before rotating
    branches.
 
-   6. Run `/new-branch` after the merge lands. Follow its activation guard,
-   origin/main freshness check, stash gate, branch naming, conflict handling,
-   and post-flight stash report exactly.
+   6. Run `/new-branch` after the merge lands. In a task-owned worktree, rotate
+   to a fresh branch without asking when its freshness and clean-work gates
+   pass. Preserve the source branch if unpushed commits or dirty publishable
+   paths remain. In a shared checkout, ask before changing branches unless the
+   user gave the exact operation. Never stash or touch another worktree.
 
 7. Monitor the merged PR and release tail after rotation. Check the merged PR's
    merge commit, all workflows attached to that commit, beta deployment status,
