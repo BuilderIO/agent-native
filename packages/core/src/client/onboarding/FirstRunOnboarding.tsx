@@ -465,6 +465,8 @@ export function FirstRunOnboarding({
     );
   };
 
+  const builderStatusPending = !previewMode && !connectFlow.statusResolved;
+
   const handleRoleContinue = async () => {
     const roleToSave =
       selectedRole === "other" ? customRole.trim() : selectedRole;
@@ -546,10 +548,14 @@ export function FirstRunOnboarding({
               data-testid="first-run-builder-continue"
               className={cn(primaryButtonClass, "w-full")}
               onClick={() => handleBuilder(canActivateBuilderFreeCredits)}
-              disabled={connectFlow.connecting}
+              disabled={builderStatusPending || connectFlow.connecting}
             >
               {t("agentChat.common.continue")}
-              <IconArrowRight size={15} />
+              {builderStatusPending || connectFlow.connecting ? (
+                <IconLoader2 size={15} className="animate-spin" />
+              ) : (
+                <IconArrowRight size={15} />
+              )}
             </button>
             <p className="text-center text-xs leading-5 text-muted-foreground">
               {t("agentChat.onboarding.builderConsentPrefix")}{" "}
@@ -573,6 +579,24 @@ export function FirstRunOnboarding({
               .
             </p>
           </div>
+          {connectFlow.error && !connectFlow.statusResolved && !previewMode && (
+            <div className="flex flex-col items-center gap-2">
+              <p
+                role="status"
+                data-testid="first-run-builder-status-error"
+                className="text-center text-xs text-destructive"
+              >
+                {connectFlow.error}
+              </p>
+              <button
+                type="button"
+                className="min-h-8 rounded-lg px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => connectFlow.retry()}
+              >
+                {t("agentChat.common.retry")}
+              </button>
+            </div>
+          )}
           <div className="flex flex-col items-center gap-2">
             <button
               type="button"

@@ -67,11 +67,13 @@ async function completeFirstRunOnboarding(
 
   await role.getByRole("button", { name: /skip for now/i }).click();
 
+  await expect(page.locator('[data-onboarding-screen="choice"]')).toBeVisible();
   const skipToApp = page.locator('[data-testid="first-run-skip-to-app"]');
+  const usesConnectChoice = await skipToApp.isVisible();
   const skipManual = page.locator(
     '[data-testid="first-run-open-key-settings"]',
   );
-  if (await skipToApp.isVisible().catch(() => false)) {
+  if (usesConnectChoice) {
     await expect(
       page.locator('[data-testid="first-run-builder-continue"]'),
     ).toBeVisible();
@@ -90,7 +92,7 @@ async function completeFirstRunOnboarding(
     );
   });
 
-  if (await skipToApp.isVisible().catch(() => false)) {
+  if (usesConnectChoice) {
     await skipToApp.click();
   } else {
     await skipManual.click();

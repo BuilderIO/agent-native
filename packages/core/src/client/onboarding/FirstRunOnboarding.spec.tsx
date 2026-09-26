@@ -712,6 +712,101 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
+  it("waits for Builder status before choosing a setup path", () => {
+    mocks.firstRunMode = "connect";
+    const flow = {
+      hasFetchedStatus: false,
+      statusResolved: false,
+      configured: false,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      retry: vi.fn(() => true),
+      start: vi.fn(),
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+
+    const continueButton = document.body.querySelector<HTMLButtonElement>(
+      "[data-testid='first-run-builder-continue']",
+    );
+    expect(continueButton?.disabled).toBe(true);
+    act(() => continueButton?.click());
+    expect(flow.start).not.toHaveBeenCalled();
+
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      ...flow,
+      hasFetchedStatus: true,
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+    });
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => continueButton?.click());
+
+    expect(flow.start).toHaveBeenCalledWith(
+      expect.objectContaining({ provisionAccount: true }),
+    );
+  });
+
+  it("lets users retry a failed Builder status check", () => {
+    mocks.firstRunMode = "connect";
+    const retry = vi.fn(() => true);
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: false,
+      configured: false,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: "Couldn't reach Builder to check your account. Retrying.",
+      retry,
+      start: vi.fn(),
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    expect(
+      document.body.querySelector(
+        "[data-testid='first-run-builder-status-error']",
+      )?.textContent,
+    ).toContain("Couldn't reach Builder");
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-builder-status-error']")
+        ?.parentElement?.querySelector("button")
+        ?.click();
+    });
+
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
   it("opens API key settings only after choosing the manual option", async () => {
     mocks.firstRunMode = "connect";
 
