@@ -370,6 +370,22 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
   });
 
+  it("keeps the active Priority option visible when availability lookup fails", () => {
+    mocks.view = "inbox";
+    render(
+      <Harness
+        showPrioritySort
+        jevConfigured={false}
+        jevAvailabilityError
+        sortMode="priority"
+      />,
+    );
+
+    expect(hasPrioritySortOption(mocks.headerActions)).toBe(true);
+    expect(hasText(mocks.headerActions, "mail.error.tryAgain")).toBe(false);
+    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
+  });
+
   it("shows Priority sort when Jev is configured", () => {
     mocks.view = "inbox";
     render(<Harness showPrioritySort />);

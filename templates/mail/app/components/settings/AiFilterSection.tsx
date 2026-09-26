@@ -282,7 +282,7 @@ export function AiFilterSection() {
   }, [promptRules]);
 
   const updateAiSettings = (enabled: boolean) => {
-    if (!jevConfigured) return;
+    if (enabled && !jevConfigured) return;
     updateSettings.mutate(
       { mode: "settings", settings: { enabled } },
       {
@@ -574,7 +574,7 @@ export function AiFilterSection() {
             checked={state.enabled}
             onCheckedChange={updateAiSettings}
             aria-label={t("mail.aiFilter.toggle")}
-            disabled={!jevConfigured}
+            disabled={!jevConfigured && !state.enabled}
           />
         </div>
 

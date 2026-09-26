@@ -2186,7 +2186,7 @@ export function EmailList({
                   <IconCheck className="size-3.5" />
                 )}
               </DropdownMenuItem>
-              {jevConfigured && (
+              {showPrioritySort && (
                 <div className="flex items-center">
                   <DropdownMenuItem
                     onSelect={() => onSortModeChange?.("priority")}
@@ -2209,7 +2209,7 @@ export function EmailList({
                   </DropdownMenuItem>
                 </div>
               )}
-              {!jevConfigured &&
+              {!showPrioritySort &&
                 (jevAvailabilityError ? (
                   <DropdownMenuItem
                     onSelect={onJevRetry}

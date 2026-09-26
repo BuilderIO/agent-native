@@ -7,6 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -19,6 +20,9 @@ const mocks = vi.hoisted(() => ({
   includeDisabledImportant: false,
   includeExtraDuplicate: false,
   jevAvailabilityError: false,
+  jevConfigured: true,
+  triageEnabled: true,
+  updateAiFilterSettings: vi.fn(),
   refetchJevAvailability: vi.fn(),
 }));
 
@@ -29,7 +33,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@agent-native/core/client/hooks", () => ({
   actionErrorMessage: (error: unknown) => String(error),
   useActionQuery: () => ({
-    data: mocks.jevAvailabilityError ? undefined : { configured: true },
+    data: mocks.jevAvailabilityError
+      ? undefined
+      : { configured: mocks.jevConfigured },
     isLoading: false,
     isError: mocks.jevAvailabilityError,
     isFetching: false,
@@ -61,8 +67,11 @@ vi.mock("@/components/ui/tooltip", () => ({
 }));
 
 vi.mock("@/hooks/use-ai-filter", () => ({
-  useAiFilter: () => ({ data: { enabled: true }, isLoading: false }),
-  useManageAiFilter: () => ({ mutate: vi.fn() }),
+  useAiFilter: () => ({
+    data: { enabled: mocks.triageEnabled },
+    isLoading: false,
+  }),
+  useManageAiFilter: () => ({ mutate: mocks.updateAiFilterSettings }),
 }));
 
 vi.mock("@/hooks/use-automations", () => ({
@@ -157,6 +166,22 @@ vi.mock("@/hooks/use-google-auth", () => ({
 import { AiFilterSection } from "./AiFilterSection";
 
 describe("AiFilterSection prompt blur saves", () => {
+  it("allows turning triage off when Jev is unavailable", () => {
+    mocks.jevConfigured = false;
+    mocks.triageEnabled = true;
+    render(<AiFilterSection />, { wrapper: MemoryRouter });
+
+    const toggle = screen.getByRole("switch", {
+      name: "mail.aiFilter.toggle",
+    });
+    expect((toggle as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(toggle);
+    expect(mocks.updateAiFilterSettings).toHaveBeenCalledWith(
+      { mode: "settings", settings: { enabled: false } },
+      expect.objectContaining({ onError: expect.any(Function) }),
+    );
+  });
+
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
@@ -164,10 +189,13 @@ describe("AiFilterSection prompt blur saves", () => {
     mocks.includeDisabledImportant = false;
     mocks.includeExtraDuplicate = false;
     mocks.jevAvailabilityError = false;
+    mocks.jevConfigured = true;
+    mocks.triageEnabled = true;
     mocks.createRule.mockReset();
     mocks.consolidateRule.mockReset();
     mocks.deleteRule.mockReset();
     mocks.updateRule.mockReset();
+    mocks.updateAiFilterSettings.mockReset();
   });
 
   it("does not mutate existing rules when a prompt blurs unchanged", async () => {
