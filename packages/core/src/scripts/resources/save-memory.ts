@@ -6,7 +6,11 @@
  * and maintains a `memory/MEMORY.md` index.
  */
 
-import { resourcePut, resourceGetByPath } from "../../resources/store.js";
+import {
+  resourceGetByPath,
+  resourcePut,
+  resourcePutIfSnapshot,
+} from "../../resources/store.js";
 import {
   getAmbientUserEmail,
   getRequestRunContext,
@@ -18,6 +22,7 @@ const VALID_TYPES = ["user", "feedback", "project", "reference"] as const;
 
 const EMPTY_INDEX = `# Memory Index
 `;
+const INDEX_WRITE_ATTEMPTS = 5;
 
 export default async function saveMemoryScript(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
@@ -58,49 +63,53 @@ updated: ${now}
 
 ${content}`;
 
-  // Write the memory file
+  // Read the index before either write so a failed read cannot replace it.
+  let existingIndex = await resourceGetByPath(owner, indexPath);
   await resourcePut(owner, memoryPath, fileContent, "text/markdown");
 
-  // Update the index
-  let index: string;
-  try {
-    const existing = await resourceGetByPath(owner, indexPath);
-    index = existing?.content ?? EMPTY_INDEX;
-  } catch {
-    index = EMPTY_INDEX;
-  }
+  let updatedIndex = "";
+  let indexSaved = false;
+  for (let attempt = 0; attempt < INDEX_WRITE_ATTEMPTS; attempt += 1) {
+    const index = existingIndex?.content ?? EMPTY_INDEX;
+    const lines = index.split("\n");
+    const entryLine = `- [${name}](${name}.md) — ${description}`;
+    const entryPrefix = `- [${name}]`;
+    let found = false;
+    const updatedLines = lines.map((line) => {
+      if (line.startsWith(entryPrefix)) {
+        found = true;
+        return entryLine;
+      }
+      return line;
+    });
+    if (!found) updatedLines.push(entryLine);
+    updatedIndex = updatedLines.join("\n").trimEnd() + "\n";
 
-  // Parse existing entries (simple line-based: `- [name](file) — description`)
-  const lines = index.split("\n");
-  const entryLine = `- [${name}](${name}.md) — ${description}`;
-  const entryPrefix = `- [${name}]`;
-
-  // Find and replace or append
-  let found = false;
-  const updatedLines = lines.map((line) => {
-    if (line.startsWith(entryPrefix)) {
-      found = true;
-      return entryLine;
+    const written = await resourcePutIfSnapshot({
+      owner,
+      path: indexPath,
+      content: updatedIndex,
+      mimeType: "text/markdown",
+      previous: existingIndex,
+    });
+    if (written) {
+      indexSaved = true;
+      break;
     }
-    return line;
-  });
-
-  if (!found) {
-    // Append after the header
-    updatedLines.push(entryLine);
+    existingIndex = await resourceGetByPath(owner, indexPath);
+  }
+  if (!indexSaved) {
+    fail(
+      "Memory index changed repeatedly while saving; retry the memory write.",
+    );
   }
 
-  const updatedIndex = updatedLines.join("\n").trimEnd() + "\n";
-
-  // Check size
   const lineCount = updatedIndex.split("\n").length;
   if (lineCount > 200) {
     console.log(
       `Warning: Memory index has ${lineCount} lines (recommended: <200). Consider consolidating or removing old memories.`,
     );
   }
-
-  await resourcePut(owner, indexPath, updatedIndex, "text/markdown");
 
   // Do not report success until both writes are visible through the resource
   // read path. This catches storage or ownership mismatches that would
@@ -114,5 +123,7 @@ ${content}`;
     fail("save-memory could not verify persisted memory index.");
   }
 
-  console.log(`Saved memory "${name}" (${type}): ${description}`);
+  if (parsed.quiet !== "true") {
+    console.log(`Saved memory "${name}" (${type}): ${description}`);
+  }
 }

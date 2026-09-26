@@ -15,6 +15,9 @@ const accountHealthSkill = readFileSync(
 const {
   agentChatPluginOptions,
   getRequestRunContext,
+  getRequestUserEmail,
+  getRequestOrgId,
+  enqueueAnalyticsMemoryCapture,
   representativeAnalyticsActions,
   retrieveAnalyticsPromptReferences,
   summarizeAnalyticsRun,
@@ -22,6 +25,9 @@ const {
 } = vi.hoisted(() => ({
   agentChatPluginOptions: [] as Array<Record<string, unknown>>,
   getRequestRunContext: vi.fn((): Record<string, any> | null => null),
+  getRequestUserEmail: vi.fn(() => "owner@example.test"),
+  getRequestOrgId: vi.fn(() => null),
+  enqueueAnalyticsMemoryCapture: vi.fn(async () => true),
   retrieveAnalyticsPromptReferences: vi.fn(),
   summarizeAnalyticsRun: vi.fn(
     (input: { preloadedReferenceCount: number }) => ({
@@ -100,6 +106,9 @@ vi.mock("../lib/analytics-agent-context", () => ({
   retrieveAnalyticsPromptReferences,
   summarizeAnalyticsRun,
 }));
+vi.mock("../lib/analytics-memory-capture.js", () => ({
+  enqueueAnalyticsMemoryCapture,
+}));
 
 vi.mock("@agent-native/core/tracking", () => ({ track }));
 
@@ -109,6 +118,8 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
   return {
     ...original,
     getRequestRunContext: () => getRequestRunContext(),
+    getRequestUserEmail: () => getRequestUserEmail(),
+    getRequestOrgId: () => getRequestOrgId(),
     createAgentChatPlugin: (options: Record<string, unknown>) => {
       agentChatPluginOptions.push(options);
       return () => {};
@@ -251,12 +262,18 @@ describe("Analytics prompt-reference preparation", () => {
       scope: unknown,
       run: { events: unknown[] },
     ) => Promise<void>;
-    const run = { events: [] };
+    const run = { threadId: "thread-1", events: [] };
 
     await onAgentRunComplete(null, run);
 
     expect(track).toHaveBeenCalledWith("analytics_agent_run_outcome", {
       preloaded_reference_count: 2,
+      memory_capture_queued: 1,
+    });
+    expect(enqueueAnalyticsMemoryCapture).toHaveBeenCalledWith({
+      owner: "owner@example.test",
+      orgId: null,
+      threadId: "thread-1",
     });
     expect(summarizeAnalyticsRun).toHaveBeenCalledWith({
       events: run.events,

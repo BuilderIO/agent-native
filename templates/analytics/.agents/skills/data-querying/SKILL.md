@@ -187,8 +187,20 @@ When you complete an analysis and discover:
 - A schema discovery (table exists but wasn't in the dictionary, a column name differs)
 - An identity-stitching rule (how to match users across two specific sources)
 
-Capture it immediately using `save-memory` or by writing to `LEARNINGS.md` via
-the `resources` tool:
+Analytics automatically captures explicit user corrections and metric
+definitions the user confirms after the thread has been idle. State corrections
+plainly, and ask the user to confirm a new metric definition before treating it
+as durable. Do not call `save-memory` again for those same items.
+
+Use `save-memory` for other verified, durable personal Analytics knowledge,
+with a short actionable description; read the existing entry first when
+updating it. Do not save guesses, one-off result values, raw queries,
+credentials, or personal or customer-identifying details. If the finding is
+uncertain or only applies to the current analysis, leave it in the answer
+instead of creating a memory.
+
+For entries not suitable for personal memory, use the project `LEARNINGS.md`
+only when it contains genuinely reusable, non-sensitive guidance:
 
 ```
 resources(action: "read", path: "LEARNINGS.md")  -- read first to merge

@@ -2,13 +2,12 @@ import { getOrgContext } from "@agent-native/core/org";
 import {
   createAgentChatPlugin,
   buildDeepLink,
-  loadActionsFromStaticRegistry,
-  type AgentLoopFinalResponseGuardContext,
-} from "@agent-native/core/server";
-import {
+  getRequestContext,
   getRequestOrgId,
   getRequestRunContext,
   getRequestUserEmail,
+  loadActionsFromStaticRegistry,
+  type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
@@ -18,6 +17,7 @@ import {
   summarizeAnalyticsRun,
 } from "../lib/analytics-agent-context";
 import { ANALYTICS_CONNECTOR_CATALOG } from "../lib/analytics-connector-catalog";
+import { enqueueAnalyticsMemoryCapture } from "../lib/analytics-memory-capture.js";
 import { credentialProviderConfigs } from "../lib/credential-keys";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 import {
@@ -1296,12 +1296,30 @@ export default createAgentChatPlugin({
   appId: "analytics",
   onAgentTurnComplete: autosaveAnalyticsAfterAgentTurn,
   onAgentRunComplete: async (_scope, run) => {
+    let memoryCaptureQueued = 0;
+    const owner = getRequestRunContext()?.owner ?? getRequestUserEmail();
+    if (owner && getRequestContext()?.isSyntheticTraffic !== true) {
+      try {
+        memoryCaptureQueued = Number(
+          await enqueueAnalyticsMemoryCapture({
+            owner,
+            orgId: getRequestOrgId() || null,
+            threadId: run.threadId,
+          }),
+        );
+      } catch (error) {
+        console.warn("[analytics-memory-capture] enqueue failed", {
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+    }
     const properties = summarizeAnalyticsRun({
       events: run.events,
       preloadedReferenceCount:
         getRequestRunContext()?.analyticsJevPrefetch?.preloadedReferenceCount ??
         0,
     });
+    properties.memory_capture_queued = memoryCaptureQueued;
     const { track } = await import("@agent-native/core/tracking");
     await track("analytics_agent_run_outcome", properties);
   },
