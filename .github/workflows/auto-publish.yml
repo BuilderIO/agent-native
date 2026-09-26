@@ -1,5 +1,6 @@
 name: Publish packages
 
+# stable publication, so an ordinary merge cannot opt into the stable lane.
 
 on:
   push:
