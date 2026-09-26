@@ -1,4 +1,5 @@
 import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   IconArrowRight,
@@ -564,7 +565,7 @@ export function FirstRunOnboarding({
             {t("agentChat.setup.connectBuilder")}
           </h1>
           <div className="flex w-full flex-col items-center gap-3">
-            <button
+            <Button
               type="button"
               data-testid="first-run-builder-continue"
               className={cn(primaryButtonClass, "w-full")}
@@ -577,7 +578,7 @@ export function FirstRunOnboarding({
               ) : (
                 <IconArrowRight size={15} />
               )}
-            </button>
+            </Button>
             <p className="text-center text-xs leading-5 text-muted-foreground">
               {t("agentChat.onboarding.builderConsentPrefix")}{" "}
               <a
@@ -609,32 +610,38 @@ export function FirstRunOnboarding({
               >
                 {t("agentChat.setup.providerStatusUnavailable")}
               </p>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 className="min-h-8 rounded-lg px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => connectFlow.retry()}
               >
                 {t("agentChat.common.retry")}
-              </button>
+              </Button>
             </div>
           )}
           <div className="flex flex-col items-center gap-2">
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
               data-testid="first-run-open-key-settings"
               className="min-h-9 rounded-lg px-2.5 text-sm font-medium text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={() => void handleOpenSettings()}
             >
               {t("agentChat.onboarding.useOwnApiKeys")}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
               data-testid="first-run-skip-to-app"
               className="min-h-8 rounded-lg px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={() => void handleSkipToApp()}
             >
               {t("agentChat.onboarding.skipForNow")}
-            </button>
+            </Button>
           </div>
         </div>
       </OnboardingShell>

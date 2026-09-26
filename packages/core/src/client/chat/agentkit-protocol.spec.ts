@@ -183,7 +183,7 @@ describe("createAgentKitProtocolAdapter", () => {
           id: "retry",
           role: "user",
           parts: [
-            { type: "text", text: "Retry my previous request." },
+            { type: "text", text: "Summarize the report" },
             {
               type: "file",
               name: "brief.pdf",
@@ -199,6 +199,8 @@ describe("createAgentKitProtocolAdapter", () => {
     });
 
     expect(startedTurn).toMatchObject({
+      prompt: "Summarize the report",
+      metadata: { agentNativeInternalContinuation: true },
       attachments: [
         {
           name: "brief.pdf",

@@ -3,6 +3,7 @@ import type {
   AgentMessage,
 } from "@agent-native/agentkit";
 import {
+  AgentMessageView,
   AgentRunFailure,
   AgentConnectionRequestCard,
   AgentKitChat,
@@ -126,6 +127,7 @@ function ChatThreadRouteContent({
             labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}
             slots={{
               emptyState: ChatEmptyState,
+              message: ChatMessage,
               messageSupplement: ChatMcpConnectionSuggestion,
               runFailure: ChatRunFailure,
               connectionRequest: ChatMcpConnectionRequest,
@@ -160,6 +162,20 @@ function ChatThreadRouteContent({
   );
 }
 
+function ChatMessage({ value, threadId }: AgentKitRenderProps<AgentMessage>) {
+  const metadata = value.metadata as
+    | { custom?: { agentNativeRecoveryAction?: unknown } }
+    | undefined;
+  const recoveryAction = metadata?.custom?.agentNativeRecoveryAction;
+  if (
+    value.role === "user" &&
+    (recoveryAction === "continue" || recoveryAction === "retry")
+  ) {
+    return null;
+  }
+  return <AgentMessageView value={value} threadId={threadId} />;
+}
+
 function ChatRunFailure({
   error,
   runId,
@@ -191,11 +207,16 @@ function ChatRunFailure({
       recoveryMetadata(message)?.agentNativeRecoveryOfRunId === runId,
   );
   const retryFirstMessage = useCallback(() => {
+    const prompt =
+      originalRequest?.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n") ?? "";
     const attachments =
       originalRequest?.parts.filter((part) => part.type === "file") ?? [];
     void controller.sendMessage({
       threadId,
-      text: t("chat.retryPreviousRequest"),
+      text: prompt || t("chat.retryPreviousRequest"),
       ...(attachments.length ? { attachments } : {}),
       metadata: {
         custom: {

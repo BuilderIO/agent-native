@@ -89,6 +89,9 @@ vi.mock("@agent-native/core/client/agentkit-chat/transport", () => ({
 }));
 
 vi.mock("@agent-native/agentkit/react/components", () => ({
+  AgentMessageView: ({ value }: { value: { id: string } }) => (
+    <div data-testid="rendered-agent-message">{value.id}</div>
+  ),
   AgentRunFailure: ({ error }: { error: { message: string } }) => (
     <div data-testid="generic-run-failure">{error.message}</div>
   ),
@@ -223,6 +226,7 @@ describe("ChatRoute AgentKit surface", () => {
       labels: { composerPlaceholder: "chat.composerPlaceholder" },
       slots: {
         emptyState: expect.any(Function),
+        message: expect.any(Function),
         messageSupplement: expect.any(Function),
         runFailure: expect.any(Function),
         connectionRequest: expect.any(Function),
@@ -340,7 +344,7 @@ describe("ChatRoute AgentKit surface", () => {
     expect(routeState.sendMessage).toHaveBeenCalledOnce();
     expect(routeState.sendMessage.mock.calls[0]?.[0]).toEqual({
       threadId: "thread-one",
-      text: "chat.retryPreviousRequest",
+      text: "Summarize this file",
       attachments: [
         {
           type: "file",
@@ -357,10 +361,47 @@ describe("ChatRoute AgentKit surface", () => {
       },
     });
 
+    const messageSlot = (
+      routeState.rootProps?.slots as {
+        message: React.ComponentType<{
+          value: { id: string; role: string; metadata?: unknown };
+          threadId: string;
+        }>;
+      }
+    ).message;
+    act(() =>
+      root.render(
+        React.createElement(messageSlot, {
+          value: {
+            id: "recovery-1",
+            role: "user",
+            metadata: {
+              custom: { agentNativeRecoveryAction: "retry" },
+            },
+          },
+          threadId: "thread-one",
+        }),
+      ),
+    );
+    expect(
+      container.querySelector("[data-testid='rendered-agent-message']"),
+    ).toBeNull();
+    act(() =>
+      root.render(
+        React.createElement(messageSlot, {
+          value: { id: "user-1", role: "user" },
+          threadId: "thread-one",
+        }),
+      ),
+    );
+    expect(
+      container.querySelector("[data-testid='rendered-agent-message']"),
+    ).not.toBeNull();
+
     routeState.messages.push({
       id: "recovery-1",
       role: "user",
-      parts: [{ type: "text", text: "Retry the previous request." }],
+      parts: [{ type: "text", text: "Summarize this file" }],
       metadata: {
         custom: {
           agentNativeRecoveryAction: "retry",
