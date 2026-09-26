@@ -98,15 +98,19 @@ export function isExcludedPath(file) {
 }
 
 export function isSpecificCommitMessage(message) {
+  const subject = message?.split(/\r?\n/, 1)[0].trim();
   if (
-    !message ||
-    message.startsWith("-") ||
-    /^chore:\s*publish branch work\b/i.test(message)
+    !subject ||
+    subject.startsWith("-") ||
+    /^chore:\s*publish branch work\b/i.test(subject)
   ) {
     return false;
   }
 
-  const description = message.replace(/^[a-z]+(?:\([^)]*\))?:\s*/i, "").trim();
+  const description = subject
+    .replace(/^[a-z]+(?:\([^)]*\))?:\s*/i, "")
+    .replace(/^(?:fix|update)\s+/i, "")
+    .trim();
   return /\S+\s+\S+/.test(description);
 }
 
