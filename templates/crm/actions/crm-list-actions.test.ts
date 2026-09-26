@@ -1128,6 +1128,26 @@ describe("access scoping", () => {
     );
     expect(page.entries.map((entry: any) => entry.recordId)).toEqual([kept]);
   });
+
+  it("fills the page past withheld entries instead of returning it short", async () => {
+    const list = await newList("Scope Fill");
+    const revoked = await createRecord("companies", "Revoked First", {
+      ...NATIVE_SCOPE,
+      key: "native:previous-grant",
+    });
+    const visible = await createRecord("companies", "Visible Second");
+    for (const recordId of [revoked, visible]) {
+      await asOwner(() =>
+        addCrmRecordToList.run({ listId: list.id, recordId }, ownerCtx),
+      );
+    }
+
+    const page = await asOwner(() =>
+      listCrmListEntries.run({ listId: list.id, limit: 1 }, ownerCtx),
+    );
+    expect(page.entries.map((entry: any) => entry.recordId)).toEqual([visible]);
+    expect(page.complete).toBe(true);
+  });
 });
 
 describe("list-crm-lists and update-crm-list", () => {

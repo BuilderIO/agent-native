@@ -868,3 +868,28 @@ describe("relative date tokens", () => {
     expect(query.resolveRelativeDateToken("whenever", now)).toBeNull();
   });
 });
+
+describe("recordsInCurrentScope", () => {
+  const row = (objectType: string, scope: object = SCOPE) => ({
+    connectionId: CONNECTION,
+    workspaceConnectionId: null,
+    provider: "native",
+    objectType,
+    accessScopeJson: JSON.stringify(scope),
+  });
+
+  it("surfaces a resolver failure instead of withholding every row", async () => {
+    await expect(
+      query.recordsInCurrentScope([row("accounts")], async () => {
+        throw new Error("provider timed out");
+      }),
+    ).rejects.toThrow(/provider timed out/);
+  });
+
+  it("refuses a page with more scopes than it can verify", async () => {
+    const rows = Array.from({ length: 21 }, (_, index) => row(`type_${index}`));
+    await expect(
+      query.recordsInCurrentScope(rows, async () => SCOPE),
+    ).rejects.toThrow(/21 access scopes/);
+  });
+});

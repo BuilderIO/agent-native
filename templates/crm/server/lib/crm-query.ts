@@ -1239,7 +1239,9 @@ export function crmScopeResolver(
 /**
  * Keeps only the mirrored rows whose stored access scope still matches the
  * scope granted now, so a narrowed or revoked upstream grant withholds the
- * local copy even while its rows and shares remain.
+ * local copy even while its rows and shares remain. A resolver failure is
+ * thrown, not read as revoked access, so an outage never looks like an empty
+ * or partial result.
  */
 export async function recordsInCurrentScope<
   T extends ScopeValidationTarget & { accessScopeJson: string },
@@ -1256,14 +1258,21 @@ export async function recordsInCurrentScope<
         },
       ]),
     ).values(),
-  ).slice(0, MAX_SCOPE_VALIDATIONS);
+  );
+  // Every scope on the page is checked; silently skipping the rest would drop
+  // valid rows while the cursor moves past them.
+  if (targets.length > MAX_SCOPE_VALIDATIONS) {
+    throw new Error(
+      `CRM page spans ${targets.length} access scopes; at most ${MAX_SCOPE_VALIDATIONS} can be verified per page. Narrow the query or lower the limit.`,
+    );
+  }
   const currentScopes = new Map(
     await Promise.all(
       targets.map(
         async (target) =>
           [
             `${target.connectionId}:${target.objectType}`,
-            await resolveScope(target).catch(() => null),
+            await resolveScope(target),
           ] as const,
       ),
     ),
