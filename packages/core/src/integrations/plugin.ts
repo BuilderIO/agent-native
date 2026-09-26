@@ -862,17 +862,21 @@ export function createIntegrationsPlugin(
 
     // Resolve actions — auto-include call-agent so the integration agent can
     // delegate to other A2A apps, matching the behavior of the agent-chat plugin.
+    // `callAgent: false` leaves it out, the counterpart of agent-chat's
+    // `workspaceApps` tool group for a deployment with no A2A peer.
     const localActions = options?.actions ?? {};
     let callAgentEntry: Record<string, unknown> = {};
     try {
-      const mod = await import("../scripts/call-agent.js");
-      callAgentEntry = {
-        "call-agent": {
-          tool: mod.tool,
-          run: (args: Record<string, string>, context: unknown) =>
-            mod.run(args, context as any, options?.appId),
-        },
-      };
+      if (options?.callAgent !== false) {
+        const mod = await import("../scripts/call-agent.js");
+        callAgentEntry = {
+          "call-agent": {
+            tool: mod.tool,
+            run: (args: Record<string, string>, context: unknown) =>
+              mod.run(args, context as any, options?.appId),
+          },
+        };
+      }
     } catch {
       // call-agent script not available — skip
     }

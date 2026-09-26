@@ -2448,6 +2448,48 @@ describe("integrations plugin routes", () => {
     );
   });
 
+  it("leaves call-agent out of the registry when callAgent is false", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    const incomingAdapter: PlatformAdapter = {
+      ...adapter,
+      parseIncomingMessage: async () => ({
+        platform: "fake",
+        externalThreadId: "thread-qa",
+        text: "hello",
+        senderName: "QA User",
+        platformContext: {},
+        timestamp: Date.now(),
+      }),
+    };
+    handleWebhookMock.mockResolvedValue({ status: 200, body: "ok" });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [incomingAdapter],
+      systemPrompt: "Base prompt.",
+      callAgent: false,
+      actions: {
+        "template-action": {
+          tool: { description: "App action", parameters: {} },
+          run: async () => "ok",
+        } as any,
+      },
+    })(nitroApp);
+
+    await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(handleWebhookMock).toHaveBeenCalledTimes(1);
+    const [, options] = handleWebhookMock.mock.calls[0];
+    expect(Object.keys(options.actions)).toContain("template-action");
+    expect(Object.keys(options.actions)).not.toContain("call-agent");
+  });
+
   it("politely declines a Slack DM when the default identity ladder declines", async () => {
     getIntegrationConfigMock.mockResolvedValueOnce({
       configData: { enabled: true },
