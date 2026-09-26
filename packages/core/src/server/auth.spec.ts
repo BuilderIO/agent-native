@@ -91,6 +91,7 @@ describe("server/auth", () => {
     process.env = originalEnv;
     vi.doUnmock("./better-auth-instance.js");
     vi.doUnmock("../db/client.js");
+    vi.doUnmock("./legacy-auth-migration.js");
     vi.doUnmock("../org/context.js");
     vi.doUnmock("../org/auth-policy.js");
     vi.doUnmock("./embed-session.js");
@@ -1800,8 +1801,8 @@ describe("server/auth", () => {
     it("revokes the Better Auth session row directly so logout can't be resurrected by the legacy-cookie fallback", async () => {
       // Reproduces the reported bug: a token whose legacy `sessions` row was
       // never written (the magic-link `addSession` mirror is best-effort —
-      // see `persistMagicLinkLegacySession`) resolves ONLY through Better
-      // Auth's own `"session"` table via `emailFromBetterAuthSessionToken`.
+      // see `persistMagicLinkLegacySession`) resolves through Better Auth's
+      // own `"session"` table via `emailFromBetterAuthSessionToken`.
       // `auth.api.signOut()` can't revoke it because it looks for Better
       // Auth's own session cookie, which the browser never held — only the
       // framework's `an_session` cookie carrying the same token value. If
@@ -1809,10 +1810,14 @@ describe("server/auth", () => {
       // and `getSession()` resurrects the "logged out" user on the very next
       // request.
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("COOKIE_DOMAIN", ".example.com");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
 
-      const liveBetterAuthTokens = new Set(["ba_session_token"]);
+      const liveBetterAuthTokens = new Set([
+        "ba_session_token",
+        "ba_cookie_token",
+      ]);
       const mockExecute = vi.fn().mockImplementation((query: any) => {
         const sql = typeof query === "string" ? query : query.sql;
         const args = typeof query === "string" ? undefined : query.args;
@@ -1840,13 +1845,36 @@ describe("server/auth", () => {
         ...(await importOriginal<object>()),
         getBetterAuth: async () => ({
           api: {
+            getSession: vi.fn(async ({ headers }: { headers: Headers }) => {
+              const token = headers
+                .get("cookie")
+                ?.match(
+                  /(?:^|;\s*)(?:__Secure-)?[\w.-]*session_token=([^;]+)/,
+                )?.[1];
+              return token && liveBetterAuthTokens.has(token)
+                ? {
+                    user: {
+                      id: "ba-user",
+                      email: "designer@example.com",
+                    },
+                    session: { token },
+                  }
+                : null;
+            }),
             signOut: vi.fn(async () => ({ headers: new Headers() })),
           },
         }),
         getBetterAuthSync: () => null,
       }));
+      vi.doMock("./legacy-auth-migration.js", () => ({
+        resolveCanonicalUserForLegacySession: vi.fn(async () => null),
+      }));
+      vi.doMock("../org/context.js", () => ({
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+      }));
 
-      const { autoMountAuth, getSession } = await import("./auth.js");
+      const { autoMountAuth, BETTER_AUTH_COOKIE_PREFIX, getSession } =
+        await import("./auth.js");
       const app = createMockApp();
       await autoMountAuth(app);
 
@@ -1856,7 +1884,14 @@ describe("server/auth", () => {
       const logoutEvent = createJsonPostEvent(
         "/_agent-native/auth/logout",
         {},
-        { cookie: "an_session=ba_session_token" },
+        {
+          "x-forwarded-proto": "https",
+          cookie: [
+            "an_session=ba_session_token",
+            `__Secure-${BETTER_AUTH_COOKIE_PREFIX}.session_token=ba_cookie_token`,
+            `__Secure-${BETTER_AUTH_COOKIE_PREFIX}.session_data=stale-cache`,
+          ].join("; "),
+        },
       );
 
       const sessionBeforeLogout = createMockEvent({
@@ -1866,16 +1901,58 @@ describe("server/auth", () => {
         email: "designer@example.com",
         token: "ba_session_token",
       });
+      const sessionBeforeLogoutWithBetterAuthCookie = createMockEvent({
+        headers: {
+          cookie: `__Secure-${BETTER_AUTH_COOKIE_PREFIX}.session_token=ba_cookie_token`,
+        },
+      });
+      expect(
+        await getSession(sessionBeforeLogoutWithBetterAuthCookie),
+      ).toMatchObject({
+        email: "designer@example.com",
+        token: "ba_cookie_token",
+      });
 
       await logoutHandler(logoutEvent);
 
-      expect(liveBetterAuthTokens.has("ba_session_token")).toBe(false);
+      expect(liveBetterAuthTokens.size).toBe(0);
+
+      const cookieClears = logoutEvent.res.headers.getSetCookie();
+      const betterAuthCookieNames = [
+        "session_token",
+        "session_data",
+        "dont_remember",
+      ].flatMap((suffix) => {
+        const name = `${BETTER_AUTH_COOKIE_PREFIX}.${suffix}`;
+        return [name, `__Secure-${name}`];
+      });
+      const cookieScopes = [
+        "Path=/; Secure; Partitioned; SameSite=None",
+        "Path=/; Secure; SameSite=None",
+        "Domain=.example.com; Path=/; Secure; Partitioned; SameSite=None",
+        "Domain=.example.com; Path=/; Secure; SameSite=None",
+      ];
+      expect(cookieClears).toEqual(
+        expect.arrayContaining([
+          ...betterAuthCookieNames.flatMap((name) =>
+            cookieScopes.map((scope) => `${name}=; Max-Age=0; ${scope}`),
+          ),
+        ]),
+      );
 
       const sessionAfterLogout = createMockEvent({
         headers: { cookie: "an_session=ba_session_token" },
       });
       expect(await getSession(sessionAfterLogout)).toBeNull();
-    });
+      const sessionAfterLogoutWithBetterAuthCookie = createMockEvent({
+        headers: {
+          cookie: `__Secure-${BETTER_AUTH_COOKIE_PREFIX}.session_token=ba_cookie_token`,
+        },
+      });
+      expect(
+        await getSession(sessionAfterLogoutWithBetterAuthCookie),
+      ).toBeNull();
+    }, 15_000);
 
     it("reports a failed Better Auth session revoke during logout instead of swallowing it", async () => {
       vi.stubEnv("NODE_ENV", "production");
@@ -1918,9 +1995,10 @@ describe("server/auth", () => {
         { cookie: "an_session=ba_session_token" },
       );
 
-      // Logout still reports success — this only asserts the failure is
-      // tracked, not that it changes the response contract.
-      await expect(logoutHandler(logoutEvent)).resolves.toEqual({ ok: true });
+      await expect(logoutHandler(logoutEvent)).resolves.toEqual({
+        error: "Unable to revoke session",
+      });
+      expect(logoutEvent.res.status).toBe(503);
 
       expect(captureAuthError).toHaveBeenCalledWith(
         expect.objectContaining({ message: "connection reset" }),
