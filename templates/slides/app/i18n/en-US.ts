@@ -914,7 +914,6 @@ const messages = {
       "Your saved content is still available. Check the connection and try again.",
     retry: "Retry",
     decksTitle: "Decks",
-    newDeck: "New Deck",
     deckLengthQuestion: "How long should this deck be?",
     deckLengthHeader: "Deck length",
     deckLengthShort: "Short (3–5 slides)",

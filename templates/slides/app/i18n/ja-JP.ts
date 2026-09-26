@@ -921,7 +921,6 @@ const messages = {
       "保存済みのコンテンツはそのままです。接続を確認して再試行してください。",
     retry: "再試行",
     decksTitle: "デッキ",
-    newDeck: "新しいデッキ",
     deckLengthQuestion: "このデッキの長さはどれくらいにしますか？",
     deckLengthHeader: "デッキの長さ",
     deckLengthShort: "短め（3〜5 枚）",

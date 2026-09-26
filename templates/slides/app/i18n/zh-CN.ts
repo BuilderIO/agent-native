@@ -887,7 +887,6 @@ const messages = {
     loadFailedDescription: "您保存的内容仍然可用。请检查连接并重试。",
     retry: "重试",
     decksTitle: "幻灯片",
-    newDeck: "新建幻灯片",
     deckLengthQuestion: "这份幻灯片需要多长？",
     deckLengthHeader: "幻灯片长度",
     deckLengthShort: "短（3–5 张）",
