@@ -442,9 +442,9 @@ export default function Index() {
   const homeSuggestions = homeSuggestionsQuery.data?.suggestions.length
     ? homeSuggestionsQuery.data.suggestions
     : [
-        t("agent.suggestionPitch"),
-        t("agent.suggestionBrand"),
-        t("agent.suggestionHero"),
+        t("home.fallbackSuggestions.pitch"),
+        t("home.fallbackSuggestions.roadmap"),
+        t("home.fallbackSuggestions.explainer"),
       ].map((prompt, index) => ({
         id: `slides-home-generic-${index}`,
         label: prompt,

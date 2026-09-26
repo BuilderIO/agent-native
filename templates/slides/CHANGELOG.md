@@ -16,6 +16,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Slides home suggestions start new presentations when personalized suggestions are unavailable, and template thumbnails load their declared fonts.
+- The home search shortcut leaves commands for open menus and dialogs.
 - Double-clicking slide text selects the word under the pointer.
 - Invalid or expired upload references stop instead of retrying
 - Slides ask for a file when a prompt refers to an unattached document

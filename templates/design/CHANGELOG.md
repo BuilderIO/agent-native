@@ -17,6 +17,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- The home search shortcut leaves commands for open menus and dialogs.
 - Cmd+D places screen duplicates in the next open slot
 - Dropping a layer beside a sibling keeps that insertion point.
 - Opening shared designs no longer fails during client startup

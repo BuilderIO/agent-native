@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
+import { prepareImportedFonts } from "@/components/deck/SlideRenderer";
+
 export function DeckTemplatePreview({
   html,
   title,
@@ -9,6 +11,25 @@ export function DeckTemplatePreview({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.25);
+  const { html: previewHtml, hrefs: fontHrefs } = prepareImportedFonts(html);
+  const fontLinks = fontHrefs
+    .map(
+      (href) =>
+        `<link rel="stylesheet" href="${href.replaceAll("&", "&amp;")}">`,
+    )
+    .join("");
+  const fontPreconnects = fontHrefs.length
+    ? '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+    : "";
+  const srcDoc = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    ${fontPreconnects}${fontLinks}
+    <style>html,body{margin:0;overflow:hidden;width:960px;height:540px}</style>
+  </head>
+  <body>${previewHtml}</body>
+</html>`;
   useEffect(() => {
     const element = containerRef.current;
     if (!element) return;
@@ -26,7 +47,7 @@ export function DeckTemplatePreview({
     >
       <iframe
         title={title}
-        srcDoc={`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;overflow:hidden;width:960px;height:540px}</style></head><body>${html}</body></html>`}
+        srcDoc={srcDoc}
         sandbox=""
         loading="lazy"
         tabIndex={-1}

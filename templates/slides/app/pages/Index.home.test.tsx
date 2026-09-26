@@ -31,6 +31,7 @@ const {
   contextOptions,
   refetchSystems,
   headerActions,
+  homeSuggestions,
 } = vi.hoisted(() => ({
   useDecks: vi.fn(),
   reloadDecks: vi.fn(),
@@ -44,12 +45,24 @@ const {
   contextOptions: vi.fn(),
   refetchSystems: vi.fn(),
   headerActions: { current: null as ReactNode | null },
+  homeSuggestions: {
+    value: [
+      {
+        id: "suggestion-1",
+        label: "Build a pitch",
+        prompt: "Create a pitch deck for a new product.",
+      },
+    ],
+  },
 }));
 const translate = (key: string) =>
   ({
     "home.firstDeckPromptTitle":
       "What kind of presentation should we generate?",
     "home.recent": "Recent",
+    "home.fallbackSuggestions.pitch": "Create a product pitch deck",
+    "home.fallbackSuggestions.roadmap": "Create a product roadmap",
+    "home.fallbackSuggestions.explainer": "Explain a topic in a presentation",
     "home.starters.pitch.label": "Pitch deck",
     "home.starters.pitch.prompt": "Create a pitch deck about ",
     "home.noDecksMatchSearch": "No decks match your search.",
@@ -91,15 +104,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
           data:
             options?.enabled === false
               ? undefined
-              : {
-                  suggestions: [
-                    {
-                      id: "suggestion-1",
-                      label: "Build a pitch",
-                      prompt: "Create a pitch deck for a new product.",
-                    },
-                  ],
-                },
+              : { suggestions: homeSuggestions.value },
           isLoading: false,
           isError: false,
         }
@@ -262,6 +267,13 @@ beforeEach(() => {
   signedIn.value = true;
   agentEngine.state = "configured";
   agentEngine.missing = false;
+  homeSuggestions.value = [
+    {
+      id: "suggestion-1",
+      label: "Build a pitch",
+      prompt: "Create a pitch deck for a new product.",
+    },
+  ];
   headerActions.current = null;
   for (const name of ["localStorage", "sessionStorage"]) {
     const values = new Map<string, string>();
@@ -616,6 +628,25 @@ describe("Slides prompt-led home", () => {
       }),
     );
     expect(createDeck).not.toHaveBeenCalled();
+  });
+
+  it("falls back to prompts that can create a new presentation", async () => {
+    homeSuggestions.value = [];
+    renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    expect(
+      screen.getByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Create a product roadmap" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "Explain a topic in a presentation",
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Apply our brand to this deck")).toBeNull();
   });
 
   it("hides home suggestions until provider status is confirmed", async () => {

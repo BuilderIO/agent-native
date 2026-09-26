@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   listLoading: false,
   empty: false,
   invalidDetail: false,
+  previewMode: "none" as "none" | "first" | "all",
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   actionErrorMessage: (error: unknown) =>
@@ -105,6 +106,7 @@ beforeEach(() => {
   mocks.listLoading = false;
   mocks.empty = false;
   mocks.invalidDetail = false;
+  mocks.previewMode = "none";
   mocks.engine.mockImplementation(() => {
     throw new Error("Template copies must not require an AI provider");
   });
@@ -125,7 +127,14 @@ beforeEach(() => {
               : {
                   templates: mocks.empty
                     ? []
-                    : filtered.slice(0, Number(args.pageSize)),
+                    : filtered
+                        .slice(0, Number(args.pageSize))
+                        .map((template, index) =>
+                          mocks.previewMode === "all" ||
+                          (mocks.previewMode === "first" && index === 0)
+                            ? template
+                            : { ...template, previewHtml: undefined },
+                        ),
                   total: filtered.length,
                 },
           isLoading: mocks.listLoading,
@@ -161,9 +170,9 @@ afterEach(() => {
 describe("real starter template library", () => {
   it("shows every home template, without fetching template details", () => {
     const view = mount({ entry: "/home" });
-    expect(view.container.querySelectorAll("iframe")).toHaveLength(
-      catalog.length,
-    );
+    expect(
+      view.container.querySelectorAll(".agent-template-library-card"),
+    ).toHaveLength(catalog.length);
     expect(
       mocks.query.mock.calls.every(([name]) => name === "list-deck-templates"),
     ).toBe(true);
@@ -174,14 +183,18 @@ describe("real starter template library", () => {
     expect(mocks.create).not.toHaveBeenCalled();
   });
   it("lists every gallery template and sandboxes the 960 by 540 artwork with no default body margin", () => {
+    mocks.previewMode = "first";
     const view = mount();
     const frames = view.container.querySelectorAll("iframe");
-    expect(frames).toHaveLength(catalog.length);
+    expect(frames).toHaveLength(1);
     expect(frames[0].getAttribute("sandbox")).toBe("");
     expect(frames[0].srcdoc).toContain("margin:0");
     expect(frames[0].srcdoc).toContain(first.previewHtml);
     expect(frames[0].className).toBe("deck-template-preview-frame");
     expect(frames[0].srcdoc).toContain("width:960px;height:540px");
+    expect(frames[0].srcdoc).toContain(
+      "fonts.googleapis.com/css2?family=Archivo",
+    );
   });
   it("opens the shared inset modal preview from the caption menu without copying or losing the home draft", async () => {
     mount({ entry: "/home" });

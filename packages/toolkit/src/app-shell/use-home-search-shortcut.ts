@@ -20,6 +20,13 @@ export function useHomeSearchShortcut(enabled: boolean): void {
       ) {
         return;
       }
+      if (
+        document.querySelector(
+          '[role="menu"][data-state="open"], [role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"], dialog[open]',
+        )
+      ) {
+        return;
+      }
       const search = Array.from(
         document.querySelectorAll<HTMLInputElement>("[data-home-search]"),
       ).find((input) => input.getClientRects().length > 0);

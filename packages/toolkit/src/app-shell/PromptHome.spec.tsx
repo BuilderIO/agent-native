@@ -158,6 +158,37 @@ describe("prompt home and library", () => {
     expect(modifiedSlash.defaultPrevented).toBe(false);
   });
 
+  it("leaves slash available to an open menu or dialog", () => {
+    function Home() {
+      useHomeSearchShortcut(true);
+      return <input data-home-search />;
+    }
+    render(<Home />);
+    const input =
+      container.querySelector<HTMLInputElement>("[data-home-search]")!;
+    Object.defineProperty(input, "getClientRects", {
+      value: () => ({ length: 1 }) as DOMRectList,
+    });
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("data-state", "open");
+    const item = document.createElement("button");
+    menu.appendChild(item);
+    document.body.appendChild(menu);
+
+    const slash = new KeyboardEvent("keydown", {
+      key: "/",
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    item.dispatchEvent(slash);
+
+    expect(slash.defaultPrevented).toBe(false);
+    expect(document.activeElement).not.toBe(input);
+    menu.remove();
+  });
+
   it("uses controlled semantic tabs with keyboard selection and active actions", async () => {
     function Library() {
       const [value, setValue] = useState<"templates" | "recent">("templates");

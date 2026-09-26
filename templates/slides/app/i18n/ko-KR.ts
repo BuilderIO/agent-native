@@ -807,6 +807,11 @@ const messages = {
     chooseAnotherFile: "다른 파일 선택",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "제품 피치 덱 만들기",
+      roadmap: "제품 로드맵 만들기",
+      explainer: "프레젠테이션으로 주제 설명하기",
+    },
     suggestedPrompts: "추천 프롬프트",
     importMenu: {
       import: "가져오기",
