@@ -1,9 +1,6 @@
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  BuilderConnectPopover,
-  useBuilderConnectFlow,
-} from "@agent-native/core/client/settings";
+import { useBuilderConnectFlow } from "@agent-native/core/client/settings";
 import {
   IconCheck,
   IconCloud,
@@ -168,6 +165,15 @@ export function StorageSetupCard({
     },
     [builderConnect.start],
   );
+  const hasBuilderAccount =
+    builderConnect.accountExists ||
+    (builderConnect.configured && !builderConnect.envManaged);
+  const provisionAccount =
+    !hasBuilderAccount &&
+    (builderConnect.agentNativeProvisioningEnabled ||
+      !builderConnect.statusResolved);
+  const builderConnecting = builderConnect.connecting;
+  const actionConnecting = connecting || builderConnecting;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -191,14 +197,13 @@ export function StorageSetupCard({
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>
 
-      {/* Builder.io — primary option, one-click Connect flow. */}
-      <BuilderConnectPopover
-        flow={builderConnect}
-        onConnect={handleBuilderConnect}
-      >
+      {/* Builder.io — primary option. */}
+      <div className="space-y-2">
         <button
           type="button"
-          disabled={connecting || connected}
+          disabled={actionConnecting || connected}
+          data-testid="storage-setup-builder-primary"
+          onClick={() => handleBuilderConnect(provisionAccount)}
           className={
             "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-start transition-colors " +
             (connected
@@ -216,7 +221,7 @@ export function StorageSetupCard({
           >
             {connected ? (
               <IconCheck className="h-5 w-5" />
-            ) : connecting ? (
+            ) : actionConnecting ? (
               <IconLoader2 className="h-5 w-5 animate-spin" />
             ) : (
               <BuilderBMark className="h-5 w-5" />
@@ -227,9 +232,13 @@ export function StorageSetupCard({
               <span className="text-sm font-medium">
                 {connected
                   ? t("storageSetup.builderConnected")
-                  : connecting
+                  : actionConnecting
                     ? t("storageSetup.waitingForBuilder")
-                    : t("storageSetup.connectBuilder")}
+                    : provisionAccount
+                      ? t("storageSetup.createBuilderAccount")
+                      : hasBuilderAccount
+                        ? t("storageSetup.signInWithBuilderAccount")
+                        : t("storageSetup.connectBuilder")}
               </span>
             </div>
             <span
@@ -244,7 +253,42 @@ export function StorageSetupCard({
             </span>
           </div>
         </button>
-      </BuilderConnectPopover>
+        {provisionAccount && (
+          <button
+            type="button"
+            disabled={actionConnecting || connected}
+            data-testid="storage-setup-builder-sign-in"
+            onClick={() => handleBuilderConnect(false)}
+            className="w-full text-center text-xs text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {t("storageSetup.signInWithBuilderAccount")}
+          </button>
+        )}
+      </div>
+
+      {provisionAccount && (
+        <p className="text-center text-xs leading-5 text-muted-foreground">
+          {t("storageSetup.builderConsentPrefix")}{" "}
+          <a
+            href="https://www.builder.io/legal/terms"
+            target="_blank"
+            rel="noreferrer"
+            className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t("storageSetup.builderTerms")}
+          </a>{" "}
+          {t("storageSetup.builderConsentAnd")}{" "}
+          <a
+            href="https://www.builder.io/legal/privacy"
+            target="_blank"
+            rel="noreferrer"
+            className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t("storageSetup.builderPrivacy")}
+          </a>
+          .
+        </p>
+      )}
 
       {err && <p className="text-xs text-muted-foreground">{err}</p>}
 

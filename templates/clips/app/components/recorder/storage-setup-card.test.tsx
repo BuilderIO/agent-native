@@ -19,24 +19,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/core/client/settings", () => ({
-  BuilderConnectPopover: ({
-    children,
-    onConnect,
-  }: {
-    children: React.ReactNode;
-    onConnect: (provisionAccount: boolean) => void;
-  }) => (
-    <>
-      <button
-        type="button"
-        data-testid="mock-builder-trigger"
-        onClick={() => onConnect(true)}
-      >
-        Connect Builder
-      </button>
-      {children}
-    </>
-  ),
   useBuilderConnectFlow: mocks.useBuilderConnectFlow,
 }));
 
@@ -74,6 +56,12 @@ describe("StorageSetupCard", () => {
     mocks.start.mockReset();
     mocks.useBuilderConnectFlow.mockReset().mockReturnValue({
       start: mocks.start,
+      configured: false,
+      envManaged: false,
+      accountExists: false,
+      connecting: false,
+      agentNativeProvisioningEnabled: true,
+      statusResolved: true,
     });
     vi.stubGlobal(
       "fetch",
@@ -91,6 +79,114 @@ describe("StorageSetupCard", () => {
     vi.useRealTimers();
   });
 
+  it("starts provisioning directly and keeps a one-click sign-in path", () => {
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="storage-setup-builder-primary"]',
+        )
+        ?.click();
+    });
+    expect(mocks.start).toHaveBeenNthCalledWith(1, {
+      provisionAccount: true,
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="storage-setup-builder-sign-in"]',
+        )
+        ?.click();
+    });
+    expect(mocks.start).toHaveBeenNthCalledWith(2, {
+      provisionAccount: false,
+    });
+  });
+
+  it("uses sign-in as the primary action when account provisioning found an existing account", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      start: mocks.start,
+      configured: false,
+      accountExists: true,
+      agentNativeProvisioningEnabled: true,
+      statusResolved: true,
+    });
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="storage-setup-builder-sign-in"]'),
+    ).toBeNull();
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="storage-setup-builder-primary"]',
+        )
+        ?.click();
+    });
+    expect(mocks.start).toHaveBeenCalledWith({ provisionAccount: false });
+  });
+
+  it("offers provisioning when only deployment-managed Builder credentials are configured", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      start: mocks.start,
+      configured: true,
+      envManaged: true,
+      accountExists: false,
+      connecting: false,
+      agentNativeProvisioningEnabled: true,
+      statusResolved: true,
+    });
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="storage-setup-builder-sign-in"]'),
+    ).not.toBeNull();
+    expect(container.textContent).toContain(
+      "storageSetup.builderConsentPrefix",
+    );
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="storage-setup-builder-primary"]',
+        )
+        ?.click();
+    });
+    expect(mocks.start).toHaveBeenCalledWith({ provisionAccount: true });
+  });
+
+  it("disables both Builder actions while OAuth is connecting", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      start: mocks.start,
+      configured: false,
+      envManaged: false,
+      accountExists: false,
+      connecting: true,
+      agentNativeProvisioningEnabled: true,
+      statusResolved: true,
+    });
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    const buttons = container.querySelectorAll<HTMLButtonElement>(
+      '[data-testid="storage-setup-builder-primary"], [data-testid="storage-setup-builder-sign-in"]',
+    );
+    expect(buttons).toHaveLength(2);
+    expect([...buttons].every((button) => button.disabled)).toBe(true);
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+
   it("surfaces the timeout after repeated failed status responses", async () => {
     act(() => {
       root.render(<StorageSetupCard onConfigured={vi.fn()} />);
@@ -99,7 +195,7 @@ describe("StorageSetupCard", () => {
     act(() => {
       container
         .querySelector<HTMLButtonElement>(
-          '[data-testid="mock-builder-trigger"]',
+          '[data-testid="storage-setup-builder-primary"]',
         )
         ?.click();
     });
