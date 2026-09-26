@@ -12,6 +12,8 @@ import {
   getAmbientOrgId,
   hasRequestBoundary,
   markRequestBoundaryInstalled,
+  getRequestIdentityAuthenticatedAtMs,
+  markRequestIdentityAuthenticatedAtMs,
 } from "./request-context.js";
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -74,6 +76,29 @@ describe("server/request-context", () => {
       runWithRequestContext({ userEmail: "alice@example.com" }, () => {
         expect(getRequestOrgId()).toBeUndefined();
       });
+    });
+  });
+
+  describe("request identity validation time", () => {
+    it("keeps the earliest time for a matching identity and never shares it", () => {
+      const event = { context: {} };
+      markRequestIdentityAuthenticatedAtMs(event, "Alice@Example.com", 1_000);
+      markRequestIdentityAuthenticatedAtMs(event, "alice@example.com", 2_000);
+
+      expect(
+        getRequestIdentityAuthenticatedAtMs(event, "ALICE@example.com"),
+      ).toBe(1_000);
+      expect(
+        getRequestIdentityAuthenticatedAtMs(event, "bob@example.com"),
+      ).toBe(undefined);
+
+      markRequestIdentityAuthenticatedAtMs(event, "bob@example.com", 3_000);
+      expect(
+        getRequestIdentityAuthenticatedAtMs(event, "alice@example.com"),
+      ).toBe(undefined);
+      expect(
+        getRequestIdentityAuthenticatedAtMs(event, "bob@example.com"),
+      ).toBe(3_000);
     });
   });
 

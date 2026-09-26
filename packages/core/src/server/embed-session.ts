@@ -10,7 +10,7 @@ import {
 } from "h3";
 
 import { getAppConfig } from "../app-config/index.js";
-import { getDbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import {
   EMBED_MODE_QUERY_PARAM,
@@ -21,7 +21,10 @@ import {
 } from "../shared/embed-auth.js";
 import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import { getRequestContext } from "./request-context.js";
+import { getForwardedRequestHostname } from "./request-origin.js";
 
 const TOKEN_KIND = "agent-native-embed-session";
 const DEFAULT_TOKEN_TTL_SECONDS = 60 * 60;
@@ -92,6 +95,7 @@ export type EmbedSessionTicketConsumeOutcome =
   | "org-mismatch"
   | "consumption-race"
   | "invalid-row"
+  | "revoked"
   | "consumed";
 
 export interface EmbedSessionTicketConsumeDiagnostic {
@@ -120,6 +124,7 @@ export interface ConsumedEmbedSessionTicket {
   targetPath: string;
   scope?: string;
   expiresAt: number;
+  ticketCreatedAtMs: number;
 }
 
 export interface EmbedSessionTokenClaims {
@@ -127,8 +132,11 @@ export interface EmbedSessionTokenClaims {
   ownerEmail: string;
   orgId?: string;
   targetPath: string;
+  audienceHost?: string;
   scope?: string;
   iat: number;
+  issuedAtMs?: number;
+  ticketCreatedAtMs?: number;
   exp: number;
 }
 
@@ -191,6 +199,13 @@ export async function ensureTable(): Promise<void> {
         "agent_native_embed_tickets",
         embedTicketsCreateSql,
       );
+      await ensureTableExists(
+        "agent_native_embed_session_revocations",
+        `CREATE TABLE IF NOT EXISTS agent_native_embed_session_revocations (
+          owner_hash TEXT PRIMARY KEY,
+          revoked_before BIGINT NOT NULL
+        )`,
+      );
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
@@ -250,6 +265,66 @@ function redactedIdentifier(value: string | null | undefined): string | null {
 function normalizedEmail(value: string | null | undefined): string | null {
   const normalized = value?.trim().toLowerCase();
   return normalized || null;
+}
+
+function ownerHash(ownerEmail: string): string | null {
+  const normalizedOwnerEmail = normalizedEmail(ownerEmail);
+  return normalizedOwnerEmail
+    ? crypto.createHash("sha256").update(normalizedOwnerEmail).digest("hex")
+    : null;
+}
+
+async function embedSessionsRevokedBefore(
+  ownerEmail: string,
+  client = getDbExec(),
+): Promise<number | null> {
+  const key = ownerHash(ownerEmail);
+  if (!key) return null;
+  await ensureTable();
+  const { rows } = await client.execute({
+    sql: `SELECT revoked_before FROM agent_native_embed_session_revocations WHERE owner_hash = ?`,
+    args: [key],
+  });
+  return numberOrNull(rows[0]?.revoked_before ?? rows[0]?.revokedBefore);
+}
+
+async function lockEmbedSessionsForOwner(
+  client: DbExec,
+  key: string,
+): Promise<void> {
+  await client.execute({
+    sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+    args: [`agent-native:embed-session-revocation:${key}`],
+  });
+}
+
+export async function revokeEmbedSessionsForOwner(
+  ownerEmail: string,
+): Promise<void> {
+  const key = ownerHash(ownerEmail);
+  if (!key) return;
+  await ensureTable();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Embed session revocation requires database transactions.");
+  }
+  await client.transaction(async (tx) => {
+    await lockEmbedSessionsForOwner(tx, key);
+    await tx.execute({
+      sql:
+        `INSERT INTO agent_native_embed_session_revocations (owner_hash, revoked_before) VALUES (?, ?) ` +
+        `ON CONFLICT (owner_hash) DO UPDATE SET revoked_before = GREATEST(agent_native_embed_session_revocations.revoked_before, EXCLUDED.revoked_before)`,
+      args: [key, Date.now()],
+    });
+  });
+}
+
+async function embedSessionIsRevoked(
+  ownerEmail: string,
+  createdAtMs: number,
+): Promise<boolean> {
+  const revokedBefore = await embedSessionsRevokedBefore(ownerEmail);
+  return revokedBefore !== null && createdAtMs <= revokedBefore;
 }
 
 function numberOrNull(value: unknown): number | null {
@@ -462,17 +537,48 @@ function headerTargetPathname(event: H3Event): string | null {
   }
 }
 
-function requestHost(event: H3Event): string | null {
-  const direct =
-    (event as any).request?.headers?.get?.("host") ??
-    (event as any).headers?.get?.("host") ??
-    (event as any).node?.req?.headers?.host;
-  if (typeof direct === "string" && direct.trim()) return direct.trim();
+function requestHostname(event: H3Event): string | null {
   try {
-    return getHeader(event, "host") ?? null;
+    return getForwardedRequestHostname(event);
   } catch {
     return null;
   }
+}
+
+function normalizedHostname(
+  hostname: string | null | undefined,
+): string | null {
+  const normalized = hostname?.trim().toLowerCase().replace(/\.$/, "");
+  return normalized || null;
+}
+
+function isFirstPartyAppHostname(hostname: string | null): boolean {
+  return Boolean(
+    !hostname ||
+    (hostname.endsWith(".agent-native.com") &&
+      hostname !== "www.agent-native.com"),
+  );
+}
+
+function isFirstPartyAppRequest(event: H3Event): boolean {
+  return isFirstPartyAppHostname(normalizedHostname(requestHostname(event)));
+}
+
+function embedTokenMatchesHostname(
+  hostname: string | null | undefined,
+  claims: EmbedSessionTokenClaims,
+): boolean {
+  const requestHostname = normalizedHostname(hostname);
+  return claims.audienceHost === undefined
+    ? !isFirstPartyAppHostname(requestHostname)
+    : normalizedHostname(claims.audienceHost) === requestHostname;
+}
+
+function embedTokenMatchesRequestAudience(
+  event: H3Event,
+  claims: EmbedSessionTokenClaims,
+): boolean {
+  return embedTokenMatchesHostname(requestHostname(event), claims);
 }
 
 function referrerTargetPathname(event: H3Event): string | null {
@@ -494,14 +600,16 @@ function referrerTargetPathname(event: H3Event): string | null {
     raw = raw ?? null;
   }
   if (!raw) return null;
-  try {
-    const referrer = new URL(raw);
-    const host = requestHost(event);
-    if (host && referrer.host !== host) return null;
-    return pathnameFromPath(`${referrer.pathname}${referrer.search}`);
-  } catch {
-    return pathnameFromPath(raw);
+  const hostname = requestHostname(event);
+  if (!hostname || !URL.canParse(raw)) return null;
+  const referrer = new URL(raw);
+  if (
+    (referrer.protocol !== "http:" && referrer.protocol !== "https:") ||
+    referrer.hostname.toLowerCase().replace(/\.$/, "") !== hostname
+  ) {
+    return null;
   }
+  return pathnameFromPath(`${referrer.pathname}${referrer.search}`);
 }
 
 export function requestMatchesEmbedTarget(
@@ -600,29 +708,88 @@ export async function createEmbedSessionTicket(
   if (!targetPath)
     throw new Error("Embed session ticket requires a safe path.");
 
+  const now = Date.now();
+  const context = getRequestContext();
+  const contextAuthenticatedAtMs = context?.identityAuthenticatedAtMs;
+  const authenticatedAtMs =
+    normalizedEmail(context?.userEmail) === normalizedEmail(ownerEmail) &&
+    typeof contextAuthenticatedAtMs === "number" &&
+    Number.isFinite(contextAuthenticatedAtMs)
+      ? contextAuthenticatedAtMs
+      : now;
+  const capabilityScope = isEmbedCapabilityScope(input.scope);
   await ensureTable();
   const ticket = crypto.randomBytes(32).toString("base64url");
   const ticketHash = hashTicket(ticket);
-  const now = Date.now();
+  const createdAt = Date.now();
   const ttlSeconds = input.ttlSeconds ?? DEFAULT_TICKET_TTL_SECONDS;
-  const expiresAt = now + Math.max(1, ttlSeconds) * 1000;
-  await getDbExec().execute({
-    sql:
-      "INSERT INTO agent_native_embed_tickets " +
-      "(ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at) " +
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    args: [
-      ticketHash,
-      ownerEmail,
-      input.orgId ?? null,
-      targetPath,
-      input.scope ?? null,
-      now,
-      expiresAt,
-      null,
-    ],
-  });
+  const expiresAt = createdAt + Math.max(1, ttlSeconds) * 1000;
+  const client = getDbExec();
+  const insert = async (tx: DbExec) => {
+    if (!capabilityScope) {
+      const key = ownerHash(ownerEmail);
+      if (!key) throw new Error("Embed session ticket requires ownerEmail.");
+      await lockEmbedSessionsForOwner(tx, key);
+      const revokedBefore = await embedSessionsRevokedBefore(ownerEmail, tx);
+      if (revokedBefore !== null && authenticatedAtMs <= revokedBefore) {
+        throw new Error("Embed session ticket creation was revoked by logout.");
+      }
+    }
+    await tx.execute({
+      sql:
+        "INSERT INTO agent_native_embed_tickets " +
+        "(ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      args: [
+        ticketHash,
+        ownerEmail,
+        input.orgId ?? null,
+        targetPath,
+        input.scope ?? null,
+        createdAt,
+        expiresAt,
+        null,
+      ],
+    });
+  };
+  if (capabilityScope) {
+    await insert(client);
+  } else {
+    if (!client.transaction) {
+      throw new Error(
+        "Embed session ticket creation requires database transactions.",
+      );
+    }
+    await client.transaction(insert);
+  }
   return { ticket, ticketHash, expiresAt };
+}
+
+/**
+ * Verify an embed token against the host serving it, including owner logout
+ * revocation. Runtime asset gates use this without needing an H3 event.
+ */
+export async function resolveEmbedSessionTokenForHost(
+  token: string | undefined,
+  hostname: string,
+): Promise<EmbedSessionTokenClaims | null> {
+  const verified = verifyEmbedSessionToken(token);
+  if (!verified.ok || !embedTokenMatchesHostname(hostname, verified.claims)) {
+    return null;
+  }
+  if (
+    !isEmbedCapabilityScope(verified.claims.scope) &&
+    (await embedSessionIsRevoked(
+      verified.claims.ownerEmail,
+      Math.min(
+        verified.claims.issuedAtMs ?? verified.claims.iat * 1000,
+        verified.claims.ticketCreatedAtMs ?? Number.MAX_SAFE_INTEGER,
+      ),
+    ))
+  ) {
+    return null;
+  }
+  return verified.claims;
 }
 
 export async function consumeEmbedSessionTicket(
@@ -649,10 +816,9 @@ export async function consumeEmbedSessionTicket(
   await ensureTable();
   const ticketHash = hashTicket(ticket);
   const ticketKey = ticketHash.slice(0, 12);
-  const now = Date.now();
   const { rows } = await getDbExec().execute({
     sql:
-      "SELECT ticket_hash, owner_email, org_id, target_path, scope, expires_at, consumed_at " +
+      "SELECT ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at " +
       "FROM agent_native_embed_tickets WHERE ticket_hash = ?",
     args: [ticketHash],
   });
@@ -671,6 +837,7 @@ export async function consumeEmbedSessionTicket(
     return null;
   }
   const row: any = rows[0];
+  const createdAt = numberOrNull(row.created_at ?? row.createdAt);
   const expiresAt = numberOrNull(row.expires_at ?? row.expiresAt);
   const consumedAt = numberOrNull(row.consumed_at ?? row.consumedAt);
   const ownerEmail = stringOrUndefined(row.owner_email ?? row.ownerEmail);
@@ -678,6 +845,20 @@ export async function consumeEmbedSessionTicket(
   const orgId = stringOrUndefined(row.org_id ?? row.orgId);
   const ticketOrgKey = redactedIdentifier(orgId);
   const capabilityScope = isEmbedCapabilityScope(stringOrUndefined(row.scope));
+  if (!ownerEmail || createdAt === null || expiresAt === null) {
+    options.onResult?.({
+      outcome: "invalid-row",
+      ticketKey,
+      ticketRowFound: true,
+      consumed: false,
+      expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey,
+      expectedOrgKey,
+      ticketOrgKey,
+    });
+    return null;
+  }
   const identityMismatchAllowed =
     options.allowCapabilityIdentityMismatch && capabilityScope;
   if (consumedAt != null) {
@@ -687,20 +868,6 @@ export async function consumeEmbedSessionTicket(
       ticketRowFound: true,
       consumed: true,
       expired: false,
-      expectedOwnerKey,
-      ticketOwnerKey,
-      expectedOrgKey,
-      ticketOrgKey,
-    });
-    return null;
-  }
-  if (expiresAt != null && expiresAt < now) {
-    options.onResult?.({
-      outcome: "expired",
-      ticketKey,
-      ticketRowFound: true,
-      consumed: false,
-      expired: true,
       expectedOwnerKey,
       ticketOwnerKey,
       expectedOrgKey,
@@ -746,20 +913,49 @@ export async function consumeEmbedSessionTicket(
     });
     return null;
   }
-
-  const result = await getDbExec().execute({
-    sql:
-      "UPDATE agent_native_embed_tickets SET consumed_at = ? " +
-      "WHERE ticket_hash = ? AND consumed_at IS NULL",
-    args: [now, ticketHash],
-  });
-  if (result.rowsAffected === 0) {
+  const client = getDbExec();
+  const claim = async (
+    tx: DbExec,
+  ): Promise<
+    "consumed" | "revoked" | "expired" | "consumption-race" | "invalid-row"
+  > => {
+    if (!capabilityScope) {
+      const key = ownerHash(ownerEmail);
+      if (!key) return "invalid-row";
+      await lockEmbedSessionsForOwner(tx, key);
+      const revokedBefore = await embedSessionsRevokedBefore(ownerEmail, tx);
+      if (revokedBefore !== null && createdAt <= revokedBefore) {
+        return "revoked";
+      }
+    }
+    const consumedAt = Date.now();
+    if (expiresAt < consumedAt) return "expired";
+    const result = await tx.execute({
+      sql:
+        "UPDATE agent_native_embed_tickets SET consumed_at = ? " +
+        "WHERE ticket_hash = ? AND consumed_at IS NULL",
+      args: [consumedAt, ticketHash],
+    });
+    return result.rowsAffected === 0 ? "consumption-race" : "consumed";
+  };
+  let outcome: Awaited<ReturnType<typeof claim>>;
+  if (capabilityScope) {
+    outcome = await claim(client);
+  } else {
+    if (!client.transaction) {
+      throw new Error(
+        "Embed ticket consumption requires database transactions.",
+      );
+    }
+    outcome = await client.transaction(claim);
+  }
+  if (outcome !== "consumed") {
     options.onResult?.({
-      outcome: "consumption-race",
+      outcome,
       ticketKey,
       ticketRowFound: true,
-      consumed: false,
-      expired: false,
+      consumed: outcome === "consumption-race",
+      expired: outcome === "expired",
       expectedOwnerKey,
       ticketOwnerKey,
       expectedOrgKey,
@@ -771,7 +967,7 @@ export async function consumeEmbedSessionTicket(
   const targetPath = normalizeEmbedTargetPath(
     stringOrUndefined(row.target_path ?? row.targetPath),
   );
-  if (!targetPath || !ownerEmail || expiresAt == null) {
+  if (!targetPath) {
     options.onResult?.({
       outcome: "invalid-row",
       ticketKey,
@@ -806,6 +1002,7 @@ export async function consumeEmbedSessionTicket(
       ? { scope: stringOrUndefined(row.scope) }
       : {}),
     expiresAt,
+    ticketCreatedAtMs: createdAt,
   };
 }
 
@@ -813,20 +1010,30 @@ export function signEmbedSessionToken(input: {
   ownerEmail: string;
   orgId?: string | null;
   targetPath: string;
+  audienceHost?: string;
   scope?: string | null;
+  ticketCreatedAtMs?: number;
   ttlSeconds?: number;
 }): string {
   const targetPath = normalizeEmbedTargetPath(input.targetPath) ?? "/";
-  const now = Math.floor(Date.now() / 1000);
+  const issuedAtMs = Date.now();
+  const now = Math.floor(issuedAtMs / 1000);
   const ttl = Math.max(1, input.ttlSeconds ?? DEFAULT_TOKEN_TTL_SECONDS);
   const claims: EmbedSessionTokenClaims = {
     kind: TOKEN_KIND,
     ownerEmail: input.ownerEmail,
     targetPath,
     iat: now,
+    issuedAtMs,
     exp: now + ttl,
   };
+  if (input.ticketCreatedAtMs != null) {
+    claims.ticketCreatedAtMs = input.ticketCreatedAtMs;
+  }
   if (input.orgId) claims.orgId = input.orgId;
+  if (input.audienceHost) {
+    claims.audienceHost = input.audienceHost.toLowerCase();
+  }
   if (input.scope) claims.scope = input.scope;
   const payload = base64UrlEncode(JSON.stringify(claims));
   return `${payload}.${signPayload(payload)}`;
@@ -862,6 +1069,14 @@ export function verifyEmbedSessionToken(
     claims.kind !== TOKEN_KIND ||
     typeof claims.ownerEmail !== "string" ||
     !claims.ownerEmail ||
+    typeof claims.iat !== "number" ||
+    !Number.isFinite(claims.iat) ||
+    (claims.issuedAtMs !== undefined &&
+      (typeof claims.issuedAtMs !== "number" ||
+        !Number.isFinite(claims.issuedAtMs))) ||
+    (claims.ticketCreatedAtMs !== undefined &&
+      (typeof claims.ticketCreatedAtMs !== "number" ||
+        !Number.isFinite(claims.ticketCreatedAtMs))) ||
     typeof claims.exp !== "number" ||
     !Number.isFinite(claims.exp)
   ) {
@@ -890,8 +1105,9 @@ function isHttpsRequest(event: H3Event): boolean {
   return false;
 }
 
-function cookieDomainAttrs(): { domain?: string } {
-  const domain = process.env.COOKIE_DOMAIN?.trim();
+function cookieDomainAttrs(event: H3Event): { domain?: string } {
+  if (isFirstPartyAppRequest(event)) return {};
+  const domain = resolveAuthCookieNamespace().frameworkCookieDomain;
   return domain ? { domain } : {};
 }
 
@@ -909,7 +1125,7 @@ export function setEmbedSessionCookie(event: H3Event, token: string): void {
   setCookie(event, EMBED_SESSION_COOKIE, token, {
     httpOnly: true,
     ...crossSiteCookieAttrs(event),
-    ...cookieDomainAttrs(),
+    ...cookieDomainAttrs(event),
     path: "/",
     maxAge: DEFAULT_TOKEN_TTL_SECONDS,
   });
@@ -941,24 +1157,25 @@ function queryToken(event: H3Event): string | undefined {
 export async function resolveEmbedSessionFromRequest(
   event: H3Event,
 ): Promise<ResolvedEmbedSession | null> {
+  const hostname = requestHostname(event) ?? "";
   const candidates = [
     { token: queryToken(event), source: "query" },
     { token: bearerToken(event), source: "bearer" },
     { token: getCookie(event, EMBED_SESSION_COOKIE), source: "cookie" },
   ];
   for (const candidate of candidates) {
-    const verified = verifyEmbedSessionToken(candidate.token);
-    if (!verified.ok) continue;
-    const matchesTarget = requestMatchesEmbedTarget(
-      event,
-      verified.claims.targetPath,
+    const claims = await resolveEmbedSessionTokenForHost(
+      candidate.token,
+      hostname,
     );
+    if (!claims) continue;
+    const matchesTarget = requestMatchesEmbedTarget(event, claims.targetPath);
     const isRuntimeRequest = isEmbedRuntimeRequest(event);
     const isRuntimeCookieRequest =
       candidate.source === "cookie" && isRuntimeRequest;
     const isRuntimeQueryRequest =
       candidate.source === "query" && isRuntimeRequest;
-    const capabilityScope = isEmbedCapabilityScope(verified.claims.scope);
+    const capabilityScope = isEmbedCapabilityScope(claims.scope);
     const allowsUnboundRuntimeRequest =
       !capabilityScope || isEmbedStaticRuntimeRequest(event);
     if (
@@ -978,11 +1195,11 @@ export async function resolveEmbedSessionFromRequest(
       }
     }
     return {
-      email: verified.claims.ownerEmail,
+      email: claims.ownerEmail,
       token: candidate.token!,
-      targetPath: verified.claims.targetPath,
-      ...(verified.claims.orgId ? { orgId: verified.claims.orgId } : {}),
-      ...(verified.claims.scope ? { scope: verified.claims.scope } : {}),
+      targetPath: claims.targetPath,
+      ...(claims.orgId ? { orgId: claims.orgId } : {}),
+      ...(claims.scope ? { scope: claims.scope } : {}),
     };
   }
   return null;
@@ -1009,6 +1226,7 @@ export function requestHasEmbedAuthMarker(event: H3Event): boolean {
           isEmbedStaticRuntimeRequest(event));
       if (
         verified.ok &&
+        embedTokenMatchesRequestAudience(event, verified.claims) &&
         (requestMatchesEmbedTarget(event, verified.claims.targetPath) ||
           (candidate.allowRuntime &&
             runtimeRequest &&

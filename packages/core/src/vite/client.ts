@@ -49,7 +49,8 @@ import {
   removeDevActionDiscoveryFile,
   writeDevActionDiscoveryFile,
 } from "../server/dev-action-bridge.js";
-import { verifyEmbedSessionToken } from "../server/embed-session.js";
+import { resolveEmbedSessionTokenForHost } from "../server/embed-session.js";
+import { getForwardedRequestHostnameFromHeaders } from "../server/request-origin.js";
 import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 import {
   EMBED_SESSION_COOKIE,
@@ -2165,7 +2166,7 @@ function baseRedirectGuard(): Plugin {
         if (serveExternalEmbedBrowserManifest(server, req, res)) {
           return;
         }
-        if (serveMountedEmbedRuntimeModule(server, req, res, base)) {
+        if (serveMountedEmbedRuntimeModule(server, req, res, base, next)) {
           return;
         }
         // stripMountedDevApiPath only rewrites paths that resolve to /api/**
@@ -2390,17 +2391,29 @@ function cookieValue(req: IncomingMessage, name: string): string | undefined {
   return undefined;
 }
 
-function hasValidEmbedRuntimeToken(req: IncomingMessage): boolean {
+async function hasValidEmbedRuntimeToken(
+  req: IncomingMessage,
+): Promise<boolean> {
+  let url: URL;
   try {
-    const url = new URL(req.url ?? "/", "http://agent-native.local");
-    const queryToken = url.searchParams.get(EMBED_TOKEN_QUERY_PARAM);
-    const cookieToken = cookieValue(req, EMBED_SESSION_COOKIE);
-    return [queryToken, cookieToken].some(
-      (token) => verifyEmbedSessionToken(token).ok,
-    );
+    url = new URL(req.url ?? "/", "http://agent-native.local");
   } catch {
     return false;
   }
+  const queryToken = url.searchParams.get(EMBED_TOKEN_QUERY_PARAM);
+  const cookieToken = cookieValue(req, EMBED_SESSION_COOKIE);
+  const tokens = [queryToken, cookieToken].filter((token): token is string =>
+    Boolean(token),
+  );
+  if (tokens.length === 0) return false;
+
+  const hostname = getForwardedRequestHostnameFromHeaders(req.headers);
+  for (const token of tokens) {
+    if (await resolveEmbedSessionTokenForHost(token, hostname)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function mountedEmbedRuntimeModuleUrl(
@@ -2513,35 +2526,45 @@ function serveMountedEmbedRuntimeModule(
   req: IncomingMessage,
   res: ServerResponse,
   base: string | undefined,
+  next: (error?: unknown) => void,
 ): boolean {
   if (req.method !== "GET" && req.method !== "HEAD") return false;
-  if (!hasValidEmbedRuntimeToken(req)) return false;
   const runtimeUrl = mountedEmbedRuntimeModuleUrl(req.url, base);
   if (!runtimeUrl) return false;
   if (isMountedEmbedStaticAssetRequest(req, runtimeUrl)) return false;
 
-  void loadMountedEmbedRuntimeModule(server, runtimeUrl)
-    .then((code: string | null) => {
-      if (!code) {
-        if (!res.headersSent) {
-          res.statusCode = 404;
-          res.end();
-        }
+  void hasValidEmbedRuntimeToken(req)
+    .then((isValid) => {
+      if (!isValid) {
+        next();
         return;
       }
-      res.statusCode = 200;
-      res.setHeader("content-type", "text/javascript");
-      if (req.method === "HEAD") {
-        res.end();
-        return;
-      }
-      res.end(code);
+      void loadMountedEmbedRuntimeModule(server, runtimeUrl)
+        .then((code: string | null) => {
+          if (!code) {
+            if (!res.headersSent) {
+              res.statusCode = 404;
+              res.end();
+            }
+            return;
+          }
+          res.statusCode = 200;
+          res.setHeader("content-type", "text/javascript");
+          if (req.method === "HEAD") {
+            res.end();
+            return;
+          }
+          res.end(code);
+        })
+        .catch((err: unknown) => {
+          if (res.headersSent) return;
+          res.statusCode = 500;
+          res.setHeader("content-type", "text/plain");
+          res.end(err instanceof Error ? err.message : String(err));
+        });
     })
     .catch((err: unknown) => {
-      if (res.headersSent) return;
-      res.statusCode = 500;
-      res.setHeader("content-type", "text/plain");
-      res.end(err instanceof Error ? err.message : String(err));
+      next(err instanceof Error ? err : new Error(String(err)));
     });
   return true;
 }

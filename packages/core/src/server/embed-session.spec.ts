@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const dbExec = vi.hoisted(() => ({ execute: vi.fn() }));
+const dbExec = vi.hoisted(() => {
+  const exec = { execute: vi.fn() };
+  return {
+    ...exec,
+    transaction: vi.fn(async (run: (tx: typeof exec) => unknown) => run(exec)),
+  };
+});
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => dbExec,
@@ -21,9 +27,14 @@ import {
   requestHasEmbedAuthMarker,
   resolveEmbedSessionFromRequest,
   consumeEmbedSessionTicket,
+  createEmbedSessionTicket,
+  revokeEmbedSessionsForOwner,
+  resolveEmbedSessionTokenForHost,
+  setEmbedSessionCookie,
   signEmbedSessionToken,
   verifyEmbedSessionToken,
 } from "./embed-session.js";
+import { getRequestContext, runWithRequestContext } from "./request-context.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -31,6 +42,7 @@ describe("embed session tokens", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-20T12:00:00Z"));
+    dbExec.execute.mockReset().mockResolvedValue({ rows: [], rowsAffected: 1 });
     process.env = { ...ORIGINAL_ENV, OAUTH_STATE_SECRET: "embed-test-secret" };
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
@@ -73,11 +85,133 @@ describe("embed session tokens", () => {
       reason: "expired",
     });
   });
+
+  it("checks host audience and logout revocation without an H3 request", async () => {
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "calendar.example.test",
+      targetPath: "/inbox",
+    });
+
+    await expect(
+      resolveEmbedSessionTokenForHost(token, "other.example.test"),
+    ).resolves.toBeNull();
+    await expect(
+      resolveEmbedSessionTokenForHost(token, "calendar.example.test"),
+    ).resolves.toMatchObject({ ownerEmail: "owner@example.com" });
+
+    const legacyToken = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/inbox",
+    });
+    await expect(
+      resolveEmbedSessionTokenForHost(
+        legacyToken,
+        "beta.calendar.agent-native.com",
+      ),
+    ).resolves.toBeNull();
+
+    dbExec.execute.mockResolvedValueOnce({
+      rows: [{ revoked_before: Date.now() }],
+      rowsAffected: 0,
+    });
+    await expect(
+      resolveEmbedSessionTokenForHost(token, "calendar.example.test"),
+    ).resolves.toBeNull();
+  });
 });
 
 describe("embed session tickets", () => {
   beforeEach(() => {
-    dbExec.execute.mockReset();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-20T12:00:00Z"));
+    dbExec.execute.mockReset().mockResolvedValue({ rows: [], rowsAffected: 1 });
+    dbExec.transaction
+      .mockReset()
+      .mockImplementation(async (run) => run(dbExec));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("rejects ticket creation when logout wins after the request was authenticated", async () => {
+    let revokedBefore: number | null = null;
+    let ticketInserted = false;
+    dbExec.execute.mockImplementation(async ({ sql, args }) => {
+      if (sql.includes("SELECT revoked_before")) {
+        return {
+          rows:
+            revokedBefore === null ? [] : [{ revoked_before: revokedBefore }],
+          rowsAffected: 0,
+        };
+      }
+      if (sql.includes("INSERT INTO agent_native_embed_session_revocations")) {
+        revokedBefore = Number(args[1]);
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (sql.includes("INSERT INTO agent_native_embed_tickets")) {
+        ticketInserted = true;
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    let releaseTicketInsert!: () => void;
+    let signalTicketTransaction!: () => void;
+    const ticketTransactionStarted = new Promise<void>((resolve) => {
+      signalTicketTransaction = resolve;
+    });
+    const releaseTicketTransaction = new Promise<void>((resolve) => {
+      releaseTicketInsert = resolve;
+    });
+    let transactionCount = 0;
+    dbExec.transaction.mockImplementation(async (run) => {
+      transactionCount += 1;
+      if (transactionCount === 1) {
+        signalTicketTransaction();
+        await releaseTicketTransaction;
+      }
+      return run(dbExec);
+    });
+
+    const pendingTicket = runWithRequestContext(
+      { userEmail: "owner@example.com" },
+      async () => {
+        const authenticatedAtMs =
+          getRequestContext()?.identityAuthenticatedAtMs;
+        expect(authenticatedAtMs).toBe(Date.now());
+        return runWithRequestContext({ userEmail: "OWNER@example.com" }, () => {
+          expect(getRequestContext()?.identityAuthenticatedAtMs).toBe(
+            authenticatedAtMs,
+          );
+          return createEmbedSessionTicket({
+            ownerEmail: "owner@example.com",
+            targetPath: "/inbox",
+          });
+        });
+      },
+    ) as Promise<unknown>;
+
+    await ticketTransactionStarted;
+    await revokeEmbedSessionsForOwner("owner@example.com");
+    releaseTicketInsert();
+
+    await expect(pendingTicket).rejects.toThrow(
+      "Embed session ticket creation was revoked by logout.",
+    );
+    expect(ticketInserted).toBe(false);
+    expect(revokedBefore).toBe(Date.now());
+
+    vi.advanceTimersByTime(1);
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        createEmbedSessionTicket({
+          ownerEmail: "owner@example.com",
+          targetPath: "/inbox",
+        }),
+      ),
+    ).resolves.toMatchObject({ ticket: expect.any(String) });
+    expect(ticketInserted).toBe(true);
   });
 
   it("lets a signed-in collaborator redeem a resource-scoped capability", async () => {
@@ -89,6 +223,7 @@ describe("embed session tickets", () => {
             org_id: "owner-org",
             target_path: "/visual-edit/design-1?editorView=overview",
             scope: "capability:visual-edit:design:design-1",
+            created_at: Date.now(),
             expires_at: Date.now() + 60_000,
             consumed_at: null,
           },
@@ -155,6 +290,7 @@ describe("normalizeEmbedTargetPath", () => {
 
 describe("requestMatchesEmbedTarget", () => {
   beforeEach(() => {
+    dbExec.execute.mockReset().mockResolvedValue({ rows: [] });
     process.env = { ...ORIGINAL_ENV };
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
@@ -171,6 +307,7 @@ describe("requestMatchesEmbedTarget", () => {
       request: { headers: new Headers(headers) },
       headers: new Headers(headers),
       node: { req: { url: path, headers } },
+      res: { headers: new Headers(), status: 200 },
     } as any;
   }
 
@@ -309,6 +446,17 @@ describe("requestMatchesEmbedTarget", () => {
         "/_agent-native/open?app=mail&view=inbox&composeDraftId=d1",
       ),
     ).toBe(false);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/_agent-native/application-state/compose", {
+          host: "internal.gateway:3000",
+          "x-forwarded-host": "mail.agent-native.com",
+          "x-forwarded-proto": "https, http",
+          referer: "https://evil.example/inbox?embedded=1",
+        }),
+        "/_agent-native/open?app=mail&view=inbox&composeDraftId=d1",
+      ),
+    ).toBe(false);
   });
 
   it("does not build thread record paths from unsafe view paths", () => {
@@ -391,6 +539,7 @@ describe("requestMatchesEmbedTarget", () => {
     expect(
       requestHasEmbedAuthMarker(
         fakeEvent("/_agent-native/actions/list-libraries", {
+          host: "mail.test",
           authorization: `Bearer ${token}`,
           [EMBED_TARGET_HEADER]: "/picker?embedded=1",
         }),
@@ -399,6 +548,7 @@ describe("requestMatchesEmbedTarget", () => {
     expect(
       requestHasEmbedAuthMarker(
         fakeEvent("/_agent-native/actions/list-libraries", {
+          host: "mail.test",
           authorization: `Bearer ${token}`,
           [EMBED_TARGET_HEADER]: "/settings?embedded=1",
         }),
@@ -417,6 +567,7 @@ describe("requestMatchesEmbedTarget", () => {
 
     const runtimeSession = await resolveEmbedSessionFromRequest(
       fakeEvent("/api/emails?view=inbox&limit=25", {
+        host: "mail.test",
         cookie: `${EMBED_SESSION_COOKIE}=${token}`,
       }),
     );
@@ -430,10 +581,353 @@ describe("requestMatchesEmbedTarget", () => {
     await expect(
       resolveEmbedSessionFromRequest(
         fakeEvent("/settings", {
+          host: "mail.test",
           cookie: `${EMBED_SESSION_COOKIE}=${token}`,
         }),
       ),
     ).resolves.toBeNull();
+  });
+
+  it("resolves the embed owner for logout without a target referrer", async () => {
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "mail.test",
+      targetPath: "/inbox",
+      ttlSeconds: 60,
+    });
+
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/_agent-native/auth/logout", {
+          host: "mail.test",
+          cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+        }),
+      ),
+    ).resolves.toMatchObject({ email: "owner@example.com" });
+  });
+
+  it("revokes embed cookies across browser partitions after logout", async () => {
+    process.env.OAUTH_STATE_SECRET = "embed-test-secret";
+    let revokedBefore: number | null = null;
+    dbExec.execute.mockImplementation(async ({ sql, args }: any) => {
+      if (sql.includes("SELECT revoked_before")) {
+        return {
+          rows:
+            revokedBefore === null ? [] : [{ revoked_before: revokedBefore }],
+        };
+      }
+      if (sql.includes("INSERT INTO agent_native_embed_session_revocations")) {
+        revokedBefore = args[1];
+      }
+      return { rows: [] };
+    });
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/inbox",
+      audienceHost: "beta.calendar.agent-native.com",
+      ttlSeconds: 60,
+    });
+    const partitionedEmbedRequest = fakeEvent("/inbox", {
+      host: "beta.calendar.agent-native.com",
+      cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+    });
+
+    await expect(
+      resolveEmbedSessionFromRequest(partitionedEmbedRequest),
+    ).resolves.toMatchObject({ email: "owner@example.com" });
+
+    await revokeEmbedSessionsForOwner("OWNER@example.com");
+
+    await expect(
+      resolveEmbedSessionFromRequest(partitionedEmbedRequest),
+    ).resolves.toBeNull();
+  });
+
+  it("accepts a session issued later in the same second as logout", async () => {
+    process.env.OAUTH_STATE_SECRET = "embed-test-secret";
+    const second = Math.floor(Date.now() / 1000) * 1000;
+    const revokedBefore = second + 1;
+    const issuedAtMs = second + 2;
+    const now = vi.spyOn(Date, "now").mockReturnValue(issuedAtMs);
+    dbExec.execute.mockImplementation(async ({ sql }: any) =>
+      sql.includes("SELECT revoked_before")
+        ? { rows: [{ revoked_before: revokedBefore }] }
+        : { rows: [] },
+    );
+    try {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        targetPath: "/inbox",
+        ttlSeconds: 60,
+      });
+
+      await expect(
+        resolveEmbedSessionFromRequest(
+          fakeEvent("/inbox", {
+            host: "mail.test",
+            cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+          }),
+        ),
+      ).resolves.toMatchObject({ email: "owner@example.com" });
+      const verified = verifyEmbedSessionToken(token);
+      expect(verified.ok && verified.claims.issuedAtMs).toBeGreaterThan(
+        revokedBefore,
+      );
+      expect(verified.ok && verified.claims.iat).toBe(
+        Math.floor(revokedBefore / 1000),
+      );
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("rejects a ticket session redeemed after its logout cutoff", async () => {
+    process.env.OAUTH_STATE_SECRET = "embed-test-secret";
+    const ticketCreatedAtMs = Date.now() - 1000;
+    const revokedBefore = Date.now() - 1;
+    dbExec.execute.mockImplementation(async ({ sql }: any) =>
+      sql.includes("SELECT revoked_before")
+        ? { rows: [{ revoked_before: revokedBefore }] }
+        : { rows: [] },
+    );
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/inbox",
+      ticketCreatedAtMs,
+      ttlSeconds: 60,
+    });
+
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/inbox", { cookie: `${EMBED_SESSION_COOKIE}=${token}` }),
+      ),
+    ).resolves.toBeNull();
+    const verified = verifyEmbedSessionToken(token);
+    expect(verified.ok && verified.claims.issuedAtMs).toBeGreaterThan(
+      revokedBefore,
+    );
+    expect(verified.ok && verified.claims.ticketCreatedAtMs).toBe(
+      ticketCreatedAtMs,
+    );
+  });
+
+  it("rejects an unused embed ticket minted before logout", async () => {
+    process.env.OAUTH_STATE_SECRET = "embed-test-secret";
+    const createdAt = Date.now() - 1000;
+    dbExec.execute.mockImplementation(async ({ sql }: any) => {
+      if (sql.includes("FROM agent_native_embed_tickets")) {
+        return {
+          rows: [
+            {
+              owner_email: "owner@example.com",
+              target_path: "/inbox",
+              created_at: createdAt,
+              expires_at: Date.now() + 60_000,
+              consumed_at: null,
+            },
+          ],
+        };
+      }
+      if (sql.includes("SELECT revoked_before")) {
+        return { rows: [{ revoked_before: Date.now() }] };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await expect(consumeEmbedSessionTicket("pre-logout-ticket")).resolves.toBe(
+      null,
+    );
+  });
+
+  it("serializes identity ticket claims and logout with the same owner lock", async () => {
+    dbExec.transaction.mockClear();
+    const createdAt = Date.now() - 1000;
+    dbExec.execute.mockImplementation(async ({ sql }: any) => {
+      if (sql.includes("FROM agent_native_embed_tickets")) {
+        return {
+          rows: [
+            {
+              owner_email: "owner@example.com",
+              target_path: "/inbox",
+              created_at: createdAt,
+              expires_at: Date.now() + 60_000,
+              consumed_at: null,
+            },
+          ],
+        };
+      }
+      if (sql.includes("SELECT revoked_before")) return { rows: [] };
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    await expect(
+      consumeEmbedSessionTicket("ticket-before-logout"),
+    ).resolves.toMatchObject({ ticketCreatedAtMs: createdAt });
+    const { revokeEmbedSessionsForOwner } = await import("./embed-session.js");
+    await revokeEmbedSessionsForOwner("owner@example.com");
+
+    const lockCalls = dbExec.execute.mock.calls.filter(([query]) =>
+      query.sql.includes("pg_advisory_xact_lock"),
+    );
+    expect(lockCalls).toHaveLength(2);
+    expect(lockCalls[0][0].args).toEqual(lockCalls[1][0].args);
+    expect(dbExec.transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it("binds first-party embed sessions to the host that redeemed the ticket", async () => {
+    process.env.OAUTH_STATE_SECRET = "embed-test-secret";
+    const betaHost = "beta.calendar.agent-native.com";
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/inbox",
+      audienceHost: betaHost,
+      ttlSeconds: 60,
+    });
+    const betaRequest = fakeEvent("/inbox", {
+      host: betaHost,
+      cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+    });
+
+    await expect(
+      resolveEmbedSessionFromRequest(betaRequest),
+    ).resolves.toMatchObject({
+      email: "owner@example.com",
+    });
+
+    const siblingRequest = fakeEvent("/inbox", {
+      host: "mail.agent-native.com",
+      cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+    });
+    await expect(
+      resolveEmbedSessionFromRequest(siblingRequest),
+    ).resolves.toBeNull();
+    expect(requestHasEmbedAuthMarker(siblingRequest)).toBe(false);
+
+    const legacyToken = signEmbedSessionToken({
+      ownerEmail: "previous-owner@example.com",
+      targetPath: "/inbox",
+      ttlSeconds: 60,
+    });
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/inbox", {
+          host: betaHost,
+          cookie: `${EMBED_SESSION_COOKIE}=${legacyToken}`,
+        }),
+      ),
+    ).resolves.toBeNull();
+
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/inbox", {
+          host: "internal.gateway:3000",
+          "x-forwarded-host": betaHost,
+          "x-forwarded-proto": "https, http",
+          cookie: `${EMBED_SESSION_COOKIE}=${legacyToken}`,
+        }),
+      ),
+    ).resolves.toBeNull();
+
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/inbox", {
+          host: "beta.calendar.agent-native.com.",
+          cookie: `${EMBED_SESSION_COOKIE}=${legacyToken}`,
+        }),
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("accepts signed-out visual-edit bootstrap tokens only on their issuing host", async () => {
+    const host = "beta.design.agent-native.com";
+    const token = signEmbedSessionToken({
+      ownerEmail: "bootstrap@example.invalid",
+      targetPath: "/visual-edit",
+      audienceHost: host,
+      scope: `capability:visual-edit-bootstrap:${"a".repeat(32)}`,
+      ttlSeconds: 300,
+    });
+
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/visual-edit", {
+          host: "internal.gateway:3000",
+          "x-forwarded-host": host,
+          "x-forwarded-proto": "https",
+          authorization: `Bearer ${token}`,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      email: "bootstrap@example.invalid",
+      scope: `capability:visual-edit-bootstrap:${"a".repeat(32)}`,
+    });
+
+    const siblingRequest = fakeEvent("/visual-edit", {
+      host: "internal.gateway:3000",
+      "x-forwarded-host": "beta.calendar.agent-native.com",
+      "x-forwarded-proto": "https",
+      authorization: `Bearer ${token}`,
+    });
+    await expect(resolveEmbedSessionFromRequest(siblingRequest)).resolves.toBe(
+      null,
+    );
+    expect(requestHasEmbedAuthMarker(siblingRequest)).toBe(false);
+  });
+
+  it("binds custom-host embed sessions to their audience while preserving legacy tokens", async () => {
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/inbox",
+      audienceHost: "app-a.example.com",
+      ttlSeconds: 60,
+    });
+
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/inbox", {
+          host: "app-a.example.com",
+          cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+        }),
+      ),
+    ).resolves.toMatchObject({ email: "owner@example.com" });
+    const siblingRequest = fakeEvent("/inbox", {
+      host: "app-b.example.com",
+      cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+    });
+    await expect(
+      resolveEmbedSessionFromRequest(siblingRequest),
+    ).resolves.toBeNull();
+    expect(requestHasEmbedAuthMarker(siblingRequest)).toBe(false);
+
+    const legacyToken = signEmbedSessionToken({
+      ownerEmail: "legacy@example.com",
+      targetPath: "/inbox",
+      ttlSeconds: 60,
+    });
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/inbox", {
+          host: "app-b.example.com",
+          cookie: `${EMBED_SESSION_COOKIE}=${legacyToken}`,
+        }),
+      ),
+    ).resolves.toMatchObject({ email: "legacy@example.com" });
+  });
+
+  it("keeps first-party embed session cookies host-only", () => {
+    vi.stubEnv("APP_NAME", "calendar");
+    process.env.APP_URL = "https://beta.calendar.agent-native.com";
+    process.env.COOKIE_DOMAIN = ".agent-native.com";
+    const event = fakeEvent("/", {
+      host: "beta.calendar.agent-native.com",
+      "x-forwarded-proto": "https",
+    });
+
+    setEmbedSessionCookie(event, "embed-token");
+
+    const cookie = event.res.headers.get("set-cookie") ?? "";
+    expect(cookie).toContain(`${EMBED_SESSION_COOKIE}=embed-token`);
+    expect(cookie).not.toMatch(/Domain=\.agent-native\.com/i);
   });
 
   it("allows Vite module runtime requests with the embed query token", async () => {
@@ -444,7 +938,9 @@ describe("requestMatchesEmbedTarget", () => {
       targetPath: "/picker?mediaType=image",
       ttlSeconds: 60,
     });
-    const event = fakeEvent(`/@vite/client?__an_embed_token=${token}`);
+    const event = fakeEvent(`/@vite/client?__an_embed_token=${token}`, {
+      host: "mail.test",
+    });
 
     await expect(resolveEmbedSessionFromRequest(event)).resolves.toMatchObject({
       email: "owner@example.com",
@@ -470,6 +966,7 @@ describe("requestMatchesEmbedTarget", () => {
       resolveEmbedSessionFromRequest(
         fakeEvent(
           `/_agent-native/actions/get-design?__an_embed_token=${token}&${EMBED_TARGET_QUERY_PARAM}=${matchingTarget}`,
+          { host: "mail.test" },
         ),
       ),
     ).resolves.toMatchObject({
@@ -481,12 +978,14 @@ describe("requestMatchesEmbedTarget", () => {
       resolveEmbedSessionFromRequest(
         fakeEvent(
           `/_agent-native/actions/get-design?__an_embed_token=${token}&${EMBED_TARGET_QUERY_PARAM}=${encodeURIComponent("/design/design-1")}`,
+          { host: "mail.test" },
         ),
       ),
     ).resolves.toBeNull();
     await expect(
       resolveEmbedSessionFromRequest(
         fakeEvent("/_agent-native/actions/get-design", {
+          host: "mail.test",
           cookie: `${EMBED_SESSION_COOKIE}=${token}`,
         }),
       ),
@@ -494,6 +993,7 @@ describe("requestMatchesEmbedTarget", () => {
     await expect(
       resolveEmbedSessionFromRequest(
         fakeEvent("/design/design-1", {
+          host: "mail.test",
           cookie: `${EMBED_SESSION_COOKIE}=${token}`,
         }),
       ),
@@ -512,6 +1012,7 @@ describe("requestMatchesEmbedTarget", () => {
     await expect(
       resolveEmbedSessionFromRequest(
         fakeEvent("/@vite/client", {
+          host: "mail.test",
           cookie: `${EMBED_SESSION_COOKIE}=${token}`,
         }),
       ),
@@ -521,6 +1022,7 @@ describe("requestMatchesEmbedTarget", () => {
     expect(
       requestHasEmbedAuthMarker(
         fakeEvent("/_agent-native/actions/get-design", {
+          host: "mail.test",
           cookie: `${EMBED_SESSION_COOKIE}=${token}`,
         }),
       ),

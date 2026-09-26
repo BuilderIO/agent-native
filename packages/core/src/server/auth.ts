@@ -20,8 +20,11 @@ import {
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
 } from "../org/workspace-app-access.js";
-import { EMBED_START_PATH } from "../shared/embed-auth.js";
-import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
+import {
+  EMBED_SESSION_COOKIE,
+  EMBED_START_PATH,
+  EMBED_TARGET_HEADER,
+} from "../shared/embed-auth.js";
 import {
   FIRST_RUN_ONBOARDING_COOKIE,
   FIRST_RUN_ONBOARDING_MAX_AGE,
@@ -37,6 +40,7 @@ import { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
 import { devLoopbackAuthHint } from "./dev-origin-hint.js";
 import {
   isEmbedCapabilityScope,
+  revokeEmbedSessionsForOwner,
   requestHasEmbedAuthMarker,
   resolveEmbedSessionFromRequest,
 } from "./embed-session.js";
@@ -247,6 +251,7 @@ import {
 } from "./onboarding-html.js";
 import {
   getRequestContext,
+  markRequestIdentityAuthenticatedAtMs,
   hasContinuationLocalRequestContext,
   hasExplicitPersonalOrgScope,
   markExplicitPersonalOrgScope,
@@ -580,11 +585,12 @@ function getBetterAuthSessionTokenValues(event: H3Event): string[] {
 
 function getFrameworkSessionCookieEntries(
   event: H3Event,
+  names = frameworkSessionCookieNamesToClear(),
 ): Array<{ name: string; value: string }> {
   const entries: Array<{ name: string; value: string }> = [];
   const seenValues = new Set<string>();
 
-  for (const name of frameworkSessionCookieNamesToClear()) {
+  for (const name of names) {
     for (const value of getCookieValues(event, name)) {
       if (seenValues.has(value)) continue;
       seenValues.add(value);
@@ -597,6 +603,10 @@ function getFrameworkSessionCookieEntries(
 
 function frameworkSessionCookieNamesToClear(): string[] {
   return AUTH_COOKIE_NAMESPACE.frameworkCookieNamesToClear;
+}
+
+function frameworkSessionCookieNamesToRead(): string[] {
+  return AUTH_COOKIE_NAMESPACE.frameworkCookieNamesToRead;
 }
 
 async function enrichLegacySessionIdentity(
@@ -708,6 +718,7 @@ export function clearFrameworkSessionCookies(event: H3Event): void {
   for (const name of frameworkSessionCookieNamesToClear()) {
     deleteCookieFromEveryScope(event, name);
   }
+  deleteCookieFromEveryScope(event, EMBED_SESSION_COOKIE);
 }
 
 function clearBetterAuthSessionCookies(event: H3Event): void {
@@ -720,7 +731,10 @@ function clearBetterAuthSessionCookies(event: H3Event): void {
 async function getLegacyCookieSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
-  for (const { name, value } of getFrameworkSessionCookieEntries(event)) {
+  for (const { name, value } of getFrameworkSessionCookieEntries(
+    event,
+    frameworkSessionCookieNamesToRead(),
+  )) {
     let resolvedToken: string | undefined;
     let email: string | null = null;
     for (const candidate of sessionTokenLookupCandidates(value)) {
@@ -2008,6 +2022,8 @@ export async function removeSession(token: string): Promise<void> {
  * host/domain and partition scopes because its signOut only clears the current
  * scope. Failed revocation preserves session cookies so the same token can be
  * retried instead of making the browser appear signed out while it stays live.
+ * Embed sessions use a server-side cutoff because CHIPS copies in other
+ * top-level-site partitions cannot be deleted from this response.
  */
 async function performLogout(
   event: H3Event,
@@ -2020,15 +2036,44 @@ async function performLogout(
     ...betterAuthTokens,
     ...(bearerToken ? [bearerToken] : []),
   ];
-  const candidates = rawTokens.flatMap(sessionTokenLookupCandidates);
+  const candidates = [
+    ...new Set(rawTokens.flatMap(sessionTokenLookupCandidates)),
+  ];
   let revocationFailed = false;
-
   let auth: BetterAuthInstance | null = null;
   try {
     auth = await getAuth();
   } catch (error) {
     revocationFailed = true;
     captureAuthError(error, { route: "logout" });
+  }
+
+  try {
+    const identities = new Set<string>();
+    const addIdentity = (email: string | null | undefined) => {
+      const normalized = normalizeAuthEmail(email);
+      if (normalized) identities.add(normalized);
+    };
+
+    addIdentity((await resolveSessionUncached(event))?.email);
+    addIdentity(
+      (await resolveSessionUncached(event, { ignoreEmbedSession: true }))
+        ?.email,
+    );
+    for (const token of candidates) {
+      const legacyEmail = await getSessionEmail(token);
+      addIdentity(legacyEmail);
+      if (!legacyEmail && (auth || revocationFailed)) {
+        addIdentity(await emailFromBetterAuthSessionToken(token));
+      }
+    }
+    for (const email of identities) {
+      await revokeEmbedSessionsForOwner(email);
+    }
+  } catch (error) {
+    captureAuthError(error, { route: "logout" });
+    setResponseStatus(event, 503);
+    return { error: "Unable to revoke session" };
   }
 
   for (const token of candidates) {
@@ -2086,6 +2131,12 @@ async function performLogout(
     return { error: "Unable to revoke session" };
   }
   return { ok: true };
+}
+
+export async function logout(
+  event: H3Event,
+): Promise<{ ok: true } | { error: string }> {
+  return performLogout(event, () => getBetterAuth());
 }
 
 /**
@@ -4768,18 +4819,26 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   const ctx = event.context as {
     __anSessionCache?: Promise<AuthSession | null>;
   };
-  return (ctx.__anSessionCache ??= (async () => {
-    const session = await resolveSessionUncached(event);
-    const resolved = session?.email
-      ? await backfillSessionOrg(session, event)
-      : session;
-    if (resolved?.email) await resumeIdentityRekeyForSession(resolved.email);
-    return resolved;
-  })());
+  if (!ctx.__anSessionCache) {
+    ctx.__anSessionCache = (async () => {
+      const session = await resolveSessionUncached(event);
+      if (session?.email) {
+        // Logout compares its cutoff to the validation boundary, before enrichment awaits.
+        markRequestIdentityAuthenticatedAtMs(event, session.email, Date.now());
+      }
+      const resolved = session?.email
+        ? await backfillSessionOrg(session, event)
+        : session;
+      if (resolved?.email) await resumeIdentityRekeyForSession(resolved.email);
+      return resolved;
+    })();
+  }
+  return ctx.__anSessionCache;
 }
 
 async function resolveSessionUncached(
   event: H3Event,
+  options: { ignoreEmbedSession?: boolean } = {},
 ): Promise<AuthSession | null> {
   const cookieOnlyDesktopCheck = isDesktopSessionCookieOnlyCheck(event);
   // 1. MCP App embed session. This is a short-lived browser session minted
@@ -4790,13 +4849,15 @@ async function resolveSessionUncached(
   // specific intent for an embed request. Checking it before the legacy
   // an_session cookie prevents a stale cookie (common when an ACCESS_TOKEN is
   // configured) from shadowing the embed identity.
-  const embedSession = await resolveEmbedSessionFromRequest(event);
-  if (embedSession && !isEmbedCapabilityScope(embedSession.scope)) {
-    return {
-      email: embedSession.email,
-      token: embedSession.token,
-      ...(embedSession.orgId ? { orgId: embedSession.orgId } : {}),
-    };
+  if (!options.ignoreEmbedSession) {
+    const embedSession = await resolveEmbedSessionFromRequest(event);
+    if (embedSession && !isEmbedCapabilityScope(embedSession.scope)) {
+      return {
+        email: embedSession.email,
+        token: embedSession.token,
+        ...(embedSession.orgId ? { orgId: embedSession.orgId } : {}),
+      };
+    }
   }
 
   // 2. ACCESS_TOKEN check (programmatic/agent access)
@@ -7032,6 +7093,7 @@ async function mountBetterAuthRoutes(
         return { error: "Not authenticated" };
       }
       try {
+        await revokeEmbedSessionsForOwner(session.email);
         const db = getDbExec();
         // 1. Resolve user_id from email so we can wipe Better Auth sessions
         // by their FK column.
