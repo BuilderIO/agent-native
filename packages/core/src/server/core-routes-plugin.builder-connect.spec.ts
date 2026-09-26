@@ -239,8 +239,14 @@ describe("resolveBuilderCallbackWrite", () => {
     expect(write("org", "member")).toEqual({
       deny: "Only an organization owner or admin can change the shared Builder connection.",
     });
-    // Not a member of the flow's organization any more.
-    expect(write("org", null)).toHaveProperty("deny");
+  });
+
+  it("refuses every scope once the connector has left the flow's organization", () => {
+    for (const scope of ["org", "personal", null] as const) {
+      expect(write(scope, null)).toEqual({
+        deny: "You're no longer a member of the organization this Builder.io connection started in. Restart it from Settings.",
+      });
+    }
   });
 
   it("writes a personal grant for a member the org allows one", () => {

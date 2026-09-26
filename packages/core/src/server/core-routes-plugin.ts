@@ -564,6 +564,8 @@ export function parseBuilderConnectionScope(
 
 const BUILDER_PERSONAL_CONNECTION_DENIED =
   "Owners and admins connect Builder.io for the organization.";
+const BUILDER_CONNECTION_MEMBERSHIP_ENDED =
+  "You're no longer a member of the organization this Builder.io connection started in. Restart it from Settings.";
 
 /**
  * Who may start a connect for the named Builder.io connection. The org
@@ -629,7 +631,10 @@ export async function resolveScopelessBuilderConnectRestriction(
  * the OAuth round trip must not land a grant the connector can no longer hold.
  * An owner or admin connects for the organization and never personally, since
  * a personal grant would shadow the org's connection for them; anyone else
- * connects personally only while the org allows personal grants.
+ * connects personally only while the org allows personal grants. A flow that
+ * started in an organization the connector has since left is refused outright:
+ * the policy check doesn't look at membership, so falling through to a personal
+ * grant would hand a removed member a working connection.
  */
 export function resolveBuilderCallbackWrite(input: {
   requestedScope: BuilderConnectionScope | null;
@@ -639,6 +644,9 @@ export function resolveBuilderCallbackWrite(input: {
   /** Whether the org's policy allows this connector a personal grant. */
   personalAllowed: boolean;
 }): { scope?: BuilderOAuthScope; role: string | null } | { deny: string } {
+  if (input.pendingOrgId !== null && input.currentRole === null) {
+    return { deny: BUILDER_CONNECTION_MEMBERSHIP_ENDED };
+  }
   const managerRole =
     input.pendingOrgId !== null && isBuilderOrgManagerRole(input.currentRole)
       ? input.currentRole
