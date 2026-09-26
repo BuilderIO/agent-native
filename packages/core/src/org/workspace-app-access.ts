@@ -61,6 +61,41 @@ function normalizedEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+function workspaceManifestHasNoDispatch(appsJson: string | undefined): boolean {
+  if (!appsJson?.trim()) return false;
+
+  try {
+    const parsed: unknown = JSON.parse(appsJson);
+    const apps = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === "object" && "apps" in parsed
+        ? (parsed as { apps?: unknown }).apps
+        : null;
+    if (
+      !Array.isArray(apps) ||
+      apps.length === 0 ||
+      apps.some(
+        (app) =>
+          !app ||
+          typeof app !== "object" ||
+          typeof (app as { id?: unknown }).id !== "string",
+      )
+    ) {
+      return false;
+    }
+    return !apps.some((app) => {
+      const entry = app as { id: string; isDispatch?: unknown };
+      return (
+        entry.id.trim().toLowerCase() === "dispatch" ||
+        entry.isDispatch === true
+      );
+    });
+  } catch {
+    // coercion-ok: a malformed workspace manifest cannot prove no Dispatch is mounted.
+    return false;
+  }
+}
+
 export function isStandaloneDispatchRuntime(): boolean {
   const app = getAppConfig().app;
   const isDispatch = [
@@ -74,12 +109,24 @@ export function isStandaloneDispatchRuntime(): boolean {
 }
 
 function configuredWorkspaceDirectory(): string | null {
-  const workspace = getAppConfig().workspace;
+  const config = getAppConfig();
+  const workspace = config.workspace;
+  const noDispatch = workspaceManifestHasNoDispatch(workspace.appsJson);
+  const isOwnOrigin = (value: string) => {
+    if (!noDispatch || !config.app.url) return false;
+    try {
+      // The generated directory fallback can point at this app even though its registry route is absent.
+      return new URL(value).origin === new URL(config.app.url).origin;
+    } catch {
+      // coercion-ok: an invalid URL cannot prove that it is this app's origin.
+      return false;
+    }
+  };
   const orgDirectoryUrl = workspace.orgDirectoryUrl?.trim();
-  if (orgDirectoryUrl) return orgDirectoryUrl;
+  if (orgDirectoryUrl && !isOwnOrigin(orgDirectoryUrl)) return orgDirectoryUrl;
 
   const gatewayUrl = workspace.gatewayUrl?.trim();
-  if (!gatewayUrl) return null;
+  if (!gatewayUrl || isOwnOrigin(gatewayUrl)) return null;
 
   try {
     const url = new URL(gatewayUrl);

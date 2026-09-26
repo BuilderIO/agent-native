@@ -375,6 +375,11 @@ describe("isWorkspaceAppAccessAllowed", () => {
     vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "test-vercel-bypass");
     vi.stubEnv("VERCEL_ENV", "preview");
     vi.stubEnv("VERCEL_URL", "dispatch.example.test");
+    vi.stubEnv("APP_URL", "https://community.example.test");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "account-expert", isDispatch: false }]),
+    );
     vi.stubEnv(
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
       "https://dispatch.example.test",
@@ -436,6 +441,42 @@ describe("isWorkspaceAppAccessAllowed", () => {
       }),
     );
     expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("uses the local ACL when a workspace has no Dispatch registry", async () => {
+    vi.stubEnv("APP_URL", "https://community.example.test");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "account-expert", isDispatch: false }]),
+    );
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://community.example.test",
+    );
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://community.example.test");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "account-expert");
+    resetAppConfigForTests();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.execute.mockResolvedValueOnce({
+      rows: [
+        {
+          owner_email: "owner@example.com",
+          org_id: "org-1",
+          visibility: "private",
+        },
+      ],
+    });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.execute).toHaveBeenCalledOnce();
   });
 
   it("uses Dispatch's mount path for a local gateway fallback", async () => {
