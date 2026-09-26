@@ -51,9 +51,8 @@ import { getDb, schema } from "../db/index.js";
 
 const MAX_RECORD_LIMIT = 100;
 const MAX_CONCURRENT_SCOPE_CHECKS = 20;
-// ponytail: bounds the reads per call when most rows on a page are withheld;
-// the page comes back short with a cursor instead of scanning the whole
-// table. Same policy as list-crm-list-entries.ts.
+// A mostly withheld page may come back short with a cursor; the cap keeps one
+// call from scanning a whole table.
 const MAX_SCOPE_FILL_BATCHES = 5;
 
 /** A filter the caller must fix before retrying — surfaces as HTTP 422. */
@@ -1263,8 +1262,8 @@ export async function recordsInCurrentScope<
       ]),
     ).values(),
   );
-  // Every scope on the page is checked, in batches that bound concurrent
-  // provider calls; skipping or refusing the rest would drop valid rows.
+  // Do not cap the scopes checked: a skipped scope drops records the caller
+  // can still see.
   const currentScopes = new Map<string, CrmAccessScope | null>();
   for (let i = 0; i < targets.length; i += MAX_CONCURRENT_SCOPE_CHECKS) {
     const batch = targets.slice(i, i + MAX_CONCURRENT_SCOPE_CHECKS);
