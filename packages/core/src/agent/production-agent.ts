@@ -923,6 +923,10 @@ export async function resolveOwnerEngineApiKey(input: {
   }
 
   const engineName = explicitEngineName(input.engineOption);
+  let activeEngineSetting:
+    | { status: "available"; engine: string }
+    | { status: "unavailable"; error: unknown }
+    | undefined;
   if (engineName) {
     const resolved = await getOwnerApiKeyForEngine(
       engineName,
@@ -930,19 +934,31 @@ export async function resolveOwnerEngineApiKey(input: {
     );
     if (resolved.apiKey) return resolved;
   } else {
-    const { getSetting } = await import("../settings/store.js");
-    const engineSetting = await getSetting("agent-engine");
-    const activeEngine =
-      (engineSetting?.engine as string | undefined) ?? "anthropic";
-    const activeKey = await getOwnerApiKeyForEngine(
-      activeEngine,
-      input.ownerEmail,
-    );
-    if (activeKey.apiKey) return { ...activeKey, apiKeyEnvVar: undefined };
+    try {
+      const { getSetting } = await import("../settings/store.js");
+      const engineSetting = await getSetting("agent-engine");
+      activeEngineSetting = {
+        status: "available",
+        engine: (engineSetting?.engine as string | undefined) ?? "anthropic",
+      };
+    } catch (error) {
+      activeEngineSetting = { status: "unavailable", error };
+    }
+    if (activeEngineSetting.status === "available") {
+      const activeKey = await getOwnerApiKeyForEngine(
+        activeEngineSetting.engine,
+        input.ownerEmail,
+      );
+      if (activeKey.apiKey) return { ...activeKey, apiKeyEnvVar: undefined };
+    }
   }
   const fallback = input.anthropicFallback?.trim();
-  return fallback &&
-    canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")
+  const canUseFallback =
+    fallback && canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY");
+  if (activeEngineSetting?.status === "unavailable" && !canUseFallback) {
+    throw activeEngineSetting.error;
+  }
+  return fallback && canUseFallback
     ? {
         apiKey: fallback,
         apiKeyEnvVar: "ANTHROPIC_API_KEY",

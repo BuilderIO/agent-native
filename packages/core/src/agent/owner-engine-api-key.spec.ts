@@ -130,6 +130,31 @@ describe("resolveOwnerEngineApiKey", () => {
     });
   });
 
+  it("uses the tagged host fallback when the active engine setting is unavailable", async () => {
+    getSettingMock.mockRejectedValue(new Error("settings unavailable"));
+
+    await expect(
+      resolveOwnerEngineApiKey({
+        ownerEmail: "owner@example.com",
+        anthropicFallback: "host-anthropic-key",
+      }),
+    ).resolves.toEqual({
+      apiKey: "host-anthropic-key",
+      apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      credentialProvenance: { scope: "deployment" },
+    });
+    expect(readAppSecretMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces an unavailable active engine setting without a safe fallback", async () => {
+    const settingsError = new Error("settings unavailable");
+    getSettingMock.mockRejectedValue(settingsError);
+
+    await expect(
+      resolveOwnerEngineApiKey({ ownerEmail: "owner@example.com" }),
+    ).rejects.toBe(settingsError);
+  });
+
   it("pairs an explicit OpenAI engine with the OpenAI deploy key", async () => {
     readDeployCredentialEnvMock.mockImplementation((key: string) =>
       key === "OPENAI_API_KEY" ? "sk-openai-deploy" : undefined,
