@@ -42,7 +42,9 @@ function roleContext(value: string | null | undefined): string {
     return "Use broadly useful design starters such as a landing page, dashboard, or small web experience.";
   }
   const roleKey = role.toLowerCase();
-  if (Object.hasOwn(ROLE_CONTEXT, roleKey)) return ROLE_CONTEXT[roleKey];
+  if (Object.prototype.hasOwnProperty.call(ROLE_CONTEXT, roleKey)) {
+    return ROLE_CONTEXT[roleKey];
+  }
   return `The user's selected onboarding role is ${JSON.stringify(role)}. Tailor suggestions to that role's typical work and goals.`;
 }
 
