@@ -131,7 +131,7 @@ describe("list-model-providers", () => {
   });
 
   it("shows admins the organization key's mask and gateway", async () => {
-    setSecret("org", "org-1", "OPENAI_API_KEY", "sk-test-orgkey-1111");
+    setSecret("org", "org-1", "OPENAI_API_KEY", "sk-test-fake-1111");
     setSecret("org", "org-1", "OPENAI_BASE_URL", "https://gateway.example/v1");
     const listing = await run("admin@example.com");
     expect(listing.canManageOrg).toBe(true);
@@ -144,7 +144,7 @@ describe("list-model-providers", () => {
   });
 
   it("tells members an organization key exists without its mask", async () => {
-    setSecret("org", "org-1", "ANTHROPIC_API_KEY", "sk-ant-test-2222");
+    setSecret("org", "org-1", "ANTHROPIC_API_KEY", "sk-ant-test-fake-2222");
     setSecret(
       "org",
       "org-1",
@@ -164,12 +164,12 @@ describe("list-model-providers", () => {
   });
 
   it("lists a member's personal key next to the organization's", async () => {
-    setSecret("org", "org-1", "ANTHROPIC_API_KEY", "sk-ant-test-2222");
+    setSecret("org", "org-1", "ANTHROPIC_API_KEY", "sk-ant-test-fake-2222");
     setSecret(
       "user",
       "member@example.com",
       "ANTHROPIC_API_KEY",
-      "sk-ant-mine-3333",
+      "sk-ant-test-fake-3333",
     );
     const listing = await run("member@example.com");
     expect(entry(listing, "anthropic").personal).toMatchObject({
@@ -180,7 +180,12 @@ describe("list-model-providers", () => {
   });
 
   it("lists a key in the organization's legacy workspace row as the organization's", async () => {
-    setSecret("workspace", "org-1", "ANTHROPIC_API_KEY", "sk-ant-legacy-8888");
+    setSecret(
+      "workspace",
+      "org-1",
+      "ANTHROPIC_API_KEY",
+      "sk-ant-test-fake-8888",
+    );
     const admin = await run("admin@example.com");
     expect(entry(admin, "anthropic").org).toEqual({
       scope: "org",
@@ -197,8 +202,13 @@ describe("list-model-providers", () => {
   });
 
   it("prefers the organization row over its legacy workspace row", async () => {
-    setSecret("org", "org-1", "ANTHROPIC_API_KEY", "sk-ant-current-1212");
-    setSecret("workspace", "org-1", "ANTHROPIC_API_KEY", "sk-ant-legacy-8888");
+    setSecret("org", "org-1", "ANTHROPIC_API_KEY", "sk-ant-test-fake-1212");
+    setSecret(
+      "workspace",
+      "org-1",
+      "ANTHROPIC_API_KEY",
+      "sk-ant-test-fake-8888",
+    );
     const listing = await run("admin@example.com");
     expect(entry(listing, "anthropic").org).toEqual({
       scope: "org",
@@ -212,7 +222,7 @@ describe("list-model-providers", () => {
       "workspace",
       "solo:member@example.com",
       "OPENAI_API_KEY",
-      "sk-test-solo-9999",
+      "sk-test-fake-9999",
     );
     setSecret(
       "workspace",
@@ -293,7 +303,7 @@ describe("list-model-providers", () => {
       "user",
       "solo@example.com",
       "OPENROUTER_API_KEY",
-      "sk-or-test-7777",
+      "sk-or-test-fake-7777",
     );
     const listing = await run("solo@example.com", null);
     expect(listing).toMatchObject({
