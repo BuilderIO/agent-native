@@ -37,9 +37,11 @@ import {
 import { useManageAiFilter, useAiFilter } from "@/hooks/use-ai-filter";
 import {
   useAutomations,
+  useClearAiFilterRules,
   useConsolidateAiFilterRules,
   useCreateAutomation,
   useDeleteAutomation,
+  useRestoreAiFilterRules,
   useUpdateAutomation,
 } from "@/hooks/use-automations";
 import { useLabels, useSettings, useUpdateSettings } from "@/hooks/use-emails";
@@ -47,12 +49,6 @@ import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 
 type RuleMode = "tag" | "important" | "archive" | "spam";
 type PromptMode = Exclude<RuleMode, "tag">;
-
-function makeAggregateError(errors: unknown[], message: string) {
-  const error = new Error(message);
-  error.name = "AggregateError";
-  return Object.assign(error, { errors });
-}
 
 const PROMPT_MODES: PromptMode[] = ["important", "archive", "spam"];
 
@@ -209,7 +205,9 @@ export function AiFilterSection() {
     !jevAvailability.isError && jevAvailability.data?.configured === true;
   const updateSettings = useManageAiFilter();
   const updatePreferences = useUpdateSettings();
+  const clearAiFilterRules = useClearAiFilterRules();
   const consolidateAiFilterRules = useConsolidateAiFilterRules();
+  const restoreAiFilterRules = useRestoreAiFilterRules();
   const createRule = useCreateAutomation();
   const updateRule = useUpdateAutomation();
   const deleteRule = useDeleteAutomation();
@@ -308,58 +306,24 @@ export function AiFilterSection() {
     }
     const actions = actionsForMode(mode);
 
-    const restoreRules = async (rulesToRestore: AutomationRule[]) => {
-      const errors: unknown[] = [];
-      for (const rule of rulesToRestore) {
-        try {
-          const restored = await createRule.mutateAsync({
-            name: rule.name,
-            condition: rule.condition,
-            actions: rule.actions,
-            kind: rule.kind,
-            domain: rule.domain,
-          });
-          if (!rule.enabled) {
-            await updateRule.mutateAsync({ id: restored.id, enabled: false });
-          }
-        } catch (error) {
-          errors.push(error);
-        }
-      }
-      if (errors.length) {
-        throw makeAggregateError(
-          errors,
-          errors[0] instanceof Error
-            ? errors[0].message
-            : t("mail.aiFilter.instructionFailed"),
-        );
-      }
-    };
     try {
       if (!condition) {
-        const removed: AutomationRule[] = [];
-        try {
-          for (const rule of existing) {
-            await deleteRule.mutateAsync(rule.id);
-            removed.push(rule);
-          }
-        } catch (error) {
-          try {
-            await restoreRules(removed);
-          } catch (restoreError) {
-            throw makeAggregateError(
-              [error, restoreError],
-              error instanceof Error
-                ? error.message
-                : t("mail.aiFilter.instructionFailed"),
-            );
-          }
-          throw error;
-        }
+        const { undoId } = await clearAiFilterRules.mutateAsync(
+          existing.map((rule) => rule.id),
+        );
         toast(t("mail.aiFilter.promptRulesCleared"), {
           action: {
             label: t("mail.actions.undo"),
-            onClick: () => void restoreRules(existing),
+            onClick: () => {
+              void restoreAiFilterRules
+                .mutateAsync(undoId)
+                .catch((error) =>
+                  toast.error(
+                    actionErrorMessage(error) ??
+                      t("mail.aiFilter.instructionFailed"),
+                  ),
+                );
+            },
           },
         });
         return;

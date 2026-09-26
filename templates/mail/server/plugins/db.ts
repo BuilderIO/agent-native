@@ -300,6 +300,18 @@ CREATE INDEX IF NOT EXISTS idx_mail_inbox_push_invalidations_owner_account
 ALTER TABLE mail_sync_accounts
   ADD COLUMN IF NOT EXISTS last_push_generation BIGINT NOT NULL DEFAULT 0;`,
     },
+    {
+      version: 27,
+      name: "mail-ai-filter-rule-undo",
+      sql: `CREATE TABLE IF NOT EXISTS mail_ai_filter_rule_undo (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    rules_json TEXT NOT NULL,
+    expires_at BIGINT NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS mail_ai_filter_rule_undo_owner_expiry_idx
+  ON mail_ai_filter_rule_undo(owner_email, expires_at);`,
+    },
   ],
   { table: "mail_migrations" },
 );

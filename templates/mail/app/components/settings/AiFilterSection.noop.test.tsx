@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createRule: vi.fn(),
+  manageRuleUndo: vi.fn(),
   consolidateRule: vi.fn(),
   deleteRule: vi.fn(),
   updateRule: vi.fn(),
@@ -147,6 +148,8 @@ vi.mock("@/hooks/use-automations", () => ({
     });
   })(),
   useCreateAutomation: () => ({ mutateAsync: mocks.createRule }),
+  useClearAiFilterRules: () => ({ mutateAsync: mocks.manageRuleUndo }),
+  useRestoreAiFilterRules: () => ({ mutateAsync: mocks.manageRuleUndo }),
   useConsolidateAiFilterRules: () => ({
     mutateAsync: mocks.consolidateRule,
   }),
@@ -193,6 +196,7 @@ describe("AiFilterSection prompt blur saves", () => {
     mocks.jevConfigured = true;
     mocks.triageEnabled = true;
     mocks.createRule.mockReset();
+    mocks.manageRuleUndo.mockReset();
     mocks.consolidateRule.mockReset();
     mocks.deleteRule.mockReset();
     mocks.updateRule.mockReset();
@@ -254,6 +258,7 @@ describe("AiFilterSection prompt blur saves", () => {
 
   it("offers a clear action for existing prompt rules when Jev is unavailable", async () => {
     mocks.jevConfigured = false;
+    mocks.manageRuleUndo.mockResolvedValue({ undoId: "undo-token" });
     render(<AiFilterSection />, { wrapper: MemoryRouter });
 
     const prompt = screen.getByRole("textbox", {
@@ -267,9 +272,12 @@ describe("AiFilterSection prompt blur saves", () => {
     );
 
     await waitFor(() => {
-      expect(mocks.deleteRule).toHaveBeenCalledWith("important-rule");
-      expect(mocks.deleteRule).toHaveBeenCalledWith("important-rule-duplicate");
+      expect(mocks.manageRuleUndo).toHaveBeenCalledWith([
+        "important-rule",
+        "important-rule-duplicate",
+      ]);
     });
+    expect(mocks.deleteRule).not.toHaveBeenCalled();
     expect(mocks.createRule).not.toHaveBeenCalled();
     expect(mocks.consolidateRule).not.toHaveBeenCalled();
   });
@@ -287,6 +295,9 @@ describe("AiFilterSection prompt blur saves", () => {
       name: "mail.aiFilter.deleteInstruction",
     });
     expect((deleteButton as HTMLButtonElement).disabled).toBe(false);
+    expect(deleteButton.className).toContain("size-7");
+    expect(deleteButton.className).toContain("text-muted-foreground");
+    expect(deleteButton.className).not.toContain("opacity-0");
     fireEvent.click(deleteButton);
 
     await waitFor(() => {
