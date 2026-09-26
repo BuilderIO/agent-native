@@ -122,6 +122,14 @@ function latestReviewVote(
   );
 }
 
+function reviewRunIds(review: OutputReviewListRow): string[] {
+  return [
+    ...new Set([review.runId, ...(review.runs ?? []).map((run) => run.runId)]),
+  ];
+}
+
+const SUMMARY_RETRY_AFTER_MS = 10 * 60 * 1000;
+
 type OptimisticReviewVote = {
   feedbackType: "thumbs_up" | "thumbs_down";
   feedbackId?: string;
@@ -1081,6 +1089,8 @@ function ReviewTab({
   const [summaryRequests, setSummaryRequests] = useState<
     Record<string, ObservabilityReviewSummaryStatus>
   >({});
+  const summaryRetryTimers = useRef(new Map<string, number>());
+  const summaryRequestMounted = useRef(false);
   const [openPopover, setOpenPopover] = useState<{
     runId: string;
     kind: "feedback" | "instruction";
@@ -1095,6 +1105,58 @@ function ReviewTab({
     value: string;
     target: "agent" | "developer" | "skill";
   } | null>(null);
+  useEffect(() => {
+    summaryRequestMounted.current = true;
+    return () => {
+      summaryRequestMounted.current = false;
+      for (const timer of summaryRetryTimers.current.values()) {
+        window.clearTimeout(timer);
+      }
+      summaryRetryTimers.current.clear();
+    };
+  }, []);
+  const updateSummaryRequests = (
+    runIds: string[],
+    status: ObservabilityReviewSummaryStatus | null,
+  ) => {
+    if (!summaryRequestMounted.current) return;
+    const uniqueRunIds = [...new Set(runIds)];
+    for (const runId of uniqueRunIds) {
+      const timer = summaryRetryTimers.current.get(runId);
+      if (timer !== undefined) window.clearTimeout(timer);
+      summaryRetryTimers.current.delete(runId);
+      if (status === "sent") {
+        const retryTimer = window.setTimeout(() => {
+          if (!summaryRequestMounted.current) return;
+          setSummaryRequests((current) => {
+            if (current[runId] !== "sent") return current;
+            const next = { ...current };
+            delete next[runId];
+            return next;
+          });
+          summaryRetryTimers.current.delete(runId);
+        }, SUMMARY_RETRY_AFTER_MS);
+        summaryRetryTimers.current.set(runId, retryTimer);
+      }
+    }
+    setSummaryRequests((current) => {
+      const next = { ...current };
+      for (const runId of uniqueRunIds) {
+        if (status === null) delete next[runId];
+        else next[runId] = status;
+      }
+      return next;
+    });
+  };
+  const getSummaryStatus = (review: OutputReviewListRow) => {
+    const statuses = reviewRunIds(review).map(
+      (runId) => summaryRequests[runId],
+    );
+    if (statuses.includes("sending")) return "sending";
+    if (statuses.includes("sent")) return "sent";
+    if (statuses.includes("failed")) return "failed";
+    return null;
+  };
   const reviewRows =
     reviews?.filter(
       (review) =>
@@ -1373,14 +1435,10 @@ function ReviewTab({
 
   const unsummarizedReviews =
     visibleReviews?.filter((review) => {
-      const runIds = [
-        review.runId,
-        ...(review.runs?.map((run) => run.runId) ?? []),
-      ];
       return (
         !review.summary &&
         !review.readOnly &&
-        !runIds.some(
+        !reviewRunIds(review).some(
           (runId) =>
             summaryRequests[runId] === "sending" ||
             summaryRequests[runId] === "sent",
@@ -1395,9 +1453,11 @@ function ReviewTab({
       ...review.feedback.flatMap((entry) => (entry.runId ? [entry.runId] : [])),
     ]);
     return [...runIds].flatMap((runId) => {
-      const vote = latestReviewVote(review, runId);
-      if (vote?.feedbackType !== "thumbs_down") return [];
-      const voteRunId = vote.runId ?? runId;
+      const persistedVote = latestReviewVote(review, runId);
+      const feedbackType =
+        optimisticVotes[runId]?.feedbackType ?? persistedVote?.feedbackType;
+      if (feedbackType !== "thumbs_down") return [];
+      const voteRunId = persistedVote?.runId ?? runId;
       const note = review.feedback.find(
         (entry) =>
           entry.feedbackType === "text" &&
@@ -1422,17 +1482,13 @@ function ReviewTab({
       batches.push(unsummarizedReviews.slice(offset, offset + 25));
     }
     const batchRunIds = batches.map((batch) =>
-      batch.map((review) => review.runId),
+      batch.flatMap((review) => reviewRunIds(review)),
     );
     setSummaryStatus("sending");
-    setSummaryRequests((current) => ({
-      ...current,
-      ...Object.fromEntries(
-        batchRunIds.flat().map((runId) => [runId, "sending" as const]),
-      ),
-    }));
-    const requests = batches.map(async (batch) => {
-      const runIds = batch.map((review) => review.runId);
+    updateSummaryRequests(batchRunIds.flat(), "sending");
+    const requests = batches.map(async (batch, index) => {
+      const runIds = batchRunIds[index] ?? [];
+      let status: ObservabilityReviewSummaryStatus;
       try {
         const result = await sendToAgentChatAndConfirm({
           message: [
@@ -1455,23 +1511,15 @@ function ReviewTab({
           chatTarget: "local",
           usageLabel: "observability:human-review-summary",
         });
-        return {
-          runIds,
-          status: result.delivered ? ("sent" as const) : ("failed" as const),
-        };
+        status = result.delivered ? "sent" : "failed";
       } catch {
-        return { runIds, status: "failed" as const };
+        status = "failed";
       }
+      updateSummaryRequests(runIds, status);
+      return { status };
     });
     void Promise.all(requests).then((results) => {
-      setSummaryRequests((current) => ({
-        ...current,
-        ...Object.fromEntries(
-          results.flatMap(({ runIds, status }) =>
-            runIds.map((runId) => [runId, status] as const),
-          ),
-        ),
-      }));
+      if (!summaryRequestMounted.current) return;
       setSummaryStatus(
         results.every((result) => result.status === "sent") ? "sent" : "failed",
       );
@@ -1894,12 +1942,9 @@ function ReviewTab({
                         <ObservabilityReviewSummaryButton
                           runId={review.runId}
                           orgId={review.orgId}
-                          status={summaryRequests[review.runId] ?? null}
+                          status={getSummaryStatus(review)}
                           onStatusChange={(status) =>
-                            setSummaryRequests((current) => ({
-                              ...current,
-                              [review.runId]: status,
-                            }))
+                            updateSummaryRequests(reviewRunIds(review), status)
                           }
                           compact
                           background
@@ -2246,16 +2291,12 @@ function ReviewTab({
                             <ObservabilityReviewSummaryButton
                               runId={activeRunId ?? selectedReview.runId}
                               orgId={selectedReview.orgId}
-                              status={
-                                summaryRequests[
-                                  activeRunId ?? selectedReview.runId
-                                ] ?? null
-                              }
+                              status={getSummaryStatus(selectedReview)}
                               onStatusChange={(status) =>
-                                setSummaryRequests((current) => ({
-                                  ...current,
-                                  [activeRunId ?? selectedReview.runId]: status,
-                                }))
+                                updateSummaryRequests(
+                                  reviewRunIds(selectedReview),
+                                  status,
+                                )
                               }
                               compact
                               refresh={Boolean(selectedSummary)}

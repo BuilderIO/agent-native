@@ -38,7 +38,7 @@ export function ObservabilityReviewSummaryButton({
   refresh = false,
 }: ObservabilityReviewSummaryButtonProps) {
   const t = useT();
-  const disabled = status === "sending";
+  const disabled = status === "sending" || status === "sent";
   const label = t(
     refresh
       ? "observability.regenerateSummary"

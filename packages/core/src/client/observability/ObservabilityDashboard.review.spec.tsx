@@ -609,6 +609,262 @@ describe("ObservabilityDashboard human review", () => {
     );
   });
 
+  it("coordinates summary requests across grouped runs and both controls", async () => {
+    const primary = mockOutputReviews().data[0];
+    mockOutputReviews.mockReturnValue({
+      isLoading: false,
+      data: [
+        {
+          ...primary,
+          runCount: 2,
+          runs: [
+            { runId: "run-1", model: "test-model", createdAt: 20 },
+            { runId: "run-1-older", model: "test-model", createdAt: 10 },
+          ],
+        },
+      ],
+    });
+    let finishSummary: ((result: { delivered: boolean }) => void) | undefined;
+    mockConfirmAgentChat.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSummary = resolve;
+        }),
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard showHumanReview />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    const reviewTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Human review"),
+    );
+    await act(async () => reviewTab?.click());
+    const row = container.querySelector<HTMLElement>(
+      '[data-review-row="run-1"]',
+    )!;
+    await act(async () =>
+      row.querySelector<HTMLButtonElement>("[data-review-chevron]")?.click(),
+    );
+
+    const detail = reviewDetail("run-1")!;
+    const runPicker = detail.querySelector<HTMLSelectElement>(
+      '[aria-label="Total runs"]',
+    )!;
+    await act(async () => {
+      runPicker.value = "run-1-older";
+      runPicker.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const summaryButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="Summarize with agent"]',
+      ),
+    );
+    expect(summaryButtons).toHaveLength(2);
+
+    await act(async () => summaryButtons[1]?.click());
+    expect(mockConfirmAgentChat).toHaveBeenCalledTimes(1);
+    expect(
+      summaryButtons.map((button) => button.getAttribute("aria-busy")),
+    ).toEqual(["true", "true"]);
+    expect(
+      summaryButtons.map((button) => button.getAttribute("aria-disabled")),
+    ).toEqual(["true", "true"]);
+    await act(async () => summaryButtons[0]?.click());
+    expect(mockConfirmAgentChat).toHaveBeenCalledTimes(1);
+
+    await act(async () => finishSummary?.({ delivered: true }));
+    expect(
+      summaryButtons.map((button) => button.getAttribute("aria-busy")),
+    ).toEqual(["false", "false"]);
+    expect(
+      summaryButtons.map((button) => button.getAttribute("aria-disabled")),
+    ).toEqual(["true", "true"]);
+  });
+
+  it("settles each bulk summary batch as soon as that batch finishes", async () => {
+    const template = mockOutputReviews().data[0];
+    const reviews = Array.from({ length: 26 }, (_, index) => ({
+      ...template,
+      runId: `bulk-run-${index}`,
+      threadId: `bulk-thread-${index}`,
+      threadTitle: `Bulk review ${index}`,
+      createdAt: Date.now() - index,
+      runCount: index === 0 ? 2 : 1,
+      runs:
+        index === 0
+          ? [
+              {
+                runId: "bulk-run-0",
+                model: "test-model",
+                createdAt: Date.now(),
+              },
+              {
+                runId: "bulk-run-0-older",
+                model: "test-model",
+                createdAt: Date.now() - 1,
+              },
+            ]
+          : undefined,
+      feedback: [],
+    }));
+    mockOutputReviews.mockReturnValue({ isLoading: false, data: reviews });
+    const finishBatch = new Map<
+      string,
+      (result: { delivered: boolean }) => void
+    >();
+    mockConfirmAgentChat.mockImplementation(
+      (request: { actionScope: { runIds: string[] } }) =>
+        new Promise((resolve) =>
+          finishBatch.set(request.actionScope.runIds[0]!, resolve),
+        ),
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard showHumanReview />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    const reviewTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Human review"),
+    );
+    await act(async () => reviewTab?.click());
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-review-bulk-summary]")
+        ?.click(),
+    );
+    await vi.waitFor(() => expect(finishBatch.size).toBe(2));
+    expect(mockConfirmAgentChat.mock.calls[0]?.[0].actionScope.runIds).toEqual(
+      reviews.slice(0, 25).map((review) => review.runId),
+    );
+
+    const firstBatchRow = container.querySelector<HTMLElement>(
+      '[data-review-row="bulk-run-0"]',
+    )!;
+    await act(async () =>
+      firstBatchRow
+        .querySelector<HTMLButtonElement>("[data-review-chevron]")
+        ?.click(),
+    );
+    const detail = reviewDetail("bulk-run-0")!;
+    const runPicker = detail.querySelector<HTMLSelectElement>(
+      '[aria-label="Total runs"]',
+    )!;
+    await act(async () => {
+      runPicker.value = "bulk-run-0-older";
+      runPicker.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const groupedSummaryButtons = Array.from(
+      firstBatchRow.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="Summarize with agent"]',
+      ),
+    );
+    expect(groupedSummaryButtons).toHaveLength(2);
+    expect(
+      groupedSummaryButtons.every(
+        (button) =>
+          button.getAttribute("aria-busy") === "true" &&
+          button.getAttribute("aria-disabled") === "true",
+      ),
+    ).toBe(true);
+    await act(async () => groupedSummaryButtons[1]?.click());
+    expect(mockConfirmAgentChat).toHaveBeenCalledTimes(2);
+
+    await act(async () => finishBatch.get("bulk-run-0")?.({ delivered: true }));
+    const secondBatchRow = container.querySelector<HTMLElement>(
+      '[data-review-row="bulk-run-25"]',
+    )!;
+    expect(
+      firstBatchRow
+        .querySelector('button[aria-label="Summarize with agent"]')
+        ?.getAttribute("aria-busy"),
+    ).toBe("false");
+    expect(
+      secondBatchRow
+        .querySelector('button[aria-label="Summarize with agent"]')
+        ?.getAttribute("aria-busy"),
+    ).toBe("true");
+
+    await act(async () =>
+      finishBatch.get("bulk-run-25")?.({ delivered: true }),
+    );
+  });
+
+  it("uses the optimistic downvote to reveal instruction improvement immediately", async () => {
+    const review = mockOutputReviews().data[0];
+    mockOutputReviews.mockReturnValue({
+      isLoading: false,
+      data: [
+        {
+          ...review,
+          feedback: [
+            {
+              id: "vote-1",
+              feedbackType: "thumbs_up",
+              value: "",
+              runId: "run-1",
+              createdAt: 2,
+            },
+            {
+              id: "note-1",
+              feedbackType: "text",
+              value: "Keep the chart inline.",
+              runId: "run-1",
+              createdAt: 1,
+            },
+          ],
+        },
+      ],
+    });
+    let finishVote: (() => void) | undefined;
+    mockSubmitFeedback.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishVote = resolve;
+        }),
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard showHumanReview />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    const reviewTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Human review"),
+    );
+    await act(async () => reviewTab?.click());
+    const row = container.querySelector<HTMLElement>(
+      '[data-review-row="run-1"]',
+    )!;
+
+    await act(async () =>
+      row
+        .querySelector<HTMLButtonElement>('[data-review-vote="down"]')
+        ?.click(),
+    );
+
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        button.textContent?.includes("Update instructions"),
+      ),
+    ).toBe(true);
+    await act(async () => finishVote?.());
+  });
+
   it("updates votes optimistically, expands from the chevron, and filters rows", async () => {
     const current = mockOutputReviews().data;
     mockOutputReviews.mockReturnValue({
@@ -1341,7 +1597,7 @@ describe("ObservabilityDashboard human review", () => {
     );
   });
 
-  it("keeps a delivered summary retryable without adding it to bulk", async () => {
+  it("blocks duplicate summaries after delivery and excludes them from bulk", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -1365,16 +1621,17 @@ describe("ObservabilityDashboard human review", () => {
     await act(async () => summarizeButton.click());
 
     expect(summarizeButton.disabled).toBe(false);
+    expect(summarizeButton.getAttribute("aria-disabled")).toBe("true");
     expect(mockConfirmAgentChat).toHaveBeenCalledTimes(1);
     await act(async () => summarizeButton.click());
-    expect(mockConfirmAgentChat).toHaveBeenCalledTimes(2);
+    expect(mockConfirmAgentChat).toHaveBeenCalledTimes(1);
     const bulkSummary = container.querySelector<HTMLButtonElement>(
       "[data-review-bulk-summary]",
     );
     expect(bulkSummary?.textContent).toContain("2");
     await act(async () => bulkSummary?.click());
-    expect(mockConfirmAgentChat).toHaveBeenCalledTimes(3);
-    expect(mockConfirmAgentChat.mock.calls[2]?.[0].actionScope).toEqual({
+    expect(mockConfirmAgentChat).toHaveBeenCalledTimes(2);
+    expect(mockConfirmAgentChat.mock.calls[1]?.[0].actionScope).toEqual({
       kind: "observability-review-summary-batch",
       runIds: ["run-2", "run-no-preview"],
     });

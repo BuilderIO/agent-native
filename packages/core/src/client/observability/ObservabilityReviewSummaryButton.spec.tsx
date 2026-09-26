@@ -112,6 +112,9 @@ describe("ObservabilityReviewSummaryButton", () => {
     const status = container.querySelector('[role="status"]');
     expect(status?.textContent).toBe("observability.summarySent");
     expect(status?.classList.contains("sr-only")).toBe(false);
+    expect(button?.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => button?.click());
+    expect(sendToAgentChatAndConfirmMock).toHaveBeenCalledTimes(1);
   });
 
   it("shows visible sending feedback while the request is pending", async () => {
