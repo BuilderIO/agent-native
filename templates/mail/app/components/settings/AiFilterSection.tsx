@@ -1,4 +1,7 @@
-import { actionErrorMessage } from "@agent-native/core/client/hooks";
+import {
+  actionErrorMessage,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_FILTER_LABEL, AI_FILTER_RULE_NAME } from "@shared/ai-filter";
 import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
@@ -18,6 +21,7 @@ import {
   TAG_SUGGESTIONS,
 } from "@/components/onboarding/AiInboxSetup";
 import { AiRulePromptField } from "@/components/settings/AiRulePromptField";
+import { JevConnectionPrompt } from "@/components/settings/JevConnectionPrompt";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -97,6 +101,7 @@ function promptForRules(rules: AutomationRule[]) {
 function AiTagRow({
   rule,
   expanded,
+  disabled,
   onToggle,
   onSave,
   onDelete,
@@ -104,6 +109,7 @@ function AiTagRow({
 }: {
   rule: AutomationRule;
   expanded: boolean;
+  disabled: boolean;
   onToggle: () => void;
   onSave: (rule: AutomationRule, name: string, condition: string) => void;
   onDelete: (rule: AutomationRule) => void;
@@ -122,8 +128,10 @@ function AiTagRow({
 
   return (
     <div
-      draggable={!expanded}
-      onDragStart={(event) => event.dataTransfer.setData("text/plain", rule.id)}
+      draggable={!expanded && !disabled}
+      onDragStart={(event) => {
+        if (!disabled) event.dataTransfer.setData("text/plain", rule.id);
+      }}
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => onDrop(event, rule.id)}
       className="group border-b border-border/40 last:border-0"
@@ -134,6 +142,7 @@ function AiTagRow({
           type="button"
           className="grid min-w-0 flex-1 grid-cols-[110px_minmax(0,1fr)] items-center gap-3 text-left"
           aria-expanded={expanded}
+          disabled={disabled}
           onClick={onToggle}
         >
           <span className="truncate text-sm font-medium text-foreground">
@@ -148,6 +157,7 @@ function AiTagRow({
           size="icon"
           className="size-7 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100"
           aria-label={t("mail.aiFilter.deleteInstruction")}
+          disabled={disabled}
           onClick={() => onDelete(rule)}
         >
           <IconTrash className="size-3.5" />
@@ -159,6 +169,7 @@ function AiTagRow({
             value={name}
             onChange={(event) => setName(event.target.value)}
             onBlur={save}
+            disabled={disabled}
             aria-label={t("mail.aiFilter.tagNamePlaceholder")}
             placeholder={t("mail.aiFilter.tagNamePlaceholder")}
           />
@@ -166,6 +177,7 @@ function AiTagRow({
             value={condition}
             onChange={setCondition}
             onBlur={save}
+            disabled={disabled}
             label={t("mail.aiFilter.tagPlaceholder")}
             placeholder={t("mail.aiFilter.tagPlaceholder")}
           />
@@ -182,6 +194,16 @@ export function AiFilterSection() {
   const { data: settings } = useSettings();
   const { data: labels = [] } = useLabels();
   const googleStatus = useGoogleAuthStatus();
+  const jevAvailability = useActionQuery(
+    "get-jev-availability",
+    {},
+    {
+      staleTime: 0,
+      // request-storm-allow: the shared status query revalidates API-key setup when its settings tab returns.
+      refetchOnWindowFocus: true,
+    },
+  );
+  const jevConfigured = jevAvailability.data?.configured === true;
   const updateSettings = useManageAiFilter();
   const updatePreferences = useUpdateSettings();
   const consolidateAiFilterRules = useConsolidateAiFilterRules();
@@ -256,6 +278,7 @@ export function AiFilterSection() {
   }, [promptRules]);
 
   const updateAiSettings = (enabled: boolean) => {
+    if (!jevConfigured) return;
     updateSettings.mutate(
       { mode: "settings", settings: { enabled } },
       {
@@ -270,6 +293,7 @@ export function AiFilterSection() {
   };
 
   const savePrompt = async (mode: PromptMode) => {
+    if (!jevConfigured) return;
     const condition = promptDrafts[mode].trim();
     const existing = promptRules[mode];
     const actions = actionsForMode(mode);
@@ -384,6 +408,7 @@ export function AiFilterSection() {
   };
 
   const saveNewTag = async () => {
+    if (!jevConfigured) return;
     const name = newTagName.trim();
     const condition = newTagPrompt.trim();
     if (!name || !condition || savingNewTag) return;
@@ -412,7 +437,7 @@ export function AiFilterSection() {
   };
 
   const saveSuggestedTag = async (nameKey: string, promptKey: string) => {
-    if (savingSuggestedTag) return;
+    if (!jevConfigured || savingSuggestedTag) return;
     const name = t(nameKey);
     const condition = t(promptKey);
     setSavingSuggestedTag(nameKey);
@@ -441,6 +466,7 @@ export function AiFilterSection() {
     nameDraft: string,
     conditionDraft: string,
   ) => {
+    if (!jevConfigured) return;
     const name = nameDraft.trim() || labelForRule(rule);
     const condition = conditionDraft.trim() || rule.condition;
     if (!name || !condition) return;
@@ -475,6 +501,7 @@ export function AiFilterSection() {
   };
 
   const removeTag = async (rule: AutomationRule) => {
+    if (!jevConfigured) return;
     try {
       await deleteRule.mutateAsync(rule.id);
       const labelName = labelForRule(rule);
@@ -499,7 +526,7 @@ export function AiFilterSection() {
   };
 
   const reorderTags = async (draggedId: string, targetId: string) => {
-    if (draggedId === targetId) return;
+    if (!jevConfigured || draggedId === targetId) return;
     const orderedNames = tagRules.map((rule) => labelForRule(rule));
     const from = tagRules.findIndex((rule) => rule.id === draggedId);
     const to = tagRules.findIndex((rule) => rule.id === targetId);
@@ -543,8 +570,17 @@ export function AiFilterSection() {
             checked={state.enabled}
             onCheckedChange={updateAiSettings}
             aria-label={t("mail.aiFilter.toggle")}
+            disabled={!jevConfigured}
           />
         </div>
+
+        {jevAvailability.isLoading ? (
+          <Skeleton className="h-16 w-full" />
+        ) : !jevConfigured ? (
+          <JevConnectionPrompt
+            onConnected={() => void jevAvailability.refetch()}
+          />
+        ) : null}
 
         <section id="tags" className="space-y-2">
           <div className="flex items-center justify-between">
@@ -571,6 +607,7 @@ export function AiFilterSection() {
               variant="ghost"
               size="sm"
               className="h-7 px-2 text-xs"
+              disabled={!jevConfigured}
               onClick={() => {
                 setNewTagOpen(true);
                 setExpandedTagId("new");
@@ -588,6 +625,7 @@ export function AiFilterSection() {
                   key={rule.id}
                   rule={rule}
                   expanded={expandedTagId === rule.id}
+                  disabled={!jevConfigured}
                   onToggle={() =>
                     setExpandedTagId((current) =>
                       current === rule.id ? null : rule.id,
@@ -599,6 +637,7 @@ export function AiFilterSection() {
                   onDelete={removeTag}
                   onDrop={(event, targetId) => {
                     event.preventDefault();
+                    if (!jevConfigured) return;
                     void reorderTags(
                       event.dataTransfer.getData("text/plain"),
                       targetId,
@@ -613,6 +652,7 @@ export function AiFilterSection() {
                     value={newTagName}
                     onChange={(event) => setNewTagName(event.target.value)}
                     onBlur={() => void saveNewTag()}
+                    disabled={!jevConfigured}
                     aria-label={t("mail.aiFilter.tagNamePlaceholder")}
                     placeholder={t("mail.aiFilter.tagNamePlaceholder")}
                   />
@@ -620,6 +660,7 @@ export function AiFilterSection() {
                     value={newTagPrompt}
                     onChange={setNewTagPrompt}
                     onBlur={() => void saveNewTag()}
+                    disabled={!jevConfigured}
                     label={t("mail.aiFilter.tagPlaceholder")}
                     placeholder={t("mail.aiFilter.tagPlaceholder")}
                   />
@@ -633,6 +674,7 @@ export function AiFilterSection() {
                 value={newTagName}
                 onChange={(event) => setNewTagName(event.target.value)}
                 onBlur={() => void saveNewTag()}
+                disabled={!jevConfigured}
                 aria-label={t("mail.aiFilter.tagNamePlaceholder")}
                 placeholder={t("mail.aiFilter.tagNamePlaceholder")}
               />
@@ -640,6 +682,7 @@ export function AiFilterSection() {
                 value={newTagPrompt}
                 onChange={setNewTagPrompt}
                 onBlur={() => void saveNewTag()}
+                disabled={!jevConfigured}
                 label={t("mail.aiFilter.tagPlaceholder")}
                 placeholder={t("mail.aiFilter.tagPlaceholder")}
               />
@@ -651,7 +694,7 @@ export function AiFilterSection() {
                   key={nameKey}
                   variant="outline"
                   size="sm"
-                  disabled={savingSuggestedTag !== null}
+                  disabled={!jevConfigured || savingSuggestedTag !== null}
                   onClick={() => void saveSuggestedTag(nameKey, promptKey)}
                 >
                   <IconPlus className="size-3.5" />
@@ -677,6 +720,7 @@ export function AiFilterSection() {
             </h3>
             <AiRulePromptField
               value={promptDrafts[mode]}
+              disabled={!jevConfigured}
               onChange={(value) =>
                 setPromptDrafts((drafts) => ({ ...drafts, [mode]: value }))
               }

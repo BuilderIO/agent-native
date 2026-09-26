@@ -366,7 +366,9 @@ export function InboxPage() {
     {},
     {
       enabled: view === "inbox" || navState.command.data?.sort === "priority",
-      staleTime: 60_000,
+      staleTime: 0,
+      // request-storm-allow: the shared status query revalidates API-key setup when its settings tab returns.
+      refetchOnWindowFocus: true,
       retry: 2,
     },
   );
@@ -1199,6 +1201,9 @@ export function InboxPage() {
             isFetchNextPageError={isFetchNextPageError}
             sortMode={sortMode}
             showPrioritySort={showPrioritySort}
+            jevConfigured={jevConfigured}
+            jevAvailabilityLoading={jevAvailability.isLoading}
+            onJevConnected={() => void jevAvailability.refetch()}
             onSortModeChange={changeSortMode}
           />
         )}

@@ -221,6 +221,7 @@ function Harness({
   hasNextPage,
   isFetchingNextPage,
   showPrioritySort,
+  jevConfigured = showPrioritySort,
   sortMode,
 }: {
   emails?: React.ComponentProps<typeof EmailList>["emails"];
@@ -229,6 +230,7 @@ function Harness({
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
   showPrioritySort?: boolean;
+  jevConfigured?: boolean;
   sortMode?: "newest" | "priority";
 }) {
   const [focusedId, setFocusedId] = useState<string | null>("first");
@@ -249,6 +251,7 @@ function Harness({
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         showPrioritySort={showPrioritySort}
+        jevConfigured={jevConfigured}
         sortMode={sortMode}
       />
     </>
@@ -264,11 +267,39 @@ function press(key: string, shiftKey = false) {
 }
 
 function hasPrioritySortOption(node: unknown): boolean {
-  if (node === "mail.sort.priority") return true;
   if (Array.isArray(node)) return node.some(hasPrioritySortOption);
   if (!isValidElement(node)) return false;
-  const props = node.props as { children?: unknown; value?: unknown };
-  return props.value === "priority" || hasPrioritySortOption(props.children);
+  const props = node.props as {
+    children?: unknown;
+    onSelect?: unknown;
+    value?: unknown;
+  };
+  const isPriorityAction =
+    props.value === "priority" ||
+    (props.onSelect !== undefined &&
+      hasText(props.children, "mail.sort.priority"));
+  return isPriorityAction || hasPrioritySortOption(props.children);
+}
+
+function hasText(node: unknown, text: string): boolean {
+  if (node === text) return true;
+  if (Array.isArray(node)) return node.some((child) => hasText(child, text));
+  if (!isValidElement(node)) return false;
+  return hasText((node.props as { children?: unknown }).children, text);
+}
+
+function hasJevConnectionPrompt(node: unknown): boolean {
+  if (Array.isArray(node)) return node.some(hasJevConnectionPrompt);
+  if (!isValidElement(node)) return false;
+  if (
+    typeof node.type === "function" &&
+    node.type.name === "JevConnectionPrompt"
+  ) {
+    return true;
+  }
+  return hasJevConnectionPrompt(
+    (node.props as { children?: unknown }).children,
+  );
 }
 
 describe("EmailList keyboard navigation interactions", () => {
@@ -294,11 +325,12 @@ describe("EmailList keyboard navigation interactions", () => {
 
   afterEach(() => cleanup());
 
-  it("hides Priority sort when Jev is unavailable", () => {
+  it("keeps Priority visible with a Jev connect action when unavailable", () => {
     mocks.view = "inbox";
     render(<Harness showPrioritySort={false} />);
 
     expect(hasPrioritySortOption(mocks.headerActions)).toBe(false);
+    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(true);
   });
 
   it("shows Priority sort when Jev is configured", () => {
@@ -306,6 +338,7 @@ describe("EmailList keyboard navigation interactions", () => {
     render(<Harness showPrioritySort />);
 
     expect(hasPrioritySortOption(mocks.headerActions)).toBe(true);
+    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
   });
 
   it("reuses priority scores when the visible inbox emails change", async () => {

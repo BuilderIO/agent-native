@@ -24,6 +24,15 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
+vi.mock("@agent-native/core/client/hooks", () => ({
+  actionErrorMessage: (error: unknown) => String(error),
+  useActionQuery: () => ({
+    data: { configured: true },
+    isLoading: false,
+    refetch: vi.fn(),
+  }),
+}));
+
 vi.mock("@/components/onboarding/AiInboxSetup", () => ({
   AiInboxSetup: () => null,
   TAG_SUGGESTIONS: [

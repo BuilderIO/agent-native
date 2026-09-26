@@ -154,7 +154,9 @@ describe("Inbox navigation commands", () => {
     expect(emailList).toContain(
       'showPrioritySort && view === "inbox" && !searchQuery && !labelParam',
     );
-    expect(emailList).toContain("{showPrioritySort && (");
+    expect(emailList).toContain("{jevConfigured && (");
+    expect(emailList).toContain("{!jevConfigured && (");
+    expect(emailList).toContain('variant="trigger"');
     expect(source).toContain('toast.error(t("mail.sort.priorityFailed"))');
     expect(source).not.toContain("refetchOnWindowFocus: false");
   });
