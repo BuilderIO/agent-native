@@ -52,6 +52,7 @@ const schemaMock = vi.hoisted(() => ({
     slug: "bookingLinks.slug",
     title: "bookingLinks.title",
     color: "bookingLinks.color",
+    conferencing: "bookingLinks.conferencing",
   },
   bookingLinkShares: {},
   bookings: {
@@ -66,6 +67,9 @@ const schemaMock = vi.hoisted(() => ({
     meetingLink: "bookings.meetingLink",
     meetingLinkPending: "bookings.meetingLinkPending",
     googleEventId: "bookings.googleEventId",
+    zoomNeedsReview: "bookings.zoomNeedsReview",
+    zoomMeetingId: "bookings.zoomMeetingId",
+    zoomAccountId: "bookings.zoomAccountId",
     status: "bookings.status",
     createdAt: "bookings.createdAt",
   },
@@ -88,11 +92,17 @@ function createDbMock({
       slug: "intro",
       title: "Intro call",
       color: "#5B9BD5",
+      conferencing: null,
     },
   ],
   bookings = [],
 }: {
-  links?: Array<{ slug: string; title: string; color?: string }>;
+  links?: Array<{
+    slug: string;
+    title: string;
+    color?: string;
+    conferencing?: string | null;
+  }>;
   bookings?: Array<Record<string, unknown>>;
 } = {}) {
   return {
@@ -119,6 +129,9 @@ function bookingRow(overrides: Record<string, unknown> = {}) {
     meetingLink: "https://example.com/meet",
     meetingLinkPending: false,
     googleEventId: "google-event-1",
+    zoomNeedsReview: false,
+    zoomMeetingId: null,
+    zoomAccountId: null,
     status: "confirmed",
     createdAt: "2026-06-12T10:13:39.746Z",
     ...overrides,
@@ -177,6 +190,44 @@ describe("listCalendarEvents booking merge", () => {
         googleEventId: undefined,
       },
     ]);
+  });
+
+  it("hides an ambiguous Zoom booking from the calendar while review is needed", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        bookings: [bookingRow({ googleEventId: null, zoomNeedsReview: true })],
+      }),
+    );
+
+    const result = await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+    });
+
+    expect(result.events).toEqual([]);
+  });
+
+  it("hides legacy Zoom bookings whose review flag predates the migration", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        links: [
+          {
+            slug: "intro",
+            title: "Intro call",
+            color: "#5B9BD5",
+            conferencing: JSON.stringify({ type: "zoom" }),
+          },
+        ],
+        bookings: [bookingRow({ googleEventId: null })],
+      }),
+    );
+
+    const result = await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+    });
+
+    expect(result.events).toEqual([]);
   });
 
   it("exposes a persisted pending meeting link on the host calendar event", async () => {

@@ -531,6 +531,14 @@ export default {
       "Tu horario está reservado. El anfitrión te enviará los detalles de la reunión.",
     confirmed: "Confirmada",
     confirmedCount: "Confirmadas ({{count}})",
+    zoomNeedsReview: "Verifica Zoom antes de volver a intentarlo",
+    zoomCancellationNeedsReview: "Comprueba Zoom antes de cancelar",
+    zoomCancellationRequiresHostReview:
+      "El organizador debe revisar la reunión de Zoom antes de poder cancelar esta reserva.",
+    zoomCancelTitle: "Comprueba Zoom antes de cancelar",
+    zoomCancelDescription:
+      "Es posible que Zoom haya creado una reunión para esta reserva. Revisa tu cuenta de Zoom y cancela allí la reunión si existe. Continúa solo cuando la reunión esté cancelada o hayas confirmado que no existe.",
+    zoomCancelConfirm: "He revisado Zoom",
     confirming: "Confirmando",
     conferencing: "conferencias",
     connectZoom: "Conectar Zoom",

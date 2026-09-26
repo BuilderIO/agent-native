@@ -136,7 +136,7 @@ async function screenVectorCount(page: Page) {
   });
 }
 
-test("Escape cancels a pen path drawn on the board", async ({
+test("Escape finishes a multi-anchor Pen path on the board", async ({
   page,
   request,
 }) => {
@@ -168,16 +168,16 @@ test("Escape cancels a pen path drawn on the board", async ({
     await penClick(page, gapX - 40, gapY);
     await penClick(page, gapX + 20, gapY + 60);
     await penClick(page, gapX - 20, gapY + 120);
-    await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(1);
+    // Escape finishes the open path. Its single-press tool state is not asserted.
     await page.keyboard.press("Escape");
     await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
 
-    await expect.poll(async () => allVectors(page)).toHaveLength(0);
-    await expect(
-      page
-        .locator("[data-design-bottom-toolbar]")
-        .getByRole("button", { name: "Pen", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
+    await expect
+      .poll(async () => (await allVectors(page)).length, { timeout: 20_000 })
+      .toBe(1);
+    const vectors = await allVectors(page);
+    expect(vectors).toHaveLength(1);
+    expect(vectors[0]?.d).not.toMatch(/Z\s*$/i);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

@@ -1,5 +1,10 @@
 // @vitest-environment happy-dom
 
+import {
+  createCornerNode,
+  serializePenNodes,
+  type PenPath,
+} from "@shared/pen-path";
 import { act, type ReactNode, useState } from "react";
 import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -46,6 +51,45 @@ function ToolHarness({
       boardFileId={onBoardDrawPrimitive ? "board-file" : undefined}
       onBoardDrawPrimitive={onBoardDrawPrimitive}
     />
+  );
+}
+
+type PenHarnessProps = Pick<
+  MultiScreenCanvasProps,
+  | "onCreatePrimitive"
+  | "onPrimitiveCreated"
+  | "onUpdatePenPath"
+  | "selectedPenPathNodeId"
+  | "vectorEdit"
+> & { screens?: MultiScreenCanvasProps["screens"] };
+
+function PenHarness({
+  screens = [
+    {
+      id: "screen-a",
+      filename: "screen-a.html",
+      content: "<!doctype html><html><body></body></html>",
+    },
+  ],
+  ...props
+}: PenHarnessProps) {
+  const [tool, setTool] = useState<MultiScreenCanvasTool>("pen");
+  return (
+    <>
+      <output data-active-tool>{tool}</output>
+      <MultiScreenCanvas
+        screens={screens}
+        zoom={100}
+        activeId={screens.length > 0 ? "screen-a" : null}
+        activeTool={tool}
+        geometryById={{
+          "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+        }}
+        onActiveToolChange={setTool}
+        onPick={() => {}}
+        {...props}
+      />
+    </>
   );
 }
 
@@ -150,17 +194,321 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     return surface!;
   }
 
-  it("Escape cancels a Pen draft and Enter commits it on Move", async () => {
-    let boardDrawCalls = 0;
-    let committedOptions: Parameters<
+  async function renderPenHarness(props: PenHarnessProps = {}) {
+    await act(async () => {
+      root.render(<PenHarness {...props} />);
+    });
+    const surface = container.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-surface]",
+    );
+    expect(surface).not.toBeNull();
+    return surface!;
+  }
+
+  async function clickPenAnchor(surface: HTMLElement, x: number, y: number) {
+    await act(async () => {
+      dispatchMouse(surface, "mousedown", x, y);
+      dispatchMouse(window, "mouseup", x, y);
+    });
+  }
+
+  async function pressKey(key: string) {
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+      );
+    });
+  }
+
+  it("Enter selects a new vector and returns to Move", async () => {
+    const onCreatePrimitive = vi.fn(() => "vector-a");
+    const onPrimitiveCreated = vi.fn();
+    const surface = await renderPenHarness({
+      onCreatePrimitive,
+      onPrimitiveCreated,
+    });
+
+    await clickPenAnchor(surface, 100, 100);
+    await clickPenAnchor(surface, 220, 180);
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(2);
+
+    await pressKey("Enter");
+
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+    expect(container.querySelector("[data-active-tool]")?.textContent).toBe(
+      "move",
+    );
+    expect(onPrimitiveCreated).toHaveBeenCalledWith("screen-a", "vector-a", {
+      nextTool: "move",
+    });
+  });
+
+  it("Enter cancels an active anchor drag before finishing the path", async () => {
+    const committedPaths: Array<PenPath | undefined> = [];
+    const onCreatePrimitive: NonNullable<
+      MultiScreenCanvasProps["onCreatePrimitive"]
+    > = (_screenId, primitive) => {
+      committedPaths.push(primitive.penPath);
+      return `vector-${committedPaths.length}`;
+    };
+    const surface = await renderPenHarness({ onCreatePrimitive });
+
+    await clickPenAnchor(surface, 100, 100);
+    await clickPenAnchor(surface, 220, 180);
+    await act(async () => {
+      dispatchMouse(surface, "mousedown", 320, 260);
+    });
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(3);
+
+    await pressKey("Enter");
+
+    expect(committedPaths).toHaveLength(1);
+    expect(committedPaths[0]?.nodes).toHaveLength(2);
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+    expect(container.querySelector("[data-active-tool]")?.textContent).toBe(
+      "move",
+    );
+
+    await act(async () => {
+      dispatchMouse(window, "mouseup", 320, 260);
+    });
+
+    expect(committedPaths).toHaveLength(1);
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+  });
+
+  it("Escape discards an empty path and commits a multi-anchor path open", async () => {
+    const onCreatePrimitive = vi.fn(() => "vector-a");
+    const surface = await renderPenHarness({ onCreatePrimitive });
+
+    await clickPenAnchor(surface, 100, 100);
+    await pressKey("Escape");
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+    expect(onCreatePrimitive).not.toHaveBeenCalled();
+
+    await clickPenAnchor(surface, 120, 120);
+    await clickPenAnchor(surface, 240, 200);
+    await pressKey("Escape");
+
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+    expect(onCreatePrimitive).toHaveBeenCalledWith(
+      "screen-a",
+      expect.objectContaining({
+        penPath: expect.objectContaining({ closed: false }),
+      }),
+      undefined,
+    );
+  });
+
+  it("Enter keeps Pen active when extending an existing selected vector", async () => {
+    const onChange = vi.fn((_path: PenPath) => true);
+    const onExit = vi.fn();
+    const surface = await renderPenHarness({
+      screens: [],
+      vectorEdit: {
+        path: {
+          closed: false,
+          nodes: [
+            createCornerNode({ x: 100, y: 100 }),
+            createCornerNode({ x: 200, y: 100 }),
+          ],
+        },
+        originCanvas: { x: 0, y: 0 },
+        selectedAnchorIndex: null,
+        onSelectedAnchorChange: vi.fn(),
+        onChange,
+        onExit,
+      },
+    });
+
+    await act(async () => {
+      dispatchMouse(surface, "mousedown", 440, 340);
+    });
+    expect(onExit).not.toHaveBeenCalled();
+    await act(async () => {
+      dispatchMouse(surface, "mousedown", 540, 400);
+      dispatchMouse(window, "mouseup", 540, 400);
+    });
+    await pressKey("Enter");
+
+    expect(container.querySelector("[data-active-tool]")?.textContent).toBe(
+      "pen",
+    );
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ closed: false, nodes: expect.any(Array) }),
+      "commit",
+    );
+    expect(onChange.mock.calls[0]?.[0].nodes).toHaveLength(3);
+  });
+
+  it("Escape retains a rejected Pen continuation so it can be retried", async () => {
+    const onChange = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    const onExit = vi.fn();
+    const surface = await renderPenHarness({
+      screens: [],
+      vectorEdit: {
+        path: {
+          closed: false,
+          nodes: [
+            createCornerNode({ x: 100, y: 100 }),
+            createCornerNode({ x: 200, y: 100 }),
+          ],
+        },
+        originCanvas: { x: 0, y: 0 },
+        selectedAnchorIndex: null,
+        onSelectedAnchorChange: vi.fn(),
+        onChange,
+        onExit,
+      },
+    });
+
+    await act(async () => {
+      dispatchMouse(surface, "mousedown", 440, 340);
+    });
+    await act(async () => {
+      dispatchMouse(surface, "mousedown", 540, 400);
+      dispatchMouse(window, "mouseup", 540, 400);
+    });
+    await pressKey("Escape");
+
+    expect(onExit).not.toHaveBeenCalled();
+    expect(container.querySelector("[data-active-tool]")?.textContent).toBe(
+      "pen",
+    );
+    expect(container.querySelector("[data-pen-path-overlay]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(3);
+
+    await pressKey("Escape");
+
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+    expect(onChange).toHaveBeenCalledTimes(2);
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ closed: false, nodes: expect.any(Array) }),
+      "commit",
+    );
+    expect(onChange.mock.calls[0]?.[0].nodes).toHaveLength(3);
+    expect(onChange.mock.calls[1]?.[0].nodes).toHaveLength(3);
+  });
+
+  it("keeps a newer Pen path active when a failed draft persists on retry", async () => {
+    const onCreatePrimitive = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce("vector-a");
+    const onPrimitiveCreated = vi.fn();
+    let surface = await renderPenHarness({
+      onCreatePrimitive,
+      onPrimitiveCreated,
+    });
+
+    await clickPenAnchor(surface, 100, 100);
+    await clickPenAnchor(surface, 180, 180);
+    await pressKey("Enter");
+    expect(container.querySelector("[data-active-tool]")?.textContent).toBe(
+      "pen",
+    );
+
+    await clickPenAnchor(surface, 220, 120);
+    await clickPenAnchor(surface, 280, 180);
+    surface = await renderPenHarness({
+      screens: [
+        {
+          id: "screen-a",
+          filename: "screen-a.html",
+          content: "<!doctype html><html><body><p>updated</p></body></html>",
+        },
+      ],
+      onCreatePrimitive,
+      onPrimitiveCreated,
+    });
+
+    expect(onPrimitiveCreated).toHaveBeenCalledWith("screen-a", "vector-a", {
+      preserveActiveTool: true,
+    });
+    expect(container.querySelector("[data-active-tool]")?.textContent).toBe(
+      "pen",
+    );
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(2);
+  });
+
+  it("retries a rejected overview continuation update against the same vector", async () => {
+    const onUpdatePenPath = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    const onCreatePrimitive = vi.fn(() => "duplicate-vector");
+    const surface = await renderPenHarness({
+      onCreatePrimitive,
+      onUpdatePenPath,
+      selectedPenPathNodeId: "vector-a",
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="screen-a"]',
+    );
+    expect(iframe).not.toBeNull();
+    Object.defineProperties(iframe!, {
+      clientWidth: { value: 320 },
+      clientHeight: { value: 640 },
+      getBoundingClientRect: {
+        value: () => ({
+          x: 48,
+          y: 48,
+          top: 48,
+          right: 368,
+          bottom: 688,
+          left: 48,
+          width: 320,
+          height: 640,
+          toJSON: () => ({}),
+        }),
+      },
+    });
+    const frameDocument = iframe!.contentDocument;
+    expect(frameDocument).not.toBeNull();
+    frameDocument!.body.innerHTML = `<svg viewBox="0 0 400 400" data-agent-native-node-id="vector-a" data-an-pen-nodes='${serializePenNodes({ closed: false, nodes: [createCornerNode({ x: 100, y: 100 }), createCornerNode({ x: 200, y: 100 })] })}'><path d="M 100 100 L 200 100" /></svg>`;
+    const svg = frameDocument!.querySelector("svg");
+    expect(svg).not.toBeNull();
+    Object.defineProperty(svg!, "getScreenCTM", {
+      value: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
+    });
+
+    await clickPenAnchor(surface, 248, 148);
+    await clickPenAnchor(surface, 288, 188);
+    await pressKey("Enter");
+
+    expect(container.querySelector("[data-pen-path-overlay]")).not.toBeNull();
+
+    await pressKey("Enter");
+
+    expect(onUpdatePenPath).toHaveBeenCalledTimes(2);
+    expect(
+      onUpdatePenPath.mock.calls.map(([screenId, nodeId]) => [
+        screenId,
+        nodeId,
+      ]),
+    ).toEqual([
+      ["screen-a", "vector-a"],
+      ["screen-a", "vector-a"],
+    ]);
+    expect(onCreatePrimitive).not.toHaveBeenCalled();
+  });
+
+  it("Escape finishes a board path open and Enter selects Move", async () => {
+    type BoardDraw = Parameters<
       NonNullable<MultiScreenCanvasProps["onBoardDrawPrimitive"]>
-    >[1];
+    >;
+    const boardDraws: Array<{
+      primitive: BoardDraw[0];
+      options: BoardDraw[1];
+    }> = [];
     const onBoardDrawPrimitive: NonNullable<
       MultiScreenCanvasProps["onBoardDrawPrimitive"]
-    > = (_primitive, options) => {
-      boardDrawCalls += 1;
-      committedOptions = options;
-      return "created-path";
+    > = (primitive, options) => {
+      boardDraws.push({ primitive, options });
+      return `vector-${boardDraws.length}`;
     };
     const onToolChange = vi.fn();
     await act(async () => {
@@ -175,37 +523,19 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
     expect(surface).not.toBeNull();
 
-    const addAnchor = async (x: number, y: number) => {
-      await act(async () => {
-        dispatchMouse(surface!, "mousedown", x, y);
-        dispatchMouse(window, "mouseup", x, y);
-      });
-    };
-    const pressKey = async (key: "Enter" | "Escape") => {
-      await act(async () => {
-        window.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key,
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-      });
-    };
-
-    await addAnchor(120, 120);
-    await addAnchor(180, 180);
-    expect(container.querySelector("[data-pen-path-overlay]")).not.toBeNull();
+    await clickPenAnchor(surface!, 120, 120);
+    await clickPenAnchor(surface!, 180, 180);
     await pressKey("Escape");
-    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
-    expect(boardDrawCalls).toBe(0);
-    expect(onToolChange).not.toHaveBeenCalledWith("move");
 
-    await addAnchor(220, 120);
-    await addAnchor(280, 180);
+    expect(boardDraws).toHaveLength(1);
+    expect(boardDraws[0]?.primitive.penPath?.closed).toBe(false);
+
+    await clickPenAnchor(surface!, 220, 120);
+    await clickPenAnchor(surface!, 280, 180);
     await pressKey("Enter");
-    expect(boardDrawCalls).toBe(1);
-    expect(committedOptions).toEqual({ nextTool: "move" });
+
+    expect(boardDraws).toHaveLength(2);
+    expect(boardDraws[1]?.options).toEqual({ nextTool: "move" });
     expect(onToolChange).toHaveBeenLastCalledWith("move");
     expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
   });

@@ -16,6 +16,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
+import { needsZoomCancellationReview } from "../server/lib/zoom.js";
 import {
   getCalendarAttendeeCount,
   getCalendarAttendeeStatusCounts,
@@ -474,6 +475,7 @@ async function listLocalBookingEvents(
       slug: schema.bookingLinks.slug,
       title: schema.bookingLinks.title,
       color: schema.bookingLinks.color,
+      conferencing: schema.bookingLinks.conferencing,
     })
     .from(schema.bookingLinks)
     .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
@@ -498,6 +500,9 @@ async function listLocalBookingEvents(
       meetingLink: schema.bookings.meetingLink,
       meetingLinkPending: schema.bookings.meetingLinkPending,
       googleEventId: schema.bookings.googleEventId,
+      zoomNeedsReview: schema.bookings.zoomNeedsReview,
+      zoomMeetingId: schema.bookings.zoomMeetingId,
+      zoomAccountId: schema.bookings.zoomAccountId,
       status: schema.bookings.status,
       createdAt: schema.bookings.createdAt,
     })
@@ -511,36 +516,44 @@ async function listLocalBookingEvents(
       ),
     );
 
-  return rows.map((booking) => {
-    const link = linkBySlug.get(booking.slug);
-    const description = [
-      booking.notes,
-      `Booked by ${booking.name} <${booking.email}>`,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+  return rows
+    .filter((booking) => {
+      const link = linkBySlug.get(booking.slug);
+      return !needsZoomCancellationReview({
+        ...booking,
+        conferencing: link?.conferencing,
+      });
+    })
+    .map((booking) => {
+      const link = linkBySlug.get(booking.slug);
+      const description = [
+        booking.notes,
+        `Booked by ${booking.name} <${booking.email}>`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
 
-    return {
-      id: `booking:${booking.id}`,
-      title:
-        booking.eventTitle || link?.title || `Booking with ${booking.name}`,
-      description,
-      start: booking.start,
-      end: booking.end,
-      location: booking.meetingLink ?? "",
-      allDay: false,
-      source: "local",
-      googleEventId: booking.googleEventId ?? undefined,
-      meetingLink: booking.meetingLink ?? undefined,
-      meetingLinkPending:
-        booking.meetingLinkPending && !booking.meetingLink ? true : undefined,
-      color: link?.color ?? undefined,
-      status: booking.status,
-      attendees: [{ email: booking.email, displayName: booking.name }],
-      createdAt: booking.createdAt,
-      updatedAt: booking.createdAt,
-    };
-  });
+      return {
+        id: `booking:${booking.id}`,
+        title:
+          booking.eventTitle || link?.title || `Booking with ${booking.name}`,
+        description,
+        start: booking.start,
+        end: booking.end,
+        location: booking.meetingLink ?? "",
+        allDay: false,
+        source: "local",
+        googleEventId: booking.googleEventId ?? undefined,
+        meetingLink: booking.meetingLink ?? undefined,
+        meetingLinkPending:
+          booking.meetingLinkPending && !booking.meetingLink ? true : undefined,
+        color: link?.color ?? undefined,
+        status: booking.status,
+        attendees: [{ email: booking.email, displayName: booking.name }],
+        createdAt: booking.createdAt,
+        updatedAt: booking.createdAt,
+      };
+    });
 }
 
 /**

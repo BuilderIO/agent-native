@@ -537,6 +537,14 @@ export default {
       "Dein Termin ist reserviert. Der Host meldet sich mit den Meetingdetails.",
     confirmed: "Bestätigt",
     confirmedCount: "Bestätigt ({{count}})",
+    zoomNeedsReview: "Prüfen Sie Zoom vor einem erneuten Versuch",
+    zoomCancellationNeedsReview: "Prüfen Sie Zoom vor der Stornierung",
+    zoomCancellationRequiresHostReview:
+      "Der Organisator muss das Zoom-Meeting überprüfen, bevor diese Buchung storniert werden kann.",
+    zoomCancelTitle: "Prüfen Sie Zoom vor der Stornierung",
+    zoomCancelDescription:
+      "Zoom könnte ein Meeting für diese Buchung erstellt haben. Prüfen Sie Ihr Zoom-Konto und stornieren Sie das Meeting dort, falls es existiert. Fahren Sie erst fort, wenn das Meeting storniert wurde oder Sie sicher sind, dass keines existiert.",
+    zoomCancelConfirm: "Ich habe Zoom überprüft",
     confirming: "Wird bestätigt",
     conferencing: "Konferenzen",
     connectZoom: "Zoom anschließen",

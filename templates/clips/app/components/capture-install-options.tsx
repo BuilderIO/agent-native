@@ -80,10 +80,16 @@ function desktopOsIcon(): typeof IconDeviceDesktop {
   return IconDeviceDesktop;
 }
 
+const subscribeToDesktopPlatform = () => () => undefined;
+
 export function DesktopPlatformIcon(
   props: ComponentProps<typeof IconDeviceDesktop>,
 ) {
-  const DesktopIcon = desktopOsIcon();
+  const DesktopIcon = useSyncExternalStore(
+    subscribeToDesktopPlatform,
+    desktopOsIcon,
+    () => IconDeviceDesktop,
+  );
   return <DesktopIcon {...props} />;
 }
 
@@ -198,11 +204,6 @@ export function CaptureInstallButton({
   );
 }
 
-/**
- * Compact recorder CTA for the web capture surface. Keep the trigger as plain
- * text so the action reads like a source choice; install destinations belong
- * in the menu rather than in a platform-specific icon treatment.
- */
 export function CaptureInstallMenu({
   children,
   className,
@@ -229,6 +230,7 @@ export function CaptureInstallMenu({
           attemptOpenDesktopApp(desktopHref);
         }}
       >
+        <DesktopPlatformIcon aria-hidden="true" className="size-4" />
         {children}
       </Button>
     );
@@ -243,6 +245,7 @@ export function CaptureInstallMenu({
           variant={variant}
           {...buttonProps}
         >
+          <DesktopPlatformIcon aria-hidden="true" className="size-4" />
           {children}
           <IconChevronDown className="size-3.5" />
         </Button>

@@ -2933,10 +2933,9 @@ test("rectangle drawn left of the first screen persists on the board", async ({
     .toBe(true);
 });
 
-test("pen escape cancels the in-progress path and enter commits vector art", async ({
+test("pen Escape finishes an open path and Enter selects a new vector on Move", async ({
   page,
 }) => {
-  const originalNodeIds = await primitiveNodeIdsInDesign(page);
   const card = await homeScreenCard(page);
   const cardBox = await card.boundingBox();
   if (!cardBox) throw new Error("no home screen card box");
@@ -2955,8 +2954,12 @@ test("pen escape cancels the in-progress path and enter commits vector art", asy
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(1);
   await page.keyboard.press("Escape");
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
-  await expect(toolButton(page, "Pen")).toHaveAttribute("aria-pressed", "true");
-  expect(await primitiveNodeIdsInDesign(page)).toEqual(originalNodeIds);
+  const vectorAfterEscape = await waitForVectorPrimitive(
+    page,
+    "index.html",
+    /\bL\b/,
+  );
+  expect(vectorAfterEscape.d).not.toMatch(/Z\s*$/i);
 
   await page.mouse.click(
     cardBox.x + cardBox.width * 0.36,
@@ -2967,9 +2970,17 @@ test("pen escape cancels the in-progress path and enter commits vector art", asy
     cardBox.y + cardBox.height * 0.54,
   );
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(1);
+  await page.mouse.move(
+    cardBox.x + cardBox.width * 0.74,
+    cardBox.y + cardBox.height * 0.65,
+  );
+  await page.mouse.down();
+  await expect(page.locator("[data-pen-anchor]")).toHaveCount(3);
   await page.keyboard.press("Enter");
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
-  // Figma: Enter finishes on Move with the new vector selected.
+  await page.mouse.up();
+  await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
+  // A new vector becomes selected and Move becomes active after Enter.
   await expect(toolButton(page, "Move")).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -3051,65 +3062,6 @@ test("primary undo removes active pen segments without undoing committed vectors
   );
   expect(vectorsAfterClearingPath).toHaveLength(1);
   expect(vectorsAfterClearingPath[0]?.d).toBe(committedVector.d);
-});
-
-// The single-screen creation overlay it drives only exists in DesignCanvas,
-// and single-screen editing is the forbidden state in the two-view model.
-// Board and in-frame pen authoring keep their own specs.
-test.fixme("focused-screen pen authors Bezier paths and undoes active segments", async ({
-  page,
-}) => {
-  await enterDirectMode(page);
-  await toolButton(page, "Pen").click();
-  await expect(toolButton(page, "Pen")).toHaveAttribute("aria-pressed", "true");
-
-  const overlay = page.locator(
-    '[data-design-canvas-creation-overlay][data-creation-tool="pen"]',
-  );
-  await expect(overlay).toBeVisible();
-  const box = await overlay.boundingBox();
-  if (!box) throw new Error("no focused-screen creation overlay box");
-
-  const drawSmoothAnchor = async (
-    anchor: { x: number; y: number },
-    handleDelta: { x: number; y: number },
-  ) => {
-    await page.mouse.move(anchor.x, anchor.y);
-    await page.mouse.down();
-    await page.mouse.move(anchor.x + handleDelta.x, anchor.y + handleDelta.y, {
-      steps: 8,
-    });
-    await page.mouse.up();
-  };
-
-  await drawSmoothAnchor(
-    { x: box.x + box.width * 0.3, y: box.y + box.height * 0.34 },
-    { x: 70, y: -38 },
-  );
-  await drawSmoothAnchor(
-    { x: box.x + box.width * 0.62, y: box.y + box.height * 0.58 },
-    { x: -62, y: 44 },
-  );
-  await expect(page.locator("[data-pen-anchor]")).toHaveCount(2);
-  await expect(page.locator("[data-pen-handle]")).toHaveCount(4);
-
-  const undoShortcut = process.platform === "darwin" ? "Meta+Z" : "Control+Z";
-  await page.keyboard.press(undoShortcut);
-  await expect(page.locator("[data-pen-anchor]")).toHaveCount(1);
-  expect(await vectorPrimitiveSummaries(page, "index.html")).toHaveLength(0);
-
-  await drawSmoothAnchor(
-    { x: box.x + box.width * 0.68, y: box.y + box.height * 0.56 },
-    { x: -55, y: 48 },
-  );
-  await page.keyboard.press("Enter");
-  await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
-  await expect(toolButton(page, "Move")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await expect(selectedLayerRow(page)).toContainText("Vector");
-  await waitForVectorPrimitive(page, "index.html", /\bC\b/);
 });
 
 test("pen Bezier vector stays visible and persists through reload", async ({

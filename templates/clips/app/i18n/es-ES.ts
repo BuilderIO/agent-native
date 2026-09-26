@@ -433,12 +433,10 @@ const messages = {
     agentEmptyTitle: "Únete a la conversación",
     agentEmptyDescription:
       "Crea una cuenta gratuita de Clips para comentar, reaccionar y preguntar sobre este clip.",
-    commentSignupTitle: "Dale a tu agente de IA todo el contexto",
-    commentSignupContext:
-      "Comparte la transcripción y los fotogramas con marca de tiempo en un solo enlace",
-    commentSignupFeedback:
-      "Convierte el feedback grabado en próximos pasos claros",
-    commentSignupDebug: "Captura errores de consola y solicitudes fallidas",
+    commentSignupTitle:
+      "Grabaciones de pantalla que tu agente de IA puede ver y escuchar",
+    commentSignupDescription:
+      "Clips es una grabadora de pantalla gratuita y de código abierto para compartir errores, comentarios y demostraciones paso a paso con agentes de IA.",
     agentEmptySignInPrompt: "¿Ya tienes una cuenta?",
     signUp: "Registrarse",
     ownerInsights: "Estadísticas del propietario",
@@ -843,6 +841,8 @@ const messages = {
     changelogEmpty: "Aún no hay actualizaciones.",
     changelogCommentSignup:
       "La barra lateral de comentarios vacía explica brevemente por qué probar Clips y ofrece una forma clara de registrarse.",
+    changelogCommentsEmptyState:
+      "El estado vacío de comentarios ahora explica cómo las grabaciones de pantalla ayudan a los agentes de IA.",
     changelogShareLink:
       "Quienes hayan iniciado sesión y abran un enlace compartido no disponible, vencido o privado llegarán a su biblioteca al elegir «Ir al inicio», en lugar de a la página pública de marketing.",
     viewAllUpdates: "Ver todas las actualizaciones",

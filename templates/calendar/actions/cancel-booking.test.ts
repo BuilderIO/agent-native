@@ -38,6 +38,7 @@ describe("cancel-booking", () => {
     expect(cancelBookingByIdMock).toHaveBeenCalledWith(
       "booking-1",
       "https://example.com",
+      { zoomMeetingResolved: undefined },
     );
     expect(result).toEqual({ success: true });
   });
