@@ -28,7 +28,7 @@
   display: grid;
   height: 3.5rem;
   grid-template-columns:
-    minmax(0, 1fr) minmax(6rem, min(30rem, max(6rem, calc(100cqw - 27rem))))
+    minmax(0, 1fr) minmax(10rem, min(30rem, max(10rem, calc(100cqw - 26rem))))
     minmax(0, 1fr);
   grid-template-rows: 3.5rem;
   column-gap: 0.75rem;
@@ -48,7 +48,7 @@
   }
 }
 
-@container (max-width: 32rem) {
+@container (max-width: 20rem) {
   .slides-home-toolbar {
     height: 7rem;
     grid-template-columns: minmax(0, 1fr) auto;
