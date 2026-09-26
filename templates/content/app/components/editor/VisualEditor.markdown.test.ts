@@ -1182,6 +1182,30 @@ describe("live suggestion presentation", () => {
       }
     },
   );
+  it("keeps an accepted link's settled label free of the review URL suffix", () => {
+    const before = "Echo sample.";
+    const after = "[Echo](https://example.test) sample.";
+    const editor = createSuggestionEditor(before);
+    try {
+      const spec = suggestionHighlightSpec(editor.state.doc, {
+        id: "settling-link",
+        kind: "set_inline_mark",
+        beforeText: "Echo",
+        afterText: "[Echo](https://example.test)",
+        beforePresentation: { source: before, from: 0, to: 4 },
+        afterPresentation: { source: after, from: 0, to: 28 },
+        anchor: { from: 0, prefix: "", suffix: " sample." },
+        presentation: "settling",
+      });
+      expect(spec).toMatchObject({ settling: true });
+      setSuggestionHighlights(editor.view, { specs: [spec!] });
+      expect(
+        editor.view.dom.querySelector(".suggestion-settling-text")?.textContent,
+      ).toBe("Echo");
+    } finally {
+      editor.destroy();
+    }
+  });
   it("leaves stale split context unavailable rather than preferring a partially matching target", () => {
     const editor = createSuggestionEditor("BBBB target x\nC target y");
     try {

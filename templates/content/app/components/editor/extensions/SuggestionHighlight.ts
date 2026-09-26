@@ -75,6 +75,7 @@ function classes(base: string, active: boolean): string {
 function appendPresentationNode(
   parent: HTMLElement,
   node: SuggestionPresentationNode,
+  showLinkDestination: boolean,
 ): void {
   if (node.type === "text" || node.type === "indent") {
     parent.append(document.createTextNode(node.value));
@@ -99,10 +100,11 @@ function appendPresentationNode(
   } else if (node.type === "link") {
     element.className = "underline underline-offset-2";
   }
-  for (const child of node.children) appendPresentationNode(element, child);
+  for (const child of node.children)
+    appendPresentationNode(element, child, showLinkDestination);
   parent.append(element);
 
-  if (node.type === "link") {
+  if (node.type === "link" && showLinkDestination) {
     parent.append(document.createTextNode(` (${node.url})`));
   }
 }
@@ -111,13 +113,14 @@ function appendSuggestionText(
   parent: HTMLElement,
   content: string,
   context?: SuggestionPresentationContext,
+  showLinkDestination = true,
 ): void {
   const nodes = context
     ? suggestionTextPresentationForSource(content, context)
     : suggestionTextPresentation(content);
   if (!nodes) return;
   for (const node of nodes) {
-    appendPresentationNode(parent, node);
+    appendPresentationNode(parent, node, showLinkDestination);
   }
 }
 
@@ -131,6 +134,7 @@ function insertionWidget(spec: SuggestionHighlightSpec, active: boolean) {
         widget,
         spec.insertedText ?? "",
         spec.insertedPresentation,
+        false,
       );
       return widget;
     }
