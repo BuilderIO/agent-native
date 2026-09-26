@@ -12,7 +12,6 @@ const messages = {
       builderPrivacy: "Privacy Policy",
       builderConsentAnd: "and",
       builderExistingAccount: "I have a Builder.io account",
-      builderActivating: "Activating Builder.io free credits",
     },
   },
   common: {
@@ -1364,6 +1363,8 @@ const messages = {
     disconnected: "Microphone disconnected.",
   },
   storageSetup: {
+    builderConnectError:
+      "Couldn't connect Builder.io. Try again or contact support.",
     builderTimeout:
       "Didn't hear back from Builder in 5 minutes. Check the popup and try again.",
     builderConnected: "Builder.io connected",

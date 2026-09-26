@@ -11,7 +11,6 @@ const messages = {
       builderPrivacy: "गोपनीयता नीति",
       builderConsentAnd: "और",
       builderExistingAccount: "मेरे पास Builder.io खाता है",
-      builderActivating: "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
     },
   },
   timelineTrack: {
@@ -1410,6 +1409,8 @@ const messages = {
     disconnected: "माइक्रोफ़ोन डिस्कनेक्ट हो गया।",
   },
   storageSetup: {
+    builderConnectError:
+      "Builder.io से कनेक्ट नहीं हो सका। फिर से कोशिश करें या सहायता टीम से संपर्क करें।",
     builderTimeout:
       "5 मिनट में Builder से जवाब नहीं मिला। पॉपअप जांचें और फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",

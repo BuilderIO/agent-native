@@ -11,7 +11,6 @@ const messages = {
       builderPrivacy: "隐私政策",
       builderConsentAnd: "和",
       builderExistingAccount: "我有 Builder.io 账户",
-      builderActivating: "正在激活 Builder.io 免费额度",
     },
   },
   timelineTrack: {
@@ -1367,6 +1366,7 @@ const messages = {
     disconnected: "麦克风已断开连接。",
   },
   storageSetup: {
+    builderConnectError: "无法连接到 Builder.io。请重试或联系支持团队。",
     builderTimeout: "5 分钟内未收到 Builder 响应。请检查弹出窗口并重试。",
     builderConnected: "Builder.io 已连接",
     waitingForBuilder: "正在等待 Builder...",

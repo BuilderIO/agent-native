@@ -11,7 +11,6 @@ const messages = {
       builderPrivacy: "سياسة الخصوصية",
       builderConsentAnd: "و",
       builderExistingAccount: "لدي حساب Builder.io",
-      builderActivating: "جارٍ تفعيل أرصدة Builder.io المجانية",
     },
   },
   timelineTrack: {
@@ -1433,6 +1432,8 @@ const messages = {
     disconnected: "تم فصل الميكروفون.",
   },
   storageSetup: {
+    builderConnectError:
+      "تعذّر الاتصال بـ Builder.io. حاول مرة أخرى أو تواصل مع الدعم.",
     builderTimeout:
       "لم يصل رد من Builder خلال 5 دقائق. تحقق من النافذة المنبثقة وحاول مرة أخرى.",
     builderConnected: "Builder.io متصل",

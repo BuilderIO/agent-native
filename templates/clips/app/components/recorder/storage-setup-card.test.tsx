@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     agentNativeProvisioningEnabled: false,
     accountExists: false,
     connecting: false,
+    error: null,
     cancel: vi.fn(),
   },
 }));
@@ -168,5 +169,43 @@ describe("StorageSetupCard", () => {
       container.querySelector('[data-testid="mock-builder-trigger"]'),
     ).toBeNull();
     expect(container.querySelector("button[disabled]")).not.toBeNull();
+  });
+
+  it("shows a localized error when the inline connect flow fails", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      ...mocks.flow,
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+      error: "Couldn't open Builder. Allow popups and try again.",
+      start: mocks.start,
+    });
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
+    });
+
+    expect(container.textContent).toContain("storageSetup.builderConnectError");
+    expect(container.textContent).not.toContain("Allow popups");
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+  });
+
+  it("uses neutral progress copy while an existing account connects", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      ...mocks.flow,
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+      accountExists: true,
+      connecting: true,
+      start: mocks.start,
+    });
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
+    });
+
+    expect(container.textContent).toContain("storageSetup.waitingForBuilder");
+    expect(container.textContent).not.toContain(
+      "agentChat.onboarding.builderCreateAndActivate",
+    );
   });
 });

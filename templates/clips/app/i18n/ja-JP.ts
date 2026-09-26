@@ -11,7 +11,6 @@ const messages = {
       builderPrivacy: "プライバシーポリシー",
       builderConsentAnd: "および",
       builderExistingAccount: "Builder.io アカウントを持っています",
-      builderActivating: "Builder.io 無料クレジットを有効化しています",
     },
   },
   timelineTrack: {
@@ -1447,6 +1446,8 @@ const messages = {
     disconnected: "マイクが切断されました。",
   },
   storageSetup: {
+    builderConnectError:
+      "Builder.io に接続できませんでした。もう一度お試しいただくか、サポートにお問い合わせください。",
     builderTimeout:
       "5分以内に Builder から応答がありませんでした。ポップアップを確認してもう一度お試しください。",
     builderConnected: "Builder.io 接続済み",

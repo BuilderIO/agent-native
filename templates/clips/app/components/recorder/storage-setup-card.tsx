@@ -233,10 +233,10 @@ export function StorageSetupCard({
               : connecting
                 ? t("storageSetup.waitingForBuilder")
                 : showInlineConnect
-                  ? builderConnect.accountExists
-                    ? t("agentChat.auth.logIn")
-                    : builderConnect.connecting
-                      ? t("agentChat.onboarding.builderActivating")
+                  ? builderConnect.connecting
+                    ? t("storageSetup.waitingForBuilder")
+                    : builderConnect.accountExists
+                      ? t("agentChat.auth.logIn")
                       : t("agentChat.onboarding.builderCreateAndActivate")
                   : t("storageSetup.connectBuilder")}
           </span>
@@ -284,6 +284,11 @@ export function StorageSetupCard({
         showInlineConnect ? (
           <div className="space-y-2.5">
             {connectButton}
+            {builderConnect.error && (
+              <p className="text-xs text-destructive" role="alert">
+                {t("storageSetup.builderConnectError")}
+              </p>
+            )}
             {!builderConnect.accountExists && (
               <>
                 <p className="text-[11px] leading-4 text-muted-foreground">
@@ -335,7 +340,7 @@ export function StorageSetupCard({
               builderConnect.error && (
                 <div className="space-y-2">
                   <p className="text-xs text-muted-foreground" role="alert">
-                    {builderConnect.error}
+                    {t("storageSetup.builderConnectError")}
                   </p>
                   <button
                     type="button"

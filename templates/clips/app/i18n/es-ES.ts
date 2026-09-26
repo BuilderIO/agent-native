@@ -12,7 +12,6 @@ const messages = {
       builderPrivacy: "Política de privacidad",
       builderConsentAnd: "y",
       builderExistingAccount: "Tengo una cuenta de Builder.io",
-      builderActivating: "Activando los créditos gratuitos de Builder.io",
     },
   },
   timelineTrack: {
@@ -1469,6 +1468,8 @@ const messages = {
     disconnected: "Micrófono desconectado.",
   },
   storageSetup: {
+    builderConnectError:
+      "No se pudo conectar Builder.io. Inténtalo de nuevo o contacta con el soporte.",
     builderTimeout:
       "No hubo respuesta de Builder en 5 minutos. Revisa la ventana emergente e inténtalo de nuevo.",
     builderConnected: "Builder.io conectado",

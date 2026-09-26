@@ -11,7 +11,6 @@ const messages = {
       builderPrivacy: "개인정보 처리방침",
       builderConsentAnd: "및",
       builderExistingAccount: "Builder.io 계정이 있습니다",
-      builderActivating: "Builder.io 무료 크레딧 활성화 중",
     },
   },
   timelineTrack: {
@@ -1429,6 +1428,8 @@ const messages = {
     disconnected: "마이크 연결이 끊어졌습니다.",
   },
   storageSetup: {
+    builderConnectError:
+      "Builder.io에 연결하지 못했습니다. 다시 시도하거나 지원팀에 문의해 주세요.",
     builderTimeout:
       "5분 동안 Builder 응답이 없습니다. 팝업을 확인하고 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
