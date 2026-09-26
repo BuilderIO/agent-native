@@ -42,6 +42,17 @@ export function getAppRoute(appId: string): string {
   return APP_ID_TO_ROUTE[appId] ?? `/app/${appId}`;
 }
 
+export function getMobileAppUrl(baseUrl: string, path?: string): string {
+  if (!path) return baseUrl;
+  try {
+    const base = new URL(baseUrl);
+    const target = new URL(path, base);
+    return target.origin === base.origin ? target.toString() : baseUrl;
+  } catch {
+    return baseUrl;
+  }
+}
+
 export function supportsMobileTab(appId: string): boolean {
   return appId !== "chat" && appId in APP_ID_TO_ROUTE;
 }

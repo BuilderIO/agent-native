@@ -13,6 +13,7 @@ import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status
 import {
   canInlineImageFile,
   buildImageDropAgentPayload,
+  isMissingUploadProviderError,
   readFileAsDataUrl,
   type HostedImageUploadResult,
 } from "@/lib/image-drop-to-agent";
@@ -150,7 +151,10 @@ export default function ImageDropPromptPopover({
         ? await readFileAsDataUrl(file)
         : undefined;
 
-      if (!upload.ok && upload.status === 503) {
+      if (
+        !upload.ok &&
+        isMissingUploadProviderError(upload.status, upload.error)
+      ) {
         await storageQuery.refetch();
         return;
       }

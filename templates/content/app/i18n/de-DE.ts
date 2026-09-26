@@ -1180,6 +1180,7 @@ const overrides = {
   onboarding: {
     fileStorage: {
       title: "Speicher verbinden, um Dateien hochzuladen",
+      statusUnavailable: "Der Status des Dateispeichers ist nicht verfügbar.",
     },
   },
   database: {

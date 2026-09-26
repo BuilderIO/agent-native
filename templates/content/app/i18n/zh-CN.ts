@@ -1225,6 +1225,7 @@ const overrides = {
   onboarding: {
     fileStorage: {
       title: "连接存储以上传文件",
+      statusUnavailable: "文件存储状态不可用。",
     },
   },
   database: {

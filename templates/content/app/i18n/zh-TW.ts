@@ -194,6 +194,7 @@ const overrides = {
   onboarding: {
     fileStorage: {
       title: "連接儲存空間以上傳檔案",
+      statusUnavailable: "檔案儲存狀態無法使用。",
     },
   },
   creativeContext: creativeContextMessagesByLocale["zh-TW"],

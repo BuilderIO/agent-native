@@ -601,6 +601,20 @@ export async function getAgentEngineStatus(
   return result.configured ? "configured" : "missing";
 }
 
+export async function getFileUploadStatus(
+  baseUrl = DEFAULT_CHAT_BASE_URL,
+): Promise<"configured" | "missing"> {
+  const result = await jsonRequest<{ configured?: unknown }>(
+    "/_agent-native/file-upload/status",
+    {},
+    baseUrl,
+  );
+  if (typeof result.configured !== "boolean") {
+    throw new AgentChatError("File storage status response was incomplete");
+  }
+  return result.configured ? "configured" : "missing";
+}
+
 export async function getActiveRun(
   threadId: string,
   baseUrl = DEFAULT_CHAT_BASE_URL,

@@ -1001,6 +1001,7 @@ const enUS = {
   onboarding: {
     fileStorage: {
       title: "Connect storage to upload files",
+      statusUnavailable: "File storage status is unavailable.",
     },
   },
   creativeContext: creativeContextMessagesByLocale["en-US"],

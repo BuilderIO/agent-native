@@ -11,7 +11,6 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
@@ -72,6 +71,10 @@ import {
   AssetPreviewDialog,
   type PreviewAsset,
 } from "@/components/asset/AssetPreviewDialog";
+import {
+  FileUploadStorageGate,
+  getFileUploadStorageState,
+} from "@/components/FileUploadStorageGate";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -351,8 +354,8 @@ export function BrandKitDetailRoute({
 } = {}) {
   const t = useT();
   const fileUploadStatus = useFileUploadStatus();
-  const canUploadFiles =
-    import.meta.env.DEV || fileUploadStatus.data?.configured === true;
+  const fileStorageState = getFileUploadStorageState(fileUploadStatus);
+  const canUploadFiles = fileStorageState === "configured";
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -1396,11 +1399,11 @@ export function BrandKitDetailRoute({
           if (canUploadFiles) void upload(e.dataTransfer.files);
         }}
       >
-        {!canUploadFiles ? (
-          <div className="mb-4">
-            <FileStorageSetupCard />
-          </div>
-        ) : null}
+        <FileUploadStorageGate
+          state={fileStorageState}
+          onRetry={() => void fileUploadStatus.refetch()}
+          className="mb-4"
+        />
         {canUploadFiles && isDragOver && (
           <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-primary bg-primary/5 backdrop-blur-[1px]">
             <IconUpload className="h-10 w-10 text-primary" />

@@ -1135,6 +1135,7 @@ const overrides = {
   onboarding: {
     fileStorage: {
       title: "اختر تخزين الملفات",
+      statusUnavailable: "حالة تخزين الملفات غير متاحة.",
     },
   },
   database: {

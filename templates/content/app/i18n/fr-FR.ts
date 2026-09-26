@@ -1177,6 +1177,7 @@ const overrides = {
   onboarding: {
     fileStorage: {
       title: "Connecter un stockage pour envoyer des fichiers",
+      statusUnavailable: "L’état du stockage des fichiers est indisponible.",
     },
   },
   database: {

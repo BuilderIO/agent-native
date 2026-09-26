@@ -10,6 +10,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 const captured = vi.hoisted(() => ({ editor: null as Editor | null }));
+const uploadStatus = vi.hoisted(() => ({
+  current: {
+    isSuccess: true,
+    isError: false,
+    isFetching: false,
+    data: undefined as { configured: boolean } | undefined,
+    refetch: vi.fn(),
+  },
+}));
 vi.mock("@tiptap/react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tiptap/react")>();
   return {
@@ -28,10 +37,7 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
 }));
 
 vi.mock("@agent-native/core/client/uploads", () => ({
-  useFileUploadStatus: () => ({
-    isSuccess: true,
-    data: { configured: false },
-  }),
+  useFileUploadStatus: () => uploadStatus.current,
 }));
 
 vi.mock("@agent-native/core/client/setup-connections", async () => {
@@ -77,6 +83,13 @@ describe("VisualEditor upload storage gate", () => {
       defaultOptions: { queries: { retry: false } },
     });
     captured.editor = null;
+    uploadStatus.current = {
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      data: { configured: false },
+      refetch: vi.fn(),
+    };
   });
 
   afterEach(async () => {
@@ -145,6 +158,76 @@ describe("VisualEditor upload storage gate", () => {
       ).toBe(false);
     },
   );
+
+  it.each([
+    ["loading", "drop", false],
+    ["unavailable", "paste", true],
+  ] as const)(
+    "shows retry instead of setup when storage status is %s",
+    async (_state, type, isError) => {
+      const refetch = vi.fn();
+      uploadStatus.current = {
+        isSuccess: false,
+        isError,
+        isFetching: !isError,
+        data: undefined,
+        refetch,
+      };
+      const editor = await mount();
+      const file = new File(["image"], "photo.png", { type: "image/png" });
+      const handler = (
+        editor.options.editorProps as unknown as Record<
+          string,
+          (view: typeof editor.view, event: Event) => boolean
+        >
+      )[type === "drop" ? "handleDrop" : "handlePaste"];
+      const event = mediaEvent(type, file);
+
+      await act(async () => {
+        expect(handler(editor.view, event)).toBe(true);
+      });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(
+        document.body.querySelector('[data-testid="file-storage-setup-card"]'),
+      ).toBeNull();
+      expect(document.body.textContent).toContain(
+        "onboarding.fileStorage.statusUnavailable",
+      );
+      expect(
+        fetchMock.mock.calls.some(([url]) =>
+          String(url).includes("/_agent-native/file-upload"),
+        ),
+      ).toBe(false);
+      await act(async () => {
+        document.body
+          .querySelector<HTMLButtonElement>(
+            '[data-testid="file-storage-retry"]',
+          )
+          ?.click();
+      });
+      expect(refetch).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("keeps configured storage out of the setup gate", async () => {
+    uploadStatus.current = {
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      data: { configured: true },
+      refetch: vi.fn(),
+    };
+
+    await mount();
+
+    expect(
+      document.body.querySelector('[data-testid="file-storage-setup-card"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector<HTMLInputElement>('input[type="file"]')?.disabled,
+    ).toBe(false);
+  });
 
   it("leaves a local CSV drop outside the storage gate", async () => {
     const editor = await mount();

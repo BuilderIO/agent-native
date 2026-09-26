@@ -1147,6 +1147,7 @@ const overrides = {
   onboarding: {
     fileStorage: {
       title: "ファイルをアップロードするストレージを接続",
+      statusUnavailable: "ファイルストレージの状態を確認できません。",
     },
   },
   database: {

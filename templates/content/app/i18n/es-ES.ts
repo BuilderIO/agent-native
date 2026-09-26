@@ -1425,6 +1425,8 @@ const overrides = {
   onboarding: {
     fileStorage: {
       title: "Conecta almacenamiento para subir archivos",
+      statusUnavailable:
+        "El estado del almacenamiento de archivos no está disponible.",
     },
   },
   database: {

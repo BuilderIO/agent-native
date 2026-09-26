@@ -5,7 +5,6 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
@@ -26,6 +25,10 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
+import {
+  FileUploadStorageGate,
+  getFileUploadStorageState,
+} from "@/components/FileUploadStorageGate";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -461,8 +464,8 @@ function SkeletonPreview({ form }: { form: PresetFormState }) {
 export default function TemplateEditorRoute() {
   const t = useT();
   const fileUploadStatus = useFileUploadStatus();
-  const canUploadFiles =
-    import.meta.env.DEV || fileUploadStatus.data?.configured === true;
+  const fileStorageState = getFileUploadStorageState(fileUploadStatus);
+  const canUploadFiles = fileStorageState === "configured";
   const navigate = useNavigate();
   const { templateId = "" } = useParams();
   const { data: templateData, isLoading: templateLoading } = useActionQuery(
@@ -1587,7 +1590,10 @@ export default function TemplateEditorRoute() {
         </Alert>
       ) : null}
 
-      {!canUploadFiles ? <FileStorageSetupCard /> : null}
+      <FileUploadStorageGate
+        state={fileStorageState}
+        onRetry={() => void fileUploadStatus.refetch()}
+      />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <section className="grid gap-5">

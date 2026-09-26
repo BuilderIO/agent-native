@@ -1131,6 +1131,7 @@ const overrides = {
   onboarding: {
     fileStorage: {
       title: "फ़ाइलें अपलोड करने के लिए स्टोरेज कनेक्ट करें",
+      statusUnavailable: "फ़ाइल स्टोरेज की स्थिति उपलब्ध नहीं है।",
     },
   },
   database: {

@@ -319,7 +319,10 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.submitAndConfirm
       .mockReset()
       .mockResolvedValue({ tabId: "target-tab", delivered: true });
-    mocks.deck.generationContext = { generationAttemptId: "attempt-1" };
+    mocks.deck.generationContext = {
+      generationAttemptId: "attempt-1",
+      generationMode: undefined,
+    };
     mocks.scopedCalls = [];
     mocks.listeners.clear();
     mocks.sendToAgentChat.mockClear();
@@ -1030,7 +1033,10 @@ describe("DeckEditor generation signal wiring", () => {
     router?.dispose();
     router = undefined;
     mocks.attemptObservedRun = false;
-    mocks.deck.generationContext = { generationAttemptId: "attempt-1" };
+    mocks.deck.generationContext = {
+      generationAttemptId: "attempt-1",
+      generationMode: undefined,
+    };
     mocks.flushDeckSave.mockReset().mockResolvedValue(undefined);
     router = createMemoryRouter(
       [{ path: "/deck/:id", element: <DeckEditor /> }],
@@ -1061,7 +1067,10 @@ describe("DeckEditor generation signal wiring", () => {
   it("restores retry run tracking from the persisted submit-to-tab mapping", async () => {
     const submitMessageId = "retry-submit";
     const tabId = "retry-tab";
-    mocks.deck.generationContext = { generationAttemptId: "retry-attempt" };
+    mocks.deck.generationContext = {
+      generationAttemptId: "retry-attempt",
+      generationMode: undefined,
+    };
     mocks.targetTabId = tabId;
     mocks.attemptGenerating = true;
     mocks.attemptObservedRun = true;
