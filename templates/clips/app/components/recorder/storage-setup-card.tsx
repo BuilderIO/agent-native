@@ -335,21 +335,21 @@ export function StorageSetupCard({
         ) : (
           <>
             {connectButton}
+            {builderConnect.error && (
+              <p className="text-xs text-destructive" role="alert">
+                {t("storageSetup.builderConnectError")}
+              </p>
+            )}
             {!builderConnect.statusResolved &&
               builderConnect.hasFetchedStatus &&
               builderConnect.error && (
-                <div className="space-y-2">
-                  <p className="text-xs text-muted-foreground" role="alert">
-                    {t("storageSetup.builderConnectError")}
-                  </p>
-                  <button
-                    type="button"
-                    className="text-xs text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() => builderConnect.retry()}
-                  >
-                    {t("meetingDetail.retry")}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  className="text-xs text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => builderConnect.retry()}
+                >
+                  {t("meetingDetail.retry")}
+                </button>
               )}
           </>
         )

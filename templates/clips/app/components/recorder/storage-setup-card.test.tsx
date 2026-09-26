@@ -171,11 +171,11 @@ describe("StorageSetupCard", () => {
     expect(container.querySelector("button[disabled]")).not.toBeNull();
   });
 
-  it("shows a localized error when the inline connect flow fails", () => {
+  it("shows a localized error after the status-resolved fallback flow fails", () => {
     mocks.useBuilderConnectFlow.mockReturnValue({
       ...mocks.flow,
       statusResolved: true,
-      agentNativeProvisioningEnabled: true,
+      agentNativeProvisioningEnabled: false,
       error: "Couldn't open Builder. Allow popups and try again.",
       start: mocks.start,
     });
