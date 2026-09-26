@@ -20,7 +20,7 @@ import {
   IconDotsVertical,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Fragment, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, useInRouterContext, useLocation } from "react-router";
 
 import type { OutputReviewListRow } from "../../observability/types.js";
@@ -52,6 +52,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { cn } from "../utils.js";
@@ -267,11 +273,19 @@ function RangeSelector({
   value: number;
   onChange: (v: number) => void;
 }) {
+  const t = useT();
   return (
-    <div className="flex gap-1 rounded-md border border-border p-0.5">
+    <div
+      role="group"
+      aria-label={t("observability.time")}
+      className="flex gap-1 rounded-md border border-border p-0.5"
+    >
       {RANGES.map((r) => (
         <button
           key={r.value}
+          type="button"
+          aria-pressed={value === r.value}
+          title={`${t("observability.time")}: ${r.label}`}
           onClick={() => onChange(r.value)}
           className={cn(
             "px-2.5 py-1 text-xs rounded",
@@ -1035,6 +1049,8 @@ function ReviewTab({
   const [optimisticVotes, setOptimisticVotes] = useState<
     Record<string, "thumbs_up" | "thumbs_down">
   >({});
+  const [pendingVotes, setPendingVotes] = useState<Record<string, boolean>>({});
+  const [voteErrorRunId, setVoteErrorRunId] = useState<string | null>(null);
   const [summaryStatus, setSummaryStatus] = useState<
     "sending" | "sent" | "failed" | null
   >(null);
@@ -1058,6 +1074,27 @@ function ReviewTab({
         Boolean(review.threadId?.trim()) &&
         Boolean(review.summary || review.threadTitle.trim()),
     ) ?? [];
+  useEffect(() => {
+    if (!reviews) return;
+    setOptimisticVotes((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const [runId, vote] of Object.entries(current)) {
+        const confirmed = reviews
+          .find((review) => review.runId === runId)
+          ?.feedback.some(
+            (entry) =>
+              (entry.runId === runId || entry.runId == null) &&
+              entry.feedbackType === vote,
+          );
+        if (confirmed) {
+          delete next[runId];
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [reviews]);
   const visibleReviews = reviewRows.filter((review) => {
     const vote =
       optimisticVotes[review.runId] ??
@@ -1177,31 +1214,38 @@ function ReviewTab({
     runId: string,
     feedbackType: "thumbs_up" | "thumbs_down",
   ) => {
+    if (pendingVotes[runId]) return;
     const previous = optimisticVotes[runId];
     setOptimisticVotes((current) => ({ ...current, [runId]: feedbackType }));
+    setPendingVotes((current) => ({ ...current, [runId]: true }));
+    setVoteErrorRunId(null);
     feedbackMutation.mutate(
       {
         runId,
         feedbackType,
       },
       {
-        onSuccess: async () => {
-          await queryClient.invalidateQueries({
-            queryKey: ["action", "list-observability-reviews"],
-          });
-          setOptimisticVotes((current) => {
+        onSuccess: () => {
+          setPendingVotes((current) => {
             const next = { ...current };
             delete next[runId];
             return next;
           });
         },
-        onError: () =>
+        onError: () => {
           setOptimisticVotes((current) => {
             const next = { ...current };
             if (previous) next[runId] = previous;
             else delete next[runId];
             return next;
-          }),
+          });
+          setPendingVotes((current) => {
+            const next = { ...current };
+            delete next[runId];
+            return next;
+          });
+          setVoteErrorRunId(runId);
+        },
       },
     );
   };
@@ -1707,6 +1751,25 @@ function ReviewTab({
                     />
                     {!review.readOnly && (
                       <>
+                        {pendingVotes[review.runId] && (
+                          <span
+                            role="status"
+                            aria-live="polite"
+                            className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+                          >
+                            <IconLoader2 size={13} className="animate-spin" />
+                            {t("agentChat.common.saving")}
+                          </span>
+                        )}
+                        {voteErrorRunId === review.runId && (
+                          <span
+                            role="status"
+                            aria-live="polite"
+                            className="text-xs text-destructive"
+                          >
+                            {t("agentChat.common.saveFailed")}
+                          </span>
+                        )}
                         <button
                           type="button"
                           aria-label={t("observability.thumbsUp")}
@@ -1714,7 +1777,7 @@ function ReviewTab({
                           title={t("observability.thumbsUp")}
                           data-review-vote="up"
                           onClick={() => rateFromList(review, "thumbs_up")}
-                          disabled={feedbackMutation.isPending}
+                          disabled={pendingVotes[review.runId] === true}
                           className={cn(
                             "rounded-md p-1.5 text-muted-foreground opacity-100 transition-[opacity,color,background-color] hover:bg-muted hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 disabled:opacity-50",
                             voteType === "thumbs_up" &&
@@ -1730,7 +1793,7 @@ function ReviewTab({
                           title={t("observability.thumbsDown")}
                           data-review-vote="down"
                           onClick={() => rateFromList(review, "thumbs_down")}
-                          disabled={feedbackMutation.isPending}
+                          disabled={pendingVotes[review.runId] === true}
                           className={cn(
                             "rounded-md p-1.5 text-muted-foreground opacity-100 transition-[opacity,color,background-color] hover:bg-muted hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 disabled:opacity-50",
                             voteType === "thumbs_down" &&
@@ -1946,31 +2009,50 @@ function ReviewTab({
                               selectedReview.threadId) && (
                               <div className="flex items-center gap-1">
                                 {selectedArtifactHref && selectedArtifact && (
-                                  <a
-                                    href={selectedArtifactHref}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    aria-label={`${t("runsTray.open")} ${selectedArtifact.title}`}
-                                    title={`${t("runsTray.open")} ${selectedArtifact.title}`}
-                                    className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                  >
-                                    <IconExternalLink size={15} />
-                                  </a>
+                                  <TooltipProvider delayDuration={200}>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <a
+                                          href={selectedArtifactHref}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          aria-label={`${t("runsTray.open")} ${selectedArtifact.title}`}
+                                          className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                        >
+                                          <IconExternalLink size={15} />
+                                        </a>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        {t("runsTray.open")}{" "}
+                                        {selectedArtifact.title}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
                                 )}
                                 {selectedReview.threadId &&
                                   selectedReview.orgId === activeOrg?.orgId && (
-                                    <a
-                                      href={reviewThreadHref(
-                                        selectedReview.threadId,
-                                      )}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      aria-label={t("agentTask.openThread")}
-                                      title={t("agentTask.openThread")}
-                                      className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                    >
-                                      <IconMessages size={15} />
-                                    </a>
+                                    <TooltipProvider delayDuration={200}>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <a
+                                            href={reviewThreadHref(
+                                              selectedReview.threadId,
+                                            )}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            aria-label={t(
+                                              "agentTask.openThread",
+                                            )}
+                                            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                          >
+                                            <IconMessageCircle size={15} />
+                                          </a>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          {t("agentTask.openThread")}
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
                                   )}
                               </div>
                             )}
@@ -2080,12 +2162,36 @@ function ReviewTab({
                               aria-label={t("observability.reviewFeedback")}
                               className="flex items-center gap-1"
                             >
+                              {activeRunId && pendingVotes[activeRunId] && (
+                                <span
+                                  role="status"
+                                  aria-live="polite"
+                                  className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+                                >
+                                  <IconLoader2
+                                    size={13}
+                                    className="animate-spin"
+                                  />
+                                  {t("agentChat.common.saving")}
+                                </span>
+                              )}
+                              {activeRunId === voteErrorRunId && (
+                                <span
+                                  role="status"
+                                  aria-live="polite"
+                                  className="text-xs text-destructive"
+                                >
+                                  {t("agentChat.common.saveFailed")}
+                                </span>
+                              )}
                               <button
                                 type="button"
                                 aria-label={t("observability.thumbsUp")}
                                 aria-pressed={selectedVoteType === "thumbs_up"}
                                 title={t("observability.thumbsUp")}
-                                disabled={feedbackMutation.isPending}
+                                disabled={Boolean(
+                                  activeRunId && pendingVotes[activeRunId],
+                                )}
                                 onClick={() =>
                                   saveFeedback(
                                     activeRunId ?? selectedReview.runId,
@@ -2107,7 +2213,9 @@ function ReviewTab({
                                   selectedVoteType === "thumbs_down"
                                 }
                                 title={t("observability.thumbsDown")}
-                                disabled={feedbackMutation.isPending}
+                                disabled={Boolean(
+                                  activeRunId && pendingVotes[activeRunId],
+                                )}
                                 onClick={() => {
                                   saveFeedback(
                                     activeRunId ?? selectedReview.runId,

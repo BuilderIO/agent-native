@@ -9,6 +9,12 @@ import {
 import { useState } from "react";
 
 import { sendToAgentChatAndConfirm } from "../agent-chat.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 
 export interface ObservabilityReviewSummaryButtonProps {
@@ -37,19 +43,20 @@ export function ObservabilityReviewSummaryButton({
       ? "observability.regenerateSummary"
       : "observability.summarizeWithAgent",
   );
-  const title = t(
-    status === "sending"
-      ? "observability.summarySending"
-      : status === "sent"
-        ? "observability.summarySent"
-        : status === "failed"
-          ? "observability.summaryFailed"
-          : refresh
-            ? "observability.regenerateSummary"
-            : "observability.summarizeWithAgent",
-  );
+  const statusLabel = status
+    ? t(
+        status === "sending"
+          ? "observability.summarySending"
+          : status === "sent"
+            ? "observability.summarySent"
+            : "observability.summaryFailed",
+      )
+    : null;
+  const tooltipLabel = statusLabel ?? label;
 
   const summarize = async () => {
+    if (status === "sending") return;
+
     setRequest({ runId, status: "sending" });
     try {
       const result = await sendToAgentChatAndConfirm({
@@ -75,47 +82,59 @@ export function ObservabilityReviewSummaryButton({
   };
 
   return (
-    <>
-      <Button
-        type="button"
-        size={compact ? "icon" : "sm"}
-        variant={compact ? "ghost" : "default"}
-        aria-label={label}
-        aria-busy={status === "sending"}
-        title={title}
-        onClick={summarize}
-        disabled={status === "sending"}
-      >
-        {status === "sending" ? (
-          <IconLoader2 size={16} className="animate-spin" />
-        ) : status === "sent" ? (
-          <IconCircleCheck size={16} />
-        ) : status === "failed" ? (
-          <IconAlertCircle size={16} />
-        ) : compact ? (
-          refresh ? (
-            <IconRefresh size={16} />
-          ) : (
-            <IconMessageCircle size={16} />
-          )
-        ) : (
-          <>
-            {refresh && <IconRefresh size={14} />}
-            {label}
-          </>
-        )}
-      </Button>
-      {status && (
-        <span role="status" aria-live="polite" className="sr-only">
-          {t(
-            status === "sending"
-              ? "observability.summarySending"
-              : status === "sent"
-                ? "observability.summarySent"
-                : "observability.summaryFailed",
-          )}
+    <span className="inline-flex items-center gap-2">
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              size={compact ? "icon" : "sm"}
+              variant={compact ? "ghost" : "default"}
+              aria-label={label}
+              aria-disabled={status === "sending"}
+              aria-busy={status === "sending"}
+              className={
+                status === "sending" ? "cursor-wait opacity-60" : undefined
+              }
+              onClick={summarize}
+            >
+              {status === "sending" ? (
+                <IconLoader2 size={16} className="animate-spin" />
+              ) : status === "sent" ? (
+                <IconCircleCheck size={16} />
+              ) : status === "failed" ? (
+                <IconAlertCircle size={16} />
+              ) : compact ? (
+                refresh ? (
+                  <IconRefresh size={16} />
+                ) : (
+                  <IconMessageCircle size={16} />
+                )
+              ) : (
+                <>
+                  {refresh && <IconRefresh size={14} />}
+                  {label}
+                </>
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{tooltipLabel}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      {statusLabel && (
+        <span
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className={
+            status === "failed"
+              ? "text-xs text-destructive"
+              : "text-xs text-muted-foreground"
+          }
+        >
+          {statusLabel}
         </span>
       )}
-    </>
+    </span>
   );
 }

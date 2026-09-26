@@ -648,7 +648,11 @@ describe("ObservabilityDashboard human review", () => {
         ...container.querySelectorAll<HTMLButtonElement>(
           "[data-review-list] button",
         ),
-      ].every((button) => button.title.trim().length > 0),
+      ].every(
+        (button) =>
+          button.title.trim().length > 0 ||
+          Boolean(button.getAttribute("aria-label")?.trim()),
+      ),
     ).toBe(true);
 
     const search = container.querySelector<HTMLInputElement>(
@@ -709,6 +713,12 @@ describe("ObservabilityDashboard human review", () => {
         .querySelector('[data-review-vote="down"]')
         ?.getAttribute("aria-pressed"),
     ).toBe("false");
+    expect(firstRow.querySelector('[role="status"]')?.textContent).toBeTruthy();
+    expect(
+      container
+        .querySelector<HTMLElement>('[data-review-row="run-2"]')
+        ?.querySelector<HTMLButtonElement>('[data-review-vote="up"]')?.disabled,
+    ).toBe(false);
 
     const secondRow = container.querySelector<HTMLElement>(
       '[data-review-row="run-no-preview"]',
@@ -724,6 +734,40 @@ describe("ObservabilityDashboard human review", () => {
         ?.click(),
     );
     expect(reviewDetail("run-no-preview")).toBeNull();
+  });
+
+  it("rolls back a failed optimistic vote and reports the failure", async () => {
+    mockSubmitFeedback.mockImplementation((_input, callbacks) =>
+      callbacks?.onError?.(new Error("offline")),
+    );
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard showHumanReview />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    const reviewTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Human review"),
+    );
+    await act(async () => reviewTab?.click());
+    const row = container.querySelector<HTMLElement>(
+      '[data-review-row="run-1"]',
+    )!;
+
+    await act(async () =>
+      row.querySelector<HTMLButtonElement>('[data-review-vote="up"]')?.click(),
+    );
+
+    expect(
+      row
+        .querySelector('[data-review-vote="up"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("false");
+    expect(row.querySelector('[role="status"]')?.textContent).toBeTruthy();
   });
 
   it("keeps cross-organization review rows read-only", async () => {
