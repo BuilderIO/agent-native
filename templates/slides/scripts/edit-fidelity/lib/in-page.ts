@@ -70,6 +70,8 @@ export interface Snapshot {
   inventory: Inventory;
   text: string;
   editedRect: Rect | null;
+  /** Rendered lines of the element the edit is matched to, in full. */
+  editedText: string | null;
 }
 
 export interface EditorState {
@@ -78,13 +80,15 @@ export interface EditorState {
   blocks: number;
   editorRect: Rect | null;
   sourceRect: Rect | null;
-  /** The collapsed selection's caret box, or null when it draws none. */
+  /** Top of the edited element's content, which moves with anchored text. */
+  contentTop: number | null;
+  /** The caret's box, or null unless the selection is a caret in the edited element. */
   caretRect: Rect | null;
   sourceTag: string | null;
   sourceText: string | null;
   sourceOccurrence: number;
   editorHtml: string;
-  /** The editor's text, which the element shows once the edit is saved. */
+  /** The editor's rendered lines, which the element shows once saved. */
   editorText: string;
 }
 
@@ -110,6 +114,8 @@ export interface InPageHelpers {
   ): CanonicalPair;
   /** Call stacks of content writes sent since the last call, oldest first. */
   takeWriteStacks(): string[];
+  /** Keepalive content writes sent since the last call, in this tab. */
+  takeKeepaliveWrites(): number;
 }
 
 declare global {
@@ -192,6 +198,34 @@ export function installInPageHelpers(chromeSelector: string) {
     (s ?? "").replace(/[\s\u200b\ufeff]+/g, " ").trim();
   const strip = (s: string | null | undefined) =>
     (s ?? "").replace(/[\s\u200b\ufeff]+/g, "");
+  /**
+   * The element's text, one line per <br> or block, placeholders and blank
+   * lines dropped: textContent gives a <br> nothing, so it cannot tell a kept
+   * break from a lost one, and innerText applies text-transform.
+   */
+  const lines = (el: Element) => {
+    let out = "";
+    const walk = (n: Node) => {
+      // Source indentation is not a line break.
+      if (n.nodeType === Node.TEXT_NODE)
+        out += (n as Text).data.replace(/\s+/g, " ");
+      else if (n.nodeName === "BR") out += "\n";
+      else if (n instanceof Element && !/^(STYLE|SCRIPT)$/.test(n.tagName)) {
+        const block =
+          n !== el && !getComputedStyle(n).display.startsWith("inline");
+        if (block) out += "\n";
+        n.childNodes.forEach(walk);
+        if (block) out += "\n";
+      }
+    };
+    walk(el);
+    return out
+      .replace(/[\u200b\ufeff]/g, "")
+      .split("\n")
+      .map(norm)
+      .filter(Boolean)
+      .join("\n");
+  };
   const rectOf = (r: DOMRect, origin: DOMRect): Rect => ({
     x: Math.round(r.left - origin.left),
     y: Math.round(r.top - origin.top),
@@ -378,33 +412,73 @@ export function installInPageHelpers(chromeSelector: string) {
     );
   }
 
-  function caretRect(origin: DOMRect): Rect | null {
+  function caretRect(origin: DOMRect, source: HTMLElement | null): Rect | null {
     const selection = getSelection();
-    if (!selection?.rangeCount) return null;
-    const range = selection.getRangeAt(0).cloneRange();
-    range.collapse(false);
-    let box: DOMRect | undefined = range.getClientRects()[0];
-    // A caret on an empty line has no box of its own; the node right after
-    // it (the line's <br>, or the next line's first character) sits on the
-    // caret's line. The node before it ends the previous line.
+    if (!source || !selection?.rangeCount) return null;
+    const caret = selection.getRangeAt(0);
+    if (!caret.collapsed || !source.contains(caret.endContainer)) return null;
+    let box: DOMRect | undefined = caret.getClientRects()[0];
+    // A caret in an empty or collapsed-whitespace text node, or on an empty
+    // line, draws no box of its own; the next <br> or rendered character
+    // after it in document order sits on the caret's line.
     if (!box?.height) {
-      const { startContainer: node, startOffset: at } = range;
-      const next =
-        node.nodeType === Node.TEXT_NODE
-          ? at < (node as Text).length
-            ? null
-            : node.nextSibling
-          : node.childNodes[at];
-      if (next?.nodeName === "BR") {
-        box = (next as Element).getBoundingClientRect();
-      } else if (next?.nodeType === Node.TEXT_NODE && next.textContent) {
-        const first = document.createRange();
-        first.setStart(next, 0);
-        first.setEnd(next, 1);
-        box = first.getClientRects()[0];
+      box = undefined;
+      const walker = document.createTreeWalker(
+        source,
+        NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+      );
+      const char = document.createRange();
+      for (let n = walker.nextNode(); n && !box; n = walker.nextNode()) {
+        if (n.nodeName === "BR") {
+          const at = Array.from(n.parentNode!.childNodes).indexOf(
+            n as ChildNode,
+          );
+          const r = (n as Element).getBoundingClientRect();
+          if (caret.comparePoint(n.parentNode!, at) >= 0 && r.height) box = r;
+        } else if (n.nodeType === Node.TEXT_NODE) {
+          const from =
+            caret.comparePoint(n, 0) >= 0
+              ? 0
+              : n === caret.startContainer
+                ? caret.startOffset
+                : null;
+          if (from === null) continue;
+          for (let i = from; i < (n as Text).length && !box; i++) {
+            char.setStart(n, i);
+            char.setEnd(n, i + 1);
+            const r = char.getClientRects()[0];
+            if (r?.height) box = r;
+          }
+        }
       }
     }
     return box?.height ? rectOf(box, origin) : null;
+  }
+
+  /**
+   * Top of the element's rendered text and line breaks. A range over the
+   * whole element would also take in the border box of every child, so a
+   * taller icon or shape beside the text would pin it.
+   */
+  function contentTop(source: HTMLElement, origin: DOMRect): number {
+    let top = Infinity;
+    const walker = document.createTreeWalker(
+      source,
+      NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+    );
+    const range = document.createRange();
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      let rects: ArrayLike<DOMRect> = [];
+      if (n.nodeName === "BR") rects = (n as Element).getClientRects();
+      else if (n.nodeType === Node.TEXT_NODE) {
+        range.selectNodeContents(n);
+        rects = range.getClientRects();
+      }
+      for (const r of Array.from(rects))
+        if (r.height) top = Math.min(top, r.top);
+    }
+    if (top === Infinity) top = source.getBoundingClientRect().top;
+    return Math.round(top - origin.top);
   }
 
   function editorState(canvasSel: string): EditorState {
@@ -422,12 +496,13 @@ export function installInPageHelpers(chromeSelector: string) {
       sourceRect: source
         ? rectOf(source.getBoundingClientRect(), origin)
         : null,
-      caretRect: caretRect(origin),
+      contentTop: source ? contentTop(source, origin) : null,
+      caretRect: caretRect(origin, source),
       sourceTag: source?.tagName ?? null,
       sourceText: source ? norm(source.textContent).slice(0, 400) : null,
       sourceOccurrence: source ? occurrenceOf(source, slideRoot) : 0,
       editorHtml: pm?.innerHTML.slice(0, 4000) ?? "",
-      editorText: pm ? norm(pm.textContent).slice(0, 400) : "",
+      editorText: pm ? lines(pm) : "",
     };
   }
 
@@ -546,6 +621,7 @@ export function installInPageHelpers(chromeSelector: string) {
       inventory,
       text: norm((root as HTMLElement).innerText),
       editedRect: editedBox ? rectOf(paintedRect(editedBox), origin) : null,
+      editedText: editedEl ? lines(editedEl) : null,
     };
   }
 
@@ -704,6 +780,7 @@ export function installInPageHelpers(chromeSelector: string) {
   }
 
   const writeStacks: string[] = [];
+  const KEEPALIVE_WRITES = "edit-fidelity:keepalive-writes";
   const nativeFetch = window.fetch;
   window.fetch = function (input: RequestInfo | URL, init?: RequestInit) {
     const url =
@@ -712,20 +789,34 @@ export function installInPageHelpers(chromeSelector: string) {
       init?.method ?? (input instanceof Request ? input.method : "GET")
     ).toUpperCase();
     if (
-      method === "POST" &&
+      (method === "POST" || method === "PUT") &&
       /\/_agent-native\/actions\/(patch-deck|save-deck|update-slide)\b/.test(
         url,
       )
     ) {
       writeStacks.push(new Error().stack ?? "");
+      // Slides sends these on pagehide, and Playwright's request events never
+      // report them; the count survives the reload in sessionStorage.
+      if (init?.keepalive || (input instanceof Request && input.keepalive)) {
+        sessionStorage.setItem(
+          KEEPALIVE_WRITES,
+          String(Number(sessionStorage.getItem(KEEPALIVE_WRITES) ?? 0) + 1),
+        );
+      }
     }
     return nativeFetch.call(this, input, init);
   };
   const takeWriteStacks = () => writeStacks.splice(0);
+  const takeKeepaliveWrites = () => {
+    const n = Number(sessionStorage.getItem(KEEPALIVE_WRITES) ?? 0);
+    sessionStorage.removeItem(KEEPALIVE_WRITES);
+    return n;
+  };
 
   window.__editFidelity = {
     listTargets,
     takeWriteStacks,
+    takeKeepaliveWrites,
     snapshot,
     editorState,
     backgroundPoint,

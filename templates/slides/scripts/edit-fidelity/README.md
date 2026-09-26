@@ -3,9 +3,9 @@
 Drives the real Slides editor in Chromium and checks one rule: clicking into
 text, typing, pressing Enter, or just leaving an edit must not change any
 styling or layout on the slide. Unit tests have repeatedly missed breaks on
-this path. The editor mounts outside the slide, the save serializes the
-rendered DOM, and only a real browser rendering real CSS shows what the user
-sees.
+this path. The clicked element becomes the editor in place, the save
+serializes the rendered DOM, and only a real browser rendering real CSS shows
+what the user sees.
 
 ## Run
 
@@ -140,7 +140,10 @@ them per slide. For each target and scenario:
    gesture that worked is recorded. A double-click selects the word under
    it, so that selection is collapsed to a caret before any keys. If none
    enters edit, the status is `no-edit`; the scenario fails and is never
-   skipped.
+   skipped. The clicks must still change nothing: a `no-edit` result also
+   gets a violation for any write, any change to the stored slide (both
+   skipped when opening the slide rewrites it anyway), and a view→after
+   pixel diff above tolerance.
 4. **Editing.** Capture `editing.png` and a snapshot before typing.
 5. **Keys.**
    - `noop`: none.
@@ -148,12 +151,23 @@ them per slide. For each target and scenario:
    - `append`: End, then ` ok`.
    - `enter3`: End, then Enter three times, then `new line`. After each Enter
      it records `enter-N.png`, the edited element's height, the canvas
-     change, and the caret's line; the caret must move to another line.
+     change, and the caret's line, measured from the top of the element's
+     rendered text so that centred and bottom-anchored text, or a label
+     beside a taller icon, still shows a full line per Enter. The caret must
+     be collapsed inside the edited element and move to another line; a
+     caret that cannot be measured is its own violation.
    - `clickout`: like `typedelete`.
 6. **Exit.** Escape, except `clickout`, which clicks the empty editor
    background beside the slide. The harness then polls `get-deck` until the
    stored content stops changing, and captures `after.png` and `saved.html`.
-7. **Reload.** Capture `reload.png`.
+   A save still in flight after 75 s errors the scenario.
+7. **Reload.** Capture `reload.png`, then read the stored slide again: a
+   write that lands after the edit settled (a `pagehide` flush, say) is a
+   violation, unless opening the slide rewrites it anyway. Playwright does
+   not report the keepalive writes Slides sends on `pagehide`, so the page
+   counts them in `sessionStorage`. When there was one, the harness waits
+   up to 15 s for it to land, and then, as when a write it does see is still
+   in flight, polls until the stored slide settles before reading.
 8. **Idempotence (`typedelete` only).** A second identical edit must save
    exactly what the first one did.
 
@@ -218,6 +232,18 @@ deltas for editing/after, the html diff, and the violation count.
   the stored source by tag, text and occurrence, and the saved string must
   start with every stored byte before it and end with every stored byte after
   it. `bytes-outside.txt` shows the first difference.
+- **Saved text.** For `append` / `enter3`, text is read as lines: a `<br>` or
+  a block box breaks a line; zero-width spaces and blank lines are dropped,
+  and `text-transform` is not applied. The saved
+  content must differ from the stored content; the editor's text must be the
+  element's text with the token (` ok` / `new line`) inserted exactly once,
+  with whitespace runs compared as one space, so a lost space fails (beside
+  the token, only marker glyphs such as a cloned `●`); for `enter3`,
+  `new line` must start a line; and the reloaded slide must have an element
+  with exactly those lines, so a dropped line break fails. Typed text that
+  lands in a new text node on the reloaded slide must share its computed
+  text style with some text the element had before the edit. The ratchet
+  only bounds numbers from above, so lost text has to fail here.
 - **Saved HTML.** Both versions are parsed in the page and canonicalized:
   attributes and classes sorted, style declarations parsed by the CSSOM (which
   normalizes colors and units) and sorted, whitespace collapsed.
@@ -252,7 +278,11 @@ A regression is any of:
 - a worse status (`pass < fail < no-edit < error`);
 - a number above its ceiling;
 - a result with no baseline entry;
-- a baselined scenario inside the run's filters and limits that did not run.
+- a baselined scenario inside the run's filters and limits that did not run;
+- in a run over the whole corpus (no case filter, `--slides`, `--targets`,
+  `--max-slides`, scenario subset, or `--max-targets-per-slide` below 4), a
+  baselined case or slide that is no longer in the corpus. `--update` refuses
+  to write until those entries are pruned.
 
 `--update` records only passing results: a ratchet seeded from a failing run
 would accept the failure as its ceiling. Record a known failure deliberately
@@ -270,6 +300,7 @@ baseline file the run cannot gate and exits 2.
 - Text records are keyed by their own text. Duplicate strings on one slide
   pair up in document order.
 - `append` and `enter3` press End, which moves to the end of the visual line.
-  In a wrapped paragraph the text lands mid-block.
+  In a wrapped paragraph the text lands mid-block, so the saved-text check
+  accepts the token at any point.
 - Needs `playwright@1.63.x`, `pixelmatch@7.2.x` and `pngjs@7.x` in the root
   pnpm store. They are resolved by `../export-fidelity/resolve-pkg.ts`.

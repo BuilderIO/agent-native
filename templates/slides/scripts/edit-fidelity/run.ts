@@ -39,9 +39,12 @@ import {
   diffSnapshots,
   findBaselineProblems,
   hardFailures,
+  isSplicedOnce,
   lineDiff,
+  orphanedBaselineKeys,
   padRect,
   ratchetBaselineEntry,
+  restyledAddedText,
   type BaselineEntry,
   type PixelDiff,
   type ScenarioMetrics,
@@ -513,6 +516,8 @@ async function exitEdit(
  * is still in flight. Saves are debounced, so "no change yet" is only trusted
  * after a minimum wait; on a loaded machine a sent write can take seconds to
  * land, and reading before it does reports text the save really kept as lost.
+ * The cap sits above the client's 60 s action timeout plus its retry, so an
+ * aborted and re-sent save is seen instead of cut off.
  */
 async function settleSaved(
   page: Page,
@@ -523,16 +528,23 @@ async function settleSaved(
   const start = Date.now();
   let last = await getSlideContent(page, deckId, slideId);
   let lastChange = Date.now();
-  while (Date.now() - start < 60_000) {
+  for (;;) {
     await sleep(300);
     const now = await getSlideContent(page, deckId, slideId);
     if (now !== last || writesInFlight() > 0) {
       last = now;
       lastChange = Date.now();
     }
-    if (Date.now() - start >= 2500 && Date.now() - lastChange >= 1200) break;
+    if (Date.now() - start >= 2500 && Date.now() - lastChange >= 1200)
+      return last;
+    if (Date.now() - start >= 75_000) {
+      throw new Error(
+        writesInFlight() > 0
+          ? "a save was still in flight after 75 s"
+          : "the stored slide was still changing after 75 s",
+      );
+    }
   }
-  return last;
 }
 
 async function restoreSlide(
@@ -566,6 +578,10 @@ async function snapshot(
 
 async function takeWriteStacks(page: Page): Promise<string[]> {
   return page.evaluate(() => window.__editFidelity.takeWriteStacks());
+}
+
+async function takeKeepaliveWrites(page: Page): Promise<number> {
+  return page.evaluate(() => window.__editFidelity.takeKeepaliveWrites());
 }
 
 async function listTargets(page: Page, slideId: string): Promise<TextTarget[]> {
@@ -807,6 +823,8 @@ interface SlideCtx {
   slideId: string;
   stored: string;
   noisePct: number;
+  /** Opening the slide rewrites it, so a post-reload read may differ. */
+  openMutatesContent: boolean;
   dir: string;
   expectStyles: ExpectedStyle[];
 }
@@ -859,6 +877,7 @@ async function runScenario(
   try {
     await restoreSlide(page, deckId, slideId, ctx.stored);
     await openSlide(page, ctx.base, deckId, ctx.slideIndex, slideId);
+    await takeKeepaliveWrites(page);
     const current = (await listTargets(page, slideId))[target.index];
     if (!current || current.text !== target.text) {
       throw new Error(
@@ -883,9 +902,34 @@ async function runScenario(
     result.gesture = await enterEdit(page, slideId, current.point);
     if (!result.gesture) {
       result.status = "no-edit";
-      result.violations.push(
+      const v = result.violations;
+      v.push(
         `could not enter edit mode with click, click-click or double-click${current.covered ? " (another element covers the target's click point)" : ""}`,
       );
+      // Without an edit, the clicks themselves must still change nothing.
+      const saved = await settleSaved(
+        page,
+        deckId,
+        slideId,
+        () => inFlight.size,
+      );
+      write("saved.html", saved);
+      await settle(page);
+      const after = await shot(page, slideId);
+      write("after.png", after);
+      const changed = await diffPngs(view, after);
+      write("diff-after.png", changed.png);
+      countingWrites = false;
+      result.writes = [...writes];
+      result.writeDetails = [...writeDetails];
+      // Opening such a slide rewrites it, which the slide report names once.
+      if (saved !== ctx.stored && !ctx.openMutatesContent)
+        v.push("clicking changed the stored slide");
+      if (writes.length && !ctx.openMutatesContent)
+        v.push(
+          `${writes.length} content write(s) without an edit (${writes.join(", ")})`,
+        );
+      if (changed.pct > tol) v.push(`view->after ${changed.pct}% > ${tol}%`);
       return result;
     }
     await settle(page);
@@ -914,12 +958,16 @@ async function runScenario(
         write(`enter-${k}.png`, png);
         const changed = await diffPngs(prevPng, png);
         // The canvas can't show an Enter: a split at a soft wrap, a blank
-        // last line, and an authored fixed-height box all leave it unchanged,
-        // and a centered or bottom-anchored box moves the text instead of the
-        // caret. Relative to the edited element's top, the caret always moves
-        // to another line (up when Enter removes an empty last bullet).
+        // last line, and an authored fixed-height box all leave it unchanged.
+        // A centred or bottom-anchored box, the edited element's own or an
+        // ancestor's, moves the text instead of the caret, and the element's
+        // box can stay put. Relative to the top of the element's content, the
+        // caret moves a full line per Enter (up when Enter removes an empty
+        // last bullet), and a caret left behind reads as unmoved.
         const lineOf = (s: EditorState) =>
-          s.caretRect && s.sourceRect ? s.caretRect.y - s.sourceRect.y : null;
+          s.caretRect && s.contentTop !== null
+            ? s.caretRect.y - s.contentTop
+            : null;
         const from = lineOf(prev);
         const to = lineOf(state);
         const step: EnterStep = {
@@ -933,9 +981,13 @@ async function runScenario(
             Math.abs(to - from) >= prev.caretRect!.height / 2,
         };
         enterSteps.push(step);
-        if (!step.caretMoved) {
+        if (from === null || to === null) {
           result.violations.push(
-            `enter #${k}: the caret stayed on its line (y ${from ?? "none"} -> ${to ?? "none"} in the element)`,
+            `enter #${k}: the caret could not be measured ${from === null ? "before" : "after"} it (no caret in the edited element, or nothing rendered at it)`,
+          );
+        } else if (!step.caretMoved) {
+          result.violations.push(
+            `enter #${k}: the caret stayed on its line (y ${from} -> ${to} below the element's content top)`,
           );
         }
         prevPng = png;
@@ -967,6 +1019,7 @@ async function runScenario(
         (scenario === "append" ? `${editedText} ok` : `${editedText}new line`);
     const snapAfter = await snapshot(page, slideId, { text: expectedText });
 
+    await takeKeepaliveWrites(page);
     await openSlide(page, ctx.base, deckId, ctx.slideIndex, slideId);
     const reload = await shot(page, slideId);
     write("reload.png", reload);
@@ -974,6 +1027,29 @@ async function runScenario(
     styleProblems.push(
       ...(await checkExpectedStyles(page, slideId, ctx.expectStyles, "reload")),
     );
+    // The reload fires pagehide, where Slides flushes pending saves with
+    // keepalive fetches that inFlight never sees; the in-page hook counts
+    // them. It, or a tracked write still in flight, may land well after the
+    // page reopens.
+    const unloadWrites = await takeKeepaliveWrites(page);
+    if (unloadWrites) {
+      await waitFor(
+        async () => (await getSlideContent(page, deckId, slideId)) !== saved,
+        15_000,
+        300,
+      );
+    }
+    const reloaded =
+      unloadWrites || inFlight.size
+        ? await settleSaved(page, deckId, slideId, () => inFlight.size)
+        : await getSlideContent(page, deckId, slideId);
+    if (reloaded !== saved && !ctx.openMutatesContent) {
+      write("reloaded.html", reloaded);
+      const hardAfter = hardFailures(saved, reloaded);
+      result.violations.push(
+        `a write landed after the edit settled (stored content changed across the reload; ${unloadWrites} keepalive write(s) on unload${hardAfter.length ? `; ${hardAfter.join(", ")}` : ""})`,
+      );
+    }
 
     // ---- pixels
     const rects = (...rs: Array<Rect | null | undefined>) =>
@@ -1210,6 +1286,35 @@ async function runScenario(
           `saved HTML differs from stored (${diff.length} canonical lines)`,
         );
     } else {
+      const token = scenario === "append" ? " ok" : "new line";
+      if (!didSave)
+        v.push(
+          "the edit never reached storage before the reload (saved content equals stored)",
+        );
+      if (!isSplicedOnce(state0.editorText || editedText, token, typed))
+        v.push(
+          `typed text is not the element's text with "${token}" inserted once: ${JSON.stringify(typed.slice(0, 160))}`,
+        );
+      if (
+        scenario === "enter3" &&
+        !typed
+          .split("\n")
+          .some((line) =>
+            line.replace(/^[^\p{L}\p{N}]+/u, "").startsWith(token),
+          )
+      )
+        v.push(
+          `"${token}" does not start a line of the typed text: ${JSON.stringify(typed.slice(0, 160))}`,
+        );
+      if (snapReload.editedText !== typed)
+        v.push(
+          `no element on the reloaded slide has the typed text line for line (closest: ${JSON.stringify((snapReload.editedText ?? "none").slice(0, 160))})`,
+        );
+      const restyled = restyledAddedText(snapView, snapReload);
+      if (restyled.length)
+        v.push(
+          `typed text on the reloaded slide has a style no text of the element had (${restyled.slice(0, 3).join("; ")})`,
+        );
       if (sa.deltasOutside)
         v.push(
           `view->after: ${sa.deltasOutside} style deltas outside the edited element`,
@@ -1441,6 +1546,7 @@ async function runCase(
         slideId,
         stored,
         noisePct: noise.pct,
+        openMutatesContent: report.openMutatesContent,
         dir,
         expectStyles: (c.expectStyles ?? []).filter((e) => e.slide === i),
       };
@@ -1680,6 +1786,23 @@ async function main() {
     );
   };
   const problems = findBaselineProblems(byKey, baseline, isExpected);
+  // Only a run over the whole corpus knows a case or slide is really gone.
+  const fullRun =
+    !caseFilter &&
+    !slideFilter &&
+    !targetFilter &&
+    maxSlides === Infinity &&
+    maxTargets >= 4 &&
+    SCENARIOS.every((s) => scenarios.includes(s));
+  const orphans = fullRun
+    ? orphanedBaselineKeys(
+        Object.keys(baseline),
+        new Map(cases.map((c) => [c.id, c.slides.length])),
+      )
+    : [];
+  problems.push(
+    ...orphans.map((key) => `${key}: baselined case/slide no longer in corpus`),
+  );
   const counts = results.reduce<Record<string, number>>((acc, r) => {
     const k = r.infra ? "infra-error" : r.status;
     acc[k] = (acc[k] ?? 0) + 1;
@@ -1705,11 +1828,14 @@ async function main() {
   const unrun = Object.keys(baseline).filter(
     (key) => !byKey.has(key) && isExpected(key),
   );
-  if (update && (browserLost || erroredSlides.length || unrun.length)) {
+  if (
+    update &&
+    (browserLost || erroredSlides.length || unrun.length || orphans.length)
+  ) {
     // Writing now would drop the coverage of what did not run from the
     // ratchet without anything noticing.
     console.error(
-      `\n[edit-fidelity] baseline not updated: ${browserLost ? "the browser was lost mid-run; " : ""}${erroredSlides.length} slide(s) errored (${erroredSlides.map((s) => `${s.caseId} s${pad2(s.slide)}`).join(", ") || "none"}), ${unrun.length} baselined scenario(s) did not run (${unrun.slice(0, 10).join(", ") || "none"}). Re-run them (--resume) first.`,
+      `\n[edit-fidelity] baseline not updated: ${browserLost ? "the browser was lost mid-run; " : ""}${erroredSlides.length} slide(s) errored (${erroredSlides.map((s) => `${s.caseId} s${pad2(s.slide)}`).join(", ") || "none"}), ${unrun.length} baselined scenario(s) did not run (${unrun.slice(0, 10).join(", ") || "none"}), ${orphans.length} baselined scenario(s) are no longer in the corpus (${orphans.slice(0, 10).join(", ") || "none"}). Re-run them (--resume) or prune the orphans first.`,
     );
     exitCode = 1;
   } else if (update && results.length) {
