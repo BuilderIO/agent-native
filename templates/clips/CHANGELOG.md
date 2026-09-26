@@ -7,7 +7,12 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.
 - Shared clips remember your sidebar choice and help new viewers understand why to sign up.
+
+### Fixed
+
+- Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."
 
 ## 2026-09-24
 
