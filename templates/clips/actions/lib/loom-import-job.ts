@@ -245,6 +245,7 @@ export async function runLoomImportJob({
         and(
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          eq(schema.recordings.status, "processing"),
           eq(schema.recordings.loomImportClaimId, claimId),
         ),
       )

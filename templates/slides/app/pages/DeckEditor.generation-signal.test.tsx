@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
   targetTabId: "target-tab",
   analyticsSessionId: "session-1",
   sessionLoading: false,
-  authUserId: "canonical-auth-user",
+  authUserId: "canonical-auth-user" as string | undefined,
   exportDeckAsPdf: vi.fn(async (..._args: unknown[]) => undefined),
   exportDeckAsPptx: vi.fn(async (..._args: unknown[]) => undefined),
   exportDeckToGoogleSlides: vi.fn(async (..._args: unknown[]) => ({})),
@@ -419,6 +419,72 @@ describe("DeckEditor generation signal wiring", () => {
     ).toHaveLength(1);
   });
 
+  it("drops a queued output claim if canonical session loading starts first", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "private slide text" }];
+    let releaseQueuedClaim: (() => void) | undefined;
+    lockTail = new Promise<void>((resolve) => {
+      releaseQueuedClaim = resolve;
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    expect(lockRequest).toHaveBeenCalledOnce();
+
+    mocks.sessionLoading = true;
+    act(() => publishAgentGeneratingChange());
+    releaseQueuedClaim?.();
+    await act(async () => Promise.resolve());
+
+    expect(window.localStorage.getItem("slides:output-viewed")).toBeNull();
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      "output_viewed",
+      expect.anything(),
+    );
+
+    mocks.sessionLoading = false;
+    act(() => publishAgentGeneratingChange());
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        "output_viewed",
+        expect.objectContaining({ auth_user_id: "canonical-auth-user" }),
+      ),
+    );
+  });
+
+  it("does not let a pre-auth output claim suppress the identified retry", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "private slide text" }];
+    mocks.authUserId = undefined;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    const outputViews = () =>
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(([name]) => name === "output_viewed");
+    await waitFor(() => expect(outputViews()).toHaveLength(1));
+    expect(outputViews()[0]?.[1]).not.toHaveProperty("auth_user_id");
+
+    mocks.sessionLoading = true;
+    act(() => publishAgentGeneratingChange());
+    expect(lockRequest).toHaveBeenCalledOnce();
+
+    mocks.authUserId = "canonical-auth-user";
+    mocks.sessionLoading = false;
+    act(() => publishAgentGeneratingChange());
+
+    await waitFor(() => expect(outputViews()).toHaveLength(2));
+    expect(outputViews()[1]?.[1]).toMatchObject({
+      auth_user_id: "canonical-auth-user",
+    });
+    expect(lockRequest).toHaveBeenCalledTimes(2);
+  });
+
   it("attributes presentation and export starts to the deck and resolved attempt", async () => {
     mocks.deck.slides = [{ id: "slide-1", content: "private slide text" }];
     router = createMemoryRouter(
@@ -513,6 +579,48 @@ describe("DeckEditor generation signal wiring", () => {
       expect(properties).not.toHaveProperty("title");
       expect(properties).not.toHaveProperty("prompt");
       expect(properties).not.toHaveProperty("content");
+    }
+  });
+
+  it("omits a completed generation attempt from later presentation and exports", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "private slide text" }];
+    Object.assign(mocks.deck, {
+      generationContext: {
+        generationAttemptId: "attempt-1",
+        generationComplete: true,
+      },
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    fireEvent.click(screen.getByTestId("test-present"));
+    fireEvent.click(screen.getByTestId("test-export-pdf"));
+    fireEvent.click(screen.getByTestId("test-export-pptx"));
+    fireEvent.click(screen.getByTestId("test-export-google-slides"));
+
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(trackEvent)
+          .mock.calls.filter(([name]) => name === "slide_export_started"),
+      ).toHaveLength(3),
+    );
+    const events = vi
+      .mocked(trackEvent)
+      .mock.calls.filter(
+        ([name]) =>
+          name === "slide_presentation_opened" ||
+          name === "slide_export_started",
+      );
+    expect(events).toHaveLength(4);
+    for (const [, properties] of events) {
+      expect(properties).toMatchObject({
+        output_id: "deck-1",
+      });
+      expect(properties).not.toHaveProperty("generation_attempt_id");
     }
   });
 
@@ -640,7 +748,11 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.deck.slides = [{ id: "slide-1", content: "slide" }];
     window.localStorage.setItem(
       "slides:output-viewed",
-      JSON.stringify({ sessionId: "session-1", deckIds: ["deck-1"] }),
+      JSON.stringify({
+        sessionId: "session-1",
+        identity: "auth:canonical-auth-user",
+        deckIds: ["deck-1"],
+      }),
     );
     router = createMemoryRouter(
       [{ path: "/deck/:id", element: <DeckEditor /> }],
@@ -689,7 +801,11 @@ describe("DeckEditor generation signal wiring", () => {
       ).toHaveLength(1),
     );
     expect(window.localStorage.getItem("slides:output-viewed")).toBe(
-      JSON.stringify({ sessionId: "session-1", deckIds: ["deck-1"] }),
+      JSON.stringify({
+        sessionId: "session-1",
+        identity: "auth:canonical-auth-user",
+        deckIds: ["deck-1"],
+      }),
     );
     expect(
       window.localStorage.getItem(

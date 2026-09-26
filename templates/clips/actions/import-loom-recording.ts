@@ -8,7 +8,7 @@ import { uploadFile } from "@agent-native/core/file-upload";
 import { buildDeepLink } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { extractLoomVideoId, normalizeLoomShareUrl } from "@shared/loom.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { parseEdits } from "../app/lib/timestamp-mapping.js";
@@ -485,7 +485,19 @@ export default defineAction({
           loomImportClaimId: null,
           loomImportClaimedAt: null,
         })
-        .where(eq(schema.recordings.id, id))
+        .where(
+          and(
+            eq(schema.recordings.id, id),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            eq(schema.recordings.status, "uploading"),
+            isNull(schema.recordings.videoUrl),
+            eq(
+              schema.recordings.failureReason,
+              DIRECT_VIDEO_STORAGE_SETUP_REQUIRED_REASON,
+            ),
+            eq(schema.recordings.sourceWindowTitle, sourceUrl),
+          ),
+        )
         .returning({ authUserId: schema.recordings.authUserId });
       if (updated) {
         persistedReady = true;

@@ -85,6 +85,7 @@ vi.mock("../../server/db/index.js", () => ({
     recordings: {
       id: "id",
       ownerEmail: "ownerEmail",
+      status: "status",
       authUserId: "authUserId",
       uploadAttemptId: "uploadAttemptId",
       recordingPlatform: "recordingPlatform",
@@ -159,7 +160,7 @@ describe("runLoomImportJob", () => {
     vi.clearAllMocks();
   });
 
-  it("downloads, reuploads, and marks the recording ready", async () => {
+  it("emits media readiness once before optional transcript work", async () => {
     mockSelectRows.queue.push([
       {
         id: "rec_1",
@@ -396,6 +397,20 @@ describe("runLoomImportJob", () => {
   });
 
   it("keeps playable media ready when transcript persistence fails", async () => {
+    mockReturning.mockResolvedValueOnce([
+      {
+        id: "rec_4",
+        ownerEmail: "owner@example.com",
+        authUserId: "auth-user-4",
+        uploadAttemptId: "upload-attempt-4",
+        durationMs: 0,
+        videoFormat: "mp4",
+        hasAudio: true,
+        hasCamera: false,
+        width: 0,
+        height: 0,
+      },
+    ]);
     mockSelectRows.queue.push([
       {
         id: "rec_4",
@@ -430,6 +445,18 @@ describe("runLoomImportJob", () => {
         status: "ready",
         videoUrl: "https://cdn.example.com/rec_4.mp4",
       }),
+    );
+    expect(mockTrack).toHaveBeenCalledTimes(1);
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_ready",
+      expect.objectContaining({
+        output_id: "rec_4",
+        recording_attempt_id: "rec_4",
+      }),
+      { userId: "owner@example.com", authUserId: "auth-user-4" },
+    );
+    expect(mockTrack.mock.invocationCallOrder[0]).toBeLessThan(
+      mockFetchLoomTranscript.mock.invocationCallOrder[0],
     );
   });
 });

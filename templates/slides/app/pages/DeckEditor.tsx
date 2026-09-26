@@ -205,6 +205,8 @@ const OUTPUT_VIEW_DECK_LIMIT = 512;
 async function claimOutputView(
   sessionId: string,
   deckId: string,
+  authUserId: string | undefined,
+  isCurrent: () => boolean,
 ): Promise<OutputViewClaim> {
   if (typeof window === "undefined" || !navigator.locks) {
     return "unavailable";
@@ -215,6 +217,7 @@ async function claimOutputView(
       OUTPUT_VIEW_LOCK_NAME,
       { mode: "exclusive" },
       () => {
+        if (!isCurrent()) return "unavailable";
         try {
           const storage = window.localStorage;
           if (storage.getItem(OUTPUT_VIEW_LEGACY_CLEANUP_KEY) !== "1") {
@@ -237,13 +240,17 @@ async function claimOutputView(
               typeof marker !== "object" ||
               Array.isArray(marker) ||
               typeof marker.sessionId !== "string" ||
-              !Array.isArray(marker.deckIds))
+              !Array.isArray(marker.deckIds) ||
+              (marker.identity !== undefined &&
+                typeof marker.identity !== "string"))
           ) {
             return "unavailable";
           }
 
+          const identity = authUserId ? `auth:${authUserId}` : "anonymous";
           const seenDeckIds =
-            marker?.sessionId === sessionId
+            marker?.sessionId === sessionId &&
+            (marker.identity ?? "anonymous") === identity
               ? marker.deckIds.filter(
                   (value: unknown): value is string =>
                     typeof value === "string",
@@ -256,6 +263,7 @@ async function claimOutputView(
             OUTPUT_VIEW_STORAGE_KEY,
             JSON.stringify({
               sessionId,
+              identity,
               deckIds: [...seenDeckIds, deckId].slice(-OUTPUT_VIEW_DECK_LIMIT),
             }),
           );
@@ -817,14 +825,25 @@ export default function DeckEditor() {
       hasStartedGenerationAttempt(generationAttemptQuery, id),
     ),
   );
+  const interactionGenerationAttemptId =
+    generationContext?.generationComplete === true ||
+    generationContext?.generationOutcome !== undefined
+      ? null
+      : generationAttemptId;
   useEffect(() => {
     if (sessionLoading || !id || !deck || slideCount === 0) {
       return;
     }
     const analyticsSessionId = getAnalyticsSessionId();
     if (!analyticsSessionId) return;
-    void claimOutputView(analyticsSessionId, id).then((claim) => {
-      if (claim !== "claimed") return;
+    let isCurrent = true;
+    void claimOutputView(
+      analyticsSessionId,
+      id,
+      canonicalAuthUserId,
+      () => isCurrent,
+    ).then((claim) => {
+      if (!isCurrent || claim !== "claimed") return;
       trackEvent("output_viewed", {
         app_name: "slides",
         template_name: "slides",
@@ -838,6 +857,9 @@ export default function DeckEditor() {
           : {}),
       });
     });
+    return () => {
+      isCurrent = false;
+    };
   }, [
     canonicalAuthUserId,
     deck,
@@ -3154,8 +3176,8 @@ export default function DeckEditor() {
       app_name: "slides",
       template_name: "slides",
       output_id: id,
-      ...(generationAttemptId
-        ? { generation_attempt_id: generationAttemptId }
+      ...(interactionGenerationAttemptId
+        ? { generation_attempt_id: interactionGenerationAttemptId }
         : {}),
       navigation: request?.preserveNativeNavigation ? "new_tab" : "current_tab",
     });
@@ -3315,8 +3337,8 @@ export default function DeckEditor() {
             app_name: "slides",
             template_name: "slides",
             output_id: id,
-            ...(generationAttemptId
-              ? { generation_attempt_id: generationAttemptId }
+            ...(interactionGenerationAttemptId
+              ? { generation_attempt_id: interactionGenerationAttemptId }
               : {}),
             format: "pdf",
           });
@@ -3334,8 +3356,8 @@ export default function DeckEditor() {
             app_name: "slides",
             template_name: "slides",
             output_id: id,
-            ...(generationAttemptId
-              ? { generation_attempt_id: generationAttemptId }
+            ...(interactionGenerationAttemptId
+              ? { generation_attempt_id: interactionGenerationAttemptId }
               : {}),
             format: "pptx",
           });
@@ -3353,8 +3375,8 @@ export default function DeckEditor() {
             app_name: "slides",
             template_name: "slides",
             output_id: id,
-            ...(generationAttemptId
-              ? { generation_attempt_id: generationAttemptId }
+            ...(interactionGenerationAttemptId
+              ? { generation_attempt_id: interactionGenerationAttemptId }
               : {}),
             format: "google_slides",
           });

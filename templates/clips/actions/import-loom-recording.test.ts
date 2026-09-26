@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   eq: vi.fn(),
   gte: vi.fn(),
   inArray: vi.fn(),
+  isNull: vi.fn(),
   defineAction: vi.fn((options: unknown) => options),
   writeAppState: vi.fn(),
   writeAppStateForCurrentTab: vi.fn(),
@@ -69,6 +70,7 @@ vi.mock("drizzle-orm", () => ({
   eq: (...args: unknown[]) => mocks.eq(...args),
   gte: (...args: unknown[]) => mocks.gte(...args),
   inArray: (...args: unknown[]) => mocks.inArray(...args),
+  isNull: (...args: unknown[]) => mocks.isNull(...args),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -80,7 +82,10 @@ vi.mock("../server/db/index.js", () => ({
       authUserId: "recordings.authUserId",
       uploadAttemptId: "recordings.uploadAttemptId",
       status: "recordings.status",
+      videoUrl: "recordings.videoUrl",
+      failureReason: "recordings.failureReason",
       sourceAppName: "recordings.sourceAppName",
+      sourceWindowTitle: "recordings.sourceWindowTitle",
       createdAt: "recordings.createdAt",
     },
     recordingTranscripts: {
@@ -173,6 +178,7 @@ describe("first imported recording transactional email", () => {
     mocks.eq.mockImplementation((column, value) => ({ column, value }));
     mocks.gte.mockImplementation((column, value) => ({ column, value }));
     mocks.inArray.mockImplementation((column, values) => ({ column, values }));
+    mocks.isNull.mockImplementation((column) => ({ isNull: column }));
     mocks.dispatchPostFinalizeJob.mockResolvedValue(undefined);
   });
 
@@ -434,6 +440,11 @@ describe("first imported recording transactional email", () => {
   it("does not reuse an automatic thumbnail from an earlier direct import", async () => {
     const sourceUrl = "https://media.example.com/source.mp4";
     const updateValues = vi.fn();
+    const updateReturning = vi
+      .fn()
+      .mockResolvedValueOnce([{ authUserId: "auth-user-retry" }])
+      .mockResolvedValueOnce([]);
+    const updateWhere = vi.fn(() => ({ returning: updateReturning }));
     const existing = {
       id: "recording-retry",
       organizationId: "org-1",
@@ -458,6 +469,8 @@ describe("first imported recording transactional email", () => {
     const selectWhere = vi
       .fn()
       .mockResolvedValueOnce([existing])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([existing])
       .mockResolvedValueOnce([]);
     const db = {
       select: vi.fn(() => ({
@@ -467,11 +480,7 @@ describe("first imported recording transactional email", () => {
       update: vi.fn(() => ({
         set: (values: unknown) => {
           updateValues(values);
-          return {
-            where: vi.fn(() => ({
-              returning: vi.fn(async () => [{ authUserId: "auth-user-retry" }]),
-            })),
-          };
+          return { where: updateWhere };
         },
       })),
     } as any;
@@ -500,8 +509,13 @@ describe("first imported recording transactional email", () => {
     mocks.ensureEnabledAt.mockRejectedValue(
       new Error("email store unavailable"),
     );
+    mocks.and.mockImplementation((...conditions) => conditions);
 
     const result = await importLoomRecording.run({
+      url: sourceUrl,
+      recordingId: "recording-retry",
+    });
+    const concurrentRetryResult = await importLoomRecording.run({
       url: sourceUrl,
       recordingId: "recording-retry",
     });
@@ -514,10 +528,42 @@ describe("first imported recording transactional email", () => {
         authUserId: "auth-user-retry",
       }),
     );
+    expect(updateWhere).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { column: "recordings.id", value: "recording-retry" },
+        { column: "recordings.status", value: "uploading" },
+        { isNull: "recordings.videoUrl" },
+        {
+          column: "recordings.failureReason",
+          value:
+            "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this import.",
+        },
+        { column: "recordings.sourceWindowTitle", value: sourceUrl },
+      ]),
+    );
+    expect(mocks.track).toHaveBeenCalledTimes(1);
+    expect(mocks.track).toHaveBeenCalledWith(
+      "recording_ready",
+      expect.objectContaining({
+        output_id: "recording-retry",
+        recording_attempt_id: "recording-retry",
+      }),
+      { userId: "owner@example.com", authUserId: "auth-user-retry" },
+    );
+    expect(mocks.track.mock.invocationCallOrder[0]).toBeGreaterThan(
+      updateReturning.mock.invocationCallOrder[0],
+    );
     expect(result).toMatchObject({
       recordingId: "recording-retry",
       thumbnailUrl: null,
     });
+    expect(concurrentRetryResult).toMatchObject({
+      recordingId: "recording-retry",
+      thumbnailUrl: null,
+    });
+    expect(updateWhere).toHaveBeenCalledTimes(2);
+    expect(updateReturning).toHaveBeenCalledTimes(2);
+    expect(mocks.track).toHaveBeenCalledTimes(1);
   });
 
   it("completes a persisted import when transactional email enqueue fails", async () => {
