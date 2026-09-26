@@ -3735,15 +3735,25 @@ export function TiptapComposer({
                 defaultValue: "Use the attached context.",
               })
             : "");
+        const modeContext = config.getContext(modePrompt);
+        const contextItemsText = contextSnapshot?.length
+          ? formatPromptContextItems(contextSnapshot)
+          : "";
+        const context = contextItemsText
+          ? `${modeContext}\n\n${contextItemsText}`
+          : modeContext;
         if (attachments.length > 0) {
           composerRuntime.setText(
-            `${message}\n\n<context>\n${config.getContext(modePrompt)}\n</context>`,
+            `${message}\n\n<context>\n${context}\n</context>`,
           );
           composerRuntime.send();
         } else {
           adapters.agentChat!.sendToAgentChat!({
             message,
-            context: config.getContext(modePrompt),
+            context,
+            ...(contextSnapshot === undefined
+              ? {}
+              : { contextItems: contextSnapshot }),
             mode:
               execMode === "plan"
                 ? "plan"

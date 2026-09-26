@@ -87,6 +87,7 @@ export interface AgentChatContextItem {
 export interface ComposerAgentChatMessage {
   message: string;
   context?: string;
+  contextItems?: readonly Readonly<AgentChatContextItem>[];
   mode?: "plan" | "act";
   submit?: boolean;
 }

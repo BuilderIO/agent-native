@@ -80,7 +80,9 @@ export function DeckTemplateLibrary({
       if (!result.id) throw new Error(t("templatesPage.createFailed"));
       const reloadStatus = await reloadDecksWithStatus();
       if (reloadStatus === "failed") {
-        throw new Error(t("templatesPage.createFailed"));
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-decks"],
+        });
       }
       retryIds.current.delete(id);
       void queryClient.invalidateQueries({

@@ -22,6 +22,7 @@ import { DeckTemplateLibrary } from "./DeckTemplateLibrary";
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   create: vi.fn(),
+  reloadDecksWithStatus: vi.fn(),
   retry: vi.fn(),
   engine: vi.fn(),
   listError: false,
@@ -50,6 +51,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@agent-native/toolkit/app-shell", async (original) => ({
   ...(await original<typeof import("@agent-native/toolkit/app-shell")>()),
   useSetPageTitle: vi.fn(),
+}));
+vi.mock("@/context/DeckContext", () => ({
+  useDecks: () => ({
+    reloadDecksWithStatus: mocks.reloadDecksWithStatus,
+  }),
 }));
 
 function Location() {
@@ -103,6 +109,7 @@ beforeEach(() => {
     throw new Error("Template copies must not require an AI provider");
   });
   mocks.create.mockResolvedValue({ id: "new-editable-deck" });
+  mocks.reloadDecksWithStatus.mockResolvedValue("loaded");
   mocks.query.mockImplementation(
     (name: string, args: Record<string, unknown>) => {
       if (name === "list-deck-templates") {
@@ -245,6 +252,17 @@ describe("real starter template library", () => {
       expect(screen.getByTestId("location").textContent).toBe(
         "/deck/new-editable-deck",
       ),
+    );
+  });
+  it("opens a successfully created deck even when the list refresh fails", async () => {
+    mocks.reloadDecksWithStatus.mockResolvedValue("failed");
+    mount({ home: true, entry: "/home" });
+
+    fireEvent.click(screen.getByRole("button", { name: first.title }));
+
+    await screen.findByText("Editable deck");
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/deck/new-editable-deck",
     );
   });
   it.each(["/templates", "/home"])(
