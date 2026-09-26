@@ -1055,9 +1055,7 @@ export interface UseGuidedQuestionFlowOptions {
    */
   browserTabId?: string;
   threadId?: string;
-  /** Skip the hosted-provider gate for local or custom agent runtimes. */
   providerStatusChecksEnabled?: boolean;
-  /** Reuse a host's current readiness result instead of probing again. */
   providerStatus?: AgentEngineConfiguredState;
   queryKey?: readonly unknown[];
   refetchInterval?: number | false;
