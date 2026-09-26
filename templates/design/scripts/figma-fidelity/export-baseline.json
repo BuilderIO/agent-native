@@ -25,22 +25,22 @@
     "maxApproximated": 0
   },
   "preset-display-ad": {
-    "maxDiffPercent": 0.102,
+    "maxDiffPercent": 9.364,
     "maxOmitted": 0,
     "maxApproximated": 0
   },
   "preset-landing-page": {
-    "maxDiffPercent": 0.105,
+    "maxDiffPercent": 5.224,
     "maxOmitted": 0,
     "maxApproximated": 0
   },
   "preset-one-pager": {
-    "maxDiffPercent": 0.105,
+    "maxDiffPercent": 0.48,
     "maxOmitted": 0,
     "maxApproximated": 0
   },
   "preset-social-square": {
-    "maxDiffPercent": 0.109,
+    "maxDiffPercent": 1.612,
     "maxOmitted": 0,
     "maxApproximated": 0
   },

@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/server", async () => {
   const context = await import("@agent-native/core/server/request-context");
   return {
+    cdnSafeOriginStatus: (status: number) =>
+      status === 502 || status === 504 ? 503 : status,
     runWithRequestContext: context.runWithRequestContext,
     getSession: mocks.session,
     getMcpOAuthBearerSession: async () => null,
