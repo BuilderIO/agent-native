@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import React, { act } from "react";
+import React, { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -14,7 +14,31 @@ vi.mock("../i18n.js", () => ({
   useT: () => (key: string) => key,
 }));
 
-import { ObservabilityReviewSummaryButton } from "./ObservabilityReviewSummaryButton.js";
+import {
+  ObservabilityReviewSummaryButton,
+  type ObservabilityReviewSummaryButtonProps,
+  type ObservabilityReviewSummaryStatus,
+} from "./ObservabilityReviewSummaryButton.js";
+
+function SummaryButtonHarness(
+  props: Omit<
+    ObservabilityReviewSummaryButtonProps,
+    "status" | "onStatusChange"
+  >,
+) {
+  const [requests, setRequests] = useState<
+    Record<string, ObservabilityReviewSummaryStatus>
+  >({});
+  return (
+    <ObservabilityReviewSummaryButton
+      {...props}
+      status={requests[props.runId] ?? null}
+      onStatusChange={(status) =>
+        setRequests((current) => ({ ...current, [props.runId]: status }))
+      }
+    />
+  );
+}
 
 describe("ObservabilityReviewSummaryButton", () => {
   let container: HTMLDivElement;
@@ -40,9 +64,7 @@ describe("ObservabilityReviewSummaryButton", () => {
 
   it("submits a visible agent request scoped to the selected run", async () => {
     await act(async () => {
-      root.render(
-        <ObservabilityReviewSummaryButton runId="run-42" orgId="org-a" />,
-      );
+      root.render(<SummaryButtonHarness runId="run-42" orgId="org-a" />);
     });
 
     const button = container.querySelector<HTMLButtonElement>("button");
@@ -103,12 +125,7 @@ describe("ObservabilityReviewSummaryButton", () => {
 
     await act(async () => {
       root.render(
-        <ObservabilityReviewSummaryButton
-          runId="run-42"
-          orgId="org-a"
-          compact
-          refresh
-        />,
+        <SummaryButtonHarness runId="run-42" orgId="org-a" compact refresh />,
       );
     });
 
@@ -149,17 +166,13 @@ describe("ObservabilityReviewSummaryButton", () => {
     );
 
     await act(async () => {
-      root.render(
-        <ObservabilityReviewSummaryButton runId="run-a" orgId="org-a" />,
-      );
+      root.render(<SummaryButtonHarness runId="run-a" orgId="org-a" />);
     });
     const button = container.querySelector<HTMLButtonElement>("button");
     await act(async () => button?.click());
 
     await act(async () => {
-      root.render(
-        <ObservabilityReviewSummaryButton runId="run-b" orgId="org-a" />,
-      );
+      root.render(<SummaryButtonHarness runId="run-b" orgId="org-a" />);
     });
     await act(async () => button?.click());
 
@@ -184,12 +197,7 @@ describe("ObservabilityReviewSummaryButton", () => {
     });
     await act(async () => {
       root.render(
-        <ObservabilityReviewSummaryButton
-          runId="run-42"
-          orgId="org-a"
-          refresh
-          compact
-        />,
+        <SummaryButtonHarness runId="run-42" orgId="org-a" refresh compact />,
       );
     });
     const button = container.querySelector<HTMLButtonElement>("button");

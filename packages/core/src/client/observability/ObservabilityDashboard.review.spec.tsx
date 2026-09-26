@@ -848,10 +848,12 @@ describe("ObservabilityDashboard human review", () => {
       value: "",
       createdAt: 10,
     };
-    let finishVote: (() => void) | undefined;
+    let finishVote:
+      | ((entry: { id: string; createdAt: number }) => void)
+      | undefined;
     mockSubmitFeedback.mockImplementationOnce(
       () =>
-        new Promise<void>((resolve) => {
+        new Promise((resolve) => {
           finishVote = resolve;
         }),
     );
@@ -916,13 +918,23 @@ describe("ObservabilityDashboard human review", () => {
         ?.getAttribute("aria-pressed"),
     ).toBe("true");
 
+    await act(async () =>
+      finishVote?.({ id: "vote-run-2-optimistic-up", createdAt: 30 }),
+    );
+    expect(
+      reviewDetail("run-1")
+        ?.querySelector('[aria-label="Thumbs up"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+
     mockOutputReviews.mockReturnValue({
       isLoading: false,
       data: makeReviews([
         {
-          ...latestDown,
-          id: "vote-run-2-confirmed-up",
+          id: "vote-run-2-optimistic-up",
+          runId: "run-2",
           feedbackType: "thumbs_up",
+          value: "",
           createdAt: 30,
         },
         latestDown,
@@ -939,7 +951,7 @@ describe("ObservabilityDashboard human review", () => {
           createdAt: 40,
         },
         {
-          id: "vote-run-2-confirmed-up",
+          id: "vote-run-2-optimistic-up",
           runId: "run-2",
           feedbackType: "thumbs_up",
           value: "",
@@ -955,7 +967,70 @@ describe("ObservabilityDashboard human review", () => {
         ?.querySelector('[aria-label="Thumbs down"]')
         ?.getAttribute("aria-pressed"),
     ).toBe("true");
-    await act(async () => finishVote?.());
+  });
+
+  it("uses the row's latest run vote for sentiment and filtering", async () => {
+    const primary = mockOutputReviews().data.find(
+      (review) => review.runId === "run-1",
+    )!;
+    mockOutputReviews.mockReturnValue({
+      isLoading: false,
+      data: [
+        {
+          ...primary,
+          runCount: 2,
+          runs: [
+            { runId: "run-1", model: "model-a", createdAt: 30 },
+            { runId: "run-2", model: "model-b", createdAt: 20 },
+          ],
+          feedback: [
+            {
+              id: "vote-run-2-down",
+              runId: "run-2",
+              feedbackType: "thumbs_down",
+              value: "",
+              createdAt: 40,
+            },
+            {
+              id: "vote-run-1-up",
+              runId: "run-1",
+              feedbackType: "thumbs_up",
+              value: "",
+              createdAt: 30,
+            },
+          ],
+        },
+      ],
+    });
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard showHumanReview />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    const reviewTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Human review"),
+    );
+    await act(async () => reviewTab?.click());
+
+    const row = container.querySelector<HTMLElement>(
+      '[data-review-row="run-1"]',
+    )!;
+    expect(
+      row
+        .querySelector('[data-review-vote="up"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    await act(async () =>
+      Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+        .find((button) => button.textContent === "Thumbs up")
+        ?.click(),
+    );
+    expect(container.querySelector('[data-review-row="run-1"]')).toBeTruthy();
+    expect(container.querySelector('[data-review-row="run-2"]')).toBeNull();
   });
 
   it("shows note-save failures beside the note save action", async () => {
@@ -1048,6 +1123,60 @@ describe("ObservabilityDashboard human review", () => {
     expect(
       reviewDetail("run-2")?.querySelector('a[href*="thread=thread-2"]'),
     ).toBeNull();
+  });
+
+  it("shares summary progress between the row and its expanded detail", async () => {
+    let finishSummary: ((result: { delivered: boolean }) => void) | undefined;
+    mockConfirmAgentChat.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishSummary = resolve;
+        }),
+    );
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard showHumanReview />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    const reviewTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Human review"),
+    );
+    await act(async () => reviewTab?.click());
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-review-run-id="run-1"]')
+        ?.click(),
+    );
+
+    const row = container.querySelector<HTMLElement>(
+      '[data-review-row="run-1"]',
+    )!;
+    const summaryButtons = () =>
+      Array.from(
+        row.querySelectorAll<HTMLButtonElement>(
+          '[aria-label="Summarize with agent"]',
+        ),
+      );
+    expect(summaryButtons()).toHaveLength(2);
+    await act(async () => summaryButtons()[0]?.click());
+    expect(
+      summaryButtons().every(
+        (button) => button.getAttribute("aria-busy") === "true",
+      ),
+    ).toBe(true);
+    await act(async () => summaryButtons()[1]?.click());
+    expect(mockConfirmAgentChat).toHaveBeenCalledTimes(1);
+
+    await act(async () => finishSummary?.({ delivered: true }));
+    expect(
+      summaryButtons().every(
+        (button) => button.getAttribute("aria-busy") === "false",
+      ),
+    ).toBe(true);
   });
 
   it("expands one inline row with its preview, transcript, thread link, and actions", async () => {

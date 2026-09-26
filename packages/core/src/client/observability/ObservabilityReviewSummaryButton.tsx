@@ -6,7 +6,6 @@ import {
   IconMessageCircle,
   IconRefresh,
 } from "@tabler/icons-react";
-import { useState } from "react";
 
 import { sendToAgentChatAndConfirm } from "../agent-chat.js";
 import {
@@ -20,23 +19,25 @@ import { useT } from "../i18n.js";
 export interface ObservabilityReviewSummaryButtonProps {
   runId: string;
   orgId: string;
+  status: ObservabilityReviewSummaryStatus | null;
+  onStatusChange: (status: ObservabilityReviewSummaryStatus) => void;
   compact?: boolean;
   background?: boolean;
   refresh?: boolean;
 }
 
+export type ObservabilityReviewSummaryStatus = "sending" | "sent" | "failed";
+
 export function ObservabilityReviewSummaryButton({
   runId,
   orgId,
+  status,
+  onStatusChange,
   compact = false,
   background = false,
   refresh = false,
 }: ObservabilityReviewSummaryButtonProps) {
   const t = useT();
-  const [requests, setRequests] = useState<
-    Record<string, "sending" | "sent" | "failed">
-  >({});
-  const status = requests[runId] ?? null;
   const label = t(
     refresh
       ? "observability.regenerateSummary"
@@ -55,9 +56,9 @@ export function ObservabilityReviewSummaryButton({
 
   const summarize = async () => {
     const requestRunId = runId;
-    if (requests[requestRunId] === "sending") return;
+    if (status === "sending") return;
 
-    setRequests((current) => ({ ...current, [requestRunId]: "sending" }));
+    onStatusChange("sending");
     try {
       const result = await sendToAgentChatAndConfirm({
         message: [
@@ -78,12 +79,9 @@ export function ObservabilityReviewSummaryButton({
         chatTarget: "local",
         usageLabel: "observability:human-review-summary",
       });
-      setRequests((current) => ({
-        ...current,
-        [requestRunId]: result.delivered ? "sent" : "failed",
-      }));
+      onStatusChange(result.delivered ? "sent" : "failed");
     } catch {
-      setRequests((current) => ({ ...current, [requestRunId]: "failed" }));
+      onStatusChange("failed");
     }
   };
 

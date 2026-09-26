@@ -61,7 +61,10 @@ import {
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { cn } from "../utils.js";
-import { ObservabilityReviewSummaryButton } from "./ObservabilityReviewSummaryButton.js";
+import {
+  ObservabilityReviewSummaryButton,
+  type ObservabilityReviewSummaryStatus,
+} from "./ObservabilityReviewSummaryButton.js";
 import { OutputPreview, parseOutputPreview } from "./OutputPreview.js";
 import {
   useObservabilityOverview,
@@ -118,6 +121,12 @@ function latestReviewVote(
         entry.feedbackType === "thumbs_down"),
   );
 }
+
+type OptimisticReviewVote = {
+  feedbackType: "thumbs_up" | "thumbs_down";
+  feedbackId?: string;
+  createdAt?: number;
+};
 
 function truncateId(id: string, len = 8): string {
   return id.length > len ? id.slice(0, len) + "…" : id;
@@ -1060,7 +1069,7 @@ function ReviewTab({
     "all" | "design" | "slides" | "analytics"
   >("all");
   const [optimisticVotes, setOptimisticVotes] = useState<
-    Record<string, "thumbs_up" | "thumbs_down">
+    Record<string, OptimisticReviewVote>
   >({});
   const [pendingVotes, setPendingVotes] = useState<Record<string, boolean>>({});
   const [voteErrors, setVoteErrors] = useState<Record<string, boolean>>({});
@@ -1069,6 +1078,9 @@ function ReviewTab({
   const [summaryStatus, setSummaryStatus] = useState<
     "sending" | "sent" | "failed" | null
   >(null);
+  const [summaryRequests, setSummaryRequests] = useState<
+    Record<string, ObservabilityReviewSummaryStatus>
+  >({});
   const [openPopover, setOpenPopover] = useState<{
     runId: string;
     kind: "feedback" | "instruction";
@@ -1095,29 +1107,32 @@ function ReviewTab({
       let changed = false;
       const next = { ...current };
       for (const [runId, vote] of Object.entries(current)) {
+        if (vote.feedbackId === undefined || vote.createdAt === undefined)
+          continue;
         const review = reviews.find(
           (candidate) =>
             candidate.runId === runId ||
             candidate.runs?.some((run) => run.runId === runId),
         );
-        const confirmed =
-          latestReviewVote(review, runId)?.feedbackType === vote;
-        if (confirmed) {
+        const latest = latestReviewVote(review, runId);
+        const observed =
+          latest?.id === vote.feedbackId ||
+          (latest !== undefined &&
+            (latest.createdAt > vote.createdAt ||
+              (latest.createdAt === vote.createdAt &&
+                latest.id > vote.feedbackId)));
+        if (observed) {
           delete next[runId];
           changed = true;
         }
       }
       return changed ? next : current;
     });
-  }, [reviews]);
+  }, [optimisticVotes, reviews]);
   const visibleReviews = reviewRows.filter((review) => {
     const vote =
-      optimisticVotes[review.runId] ??
-      review.feedback.find(
-        (entry) =>
-          entry.feedbackType === "thumbs_up" ||
-          entry.feedbackType === "thumbs_down",
-      )?.feedbackType;
+      optimisticVotes[review.runId]?.feedbackType ??
+      latestReviewVote(review, review.runId)?.feedbackType;
     const search = reviewSearch.trim().toLocaleLowerCase();
     const searchable = [
       review.summary?.ask,
@@ -1231,7 +1246,10 @@ function ReviewTab({
   ) => {
     if (pendingVotes[runId]) return;
     const previous = optimisticVotes[runId];
-    setOptimisticVotes((current) => ({ ...current, [runId]: feedbackType }));
+    setOptimisticVotes((current) => ({
+      ...current,
+      [runId]: { feedbackType },
+    }));
     setPendingVotes((current) => ({ ...current, [runId]: true }));
     setVoteErrors((current) => {
       const next = { ...current };
@@ -1239,10 +1257,28 @@ function ReviewTab({
       return next;
     });
     try {
-      await feedbackMutation.mutateAsync({
+      const savedFeedback = await feedbackMutation.mutateAsync({
         runId,
         feedbackType,
       });
+      if (
+        savedFeedback &&
+        typeof savedFeedback.id === "string" &&
+        Number.isFinite(savedFeedback.createdAt)
+      ) {
+        setOptimisticVotes((current) =>
+          current[runId]?.feedbackType === feedbackType
+            ? {
+                ...current,
+                [runId]: {
+                  feedbackType,
+                  feedbackId: savedFeedback.id,
+                  createdAt: savedFeedback.createdAt,
+                },
+              }
+            : current,
+        );
+      }
     } catch {
       setOptimisticVotes((current) => {
         const next = { ...current };
@@ -1340,11 +1376,7 @@ function ReviewTab({
     [];
   const feedbackToImprove = (visibleReviews ?? []).flatMap((review) => {
     if (review.readOnly) return [];
-    const vote = review.feedback.find(
-      (entry) =>
-        entry.feedbackType === "thumbs_up" ||
-        entry.feedbackType === "thumbs_down",
-    );
+    const vote = latestReviewVote(review, review.runId);
     if (vote?.feedbackType !== "thumbs_down") return [];
     const note = review.feedback.find(
       (entry) =>
@@ -1450,7 +1482,8 @@ function ReviewTab({
     ? latestReviewVote(selectedReview, activeRunId)
     : undefined;
   const selectedVoteType = activeRunId
-    ? (optimisticVotes[activeRunId] ?? persistedSelectedVote?.feedbackType)
+    ? (optimisticVotes[activeRunId]?.feedbackType ??
+      persistedSelectedVote?.feedbackType)
     : persistedSelectedVote?.feedbackType;
   const selectedNote =
     activeFeedback?.find((entry) => entry.feedbackType === "text") ??
@@ -1605,13 +1638,9 @@ function ReviewTab({
               (answerPreview.kind === "design" &&
                 Boolean(answerPreview.imageUrl));
             const hasPreview = Boolean(artifactHref || hasAnswerPreview);
-            const vote = review.feedback.find(
-              (entry) =>
-                entry.feedbackType === "thumbs_up" ||
-                entry.feedbackType === "thumbs_down",
-            );
+            const vote = latestReviewVote(review, review.runId);
             const voteType =
-              optimisticVotes[review.runId] ?? vote?.feedbackType;
+              optimisticVotes[review.runId]?.feedbackType ?? vote?.feedbackType;
             const voteReason = review.feedback
               .find(
                 (entry) =>
@@ -1819,6 +1848,13 @@ function ReviewTab({
                         <ObservabilityReviewSummaryButton
                           runId={review.runId}
                           orgId={review.orgId}
+                          status={summaryRequests[review.runId] ?? null}
+                          onStatusChange={(status) =>
+                            setSummaryRequests((current) => ({
+                              ...current,
+                              [review.runId]: status,
+                            }))
+                          }
                           compact
                           background
                         />
@@ -2164,6 +2200,17 @@ function ReviewTab({
                             <ObservabilityReviewSummaryButton
                               runId={activeRunId ?? selectedReview.runId}
                               orgId={selectedReview.orgId}
+                              status={
+                                summaryRequests[
+                                  activeRunId ?? selectedReview.runId
+                                ] ?? null
+                              }
+                              onStatusChange={(status) =>
+                                setSummaryRequests((current) => ({
+                                  ...current,
+                                  [activeRunId ?? selectedReview.runId]: status,
+                                }))
+                              }
                               compact
                               refresh={Boolean(selectedSummary)}
                             />
