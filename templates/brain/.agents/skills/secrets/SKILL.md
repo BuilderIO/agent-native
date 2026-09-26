@@ -246,7 +246,7 @@ up."), not the mechanism.
   registration wins over the map: registering a key puts it on API keys unless
   the registration sets `managedBy`.
 - Before deleting a key or removing a provider, call `preview-secret-removal`
-  (or `GET /_agent-native/secrets/:key/usage`) and tell the user the effects.
+  and tell the user the effects.
 
 ### Settings › API keys
 
@@ -387,15 +387,14 @@ Core routes plugin mounts these under `/_agent-native/secrets/` automatically:
   removes channel keys through `manage-messaging-channel`.
 - `POST /_agent-native/secrets/:key/test` — re-run the validator against the
   currently stored value.
-- `GET /_agent-native/secrets/:key/usage[?scope=]` — the remove-impact
-  preview (same result as the `preview-secret-removal` action). List payloads
-  carry `usedFor` and `managedBy` for registered and ad-hoc keys.
+- List payloads carry `usedFor` and `managedBy` for registered and ad-hoc
+  keys. The remove-impact preview is the `preview-secret-removal` action.
 
 Model provider keys are checked by listing the models they reach: the
-`check-provider-key` action (or `POST /_agent-native/agent-engine/provider-models`,
-client helper `fetchProviderModels`) returns `{ ok, models }` or
-`{ ok: false, code, reason }`. Call it before saving a key the user gives you;
-the key-save route runs the same check and refuses a rejected key.
+`check-provider-key` action (client helper `fetchProviderModels`) returns
+`{ ok, models }` or `{ ok: false, code, reason }`. Call it before saving a key
+the user gives you; the key-save route runs the same check and refuses a
+rejected key.
 
 ## Storage & encryption
 

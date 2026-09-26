@@ -354,6 +354,7 @@ function SettingsShellContent({
       isOwner: role === "owner",
       isAdmin: role === "owner" || role === "admin",
       hasOrganization: org ? Boolean(org.orgId) : null,
+      soloDeploymentAdmin: org?.soloDeploymentAdmin === true,
       appId: identity.appId,
       labs,
       flags,

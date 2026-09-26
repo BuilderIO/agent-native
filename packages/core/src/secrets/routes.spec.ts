@@ -11,7 +11,6 @@ const mockListRequiredSecrets = vi.fn();
 const mockHasOAuthTokens = vi.fn();
 const mockListOAuthAccountsByOwner = vi.fn();
 const mockResolveSecretDetailed = vi.fn();
-const mockPreviewSecretRemoval = vi.fn();
 const mockReadProviderCredentialRejections = vi.fn();
 const mockGetOrgSetting = vi.fn();
 
@@ -58,11 +57,6 @@ vi.mock("./register.js", () => ({
     mockGetRequiredSecret(key)?.usedFor ?? [],
 }));
 
-vi.mock("./usage.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./usage.js")>()),
-  previewSecretRemoval: (...args: any[]) => mockPreviewSecretRemoval(...args),
-}));
-
 vi.mock("./storage.js", () => ({
   writeAppSecret: (...args: any[]) => mockWriteAppSecret(...args),
   deleteAppSecret: (...args: any[]) => mockDeleteAppSecret(...args),
@@ -89,7 +83,6 @@ vi.mock("../server/request-context.js", () => ({
 import {
   createAdHocSecretHandler,
   createListSecretsHandler,
-  createSecretUsageHandler,
   createTestSecretHandler,
   createWriteSecretHandler,
 } from "./routes.js";
@@ -1370,32 +1363,6 @@ describe("secrets routes", () => {
         error: '"OWNED_TOKEN" is managed by Channels. Remove it there.',
       });
       expect(mockDeleteAppSecret).not.toHaveBeenCalled();
-    });
-
-    it("serves the removal preview for signed-in callers only", async () => {
-      mockPreviewSecretRemoval.mockResolvedValue({ key: "OPENAI_API_KEY" });
-      const handler = createSecretUsageHandler();
-
-      expect(
-        await handler(event("/OPENAI_API_KEY/usage?scope=org", "GET")),
-      ).toEqual({ key: "OPENAI_API_KEY" });
-      expect(mockPreviewSecretRemoval).toHaveBeenCalledWith({
-        key: "OPENAI_API_KEY",
-        scope: "org",
-      });
-
-      expect(
-        await handler(event("/OPENAI_API_KEY/usage?scope=team", "GET")),
-      ).toEqual({ error: 'scope must be "user", "workspace", or "org"' });
-      expect(lastStatus).toBe(400);
-
-      mockGetSession.mockResolvedValue(null);
-      mockPreviewSecretRemoval.mockClear();
-      expect(await handler(event("/OPENAI_API_KEY/usage", "GET"))).toEqual({
-        error: "Authentication required",
-      });
-      expect(lastStatus).toBe(401);
-      expect(mockPreviewSecretRemoval).not.toHaveBeenCalled();
     });
   });
 });

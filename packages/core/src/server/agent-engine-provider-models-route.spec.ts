@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockGetSession = vi.fn();
-const mockGetOrgContext = vi.fn();
 const mockSsrfSafeFetch = vi.fn();
 const mockIsBlockedExtensionUrlWithDns = vi.fn();
 const mockResolveSecretDetailed = vi.fn();
@@ -13,14 +11,6 @@ const mockGetOrgRoleForEmail = vi.fn();
 
 vi.mock("../mcp/actions/service-token-access.js", () => ({
   getOrgRoleForEmail: (...args: unknown[]) => mockGetOrgRoleForEmail(...args),
-}));
-
-vi.mock("./auth.js", () => ({
-  getSession: (...args: unknown[]) => mockGetSession(...args),
-}));
-
-vi.mock("../org/context.js", () => ({
-  getOrgContext: (...args: unknown[]) => mockGetOrgContext(...args),
 }));
 
 vi.mock("../extensions/url-safety.js", () => ({
@@ -46,7 +36,6 @@ vi.mock("./credential-provider.js", () => ({
 import {
   checkProviderKey,
   checkProviderKeyForSave,
-  createAgentEngineProviderModelsHandler,
   ProviderKeyCheckRequestError,
 } from "./agent-engine-provider-models-route.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -662,107 +651,6 @@ describe("checkProviderKeyForSave", () => {
       ok: false,
       statusCode: 502,
       code: "unreachable",
-    });
-  });
-});
-
-describe("POST /_agent-native/agent-engine/provider-models", () => {
-  function post(body: unknown) {
-    return {
-      req: new Request(
-        "http://localhost/_agent-native/agent-engine/provider-models",
-        {
-          method: "POST",
-          body: JSON.stringify(body),
-          headers: { "content-type": "application/json" },
-        },
-      ),
-      res: { headers: new Headers(), status: 200 },
-      context: {},
-    };
-  }
-
-  it("requires a session and never fetches without one", async () => {
-    mockGetSession.mockResolvedValue(null);
-    const event = post({ provider: "anthropic", key: FAKE.anthropic });
-
-    await expect(
-      createAgentEngineProviderModelsHandler()(event as any),
-    ).resolves.toEqual({ error: "Authentication required" });
-    expect(event.res.status).toBe(401);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("rejects an unsupported provider", async () => {
-    mockGetSession.mockResolvedValue({ email: "alice@example.test" });
-    const event = post({ provider: "not-a-provider" });
-
-    await expect(
-      createAgentEngineProviderModelsHandler()(event as any),
-    ).resolves.toEqual({ error: "Choose a supported provider." });
-    expect(event.res.status).toBe(400);
-  });
-
-  it("refuses a request endpoint for the saved key with a 400 and no fetch", async () => {
-    mockGetSession.mockResolvedValue({ email: "mallory@example.test" });
-    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "member" });
-    mockResolveSecretDetailed.mockResolvedValue({
-      value: FAKE.openai,
-      lookupFailed: false,
-      source: "org",
-      scopeId: "org-1",
-    });
-    mockReadAppSecret.mockResolvedValue({ value: FAKE.openai });
-    const event = post({
-      provider: "openai",
-      baseUrl: "https://evil.example/v1",
-    });
-
-    const result = await createAgentEngineProviderModelsHandler()(event as any);
-
-    expect(event.res.status).toBe(400);
-    expect(result).toEqual({
-      error:
-        "Pass a key with baseUrl. A saved key is only checked against its saved endpoint.",
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
-    expect(mockRecordFailure).not.toHaveBeenCalled();
-  });
-
-  it("refuses a member checking the organization scope with a 403 and no fetch", async () => {
-    mockGetSession.mockResolvedValue({ email: "mallory@example.test" });
-    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "member" });
-    mockGetOrgRoleForEmail.mockResolvedValue("member");
-    mockReadAppSecret.mockResolvedValue({ value: FAKE.openai });
-    const event = post({ provider: "openai", scope: "org" });
-
-    const result = await createAgentEngineProviderModelsHandler()(event as any);
-
-    expect(event.res.status).toBe(403);
-    expect(result).toEqual({
-      error: "Only organization owners and admins can check organization keys.",
-    });
-    expect(mockReadAppSecret).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
-  });
-
-  it("answers a provider verdict with 200 and reads saved rows as the caller", async () => {
-    mockGetSession.mockResolvedValue({ email: "alice@example.test" });
-    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "admin" });
-    mockReadAppSecret.mockResolvedValue({ value: FAKE.groq });
-    fetchMock.mockResolvedValueOnce(json({}, 401));
-    const event = post({ provider: "groq", scope: "org" });
-
-    const result = await createAgentEngineProviderModelsHandler()(event as any);
-
-    expect(event.res.status).toBe(200);
-    expect(result).toMatchObject({ ok: false, code: "rejected" });
-    expect(mockReadAppSecret).toHaveBeenCalledWith({
-      key: "GROQ_API_KEY",
-      scope: "org",
-      scopeId: "org-1",
     });
   });
 });

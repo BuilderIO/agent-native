@@ -219,6 +219,7 @@ const CONTEXT = {
   isOwner: false,
   isAdmin: true,
   hasOrganization: true,
+  soloDeploymentAdmin: false,
   appId: "clips",
   labs: {},
   flags: {},

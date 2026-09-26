@@ -135,6 +135,7 @@ const member: SettingsPageContext = {
   isOwner: false,
   isAdmin: false,
   hasOrganization: true,
+  soloDeploymentAdmin: false,
   appId: "clips",
   labs: {},
   flags: {},

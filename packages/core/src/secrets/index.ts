@@ -56,7 +56,6 @@ export {
   createWriteSecretHandler,
   createTestSecretHandler,
   createAdHocSecretHandler,
-  createSecretUsageHandler,
   type SecretStatusPayload,
   type AdHocSecretPayload,
 } from "./routes.js";

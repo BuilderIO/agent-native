@@ -1164,6 +1164,75 @@ const messages: AgentChatTranslation = {
   "settingsOrg.apps.defaults": "Valores predeterminados",
   "settingsOrg.search.domainAutoJoin": "Unión automática por dominio de correo",
   "settingsOrg.search.roles": "Roles de los miembros",
+  "settingsOrg.learnMore": "Más información",
+  "settingsOrg.moreInformation": "Más detalles",
+  "settingsOrg.general.workspaceUrl": "URL del espacio de trabajo",
+  "settingsOrg.general.workspaceUrlDescription":
+    "Envía a los miembros a este espacio de trabajo desde otra implementación.",
+  "settingsOrg.general.workspaceUrlHelp":
+    "Los miembros que lleguen a otra implementación irán a este espacio de trabajo en lugar de a una app vacía.",
+  "settingsOrg.general.editWorkspaceUrl":
+    "Editar la URL del espacio de trabajo",
+  "settingsOrg.general.removeWorkspaceUrl":
+    "Quitar la URL del espacio de trabajo",
+  "settingsOrg.general.setWorkspaceUrl": "Definir URL",
+  "settingsOrg.auth.domainDescription":
+    "Añade automáticamente a las personas con un correo @{{domain}}.",
+  "settingsOrg.auth.domainDescriptionNoDomain":
+    "Añade automáticamente a las personas con el dominio de tu correo de trabajo.",
+  "settingsOrg.auth.domainHelp":
+    "Quien se registre con un correo de este dominio se une a la organización. Solo puedes usar tu propio dominio de correo y no se permiten proveedores de correo gratuitos.",
+  "settingsOrg.auth.editDomain": "Editar dominio",
+  "settingsOrg.auth.removeDomain": "Quitar dominio",
+  "settingsOrg.auth.sharedSecret": "Secreto compartido",
+  "settingsOrg.auth.sharedSecretSet":
+    "Definido. Permite que las apps de este espacio de trabajo se verifiquen entre sí.",
+  "settingsOrg.auth.sharedSecretNotSet":
+    "Sin definir. Permite que las apps de este espacio de trabajo se verifiquen entre sí.",
+  "settingsOrg.auth.secretNotSetValue": "Sin definir",
+  "settingsOrg.auth.manage": "Gestionar",
+  "settingsOrg.auth.reveal": "Mostrar",
+  "settingsOrg.auth.hide": "Ocultar",
+  "settingsOrg.auth.regenerate": "Regenerar",
+  "settingsOrg.auth.syncToApps": "Sincronizar con las apps",
+  "settingsOrg.auth.pasteSecret": "Pegar secreto",
+  "settingsOrg.auth.pasteSecretLabel": "Pega un secreto compartido",
+  "settingsOrg.auth.syncing": "Sincronizando con las apps…",
+  "settingsOrg.auth.syncErrorStatus": "HTTP {{status}}",
+  "settingsOrg.invite.emails": "Direcciones de correo",
+  "settingsOrg.invite.emailPlaceholder": "nombre@empresa.com",
+  "settingsOrg.invite.note":
+    "Cada persona inicia sesión con este correo exacto para aceptar.",
+  "settingsOrg.invite.role": "Rol",
+  "settingsOrg.invite.member": "Miembro",
+  "settingsOrg.invite.admin": "Administrador",
+  "settingsOrg.invite.ownerOnlyAdmin":
+    "Solo el propietario de la organización puede invitar a administradores.",
+  "settingsOrg.invite.removeRow": "Quitar",
+  "settingsOrg.invite.addAnother": "Añadir otro",
+  "settingsOrg.invite.pasteMany": "Pegar varios",
+  "settingsOrg.invite.importCsv": "Importar CSV",
+  "settingsOrg.invite.pasteLabel":
+    "Pega correos separados por comas, espacios o saltos de línea.",
+  "settingsOrg.invite.addAsMembers": "Añadir como miembros",
+  "settingsOrg.invite.addAsAdmins": "Añadir como administradores",
+  "settingsOrg.invite.add": "Añadir",
+  "settingsOrg.invite.send": "Enviar invitaciones",
+  "settingsOrg.invite.close": "Cerrar",
+  "settingsOrg.invite.csvNoEmails":
+    "No se encontraron correos válidos en este CSV.",
+  "settingsOrg.auth.synced_one": "Sincronizado con {{count}} app.",
+  "settingsOrg.auth.synced_many": "Sincronizado con {{count}} apps.",
+  "settingsOrg.auth.synced_other": "Sincronizado con {{count}} apps.",
+  "settingsOrg.auth.syncedPartial_one":
+    "Sincronizado con {{succeeded}} de {{count}} app. {{failed}} con error.",
+  "settingsOrg.auth.syncedPartial_many":
+    "Sincronizado con {{succeeded}} de {{count}} apps. {{failed}} con error.",
+  "settingsOrg.auth.syncedPartial_other":
+    "Sincronizado con {{succeeded}} de {{count}} apps. {{failed}} con error.",
+  "settingsOrg.invite.sent_one": "Se envió {{count}} invitación.",
+  "settingsOrg.invite.sent_many": "Se enviaron {{count}} invitaciones.",
+  "settingsOrg.invite.sent_other": "Se enviaron {{count}} invitaciones.",
   "settingsShell.account.addPassword": "Añadir contraseña",
   "settingsShell.account.authenticatorCode": "Código de autenticación",
   "settingsShell.account.change": "Cambiar",

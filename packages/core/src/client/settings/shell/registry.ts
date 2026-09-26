@@ -36,6 +36,8 @@ export interface SettingsPageContext {
   isAdmin: boolean;
   /** `null` when the viewer's organization couldn't be read. */
   hasOrganization: boolean | null;
+  /** No organization, on a single-tenant self-hosted deployment. */
+  soloDeploymentAdmin: boolean;
   appId: string | null;
   labs: Readonly<Record<string, boolean>>;
   flags: Readonly<Record<string, boolean>>;
@@ -158,13 +160,18 @@ export function isSettingsPageVisible(
 }
 
 /**
- * Organization pages owners and admins manage. No organization means a solo
- * workspace the viewer owns; an organization that couldn't be read hides them.
+ * Organization pages owners and admins manage. A viewer with no organization
+ * sees them only on a single-tenant self-hosted deployment, matching the
+ * actions behind them; on a shared deployment anyone who signs up starts with
+ * no organization.
  */
 export function canManageOrganizationPages(
   context: SettingsPageContext,
 ): boolean {
-  return context.isAdmin || context.hasOrganization === false;
+  return (
+    context.isAdmin ||
+    (context.hasOrganization === false && context.soloDeploymentAdmin)
+  );
 }
 
 export function sortSettingsPages(

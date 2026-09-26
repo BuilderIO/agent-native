@@ -1118,6 +1118,65 @@ const messages: AgentChatTranslation = {
   "settingsOrg.apps.defaults": "デフォルト",
   "settingsOrg.search.domainAutoJoin": "メールドメインによる自動参加",
   "settingsOrg.search.roles": "メンバーのロール",
+  "settingsOrg.learnMore": "詳細",
+  "settingsOrg.moreInformation": "詳しい情報",
+  "settingsOrg.general.workspaceUrl": "ワークスペースの URL",
+  "settingsOrg.general.workspaceUrlDescription":
+    "別のデプロイからこのワークスペースにメンバーを案内します。",
+  "settingsOrg.general.workspaceUrlHelp":
+    "別のデプロイにアクセスしたメンバーは、空のアプリではなくこのワークスペースに移動します。",
+  "settingsOrg.general.editWorkspaceUrl": "ワークスペースの URL を編集",
+  "settingsOrg.general.removeWorkspaceUrl": "ワークスペースの URL を削除",
+  "settingsOrg.general.setWorkspaceUrl": "URL を設定",
+  "settingsOrg.auth.domainDescription":
+    "@{{domain}} のメールアドレスを持つ人を自動的に追加します。",
+  "settingsOrg.auth.domainDescriptionNoDomain":
+    "仕事用メールのドメインを持つ人を自動的に追加します。",
+  "settingsOrg.auth.domainHelp":
+    "このドメインのメールアドレスで登録した人は組織に参加します。使用できるのは自分のメールドメインのみで、無料メールプロバイダーは使用できません。",
+  "settingsOrg.auth.editDomain": "ドメインを編集",
+  "settingsOrg.auth.removeDomain": "ドメインを削除",
+  "settingsOrg.auth.sharedSecret": "共有シークレット",
+  "settingsOrg.auth.sharedSecretSet":
+    "設定済み。このワークスペースのアプリが互いを検証できます。",
+  "settingsOrg.auth.sharedSecretNotSet":
+    "未設定。このワークスペースのアプリが互いを検証できます。",
+  "settingsOrg.auth.secretNotSetValue": "未設定",
+  "settingsOrg.auth.manage": "管理",
+  "settingsOrg.auth.reveal": "表示",
+  "settingsOrg.auth.hide": "非表示",
+  "settingsOrg.auth.regenerate": "再生成",
+  "settingsOrg.auth.syncToApps": "アプリと同期",
+  "settingsOrg.auth.pasteSecret": "シークレットを貼り付け",
+  "settingsOrg.auth.pasteSecretLabel": "共有シークレットを貼り付け",
+  "settingsOrg.auth.syncing": "アプリと同期しています…",
+  "settingsOrg.auth.syncErrorStatus": "HTTP {{status}}",
+  "settingsOrg.invite.emails": "メールアドレス",
+  "settingsOrg.invite.emailPlaceholder": "name@company.com",
+  "settingsOrg.invite.note":
+    "招待された人は、このメールアドレスでサインインして承諾します。",
+  "settingsOrg.invite.role": "ロール",
+  "settingsOrg.invite.member": "メンバー",
+  "settingsOrg.invite.admin": "管理者",
+  "settingsOrg.invite.ownerOnlyAdmin":
+    "管理者を招待できるのは組織のオーナーだけです。",
+  "settingsOrg.invite.removeRow": "削除",
+  "settingsOrg.invite.addAnother": "さらに追加",
+  "settingsOrg.invite.pasteMany": "まとめて貼り付け",
+  "settingsOrg.invite.importCsv": "CSV をインポート",
+  "settingsOrg.invite.pasteLabel":
+    "カンマ、スペース、または改行で区切ったメールアドレスを貼り付けます。",
+  "settingsOrg.invite.addAsMembers": "メンバーとして追加",
+  "settingsOrg.invite.addAsAdmins": "管理者として追加",
+  "settingsOrg.invite.add": "追加",
+  "settingsOrg.invite.send": "招待を送信",
+  "settingsOrg.invite.close": "閉じる",
+  "settingsOrg.invite.csvNoEmails":
+    "この CSV に有効なメールアドレスが見つかりませんでした。",
+  "settingsOrg.auth.synced_other": "{{count}} 個のアプリと同期しました。",
+  "settingsOrg.auth.syncedPartial_other":
+    "{{count}} 個中 {{succeeded}} 個のアプリと同期しました。{{failed}} 個が失敗しました。",
+  "settingsOrg.invite.sent_other": "{{count}} 件の招待を送信しました。",
   "settingsShell.account.addPassword": "パスワードを追加",
   "settingsShell.account.authenticatorCode": "認証コード",
   "settingsShell.account.change": "変更",

@@ -531,6 +531,79 @@ describe("org handlers", () => {
     expect(waitUntil.mock.calls[0][0]).toBeInstanceOf(Promise);
   });
 
+  it("refuses an admin inviting an admin in the single-invite shape", async () => {
+    mockGetOrgContext.mockResolvedValue({
+      email: "admin@example.test",
+      orgId: "org-1",
+      orgName: "Example",
+      role: "admin",
+    });
+
+    await expect(
+      createInvitationHandler(
+        makeEvent("/_agent-native/org/invitations", {
+          email: "new@example.test",
+          role: "admin",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Only the organization owner can invite admins",
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("fails only the admin entries when an admin bulk-invites", async () => {
+    mockGetOrgContext.mockResolvedValue({
+      email: "admin@example.test",
+      orgId: "org-1",
+      orgName: "Example",
+      role: "admin",
+    });
+    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+
+    const result = await createInvitationHandler(
+      makeEvent("/_agent-native/org/invitations", {
+        invites: [
+          { email: "member@example.test", role: "member" },
+          { email: "second-admin@example.test", role: "admin" },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      succeeded: [{ email: "member@example.test", role: "member" }],
+      failed: [
+        {
+          email: "second-admin@example.test",
+          error: "Only the organization owner can invite admins",
+        },
+      ],
+      total: 2,
+    });
+    const inserts = mockExecute.mock.calls.filter(([input]) =>
+      String(input.sql).includes("INSERT INTO org_invitations"),
+    );
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0][0].args[5]).toBe("member");
+  });
+
+  it("lets the owner invite an admin", async () => {
+    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+
+    await expect(
+      createInvitationHandler(
+        makeEvent("/_agent-native/org/invitations", {
+          email: "new-admin@example.test",
+          role: "admin",
+        }),
+      ),
+    ).resolves.toMatchObject({
+      email: "new-admin@example.test",
+      role: "admin",
+    });
+  });
+
   it("keeps invite_sent background work pending until providers flush", async () => {
     let releaseFlush!: () => void;
     mockFlushTracking.mockImplementationOnce(

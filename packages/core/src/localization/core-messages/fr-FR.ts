@@ -1177,6 +1177,75 @@ const messages: AgentChatTranslation = {
   "settingsOrg.search.domainAutoJoin":
     "Adhésion automatique par domaine e-mail",
   "settingsOrg.search.roles": "Rôles des membres",
+  "settingsOrg.learnMore": "En savoir plus",
+  "settingsOrg.moreInformation": "Plus d’informations",
+  "settingsOrg.general.workspaceUrl": "URL de l’espace de travail",
+  "settingsOrg.general.workspaceUrlDescription":
+    "Redirigez les membres vers cet espace de travail depuis un autre déploiement.",
+  "settingsOrg.general.workspaceUrlHelp":
+    "Les membres qui arrivent sur un autre déploiement sont redirigés vers cet espace de travail au lieu d’une application vide.",
+  "settingsOrg.general.editWorkspaceUrl":
+    "Modifier l’URL de l’espace de travail",
+  "settingsOrg.general.removeWorkspaceUrl":
+    "Supprimer l’URL de l’espace de travail",
+  "settingsOrg.general.setWorkspaceUrl": "Définir l’URL",
+  "settingsOrg.auth.domainDescription":
+    "Ajoutez automatiquement les personnes ayant une adresse e-mail @{{domain}}.",
+  "settingsOrg.auth.domainDescriptionNoDomain":
+    "Ajoutez automatiquement les personnes ayant le domaine de votre e-mail professionnel.",
+  "settingsOrg.auth.domainHelp":
+    "Toute personne qui s’inscrit avec une adresse e-mail de ce domaine rejoint l’organisation. Seul votre propre domaine de messagerie peut être utilisé, et les fournisseurs de messagerie gratuits ne sont pas autorisés.",
+  "settingsOrg.auth.editDomain": "Modifier le domaine",
+  "settingsOrg.auth.removeDomain": "Supprimer le domaine",
+  "settingsOrg.auth.sharedSecret": "Secret partagé",
+  "settingsOrg.auth.sharedSecretSet":
+    "Défini. Permet aux applications de cet espace de travail de se vérifier mutuellement.",
+  "settingsOrg.auth.sharedSecretNotSet":
+    "Non défini. Permet aux applications de cet espace de travail de se vérifier mutuellement.",
+  "settingsOrg.auth.secretNotSetValue": "Non défini",
+  "settingsOrg.auth.manage": "Gérer",
+  "settingsOrg.auth.reveal": "Afficher",
+  "settingsOrg.auth.hide": "Masquer",
+  "settingsOrg.auth.regenerate": "Régénérer",
+  "settingsOrg.auth.syncToApps": "Synchroniser avec les applications",
+  "settingsOrg.auth.pasteSecret": "Coller le secret",
+  "settingsOrg.auth.pasteSecretLabel": "Collez un secret partagé",
+  "settingsOrg.auth.syncing": "Synchronisation avec les applications…",
+  "settingsOrg.auth.syncErrorStatus": "HTTP {{status}}",
+  "settingsOrg.invite.emails": "Adresses e-mail",
+  "settingsOrg.invite.emailPlaceholder": "nom@entreprise.fr",
+  "settingsOrg.invite.note":
+    "Chaque personne se connecte avec cette adresse e-mail exacte pour accepter.",
+  "settingsOrg.invite.role": "Rôle",
+  "settingsOrg.invite.member": "Membre",
+  "settingsOrg.invite.admin": "Administrateur",
+  "settingsOrg.invite.ownerOnlyAdmin":
+    "Seul le propriétaire de l’organisation peut inviter des administrateurs.",
+  "settingsOrg.invite.removeRow": "Supprimer",
+  "settingsOrg.invite.addAnother": "Ajouter une autre",
+  "settingsOrg.invite.pasteMany": "Coller plusieurs",
+  "settingsOrg.invite.importCsv": "Importer un CSV",
+  "settingsOrg.invite.pasteLabel":
+    "Collez des adresses e-mail séparées par des virgules, des espaces ou des retours à la ligne.",
+  "settingsOrg.invite.addAsMembers": "Ajouter comme membres",
+  "settingsOrg.invite.addAsAdmins": "Ajouter comme administrateurs",
+  "settingsOrg.invite.add": "Ajouter",
+  "settingsOrg.invite.send": "Envoyer les invitations",
+  "settingsOrg.invite.close": "Fermer",
+  "settingsOrg.invite.csvNoEmails":
+    "Aucune adresse e-mail valide trouvée dans ce CSV.",
+  "settingsOrg.auth.synced_one": "Synchronisé avec {{count}} application.",
+  "settingsOrg.auth.synced_many": "Synchronisé avec {{count}} applications.",
+  "settingsOrg.auth.synced_other": "Synchronisé avec {{count}} applications.",
+  "settingsOrg.auth.syncedPartial_one":
+    "Synchronisé avec {{succeeded}} application sur {{count}}. {{failed}} en échec.",
+  "settingsOrg.auth.syncedPartial_many":
+    "Synchronisé avec {{succeeded}} applications sur {{count}}. {{failed}} en échec.",
+  "settingsOrg.auth.syncedPartial_other":
+    "Synchronisé avec {{succeeded}} applications sur {{count}}. {{failed}} en échec.",
+  "settingsOrg.invite.sent_one": "{{count}} invitation envoyée.",
+  "settingsOrg.invite.sent_many": "{{count}} invitations envoyées.",
+  "settingsOrg.invite.sent_other": "{{count}} invitations envoyées.",
   "settingsShell.account.addPassword": "Ajouter un mot de passe",
   "settingsShell.account.authenticatorCode": "Code d’authentification",
   "settingsShell.account.change": "Modifier",

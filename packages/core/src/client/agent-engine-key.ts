@@ -19,6 +19,7 @@ import {
   type AgentProviderId,
 } from "./agent-provider-catalog.js";
 import { agentNativePath } from "./api-path.js";
+import { callAction } from "./use-action.js";
 
 /** Providers that can be configured with a single pasted API key. */
 export type AgentEngineProvider = AgentProviderId;
@@ -558,11 +559,12 @@ function decodeProviderModelsCheck(
 }
 
 /**
- * Check a provider key by asking the provider which models it reaches. The
- * same list fills the model checklist. Omit `key` to check the saved key
- * ("Check again"). Resolves with the provider's verdict, including
- * rejections; throws a readable Error only when the check itself couldn't run
- * (signed out, malformed request, server unreachable).
+ * Check a provider key by asking the provider which models it reaches, through
+ * the `check-provider-key` action. The same list fills the model checklist.
+ * Omit `key` to check the saved key ("Check again"). Resolves with the
+ * provider's verdict, including rejections; throws a readable Error only when
+ * the check itself couldn't run (signed out, malformed request, server
+ * unreachable).
  */
 export async function fetchProviderModels({
   provider,
@@ -572,29 +574,12 @@ export async function fetchProviderModels({
 }: FetchProviderModelsOptions): Promise<ProviderModelsCheck> {
   const trimmedKey = key?.trim() ?? "";
   const trimmedBaseUrl = baseUrl?.trim() ?? "";
-  const response = await fetch(
-    agentNativePath("/_agent-native/agent-engine/provider-models"),
-    {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        provider,
-        ...(trimmedKey ? { key: trimmedKey } : {}),
-        ...(trimmedBaseUrl ? { baseUrl: trimmedBaseUrl } : {}),
-        ...(scope ? { scope } : {}),
-      }),
-    },
-  );
-  // coercion-ok: an unreadable body falls through to the errors below.
-  const body: unknown = await response.json().catch(() => undefined);
-  if (!response.ok) {
-    throw new Error(
-      isRecord(body) && typeof body.error === "string"
-        ? body.error
-        : `Could not check this key (HTTP ${response.status}).`,
-    );
-  }
+  const body = await callAction<unknown>("check-provider-key", {
+    provider,
+    ...(trimmedKey ? { key: trimmedKey } : {}),
+    ...(trimmedBaseUrl ? { baseUrl: trimmedBaseUrl } : {}),
+    ...(scope ? { scope } : {}),
+  });
   const check = decodeProviderModelsCheck(body, provider);
   if (!check) {
     throw new Error("Could not read the key check response.");

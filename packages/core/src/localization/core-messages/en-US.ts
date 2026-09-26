@@ -1102,6 +1102,68 @@ const messages = {
   "settingsOrg.apps.defaults": "Defaults",
   "settingsOrg.search.domainAutoJoin": "Email domain auto-join",
   "settingsOrg.search.roles": "Member roles",
+  "settingsOrg.learnMore": "Learn more",
+  "settingsOrg.moreInformation": "More information",
+  "settingsOrg.general.workspaceUrl": "Workspace URL",
+  "settingsOrg.general.workspaceUrlDescription":
+    "Send members to this workspace from another deployment.",
+  "settingsOrg.general.workspaceUrlHelp":
+    "Members who land on another deployment go to this workspace instead of an empty app.",
+  "settingsOrg.general.editWorkspaceUrl": "Edit workspace URL",
+  "settingsOrg.general.removeWorkspaceUrl": "Remove workspace URL",
+  "settingsOrg.general.setWorkspaceUrl": "Set URL",
+  "settingsOrg.auth.domainDescription":
+    "Add people with a @{{domain}} email automatically.",
+  "settingsOrg.auth.domainDescriptionNoDomain":
+    "Add people with your work email domain automatically.",
+  "settingsOrg.auth.domainHelp":
+    "Anyone who signs up with an email at this domain joins the organization. Only your own email domain can be used, and free email providers aren't allowed.",
+  "settingsOrg.auth.editDomain": "Edit domain",
+  "settingsOrg.auth.removeDomain": "Remove domain",
+  "settingsOrg.auth.sharedSecret": "Shared secret",
+  "settingsOrg.auth.sharedSecretSet":
+    "Set. Lets the apps in this workspace verify each other.",
+  "settingsOrg.auth.sharedSecretNotSet":
+    "Not set. Lets the apps in this workspace verify each other.",
+  "settingsOrg.auth.secretNotSetValue": "Not set",
+  "settingsOrg.auth.manage": "Manage",
+  "settingsOrg.auth.reveal": "Reveal",
+  "settingsOrg.auth.hide": "Hide",
+  "settingsOrg.auth.regenerate": "Regenerate",
+  "settingsOrg.auth.syncToApps": "Sync to apps",
+  "settingsOrg.auth.pasteSecret": "Paste secret",
+  "settingsOrg.auth.pasteSecretLabel": "Paste a shared secret",
+  "settingsOrg.auth.syncing": "Syncing to apps…",
+  "settingsOrg.auth.syncErrorStatus": "HTTP {{status}}",
+  "settingsOrg.invite.emails": "Email addresses",
+  "settingsOrg.invite.emailPlaceholder": "name@company.com",
+  "settingsOrg.invite.note":
+    "Each person signs in with this exact email to accept.",
+  "settingsOrg.invite.role": "Role",
+  "settingsOrg.invite.member": "Member",
+  "settingsOrg.invite.admin": "Admin",
+  "settingsOrg.invite.ownerOnlyAdmin":
+    "Only the organization owner can invite admins.",
+  "settingsOrg.invite.removeRow": "Remove",
+  "settingsOrg.invite.addAnother": "Add another",
+  "settingsOrg.invite.pasteMany": "Paste many",
+  "settingsOrg.invite.importCsv": "Import CSV",
+  "settingsOrg.invite.pasteLabel":
+    "Paste emails separated by commas, spaces, or new lines.",
+  "settingsOrg.invite.addAsMembers": "Add as members",
+  "settingsOrg.invite.addAsAdmins": "Add as admins",
+  "settingsOrg.invite.add": "Add",
+  "settingsOrg.invite.send": "Send invites",
+  "settingsOrg.invite.close": "Close",
+  "settingsOrg.invite.csvNoEmails": "No valid emails found in this CSV.",
+  "settingsOrg.auth.synced_one": "Synced to {{count}} app.",
+  "settingsOrg.auth.synced_other": "Synced to {{count}} apps.",
+  "settingsOrg.auth.syncedPartial_one":
+    "Synced to {{succeeded}} of {{count}} app. {{failed}} failed.",
+  "settingsOrg.auth.syncedPartial_other":
+    "Synced to {{succeeded}} of {{count}} apps. {{failed}} failed.",
+  "settingsOrg.invite.sent_one": "Sent {{count}} invite.",
+  "settingsOrg.invite.sent_other": "Sent {{count}} invites.",
   "settingsShell.account.addPassword": "Add password",
   "settingsShell.account.authenticatorCode": "Authenticator code",
   "settingsShell.account.change": "Change",

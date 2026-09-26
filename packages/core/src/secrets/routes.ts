@@ -88,7 +88,7 @@ import {
   VAULT_SYNC_DESCRIPTION_PREFIX,
   type SecretMeta,
 } from "./storage.js";
-import { describeSecretUsage, previewSecretRemoval } from "./usage.js";
+import { describeSecretUsage } from "./usage.js";
 
 /**
  * Where a stored value came from, as shown in Settings. `personal` and
@@ -595,56 +595,6 @@ function refuseManagedDelete(event: H3Event, key: string) {
   }
   setResponseStatus(event, 409);
   return managedDeleteRefusal(key, managedBy);
-}
-
-/**
- * GET /_agent-native/secrets/:key/usage — what stops working per app and
- * feature if the caller removes this key. `?scope=` targets a stored row
- * other than the registered scope. Never returns a value.
- */
-export function createSecretUsageHandler() {
-  return defineEventHandler(async (event: H3Event) => {
-    if (getMethod(event) !== "GET") {
-      setResponseStatus(event, 405);
-      return { error: "Method not allowed" };
-    }
-    const pathname = (event.url?.pathname || "")
-      .replace(/^\/+/, "")
-      .replace(/\/+$/, "");
-    const parts = pathname.split("/");
-    const key =
-      parts.length === 2 && parts[1] === "usage"
-        ? decodeURIComponent(parts[0])
-        : "";
-    if (!key) {
-      setResponseStatus(event, 400);
-      return { error: "Secret key required" };
-    }
-    const rawScope = getQuery(event).scope;
-    if (
-      rawScope !== undefined &&
-      rawScope !== "user" &&
-      rawScope !== "workspace" &&
-      rawScope !== "org"
-    ) {
-      setResponseStatus(event, 400);
-      return { error: 'scope must be "user", "workspace", or "org"' };
-    }
-    const preview = await asRequestUser(
-      event,
-      () =>
-        previewSecretRemoval({
-          key,
-          ...(rawScope ? { scope: rawScope } : {}),
-        }),
-      null,
-    );
-    if (!preview) {
-      setResponseStatus(event, 401);
-      return { error: "Authentication required" };
-    }
-    return preview;
-  });
 }
 
 /**

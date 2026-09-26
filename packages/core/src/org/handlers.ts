@@ -45,7 +45,10 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { offboardMember } from "../identity/offboard.js";
 import { getAppProductionUrl } from "../server/app-url.js";
-import { resolveVercelDeploymentProtectionHeaders } from "../server/credential-provider.js";
+import {
+  isTrustedSelfHostedRuntime,
+  resolveVercelDeploymentProtectionHeaders,
+} from "../server/credential-provider.js";
 import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -337,6 +340,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     // signs the JWTs peers accept as first-party callers. Reveal is an explicit
     // owner GET on /_agent-native/org/a2a-secret.
     a2aSecretSet: canManageOrgA2ASecret(ctx.role) ? a2aSecretSet : undefined,
+    soloDeploymentAdmin: ctx.orgId ? undefined : isTrustedSelfHostedRuntime(),
   };
 });
 
@@ -689,6 +693,18 @@ function normalizeInviteRole(input: unknown): "member" | "admin" {
   return input === "admin" ? "admin" : "member";
 }
 
+function assertCanInviteRole(
+  inviterRole: OrgRole | null,
+  role: "member" | "admin",
+): void {
+  if (role === "admin" && inviterRole !== "owner") {
+    throw createError({
+      statusCode: 403,
+      message: "Only the organization owner can invite admins",
+    });
+  }
+}
+
 interface SingleInviteResult {
   id: string;
   email: string;
@@ -872,10 +888,12 @@ export const createInvitationHandler = defineEventHandler(
         seen.add(lower);
 
         try {
+          const role = normalizeInviteRole(inv.role);
+          assertCanInviteRole(ctx.role, role);
           const result = await inviteOne(
             { orgId: ctx.orgId, orgName: ctx.orgName, email: ctx.email },
             inv.email,
-            normalizeInviteRole(inv.role),
+            role,
             event,
             inv.appId,
             inv.appRoles,
@@ -896,6 +914,7 @@ export const createInvitationHandler = defineEventHandler(
 
     // Single-invite shape.
     const role = normalizeInviteRole(body?.role);
+    assertCanInviteRole(ctx.role, role);
     const result = await inviteOne(
       { orgId: ctx.orgId, orgName: ctx.orgName, email: ctx.email },
       body?.email ?? "",

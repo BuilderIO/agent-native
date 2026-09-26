@@ -1088,6 +1088,68 @@ const messages: AgentChatTranslation = {
   "settingsOrg.apps.defaults": "डिफ़ॉल्ट",
   "settingsOrg.search.domainAutoJoin": "ईमेल डोमेन से अपने-आप जुड़ना",
   "settingsOrg.search.roles": "सदस्यों की भूमिकाएं",
+  "settingsOrg.learnMore": "और जानें",
+  "settingsOrg.moreInformation": "अधिक जानकारी",
+  "settingsOrg.general.workspaceUrl": "वर्कस्पेस URL",
+  "settingsOrg.general.workspaceUrlDescription":
+    "किसी दूसरे डिप्लॉयमेंट से सदस्यों को इस वर्कस्पेस पर भेजें।",
+  "settingsOrg.general.workspaceUrlHelp":
+    "जो सदस्य किसी दूसरे डिप्लॉयमेंट पर पहुंचते हैं, वे खाली ऐप के बजाय इस वर्कस्पेस पर जाते हैं।",
+  "settingsOrg.general.editWorkspaceUrl": "वर्कस्पेस URL संपादित करें",
+  "settingsOrg.general.removeWorkspaceUrl": "वर्कस्पेस URL हटाएं",
+  "settingsOrg.general.setWorkspaceUrl": "URL सेट करें",
+  "settingsOrg.auth.domainDescription":
+    "@{{domain}} ईमेल वाले लोगों को अपने-आप जोड़ें।",
+  "settingsOrg.auth.domainDescriptionNoDomain":
+    "आपके काम के ईमेल डोमेन वाले लोगों को अपने-आप जोड़ें।",
+  "settingsOrg.auth.domainHelp":
+    "इस डोमेन के ईमेल से साइन अप करने वाला हर व्यक्ति संगठन से जुड़ जाता है। सिर्फ़ आपका अपना ईमेल डोमेन इस्तेमाल हो सकता है, और मुफ़्त ईमेल प्रदाताओं की अनुमति नहीं है।",
+  "settingsOrg.auth.editDomain": "डोमेन संपादित करें",
+  "settingsOrg.auth.removeDomain": "डोमेन हटाएं",
+  "settingsOrg.auth.sharedSecret": "साझा सीक्रेट",
+  "settingsOrg.auth.sharedSecretSet":
+    "सेट है। इससे इस वर्कस्पेस के ऐप्स एक-दूसरे की पुष्टि कर पाते हैं।",
+  "settingsOrg.auth.sharedSecretNotSet":
+    "सेट नहीं है। इससे इस वर्कस्पेस के ऐप्स एक-दूसरे की पुष्टि कर पाते हैं।",
+  "settingsOrg.auth.secretNotSetValue": "सेट नहीं है",
+  "settingsOrg.auth.manage": "प्रबंधित करें",
+  "settingsOrg.auth.reveal": "दिखाएं",
+  "settingsOrg.auth.hide": "छिपाएं",
+  "settingsOrg.auth.regenerate": "फिर से बनाएं",
+  "settingsOrg.auth.syncToApps": "ऐप्स के साथ सिंक करें",
+  "settingsOrg.auth.pasteSecret": "सीक्रेट पेस्ट करें",
+  "settingsOrg.auth.pasteSecretLabel": "साझा सीक्रेट पेस्ट करें",
+  "settingsOrg.auth.syncing": "ऐप्स के साथ सिंक हो रहा है…",
+  "settingsOrg.auth.syncErrorStatus": "HTTP {{status}}",
+  "settingsOrg.invite.emails": "ईमेल पते",
+  "settingsOrg.invite.emailPlaceholder": "name@company.com",
+  "settingsOrg.invite.note":
+    "स्वीकार करने के लिए हर व्यक्ति इसी ईमेल से साइन इन करता है।",
+  "settingsOrg.invite.role": "भूमिका",
+  "settingsOrg.invite.member": "सदस्य",
+  "settingsOrg.invite.admin": "एडमिन",
+  "settingsOrg.invite.ownerOnlyAdmin":
+    "सिर्फ़ संगठन का मालिक एडमिन को आमंत्रित कर सकता है।",
+  "settingsOrg.invite.removeRow": "हटाएं",
+  "settingsOrg.invite.addAnother": "एक और जोड़ें",
+  "settingsOrg.invite.pasteMany": "कई पेस्ट करें",
+  "settingsOrg.invite.importCsv": "CSV इंपोर्ट करें",
+  "settingsOrg.invite.pasteLabel":
+    "कॉमा, स्पेस या नई लाइन से अलग किए गए ईमेल पेस्ट करें।",
+  "settingsOrg.invite.addAsMembers": "सदस्यों के रूप में जोड़ें",
+  "settingsOrg.invite.addAsAdmins": "एडमिन के रूप में जोड़ें",
+  "settingsOrg.invite.add": "जोड़ें",
+  "settingsOrg.invite.send": "आमंत्रण भेजें",
+  "settingsOrg.invite.close": "बंद करें",
+  "settingsOrg.invite.csvNoEmails": "इस CSV में कोई मान्य ईमेल नहीं मिला।",
+  "settingsOrg.auth.synced_one": "{{count}} ऐप के साथ सिंक किया गया।",
+  "settingsOrg.auth.synced_other": "{{count}} ऐप्स के साथ सिंक किया गया।",
+  "settingsOrg.auth.syncedPartial_one":
+    "{{count}} में से {{succeeded}} ऐप के साथ सिंक किया गया। {{failed}} विफल।",
+  "settingsOrg.auth.syncedPartial_other":
+    "{{count}} में से {{succeeded}} ऐप्स के साथ सिंक किया गया। {{failed}} विफल।",
+  "settingsOrg.invite.sent_one": "{{count}} आमंत्रण भेजा गया।",
+  "settingsOrg.invite.sent_other": "{{count}} आमंत्रण भेजे गए।",
   "settingsShell.account.addPassword": "पासवर्ड जोड़ें",
   "settingsShell.account.authenticatorCode": "ऑथेंटिकेटर कोड",
   "settingsShell.account.change": "बदलें",

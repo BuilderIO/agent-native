@@ -1134,6 +1134,84 @@ const messages: AgentChatTranslation = {
   "settingsOrg.search.domainAutoJoin":
     "الانضمام التلقائي حسب نطاق البريد الإلكتروني",
   "settingsOrg.search.roles": "أدوار الأعضاء",
+  "settingsOrg.learnMore": "معرفة المزيد",
+  "settingsOrg.moreInformation": "مزيد من المعلومات",
+  "settingsOrg.general.workspaceUrl": "عنوان URL لمساحة العمل",
+  "settingsOrg.general.workspaceUrlDescription":
+    "وجّه الأعضاء إلى مساحة العمل هذه من نشر آخر.",
+  "settingsOrg.general.workspaceUrlHelp":
+    "ينتقل الأعضاء الذين يصلون إلى نشر آخر إلى مساحة العمل هذه بدلًا من تطبيق فارغ.",
+  "settingsOrg.general.editWorkspaceUrl": "تعديل عنوان URL لمساحة العمل",
+  "settingsOrg.general.removeWorkspaceUrl": "إزالة عنوان URL لمساحة العمل",
+  "settingsOrg.general.setWorkspaceUrl": "تعيين عنوان URL",
+  "settingsOrg.auth.domainDescription":
+    "أضف الأشخاص الذين لديهم بريد إلكتروني @{{domain}} تلقائيًا.",
+  "settingsOrg.auth.domainDescriptionNoDomain":
+    "أضف الأشخاص الذين يستخدمون نطاق بريد العمل الخاص بك تلقائيًا.",
+  "settingsOrg.auth.domainHelp":
+    "كل من يسجّل ببريد إلكتروني من هذا النطاق ينضم إلى المؤسسة. يمكن استخدام نطاق بريدك الإلكتروني فقط، ولا يُسمح بمزوّدي البريد المجاني.",
+  "settingsOrg.auth.editDomain": "تعديل النطاق",
+  "settingsOrg.auth.removeDomain": "إزالة النطاق",
+  "settingsOrg.auth.sharedSecret": "السر المشترك",
+  "settingsOrg.auth.sharedSecretSet":
+    "معيّن. يتيح لتطبيقات مساحة العمل هذه التحقق من بعضها.",
+  "settingsOrg.auth.sharedSecretNotSet":
+    "غير معيّن. يتيح لتطبيقات مساحة العمل هذه التحقق من بعضها.",
+  "settingsOrg.auth.secretNotSetValue": "غير معيّن",
+  "settingsOrg.auth.manage": "إدارة",
+  "settingsOrg.auth.reveal": "إظهار",
+  "settingsOrg.auth.hide": "إخفاء",
+  "settingsOrg.auth.regenerate": "إعادة الإنشاء",
+  "settingsOrg.auth.syncToApps": "مزامنة مع التطبيقات",
+  "settingsOrg.auth.pasteSecret": "لصق السر",
+  "settingsOrg.auth.pasteSecretLabel": "الصق سرًا مشتركًا",
+  "settingsOrg.auth.syncing": "جارٍ المزامنة مع التطبيقات…",
+  "settingsOrg.auth.syncErrorStatus": "HTTP {{status}}",
+  "settingsOrg.invite.emails": "عناوين البريد الإلكتروني",
+  "settingsOrg.invite.emailPlaceholder": "name@company.com",
+  "settingsOrg.invite.note":
+    "يسجّل كل شخص الدخول بهذا البريد الإلكتروني نفسه لقبول الدعوة.",
+  "settingsOrg.invite.role": "الدور",
+  "settingsOrg.invite.member": "عضو",
+  "settingsOrg.invite.admin": "مسؤول",
+  "settingsOrg.invite.ownerOnlyAdmin": "يمكن لمالك المؤسسة فقط دعوة المسؤولين.",
+  "settingsOrg.invite.removeRow": "إزالة",
+  "settingsOrg.invite.addAnother": "إضافة آخر",
+  "settingsOrg.invite.pasteMany": "لصق عدة عناوين",
+  "settingsOrg.invite.importCsv": "استيراد CSV",
+  "settingsOrg.invite.pasteLabel":
+    "الصق عناوين البريد الإلكتروني مفصولة بفواصل أو مسافات أو أسطر جديدة.",
+  "settingsOrg.invite.addAsMembers": "إضافة كأعضاء",
+  "settingsOrg.invite.addAsAdmins": "إضافة كمسؤولين",
+  "settingsOrg.invite.add": "إضافة",
+  "settingsOrg.invite.send": "إرسال الدعوات",
+  "settingsOrg.invite.close": "إغلاق",
+  "settingsOrg.invite.csvNoEmails":
+    "لم يتم العثور على عناوين بريد إلكتروني صالحة في ملف CSV هذا.",
+  "settingsOrg.auth.synced_zero": "تمت المزامنة مع {{count}} تطبيق.",
+  "settingsOrg.auth.synced_one": "تمت المزامنة مع {{count}} تطبيق.",
+  "settingsOrg.auth.synced_two": "تمت المزامنة مع {{count}} تطبيقين.",
+  "settingsOrg.auth.synced_few": "تمت المزامنة مع {{count}} تطبيقات.",
+  "settingsOrg.auth.synced_many": "تمت المزامنة مع {{count}} تطبيقًا.",
+  "settingsOrg.auth.synced_other": "تمت المزامنة مع {{count}} تطبيق.",
+  "settingsOrg.auth.syncedPartial_zero":
+    "تمت المزامنة مع {{succeeded}} من {{count}} تطبيق. فشل {{failed}}.",
+  "settingsOrg.auth.syncedPartial_one":
+    "تمت المزامنة مع {{succeeded}} من {{count}} تطبيق. فشل {{failed}}.",
+  "settingsOrg.auth.syncedPartial_two":
+    "تمت المزامنة مع {{succeeded}} من {{count}} تطبيقين. فشل {{failed}}.",
+  "settingsOrg.auth.syncedPartial_few":
+    "تمت المزامنة مع {{succeeded}} من {{count}} تطبيقات. فشل {{failed}}.",
+  "settingsOrg.auth.syncedPartial_many":
+    "تمت المزامنة مع {{succeeded}} من {{count}} تطبيقًا. فشل {{failed}}.",
+  "settingsOrg.auth.syncedPartial_other":
+    "تمت المزامنة مع {{succeeded}} من {{count}} تطبيق. فشل {{failed}}.",
+  "settingsOrg.invite.sent_zero": "تم إرسال {{count}} دعوة.",
+  "settingsOrg.invite.sent_one": "تم إرسال {{count}} دعوة.",
+  "settingsOrg.invite.sent_two": "تم إرسال {{count}} دعوتين.",
+  "settingsOrg.invite.sent_few": "تم إرسال {{count}} دعوات.",
+  "settingsOrg.invite.sent_many": "تم إرسال {{count}} دعوةً.",
+  "settingsOrg.invite.sent_other": "تم إرسال {{count}} دعوة.",
   "settingsShell.account.addPassword": "إضافة كلمة مرور",
   "settingsShell.account.authenticatorCode": "رمز المصادقة",
   "settingsShell.account.change": "تغيير",

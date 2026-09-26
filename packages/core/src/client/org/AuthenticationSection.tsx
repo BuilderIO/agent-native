@@ -1,4 +1,6 @@
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
 import {
   IconLoader2,
   IconCheck,
@@ -61,6 +63,7 @@ export function DomainSettingsSection({
   // setDomainHandler), so a free-text field has exactly one legal value here.
   // Skip the typing ceremony and enable it directly when that value is usable.
   const canEnableOwnDomain = !!ownDomain && !isFreeEmailProvider(ownDomain);
+  const shownDomain = domain || (canEnableOwnDomain ? ownDomain : "");
 
   function save() {
     const trimmed = draft.trim().toLowerCase();
@@ -76,16 +79,20 @@ export function DomainSettingsSection({
   return (
     <SettingsRow
       id="email-domain"
-      label="Email domain auto-join"
+      label={t("agentChat.settingsOrg.search.domainAutoJoin")}
       description={
         <OrganizationDescription
-          help={`Anyone who signs up with an email at this domain joins the organization automatically. Only your own email domain (${ownDomain || "—"}) can be used; free email providers are not allowed.`}
+          help={t("agentChat.settingsOrg.auth.domainHelp")}
           docsUrl={docsUrl("organizations-teams-permissions", {
             campaign: "organization_settings",
             content: "domain_auto_join",
           })}
         >
-          Automatically add members with your work email.
+          {shownDomain
+            ? t("agentChat.settingsOrg.auth.domainDescription", {
+                domain: shownDomain,
+              })
+            : t("agentChat.settingsOrg.auth.domainDescriptionNoDomain")}
         </OrganizationDescription>
       }
       control={
@@ -101,6 +108,7 @@ export function DomainSettingsSection({
                   <TooltipTrigger asChild>
                     <Button
                       type="button"
+                      aria-label={t("agentChat.settingsOrg.auth.editDomain")}
                       onClick={() => {
                         setDraft(domain);
                         setEditing(true);
@@ -110,7 +118,9 @@ export function DomainSettingsSection({
                       <IconPencil size={14} />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Edit domain</TooltipContent>
+                  <TooltipContent>
+                    {t("agentChat.settingsOrg.auth.editDomain")}
+                  </TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -118,6 +128,7 @@ export function DomainSettingsSection({
                       type="button"
                       intent="danger"
                       emphasis="ghost"
+                      aria-label={t("agentChat.settingsOrg.auth.removeDomain")}
                       disabled={setOrgDomain.isPending}
                       onClick={() => setOrgDomain.mutate(null)}
                       className="text-muted-foreground hover:text-destructive disabled:opacity-50"
@@ -125,7 +136,9 @@ export function DomainSettingsSection({
                       <IconX size={14} />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Remove domain</TooltipContent>
+                  <TooltipContent>
+                    {t("agentChat.settingsOrg.auth.removeDomain")}
+                  </TooltipContent>
                 </Tooltip>
               </>
             ) : canEnableOwnDomain ? (
@@ -148,16 +161,17 @@ export function DomainSettingsSection({
           </div>
         ) : (
           <div className="flex items-center gap-2">
-            <input
+            <Input
               type="text"
               value={draft}
+              aria-label={t("agentChat.settingsOrg.search.domainAutoJoin")}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") save();
                 if (e.key === "Escape") setEditing(false);
               }}
               placeholder={ownDomain || "example.com"}
-              className="w-44 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+              className="h-8 w-44"
               autoFocus
             />
             <Button
@@ -171,7 +185,7 @@ export function DomainSettingsSection({
               {setOrgDomain.isPending ? (
                 <IconLoader2 size={14} className="animate-spin" />
               ) : (
-                "Save"
+                t("agentChat.common.save")
               )}
             </Button>
             <Button
@@ -181,7 +195,7 @@ export function DomainSettingsSection({
               onClick={() => setEditing(false)}
               className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
-              Cancel
+              {t("agentChat.common.cancel")}
             </Button>
           </div>
         )
@@ -193,6 +207,7 @@ export function DomainSettingsSection({
 }
 
 export function A2ASecretSection({ isSet }: { isSet: boolean }) {
+  const t = useT();
   const revealA2ASecret = useRevealA2ASecret();
   const setA2ASecret = useSetA2ASecret();
   const syncA2ASecret = useSyncA2ASecret();
@@ -271,16 +286,21 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
     });
   }
 
-  const masked = isSet ? "••••••••••••" : "Not set";
+  const masked = isSet
+    ? "••••••••••••"
+    : t("agentChat.settingsOrg.auth.secretNotSetValue");
+  const revealLabel = secret
+    ? t("agentChat.settingsOrg.auth.hide")
+    : t("agentChat.settingsOrg.auth.reveal");
 
   return (
     <SettingsRow
       id="cross-app-authentication"
-      label="Cross-app authentication"
+      label={t("agentChat.settingsOrg.auth.sharedSecret")}
       description={
-        <OrganizationDescription help="This secret authenticates cross-app delegation. Every app in the organization must share it.">
-          Share one secret across connected apps.
-        </OrganizationDescription>
+        isSet
+          ? t("agentChat.settingsOrg.auth.sharedSecretSet")
+          : t("agentChat.settingsOrg.auth.sharedSecretNotSet")
       }
       control={
         <Popover>
@@ -292,7 +312,7 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
               emphasis="outline"
               className="inline-flex h-9 min-h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-medium leading-none text-foreground hover:bg-accent/40 active:scale-100"
             >
-              Manage
+              {t("agentChat.settingsOrg.auth.manage")}
             </ToolkitButton>
           </PopoverTrigger>
           <PopoverContent
@@ -300,69 +320,52 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
             sideOffset={8}
             className="w-[min(420px,calc(100vw-2rem))] space-y-4 p-4"
           >
-            <div className="space-y-1">
-              <h3 className="text-sm font-semibold text-foreground">
-                Cross-app authentication
-              </h3>
-              <p className="text-xs leading-5 text-muted-foreground">
-                Use one shared secret across connected apps. Regenerating or
-                replacing it automatically syncs the new value to those apps.
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background p-3">
+              <p className="min-w-0 truncate font-mono text-sm text-foreground">
+                {secret ?? masked}
               </p>
-            </div>
-
-            <div className="rounded-lg border border-border bg-background p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    Shared secret
-                  </p>
-                  <p className="mt-1 truncate font-mono text-sm text-foreground">
-                    {secret ?? masked}
-                  </p>
+              {isSet && (
+                <div className="flex shrink-0 items-center gap-1">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        onClick={toggleReveal}
+                        disabled={revealA2ASecret.isPending}
+                        aria-label={revealLabel}
+                        className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      >
+                        {secret ? (
+                          <IconEyeOff size={14} />
+                        ) : (
+                          <IconEye size={14} />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{revealLabel}</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        onClick={copyToClipboard}
+                        disabled={revealA2ASecret.isPending}
+                        aria-label={t("agentChat.common.copy")}
+                        className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      >
+                        {copied ? (
+                          <IconCheck size={14} className="text-primary" />
+                        ) : (
+                          <IconCopy size={14} />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("agentChat.common.copy")}
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
-                {isSet && (
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          onClick={toggleReveal}
-                          disabled={revealA2ASecret.isPending}
-                          aria-label={secret ? "Hide secret" : "Reveal secret"}
-                          className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
-                        >
-                          {secret ? (
-                            <IconEyeOff size={14} />
-                          ) : (
-                            <IconEye size={14} />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {secret ? "Hide secret" : "Reveal secret"}
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          onClick={copyToClipboard}
-                          disabled={revealA2ASecret.isPending}
-                          aria-label="Copy secret"
-                          className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
-                        >
-                          {copied ? (
-                            <IconCheck size={14} className="text-primary" />
-                          ) : (
-                            <IconCopy size={14} />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Copy secret</TooltipContent>
-                    </Tooltip>
-                  </div>
-                )}
-              </div>
+              )}
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2">
@@ -379,7 +382,7 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
                 ) : (
                   <IconRefresh size={14} />
                 )}
-                Regenerate
+                {t("agentChat.settingsOrg.auth.regenerate")}
               </Button>
               {isSet ? (
                 <Button
@@ -395,7 +398,7 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
                   ) : (
                     <IconCloudUpload size={14} />
                   )}
-                  Sync to apps
+                  {t("agentChat.settingsOrg.auth.syncToApps")}
                 </Button>
               ) : null}
             </div>
@@ -409,17 +412,14 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
                 className="inline-flex h-9 w-full items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent/50"
               >
                 <IconKey size={14} />
-                Paste secret
+                {t("agentChat.settingsOrg.auth.pasteSecret")}
               </Button>
             ) : (
               <div className="space-y-2 rounded-lg border border-border bg-background p-3">
-                <label
-                  htmlFor="cross-app-secret"
-                  className="text-xs font-medium text-foreground"
-                >
-                  Paste a shared secret
-                </label>
-                <input
+                <Label htmlFor="cross-app-secret" className="text-xs">
+                  {t("agentChat.settingsOrg.auth.pasteSecretLabel")}
+                </Label>
+                <Input
                   id="cross-app-secret"
                   type="text"
                   value={pasteValue}
@@ -431,8 +431,7 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
                       setPasteValue("");
                     }
                   }}
-                  placeholder="Paste A2A secret"
-                  className="min-w-0 w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-foreground"
+                  className="h-8 font-mono"
                   autoFocus
                 />
                 <div className="flex justify-end gap-2">
@@ -446,7 +445,7 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
                     }}
                     className="h-8 rounded-md border border-border px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
                   >
-                    Cancel
+                    {t("agentChat.common.cancel")}
                   </Button>
                   <Button
                     type="button"
@@ -459,7 +458,7 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
                     {setA2ASecret.isPending ? (
                       <IconLoader2 size={14} className="animate-spin" />
                     ) : null}
-                    Save
+                    {t("agentChat.common.save")}
                   </Button>
                 </div>
               </div>
@@ -467,18 +466,21 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
 
             {syncA2ASecret.isPending && (
               <p className="text-xs text-muted-foreground">
-                Syncing to connected apps…
+                {t("agentChat.settingsOrg.auth.syncing")}
               </p>
             )}
             {syncResult && !syncA2ASecret.isPending && (
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground">
-                  Synced to {syncResult.succeeded}/{syncResult.total} app
-                  {syncResult.total === 1 ? "" : "s"}
                   {syncResult.failed > 0
-                    ? ` (${syncResult.failed} failed)`
-                    : ""}
-                  .
+                    ? t("agentChat.settingsOrg.auth.syncedPartial", {
+                        count: syncResult.total,
+                        succeeded: syncResult.succeeded,
+                        failed: syncResult.failed,
+                      })
+                    : t("agentChat.settingsOrg.auth.synced", {
+                        count: syncResult.total,
+                      })}
                 </p>
                 {syncResult.failed > 0 && (
                   <ul className="list-disc space-y-0.5 ps-5 text-xs text-destructive">
@@ -486,7 +488,11 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
                       .filter((r) => !r.ok)
                       .map((r) => (
                         <li key={r.id}>
-                          {r.name}: {r.error || `HTTP ${r.status ?? "?"}`}
+                          {r.name}:{" "}
+                          {r.error ||
+                            t("agentChat.settingsOrg.auth.syncErrorStatus", {
+                              status: r.status ?? "?",
+                            })}
                         </li>
                       ))}
                   </ul>

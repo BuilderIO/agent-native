@@ -73,6 +73,7 @@ const OWNER: SettingsPageContext = {
   isOwner: true,
   isAdmin: true,
   hasOrganization: true,
+  soloDeploymentAdmin: false,
   appId: "clips",
   labs: {},
   flags: {},

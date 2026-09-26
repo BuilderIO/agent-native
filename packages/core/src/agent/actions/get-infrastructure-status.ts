@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
 import { canManageOrg } from "../../org/permissions.js";
+import { isTrustedSelfHostedRuntime } from "../../server/credential-provider.js";
 import {
   getInfrastructureStatus,
   type InfrastructureStatus,
@@ -25,9 +26,17 @@ export default defineAction({
       fail("Sign in to view infrastructure.", { statusCode: 401 });
     }
     const orgId = ctx?.orgId?.trim();
-    // A workspace without an organization has one user and no role gradient,
-    // like file storage and the secrets routes.
-    if (orgId) {
+    // The status is deployment-wide, not per user, so a caller with no
+    // organization reads it only where the deployment has a single tenant. On
+    // a shared hosted deployment anyone who signs up starts with no org.
+    if (!orgId) {
+      if (!isTrustedSelfHostedRuntime()) {
+        fail("Only organization owners and admins can view infrastructure.", {
+          statusCode: 403,
+          errorCode: INFRASTRUCTURE_ADMIN_REQUIRED_ERROR_CODE,
+        });
+      }
+    } else {
       const role = await readOrgMemberRole(orgId, email);
       if (!role) {
         fail("You aren't a member of this organization.", {

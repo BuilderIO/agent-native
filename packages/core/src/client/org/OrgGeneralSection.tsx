@@ -10,6 +10,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@agent-native/toolkit/ui/alert-dialog";
+import { Input } from "@agent-native/toolkit/ui/input";
 import {
   Select,
   SelectContent,
@@ -112,6 +113,7 @@ export function WorkspaceUrlSettingsSection({
 }: {
   workspaceUrl: string | null;
 }) {
+  const t = useT();
   const setWorkspaceUrl = useSetOrgWorkspaceUrl();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(workspaceUrl ?? "");
@@ -130,16 +132,16 @@ export function WorkspaceUrlSettingsSection({
   return (
     <SettingsRow
       id="workspace-url"
-      label="Workspace URL"
+      label={t("agentChat.settingsOrg.general.workspaceUrl")}
       description={
         <OrganizationDescription
-          help="Members who land on another deployment can be sent to this workspace URL instead of an empty app."
+          help={t("agentChat.settingsOrg.general.workspaceUrlHelp")}
           docsUrl={docsUrl("deployment", {
             campaign: "organization_settings",
             content: "workspace_url",
           })}
         >
-          Send members to this workspace from another deployment.
+          {t("agentChat.settingsOrg.general.workspaceUrlDescription")}
         </OrganizationDescription>
       }
       control={
@@ -155,6 +157,9 @@ export function WorkspaceUrlSettingsSection({
                   <TooltipTrigger asChild>
                     <Button
                       type="button"
+                      aria-label={t(
+                        "agentChat.settingsOrg.general.editWorkspaceUrl",
+                      )}
                       onClick={() => {
                         setDraft(workspaceUrl);
                         setEditing(true);
@@ -164,7 +169,9 @@ export function WorkspaceUrlSettingsSection({
                       <IconPencil size={14} />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Edit workspace URL</TooltipContent>
+                  <TooltipContent>
+                    {t("agentChat.settingsOrg.general.editWorkspaceUrl")}
+                  </TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -172,6 +179,9 @@ export function WorkspaceUrlSettingsSection({
                       type="button"
                       intent="danger"
                       emphasis="ghost"
+                      aria-label={t(
+                        "agentChat.settingsOrg.general.removeWorkspaceUrl",
+                      )}
                       disabled={setWorkspaceUrl.isPending}
                       onClick={() => setWorkspaceUrl.mutate(null)}
                       className="text-muted-foreground hover:text-destructive disabled:opacity-50"
@@ -179,7 +189,9 @@ export function WorkspaceUrlSettingsSection({
                       <IconX size={14} />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Remove workspace URL</TooltipContent>
+                  <TooltipContent>
+                    {t("agentChat.settingsOrg.general.removeWorkspaceUrl")}
+                  </TooltipContent>
                 </Tooltip>
               </>
             ) : (
@@ -190,22 +202,23 @@ export function WorkspaceUrlSettingsSection({
                 onClick={() => setEditing(true)}
                 className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
               >
-                Set URL
+                {t("agentChat.settingsOrg.general.setWorkspaceUrl")}
               </Button>
             )}
           </div>
         ) : (
           <div className="flex items-center gap-2">
-            <input
+            <Input
               type="text"
               value={draft}
+              aria-label={t("agentChat.settingsOrg.general.workspaceUrl")}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") save();
                 if (e.key === "Escape") setEditing(false);
               }}
               placeholder="workspace.example.com"
-              className="w-56 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+              className="h-8 w-56"
               autoFocus
             />
             <Button
@@ -219,7 +232,7 @@ export function WorkspaceUrlSettingsSection({
               {setWorkspaceUrl.isPending ? (
                 <IconLoader2 size={14} className="animate-spin" />
               ) : (
-                "Save"
+                t("agentChat.common.save")
               )}
             </Button>
             <Button
@@ -229,7 +242,7 @@ export function WorkspaceUrlSettingsSection({
               onClick={() => setEditing(false)}
               className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
-              Cancel
+              {t("agentChat.common.cancel")}
             </Button>
           </div>
         )

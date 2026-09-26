@@ -1166,6 +1166,69 @@ const messages: AgentChatTranslation = {
   "settingsOrg.search.domainAutoJoin":
     "Automatischer Beitritt per E-Mail-Domain",
   "settingsOrg.search.roles": "Mitgliederrollen",
+  "settingsOrg.learnMore": "Mehr erfahren",
+  "settingsOrg.moreInformation": "Weitere Informationen",
+  "settingsOrg.general.workspaceUrl": "Workspace-URL",
+  "settingsOrg.general.workspaceUrlDescription":
+    "Leite Mitglieder von einer anderen Bereitstellung zu diesem Workspace.",
+  "settingsOrg.general.workspaceUrlHelp":
+    "Mitglieder, die auf einer anderen Bereitstellung landen, kommen zu diesem Workspace statt zu einer leeren App.",
+  "settingsOrg.general.editWorkspaceUrl": "Workspace-URL bearbeiten",
+  "settingsOrg.general.removeWorkspaceUrl": "Workspace-URL entfernen",
+  "settingsOrg.general.setWorkspaceUrl": "URL festlegen",
+  "settingsOrg.auth.domainDescription":
+    "Personen mit einer @{{domain}}-E-Mail-Adresse automatisch hinzufügen.",
+  "settingsOrg.auth.domainDescriptionNoDomain":
+    "Personen mit deiner geschäftlichen E-Mail-Domain automatisch hinzufügen.",
+  "settingsOrg.auth.domainHelp":
+    "Wer sich mit einer E-Mail-Adresse dieser Domain registriert, tritt der Organisation bei. Nur deine eigene E-Mail-Domain ist möglich, kostenlose E-Mail-Anbieter sind nicht erlaubt.",
+  "settingsOrg.auth.editDomain": "Domain bearbeiten",
+  "settingsOrg.auth.removeDomain": "Domain entfernen",
+  "settingsOrg.auth.sharedSecret": "Gemeinsames Secret",
+  "settingsOrg.auth.sharedSecretSet":
+    "Festgelegt. Damit können sich die Apps in diesem Workspace gegenseitig verifizieren.",
+  "settingsOrg.auth.sharedSecretNotSet":
+    "Nicht festgelegt. Damit können sich die Apps in diesem Workspace gegenseitig verifizieren.",
+  "settingsOrg.auth.secretNotSetValue": "Nicht festgelegt",
+  "settingsOrg.auth.manage": "Verwalten",
+  "settingsOrg.auth.reveal": "Anzeigen",
+  "settingsOrg.auth.hide": "Ausblenden",
+  "settingsOrg.auth.regenerate": "Neu generieren",
+  "settingsOrg.auth.syncToApps": "Mit Apps synchronisieren",
+  "settingsOrg.auth.pasteSecret": "Secret einfügen",
+  "settingsOrg.auth.pasteSecretLabel": "Gemeinsames Secret einfügen",
+  "settingsOrg.auth.syncing": "Wird mit Apps synchronisiert…",
+  "settingsOrg.auth.syncErrorStatus": "HTTP {{status}}",
+  "settingsOrg.invite.emails": "E-Mail-Adressen",
+  "settingsOrg.invite.emailPlaceholder": "name@firma.de",
+  "settingsOrg.invite.note":
+    "Jede Person meldet sich mit genau dieser E-Mail-Adresse an, um anzunehmen.",
+  "settingsOrg.invite.role": "Rolle",
+  "settingsOrg.invite.member": "Mitglied",
+  "settingsOrg.invite.admin": "Admin",
+  "settingsOrg.invite.ownerOnlyAdmin":
+    "Nur der Eigentümer der Organisation kann Admins einladen.",
+  "settingsOrg.invite.removeRow": "Entfernen",
+  "settingsOrg.invite.addAnother": "Weitere hinzufügen",
+  "settingsOrg.invite.pasteMany": "Mehrere einfügen",
+  "settingsOrg.invite.importCsv": "CSV importieren",
+  "settingsOrg.invite.pasteLabel":
+    "Füge E-Mail-Adressen getrennt durch Kommas, Leerzeichen oder Zeilenumbrüche ein.",
+  "settingsOrg.invite.addAsMembers": "Als Mitglieder hinzufügen",
+  "settingsOrg.invite.addAsAdmins": "Als Admins hinzufügen",
+  "settingsOrg.invite.add": "Hinzufügen",
+  "settingsOrg.invite.send": "Einladungen senden",
+  "settingsOrg.invite.close": "Schließen",
+  "settingsOrg.invite.csvNoEmails":
+    "In dieser CSV wurden keine gültigen E-Mail-Adressen gefunden.",
+  "settingsOrg.auth.synced_one": "Mit {{count}} App synchronisiert.",
+  "settingsOrg.auth.synced_other": "Mit {{count}} Apps synchronisiert.",
+  "settingsOrg.auth.syncedPartial_one":
+    "Mit {{succeeded}} von {{count}} App synchronisiert. {{failed}} fehlgeschlagen.",
+  "settingsOrg.auth.syncedPartial_other":
+    "Mit {{succeeded}} von {{count}} Apps synchronisiert. {{failed}} fehlgeschlagen.",
+  "settingsOrg.invite.sent_one": "{{count}} Einladung gesendet.",
+  "settingsOrg.invite.sent_other": "{{count}} Einladungen gesendet.",
   "settingsShell.account.addPassword": "Passwort hinzufügen",
   "settingsShell.account.authenticatorCode": "Authenticator-Code",
   "settingsShell.account.change": "Ändern",

@@ -6,6 +6,8 @@ import {
   CommandItem,
   CommandList,
 } from "@agent-native/toolkit/ui/command";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
 import {
   Select,
   SelectContent,
@@ -13,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   IconUserPlus,
   IconLoader2,
@@ -128,6 +131,8 @@ function InviteAppRolePicker({
   );
 }
 
+const PASTE_PLACEHOLDER = "alice@acme.com, bob@acme.com\ncharlie@acme.com";
+
 export function BulkInviteForm({
   currentUserRole,
   appRoles,
@@ -137,6 +142,7 @@ export function BulkInviteForm({
   appRoles?: AppRolesDescriptor;
   onClose: () => void;
 }) {
+  const t = useT();
   const bulkInvite = useBulkInviteMembers();
   const fileRef = useRef<HTMLInputElement>(null);
   const [drafts, setDrafts] = useState<DraftInvite[]>([
@@ -151,6 +157,9 @@ export function BulkInviteForm({
   } | null>(null);
 
   const canSetAdmin = currentUserRole === "owner";
+  const ownerOnlyAdmin = canSetAdmin
+    ? undefined
+    : t("agentChat.settingsOrg.invite.ownerOnlyAdmin");
 
   const validDrafts = useMemo(
     () =>
@@ -195,7 +204,12 @@ export function BulkInviteForm({
       } else {
         setResultBanner({
           succeeded: 0,
-          failed: [{ email: file.name, error: "No valid emails found in CSV" }],
+          failed: [
+            {
+              email: file.name,
+              error: t("agentChat.settingsOrg.invite.csvNoEmails"),
+            },
+          ],
         });
       }
     });
@@ -205,9 +219,8 @@ export function BulkInviteForm({
     setResultBanner(null);
     const dedup = new Map<string, DraftInvite>();
     for (const d of validDrafts) {
-      // canSetAdmin guard mirrors server-side enforcement so an admin-only
-      // user editing the form can't even attempt to grant admin (they'd
-      // get a 403 anyway).
+      // Mirrors createInvitationHandler, which refuses an admin invite from
+      // anyone but the owner.
       const role = canSetAdmin ? d.role : "member";
       dedup.set(d.email, { ...d, role });
     }
@@ -243,14 +256,18 @@ export function BulkInviteForm({
   return (
     <div className="space-y-3">
       <div className="space-y-2">
+        <Label htmlFor="invite-email-0">
+          {t("agentChat.settingsOrg.invite.emails")}
+        </Label>
         {drafts.map((draft, i) => (
           <div key={i} className="flex items-center gap-2">
-            <input
+            <Input
+              id={`invite-email-${i}`}
               type="email"
               value={draft.email}
               onChange={(e) => setDraft(i, { email: e.target.value })}
-              placeholder="colleague@company.com"
-              className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+              placeholder={t("agentChat.settingsOrg.invite.emailPlaceholder")}
+              className="h-8 flex-1"
               autoFocus={i === drafts.length - 1}
             />
             <Select
@@ -263,18 +280,19 @@ export function BulkInviteForm({
               disabled={!canSetAdmin}
             >
               <SelectTrigger
-                title={
-                  canSetAdmin
-                    ? undefined
-                    : "Only the organization owner can invite admins"
-                }
+                aria-label={t("agentChat.settingsOrg.invite.role")}
+                title={ownerOnlyAdmin}
                 className="h-auto w-auto rounded-md border border-border bg-background px-2 py-1.5 text-xs disabled:opacity-50"
               >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="member">Member</SelectItem>
-                <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="member">
+                  {t("agentChat.settingsOrg.invite.member")}
+                </SelectItem>
+                <SelectItem value="admin">
+                  {t("agentChat.settingsOrg.invite.admin")}
+                </SelectItem>
               </SelectContent>
             </Select>
             {appRoles && (
@@ -287,6 +305,7 @@ export function BulkInviteForm({
             {drafts.length > 1 && (
               <Button
                 type="button"
+                aria-label={t("agentChat.settingsOrg.invite.removeRow")}
                 onClick={() =>
                   setDrafts((prev) => prev.filter((_, j) => j !== i))
                 }
@@ -297,6 +316,9 @@ export function BulkInviteForm({
             )}
           </div>
         ))}
+        <p className="text-[11px] text-muted-foreground">
+          {t("agentChat.settingsOrg.invite.note")}
+        </p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -310,7 +332,7 @@ export function BulkInviteForm({
           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
           <IconPlus size={14} />
-          Add another
+          {t("agentChat.settingsOrg.invite.addAnother")}
         </Button>
         <Button
           type="button"
@@ -320,7 +342,7 @@ export function BulkInviteForm({
           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
           <IconUserPlus size={14} />
-          Paste many
+          {t("agentChat.settingsOrg.invite.pasteMany")}
         </Button>
         <Button
           type="button"
@@ -330,7 +352,7 @@ export function BulkInviteForm({
           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
           <IconFileImport size={14} />
-          Import CSV
+          {t("agentChat.settingsOrg.invite.importCsv")}
         </Button>
         <input
           ref={fileRef}
@@ -348,15 +370,18 @@ export function BulkInviteForm({
 
       {pasteOpen && (
         <div className="space-y-2 rounded-md border border-border p-3">
-          <div className="text-xs font-medium text-muted-foreground">
-            Paste emails (comma, space, or newline separated)
-          </div>
-          <textarea
+          <Label
+            htmlFor="invite-paste"
+            className="text-xs font-medium text-muted-foreground"
+          >
+            {t("agentChat.settingsOrg.invite.pasteLabel")}
+          </Label>
+          <Textarea
+            id="invite-paste"
             value={pasteValue}
             onChange={(e) => setPasteValue(e.target.value)}
             rows={4}
-            placeholder="alice@acme.com, bob@acme.com&#10;charlie@acme.com"
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+            placeholder={PASTE_PLACEHOLDER}
           />
           <div className="flex items-center gap-2">
             <Select
@@ -366,12 +391,20 @@ export function BulkInviteForm({
               }
               disabled={!canSetAdmin}
             >
-              <SelectTrigger className="h-auto w-auto rounded-md border border-border bg-background px-2 py-1.5 text-xs disabled:opacity-50">
+              <SelectTrigger
+                aria-label={t("agentChat.settingsOrg.invite.role")}
+                title={ownerOnlyAdmin}
+                className="h-auto w-auto rounded-md border border-border bg-background px-2 py-1.5 text-xs disabled:opacity-50"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="member">Add as members</SelectItem>
-                <SelectItem value="admin">Add as admins</SelectItem>
+                <SelectItem value="member">
+                  {t("agentChat.settingsOrg.invite.addAsMembers")}
+                </SelectItem>
+                <SelectItem value="admin">
+                  {t("agentChat.settingsOrg.invite.addAsAdmins")}
+                </SelectItem>
               </SelectContent>
             </Select>
             <Button
@@ -386,7 +419,7 @@ export function BulkInviteForm({
               disabled={parseEmailList(pasteValue).length === 0}
               className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
-              Add
+              {t("agentChat.settingsOrg.invite.add")}
             </Button>
             <Button
               type="button"
@@ -398,7 +431,7 @@ export function BulkInviteForm({
               }}
               className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
-              Cancel
+              {t("agentChat.common.cancel")}
             </Button>
           </div>
         </div>
@@ -418,8 +451,7 @@ export function BulkInviteForm({
           ) : (
             <span className="inline-flex items-center gap-1">
               <IconCheck size={14} />
-              Send {validDrafts.length || ""}{" "}
-              {validDrafts.length === 1 ? "invite" : "invites"}
+              {t("agentChat.settingsOrg.invite.send")}
             </span>
           )}
         </Button>
@@ -430,24 +462,18 @@ export function BulkInviteForm({
           onClick={onClose}
           className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
-          Close
+          {t("agentChat.settingsOrg.invite.close")}
         </Button>
       </div>
-
-      <p className="text-[11px] text-muted-foreground">
-        Each invitee signs in with this exact email to accept.
-        {canSetAdmin
-          ? " Admins can manage members and workspace settings."
-          : " Only the organization owner can grant admin access."}
-      </p>
 
       {resultBanner && (
         <div className="space-y-1 rounded-md border border-border bg-accent/30 p-2.5">
           {resultBanner.succeeded > 0 && (
             <p className="text-[11px] text-primary">
-              <IconCheck className="inline h-3 w-3 -mt-0.5" /> Sent{" "}
-              {resultBanner.succeeded}{" "}
-              {resultBanner.succeeded === 1 ? "invite" : "invites"}.
+              <IconCheck className="inline h-3 w-3 -mt-0.5 me-1" />
+              {t("agentChat.settingsOrg.invite.sent", {
+                count: resultBanner.succeeded,
+              })}
             </p>
           )}
           {resultBanner.failed.length > 0 && (

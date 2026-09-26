@@ -1,11 +1,4 @@
 import {
-  defineEventHandler,
-  getMethod,
-  setResponseStatus,
-  type H3Event,
-} from "h3";
-
-import {
   isCustomOpenAiBaseUrl,
   OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
@@ -19,22 +12,15 @@ import {
 } from "../client/agent-provider-catalog.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { getOrgRoleForEmail } from "../mcp/actions/service-token-access.js";
-import { getOrgContext } from "../org/context.js";
 import { canManageOrg } from "../org/permissions.js";
 import { readAppSecret } from "../secrets/storage.js";
-import { getSession } from "./auth.js";
 import {
   clearProviderCredentialAuthFailure,
   isTrustedSelfHostedRuntime,
   recordProviderCredentialAuthFailure,
   resolveSecretDetailed,
 } from "./credential-provider.js";
-import { readBody } from "./h3-helpers.js";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-  runWithRequestContext,
-} from "./request-context.js";
+import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -729,84 +715,4 @@ export async function checkProviderKeyForSave(
         : result.reason,
     code: result.code,
   };
-}
-
-export type ParsedProviderKeyCheckRequest =
-  | { ok: true; input: ProviderKeyCheckInput }
-  | { ok: false; error: string };
-
-export function parseProviderKeyCheckRequest(
-  body: unknown,
-): ParsedProviderKeyCheckRequest {
-  const raw = (body && typeof body === "object" ? body : {}) as Record<
-    string,
-    unknown
-  >;
-  const provider =
-    typeof raw.provider === "string" ? raw.provider.trim() : raw.provider;
-  if (!isProviderKeyCheckProvider(provider)) {
-    return { ok: false, error: "Choose a supported provider." };
-  }
-  for (const name of ["key", "baseUrl"] as const) {
-    if (raw[name] != null && typeof raw[name] !== "string") {
-      return { ok: false, error: `${name} must be a string.` };
-    }
-  }
-  if (raw.scope != null && raw.scope !== "user" && raw.scope !== "org") {
-    return { ok: false, error: 'scope must be "user" or "org".' };
-  }
-  const key = typeof raw.key === "string" ? raw.key.trim() : "";
-  const baseUrl = typeof raw.baseUrl === "string" ? raw.baseUrl.trim() : "";
-  return {
-    ok: true,
-    input: {
-      provider,
-      ...(key ? { key } : {}),
-      ...(baseUrl ? { baseUrl } : {}),
-      ...(raw.scope === "user" || raw.scope === "org"
-        ? { scope: raw.scope }
-        : {}),
-    },
-  };
-}
-
-/**
- * POST /_agent-native/agent-engine/provider-models — `{ provider, key?,
- * baseUrl?, scope? }` → `ProviderKeyCheckResult`. A provider's verdict is a
- * 200 with `ok: false`; only a malformed request or a missing session is an
- * HTTP error. Session required: the caller picks an endpoint the server
- * fetches.
- */
-export function createAgentEngineProviderModelsHandler() {
-  return defineEventHandler(async (event: H3Event) => {
-    if (getMethod(event) !== "POST") {
-      setResponseStatus(event, 405);
-      return { error: "Method not allowed" };
-    }
-    // coercion-ok: a session lookup failure is answered as signed out (401).
-    const session = await getSession(event).catch(() => null);
-    const userEmail = session?.email;
-    if (!userEmail) {
-      setResponseStatus(event, 401);
-      return { error: "Authentication required" };
-    }
-    // coercion-ok: an unreadable body is answered as a 400 below.
-    const body = await readBody(event).catch(() => undefined);
-    const parsed = parseProviderKeyCheckRequest(body);
-    if (!parsed.ok) {
-      setResponseStatus(event, 400);
-      return { error: parsed.error };
-    }
-    const orgCtx = await getOrgContext(event);
-    try {
-      return await runWithRequestContext(
-        { userEmail, orgId: orgCtx.orgId ?? undefined },
-        () => checkProviderKey(parsed.input),
-      );
-    } catch (err) {
-      if (!(err instanceof ProviderKeyCheckRequestError)) throw err;
-      setResponseStatus(event, err.statusCode);
-      return { error: err.message };
-    }
-  });
 }

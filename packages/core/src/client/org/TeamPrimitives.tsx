@@ -12,6 +12,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
 
 export const Button = forwardRef<
@@ -53,12 +54,13 @@ function OrganizationHelpIcon({
   content: string;
   docsUrl?: string;
 }) {
+  const t = useT();
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <Button
           type="button"
-          aria-label="More information"
+          aria-label={t("agentChat.settingsOrg.moreInformation")}
           className="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring [&_svg]:!size-3"
         >
           <IconHelpCircle className="size-3" />
@@ -73,7 +75,7 @@ function OrganizationHelpIcon({
             rel="noreferrer"
             className="mt-1 inline-block underline underline-offset-2"
           >
-            Learn more
+            {t("agentChat.settingsOrg.learnMore")}
           </a>
         ) : null}
       </TooltipContent>

@@ -22,6 +22,7 @@ function context(overrides: Partial<SettingsPageContext> = {}) {
     isOwner: false,
     isAdmin: false,
     hasOrganization: true,
+    soloDeploymentAdmin: false,
     appId: "clips",
     labs: {},
     flags: {},
@@ -124,12 +125,24 @@ describe("settings page registry", () => {
     ).toHaveLength(7);
   });
 
-  it("treats a viewer with no organization as its manager", () => {
+  it("treats a viewer with no organization as its manager on a single-tenant deployment", () => {
+    expect(
+      canManageOrganizationPages(
+        context({
+          role: null,
+          hasOrganization: false,
+          soloDeploymentAdmin: true,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("hides the admin pages from a viewer with no organization on a shared deployment", () => {
     expect(
       canManageOrganizationPages(
         context({ role: null, hasOrganization: false }),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("hides the admin pages when the organization couldn't be read", () => {

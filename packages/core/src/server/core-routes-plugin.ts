@@ -113,7 +113,6 @@ import {
   createWriteSecretHandler,
   createTestSecretHandler,
   createAdHocSecretHandler,
-  createSecretUsageHandler,
 } from "../secrets/routes.js";
 import {
   getSetting,
@@ -150,7 +149,6 @@ import { createAutomationsHandler } from "../triggers/routes.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
 import { createAgentEngineDisconnectHandler } from "./agent-engine-default-model-route.js";
 import { createAgentEngineOllamaModelsHandler } from "./agent-engine-ollama-models-route.js";
-import { createAgentEngineProviderModelsHandler } from "./agent-engine-provider-models-route.js";
 import {
   readAnalyticsClientPlatformHeader,
   readBrowserSessionIdHeader,
@@ -5427,14 +5425,6 @@ export function createCoreRoutesPlugin(
         createAgentEngineOllamaModelsHandler(),
       );
 
-      // POST /_agent-native/agent-engine/provider-models — checks a provider
-      // key by listing the models it reaches; the same list fills the
-      // provider dialog's model checklist.
-      getH3App(nitroApp).use(
-        `${P}/agent-engine/provider-models`,
-        createAgentEngineProviderModelsHandler(),
-      );
-
       // GET /_agent-native/agent-engine/status — reports whether an engine
       // is configured (settings row, settings+env, or auto-detected from env).
       // The agent-chat UI uses this to skip the onboarding gate for providers
@@ -5836,11 +5826,9 @@ export function createCoreRoutesPlugin(
       // POST   /_agent-native/secrets/:key         — write a secret value
       // DELETE /_agent-native/secrets/:key         — remove a secret value
       // POST   /_agent-native/secrets/:key/test    — re-run the validator
-      // GET    /_agent-native/secrets/:key/usage   — remove-impact preview
       const listSecretsHandler = createListSecretsHandler();
       const writeSecretHandler = createWriteSecretHandler();
       const testSecretHandler = createTestSecretHandler();
-      const secretUsageHandler = createSecretUsageHandler();
 
       getH3App(nitroApp).use(
         `${P}/secrets`,
@@ -5858,10 +5846,6 @@ export function createCoreRoutesPlugin(
           // /:key/test — re-validate stored value.
           if (parts.length === 2 && parts[1] === "test") {
             return testSecretHandler(event);
-          }
-
-          if (parts.length === 2 && parts[1] === "usage") {
-            return secretUsageHandler(event);
           }
 
           // /:key — write / delete a specific secret.

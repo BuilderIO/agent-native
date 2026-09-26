@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const mockCallAction = vi.hoisted(() => vi.fn());
+vi.mock("./use-action.js", () => ({
+  callAction: (...args: unknown[]) => mockCallAction(...args),
+}));
+
 import {
   deleteAgentEnginePersonalProviderSettings,
   deleteAgentEngineProviderSettings,
@@ -203,19 +208,15 @@ describe("saveAgentEngineApiKey", () => {
 });
 
 describe("fetchProviderModels", () => {
-  it("posts the pasted key and returns the models it reaches", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          ok: true,
-          provider: "anthropic",
-          models: ["claude-a", 42],
-          checkedAt: 1,
-        }),
-        { status: 200 },
-      ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+  afterEach(() => mockCallAction.mockReset());
+
+  it("checks the pasted key through check-provider-key and returns the models it reaches", async () => {
+    mockCallAction.mockResolvedValue({
+      ok: true,
+      provider: "anthropic",
+      models: ["claude-a", 42],
+      checkedAt: 1,
+    });
 
     await expect(
       fetchProviderModels({ provider: "anthropic", key: " sk-ant-fake " }),
@@ -225,13 +226,10 @@ describe("fetchProviderModels", () => {
       models: ["claude-a"],
       checkedAt: 1,
     });
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/_agent-native/agent-engine/provider-models",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ provider: "anthropic", key: "sk-ant-fake" }),
-      }),
-    );
+    expect(mockCallAction).toHaveBeenCalledWith("check-provider-key", {
+      provider: "anthropic",
+      key: "sk-ant-fake",
+    });
   });
 
   it("resolves a provider's rejection as a verdict", async () => {
@@ -245,44 +243,27 @@ describe("fetchProviderModels", () => {
       expectedPrefix: "gsk_",
       checkedAt: 2,
     };
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response(JSON.stringify(verdict), { status: 200 }),
-        ),
-    );
+    mockCallAction.mockResolvedValue(verdict);
 
     await expect(
       fetchProviderModels({ provider: "groq", scope: "org" }),
     ).resolves.toEqual(verdict);
+    expect(mockCallAction).toHaveBeenCalledWith("check-provider-key", {
+      provider: "groq",
+      scope: "org",
+    });
   });
 
   it("throws when the check itself can't run", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ error: "Authentication required" }), {
-          status: 401,
-        }),
-      ),
-    );
+    mockCallAction.mockRejectedValue(new Error("Not authenticated."));
 
     await expect(fetchProviderModels({ provider: "openai" })).rejects.toThrow(
-      "Authentication required",
+      "Not authenticated.",
     );
   });
 
   it("throws on a response it can't read instead of reporting no models", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response(JSON.stringify({ ok: true }), { status: 200 }),
-        ),
-    );
+    mockCallAction.mockResolvedValue({ ok: true });
 
     await expect(fetchProviderModels({ provider: "openai" })).rejects.toThrow(
       "Could not read the key check response.",

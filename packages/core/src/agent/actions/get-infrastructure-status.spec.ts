@@ -4,6 +4,11 @@ const mocks = vi.hoisted(() => ({
   roles: new Map<string, "owner" | "admin" | "member">(),
   status: { workspace: true } as Record<string, unknown>,
   getInfrastructureStatus: vi.fn(),
+  trustedSelfHosted: false,
+}));
+
+vi.mock("../../server/credential-provider.js", () => ({
+  isTrustedSelfHostedRuntime: () => mocks.trustedSelfHosted,
 }));
 
 vi.mock("../../server/personal-provider-key-policy.js", () => ({
@@ -37,6 +42,7 @@ async function failure(run: Promise<unknown>) {
 
 beforeEach(() => {
   mocks.roles.clear();
+  mocks.trustedSelfHosted = false;
   mocks.getInfrastructureStatus.mockReset();
   mocks.getInfrastructureStatus.mockReturnValue(mocks.status);
   mocks.roles.set("org-1:owner@example.com", "owner");
@@ -81,9 +87,19 @@ describe("get-infrastructure-status", () => {
     expect(error.statusCode).toBe(401);
   });
 
-  it("lets the only user of a workspace without an organization read it", async () => {
+  it("lets a caller with no organization read it on a single-tenant self-hosted deployment", async () => {
+    mocks.trustedSelfHosted = true;
     await expect(action.run({}, ctx("solo@example.com", null))).resolves.toBe(
       mocks.status,
     );
+  });
+
+  it("refuses a caller with no organization on a shared deployment", async () => {
+    const error = await failure(
+      action.run({}, ctx("signup@example.com", null)),
+    );
+    expect(error.statusCode).toBe(403);
+    expect(error.errorCode).toBe(INFRASTRUCTURE_ADMIN_REQUIRED_ERROR_CODE);
+    expect(mocks.getInfrastructureStatus).not.toHaveBeenCalled();
   });
 });
