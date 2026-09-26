@@ -421,6 +421,26 @@ describe("in-place text session: the caret at the click point", () => {
     expect(range.collapsed).toBe(true);
     expect([range.startContainer, range.startOffset]).toEqual([text, 12]);
   });
+
+  it("selects the double-clicked word itself, even from its first letter", () => {
+    const el = mount('<p id="t">Alpha beta gamma</p>');
+    const text = el.firstChild as Text;
+    for (const [offset, word] of [
+      [6, "beta"],
+      [8, "beta"],
+      [0, "Alpha"],
+      [16, "gamma"],
+    ] as const) {
+      window.getSelection()!.removeAllRanges();
+      hitAt(text, offset);
+      session = startInPlaceTextSession(el, {
+        caretPoint: { x: 1, y: 1 },
+        selectWord: true,
+      });
+      expect(window.getSelection()!.toString()).toBe(word);
+      session.end();
+    }
+  });
 });
 
 describe("in-place text session: typing", () => {

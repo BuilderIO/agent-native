@@ -569,16 +569,20 @@ export function installInPageHelpers(chromeSelector: string) {
       !editor.contains(sel.endContainer)
     )
       return "the selection is outside the editor";
+    const renderedText = (text: string | null | undefined) =>
+      (text ?? "").replace(/[\s\u200b\ufeff]+/g, " ");
     const offsetOf = (node: Node, offset: number) => {
       const r = document.createRange();
       r.setStart(editor, 0);
       r.setEnd(node, offset);
-      return strip(r.toString()).length;
+      return renderedText(r.toString()).length;
     };
     const start = offsetOf(sel.startContainer, sel.startOffset);
     const end = offsetOf(sel.endContainer, sel.endOffset);
     if (gesture !== "dblclick" && !sel.collapsed)
       return `a ${gesture} selected characters ${start}-${end} instead of placing a caret`;
+    if (gesture === "dblclick" && sel.collapsed)
+      return "double-click did not select a word";
     // caretRangeFromPoint rounds the point to whole pixels, which can move it
     // across a narrow glyph; the click itself used the fractional point.
     const pos = document.caretPositionFromPoint?.(point.x, point.y);
@@ -587,44 +591,25 @@ export function installInPageHelpers(chromeSelector: string) {
     const offset = pos?.offset ?? range?.startOffset ?? 0;
     if (!node || !editor.contains(node))
       return "the click point is outside the editor";
-    let lo = offset;
-    let hi = offset;
-    if (node instanceof Text) {
-      const segments = Array.from(
-        new Intl.Segmenter(undefined, {
-          granularity: gesture === "dblclick" ? "word" : "grapheme",
-        }).segment(node.data),
-      );
-      segments.forEach(({ index, segment }, i) => {
-        if (index < offset && index + segment.length >= offset) lo = index;
-        if (index <= offset && index + segment.length > offset) {
-          hi = index + segment.length;
-          const next = segments[i + 1]?.segment;
-          if (gesture === "dblclick" && next && !next.trim()) hi += next.length;
-        }
-      });
-    }
-    let from = offsetOf(node, lo);
-    let to = offsetOf(node, hi);
     let row: Element = editor;
+    let marker: Element | null = null;
     for (
       let el = node instanceof Element ? node : node.parentElement;
       el && el !== editor && editor.contains(el);
       el = el.parentElement
     ) {
       const parent = el.parentElement;
-      const own = strip(el.textContent).length;
+      const own = renderedText(el.textContent).length;
       if (
         parent &&
         parent.firstElementChild === el &&
         own >= 1 &&
         own <= 3 &&
-        strip(parent.textContent).length > own &&
+        renderedText(parent.textContent).length > own &&
         offsetOf(parent, 0) === offsetOf(el, 0)
       ) {
-        from = offsetOf(el, 0);
-        to = from + own;
         row = parent;
+        marker = el;
         break;
       }
       if (!getComputedStyle(el).display.startsWith("inline")) {
@@ -632,13 +617,70 @@ export function installInPageHelpers(chromeSelector: string) {
         break;
       }
     }
+    const rowStart = offsetOf(row, 0);
+    let from: number;
+    let to: number;
+    if (marker) {
+      from = offsetOf(marker, 0);
+      to = offsetOf(marker, marker.childNodes.length);
+    } else {
+      const rowTextRange = document.createRange();
+      rowTextRange.selectNodeContents(row);
+      const rowText = renderedText(rowTextRange.toString());
+      const pointRange = document.createRange();
+      pointRange.setStart(row, 0);
+      pointRange.setEnd(node, offset);
+      const pointOffset = renderedText(pointRange.toString()).length;
+      const segments = Array.from(
+        new Intl.Segmenter(undefined, {
+          granularity: gesture === "dblclick" ? "word" : "grapheme",
+        }).segment(rowText),
+      );
+      let localFrom = pointOffset;
+      let localTo = pointOffset;
+      let wordEnd: number | undefined;
+      if (gesture === "dblclick") {
+        const wordIndex = segments.findIndex(
+          ({ index, segment, isWordLike }) =>
+            isWordLike &&
+            index <= pointOffset &&
+            pointOffset <= index + segment.length,
+        );
+        if (wordIndex >= 0) {
+          const word = segments[wordIndex]!;
+          localFrom = word.index;
+          wordEnd = word.index + word.segment.length;
+          localTo = wordEnd;
+          const next = segments[wordIndex + 1]?.segment;
+          if (next && !next.trim()) localTo += next.length;
+          if (start - rowStart > localFrom || end - rowStart < wordEnd)
+            return "double-click did not select the complete word";
+        }
+      }
+      if (wordEnd === undefined) {
+        segments.forEach(({ index, segment }, i) => {
+          if (index < pointOffset && index + segment.length >= pointOffset)
+            localFrom = index;
+          if (index <= pointOffset && index + segment.length > pointOffset) {
+            localTo = index + segment.length;
+            const next = segments[i + 1]?.segment;
+            if (gesture === "dblclick" && next && !next.trim())
+              localTo += next.length;
+          }
+        });
+      }
+      from = rowStart + localFrom;
+      to = rowStart + localTo;
+    }
     const rowRange = document.createRange();
     rowRange.selectNode(row);
     const inRow =
       rowRange.comparePoint(sel.startContainer, sel.startOffset) === 0 &&
       rowRange.comparePoint(sel.endContainer, sel.endOffset) === 0;
     if (inRow && start >= from && end <= to) return null;
-    const total = strip(editor.textContent).length;
+    const editorTextRange = document.createRange();
+    editorTextRange.selectNodeContents(editor);
+    const total = renderedText(editorTextRange.toString()).length;
     return `selection at character ${start}${end !== start ? `-${end}` : ""} of ${total}${inRow ? "" : " in another row"}, click at ${from}${to !== from ? `-${to}` : ""}`;
   }
 

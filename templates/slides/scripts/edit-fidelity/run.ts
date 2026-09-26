@@ -542,6 +542,7 @@ async function settleSaved(
   deckId: string,
   slideId: string,
   writesInFlight: () => number,
+  minimumObservationMs = 2500,
 ) {
   const start = Date.now();
   let last = await getSlideContent(page, deckId, slideId);
@@ -553,7 +554,10 @@ async function settleSaved(
       last = now;
       lastChange = Date.now();
     }
-    if (Date.now() - start >= 2500 && Date.now() - lastChange >= 1200)
+    if (
+      Date.now() - start >= minimumObservationMs &&
+      Date.now() - lastChange >= 1200
+    )
       return last;
     if (Date.now() - start >= 75_000) {
       throw new Error(
@@ -1240,7 +1244,9 @@ async function runScenario(
         result.violations.push(
           "idempotence: edited text not found after reload",
         );
-      } else if (!(await enterEdit(page, slideId, again.point))) {
+      } else if (
+        !(await enterEdit(page, slideId, again.point, result.violations))
+      ) {
         result.violations.push(
           "idempotence: could not re-enter edit after reload",
         );

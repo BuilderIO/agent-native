@@ -43,6 +43,8 @@ export interface InPlaceTextSessionOptions {
    * unless the native selection (a double-clicked word) already covers it.
    */
   caretPoint?: { x: number; y: number } | null;
+  /** Select the word at `caretPoint`, as a native double-click would. */
+  selectWord?: boolean;
   /** Called after every change to the edited content. */
   onInput?: () => void;
 }
@@ -403,6 +405,24 @@ function textOffset(
  * earlier one, so a caret at the end of an item stays there; otherwise the
  * later one wins, so a caret after <br> does.
  */
+/** Select the word containing `offset` in `node`, when there is one. */
+function selectWordAt(node: Node, offset: number) {
+  if (!(node instanceof Text)) return;
+  const segments = new Intl.Segmenter(undefined, { granularity: "word" });
+  for (const { index, segment, isWordLike } of segments.segment(node.data)) {
+    if (!isWordLike || offset < index || offset > index + segment.length) {
+      continue;
+    }
+    const range = document.createRange();
+    range.setStart(node, index);
+    range.setEnd(node, index + segment.length);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    return;
+  }
+}
+
 function textPoint(
   root: Node,
   offset: number,
@@ -2132,6 +2152,9 @@ export function startInPlaceTextSession(
     selection.addRange(initialRange);
   } else if (point) {
     placeCaret(...point);
+    // A double-click in an object's move band has its default prevented, so
+    // the browser selected no word.
+    if (options.selectWord) selectWordAt(...point);
   } else {
     placeCaret(...textPoint(el, Infinity));
   }
