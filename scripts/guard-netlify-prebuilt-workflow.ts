@@ -1336,7 +1336,7 @@ if (
   betaBuildWith?.artifact_upload !== true ||
   typeof betaBuildWith?.artifact_name !== "string" ||
   !String(betaBuildWith.artifact_name).includes("github.run_id") ||
-  asRecord(betaBuildJob?.strategy)?.["max-parallel"] !== 16 ||
+  asRecord(betaBuildJob?.strategy)?.["max-parallel"] !== 8 ||
   !betaBuildNeeds.includes("resolve-source") ||
   !betaBuildNeeds.includes("discover-sites") ||
   !betaDeployNeeds.includes("resolve-source") ||

@@ -51,6 +51,7 @@ describe("RendererErrorBoundary", () => {
       container.querySelector("[data-renderer-error-boundary]"),
     ).not.toBeNull();
     expect(container.textContent).toContain("Something went wrong");
+    expect(container.textContent).not.toContain("Reload");
     expect(captureException).toHaveBeenCalledTimes(1);
     expect(captureException.mock.calls[0]?.[0]).toBeInstanceOf(Error);
   });

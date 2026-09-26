@@ -9,8 +9,13 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
 
+### Improved
+
+- Live preview snapshots stay private until an editor signs in and enables collaboration.
+
 ### Fixed
 
+- Live canvas sharing requires an account, with a sign-up path for signed-out owners.
 - Cross-screen moves preserve Flex and Grid sizing through undo and redo.
 - Moving a layer from one live app screen into another now lands it instead of failing with "Could not move that layer", and a failed move no longer leaves the layer stuck to the cursor.
 

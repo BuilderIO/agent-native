@@ -1,5 +1,14 @@
 # @agent-native/dispatch
 
+## 0.38.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [2ba6541]
+  - @agent-native/toolkit@0.21.2
+
 ## 0.38.9
 
 ### Patch Changes
@@ -1010,11 +1019,5 @@
 
 - a426c4f: Make Chat-first New chat, Integrations, and Scheduled navigation behave as selected tabs across Dispatch and Desktop, with Integrations promoted out of Settings into a full-page surface.
 - a426c4f: Fix Dispatch app navigation, sidebar selection state, embed-session refreshes, and app-list spacing.
-
-## 0.23.2
-
-### Patch Changes
-
-- 44ac2c4: Require explicit Slack mentions before dispatching channel turns.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -30,8 +30,13 @@ test.describe("drop containers", () => {
   const dragMoverOntoTarget = async (page: Page, primitive: string) => {
     const id = await newDesign(page, dropFixture(primitive));
     await openEditor(page, id);
+    // Scope to the authored screen iframe, not `.first()`: a cross-screen
+    // drag (every Move-tool drag posts cross-screen claim messages, even
+    // within one screen) mounts a board-surface iframe ahead of it that
+    // also matches `[data-design-preview-iframe]` but carries no
+    // `data-screen-iframe-id` — see e2e/drag-and-drop.shared.ts `node()`.
     const preview = page
-      .locator("iframe[data-design-preview-iframe]")
+      .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
       .first()
       .contentFrame();
     const mover = (await preview
@@ -90,7 +95,7 @@ test.describe("drop containers", () => {
     ).toBe("target");
 
     const placement = await page
-      .locator("iframe[data-design-preview-iframe]")
+      .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
       .first()
       .contentFrame()
       .locator("body")

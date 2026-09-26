@@ -6,6 +6,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: desktop-sso-canary-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
