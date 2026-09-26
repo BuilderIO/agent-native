@@ -385,7 +385,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
 });
 
 describe("summarizeAnalyticsRun", () => {
-  it("excludes monitor and replay lookups from query outcomes", () => {
+  it("counts source reads registered by their grounding metadata", () => {
     const events = [
       "list-monitors",
       "get-monitor-stats",
@@ -396,18 +396,35 @@ describe("summarizeAnalyticsRun", () => {
     ].map((tool) => ({ event: { type: "tool_start", tool } }));
 
     expect(
-      summarizeAnalyticsRun({ preloadedReferenceCount: 0, events }),
+      summarizeAnalyticsRun({
+        preloadedReferenceCount: 0,
+        groundingActionNames: [
+          "list-session-recordings",
+          "get-session-replay-events",
+          "get-session-replay-summary",
+          "get-session-replay-timeline",
+          "get-monitor",
+        ],
+        events,
+      }),
     ).toEqual({
       preloaded_reference_count: 0,
       tool_search_calls: 0,
       catalog_calls: 0,
-      query_calls: 0,
+      query_calls: 4,
     });
   });
 
   it("counts started calls and reads the first query error from its completion event", () => {
     const properties = summarizeAnalyticsRun({
       preloadedReferenceCount: 2,
+      groundingActionNames: [
+        "hubspot-records",
+        "prometheus",
+        "jira-search",
+        "gong-calls",
+        "sentry",
+      ],
       events: [
         {
           event: {
@@ -572,6 +589,17 @@ describe("summarizeAnalyticsRun", () => {
             isError: false,
           },
         },
+        ...["gong-calls", "sentry"].flatMap((tool, index) => [
+          { event: { type: "tool_start", tool, id: `provider-${index}` } },
+          {
+            event: {
+              type: "tool_done",
+              tool,
+              id: `provider-${index}`,
+              isError: false,
+            },
+          },
+        ]),
         {
           event: {
             type: "tool_start",
@@ -587,7 +615,7 @@ describe("summarizeAnalyticsRun", () => {
       preloaded_reference_count: 2,
       tool_search_calls: 1,
       catalog_calls: 4,
-      query_calls: 2,
+      query_calls: 7,
       first_query_errored: true,
     });
     expect(JSON.stringify(properties)).not.toMatch(/private|SELECT|rows/i);
@@ -597,6 +625,7 @@ describe("summarizeAnalyticsRun", () => {
     expect(
       summarizeAnalyticsRun({
         preloadedReferenceCount: 0,
+        groundingActionNames: [],
         events: [
           {
             event: {
@@ -613,6 +642,46 @@ describe("summarizeAnalyticsRun", () => {
       tool_search_calls: 0,
       catalog_calls: 0,
       query_calls: 1,
+    });
+  });
+
+  it("tracks provider read errors from the matching completion event", () => {
+    expect(
+      summarizeAnalyticsRun({
+        preloadedReferenceCount: 0,
+        groundingActionNames: ["hubspot-records"],
+        events: [
+          {
+            event: {
+              type: "tool_start",
+              tool: "hubspot-records",
+              id: "provider-1",
+            },
+          },
+          {
+            event: {
+              type: "tool_done",
+              tool: "hubspot-records",
+              id: "provider-other",
+              isError: false,
+            },
+          },
+          {
+            event: {
+              type: "tool_done",
+              tool: "hubspot-records",
+              id: "provider-1",
+              isError: true,
+            },
+          },
+        ],
+      }),
+    ).toEqual({
+      preloaded_reference_count: 0,
+      tool_search_calls: 0,
+      catalog_calls: 0,
+      query_calls: 1,
+      first_query_errored: true,
     });
   });
 });

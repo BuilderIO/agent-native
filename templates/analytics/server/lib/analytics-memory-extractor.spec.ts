@@ -292,4 +292,23 @@ describe("extractAnalyticsMemoryCandidates", () => {
       ]),
     ).toEqual([]);
   });
+
+  it("rejects names after explicit guidance verbs and SSN-shaped values", () => {
+    expect(
+      extractAnalyticsMemoryCandidates([
+        {
+          role: "user",
+          text: "Correction: exclude Jane Doe from the weekly retention report.",
+        },
+        {
+          role: "user",
+          text: "Remember that 123-45-6789 is the employee identifier for future reports.",
+        },
+        {
+          role: "user",
+          text: "Remember that 123456789 is the employee identifier for future reports.",
+        },
+      ]),
+    ).toEqual([]);
+  });
 });

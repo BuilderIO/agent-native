@@ -104,9 +104,15 @@ function containsLikelyCustomerOrPersonName(text: string): boolean {
       text,
     );
   const leadingNameWords = leadingName?.[1]?.trim().split(/\s+/) ?? [];
-  return Boolean(
+  if (
     leadingName &&
-    !leadingNameWords.every((word) => TECHNICAL_NAMES.has(word.toLowerCase())),
+    !leadingNameWords.every((word) => TECHNICAL_NAMES.has(word.toLowerCase()))
+  ) {
+    return true;
+  }
+
+  return /\b(?:exclude|include|ignore|remove|filter\s+out|focus\s+on)\s+(?:[A-Z][\p{L}'-]{2,}\s+){1,2}[A-Z][\p{L}'-]{2,}\s+(?:from|in|on|for|to|with)\b/u.test(
+    text,
   );
 }
 
@@ -119,6 +125,9 @@ function isUnsafe(text: string): boolean {
     ) ||
     /[{};]|=>|\$\{/.test(text) ||
     ADDRESS_DETAILS.test(text) ||
+    /(?:^|[^\d])(?!(?:000|666|9\d{2}))\d{3}[- ]?(?!00)\d{2}[- ]?(?!0000)\d{4}(?!\d)/.test(
+      text,
+    ) ||
     /\b(?:api\s*key|api\s*token|access\s*token|auth(?:entication)?\s*token|password|passphrase|credential|private\s+key|secret\s+key|client\s+secret|signing\s+key|secret|bearer|ssn|social security|credit card|card number|my name is|my email is|my phone|home address|date of birth)\b/i.test(
       text,
     ) ||

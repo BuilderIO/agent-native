@@ -1315,6 +1315,7 @@ export default createAgentChatPlugin({
     }
     const properties = summarizeAnalyticsRun({
       events: run.events,
+      groundingActionNames: GROUNDING_ACTION_NAMES,
       preloadedReferenceCount:
         getRequestRunContext()?.analyticsJevPrefetch?.preloadedReferenceCount ??
         0,
