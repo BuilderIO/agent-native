@@ -61,7 +61,13 @@ function previewFilenameForHref(
     return null;
   }
   if (target.origin !== "https://design-preview.invalid") return null;
-  const filename = decodeURIComponent(target.pathname).replace(/^\/+/, "");
+  let filename: string;
+  try {
+    filename = decodeURIComponent(target.pathname).replace(/^\/+/, "");
+  } catch {
+    // coercion-ok: malformed encoded preview href is an absent local target.
+    return null;
+  }
   return (
     files.find((file) => file.filename.replace(/^\/+/, "") === filename)
       ?.filename ?? null

@@ -7,7 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps, ReactElement, ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -32,6 +32,7 @@ const {
   callAction,
   contextOptions,
   refetchSystems,
+  headerActions,
 } = vi.hoisted(() => ({
   useDecks: vi.fn(),
   reloadDecks: vi.fn(),
@@ -46,6 +47,7 @@ const {
   callAction: vi.fn().mockResolvedValue(undefined),
   contextOptions: vi.fn(),
   refetchSystems: vi.fn(),
+  headerActions: { current: null as ReactNode | null },
 }));
 const translate = (key: string) =>
   ({
@@ -109,7 +111,9 @@ vi.mock("@agent-native/core/client/ui", () => ({
 }));
 vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
-  useSetHeaderActions: vi.fn(),
+  useSetHeaderActions: (actions: ReactNode) => {
+    headerActions.current = actions;
+  },
   useSetPageTitle: vi.fn(),
 }));
 vi.mock("@/context/DeckContext", () => ({
@@ -232,6 +236,7 @@ beforeEach(() => {
   agentEngine.missing = false;
   builderConnect.connecting = false;
   builderConnect.error = null;
+  headerActions.current = null;
   useBuilderConnectFlow.mockReturnValue(builderConnect);
   for (const name of ["localStorage", "sessionStorage"]) {
     const values = new Map<string, string>();
@@ -463,6 +468,23 @@ describe("Slides prompt-led home", () => {
       expect(screen.queryByRole("button", { name: /new deck/i })).toBeNull();
     },
   );
+
+  it("keeps the recent panel available while searching a shared-only home", async () => {
+    renderHome({ decks: [sharedDeck] });
+    const header = render(
+      (headerActions.current as ReactElement<{ search: ReactNode }>).props
+        .search,
+    );
+    fireEvent.change(
+      header.getAllByRole("searchbox", { name: "Search decks" })[0]!,
+      { target: { value: "shared" } },
+    );
+    expect(
+      await screen.findByRole("tabpanel", { name: "Recent" }),
+    ).toBeTruthy();
+    expect(screen.getByText("No decks match your search.")).toBeTruthy();
+    header.unmount();
+  });
 
   it("gates recents on the unfiltered owned collection, not matching search results", async () => {
     renderHome({ decks: [ownDeck, sharedDeck] });

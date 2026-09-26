@@ -222,7 +222,12 @@ export default function Index() {
   });
   const hasRecentDesigns =
     ownDesignsSummary.isSuccess && ownDesignsSummary.data.totalCount > 0;
-  const activeHomeSection = hasRecentDesigns ? homeSection : "templates";
+  const hasSearchResultsSection = normalizedSearch.length > 0;
+  const activeHomeSection = hasSearchResultsSection
+    ? "recent"
+    : hasRecentDesigns
+      ? homeSection
+      : "templates";
   const {
     data: templatesData,
     isLoading: templatesLoading,
@@ -1148,7 +1153,7 @@ export default function Index() {
         <PromptHomeLibrary
           value={activeHomeSection}
           onValueChange={setHomeSection}
-          showRecent={hasRecentDesigns}
+          showRecent={hasRecentDesigns || hasSearchResultsSection}
           labels={{
             templates: t("navigation.templates"),
             recent: t("home.recent"),

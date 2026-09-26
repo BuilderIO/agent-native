@@ -20,6 +20,7 @@ import {
 } from "../server/lib/import-design-files.js";
 import { parseFigmaFileKey, parseFigmaNodeId } from "../shared/figma-url.js";
 import createDesign from "./create-design.js";
+import deleteDesign from "./delete-design.js";
 
 const schemaInput = z
   .object({
@@ -128,26 +129,50 @@ export default defineAction({
         },
       );
 
-    const designId =
-      existingDesignId ??
-      (
-        await createDesign.run(
-          {
-            title: rootNode.name?.trim() || "Figma import",
-            projectType: "prototype",
-            designSystemId: null,
-          },
-          context,
-        )
-      ).id;
+    const createdDesignId = existingDesignId
+      ? undefined
+      : (
+          await createDesign.run(
+            {
+              title: rootNode.name?.trim() || "Figma import",
+              projectType: "prototype",
+              designSystemId: null,
+            },
+            context,
+          )
+        ).id;
+    const designId = existingDesignId ?? createdDesignId;
+    if (!designId) {
+      throw new Error("Figma import could not determine the new design id.");
+    }
     if (existingDesignId) {
       await snapshotDesignBeforeAgentEdit(designId, context);
     }
-    const saved = await saveImportedDesignFiles({
-      designId,
-      sourceType: "figma-import",
-      files,
-    });
+    let saved: Awaited<ReturnType<typeof saveImportedDesignFiles>>;
+    try {
+      saved = await saveImportedDesignFiles({
+        designId,
+        sourceType: "figma-import",
+        files,
+      });
+    } catch (error) {
+      if (createdDesignId) {
+        try {
+          await deleteDesign.run({ id: createdDesignId }, context);
+        } catch (cleanupError) {
+          const importMessage =
+            error instanceof Error ? error.message : String(error);
+          const cleanupMessage =
+            cleanupError instanceof Error
+              ? cleanupError.message
+              : String(cleanupError);
+          throw new Error(
+            `Figma import failed and its new design could not be cleaned up. Import error: ${importMessage}; cleanup error: ${cleanupMessage}`,
+          );
+        }
+      }
+      throw error;
+    }
 
     return {
       ...saved,

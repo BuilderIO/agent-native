@@ -591,6 +591,36 @@ describe("Index search empty state", () => {
     expect(container.textContent).not.toContain("home.pickStartingPoint");
     expect(container.textContent).toContain("Generated dashboard");
   });
+
+  it("keeps searched shared designs visible when the user owns no designs", async () => {
+    mocks.ownCount = 0;
+    await act(async () => root.render(<Index />));
+
+    headerContainer = document.createElement("div");
+    document.body.append(headerContainer);
+    headerRoot = createRoot(headerContainer);
+    await act(async () => {
+      headerRoot?.render(mocks.headerActions as ReactNode);
+    });
+
+    const searchInput = headerContainer.querySelector<HTMLInputElement>(
+      'input[aria-label="home.searchPlaceholder"]',
+    );
+    expect(searchInput).not.toBeNull();
+    await act(async () => {
+      if (!searchInput) throw new Error("Search input not found");
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(searchInput, "shared design");
+      searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      headerRoot?.render(mocks.headerActions as ReactNode);
+    });
+
+    expect(container.textContent).toContain("home.recent");
+  });
 });
 
 describe("home library", () => {

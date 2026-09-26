@@ -150,6 +150,9 @@ vi.mock("@/components/templates/TemplatePreview", () => ({
           >
             Blocked link fixture
           </button>
+          <button onClick={() => onNavigate?.("/50%off.html")}>
+            Malformed link fixture
+          </button>
           <button onClick={onEscape}>Escape fixture</button>
         </>
       ) : null}
@@ -329,6 +332,12 @@ describe("Design template library", () => {
     ).toBe("<button>Second screen</button>");
     await click(get("button", "first.html"));
     await click(get("button", "Blocked link fixture"));
+    expect(
+      dialog
+        .querySelector('[data-interactive="true"]')
+        ?.getAttribute("data-preview-title"),
+    ).toBe("first.html");
+    await click(get("button", "Malformed link fixture"));
     expect(
       dialog
         .querySelector('[data-interactive="true"]')

@@ -9,10 +9,14 @@ const mocks = vi.hoisted(() => ({
   ssrfSafeFetch: vi.fn(),
   uploadFile: vi.fn(),
   createDesign: vi.fn(),
+  deleteDesign: vi.fn(),
 }));
 
 vi.mock("./create-design.js", () => ({
   default: { run: mocks.createDesign },
+}));
+vi.mock("./delete-design.js", () => ({
+  default: { run: mocks.deleteDesign },
 }));
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
@@ -71,6 +75,7 @@ describe("import-figma-frame", () => {
     vi.clearAllMocks();
     mocks.getRequestUserEmail.mockReturnValue("designer@example.com");
     mocks.createDesign.mockResolvedValue({ id: "new-design" });
+    mocks.deleteDesign.mockResolvedValue({ id: "new-design", deleted: true });
     mocks.resolveImportDesignId.mockImplementation(
       async (designId?: string) => designId ?? "design-1",
     );
@@ -133,6 +138,27 @@ describe("import-figma-frame", () => {
     ).rejects.toThrow("No access");
     expect(mocks.createDesign).not.toHaveBeenCalled();
     expect(mocks.saveImportedDesignFiles).not.toHaveBeenCalled();
+  });
+
+  it("cleans up a new project when imported files cannot be persisted", async () => {
+    mocks.executeProviderApiRequest.mockResolvedValue(
+      jsonEnvelope({ nodes: { "1:2": SIMPLE_FRAME } }),
+    );
+    mocks.saveImportedDesignFiles.mockRejectedValue(
+      new Error("storage unavailable"),
+    );
+
+    await expect(
+      action.run({
+        fileKey: "abcDEF12345",
+        nodeId: "1:2",
+        createNew: true,
+      } as any),
+    ).rejects.toThrow("storage unavailable");
+    expect(mocks.deleteDesign).toHaveBeenCalledWith(
+      { id: "new-design" },
+      undefined,
+    );
   });
 
   it("rejects ambiguous or unauthenticated new targets before provider work", async () => {
