@@ -2,16 +2,20 @@
 vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => true,
 }));
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
   cleanup,
   fireEvent,
-  render,
+  render as renderWithoutQueryClient,
   screen,
+  type RenderOptions,
 } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Deck } from "@/context/DeckContext";
+import { SLIDE_FILE_STORAGE_STATUS_KEY } from "@/hooks/use-slide-file-storage-status";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: { title?: string }) => {
@@ -64,6 +68,17 @@ import {
   NewDeckReferenceStep,
   type ImportedReference,
 } from "./NewDeckReferenceStep";
+
+function render(ui: ReactNode, options?: RenderOptions) {
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(SLIDE_FILE_STORAGE_STATUS_KEY, { configured: true });
+  return renderWithoutQueryClient(ui, {
+    ...options,
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    ),
+  });
+}
 
 function renderStep(
   overrides: Partial<React.ComponentProps<typeof NewDeckReferenceStep>> = {},

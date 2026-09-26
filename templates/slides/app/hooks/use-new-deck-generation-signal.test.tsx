@@ -153,7 +153,7 @@ describe("useNewDeckGenerationSignal", () => {
     expect(state.attempt.timedOut).toBe(false);
   });
 
-  it("settles when the scoped observer watchdog expires", () => {
+  it("keeps generation active after the scoped observer watchdog expires", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -168,8 +168,16 @@ describe("useNewDeckGenerationSignal", () => {
     act(() => root.render(<Harness />));
 
     expect(state.attempt.timedOut).toBe(true);
-    expect(state.generating).toBe(false);
+    expect(state.generating).toBe(true);
     expect(state.generationStarted).toBe(true);
+    expect((container.firstChild as HTMLElement).dataset.clearUrl).toBe(
+      "false",
+    );
+
+    observerState.generating = false;
+    act(() => root.render(<Harness />));
+
+    expect(state.generating).toBe(false);
     expect((container.firstChild as HTMLElement).dataset.clearUrl).toBe("true");
   });
 });
