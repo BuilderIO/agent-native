@@ -1,8 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  accessFilter: vi.fn(() => undefined),
+  accessFilter: vi.fn(
+    (
+      _table: unknown,
+      _shares: unknown,
+      _context: unknown,
+      minRole?: string,
+    ) => ({ minRole: minRole ?? "viewer" }),
+  ),
   createZoomMeeting: vi.fn(),
+  deleteZoomMeeting: vi.fn(),
   getDb: vi.fn(),
   getFreeBusy: vi.fn(),
   getSession: vi.fn(),
@@ -73,11 +81,22 @@ vi.mock("../lib/google-calendar.js", () => ({
 
 vi.mock("../lib/zoom.js", () => ({
   createZoomMeeting: mocks.createZoomMeeting,
+  deleteZoomMeeting: mocks.deleteZoomMeeting,
+  needsZoomCancellationReview: vi.fn(() => false),
+}));
+
+vi.mock("../lib/booking-emails.js", () => ({
+  sendBookingCancellationEmails: vi.fn(),
+  sendBookingConfirmationEmails: vi.fn(),
 }));
 
 import { schema } from "../db/index.js";
 import { parseBookingConferencingConfig } from "../lib/booking-link-utils.js";
-import { createBooking, getAvailableSlots } from "./bookings.js";
+import {
+  cancelBookingById,
+  createBooking,
+  getAvailableSlots,
+} from "./bookings.js";
 
 const availability = {
   timezone: "UTC",
@@ -107,7 +126,13 @@ const bookingLink = {
   conferencing: undefined as string | undefined,
 };
 
-function createDb() {
+function createDb({
+  bookings = [],
+  requiredLinkRole,
+}: {
+  bookings?: Array<Record<string, unknown>>;
+  requiredLinkRole?: string;
+} = {}) {
   const update = vi.fn(() => ({
     set: vi.fn((values: Record<string, unknown>) => ({
       where: vi.fn(async () => {
@@ -147,8 +172,14 @@ function createDb() {
   return {
     select: vi.fn(() => ({
       from: vi.fn((table: unknown) => ({
-        where: vi.fn(async () =>
-          table === schema.bookingLinks ? [bookingLink] : [],
+        where: vi.fn(async (filter?: { minRole?: string }) =>
+          table === schema.bookings
+            ? bookings
+            : table === schema.bookingLinks
+              ? !requiredLinkRole || filter?.minRole === requiredLinkRole
+                ? [bookingLink]
+                : []
+              : [],
         ),
       })),
     })),
@@ -376,6 +407,37 @@ describe("draft booking availability previews", () => {
       ).toEqual({ status: "valid", config: { type: "custom", url } });
     },
   );
+
+  it("requires editor access before deleting a booking's Zoom meeting", async () => {
+    const db = createDb({
+      requiredLinkRole: "editor",
+      bookings: [
+        {
+          id: "booking-1",
+          slug: "saved-meeting",
+          status: "confirmed",
+          start: "2026-08-17T09:00:00.000Z",
+          end: "2026-08-17T09:30:00.000Z",
+          zoomMeetingId: "zoom-meeting-1",
+          zoomAccountId: "zoom-account-1",
+        },
+      ],
+    });
+    mocks.getDb.mockReturnValue(db);
+
+    await cancelBookingById("booking-1", "https://calendar.example.com");
+
+    expect(mocks.accessFilter).toHaveBeenCalledWith(
+      schema.bookingLinks,
+      schema.bookingLinkShares,
+      undefined,
+      "editor",
+    );
+    expect(mocks.deleteZoomMeeting).toHaveBeenCalledWith({
+      accountId: "zoom-account-1",
+      meetingId: "zoom-meeting-1",
+    });
+  });
 
   it("releases the slot when Zoom creation never starts", async () => {
     bookingLink.conferencing = JSON.stringify({ type: "zoom" });

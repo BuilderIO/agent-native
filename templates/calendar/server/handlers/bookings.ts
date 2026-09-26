@@ -1950,7 +1950,14 @@ export async function cancelBookingById(
       conferencing: schema.bookingLinks.conferencing,
     })
     .from(schema.bookingLinks)
-    .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+    .where(
+      accessFilter(
+        schema.bookingLinks,
+        schema.bookingLinkShares,
+        undefined,
+        "editor",
+      ),
+    );
   const link = accessibleLinks.find((item) => item.slug === existing.slug);
   if (!link) {
     throw createError({ statusCode: 403, statusMessage: "Access denied" });
