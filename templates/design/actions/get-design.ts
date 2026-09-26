@@ -73,23 +73,16 @@ export default defineAction({
     // batch share a `createdAt` to the millisecond and fall back to the id
     // tiebreak. Nothing may depend on the index matching the order a generator
     // wrote in — see the order-independence case in variant-lineup.test.ts.
-    const fileFields =
-      includeFileContent === false
-        ? {
-            id: schema.designFiles.id,
-            filename: schema.designFiles.filename,
-            fileType: schema.designFiles.fileType,
-            createdAt: schema.designFiles.createdAt,
-            updatedAt: schema.designFiles.updatedAt,
-          }
-        : {
-            id: schema.designFiles.id,
-            filename: schema.designFiles.filename,
-            fileType: schema.designFiles.fileType,
-            content: schema.designFiles.content,
-            createdAt: schema.designFiles.createdAt,
-            updatedAt: schema.designFiles.updatedAt,
-          };
+    const fileFields = {
+      id: schema.designFiles.id,
+      filename: schema.designFiles.filename,
+      fileType: schema.designFiles.fileType,
+      ...(includeFileContent === false
+        ? {}
+        : { content: schema.designFiles.content }),
+      createdAt: schema.designFiles.createdAt,
+      updatedAt: schema.designFiles.updatedAt,
+    };
     const files = await db
       .select(fileFields)
       .from(schema.designFiles)
