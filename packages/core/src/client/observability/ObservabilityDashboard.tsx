@@ -122,12 +122,6 @@ function latestReviewVote(
   );
 }
 
-function reviewRunIds(review: OutputReviewListRow): string[] {
-  return [
-    ...new Set([review.runId, ...(review.runs ?? []).map((run) => run.runId)]),
-  ];
-}
-
 const SUMMARY_RETRY_AFTER_MS = 10 * 60 * 1000;
 
 type OptimisticReviewVote = {
@@ -1148,15 +1142,7 @@ function ReviewTab({
       return next;
     });
   };
-  const getSummaryStatus = (review: OutputReviewListRow) => {
-    const statuses = reviewRunIds(review).map(
-      (runId) => summaryRequests[runId],
-    );
-    if (statuses.includes("sending")) return "sending";
-    if (statuses.includes("sent")) return "sent";
-    if (statuses.includes("failed")) return "failed";
-    return null;
-  };
+  const getSummaryStatus = (runId: string) => summaryRequests[runId] ?? null;
   const reviewRows =
     reviews?.filter(
       (review) =>
@@ -1438,11 +1424,8 @@ function ReviewTab({
       return (
         !review.summary &&
         !review.readOnly &&
-        !reviewRunIds(review).some(
-          (runId) =>
-            summaryRequests[runId] === "sending" ||
-            summaryRequests[runId] === "sent",
-        )
+        summaryRequests[review.runId] !== "sending" &&
+        summaryRequests[review.runId] !== "sent"
       );
     }) ?? [];
   const feedbackToImprove = (visibleReviews ?? []).flatMap((review) => {
@@ -1482,7 +1465,7 @@ function ReviewTab({
       batches.push(unsummarizedReviews.slice(offset, offset + 25));
     }
     const batchRunIds = batches.map((batch) =>
-      batch.flatMap((review) => reviewRunIds(review)),
+      batch.map((review) => review.runId),
     );
     setSummaryStatus("sending");
     updateSummaryRequests(batchRunIds.flat(), "sending");
@@ -1942,9 +1925,9 @@ function ReviewTab({
                         <ObservabilityReviewSummaryButton
                           runId={review.runId}
                           orgId={review.orgId}
-                          status={getSummaryStatus(review)}
+                          status={getSummaryStatus(review.runId)}
                           onStatusChange={(status) =>
-                            updateSummaryRequests(reviewRunIds(review), status)
+                            updateSummaryRequests([review.runId], status)
                           }
                           compact
                           background
@@ -2291,10 +2274,12 @@ function ReviewTab({
                             <ObservabilityReviewSummaryButton
                               runId={activeRunId ?? selectedReview.runId}
                               orgId={selectedReview.orgId}
-                              status={getSummaryStatus(selectedReview)}
+                              status={getSummaryStatus(
+                                activeRunId ?? selectedReview.runId,
+                              )}
                               onStatusChange={(status) =>
                                 updateSummaryRequests(
-                                  reviewRunIds(selectedReview),
+                                  [activeRunId ?? selectedReview.runId],
                                   status,
                                 )
                               }
