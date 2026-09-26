@@ -162,7 +162,7 @@ export async function disconnectZoom(ownerEmail: string) {
 
 /**
  * Create a Zoom meeting for a new booking. Picks the first Zoom account
- * owned by the host. `not_started` means no provider request was made.
+ * owned by the host. `not_started` means the meeting creation request was not sent.
  */
 export type ZoomMeetingResult =
   | { status: "created"; meetingUrl: string; meetingId: string }
@@ -177,15 +177,30 @@ export async function createZoomMeeting(opts: {
   timezone: string;
   attendees?: Array<{ email: string; name?: string }>;
 }): Promise<ZoomMeetingResult> {
-  const accounts = await listOAuthAccountsByOwner(PROVIDER, opts.hostEmail);
+  let accounts: Awaited<ReturnType<typeof listOAuthAccountsByOwner>>;
+  try {
+    accounts = await listOAuthAccountsByOwner(PROVIDER, opts.hostEmail);
+  } catch (error) {
+    console.error("Zoom meeting could not be prepared before creation:", error);
+    return { status: "not_started" };
+  }
   if (accounts.length === 0) return { status: "not_started" };
   const creds = getZoomCreds();
   if (!creds) return { status: "not_started" };
 
+  const credentialId = accounts[0].accountId;
+  let accessToken: string;
+  try {
+    accessToken = await resolveAccessToken(credentialId);
+  } catch (error) {
+    console.error("Zoom meeting could not be prepared before creation:", error);
+    return { status: "not_started" };
+  }
+
   const provider = createZoomProvider({
     clientId: creds.clientId,
     clientSecret: creds.clientSecret,
-    getAccessToken: (credentialId) => resolveAccessToken(credentialId),
+    getAccessToken: async () => accessToken,
     updateTokens: async (credentialId, tokens) => {
       const existing = (await getOAuthTokens(PROVIDER, credentialId)) ?? {};
       await saveOAuthTokens(PROVIDER, credentialId, {
@@ -197,7 +212,6 @@ export async function createZoomMeeting(opts: {
     },
   });
 
-  const credentialId = accounts[0].accountId;
   const result = await provider.createMeeting({
     credentialId,
     booking: {

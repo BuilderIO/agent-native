@@ -1,8 +1,11 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { DefaultSpinner } from "@agent-native/core/client/ui";
+import { getConfiguredAppBasePath } from "@agent-native/core/server";
 import { useQuery } from "@tanstack/react-query";
+import { and, eq, isNull } from "drizzle-orm";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useParams, useSearchParams } from "react-router";
 
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
@@ -15,12 +18,83 @@ import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 
+import { getDb, schema } from "../../server/db";
+import { isRecordingExpired } from "../../server/lib/recording-page-access";
 import { isLoomEmbedBackedRecording } from "../../shared/loom";
-import { clipsSharePageTitle } from "../../shared/share-meta";
+import {
+  buildClipsShareMeta,
+  clipsSharePageTitle,
+  type ClipsShareMetaRecording,
+} from "../../shared/share-meta";
 
-export function meta() {
-  return [{ title: "Clip" }];
+type EmbedMetaLoaderData = {
+  recording: ClipsShareMetaRecording | null;
+  origin: string;
+  basePath: string;
+  shareUrl: string;
+};
+
+export async function loader({ params, request }: LoaderFunctionArgs) {
+  const url = new URL(request.url);
+  const basePath = getConfiguredAppBasePath();
+  const [row] = params.shareId
+    ? await getDb()
+        .select({
+          id: schema.recordings.id,
+          title: schema.recordings.title,
+          description: schema.recordings.description,
+          thumbnailUrl: schema.recordings.thumbnailUrl,
+          animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+          visibility: schema.recordings.visibility,
+          status: schema.recordings.status,
+          sourceAppName: schema.recordings.sourceAppName,
+          videoUrl: schema.recordings.videoUrl,
+          expiresAt: schema.recordings.expiresAt,
+        })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, params.shareId),
+            eq(schema.recordings.visibility, "public"),
+            isNull(schema.recordings.password),
+            isNull(schema.recordings.archivedAt),
+            isNull(schema.recordings.trashedAt),
+          ),
+        )
+        .limit(1)
+    : [];
+  const recording =
+    row && !isRecordingExpired(row.expiresAt)
+      ? {
+          id: row.id,
+          title: row.title,
+          description: row.description,
+          thumbnailUrl: row.thumbnailUrl,
+          animatedThumbnailUrl: row.animatedThumbnailUrl,
+          visibility: "public" as const,
+          status: row.status,
+          hasPassword: false,
+          archivedAt: null,
+          trashedAt: null,
+          isLoomEmbedBacked: isLoomEmbedBackedRecording(row),
+        }
+      : null;
+
+  return {
+    recording,
+    origin: url.origin,
+    basePath,
+    shareUrl: `${url.origin}${url.pathname}`,
+  } satisfies EmbedMetaLoaderData;
 }
+
+export const meta: MetaFunction<typeof loader> = ({ loaderData }) =>
+  buildClipsShareMeta({
+    recording: loaderData?.recording ?? null,
+    origin: loaderData?.origin ?? null,
+    basePath: loaderData?.basePath ?? "",
+    shareUrl: loaderData?.shareUrl ?? null,
+  });
 
 const STORAGE_KEY_PREFIX = "clips-share-pw-";
 const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;

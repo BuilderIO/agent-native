@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/server";
 import {
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  buildResourceSocialMeta,
   safeJsonForHtml,
 } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -169,28 +170,24 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
             : "authorized",
       })
     : null;
+  const socialMeta =
+    loaderData?.document?.visibility === "public"
+      ? buildResourceSocialMeta({
+          title,
+          description,
+          origin: loaderData.origin,
+          basePath: loaderData.basePath,
+        })
+      : [
+          { name: "description", content: description },
+          { property: "og:title", content: title },
+          { property: "og:description", content: description },
+          { name: "twitter:title", content: title },
+          { name: "twitter:description", content: description },
+        ];
   return [
     { title },
-    {
-      name: "description",
-      content: description,
-    },
-    {
-      property: "og:title",
-      content: title,
-    },
-    {
-      property: "og:description",
-      content: description,
-    },
-    {
-      name: "twitter:title",
-      content: title,
-    },
-    {
-      name: "twitter:description",
-      content: description,
-    },
+    ...socialMeta,
     ...(discovery
       ? [
           {

@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 import {
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  buildResourceSocialMeta,
   buildAgentReadableResourceDiscovery,
   normalizeDocumentTitle,
   safeJsonForHtml,
@@ -14,6 +15,7 @@ import {
   type SharedDeckResponse,
   type SharedDeckSlide,
 } from "@shared/api";
+import { summarizeSlideContent } from "@shared/deck-title";
 import { eq } from "drizzle-orm";
 import { useEffect } from "react";
 import type {
@@ -37,6 +39,8 @@ type LoaderData =
       error?: undefined;
       id: string;
       basePath: string;
+      origin: string;
+      isPublic: boolean;
       agentAccessToken?: string | null;
     }
   | {
@@ -132,6 +136,8 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
         deck: toSharedDeck(deck),
         id,
         basePath,
+        origin: new URL(request.url).origin,
+        isPublic: deck.visibility === "public",
         agentAccessToken: tokenAccess ? agentAccessToken : null,
       },
       tokenAccess,
@@ -145,10 +151,23 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
-  const title = loaderData?.deck?.title
+  const socialTitle = loaderData?.deck?.title
     ? normalizeDocumentTitle(loaderData.deck.title, "Shared Presentation")
     : "Shared Presentation";
-  return [{ title: `${title} — Slides` }];
+  const description = summarizeSlideContent(
+    loaderData?.deck?.slides[0]?.content,
+  );
+  return [
+    { title: `${socialTitle} — Slides` },
+    ...(loaderData?.deck && loaderData.isPublic
+      ? buildResourceSocialMeta({
+          title: socialTitle,
+          description,
+          origin: loaderData.origin,
+          basePath: loaderData.basePath,
+        })
+      : []),
+  ];
 };
 
 export default function PublicDeckRoute() {

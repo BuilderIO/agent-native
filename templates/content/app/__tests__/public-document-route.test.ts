@@ -160,6 +160,55 @@ describe("public document route", () => {
     });
   });
 
+  it("uses document-aware social images only for public documents", () => {
+    const publicMeta =
+      meta({
+        loaderData: {
+          document: {
+            id: "doc-1",
+            title: "Launch notes",
+            content: "## Summary\n\n- Ship it",
+            visibility: "public",
+          },
+          agentAccessToken: null,
+          basePath: "/content",
+          origin: "https://content.example.test",
+        },
+      } as never) ?? [];
+    const imageDescriptor = publicMeta.find(
+      (item): item is { property: string; content: string } =>
+        "property" in item && "content" in item && item.property === "og:image",
+    );
+    if (!imageDescriptor) throw new Error("Public document image is missing");
+    const image = new URL(imageDescriptor.content);
+
+    expect(image.pathname).toBe("/content/_agent-native/og-image.png");
+    expect(image.searchParams.get("title")).toBe("Launch notes");
+    expect(image.searchParams.get("accentText")).toContain("Ship it");
+
+    const privateMeta =
+      meta({
+        loaderData: {
+          document: null,
+          agentAccessToken: null,
+          basePath: "/content",
+          origin: "https://content.example.test",
+          unavailable: {
+            reason: "private",
+            id: "doc-1",
+            basePath: "/content",
+          },
+        },
+      } as never) ?? [];
+
+    expect(
+      privateMeta.some(
+        (item) => "property" in item && item.property === "og:image",
+      ),
+    ).toBe(false);
+    expect(JSON.stringify(privateMeta)).not.toContain("Launch notes");
+  });
+
   it("serves a public document without private loader headers", async () => {
     resultQueue.current = [documentRows("public")];
 

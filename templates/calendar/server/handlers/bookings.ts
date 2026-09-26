@@ -1475,6 +1475,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     let meetingLink: string | undefined;
     let googleEventId: string | undefined;
     let calendarAccountId: string | undefined;
+    let zoomCreationFailed = false;
 
     // For custom-URL conferencing, use the static URL — only http(s).
     if (conferencing?.type === "custom" && conferencing.url) {
@@ -1518,9 +1519,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         );
         // Zoom may have created the meeting even if its response was lost or
         // unreadable, so keep the booking to reserve the slot and prevent a
-        // retry from silently creating a duplicate meeting.
-        setResponseStatus(event, 502);
-        return { error: "Failed to create booking" };
+        // retry from silently creating a duplicate meeting. Finish the
+        // independent calendar write before returning the provider error.
+        zoomCreationFailed = true;
       }
     }
 
@@ -1618,6 +1619,11 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         .update(schema.bookings)
         .set(providerUpdates)
         .where(eq(schema.bookings.id, id));
+    }
+
+    if (zoomCreationFailed) {
+      setResponseStatus(event, 502);
+      return { error: "Failed to create booking" };
     }
 
     const booking: Booking = {

@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   getSetting: vi.fn(),
   getUserSetting: vi.fn(),
+  getDefaultAccountSelection: vi.fn(),
+  createGoogleEvent: vi.fn(),
+  dbUpdates: [] as Array<Record<string, unknown>>,
   isConnected: vi.fn(),
   listEvents: vi.fn(),
   insertedBookings: [] as Array<Record<string, unknown>>,
@@ -50,6 +53,7 @@ vi.mock("h3", async () => {
     ...actual,
     defineEventHandler: (handler: unknown) => handler,
     getQuery: (event: { query: Record<string, unknown> }) => event.query,
+    getRequestURL: () => new URL("https://calendar.example.com/book"),
     setResponseStatus: mocks.setResponseStatus,
   };
 });
@@ -64,8 +68,9 @@ vi.mock("../db/index.js", async () => {
 });
 
 vi.mock("../lib/google-calendar.js", () => ({
+  createEvent: mocks.createGoogleEvent,
   deleteEvent: vi.fn(),
-  getDefaultAccountSelection: vi.fn(),
+  getDefaultAccountSelection: mocks.getDefaultAccountSelection,
   getFreeBusy: mocks.getFreeBusy,
   isConnected: mocks.isConnected,
   listEvents: mocks.listEvents,
@@ -110,6 +115,7 @@ function createDb() {
   const update = vi.fn(() => ({
     set: vi.fn((values: Record<string, unknown>) => ({
       where: vi.fn(async () => {
+        mocks.dbUpdates.push(values);
         if (values.status === "cancelled") {
           const booking = [...mocks.insertedBookings]
             .reverse()
@@ -160,6 +166,7 @@ describe("draft booking availability previews", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.insertedBookings.length = 0;
+    mocks.dbUpdates.length = 0;
     bookingLink.conferencing = undefined;
     // Slot generation drops anything before `Date.now()`, so the Monday this
     // asserts on has to stay in the future or every slot vanishes.
@@ -183,6 +190,10 @@ describe("draft booking availability previews", () => {
       start: "2026-08-17T09:00:00.000Z",
     });
     mocks.isConnected.mockResolvedValue(true);
+    mocks.getDefaultAccountSelection.mockResolvedValue({
+      accountEmail: "owner@example.com",
+    });
+    mocks.createGoogleEvent.mockResolvedValue({ id: "google-event-id" });
     mocks.getFreeBusy.mockResolvedValue({
       calendars: {
         "owner@example.com": { busy: [] },
@@ -288,6 +299,18 @@ describe("draft booking availability previews", () => {
     expect(mocks.insertedBookings).toHaveLength(1);
     expect(mocks.insertedBookings[0]).toEqual(
       expect.objectContaining({ status: "confirmed" }),
+    );
+    expect(mocks.createGoogleEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.any(String) }),
+      expect.objectContaining({
+        account: { accountEmail: "owner@example.com" },
+      }),
+    );
+    expect(mocks.dbUpdates).toContainEqual(
+      expect.objectContaining({
+        googleEventId: "google-event-id",
+        calendarAccountId: "owner@example.com",
+      }),
     );
 
     const retryResponse = await (createBooking as any)({});
