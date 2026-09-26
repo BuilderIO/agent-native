@@ -208,7 +208,7 @@
     "typescript-7": "catalog:",
     "vitest": "catalog:",
     "wrangler": "^4.80.0",
-    "yaml": "2.9.0"
+    "yaml": "2.9.1"
   },
   "engines": {
     "node": ">=22.22.0"
