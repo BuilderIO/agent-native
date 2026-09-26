@@ -8,7 +8,15 @@ const collab = vi.hoisted(() => ({
   initialization: { status: "loading" as "loading" | "ready" },
 }));
 const editorProps = vi.hoisted(() => vi.fn());
-const fileStorage = vi.hoisted(() => ({ configured: false }));
+const fileStorage = vi.hoisted(() => ({
+  configured: false,
+  isError: false,
+  refetch: vi.fn(),
+  setupCardRendered: false,
+}));
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
 
 vi.mock("@agent-native/core/client/collab", () => ({
   useCollaborativeDoc: () => ({
@@ -28,10 +36,19 @@ vi.mock("@agent-native/toolkit/editor", () => ({
 }));
 vi.mock("@agent-native/core/client/uploads", () => ({
   uploadEditorImage: vi.fn(),
-  useFileUploadStatus: () => ({ data: { configured: fileStorage.configured } }),
+  useFileUploadStatus: () => ({
+    data: fileStorage.isError
+      ? undefined
+      : { configured: fileStorage.configured },
+    isError: fileStorage.isError,
+    refetch: fileStorage.refetch,
+  }),
 }));
 vi.mock("@agent-native/core/client/setup-connections", () => ({
-  FileStorageSetupCard: () => null,
+  FileStorageSetupCard: () => {
+    fileStorage.setupCardRendered = true;
+    return null;
+  },
 }));
 vi.mock("./PlanImageNode", () => ({
   PlanImageNode: {
@@ -46,6 +63,9 @@ describe("PlanMarkdownEditor collaboration initialization", () => {
     editorProps.mockClear();
     collab.initialization = { status: "loading" };
     fileStorage.configured = false;
+    fileStorage.isError = false;
+    fileStorage.refetch.mockClear();
+    fileStorage.setupCardRendered = false;
   });
 
   it("keeps the non-collaborative fallback inert until state is ready", () => {
@@ -85,6 +105,7 @@ describe("PlanMarkdownEditor collaboration initialization", () => {
     const root = createRoot(container);
     act(() => root.render(<PlanMarkdownEditor {...props} />));
 
+    expect(fileStorage.setupCardRendered).toBe(true);
     expect(editorProps.mock.lastCall?.[0]).toMatchObject({
       onImageUpload: null,
       slashItems: [],
@@ -98,6 +119,36 @@ describe("PlanMarkdownEditor collaboration initialization", () => {
       slashItems: [{}],
       extraExtensions: [{ options: { onImageUpload: expect.any(Function) } }],
     });
+    act(() => root.unmount());
+    vi.unstubAllEnvs();
+  });
+
+  it("offers status retry instead of missing-storage setup after a probe error", () => {
+    vi.stubEnv("DEV", false);
+    fileStorage.isError = true;
+    const props = {
+      markdown: "Canonical body",
+      onSave: vi.fn(),
+    };
+
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    act(() => root.render(<PlanMarkdownEditor {...props} />));
+
+    expect(editorProps.mock.lastCall?.[0]).toMatchObject({
+      onImageUpload: null,
+      slashItems: [],
+      extraExtensions: [{ options: { onImageUpload: null } }],
+    });
+    expect(fileStorage.setupCardRendered).toBe(false);
+    const retryButton = container.querySelector("button");
+    expect(retryButton?.textContent).toBe("plansPage.loadError.retry");
+    expect(container.textContent).toContain(
+      "plansPage.loadError.storageStatusUnavailable",
+    );
+    act(() => retryButton?.click());
+    expect(fileStorage.refetch).toHaveBeenCalledOnce();
+
     act(() => root.unmount());
     vi.unstubAllEnvs();
   });

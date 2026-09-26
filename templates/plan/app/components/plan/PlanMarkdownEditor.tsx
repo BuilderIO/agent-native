@@ -3,6 +3,7 @@ import {
   useCollaborativeDoc,
   type CollabUser,
 } from "@agent-native/core/client/collab";
+import { useT } from "@agent-native/core/client/i18n";
 import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
 import {
   uploadEditorImage,
@@ -16,6 +17,7 @@ import {
 } from "@agent-native/toolkit/editor";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { PlanImageNode } from "./PlanImageNode";
@@ -70,7 +72,13 @@ export function PlanMarkdownEditor({
 }: PlanMarkdownEditorProps) {
   const fileUploadStatus = useFileUploadStatus();
   const canUploadImages =
-    import.meta.env.DEV || fileUploadStatus.data?.configured === true;
+    import.meta.env.DEV ||
+    (!fileUploadStatus.isError && fileUploadStatus.data?.configured === true);
+  const storageMissing =
+    !import.meta.env.DEV &&
+    !fileUploadStatus.isError &&
+    fileUploadStatus.data?.configured === false;
+  const t = useT();
   const onSaveRef = useRef(onSave);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPersistedMarkdownRef = useRef(markdown);
@@ -206,9 +214,27 @@ export function PlanMarkdownEditor({
         awareness={collabEnabled ? awareness : null}
         user={collabEnabled ? collabUser : null}
       />
-      {!canUploadImages && editable ? (
+      {storageMissing && editable ? (
         <div className="mt-4">
           <FileStorageSetupCard />
+        </div>
+      ) : null}
+      {fileUploadStatus.isError && editable && !import.meta.env.DEV ? (
+        <div
+          className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4"
+          role="status"
+        >
+          <p className="text-sm text-muted-foreground">
+            {t("plansPage.loadError.storageStatusUnavailable")}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void fileUploadStatus.refetch()}
+          >
+            {t("plansPage.loadError.retry")}
+          </Button>
         </div>
       ) : null}
     </div>
