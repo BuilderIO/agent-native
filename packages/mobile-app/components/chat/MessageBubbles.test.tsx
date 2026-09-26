@@ -51,6 +51,14 @@ vi.mock("react-native-reanimated", async () => {
   };
   return { default: { View }, FadeIn: transition, FadeInDown: transition };
 });
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) =>
+    key === "message.mobileInteractiveTitle"
+      ? "Interactive content"
+      : key === "message.mobileInteractiveDescription"
+        ? "This interactive view is available in web chat, but not in native chat yet."
+        : key,
+}));
 
 vi.mock("@tabler/icons-react-native", () =>
   Object.fromEntries(
@@ -175,6 +183,53 @@ describe("native assistant connection cards", () => {
       expect(
         container.querySelector('[data-testid="generic-tool"]'),
       ).toBeNull();
+    },
+  );
+
+  it.each([
+    { kind: "MCP App", metadata: { mcpApp: { html: "<p>App</p>" } } },
+    { kind: "custom chat UI", metadata: { chatUI: { renderer: "custom" } } },
+  ])(
+    "keeps the $kind fallback visible after completed work",
+    ({ metadata }) => {
+      const message: ChatMessage = {
+        id: "assistant-interactive",
+        role: "assistant",
+        createdAt: 0,
+        parts: [
+          {
+            type: "tool-call",
+            toolCallId: "tool-search",
+            toolName: "search_hidden_in_summary",
+            inputText: "{}",
+            status: "completed",
+          },
+          {
+            type: "tool-call",
+            toolCallId: "tool-interactive",
+            toolName: "interactive_tool",
+            inputText: "{}",
+            status: "completed",
+            ...metadata,
+          },
+        ],
+      };
+
+      act(() => {
+        root.render(
+          <AssistantMessage
+            message={message}
+            animateIn={false}
+            showFooter={false}
+            canChat
+          />,
+        );
+      });
+
+      expect(container.textContent).toContain("Interactive content");
+      expect(container.textContent).toContain("available in web chat");
+      expect(container.textContent).toContain("Worked");
+      expect(container.textContent).not.toContain("search_hidden_in_summary");
     },
   );
 });

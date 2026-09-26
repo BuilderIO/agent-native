@@ -56,6 +56,58 @@ describe("controlled composer context", () => {
       container.querySelector('button[aria-label="Add context"]'),
     ).toBeNull();
   });
+  it("requests storage setup only after choosing Upload File", async () => {
+    const onAttachmentRequest = vi.fn();
+    await mount({
+      attachmentsEnabled: false,
+      plusMenuMode: "full",
+      onAttachmentRequest,
+    });
+    expect(onAttachmentRequest).not.toHaveBeenCalled();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[data-agent-composer-slot="plus-button"]',
+        )!
+        .click();
+    });
+    const uploadFile = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("Upload File"));
+    expect(uploadFile).toBeDefined();
+    await act(async () => uploadFile!.click());
+
+    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+    expect(onAttachmentRequest).toHaveBeenCalledWith(
+      expect.any(HTMLButtonElement),
+    );
+  });
+
+  it("requests storage setup from the upload-only button", async () => {
+    const onAttachmentRequest = vi.fn();
+    await mount({
+      attachmentsEnabled: false,
+      onAttachmentRequest,
+      plusMenuMode: "upload-only",
+    });
+
+    expect(onAttachmentRequest).not.toHaveBeenCalled();
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add context"]',
+    )!;
+    await act(async () =>
+      trigger.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      ),
+    );
+    const uploadFile = document.querySelector<HTMLElement>('[role="menuitem"]');
+    expect(uploadFile).toBeDefined();
+    expect(uploadFile?.textContent).toContain("Upload File");
+    await act(async () => uploadFile!.click());
+    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+    expect(onAttachmentRequest).toHaveBeenCalledWith(expect.any(HTMLElement));
+  });
   async function mount(props: Partial<PromptComposerProps> = {}) {
     const composerRef = React.createRef<TiptapComposerHandle>();
     const onSubmit = vi.fn();

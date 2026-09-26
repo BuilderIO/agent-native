@@ -22,6 +22,16 @@ const messages: AgentChatTranslation = {
     "Le contexte est trop volumineux. Supprimez un élément ou joignez une sélection plus petite.",
   "activity.reasoning": "Raisonnement",
   "activity.groupLabel": "Activité de l’agent",
+  "activity.agents": "Collaboration entre agents",
+  "activity.tasks": "Tâches des agents",
+  "agent.started": "a commencé à travailler",
+  "agent.resumed": "a repris le travail",
+  "agent.messaged": "a envoyé un message",
+  "agent.delegated": "a délégué le travail",
+  "agent.paused": "a mis le travail en pause",
+  "agent.completed": "a terminé",
+  "agent.failed": "nécessite une attention particulière",
+  "agent.closed": "a fermé",
   "approval.alwaysAllow": "Toujours autoriser",
   "approval.alwaysAllowHint":
     "Approuver et toujours autoriser cette commande exacte",
@@ -34,6 +44,9 @@ const messages: AgentChatTranslation = {
   "approval.deny": "Refuser",
   "approval.moreOptions": "Plus d’options d’approbation",
   "approval.question": "Approuver l’exécution de {{tool}} ?",
+  "approval.submit": "Soumettre",
+  "approval.other": "Autre",
+  "approval.otherPlaceholder": "Saisissez votre réponse",
   "auth.expiredDescription":
     "Votre session a peut-être expiré. Déconnectez-vous, puis reconnectez-vous pour rétablir la connexion.",
   "auth.expiredTitle": "Session expirée",
@@ -284,6 +297,7 @@ const messages: AgentChatTranslation = {
   "empty.prompt": "Comment puis-je vous aider ?",
   "error.afterDuration": "{{headline}} après {{duration}}",
   "error.failed": "L’agent a rencontré une erreur",
+  "error.render": "Impossible d’afficher ce contenu.",
   "error.stopped": "L’agent s’est arrêté avant d’avoir terminé",
   "header.switchToCli": "Passer à la CLI",
   "history.active": "Actif",
@@ -307,6 +321,11 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "Recommandé",
   "integrations.subtitle":
     "Connectez les outils que votre agent peut utiliser.",
+  "connection.connecting": "Connexion en cours…",
+  "connection.notNow": "Pas maintenant",
+  "connection.failed": "Échec de la connexion",
+  "connection.adminRequired":
+    "Demandez à un administrateur de l’espace de travail de connecter ce service.",
   "limit.account": "votre compte",
   "limit.descriptionAll":
     "L’agent a utilisé toutes les étapes disponibles. Continuez dans une nouvelle interaction ou augmentez d’abord la limite de {{scope}}.",
@@ -326,6 +345,9 @@ const messages: AgentChatTranslation = {
   "message.requestIdUnavailable": "ID de requête indisponible",
   "message.edit": "Modifier le message",
   "message.forkChat": "Dupliquer le chat",
+  "message.mobileInteractiveTitle": "Contenu interactif",
+  "message.mobileInteractiveDescription":
+    "Cette vue interactive est disponible dans le chat Web, mais pas encore dans le chat natif.",
   "message.missingFinal":
     "L’agent s’est arrêté sans envoyer de message final. Demandez-lui de continuer ou réessayez.",
   "message.messages": "Liste des messages",

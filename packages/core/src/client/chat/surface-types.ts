@@ -315,7 +315,7 @@ export interface AssistantChatProps {
    */
   runtime?: AgentChatRuntime;
   /**
-   * Explicitly recreate an injected adapter when the host transport identity
+   * Explicitly recreate an injected adapter or runtime when its identity
    * changes. Omit for the production sidebar so parent rerenders do not reset
    * active chats.
    */

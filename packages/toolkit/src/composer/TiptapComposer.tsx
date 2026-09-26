@@ -789,6 +789,8 @@ export interface TiptapComposerProps {
   maxDocumentAttachmentBytes?: number;
   /** Disable file attachments while keeping text chat available. */
   attachmentsEnabled?: boolean;
+  /** Called when the user requests an upload while attachments are unavailable. */
+  onAttachmentRequest?: (anchor?: HTMLElement) => void;
   /** Label used in the visible document attachment limit error. */
   documentAttachmentLimitLabel?: string;
   focusRef?: React.Ref<TiptapComposerHandle>;
@@ -2470,6 +2472,7 @@ export function TiptapComposer({
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
   attachmentsEnabled = true,
+  onAttachmentRequest,
   focusRef,
   initialText,
   initialTextKey,
@@ -4305,6 +4308,7 @@ export function TiptapComposer({
             addAttachment={
               attachmentsEnabled ? addAttachmentForCurrentScope : undefined
             }
+            onAttachmentRequest={onAttachmentRequest}
             attachmentAccept={composerRuntime.getState().attachmentAccept}
             onAttachmentError={onAttachmentError}
             disabled={disabled}
@@ -4313,6 +4317,7 @@ export function TiptapComposer({
           <ComposerPlusMenu
             addAttachment={addAttachmentForCurrentScope}
             attachmentsEnabled={attachmentsEnabled}
+            onAttachmentRequest={onAttachmentRequest}
             attachmentAccept={composerRuntime.getState().attachmentAccept}
             onSelectMode={handleSelectMode}
             mode={plusMenuMode}

@@ -879,13 +879,25 @@ describe("AgentKitChat", () => {
       <AgentKitProvider
         controller={client}
         threadId="thread-1"
+        slots={{
+          messageActionsTrailing: () => (
+            <button data-testid="history-action">Revert to here</button>
+          ),
+        }}
         onThreadForked={() => undefined}
       >
         <AgentKitChat composer={false} />
       </AgentKitProvider>,
     );
 
-    expect(htmlWithNavigation).toContain('aria-label="Fork conversation"');
+    expect(htmlWithNavigation).toContain('aria-label="Message actions"');
+    expect(htmlWithNavigation).not.toContain('aria-label="Fork conversation"');
+    expect(
+      htmlWithNavigation.indexOf('class="agentkit-message-actions-trailing"'),
+    ).toBeLessThan(htmlWithNavigation.indexOf('data-testid="history-action"'));
+    expect(
+      htmlWithNavigation.indexOf('data-testid="history-action"'),
+    ).toBeLessThan(htmlWithNavigation.indexOf('aria-label="Message actions"'));
     expect(htmlWithNavigation).toContain('aria-label="Regenerate response"');
 
     const htmlWithComposer = renderToStaticMarkup(
@@ -924,7 +936,7 @@ describe("AgentKitChat", () => {
     expect(htmlWithHostComposer).toContain('data-mention-label="latest run"');
   });
 
-  it("places tool results before the final assistant message", async () => {
+  it("keeps completed tool UIs outside the collapsible work summary", async () => {
     const transport: AgentTransport = {
       async startRun() {
         return { runId: "run-tool-result" };
@@ -963,61 +975,93 @@ describe("AgentKitChat", () => {
           ...base,
           id: "event-2",
           sequence: 3,
-          type: "tool.started",
-          toolCall: {
-            id: "tool-1",
-            name: "mcp__docs__search",
-            status: "running",
-          },
-        } as const;
-        yield {
-          ...base,
-          id: "event-3",
-          sequence: 4,
           type: "activity.started",
           activity: {
-            id: "tool-1",
+            id: "activity-1",
             kind: "search",
             label: "Searching documents",
             status: "running",
           },
         } as const;
-        yield {
-          ...base,
-          id: "event-4",
-          sequence: 5,
-          type: "tool.updated",
-          toolCall: {
-            id: "tool-1",
+        const toolCalls = [
+          {
+            id: "tool-chat-ui",
+            name: "show-chart",
+            output: "Rendered chart widget.",
+            metadata: { chatUI: { renderer: "core.data-chart" } },
+          },
+          {
+            id: "tool-mcp-app",
             name: "mcp__docs__search",
             output: "Found three matching documents.",
-            status: "completed",
+            metadata: {
+              mcpApp: { name: "Docs", url: "https://example.test/docs" },
+            },
           },
-        } as const;
+          {
+            id: "tool-connect-builder",
+            name: "connect-builder",
+            output: JSON.stringify({ kind: "connect-builder-card" }),
+          },
+        ] as const;
+        let sequence = 4;
+        let eventIndex = 3;
+        for (const toolCall of toolCalls) {
+          yield {
+            ...base,
+            id: `event-${eventIndex++}`,
+            sequence: sequence++,
+            type: "tool.started",
+            toolCall: { ...toolCall, status: "running" },
+          } as const;
+          if (toolCall.id === "tool-mcp-app") {
+            yield {
+              ...base,
+              id: `event-${eventIndex++}`,
+              sequence: sequence++,
+              type: "activity.started",
+              activity: {
+                id: toolCall.id,
+                kind: "search",
+                label: "Searching documents",
+                status: "running",
+              },
+            } as const;
+          }
+          yield {
+            ...base,
+            id: `event-${eventIndex++}`,
+            sequence: sequence++,
+            type: "tool.updated",
+            toolCall: { ...toolCall, status: "completed" },
+          } as const;
+          if (toolCall.id === "tool-mcp-app") {
+            yield {
+              ...base,
+              id: `event-${eventIndex++}`,
+              sequence: sequence++,
+              type: "activity.completed",
+              activity: {
+                id: toolCall.id,
+                kind: "search",
+                label: "Searched documents",
+                status: "completed",
+              },
+            } as const;
+          }
+        }
         yield {
           ...base,
-          id: "event-5",
-          sequence: 6,
-          type: "activity.completed",
-          activity: {
-            id: "tool-1",
-            kind: "search",
-            label: "Searched documents",
-            status: "completed",
-          },
-        } as const;
-        yield {
-          ...base,
-          id: "event-6",
-          sequence: 7,
+          id: `event-${eventIndex++}`,
+          sequence: sequence++,
           type: "message.delta",
           messageId: "assistant-1",
           text: " The slide is updated.",
         } as const;
         yield {
           ...base,
-          id: "event-7",
-          sequence: 8,
+          id: `event-${eventIndex++}`,
+          sequence: sequence++,
           type: "message.completed",
           message: {
             id: "assistant-1",
@@ -1033,8 +1077,8 @@ describe("AgentKitChat", () => {
         } as const;
         yield {
           ...base,
-          id: "event-8",
-          sequence: 9,
+          id: `event-${eventIndex}`,
+          sequence,
           type: "run.completed",
         } as const;
       },
@@ -1043,10 +1087,18 @@ describe("AgentKitChat", () => {
     function ToolResult({
       value,
     }: {
-      value: { id: string; output?: unknown };
+      value: {
+        id: string;
+        name: string;
+        output?: unknown;
+        metadata?: Record<string, unknown>;
+      };
     }) {
       return (
-        <output data-tool-result={value.id}>{String(value.output)}</output>
+        <output data-tool-result={value.id} data-tool-name={value.name}>
+          {String(value.output)}
+          {JSON.stringify(value.metadata ?? {})}
+        </output>
       );
     }
     const client = new AgentKitClient({ transport });
@@ -1066,15 +1118,22 @@ describe("AgentKitChat", () => {
       </AgentKitProvider>,
     );
 
-    const resultIndex = html.indexOf('data-tool-result="tool-1"');
     const activityIndex = html.indexOf('class="agentkit-activities"');
     const finalMessageIndex = html.indexOf("The slide is updated.");
-    expect(resultIndex).toBeGreaterThanOrEqual(0);
-    expect(activityIndex).toBeGreaterThan(resultIndex);
+    for (const toolId of [
+      "tool-chat-ui",
+      "tool-mcp-app",
+      "tool-connect-builder",
+    ]) {
+      const resultIndex = html.indexOf(`data-tool-result="${toolId}"`);
+      expect(resultIndex).toBeGreaterThanOrEqual(0);
+      expect(activityIndex).toBeGreaterThan(resultIndex);
+    }
     expect(finalMessageIndex).toBeGreaterThan(activityIndex);
-    expect(html.slice(resultIndex, activityIndex)).toContain(
-      "Found three matching documents.",
-    );
+    expect(html).toContain("core.data-chart");
+    expect(html).toContain("Found three matching documents.");
+    expect(html).toContain("&quot;name&quot;:&quot;Docs&quot;");
+    expect(html).toContain("&quot;kind&quot;:&quot;connect-builder-card&quot;");
   });
 
   it("passes product slots, labels, and registries through the AgentChat facade", async () => {

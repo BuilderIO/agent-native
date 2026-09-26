@@ -24,6 +24,7 @@ import { messageText } from "@/lib/agent-chat/types";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
 
 import { MarkdownText } from "./MarkdownText";
+import { NativeInteractiveResult } from "./NativeInteractiveResult";
 import { ShineText } from "./ShineText";
 import { MessageContext } from "./StreamingFade";
 import { ToolCallCard } from "./ToolCallCard";
@@ -326,15 +327,7 @@ function AssistantPart({
   return (
     <View className="gap-2">
       {part.mcpApp || part.chatUI ? (
-        <View className="mx-0.5 rounded-2xl border border-border-dark bg-card-dark p-4 gap-1.5">
-          <Text className="text-foreground text-[14px] font-semibold">
-            Interactive content
-          </Text>
-          <Text className="text-text-muted text-[13px] leading-5">
-            This interactive view is available in web chat, but not in native
-            chat yet.
-          </Text>
-        </View>
+        <NativeInteractiveResult part={part} />
       ) : null}
       <ToolCallCard
         part={part}

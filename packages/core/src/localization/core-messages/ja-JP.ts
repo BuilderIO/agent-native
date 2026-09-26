@@ -23,6 +23,16 @@ const messages: AgentChatTranslation = {
     "コンテキストが大きすぎます。項目を削除するか、より小さな選択範囲を添付してください。",
   "activity.reasoning": "推論",
   "activity.groupLabel": "エージェントのアクティビティ",
+  "activity.agents": "エージェントの連携",
+  "activity.tasks": "エージェントのタスク",
+  "agent.started": "作業を開始しました",
+  "agent.resumed": "作業を再開しました",
+  "agent.messaged": "メッセージを送信しました",
+  "agent.delegated": "作業を委任しました",
+  "agent.paused": "作業を一時停止しました",
+  "agent.completed": "完了しました",
+  "agent.failed": "対応が必要です",
+  "agent.closed": "終了しました",
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":
     "この完全に同じコマンドを承認し、今後も常に許可します",
@@ -34,6 +44,9 @@ const messages: AgentChatTranslation = {
   "approval.deny": "拒否",
   "approval.moreOptions": "その他の承認オプション",
   "approval.question": "{{tool}} の実行を承認しますか？",
+  "approval.submit": "送信",
+  "approval.other": "その他",
+  "approval.otherPlaceholder": "回答を入力",
   "auth.expiredDescription":
     "セッションの有効期限が切れた可能性があります。再接続するには、ログアウトしてからもう一度ログインしてください。",
   "auth.expiredTitle": "セッションの有効期限が切れました",
@@ -490,6 +503,7 @@ const messages: AgentChatTranslation = {
   "empty.prompt": "どのようにお手伝いできますか？",
   "error.afterDuration": "{{duration}} 後に{{headline}}",
   "error.failed": "エージェントでエラーが発生しました",
+  "error.render": "このコンテンツを表示できませんでした。",
   "error.stopped": "エージェントは完了前に停止しました",
   "errorMessages.agentConnection":
     "エージェントとの接続が中断されました。接続を確認して再試行してください。",
@@ -562,6 +576,11 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "管理",
   "integrations.recommended": "おすすめ",
   "integrations.subtitle": "エージェントが使用できるツールを接続します。",
+  "connection.connecting": "接続中…",
+  "connection.notNow": "今はしない",
+  "connection.failed": "接続に失敗しました",
+  "connection.adminRequired":
+    "このサービスを接続するには、ワークスペース管理者に依頼してください。",
   "limit.account": "アカウント",
   "limit.descriptionAll":
     "エージェントは使用可能なすべてのステップを使い切りました。新しいターンで続行するか、先に{{scope}}の上限を引き上げてください。",
@@ -582,6 +601,9 @@ const messages: AgentChatTranslation = {
   "message.requestIdUnavailable": "リクエスト ID を利用できません",
   "message.edit": "メッセージを編集",
   "message.forkChat": "チャットを分岐",
+  "message.mobileInteractiveTitle": "インタラクティブコンテンツ",
+  "message.mobileInteractiveDescription":
+    "このインタラクティブビューはWebチャットでは利用できますが、ネイティブチャットではまだ利用できません。",
   "message.missingFinal":
     "エージェントは最終メッセージを送信せずに停止しました。続行するよう依頼するか、再試行してください。",
   "message.messages": "メッセージ",

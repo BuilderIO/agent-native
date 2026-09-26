@@ -9,6 +9,7 @@ const getSessionTokenMock = vi.hoisted(() => vi.fn());
 const expoFetchMock = vi.hoisted(() => vi.fn());
 
 vi.mock("expo/fetch", () => ({ fetch: expoFetchMock }));
+vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
 vi.mock("@/lib/session-token-store", () => ({
   getSessionToken: getSessionTokenMock,
 }));

@@ -1249,7 +1249,10 @@ export function isMcpConnectionSuggestionText(text: string): boolean {
     /\b(?:isn't|is not|aren't|are not|hasn't|has not|not|never)\s+(?:currently\s+)?connected\b/i.test(
       normalized,
     ) ||
-    /\b(?:no|without)\s+(?:a\s+)?(?:connection|access)\b/i.test(normalized);
+    /\b(?:no|without)\s+(?:a\s+)?(?:connection|access)\b/i.test(normalized) ||
+    /\b(?:needs?|requires?|must|should)\s+to\s+be\s+connected\b/i.test(
+      normalized,
+    );
   const hasMissingAccess =
     /\b(?:don't|do not|cannot|can't|unable)\b[\s\S]{0,80}\baccess\b/i.test(
       normalized,

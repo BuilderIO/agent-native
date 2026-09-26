@@ -2751,6 +2751,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onModelSelectorOpenChange"
     | "modelStatusChecksEnabled"
     | "attachmentsEnabled"
+    | "onAttachmentRequest"
     | "onTextChange"
     | "contextItems"
     | "onRemoveContextItem"
@@ -2827,6 +2828,7 @@ export function AgentKitComposer({
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
   attachmentsEnabled,
+  onAttachmentRequest,
   onTextChange,
   contextItems,
   onRemoveContextItem,
@@ -3287,6 +3289,7 @@ export function AgentKitComposer({
         planModeDisabledReason={planModeDisabledReason}
         stopButton={stopButton}
         attachmentsEnabled={canUpload}
+        onAttachmentRequest={onAttachmentRequest}
         slashCommands={slashCommands}
         slashSkills={slashSkills}
         includeDefaultSlashCommands={includeDefaultSlashCommands ?? false}

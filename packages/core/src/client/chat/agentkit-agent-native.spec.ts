@@ -189,22 +189,28 @@ describe("createAgentNativeAgentKitTransport", () => {
       "run.status",
       "run.completed",
     ]);
-    expect(runStateMocks.dispatchAgentChatRunning).toHaveBeenCalledWith({
-      isRunning: true,
-      phase: "responding",
-      threadId: "thread-1",
-      tabId: "thread-1",
-      runId: "run-2",
-      reason: "response_started",
-    });
-    expect(runStateMocks.dispatchAgentChatRunning).toHaveBeenCalledWith({
-      isRunning: false,
-      phase: "idle",
-      threadId: "thread-1",
-      tabId: "thread-1",
-      runId: "run-2",
-      reason: "run.completed",
-    });
+    expect(runStateMocks.dispatchAgentChatRunning).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isRunning: true,
+        phase: "responding",
+        threadId: "thread-1",
+        tabId: "thread-1",
+        runId: "run-2",
+        turnId: expect.any(String),
+        reason: "response_started",
+      }),
+    );
+    expect(runStateMocks.dispatchAgentChatRunning).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isRunning: false,
+        phase: "idle",
+        threadId: "thread-1",
+        tabId: "thread-1",
+        runId: "run-2",
+        turnId: expect.any(String),
+        reason: "run.completed",
+      }),
+    );
     expect(
       events.find((event) => event.type === "suggestions.updated"),
     ).toMatchObject({

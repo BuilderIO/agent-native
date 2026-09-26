@@ -1076,7 +1076,7 @@ function AgentKitHistoryRevertButton({
   );
 }
 
-/** Install as AgentKit `slots.messageSupplement` to preserve built-in actions. */
+/** Install as AgentKit `slots.messageActionsTrailing`. */
 export function AgentKitHistoryMessageSupplement({
   value,
 }: AgentKitRenderProps<AgentMessage>) {
@@ -1087,12 +1087,10 @@ export function AgentKitHistoryMessageSupplement({
   const version = history.findVersion(message);
   if (!version) return null;
   return (
-    <div className="flex justify-end px-3 pb-1">
-      <AgentKitHistoryRevertButton
-        version={version}
-        label={t("agentChat.message.revertHere")}
-      />
-    </div>
+    <AgentKitHistoryRevertButton
+      version={version}
+      label={t("agentChat.message.revertHere")}
+    />
   );
 }
 

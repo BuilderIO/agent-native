@@ -10,16 +10,15 @@ import {
   type RealtimeVoiceModeProviderProps,
   type TiptapComposerProps,
 } from "@agent-native/toolkit/composer";
+import { useCallback, useState } from "react";
 
 import { readClientAppState } from "../application-state.js";
 import { ExternalAgentNudge } from "../external-agent-host.js";
-import { FileStorageSetupCard } from "../FileStorageSetupCard.js";
-import { useT } from "../i18n.js";
+import { FileStorageSetupPopover } from "../FileStorageSetupCard.js";
 import { useFileUploadStatus } from "../uploads/use-file-upload-status.js";
 import { CoreComposerRuntimeProvider } from "./runtime-adapters.js";
 
 export function PromptComposer(props: PromptComposerProps) {
-  const t = useT();
   const fileUploadStatus = useFileUploadStatus(
     props.attachmentsEnabled !== false,
   );
@@ -27,35 +26,49 @@ export function PromptComposer(props: PromptComposerProps) {
     fileUploadStatus.data?.configured === true && !fileUploadStatus.isError;
   const attachmentsEnabled =
     props.attachmentsEnabled !== false && fileStorageConfigured;
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
+  const [storageAnchorRect, setStorageAnchorRect] = useState<DOMRect | null>(
+    null,
+  );
+  const requestStorageSetup = useCallback((anchor?: HTMLElement) => {
+    const target =
+      anchor ??
+      (document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null);
+    setStorageAnchorRect(target?.getBoundingClientRect() ?? null);
+    window.setTimeout(() => setStorageSetupOpen(true), 220);
+  }, []);
+  const onAttachmentRequest =
+    props.onAttachmentRequest ??
+    (props.attachmentsEnabled !== false && !fileStorageConfigured
+      ? requestStorageSetup
+      : undefined);
 
   return (
     <div className="relative w-full min-w-0">
-      {props.attachmentsEnabled !== false && !fileStorageConfigured ? (
-        fileUploadStatus.data?.configured === false &&
-        !fileUploadStatus.isError ? (
-          <FileStorageSetupCard />
-        ) : (
-          <div
-            className="mb-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
-            role="status"
-          >
-            <span>{t("onboarding.fileStorage.title")}</span>
-            {fileUploadStatus.isError ? (
-              <button
-                type="button"
-                className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => void fileUploadStatus.refetch()}
-              >
-                {t("agentChat.common.retry")}
-              </button>
-            ) : null}
-          </div>
-        )
-      ) : null}
+      <FileStorageSetupPopover
+        open={storageSetupOpen && !fileStorageConfigured}
+        onOpenChange={(open) => {
+          setStorageSetupOpen(open);
+          if (!open) setStorageAnchorRect(null);
+        }}
+        onConnected={() => void fileUploadStatus.refetch()}
+        onRetryStatus={() => void fileUploadStatus.refetch()}
+        status={
+          fileUploadStatus.isError
+            ? "unavailable"
+            : fileUploadStatus.data?.configured === false
+              ? "missing"
+              : "checking"
+        }
+        anchorRect={storageAnchorRect}
+      />
       <CoreComposerRuntimeProvider>
         <ToolkitPromptComposer
           {...props}
           attachmentsEnabled={attachmentsEnabled}
+          onAttachmentRequest={onAttachmentRequest}
         />
       </CoreComposerRuntimeProvider>
       <ExternalAgentNudge variant="prompt" />

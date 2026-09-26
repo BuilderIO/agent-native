@@ -1,17 +1,160 @@
 import { ActionButton } from "@agent-native/toolkit/design-system";
 import { Button } from "@agent-native/toolkit/ui/button";
-import { useCallback, useEffect, useState } from "react";
+import { IconCloudUpload, IconLoader2 } from "@tabler/icons-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   fetchFileUploadStatus,
   invalidateClientStatusRequest,
 } from "./client-status-requests.js";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "./components/ui/popover.js";
 import { useT } from "./i18n.js";
 import { DeferredBuilderConnectPopover as BuilderConnectPopover } from "./settings/deferred-builder-connect-popover.js";
 import {
   BuilderConnectCard,
   DefaultBuilderConnectCardView,
 } from "./setup-connections/BuilderConnectCard.js";
+
+export interface FileStorageSetupPopoverProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConnected?: () => void;
+  status?: "checking" | "missing" | "unavailable";
+  onRetryStatus?: () => void;
+  anchorRect?: DOMRect | null;
+}
+
+/** Only show storage setup after the user asks to upload a file. */
+export function FileStorageSetupPopover({
+  open,
+  onOpenChange,
+  onConnected,
+  status = "missing",
+  onRetryStatus,
+  anchorRect,
+}: FileStorageSetupPopoverProps) {
+  const t = useT();
+  const virtualAnchorRef = useRef({
+    getBoundingClientRect: () => anchorRect ?? new DOMRect(),
+  });
+  virtualAnchorRef.current = {
+    getBoundingClientRect: () => anchorRect ?? new DOMRect(),
+  };
+  const openCustomStorage = () => {
+    onOpenChange(false);
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:open-settings", {
+        detail: { section: "uploads" },
+      }),
+    );
+  };
+
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverAnchor virtualRef={virtualAnchorRef} />
+      <PopoverContent
+        side="bottom"
+        align="start"
+        aria-label={t("onboarding.fileStorage.title")}
+        className="w-72 gap-2 p-3"
+        data-testid="file-storage-setup-popover"
+      >
+        {status === "checking" ? (
+          <div
+            className="flex items-center gap-2 text-xs text-muted-foreground"
+            role="status"
+          >
+            <IconLoader2 className="size-3.5 animate-spin" />
+            {t("common.loading")}
+          </div>
+        ) : (
+          <>
+            <h2 className="flex items-center gap-2 text-sm font-medium leading-5">
+              <IconCloudUpload
+                aria-hidden="true"
+                className="size-4 shrink-0 text-muted-foreground"
+              />
+              {t("onboarding.fileStorage.title")}
+            </h2>
+            {status === "unavailable" ? (
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs text-muted-foreground" role="status">
+                  {t("secrets.statusUnavailable")}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 shrink-0 px-2 text-xs"
+                  onClick={onRetryStatus}
+                >
+                  {t("agentChat.common.retry")}
+                </Button>
+              </div>
+            ) : null}
+            <BuilderConnectCard
+              title={t("onboarding.fileStorage.title")}
+              description=""
+              trackingSource="file_upload_chat_popover"
+              onConnected={onConnected}
+              render={({ viewModel }) => {
+                const flow = viewModel.connectFlow;
+                const connectButton = (
+                  <Button
+                    type="button"
+                    className="w-full"
+                    disabled={!flow || viewModel.pending}
+                    aria-busy={viewModel.pending}
+                  >
+                    {viewModel.pending
+                      ? t("onboarding.builderConnecting")
+                      : t("agentPanel.connectBuilderIo")}
+                  </Button>
+                );
+
+                return (
+                  <div className="grid gap-2">
+                    {flow ? (
+                      <BuilderConnectPopover
+                        flow={flow}
+                        defaultProvisionAccount
+                        onConnect={(provisionAccount) =>
+                          flow.start({ provisionAccount })
+                        }
+                      >
+                        {connectButton}
+                      </BuilderConnectPopover>
+                    ) : (
+                      connectButton
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      onClick={openCustomStorage}
+                    >
+                      {t("agentPanel.addOwnKeys")}
+                    </Button>
+                    {viewModel.error ? (
+                      <p className="text-xs text-destructive">
+                        {viewModel.error}
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              }}
+            />
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 /**
  * Inline storage setup shown when an attachment cannot be made durable.

@@ -5,7 +5,11 @@
  * unrelated panels, settings, editors, and observability UI on cold start.
  */
 export { CoreComposerRuntimeProvider } from "./core-composer-runtime.js";
-export { GuidedQuestionFlow, useGuidedQuestionFlow } from "./questions.js";
+export {
+  GuidedQuestionFlow,
+  GuidedQuestionProviderGate,
+  useGuidedQuestionFlow,
+} from "./questions.js";
 export { useChatThreads, type ChatThreadSummary } from "../use-chat-threads.js";
 export {
   isAgentChatHomeHandoffActive,

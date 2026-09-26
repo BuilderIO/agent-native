@@ -22,6 +22,16 @@ const messages: AgentChatTranslation = {
     "Der Kontext ist zu groß. Entferne ein Element oder füge eine kleinere Auswahl hinzu.",
   "activity.reasoning": "Überlegung",
   "activity.groupLabel": "Agentenaktivität",
+  "activity.agents": "Zusammenarbeit der Agenten",
+  "activity.tasks": "Agentenaufgaben",
+  "agent.started": "hat die Arbeit begonnen",
+  "agent.resumed": "hat die Arbeit wieder aufgenommen",
+  "agent.messaged": "hat eine Nachricht gesendet",
+  "agent.delegated": "hat Arbeit delegiert",
+  "agent.paused": "hat die Arbeit pausiert",
+  "agent.completed": "hat die Arbeit abgeschlossen",
+  "agent.failed": "braucht Aufmerksamkeit",
+  "agent.closed": "wurde geschlossen",
   "approval.alwaysAllow": "Immer erlauben",
   "approval.alwaysAllowHint":
     "Diesen exakten Befehl genehmigen und immer erlauben",
@@ -34,6 +44,9 @@ const messages: AgentChatTranslation = {
   "approval.deny": "Ablehnen",
   "approval.moreOptions": "Weitere Genehmigungsoptionen",
   "approval.question": "Ausführung von {{tool}} genehmigen?",
+  "approval.submit": "Absenden",
+  "approval.other": "Sonstiges",
+  "approval.otherPlaceholder": "Antwort eingeben",
   "auth.expiredDescription":
     "Deine Sitzung ist möglicherweise abgelaufen. Melde dich ab und wieder an, um die Verbindung wiederherzustellen.",
   "auth.expiredTitle": "Sitzung abgelaufen",
@@ -285,6 +298,7 @@ const messages: AgentChatTranslation = {
   "empty.prompt": "Wie kann ich dir helfen?",
   "error.afterDuration": "{{headline}} nach {{duration}}",
   "error.failed": "Beim Agenten ist ein Fehler aufgetreten",
+  "error.render": "Dieser Inhalt konnte nicht angezeigt werden.",
   "error.stopped": "Der Agent wurde vor Abschluss gestoppt",
   "header.switchToCli": "Zur CLI wechseln",
   "history.active": "Aktiv",
@@ -307,6 +321,11 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "Verwalten",
   "integrations.recommended": "Empfohlen",
   "integrations.subtitle": "Verbinde die Tools, die dein Agent nutzen kann.",
+  "connection.connecting": "Verbindung wird hergestellt…",
+  "connection.notNow": "Nicht jetzt",
+  "connection.failed": "Verbindung fehlgeschlagen",
+  "connection.adminRequired":
+    "Bitte wende dich an einen Workspace-Admin, um diesen Dienst zu verbinden.",
   "limit.account": "deines Kontos",
   "limit.descriptionAll":
     "Der Agent hat alle verfügbaren Schritte verwendet. Fahre in einem neuen Durchlauf fort oder erhöhe zuerst das Limit {{scope}}.",
@@ -326,6 +345,9 @@ const messages: AgentChatTranslation = {
   "message.requestIdUnavailable": "Anfrage-ID nicht verfügbar",
   "message.edit": "Nachricht bearbeiten",
   "message.forkChat": "Chat abzweigen",
+  "message.mobileInteractiveTitle": "Interaktive Inhalte",
+  "message.mobileInteractiveDescription":
+    "Diese interaktive Ansicht ist im Web-Chat verfügbar, aber noch nicht im nativen Chat.",
   "message.missingFinal":
     "Der Agent wurde gestoppt, ohne eine abschließende Nachricht zu senden. Bitte ihn, fortzufahren, oder versuche es erneut.",
   "message.messages": "Nachrichten",

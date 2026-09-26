@@ -709,7 +709,7 @@ export default function PromptPopover({
                 className={
                   inline ? "slides-home-prompt-composer-area" : undefined
                 }
-                attachmentsEnabled={fileStorageConfigured}
+                attachmentsEnabled
                 showModelSelector={showModelSelector}
                 modelStatusChecksEnabled={modelStatusChecksEnabled}
                 submissionDisabled={submissionDisabled}
@@ -747,16 +747,6 @@ export default function PromptPopover({
                 onModelSelectionChange={setModelSelection}
               />
             </div>
-
-            {!storageQuery.isLoading ? (
-              <div className="border-t border-border/60 px-3 py-2.5">
-                <UploadStorageGate
-                  configured={fileStorageConfigured}
-                  unavailable={storageQuery.isError}
-                  onRetry={() => void storageQuery.refetch()}
-                />
-              </div>
-            ) : null}
 
             {uploading && (
               <div

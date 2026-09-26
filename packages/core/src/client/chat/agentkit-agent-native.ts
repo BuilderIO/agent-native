@@ -65,6 +65,16 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function protocolTurnId(metadata: unknown): string | undefined {
+  const native = asRecord(
+    asRecord(metadata)?.[AGENT_NATIVE_PROTOCOL_METADATA_KEY],
+  );
+  const observability = asRecord(native?.observability);
+  return typeof observability?.turnId === "string"
+    ? observability.turnId
+    : undefined;
+}
+
 function scopeObject(scope: unknown): AgentObjectReference | undefined {
   const value = asRecord(scope);
   if (typeof value?.id !== "string" || typeof value.type !== "string") {
@@ -907,7 +917,19 @@ export function createAgentNativeAgentKitTransport(
       });
       const assistantMessageIds = new Set<string>();
       let responseStarted = false;
+      let turnId: string | undefined;
       for await (const event of subscribeToRun(input)) {
+        turnId ??= protocolTurnId(event.metadata);
+        if (event.type === "run.started" && turnId) {
+          dispatchAgentChatRunning({
+            isRunning: true,
+            phase: "working",
+            threadId: input.threadId,
+            tabId: input.threadId,
+            runId: input.runId,
+            turnId,
+          });
+        }
         if (
           event.type === "message.created" &&
           event.message.role === "assistant"
@@ -931,6 +953,7 @@ export function createAgentNativeAgentKitTransport(
             threadId: input.threadId,
             tabId: input.threadId,
             runId: input.runId,
+            ...(turnId ? { turnId } : {}),
             reason: "response_started",
           });
         }
@@ -945,6 +968,7 @@ export function createAgentNativeAgentKitTransport(
             threadId: input.threadId,
             tabId: input.threadId,
             runId: input.runId,
+            ...(turnId ? { turnId } : {}),
             reason: event.type,
           });
         }

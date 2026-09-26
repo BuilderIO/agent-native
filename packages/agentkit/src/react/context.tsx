@@ -114,6 +114,8 @@ export interface AgentKitSlots {
   /** Host-owned contextual UI rendered after message content and before actions. */
   messageSupplement?: ComponentType<AgentKitRenderProps<AgentMessage>>;
   messageActions?: ComponentType<AgentKitRenderProps<AgentMessage>>;
+  /** Host-owned actions aligned with the trailing message-action group. */
+  messageActionsTrailing?: ComponentType<AgentKitRenderProps<AgentMessage>>;
   text?: ComponentType<
     AgentKitRenderProps<Extract<AgentMessagePart, { type: "text" }>>
   >;

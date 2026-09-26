@@ -1,8 +1,37 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, createElement, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/toolkit/design-system", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@agent-native/toolkit/design-system")
+    >();
+  return {
+    ...actual,
+    Popover: ({
+      trigger,
+      children,
+      open,
+      onOpenChange,
+      className,
+    }: {
+      trigger: ReactNode;
+      children: ReactNode;
+      open?: boolean;
+      onOpenChange?: (open: boolean) => void;
+      className?: string;
+    }) =>
+      createElement(
+        "div",
+        { className, onClick: () => onOpenChange?.(!open) },
+        trigger,
+        open ? children : null,
+      ),
+  };
+});
 
 import { AgentKitClient } from "../client/index.js";
 import type { AgentTransport } from "../protocol/index.js";
@@ -10,6 +39,102 @@ import { AgentKitChat, AgentMessageActions } from "./components.js";
 import { AgentKitProvider } from "./context.js";
 
 describe("AgentKitChat interactions", () => {
+  it("offers fork from the message actions menu", async () => {
+    const forkThread = vi.fn(async (input) => ({
+      id: `${input.threadId}-fork`,
+      createdAt: "2026-09-26T00:00:00.000Z",
+      updatedAt: "2026-09-26T00:00:00.000Z",
+    }));
+    const transport: AgentTransport = {
+      capabilities: { threadForking: true },
+      forkThread,
+      async *subscribeToRun() {},
+      async cancelRun() {},
+      async getThreadSnapshot(threadId) {
+        return {
+          id: threadId,
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:00:00.000Z",
+          messages: [
+            {
+              id: "user-actions",
+              role: "user",
+              status: "complete",
+              parts: [{ type: "text", text: "Make a change." }],
+            },
+            {
+              id: "assistant-actions",
+              role: "assistant",
+              status: "complete",
+              parts: [{ type: "text", text: "Done." }],
+            },
+          ],
+        };
+      },
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-actions");
+    const onThreadForked = vi.fn();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider
+            controller={client}
+            threadId="thread-actions"
+            onThreadForked={onThreadForked}
+          >
+            <AgentKitChat composer={false} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="Message actions"]',
+          )
+          ?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      const forkItem = Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+      ).find((item) => item.textContent?.trim().startsWith("Fork"));
+      expect(forkItem).toBeDefined();
+      await act(async () => {
+        forkItem?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(forkThread).toHaveBeenCalledWith(
+        expect.objectContaining({ threadId: "thread-actions" }),
+        expect.anything(),
+      );
+      expect(onThreadForked).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "thread-actions-fork" }),
+      );
+    } finally {
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      await client.shutdown();
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
   it("edits a user message on a fork and resubmits it", async () => {
     const forkThread = vi.fn(async (input) => ({
       id: `${input.threadId}-fork`,
@@ -62,7 +187,7 @@ describe("AgentKitChat interactions", () => {
             threadId="thread-edit"
             onThreadForked={onThreadForked}
           >
-            <AgentKitChat />
+            <AgentKitChat composerProps={{ modelStatusChecksEnabled: false }} />
           </AgentKitProvider>,
         );
         await Promise.resolve();
@@ -83,6 +208,7 @@ describe("AgentKitChat interactions", () => {
         '[data-agent-composer-slot="send-button"]',
       );
       expect(sendButton).not.toBeNull();
+      expect(sendButton?.disabled).toBe(false);
       await act(async () => {
         sendButton?.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -374,6 +500,88 @@ describe("AgentKitChat interactions", () => {
         expect.stringContaining("too-large.txt"),
       );
     } finally {
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
+  it("disables transcript file drops when the host disables uploads", async () => {
+    const transport: AgentTransport = {
+      capabilities: { uploads: true },
+      async startRun() {
+        return { runId: "run-storage-disabled" };
+      },
+      async *subscribeToRun() {},
+      async cancelRun() {},
+      async getThreadSnapshot(threadId) {
+        return {
+          id: threadId,
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:00:00.000Z",
+          messages: [],
+        };
+      },
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-storage-disabled");
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    const attachedFiles = vi.fn();
+    window.addEventListener("agentkit:attach-files", attachedFiles);
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider
+            controller={client}
+            threadId="thread-storage-disabled"
+          >
+            <AgentKitChat composerProps={{ attachmentsEnabled: false }} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+      const chat = container.querySelector<HTMLElement>(".agentkit-chat");
+      expect(chat).not.toBeNull();
+      const dataTransfer = {
+        types: ["Files"],
+        files: [new File(["notes"], "notes.txt", { type: "text/plain" })],
+        dropEffect: "none",
+      };
+      const dragEnter = new Event("dragenter", {
+        bubbles: true,
+        cancelable: true,
+      });
+      Object.defineProperty(dragEnter, "dataTransfer", { value: dataTransfer });
+      const drop = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(drop, "dataTransfer", { value: dataTransfer });
+
+      await act(async () => {
+        chat?.dispatchEvent(dragEnter);
+        chat?.dispatchEvent(drop);
+        await Promise.resolve();
+      });
+
+      expect(dragEnter.defaultPrevented).toBe(false);
+      expect(drop.defaultPrevented).toBe(false);
+      expect(attachedFiles).not.toHaveBeenCalled();
+      expect(container.textContent).not.toContain("Drop files to attach");
+    } finally {
+      window.removeEventListener("agentkit:attach-files", attachedFiles);
       await act(async () => {
         root.unmount();
         await Promise.resolve();

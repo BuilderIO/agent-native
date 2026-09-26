@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, createElement } from "react";
+import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,7 +11,13 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentKitAssistantChat: (props: Record<string, unknown>) => {
     mocks.assistantChats(props);
-    return null;
+    return createElement(
+      "div",
+      null,
+      props.isActiveComposer === true
+        ? (props.composerSlot as ReactNode)
+        : null,
+    );
   },
   generateTabId: () => "test-thread",
 }));
@@ -52,6 +58,8 @@ vi.mock("../lib/url", () => ({
 vi.mock("./live-transcript", () => ({ LiveTranscript: () => null }));
 vi.mock("./pill-logo", () => ({ PillLogo: () => null }));
 
+vi.mock("@tauri-apps/plugin-shell", () => ({ open: vi.fn() }));
+
 describe("meeting pill chat eligibility", () => {
   let host: HTMLDivElement;
   let root: Root;
@@ -70,6 +78,13 @@ describe("meeting pill chat eligibility", () => {
       "requestAnimationFrame",
       vi.fn(() => 0),
     );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ configured: false }),
+      })),
+    );
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
     host = document.createElement("div");
     document.body.append(host);
@@ -86,7 +101,7 @@ describe("meeting pill chat eligibility", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps readiness checks enabled for Ask and suggestion chats", async () => {
+  it("routes setup through external settings instead of AgentKit's card", async () => {
     const { MeetingPill } = await import("./recording-pill");
     await act(async () => root.render(createElement(MeetingPill)));
 
@@ -94,6 +109,12 @@ describe("meeting pill chat eligibility", () => {
     expect(onContext).toBeDefined();
     await act(async () => {
       onContext?.({ payload: { mode: "meeting", meetingId: "meeting-1" } });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     const expandButton = host.querySelector<HTMLButtonElement>(
@@ -110,7 +131,14 @@ describe("meeting pill chat eligibility", () => {
       true,
     );
     expect(
-      chatProps.every((props) => props.providerStatusChecksEnabled === true),
+      chatProps.every((props) => props.providerStatusChecksEnabled === false),
     ).toBe(true);
+    expect(
+      chatProps.filter((props) => props.isActiveComposer === true).at(-1)
+        ?.composerDisabled,
+    ).toBe(true);
+    expect(
+      host.querySelectorAll(".pill-ask-provider-actions button"),
+    ).toHaveLength(2);
   });
 });

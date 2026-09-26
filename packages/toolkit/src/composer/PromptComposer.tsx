@@ -138,6 +138,8 @@ export interface PromptComposerProps {
   voiceEnabled?: boolean;
   /** Show file upload controls and pass submitted files to onSubmit (default: true). */
   attachmentsEnabled?: boolean;
+  /** Called when the user requests an upload while attachments are unavailable. */
+  onAttachmentRequest?: (anchor?: HTMLElement) => void;
   /** Host-owned file acceptance and staging; the shared composer still owns picker and chips. */
   attachmentAdapter?: AttachmentAdapter;
   /** Let hosts extract ordinary uploaded text without also inlining it. */
@@ -600,6 +602,7 @@ function PromptComposerInner({
   showAutoModelOption = true,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   attachmentsEnabled = true,
+  onAttachmentRequest,
   inlineTextAttachments = true,
   plusMenuMode,
   terminalModeControl,
@@ -864,6 +867,7 @@ function PromptComposerInner({
           onInspectContextItem={onInspectContextItem}
           onRetryContextItem={onRetryContextItem}
           attachmentsEnabled={attachmentsEnabled}
+          onAttachmentRequest={onAttachmentRequest}
           ariaLabel={ariaLabel}
           focusRef={handleRef}
           disabled={disabled || gateComposer}
@@ -892,7 +896,9 @@ function PromptComposerInner({
             gateComposer
               ? "hidden"
               : (plusMenuMode ??
-                (attachmentsEnabled ? "upload-only" : "hidden"))
+                (attachmentsEnabled || onAttachmentRequest
+                  ? "upload-only"
+                  : "hidden"))
           }
           terminalModeControl={terminalModeControl}
           extensionTools={extensionTools}

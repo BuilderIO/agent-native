@@ -22,6 +22,16 @@ const messages: AgentChatTranslation = {
     "컨텍스트가 너무 큽니다. 항목을 제거하거나 더 작은 선택 항목을 첨부하세요.",
   "activity.reasoning": "추론",
   "activity.groupLabel": "에이전트 활동",
+  "activity.agents": "에이전트 협업",
+  "activity.tasks": "에이전트 작업",
+  "agent.started": "작업을 시작했습니다",
+  "agent.resumed": "작업을 재개했습니다",
+  "agent.messaged": "메시지를 보냈습니다",
+  "agent.delegated": "작업을 위임했습니다",
+  "agent.paused": "작업을 일시 중지했습니다",
+  "agent.completed": "작업을 완료했습니다",
+  "agent.failed": "주의가 필요합니다",
+  "agent.closed": "종료했습니다",
   "approval.alwaysAllow": "항상 허용",
   "approval.alwaysAllowHint":
     "이 명령과 정확히 일치하는 명령을 승인하고 항상 허용합니다",
@@ -33,6 +43,9 @@ const messages: AgentChatTranslation = {
   "approval.deny": "거부",
   "approval.moreOptions": "추가 승인 옵션",
   "approval.question": "{{tool}} 실행을 승인하시겠습니까?",
+  "approval.submit": "제출",
+  "approval.other": "기타",
+  "approval.otherPlaceholder": "답변을 입력하세요",
   "auth.expiredDescription":
     "세션이 만료되었을 수 있습니다. 다시 연결하려면 로그아웃한 후 다시 로그인하세요.",
   "auth.expiredTitle": "세션이 만료되었습니다",
@@ -475,6 +488,7 @@ const messages: AgentChatTranslation = {
   "empty.prompt": "무엇을 도와드릴까요?",
   "error.afterDuration": "{{duration}} 후 {{headline}}",
   "error.failed": "에이전트에서 오류가 발생했습니다",
+  "error.render": "이 콘텐츠를 표시할 수 없습니다.",
   "error.stopped": "에이전트가 완료 전에 중지되었습니다",
   "errorMessages.agentConnection":
     "에이전트 연결이 중단되었습니다. 연결을 확인한 후 다시 시도하세요.",
@@ -546,6 +560,11 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "관리",
   "integrations.recommended": "추천",
   "integrations.subtitle": "에이전트가 사용할 수 있는 도구를 연결하세요.",
+  "connection.connecting": "연결 중…",
+  "connection.notNow": "지금은 안 함",
+  "connection.failed": "연결 실패",
+  "connection.adminRequired":
+    "이 서비스를 연결하려면 워크스페이스 관리자에게 요청하세요.",
   "limit.account": "계정",
   "limit.descriptionAll":
     "에이전트가 사용 가능한 모든 단계를 소진했습니다. 새 차례에서 계속하거나 먼저 {{scope}} 한도를 높이세요.",
@@ -566,6 +585,9 @@ const messages: AgentChatTranslation = {
   "message.requestIdUnavailable": "요청 ID를 사용할 수 없음",
   "message.edit": "메시지 편집",
   "message.forkChat": "채팅 분기",
+  "message.mobileInteractiveTitle": "인터랙티브 콘텐츠",
+  "message.mobileInteractiveDescription":
+    "이 인터랙티브 뷰는 웹 채팅에서 사용할 수 있지만, 아직 네이티브 채팅에서는 사용할 수 없습니다.",
   "message.missingFinal":
     "에이전트가 최종 메시지를 보내지 않고 중지되었습니다. 계속하도록 요청하거나 다시 시도하세요.",
   "message.messages": "메시지",

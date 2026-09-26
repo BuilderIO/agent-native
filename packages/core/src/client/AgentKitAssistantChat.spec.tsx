@@ -17,6 +17,7 @@ const chatMocks = vi.hoisted(() => ({
     queuedMessages: [] as any[],
   },
   rootProps: null as any,
+  chatProps: null as any,
   composerProps: null as any,
   resumeProps: null as any,
   failureProps: null as any,
@@ -27,8 +28,17 @@ const chatMocks = vi.hoisted(() => ({
   reasoningProps: null as any,
   thinkingDisplay: null as any,
   requestComposerFocus: vi.fn(),
-  readiness: { canChat: true, missing: false },
+  readiness: { canChat: true, missing: false, state: "configured" },
+  fileUploadStatus: {
+    data: { configured: true },
+    isError: false,
+    isLoading: false,
+    refetch: vi.fn(),
+  } as any,
+  fileStoragePopoverProps: null as any,
+  guidedFlowProps: null as any,
   guidedOptions: null as any,
+  guidedQuestions: [] as any[],
   runtimeOptions: null as any,
   inBuilder: false,
   useRealRoot: false,
@@ -45,6 +55,7 @@ const chatMocks = vi.hoisted(() => ({
     resolveApproval: vi.fn(async () => undefined),
     fork: vi.fn(async () => ({ id: "thread-forked" })),
     cancel: vi.fn(async () => undefined),
+    uploadFiles: vi.fn(async () => []),
   },
   createRuntime: vi.fn((options: unknown) => {
     chatMocks.runtimeOptions = options;
@@ -64,7 +75,8 @@ vi.mock("@agent-native/agentkit/react", async () => {
   const React = await import("react");
   const { useThinkingDisplay } = await import("./thinking-display.js");
   return {
-    AgentKitChat: () => {
+    AgentKitChat: (props: unknown) => {
+      chatMocks.chatProps = props;
       chatMocks.thinkingDisplay = useThinkingDisplay();
       const slots = chatMocks.rootProps?.slots;
       const Composer = slots?.composer;
@@ -193,7 +205,11 @@ vi.mock("./agentkit-chat/index.js", async () => {
       React.createElement(React.Fragment, null, children),
     createAgentNativeAgentKitTransport: chatMocks.createTransport,
     findMcpConnectionSuggestionIntegration: () => null,
-    GuidedQuestionFlow: () => null,
+    GuidedQuestionProviderGate: () => null,
+    GuidedQuestionFlow: (props: unknown) => {
+      chatMocks.guidedFlowProps = props;
+      return null;
+    },
     McpAgentKitConnectionRequestCard: () => null,
     McpAgentKitConnectionResume: (props: unknown) => {
       chatMocks.resumeProps = props;
@@ -206,7 +222,7 @@ vi.mock("./agentkit-chat/index.js", async () => {
       React.createElement(React.Fragment, null, children),
     useGuidedQuestionFlow: (options: unknown) => {
       chatMocks.guidedOptions = options;
-      return { questions: [] };
+      return { questions: chatMocks.guidedQuestions };
     },
   };
 });
@@ -242,6 +258,22 @@ vi.mock("./chat/run-recovery.js", () => ({
   LoopLimitContinueCard: () => null,
   PlanModeCallout: () => null,
   getRequestModeMetadata: () => undefined,
+}));
+
+vi.mock("./FileStorageSetupCard.js", async () => {
+  const React = await import("react");
+  return {
+    FileStorageSetupPopover: (props: unknown) => {
+      chatMocks.fileStoragePopoverProps = props;
+      return React.createElement("div", {
+        "data-testid": "file-storage-setup-popover",
+      });
+    },
+  };
+});
+
+vi.mock("./uploads/use-file-upload-status.js", () => ({
+  useFileUploadStatus: () => chatMocks.fileUploadStatus,
 }));
 
 vi.mock("./chat/runtime.js", () => ({
@@ -419,6 +451,7 @@ beforeEach(() => {
   };
   chatMocks.readThread = () => chatMocks.thread;
   chatMocks.rootProps = null;
+  chatMocks.chatProps = null;
   chatMocks.composerProps = null;
   chatMocks.resumeProps = null;
   chatMocks.failureProps = null;
@@ -429,8 +462,21 @@ beforeEach(() => {
   chatMocks.reasoningProps = null;
   chatMocks.thinkingDisplay = null;
   chatMocks.requestComposerFocus.mockReset();
-  chatMocks.readiness = { canChat: true, missing: false };
+  chatMocks.readiness = {
+    canChat: true,
+    missing: false,
+    state: "configured",
+  };
+  chatMocks.fileUploadStatus = {
+    data: { configured: true },
+    isError: false,
+    isLoading: false,
+    refetch: vi.fn(),
+  };
+  chatMocks.fileStoragePopoverProps = null;
+  chatMocks.guidedFlowProps = null;
   chatMocks.guidedOptions = null;
+  chatMocks.guidedQuestions = [];
   chatMocks.runtimeOptions = null;
   chatMocks.transportOptions = null;
   chatMocks.inBuilder = false;
@@ -442,6 +488,7 @@ beforeEach(() => {
     .mockResolvedValue(undefined);
   chatMocks.control.resolveApproval.mockReset().mockResolvedValue(undefined);
   chatMocks.control.fork.mockReset().mockResolvedValue({ id: "thread-forked" });
+  chatMocks.control.uploadFiles.mockReset().mockResolvedValue([]);
   chatMocks.createRuntime.mockClear();
   chatMocks.createTransport
     .mockReset()
@@ -524,6 +571,176 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.composerProps.onTextChange).toBe(onTextChange);
   });
 
+  it("blocks attachments until file storage is configured", async () => {
+    chatMocks.fileUploadStatus = {
+      data: { configured: false },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
+
+    await mount(baseProps());
+
+    expect(chatMocks.fileStoragePopoverProps).toMatchObject({
+      open: false,
+      status: "missing",
+    });
+    expect(chatMocks.composerProps.attachmentsEnabled).toBe(false);
+    expect(chatMocks.composerProps.onAttachmentRequest).toEqual(
+      expect.any(Function),
+    );
+    expect(chatMocks.chatProps.composerProps.attachmentsEnabled).toBe(false);
+
+    await act(async () =>
+      chatMocks.composerProps.onAttachmentRequest(container),
+    );
+    expect(chatMocks.fileStoragePopoverProps.open).toBe(true);
+    expect(chatMocks.fileStoragePopoverProps.anchorRect).toBeInstanceOf(
+      DOMRect,
+    );
+
+    chatMocks.fileUploadStatus = {
+      data: { configured: true },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
+    chatMocks.fileStoragePopoverProps = null;
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...baseProps()} />);
+    });
+
+    expect(chatMocks.fileStoragePopoverProps.open).toBe(false);
+    expect(chatMocks.composerProps.attachmentsEnabled).toBe(true);
+    expect(chatMocks.chatProps.composerProps.attachmentsEnabled).toBe(true);
+  });
+
+  it("does not show a storage setup prompt while its status is loading", async () => {
+    chatMocks.fileUploadStatus = {
+      data: undefined,
+      isError: false,
+      isLoading: true,
+      refetch: vi.fn(),
+    };
+
+    await mount(baseProps());
+
+    expect(chatMocks.fileStoragePopoverProps).toMatchObject({
+      open: false,
+      status: "checking",
+    });
+    expect(chatMocks.composerProps.attachmentsEnabled).toBe(false);
+  });
+
+  it("keeps upload-status retry inside the explicit storage dialog", async () => {
+    const refetch = vi.fn();
+    chatMocks.fileUploadStatus = {
+      data: undefined,
+      isError: true,
+      isLoading: false,
+      refetch,
+    };
+
+    await mount(baseProps());
+
+    expect(chatMocks.fileStoragePopoverProps).toMatchObject({
+      open: false,
+      status: "unavailable",
+      onRetryStatus: expect.any(Function),
+    });
+    await act(async () => chatMocks.composerProps.onAttachmentRequest());
+    expect(chatMocks.fileStoragePopoverProps.open).toBe(true);
+    await act(async () => chatMocks.fileStoragePopoverProps.onRetryStatus());
+    expect(refetch).toHaveBeenCalledOnce();
+  });
+
+  it("rejects imperative uploads while file storage is unavailable", async () => {
+    chatMocks.fileUploadStatus = {
+      data: { configured: false },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
+    const ref = createRef<AssistantChatHandle>();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<AgentKitAssistantChat ref={ref} {...baseProps()} />);
+    });
+
+    await expect(
+      ref.current?.sendMessage("Analyze this file", undefined, {
+        attachments: [
+          { type: "text/plain", name: "notes.txt", text: "private notes" },
+        ],
+      }),
+    ).rejects.toThrow("onboarding.fileStorage.title");
+
+    expect(chatMocks.control.uploadFiles).not.toHaveBeenCalled();
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("queues an imperative send while provider status is unresolved", async () => {
+    chatMocks.readiness = {
+      canChat: false,
+      missing: false,
+      state: "unknown",
+    };
+    chatMocks.guidedQuestions = [{ id: "question-1" }];
+    const ref = createRef<AssistantChatHandle>();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          ref={ref}
+          {...baseProps({ providerStatusChecksEnabled: true })}
+        />,
+      );
+    });
+    const results: CustomEvent[] = [];
+    const listener = (event: Event) => results.push(event as CustomEvent);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+
+    await act(async () => {
+      await ref.current?.sendMessage("Wait for the provider", undefined, {
+        submitMessageId: "pending-provider-submit",
+      });
+    });
+
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(results.map((event) => event.detail)).toEqual([
+      { submitMessageId: "pending-provider-submit", delivered: true },
+    ]);
+    expect(chatMocks.guidedFlowProps).toMatchObject({
+      isSubmissionBlocked: true,
+      providerStatus: "unknown",
+    });
+
+    chatMocks.readiness = {
+      canChat: true,
+      missing: false,
+      state: "configured",
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          ref={ref}
+          {...baseProps({ providerStatusChecksEnabled: true })}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Wait for the provider" }),
+    );
+    expect(results).toHaveLength(1);
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+  });
+
   it("does not loop when the dev checkpoint sees an empty thread", async () => {
     chatMocks.readThread = () => ({
       ...chatMocks.thread,
@@ -544,17 +761,26 @@ describe("AgentKitAssistantChat host behavior", () => {
     consoleError.mockRestore();
   });
 
-  it("keeps a supplied custom runtime identity stable across selector updates", async () => {
+  it("keeps an injected runtime stable until the host reload key changes", async () => {
     const customRuntime = { kind: "external-agent" } as never;
+    const updatedRuntime = { kind: "external-agent", version: 2 } as never;
     await mount(
-      baseProps({ runtime: customRuntime, selectedModel: "model-1" }),
+      baseProps({
+        runtime: customRuntime,
+        adapterReloadKey: "runtime-1",
+        selectedModel: "model-1",
+      }),
     );
     const transport = chatMocks.rootProps.transport;
 
     await act(async () => {
       root.render(
         <AgentKitAssistantChat
-          {...baseProps({ runtime: customRuntime, selectedModel: "model-2" })}
+          {...baseProps({
+            runtime: updatedRuntime,
+            adapterReloadKey: "runtime-1",
+            selectedModel: "model-2",
+          })}
         />,
       );
     });
@@ -563,6 +789,21 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.transportOptions.runtime).toBe(customRuntime);
     expect(chatMocks.createRuntime).not.toHaveBeenCalled();
     expect(chatMocks.rootProps.transport).toBe(transport);
+
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({
+            runtime: updatedRuntime,
+            adapterReloadKey: "runtime-2",
+            selectedModel: "model-2",
+          })}
+        />,
+      );
+    });
+
+    expect(chatMocks.createTransport).toHaveBeenCalledTimes(2);
+    expect(chatMocks.transportOptions.runtime).toBe(updatedRuntime);
   });
 
   it("keeps scoped history isolation current on the stable built-in transport", async () => {
@@ -641,7 +882,11 @@ describe("AgentKitAssistantChat host behavior", () => {
   });
 
   it("returns typed rejection results for imperative sends while the engine is unavailable", async () => {
-    chatMocks.readiness = { canChat: false, missing: true };
+    chatMocks.readiness = {
+      canChat: false,
+      missing: true,
+      state: "missing",
+    };
     const ref = createRef<AssistantChatHandle>();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -697,7 +942,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     ]);
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
 
-    chatMocks.readiness = { canChat: false, missing: false };
+    chatMocks.readiness = {
+      canChat: false,
+      missing: false,
+      state: "unavailable",
+    };
     await act(async () => {
       root.render(
         <AgentKitAssistantChat
@@ -706,10 +955,34 @@ describe("AgentKitAssistantChat host behavior", () => {
         />,
       );
     });
-    await expect(ref.current!.sendMessage("Try again")).resolves.toEqual({
-      status: "rejected",
-      reason: "submission-unavailable",
+    await expect(
+      ref.current!.sendMessage("Try again", undefined, {
+        submitMessageId: "unavailable-submit",
+      }),
+    ).resolves.toEqual({ status: "submitted" });
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(results.at(-1)?.detail).toEqual({
+      submitMessageId: "unavailable-submit",
+      delivered: true,
     });
+
+    chatMocks.readiness = {
+      canChat: true,
+      missing: false,
+      state: "configured",
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          ref={ref}
+          {...baseProps({ providerStatusChecksEnabled: true })}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Try again" }),
+    );
     window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
   });
 
@@ -771,6 +1044,24 @@ describe("AgentKitAssistantChat host behavior", () => {
       closePreview: "agentChat.composer.closePreview",
       dropFilesToAttach: "agentChat.composer.dropToAttach",
       scrollToBottom: "agentChat.composer.scrollToBottom",
+      approvalSubmit: "agentChat.approval.submit",
+      approvalOther: "agentChat.approval.other",
+      approvalOtherPlaceholder: "agentChat.approval.otherPlaceholder",
+      connectionConnecting: "agentChat.connection.connecting",
+      connectionNotNow: "agentChat.connection.notNow",
+      connectionFailed: "agentChat.connection.failed",
+      connectionAdminRequired: "agentChat.connection.adminRequired",
+      agents: "agentChat.activity.agents",
+      tasks: "agentChat.activity.tasks",
+      renderError: "agentChat.error.render",
+      agentStarted: "agentChat.agent.started",
+      agentResumed: "agentChat.agent.resumed",
+      agentMessaged: "agentChat.agent.messaged",
+      agentDelegated: "agentChat.agent.delegated",
+      agentPaused: "agentChat.agent.paused",
+      agentCompleted: "agentChat.agent.completed",
+      agentFailed: "agentChat.agent.failed",
+      agentClosed: "agentChat.agent.closed",
     });
   });
 
@@ -1264,7 +1555,11 @@ describe("AgentKitAssistantChat host behavior", () => {
   });
 
   it("shows a localized Stop tooltip and bounces the blocked setup card", async () => {
-    chatMocks.readiness = { canChat: false, missing: true };
+    chatMocks.readiness = {
+      canChat: false,
+      missing: true,
+      state: "missing",
+    };
     chatMocks.thread.activeRunIds = ["run-1"];
     const blockedEvents: CustomEvent[] = [];
     const onBlocked = (event: Event) =>
@@ -1412,6 +1707,37 @@ describe("AgentKitAssistantChat host behavior", () => {
       alwaysAllowLabel: "agentChat.approval.alwaysAllow",
       alwaysAllowHint: "agentChat.approval.alwaysAllowHint",
     });
+  });
+
+  it("persists the shared approval policy before approving by default", async () => {
+    chatMocks.approvalRequest = {
+      id: "approval-default-policy",
+      title: "Allow publishing?",
+      description: "publish-release",
+      kind: "approval",
+      metadata: { toolName: "publish-release" },
+    };
+    await mount(baseProps());
+
+    const alwaysAllowButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "agentChat.approval.alwaysAllowAction",
+    );
+    expect(alwaysAllowButton).toBeDefined();
+
+    await act(async () => {
+      alwaysAllowButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(chatMocks.callAction).toHaveBeenCalledWith(
+      "set-tool-approval-policy",
+      { toolName: "publish-release", enabled: true },
+    );
+    expect(chatMocks.control.resolveApproval).toHaveBeenCalledWith(
+      "run-1",
+      "approval-default-policy",
+      { decision: "approve", optionIds: ["approve"] },
+    );
   });
 
   it("opens active reasoning and omits explicitly hidden reasoning", async () => {

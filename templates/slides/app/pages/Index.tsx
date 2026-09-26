@@ -2049,7 +2049,7 @@ export default function Index() {
       composer={
         <div data-slides-home-composer>
           {agentEngine.state !== "configured" ? (
-            <div className="mb-2">
+            <div className="-mb-2">
               {agentEngine.missing ? (
                 <BuilderSetupCard
                   onConnected={retryAgentEngineStatus}

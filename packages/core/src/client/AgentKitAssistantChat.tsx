@@ -83,6 +83,7 @@ import {
 import {
   CoreComposerRuntimeProvider,
   createAgentNativeAgentKitTransport,
+  GuidedQuestionProviderGate,
   findMcpConnectionSuggestionIntegration,
   GuidedQuestionFlow,
   McpAgentKitConnectionRequestCard,
@@ -106,6 +107,7 @@ import {
 import { isInBuilderFrame } from "./builder-frame.js";
 import { AgentApprovalCard } from "./chat/agent-approval-card.js";
 import type { CreateAgentNativeAgentKitTransportOptions } from "./chat/agentkit-agent-native.js";
+import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "./chat/agentkit-protocol.js";
 import {
   readAssistantChatComposerDraft,
   writeAssistantChatComposerDraft,
@@ -141,14 +143,19 @@ import {
   localizeKnownChatErrorText,
 } from "./error-format.js";
 import { ExternalAgentNudge } from "./external-agent-host.js";
+import { FileStorageSetupPopover } from "./FileStorageSetupCard.js";
 import { useFormatters, useT } from "./i18n.js";
 import { buildSignInReturnHref } from "./require-session.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { signOut } from "./sign-out.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
+import { useFileUploadStatus } from "./uploads/use-file-upload-status.js";
 import { callAction } from "./use-action.js";
 import { dispatchAgentChatRunning } from "./use-agent-chat-running-threads.js";
-import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
+import {
+  useAgentEngineConfigured,
+  type AgentEngineConfiguredState,
+} from "./use-agent-engine-configured.js";
 import { cn } from "./utils.js";
 
 export interface AgentKitAssistantChatProps extends AssistantChatProps {
@@ -189,6 +196,15 @@ type AgentKitInternalSendOptions = AssistantChatSendOptions & {
   recoveryRequestMode?: "act" | "plan";
 };
 
+interface PendingProviderSubmission {
+  threadId: string;
+  text: string;
+  files: PromptComposerFile[];
+  references: Reference[];
+  composerOptions: PromptComposerSubmitOptions;
+  options: AgentKitInternalSendOptions;
+}
+
 interface PendingSelectionContext {
   text: string;
   capturedAt: number;
@@ -199,6 +215,12 @@ interface AgentKitSurfaceContextValue {
   handoffSnapshot: AgentThreadSnapshot | null;
   canChat: boolean;
   setupMissing: boolean;
+  providerStatus: AgentEngineConfiguredState;
+  retryProviderStatus: () => void;
+  fileStorageConfigured: boolean;
+  fileStorageMissing: boolean;
+  fileStorageUnavailable: boolean;
+  retryFileStorageStatus: () => void;
   isRunning: boolean;
   isRestoring: boolean;
   threadRestore:
@@ -260,6 +282,7 @@ const agentKitSlots = {
   transcript: AgentKitTranscript,
   message: AgentKitUserMessage,
   messageSupplement: AgentKitMessageSupplement,
+  messageActionsTrailing: AgentKitHistoryMessageSupplement,
   text: AgentKitMarkdownText,
   tool: AgentKitTool,
   connectionRequest: AgentKitConnectionRequest,
@@ -335,10 +358,19 @@ export const AgentKitAssistantChat = forwardRef<
       you: t("agentChat.common.you"),
       approvalApprove: t("agentChat.approval.approve"),
       approvalDeny: t("agentChat.approval.deny"),
+      approvalSubmit: t("agentChat.approval.submit"),
+      approvalOther: t("agentChat.approval.other"),
+      approvalOtherPlaceholder: t("agentChat.approval.otherPlaceholder"),
       connectionConnect: t("agentChat.common.connect"),
+      connectionConnecting: t("agentChat.connection.connecting"),
       connectionRetry: t("agentChat.common.retry"),
       connectionConnected: t("agentChat.integrations.connectedSection"),
+      connectionNotNow: t("agentChat.connection.notNow"),
+      connectionFailed: t("agentChat.connection.failed"),
+      connectionAdminRequired: t("agentChat.connection.adminRequired"),
       activities: t("agentChat.activity.groupLabel"),
+      agents: t("agentChat.activity.agents"),
+      tasks: t("agentChat.activity.tasks"),
       working: t("agentChat.status.working"),
       workingFor: t("agentChat.status.workingFor", {
         duration: "{{duration}}",
@@ -377,11 +409,20 @@ export const AgentKitAssistantChat = forwardRef<
       nextBranch: t("agentChat.message.nextBranch"),
       branchPosition: "{{index}}/{{count}}",
       error: t("agentChat.error.failed"),
+      renderError: t("agentChat.error.render"),
       runFailed: t("agentChat.error.failed"),
       reconnect: t("agentChat.agentPanel.chatgptSubscriptionReconnect"),
       reasoning: t("agentChat.status.thinking"),
       expandActivity: t("agentChat.common.expand"),
       collapseActivity: t("agentChat.common.collapse"),
+      agentStarted: t("agentChat.agent.started"),
+      agentResumed: t("agentChat.agent.resumed"),
+      agentMessaged: t("agentChat.agent.messaged"),
+      agentDelegated: t("agentChat.agent.delegated"),
+      agentPaused: t("agentChat.agent.paused"),
+      agentCompleted: t("agentChat.agent.completed"),
+      agentFailed: t("agentChat.agent.failed"),
+      agentClosed: t("agentChat.agent.closed"),
       editMessage: t("agentChat.message.edit"),
       cancelEditing: t("agentChat.common.cancel"),
       regenerateResponse: t("agentChat.message.regenerate"),
@@ -470,6 +511,12 @@ export const AgentKitAssistantChat = forwardRef<
   );
   const isolateHistoryByScopeRef = useRef(props.isolateHistoryByScope);
   const createTransportRef = useRef(props.createTransport);
+  const injectedRuntimeRef = useRef(props.runtime);
+  const adapterReloadKeyRef = useRef(props.adapterReloadKey);
+  if (adapterReloadKeyRef.current !== props.adapterReloadKey) {
+    adapterReloadKeyRef.current = props.adapterReloadKey;
+    injectedRuntimeRef.current = props.runtime;
+  }
   modelRef.current = props.selectedModel;
   engineRef.current = props.selectedEngine;
   effortRef.current = props.selectedEffort;
@@ -574,7 +621,9 @@ export const AgentKitAssistantChat = forwardRef<
     };
     const builtTransport = createAgentNativeAgentKitTransport({
       apiUrl: props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
-      runtime: props.runtime ?? createAgentNativeChatRuntime(runtimeOptions),
+      runtime:
+        injectedRuntimeRef.current ??
+        createAgentNativeChatRuntime(runtimeOptions),
       browserTabId: props.browserTabId,
       threadId,
       surface,
@@ -588,7 +637,7 @@ export const AgentKitAssistantChat = forwardRef<
       operations,
     });
     const getThreadSnapshot = builtTransport.getThreadSnapshot;
-    if (!getThreadSnapshot || props.runtime) return builtTransport;
+    if (!getThreadSnapshot || injectedRuntimeRef.current) return builtTransport;
     return {
       ...builtTransport,
       getThreadSnapshot: async (input, context) => {
@@ -611,7 +660,6 @@ export const AgentKitAssistantChat = forwardRef<
     props.agentChatSurface,
     props.apiUrl,
     props.browserTabId,
-    props.runtime,
     props.streamingUrl,
     props.tabId,
     threadId,
@@ -706,6 +754,7 @@ const AgentKitAssistantChatBody = forwardRef<
   const control = useAgentKitControl(threadId);
   const thread = useAgentThread(threadId);
   const history = useOptionalAgentKitHistory();
+  const t = useT();
   const providerChecksEnabled = props.providerStatusChecksEnabled !== false;
   const readiness = useAgentEngineConfigured(providerChecksEnabled, {
     tabId: props.tabId,
@@ -713,6 +762,22 @@ const AgentKitAssistantChatBody = forwardRef<
   });
   const canChat = !providerChecksEnabled || readiness.canChat;
   const setupMissing = providerChecksEnabled && readiness.missing;
+  const providerStatus: AgentEngineConfiguredState = providerChecksEnabled
+    ? readiness.state
+    : "configured";
+  const retryProviderStatus = useCallback(() => {
+    window.dispatchEvent(new Event("agent-engine:configured-changed"));
+  }, []);
+  const fileUploadStatus = useFileUploadStatus(
+    props.isActiveComposer !== false,
+  );
+  const fileStorageConfigured =
+    fileUploadStatus.data?.configured === true && !fileUploadStatus.isError;
+  const fileStorageMissing =
+    fileUploadStatus.data?.configured === false && !fileUploadStatus.isError;
+  const retryFileStorageStatus = useCallback(() => {
+    void fileUploadStatus.refetch();
+  }, [fileUploadStatus.refetch]);
   const isRestoring =
     history?.isRestoring === true || props.threadRestore.status === "loading";
   const isSubmissionInFlight = history?.isSubmissionInFlight === true;
@@ -732,6 +797,19 @@ const AgentKitAssistantChatBody = forwardRef<
     [props.onComposerTextChange, props.tabId, threadId],
   );
   const [prefillRevision, setPrefillRevision] = useState(0);
+  const [
+    pendingProviderSubmissionVersion,
+    setPendingProviderSubmissionVersion,
+  ] = useState(0);
+  const pendingProviderRetryTimerRef = useRef<number | undefined>(undefined);
+  useEffect(
+    () => () => {
+      if (pendingProviderRetryTimerRef.current !== undefined) {
+        window.clearTimeout(pendingProviderRetryTimerRef.current);
+      }
+    },
+    [],
+  );
   const [setupBouncePulse, setSetupBouncePulse] = useState(0);
   const previousPrefillRevisionRef = useRef(prefillRevision);
   const [contextItems, setContextItems] = useState<AgentChatContextItem[]>([]);
@@ -759,6 +837,7 @@ const AgentKitAssistantChatBody = forwardRef<
   const saveSnapshotRef = useRef<() => void>(() => undefined);
   const isUnmountingRef = useRef(false);
   const pendingSubmissionReleaseRef = useRef<(() => void) | null>(null);
+  const pendingProviderSubmissionsRef = useRef<PendingProviderSubmission[]>([]);
   const localSubmissionRef = useRef(false);
   const latestAssistant = useMemo(
     () =>
@@ -781,27 +860,58 @@ const AgentKitAssistantChatBody = forwardRef<
   const lastCustomRunningStateRef = useRef<{
     custom: boolean;
     isRunning: boolean;
+    runId?: string;
+    turnId?: string;
   } | null>(null);
 
   useEffect(() => {
     const isCustomTransport = typeof props.createTransport === "function";
     const previous = lastCustomRunningStateRef.current;
-    lastCustomRunningStateRef.current = {
+    const runId =
+      thread.activeRunIds[0] ??
+      (previous?.isRunning ? previous.runId : undefined);
+    const runStartedEvent = runId
+      ? [...thread.events]
+          .reverse()
+          .find(
+            (event) => event.type === "run.started" && event.runId === runId,
+          )
+      : undefined;
+    const observability = asRecord(
+      asRecord(
+        asRecord(runStartedEvent?.metadata)?.[
+          AGENT_NATIVE_PROTOCOL_METADATA_KEY
+        ],
+      )?.observability,
+    );
+    const turnId =
+      (typeof observability?.turnId === "string"
+        ? observability.turnId
+        : undefined) ??
+      (previous && previous.runId === runId ? previous.turnId : undefined);
+    const next = {
       custom: isCustomTransport,
       isRunning,
+      ...(runId ? { runId } : {}),
+      ...(turnId ? { turnId } : {}),
     };
     if (
       !isCustomTransport ||
-      (previous?.custom === true && previous.isRunning === isRunning)
+      (previous?.custom === true &&
+        previous.isRunning === isRunning &&
+        previous.runId === runId &&
+        previous.turnId === turnId)
     ) {
       return;
     }
+    lastCustomRunningStateRef.current = next;
     dispatchAgentChatRunning({
       isRunning,
       phase: isRunning ? "working" : "idle",
       threadId,
       tabId: props.tabId ?? threadId,
-      ...(thread.activeRunIds[0] ? { runId: thread.activeRunIds[0] } : {}),
+      ...(runId ? { runId } : {}),
+      ...(turnId ? { turnId } : {}),
       reason: isRunning ? "run.started" : "run.completed",
     });
   }, [
@@ -809,6 +919,7 @@ const AgentKitAssistantChatBody = forwardRef<
     props.createTransport,
     props.tabId,
     thread.activeRunIds,
+    thread.events,
     threadId,
   ]);
 
@@ -1252,6 +1363,14 @@ const AgentKitAssistantChatBody = forwardRef<
         ...(options.attachments ?? []),
         ...((composerOptions.attachments ?? []) as AgentChatAttachment[]),
       ];
+      const needsFileStorage =
+        files.length > 0 ||
+        attachments.some(
+          (attachment) => !attachment.displayOnly && !attachment.url,
+        );
+      if (needsFileStorage && !fileStorageConfigured) {
+        throw new Error(t("onboarding.fileStorage.title"));
+      }
       const fileParts = await uploadAgentChatAttachments(
         control,
         attachments,
@@ -1367,6 +1486,8 @@ const AgentKitAssistantChatBody = forwardRef<
       props.selectedEffort,
       props.selectedEngine,
       props.selectedModel,
+      fileStorageConfigured,
+      t,
       pendingSelection,
     ],
   );
@@ -1404,6 +1525,26 @@ const AgentKitAssistantChatBody = forwardRef<
     ): Promise<AssistantChatSubmitResult> => {
       const release = await acquireSubmission();
       if (!release) {
+        if (
+          !setupMissing &&
+          (isRestoring ||
+            (providerChecksEnabled &&
+              (readiness.state === "unknown" ||
+                readiness.state === "unavailable")))
+        ) {
+          const deferredOptions = { ...options };
+          delete deferredOptions.submitMessageId;
+          pendingProviderSubmissionsRef.current.push({
+            threadId,
+            text,
+            files: [...files],
+            references: [...references],
+            composerOptions: { ...composerOptions },
+            options: deferredOptions,
+          });
+          reportAgentChatSubmitResult(options.submitMessageId, true);
+          return { status: "submitted" };
+        }
         const reason = setupMissing
           ? "engine-not-configured"
           : "submission-unavailable";
@@ -1425,8 +1566,60 @@ const AgentKitAssistantChatBody = forwardRef<
         release?.();
       }
     },
-    [acquireSubmission, dispatch, props.tabId, setupMissing, threadId],
+    [
+      acquireSubmission,
+      dispatch,
+      isRestoring,
+      props.tabId,
+      providerChecksEnabled,
+      readiness.state,
+      setupMissing,
+      threadId,
+    ],
   );
+
+  useEffect(() => {
+    if (!canChat || isRestoring) return;
+    const waiting = pendingProviderSubmissionsRef.current;
+    const ready = waiting.filter(
+      (submission) => submission.threadId === threadId,
+    );
+    pendingProviderSubmissionsRef.current = waiting.filter(
+      (submission) => submission.threadId !== threadId,
+    );
+    for (const submission of ready) {
+      void submit(
+        submission.text,
+        submission.files,
+        submission.references,
+        submission.composerOptions,
+        submission.options,
+      )
+        .then((result) => {
+          if (
+            result.status === "rejected" &&
+            result.reason === "submission-unavailable" &&
+            !setupMissing
+          ) {
+            pendingProviderSubmissionsRef.current.push(submission);
+            if (pendingProviderRetryTimerRef.current === undefined) {
+              pendingProviderRetryTimerRef.current = window.setTimeout(() => {
+                pendingProviderRetryTimerRef.current = undefined;
+                setPendingProviderSubmissionVersion((version) => version + 1);
+              }, 300);
+            }
+          }
+        })
+        .catch(() => undefined);
+    }
+  }, [
+    canChat,
+    isRestoring,
+    pendingProviderSubmissionVersion,
+    setupMissing,
+    submit,
+    threadId,
+  ]);
 
   const send = useCallback(
     async (
@@ -1643,6 +1836,12 @@ const AgentKitAssistantChatBody = forwardRef<
     handoffSnapshot: props.handoffSnapshot,
     canChat,
     setupMissing,
+    providerStatus,
+    retryProviderStatus,
+    fileStorageConfigured,
+    fileStorageMissing,
+    fileStorageUnavailable: fileUploadStatus.isError,
+    retryFileStorageStatus,
     isRunning,
     isRestoring,
     threadRestore: props.threadRestore,
@@ -1710,6 +1909,7 @@ const AgentKitAssistantChatBody = forwardRef<
       />
       <AgentKitChat
         className={props.className}
+        composerProps={{ attachmentsEnabled: fileStorageConfigured }}
         emptyComposerPlacement={
           props.centerComposerWhenEmpty ? "center" : "bottom"
         }
@@ -2036,6 +2236,9 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
             onSubmit={guided.handleSubmit}
             onSkip={guided.handleSkip}
             isSubmitting={guided.isSubmitting}
+            isSubmissionBlocked={!surface.canChat}
+            providerStatus={surface.providerStatus}
+            onRetryProviderStatus={surface.retryProviderStatus}
             {...(guided.title ? { title: guided.title } : {})}
             {...(guided.description ? { description: guided.description } : {})}
             {...(guided.skipLabel ? { skipLabel: guided.skipLabel } : {})}
@@ -2141,6 +2344,12 @@ function AgentKitComposerSurface({
   props,
   canChat,
   setupMissing,
+  providerStatus,
+  retryProviderStatus,
+  fileStorageConfigured,
+  fileStorageMissing,
+  fileStorageUnavailable,
+  retryFileStorageStatus,
   isRunning,
   isRestoring,
   isSubmissionInFlight,
@@ -2161,6 +2370,12 @@ function AgentKitComposerSurface({
   props: AgentKitAssistantChatProps;
   canChat: boolean;
   setupMissing: boolean;
+  providerStatus: AgentEngineConfiguredState;
+  retryProviderStatus: () => void;
+  fileStorageConfigured: boolean;
+  fileStorageMissing: boolean;
+  fileStorageUnavailable: boolean;
+  retryFileStorageStatus: () => void;
   isRunning: boolean;
   isRestoring: boolean;
   isSubmissionInFlight: boolean;
@@ -2179,6 +2394,24 @@ function AgentKitComposerSurface({
 }) {
   const t = useT();
   const [composerError, setComposerError] = useState<string | null>(null);
+  const [fileStoragePromptOpen, setFileStoragePromptOpen] = useState(false);
+  const [fileStorageAnchorRect, setFileStorageAnchorRect] =
+    useState<DOMRect | null>(null);
+  useEffect(() => {
+    if (fileStorageConfigured) {
+      setFileStoragePromptOpen(false);
+      setFileStorageAnchorRect(null);
+    }
+  }, [fileStorageConfigured]);
+  const requestFileStorage = (anchor?: HTMLElement) => {
+    const target =
+      anchor ??
+      (document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null);
+    setFileStorageAnchorRect(target?.getBoundingClientRect() ?? null);
+    setFileStoragePromptOpen(true);
+  };
   const thread = useAgentThread(threadId);
   const latestAssistant = [...thread.messages]
     .reverse()
@@ -2197,6 +2430,23 @@ function AgentKitComposerSurface({
   });
   return (
     <div className={cn("agentkit-host-composer", props.composerAreaClassName)}>
+      <FileStorageSetupPopover
+        open={fileStoragePromptOpen && !fileStorageConfigured}
+        onOpenChange={(open) => {
+          setFileStoragePromptOpen(open);
+          if (!open) setFileStorageAnchorRect(null);
+        }}
+        onConnected={retryFileStorageStatus}
+        anchorRect={fileStorageAnchorRect}
+        status={
+          fileStorageMissing
+            ? "missing"
+            : fileStorageUnavailable
+              ? "unavailable"
+              : "checking"
+        }
+        onRetryStatus={retryFileStorageStatus}
+      />
       {props.composerSlot}
       {showPlanCallout ? (
         <PlanModeCallout
@@ -2217,6 +2467,12 @@ function AgentKitComposerSurface({
           onRetry={() =>
             window.dispatchEvent(new Event("agent-engine:configured-changed"))
           }
+        />
+      ) : null}
+      {!canChat && !setupMissing && providerStatus !== "configured" ? (
+        <GuidedQuestionProviderGate
+          providerStatus={providerStatus}
+          onRetry={retryProviderStatus}
         />
       ) : null}
       {integration ? (
@@ -2297,6 +2553,9 @@ function AgentKitComposerSurface({
           extraActionButton={props.composerExtraActionButton}
           includeDefaultSlashCommands
           onSlashCommand={props.onSlashCommand}
+          modelStatusChecksEnabled={false}
+          attachmentsEnabled={fileStorageConfigured}
+          onAttachmentRequest={requestFileStorage}
           onAttachmentError={setComposerError}
           onSubmit={async (...args) => {
             setComposerError(null);
@@ -2413,7 +2672,6 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
     runWarning?.errorCode === "final_response_missing_after_tool";
   return (
     <>
-      <AgentKitHistoryMessageSupplement {...props} />
       {missingFinalResponse ? (
         <div
           className="rounded-md border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs text-muted-foreground"
@@ -2493,9 +2751,6 @@ function AgentKitApproval({
       ? metadata.toolName
       : (value.description ?? "");
   const exactCommandScope = actions?.alwaysAllowScope === "exact-command";
-  if (!actions?.onDeny && !actions?.onAlwaysAllow) {
-    return <AgentApprovalPrompt request={value} runId={runId} />;
-  }
   if (value.options?.length || value.input) {
     return <AgentApprovalPrompt request={value} runId={runId} />;
   }
@@ -2506,17 +2761,23 @@ function AgentKitApproval({
         decision,
         optionIds: [decision],
       });
-      if (decision === "deny") actions.onDeny?.(value.id);
+      if (decision === "deny") actions?.onDeny?.(value.id);
     } finally {
       setPending(false);
     }
   };
   const alwaysAllow = async () => {
-    if (!actions.onAlwaysAllow) return;
     setPending(true);
     setSaveFailed(false);
     try {
-      await actions.onAlwaysAllow(value.id, toolName);
+      if (actions?.onAlwaysAllow) {
+        await actions.onAlwaysAllow(value.id, toolName);
+      } else {
+        await callAction("set-tool-approval-policy", {
+          toolName,
+          enabled: true,
+        });
+      }
       await control.resolveApproval(runId, value.id, {
         decision: "approve",
         optionIds: ["approve"],
@@ -2550,7 +2811,9 @@ function AgentKitApproval({
       isAlwaysAllowing={pending}
       onApprove={() => void resolve("approve").catch(() => undefined)}
       onDeny={() => void resolve("deny").catch(() => undefined)}
-      onAlwaysAllow={actions.onAlwaysAllow ? alwaysAllow : undefined}
+      onAlwaysAllow={
+        actions?.onAlwaysAllow || !exactCommandScope ? alwaysAllow : undefined
+      }
     />
   );
 }
