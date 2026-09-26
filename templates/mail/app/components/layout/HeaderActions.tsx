@@ -41,7 +41,7 @@ export function useSetPageTitle(node: ReactNode) {
       currentTitle = null;
       notify();
     };
-  });
+  }, [node]);
 }
 
 export function useSetHeaderActions(node: ReactNode) {
@@ -56,5 +56,5 @@ export function useSetHeaderActions(node: ReactNode) {
         notify();
       }
     };
-  });
+  }, [node]);
 }

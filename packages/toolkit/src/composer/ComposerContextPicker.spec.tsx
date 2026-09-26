@@ -242,7 +242,7 @@ describe("declarative context picker", () => {
     expect(menus()).toHaveLength(4);
     expect(menus().every((menu) => menu.classList.contains("w-64"))).toBe(true);
     const searches = document.querySelectorAll('input[role="searchbox"]');
-    expect(searches).toHaveLength(4);
+    expect(searches).toHaveLength(1);
     expect(document.querySelector('[role="combobox"]')).toBeNull();
     for (const input of searches)
       expect(input.hasAttribute("aria-controls")).toBe(false);

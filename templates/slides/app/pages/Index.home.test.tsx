@@ -31,6 +31,7 @@ const {
   contextOptions,
   refetchSystems,
   headerActions,
+  homeSuggestions,
 } = vi.hoisted(() => ({
   useDecks: vi.fn(),
   reloadDecks: vi.fn(),
@@ -44,14 +45,24 @@ const {
   contextOptions: vi.fn(),
   refetchSystems: vi.fn(),
   headerActions: { current: null as ReactNode | null },
+  homeSuggestions: {
+    value: [
+      {
+        id: "suggestion-1",
+        label: "Build a pitch",
+        prompt: "Create a pitch deck for a new product.",
+      },
+    ],
+  },
 }));
 const translate = (key: string) =>
   ({
     "home.firstDeckPromptTitle":
       "What kind of presentation should we generate?",
     "home.recent": "Recent",
-    "home.connectBuilderIo": "Connect Builder.io",
-    "home.connectingBuilder": "Connecting Builder.io…",
+    "home.fallbackSuggestions.pitch": "Create a product pitch deck",
+    "home.fallbackSuggestions.roadmap": "Create a product roadmap",
+    "home.fallbackSuggestions.explainer": "Explain a topic in a presentation",
     "home.starters.pitch.label": "Pitch deck",
     "home.starters.pitch.prompt": "Create a pitch deck about ",
     "home.noDecksMatchSearch": "No decks match your search.",
@@ -64,10 +75,18 @@ const translate = (key: string) =>
 
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent: vi.fn() }));
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  BuilderSetupCard: ({ onConnected }: { onConnected?: () => void }) => (
-    <div data-testid="ai-setup-card">
+  BuilderSetupCard: ({
+    bouncePulse = 0,
+    onConnected,
+  }: {
+    bouncePulse?: number;
+    onConnected?: () => void;
+  }) => (
+    <div data-testid="builder-setup-card" data-bounce-pulse={bouncePulse}>
       <h3>Connect AI</h3>
-      <button onClick={onConnected}>Connect Builder.io</button>
+      <button type="button" onClick={onConnected}>
+        Connect Builder.io
+      </button>
       <a href="/settings/keys">Custom keys</a>
     </div>
   ),
@@ -75,18 +94,17 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction,
-  useActionQuery: (name: string) =>
+  useActionQuery: (
+    name: string,
+    _params: Record<string, unknown>,
+    options?: { enabled?: boolean },
+  ) =>
     name === "generate-home-suggestions"
       ? {
-          data: {
-            suggestions: [
-              {
-                id: "suggestion-1",
-                label: "Build a pitch",
-                prompt: "Create a pitch deck for a new product.",
-              },
-            ],
-          },
+          data:
+            options?.enabled === false
+              ? undefined
+              : { suggestions: homeSuggestions.value },
           isLoading: false,
           isError: false,
         }
@@ -108,6 +126,7 @@ vi.mock("@agent-native/core/client/ui", () => ({
 }));
 vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
+  useHomeSearchShortcut: vi.fn(),
   useSetHeaderActions: (actions: ReactNode) => {
     headerActions.current = actions;
   },
@@ -248,6 +267,13 @@ beforeEach(() => {
   signedIn.value = true;
   agentEngine.state = "configured";
   agentEngine.missing = false;
+  homeSuggestions.value = [
+    {
+      id: "suggestion-1",
+      label: "Build a pitch",
+      prompt: "Create a pitch deck for a new product.",
+    },
+  ];
   headerActions.current = null;
   for (const name of ["localStorage", "sessionStorage"]) {
     const values = new Map<string, string>();
@@ -394,11 +420,13 @@ describe("Slides prompt-led home", () => {
     expect(promptProps.mock.lastCall![0].submissionDisabled).toBe(true);
     expect(createDeck).not.toHaveBeenCalled();
   });
-  it("shows Builder and custom-key setup while gating the composer until configured", async () => {
+  it("uses the shared Builder setup card and gates the composer until configured", async () => {
     agentEngine.state = "missing";
     agentEngine.missing = true;
     const missing = renderHome();
-    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = await screen.findByRole("textbox", {
+      name: "Presentation prompt",
+    });
     expect(screen.getByRole("heading", { name: "Connect AI" })).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Connect Builder.io" }),
@@ -406,13 +434,7 @@ describe("Slides prompt-led home", () => {
     expect(
       screen.getByRole("link", { name: "Custom keys" }).getAttribute("href"),
     ).toBe("/settings/keys");
-    expect(
-      (
-        screen.getByRole("textbox", {
-          name: "Presentation prompt",
-        }) as HTMLTextAreaElement
-      ).disabled,
-    ).toBe(true);
+    expect((prompt as HTMLTextAreaElement).disabled).toBe(true);
     expect(promptProps).toHaveBeenLastCalledWith(
       expect.objectContaining({
         disabled: true,
@@ -422,6 +444,16 @@ describe("Slides prompt-led home", () => {
         onSkip: expect.any(Function),
       }),
     );
+    fireEvent.pointerDown(
+      document.querySelector("[data-slides-home-composer]")!,
+      { button: 0, ctrlKey: false },
+    );
+    expect(
+      screen
+        .getByTestId("builder-setup-card")
+        .getAttribute("data-bounce-pulse"),
+    ).toBe("1");
+
     const attachments = {
       commit: vi.fn(),
       discard: vi.fn(),
@@ -437,12 +469,14 @@ describe("Slides prompt-led home", () => {
     });
     expect(submitResult).toBe("retain");
     expect(agentSubmit).not.toHaveBeenCalled();
+    expect(createDeck).not.toHaveBeenCalled();
+
     missing.unmount();
     agentEngine.state = "configured";
     agentEngine.missing = false;
     renderHome();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
-    expect(screen.queryByTestId("ai-setup-card")).toBeNull();
+    expect(screen.queryByTestId("builder-setup-card")).toBeNull();
     expect(promptProps).toHaveBeenLastCalledWith(
       expect.objectContaining({
         disabled: false,
@@ -451,11 +485,11 @@ describe("Slides prompt-led home", () => {
         modelStatusChecksEnabled: false,
       }),
     );
-    expect(createDeck).not.toHaveBeenCalled();
   });
 
   it("keeps the composer disabled until provider status is known and offers retry when unavailable", async () => {
     agentEngine.state = "unknown";
+    agentEngine.missing = false;
     renderHome();
     expect(screen.getByRole("status").textContent).toContain(
       "agentChat.setup.checkingProvider",
@@ -467,6 +501,7 @@ describe("Slides prompt-led home", () => {
         }) as HTMLTextAreaElement
       ).disabled,
     ).toBe(true);
+
     cleanup();
     agentEngine.state = "unavailable";
     renderHome();
@@ -477,7 +512,7 @@ describe("Slides prompt-led home", () => {
     );
   });
 
-  it("keeps the composer as the focal point without accessible work", async () => {
+  it("keeps the composer as the focal point and shows both library tabs without accessible work", async () => {
     renderHome({ decks: [] });
     expect(
       screen.getByRole("heading", {
@@ -488,6 +523,8 @@ describe("Slides prompt-led home", () => {
       await screen.findByRole("textbox", { name: "Presentation prompt" }),
     ).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Recent" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "Templates" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Recent" })).toBeTruthy();
     expect(
       screen.getByRole("link", { name: /browse all/i }).getAttribute("href"),
     ).toBe("/templates");
@@ -593,7 +630,26 @@ describe("Slides prompt-led home", () => {
     expect(createDeck).not.toHaveBeenCalled();
   });
 
-  it("hides home suggestions until the provider status is confirmed", async () => {
+  it("falls back to prompts that can create a new presentation", async () => {
+    homeSuggestions.value = [];
+    renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    expect(
+      screen.getByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Create a product roadmap" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "Explain a topic in a presentation",
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Apply our brand to this deck")).toBeNull();
+  });
+
+  it("hides home suggestions until provider status is confirmed", async () => {
     agentEngine.state = "missing";
     agentEngine.missing = true;
     renderHome();

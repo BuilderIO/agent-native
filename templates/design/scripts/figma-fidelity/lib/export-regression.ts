@@ -167,7 +167,10 @@ export async function runExportCase(
     JSON.stringify(report, null, 2),
   );
 
-  const candidate = await renderSvgToPng(browser, svg, renderOptions);
+  const candidate = await renderSvgToPng(browser, svg, {
+    ...renderOptions,
+    headHtml: webFontLinks(testCase.html),
+  });
   writeFileSync(join(dir, "export.png"), candidate.png);
 
   const comparison = await comparePngs(browser, reference.png, candidate.png, {
@@ -201,6 +204,17 @@ export async function runExportCase(
     exportOmissions: report.omitted?.length ?? 0,
     exportApproximations: report.approximated?.length ?? 0,
   };
+}
+
+export function webFontLinks(html: string): string {
+  return [...html.matchAll(/<link\b[^>]*>/gi)]
+    .map((match) => match[0])
+    .filter(
+      (tag) =>
+        /\brel=["']?stylesheet\b/i.test(tag) &&
+        /\bhref=["']https:\/\/fonts\.googleapis\.com\//i.test(tag),
+    )
+    .join("");
 }
 
 export function findExportBaselineProblems(

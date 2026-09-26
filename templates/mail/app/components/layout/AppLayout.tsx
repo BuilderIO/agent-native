@@ -16,6 +16,7 @@ import {
   AppSidebarHeader,
   EnvironmentBadge,
   FeedbackButton,
+  RouterSidebarLink,
 } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
@@ -1370,7 +1371,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     dropIndicator?.tabIndex === tabIndex &&
                     dropIndicator.side === "right";
                   const link = (
-                    <Link
+                    <RouterSidebarLink
                       to={tab.href}
                       aria-current={tab.isActive ? "page" : undefined}
                       draggable={canDrag}
@@ -1404,7 +1405,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           {count}
                         </span>
                       )}
-                    </Link>
+                    </RouterSidebarLink>
                   );
                   return (
                     <div
@@ -1807,7 +1808,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     return (
                       <Tooltip key={item.id}>
                         <TooltipTrigger asChild>
-                          <Link
+                          <RouterSidebarLink
                             to={item.href}
                             aria-label={item.label}
                             className={cn(
@@ -1820,7 +1821,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                             {item.count && item.count > 0 ? (
                               <span className="absolute end-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" />
                             ) : null}
-                          </Link>
+                          </RouterSidebarLink>
                         </TooltipTrigger>
                         <TooltipContent side="right">
                           {item.label}
@@ -2041,14 +2042,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         <DevDatabaseLink />
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Link
+                            <RouterSidebarLink
                               to="/settings"
                               onClick={closeSidebar}
                               aria-label={t("mail.toolbar.settings")}
                               className="flex size-9 shrink-0 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary"
                             >
                               <IconSettings className="size-4" />
-                            </Link>
+                            </RouterSidebarLink>
                           </TooltipTrigger>
                           <TooltipContent side="right">
                             {t("mail.toolbar.settings")}
@@ -2518,14 +2519,14 @@ function StandardLayout({ children }: AppLayoutProps) {
               <DevDatabaseLink />
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link
+                  <RouterSidebarLink
                     to="/settings"
                     onClick={() => setSidebarOpen(false)}
                     aria-label={t("mail.toolbar.settings")}
                     className="flex size-9 shrink-0 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary"
                   >
                     <IconSettings className="size-4" />
-                  </Link>
+                  </RouterSidebarLink>
                 </TooltipTrigger>
                 <TooltipContent side="right">
                   {t("mail.toolbar.settings")}

@@ -7,10 +7,17 @@ import { IconCode } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import { withLocalRuntimes } from "@/components/design/design-canvas/local-runtime";
+import { cn } from "@/lib/utils";
 
 import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
 
-export function DesignThumbnail({ html }: { html: string | null }) {
+export function DesignThumbnail({
+  html,
+  className,
+}: {
+  html: string | null;
+  className?: string;
+}) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.25);
@@ -24,7 +31,9 @@ export function DesignThumbnail({ html }: { html: string | null }) {
     if (!el) return;
     const update = () => {
       const w = el.clientWidth;
-      if (w > 0) setScale(w / NATURAL_WIDTH);
+      const h = el.clientHeight;
+      if (w > 0 && h > 0)
+        setScale(Math.min(w / NATURAL_WIDTH, h / NATURAL_HEIGHT));
     };
     update();
     const observer = new ResizeObserver(update);
@@ -38,7 +47,12 @@ export function DesignThumbnail({ html }: { html: string | null }) {
 
   if (!html) {
     return (
-      <div className="aspect-video bg-muted/50 flex items-center justify-center">
+      <div
+        className={cn(
+          "flex aspect-video items-center justify-center bg-muted/50",
+          className,
+        )}
+      >
         <IconCode className="w-8 h-8 text-muted-foreground/40" />
       </div>
     );
@@ -47,7 +61,10 @@ export function DesignThumbnail({ html }: { html: string | null }) {
   return (
     <div
       ref={containerRef}
-      className="relative aspect-video overflow-hidden bg-muted"
+      className={cn(
+        "relative aspect-video overflow-hidden bg-muted",
+        className,
+      )}
     >
       {!loaded ? (
         <div className="absolute inset-0 flex items-center justify-center bg-muted">
@@ -63,12 +80,12 @@ export function DesignThumbnail({ html }: { html: string | null }) {
         aria-hidden
         title={t("home.designPreview")}
         onLoad={() => setLoaded(true)}
-        className="relative bg-muted transition-opacity duration-200"
+        className="absolute left-1/2 top-1/2 bg-muted transition-opacity duration-200"
         style={{
           width: `${NATURAL_WIDTH}px`,
           height: `${NATURAL_HEIGHT}px`,
-          transform: `scale(${scale})`,
-          transformOrigin: "top left",
+          transform: `translate(-50%, -50%) scale(${scale})`,
+          transformOrigin: "center",
           border: 0,
           pointerEvents: "none",
           opacity: loaded ? 1 : 0,
