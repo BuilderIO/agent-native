@@ -6,6 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createZoomMeeting } from "./zoom.js";
 
+const mocks = vi.hoisted(() => ({
+  providerError: null as Error | null,
+  providerCreateMeeting: vi.fn(),
+}));
+
 vi.mock("@agent-native/core/oauth-tokens", () => ({
   deleteOAuthTokens: vi.fn(),
   getOAuthTokens: vi.fn(),
@@ -14,13 +19,24 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
 }));
 
 vi.mock("@agent-native/scheduling/server/providers", () => ({
+  ZoomProviderError: class ZoomProviderError extends Error {
+    constructor(
+      readonly statusCode: number,
+      message = `Zoom ${statusCode}`,
+    ) {
+      super(message);
+      this.name = "ZoomProviderError";
+    }
+  },
   createZoomProvider: ({
     getAccessToken,
   }: {
     getAccessToken: (credentialId: string) => Promise<string>;
   }) => ({
     createMeeting: async ({ credentialId }: { credentialId: string }) => {
+      mocks.providerCreateMeeting();
       await getAccessToken(credentialId);
+      if (mocks.providerError) throw mocks.providerError;
       return {
         meetingId: "meeting-id",
         meetingUrl: "https://zoom.us/j/example",
@@ -30,13 +46,15 @@ vi.mock("@agent-native/scheduling/server/providers", () => ({
 }));
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  mocks.providerError = null;
 });
 
 describe("createZoomMeeting", () => {
-  it("fails instead of using an expired access token when refresh fails", async () => {
+  it("releases the slot when token refresh fails before Zoom creation", async () => {
     vi.stubEnv("ZOOM_CLIENT_ID", "client-id");
     vi.stubEnv("ZOOM_CLIENT_SECRET", "client-secret");
     vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
@@ -47,10 +65,11 @@ describe("createZoomMeeting", () => {
       refreshToken: "refresh-token",
       expiresAt: Date.now() - 1,
     } as never);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(new Response(null, { status: 401 })),
-    );
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 401 }));
+    vi.stubGlobal("fetch", fetch);
+    const logError = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(
       createZoomMeeting({
@@ -60,6 +79,68 @@ describe("createZoomMeeting", () => {
         endTime: "2026-09-26T00:00:00.000Z",
         timezone: "America/Los_Angeles",
       }),
-    ).rejects.toThrow("Zoom token refresh failed: 401");
+    ).resolves.toEqual({ status: "not_started" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0]?.[0]).toBe("https://zoom.us/oauth/token");
+    expect(mocks.providerCreateMeeting).not.toHaveBeenCalled();
+    expect(logError).toHaveBeenCalledWith(
+      "Zoom meeting could not be prepared before creation:",
+      expect.objectContaining({ message: "Zoom token refresh failed: 401" }),
+    );
+  });
+
+  it("releases the slot when Zoom explicitly rejects meeting creation", async () => {
+    vi.stubEnv("ZOOM_CLIENT_ID", "client-id");
+    vi.stubEnv("ZOOM_CLIENT_SECRET", "client-secret");
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      { accountId: "zoom-account", displayName: "Host" },
+    ] as never);
+    vi.mocked(getOAuthTokens).mockResolvedValue({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      expiresAt: Date.now() + 10 * 60_000,
+    } as never);
+    const { ZoomProviderError } =
+      await import("@agent-native/scheduling/server/providers");
+    mocks.providerError = new ZoomProviderError(401, "Unauthorized");
+
+    await expect(
+      createZoomMeeting({
+        hostEmail: "host@example.com",
+        title: "Booking",
+        startTime: "2026-09-25T23:30:00.000Z",
+        endTime: "2026-09-26T00:00:00.000Z",
+        timezone: "America/Los_Angeles",
+      }),
+    ).resolves.toEqual({ status: "rejected" });
+    expect(mocks.providerCreateMeeting).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Zoom request timeouts on the ambiguous outcome path", async () => {
+    vi.stubEnv("ZOOM_CLIENT_ID", "client-id");
+    vi.stubEnv("ZOOM_CLIENT_SECRET", "client-secret");
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      { accountId: "zoom-account", displayName: "Host" },
+    ] as never);
+    vi.mocked(getOAuthTokens).mockResolvedValue({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      expiresAt: Date.now() + 10 * 60_000,
+    } as never);
+    const { ZoomProviderError } =
+      await import("@agent-native/scheduling/server/providers");
+    const timeout = new ZoomProviderError(408, "Request Timeout");
+    mocks.providerError = timeout;
+
+    await expect(
+      createZoomMeeting({
+        hostEmail: "host@example.com",
+        title: "Booking",
+        startTime: "2026-09-25T23:30:00.000Z",
+        endTime: "2026-09-26T00:00:00.000Z",
+        timezone: "America/Los_Angeles",
+      }),
+    ).rejects.toBe(timeout);
+    expect(mocks.providerCreateMeeting).toHaveBeenCalledTimes(1);
   });
 });

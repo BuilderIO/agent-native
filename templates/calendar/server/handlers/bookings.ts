@@ -1496,6 +1496,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     let meetingLink: string | undefined;
     let googleEventId: string | undefined;
     let calendarAccountId: string | undefined;
+    let meetingLinkPending = false;
 
     // For custom-URL conferencing, use the static URL — only http(s).
     if (conferencing?.type === "custom" && conferencing.url) {
@@ -1520,7 +1521,10 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           endTime: requestedRange.end.toISOString(),
           timezone: bookingTimeZone,
         });
-        if (zoomResult.status === "not_started") {
+        if (
+          zoomResult.status === "not_started" ||
+          zoomResult.status === "rejected"
+        ) {
           await getDb()
             .update(schema.bookings)
             .set({ status: "cancelled" })
@@ -1539,9 +1543,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         );
         // Zoom may have created the meeting even if its response was lost or
         // unreadable, so keep the booking to reserve the slot and prevent a
-        // retry from silently creating a duplicate meeting.
-        setResponseStatus(event, 502);
-        return { error: "Failed to create booking" };
+        // retry from silently creating a duplicate meeting. Finish the
+        // independent calendar write before returning the provider error.
+        meetingLinkPending = true;
       }
     }
 
@@ -1624,12 +1628,14 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
 
     // Persist provider details created after the initial booking insert.
-    if (meetingLink || googleEventId) {
+    meetingLinkPending = meetingLinkPending && !meetingLink;
+    if (meetingLink || googleEventId || meetingLinkPending) {
       const providerUpdates: {
         meetingLink?: string;
         googleEventId?: string;
         calendarAccountId?: string;
-      } = {};
+        meetingLinkPending: boolean;
+      } = { meetingLinkPending };
       if (meetingLink) providerUpdates.meetingLink = meetingLink;
       if (googleEventId) providerUpdates.googleEventId = googleEventId;
       if (googleEventId && calendarAccountId) {
@@ -1655,6 +1661,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       fieldResponses:
         Object.keys(fieldResponses).length > 0 ? fieldResponses : undefined,
       meetingLink,
+      ...(meetingLinkPending ? { meetingLinkPending: true } : {}),
       googleEventId,
       cancelToken,
       status: "confirmed",
@@ -1982,6 +1989,7 @@ export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
       end: booking.end,
       slug: booking.slug,
       meetingLink: booking.meetingLink,
+      meetingLinkPending: booking.meetingLinkPending,
       status: booking.status,
     };
   } catch (error: any) {
@@ -2067,6 +2075,8 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
     notes: row.notes ?? undefined,
     fieldResponses,
     meetingLink: row.meetingLink ?? undefined,
+    meetingLinkPending:
+      row.meetingLinkPending && !row.meetingLink ? true : undefined,
     googleEventId: row.googleEventId ?? undefined,
     status: row.status,
     createdAt: row.createdAt,

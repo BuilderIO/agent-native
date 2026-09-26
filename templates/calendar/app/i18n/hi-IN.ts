@@ -500,6 +500,8 @@ export default {
     confirmBooking: "बुकिंग की पुष्टि करें",
     confirmation: "पुष्टि",
     confirmationSent: "सब तैयार है! पुष्टि आपके ईमेल पर भेज दी गई है।",
+    meetingDetailsPending:
+      "आपका समय आरक्षित है। मेज़बान मीटिंग की जानकारी लेकर आपसे संपर्क करेगा।",
     confirmed: "पुष्टि हुई",
     confirmedCount: "पुष्टि हुई ({{count}})",
     confirming: "पुष्टि हो रही है",

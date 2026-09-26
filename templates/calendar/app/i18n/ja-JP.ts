@@ -511,6 +511,8 @@ export default {
     confirmBooking: "予約を確認する",
     confirmation: "確認",
     confirmationSent: "完了しました。確認メールを送信しました。",
+    meetingDetailsPending:
+      "予約枠を確保しました。主催者からミーティングの詳細をご連絡します。",
     confirmed: "確定済み",
     confirmedCount: "確定済み（{{count}}）",
     confirming: "確認中",

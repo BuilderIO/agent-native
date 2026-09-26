@@ -86,6 +86,14 @@ function plainText(value: string): string {
     .trim();
 }
 
+export function summarizeSlideContent(content: unknown): string {
+  if (typeof content !== "string") return "";
+  const text = plainText(content);
+  if (text.length <= 160) return text;
+  const cut = text.lastIndexOf(" ", 157);
+  return `${text.slice(0, cut > 0 ? cut : 157).trimEnd()}…`;
+}
+
 function plainTextLines(value: string): string[] {
   return decodeHtmlEntities(
     value.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/gi, "\n"),

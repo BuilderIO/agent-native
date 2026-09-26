@@ -484,6 +484,7 @@ export default {
     confirmBooking: "确认预订",
     confirmation: "确认",
     confirmationSent: "你已完成！确认邮件已发送到你的邮箱。",
+    meetingDetailsPending: "您的时段已预留。主持人会跟进并提供会议详情。",
     confirmed: "已确认",
     confirmedCount: "已确认（{{count}}）",
     confirming: "确认中",

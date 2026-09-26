@@ -217,6 +217,11 @@ CREATE INDEX IF NOT EXISTS idx_bookings_slug_start ON bookings (slug, "start");`
         ALTER TABLE IF EXISTS booking_link_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
       `,
     },
+    {
+      version: 24,
+      name: "bookings-meeting-link-pending",
+      sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS meeting_link_pending BOOLEAN NOT NULL DEFAULT false`,
+    },
   ],
   { table: "calendar_migrations" },
 );
