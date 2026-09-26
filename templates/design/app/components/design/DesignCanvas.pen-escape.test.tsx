@@ -74,6 +74,7 @@ describe("DesignCanvas Pen path completion", () => {
     onCreatePrimitive: (spec: CreatePrimitiveSpec) => string | false | void,
   ) {
     let options: {
+      activeCreationTool?: "pen" | null;
       content?: string;
       selectedPenPathNodeId?: string | null;
       onUpdatePenPath?: (
@@ -102,7 +103,11 @@ describe("DesignCanvas Pen path completion", () => {
               displayWidth: 800,
               displayHeight: 600,
             }}
-            activeCreationTool="pen"
+            activeCreationTool={
+              options.activeCreationTool === undefined
+                ? "pen"
+                : options.activeCreationTool
+            }
             selectedPenPathNodeId={options.selectedPenPathNodeId}
             onCreatePrimitive={onCreatePrimitive}
             onUpdatePenPath={options.onUpdatePenPath}
@@ -232,6 +237,33 @@ describe("DesignCanvas Pen path completion", () => {
     expect(container.querySelector("[data-pen-path-overlay]")).not.toBeNull();
     expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(2);
 
+    await pressKey("Enter");
+
+    expect(onCreatePrimitive).toHaveBeenCalledTimes(2);
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+  });
+
+  it("keeps a rejected Pen draft mounted when switching to Move", async () => {
+    const onCreatePrimitive = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce("created-path");
+    const { click, pressKey, update } =
+      await renderPenCanvas(onCreatePrimitive);
+
+    await click(1, 120, 120);
+    await click(2, 180, 180);
+    await update({ activeCreationTool: null });
+
+    expect(onCreatePrimitive).toHaveBeenCalledTimes(1);
+    expect(
+      container
+        .querySelector("[data-design-canvas-creation-overlay]")
+        ?.classList.contains("pointer-events-none"),
+    ).toBe(true);
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(2);
+
+    await update({ activeCreationTool: "pen" });
     await pressKey("Enter");
 
     expect(onCreatePrimitive).toHaveBeenCalledTimes(2);

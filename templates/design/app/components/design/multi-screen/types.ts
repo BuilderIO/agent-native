@@ -858,7 +858,7 @@ export interface VectorEditOverlayState {
   originCanvas: Point;
   selectedAnchorIndex: number | null;
   onSelectedAnchorChange: (nodeIndex: number | null) => void;
-  onChange: (nextPath: PenPath, phase: "preview" | "commit") => void;
+  onChange: (nextPath: PenPath, phase: "preview" | "commit") => boolean;
   onExit: () => void;
 }
 

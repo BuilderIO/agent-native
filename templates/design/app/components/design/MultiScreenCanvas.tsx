@@ -6345,31 +6345,47 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
 
       if (penContinuesVectorEditRef.current) {
-        penContinuesVectorEditRef.current = false;
         const active = vectorEditRef.current;
         const baseCount = penContinuationBaseCountRef.current;
-        penContinuationBaseCountRef.current = 0;
-        if (
-          active &&
-          (path.nodes.length > baseCount || path.closed !== active.path.closed)
-        ) {
-          const toLocal = (point: Point): Point => ({
-            x: point.x - active.originCanvas.x,
-            y: point.y - active.originCanvas.y,
-          });
-          active.onChange(
-            {
-              closed: path.closed,
-              nodes: path.nodes.map((node) => ({
-                ...node,
-                point: toLocal(node.point),
-                handleIn: node.handleIn ? toLocal(node.handleIn) : undefined,
-                handleOut: node.handleOut ? toLocal(node.handleOut) : undefined,
-              })),
-            },
-            "commit",
+        const changed =
+          path.nodes.length > baseCount || path.closed !== active?.path.closed;
+        const accepted =
+          !changed ||
+          Boolean(
+            active &&
+            active.onChange(
+              {
+                closed: path.closed,
+                nodes: path.nodes.map((node) => ({
+                  ...node,
+                  point: {
+                    x: node.point.x - active.originCanvas.x,
+                    y: node.point.y - active.originCanvas.y,
+                  },
+                  handleIn: node.handleIn
+                    ? {
+                        x: node.handleIn.x - active.originCanvas.x,
+                        y: node.handleIn.y - active.originCanvas.y,
+                      }
+                    : undefined,
+                  handleOut: node.handleOut
+                    ? {
+                        x: node.handleOut.x - active.originCanvas.x,
+                        y: node.handleOut.y - active.originCanvas.y,
+                      }
+                    : undefined,
+                })),
+              },
+              "commit",
+            ),
           );
+        if (!accepted) {
+          activePenPathRef.current = path;
+          setActivePenPath(path);
+          return;
         }
+        penContinuesVectorEditRef.current = false;
+        penContinuationBaseCountRef.current = 0;
         if (nextTool === "move") active?.onExit();
         onActiveToolChange?.(nextTool);
         return;

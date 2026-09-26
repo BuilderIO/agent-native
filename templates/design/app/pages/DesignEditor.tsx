@@ -9713,7 +9713,7 @@ function DesignEditor() {
     canEditDesign || canEditLiveScreen(activeFile?.id ?? activeFileId);
   // P4: arms DesignCanvas's single-screen click-to-place overlay only while
   // focused on a single screen with an active creation tool selected —
-  // `null` in every other case leaves the overlay unmounted (see
+  // `null` in every other case disables pointer capture (see
   // getSingleScreenCreationTool's doc comment for the full tool mapping).
   const activeSingleScreenCreationTool = getSingleScreenCreationTool({
     activeTool,
@@ -11745,56 +11745,61 @@ function DesignEditor() {
    */
   const handleVectorEditChange = useCallback(
     (nextPath: PenPath, phase: "preview" | "commit") => {
-      setVectorEditingState((current) => {
-        if (!current) return current;
-        if (phase === "commit") {
-          const baseContent = getScreenContent(current.screenId);
-          if (!baseContent) {
-            toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-            return current;
-          }
-
-          const sourcePath = translatePenPath(
-            nextPath,
-            -current.sourceOffset.x,
-            -current.sourceOffset.y,
-          );
-          const nextContent = current.primitiveSource
-            ? writeBackPrimitiveAsVector(
-                baseContent,
-                current.nodeId,
-                sourcePath,
-                current.primitiveSource.geometry,
-                current.primitiveSource.fill,
-              )
-            : writeBackVectorEditedPenPath(
-                baseContent,
-                current.nodeId,
-                sourcePath,
-              );
-          if (nextContent === null) {
-            toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-            return current;
-          }
-          if (nextContent !== baseContent) {
-            applyFileContentUpdate(current.screenId, nextContent, {
-              skipPreview: current.screenId !== activeFile?.id,
-              historyBeforeContent: baseContent,
-            });
-          }
-          return {
-            ...current,
-            path: nextPath,
-            primitiveSource:
-              current.primitiveSource && nextContent !== baseContent
-                ? null
-                : current.primitiveSource,
-          };
+      const current = vectorEditingState;
+      if (!current) return false;
+      let primitiveSource = current.primitiveSource;
+      if (phase === "commit") {
+        const baseContent = getScreenContent(current.screenId);
+        if (!baseContent) {
+          toast.error(t("designEditor.toasts.vectorEditUnsupported"));
+          return false;
         }
-        return { ...current, path: nextPath };
-      });
+
+        const sourcePath = translatePenPath(
+          nextPath,
+          -current.sourceOffset.x,
+          -current.sourceOffset.y,
+        );
+        const nextContent = current.primitiveSource
+          ? writeBackPrimitiveAsVector(
+              baseContent,
+              current.nodeId,
+              sourcePath,
+              current.primitiveSource.geometry,
+              current.primitiveSource.fill,
+            )
+          : writeBackVectorEditedPenPath(
+              baseContent,
+              current.nodeId,
+              sourcePath,
+            );
+        if (nextContent === null) {
+          toast.error(t("designEditor.toasts.vectorEditUnsupported"));
+          return false;
+        }
+        if (nextContent !== baseContent) {
+          const result = applyFileContentUpdate(current.screenId, nextContent, {
+            skipPreview: current.screenId !== activeFile?.id,
+            historyBeforeContent: baseContent,
+          });
+          if (result.status !== "accepted") return false;
+          if (current.primitiveSource) primitiveSource = null;
+        }
+      }
+      setVectorEditingState((latest) =>
+        latest?.layerId === current.layerId
+          ? { ...latest, path: nextPath, primitiveSource }
+          : latest,
+      );
+      return true;
     },
-    [activeFile?.id, applyFileContentUpdate, getScreenContent, t],
+    [
+      activeFile?.id,
+      applyFileContentUpdate,
+      getScreenContent,
+      t,
+      vectorEditingState,
+    ],
   );
 
   const handleVectorEditExit = useCallback(() => {

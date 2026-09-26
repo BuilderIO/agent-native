@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 
-import { createCornerNode, serializePenNodes } from "@shared/pen-path";
+import {
+  createCornerNode,
+  serializePenNodes,
+  type PenPath,
+} from "@shared/pen-path";
 import { act, type ReactNode, useState } from "react";
 import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -263,7 +267,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
   });
 
   it("Enter keeps Pen active when extending an existing selected vector", async () => {
-    const onChange = vi.fn();
+    const onChange = vi.fn((_path: PenPath) => true);
     const onExit = vi.fn();
     const surface = await renderPenHarness({
       screens: [],
@@ -303,8 +307,11 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(onChange.mock.calls[0]?.[0].nodes).toHaveLength(3);
   });
 
-  it("Escape finishes Pen continuation before exiting vector edit", async () => {
-    const onChange = vi.fn();
+  it("Escape retains a rejected Pen continuation so it can be retried", async () => {
+    const onChange = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
     const onExit = vi.fn();
     const surface = await renderPenHarness({
       screens: [],
@@ -337,11 +344,19 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(container.querySelector("[data-active-tool]")?.textContent).toBe(
       "pen",
     );
+    expect(container.querySelector("[data-pen-path-overlay]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(3);
+
+    await pressKey("Escape");
+
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+    expect(onChange).toHaveBeenCalledTimes(2);
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ closed: false, nodes: expect.any(Array) }),
       "commit",
     );
     expect(onChange.mock.calls[0]?.[0].nodes).toHaveLength(3);
+    expect(onChange.mock.calls[1]?.[0].nodes).toHaveLength(3);
   });
 
   it("keeps a newer Pen path active when a failed draft persists on retry", async () => {
