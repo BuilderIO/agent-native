@@ -947,7 +947,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (activeTextEditEl) return false;
       var active = document.activeElement;
       var visited = /* @__PURE__ */ new Set();
-      var focusTargetSelector = 'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
+      var focusTargetSelector = 'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
       while (active && !visited.has(active)) {
         visited.add(active);
         if (isEditorTypingTarget(active) || active.closest?.(focusTargetSelector)) {
@@ -958,7 +958,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           active = shadowActive;
           continue;
         }
-        if (active.localName.indexOf("-") !== -1 && active.matches?.(":focus-within")) {
+        if (active !== document.body && active !== document.documentElement && active.matches?.(":focus-within")) {
           return false;
         }
         return true;

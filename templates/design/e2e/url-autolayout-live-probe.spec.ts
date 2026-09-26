@@ -186,6 +186,42 @@ test.describe("URL-backed live auto-layout probe", () => {
       .toBe(true);
 
     await frame.locator("body").evaluate(() => {
+      const host = document.createElement("div");
+      const shadow = host.attachShadow({ mode: "closed" });
+      const input = document.createElement("input");
+      shadow.append(input);
+      document.body.append(host);
+      input.focus();
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document.activeElement ===
+            document.querySelector("iframe[data-design-preview-iframe]"),
+        ),
+      )
+      .toBe(true);
+
+    for (const tagName of ["audio", "video"] as const) {
+      await frame.locator("body").evaluate((body, tag) => {
+        const media = body.ownerDocument.createElement(tag);
+        media.controls = true;
+        body.append(media);
+        media.focus();
+      }, tagName);
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              document.activeElement ===
+              document.querySelector("iframe[data-design-preview-iframe]"),
+          ),
+        )
+        .toBe(true);
+    }
+
+    await frame.locator("body").evaluate(() => {
       const nested = document.createElement("iframe");
       nested.id = "nested-focus-frame";
       nested.srcdoc = '<input aria-label="Nested frame input">';
