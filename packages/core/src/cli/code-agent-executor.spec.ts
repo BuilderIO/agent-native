@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { EngineContentPart } from "../agent/engine/types.js";
 import type { AgentEngine } from "../agent/engine/types.js";
@@ -493,6 +493,93 @@ describe("executeCodeAgentRun", () => {
       expect(runs[1].config).not.toBe(runs[0].config);
       expect(runs[1].earlierConfigsPresent).toEqual([false]);
     } finally {
+      restoreEnv("MCP_SERVERS", originalMcpServers);
+      restoreEnv(
+        "AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST",
+        originalAllowlist,
+      );
+    }
+  });
+
+  it("completes the run and its follow-up when the MCP config cannot be removed", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const originalMcpServers = process.env.MCP_SERVERS;
+    const originalAllowlist =
+      process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST;
+    process.env.MCP_SERVERS = JSON.stringify({
+      servers: {
+        "app-crm": {
+          type: "http",
+          url: "http://127.0.0.1:8080/crm/_agent-native/mcp",
+          headers: { Cookie: "session=placeholder-session" },
+        },
+      },
+    });
+    process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST = "app-crm";
+    const binDir = path.join(root, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(binDir, "claude"),
+      [
+        "#!/usr/bin/env node",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        "process.stdin.resume();",
+        "process.stdin.on('end', () => {",
+        "  process.stdout.write(JSON.stringify({ type: 'result', result: 'done' }) + '\\n');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude with apps",
+      status: "running",
+      phase: "executing",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+    queueCodeAgentFollowUp({
+      runId: run.id,
+      prompt: "follow up",
+      mode: "queued",
+      source: "test",
+    });
+    const realRmSync = fs.rmSync;
+    const rmSync = vi
+      .spyOn(fs, "rmSync")
+      .mockImplementation((target, options) => {
+        if (String(target).includes("agent-native-code-claude-")) {
+          throw new Error("EBUSY: resource busy or locked");
+        }
+        return realRmSync(target, options);
+      });
+
+    try {
+      await executeCodeAgentRun({ runId: run.id, prompt: "list contacts" });
+
+      expect(getCodeAgentRunRecord(run.id)?.status).toBe("completed");
+      const events = listCodeAgentTranscriptEvents(run.id);
+      expect(
+        events.some((event) =>
+          event.message.includes("running queued follow-up"),
+        ),
+      ).toBe(true);
+      expect(
+        events.filter(
+          (event) =>
+            event.kind === "note" &&
+            event.message.includes("Could not remove the temporary"),
+        ),
+      ).toHaveLength(2);
+    } finally {
+      rmSync.mockRestore();
       restoreEnv("MCP_SERVERS", originalMcpServers);
       restoreEnv(
         "AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST",
