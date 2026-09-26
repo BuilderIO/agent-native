@@ -28,6 +28,12 @@ export function discardAnalyticsChatHandoffOnSettings(pathname: string): void {
   });
 }
 
+export function hasTrackedAnalyticsChatRun(
+  runningRuns: AnalyticsChatRunningRuns,
+): boolean {
+  return Array.from(runningRuns.values()).some(({ runIds }) => runIds.size > 0);
+}
+
 export function updateAnalyticsChatHandoffForRun(
   runningRuns: AnalyticsChatRunningRuns,
   detail: unknown,
@@ -38,7 +44,10 @@ export function updateAnalyticsChatHandoffForRun(
   if (typeof run.isRunning !== "boolean") return;
   const tabId = resolveAgentChatRunningThreadId(run);
   if (!tabId) return;
-  const runId = typeof run.runId === "string" && run.runId ? run.runId : null;
+  const runId =
+    (typeof run.runId === "string" && run.runId) ||
+    (typeof run.turnId === "string" && run.turnId) ||
+    null;
   const state = runningRuns.get(tabId);
 
   if (run.isRunning) {
@@ -69,11 +78,6 @@ export function updateAnalyticsChatHandoffForRun(
   } else if (state.unidentifiedRunActive) {
     state.unidentifiedRunActive = false;
     hadActiveRun = true;
-  } else if (state.runIds.size === 1) {
-    state.runIds.clear();
-    hadActiveRun = true;
-  } else {
-    hadActiveRun = state.runIds.size > 1;
   }
 
   if (!state.unidentifiedRunActive && state.runIds.size === 0) {

@@ -11,6 +11,7 @@ import {
   ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
   type AnalyticsChatRunningRuns,
   discardAnalyticsChatHandoffOnSettings,
+  hasTrackedAnalyticsChatRun,
   hasRecentAnalyticsChat,
   isAnalyticsSettingsPath,
   markAnalyticsChatActivity,
@@ -158,27 +159,32 @@ describe("analytics chat handoff destinations", () => {
     ).toBe(false);
   });
 
-  it("keeps the successor run tracked after the first same-tab run completes", () => {
+  it("keeps the successor turn tracked through same-tab completion events", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
     const runningRuns: AnalyticsChatRunningRuns = new Map();
 
     updateAnalyticsChatHandoffForRun(
       runningRuns,
-      { isRunning: true, tabId: "chat-1", runId: "run-a" },
+      { isRunning: true, tabId: "chat-1", turnId: "turn-a" },
       "/ask",
     );
     vi.setSystemTime(1_000 + ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS + 1);
     updateAnalyticsChatHandoffForRun(
       runningRuns,
-      { isRunning: true, tabId: "chat-1", runId: "run-b" },
+      { isRunning: true, tabId: "chat-1", turnId: "turn-b" },
       "/ask",
     );
     vi.setSystemTime(1_001 + ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS + 1);
 
     updateAnalyticsChatHandoffForRun(
       runningRuns,
-      { isRunning: false, tabId: "chat-1", runId: "run-a" },
+      { isRunning: false, tabId: "chat-1", turnId: "turn-a" },
+      "/ask",
+    );
+    updateAnalyticsChatHandoffForRun(
+      runningRuns,
+      { isRunning: false, tabId: "chat-1" },
       "/ask",
     );
 
@@ -188,11 +194,11 @@ describe("analytics chat handoff destinations", () => {
         ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
       }),
     ).toBe(false);
-    expect(runningRuns.get("chat-1")?.runIds.has("run-b")).toBe(true);
+    expect(runningRuns.get("chat-1")?.runIds.has("turn-b")).toBe(true);
 
     updateAnalyticsChatHandoffForRun(
       runningRuns,
-      { isRunning: false, tabId: "chat-1", runId: "run-b" },
+      { isRunning: false, tabId: "chat-1", turnId: "turn-b" },
       "/ask",
     );
 
@@ -202,5 +208,22 @@ describe("analytics chat handoff destinations", () => {
       }),
     ).toBe(true);
     expect(runningRuns.has("chat-1")).toBe(false);
+  });
+
+  it("renews only handoffs for runs with an identity", () => {
+    const runningRuns: AnalyticsChatRunningRuns = new Map();
+    updateAnalyticsChatHandoffForRun(
+      runningRuns,
+      { isRunning: true, tabId: "chat-1" },
+      "/ask",
+    );
+    expect(hasTrackedAnalyticsChatRun(runningRuns)).toBe(false);
+
+    updateAnalyticsChatHandoffForRun(
+      runningRuns,
+      { isRunning: true, tabId: "chat-1", turnId: "turn-a" },
+      "/ask",
+    );
+    expect(hasTrackedAnalyticsChatRun(runningRuns)).toBe(true);
   });
 });
