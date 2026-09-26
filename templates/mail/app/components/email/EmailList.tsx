@@ -1003,8 +1003,8 @@ export function EmailList({
         aiPriorityEmailKey(b.latestMessage.accountEmail, b.latestMessage.id),
       );
       if (aIndex !== undefined && bIndex !== undefined) return aIndex - bIndex;
-      if (aIndex !== undefined) return -1;
-      if (bIndex !== undefined) return 1;
+      if (aIndex !== undefined) return 1;
+      if (bIndex !== undefined) return -1;
       return 0;
     });
   }, [

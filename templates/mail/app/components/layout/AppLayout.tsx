@@ -625,10 +625,17 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       rule.kind === "ai-filter" &&
       aiFilterRuleMode(rule) === "filtered",
   );
+  const hasFilteredLabel = labels.some(
+    (label) =>
+      normalizedAiFilterLabelId(label.name) ===
+      normalizedAiFilterLabelId(AI_FILTER_LABEL),
+  );
   const systemViews = useMemo(
     () =>
-      hasFilteredRule ? [...collapsibleViews, filteredView] : collapsibleViews,
-    [hasFilteredRule],
+      hasFilteredRule || hasFilteredLabel
+        ? [...collapsibleViews, filteredView]
+        : collapsibleViews,
+    [hasFilteredLabel, hasFilteredRule],
   );
 
   // The top bar's tabs, their counts, and the account/sync status all come

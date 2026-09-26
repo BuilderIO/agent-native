@@ -107,6 +107,7 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain('t("mail.aiFilter.chatSuggestionFilter")');
     expect(source).toContain('t("mail.aiFilter.chatSuggestionPriority")');
     expect(source).toContain('t("mail.aiFilter.chatSuggestionArchive")');
+    expect(source).toContain("hasFilteredRule || hasFilteredLabel");
     expect(source).toContain("allTabVisible={showAllTab}");
     expect(source).toContain('className={cn("relative shrink-0", tabsLoading');
     expect(source).not.toContain('"relative hidden sm:block"');

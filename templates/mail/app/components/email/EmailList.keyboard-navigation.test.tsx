@@ -394,7 +394,7 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
   });
 
-  it("reuses priority scores when the visible inbox emails change", async () => {
+  it("surfaces newly visible inbox emails while reusing their cached scores", async () => {
     mocks.view = "inbox";
     mocks.priorityRequest.mockImplementation(
       async ({
@@ -429,7 +429,7 @@ describe("EmailList keyboard navigation interactions", () => {
     );
 
     await waitFor(() =>
-      expect(rows()[0].textContent).toContain("Subject middle"),
+      expect(rows()[0].textContent).toContain("Subject last"),
     );
     expect(mocks.priorityRequest).toHaveBeenLastCalledWith({
       emails: [expect.objectContaining({ id: "last" })],
@@ -458,6 +458,15 @@ describe("EmailList keyboard navigation interactions", () => {
             score: 0.1,
           },
         ],
+      })
+      .mockResolvedValueOnce({
+        scores: [
+          {
+            emailId: "new",
+            accountEmail: "synthetic@example.test",
+            score: 0.99,
+          },
+        ],
       });
 
     const { rerender } = render(
@@ -484,6 +493,32 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(rows()[0].textContent).toContain("Updated first");
     expect(rows()[1].textContent).toContain("Subject middle");
     expect(rows()[2].textContent).toContain("Subject last");
+
+    rerender(
+      <Harness
+        emails={[
+          ...inboxEmails.map((email) =>
+            email.id === "first"
+              ? { ...email, subject: "Updated first" }
+              : email,
+          ),
+          {
+            ...inboxEmails[0],
+            id: "new",
+            threadId: "thread-new",
+            subject: "Newest mail",
+            date: new Date(Date.UTC(2026, 0, 4)).toISOString(),
+          },
+        ]}
+        showPrioritySort
+        sortMode="priority"
+      />,
+    );
+    await waitFor(() => expect(mocks.priorityRequest).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(rows()[0].textContent).toContain("Newest mail"));
+    expect(rows()[1].textContent).toContain("Updated first");
+    expect(rows()[2].textContent).toContain("Subject middle");
+    expect(rows()[3].textContent).toContain("Subject last");
   });
 
   it("does not roll back a newer priority vote when an older vote fails", async () => {
