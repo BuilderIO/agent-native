@@ -1,10 +1,9 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { markThreadRead } from "../server/lib/email-state.js";
-import { GmailQuotaCooldownError } from "../server/lib/google-api.js";
 
 export default defineAction({
   description:
@@ -27,28 +26,12 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
 
-    try {
-      await markThreadRead({
-        threadId: args.threadId,
-        ownerEmail,
-        isRead,
-        accountEmail: args.accountEmail,
-      });
-    } catch (error) {
-      if (error instanceof GmailQuotaCooldownError) {
-        fail("Gmail is temporarily limiting requests.", {
-          statusCode: 429,
-          errorCode: "gmail_quota_cooldown",
-          details: {
-            retryAfterSeconds: Math.min(
-              Math.max(1, Math.ceil(error.retryAfterMs / 1000)),
-              300,
-            ),
-          },
-        });
-      }
-      throw error;
-    }
+    await markThreadRead({
+      threadId: args.threadId,
+      ownerEmail,
+      isRead,
+      accountEmail: args.accountEmail,
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

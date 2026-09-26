@@ -730,6 +730,57 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("returns 429 and Retry-After for a get-thread cooldown error", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const cooldown = Object.assign(
+      new Error("Email service is briefly busy."),
+      {
+        statusCode: 429,
+        errorCode: "gmail_quota_cooldown",
+        details: { retryAfterSeconds: 45 },
+      },
+    );
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mountActionRoutes(
+      nitroApp,
+      {
+        "get-thread": {
+          http: { method: "GET" },
+          run: vi.fn().mockRejectedValue(cooldown),
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => "owner@example.com",
+        resolveOrgId: async () => "mail-test-org",
+      },
+    );
+    const event = {
+      _method: "GET",
+      _query: { accountEmail: "owner@example.com", id: "thread-1" },
+      _headers: {},
+      req: {},
+    };
+    const route = mounted.find(({ path }) =>
+      path.endsWith("/_agent-native/actions/get-thread"),
+    );
+    const result = await route!.handler(event);
+
+    expect(event).toMatchObject({
+      _status: 429,
+      _responseHeaders: { "retry-after": "45" },
+    });
+    expect(result).toEqual({
+      error: "Email service is briefly busy.",
+      errorCode: "gmail_quota_cooldown",
+      details: { retryAfterSeconds: 45 },
+    });
+  });
+
   it("keeps a bare thrown Error as a generic 500", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

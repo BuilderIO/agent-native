@@ -1,12 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  GmailQuotaCooldownError: class extends Error {
-    constructor(readonly retryAfterMs: number) {
-      super("Gmail quota cooldown active");
-      this.name = "GmailQuotaCooldownError";
-    }
-  },
   getRequestUserEmail: vi.fn(),
   writeAppState: vi.fn(),
   markThreadRead: vi.fn(),
@@ -24,10 +18,6 @@ vi.mock("../server/lib/email-state.js", () => ({
   markThreadRead: mocks.markThreadRead,
 }));
 
-vi.mock("../server/lib/google-api.js", () => ({
-  GmailQuotaCooldownError: mocks.GmailQuotaCooldownError,
-}));
-
 import action from "./mark-thread-read";
 
 beforeEach(() => {
@@ -37,16 +27,18 @@ beforeEach(() => {
 });
 
 describe("mark-thread-read quota cooldown", () => {
-  it("returns a typed 429 with a bounded retry delay", async () => {
-    mocks.markThreadRead.mockRejectedValue(
-      new mocks.GmailQuotaCooldownError(900_000),
+  it("lets shared typed cooldown failures reach the action boundary unchanged", async () => {
+    const cooldown = Object.assign(
+      new Error("Email service is briefly busy."),
+      {
+        statusCode: 429,
+        errorCode: "gmail_quota_cooldown",
+        details: { retryAfterSeconds: 300 },
+      },
     );
+    mocks.markThreadRead.mockRejectedValue(cooldown);
 
-    await expect(action.run({ threadId: "thread-1" })).rejects.toMatchObject({
-      statusCode: 429,
-      errorCode: "gmail_quota_cooldown",
-      details: { retryAfterSeconds: 300 },
-    });
+    await expect(action.run({ threadId: "thread-1" })).rejects.toBe(cooldown);
     expect(mocks.writeAppState).not.toHaveBeenCalled();
   });
 
