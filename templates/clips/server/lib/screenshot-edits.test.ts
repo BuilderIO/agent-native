@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   editorScreenshotEditsJson,
   hasDeleteClaim,
-  isClaimedForDelete,
   screenshotLeftoverUrls,
   viewerScreenshotEditsJson,
   withDeleteClaim,
@@ -55,31 +54,13 @@ describe("screenshot-edits", () => {
     expect(screenshotLeftoverUrls("{not json")).toBeNull();
   });
 
-  it("keeps the delete claim server-side", () => {
+  it("keeps the delete claim server-side, and takes it off", () => {
     const claimed = withDeleteClaim("{}", new Date().toISOString())!;
-    expect(isClaimedForDelete(claimed)).toBe(true);
-    expect(editorScreenshotEditsJson(claimed)).toBe("{}");
-    expect(withDeleteClaim("{not json", "x")).toBeNull();
-  });
-
-  it("lets a claim left by a delete that died expire", () => {
-    // Otherwise a timeout mid-delete would leave the screenshot refusing
-    // every save for good.
-    const claimed = withDeleteClaim("{}", "2026-09-26T00:00:00Z")!;
-    expect(
-      isClaimedForDelete(claimed, Date.parse("2026-09-26T00:10:00Z")),
-    ).toBe(true);
-    expect(
-      isClaimedForDelete(claimed, Date.parse("2026-09-26T00:20:00Z")),
-    ).toBe(false);
-    expect(withoutDeleteClaim(claimed)).toBe("{}");
-  });
-
-  it("still sees an expired claim, so restore can refuse a part-deleted row", () => {
-    const claimed = withDeleteClaim("{}", "2020-01-01T00:00:00Z")!;
-    expect(isClaimedForDelete(claimed)).toBe(false);
     expect(hasDeleteClaim(claimed)).toBe(true);
     expect(hasDeleteClaim("{}")).toBe(false);
+    expect(editorScreenshotEditsJson(claimed)).toBe("{}");
+    expect(withoutDeleteClaim(claimed)).toBe("{}");
+    expect(withDeleteClaim("{not json", "x")).toBeNull();
   });
 
   it("gives a viewer nothing from edits it cannot read", () => {

@@ -26,28 +26,13 @@ export const UNRECLAIMED_URLS_KEY = "unreclaimedUrls";
 export const DELETE_CLAIM_KEY = "permanentDeleteClaim";
 
 /**
- * A delete finishes within one request. A claim older than this belongs to
- * one that died part-way (a timeout, a crash), and must not leave the
- * screenshot uneditable for good.
+ * True once a permanent delete has claimed the row, whether it is still
+ * running or stopped part-way. Either way files may already be gone — the
+ * base under pending boxes among them — so the screenshot can only be
+ * deleted again: never saved over, and never restored.
  */
-const DELETE_CLAIM_TTL_MS = 15 * 60 * 1000;
-
-/** Any claim, live or expired: the row may already have lost files. */
 export function hasDeleteClaim(editsJson: string | null | undefined): boolean {
   return Boolean(readEditsRecord(editsJson)?.[DELETE_CLAIM_KEY]);
-}
-
-export function isClaimedForDelete(
-  editsJson: string | null | undefined,
-  nowMs = Date.now(),
-): boolean {
-  const claim = readEditsRecord(editsJson)?.[DELETE_CLAIM_KEY] as
-    | { at?: unknown }
-    | undefined;
-  if (!claim) return false;
-  const at = typeof claim.at === "string" ? Date.parse(claim.at) : NaN;
-  // An unreadable time is treated as live: refusing a save is the safe side.
-  return !Number.isFinite(at) || nowMs - at < DELETE_CLAIM_TTL_MS;
 }
 
 /** The edits with any delete claim taken off; unreadable edits unchanged. */

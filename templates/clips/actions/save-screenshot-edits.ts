@@ -44,7 +44,7 @@ import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js
 import { deleteStoredMediaUrl } from "../server/lib/recording-media-cleanup.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
-  isClaimedForDelete,
+  hasDeleteClaim,
   isReadableEditsJson,
   UNRECLAIMED_URLS_KEY,
   unreclaimedUrls,
@@ -282,9 +282,9 @@ export default defineAction({
     if (!isImageRecording(existing)) {
       throw new Error("Only screenshots can be edited this way.");
     }
-    if (isClaimedForDelete(existing.editsJson)) {
+    if (hasDeleteClaim(existing.editsJson)) {
       throw new Error(
-        "This screenshot is being permanently deleted. Nothing was saved.",
+        "This screenshot is being permanently deleted, or was partly deleted. Nothing was saved — delete it again to finish.",
       );
     }
     // The editor was handed no marks for edits it could not read, and a save

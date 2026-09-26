@@ -388,11 +388,12 @@ describe("save-screenshot-edits", () => {
     ).toBeUndefined();
   });
 
-  it("refuses to save a screenshot that is being permanently deleted", async () => {
-    // The delete has claimed the row so that no save lands between its file
-    // deletes and the row's removal.
+  it("refuses to save a screenshot a delete has claimed, however long ago", async () => {
+    // The delete claimed the row so no save lands between its file deletes
+    // and the row's removal; one that stopped part-way may have taken the
+    // base, and a save would point the row back at it.
     mocks.existing!.editsJson = JSON.stringify({
-      permanentDeleteClaim: { at: "now" },
+      permanentDeleteClaim: { at: "2020-01-01T00:00:00Z" },
     });
     await expect(run({ annotations: [] })).rejects.toThrow(
       /being permanently deleted/,
