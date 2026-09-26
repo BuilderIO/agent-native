@@ -460,6 +460,10 @@ export default function SettingsIndexRoute() {
                 )
                 .join(t("settings.changelogCommentSignup"))
                 .split(
+                  "The empty comments state now explains how screen recordings help AI agents.",
+                )
+                .join(t("settings.changelogCommentsEmptyState"))
+                .split(
                   'Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."',
                 )
                 .join(t("settings.changelogShareLink"))}

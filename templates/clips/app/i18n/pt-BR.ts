@@ -428,12 +428,10 @@ const messages = {
     agentEmptyTitle: "Participe da conversa",
     agentEmptyDescription:
       "Crie uma conta Clips grátis para comentar, reagir e fazer perguntas sobre este clipe.",
-    commentSignupTitle: "Dê ao seu agente de IA o contexto completo",
-    commentSignupContext:
-      "Compartilhe a transcrição e quadros com marcação de tempo em um só link",
-    commentSignupFeedback:
-      "Transforme feedback gravado em próximos passos claros",
-    commentSignupDebug: "Capture erros do console e solicitações com falha",
+    commentSignupTitle:
+      "Gravações de tela que seu agente de IA pode ver e ouvir",
+    commentSignupDescription:
+      "Clips é um gravador de tela gratuito e de código aberto para compartilhar bugs, feedback e tutoriais passo a passo com agentes de IA.",
     agentEmptySignInPrompt: "Já tem uma conta?",
     signUp: "Cadastre-se",
     ownerInsights: "Insights do proprietário",
@@ -837,6 +835,8 @@ const messages = {
     changelogEmpty: "Ainda não há atualizações.",
     changelogCommentSignup:
       "A barra lateral de comentários vazia explica rapidamente por que experimentar o Clips e oferece um caminho claro para se cadastrar.",
+    changelogCommentsEmptyState:
+      "O estado vazio de comentários agora explica como as gravações de tela ajudam os agentes de IA.",
     changelogShareLink:
       "Agora, ao escolher “Ir para o início” em um link compartilhado indisponível, expirado ou privado, quem estiver conectado será levado à biblioteca em vez da página pública de marketing.",
     viewAllUpdates: "Ver todas as atualizações",

@@ -359,10 +359,9 @@ const messages = {
     downloadForWindows: "Download for Windows",
     downloadForLinux: "Download for Linux",
     downloadDesktopApp: "Download desktop app",
-    commentSignupTitle: "Give your AI agent the full picture",
-    commentSignupContext: "Share transcript and timestamped frames in one link",
-    commentSignupFeedback: "Turn recorded feedback into clear next steps",
-    commentSignupDebug: "Capture console errors and failed requests",
+    commentSignupTitle: "Screen recordings your AI agent can see and hear",
+    commentSignupDescription:
+      "Clips is a free and open-source screen recorder for sharing bugs, feedback, and walkthroughs with AI agents.",
     agentEmptyTitle: "Join the conversation",
     agentEmptyDescription:
       "Create a free Clips account to comment, react, and ask about this clip.",
@@ -755,6 +754,8 @@ const messages = {
     changelogEmpty: "No updates yet.",
     changelogCommentSignup:
       "The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.",
+    changelogCommentsEmptyState:
+      "The empty comments state now explains how screen recordings help AI agents.",
     changelogShareLink:
       'Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."',
     viewAllUpdates: "View all updates",
