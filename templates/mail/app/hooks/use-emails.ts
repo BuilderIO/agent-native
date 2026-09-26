@@ -837,6 +837,13 @@ const readMutationVersions = new Map<string, BooleanMutationState>();
 type ThreadReadIntent = { threadId: string; version: number };
 type ThreadReadIntentState = { version: number; pending: Set<number> };
 
+class SupersededThreadReadRetryError extends Error {
+  constructor() {
+    super("A newer read-state change superseded this retry");
+    this.name = "SupersededThreadReadRetryError";
+  }
+}
+
 const threadReadIntentStates = new Map<string, ThreadReadIntentState>();
 const threadReadIntentByVariables = new WeakMap<object, ThreadReadIntent>();
 const threadReadRetryIntentByError = new WeakMap<object, ThreadReadIntent>();
@@ -1683,7 +1690,9 @@ export function useMarkThreadRead() {
       accountEmail?: string;
     }) => {
       const intent = threadReadIntentByVariables.get(variables);
-      if (intent && !isCurrentThreadReadIntent(intent)) return undefined;
+      if (intent && !isCurrentThreadReadIntent(intent)) {
+        throw new SupersededThreadReadRetryError();
+      }
       try {
         return assertActionSuccess(
           await callAction("mark-thread-read", variables),
@@ -1790,6 +1799,7 @@ export function useMarkThreadRead() {
       if (context?.inboxMutationId) {
         forgetInboxMutation(qc, context.inboxMutationId);
       }
+      if (err instanceof SupersededThreadReadRetryError) return;
       toast.error(
         markThreadReadRetryAfterMs(err) !== undefined
           ? t("mail.error.rateLimitDescription")

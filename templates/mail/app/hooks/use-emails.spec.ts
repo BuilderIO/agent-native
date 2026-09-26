@@ -590,7 +590,14 @@ describe("useMarkThreadRead", () => {
       source.indexOf("export function markThreadReadRetryAfterMs"),
     );
     expect(threadReadHook).toContain(
-      "if (intent && !isCurrentThreadReadIntent(intent)) return undefined;",
+      "if (intent && !isCurrentThreadReadIntent(intent)) {",
+    );
+    expect(threadReadHook).toContain(
+      "throw new SupersededThreadReadRetryError();",
+    );
+    expect(threadReadHook).not.toContain("return undefined;");
+    expect(threadReadHook).toContain(
+      "if (err instanceof SupersededThreadReadRetryError) return;",
     );
     expect(threadReadHook).toContain(
       "threadReadIntentByVariables.set(variables, retryIntent)",
