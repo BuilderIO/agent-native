@@ -115,6 +115,37 @@ function isCompleteFrameGeometry(
   );
 }
 
+function rebaseDispatchedCanvasGeometry(
+  dispatched: CanvasFrameGeometry,
+  geometryAtStart: CanvasFrameGeometry | undefined,
+  latest: CanvasFrameGeometry | undefined,
+): CanvasFrameGeometry {
+  if (!isCompleteFrameGeometry(latest)) {
+    return { ...dispatched, ...latest };
+  }
+  if (!isCompleteFrameGeometry(geometryAtStart)) return latest;
+
+  // The canvas snapshot may be newer than persisted state, but never replace
+  // geometry that changed again while file creation was in flight.
+  return {
+    ...latest,
+    x: latest.x === geometryAtStart.x ? (dispatched.x ?? latest.x) : latest.x,
+    y: latest.y === geometryAtStart.y ? (dispatched.y ?? latest.y) : latest.y,
+    width:
+      latest.width === geometryAtStart.width
+        ? (dispatched.width ?? latest.width)
+        : latest.width,
+    height:
+      latest.height === geometryAtStart.height
+        ? (dispatched.height ?? latest.height)
+        : latest.height,
+    rotation:
+      latest.rotation === geometryAtStart.rotation
+        ? (dispatched.rotation ?? latest.rotation)
+        : latest.rotation,
+  };
+}
+
 export function getDuplicateScreenGeometry(
   sourceGeometry: FrameGeometry,
   occupiedGeometries: readonly FrameGeometry[],
@@ -384,8 +415,17 @@ export function runDuplicateScreen(
   const persistedGeometry = getCanvasFrameGeometry(designDataJsonRef.current);
   for (const [pendingFilename] of pendingDuplicateGeometriesRef.current) {
     const file = files.find(({ filename }) => filename === pendingFilename);
+    if (!file) {
+      if (
+        !pendingFilenames.has(pendingFilename) &&
+        !recoveries.has(pendingFilename) &&
+        !duplicateInFlightRef.current.has(pendingFilename)
+      ) {
+        pendingDuplicateGeometriesRef.current.delete(pendingFilename);
+      }
+      continue;
+    }
     if (
-      file &&
       [
         persistedGeometry[file.id],
         liveFrameGeometryRef.current[file.id],
@@ -466,6 +506,7 @@ export function runDuplicateScreen(
       currentFrameGeometry[frameId] = { ...geometry, z: persistedZ };
     }
   }
+  const geometryAtStartBeforeCanvasSnapshot = { ...currentFrameGeometry };
   for (const [frameId, canvasGeometry] of Object.entries(
     request?.canvasFrameGeometryById ?? {},
   )) {
@@ -717,11 +758,12 @@ export function runDuplicateScreen(
       for (const [frameId, canvasGeometry] of Object.entries(
         request?.canvasFrameGeometryById ?? {},
       )) {
-        if (!isCompleteFrameGeometry(latestGeometry[frameId])) {
-          latestGeometry[frameId] = {
-            ...canvasGeometry,
-            ...latestGeometry[frameId],
-          };
+        if (isCompleteFrameGeometry(canvasGeometry)) {
+          latestGeometry[frameId] = rebaseDispatchedCanvasGeometry(
+            canvasGeometry,
+            geometryAtStartBeforeCanvasSnapshot[frameId],
+            latestGeometry[frameId],
+          );
         }
       }
       const latestSourceGeometry =
