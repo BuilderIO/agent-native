@@ -18,7 +18,10 @@ import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
-import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/create-deck-generation";
+import {
+  NO_UPLOADED_FILES_CONTEXT,
+  WEBSITE_STYLE_REFERENCE_DIRECTIVE,
+} from "@/lib/create-deck-generation";
 import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
@@ -48,7 +51,9 @@ function describeUploadedFilesForAgent(
   files: UploadedFile[],
   deckId: string,
 ): string {
-  if (files.length === 0) return "";
+  if (files.length === 0) {
+    return ["", NO_UPLOADED_FILES_CONTEXT].join("\n");
+  }
   const fileList = files
     .map(
       (f) =>
