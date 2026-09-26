@@ -20,6 +20,7 @@ import {
   isEmbedMcpChatBridgeActive,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import {
   createEmbeddedAppBridge,
   type EmbeddedAppBridge,
@@ -3458,7 +3459,11 @@ export function AssetPickerSurface() {
                 className="h-7 shrink-0 px-2 text-xs"
               >
                 <a
-                  href={absoluteAppUrl("/settings")}
+                  href={absoluteAppUrl(
+                    buildSettingsRoute("app", null, {
+                      anchor: "asset-generation-setup",
+                    }),
+                  )}
                   target="_blank"
                   rel="noreferrer"
                 >

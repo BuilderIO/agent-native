@@ -1,55 +1,67 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
-import type { AssetsUserPrefs } from "@shared/assets-user-prefs";
-import { useCallback, useEffect, useState } from "react";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import type {
+  AssetsNotificationPreferences,
+  AssetsUserPrefs,
+} from "@shared/assets-user-prefs";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
 
-const PREFS_PATH = "/_agent-native/assets/user-prefs";
+const PREFS_ACTION = "get-assets-notification-prefs";
+const PREFS_PARAMS = {};
+const PREFS_QUERY_KEY = ["action", PREFS_ACTION, PREFS_PARAMS] as const;
 
 export interface AssetsPrefsState {
   prefs: AssetsUserPrefs;
   loading: boolean;
+  /** The read failed, so `prefs` holds no stored answer. */
+  loadFailed: boolean;
   /** Applies the patch optimistically and rolls back if the write fails. */
   save: (patch: AssetsUserPrefs) => Promise<void>;
 }
 
 export function useAssetsPrefs(): AssetsPrefsState {
-  const [prefs, setPrefs] = useState<AssetsUserPrefs>({});
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(agentNativePath(PREFS_PATH));
-        const json = res.ok ? await res.json() : null;
-        if (cancelled) return;
-        if (json && typeof json === "object" && !("error" in json)) {
-          setPrefs(json as AssetsUserPrefs);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const queryClient = useQueryClient();
+  const query = useActionQuery<AssetsNotificationPreferences>(
+    PREFS_ACTION,
+    PREFS_PARAMS,
+  );
+  const { mutateAsync } = useActionMutation<
+    AssetsNotificationPreferences,
+    { emailNotifications: boolean }
+  >("update-assets-notification-prefs", {
+    skipActionQueryInvalidation: true,
+  });
 
   const save = useCallback(
     async (patch: AssetsUserPrefs) => {
-      const previous = prefs;
-      setPrefs((current) => ({ ...current, ...patch }));
-      const res = await fetch(agentNativePath(PREFS_PATH), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
+      if (patch.emailNotifications === undefined) return;
+      const previous =
+        queryClient.getQueryData<AssetsNotificationPreferences>(
+          PREFS_QUERY_KEY,
+        );
+      queryClient.setQueryData<AssetsNotificationPreferences>(PREFS_QUERY_KEY, {
+        emailNotifications: patch.emailNotifications,
       });
-      if (!res.ok) {
-        setPrefs(previous);
-        throw new Error(`Save failed (${res.status})`);
+      try {
+        const next = await mutateAsync({
+          emailNotifications: patch.emailNotifications,
+        });
+        queryClient.setQueryData(PREFS_QUERY_KEY, next);
+      } catch (err) {
+        queryClient.setQueryData(PREFS_QUERY_KEY, previous);
+        throw err;
       }
     },
-    [prefs],
+    [mutateAsync, queryClient],
   );
 
-  return { prefs, loading, save };
+  return {
+    prefs: query.data ?? {},
+    loading: query.isLoading,
+    loadFailed: query.isError,
+    save,
+  };
 }

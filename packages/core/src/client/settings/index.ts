@@ -20,6 +20,7 @@ export {
   type SettingsTabsPageProps,
 } from "./SettingsTabsPage.js";
 export * from "./shell/index.js";
+export { ReadOnlySettingValue } from "./app-group/ReadOnlySettingValue.js";
 export {
   AccountSettingsCard,
   AccountSettingsForm,
