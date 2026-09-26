@@ -233,15 +233,6 @@ function nextPaint(): Promise<void> {
   );
 }
 
-/** The URL without its `t` access token, which says nothing about the image. */
-export function withoutAccessToken(url: string): string {
-  const [path, query = ""] = url.split("?", 2);
-  const params = new URLSearchParams(query);
-  params.delete("t");
-  const rest = params.toString();
-  return rest ? `${path}?${rest}` : path;
-}
-
 export function ScreenshotEditor({
   recordingId,
   baseImageUrl,
@@ -331,12 +322,14 @@ export function ScreenshotEditor({
   const onCancelRef = useRef(onCancel);
   onCancelRef.current = onCancel;
 
-  // The URL carries a password token that is re-minted every few minutes; a
-  // new token is not a new picture, and reloading for one risks the same
-  // mid-edit failure as above.
-  const pictureKey = withoutAccessToken(baseImageUrl);
-  const baseImageUrlRef = useRef(baseImageUrl);
-  baseImageUrlRef.current = baseImageUrl;
+  // The editor edits the picture it opened on, and says so when it saves.
+  // A refetch after another tab's save hands down a new picture and revision;
+  // taking them would make this session's marks look current against a
+  // picture it never drew on, and its save would get past the stale check.
+  const [openedOn] = useState(() => ({
+    baseImageUrl,
+    mediaRevision,
+  }));
 
   useEffect(() => {
     let cancelled = false;
@@ -352,13 +345,13 @@ export function ScreenshotEditor({
       toast.error(t("screenshot.redactLoadFailed"));
       onCancelRef.current();
     };
-    image.src = baseImageUrlRef.current;
+    image.src = openedOn.baseImageUrl;
     return () => {
       cancelled = true;
     };
-    // `t` is left out for the same reason: only a new picture means a reload.
+    // `t` is left out for the same reason.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pictureKey]);
+  }, [openedOn]);
 
   const imageSize = useMemo(
     () =>
@@ -1219,7 +1212,7 @@ export function ScreenshotEditor({
         "save-screenshot-edits" as any,
         {
           recordingId,
-          mediaRevision,
+          mediaRevision: openedOn.mediaRevision,
           dataUrl: served.toDataURL(SCREENSHOT_MIME_TYPE, SCREENSHOT_QUALITY),
           crop,
           background,

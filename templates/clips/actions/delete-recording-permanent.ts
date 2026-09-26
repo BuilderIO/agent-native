@@ -11,18 +11,21 @@ import {
   deleteAppState,
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
+import { isImageRecording } from "@shared/recording-kind";
 import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
   deleteRecordingMediaObjects,
+  deleteStoredMediaUrl,
   recordingMediaUrls,
 } from "../server/lib/recording-media-cleanup.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
+import { screenshotLeftoverUrls } from "../server/lib/screenshot-edits.js";
 
 export default defineAction({
   description:
@@ -44,6 +47,34 @@ export default defineAction({
         ),
       );
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
+
+    // A screenshot's leftover files are its unredacted originals, and the row
+    // is the only record of them. Delete them first and keep the row — and so
+    // the hold and a way to retry — if any is still in storage.
+    if (isImageRecording(existing)) {
+      const leftovers = screenshotLeftoverUrls(existing.editsJson);
+      if (!leftovers) {
+        throw new Error(
+          "This screenshot's saved edits could not be read, so the files it replaced cannot be found to delete. Nothing was deleted.",
+        );
+      }
+      for (const url of leftovers) {
+        let gone = false;
+        try {
+          gone = await deleteStoredMediaUrl(url);
+        } catch (err) {
+          console.warn(
+            `[delete-recording-permanent] could not delete a leftover file for ${args.id}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+        if (!gone) {
+          throw new Error(
+            "An earlier, unredacted copy of this screenshot could not be deleted from storage, so the screenshot was kept. Try again later.",
+          );
+        }
+      }
+    }
 
     const mediaUrls = recordingMediaUrls(existing);
     const protectedUrls = new Set<string>();

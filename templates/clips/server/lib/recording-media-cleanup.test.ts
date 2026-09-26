@@ -152,6 +152,10 @@ describe("recording-media-cleanup", () => {
         .mockResolvedValueOnce(respond(404));
       await expect(deleteStoredMediaUrl(url)).resolves.toBe(true);
       expect(mockFetch.mock.calls[1]?.[1]).toMatchObject({ method: "HEAD" });
+      // The URL as stored, not the stripped one the delete API is given.
+      expect(String(mockFetch.mock.calls[1]?.[0])).toContain(
+        "assets%2Fshot.png?deleted-check=",
+      );
     });
 
     it("does not trust a 404 while the asset is still being served", async () => {

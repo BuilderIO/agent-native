@@ -9,6 +9,9 @@ const mockExistingRecording = vi.hoisted(() => ({
   animatedThumbnailUrl: null as string | null,
 }));
 
+const mockDeleteStoredMediaUrl = vi.hoisted(() =>
+  vi.fn(async (_url: string) => true),
+);
 const mockDeleteRecordingMediaObjects = vi.hoisted(() =>
   vi.fn(async () => ({
     attempted: 2,
@@ -110,6 +113,7 @@ vi.mock("../server/db/index.js", () => ({
 vi.mock("../server/lib/recording-media-cleanup.js", () => ({
   deleteRecordingMediaObjects: (...args: unknown[]) =>
     mockDeleteRecordingMediaObjects(...args),
+  deleteStoredMediaUrl: (url: string) => mockDeleteStoredMediaUrl(url),
   recordingMediaUrls: (...args: Parameters<typeof mockRecordingMediaUrls>) =>
     mockRecordingMediaUrls(...args),
 }));
@@ -196,5 +200,52 @@ describe("delete-recording-permanent", () => {
     );
 
     expect(mockDeleteRecordingMediaObjects).not.toHaveBeenCalled();
+  });
+
+  describe("a screenshot with leftover files", () => {
+    const shot = {
+      ...mockExistingRecording,
+      kind: "image",
+      videoUrl: null,
+      editsJson: JSON.stringify({
+        unreclaimedUrls: ["https://cdn.example.com/media/clips/copy.png"],
+      }),
+    };
+
+    beforeEach(() => {
+      mockSelectWhere.mockReset();
+      mockSelectWhere.mockResolvedValueOnce([shot]).mockResolvedValueOnce([]);
+    });
+
+    it("deletes them before the row", async () => {
+      await deleteRecordingPermanent.run({ id: "rec_1" });
+      expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
+        "https://cdn.example.com/media/clips/copy.png",
+      );
+      expect(mockDeleteStoredMediaUrl.mock.invocationCallOrder[0]).toBeLessThan(
+        mockDbDelete.mock.invocationCallOrder[0],
+      );
+    });
+
+    it("keeps the row when one is still in storage", async () => {
+      // The row is the only record of that unredacted copy; without it no
+      // retry could ever find it.
+      mockDeleteStoredMediaUrl.mockResolvedValueOnce(false);
+      await expect(
+        deleteRecordingPermanent.run({ id: "rec_1" }),
+      ).rejects.toThrow(/could not be deleted from storage/);
+      expect(mockDb.transaction).not.toHaveBeenCalled();
+    });
+
+    it("keeps the row when its edits cannot be read", async () => {
+      mockSelectWhere.mockReset();
+      mockSelectWhere
+        .mockResolvedValueOnce([{ ...shot, editsJson: "{not json" }])
+        .mockResolvedValueOnce([]);
+      await expect(
+        deleteRecordingPermanent.run({ id: "rec_1" }),
+      ).rejects.toThrow(/could not be read/);
+      expect(mockDb.transaction).not.toHaveBeenCalled();
+    });
   });
 });

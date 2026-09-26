@@ -106,18 +106,21 @@ async function deleteBuilderAssetByUrl(
     headers: {
       Authorization: authorization.authorization,
     },
+    // A redaction waits on this; a provider that never answers must not
+    // hold the save open until the platform kills it.
+    signal: AbortSignal.timeout(15_000),
   });
 
   if (res.ok) return "deleted";
   if (res.status === 404) {
-    // A throwaway query keeps a CDN edge from answering with the copy it
-    // cached before the delete; the timeout keeps a hung probe from holding
-    // the save open. A probe that fails either way leaves it "not gone".
-    const probeUrl = new URL(assetUrl);
+    // The URL as stored, since that is what serves the bytes; a throwaway
+    // query keeps a CDN edge from answering with the copy it cached before
+    // the delete. A probe that fails either way leaves it "not gone".
+    const probeUrl = new URL(url);
     probeUrl.searchParams.set("deleted-check", String(Date.now()));
+    probeUrl.hash = "";
     const probe = await fetch(probeUrl.toString(), {
       method: "HEAD",
-      cache: "no-store",
       signal: AbortSignal.timeout(5_000),
     });
     return probe.status === 404 || probe.status === 410 ? "absent" : false;

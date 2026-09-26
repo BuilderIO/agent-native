@@ -10,28 +10,11 @@
  */
 
 import { parseEdits } from "../../app/lib/timestamp-mapping.js";
-import { BURN_IN_PROGRESS_KEY } from "./pending-redactions.js";
+import { BURN_IN_PROGRESS_KEY, readEditsRecord } from "./pending-redactions.js";
 
 export const UNRECLAIMED_URLS_KEY = "unreclaimedUrls";
 
-type EditsRecord = Record<string, unknown>;
-
-/**
- * Reads the raw JSON. `null` means unreadable, which callers must not treat
- * as "no edits": a save built on it would wipe what is stored.
- */
-function readEdits(editsJson: string | null | undefined): EditsRecord | null {
-  if (!editsJson) return {};
-  try {
-    const parsed = JSON.parse(editsJson);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as EditsRecord)
-      : null;
-    // coercion-ok: null is the typed "unreadable" value, distinct from {}
-  } catch {
-    return null;
-  }
-}
+const readEdits = readEditsRecord;
 
 export function isReadableEditsJson(
   editsJson: string | null | undefined,

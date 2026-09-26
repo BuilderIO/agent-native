@@ -7,6 +7,7 @@ import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
   getSession,
   signScopedAgentAccessToken,
+  signShortLivedToken,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import { isImageRecording } from "@shared/recording-kind";
@@ -41,7 +42,7 @@ import {
 import { resolveTranscriptPresentation } from "../../shared/transcript-status.js";
 import { getDb, schema } from "../db/index.js";
 import { recordAgentView } from "./agent-views.js";
-import { listingThumbnailUrl } from "./player-thumbnail-url.js";
+import { resolvePlayerThumbnailUrl } from "./player-thumbnail-url.js";
 import { verifySharePassword } from "./share-password.js";
 
 export type PublicAgentRecording = typeof schema.recordings._.inferSelect;
@@ -264,6 +265,25 @@ async function writeResponseBodyToFileWithLimit(
   } finally {
     await file.close();
   }
+}
+
+/**
+ * The gated route for a screenshot's picture, absolute for an agent. This
+ * caller was already let in, by password or token, but the route asks again
+ * and knows neither, so a password-protected one carries a short-lived token.
+ */
+function screenshotContextUrl(
+  recording: Parameters<typeof resolvePlayerThumbnailUrl>[0] & {
+    password?: string | null;
+  },
+  origin: string,
+): string | null {
+  const route = resolvePlayerThumbnailUrl(recording, {
+    accessToken: recording.password
+      ? signShortLivedToken({ resourceId: recording.id })
+      : null,
+  });
+  return route ? `${origin}${getServerAppBasePath()}${route}` : null;
 }
 
 export async function loadPublicAgentAccess(
@@ -755,7 +775,7 @@ export function buildPublicAgentContext({
       // A screenshot's thumbnail is the whole picture: hand out the route
       // that applies password, expiry and the redaction hold, not storage.
       thumbnailUrl: isImageRecording(recording)
-        ? `${requestUrl.origin}${getServerAppBasePath()}${listingThumbnailUrl(recording)}`
+        ? screenshotContextUrl(recording, requestUrl.origin)
         : recording.thumbnailUrl,
       animatedThumbnailUrl: recording.animatedThumbnailUrl,
       durationMs: recording.durationMs,
