@@ -679,9 +679,9 @@ async function executeClaudeCliRun(options: {
   });
 
   let mcpConfigDir: string | undefined;
+  let followUpInput!: Parameters<typeof executeCodeAgentRun>[0];
   // Cleanup never decides the run's outcome: a delete failure is recorded in
-  // the transcript, and the run still completes or starts its follow-up. The
-  // reference is kept on failure so the `finally` cleanup retries.
+  // the transcript, and the run still completes or starts its follow-up.
   const removeMcpConfig = () => {
     if (!mcpConfigDir) return;
     try {
@@ -784,7 +784,7 @@ async function executeClaudeCliRun(options: {
           permissionMode: pendingFollowUp.permissionMode,
         });
       }
-      return executeCodeAgentRun({
+      followUpInput = {
         runId: options.run.id,
         prompt: pendingFollowUp.prompt,
         attachments:
@@ -797,37 +797,37 @@ async function executeClaudeCliRun(options: {
         stdout: options.stdout,
         streamToolOutputToStdout: options.streamToolOutputToStdout,
         signal: options.signal,
+      };
+    } else {
+      appendCodeAgentTranscriptEvent({
+        runId: options.run.id,
+        kind: "status",
+        message: "Claude Code run completed.",
+        metadata: {
+          status: "completed",
+          phase: "complete",
+          engine: CLAUDE_CLI_ENGINE_NAME,
+        },
       });
-    }
-
-    appendCodeAgentTranscriptEvent({
-      runId: options.run.id,
-      kind: "status",
-      message: "Claude Code run completed.",
-      metadata: {
+      return updateCodeAgentRunRecord(options.run.id, {
         status: "completed",
         phase: "complete",
-        engine: CLAUDE_CLI_ENGINE_NAME,
-      },
-    });
-    return updateCodeAgentRunRecord(options.run.id, {
-      status: "completed",
-      phase: "complete",
-      needsApproval: false,
-      progress: {
-        label: "Complete",
-        completed: 1,
-        total: 1,
-        percent: 100,
-      },
-      metadata: {
-        executionCompletedAt: new Date().toISOString(),
-        engine: CLAUDE_CLI_ENGINE_NAME,
-        model,
-        ...(reasoningEffort ? { reasoningEffort } : {}),
-        permissionMode: options.permissionMode,
-      },
-    });
+        needsApproval: false,
+        progress: {
+          label: "Complete",
+          completed: 1,
+          total: 1,
+          percent: 100,
+        },
+        metadata: {
+          executionCompletedAt: new Date().toISOString(),
+          engine: CLAUDE_CLI_ENGINE_NAME,
+          model,
+          ...(reasoningEffort ? { reasoningEffort } : {}),
+          permissionMode: options.permissionMode,
+        },
+      });
+    }
   } catch (error) {
     const interrupted = options.signal?.aborted === true;
     const message = error instanceof Error ? error.message : String(error);
@@ -871,6 +871,9 @@ async function executeClaudeCliRun(options: {
   } finally {
     removeMcpConfig();
   }
+  // Only after the `finally` cleanup, so a failed delete is retried before the
+  // next CLI run starts.
+  return executeCodeAgentRun(followUpInput);
 }
 
 function buildClaudeCliPrompt(run: CodeAgentRunRecord, prompt: string): string {

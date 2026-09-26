@@ -518,16 +518,25 @@ describe("executeCodeAgentRun", () => {
     });
     process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST = "app-crm";
     const binDir = path.join(root, "bin");
+    const logPath = path.join(root, "claude-runs.json");
     fs.mkdirSync(binDir, { recursive: true });
     fs.writeFileSync(
       path.join(binDir, "claude"),
       [
         "#!/usr/bin/env node",
+        "const fs = require('fs');",
         "const args = process.argv.slice(2);",
         "if (args[0] === 'auth') {",
         "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
         "  process.exit(0);",
         "}",
+        `const logPath = ${JSON.stringify(logPath)};`,
+        "const runs = fs.existsSync(logPath) ? JSON.parse(fs.readFileSync(logPath, 'utf8')) : [];",
+        "runs.push({",
+        "  config: args[args.indexOf('--mcp-config') + 1],",
+        "  earlierConfigsPresent: runs.map((run) => fs.existsSync(run.config)),",
+        "});",
+        "fs.writeFileSync(logPath, JSON.stringify(runs));",
         "process.stdin.resume();",
         "process.stdin.on('end', () => {",
         "  process.stdout.write(JSON.stringify({ type: 'result', result: 'done' }) + '\\n');",
@@ -581,9 +590,17 @@ describe("executeCodeAgentRun", () => {
             event.message.includes("Could not remove the temporary"),
         ),
       ).toHaveLength(2);
-      // The later `finally` cleanup retried and removed both configs.
+      // The `finally` cleanup retried each failed delete, and the follow-up
+      // started only after the first run's config was gone.
       expect(failedOnce.size).toBe(2);
       for (const dir of failedOnce) expect(fs.existsSync(dir)).toBe(false);
+      const runs = JSON.parse(fs.readFileSync(logPath, "utf8")) as Array<{
+        earlierConfigsPresent: boolean[];
+      }>;
+      expect(runs.map((entry) => entry.earlierConfigsPresent)).toEqual([
+        [],
+        [false],
+      ]);
     } finally {
       rmSync.mockRestore();
       restoreEnv("MCP_SERVERS", originalMcpServers);
