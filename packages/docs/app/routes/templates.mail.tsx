@@ -1,12 +1,13 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
-import type { MouseEvent } from "react";
+import { useRef, type MouseEvent } from "react";
 
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
 import { MailProductMock } from "../components/template-landing/MailProductMock";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { usePrefersReducedMotion } from "../components/use-prefers-reduced-motion";
 import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import { Button } from "../components/website-redesign/ds/button";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
@@ -52,7 +53,7 @@ const template = templates.find((t) => t.slug === "mail")!;
 const USE_CASES = [
   {
     id: "priority-sorting",
-    variant: "priorities",
+    variant: "jev",
     titleKey: "useCase1Title",
     bodyKey: "useCase1Body",
     textLeft: true,
@@ -100,7 +101,7 @@ const KEY_FEATURES = [
     bodyKey: "feature5Body",
   },
   {
-    id: "scheduled-sends-and-snooze",
+    id: "ai-spam-filter",
     titleKey: "feature6Title",
     bodyKey: "feature6Body",
   },
@@ -124,10 +125,15 @@ const HERO_WRAPPER_CLASS =
 
 export default function MailTemplate() {
   const t = useT();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const { current, initial, autoplayStopped } =
+    usePrefersReducedMotion(videoRef);
+  const shouldAutoplay = current === false && !autoplayStopped;
+  const shouldMute = initial !== true;
 
   return (
     <div className="builder-brand-tokens">
-      {/* Hero — recreate the inbox, open thread, and contextual agent together. */}
+      {/* Lead with Jev's inbox cleanup story, then show the recreated app below. */}
       <div className={HERO_WRAPPER_CLASS}>
         <TemplateHero
           title={t("templateLanding.mail.heroTitle")}
@@ -165,11 +171,21 @@ export default function MailTemplate() {
           mediaOverlapsHeader
           media={
             <div className="mx-6 sm:mx-10">
-              <MailProductMock
-                variant="agent"
-                label={t("templateLanding.mail.s001")}
-                className="h-[420px] sm:h-[620px] lg:h-[760px]"
-              />
+              <div className="aspect-video overflow-hidden rounded-2xl border border-[var(--docs-border)] bg-black">
+                <video
+                  ref={videoRef}
+                  src="/videos/mail-jev-story.mp4"
+                  poster="/videos/mail-jev-story-poster.jpg"
+                  aria-label={t("templateLanding.mail.heroDescription")}
+                  autoPlay={shouldAutoplay}
+                  muted={shouldMute}
+                  loop
+                  playsInline
+                  controls
+                  preload="metadata"
+                  className="block h-full w-full object-cover"
+                />
+              </div>
             </div>
           }
         />
@@ -210,7 +226,11 @@ export default function MailTemplate() {
                 >
                   <MailProductMock
                     variant={useCase.variant}
-                    className="h-[300px] w-full max-w-[540px] lg:h-[390px] lg:max-w-none"
+                    className={
+                      useCase.variant === "jev"
+                        ? "h-[380px] w-full max-w-[540px] lg:h-[480px] lg:max-w-none mm-jev-art"
+                        : "h-[300px] w-full max-w-[540px] lg:h-[390px] lg:max-w-none"
+                    }
                     label={t(`templateLanding.mail.${useCase.titleKey}`)}
                   />
                 </div>

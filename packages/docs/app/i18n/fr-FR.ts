@@ -1777,19 +1777,20 @@ const frFR = {
       s001: "Capture d'écran du modèle Mail",
       // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
-      heroTitle: "Gérez votre boîte de réception avec votre agent IA",
+      heroTitle: "Reprenez le contrôle de votre boîte de réception avec Jev",
       heroDescription:
-        "Mail regroupe le tri par priorité, les étiquettes contextuelles, les résumés de fils de discussion et les règles d'arrière-plan dans une boîte de réception Gmail dotée d'un clavier d'abord, avec un agent qui peut passer à l'étape suivante.",
+        "Dites à Jev ce qui compte en langage naturel. Il garde visibles les commentaires GitHub rédigés par des personnes, met en avant les messages de votre responsable et écarte les notifications des bots, puis apprend de vos corrections.",
       heroCta: "Gérez votre boîte de réception",
-      useCasesHeading: "Laissez Mail prendre le premier passage",
+      useCasesHeading:
+        "Une boîte de réception plus intelligente, propulsée par Jev",
       useCasesBody:
-        "Faites apparaître les fils de discussion urgents, étiquetez les messages selon leur signification et continuez le travail répétitif de la boîte de réception tout en gardant le contrôle.",
-      useCase1Title: "Voyez ce dont vous avez besoin aujourd'hui",
+        "Créez une règle en langage naturel. Jev priorise les personnes et conversations importantes, applique les bons libellés et archive les messages répétitifs dès leur arrivée.",
+      useCase1Title: "Gardez les échanges humains. Archivez les bots.",
       useCase1Body:
-        "Mail classe les fils de discussion par urgence, délais et personnes en attente, puis vous donne un aperçu de la boîte de réception avec les prochaines actions utiles.",
-      useCase2Title: "Étiquetez les messages par leur signification",
+        "Dites à Jev ce qui compte : gardez visibles dans Product les commentaires humains des pull requests GitHub, archivez les notifications de bots et déplacez les e-mails de votre responsable vers Important. Ajustez chaque règle avec un prompt et améliorez le filtre anti-spam au fil de vos retours.",
+      useCase2Title: "Chaque e-mail, avec le bon libellé",
       useCase2Body:
-        "L'agent peut appliquer des étiquettes à partir du contexte de l'expéditeur et de la conversation, afin que les fils de recherche, financiers et clients restent faciles à trouver.",
+        "Jev classe les conversations selon leur sens, pas seulement leurs mots-clés, pour que les notes clients, reçus et recherches arrivent au bon endroit.",
       useCase3Title: "Automatisez le travail de routine",
       useCase3Body:
         "Définissez des règles pour étiqueter ou archiver les nouveaux messages en arrière-plan, puis consultez l'historique d'exécution quand vous le souhaitez.",
@@ -1811,9 +1812,9 @@ const frFR = {
       feature5Title: "Vérifier avant d'envoyer",
       feature5Body:
         "Demandez à l'agent de rédiger ou de réviser une réponse, puis de la réviser et de la modifier avant qu'elle ne quitte votre boîte de réception.",
-      feature6Title: "Recherche multi-comptes",
+      feature6Title: "Un filtre anti-spam qui apprend",
       feature6Body:
-        "Recherchez parmi les comptes Gmail connectés et utilisez les mêmes outils de priorité, de libellés et d'agent en un seul endroit.",
+        "Signalez comme légitime un message filtré ou indiquez qu’un e-mail est indésirable. Jev apprend de chaque correction et l’applique aux messages similaires.",
       finalCtaHeading: "Commencez avec votre prochain e-mail",
       finalCtaBody:
         "Ouvrez une conversation et demandez à votre agent IA un résumé ou un brouillon de réponse.",
