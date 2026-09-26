@@ -97,8 +97,8 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   leave it open waiting for publication, beta, or live proof, and never say
   "leaving open until published." Keep it open only while accepted scope is
   still unfixed, the source fix is not merged, or reporter information is
-  required. If more information is needed, thank the reporter for opening the
-  issue before asking one targeted question.
+  required. Ask a targeted question only if the invoking workflow authorizes an issue
+  comment, and begin it by thanking the reporter for opening the issue.
 - Use the current worktree. If it is detached, create a named task branch only
   when publishing this work requires one, as described in the preflight gate
   below. Do not create a branch just for tidiness or attach or move another
