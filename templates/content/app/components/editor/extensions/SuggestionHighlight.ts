@@ -1,3 +1,4 @@
+import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import {
   suggestionTextPresentationForSource,
   suggestionTextPresentation,
@@ -32,6 +33,10 @@ export interface SuggestionHighlightSpec {
   deletedPresentation?: SuggestionPresentationContext;
   editableBoundary?: boolean;
   editableText?: boolean;
+  settling?: boolean;
+  settlingBeforePresentation?: SuggestionPresentationContext;
+  settlingAfterSource?: string;
+  settlingReadbackContent?: string | null;
 }
 
 export interface SuggestionHighlightState {
@@ -71,6 +76,7 @@ function classes(base: string, active: boolean): string {
 function appendPresentationNode(
   parent: HTMLElement,
   node: SuggestionPresentationNode,
+  showLinkDestination: boolean,
 ): void {
   if (node.type === "text" || node.type === "indent") {
     parent.append(document.createTextNode(node.value));
@@ -95,10 +101,11 @@ function appendPresentationNode(
   } else if (node.type === "link") {
     element.className = "underline underline-offset-2";
   }
-  for (const child of node.children) appendPresentationNode(element, child);
+  for (const child of node.children)
+    appendPresentationNode(element, child, showLinkDestination);
   parent.append(element);
 
-  if (node.type === "link") {
+  if (node.type === "link" && showLinkDestination) {
     parent.append(document.createTextNode(` (${node.url})`));
   }
 }
@@ -107,19 +114,31 @@ function appendSuggestionText(
   parent: HTMLElement,
   content: string,
   context?: SuggestionPresentationContext,
+  showLinkDestination = true,
 ): void {
   const nodes = context
     ? suggestionTextPresentationForSource(content, context)
     : suggestionTextPresentation(content);
   if (!nodes) return;
   for (const node of nodes) {
-    appendPresentationNode(parent, node);
+    appendPresentationNode(parent, node, showLinkDestination);
   }
 }
 
 function insertionWidget(spec: SuggestionHighlightSpec, active: boolean) {
   return () => {
     const widget = document.createElement("span");
+    if (spec.settling) {
+      widget.className = "suggestion-settling-text suggestion-inline-widget";
+      widget.setAttribute("data-suggestion-widget", "true");
+      appendSuggestionText(
+        widget,
+        spec.insertedText ?? "",
+        spec.insertedPresentation,
+        false,
+      );
+      return widget;
+    }
     widget.className = classes(
       `${
         spec.kind === "add_block" ? "suggestion-add-block" : "suggestion-insert"
@@ -166,6 +185,45 @@ function deletionWidget(spec: SuggestionHighlightSpec, active: boolean) {
   };
 }
 
+function insertionAtOperationAnchor(
+  doc: ProseMirrorNode,
+  from: number,
+  inserted: string | undefined,
+) {
+  return Boolean(
+    inserted &&
+    from >= 0 &&
+    from + inserted.length <= doc.content.size &&
+    doc.textBetween(from, from + inserted.length) === inserted,
+  );
+}
+
+function settledAtOperation(
+  doc: ProseMirrorNode,
+  spec: SuggestionHighlightSpec,
+) {
+  const presentation = spec.insertedPresentation;
+  if (!presentation) return false;
+  if (spec.kind === "insert" || spec.kind === "replace")
+    return insertionAtOperationAnchor(doc, spec.from, spec.insertedText);
+  if (spec.kind !== "delete") return false;
+  const right = presentation.source.slice(
+    presentation.from,
+    presentation.from + 32,
+  );
+  if (right)
+    return doc.textBetween(spec.from, spec.from + right.length) === right;
+  const left = presentation.source.slice(
+    Math.max(0, presentation.from - 32),
+    presentation.from,
+  );
+  return Boolean(
+    left &&
+    spec.from >= left.length &&
+    doc.textBetween(spec.from - left.length, spec.from) === left,
+  );
+}
+
 function buildDecorations(
   doc: ProseMirrorNode,
   specs: SuggestionHighlightSpec[],
@@ -173,20 +231,58 @@ function buildDecorations(
 ): DecorationSet {
   const decorations: Decoration[] = [];
   const size = doc.content.size;
+  const settledContent = specs.some((spec) => spec.settling)
+    ? docToNfm(doc.toJSON())
+    : null;
 
   for (const spec of specs) {
+    if (
+      spec.settling &&
+      settledContent !== null &&
+      ((spec.insertedPresentation !== undefined &&
+        canonicalizeNfm(settledContent) ===
+          canonicalizeNfm(spec.insertedPresentation.source)) ||
+        settledAtOperation(doc, spec) ||
+        (spec.settlingReadbackContent !== null &&
+          spec.settlingReadbackContent !== undefined &&
+          canonicalizeNfm(settledContent) ===
+            canonicalizeNfm(spec.settlingReadbackContent)))
+    )
+      continue;
     const active = activeId === spec.suggestionId;
     const range = clampRange(spec.from, spec.to, size);
-    const attrs = {
-      "data-suggestion-id": spec.suggestionId,
-      ...(spec.editableText
-        ? {}
-        : {
-            role: "button",
-            tabindex: "0",
-            "aria-label": "Inspect suggested change",
+    const attrs = spec.settling
+      ? {}
+      : {
+          "data-suggestion-id": spec.suggestionId,
+          ...(spec.editableText
+            ? {}
+            : {
+                role: "button",
+                tabindex: "0",
+                "aria-label": "Inspect suggested change",
+              }),
+        };
+
+    if (spec.settling) {
+      if (range && range.to > range.from) {
+        decorations.push(
+          Decoration.inline(range.from, range.to, {
+            class: "suggestion-settling-original",
           }),
-    };
+        );
+      }
+      if (spec.kind !== "delete") {
+        decorations.push(
+          Decoration.widget(
+            clampPosition(range ? range.to : spec.from, size),
+            insertionWidget(spec, false),
+            { key: `${spec.suggestionId}:settling`, marks: [], side: 1 },
+          ),
+        );
+      }
+      continue;
+    }
 
     if (spec.kind === "delete" || spec.kind === "replace") {
       if (range) {

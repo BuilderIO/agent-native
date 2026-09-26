@@ -30,7 +30,7 @@ import type {
 } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { Document, DocumentSyncStatus } from "@shared/api";
-import { canonicalizeNfm } from "@shared/nfm";
+import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import {
   SuggestionFormattingMappingError,
   suggestionMarkedSourceRanges,
@@ -49,6 +49,7 @@ import {
   type QueryClient,
   useQueryClient,
 } from "@tanstack/react-query";
+import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap";
 import {
   useCallback,
   useEffect,
@@ -60,6 +61,7 @@ import {
 import type { ClipboardEvent, MutableRefObject, ReactNode } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
+import type { Doc as YDoc } from "yjs";
 
 import {
   contentBlockRegistry,
@@ -213,7 +215,7 @@ import {
   type ReconcileRecoveryDraft,
   type ReconcileSaveBase,
 } from "./useDocumentReconcileRecovery";
-import { VisualEditor } from "./VisualEditor";
+import { canProjectAcceptedSuggestion, VisualEditor } from "./VisualEditor";
 import type {
   NotionPageLink,
   VisualEditorSuggestion,
@@ -225,6 +227,38 @@ import type {
 } from "./VisualEditor";
 
 const NO_COMMENT_THREADS: CommentThread[] = [];
+
+export function observeAcceptedCanonicalSettlement(args: {
+  ydoc: YDoc;
+  beforeContent: string;
+  readbackContent: string;
+  onRendered: () => void;
+  onOutdated: (actualContent: string) => void;
+  onError: (error: unknown) => void;
+}) {
+  const before = canonicalizeNfm(args.beforeContent);
+  const readback = canonicalizeNfm(args.readbackContent);
+  let rendered = false;
+  const check = () => {
+    if (rendered) return;
+    try {
+      const actual = canonicalizeNfm(
+        docToNfm(yDocToProsemirrorJSON(args.ydoc, "default") as any),
+      );
+      if (actual === readback && actual !== before) {
+        rendered = true;
+        args.onRendered();
+      } else if (actual !== before && actual !== readback) {
+        args.onOutdated(actual);
+      }
+    } catch (error) {
+      args.onError(error);
+    }
+  };
+  args.ydoc.on("update", check);
+  check();
+  return () => args.ydoc.off("update", check);
+}
 
 export function shouldResumeSelectedSuggestionFromPageActions(
   capturedSelection: VisualEditorSelectionSnapshot | null,
@@ -353,6 +387,16 @@ export function materializedSuggestionForDraft(
   return persisted.size === 1
     ? (persisted.values().next().value ?? null)
     : null;
+}
+
+export function visibleSavedSuggestionsDuringDraftMaterialization(
+  saved: ResourceSuggestion[],
+  drafts: DraftSuggestion[],
+  submitting: boolean,
+  materializedIds: ReadonlySet<string>,
+) {
+  if (!submitting || drafts.length === 0) return saved;
+  return saved.filter((suggestion) => !materializedIds.has(suggestion.id));
 }
 
 export function sameSuggestionAnchorIds(
@@ -1727,10 +1771,17 @@ function PageEditorSessionBody({
     decision: SuggestionDecision;
     continueSuggesting: boolean;
     optimistic: boolean;
+    readbackContent: string | null;
   } | null>(null);
   const [decisionRefreshFailed, setDecisionRefreshFailed] = useState(false);
-  const decisionRefreshInFlightRef = useRef(false);
+  const decisionRefreshInFlightRef = useRef<number | null>(null);
+  const [decisionReadbackDivergence, setDecisionReadbackDivergence] = useState<{
+    suggestionId: string;
+    actualContent: string;
+  } | null>(null);
   const suggestionDecisionInFlightRef = useRef(false);
+  const suggestionDecisionGenerationRef = useRef(0);
+  const activeSuggestionDecisionIdRef = useRef<string | null>(null);
   const [preserveInlineReviewSpace, setPreserveInlineReviewSpace] =
     useState(false);
   // Registry blocks do not yet produce typed suggestion operations. Keep their
@@ -4096,9 +4147,10 @@ function PageEditorSessionBody({
   }, []);
 
   const refreshSuggestionDecisionDocument = useCallback(
-    async (continueSuggesting: boolean) => {
-      if (decisionRefreshInFlightRef.current) return;
-      decisionRefreshInFlightRef.current = true;
+    async (continueSuggesting: boolean, accepted: boolean) => {
+      const decisionGeneration = suggestionDecisionGenerationRef.current;
+      if (decisionRefreshInFlightRef.current === decisionGeneration) return;
+      decisionRefreshInFlightRef.current = decisionGeneration;
       setDecisionRefreshFailed(false);
       try {
         const refreshedDocument = await callAction(
@@ -4110,11 +4162,29 @@ function PageEditorSessionBody({
           },
           { method: "GET" },
         );
+        if (decisionGeneration !== suggestionDecisionGenerationRef.current)
+          return;
         patchDocumentCaches(queryClient, documentId, refreshedDocument);
         if (continueSuggesting) continueSuggestionModeFrom(refreshedDocument);
-        setPendingSuggestionDecision(null);
-        suggestionDecisionInFlightRef.current = false;
+        if (accepted && continueSuggesting) {
+          const sync = await requestCollabSync();
+          if (decisionGeneration !== suggestionDecisionGenerationRef.current)
+            return;
+          if (sync.status === "failed") throw sync.error;
+          if (sync.status === "unavailable")
+            throw new Error("Collaborative document is unavailable");
+        }
+        setPendingSuggestionDecision((current) => {
+          if (!accepted || !current || !current.optimistic) return null;
+          return { ...current, readbackContent: refreshedDocument.content };
+        });
+        if (!accepted) {
+          suggestionDecisionInFlightRef.current = false;
+          activeSuggestionDecisionIdRef.current = null;
+        }
       } catch (error) {
+        if (decisionGeneration !== suggestionDecisionGenerationRef.current)
+          return;
         setDecisionRefreshFailed(true);
         void queryClient.invalidateQueries(documentQueryFilter(documentId));
         toast.error(t("empty.genericError"), {
@@ -4122,7 +4192,8 @@ function PageEditorSessionBody({
             error instanceof Error ? error.message : t("empty.genericError"),
         });
       } finally {
-        decisionRefreshInFlightRef.current = false;
+        if (decisionRefreshInFlightRef.current === decisionGeneration)
+          decisionRefreshInFlightRef.current = null;
       }
     },
     [
@@ -4131,9 +4202,105 @@ function PageEditorSessionBody({
       databaseId,
       documentId,
       queryClient,
+      requestCollabSync,
       t,
     ],
   );
+
+  const handleAcceptedDecisionRendered = useCallback((suggestionId: string) => {
+    if (activeSuggestionDecisionIdRef.current !== suggestionId) return;
+    activeSuggestionDecisionIdRef.current = null;
+    suggestionDecisionGenerationRef.current += 1;
+    setDecisionReadbackDivergence((current) =>
+      current?.suggestionId === suggestionId ? null : current,
+    );
+    setPendingSuggestionDecision((current) => {
+      if (
+        current?.suggestion.id !== suggestionId ||
+        current.readbackContent === null
+      )
+        return current;
+      suggestionDecisionInFlightRef.current = false;
+      return null;
+    });
+  }, []);
+
+  const handleAcceptedDecisionReadbackOutdated = useCallback(
+    (suggestionId: string, actualContent: string) => {
+      const current = pendingSuggestionDecision;
+      if (
+        current?.suggestion.id !== suggestionId ||
+        current.readbackContent === null
+      )
+        return;
+      setDecisionReadbackDivergence((previous) =>
+        previous?.suggestionId === suggestionId &&
+        previous.actualContent === actualContent
+          ? previous
+          : { suggestionId, actualContent },
+      );
+    },
+    [pendingSuggestionDecision],
+  );
+
+  useEffect(() => {
+    const pending = pendingSuggestionDecision;
+    if (
+      !isSuggesting ||
+      !collabEditorEnabled ||
+      !ydoc ||
+      pending?.decision !== "accepted" ||
+      pending.readbackContent === null
+    )
+      return;
+    const before = pending.suggestion.operations[0]?.before as
+      | { markdown?: unknown }
+      | undefined;
+    if (typeof before?.markdown !== "string") {
+      setDecisionRefreshFailed(true);
+      return;
+    }
+    const suggestionId = pending.suggestion.id;
+    return observeAcceptedCanonicalSettlement({
+      ydoc,
+      beforeContent: before.markdown,
+      readbackContent: pending.readbackContent,
+      onRendered: () => handleAcceptedDecisionRendered(suggestionId),
+      onOutdated: (actual) =>
+        handleAcceptedDecisionReadbackOutdated(suggestionId, actual),
+      onError: () => setDecisionRefreshFailed(true),
+    });
+  }, [
+    collabEditorEnabled,
+    handleAcceptedDecisionReadbackOutdated,
+    handleAcceptedDecisionRendered,
+    isSuggesting,
+    pendingSuggestionDecision,
+    ydoc,
+  ]);
+
+  useEffect(() => {
+    if (
+      !decisionReadbackDivergence ||
+      pendingSuggestionDecision?.suggestion.id !==
+        decisionReadbackDivergence.suggestionId ||
+      pendingSuggestionDecision.readbackContent === null ||
+      decisionRefreshFailed
+    )
+      return;
+    const timer = window.setTimeout(() => {
+      void refreshSuggestionDecisionDocument(
+        pendingSuggestionDecision.continueSuggesting,
+        true,
+      );
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [
+    decisionReadbackDivergence,
+    decisionRefreshFailed,
+    pendingSuggestionDecision,
+    refreshSuggestionDecisionDocument,
+  ]);
 
   const handleSuggestionModeChange = useCallback(
     async (next: boolean) => {
@@ -4301,12 +4468,32 @@ function PageEditorSessionBody({
     );
   }, [sessionDraftSuggestions, suggestionPersistenceRevision]);
 
+  const displaySavedSuggestions = useMemo(
+    () =>
+      visibleSavedSuggestionsDuringDraftMaterialization(
+        presentedSuggestions,
+        draftSuggestions,
+        isSubmittingSuggestions,
+        new Set(
+          [...createdSuggestionOperationsRef.current.values()]
+            .map((entry) => entry.suggestion?.id)
+            .filter((id): id is string => typeof id === "string"),
+        ),
+      ),
+    [
+      presentedSuggestions,
+      draftSuggestions,
+      isSubmittingSuggestions,
+      suggestionPersistenceRevision,
+    ],
+  );
+
   const visualSuggestions = useMemo<VisualEditorSuggestion[]>(() => {
     const currentMarkdown =
       pendingSuggestionDecisionContent ??
       (isSuggesting ? suggestionDraft : document.content);
     const byId = new Map<string, VisualEditorSuggestion>();
-    for (const suggestion of presentedSuggestions) {
+    for (const suggestion of displaySavedSuggestions) {
       if (suggestion.id === editingSuggestionId) continue;
       const presentation = suggestionPresentation(suggestion, currentMarkdown);
       if (presentation) byId.set(presentation.id, presentation);
@@ -4344,6 +4531,29 @@ function PageEditorSessionBody({
         presentation: "draft" as const,
       });
     }
+    if (
+      pendingSuggestionDecision?.decision === "accepted" &&
+      pendingSuggestionDecision.optimistic
+    ) {
+      const operation = pendingSuggestionDecision.suggestion.operations[0];
+      const before = operation?.before as { markdown?: unknown } | undefined;
+      if (typeof before?.markdown === "string") {
+        const presentation = suggestionPresentation(
+          { ...pendingSuggestionDecision.suggestion, status: "pending" },
+          before.markdown,
+        );
+        if (presentation) {
+          byId.set(presentation.id, {
+            ...presentation,
+            presentation: canProjectAcceptedSuggestion(presentation)
+              ? "settling"
+              : "canonical",
+            settlementReadbackContent:
+              pendingSuggestionDecision.readbackContent,
+          });
+        }
+      }
+    }
     return [...byId.values()];
   }, [
     document.content,
@@ -4351,21 +4561,21 @@ function PageEditorSessionBody({
     isSuggesting,
     pendingSuggestionDecision,
     pendingSuggestionDecisionContent,
-    presentedSuggestions,
+    displaySavedSuggestions,
     sessionDraftSuggestions,
     suggestionPersistenceRevision,
     suggestionDraft,
   ]);
   const sidebarSuggestions = useMemo(() => {
     if (!editingSuggestionId || sessionDraftSuggestions.length !== 1) {
-      return presentedSuggestions;
+      return displaySavedSuggestions;
     }
-    return presentedSuggestions.map((suggestion) =>
+    return displaySavedSuggestions.map((suggestion) =>
       suggestion.id === editingSuggestionId
         ? { ...suggestion, operations: sessionDraftSuggestions[0]!.operations }
         : suggestion,
     );
-  }, [editingSuggestionId, presentedSuggestions, sessionDraftSuggestions]);
+  }, [editingSuggestionId, displaySavedSuggestions, sessionDraftSuggestions]);
 
   useEffect(() => {
     void setClientAppState(
@@ -5406,6 +5616,7 @@ function PageEditorSessionBody({
         )
           return;
         suggestionDecisionInFlightRef.current = true;
+        suggestionDecisionGenerationRef.current += 1;
         const continueSuggesting = isSuggesting;
         let observedSuggestion = suggestion;
         if (continueSuggesting) {
@@ -5419,11 +5630,13 @@ function PageEditorSessionBody({
           }
         }
         if (showInlineComments) setPreserveInlineReviewSpace(true);
+        activeSuggestionDecisionIdRef.current = observedSuggestion.id;
         setPendingSuggestionDecision({
           suggestion: observedSuggestion,
           decision,
           continueSuggesting,
           optimistic: true,
+          readbackContent: null,
         });
         setDecisionRefreshFailed(false);
         let result: Awaited<ReturnType<typeof decideSuggestion.mutateAsync>>;
@@ -5436,6 +5649,7 @@ function PageEditorSessionBody({
             observedRevision: observedSuggestion.revision,
           });
         } catch (error) {
+          activeSuggestionDecisionIdRef.current = null;
           setPendingSuggestionDecision(null);
           setDecisionRefreshFailed(false);
           suggestionDecisionInFlightRef.current = false;
@@ -5448,7 +5662,11 @@ function PageEditorSessionBody({
         if (result.suggestion.status !== decision) {
           setPendingSuggestionDecision((current) =>
             current?.suggestion.id === observedSuggestion.id
-              ? { ...current, suggestion: result.suggestion, optimistic: false }
+              ? {
+                  ...current,
+                  suggestion: result.suggestion,
+                  optimistic: false,
+                }
               : current,
           );
         }
@@ -5460,7 +5678,10 @@ function PageEditorSessionBody({
           return [...byId.values()];
         });
         void suggestionsQuery.refetch();
-        await refreshSuggestionDecisionDocument(continueSuggesting);
+        await refreshSuggestionDecisionDocument(
+          continueSuggesting,
+          result.suggestion.status === "accepted",
+        );
         if (result.suggestion.status === "stale") {
           toast.error(t("editor.toolbar.conflict"));
           setSelectedSuggestionId(result.suggestion.id);
@@ -6082,9 +6303,27 @@ function PageEditorSessionBody({
                                 onRetry={() =>
                                   void refreshSuggestionDecisionDocument(
                                     pendingSuggestionDecision.continueSuggesting,
+                                    pendingSuggestionDecision.decision ===
+                                      "accepted" &&
+                                      pendingSuggestionDecision.optimistic,
                                   )
                                 }
                               />
+                            </div>
+                          ) : null}
+                          {pendingSuggestionDecision?.decision === "accepted" &&
+                          pendingSuggestionDecision.optimistic &&
+                          visualSuggestions.some(
+                            (suggestion) =>
+                              suggestion.id ===
+                                pendingSuggestionDecision.suggestion.id &&
+                              suggestion.presentation === "canonical",
+                          ) ? (
+                            <div
+                              role="status"
+                              className="mb-3 text-sm text-muted-foreground"
+                            >
+                              {t("editor.pageBodySyncing")}
                             </div>
                           ) : null}
                           {suggestionDraftPreview.status ===
@@ -6098,6 +6337,24 @@ function PageEditorSessionBody({
                           ) : null}
                           <VisualEditor
                             onEscape={handleEditorEscape}
+                            acceptedDecisionReadback={
+                              !isSuggesting &&
+                              pendingSuggestionDecision?.decision ===
+                                "accepted" &&
+                              pendingSuggestionDecision.readbackContent !== null
+                                ? {
+                                    id: pendingSuggestionDecision.suggestion.id,
+                                    content:
+                                      pendingSuggestionDecision.readbackContent,
+                                  }
+                                : null
+                            }
+                            onAcceptedDecisionRendered={
+                              handleAcceptedDecisionRendered
+                            }
+                            onAcceptedDecisionReadbackOutdated={
+                              handleAcceptedDecisionReadbackOutdated
+                            }
                             contentResetKey={
                               pendingSuggestionDecision
                                 ? `${pendingSuggestionDecision.suggestion.id}:${pendingSuggestionDecision.decision}:${pendingSuggestionDecision.optimistic ? "optimistic" : "canonical"}`

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 
 import {
   databaseConversionRequest,
@@ -12,6 +13,8 @@ import {
   documentEditorDefaultIconKind,
   documentEditorDatabaseRegionClassName,
   materializedSuggestionForDraft,
+  visibleSavedSuggestionsDuringDraftMaterialization,
+  observeAcceptedCanonicalSettlement,
   documentEditorReservesInlineReviewSpace,
   documentEditorShowsInlineComments,
   documentEditorLoadState,
@@ -51,6 +54,49 @@ import {
 import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
 
 describe("document editor layout", () => {
+  it("waits for canonical Yjs state rather than an isolated suggestion draft", () => {
+    const ydoc = new Y.Doc();
+    const paragraph = new Y.XmlElement("paragraph");
+    const text = new Y.XmlText();
+    text.insert(0, "Before");
+    paragraph.insert(0, [text]);
+    ydoc.getXmlFragment("default").insert(0, [paragraph]);
+    const onRendered = vi.fn();
+    const onOutdated = vi.fn();
+    const stop = observeAcceptedCanonicalSettlement({
+      ydoc,
+      beforeContent: "Before",
+      readbackContent: " AddedBefore",
+      onRendered,
+      onOutdated,
+      onError: vi.fn(),
+    });
+    expect(onRendered).not.toHaveBeenCalled();
+    ydoc.transact(() => {
+      text.insert(0, " Added");
+      const peerParagraph = new Y.XmlElement("paragraph");
+      const peerText = new Y.XmlText();
+      peerText.insert(0, "Peer");
+      peerParagraph.insert(0, [peerText]);
+      ydoc.getXmlFragment("default").insert(1, [peerParagraph]);
+    });
+    expect(onRendered).not.toHaveBeenCalled();
+    expect(onOutdated).toHaveBeenCalledWith(" AddedBefore\nPeer");
+    stop();
+
+    const refreshed = vi.fn();
+    const stopRefreshed = observeAcceptedCanonicalSettlement({
+      ydoc,
+      beforeContent: "Before",
+      readbackContent: " AddedBefore\nPeer",
+      onRendered: refreshed,
+      onOutdated,
+      onError: vi.fn(),
+    });
+    expect(refreshed).toHaveBeenCalledTimes(1);
+    stopRefreshed();
+    ydoc.destroy();
+  });
   it("attests an identified revert even when its snapshot matches the saved page", () => {
     const base = {
       hasUpdates: false,
@@ -241,6 +287,38 @@ describe("document editor layout", () => {
     ).toBeNull();
   });
 
+  it("hides only the saved copy of a draft while it materializes", () => {
+    const draft = {
+      operations: [{ ordinal: 0, kind: "insert_text", after: "W" }],
+    } as never;
+    const optimistic = {
+      id: "optimistic",
+      operations: [{ ordinal: 1, kind: "insert_text", after: "W" }],
+    } as never;
+    const unrelated = {
+      id: "unrelated",
+      operations: [{ ordinal: 1, kind: "insert_text", after: "W" }],
+    } as never;
+    const saved = [optimistic, unrelated];
+
+    expect(
+      visibleSavedSuggestionsDuringDraftMaterialization(
+        saved,
+        [draft],
+        true,
+        new Set(["optimistic"]),
+      ),
+    ).toEqual([unrelated]);
+    expect(
+      visibleSavedSuggestionsDuringDraftMaterialization(
+        saved,
+        [draft],
+        false,
+        new Set(["optimistic"]),
+      ),
+    ).toEqual(saved);
+  });
+
   it("keeps review geometry stable after the final inline decision", () => {
     expect(
       documentEditorReservesInlineReviewSpace({
@@ -371,8 +449,8 @@ describe("document editor layout", () => {
       source.indexOf("const position = resolveAnchorPoint", start),
     );
     expect(effect).toContain("new Set(specs.map((spec) => spec.suggestionId))");
-    expect(effect).toContain(
-      "const visibleSpecs = showCommentIndicators ? specs : []",
+    expect(effect).toMatch(
+      /const visibleSpecs = showCommentIndicators\s+\? specs\s+: specs\.filter\(\(spec\) => spec\.settling\)/,
     );
     expect(effect).toContain("specs: visibleSpecs");
     expect(effect).toMatch(
@@ -2090,14 +2168,19 @@ describe("document editor layout", () => {
     expect(source).toContain("!!pendingSuggestionDecision");
     expect(decision).toContain("setPendingSuggestionDecision({");
     expect(decision).toContain("continueSuggesting,");
-    expect(decision).toContain(
-      "await refreshSuggestionDecisionDocument(continueSuggesting)",
-    );
+    expect(decision).toContain("await refreshSuggestionDecisionDocument(");
+    expect(decision).toContain('result.suggestion.status === "accepted"');
     expect(decision).toContain("if (suggestion.id === editingSuggestionId)");
     expect(source).toContain("setDecisionRefreshFailed(true)");
-    expect(source).toContain("if (decisionRefreshInFlightRef.current) return");
-    expect(source).toContain("decisionRefreshInFlightRef.current = true");
-    expect(source).toContain("decisionRefreshInFlightRef.current = false");
+    expect(source).toContain(
+      "if (decisionRefreshInFlightRef.current === decisionGeneration) return",
+    );
+    expect(source).toContain(
+      "decisionRefreshInFlightRef.current = decisionGeneration",
+    );
+    expect(source).toContain(
+      "if (decisionGeneration !== suggestionDecisionGenerationRef.current)",
+    );
     expect(source).toMatch(
       /decisionRefreshFailed &&\s+pendingSuggestionDecision/,
     );
