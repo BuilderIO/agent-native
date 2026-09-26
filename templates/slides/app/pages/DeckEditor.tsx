@@ -88,8 +88,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   clearSlideEditingActive,
   deckIdFromPathname,
@@ -4330,26 +4328,13 @@ export default function DeckEditor() {
         className="hidden"
       />
 
-      <Dialog
+      <UploadStorageGate
+        configured={fileStorageConfigured}
+        unavailable={!storageQuery.isSuccess}
         open={showUploadStorageSetup}
         onOpenChange={setShowUploadStorageSetup}
-      >
-        <DialogContent className="max-w-lg">
-          {storageQuery.isLoading ? (
-            <div className="grid gap-3">
-              <Skeleton className="h-5 w-2/3" />
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-            </div>
-          ) : (
-            <UploadStorageGate
-              configured={fileStorageConfigured}
-              unavailable={storageQuery.isError}
-              onRetry={() => void storageQuery.refetch()}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+        onRetry={() => void storageQuery.refetch()}
+      />
 
       {/* Popovers & Dialogs */}
       <ImageGenPanel

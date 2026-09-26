@@ -4,12 +4,11 @@ import {
 } from "@agent-native/core/client/api-path";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupDialog } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { IconHistory, IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -152,6 +151,7 @@ export function RewindExtensionDialog({
         const storageCheck = await storageStatus.refetch();
         if (storageCheck.isError) {
           setStorageCheckFailed(true);
+          setFileStoragePromptOpen(true);
           return;
         }
         if (!storageCheck.data?.configured) {
@@ -326,9 +326,7 @@ export function RewindExtensionDialog({
               {t("rewindExtension.makePrivateContinue")}
             </Button>
           </div>
-        ) : storageCheckFailed && storageStatus.isError ? (
-          <StorageStatusRetry onRetry={() => void storageStatus.refetch()} />
-        ) : (
+        ) : storageCheckFailed && storageStatus.isError ? null : (
           <div className="grid gap-2">
             <Button
               variant="outline"
@@ -373,10 +371,16 @@ export function RewindExtensionDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
-      <FileStorageSetupDialog
+      <FileStorageSetupPopover
         open={fileStoragePromptOpen}
         onOpenChange={setFileStoragePromptOpen}
         onConnected={() => void storageStatus.refetch()}
+        {...(!storageStatus.isSuccess || storageStatus.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void storageStatus.refetch(),
+            }
+          : { status: "missing" as const })}
       />
     </Dialog>
   );

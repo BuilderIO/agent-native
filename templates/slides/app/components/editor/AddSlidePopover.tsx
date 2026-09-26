@@ -15,7 +15,6 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
-import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
 import {
@@ -395,7 +394,6 @@ export function AddSlidePopover({
       )}
       <PromptComposer
         autoFocus
-        attachmentsEnabled={fileStorageConfigured}
         maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
         documentAttachmentLimitLabel="Slides reference files"
         placeholder={t("editorSidebar.promptPlaceholder")}
@@ -405,15 +403,6 @@ export function AddSlidePopover({
         onAttachmentsChange={handleAttachmentsChange}
         onTextChange={setPromptText}
       />
-      {!storageQuery.isLoading ? (
-        <div className="mt-2">
-          <UploadStorageGate
-            configured={fileStorageConfigured}
-            unavailable={storageQuery.isError}
-            onRetry={() => void storageQuery.refetch()}
-          />
-        </div>
-      ) : null}
       <div className="-mx-1 mt-2">
         <GoogleDocImportHint
           promptText={promptText}

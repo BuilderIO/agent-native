@@ -9,8 +9,6 @@ import {
   type UseCollaborativeDocResult,
 } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
-import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
   applyDocSurgically,
   DragHandle,
@@ -43,6 +41,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 
+import { usePlanImageUpload } from "../../hooks/use-plan-image-upload";
 import { PlanBlockView } from "../plan/DocumentArea";
 import { PlanImageNode } from "../plan/PlanImageNode";
 import { PlanBlockNode, PlanBlockDataProvider } from "./PlanBlockNode";
@@ -840,16 +839,7 @@ export function PlanDocumentEditor({
   >;
 }) {
   const t = useT();
-  const fileUploadStatus = useFileUploadStatus();
-  const storageConfigured =
-    !fileUploadStatus.isError && fileUploadStatus.data?.configured === true;
-  const storageMissing =
-    !import.meta.env.DEV &&
-    !fileUploadStatus.isError &&
-    fileUploadStatus.data?.configured === false;
-  const storageUnavailable =
-    !import.meta.env.DEV && !storageConfigured && !storageMissing;
-  const canUploadImages = import.meta.env.DEV || storageConfigured;
+  const { uploadImage, storagePrompt } = usePlanImageUpload();
   const registryValue = useOptionalBlockRegistry();
   const registry = registryValue?.registry ?? null;
 
@@ -1143,9 +1133,9 @@ export function PlanDocumentEditor({
       // they get the same hover zoom / lightbox / replace controls as structured
       // image blocks (features.image is off so the plain core image node, which
       // has no node view, never coexists with this one).
-      canUploadImages
-        ? PlanImageNode
-        : PlanImageNode.configure({ onImageUpload: null }),
+      PlanImageNode.configure({
+        onImageUpload: editable ? uploadImage : null,
+      }),
       DragHandle.configure({
         wrapperSelector: `.${WRAPPER_CLASS}`,
         getDragTransferData,
@@ -1158,7 +1148,13 @@ export function PlanDocumentEditor({
         handleDrop,
       }),
     ],
-    [getDragTransferData, receiveDragTransferData, handleDrop, canUploadImages],
+    [
+      getDragTransferData,
+      receiveDragTransferData,
+      handleDrop,
+      uploadImage,
+      editable,
+    ],
   );
 
   // When the plan opts into Notion sync, the slash menu only offers blocks that
@@ -1513,29 +1509,7 @@ export function PlanDocumentEditor({
   return (
     <PlanSideDropContext.Provider value={handleDrop}>
       <PlanBlockDataProvider value={dataValue}>
-        {storageMissing && editable ? (
-          <div className="mb-4">
-            <FileStorageSetupCard />
-          </div>
-        ) : null}
-        {storageUnavailable && editable ? (
-          <div
-            className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4"
-            role="status"
-          >
-            <p className="text-sm text-muted-foreground">
-              {t("plansPage.loadError.storageStatusUnavailable")}
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void fileUploadStatus.refetch()}
-            >
-              {t("plansPage.loadError.retry")}
-            </Button>
-          </div>
-        ) : null}
+        {storagePrompt}
         <SharedRichEditor
           value={value}
           onChange={handleChange}
@@ -1605,10 +1579,7 @@ export function NestedPlanBlocksEditor({
   compactVisuals?: boolean;
 }) {
   const t = useT();
-  const fileUploadStatus = useFileUploadStatus();
-  const canUploadImages =
-    import.meta.env.DEV ||
-    (!fileUploadStatus.isError && fileUploadStatus.data?.configured === true);
+  const { uploadImage, storagePrompt } = usePlanImageUpload();
   const registryValue = useOptionalBlockRegistry();
   const registry = registryValue?.registry ?? null;
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -1662,9 +1633,9 @@ export function NestedPlanBlocksEditor({
       // they get the same hover zoom / lightbox / replace controls as structured
       // image blocks (features.image is off so the plain core image node, which
       // has no node view, never coexists with this one).
-      canUploadImages
-        ? PlanImageNode
-        : PlanImageNode.configure({ onImageUpload: null }),
+      PlanImageNode.configure({
+        onImageUpload: editable ? uploadImage : null,
+      }),
       DragHandle.configure({
         wrapperSelector: `.${NESTED_WRAPPER_CLASS}`,
         getDragTransferData,
@@ -1676,7 +1647,8 @@ export function NestedPlanBlocksEditor({
       getDragTransferData,
       receiveDragTransferData,
       parentHandleDrop,
-      canUploadImages,
+      uploadImage,
+      editable,
     ],
   );
 
@@ -1888,6 +1860,7 @@ export function NestedPlanBlocksEditor({
       data-region-id={regionId}
       data-region-label={regionLabel}
     >
+      {storagePrompt}
       <PlanBlockDataProvider value={dataValue}>
         <SharedRichEditor
           value={value}

@@ -151,6 +151,11 @@ export function useAgentGenerating(options?: {
     serverRunState.heartbeatSinceMs != null &&
     serverRunState.heartbeatSinceMs >= 0 &&
     serverRunState.heartbeatSinceMs < 30_000;
+  const serverConfirmedIdleAfterTimeout =
+    hasTabScope &&
+    timedOut &&
+    serverRunState.status === "idle" &&
+    serverRunState.runId === null;
   const canContinueAfterStall = Boolean(
     timedOut &&
     serverRunState.isStuck &&
@@ -164,6 +169,16 @@ export function useAgentGenerating(options?: {
     if (!canContinueAfterStall || !runId) return false;
     return (await abortRun(runId, "user_stuck_retry")) === runId;
   }, [abortRun, canContinueAfterStall, serverRunState.runId]);
+
+  useEffect(() => {
+    if (!serverConfirmedIdleAfterTimeout) return;
+    activeSubmitRef.current = null;
+    activeTabRef.current = null;
+    clearStopDebounce();
+    clearWatchdog();
+    setRecentlyGenerating(false);
+    setRunError(true);
+  }, [clearStopDebounce, clearWatchdog, serverConfirmedIdleAfterTimeout]);
 
   useEffect(() => {
     if (!hasTabScope) return;
@@ -463,6 +478,7 @@ export function useAgentGenerating(options?: {
   return {
     generating:
       !providerMissing &&
+      !serverConfirmedIdleAfterTimeout &&
       stopReason !== "stopped" &&
       (generating || recentlyGenerating) &&
       !runError,

@@ -221,7 +221,7 @@ import {
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
 import { isProviderAuthenticationError } from "./error-format.js";
-import { FileStorageSetupDialog } from "./FileStorageSetupCard.js";
+import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
 import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
@@ -3025,6 +3025,7 @@ const AssistantChatInner = forwardRef<
   const fileStorageConfigured =
     fileUploadStatus.data?.configured === true && !fileUploadStatus.isError;
   const [fileStoragePromptOpen, setFileStoragePromptOpen] = useState(false);
+  const fileStorageAnchorRef = useRef<HTMLDivElement>(null);
   fileStorageReadyRef.current = fileStorageConfigured;
   useEffect(() => {
     if (fileStorageConfigured) setFileStoragePromptOpen(false);
@@ -7634,16 +7635,26 @@ const AssistantChatInner = forwardRef<
                                 }
                               />
                             ) : null}
-                            <FileStorageSetupDialog
+                            <FileStorageSetupPopover
                               open={fileStoragePromptOpen}
                               onOpenChange={setFileStoragePromptOpen}
+                              anchorRef={fileStorageAnchorRef}
                               onConnected={() =>
                                 void fileUploadStatus.refetch()
                               }
+                              {...(!fileUploadStatus.isSuccess ||
+                              fileUploadStatus.isError
+                                ? {
+                                    status: "unavailable" as const,
+                                    onRetry: () =>
+                                      void fileUploadStatus.refetch(),
+                                  }
+                                : { status: "missing" as const })}
                             />
                             {/* Input area */}
                             <PromptBar mode="inline" className="contents">
                               <AgentComposerFrame
+                                anchorRef={fileStorageAnchorRef}
                                 attachedAccessory={
                                   <MessageQueueDrawer
                                     variant="recessed"

@@ -9,7 +9,6 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
@@ -88,8 +87,7 @@ import { Awareness } from "y-protocols/awareness";
 import type { Doc as YDoc } from "yjs";
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import type { CommentThread } from "@/hooks/use-comments";
 
 import { BubbleToolbar } from "./BubbleToolbar";
@@ -2125,6 +2123,15 @@ export interface PendingImagePicker {
   attrs: Record<string, unknown>;
 }
 
+interface PendingMediaFiles {
+  view: EditorView;
+  documentId: string | null;
+  imageFiles: File[];
+  videoFiles: File[];
+  audioFiles: File[];
+  position: number;
+}
+
 function insertPendingMediaNodes(
   view: EditorView,
   typeName: MediaNodeType,
@@ -3116,14 +3123,12 @@ export function VisualEditor({
   fileStorageStateRef.current = fileStorageState;
   const [isFileStorageSetupOpen, setIsFileStorageSetupOpen] = useState(false);
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
-  useEffect(() => {
-    if (fileStorageConfigured) setIsFileStorageSetupOpen(false);
-  }, [fileStorageConfigured]);
   const suggestingRef = useRef(suggesting);
   suggestingRef.current = suggesting;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
   const pendingImagePickerRef = useRef<PendingImagePicker | null>(null);
+  const pendingMediaFilesRef = useRef<PendingMediaFiles | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const onSaveContentRef = useRef(onSaveContent);
@@ -3215,6 +3220,40 @@ export function VisualEditor({
     },
     [],
   );
+  useEffect(() => {
+    if (!fileStorageConfigured) return;
+    setIsFileStorageSetupOpen(false);
+    const pending = pendingMediaFilesRef.current;
+    pendingMediaFilesRef.current = null;
+    if (
+      !pending ||
+      pending.documentId !== (documentId ?? null) ||
+      !pending.view.dom.isConnected
+    ) {
+      return;
+    }
+    if (pending.imageFiles.length > 0) {
+      void uploadAndInsertImageFiles(
+        pending.view,
+        pending.imageFiles,
+        pending.position,
+      );
+    }
+    if (pending.videoFiles.length > 0) {
+      void uploadAndInsertVideoFiles(
+        pending.view,
+        pending.videoFiles,
+        pending.position,
+      );
+    }
+    if (pending.audioFiles.length > 0) {
+      void uploadAndInsertAudioFiles(
+        pending.view,
+        pending.audioFiles,
+        pending.position,
+      );
+    }
+  }, [documentId, fileStorageConfigured]);
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
   const resolveNotionPageLink = useCallback((notionPageId: string) => {
     const normalized = notionPageId.replace(/-/g, "").toLowerCase();
@@ -3460,15 +3499,23 @@ export function VisualEditor({
         }
         return runIfMediaCreationAllowed(suggestingRef.current, () => {
           event.preventDefault();
-          if (fileStorageStateRef.current !== "configured") {
-            setIsFileStorageSetupOpen(true);
-            return;
-          }
           const coords = view.posAtCoords({
             left: event.clientX,
             top: event.clientY,
           });
           const position = coords?.pos ?? view.state.selection.from;
+          if (fileStorageStateRef.current !== "configured") {
+            pendingMediaFilesRef.current = {
+              view,
+              documentId: documentId ?? null,
+              imageFiles,
+              videoFiles,
+              audioFiles,
+              position,
+            };
+            setIsFileStorageSetupOpen(true);
+            return;
+          }
           if (imageFiles.length > 0) {
             void uploadAndInsertImageFiles(view, imageFiles, position);
           }
@@ -3499,6 +3546,14 @@ export function VisualEditor({
         return runIfMediaCreationAllowed(suggestingRef.current, () => {
           event.preventDefault();
           if (fileStorageStateRef.current !== "configured") {
+            pendingMediaFilesRef.current = {
+              view,
+              documentId: documentId ?? null,
+              imageFiles,
+              videoFiles,
+              audioFiles,
+              position: view.state.selection.from,
+            };
             setIsFileStorageSetupOpen(true);
             return;
           }
@@ -4533,36 +4588,11 @@ export function VisualEditor({
           </div>
         </div>
       ) : null}
-      <Dialog
-        open={isFileStorageSetupOpen && !fileStorageConfigured}
+      <FileStorageStatusGate
+        status={fileUploadStatus}
+        open={isFileStorageSetupOpen}
         onOpenChange={setIsFileStorageSetupOpen}
-      >
-        <DialogContent closeLabel={t("close")}>
-          <DialogTitle className="sr-only">
-            {t("onboarding.fileStorage.title")}
-          </DialogTitle>
-          {fileStorageState === "missing" ? (
-            <FileStorageSetupCard />
-          ) : (
-            <div
-              role="status"
-              className="flex items-center justify-between gap-3 text-sm text-muted-foreground"
-            >
-              <span>{t("onboarding.fileStorage.statusUnavailable")}</span>
-              <Button
-                type="button"
-                data-testid="file-storage-retry"
-                variant="link"
-                size="sm"
-                className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => void fileUploadStatus.refetch()}
-              >
-                {t("database.retry")}
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      />
       <RegistryBlockDataProvider value={registryBlockDataValue}>
         <EditorContent editor={editor} />
       </RegistryBlockDataProvider>

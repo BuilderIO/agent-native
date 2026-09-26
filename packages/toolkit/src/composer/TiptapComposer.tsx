@@ -4306,7 +4306,7 @@ export function TiptapComposer({
             onAttachmentRequest={onAttachmentRequest}
             attachmentAccept={composerRuntime.getState().attachmentAccept}
             onAttachmentError={onAttachmentError}
-            disabled={disabled}
+            disabled={disabled && !onAttachmentRequest}
           />
         ) : disabled || plusMenuMode === "hidden" ? null : (
           <ComposerPlusMenu

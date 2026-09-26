@@ -870,7 +870,9 @@ function PromptComposerInner({
           clearOnSubmit={!preserveDraftOnSubmit}
           plusMenuMode={
             gateComposer
-              ? "hidden"
+              ? attachmentsEnabled || onAttachmentRequest
+                ? "upload-only"
+                : "hidden"
               : (plusMenuMode ??
                 (attachmentsEnabled || onAttachmentRequest
                   ? "upload-only"

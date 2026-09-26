@@ -10,15 +10,16 @@ import {
   type RealtimeVoiceModeProviderProps,
   type TiptapComposerProps,
 } from "@agent-native/toolkit/composer";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { readClientAppState } from "../application-state.js";
 import { ExternalAgentNudge } from "../external-agent-host.js";
-import { FileStorageSetupDialog } from "../FileStorageSetupCard.js";
+import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
 import { useFileUploadStatus } from "../uploads/use-file-upload-status.js";
 import { CoreComposerRuntimeProvider } from "./runtime-adapters.js";
 
 export function PromptComposer(props: PromptComposerProps) {
+  const storageAnchorRef = useRef<HTMLDivElement>(null);
   const fileUploadStatus = useFileUploadStatus(
     props.attachmentsEnabled !== false,
   );
@@ -42,11 +43,18 @@ export function PromptComposer(props: PromptComposerProps) {
   }, [fileStorageConfigured]);
 
   return (
-    <div className="relative w-full min-w-0">
-      <FileStorageSetupDialog
+    <div ref={storageAnchorRef} className="relative w-full min-w-0">
+      <FileStorageSetupPopover
         open={storagePromptOpen}
         onOpenChange={setStoragePromptOpen}
+        anchorRef={storageAnchorRef}
         onConnected={() => void fileUploadStatus.refetch()}
+        {...(!fileUploadStatus.isSuccess || fileUploadStatus.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void fileUploadStatus.refetch(),
+            }
+          : { status: "missing" as const })}
       />
       <CoreComposerRuntimeProvider>
         <ToolkitPromptComposer

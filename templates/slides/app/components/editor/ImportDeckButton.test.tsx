@@ -45,11 +45,20 @@ vi.mock("@/hooks/use-slide-file-storage-status", () => ({
   }),
 }));
 vi.mock("@/components/editor/UploadStorageGate", () => ({
-  UploadStorageGate: ({ onRetry }: { onRetry: () => void }) => (
-    <button type="button" onClick={onRetry}>
-      Connect object storage
-    </button>
-  ),
+  UploadStorageGate: ({
+    open,
+    onRetry,
+  }: {
+    open: boolean;
+    onRetry: () => void;
+  }) =>
+    open ? (
+      <div role="dialog" aria-label="Connect storage to upload files">
+        <button type="button" onClick={onRetry}>
+          Connect storage to upload files
+        </button>
+      </div>
+    ) : null,
 }));
 
 import { ImportDeckButton } from "./ImportDeckButton";
@@ -127,9 +136,14 @@ describe("toolbar deck import", () => {
       .spyOn(HTMLInputElement.prototype, "click")
       .mockImplementation(() => {});
     render(<Harness onImport={vi.fn()} />);
+    expect(screen.queryByText("Connect storage to upload files")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Import" }));
     expect(click).not.toHaveBeenCalled();
-    expect(screen.getByText("Connect object storage")).toBeTruthy();
+    expect(
+      screen.getByRole("dialog", {
+        name: "Connect storage to upload files",
+      }),
+    ).toBeTruthy();
     expect(
       (screen.getByLabelText("Import file") as HTMLInputElement).disabled,
     ).toBe(true);
@@ -139,7 +153,7 @@ describe("toolbar deck import", () => {
     storageStatus.isSuccess = false;
     render(<Harness onImport={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Import" }));
-    fireEvent.click(screen.getByText("Connect object storage"));
+    fireEvent.click(screen.getByText("Connect storage to upload files"));
     expect(storageStatus.refetch).toHaveBeenCalledOnce();
   });
   it("offers retry instead of setup while status is unresolved", () => {
@@ -147,7 +161,7 @@ describe("toolbar deck import", () => {
     storageStatus.isLoading = false;
     render(<Harness onImport={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Import" }));
-    fireEvent.click(screen.getByText("Connect object storage"));
+    fireEvent.click(screen.getByText("Connect storage to upload files"));
     expect(storageStatus.refetch).toHaveBeenCalledOnce();
   });
   it.each(["pdf", "pptx"] as const)(

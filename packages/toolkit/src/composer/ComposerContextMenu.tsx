@@ -503,6 +503,7 @@ export function ComposerContextMenu({
                 className="size-7 shrink-0"
                 disabled={disabled}
                 aria-label={label}
+                onClick={(event) => event.stopPropagation()}
               >
                 <IconPlus />
               </Button>

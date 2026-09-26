@@ -119,6 +119,8 @@ const messages: AgentChatTranslation = {
     "Téléversement et stockage de fichiers",
   "onboarding.fileStorage.title":
     "Connecter un stockage pour envoyer des fichiers",
+  "onboarding.fileStorage.statusUnavailable":
+    "Impossible de vérifier le stockage",
   "onboarding.fileStorage.description":
     "Connectez Builder.io (gratuit) ou configurez votre propre stockage d’objets compatible S3.",
   "onboarding.fileStorage.reconnectBuilder": "Reconnecter Builder.io",

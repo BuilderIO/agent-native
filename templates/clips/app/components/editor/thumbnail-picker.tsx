@@ -1,6 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupDialog } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import {
   IconPhoto,
   IconPhotoEdit,
@@ -76,6 +76,14 @@ export function ThumbnailPicker({
   useEffect(() => {
     if (storageConfigured) setFileStoragePromptOpen(false);
   }, [storageConfigured]);
+  const promptForStorage = () => {
+    if (storageQuery.data?.configured === false && !storageQuery.isError) {
+      setFileStoragePromptOpen(true);
+    } else {
+      toast.error(t("recordingPage.tryAgainMoment"));
+      void storageQuery.refetch();
+    }
+  };
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const initializedThumbnailKeyRef = useRef<string | null>(null);
 
@@ -189,7 +197,7 @@ export function ThumbnailPicker({
 
   const handleApply = async () => {
     if (!storageConfigured) {
-      setFileStoragePromptOpen(true);
+      promptForStorage();
       return;
     }
     try {
@@ -292,7 +300,7 @@ export function ThumbnailPicker({
               size="sm"
               onClick={() => {
                 if (!storageConfigured) {
-                  setFileStoragePromptOpen(true);
+                  promptForStorage();
                   return;
                 }
                 uploadInputRef.current?.click();
@@ -514,10 +522,16 @@ export function ThumbnailPicker({
           </Button>
         </DialogFooter>
       </DialogContent>
-      <FileStorageSetupDialog
+      <FileStorageSetupPopover
         open={fileStoragePromptOpen}
         onOpenChange={setFileStoragePromptOpen}
         onConnected={() => void storageQuery.refetch()}
+        {...(!storageQuery.isSuccess || storageQuery.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void storageQuery.refetch(),
+            }
+          : { status: "missing" as const })}
       />
     </Dialog>
   );

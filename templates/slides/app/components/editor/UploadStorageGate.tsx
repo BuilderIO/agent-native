@@ -1,35 +1,30 @@
-import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
-import { IconAlertTriangle } from "@tabler/icons-react";
-
-import { Button } from "@/components/ui/button";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
+import { useEffect } from "react";
 
 export function UploadStorageGate({
   configured,
   unavailable,
+  open,
+  onOpenChange,
   onRetry,
 }: {
   configured: boolean;
   unavailable: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onRetry: () => void;
 }) {
-  const t = useT();
-  if (unavailable) {
-    return (
-      <div
-        className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm"
-        role="alert"
-        data-testid="upload-storage-unavailable"
-      >
-        <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
-          <IconAlertTriangle className="size-4 shrink-0" />
-          <span>{t("home.fileStorageStatusUnavailable")}</span>
-        </span>
-        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-          {t("home.retry")}
-        </Button>
-      </div>
-    );
-  }
-  return configured ? null : <FileStorageSetupCard />;
+  useEffect(() => {
+    if (configured && open) onOpenChange(false);
+  }, [configured, onOpenChange, open]);
+  if (!open || configured) return null;
+  return (
+    <FileStorageSetupPopover
+      open
+      onOpenChange={onOpenChange}
+      {...(unavailable
+        ? { status: "unavailable" as const, onRetry }
+        : { status: "missing" as const })}
+    />
+  );
 }

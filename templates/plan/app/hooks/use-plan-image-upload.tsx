@@ -1,0 +1,104 @@
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
+import {
+  uploadEditorImage,
+  useFileUploadStatus,
+} from "@agent-native/core/client/uploads";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+export function usePlanImageUpload() {
+  const { data, isError, isSuccess, refetch } = useFileUploadStatus();
+  const storageConfigured = !isError && data?.configured === true;
+  const storageMissing =
+    !import.meta.env.DEV && isSuccess && data?.configured === false;
+  const canUploadImages = import.meta.env.DEV || storageConfigured;
+  const [uploadAttempted, setUploadAttempted] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const pendingUploadsRef = useRef<
+    Array<{
+      file: File;
+      resolve: (result: { src: string; alt?: string }) => void;
+      reject: (error: unknown) => void;
+    }>
+  >([]);
+  const pendingActionsRef = useRef<Array<() => void>>([]);
+
+  useEffect(() => {
+    if (!canUploadImages) return;
+
+    setSetupOpen(false);
+    setUploadAttempted(false);
+    for (const pending of pendingUploadsRef.current.splice(0)) {
+      void uploadEditorImage(pending.file).then(
+        pending.resolve,
+        pending.reject,
+      );
+    }
+    for (const action of pendingActionsRef.current.splice(0)) action();
+  }, [canUploadImages]);
+
+  useEffect(
+    () => () => {
+      for (const pending of pendingUploadsRef.current.splice(0)) {
+        pending.reject(new Error("Image upload was canceled."));
+      }
+      pendingActionsRef.current = [];
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (uploadAttempted && (storageMissing || isError)) setSetupOpen(true);
+  }, [isError, storageMissing, uploadAttempted]);
+
+  const requestUpload = useCallback(
+    (onReady?: () => void) => {
+      if (canUploadImages) return true;
+
+      if (onReady) pendingActionsRef.current.push(onReady);
+      setUploadAttempted(true);
+      if (storageMissing) setSetupOpen(true);
+      else if (isError) void refetch();
+      return false;
+    },
+    [canUploadImages, isError, refetch, storageMissing],
+  );
+
+  const uploadImage = useCallback(
+    (file: File) => {
+      if (requestUpload()) return uploadEditorImage(file);
+
+      return new Promise<{ src: string; alt?: string }>((resolve, reject) => {
+        pendingUploadsRef.current.push({ file, resolve, reject });
+      });
+    },
+    [requestUpload],
+  );
+
+  const handleSetupOpenChange = useCallback((open: boolean) => {
+    setSetupOpen(open);
+    if (!open) setUploadAttempted(false);
+  }, []);
+
+  return {
+    canUploadImages,
+    requestUpload,
+    uploadImage,
+    storagePrompt: (
+      <>
+        {setupOpen ? (
+          <FileStorageSetupPopover
+            open
+            onOpenChange={handleSetupOpenChange}
+            onConnected={() => void refetch()}
+            {...(isError || !isSuccess
+              ? {
+                  status: "unavailable" as const,
+                  onRetry: () => void refetch(),
+                }
+              : { status: "missing" as const })}
+          />
+        ) : null}
+      </>
+    ),
+  };
+}

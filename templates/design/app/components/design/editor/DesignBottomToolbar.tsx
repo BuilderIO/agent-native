@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
   IconArrowUpRight,
@@ -450,36 +450,18 @@ export function DesignBottomToolbar({
           />
         ))}
       </div>
-      <Dialog
+      <FileStorageSetupPopover
         open={
           storageSetupOpen && (fileStorageMissing || fileStorageUnavailable)
         }
         onOpenChange={setStorageSetupOpen}
-      >
-        <DialogContent className="max-w-lg">
-          {fileStorageMissing ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>{t("onboarding.fileStorage.title")}</DialogTitle>
-              </DialogHeader>
-              <FileStorageSetupCard />
-            </>
-          ) : (
-            <>
-              <DialogHeader>
-                <DialogTitle>{t("common.genericError")}</DialogTitle>
-              </DialogHeader>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void fileUploadStatus.refetch()}
-              >
-                {t("agentChat.common.retry")}
-              </Button>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+        {...(fileStorageUnavailable
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void fileUploadStatus.refetch(),
+            }
+          : { status: "missing" as const })}
+      />
 
       {/* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */}
       <div className="h-9 w-px shrink-0 bg-white/15" />

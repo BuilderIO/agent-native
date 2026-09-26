@@ -61,6 +61,7 @@ export default function ImageDropPromptPopover({
     storageQuery.data?.configured === true && !storageQuery.isError;
   const [prompt, setPrompt] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [storagePromptOpen, setStoragePromptOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -125,7 +126,11 @@ export default function ImageDropPromptPopover({
   if (!open || !file) return null;
 
   const handleSubmit = async () => {
-    if (!file || !fileStorageConfigured) return;
+    if (!file) return;
+    if (!fileStorageConfigured) {
+      setStoragePromptOpen(true);
+      return;
+    }
     setUploading(true);
     try {
       const form = new FormData();
@@ -156,6 +161,7 @@ export default function ImageDropPromptPopover({
         isMissingUploadProviderError(upload.status, upload.error)
       ) {
         await storageQuery.refetch();
+        setStoragePromptOpen(true);
         return;
       }
 
@@ -236,15 +242,6 @@ export default function ImageDropPromptPopover({
       )}
 
       <div className="px-3 pb-3">
-        {!storageQuery.isLoading ? (
-          <div className="mb-3">
-            <UploadStorageGate
-              configured={fileStorageConfigured}
-              unavailable={storageQuery.isError}
-              onRetry={() => void storageQuery.refetch()}
-            />
-          </div>
-        ) : null}
         <Textarea
           ref={textareaRef}
           value={prompt}
@@ -260,7 +257,7 @@ export default function ImageDropPromptPopover({
           }}
           placeholder={t("raw.imagePromptPlaceholder")}
           rows={3}
-          disabled={uploading || !fileStorageConfigured}
+          disabled={uploading}
           className="resize-none text-sm"
         />
         <div className="mt-2 flex items-center justify-end gap-2">
@@ -277,7 +274,7 @@ export default function ImageDropPromptPopover({
             type="button"
             size="sm"
             onClick={() => void handleSubmit()}
-            disabled={uploading || !fileStorageConfigured}
+            disabled={uploading}
           >
             {uploading ? (
               <span className="inline-flex items-center gap-1.5">
@@ -290,6 +287,13 @@ export default function ImageDropPromptPopover({
           </Button>
         </div>
       </div>
+      <UploadStorageGate
+        configured={fileStorageConfigured}
+        unavailable={!storageQuery.isSuccess}
+        open={storagePromptOpen}
+        onOpenChange={setStoragePromptOpen}
+        onRetry={() => void storageQuery.refetch()}
+      />
     </div>,
     document.body,
   );

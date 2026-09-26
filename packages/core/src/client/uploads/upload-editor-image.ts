@@ -54,7 +54,7 @@ interface UploadImageActionResult {
  * `update-rich-text` path with no new persistence channel.
  *
  * @throws when the file cannot be read, the action returns no URL, or upload is
- *   not configured (with the action's "connect Builder.io" guidance).
+ *   not configured (with the action's storage setup guidance).
  */
 export const uploadEditorImage: EditorImageUploadFn = async (file: File) => {
   if (!file.type.startsWith("image/")) {
@@ -71,7 +71,7 @@ export const uploadEditorImage: EditorImageUploadFn = async (file: File) => {
   if (!result || typeof result.url !== "string" || !result.url) {
     throw new Error(
       result?.error ||
-        "Image upload failed. Connect Builder.io (free tier available) in Settings → File uploads, then try again.",
+        "Image upload failed. Connect Builder.io (free) or configure your own S3-compatible storage in Settings → File uploads, then try again.",
     );
   }
 

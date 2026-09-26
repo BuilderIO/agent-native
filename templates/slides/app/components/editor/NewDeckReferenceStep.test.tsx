@@ -17,7 +17,8 @@ import type { Deck } from "@/context/DeckContext";
 import { SLIDE_FILE_STORAGE_STATUS_KEY } from "@/hooks/use-slide-file-storage-status";
 
 vi.mock("@agent-native/core/client/setup-connections", () => ({
-  FileStorageSetupCard: () => <div data-testid="file-storage-setup-card" />,
+  FileStorageSetupPopover: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="file-storage-setup-card" /> : null,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -217,22 +218,14 @@ describe("<NewDeckReferenceStep>", () => {
     ).toContain("Reference PDF");
   });
 
-  it("blocks file imports and shows storage setup when storage is unavailable", async () => {
+  it("shows storage setup only after a file import is requested", async () => {
     const { onImport } = await renderStep({}, false);
 
     const input = document.querySelector('input[accept=".pdf"]')!;
     expect(input).toHaveProperty("disabled", true);
+    expect(screen.queryByTestId("file-storage-setup-card")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
     expect(screen.getByTestId("file-storage-setup-card")).toBeTruthy();
-
-    await act(async () => {
-      fireEvent.change(input, {
-        target: {
-          files: [
-            new File(["pdf"], "reference.pdf", { type: "application/pdf" }),
-          ],
-        },
-      });
-    });
 
     expect(onImport).not.toHaveBeenCalled();
   });
@@ -258,14 +251,14 @@ describe("<NewDeckReferenceStep>", () => {
     });
 
     expect(
-      document.querySelector('label[aria-label="PDF - Importing..."]')
+      document.querySelector('button[aria-label="PDF - Importing..."]')
         ?.textContent,
     ).toContain("Importing...");
     expect(
-      document.querySelector('label[aria-label="PPT"]')?.textContent,
+      document.querySelector('button[aria-label="PPT"]')?.textContent,
     ).toContain("PPT");
     expect(
-      document.querySelector('label[aria-label="DOCX"]')?.textContent,
+      document.querySelector('button[aria-label="DOCX"]')?.textContent,
     ).toContain("DOCX");
 
     await act(async () => {

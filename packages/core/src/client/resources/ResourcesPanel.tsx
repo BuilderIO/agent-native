@@ -41,7 +41,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { PromptComposer } from "../composer/index.js";
-import { FileStorageSetupDialog } from "../FileStorageSetupCard.js";
+import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { useFileUploadStatus } from "../uploads/use-file-upload-status.js";
@@ -83,6 +83,11 @@ import {
 } from "./use-resources.js";
 
 const LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE = "local-workspace-resource";
+
+type PendingResourceUpload = {
+  file: File;
+  targetScope: ResourceScope;
+};
 
 export function normalizeResourceFileName(name: string): string {
   const trimmed = name.trim();
@@ -1269,6 +1274,7 @@ export function ResourcesPanel({
   >(null);
   const [dragOver, setDragOver] = useState(false);
   const [fileStorageSetupOpen, setFileStorageSetupOpen] = useState(false);
+  const pendingResourceUploadsRef = useRef<PendingResourceUpload[]>([]);
   const [toast, setToast] = useState<{
     kind: "ok" | "err";
     message: string;
@@ -1426,9 +1432,6 @@ export function ResourcesPanel({
     if (!requestedScope) return;
     setActiveScope(requestedScope);
   }, [requestedScope]);
-  useEffect(() => {
-    if (fileStorageConfigured) setFileStorageSetupOpen(false);
-  }, [fileStorageConfigured]);
   // Virtual MCP ids aren't in the resources store — skip the fetch so
   // useResource doesn't 404-flash.
   const resourceQuery = useResource(
@@ -1441,7 +1444,40 @@ export function ResourcesPanel({
   const createResource = useCreateResource();
   const updateResource = useUpdateResource();
   const deleteResource = useDeleteResource();
-  const uploadResource = useUploadResource();
+  const { mutate: uploadResourceFile } = useUploadResource();
+  const processResourceUploads = useCallback(
+    (
+      uploads: PendingResourceUpload[],
+      storageConfigured: boolean,
+      showStoragePrompt: boolean,
+    ) => {
+      const needsStorage: PendingResourceUpload[] = [];
+      for (const upload of uploads) {
+        if (!canUploadResourceFile(upload.file.type, storageConfigured)) {
+          needsStorage.push(upload);
+          continue;
+        }
+        const formData = new FormData();
+        formData.append("file", upload.file);
+        formData.append(
+          "shared",
+          upload.targetScope === "shared" ? "true" : "false",
+        );
+        uploadResourceFile(formData);
+      }
+      if (needsStorage.length) {
+        pendingResourceUploadsRef.current.push(...needsStorage);
+        if (showStoragePrompt) setFileStorageSetupOpen(true);
+      }
+    },
+    [uploadResourceFile],
+  );
+  useEffect(() => {
+    if (!fileStorageConfigured) return;
+    setFileStorageSetupOpen(false);
+    const pending = pendingResourceUploadsRef.current.splice(0);
+    processResourceUploads(pending, true, false);
+  }, [fileStorageConfigured, processResourceUploads]);
   const selectedResourceReadOnly =
     !!resourceQuery.data &&
     ((isWorkspaceResourceOwner(resourceQuery.data.owner) &&
@@ -1609,31 +1645,35 @@ export function ResourcesPanel({
 
   const handleUploadFiles = useCallback(
     (files: FileList, targetScope: ResourceScope) => {
-      const uploadFiles = (storageConfigured: boolean) => {
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
-          if (!canUploadResourceFile(file.type, storageConfigured)) {
-            setFileStorageSetupOpen(true);
-            continue;
-          }
-          const formData = new FormData();
-          formData.append("file", file);
-          formData.append(
-            "shared",
-            targetScope === "shared" ? "true" : "false",
-          );
-          uploadResource.mutate(formData);
-        }
+      const selected = Array.from(files, (file) => ({ file, targetScope }));
+      const processAttempt = (storageConfigured: boolean) => {
+        const pending = pendingResourceUploadsRef.current.splice(0);
+        processResourceUploads(
+          [...pending, ...selected],
+          storageConfigured,
+          true,
+        );
       };
       if (fileUploadStatus.data && !fileUploadStatus.isError) {
-        uploadFiles(fileUploadStatus.data.configured);
+        processAttempt(fileUploadStatus.data.configured);
         return;
       }
-      void fileUploadStatus.refetch().then((result) => {
-        uploadFiles(!result.isError && result.data?.configured === true);
-      });
+      void fileUploadStatus
+        .refetch()
+        .then((result) => {
+          if (result.isError || typeof result.data?.configured !== "boolean") {
+            processResourceUploads(selected, false, false);
+            showToast("err", t("composer.submitFailed"));
+            return;
+          }
+          processAttempt(result.data.configured);
+        })
+        .catch(() => {
+          processResourceUploads(selected, false, false);
+          showToast("err", t("composer.submitFailed"));
+        });
     },
-    [fileUploadStatus, uploadResource],
+    [fileUploadStatus, processResourceUploads, showToast, t],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -1779,10 +1819,16 @@ export function ResourcesPanel({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <FileStorageSetupDialog
+      <FileStorageSetupPopover
         open={fileStorageSetupOpen}
         onOpenChange={setFileStorageSetupOpen}
         onConnected={() => void fileUploadStatus.refetch()}
+        {...(!fileUploadStatus.isSuccess || fileUploadStatus.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void fileUploadStatus.refetch(),
+            }
+          : { status: "missing" as const })}
       />
       {/* Toolbar */}
       {isEditing ? (

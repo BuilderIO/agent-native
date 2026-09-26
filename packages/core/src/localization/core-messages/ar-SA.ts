@@ -108,6 +108,7 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "اربط نموذج الذكاء الاصطناعي الخاص بك",
   "onboarding.capability.fileStorage.keySummary": "تحميل الملفات وتخزينها",
   "onboarding.fileStorage.title": "اختر تخزين الملفات",
+  "onboarding.fileStorage.statusUnavailable": "تعذّر التحقق من التخزين",
   "onboarding.fileStorage.description":
     "اختر تخزين Builder المُدار أو مفاتيح تخزين مخصصة لحاويتك المتوافقة مع S3.",
   "onboarding.fileStorage.reconnectBuilder": "أعد ربط Builder.io",

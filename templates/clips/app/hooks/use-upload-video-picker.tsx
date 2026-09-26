@@ -1,4 +1,4 @@
-import { FileStorageSetupDialog } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import {
   type ChangeEvent,
   type ReactNode,
@@ -21,14 +21,27 @@ export function useUploadVideoPicker(): {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const destinationRef = useRef("/record");
+  const pendingUploadRef = useRef<{ file: File; destination: string } | null>(
+    null,
+  );
   const storageStatus = useVideoStorageStatus();
   const storageConfigured =
     storageStatus.data?.configured === true && !storageStatus.isError;
   const [storageSetupOpen, setStorageSetupOpen] = useState(false);
 
+  const completePendingUpload = useCallback(() => {
+    const pending = pendingUploadRef.current;
+    if (!pending) return;
+    pendingUploadRef.current = null;
+    setPendingUploadFile(pending.file);
+    void navigate(pending.destination);
+  }, [navigate]);
+
   useEffect(() => {
-    if (storageConfigured) setStorageSetupOpen(false);
-  }, [storageConfigured]);
+    if (!storageConfigured) return;
+    setStorageSetupOpen(false);
+    completePendingUpload();
+  }, [completePendingUpload, storageConfigured]);
 
   const openUploadPicker = useCallback(
     (destination: string) => {
@@ -37,30 +50,39 @@ export function useUploadVideoPicker(): {
         inputRef.current?.click();
         return;
       }
-      if (storageStatus.data?.configured === false && !storageStatus.isError) {
-        setStorageSetupOpen(true);
-        return;
-      }
-      void storageStatus.refetch().then((result) => {
-        if (!result.isError && result.data?.configured) {
-          inputRef.current?.click();
-        } else {
-          setStorageSetupOpen(true);
-        }
-      });
+      setStorageSetupOpen(true);
     },
-    [storageConfigured, storageStatus],
+    [storageConfigured],
   );
 
   const handleChange = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
+    async (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       event.target.value = "";
       if (!file) return;
-      setPendingUploadFile(file);
-      void navigate(destinationRef.current);
+      pendingUploadRef.current = {
+        file,
+        destination: destinationRef.current,
+      };
+      if (!storageConfigured) {
+        try {
+          const result = await storageStatus.refetch();
+          if (result.isError || typeof result.data?.configured !== "boolean") {
+            setStorageSetupOpen(true);
+            return;
+          }
+          if (!result.data.configured) {
+            setStorageSetupOpen(true);
+            return;
+          }
+        } catch {
+          setStorageSetupOpen(true);
+          return;
+        }
+      }
+      completePendingUpload();
     },
-    [navigate],
+    [completePendingUpload, storageConfigured, storageStatus],
   );
 
   return {
@@ -75,10 +97,16 @@ export function useUploadVideoPicker(): {
           data-button-group-ignore="true"
           onChange={handleChange}
         />
-        <FileStorageSetupDialog
+        <FileStorageSetupPopover
           open={storageSetupOpen}
           onOpenChange={setStorageSetupOpen}
           onConnected={() => void storageStatus.refetch()}
+          {...(!storageStatus.isSuccess || storageStatus.isError
+            ? {
+                status: "unavailable" as const,
+                onRetry: () => void storageStatus.refetch(),
+              }
+            : { status: "missing" as const })}
         />
       </>
     ),

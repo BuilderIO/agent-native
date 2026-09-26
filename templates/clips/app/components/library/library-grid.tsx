@@ -4,7 +4,7 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupDialog } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
@@ -28,7 +28,6 @@ import { toast } from "sonner";
 
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
 import { ShareRecordingDialog } from "@/components/player/share-dialog";
-import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -602,27 +601,18 @@ export function LibraryGrid({
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
-      <Dialog
-        open={storageGateIssue === "unavailable"}
-        onOpenChange={(open) => {
-          if (!open) setStorageGateIssue(null);
-        }}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="sr-only">
-              {t("storageSetup.configureS3")}
-            </DialogTitle>
-          </DialogHeader>
-          <StorageStatusRetry onRetry={() => void retryStorageStatus()} />
-        </DialogContent>
-      </Dialog>
-      <FileStorageSetupDialog
-        open={storageGateIssue === "missing"}
+      <FileStorageSetupPopover
+        open={storageGateIssue !== null}
         onOpenChange={(open) => {
           if (!open) setStorageGateIssue(null);
         }}
         onConnected={() => void retryStorageStatus()}
+        {...(storageGateIssue === "unavailable"
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void retryStorageStatus(),
+            }
+          : { status: "missing" as const })}
       />
 
       {/* Share dialog — programmatically opened from the card context menu */}

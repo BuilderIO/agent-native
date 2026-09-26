@@ -8,24 +8,40 @@ import { BrandingEditor } from "./branding-editor";
 
 const mocks = vi.hoisted(() => ({
   save: vi.fn(async (_payload: unknown) => ({})),
+  storageConfigured: true,
+  storageRefetch: vi.fn(),
+  toastError: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
+  appApiPath: (path: string) => path,
   agentNativePath: (path: string) => path,
   appBasePath: () => "",
 }));
 
 vi.mock("@agent-native/core/client/setup-connections", () => ({
-  FileStorageSetupCard: () => null,
-  FileStorageSetupDialog: () => null,
+  FileStorageSetupPopover: ({
+    open,
+    onConnected,
+  }: {
+    open: boolean;
+    onConnected?: () => void;
+  }) =>
+    open ? (
+      <div role="dialog">
+        <button type="button" onClick={onConnected}>
+          Connected
+        </button>
+      </div>
+    ) : null,
 }));
 
 vi.mock("@/hooks/use-video-storage-status", () => ({
   useVideoStorageStatus: () => ({
-    data: { configured: true },
+    data: { configured: mocks.storageConfigured },
     isError: false,
     isLoading: false,
-    refetch: vi.fn(),
+    refetch: mocks.storageRefetch,
   }),
 }));
 
@@ -45,7 +61,7 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: mocks.toastError },
 }));
 
 function setInputValue(input: HTMLInputElement, value: string) {
@@ -64,6 +80,12 @@ describe("BrandingEditor save button dirty state", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.save.mockClear();
+    mocks.toastError.mockClear();
+    mocks.storageConfigured = true;
+    mocks.storageRefetch.mockImplementation(async () => ({
+      data: { configured: mocks.storageConfigured },
+      isError: false,
+    }));
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -122,5 +144,70 @@ describe("BrandingEditor save button dirty state", () => {
     save = findSaveButton();
     expect(save?.disabled).toBe(true);
     expect(save?.textContent).toBe("brandingEditor.saved");
+  });
+
+  it("uploads a dropped logo after the user connects storage", async () => {
+    const file = new File(["logo"], "brand.png", { type: "image/png" });
+    Object.defineProperty(file, "arrayBuffer", {
+      value: async () => new TextEncoder().encode("logo").buffer,
+    });
+    const upload = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ reference: "logo-ref" }),
+    }));
+    const TestURL = class extends URL {};
+    Object.assign(TestURL, {
+      createObjectURL: vi.fn(() => "blob:brand-logo"),
+      revokeObjectURL: vi.fn(),
+    });
+    vi.stubGlobal("URL", TestURL);
+    vi.stubGlobal("fetch", upload);
+    mocks.storageConfigured = false;
+    act(() => {
+      root.render(
+        <BrandingEditor
+          organizationId="org_1"
+          initialName="Acme"
+          initialBrandColor="#18181B"
+          initialBrandLogoUrl={null}
+          initialDefaultVisibility="public"
+        />,
+      );
+    });
+
+    const dropZone = container.querySelector<HTMLElement>(".border-dashed")!;
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: { files: [file] } });
+    await act(async () => dropZone.dispatchEvent(drop));
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(upload).not.toHaveBeenCalled();
+
+    mocks.storageConfigured = true;
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[role="dialog"] button')!
+        .click();
+      await Promise.resolve();
+      root.render(
+        <BrandingEditor
+          organizationId="org_1"
+          initialName="Acme"
+          initialBrandColor="#18181B"
+          initialBrandLogoUrl={null}
+          initialDefaultVisibility="public"
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(mocks.storageRefetch).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce());
+    expect(upload).toHaveBeenCalledWith(
+      expect.stringContaining("filename=brand.png"),
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "image/png" },
+      }),
+    );
   });
 });

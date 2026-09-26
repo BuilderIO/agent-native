@@ -43,8 +43,35 @@ vi.mock("@agent-native/core/client/uploads", () => ({
 vi.mock("@agent-native/core/client/setup-connections", async () => {
   const { createElement } = await import("react");
   return {
-    FileStorageSetupCard: () =>
-      createElement("div", { "data-testid": "file-storage-setup-card" }),
+    FileStorageSetupPopover: ({
+      open,
+      status,
+      onRetry,
+    }: {
+      open: boolean;
+      status?: string;
+      onRetry?: () => void;
+    }) =>
+      open
+        ? createElement(
+            "div",
+            { "data-testid": "file-storage-setup-popover" },
+            status === "unavailable"
+              ? createElement(
+                  "span",
+                  {},
+                  "onboarding.fileStorage.statusUnavailable",
+                )
+              : null,
+            status === "unavailable"
+              ? createElement(
+                  "button",
+                  { onClick: onRetry, "data-testid": "file-storage-retry" },
+                  "common.retry",
+                )
+              : null,
+          )
+        : null,
   };
 });
 
@@ -128,7 +155,7 @@ describe("VisualEditor upload storage gate", () => {
   }
 
   it.each(["drop", "paste"] as const)(
-    "blocks media %s and opens the shared setup card",
+    "blocks media %s and opens the shared setup dialog",
     async (type) => {
       const editor = await mount();
       const file = new File(["image"], "photo.png", { type: "image/png" });
@@ -149,7 +176,9 @@ describe("VisualEditor upload storage gate", () => {
         editor.getJSON().content?.some((node) => node.type === "image"),
       ).toBe(false);
       expect(
-        document.body.querySelector('[data-testid="file-storage-setup-card"]'),
+        document.body.querySelector(
+          '[data-testid="file-storage-setup-popover"]',
+        ),
       ).not.toBeNull();
       expect(
         fetchMock.mock.calls.some(([url]) =>
@@ -158,6 +187,51 @@ describe("VisualEditor upload storage gate", () => {
       ).toBe(false);
     },
   );
+
+  it("resumes the exact dropped File after storage becomes available", async () => {
+    const file = new File(["image"], "photo.png", {
+      type: "image/png",
+      lastModified: 123,
+    });
+    const editor = await mount();
+    const handler = editor.options.editorProps.handleDrop as unknown as (
+      view: typeof editor.view,
+      event: Event,
+    ) => boolean;
+    const event = mediaEvent("drop", file);
+
+    await act(async () => {
+      expect(handler(editor.view, event)).toBe(true);
+    });
+    expect(
+      document.body.querySelector('[data-testid="file-storage-setup-popover"]'),
+    ).not.toBeNull();
+
+    uploadStatus.current = {
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      data: { configured: true },
+      refetch: vi.fn(),
+    };
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ url: "https://files.example/photo.png" })),
+    );
+    await mount();
+
+    const uploadCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/_agent-native/file-upload"),
+    );
+    expect(uploadCall).toBeDefined();
+    const form = (uploadCall?.[1] as RequestInit).body as FormData;
+    const uploadedFile = form.get("file") as File;
+    expect(uploadedFile).toMatchObject({
+      name: file.name,
+      type: file.type,
+      lastModified: file.lastModified,
+    });
+    expect(await uploadedFile.text()).toBe(await file.text());
+  });
 
   it.each([
     ["loading", "drop", false],
@@ -189,8 +263,10 @@ describe("VisualEditor upload storage gate", () => {
 
       expect(event.defaultPrevented).toBe(true);
       expect(
-        document.body.querySelector('[data-testid="file-storage-setup-card"]'),
-      ).toBeNull();
+        document.body.querySelector(
+          '[data-testid="file-storage-setup-popover"]',
+        ),
+      ).not.toBeNull();
       expect(document.body.textContent).toContain(
         "onboarding.fileStorage.statusUnavailable",
       );
@@ -222,7 +298,7 @@ describe("VisualEditor upload storage gate", () => {
     await mount();
 
     expect(
-      document.body.querySelector('[data-testid="file-storage-setup-card"]'),
+      document.body.querySelector('[data-testid="file-storage-setup-popover"]'),
     ).toBeNull();
     expect(
       container.querySelector<HTMLInputElement>('input[type="file"]')?.disabled,
@@ -244,7 +320,7 @@ describe("VisualEditor upload storage gate", () => {
 
     expect(event.defaultPrevented).toBe(false);
     expect(
-      document.body.querySelector('[data-testid="file-storage-setup-card"]'),
+      document.body.querySelector('[data-testid="file-storage-setup-popover"]'),
     ).toBeNull();
   });
 });

@@ -1,38 +1,40 @@
-import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import type { useFileUploadStatus } from "@agent-native/core/client/uploads";
-
-import { Button } from "@/components/ui/button";
+import { useEffect } from "react";
 
 type FileUploadStatus = ReturnType<typeof useFileUploadStatus>;
 
 export function FileStorageStatusGate({
   status,
+  open,
+  onOpenChange,
 }: {
   status: FileUploadStatus;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const t = useT();
+  const configured = status.isSuccess && status.data?.configured === true;
+  const unknown =
+    status.isError ||
+    !status.isSuccess ||
+    typeof status.data?.configured !== "boolean";
 
-  if (status.isError || !status.isSuccess) {
-    return (
-      <div
-        className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4 text-sm text-muted-foreground"
-        role="status"
-      >
-        <span>{t("onboarding.fileStorage.statusUnavailable")}</span>
-        <Button
-          type="button"
-          data-testid="file-storage-retry"
-          variant="link"
-          size="sm"
-          className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => void status.refetch()}
-        >
-          {t("database.retry")}
-        </Button>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (configured && open) onOpenChange(false);
+  }, [configured, onOpenChange, open]);
 
-  return status.data.configured ? null : <FileStorageSetupCard />;
+  if (!open || configured) return null;
+
+  return (
+    <FileStorageSetupPopover
+      open={open}
+      onOpenChange={onOpenChange}
+      {...(unknown
+        ? {
+            status: "unavailable" as const,
+            onRetry: () => void status.refetch(),
+          }
+        : { status: "missing" as const })}
+    />
+  );
 }

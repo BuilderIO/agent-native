@@ -4,7 +4,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupDialog } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import {
   IconPuzzle,
   IconGripVertical,
@@ -130,20 +130,24 @@ export function StitchManager({
       return;
     }
     storageCheckInFlight.current = true;
-    let storageConfigured = false;
     try {
       const storageCheck = await storageStatus.refetch();
-      storageConfigured =
-        !storageCheck.isError && storageCheck.data?.configured === true;
+      if (
+        storageCheck.isError ||
+        typeof storageCheck.data?.configured !== "boolean"
+      ) {
+        setStorageSetupOpen(true);
+        return;
+      }
+      if (!storageCheck.data.configured) {
+        setStorageSetupOpen(true);
+        return;
+      }
     } catch {
       setStorageSetupOpen(true);
       return;
     } finally {
       storageCheckInFlight.current = false;
-    }
-    if (!storageConfigured) {
-      setStorageSetupOpen(true);
-      return;
     }
     setBusy(true);
     setProgress(0);
@@ -345,10 +349,16 @@ export function StitchManager({
           </Button>
         </DialogFooter>
       </DialogContent>
-      <FileStorageSetupDialog
+      <FileStorageSetupPopover
         open={storageSetupOpen}
         onOpenChange={setStorageSetupOpen}
         onConnected={() => void storageStatus.refetch()}
+        {...(!storageStatus.isSuccess || storageStatus.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void storageStatus.refetch(),
+            }
+          : { status: "missing" as const })}
       />
     </Dialog>
   );

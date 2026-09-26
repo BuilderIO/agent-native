@@ -5,11 +5,6 @@ import {
   useOptionalBlockRegistry,
 } from "@agent-native/core/blocks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
-import {
-  uploadEditorImage,
-  useFileUploadStatus,
-} from "@agent-native/core/client/uploads";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import { imageDataSchema, type PlanBlock } from "@shared/plan-content";
 import {
@@ -35,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
+import { usePlanImageUpload } from "../../hooks/use-plan-image-upload";
 import { PlanImageViewer } from "./PlanImageViewer";
 import { PlanMarkdownReader } from "./PlanMarkdownReader";
 import { Wireframe } from "./wireframe/Wireframe";
@@ -1051,22 +1047,13 @@ function ImageBlock({
   planId?: string | null;
 }) {
   const t = useT();
-  const fileUploadStatus = useFileUploadStatus();
-  const storageConfigured =
-    !fileUploadStatus.isError && fileUploadStatus.data?.configured === true;
-  const storageMissing =
-    !import.meta.env.DEV &&
-    !fileUploadStatus.isError &&
-    fileUploadStatus.data?.configured === false;
-  const storageUnavailable =
-    !import.meta.env.DEV && !storageConfigured && !storageMissing;
-  const canUploadImages = import.meta.env.DEV || storageConfigured;
+  const { canUploadImages, requestUpload, uploadImage, storagePrompt } =
+    usePlanImageUpload();
   const blockRegistry = useOptionalBlockRegistry();
   const ctx = blockRegistry?.ctx;
   const src = block.data.url ?? imageSrcForAsset(block.data.assetId);
   const editable = !!onChange && !editingDisabled;
   const [editOpen, setEditOpen] = useState(false);
-  const [storageSetupRequested, setStorageSetupRequested] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Opening the edit popover from the ⋯ dropdown item hits a Radix race: closing
@@ -1108,10 +1095,10 @@ function ImageBlock({
   async function handleReplaceFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
-    if (!file || !canUploadImages) return;
+    if (!file || !requestUpload()) return;
     const toastId = toast.loading(t("raw.document.replacingImage"));
     try {
-      const { src: nextSrc, alt: nextAlt } = await uploadEditorImage(file);
+      const { src: nextSrc, alt: nextAlt } = await uploadImage(file);
       commitData({
         ...block.data,
         url: nextSrc,
@@ -1175,29 +1162,7 @@ function ImageBlock({
           onChange={handleReplaceFile}
         />
       )}
-      {storageMissing && storageSetupRequested ? (
-        <div className="mb-4">
-          <FileStorageSetupCard />
-        </div>
-      ) : null}
-      {storageUnavailable && editable ? (
-        <div
-          className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4"
-          role="status"
-        >
-          <p className="text-sm text-muted-foreground">
-            {t("plansPage.loadError.storageStatusUnavailable")}
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void fileUploadStatus.refetch()}
-          >
-            {t("plansPage.loadError.retry")}
-          </Button>
-        </div>
-      ) : null}
+      {storagePrompt}
       {src ? (
         <PlanImageViewer
           src={src}
@@ -1213,11 +1178,9 @@ function ImageBlock({
           onReplace={
             editable
               ? () => {
-                  if (!canUploadImages) {
-                    setStorageSetupRequested(true);
-                    return;
+                  if (requestUpload(() => fileInputRef.current?.click())) {
+                    fileInputRef.current?.click();
                   }
-                  fileInputRef.current?.click();
                 }
               : undefined
           }

@@ -1,6 +1,7 @@
 // Owns: tool-payload formatting helpers, ToolCallDisplay, ToolCallFallback,
 // and ReconnectStreamMessage used by AssistantChat.
 
+import { Button } from "@agent-native/toolkit/ui/button";
 import { CubeLoader } from "@agent-native/toolkit/ui/cube-loader";
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
 import {
@@ -39,7 +40,7 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
-import { FileStorageSetupDialog } from "../FileStorageSetupCard.js";
+import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
 import { useOptionalLocale, useT } from "../i18n.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { findMcpIntegrationForToolName } from "../resources/mcp-integration-catalog.js";
@@ -58,6 +59,7 @@ import {
   resolveToolCallRowContext,
   toolLabel,
 } from "../tool-display.js";
+import { useFileUploadStatus } from "../uploads/use-file-upload-status.js";
 import { useAgentChatContext } from "../use-agent-chat-context.js";
 import { cn } from "../utils.js";
 import { ActionChatUiSurface } from "./action-chat-ui-surface.js";
@@ -102,8 +104,31 @@ export function ToolCallStackMotion({
 }
 
 function FileStorageSetupToolCall() {
-  const [open, setOpen] = useState(true);
-  return <FileStorageSetupDialog open={open} onOpenChange={setOpen} />;
+  const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+      >
+        {t("onboarding.fileStorage.title")}
+      </Button>
+      <FileStorageSetupPopover
+        open={open}
+        onOpenChange={setOpen}
+        {...(!fileUploadStatus.isSuccess || fileUploadStatus.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void fileUploadStatus.refetch(),
+            }
+          : { status: "missing" as const })}
+      />
+    </>
+  );
 }
 
 /**

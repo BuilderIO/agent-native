@@ -7,7 +7,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupDialog } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -1335,20 +1335,24 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   const burnIn = useCallback(async () => {
     if (burning || burnStorageCheckInFlightRef.current) return;
     burnStorageCheckInFlightRef.current = true;
-    let storageConfigured = false;
     try {
       const storageCheck = await videoStorageStatus.refetch();
-      storageConfigured =
-        !storageCheck.isError && storageCheck.data?.configured === true;
+      if (
+        storageCheck.isError ||
+        typeof storageCheck.data?.configured !== "boolean"
+      ) {
+        toast.error(t("recordingPage.tryAgainMoment"));
+        return;
+      }
+      if (!storageCheck.data.configured) {
+        setStorageSetupOpen(true);
+        return;
+      }
     } catch {
-      setStorageSetupOpen(true);
+      toast.error(t("recordingPage.tryAgainMoment"));
       return;
     } finally {
       burnStorageCheckInFlightRef.current = false;
-    }
-    if (!storageConfigured) {
-      setStorageSetupOpen(true);
-      return;
     }
     setBurning(true);
     burnToastRef.current = toast.loading(t("editorLayout.burningRedactions"));
@@ -2014,10 +2018,16 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           }}
         />
       ) : null}
-      <FileStorageSetupDialog
+      <FileStorageSetupPopover
         open={storageSetupOpen}
         onOpenChange={setStorageSetupOpen}
         onConnected={() => void videoStorageStatus.refetch()}
+        {...(!videoStorageStatus.isSuccess || videoStorageStatus.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void videoStorageStatus.refetch(),
+            }
+          : { status: "missing" as const })}
       />
     </div>
   );

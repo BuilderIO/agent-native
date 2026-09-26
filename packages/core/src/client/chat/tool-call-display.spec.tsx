@@ -53,6 +53,20 @@ vi.mock("../ConnectBuilderCard.js", () => ({
   ),
 }));
 
+vi.mock("../FileStorageSetupPopover.js", () => ({
+  FileStorageSetupPopover: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog" data-testid="file-storage-dialog" /> : null,
+}));
+
+vi.mock("../uploads/use-file-upload-status.js", () => ({
+  useFileUploadStatus: () => ({
+    data: { configured: false },
+    isError: false,
+    isSuccess: true,
+    refetch: vi.fn(),
+  }),
+}));
+
 vi.mock("../use-agent-chat-context.js", () => ({
   useAgentChatContext: builderHandoffMocks.useAgentChatContext,
 }));
@@ -141,6 +155,23 @@ describe("ToolCallDisplay native renderers", () => {
 
   it("waits five minutes before showing the long-running hint", () => {
     expect(TOOL_LONG_RUNNING_HINT_DELAY_MS).toBe(5 * 60_000);
+  });
+
+  it("does not reopen storage setup for a restored tool result", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="connect-file-storage"
+          args={{}}
+          result={JSON.stringify({ kind: "connect-file-storage-card" })}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    act(() => container.querySelector("button")?.click());
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
   });
 
   it("renders the provider logo for catalog-backed MCP tools", async () => {

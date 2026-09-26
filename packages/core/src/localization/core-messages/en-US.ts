@@ -108,6 +108,7 @@ const messages = {
   "onboarding.capability.llm.keySummary": "Connect your own AI model",
   "onboarding.capability.fileStorage.keySummary": "File uploads and storage",
   "onboarding.fileStorage.title": "Connect storage to upload files",
+  "onboarding.fileStorage.statusUnavailable": "Couldn't check storage",
   "onboarding.fileStorage.description":
     "Connect Builder.io (free) or configure your own S3-compatible object storage.",
   "onboarding.fileStorage.reconnectBuilder": "Reconnect Builder.io",

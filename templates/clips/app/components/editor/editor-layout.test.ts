@@ -157,6 +157,6 @@ describe("EditorLayout storage preflight", () => {
     expect(checkIndex).toBeGreaterThan(-1);
     expect(checkIndex).toBeLessThan(requestIndex);
     expect(checkIndex).toBeLessThan(exportIndex);
-    expect(source).toContain("<FileStorageSetupDialog");
+    expect(source).toContain("<FileStorageSetupPopover");
   });
 });

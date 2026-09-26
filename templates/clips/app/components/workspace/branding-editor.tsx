@@ -1,10 +1,10 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupDialog } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { IconPalette, IconPhoto } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -87,10 +87,15 @@ export function BrandingEditor({
   disabled,
 }: BrandingEditorProps) {
   const t = useT();
-  const storageQuery = useVideoStorageStatus();
+  const {
+    data: storageData,
+    isError: storageStatusError,
+    refetch: refreshStorageStatus,
+  } = useVideoStorageStatus();
   const storageConfigured =
-    storageQuery.data?.configured === true && !storageQuery.isError;
+    storageData?.configured === true && !storageStatusError;
   const logoUploadInputRef = useRef<HTMLInputElement>(null);
+  const pendingLogoFileRef = useRef<File | null>(null);
   const [fileStoragePromptOpen, setFileStoragePromptOpen] = useState(false);
   const [name, setName] = useState(initialName);
   const [brandColor, setBrandColor] = useState(initialBrandColor);
@@ -103,9 +108,22 @@ export function BrandingEditor({
   const [dragging, setDragging] = useState(false);
   const [uploadPreviewUrl, setUploadPreviewUrl] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (storageConfigured) setFileStoragePromptOpen(false);
-  }, [storageConfigured]);
+  const promptForStorage = useCallback(async () => {
+    if (storageData?.configured === false && !storageStatusError) {
+      setFileStoragePromptOpen(true);
+      return;
+    }
+    try {
+      const result = await refreshStorageStatus();
+      if (result.isError || typeof result.data?.configured !== "boolean") {
+        setFileStoragePromptOpen(true);
+      } else if (!result.data.configured) {
+        setFileStoragePromptOpen(true);
+      }
+    } catch {
+      setFileStoragePromptOpen(true);
+    }
+  }, [refreshStorageStatus, storageData?.configured, storageStatusError, t]);
 
   useEffect(
     () => () => {
@@ -152,38 +170,75 @@ export function BrandingEditor({
     }
   >("set-organization-branding");
 
-  async function handleFile(file: File) {
-    if (!file.type.startsWith("image/")) {
-      toast.error(t("brandingEditor.uploadImageFile"));
-      return;
-    }
-    if (!storageConfigured) {
-      setFileStoragePromptOpen(true);
-      return;
-    }
-    setUploadPreviewUrl(URL.createObjectURL(file));
-    try {
-      setUploading(true);
-      const reference = await uploadLogo(file, organizationId);
-      setBrandLogoUrl(reference);
-      toast.success(t("brandingEditor.logoUploaded"));
-    } catch (err) {
-      setUploadPreviewUrl(null);
-      const storageSetupRequired =
-        err instanceof Error &&
-        err.message.includes("No object storage is connected");
-      if (storageSetupRequired) {
-        await storageQuery.refetch();
-        setFileStoragePromptOpen(true);
+  const handleFile = useCallback(
+    async (file: File) => {
+      if (!file.type.startsWith("image/")) {
+        toast.error(t("brandingEditor.uploadImageFile"));
         return;
       }
-      toast.error(
-        err instanceof Error ? err.message : t("brandingEditor.uploadFailed"),
-      );
-    } finally {
-      setUploading(false);
+      if (!storageConfigured) {
+        pendingLogoFileRef.current = file;
+        await promptForStorage();
+        return;
+      }
+      pendingLogoFileRef.current = null;
+      setUploadPreviewUrl(URL.createObjectURL(file));
+      try {
+        setUploading(true);
+        const reference = await uploadLogo(file, organizationId);
+        setBrandLogoUrl(reference);
+        toast.success(t("brandingEditor.logoUploaded"));
+      } catch (err) {
+        setUploadPreviewUrl(null);
+        const storageSetupRequired =
+          err instanceof Error &&
+          err.message.includes("No object storage is connected");
+        if (storageSetupRequired) {
+          const result = await refreshStorageStatus();
+          if (result.isError || typeof result.data?.configured !== "boolean") {
+            toast.error(t("recordingPage.tryAgainMoment"));
+          } else if (!result.data.configured) {
+            pendingLogoFileRef.current = file;
+            setFileStoragePromptOpen(true);
+          } else {
+            toast.error(
+              err instanceof Error
+                ? err.message
+                : t("brandingEditor.uploadFailed"),
+            );
+          }
+          return;
+        }
+        toast.error(
+          err instanceof Error ? err.message : t("brandingEditor.uploadFailed"),
+        );
+      } finally {
+        setUploading(false);
+      }
+    },
+    [
+      organizationId,
+      promptForStorage,
+      refreshStorageStatus,
+      storageConfigured,
+      t,
+    ],
+  );
+
+  useEffect(() => {
+    if (!storageConfigured) {
+      if (storageData?.configured === false && pendingLogoFileRef.current) {
+        setFileStoragePromptOpen(true);
+      }
+      return;
     }
-  }
+    setFileStoragePromptOpen(false);
+    const pending = pendingLogoFileRef.current;
+    if (pending) {
+      pendingLogoFileRef.current = null;
+      void handleFile(pending);
+    }
+  }, [handleFile, storageConfigured, storageData?.configured]);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -217,10 +272,16 @@ export function BrandingEditor({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <FileStorageSetupDialog
+        <FileStorageSetupPopover
           open={fileStoragePromptOpen}
           onOpenChange={setFileStoragePromptOpen}
-          onConnected={() => void storageQuery.refetch()}
+          onConnected={() => void refreshStorageStatus()}
+          {...(!storageData || storageStatusError
+            ? {
+                status: "unavailable" as const,
+                onRetry: () => void refreshStorageStatus(),
+              }
+            : { status: "missing" as const })}
         />
         <form onSubmit={handleSave} className="space-y-5">
           <div className="space-y-1.5">
@@ -319,7 +380,7 @@ export function BrandingEditor({
                     disabled={disabled || uploading}
                     onClick={() => {
                       if (!storageConfigured) {
-                        setFileStoragePromptOpen(true);
+                        promptForStorage();
                         return;
                       }
                       logoUploadInputRef.current?.click();
