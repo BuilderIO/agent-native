@@ -51,6 +51,9 @@ describe("generate-home-suggestions", () => {
       expect.objectContaining({
         appId: "design",
         input: expect.stringContaining("works in design"),
+        systemPrompt: expect.stringContaining(
+          "Tailor all three suggestions to the supplied role context",
+        ),
       }),
     );
   });

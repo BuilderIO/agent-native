@@ -31,8 +31,9 @@ const SYSTEM_PROMPT =
   "Return exactly three suggestions as a JSON array. Each object must have " +
   "a concise label of 2-5 words and a prompt that is one actionable sentence. " +
   "Labels should be natural button text. Prompts should be ready to submit " +
-  "to the app's design generator. Do not mention the user's role, do not use " +
-  "markdown, and do not include JSON properties other than label and prompt.";
+  "to the app's design generator. Do not mention the user's role or use " +
+  "markdown. Tailor all three suggestions to the supplied role context, using " +
+  "generic starters only when no role is supplied. Return only label and prompt.";
 
 function roleContext(value: string | null | undefined): string {
   const normalized = value?.trim().toLowerCase();

@@ -8,7 +8,7 @@
   min-height: clamp(36rem, 64svh, 44rem);
   flex-direction: column;
   align-items: center;
-  padding-block-start: clamp(12rem, 33svh, 22rem);
+  justify-content: center;
   text-align: center;
 }
 

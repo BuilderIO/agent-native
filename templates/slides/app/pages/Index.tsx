@@ -2004,22 +2004,17 @@ export default function Index() {
       () => (
         <HomeHeaderActions
           search={
-            viewState !== "empty" ? (
-              <DeckSearchInput
-                value={deckSearch}
-                onChange={setDeckSearch}
-                className="w-full"
-              />
-            ) : null
+            <DeckSearchInput
+              value={deckSearch}
+              onChange={setDeckSearch}
+              className="w-full"
+            />
           }
         >
-          {viewState !== "empty" ? (
-            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
-          ) : null}
           <ImportDeckButton controller={deckImport} />
         </HomeHeaderActions>
       ),
-      [deckFilter, deckImport, deckSearch, setDeckFilter, t, viewState],
+      [deckImport, deckSearch, setDeckSearch],
     ),
   );
   if (isStartingNewDeck) {
@@ -2037,14 +2032,14 @@ export default function Index() {
     <PromptHome
       title={t("home.firstDeckPromptTitle")}
       mobileToolbar={
-        <>
+        <div className="slides-home-mobile-toolbar flex min-w-0 flex-1 items-center gap-2">
           <DeckSearchInput
             value={deckSearch}
             onChange={setDeckSearch}
-            className="w-full"
+            className="min-w-0 flex-1"
           />
           <ImportDeckButton controller={deckImport} />
-        </>
+        </div>
       }
       connection={
         agentEngine.missing ? (
@@ -2382,8 +2377,14 @@ function DeckSearchInput({
         onChange={(event) => onChange(event.target.value)}
         placeholder={t("root.searchDecks")}
         aria-label={t("root.searchDecks")}
-        className="ps-9"
+        className="h-8 pe-12 ps-9"
       />
+      <kbd
+        aria-hidden="true"
+        className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 select-none rounded bg-muted px-1 py-0.5 font-mono text-[10px] leading-4 text-muted-foreground"
+      >
+        ⌘K
+      </kbd>
     </div>
   );
 }

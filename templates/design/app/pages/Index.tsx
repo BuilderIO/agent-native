@@ -1073,15 +1073,21 @@ export default function Index() {
   useSetPageTitle(t("home.pageTitle"));
 
   useSetHeaderActions(
-    <div className="relative w-full max-w-175">
+    <div className="relative w-full">
       <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
       <Input
         value={search}
         onChange={(event) => handleSearchChange(event.target.value)}
         placeholder={t("home.searchPlaceholder")}
         aria-label={t("home.searchPlaceholder")}
-        className="h-8 w-full ps-8"
+        className="h-8 w-full pe-12 ps-8"
       />
+      <kbd
+        aria-hidden="true"
+        className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 select-none rounded bg-muted px-1 py-0.5 font-mono text-[10px] leading-4 text-muted-foreground"
+      >
+        ⌘K
+      </kbd>
     </div>,
   );
 

@@ -66,5 +66,8 @@ describe("generate-home-suggestions", () => {
     expect(mocks.completeText.mock.calls[0]?.[0].input).toContain(
       "works in marketing",
     );
+    expect(mocks.completeText.mock.calls[0]?.[0].systemPrompt).toContain(
+      "Tailor all three suggestions to the supplied role context",
+    );
   });
 });
