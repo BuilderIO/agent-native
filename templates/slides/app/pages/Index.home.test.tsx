@@ -471,9 +471,7 @@ describe("Slides prompt-led home", () => {
     agentEngine.state = "unavailable";
     renderHome();
     const dispatch = vi.spyOn(window, "dispatchEvent");
-    fireEvent.click(
-      screen.getByRole("button", { name: "Retry" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-engine:configured-changed" }),
     );

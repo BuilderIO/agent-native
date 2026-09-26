@@ -2796,10 +2796,7 @@ export function TiptapComposer({
             event.preventDefault();
             const pastedText = readClipboardPaste(event.clipboardData).text;
             if (pastedText) {
-              view.pasteText(
-                pastedText,
-                new Event("paste") as ClipboardEvent,
-              );
+              view.pasteText(pastedText, new Event("paste") as ClipboardEvent);
             }
             return true;
           }
