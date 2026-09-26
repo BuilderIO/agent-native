@@ -18,13 +18,6 @@ const mocks = vi.hoisted(() => {
     resolveAccess: vi.fn(),
     select,
     selectChain,
-    sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
-      const query = { strings: [...strings], values };
-      return {
-        ...query,
-        as: vi.fn((alias: string) => ({ ...query, alias })),
-      };
-    }),
     track: vi.fn(),
     getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
       id,
@@ -45,7 +38,7 @@ vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   asc: mocks.asc,
   eq: mocks.eq,
-  sql: mocks.sql,
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -73,6 +66,7 @@ import action from "./get-design.js";
 describe("get-design", () => {
   beforeEach(() => {
     mocks.resolveAccess.mockReset();
+    mocks.select.mockClear();
     mocks.selectChain.orderBy.mockReset();
     mocks.asc.mockClear();
     mocks.resolveAccess.mockResolvedValue({
@@ -183,21 +177,22 @@ describe("get-design", () => {
   });
 
   it("can list file metadata without fetching file content", async () => {
+    mocks.selectChain.orderBy.mockResolvedValueOnce([
+      {
+        id: "file_123",
+        filename: "index.html",
+        fileType: "html",
+        createdAt: "2026-06-29T00:00:00.000Z",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+    ]);
     const result = await action.run({
       id: "design_123",
       includeFileContent: false,
     });
 
+    expect(mocks.select.mock.calls.at(-1)?.[0]).not.toHaveProperty("content");
     expect(mocks.selectChain.orderBy).toHaveBeenCalled();
-    expect(mocks.select).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: expect.objectContaining({
-          strings: ["NULL::text"],
-          values: [],
-          alias: "content",
-        }),
-      }),
-    );
     expect(result.files).toEqual([
       expect.objectContaining({
         id: "file_123",

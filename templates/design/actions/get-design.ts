@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -73,29 +73,37 @@ export default defineAction({
     // batch share a `createdAt` to the millisecond and fall back to the id
     // tiebreak. Nothing may depend on the index matching the order a generator
     // wrote in — see the order-independence case in variant-lineup.test.ts.
-    const fileContent =
+    const baseFileFields = {
+      id: schema.designFiles.id,
+      filename: schema.designFiles.filename,
+      fileType: schema.designFiles.fileType,
+      createdAt: schema.designFiles.createdAt,
+      updatedAt: schema.designFiles.updatedAt,
+    };
+    const fileFilter = fileId
+      ? and(
+          eq(schema.designFiles.designId, id),
+          eq(schema.designFiles.id, fileId),
+        )
+      : eq(schema.designFiles.designId, id);
+    const files =
       includeFileContent === false
-        ? sql<string>`NULL::text`.as("content")
-        : schema.designFiles.content;
-    const files = await db
-      .select({
-        id: schema.designFiles.id,
-        filename: schema.designFiles.filename,
-        fileType: schema.designFiles.fileType,
-        content: fileContent,
-        createdAt: schema.designFiles.createdAt,
-        updatedAt: schema.designFiles.updatedAt,
-      })
-      .from(schema.designFiles)
-      .where(
-        fileId
-          ? and(
-              eq(schema.designFiles.designId, id),
-              eq(schema.designFiles.id, fileId),
+        ? await db
+            .select(baseFileFields)
+            .from(schema.designFiles)
+            .where(fileFilter)
+            .orderBy(
+              asc(schema.designFiles.createdAt),
+              asc(schema.designFiles.id),
             )
-          : eq(schema.designFiles.designId, id),
-      )
-      .orderBy(asc(schema.designFiles.createdAt), asc(schema.designFiles.id));
+        : await db
+            .select({ ...baseFileFields, content: schema.designFiles.content })
+            .from(schema.designFiles)
+            .where(fileFilter)
+            .orderBy(
+              asc(schema.designFiles.createdAt),
+              asc(schema.designFiles.id),
+            );
     const designSystem = await loadAgentDesignSystemContext(
       typeof row.designSystemId === "string" ? row.designSystemId : null,
       getDesignSystem,
@@ -132,7 +140,7 @@ export default defineAction({
         id: f.id,
         filename: f.filename,
         fileType: f.fileType,
-        ...(includeFileContent === false ? {} : { content: f.content }),
+        ...("content" in f ? { content: f.content } : {}),
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
       })),
