@@ -10480,10 +10480,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
+        if (dragState.current?.type === "pen-node") cancelActiveDrag();
+        const pathToFinish = activePenPathRef.current;
+        if (!pathToFinish) return;
         const continuesExistingPath =
           continuationPenPathRef.current !== null ||
           penContinuesVectorEditRef.current;
-        finishPenPath(path, {
+        finishPenPath(pathToFinish, {
           continueAfterCommit: continuationPenPathRef.current !== null,
           nextTool: continuesExistingPath ? "pen" : "move",
         });
@@ -10510,7 +10513,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [finishPenPath, undoActivePenPathSegment]);
+  }, [cancelActiveDrag, finishPenPath, undoActivePenPathSegment]);
 
   useEffect(() => {
     const tool = normalizeCanvasTool(activeTool ?? localActiveTool);

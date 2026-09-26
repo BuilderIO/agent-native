@@ -243,6 +243,40 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     });
   });
 
+  it("Enter cancels an active anchor drag before finishing the path", async () => {
+    const committedPaths: Array<PenPath | undefined> = [];
+    const onCreatePrimitive: NonNullable<
+      MultiScreenCanvasProps["onCreatePrimitive"]
+    > = (_screenId, primitive) => {
+      committedPaths.push(primitive.penPath);
+      return `vector-${committedPaths.length}`;
+    };
+    const surface = await renderPenHarness({ onCreatePrimitive });
+
+    await clickPenAnchor(surface, 100, 100);
+    await clickPenAnchor(surface, 220, 180);
+    await act(async () => {
+      dispatchMouse(surface, "mousedown", 320, 260);
+    });
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(3);
+
+    await pressKey("Enter");
+
+    expect(committedPaths).toHaveLength(1);
+    expect(committedPaths[0]?.nodes).toHaveLength(2);
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+    expect(container.querySelector("[data-active-tool]")?.textContent).toBe(
+      "move",
+    );
+
+    await act(async () => {
+      dispatchMouse(window, "mouseup", 320, 260);
+    });
+
+    expect(committedPaths).toHaveLength(1);
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+  });
+
   it("Escape discards an empty path and commits a multi-anchor path open", async () => {
     const onCreatePrimitive = vi.fn(() => "vector-a");
     const surface = await renderPenHarness({ onCreatePrimitive });

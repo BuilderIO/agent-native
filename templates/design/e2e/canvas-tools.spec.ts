@@ -2970,7 +2970,15 @@ test("pen Escape finishes an open path and Enter selects a new vector on Move", 
     cardBox.y + cardBox.height * 0.54,
   );
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(1);
+  await page.mouse.move(
+    cardBox.x + cardBox.width * 0.74,
+    cardBox.y + cardBox.height * 0.65,
+  );
+  await page.mouse.down();
+  await expect(page.locator("[data-pen-anchor]")).toHaveCount(3);
   await page.keyboard.press("Enter");
+  await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
+  await page.mouse.up();
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
   // A new vector becomes selected and Move becomes active after Enter.
   await expect(toolButton(page, "Move")).toHaveAttribute(
