@@ -27,11 +27,23 @@ const hookMocks = vi.hoisted(() => ({
     isFetching: false,
     refetch: vi.fn(),
   },
+  queries: {} as Record<
+    string,
+    {
+      data: { scopeKey: string; entries: unknown[] } | undefined;
+      error: unknown;
+      isError: boolean;
+      isLoading: boolean;
+      isFetching: boolean;
+      refetch: () => Promise<unknown>;
+    }
+  >,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: vi.fn(),
-  useActionQuery: () => hookMocks.query,
+  useActionQuery: (_action: string, args?: { spaceId?: string }) =>
+    (args?.spaceId && hookMocks.queries[args.spaceId]) || hookMocks.query,
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
@@ -157,6 +169,7 @@ describe("useContentRecent context recovery", () => {
     hookMocks.query.isError = true;
     hookMocks.query.isLoading = false;
     hookMocks.query.isFetching = false;
+    hookMocks.queries = {};
     hookMocks.query.refetch = vi.fn(async () => {
       hookMocks.query.error = contextChangedError();
       hookMocks.query.isError = true;
@@ -261,6 +274,68 @@ describe("useContentRecent context recovery", () => {
       await flush();
     });
     expect(container.querySelector("output")?.textContent).toBe("error");
+  });
+
+  it("invalidates each space's own Recent query when both scopes recover", async () => {
+    hookMocks.org.refetch.mockReset().mockResolvedValue({ isError: false });
+    const firstScopeKey = JSON.stringify([
+      "user@example.test",
+      "org-1",
+      "space-1",
+    ]);
+    const secondScopeKey = JSON.stringify([
+      "user@example.test",
+      "org-1",
+      "space-2",
+    ]);
+    hookMocks.queries = {
+      "space-1": {
+        data: { scopeKey: firstScopeKey, entries: [{ id: "page-1" }] },
+        error: contextChangedError(),
+        isError: true,
+        isLoading: false,
+        isFetching: false,
+        refetch: vi.fn(),
+      },
+      "space-2": {
+        data: { scopeKey: secondScopeKey, entries: [{ id: "page-2" }] },
+        error: contextChangedError(),
+        isError: true,
+        isLoading: false,
+        isFetching: false,
+        refetch: vi.fn(),
+      },
+    };
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+
+    await act(async () => {
+      root.render(app(["space-1", "space-2"]));
+      await flush();
+    });
+
+    expect(invalidate).toHaveBeenCalledTimes(2);
+    expect(invalidate).toHaveBeenCalledWith(
+      {
+        queryKey: [
+          "action",
+          "get-content-recent",
+          { scopeKey: firstScopeKey, spaceId: "space-1" },
+        ],
+        exact: true,
+      },
+      { cancelRefetch: false },
+    );
+    expect(invalidate).toHaveBeenCalledWith(
+      {
+        queryKey: [
+          "action",
+          "get-content-recent",
+          { scopeKey: secondScopeKey, spaceId: "space-2" },
+        ],
+        exact: true,
+      },
+      { cancelRefetch: false },
+    );
   });
 
   it("keeps same-query consumers loading through shared org refresh", async () => {
