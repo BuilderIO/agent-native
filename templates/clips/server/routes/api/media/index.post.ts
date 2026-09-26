@@ -26,7 +26,7 @@ import {
 const MAX_BYTES = 5 * 1024 * 1024;
 
 const STORAGE_SETUP_REQUIRED_REASON =
-  "File storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage in Settings → File uploads, then retry.";
+  "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.";
 
 function randId(): string {
   const chars =
@@ -127,7 +127,7 @@ export default defineEventHandler(async (event: H3Event) => {
       });
 
       if (!uploaded?.url) {
-        setResponseStatus(event, 409);
+        setResponseStatus(event, 503);
         return { error: STORAGE_SETUP_REQUIRED_REASON };
       }
 

@@ -38,6 +38,7 @@ vi.mock("sonner", () => ({ toast: toastState }));
 
 import {
   CHAT_STOP_DEBOUNCE_MS,
+  GENERATION_NO_PROGRESS_TIMEOUT_MS,
   getStartedGenerationAttemptTabId,
   SLIDES_GENERATION_STARTED_EVENT,
   useAgentGenerating,
@@ -189,6 +190,44 @@ describe("useAgentGenerating", () => {
     window.removeEventListener(SLIDES_GENERATION_STARTED_EVENT, listener);
   });
 
+  it("keeps the actual resolved tab when an empty tab is reused", () => {
+    const listener = vi.fn();
+    window.addEventListener(SLIDES_GENERATION_STARTED_EVENT, listener);
+    agentChatState.send.mockImplementation((message) => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatSubmitTarget", {
+          detail: {
+            submitMessageId: message.submitMessageId,
+            tabId: "reused-empty-tab",
+          },
+        }),
+      );
+      return "requested-new-tab";
+    });
+    const { result } = renderHook(() => useAgentGenerating());
+
+    act(() =>
+      result.current.submit("Create a deck", "context", {
+        generationAttemptId: "attempt-reused-tab",
+        generationOutputId: "deck-reused-tab",
+      }),
+    );
+
+    expect(
+      getStartedGenerationAttemptTabId("attempt-reused-tab", "deck-reused-tab"),
+    ).toBe("reused-empty-tab");
+    expect(listener).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        detail: {
+          generationAttemptId: "attempt-reused-tab",
+          outputId: "deck-reused-tab",
+          tabId: "reused-empty-tab",
+        },
+      }),
+    );
+    window.removeEventListener(SLIDES_GENERATION_STARTED_EVENT, listener);
+  });
+
   it("preserves a submit id supplied by the new deck route", () => {
     const { result } = renderHook(() => useAgentGenerating());
 
@@ -293,9 +332,65 @@ describe("useAgentGenerating", () => {
     expect(result.current.generating).toBe(true);
 
     act(() => {
-      vi.advanceTimersByTime(30 * 60 * 1000);
+      vi.advanceTimersByTime(GENERATION_NO_PROGRESS_TIMEOUT_MS);
     });
 
+    expect(result.current.timedOut).toBe(true);
+    expect(result.current.generating).toBe(false);
+  });
+
+  it("resets the scoped watchdog on matching stream and tool progress", () => {
+    vi.useFakeTimers();
+    const { result, rerender } = renderHook(() =>
+      useAgentGenerating({ tabId: "generation-tab" }),
+    );
+
+    agentChatState.generating = true;
+    rerender();
+    act(() => {
+      vi.advanceTimersByTime(GENERATION_NO_PROGRESS_TIMEOUT_MS - 1);
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:stream-progress", {
+          detail: { tabId: "other-tab" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:activity", {
+          detail: { tabId: "generation-tab" },
+        }),
+      );
+      vi.advanceTimersByTime(GENERATION_NO_PROGRESS_TIMEOUT_MS - 1);
+    });
+
+    expect(result.current.timedOut).toBe(false);
+    expect(result.current.generating).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+    expect(result.current.timedOut).toBe(true);
+    expect(result.current.generating).toBe(false);
+  });
+
+  it("resets the scoped watchdog when a slide is saved", () => {
+    vi.useFakeTimers();
+    let progressToken = 0;
+    const { result, rerender } = renderHook(() =>
+      useAgentGenerating({ tabId: "generation-tab", progressToken }),
+    );
+
+    agentChatState.generating = true;
+    rerender();
+    act(() => vi.advanceTimersByTime(GENERATION_NO_PROGRESS_TIMEOUT_MS - 1));
+    progressToken += 1;
+    rerender();
+    act(() => vi.advanceTimersByTime(GENERATION_NO_PROGRESS_TIMEOUT_MS - 1));
+
+    expect(result.current.timedOut).toBe(false);
+    expect(result.current.generating).toBe(true);
+
+    act(() => vi.advanceTimersByTime(1));
     expect(result.current.timedOut).toBe(true);
     expect(result.current.generating).toBe(false);
   });

@@ -123,7 +123,11 @@ function AppContent() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+      <CommandMenu
+        open={cmdkOpen}
+        onOpenChange={setCmdkOpen}
+        chatStorageKey="chat"
+      >
         <CommandMenu.Group heading={t("root.commandActions")}>
           {isChatThread ? (
             <CommandMenu.Item

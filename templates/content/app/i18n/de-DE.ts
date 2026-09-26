@@ -1175,6 +1175,13 @@ const history = {
 };
 
 const overrides = {
+  close: "Schließen",
+  setup: { checkingProvider: "KI-Verbindung wird geprüft…" },
+  onboarding: {
+    fileStorage: {
+      title: "Speicher verbinden, um Dateien hochzuladen",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,

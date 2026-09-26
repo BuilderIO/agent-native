@@ -497,6 +497,7 @@ function clearComposerDraft(
 export function handleComposerFileDrop(options: {
   event: Pick<DragEvent, "dataTransfer" | "preventDefault" | "stopPropagation">;
   addAttachment: (file: File) => Promise<unknown>;
+  attachmentsEnabled?: boolean;
   onError?: (error: unknown) => void;
 }): boolean {
   const droppedFiles = Array.from(options.event.dataTransfer?.files ?? []);
@@ -504,6 +505,7 @@ export function handleComposerFileDrop(options: {
 
   options.event.preventDefault();
   options.event.stopPropagation();
+  if (options.attachmentsEnabled === false) return true;
   const attachments = droppedFiles.map(uniquifyComposerImageFile);
   void Promise.all(
     attachments.map((file) => options.addAttachment(file)),
@@ -765,6 +767,8 @@ export interface TiptapComposerProps {
   submitting?: boolean;
   /** Override the generic document attachment cap for a multipart host. */
   maxDocumentAttachmentBytes?: number;
+  /** Disable file attachments while keeping text chat available. */
+  attachmentsEnabled?: boolean;
   /** Label used in the visible document attachment limit error. */
   documentAttachmentLimitLabel?: string;
   focusRef?: React.Ref<TiptapComposerHandle>;
@@ -1126,11 +1130,15 @@ const LOCAL_RUNTIME_ENGINES = new Set([
   "opencode-cli",
 ]);
 
+export function isLocalRuntimeEngine(engine?: string): boolean {
+  return engine !== undefined && LOCAL_RUNTIME_ENGINES.has(engine);
+}
+
 export function hasConfiguredCloudProvider(
   groups: ReadonlyArray<{ engine: string; configured: boolean }>,
 ): boolean {
   return groups.some(
-    (group) => group.configured && !LOCAL_RUNTIME_ENGINES.has(group.engine),
+    (group) => group.configured && !isLocalRuntimeEngine(group.engine),
   );
 }
 
@@ -2437,6 +2445,7 @@ export function TiptapComposer({
   submitting = false,
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
+  attachmentsEnabled = true,
   focusRef,
   initialText,
   initialTextKey,
@@ -2735,6 +2744,24 @@ export function TiptapComposer({
           "agent-composer-prosemirror flex-1 resize-none bg-transparent text-sm text-foreground outline-none leading-[1.625rem] min-h-[3.25rem] max-h-[10rem] overflow-y-auto",
       },
       handlePaste: (_view, event) => {
+        if (disabled) {
+          if (event.clipboardData?.files.length) {
+            event.preventDefault();
+            return true;
+          }
+          return false;
+        }
+        if (!attachmentsEnabled) {
+          const paste = readClipboardPaste(event.clipboardData);
+          if (
+            event.clipboardData?.files.length ||
+            shouldConvertClipboardToAttachment(paste)
+          ) {
+            event.preventDefault();
+            return true;
+          }
+          return false;
+        }
         const paste = readClipboardPaste(event.clipboardData);
         const pastedText = paste.text;
         const files = Array.from(event.clipboardData?.files ?? []).filter(
@@ -2800,12 +2827,20 @@ export function TiptapComposer({
         return false;
       },
       handleDrop: (_view, event) => {
+        if (disabled || !attachmentsEnabled) {
+          if (event.dataTransfer?.files.length) {
+            event.preventDefault();
+            return true;
+          }
+          return false;
+        }
         // Drag-and-drop files (decks, images, PDFs, etc.) into the composer.
         // Mark handled drops as consumed so the chat-wide drop target does not
         // add the same file a second time.
         return handleComposerFileDrop({
           event: event as DragEvent,
           addAttachment: addAttachmentForCurrentScope,
+          attachmentsEnabled,
           onError: (error) => {
             const msg = formatAttachmentError(
               error,
@@ -4120,18 +4155,20 @@ export function TiptapComposer({
         data-agent-composer-slot="toolbar"
         className="agent-composer-toolbar flex items-center gap-1 px-2 py-1.5"
       >
-        {attachButton ??
-          (plusMenuMode === "hidden" ? null : (
-            <ComposerPlusMenu
-              addAttachment={addAttachmentForCurrentScope}
-              attachmentAccept={composerRuntime.getState().attachmentAccept}
-              onSelectMode={handleSelectMode}
-              mode={plusMenuMode}
-              terminalModeControl={terminalModeControl}
-              extensionTools={extensionTools}
-              onAttachmentError={onAttachmentError}
-            />
-          ))}
+        {!disabled && attachmentsEnabled && attachButton ? (
+          attachButton
+        ) : disabled || plusMenuMode === "hidden" ? null : (
+          <ComposerPlusMenu
+            addAttachment={addAttachmentForCurrentScope}
+            attachmentsEnabled={attachmentsEnabled}
+            attachmentAccept={composerRuntime.getState().attachmentAccept}
+            onSelectMode={handleSelectMode}
+            mode={plusMenuMode}
+            terminalModeControl={terminalModeControl}
+            extensionTools={extensionTools}
+            onAttachmentError={onAttachmentError}
+          />
+        )}
         {toolbarSlot ?? modeControl}
         <div data-agent-composer-slot="toolbar-spacer" className="flex-1" />
         {shouldRenderModelSelector(availableModels, onModelChange) && (

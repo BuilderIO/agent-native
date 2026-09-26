@@ -1,5 +1,6 @@
 import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
 import { fetch as expoFetch } from "expo/fetch";
+import { DeviceEventEmitter } from "react-native";
 
 import { getMobileAnalyticsHeaders } from "@/lib/analytics";
 import { getSessionToken } from "@/lib/session-token-store";
@@ -24,6 +25,8 @@ export const DEFAULT_CHAT_BASE_URL =
   chatApp?.url || "https://chat.agent-native.com";
 
 const CHAT_PATH = "/_agent-native/agent-chat";
+export const AGENT_ENGINE_CONFIGURED_CHANGED_EVENT =
+  "agent-engine:configured-changed";
 
 export class AgentChatError extends Error {
   readonly status: number;
@@ -584,6 +587,20 @@ export async function fetchModelCatalog(
   };
 }
 
+export async function getAgentEngineStatus(
+  baseUrl = DEFAULT_CHAT_BASE_URL,
+): Promise<"configured" | "missing"> {
+  const result = await jsonRequest<{ configured?: unknown }>(
+    "/_agent-native/agent-engine/status",
+    {},
+    baseUrl,
+  );
+  if (typeof result.configured !== "boolean") {
+    throw new AgentChatError("Agent engine status response was incomplete");
+  }
+  return result.configured ? "configured" : "missing";
+}
+
 export async function getActiveRun(
   threadId: string,
   baseUrl = DEFAULT_CHAT_BASE_URL,
@@ -749,4 +766,5 @@ export async function saveProviderApiKey(
   if (!response.ok) {
     throw new AgentChatError(await readErrorMessage(response), response.status);
   }
+  DeviceEventEmitter.emit(AGENT_ENGINE_CONFIGURED_CHANGED_EVENT);
 }

@@ -1,4 +1,11 @@
 const messages = {
+  agentChat: {
+    setup: {
+      checkingProvider: "جارٍ التحقق من اتصال الذكاء الاصطناعي…",
+      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+    },
+    common: { retry: "إعادة المحاولة" },
+  },
   timelineTrack: {
     helpOtherSide: "انقر على ذلك المقطع أولًا، ثم اسحب الخط الأحمر إلى اليمين.",
     helpOtherSideTerm: "اقتطاع اللقطات من المقطع الأيمن بدلًا من ذلك",

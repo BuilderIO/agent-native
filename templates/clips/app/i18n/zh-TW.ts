@@ -1,4 +1,11 @@
 const messages = {
+  agentChat: {
+    setup: {
+      checkingProvider: "正在檢查 AI 連線…",
+      providerStatusUnavailable: "無法檢查 AI 連線。",
+    },
+    common: { retry: "重試" },
+  },
   timelineTrack: {
     helpOtherSide: "先點一下那一段，再把紅線往右拖。",
     helpOtherSideTerm: "改為從右側那一段裁掉素材",

@@ -7,7 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   buildPromptComposerSubmission,
   PromptComposer,
-  shouldGateComposerForMissingEngine,
+  resolveComposerModelStatusChecksEnabled,
+  shouldGateComposerForEngine,
+  shouldCheckModelStatus,
   type PromptComposerFile,
 } from "./PromptComposer.js";
 
@@ -25,35 +27,52 @@ afterEach(() => {
   container.remove();
 });
 
-describe("shouldGateComposerForMissingEngine", () => {
-  it("never disables the composer while the status check is unresolved", () => {
-    for (const state of ["unknown", "unavailable"]) {
-      expect(
-        shouldGateComposerForMissingEngine({ state, hasSetupComponent: true }),
-      ).toBe(false);
+describe("shouldGateComposerForEngine", () => {
+  it("blocks typing until provider status confirms the engine is configured", () => {
+    for (const state of ["unknown", "unavailable", "missing"] as const) {
+      expect(shouldGateComposerForEngine(state)).toBe(true);
     }
   });
 
-  it("gates only when a connect affordance can be rendered", () => {
+  it("leaves the composer usable once an engine is configured", () => {
+    expect(shouldGateComposerForEngine("configured")).toBe(false);
+  });
+});
+
+describe("shouldCheckModelStatus", () => {
+  it("checks hosted engines and skips local runtimes", () => {
+    expect(shouldCheckModelStatus({ selectedEngine: "openai" })).toBe(true);
+    expect(shouldCheckModelStatus({ selectedEngine: "codex-cli" })).toBe(false);
     expect(
-      shouldGateComposerForMissingEngine({
-        state: "missing",
-        hasSetupComponent: true,
-      }),
+      shouldCheckModelStatus({ enabled: true, selectedEngine: "codex-cli" }),
     ).toBe(true);
     expect(
-      shouldGateComposerForMissingEngine({
-        state: "missing",
-        hasSetupComponent: false,
-      }),
+      shouldCheckModelStatus({ enabled: false, selectedEngine: "openai" }),
     ).toBe(false);
   });
+});
 
-  it("leaves the composer usable once an engine is configured", () => {
+describe("resolveComposerModelStatusChecksEnabled", () => {
+  it("uses the persisted engine when no picker selection is provided", () => {
     expect(
-      shouldGateComposerForMissingEngine({
-        state: "configured",
-        hasSetupComponent: true,
+      resolveComposerModelStatusChecksEnabled({ defaultEngine: "codex-cli" }),
+    ).toBe(false);
+    expect(
+      resolveComposerModelStatusChecksEnabled({ defaultEngine: "openai" }),
+    ).toBe(true);
+  });
+
+  it("prefers an explicit engine and honors an explicit host override", () => {
+    expect(
+      resolveComposerModelStatusChecksEnabled({
+        selectedEngine: "codex-cli",
+        defaultEngine: "openai",
+      }),
+    ).toBe(false);
+    expect(
+      resolveComposerModelStatusChecksEnabled({
+        enabled: false,
+        selectedEngine: "openai",
       }),
     ).toBe(false);
   });

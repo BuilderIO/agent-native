@@ -1,4 +1,11 @@
 const messages = {
+  agentChat: {
+    setup: {
+      checkingProvider: "正在檢查 AI 連線…",
+      providerStatusUnavailable: "無法檢查 AI 連線。",
+    },
+    common: { retry: "重試" },
+  },
   language: {
     label: "語言",
     system: "系統",

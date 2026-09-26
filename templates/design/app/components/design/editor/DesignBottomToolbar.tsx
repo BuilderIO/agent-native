@@ -1,4 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
   IconArrowUpRight,
   IconBrush,
@@ -18,7 +20,7 @@ import {
   IconTransformPoint,
   IconTriangle,
 } from "@tabler/icons-react";
-import { useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { DesignToolbarOption } from "@/components/design/editor/toolbar-controls";
 import {
@@ -28,6 +30,12 @@ import {
 } from "@/components/design/editor/toolbar-controls";
 import { IconText } from "@/components/design/inspector/design-icons";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import {
   MOVE_GROUP_TOOL_PRESENTATIONS,
@@ -38,6 +46,9 @@ import type {
   EditorMode,
   ShapeTool,
 } from "@/pages/design-editor/types";
+
+export const DESIGN_FILE_STORAGE_REQUIRED_EVENT =
+  "design:file-storage-required";
 
 export function DesignBottomToolbar({
   mode,
@@ -87,8 +98,26 @@ export function DesignBottomToolbar({
   shortcutsPanelOpen: boolean;
 }) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const canUploadMedia = fileUploadStatus.data?.configured === true;
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const applePlatform = useApplePlatform();
   const mediaInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const openStorageSetup = () => setStorageSetupOpen(true);
+    window.addEventListener(
+      DESIGN_FILE_STORAGE_REQUIRED_EVENT,
+      openStorageSetup,
+    );
+    return () =>
+      window.removeEventListener(
+        DESIGN_FILE_STORAGE_REQUIRED_EVENT,
+        openStorageSetup,
+      );
+  }, []);
+  useEffect(() => {
+    if (canUploadMedia) setStorageSetupOpen(false);
+  }, [canUploadMedia]);
   const shapeTools = new Set<DesignTool>([
     "rect",
     "line",
@@ -168,7 +197,10 @@ export function DesignBottomToolbar({
       key: "image-video",
       label: t("designEditor.tools.imageVideo"),
       icon: <IconPhotoVideo className="size-4" />,
-      onSelect: () => mediaInputRef.current?.click(),
+      onSelect: () => {
+        if (canUploadMedia) mediaInputRef.current?.click();
+        else setStorageSetupOpen(true);
+      },
     },
   ];
   const activeShapeOption =
@@ -393,6 +425,7 @@ export function DesignBottomToolbar({
         accept="image/*,video/*"
         multiple
         className="hidden"
+        disabled={!canUploadMedia}
         onChange={(event) => {
           const input = event.currentTarget;
           const files = Array.from(input.files ?? []);
@@ -412,6 +445,14 @@ export function DesignBottomToolbar({
           />
         ))}
       </div>
+      <Dialog open={storageSetupOpen} onOpenChange={setStorageSetupOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t("onboarding.fileStorage.title")}</DialogTitle>
+          </DialogHeader>
+          <FileStorageSetupCard />
+        </DialogContent>
+      </Dialog>
 
       {/* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */}
       <div className="h-9 w-px shrink-0 bg-white/15" />

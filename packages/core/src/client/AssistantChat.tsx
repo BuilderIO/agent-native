@@ -206,6 +206,7 @@ import {
   AgentComposerFrame,
   AgentSuggestionBar,
   agentSuggestionPrompt,
+  isLocalRuntimeEngine,
   MessageQueueDrawer,
   PromptBar,
   TiptapComposer,
@@ -220,6 +221,7 @@ import {
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
 import { isProviderAuthenticationError } from "./error-format.js";
+import { FileStorageSetupCard } from "./FileStorageSetupCard.js";
 import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
@@ -251,8 +253,12 @@ import {
   runningToolLabel,
   toolLabel,
 } from "./tool-display.js";
+import { useFileUploadStatus } from "./uploads/use-file-upload-status.js";
 import { callAction, useActionMutation, useActionQuery } from "./use-action.js";
-import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
+import {
+  useAgentEngineConfigured,
+  type AgentEngineConfiguredState,
+} from "./use-agent-engine-configured.js";
 import {
   appendChatThreadScopeParams,
   type ChatThreadScope,
@@ -2461,6 +2467,25 @@ export function shouldShowAssistantChatModelSelector(
   return showModelSelector !== false;
 }
 
+export function resolveAssistantChatProviderGate(input: {
+  enabled: boolean;
+  state: AgentEngineConfiguredState;
+  modelCatalogMissing?: boolean;
+}): { setupRequired: boolean; statusUnresolved: boolean; blocked: boolean } {
+  const setupRequired =
+    input.enabled &&
+    (input.state === "missing" || Boolean(input.modelCatalogMissing));
+  const statusUnresolved =
+    input.enabled &&
+    !setupRequired &&
+    (input.state === "unknown" || input.state === "unavailable");
+  return {
+    setupRequired,
+    statusUnresolved,
+    blocked: setupRequired || statusUnresolved,
+  };
+}
+
 export const CHAT_STORAGE_PREFIX = "agent-chat:";
 const THREAD_SNAPSHOT_CACHE_PREFIX = `${CHAT_STORAGE_PREFIX}thread-snapshot:`;
 
@@ -2910,13 +2935,17 @@ const AssistantChatInner = forwardRef<
     [composerDraftScope, onComposerTextChange],
   );
   const dropDepthRef = useRef(0);
+  const engineNotReadyRef = useRef(false);
+  const fileStorageReadyRef = useRef(false);
   const handleChatDragEnter = useCallback((e: React.DragEvent) => {
+    if (engineNotReadyRef.current || !fileStorageReadyRef.current) return;
     if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
     e.preventDefault();
     dropDepthRef.current += 1;
     setDropActive(true);
   }, []);
   const handleChatDragOver = useCallback((e: React.DragEvent) => {
+    if (engineNotReadyRef.current || !fileStorageReadyRef.current) return;
     if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
@@ -2930,6 +2959,10 @@ const AssistantChatInner = forwardRef<
     if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
     dropDepthRef.current = 0;
     setDropActive(false);
+    if (engineNotReadyRef.current || !fileStorageReadyRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
   }, []);
   const handleChatDrop = useCallback(
     (e: React.DragEvent) => {
@@ -2937,6 +2970,11 @@ const AssistantChatInner = forwardRef<
       if (files.length === 0) return;
       dropDepthRef.current = 0;
       setDropActive(false);
+      if (engineNotReadyRef.current || !fileStorageReadyRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       if (e.defaultPrevented) return;
       e.preventDefault();
       e.stopPropagation();
@@ -2976,27 +3014,42 @@ const AssistantChatInner = forwardRef<
     () => installAssistantUiMessageRepositoryRecovery(threadRuntime),
     [threadRuntime],
   );
+  const localRuntimeSelected = isLocalRuntimeEngine(selectedEngine);
+  const shouldCheckProviderStatus =
+    providerStatusChecksEnabled && !localRuntimeSelected;
   const agentEngineConfigured = useAgentEngineConfigured(
-    providerStatusChecksEnabled,
+    shouldCheckProviderStatus,
     { tabId, threadId },
   );
-  const modelCatalogMissing = modelCatalogConfirmsMissing(
-    availableModels,
-    modelListLoading,
-  );
-  // The model picker has already resolved the same provider status shown in
-  // its setup choices. Keep the signal available for the authoritative missing
-  // state, but do not surface setup while the readiness request is unresolved.
+  const fileUploadStatus = useFileUploadStatus(isActiveComposer);
+  const fileStorageConfigured =
+    fileUploadStatus.data?.configured === true && !fileUploadStatus.isError;
+  const showFileStorageGate = isActiveComposer && !fileStorageConfigured;
+  fileStorageReadyRef.current = fileStorageConfigured;
+  const providerStatus = shouldCheckProviderStatus
+    ? agentEngineConfigured.state
+    : "configured";
+  const modelCatalogMissing =
+    !localRuntimeSelected &&
+    modelCatalogConfirmsMissing(availableModels, modelListLoading);
+  // The model picker can also confirm missing credentials from a resolved
+  // catalog. An unresolved status remains a separate, retryable state.
   const missingApiKey =
+    !localRuntimeSelected &&
     agentEngineConfigured.state !== "configured" &&
     (agentEngineConfigured.missing || modelCatalogMissing);
   // Unknown and unavailable mean we do not know yet. Only an authoritative
   // missing response may replace the composer with the setup card; otherwise
   // connected users briefly see a false "Connect AI" state on first mount.
-  const engineSetupRequired =
-    providerStatusChecksEnabled &&
-    agentEngineConfigured.state === "missing" &&
-    missingApiKey;
+  const providerGate = resolveAssistantChatProviderGate({
+    enabled: shouldCheckProviderStatus,
+    state: providerStatus,
+    modelCatalogMissing: missingApiKey && modelCatalogMissing,
+  });
+  const engineSetupRequired = providerGate.setupRequired;
+  const engineStatusUnresolved = providerGate.statusUnresolved;
+  const engineNotReady = providerGate.blocked;
+  engineNotReadyRef.current = engineNotReady;
   const isComposerDisabled = composerDisabled;
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
@@ -5337,7 +5390,7 @@ const AssistantChatInner = forwardRef<
     if (
       isRestoring ||
       isChatHistoryRestoring ||
-      engineSetupRequired ||
+      engineNotReady ||
       isRunning ||
       queuedMessages.length === 0
     ) {
@@ -5510,7 +5563,7 @@ const AssistantChatInner = forwardRef<
     isChatHistoryRestoring,
     isRestoring,
     isRunning,
-    engineSetupRequired,
+    engineNotReady,
     queueWakeVersion,
     queuedMessages,
     resetRetainedTextStreamingState,
@@ -6135,7 +6188,7 @@ const AssistantChatInner = forwardRef<
         const queueForActiveRun =
           wasSubmissionInFlight ||
           (liveIsRunning && (intent === "immediate" || intent === "queued"));
-        if (acceptedVisibleSubmit && !liveIsRunning && !engineSetupRequired) {
+        if (acceptedVisibleSubmit && !liveIsRunning && !engineNotReady) {
           resetRetainedTextStreamingState(effectiveContinuationTurnId);
         }
         if (interruptActiveRun) {
@@ -6168,7 +6221,7 @@ const AssistantChatInner = forwardRef<
             },
           ]);
           stopActiveRunRef.current({ preserveQueuedMessages: true });
-        } else if (engineSetupRequired || queueForActiveRun) {
+        } else if (engineNotReady || queueForActiveRun) {
           applyLocalQueuedMessages((prev) => [
             ...prev,
             {
@@ -6271,7 +6324,7 @@ const AssistantChatInner = forwardRef<
       materializeFrozenReconnectContent,
       markOptimisticRunning,
       resetRetainedTextStreamingState,
-      engineSetupRequired,
+      engineNotReady,
       appendThreadMessage,
       selectedEffort,
       selectedEngine,
@@ -6716,6 +6769,11 @@ const AssistantChatInner = forwardRef<
     );
   const showMissingKeySetup =
     (engineSetupRequired || showProviderAuthSetup) && !authError;
+  const retryProviderStatus = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    }
+  }, []);
   const handleProviderSetupDismiss = useCallback(() => {
     if (providerAuthErrorKey === null) return;
     setDismissedProviderAuthErrorKey(providerAuthErrorKey);
@@ -6830,11 +6888,16 @@ const AssistantChatInner = forwardRef<
     description: guidedQuestionsDescription,
     skipLabel: guidedQuestionsSkipLabel,
     submitLabel: guidedQuestionsSubmitLabel,
+    isSubmissionBlocked: guidedQuestionsSubmissionBlocked,
+    providerStatus: guidedQuestionsProviderStatus,
+    retryProviderStatus: retryGuidedQuestionsProviderStatus,
     handleSubmit: handleGuidedQuestionsSubmit,
     handleSkip: handleGuidedQuestionsSkip,
   } = useGuidedQuestionFlow({
     stateKey: "guided-questions",
     queryKey: ["guided-questions"],
+    providerStatusChecksEnabled: shouldCheckProviderStatus,
+    providerStatus,
     ...(browserTabId ? { browserTabId } : {}),
     ...(threadId ? { threadId } : {}),
   });
@@ -7179,7 +7242,7 @@ const AssistantChatInner = forwardRef<
                                               key={suggestion}
                                               type="button"
                                               onClick={() => {
-                                                if (engineSetupRequired) return;
+                                                if (engineNotReady) return;
                                                 void addToQueue(suggestion);
                                               }}
                                               className="agent-empty-suggestion w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-left text-[13px] text-muted-foreground shadow-sm transition-[border-color,background-color,color,transform] hover:-translate-y-px hover:border-border hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -7427,6 +7490,14 @@ const AssistantChatInner = forwardRef<
                                 questions={guidedQuestions}
                                 onSubmit={handleGuidedQuestionsSubmit}
                                 onSkip={handleGuidedQuestionsSkip}
+                                isSubmissionBlocked={
+                                  guidedQuestionsSubmissionBlocked
+                                }
+                                providerStatus={guidedQuestionsProviderStatus}
+                                onRetryProviderStatus={
+                                  retryGuidedQuestionsProviderStatus
+                                }
+                                showProviderStatusGate={false}
                                 {...(guidedQuestionsTitle
                                   ? { title: guidedQuestionsTitle }
                                   : {})}
@@ -7477,7 +7548,7 @@ const AssistantChatInner = forwardRef<
                               )}
                               suggestions={resolvedSuggestionInputs}
                               onSelect={(suggestion) => {
-                                if (engineSetupRequired) return;
+                                if (engineNotReady) return;
                                 void addToQueue(
                                   agentSuggestionPrompt(suggestion),
                                 );
@@ -7487,7 +7558,8 @@ const AssistantChatInner = forwardRef<
                           <div
                             className="agent-composer-stack"
                             data-agent-composer-adjacent-ui={
-                              hasComposerAccessoryAboveStack
+                              hasComposerAccessoryAboveStack ||
+                              showFileStorageGate
                                 ? "true"
                                 : undefined
                             }
@@ -7500,11 +7572,34 @@ const AssistantChatInner = forwardRef<
                                 onSwitchToAct={handleSwitchToAct}
                               />
                             )}
+                            {engineStatusUnresolved ? (
+                              <div
+                                className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+                                role="status"
+                              >
+                                <span>
+                                  {providerStatus === "unknown"
+                                    ? t("agentChat.setup.checkingProvider")
+                                    : t(
+                                        "agentChat.setup.providerStatusUnavailable",
+                                      )}
+                                </span>
+                                {providerStatus === "unavailable" ? (
+                                  <button
+                                    type="button"
+                                    className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    onClick={retryProviderStatus}
+                                  >
+                                    {t("agentChat.common.retry")}
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : null}
                             {showMissingKeySetup ? (
                               <BuilderSetupCard
                                 key={providerAuthErrorKey ?? "missing-provider"}
                                 fullWidth
-                                attached
+                                attached={!showFileStorageGate}
                                 bouncePulse={missingKeyBouncePulse}
                                 layout={missingApiKeySetupLayout}
                                 onDismiss={
@@ -7519,6 +7614,32 @@ const AssistantChatInner = forwardRef<
                                     : undefined
                                 }
                               />
+                            ) : null}
+                            {showFileStorageGate ? (
+                              fileUploadStatus.data?.configured === false &&
+                              !fileUploadStatus.isError ? (
+                                <FileStorageSetupCard />
+                              ) : (
+                                <div
+                                  className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+                                  role="status"
+                                >
+                                  <span>
+                                    {t("onboarding.fileStorage.title")}
+                                  </span>
+                                  {fileUploadStatus.isError ? (
+                                    <button
+                                      type="button"
+                                      className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                      onClick={() =>
+                                        void fileUploadStatus.refetch()
+                                      }
+                                    >
+                                      {t("agentChat.common.retry")}
+                                    </button>
+                                  ) : null}
+                                </div>
+                              )
                             ) : null}
                             {/* Input area */}
                             <PromptBar mode="inline" className="contents">
@@ -7581,16 +7702,20 @@ const AssistantChatInner = forwardRef<
                                 layoutVariant={composerLayoutVariant}
                                 className={cn(
                                   composerAreaClassName,
-                                  showMissingKeySetup &&
+                                  (showMissingKeySetup ||
+                                    engineStatusUnresolved) &&
                                     "agent-composer-area--attached-above",
                                   isComposerDisabled &&
                                     !showMissingKeySetup &&
+                                    !engineStatusUnresolved &&
                                     "opacity-70",
                                 )}
                                 onClick={
                                   showMissingKeySetup
                                     ? bounceMissingKeySetup
-                                    : undefined
+                                    : engineStatusUnresolved
+                                      ? retryProviderStatus
+                                      : undefined
                                 }
                               >
                                 <>
@@ -7598,6 +7723,7 @@ const AssistantChatInner = forwardRef<
                                   <TiptapComposer
                                     focusRef={tiptapRef}
                                     maxDocumentAttachmentBytes={MAX_PDF_BYTES}
+                                    attachmentsEnabled={fileStorageConfigured}
                                     initialText={
                                       initialComposerText ?? undefined
                                     }
@@ -7610,6 +7736,7 @@ const AssistantChatInner = forwardRef<
                                     disabled={
                                       isComposerDisabled ||
                                       showMissingKeySetup ||
+                                      engineNotReady ||
                                       isChatHistoryRestoring
                                     }
                                     placeholder={
@@ -7617,28 +7744,34 @@ const AssistantChatInner = forwardRef<
                                         ? t(
                                             "agentChat.setup.connectPlaceholder",
                                           )
-                                        : engineSetupRequired
+                                        : engineStatusUnresolved
                                           ? t(
-                                              "agentChat.setup.connectPlaceholder",
+                                              "agentChat.setup.checkingProvider",
                                             )
-                                          : composerDisabled
-                                            ? (composerDisabledPlaceholder ??
-                                              t(
-                                                "agentChat.composer.openDesktop",
-                                              ))
-                                            : isRunning
-                                              ? queuedMessages.length > 0
-                                                ? t(
-                                                    "agentChat.queue.followUpWithCount",
-                                                    {
-                                                      count:
-                                                        queuedMessages.length,
-                                                    },
+                                          : engineSetupRequired
+                                            ? t(
+                                                "agentChat.setup.connectPlaceholder",
+                                              )
+                                            : composerDisabled
+                                              ? (composerDisabledPlaceholder ??
+                                                t(
+                                                  "agentChat.composer.openDesktop",
+                                                ))
+                                              : isRunning
+                                                ? queuedMessages.length > 0
+                                                  ? t(
+                                                      "agentChat.queue.followUpWithCount",
+                                                      {
+                                                        count:
+                                                          queuedMessages.length,
+                                                      },
+                                                    )
+                                                  : t(
+                                                      "agentChat.queue.followUp",
+                                                    )
+                                                : resolveAssistantChatComposerPlaceholder(
+                                                    composerPlaceholder,
                                                   )
-                                                : t("agentChat.queue.followUp")
-                                              : resolveAssistantChatComposerPlaceholder(
-                                                  composerPlaceholder,
-                                                )
                                     }
                                     onSubmit={async (
                                       text,
@@ -7678,7 +7811,7 @@ const AssistantChatInner = forwardRef<
                                       }
                                     }}
                                     willQueue={
-                                      engineSetupRequired ||
+                                      engineNotReady ||
                                       isRunning ||
                                       isChatHistoryRestoring ||
                                       submissionInFlightRef.current > 0

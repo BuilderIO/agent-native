@@ -1,6 +1,13 @@
 import enUS from "./en-US";
 
 const frFR = {
+  agentChat: {
+    setup: {
+      checkingProvider: "Vérification de la connexion à l’IA…",
+      providerStatusUnavailable: "Impossible de vérifier la connexion à l’IA.",
+    },
+    common: { retry: "Réessayer" },
+  },
   language: {
     label: "Langue",
     system: "Système",

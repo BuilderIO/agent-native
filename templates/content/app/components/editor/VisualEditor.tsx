@@ -9,6 +9,8 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
@@ -86,6 +88,7 @@ import { Awareness } from "y-protocols/awareness";
 import type { Doc as YDoc } from "yjs";
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import type { CommentThread } from "@/hooks/use-comments";
 
 import { BubbleToolbar } from "./BubbleToolbar";
@@ -3096,7 +3099,16 @@ export function VisualEditor({
   onPersistenceControllerChange,
 }: VisualEditorProps) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageConfigured =
+    fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true;
+  const fileStorageConfiguredRef = useRef(fileStorageConfigured);
+  fileStorageConfiguredRef.current = fileStorageConfigured;
+  const [isFileStorageSetupOpen, setIsFileStorageSetupOpen] = useState(false);
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
+  useEffect(() => {
+    if (fileStorageConfigured) setIsFileStorageSetupOpen(false);
+  }, [fileStorageConfigured]);
   const suggestingRef = useRef(suggesting);
   suggestingRef.current = suggesting;
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -3433,6 +3445,10 @@ export function VisualEditor({
         }
         return runIfMediaCreationAllowed(suggestingRef.current, () => {
           event.preventDefault();
+          if (!fileStorageConfiguredRef.current) {
+            setIsFileStorageSetupOpen(true);
+            return;
+          }
           const coords = view.posAtCoords({
             left: event.clientX,
             top: event.clientY,
@@ -3467,6 +3483,10 @@ export function VisualEditor({
         // never start an excluded media upload while composing a suggestion.
         return runIfMediaCreationAllowed(suggestingRef.current, () => {
           event.preventDefault();
+          if (!fileStorageConfiguredRef.current) {
+            setIsFileStorageSetupOpen(true);
+            return;
+          }
           if (imageFiles.length > 0) {
             void uploadAndInsertImageFiles(
               view,
@@ -3867,6 +3887,11 @@ export function VisualEditor({
       pendingImagePickerRef.current = null;
       if (suggestingRef.current) return;
       if (!editor || !file || !request) return;
+      if (!fileStorageConfiguredRef.current) {
+        restorePendingImagePicker(editor.view, request);
+        setIsFileStorageSetupOpen(true);
+        return;
+      }
 
       const uploadId = createMediaUploadId("image");
       if (!ensurePendingImageUpload(editor.view, request, uploadId)) return;
@@ -4493,12 +4518,24 @@ export function VisualEditor({
           </div>
         </div>
       ) : null}
+      <Dialog
+        open={isFileStorageSetupOpen && !fileStorageConfigured}
+        onOpenChange={setIsFileStorageSetupOpen}
+      >
+        <DialogContent closeLabel={t("close")}>
+          <DialogTitle className="sr-only">
+            {t("onboarding.fileStorage.title")}
+          </DialogTitle>
+          <FileStorageSetupCard />
+        </DialogContent>
+      </Dialog>
       <RegistryBlockDataProvider value={registryBlockDataValue}>
         <EditorContent editor={editor} />
       </RegistryBlockDataProvider>
       <input
         ref={imageFileInputRef}
         type="file"
+        disabled={!fileStorageConfigured}
         className="hidden"
         tabIndex={-1}
         aria-hidden="true"

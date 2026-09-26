@@ -1420,6 +1420,13 @@ const history = {
 };
 
 const overrides = {
+  close: "Cerrar",
+  setup: { checkingProvider: "Comprobando la conexión de IA…" },
+  onboarding: {
+    fileStorage: {
+      title: "Conecta almacenamiento para subir archivos",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,

@@ -1,6 +1,8 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconArrowsMaximize,
@@ -150,6 +152,9 @@ export function AudioBlock({
   getPos,
 }: NodeViewProps) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageConfigured =
+    fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true;
   const [isHovered, setIsHovered] = useState(false);
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
@@ -401,7 +406,7 @@ export function AudioBlock({
   async function handleAudioFilePicked(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
-    if (!file || !canMutateMediaNow()) return;
+    if (!file || !fileStorageConfigured || !canMutateMediaNow()) return;
 
     const toastId = toast.loading(t("editor.media.uploadingAudio"));
     try {
@@ -469,14 +474,18 @@ export function AudioBlock({
 
         {sourceTab === "upload" ? (
           <div className="media-source-panel__body">
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {t("editor.media.uploadFile")}
-            </Button>
+            {fileStorageConfigured ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {t("editor.media.uploadFile")}
+              </Button>
+            ) : (
+              <FileStorageSetupCard />
+            )}
           </div>
         ) : (
           <form className="media-source-panel__body" onSubmit={handleEmbedLink}>
@@ -539,6 +548,7 @@ export function AudioBlock({
             ref={fileInputRef}
             type="file"
             accept="audio/*"
+            disabled={!fileStorageConfigured}
             className="hidden"
             tabIndex={-1}
             aria-hidden="true"
@@ -581,6 +591,7 @@ export function AudioBlock({
           ref={fileInputRef}
           type="file"
           accept="audio/*"
+          disabled={!fileStorageConfigured}
           className="hidden"
           tabIndex={-1}
           aria-hidden="true"

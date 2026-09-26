@@ -3,14 +3,18 @@ import {
   useCollaborativeDoc,
   type CollabUser,
 } from "@agent-native/core/client/collab";
-import { uploadEditorImage } from "@agent-native/core/client/uploads";
+import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import {
+  uploadEditorImage,
+  useFileUploadStatus,
+} from "@agent-native/core/client/uploads";
 import {
   createImageSlashCommand,
   DEFAULT_SLASH_COMMANDS,
   RichMarkdownEditor,
   type RichMarkdownCollabUser,
 } from "@agent-native/toolkit/editor";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -21,17 +25,11 @@ import { PlanImageNode } from "./PlanImageNode";
 // `upload-image` action (`uploadEditorImage`) and is inserted as a standard
 // `![alt](url)` markdown image, so it autosaves through the existing
 // `update-rich-text` path and stays source-syncable.
-const PLAN_SLASH_COMMANDS = [
-  ...DEFAULT_SLASH_COMMANDS,
-  createImageSlashCommand(uploadEditorImage),
-];
 // `features.image` is off because `PlanImageNode` (injected below) IS the image
 // node — it extends the shared node with a React node view that adds the hover
 // zoom / lightbox / three-dots menu. Enabling the core image node too would
 // register a second `image` node and collide.
 const PLAN_EDITOR_FEATURES = { image: false } as const;
-const PLAN_EXTRA_EXTENSIONS = [PlanImageNode];
-
 const SAVE_DEBOUNCE_MS = 700;
 const SAVE_RETRY_MS = 120;
 
@@ -70,6 +68,9 @@ export function PlanMarkdownEditor({
   blockId,
   user,
 }: PlanMarkdownEditorProps) {
+  const fileUploadStatus = useFileUploadStatus();
+  const canUploadImages =
+    import.meta.env.DEV || fileUploadStatus.data?.configured === true;
   const onSaveRef = useRef(onSave);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPersistedMarkdownRef = useRef(markdown);
@@ -101,6 +102,24 @@ export function PlanMarkdownEditor({
   });
   const editorEditable =
     editable && (!collabEnabled || initialization.status === "ready");
+  const slashCommands = useMemo(
+    () =>
+      canUploadImages
+        ? [
+            ...DEFAULT_SLASH_COMMANDS,
+            createImageSlashCommand(uploadEditorImage),
+          ]
+        : DEFAULT_SLASH_COMMANDS,
+    [canUploadImages],
+  );
+  const extraExtensions = useMemo(
+    () => [
+      PlanImageNode.configure({
+        onImageUpload: canUploadImages ? uploadEditorImage : null,
+      }),
+    ],
+    [canUploadImages],
+  );
 
   const queueFlush = useCallback((delay = SAVE_DEBOUNCE_MS) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -166,25 +185,32 @@ export function PlanMarkdownEditor({
   );
 
   return (
-    <RichMarkdownEditor
-      value={markdown}
-      onChange={handleChange}
-      onBlur={() => void flushSave()}
-      editable={editorEditable}
-      contentUpdatedAt={contentUpdatedAt}
-      dialect="gfm"
-      preset="plan"
-      features={PLAN_EDITOR_FEATURES}
-      extraExtensions={PLAN_EXTRA_EXTENSIONS}
-      onImageUpload={uploadEditorImage}
-      slashItems={PLAN_SLASH_COMMANDS}
-      className={cn("plan-rich-markdown-editor mt-4", className)}
-      ariaLabel={ariaLabel}
-      interactive={editorEditable}
-      ydoc={collabEnabled ? ydoc : null}
-      collabSynced={collabEnabled ? collabSynced : true}
-      awareness={collabEnabled ? awareness : null}
-      user={collabEnabled ? collabUser : null}
-    />
+    <div>
+      <RichMarkdownEditor
+        value={markdown}
+        onChange={handleChange}
+        onBlur={() => void flushSave()}
+        editable={editorEditable}
+        contentUpdatedAt={contentUpdatedAt}
+        dialect="gfm"
+        preset="plan"
+        features={PLAN_EDITOR_FEATURES}
+        extraExtensions={extraExtensions}
+        onImageUpload={canUploadImages ? uploadEditorImage : null}
+        slashItems={slashCommands}
+        className={cn("plan-rich-markdown-editor mt-4", className)}
+        ariaLabel={ariaLabel}
+        interactive={editorEditable}
+        ydoc={collabEnabled ? ydoc : null}
+        collabSynced={collabEnabled ? collabSynced : true}
+        awareness={collabEnabled ? awareness : null}
+        user={collabEnabled ? collabUser : null}
+      />
+      {!canUploadImages && editable ? (
+        <div className="mt-4">
+          <FileStorageSetupCard />
+        </div>
+      ) : null}
+    </div>
   );
 }

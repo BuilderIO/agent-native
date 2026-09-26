@@ -1,44 +1,36 @@
 import { useEffect, useState } from "react";
 
 import {
-  MAX_GENERATING_MS,
+  getStartedGenerationAttemptTabId,
   useAgentGenerating,
 } from "@/hooks/use-agent-generating";
 
 export function useNewDeckGenerationSignal({
   attemptId,
+  outputId,
   tabId,
-  broadGenerating,
-  submitStarted,
+  progressToken,
 }: {
   attemptId: string | null;
+  outputId?: string | null;
   tabId: string | null;
-  broadGenerating: boolean;
-  submitStarted: boolean;
+  progressToken?: number;
 }): {
   attempt: ReturnType<typeof useAgentGenerating>;
   generating: boolean;
   generationStarted: boolean;
 } {
-  const attempt = useAgentGenerating({ tabId });
-  const [observerTimedOutAttemptId, setObserverTimedOutAttemptId] = useState<
-    string | null
-  >(null);
+  const observedTabId =
+    tabId ??
+    (attemptId && outputId
+      ? getStartedGenerationAttemptTabId(attemptId, outputId)
+      : null);
+  const attempt = useAgentGenerating({
+    tabId: observedTabId,
+    progressToken,
+  });
   const [startedAttemptId, setStartedAttemptId] = useState<string | null>(null);
-  const observerTimedOut = observerTimedOutAttemptId === attemptId;
-  const timedOut = attempt.timedOut || observerTimedOut;
-  const generating =
-    !timedOut &&
-    (tabId ? attempt.generating : submitStarted && broadGenerating);
-
-  useEffect(() => {
-    if (!attemptId || !submitStarted || tabId) return;
-    const timeout = window.setTimeout(
-      () => setObserverTimedOutAttemptId(attemptId),
-      MAX_GENERATING_MS,
-    );
-    return () => window.clearTimeout(timeout);
-  }, [attemptId, submitStarted, tabId]);
+  const generating = attempt.generating && !attempt.timedOut;
 
   useEffect(() => {
     if (attemptId && (generating || attempt.observedRun)) {
@@ -47,7 +39,7 @@ export function useNewDeckGenerationSignal({
   }, [attemptId, attempt.observedRun, generating]);
 
   return {
-    attempt: { ...attempt, timedOut },
+    attempt,
     generating,
     generationStarted: attemptId !== null && startedAttemptId === attemptId,
   };

@@ -107,7 +107,7 @@ const messages = {
       "Google Picker precisa de GOOGLE_PICKER_API_KEY e GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Falha ao enviar imagem",
     imageUploadNeedsBuilder:
-      "स्लाइड पर चित्र अपलोड करने के लिए एजेंट composer के मॉडल मेनू से Builder.io कनेक्ट करें। खाली कैनवास पर चित्र छोड़ने से वह बिना provider के भी एजेंट को भेजा जा सकता है।",
+      "चित्र अपलोड करने के लिए ऑब्जेक्ट स्टोरेज कनेक्ट करें: Builder.io (मुफ़्त) कनेक्ट करें या Settings → File uploads में अपनी S3-संगत स्टोरेज कुंजियाँ जोड़ें।",
     sentToAgent: "Enviado ao agente",
     imageUploadGenericError: "Algo deu errado ao enviar esta imagem.",
     uploading: "Enviando…",
@@ -628,6 +628,12 @@ const messages = {
     lookingForDeck: "यह डेक खोजा जा रहा है",
     joinTeamToOpen: "यह डेक खोलने के लिए अपनी टीम से जुड़ें",
     deckUnavailable: "डेक उपलब्ध नहीं",
+    generationStalled: "5 मिनट तक प्रगति न होने पर जनरेशन रोक दिया गया",
+    generationStalledDescription:
+      "आपकी सेव की गई स्लाइडें यहाँ मौजूद हैं। चैट में इस डेक से आगे बढ़ें।",
+    continueInChat: "चैट में आगे बढ़ें",
+    continueGenerationPrompt:
+      "इस डेक के लिए स्लाइड जनरेट करना जारी रखें। पहले मौजूदा स्लाइड और सेव किया गया जनरेशन संदर्भ देखें। पूरी हो चुकी स्लाइडें रखें और केवल छूटी हुई स्लाइडें जोड़ें।",
     checkingSharedAccess: "जांच रहे हैं कि यह प्रस्तुति आपके खाते से साझा है या नहीं।",
     joinTeamDescription:
       "यह लिंक टीम प्रस्तुति की ओर इशारा करता है। ऊपर दिखाई गई टीम से जुड़ें और डेक यहां अपने-आप खुल जाएगा।",
@@ -676,7 +682,7 @@ const messages = {
     tryAgain: "फिर कोशिश करें",
     imageUploadFailed: "चित्र अपलोड विफल",
     imageUploadNeedsBuilder:
-      "स्लाइड पर चित्र अपलोड करने के लिए एजेंट composer के मॉडल मेनू से Builder.io कनेक्ट करें। खाली कैनवास पर चित्र छोड़ने से वह बिना provider के भी एजेंट को भेजा जा सकता है।",
+      "चित्र अपलोड करने के लिए ऑब्जेक्ट स्टोरेज कनेक्ट करें: Builder.io (मुफ़्त) कनेक्ट करें या Settings → File uploads में अपनी S3-संगत स्टोरेज कुंजियाँ जोड़ें।",
     imageAdded: "चित्र जोड़ा गया",
     imageUploadError: "यह चित्र अपलोड करते समय कुछ गलत हुआ।",
     exportFailed: "निर्यात विफल",
@@ -786,6 +792,10 @@ const messages = {
     loadFailedDescription:
       "आपका सहेजा गया कॉन्टेंट अभी भी उपलब्ध है। कनेक्शन जाँचें और फिर कोशिश करें।",
     retry: "फिर कोशिश करें",
+    fileStorageStatusUnavailable:
+      "ऑब्जेक्ट स्टोरेज की स्थिति जाँची नहीं जा सकी। फ़ाइलें अपलोड करने से पहले फिर से कोशिश करें।",
+    fileStorageSetupRequired:
+      "कोई ऑब्जेक्ट स्टोरेज कनेक्ट नहीं है। मुफ़्त Builder.io कनेक्ट करें या सेटिंग्स → फ़ाइल अपलोड में अपनी S3-संगत स्टोरेज कुंजियाँ जोड़ें।",
     decksTitle: "डेक",
     newDeck: "नया डेक",
     deckLengthQuestion: "यह डेक कितना लंबा होना चाहिए?",

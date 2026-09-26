@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { useNavigation } from "@react-navigation/native";
 import {
   IconArrowUp,
@@ -26,8 +27,11 @@ import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AppState,
   ActivityIndicator,
+  DeviceEventEmitter,
   Image,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -37,12 +41,18 @@ import {
 } from "react-native";
 
 import { MOBILE_SHEET_CLOSE_DURATION_MS } from "@/components/MobileSheet";
-import { fetchMentions } from "@/lib/agent-chat/api";
+import {
+  DEFAULT_CHAT_BASE_URL,
+  AGENT_ENGINE_CONFIGURED_CHANGED_EVENT,
+  fetchMentions,
+  getAgentEngineStatus,
+} from "@/lib/agent-chat/api";
 import {
   activeMentionQuery,
   mentionToReference,
   replaceMention,
 } from "@/lib/agent-chat/mention-query";
+import { MOBILE_LOCAL_AGENT_ENGINES } from "@/lib/agent-chat/model-picker";
 import type {
   ChatAttachment,
   ChatReference,
@@ -334,6 +344,7 @@ export function Composer({
 }) {
   const { foreground, mutedForeground, primaryForeground, accentBlue, theme } =
     useMobileThemeColors();
+  const t = useT();
   const mobileNavigation = useMobileNavigation();
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
@@ -345,10 +356,83 @@ export function Composer({
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [menuScreen, setMenuScreen] = useState<"main" | "skill">("main");
   const [actionTag, setActionTag] = useState<ActionTag | null>(null);
+  const localRuntimeSelected = MOBILE_LOCAL_AGENT_ENGINES.has(
+    settings.engine ?? "",
+  );
+  const [providerStatus, setProviderStatus] = useState<
+    "unknown" | "configured" | "missing" | "unavailable"
+  >(localRuntimeSelected ? "configured" : "unknown");
+  const providerStatusRef = useRef(providerStatus);
+  const providerStatusRequestRef = useRef(0);
+  providerStatusRef.current = providerStatus;
+
+  const retryProviderStatus = useCallback(() => {
+    if (localRuntimeSelected) {
+      setProviderStatus("configured");
+      return;
+    }
+    const requestId = ++providerStatusRequestRef.current;
+    setProviderStatus("unknown");
+    void getAgentEngineStatus(baseUrl)
+      .then((status) => {
+        if (requestId === providerStatusRequestRef.current) {
+          setProviderStatus(status);
+        }
+      })
+      .catch(() => {
+        if (requestId === providerStatusRequestRef.current) {
+          setProviderStatus("unavailable");
+        }
+      });
+  }, [baseUrl, localRuntimeSelected]);
+
+  useEffect(() => {
+    if (localRuntimeSelected) {
+      setProviderStatus("configured");
+      return;
+    }
+    retryProviderStatus();
+    return () => {
+      providerStatusRequestRef.current += 1;
+    };
+  }, [localRuntimeSelected, retryProviderStatus]);
+
+  useEffect(() => {
+    if (localRuntimeSelected) return;
+    const configuredSubscription = DeviceEventEmitter.addListener(
+      AGENT_ENGINE_CONFIGURED_CHANGED_EVENT,
+      retryProviderStatus,
+    );
+    const appStateSubscription = AppState.addEventListener(
+      "change",
+      (nextState) => {
+        if (
+          nextState === "active" &&
+          (providerStatusRef.current === "missing" ||
+            providerStatusRef.current === "unavailable")
+        ) {
+          retryProviderStatus();
+        }
+      },
+    );
+    return () => {
+      configuredSubscription.remove();
+      appStateSubscription.remove();
+    };
+  }, [localRuntimeSelected, retryProviderStatus]);
+
+  const chatReady = localRuntimeSelected || providerStatus === "configured";
+  const chatReadyRef = useRef(chatReady);
+  chatReadyRef.current = chatReady;
+
+  useEffect(() => {
+    if (!chatReady) setPlusMenuOpen(false);
+  }, [chatReady]);
 
   const canSend =
     (text.trim().length > 0 || attachments.length > 0 || actionTag !== null) &&
-    !isStreaming;
+    !isStreaming &&
+    chatReady;
 
   // A mention is being typed only when the caret is a collapsed cursor.
   const activeMention = useMemo(
@@ -447,15 +531,20 @@ export function Composer({
   };
 
   const addAttachment = useCallback((attachment: ChatAttachment | null) => {
-    if (attachment) setAttachments((current) => [...current, attachment]);
+    if (attachment && chatReadyRef.current) {
+      setAttachments((current) => [...current, attachment]);
+    }
   }, []);
 
   const addAttachments = useCallback((incoming: ChatAttachment[]) => {
-    if (incoming.length) setAttachments((current) => [...current, ...incoming]);
+    if (incoming.length && chatReadyRef.current) {
+      setAttachments((current) => [...current, ...incoming]);
+    }
   }, []);
 
   useEffect(() => {
     const recover = () => {
+      if (!chatReadyRef.current) return;
       void ImagePicker.getPendingResultAsync()
         .then(async (result) => {
           if (!result || "code" in result) return;
@@ -484,25 +573,29 @@ export function Composer({
   };
 
   const handleOpenPlusMenu = () => {
+    if (!chatReady || isStreaming) return;
     setMenuScreen("main");
     setPlusMenuOpen(true);
   };
 
   const handleUploadFile = () => {
+    if (!chatReady || isStreaming) return;
     closeMenuThen(() => {
-      void pickAnyFileAttachments().then(addAttachments);
+      if (chatReady) void pickAnyFileAttachments().then(addAttachments);
     });
   };
 
   const handleTakePhoto = () => {
+    if (!chatReady || isStreaming) return;
     closeMenuThen(() => {
-      void captureCameraAttachment().then(addAttachment);
+      if (chatReady) void captureCameraAttachment().then(addAttachment);
     });
   };
 
   const handlePickPhoto = () => {
+    if (!chatReady || isStreaming) return;
     closeMenuThen(() => {
-      void pickPhotoFromLibrary().then(addAttachment);
+      if (chatReady) void pickPhotoFromLibrary().then(addAttachment);
     });
   };
 
@@ -512,13 +605,14 @@ export function Composer({
   };
 
   const handleUploadSkillFile = () => {
+    if (!chatReady || isStreaming) return;
     setActionTag({
       id: "upload-skill",
       label: "Upload Skill File",
       icon: "upload",
     });
     closeMenuThen(() => {
-      void pickAnyFileAttachments().then(addAttachments);
+      if (chatReady) void pickAnyFileAttachments().then(addAttachments);
     });
   };
 
@@ -631,6 +725,55 @@ export function Composer({
       )}
 
       <View className="rounded-[22px] bg-card-dark border border-border-dark px-3.5 pt-3 pb-2.5">
+        {!chatReady ? (
+          <View
+            className="mb-2 gap-2 rounded-lg border border-border-dark bg-zinc-900/70 px-3 py-2"
+            accessibilityRole="alert"
+          >
+            <Text className="text-muted-foreground text-[12px]">
+              {providerStatus === "unknown"
+                ? t("agentChat.setup.checkingProvider")
+                : providerStatus === "unavailable"
+                  ? t("agentChat.setup.providerStatusUnavailable")
+                  : t("agentChat.setup.connectToStart")}
+            </Text>
+            {providerStatus === "missing" ? (
+              <View className="flex-row flex-wrap gap-3">
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() =>
+                    void Linking.openURL(
+                      new URL(
+                        "/settings/agent",
+                        baseUrl ?? DEFAULT_CHAT_BASE_URL,
+                      ).toString(),
+                    ).catch((error: unknown) => {
+                      console.warn("Could not open AI settings", error);
+                    })
+                  }
+                >
+                  <Text className="text-foreground text-[12px] font-medium">
+                    {t("agentChat.setup.connectBuilder")}
+                  </Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" onPress={onOpenSettings}>
+                  <Text className="text-foreground text-[12px] font-medium">
+                    {t("agentChat.setup.addOwnKeys")}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : providerStatus === "unavailable" ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={retryProviderStatus}
+              >
+                <Text className="text-foreground text-[12px] font-medium">
+                  {t("agentChat.common.retry")}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
         {actionTag && (
           <View className="flex-row items-center gap-1.5 self-start px-2.5 py-1 rounded-lg bg-zinc-800/90 border border-zinc-700/80 mb-2">
             {renderActionTagIcon(actionTag.icon, foreground)}
@@ -662,13 +805,14 @@ export function Composer({
           keyboardAppearance={theme}
           accessibilityLabel="Message input"
           nativeID="chat-composer-input"
+          editable={chatReady}
         />
 
         <View className="flex-row items-center justify-between pt-1">
           <Pressable
             className="w-8 h-8 rounded-full items-center justify-center -ml-1 active:opacity-75"
             onPress={handleOpenPlusMenu}
-            disabled={isStreaming}
+            disabled={!chatReady || isStreaming}
             accessibilityRole="button"
             accessibilityLabel="Actions menu"
           >

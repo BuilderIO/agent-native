@@ -1172,6 +1172,31 @@ describe("createTiptapComposerExtensions", () => {
     expect(added[0]?.name).toMatch(/^\d+-[a-z0-9]+-image\.png$/);
   });
 
+  it("consumes but does not attach file drops while uploads are disabled", () => {
+    const file = new File(["fake"], "image.png", { type: "image/png" });
+    const added = vi.fn();
+    let prevented = false;
+    let stopped = false;
+    const handled = handleComposerFileDrop({
+      event: {
+        dataTransfer: { files: [file] },
+        preventDefault: () => {
+          prevented = true;
+        },
+        stopPropagation: () => {
+          stopped = true;
+        },
+      } as unknown as DragEvent,
+      addAttachment: added,
+      attachmentsEnabled: false,
+    });
+
+    expect(handled).toBe(true);
+    expect(prevented).toBe(true);
+    expect(stopped).toBe(true);
+    expect(added).not.toHaveBeenCalled();
+  });
+
   it("caps the model picker height without forcing empty vertical space", () => {
     expect(MODEL_SELECTOR_POPOVER_STYLE).toMatchObject({
       fontSize: 13,

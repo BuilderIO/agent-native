@@ -1,6 +1,13 @@
 import enUS from "./en-US";
 
 const koKR = {
+  agentChat: {
+    setup: {
+      checkingProvider: "AI 연결을 확인하는 중…",
+      providerStatusUnavailable: "AI 연결을 확인할 수 없습니다.",
+    },
+    common: { retry: "다시 시도" },
+  },
   language: {
     label: "언어",
     system: "시스템",

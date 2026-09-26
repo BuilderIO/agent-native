@@ -1126,6 +1126,13 @@ const history = {
 };
 
 const overrides = {
+  close: "बंद करें",
+  setup: { checkingProvider: "AI कनेक्शन की जाँच हो रही है…" },
+  onboarding: {
+    fileStorage: {
+      title: "फ़ाइलें अपलोड करने के लिए स्टोरेज कनेक्ट करें",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,

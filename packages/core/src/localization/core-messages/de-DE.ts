@@ -97,10 +97,11 @@ const messages: AgentChatTranslation = {
     "Einstellungen für Hintergrundagenten öffnen",
   "onboarding.capability.llm.keySummary": "Verbinde dein eigenes KI-Modell",
   "onboarding.capability.fileStorage.keySummary": "Datei-Uploads und Speicher",
-  "onboarding.fileStorage.title": "Wähle den Dateispeicher",
+  "onboarding.fileStorage.title": "Speicher verbinden, um Dateien hochzuladen",
   "onboarding.fileStorage.description":
-    "Wähle den verwalteten Builder-Speicher oder eigene Speicherschlüssel für deinen S3-kompatiblen Bucket.",
-  "onboarding.fileStorage.custom": "Eigene Speicherschlüssel verwenden",
+    "Verbinde Builder.io (kostenlos) oder konfiguriere deinen eigenen S3-kompatiblen Objektspeicher.",
+  "onboarding.fileStorage.reconnectBuilder": "Builder.io erneut verbinden",
+  "onboarding.fileStorage.custom": "Eigene Objektspeicherschlüssel hinzufügen",
   "onboarding.fileStorage.customDescription":
     "Konfiguriere einen S3-kompatiblen Bucket mit einer stabilen öffentlichen URL.",
   "onboarding.capability.voiceInput.label": "Spracheingabe",
@@ -343,7 +344,9 @@ const messages: AgentChatTranslation = {
   "recovery.copyDebug": "Debug-Informationen kopieren",
   "recovery.copyFailed": "Kopieren fehlgeschlagen",
   "recovery.credentialRejected":
-    "Die aktuellen Zugangsdaten für Builder.io oder den Modellanbieter wurden abgelehnt. Verbinde Builder.io erneut und versuche diese Nachricht noch einmal.",
+    "Der Modellanbieter hat die gespeicherten Zugangsdaten abgelehnt. Aktualisiere deine Builder.io-Verbindung oder den Anbieterschlüssel und versuche diese Nachricht erneut.",
+  "codeRequired.builderAgentNotConnected":
+    "Builder Cloud Agents sind nicht verbunden. Verbinde Builder.io in den Einstellungen, um diese gehostete Codeänderung auszuführen. Modellanbieter-Schlüssel funktionieren weiterhin für Chats und andere KI-Funktionen, autorisieren aber nicht den Builder Cloud Agent.",
   "recovery.diagnoseRetry": "Diagnostizieren und erneut versuchen",
   "recovery.forkDescription":
     "Diese Unterhaltung in einen separaten Chat abzweigen.",
@@ -403,6 +406,12 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "KI verbinden, um den Chat zu starten...",
   "setup.connectToChat": "KI für den Chat verbinden",
   "setup.connectToStart": "KI verbinden, um den Chat zu starten",
+  "setup.checkingProvider": "KI-Verbindung wird geprüft…",
+  "setup.providerStatusUnavailable":
+    "KI-Verbindung konnte nicht geprüft werden.",
+  "agentNativeClips.meetingAsk.placeholder": "Frag einfach etwas",
+  "agentNativeClips.meetingAsk.ariaLabel":
+    "Stelle eine Frage zu diesem Meeting",
   "setup.connected": "Verbunden",
   "setup.connectedOrganization": "Verbunden – {{organization}}",
   "setup.connectedTo": "Mit {{organization}} verbunden",

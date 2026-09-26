@@ -50,6 +50,7 @@ import {
   reconnectProgressTimedOut,
   resolveAssistantChatSuggestionInputs,
   shouldShowAssistantChatSuggestions,
+  resolveAssistantChatProviderGate,
   resolveAssistantChatRunningState,
   resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatComposerPlaceholder,
@@ -200,6 +201,38 @@ describe("shouldShowAssistantChatSuggestions", () => {
   });
 });
 
+describe("resolveAssistantChatProviderGate", () => {
+  it.each([
+    ["unknown", true, false],
+    ["unavailable", true, false],
+    ["missing", true, true],
+    ["configured", false, false],
+  ] as const)(
+    "blocks on %s status without confusing unresolved state with missing setup",
+    (state, blocked, setupRequired) => {
+      const result = resolveAssistantChatProviderGate({
+        enabled: true,
+        state,
+      });
+      expect(result.blocked).toBe(blocked);
+      expect(result.setupRequired).toBe(setupRequired);
+      expect(result.statusUnresolved).toBe(
+        state === "unknown" || state === "unavailable",
+      );
+    },
+  );
+
+  it("leaves local or externally managed runtimes usable", () => {
+    expect(
+      resolveAssistantChatProviderGate({ enabled: false, state: "unknown" }),
+    ).toEqual({
+      setupRequired: false,
+      statusUnresolved: false,
+      blocked: false,
+    });
+  });
+});
+
 describe("page composer geometry", () => {
   it("keeps the focused hero composer subtle and multiline content inset", () => {
     const styles = readFileSync("src/styles/agent-native.css", "utf8");
@@ -321,7 +354,7 @@ describe("AssistantChat thread restore and composer recovery", () => {
     expect(dequeueSource).toContain("isChatHistoryRestoring");
     expect(dequeueSource).toContain("chatHistoryRestoreInFlightRef.current");
     expect(source).toMatch(
-      /disabled=\{\s*isComposerDisabled \|\|\s*showMissingKeySetup \|\|\s*isChatHistoryRestoring\s*\}/,
+      /disabled=\{\s*isComposerDisabled \|\|\s*showMissingKeySetup \|\|\s*engineNotReady \|\|\s*isChatHistoryRestoring\s*\}/,
     );
   });
 
@@ -1974,7 +2007,7 @@ describe("missing agent engine setup", () => {
     expect(source).toContain('className="agent-composer-stack"');
     expect(messageComponents).toContain("agent-selection-attached-pill");
     expect(source).toContain("modelCatalogConfirmsMissing");
-    expect(source).toContain('agentEngineConfigured.state === "missing" &&');
+    expect(source).toContain('input.state === "missing"');
     expect(source).toContain("isProviderAuthenticationError(");
     expect(source).toContain("!isBuilderReconnectRunError(visibleRunError)");
     expect(source).toContain("!showProviderAuthSetup");
@@ -1984,19 +2017,20 @@ describe("missing agent engine setup", () => {
     expect(source).toContain("onDismiss={");
     expect(source).toContain("onRetry={");
     expect(source).toMatch(
-      /willQueue=\{\s*engineSetupRequired \|\|\s*isRunning \|\|/,
+      /willQueue=\{\s*engineNotReady \|\|\s*isRunning \|\|/,
     );
     expect(source).toContain("<BuilderSetupCard");
     expect(source).toContain('"agentChat.setup.connectPlaceholder"');
     expect(source).toContain('missingApiKeySetupLayout === "sidebar"');
     expect(source).toContain("missingKeyBouncePulse");
+    expect(source).toContain("attached={!showFileStorageGate}");
     expect(source).toContain(
-      "attached\n                                bouncePulse={missingKeyBouncePulse}",
+      "hasComposerAccessoryAboveStack ||\n                              showFileStorageGate",
     );
     expect(source).toContain('"agent-composer-area--attached-above"');
     expect(source).toContain("layout={missingApiKeySetupLayout}");
     expect(source).toMatch(
-      /disabled=\{\s*isComposerDisabled \|\|\s*showMissingKeySetup \|\|\s*isChatHistoryRestoring\s*\}/,
+      /disabled=\{\s*isComposerDisabled \|\|\s*showMissingKeySetup \|\|\s*engineNotReady \|\|\s*isChatHistoryRestoring\s*\}/,
     );
     expect(source).not.toContain("data-agent-composer-setup-position");
     expect(css).toContain(".agent-builder-setup-card--attached");
@@ -2006,6 +2040,19 @@ describe("missing agent engine setup", () => {
     );
     expect(css).toMatch(
       /@container agent-builder-setup \(max-width: 560px\)[\s\S]*?\.agent-builder-setup-card__actions[\s\S]*?flex-direction:\s*column;/s,
+    );
+  });
+
+  it("keeps a missing-provider composer disabled while auth recovery hides setup", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain(
+      "(engineSetupRequired || showProviderAuthSetup) && !authError;",
+    );
+    expect(source).toMatch(
+      /disabled=\{\s*isComposerDisabled \|\|\s*showMissingKeySetup \|\|\s*engineNotReady \|\|\s*isChatHistoryRestoring\s*\}/,
     );
   });
 
@@ -2023,8 +2070,8 @@ describe("missing agent engine setup", () => {
     const submitEnd = source.indexOf("const mcpResumeTimerRef", submitStart);
     const submitSource = source.slice(submitStart, submitEnd);
 
-    expect(dequeueSource).toContain("engineSetupRequired");
-    expect(submitSource).toContain("engineSetupRequired");
+    expect(dequeueSource).toContain("engineNotReady");
+    expect(submitSource).toContain("engineNotReady");
     expect(submitSource).toContain("queueForActiveRun");
     expect(submitSource).toContain("submissionTailRef");
     expect(submitSource).not.toContain(

@@ -5,7 +5,9 @@ import {
   useOptionalBlockRegistry,
 } from "@agent-native/core/blocks";
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
 import { uploadEditorImage } from "@agent-native/core/client/uploads";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import { imageDataSchema, type PlanBlock } from "@shared/plan-content";
 import {
@@ -1047,11 +1049,15 @@ function ImageBlock({
   planId?: string | null;
 }) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const canUploadImages =
+    import.meta.env.DEV || fileUploadStatus.data?.configured === true;
   const blockRegistry = useOptionalBlockRegistry();
   const ctx = blockRegistry?.ctx;
   const src = block.data.url ?? imageSrcForAsset(block.data.assetId);
   const editable = !!onChange && !editingDisabled;
   const [editOpen, setEditOpen] = useState(false);
+  const [storageSetupRequested, setStorageSetupRequested] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Opening the edit popover from the ⋯ dropdown item hits a Radix race: closing
@@ -1093,7 +1099,7 @@ function ImageBlock({
   async function handleReplaceFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
-    if (!file) return;
+    if (!file || !canUploadImages) return;
     const toastId = toast.loading(t("raw.document.replacingImage"));
     try {
       const { src: nextSrc, alt: nextAlt } = await uploadEditorImage(file);
@@ -1154,11 +1160,17 @@ function ImageBlock({
           type="file"
           accept="image/*"
           className="hidden"
+          disabled={!canUploadImages}
           tabIndex={-1}
           aria-hidden="true"
           onChange={handleReplaceFile}
         />
       )}
+      {!canUploadImages && storageSetupRequested ? (
+        <div className="mb-4">
+          <FileStorageSetupCard />
+        </div>
+      ) : null}
       {src ? (
         <PlanImageViewer
           src={src}
@@ -1171,7 +1183,17 @@ function ImageBlock({
             block.data.fit === "cover" ? "object-cover" : "object-contain",
           )}
           onEdit={editable ? openEdit : undefined}
-          onReplace={editable ? () => fileInputRef.current?.click() : undefined}
+          onReplace={
+            editable
+              ? () => {
+                  if (!canUploadImages) {
+                    setStorageSetupRequested(true);
+                    return;
+                  }
+                  fileInputRef.current?.click();
+                }
+              : undefined
+          }
         />
       ) : (
         <div className="mt-4 flex h-48 items-center justify-center rounded-lg border border-dashed border-plan-line bg-plan-block text-plan-muted">

@@ -8,6 +8,7 @@ const collab = vi.hoisted(() => ({
   initialization: { status: "loading" as "loading" | "ready" },
 }));
 const editorProps = vi.hoisted(() => vi.fn());
+const fileStorage = vi.hoisted(() => ({ configured: false }));
 
 vi.mock("@agent-native/core/client/collab", () => ({
   useCollaborativeDoc: () => ({
@@ -27,8 +28,16 @@ vi.mock("@agent-native/toolkit/editor", () => ({
 }));
 vi.mock("@agent-native/core/client/uploads", () => ({
   uploadEditorImage: vi.fn(),
+  useFileUploadStatus: () => ({ data: { configured: fileStorage.configured } }),
 }));
-vi.mock("./PlanImageNode", () => ({ PlanImageNode: {} }));
+vi.mock("@agent-native/core/client/setup-connections", () => ({
+  FileStorageSetupCard: () => null,
+}));
+vi.mock("./PlanImageNode", () => ({
+  PlanImageNode: {
+    configure: (options: unknown) => ({ options }),
+  },
+}));
 
 import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
 
@@ -36,6 +45,7 @@ describe("PlanMarkdownEditor collaboration initialization", () => {
   beforeEach(() => {
     editorProps.mockClear();
     collab.initialization = { status: "loading" };
+    fileStorage.configured = false;
   });
 
   it("keeps the non-collaborative fallback inert until state is ready", () => {
@@ -62,5 +72,33 @@ describe("PlanMarkdownEditor collaboration initialization", () => {
       interactive: true,
     });
     act(() => root.unmount());
+  });
+
+  it("disables image upload affordances until file storage is configured", () => {
+    vi.stubEnv("DEV", false);
+    const props = {
+      markdown: "Canonical body",
+      onSave: vi.fn(),
+    };
+
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    act(() => root.render(<PlanMarkdownEditor {...props} />));
+
+    expect(editorProps.mock.lastCall?.[0]).toMatchObject({
+      onImageUpload: null,
+      slashItems: [],
+      extraExtensions: [{ options: { onImageUpload: null } }],
+    });
+
+    fileStorage.configured = true;
+    act(() => root.render(<PlanMarkdownEditor {...props} />));
+    expect(editorProps.mock.lastCall?.[0]).toMatchObject({
+      onImageUpload: expect.any(Function),
+      slashItems: [{}],
+      extraExtensions: [{ options: { onImageUpload: expect.any(Function) } }],
+    });
+    act(() => root.unmount());
+    vi.unstubAllEnvs();
   });
 });

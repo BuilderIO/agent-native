@@ -97,10 +97,12 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "Conecta tu propio modelo de IA",
   "onboarding.capability.fileStorage.keySummary":
     "Carga y almacenamiento de archivos",
-  "onboarding.fileStorage.title": "Elige el almacenamiento de archivos",
+  "onboarding.fileStorage.title": "Conecta almacenamiento para subir archivos",
   "onboarding.fileStorage.description":
-    "Elige el almacenamiento administrado de Builder o tus propias claves para un bucket compatible con S3.",
-  "onboarding.fileStorage.custom": "Usar claves de almacenamiento propias",
+    "Conecta Builder.io (gratis) o configura tu propio almacenamiento de objetos compatible con S3.",
+  "onboarding.fileStorage.reconnectBuilder": "Volver a conectar Builder.io",
+  "onboarding.fileStorage.custom":
+    "Añadir tus propias claves de almacenamiento",
   "onboarding.fileStorage.customDescription":
     "Configura un bucket compatible con S3 con una URL pública estable.",
   "onboarding.capability.voiceInput.label": "Entrada de voz",
@@ -341,7 +343,9 @@ const messages: AgentChatTranslation = {
   "recovery.copyDebug": "Copiar información de depuración",
   "recovery.copyFailed": "Error al copiar",
   "recovery.credentialRejected":
-    "La credencial actual de Builder.io o del proveedor de modelos fue rechazada. Vuelve a conectar Builder.io y reintenta este mensaje.",
+    "El proveedor del modelo rechazó las credenciales guardadas. Actualiza tu conexión con Builder.io o la clave del proveedor y vuelve a intentarlo.",
+  "codeRequired.builderAgentNotConnected":
+    "Builder Cloud Agents no está conectado. Conecta Builder.io en Configuración para ejecutar esta operación alojada de cambios de código. Las claves de proveedores de modelos siguen funcionando en el chat y otras funciones de IA, pero no autorizan al Builder Cloud Agent.",
   "recovery.diagnoseRetry": "Diagnosticar y reintentar",
   "recovery.forkDescription":
     "Bifurca esta conversación en un hilo de chat independiente.",
@@ -399,6 +403,11 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "Conecta la IA para empezar a chatear...",
   "setup.connectToChat": "Conectar la IA al chat",
   "setup.connectToStart": "Conecta la IA para empezar a chatear",
+  "setup.checkingProvider": "Comprobando la conexión de IA…",
+  "setup.providerStatusUnavailable": "No se pudo comprobar la conexión de IA.",
+  "agentNativeClips.meetingAsk.placeholder": "Pregunta lo que quieras",
+  "agentNativeClips.meetingAsk.ariaLabel":
+    "Pregunta lo que quieras sobre esta reunión",
   "setup.connected": "Conectado",
   "setup.connectedOrganization": "Conectado — {{organization}}",
   "setup.connectedTo": "Conectado a {{organization}}",

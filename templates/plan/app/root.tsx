@@ -164,6 +164,7 @@ function AppContent() {
         onOpenChange={setCmdkOpen}
         changelog={changelog}
         changelogKey="plan"
+        chatStorageKey="plans"
       >
         <CommandMenu.Group heading={t("root.commandActions")}>
           <CommandMenu.Item onSelect={() => go("/chat")}>

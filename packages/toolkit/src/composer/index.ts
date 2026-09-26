@@ -19,6 +19,7 @@ export {
   displayableComposerModeMessage,
   getComposerSubmitIntentForEnterKey,
   handleComposerFileDrop,
+  isLocalRuntimeEngine,
   insertComposerHardBreakAndScrollIntoView,
   type ComposerSubmitIntent,
   type TiptapComposerHandle,

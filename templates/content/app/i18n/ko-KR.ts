@@ -1135,6 +1135,13 @@ const history = {
 };
 
 const overrides = {
+  close: "닫기",
+  setup: { checkingProvider: "AI 연결을 확인하는 중…" },
+  onboarding: {
+    fileStorage: {
+      title: "파일 업로드를 위해 저장소 연결",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,

@@ -2,11 +2,13 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
+  fetchVideoStorageStatus: vi.fn(),
   invalidateQueries: vi.fn(),
+  onStorageSetupRequired: vi.fn(),
   probeVideoMetadata: vi.fn(),
   resolveVideoMimeType: vi.fn(),
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
@@ -23,6 +25,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+}));
+vi.mock("@/hooks/use-video-storage-status", () => ({
+  fetchVideoStorageStatus: (...args: unknown[]) =>
+    mocks.fetchVideoStorageStatus(...args),
 }));
 vi.mock("@shared/recording-core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@shared/recording-core")>()),
@@ -66,7 +72,7 @@ function Probe({
 }: {
   scope?: { spaceId?: string | null; folderId?: string | null };
 }) {
-  const state = useDropVideoUpload(scope);
+  const state = useDropVideoUpload(scope, mocks.onStorageSetupRequired);
   uploadFiles = state.uploadFiles;
   return <span>{state.uploads.length}</span>;
 }
@@ -78,7 +84,52 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+beforeEach(() => {
+  mocks.fetchVideoStorageStatus.mockResolvedValue({ configured: true });
+});
+
 describe("useDropVideoUpload", () => {
+  it("does not create a row when video storage is missing", async () => {
+    mocks.fetchVideoStorageStatus.mockResolvedValue({ configured: false });
+    mocks.resolveVideoMimeType.mockReturnValue("video/mp4");
+
+    container = document.createElement("div");
+    root = createRoot(container);
+    act(() => root.render(<Probe />));
+    act(() => uploadFiles([new File(["video"], "video.mp4")]));
+
+    await vi.waitFor(() =>
+      expect(mocks.onStorageSetupRequired).toHaveBeenCalledWith("missing"),
+    );
+    await vi.waitFor(() => expect(container.textContent).toBe("0"));
+    expect(mocks.callAction).not.toHaveBeenCalled();
+    expect(mocks.probeVideoMetadata).not.toHaveBeenCalled();
+    expect(mocks.toast.error).toHaveBeenCalledWith(
+      "clipsFinalRaw.connectStorageToFinish",
+    );
+  });
+
+  it("keeps storage status failures distinct from missing storage", async () => {
+    mocks.fetchVideoStorageStatus.mockRejectedValue(
+      new Error("status unavailable"),
+    );
+    mocks.resolveVideoMimeType.mockReturnValue("video/mp4");
+
+    container = document.createElement("div");
+    root = createRoot(container);
+    act(() => root.render(<Probe />));
+    act(() => uploadFiles([new File(["video"], "video.mp4")]));
+
+    await vi.waitFor(() =>
+      expect(mocks.onStorageSetupRequired).toHaveBeenCalledWith("unavailable"),
+    );
+    expect(mocks.callAction).not.toHaveBeenCalled();
+    expect(mocks.probeVideoMetadata).not.toHaveBeenCalled();
+    expect(mocks.toast.error).toHaveBeenCalledWith(
+      "meetingsRoute.calendarStatusUnavailable",
+    );
+  });
+
   it("uploads dropped files one at a time", async () => {
     let finishFirstUpload!: (response: Response) => void;
     const firstUpload = new Promise<Response>((resolve) => {

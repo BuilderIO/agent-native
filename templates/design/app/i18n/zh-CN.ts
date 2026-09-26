@@ -174,6 +174,18 @@ export default {
     notFoundBackToDesigns: "返回设计",
     teamCreateOrgDescription: "设置团队，与同事共享设计。",
   },
+  onboarding: {
+    fileStorage: {
+      title: "连接存储以上传文件",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "正在检查 AI 连接…",
+      providerStatusUnavailable: "无法检查 AI 连接。",
+    },
+    common: { retry: "重试" },
+  },
   chat: {
     emptyState: "描述要创建的设计",
     suggestionLandingPage: "为我的初创公司设计落地页",

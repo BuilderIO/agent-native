@@ -1,4 +1,11 @@
 const messages = {
+  agentChat: {
+    setup: {
+      checkingProvider: "KI-Verbindung wird geprüft…",
+      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+    },
+    common: { retry: "Erneut versuchen" },
+  },
   timelineTrack: {
     helpOtherSide:
       "Klicken Sie zuerst diesen Abschnitt an und ziehen Sie dann die rote Linie nach rechts.",

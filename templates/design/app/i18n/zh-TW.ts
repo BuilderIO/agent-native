@@ -266,6 +266,18 @@ export default {
       saveFailed: "無法更新審閱狀態",
     },
   },
+  onboarding: {
+    fileStorage: {
+      title: "連接儲存空間以上傳檔案",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "正在檢查 AI 連線…",
+      providerStatusUnavailable: "無法檢查 AI 連線。",
+    },
+    common: { retry: "重試" },
+  },
   chat: {
     emptyState: "描述要建立的設計",
     suggestionLandingPage: "為我的初創公司設計落地頁面",

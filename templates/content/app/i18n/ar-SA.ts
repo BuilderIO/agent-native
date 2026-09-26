@@ -1130,6 +1130,13 @@ const history = {
 };
 
 const overrides = {
+  close: "إغلاق",
+  setup: { checkingProvider: "جارٍ التحقق من اتصال الذكاء الاصطناعي…" },
+  onboarding: {
+    fileStorage: {
+      title: "اختر تخزين الملفات",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,

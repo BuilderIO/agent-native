@@ -85,10 +85,11 @@ const messages: AgentChatTranslation = {
   "onboarding.openBackgroundAgentSettings": "開啟背景代理程式設定",
   "onboarding.capability.llm.keySummary": "連線您自己的 AI 模型",
   "onboarding.capability.fileStorage.keySummary": "檔案上傳與儲存",
-  "onboarding.fileStorage.title": "選擇檔案儲存空間",
+  "onboarding.fileStorage.title": "連接儲存空間以上傳檔案",
   "onboarding.fileStorage.description":
-    "選擇 Builder 託管儲存空間，或為自己的相容 S3 儲存桶使用自訂儲存金鑰。",
-  "onboarding.fileStorage.custom": "使用自訂儲存金鑰",
+    "連接 Builder.io（免費）或設定自己的相容 S3 物件儲存空間。",
+  "onboarding.fileStorage.reconnectBuilder": "重新連接 Builder.io",
+  "onboarding.fileStorage.custom": "新增自己的物件儲存金鑰",
   "onboarding.fileStorage.customDescription":
     "設定具有穩定公開 URL 的相容 S3 儲存桶。",
   "onboarding.capability.voiceInput.label": "語音輸入",
@@ -617,7 +618,9 @@ const messages: AgentChatTranslation = {
   "recovery.copyDebug": "複製偵錯資訊",
   "recovery.copyFailed": "複製失敗",
   "recovery.credentialRejected":
-    "目前的 Builder.io 或模型供應商憑證遭到拒絕。請重新連線至 Builder.io，然後重試這則訊息。",
+    "模型供應商拒絕了已儲存的憑證。請更新 Builder.io 連線或供應商金鑰，然後重試這則訊息。",
+  "codeRequired.builderAgentNotConnected":
+    "Builder Cloud Agents 尚未連線。請在設定中連線 Builder.io，以執行這項託管程式碼變更作業。模型供應商金鑰仍可用於聊天和其他 AI 功能，但不能授權使用 Builder Cloud Agent。",
   "recovery.diagnoseRetry": "診斷並重試",
   "recovery.forkDescription": "將這段對話建立為獨立的聊天討論串。",
   "recovery.forkFailed": "無法建立這個聊天的分支。請嘗試開始新聊天。",
@@ -671,6 +674,10 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "連線 AI 以開始聊天...",
   "setup.connectToChat": "連線 AI 以聊天",
   "setup.connectToStart": "連線 AI 以開始聊天",
+  "setup.checkingProvider": "正在檢查 AI 連線…",
+  "setup.providerStatusUnavailable": "無法檢查 AI 連線。",
+  "agentNativeClips.meetingAsk.placeholder": "隨便問些什麼",
+  "agentNativeClips.meetingAsk.ariaLabel": "詢問這場會議的任何問題",
   "setup.connected": "已連線",
   "setup.connectedOrganization": "已連線 — {{organization}}",
   "setup.connectedTo": "已連線至 {{organization}}",

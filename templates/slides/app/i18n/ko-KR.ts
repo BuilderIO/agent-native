@@ -109,7 +109,7 @@ const messages = {
       "Google PickerにはGOOGLE_PICKER_API_KEYとGOOGLE_PICKER_APP_IDが必要です。",
     imageUploadFailed: "画像のアップロードに失敗しました",
     imageUploadNeedsBuilder:
-      "슬라이드에 이미지를 업로드하려면 에이전트 작성기의 모델 메뉴에서 Builder.io를 연결하세요. 빈 캔버스에 이미지를 놓으면 제공자 없이도 에이전트로 보낼 수 있습니다.",
+      "이미지를 업로드하려면 개체 스토리지를 연결하세요. Builder.io(무료)를 연결하거나 설정 → 파일 업로드에서 자체 S3 호환 스토리지 키를 추가하세요.",
     sentToAgent: "エージェントに送信しました",
     imageUploadGenericError: "この画像のアップロード中に問題が発生しました。",
     uploading: "アップロード中…",
@@ -628,6 +628,12 @@ const messages = {
     lookingForDeck: "正在查找此幻灯片",
     joinTeamToOpen: "加入团队以打开此幻灯片",
     deckUnavailable: "幻灯片不可用",
+    generationStalled: "5분 동안 진행되지 않아 생성을 일시 중지했습니다",
+    generationStalledDescription:
+      "저장된 슬라이드는 그대로 있습니다. 채팅에서 이 덱의 생성을 이어가세요.",
+    continueInChat: "채팅에서 이어가기",
+    continueGenerationPrompt:
+      "이 덱의 슬라이드 생성을 계속하세요. 먼저 현재 슬라이드와 저장된 생성 컨텍스트를 확인하세요. 완료된 슬라이드는 유지하고 누락된 슬라이드만 추가하세요.",
     checkingSharedAccess: "正在检查此演示文稿是否与你的账户共享。",
     joinTeamDescription:
       "此链接指向团队演示文稿。加入上方显示的团队后，幻灯片会自动在此打开。",
@@ -676,7 +682,7 @@ const messages = {
     tryAgain: "다시 시도",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:
-      "슬라이드에 이미지를 업로드하려면 에이전트 작성기의 모델 메뉴에서 Builder.io를 연결하세요. 빈 캔버스에 이미지를 놓으면 제공자 없이도 에이전트로 보낼 수 있습니다.",
+      "이미지를 업로드하려면 개체 스토리지를 연결하세요. Builder.io(무료)를 연결하거나 설정 → 파일 업로드에서 자체 S3 호환 스토리지 키를 추가하세요.",
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
@@ -788,6 +794,10 @@ const messages = {
     loadFailedDescription:
       "저장된 콘텐츠는 그대로 있습니다. 연결을 확인하고 다시 시도하세요.",
     retry: "다시 시도",
+    fileStorageStatusUnavailable:
+      "개체 스토리지 상태를 확인할 수 없습니다. 파일을 업로드하기 전에 다시 시도하세요.",
+    fileStorageSetupRequired:
+      "연결된 개체 스토리지가 없습니다. 무료 Builder.io를 연결하거나 설정 → 파일 업로드에서 자체 S3 호환 스토리지 키를 추가하세요.",
     decksTitle: "덱",
     newDeck: "새 덱",
     deckLengthQuestion: "이 덱은 얼마나 길어야 하나요?",

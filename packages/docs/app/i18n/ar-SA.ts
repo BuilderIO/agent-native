@@ -1,6 +1,13 @@
 import enUS from "./en-US";
 
 const arSA = {
+  agentChat: {
+    setup: {
+      checkingProvider: "جارٍ التحقق من اتصال الذكاء الاصطناعي…",
+      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+    },
+    common: { retry: "إعادة المحاولة" },
+  },
   language: {
     label: "اللغة",
     system: "النظام",

@@ -6,8 +6,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import {
   canInlineImageFile,
   buildImageDropAgentPayload,
@@ -35,10 +37,8 @@ interface ImageDropPromptPopoverProps {
  * existing `<img>`). The popover previews the image, lets the user describe
  * what to do with it, and hands the task off to the agent chat.
  *
- * Prefers a hosted CDN URL via `/api/assets/upload` when a file-upload
- * provider (Builder.io / S3 / …) is configured. When nothing is configured,
- * falls back to an inline data-URL attachment within Core's request limit so
- * the drop still reaches the agent instead of toasting a 503.
+ * Uploads the image to the configured object storage before handing the task
+ * off to the agent. A missing provider opens the shared storage setup path.
  *
  * Why this exists: dropping image files onto an unclear target previously did
  * one of two unhelpful things — opened the file in a new browser tab (when the
@@ -55,6 +55,9 @@ export default function ImageDropPromptPopover({
   onClose,
 }: ImageDropPromptPopoverProps) {
   const t = useT();
+  const storageQuery = useSlideFileStorageStatus(open);
+  const fileStorageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
   const [prompt, setPrompt] = useState("");
   const [uploading, setUploading] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -106,7 +109,7 @@ export default function ImageDropPromptPopover({
     const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
     const vh = typeof window !== "undefined" ? window.innerHeight : 768;
     const width = POPOVER_WIDTH;
-    const height = 320;
+    const height = 460;
     let left = position.x - width / 2;
     let top = position.y + POPOVER_MARGIN;
     if (left < POPOVER_MARGIN) left = POPOVER_MARGIN;
@@ -121,13 +124,13 @@ export default function ImageDropPromptPopover({
   if (!open || !file) return null;
 
   const handleSubmit = async () => {
-    if (!file) return;
+    if (!file || !fileStorageConfigured) return;
     setUploading(true);
     try {
       const form = new FormData();
       form.append("file", file);
-      // Prefer the hosted provider chain. When none is configured the route
-      // returns 503 — fall back to an inline data URL for inline-safe images.
+      // A no-storage response opens setup; inline fallback is only for
+      // transient upload failures.
       const res = await fetch(`${appBasePath()}/api/assets/upload`, {
         method: "POST",
         body: form,
@@ -146,6 +149,11 @@ export default function ImageDropPromptPopover({
       const dataUrl = canInlineImageFile(file)
         ? await readFileAsDataUrl(file)
         : undefined;
+
+      if (!upload.ok && upload.status === 503) {
+        await storageQuery.refetch();
+        return;
+      }
 
       const payload = buildImageDropAgentPayload({
         intent: prompt,
@@ -224,6 +232,15 @@ export default function ImageDropPromptPopover({
       )}
 
       <div className="px-3 pb-3">
+        {!storageQuery.isLoading ? (
+          <div className="mb-3">
+            <UploadStorageGate
+              configured={fileStorageConfigured}
+              unavailable={storageQuery.isError}
+              onRetry={() => void storageQuery.refetch()}
+            />
+          </div>
+        ) : null}
         <Textarea
           ref={textareaRef}
           value={prompt}
@@ -239,7 +256,7 @@ export default function ImageDropPromptPopover({
           }}
           placeholder={t("raw.imagePromptPlaceholder")}
           rows={3}
-          disabled={uploading}
+          disabled={uploading || !fileStorageConfigured}
           className="resize-none text-sm"
         />
         <div className="mt-2 flex items-center justify-end gap-2">
@@ -256,7 +273,7 @@ export default function ImageDropPromptPopover({
             type="button"
             size="sm"
             onClick={() => void handleSubmit()}
-            disabled={uploading}
+            disabled={uploading || !fileStorageConfigured}
           >
             {uploading ? (
               <span className="inline-flex items-center gap-1.5">
