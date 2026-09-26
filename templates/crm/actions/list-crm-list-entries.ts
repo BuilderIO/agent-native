@@ -1,9 +1,13 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, asc, eq, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  crmScopeResolver,
+  recordsInCurrentScope,
+} from "../server/lib/crm-query.js";
 import {
   attributeSummary,
   buildEntryFilter,
@@ -20,6 +24,10 @@ import {
   MAX_LIST_ENTRY_SORTS,
   requireCrmList,
 } from "./_crm-list-utils.js";
+
+// ponytail: bounds the reads per call when most rows are withheld; the page
+// comes back short with a cursor instead of scanning the whole list.
+const MAX_SCOPE_FILL_BATCHES = 5;
 
 const filterValueSchema = z.union([
   z.string().max(500),
@@ -69,7 +77,8 @@ export default defineAction({
   }),
   http: { method: "POST" },
   readOnly: true,
-  run: async (args) => {
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  run: async (args, ctx?: ActionRunContext) => {
     const db = getDb();
     const list = await requireCrmList(db, args.listId, "viewer");
     const attributes = await loadCrmListAttributes(db, list.id);
@@ -88,56 +97,91 @@ export default defineAction({
     const offset = decodeCrmCursor(args.cursor);
     const limit = Math.min(args.limit, MAX_LIST_ENTRY_LIMIT);
 
-    let query = db
-      .select({
-        entryId: schema.crmListEntries.id,
-        position: schema.crmListEntries.position,
-        createdAt: schema.crmListEntries.createdAt,
-        createdByActorType: schema.crmListEntries.createdByActorType,
-        createdByActorId: schema.crmListEntries.createdByActorId,
-        recordId: schema.crmRecords.id,
-        objectType: schema.crmRecords.objectType,
-        kind: schema.crmRecords.kind,
-        displayName: schema.crmRecords.displayName,
-        primaryEmail: schema.crmRecords.primaryEmail,
-        domain: schema.crmRecords.domain,
-        recordStage: schema.crmRecords.stage,
-        ownerName: schema.crmRecords.ownerName,
-        amount: schema.crmRecords.amount,
-        currencyCode: schema.crmRecords.currencyCode,
-        closeDate: schema.crmRecords.closeDate,
-        recordUpdatedAt: schema.crmRecords.updatedAt,
-      })
-      .from(schema.crmListEntries)
-      .innerJoin(
-        schema.crmRecords,
-        eq(schema.crmRecords.id, schema.crmListEntries.recordId),
-      )
-      .$dynamic();
+    const selectEntries = (at: number, size: number) => {
+      let query = db
+        .select({
+          entryId: schema.crmListEntries.id,
+          position: schema.crmListEntries.position,
+          createdAt: schema.crmListEntries.createdAt,
+          createdByActorType: schema.crmListEntries.createdByActorType,
+          createdByActorId: schema.crmListEntries.createdByActorId,
+          recordId: schema.crmRecords.id,
+          objectType: schema.crmRecords.objectType,
+          kind: schema.crmRecords.kind,
+          displayName: schema.crmRecords.displayName,
+          primaryEmail: schema.crmRecords.primaryEmail,
+          domain: schema.crmRecords.domain,
+          recordStage: schema.crmRecords.stage,
+          ownerName: schema.crmRecords.ownerName,
+          amount: schema.crmRecords.amount,
+          currencyCode: schema.crmRecords.currencyCode,
+          closeDate: schema.crmRecords.closeDate,
+          recordUpdatedAt: schema.crmRecords.updatedAt,
+          connectionId: schema.crmRecords.connectionId,
+          provider: schema.crmRecords.provider,
+          accessScopeJson: schema.crmRecords.accessScopeJson,
+          workspaceConnectionId: schema.crmConnections.workspaceConnectionId,
+        })
+        .from(schema.crmListEntries)
+        .innerJoin(
+          schema.crmRecords,
+          eq(schema.crmRecords.id, schema.crmListEntries.recordId),
+        )
+        .innerJoin(
+          schema.crmConnections,
+          eq(schema.crmRecords.connectionId, schema.crmConnections.id),
+        )
+        .$dynamic();
+      for (const join of resolver.joins) {
+        query = query.leftJoin(join.table, join.on);
+      }
+      return query
+        .where(
+          and(
+            eq(schema.crmListEntries.listId, list.id),
+            ...conditions,
+            accessFilter(schema.crmListEntries, schema.crmListEntryShares),
+            accessFilter(schema.crmRecords, schema.crmRecordShares),
+            accessFilter(schema.crmConnections, schema.crmConnectionShares),
+          ),
+        )
+        .orderBy(
+          ...order,
+          asc(schema.crmListEntries.position),
+          asc(schema.crmListEntries.createdAt),
+          asc(schema.crmListEntries.id),
+        )
+        .limit(size)
+        .offset(at);
+    };
 
-    for (const join of resolver.joins) {
-      query = query.leftJoin(join.table, join.on);
+    // Entries whose record is out of the current provider scope are dropped
+    // after SQL, so keep reading until the page is full: a short page would
+    // hide visible entries behind withheld ones, and the cursor never moves
+    // past a row that was not returned.
+    const scopeResolver = crmScopeResolver(ctx);
+    const kept: Array<{
+      row: Awaited<ReturnType<typeof selectEntries>>[number];
+      at: number;
+    }> = [];
+    let scanned = offset;
+    let exhausted = false;
+    for (
+      let batch = 0;
+      batch < MAX_SCOPE_FILL_BATCHES && kept.length <= limit && !exhausted;
+      batch++
+    ) {
+      const rows = await selectEntries(scanned, limit + 1);
+      exhausted = rows.length < limit + 1;
+      const inScope = new Set(await recordsInCurrentScope(rows, scopeResolver));
+      rows.forEach((row, index) => {
+        if (inScope.has(row)) kept.push({ row, at: scanned + index });
+      });
+      scanned += rows.length;
     }
-
-    const rows = await query
-      .where(
-        and(
-          eq(schema.crmListEntries.listId, list.id),
-          ...conditions,
-          accessFilter(schema.crmListEntries, schema.crmListEntryShares),
-          accessFilter(schema.crmRecords, schema.crmRecordShares),
-        ),
-      )
-      .orderBy(
-        ...order,
-        asc(schema.crmListEntries.position),
-        asc(schema.crmListEntries.createdAt),
-        asc(schema.crmListEntries.id),
-      )
-      .limit(limit + 1)
-      .offset(offset);
-
-    const page = rows.slice(0, limit);
+    const page = kept.slice(0, limit).map((entry) => entry.row);
+    const nextAt =
+      kept.length > limit ? kept[limit]!.at : exhausted ? undefined : scanned;
     const values = await loadCrmEntryValues(
       db,
       page.map((row) => row.entryId),
@@ -185,8 +229,8 @@ export default defineAction({
           valuesSince: entryValues.valuesSince,
         };
       }),
-      nextCursor: rows.length > limit ? String(offset + limit) : undefined,
-      complete: rows.length <= limit,
+      nextCursor: nextAt === undefined ? undefined : String(nextAt),
+      complete: nextAt === undefined,
     };
   },
 });

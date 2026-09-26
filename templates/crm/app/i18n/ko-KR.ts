@@ -370,6 +370,8 @@ const messages = {
     unavailableTitle: "이 CRM 레코드를 사용할 수 없습니다",
     unavailableDescription:
       "삭제되었거나 접근할 수 있는 레코드 범위 밖일 수 있습니다.",
+    withheld:
+      "연결된 CRM에서 이 레코드에 대한 액세스 권한이 변경되었습니다. 다음 동기화까지 숨겨집니다.",
     panelLoadFailed: "레코드 패널을 불러오지 못했습니다.",
     saveFailed: "변경 사항을 저장하지 못했습니다.",
     signals: "신호",

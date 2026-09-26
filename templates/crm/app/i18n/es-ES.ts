@@ -371,6 +371,8 @@ const messages = {
     unavailableTitle: "Este registro de CRM no está disponible",
     unavailableDescription:
       "Puede que se haya eliminado o que esté fuera de los registros a los que tienes acceso.",
+    withheld:
+      "El acceso a este registro cambió en el CRM conectado. Permanece oculto hasta la próxima sincronización.",
     panelLoadFailed: "No se pudo cargar el panel del registro.",
     saveFailed: "No se pudo guardar el cambio.",
     signals: "Señales",

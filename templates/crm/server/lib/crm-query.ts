@@ -14,6 +14,7 @@
  *    scalar subquery over the current row.
  */
 
+import type { ActionRunContext } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
@@ -49,7 +50,10 @@ import {
 import { getDb, schema } from "../db/index.js";
 
 const MAX_RECORD_LIMIT = 100;
-const MAX_SCOPE_VALIDATIONS = 20;
+const MAX_CONCURRENT_SCOPE_CHECKS = 20;
+// A mostly withheld page may come back short with a cursor; the cap keeps one
+// call from scanning a whole table.
+const MAX_SCOPE_FILL_BATCHES = 5;
 
 /** A filter the caller must fix before retrying — surfaces as HTTP 422. */
 export class CrmFilterError extends Error {
@@ -1204,26 +1208,82 @@ export type CrmScopeResolver = (
   target: ScopeValidationTarget,
 ) => Promise<CrmAccessScope | null>;
 
-async function defaultScopeResolver(
-  target: ScopeValidationTarget,
-): Promise<CrmAccessScope | null> {
-  if (target.provider === "native") {
-    return resolveNativeCrmAccessScope({
-      connectionId: target.connectionId,
-      objectType: target.objectType,
+/**
+ * Resolves the scope the provider (or the native ownership model) grants the
+ * caller right now. Connected providers are asked as the calling user when the
+ * action context names one.
+ */
+export function crmScopeResolver(
+  ctx?: Pick<ActionRunContext, "userEmail" | "orgId">,
+): CrmScopeResolver {
+  return async (target) => {
+    if (target.provider === "native") {
+      return resolveNativeCrmAccessScope({
+        connectionId: target.connectionId,
+        objectType: target.objectType,
+      });
+    }
+    if (
+      !isConnectedCrmProvider(target.provider) ||
+      !target.workspaceConnectionId
+    ) {
+      return null;
+    }
+    const adapter = await createConnectedCrmAdapter({
+      provider: target.provider,
+      connectionId: target.workspaceConnectionId,
+      ...(ctx?.userEmail ? { userEmail: ctx.userEmail } : {}),
+      ...(ctx?.orgId !== undefined ? { orgId: ctx.orgId } : {}),
     });
+    return adapter.getAccessScope(target.objectType);
+  };
+}
+
+/**
+ * Keeps only the mirrored rows whose stored access scope still matches the
+ * scope granted now, so a narrowed or revoked upstream grant withholds the
+ * local copy even while its rows and shares remain. A resolver failure is
+ * thrown, not read as revoked access, so an outage never looks like an empty
+ * or partial result.
+ */
+export async function recordsInCurrentScope<
+  T extends ScopeValidationTarget & { accessScopeJson: string },
+>(rows: T[], resolveScope: CrmScopeResolver): Promise<T[]> {
+  const targets = Array.from(
+    new Map(
+      rows.map((row) => [
+        `${row.connectionId}:${row.objectType}`,
+        {
+          connectionId: row.connectionId,
+          workspaceConnectionId: row.workspaceConnectionId,
+          provider: row.provider,
+          objectType: row.objectType,
+        },
+      ]),
+    ).values(),
+  );
+  // Do not cap the scopes checked: a skipped scope drops records the caller
+  // can still see.
+  const currentScopes = new Map<string, CrmAccessScope | null>();
+  for (let i = 0; i < targets.length; i += MAX_CONCURRENT_SCOPE_CHECKS) {
+    const batch = targets.slice(i, i + MAX_CONCURRENT_SCOPE_CHECKS);
+    const scopes = await Promise.all(
+      batch.map((target) => resolveScope(target)),
+    );
+    batch.forEach((target, index) =>
+      currentScopes.set(
+        `${target.connectionId}:${target.objectType}`,
+        scopes[index],
+      ),
+    );
   }
-  if (
-    !isConnectedCrmProvider(target.provider) ||
-    !target.workspaceConnectionId
-  ) {
-    return null;
-  }
-  const adapter = await createConnectedCrmAdapter({
-    provider: target.provider,
-    connectionId: target.workspaceConnectionId,
+  return rows.filter((row) => {
+    const current = currentScopes.get(`${row.connectionId}:${row.objectType}`);
+    return Boolean(
+      current &&
+      scopesAreCompatible(parseCrmAccessScope(row.accessScopeJson), current),
+    );
   });
-  return adapter.getAccessScope(target.objectType);
 }
 
 const SUMMARY_COLUMNS = new Set([
@@ -1393,27 +1453,68 @@ export async function queryCrmRecords(
     selection[`sortKey${index}`] = key.expression.as(`sort_key_${index}`);
   });
 
-  const rows = (await db
-    .select(selection as never)
-    .from(schema.crmRecords)
-    .innerJoin(
-      schema.crmConnections,
-      eq(schema.crmRecords.connectionId, schema.crmConnections.id),
-    )
-    .where(and(...pageConditions))
-    .orderBy(...orderByFor(keys))
-    .limit(limit + 1)) as unknown as Array<
-    SummaryRow & {
-      connectionId: string;
-      objectType: string;
-      provider: string;
-      accessScopeJson: string;
-      workspaceConnectionId: string | null;
-    } & Record<string, unknown>
-  >;
+  type RawRow = SummaryRow & {
+    connectionId: string;
+    objectType: string;
+    provider: string;
+    accessScopeJson: string;
+    workspaceConnectionId: string | null;
+  } & Record<string, unknown>;
 
-  const hasMore = rows.length > limit;
-  const pageRows = rows.slice(0, limit);
+  const fetchRows = (conds: SQL[], size: number) =>
+    db
+      .select(selection as never)
+      .from(schema.crmRecords)
+      .innerJoin(
+        schema.crmConnections,
+        eq(schema.crmRecords.connectionId, schema.crmConnections.id),
+      )
+      .where(and(...conds))
+      .orderBy(...orderByFor(keys))
+      .limit(size) as unknown as Promise<RawRow[]>;
+
+  const cursorAfter = (row: RawRow): SQL | undefined =>
+    keysetPredicate(keys, {
+      f: shape,
+      v: keys.map((_, index) => normalizeCursorValue(row[`sortKey${index}`])),
+      id: row.id,
+    });
+
+  // Rows whose stored access scope no longer matches the current one are
+  // dropped after SQL, so a withheld row must not use up a page slot: keep
+  // scanning further raw rows (bounded) until the page is full or the table
+  // runs out, and never report a withheld row as proof there is no more data.
+  const scopeResolver = options.resolveScope ?? crmScopeResolver();
+  const targetVisible = limit + 1; // one extra to know whether more remain
+  const kept: RawRow[] = [];
+  let scanConditions = pageConditions;
+  let lastRawRow: RawRow | undefined;
+  let exhausted = false;
+  let anyWithheld = false;
+  for (
+    let batch = 0;
+    batch < MAX_SCOPE_FILL_BATCHES && kept.length < targetVisible && !exhausted;
+    batch++
+  ) {
+    const need = targetVisible - kept.length;
+    const rawRows = await fetchRows(scanConditions, need);
+    if (!rawRows.length) {
+      exhausted = true;
+      break;
+    }
+    exhausted = rawRows.length < need;
+    lastRawRow = rawRows[rawRows.length - 1];
+    const visible = await recordsInCurrentScope(rawRows, scopeResolver);
+    if (visible.length < rawRows.length) anyWithheld = true;
+    kept.push(...visible);
+    if (!exhausted) {
+      const after = cursorAfter(lastRawRow);
+      scanConditions = after ? [...conditions, after] : conditions;
+    }
+  }
+
+  const hasMore = kept.length > limit;
+  const pageRows = kept.slice(0, limit);
   const last = pageRows[pageRows.length - 1];
   const nextCursor =
     hasMore && last
@@ -1424,49 +1525,24 @@ export async function queryCrmRecords(
           ),
           id: last.id,
         } satisfies CursorPayload)
-      : undefined;
-
-  const resolveScope = options.resolveScope ?? defaultScopeResolver;
-  const scopeTargets = Array.from(
-    new Map(
-      pageRows.map((row) => [
-        `${row.connectionId}:${row.objectType}`,
-        {
-          connectionId: row.connectionId,
-          workspaceConnectionId: row.workspaceConnectionId,
-          provider: row.provider,
-          objectType: row.objectType,
-        },
-      ]),
-    ).values(),
-  ).slice(0, MAX_SCOPE_VALIDATIONS);
-  const currentScopes = new Map(
-    await Promise.all(
-      scopeTargets.map(
-        async (target) =>
-          [
-            `${target.connectionId}:${target.objectType}`,
-            await resolveScope(target).catch(() => null),
-          ] as const,
-      ),
-    ),
-  );
+      : !exhausted && lastRawRow
+        ? JSON.stringify({
+            f: shape,
+            v: keys.map((_, index) =>
+              normalizeCursorValue(lastRawRow![`sortKey${index}`]),
+            ),
+            id: lastRawRow.id,
+          } satisfies CursorPayload)
+        : undefined;
 
   const columnNames = view?.columns.map((column) => column.attributeId);
-  const records = pageRows
-    .filter((row) => {
-      const current = currentScopes.get(
-        `${row.connectionId}:${row.objectType}`,
-      );
-      return Boolean(
-        current &&
-        scopesAreCompatible(parseCrmAccessScope(row.accessScopeJson), current),
-      );
-    })
-    .map((row) => toRecordSummary(row, columnNames));
+  const records = pageRows.map((row) => toRecordSummary(row, columnNames));
 
+  // A count taken before scope revalidation would disclose the existence of
+  // rows the caller's provider access no longer covers; omit it rather than
+  // publish a number the visible rows cannot account for.
   let totalEstimate: number | undefined;
-  if (input.includeTotal) {
+  if (input.includeTotal && !anyWithheld) {
     const [count] = await db
       .select({ total: sql<number>`count(*)` })
       .from(schema.crmRecords)
@@ -1481,7 +1557,7 @@ export async function queryCrmRecords(
   return {
     records,
     nextCursor,
-    complete: !hasMore,
+    complete: nextCursor === undefined,
     ...(totalEstimate === undefined ? {} : { totalEstimate }),
     ...(view
       ? {

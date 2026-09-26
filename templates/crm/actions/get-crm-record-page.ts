@@ -6,16 +6,25 @@
  * It deliberately does not replace `get-crm-record`. That action is the one
  * that verifies provider read-through permission for a mirrored record, so the
  * page calls both: this one for the typed surface, that one for the verified
- * remote view, evidence, tasks, and relationships.
+ * remote view, evidence, tasks, and relationships. This one still withholds a
+ * record whose stored access scope no longer matches the current scope.
  */
 
-import { defineAction } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { resolveProviderRecordLinks } from "../server/crm/provider-record-link.js";
 import { getDb, schema } from "../server/db/index.js";
+import {
+  crmScopeResolver,
+  recordsInCurrentScope,
+} from "../server/lib/crm-query.js";
 import { CrmAttributeValueError } from "../server/lib/record-fields.js";
 import { storageColumnFor } from "../shared/crm-attributes.js";
 import type {
@@ -81,7 +90,8 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async (args) => {
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  run: async (args, ctx?: ActionRunContext) => {
     const db = getDb();
     const [record] = await db
       .select({
@@ -93,13 +103,20 @@ export default defineAction({
         displayName: schema.crmRecords.displayName,
         remoteRevision: schema.crmRecords.remoteRevision,
         updatedAt: schema.crmRecords.updatedAt,
+        accessScopeJson: schema.crmRecords.accessScopeJson,
+        workspaceConnectionId: schema.crmConnections.workspaceConnectionId,
       })
       .from(schema.crmRecords)
+      .innerJoin(
+        schema.crmConnections,
+        eq(schema.crmRecords.connectionId, schema.crmConnections.id),
+      )
       .where(
         and(
           eq(schema.crmRecords.id, args.recordId),
           eq(schema.crmRecords.tombstone, false),
           accessFilter(schema.crmRecords, schema.crmRecordShares),
+          accessFilter(schema.crmConnections, schema.crmConnectionShares),
         ),
       )
       .limit(1);
@@ -109,6 +126,18 @@ export default defineAction({
       };
       error.statusCode = 404;
       throw error;
+    }
+    // Local shares alone are not proof of access to a mirrored record: the
+    // provider (or native ownership) scope must still match what was stored.
+    const [inScope] = await recordsInCurrentScope(
+      [record],
+      crmScopeResolver(ctx),
+    );
+    if (!inScope) {
+      fail(
+        "CRM provider access changed; the local record is withheld until it is refreshed.",
+        { errorCode: "crm_record_withheld", statusCode: 403 },
+      );
     }
 
     const attributeRows = await db

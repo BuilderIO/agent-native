@@ -18,5 +18,6 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: (input) => listCrmTasks(input),
 });

@@ -368,6 +368,8 @@ const messages = {
     unavailableTitle: "この CRM レコードは利用できません",
     unavailableDescription:
       "削除されたか、アクセスできるレコードの範囲外にある可能性があります。",
+    withheld:
+      "接続先の CRM でこのレコードへのアクセス権が変更されました。次回の同期まで非表示になります。",
     panelLoadFailed: "レコードパネルを読み込めませんでした。",
     saveFailed: "変更を保存できませんでした。",
     signals: "シグナル",

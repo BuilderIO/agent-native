@@ -40,6 +40,18 @@ const ownership = {
 const ownerCtx = { caller: "frontend" as const, userEmail: OWNER, orgId: null };
 const otherCtx = { caller: "frontend" as const, userEmail: OTHER, orgId: null };
 
+/** What the native connection below grants its owner right now. */
+const NATIVE_SCOPE = {
+  key: "native",
+  actorId: OWNER,
+  mode: "native",
+  objectReadable: true,
+  objectCreateable: true,
+  objectUpdateable: true,
+  objectDeleteable: true,
+  recordVisibility: "actor",
+} as const;
+
 const asOwner = <T>(fn: () => Promise<T>): Promise<T> =>
   runWithRequestContext({ userEmail: OWNER }, fn) as Promise<T>;
 const asOther = <T>(fn: () => Promise<T>): Promise<T> =>
@@ -47,7 +59,10 @@ const asOther = <T>(fn: () => Promise<T>): Promise<T> =>
 
 let counter = 0;
 
-async function createRecord(displayName: string): Promise<string> {
+async function createRecord(
+  displayName: string,
+  scope: object = NATIVE_SCOPE,
+): Promise<string> {
   const id = `rec_page_${++counter}`;
   const now = new Date().toISOString();
   await getDb()
@@ -62,7 +77,7 @@ async function createRecord(displayName: string): Promise<string> {
       displayName,
       remoteRevision: "1",
       accessScopeKey: "native",
-      accessScopeJson: "{}",
+      accessScopeJson: JSON.stringify(scope),
       ...ownership,
       createdAt: now,
       updatedAt: now,
@@ -179,6 +194,20 @@ beforeAll(async () => {
       createdAt: now,
       updatedAt: now,
     });
+  await getDb()
+    .insert(schema.crmObjects)
+    .values({
+      id: "obj_record_page",
+      connectionId: CONNECTION_ID,
+      provider: "native",
+      objectType: OBJECT_TYPE,
+      kind: "account",
+      label: "Company",
+      pluralLabel: "Companies",
+      ...ownership,
+      createdAt: now,
+      updatedAt: now,
+    });
 }, 60_000);
 
 afterAll(() => {
@@ -275,6 +304,66 @@ describe("get-crm-record-page", () => {
     await expect(
       asOther(() => getRecordPage.run({ recordId }, otherCtx)),
     ).rejects.toThrow(/not found/i);
+  });
+
+  it("does not expose a record shared to the caller when its connection is not", async () => {
+    // Explicit user shares on this resource only apply within a matching org
+    // (see requireOrgMemberForUserShares in the sharing package), so this
+    // record — unlike the rest of the file — is org-scoped.
+    const SHARE_ORG = "org_record_page_share";
+    const recordId = `rec_page_${++counter}`;
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.crmRecords)
+      .values({
+        id: recordId,
+        connectionId: CONNECTION_ID,
+        provider: "native",
+        objectType: OBJECT_TYPE,
+        kind: "account",
+        remoteId: recordId,
+        displayName: "Connection-Gated Co",
+        remoteRevision: "1",
+        accessScopeKey: "native",
+        accessScopeJson: JSON.stringify(NATIVE_SCOPE),
+        ownerEmail: OWNER,
+        orgId: SHARE_ORG,
+        visibility: "private",
+        createdAt: now,
+        updatedAt: now,
+      });
+    await getDb()
+      .insert(schema.crmRecordShares)
+      .values({
+        id: `share_${++counter}`,
+        resourceId: recordId,
+        principalType: "user",
+        principalId: OTHER,
+        role: "viewer",
+        createdBy: OWNER,
+        createdAt: now,
+      });
+    // The record itself is shared, but CONNECTION_ID (owned solely by OWNER,
+    // never shared) is not: the caller must not read the record page through
+    // that gap.
+    await expect(
+      runWithRequestContext({ userEmail: OTHER, orgId: SHARE_ORG }, () =>
+        getRecordPage.run(
+          { recordId },
+          { caller: "frontend", userEmail: OTHER, orgId: SHARE_ORG },
+        ),
+      ),
+    ).rejects.toThrow(/not found/i);
+  });
+
+  it("withholds a record whose stored scope the connection no longer grants", async () => {
+    const recordId = await createRecord("Revoked Co", {
+      ...NATIVE_SCOPE,
+      key: "native:previous-grant",
+    });
+    await expect(
+      asOwner(() => getRecordPage.run({ recordId }, ownerCtx)),
+    ).rejects.toThrow(/access changed/i);
   });
 });
 

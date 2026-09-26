@@ -373,6 +373,8 @@ const messages = {
     unavailableTitle: "Dieser CRM-Datensatz ist nicht verfügbar",
     unavailableDescription:
       "Er wurde vielleicht gelöscht oder liegt außerhalb der Datensätze, auf die du zugreifen darfst.",
+    withheld:
+      "Der Zugriff auf diesen Datensatz hat sich im verbundenen CRM geändert. Er bleibt bis zur nächsten Synchronisierung ausgeblendet.",
     panelLoadFailed: "Die Datensatzansicht konnte nicht geladen werden.",
     saveFailed: "Die Änderung konnte nicht gespeichert werden.",
     signals: "Signale",

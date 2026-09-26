@@ -369,6 +369,8 @@ const messages = {
     unavailableTitle: "This CRM record is unavailable",
     unavailableDescription:
       "It may have been deleted, or it is outside the records you can access.",
+    withheld:
+      "Access to this record changed in the connected CRM. It stays hidden until the next sync.",
     panelLoadFailed: "The record panel could not be loaded.",
     saveFailed: "The change could not be saved.",
     signals: "Signals",

@@ -50,6 +50,18 @@ const ownership = {
   visibility: "private" as const,
 };
 
+/** What the native connection below grants its owner right now. */
+const NATIVE_SCOPE = {
+  key: "native",
+  actorId: OWNER,
+  mode: "native",
+  objectReadable: true,
+  objectCreateable: true,
+  objectUpdateable: true,
+  objectDeleteable: true,
+  recordVisibility: "actor",
+} as const;
+
 const asOwner = <T>(fn: () => Promise<T>): Promise<T> =>
   runWithRequestContext({ userEmail: OWNER }, fn) as Promise<T>;
 const asOther = <T>(fn: () => Promise<T>): Promise<T> =>
@@ -63,6 +75,7 @@ let counter = 0;
 async function createRecord(
   objectType: string,
   displayName: string,
+  scope: object = NATIVE_SCOPE,
 ): Promise<string> {
   const id = `rec_${++counter}`;
   const now = new Date().toISOString();
@@ -77,7 +90,7 @@ async function createRecord(
       remoteId: id,
       displayName,
       accessScopeKey: "native",
-      accessScopeJson: "{}",
+      accessScopeJson: JSON.stringify(scope),
       ...ownership,
       createdAt: now,
       updatedAt: now,
@@ -134,6 +147,26 @@ beforeAll(async () => {
       createdAt: now,
       updatedAt: now,
     });
+  for (const [objectType, kind] of [
+    ["companies", "account"],
+    ["people", "person"],
+    ["opportunities", "opportunity"],
+  ] as const) {
+    await getDb()
+      .insert(schema.crmObjects)
+      .values({
+        id: `obj_lists_${objectType}`,
+        connectionId: CONNECTION_ID,
+        provider: "native",
+        objectType,
+        kind,
+        label: objectType,
+        pluralLabel: objectType,
+        ...ownership,
+        createdAt: now,
+        updatedAt: now,
+      });
+  }
 }, 60_000);
 
 afterAll(() => {
@@ -243,6 +276,72 @@ describe("list membership", () => {
       recordId,
       recordId,
     ]);
+  });
+
+  it("does not expose list entries whose connection the caller cannot see", async () => {
+    // Org visibility, not an explicit share row, is what makes the list,
+    // record, and entry visible to OTHER here (requireCrmScope stamps
+    // visibility "org" for anything created with an orgId). CONNECTION_ID —
+    // created in beforeAll, owned solely by OWNER, never org-scoped — must
+    // still gate the page even though everything else in it is visible.
+    const SHARE_ORG = "org_list_entries_share";
+    const asOwnerInOrg = <T>(fn: () => Promise<T>): Promise<T> =>
+      runWithRequestContext(
+        { userEmail: OWNER, orgId: SHARE_ORG },
+        fn,
+      ) as Promise<T>;
+    const ownerInOrgCtx = {
+      caller: "frontend" as const,
+      userEmail: OWNER,
+      orgId: SHARE_ORG,
+    };
+    const otherInOrgCtx = {
+      caller: "frontend" as const,
+      userEmail: OTHER,
+      orgId: SHARE_ORG,
+    };
+
+    const list = await asOwnerInOrg(() =>
+      createCrmList.run(
+        {
+          connectionId: CONNECTION_ID,
+          name: "Org Visible List",
+          parentObjectType: "companies",
+        },
+        ownerInOrgCtx,
+      ),
+    );
+
+    const recordId = `rec_${++counter}`;
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.crmRecords)
+      .values({
+        id: recordId,
+        connectionId: CONNECTION_ID,
+        provider: "native",
+        objectType: "companies",
+        kind: "account",
+        remoteId: recordId,
+        displayName: "Org Visible Co",
+        accessScopeKey: "native",
+        accessScopeJson: JSON.stringify(NATIVE_SCOPE),
+        ownerEmail: OWNER,
+        orgId: SHARE_ORG,
+        visibility: "org",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    await asOwnerInOrg(() =>
+      addCrmRecordToList.run({ listId: list.id, recordId }, ownerInOrgCtx),
+    );
+
+    const page = await runWithRequestContext(
+      { userEmail: OTHER, orgId: SHARE_ORG },
+      () => listCrmListEntries.run({ listId: list.id }, otherInOrgCtx),
+    );
+    expect(page.entries).toHaveLength(0);
   });
 
   it("rejects a record whose objectType is not the list's parentObjectType", async () => {
@@ -1075,6 +1174,45 @@ describe("access scoping", () => {
       .from(schema.crmListEntries)
       .where(eq(schema.crmListEntries.id, entry.entryId));
     expect(stillThere).toBeTruthy();
+  });
+
+  it("withholds entries whose record scope the connection no longer grants", async () => {
+    const list = await newList("Scope Check");
+    const kept = await createRecord("companies", "Still Granted");
+    const revoked = await createRecord("companies", "Revoked Grant", {
+      ...NATIVE_SCOPE,
+      key: "native:previous-grant",
+    });
+    for (const recordId of [kept, revoked]) {
+      await asOwner(() =>
+        addCrmRecordToList.run({ listId: list.id, recordId }, ownerCtx),
+      );
+    }
+
+    const page = await asOwner(() =>
+      listCrmListEntries.run({ listId: list.id }, ownerCtx),
+    );
+    expect(page.entries.map((entry: any) => entry.recordId)).toEqual([kept]);
+  });
+
+  it("fills the page past withheld entries instead of returning it short", async () => {
+    const list = await newList("Scope Fill");
+    const revoked = await createRecord("companies", "Revoked First", {
+      ...NATIVE_SCOPE,
+      key: "native:previous-grant",
+    });
+    const visible = await createRecord("companies", "Visible Second");
+    for (const recordId of [revoked, visible]) {
+      await asOwner(() =>
+        addCrmRecordToList.run({ listId: list.id, recordId }, ownerCtx),
+      );
+    }
+
+    const page = await asOwner(() =>
+      listCrmListEntries.run({ listId: list.id, limit: 1 }, ownerCtx),
+    );
+    expect(page.entries.map((entry: any) => entry.recordId)).toEqual([visible]);
+    expect(page.complete).toBe(true);
   });
 });
 
