@@ -59,6 +59,9 @@ export async function validateProviderBaseUrl(
   if (
     !options.allowPrivate &&
     !allowLocalOllama &&
+    // Keep 198.18.0.0/15 blocked here. The saved URL is fetched by the AI SDK,
+    // which does not use the SSRF dispatcher, so a hostname that resolves into
+    // that range would be dialed.
     (await isBlockedExtensionUrlWithDns(normalized))
   ) {
     throw new Error(

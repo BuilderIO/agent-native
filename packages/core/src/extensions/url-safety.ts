@@ -21,6 +21,10 @@ function isPrivateIpv4(a: number, b: number, c = 0, d = 0): boolean {
   if (a === 0) return true;
   if (a === 100 && b >= 64 && b <= 127) return true;
   if (a === 192 && b === 0) return true;
+  // 198.18.0.0/15 is the RFC 2544 benchmark range and Clash/mihomo's default
+  // fake-ip pool. A DNS answer here is not distinguishable from a reachable
+  // target, and provider fetches dial through the AI SDK rather than the
+  // SSRF dispatcher, so both checks keep this range blocked.
   if (a === 198 && (b === 18 || b === 19)) return true;
   if (a === 192 && b === 0 && c === 2) return true;
   if (a === 198 && b === 51 && c === 100) return true;
