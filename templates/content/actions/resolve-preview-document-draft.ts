@@ -693,6 +693,13 @@ export default defineAction({
           };
         }
         if (!current) conflict("The document was removed during recovery.");
+        if (current.updatedAt !== args.expectedDocumentUpdatedAt) {
+          await restoreClaimedDraft(draft);
+          return {
+            status: "document_conflict" as const,
+            document: current,
+          };
+        }
         const baseRevision = documentRevisionToken(
           current.bodyRevision,
           current.content,
@@ -703,6 +710,7 @@ export default defineAction({
             title: draft.title,
             content: draft.content,
             baseUpdatedAt: args.expectedDocumentUpdatedAt,
+            recoveryExpectedUpdatedAt: args.expectedDocumentUpdatedAt,
             baseRevision,
             baseTitle: current.title,
             authoredBaseRevision: baseRevision,

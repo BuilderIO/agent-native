@@ -812,6 +812,55 @@ describe("private preview document drafts", () => {
     ).toBe("Local recovery");
   });
 
+  it("keeps an edit that lands between the Keep mine claim and save", async () => {
+    const documentId = await createDocument();
+    const before = await documentRowForDraftTest(documentId);
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    const originalRun = updateDocument.run.bind(updateDocument);
+    const updateSpy = vi
+      .spyOn(updateDocument, "run")
+      .mockImplementationOnce(async (args, ctx) => {
+        await getDb()
+          .update(schema.documents)
+          .set({
+            content: "Intervening edit",
+            bodyRevision: before.bodyRevision + 1,
+            updatedAt: new Date(Date.now() + 1_000).toISOString(),
+          })
+          .where(eq(schema.documents.id, documentId));
+        return originalRun(args, ctx);
+      });
+    try {
+      const result = await asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "keep_mine",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: "Local recovery",
+          expectedDocumentUpdatedAt: before.updatedAt,
+        }),
+      );
+      expect(result.status).toBe("document_conflict");
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        "Intervening edit",
+      );
+      expect(
+        (await asUser(OWNER, () => getDraft.run({ documentId }))).draft
+          ?.content,
+      ).toBe("Local recovery");
+    } finally {
+      updateSpy.mockRestore();
+    }
+  });
+
   it("preserves a claimed draft in Version History when a newer draft wins restoration", async () => {
     const documentId = await createDocument();
     const [before] = await getDb()

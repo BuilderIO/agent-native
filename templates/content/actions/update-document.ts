@@ -499,6 +499,7 @@ export default defineAction({
       .describe(
         "updatedAt of the last-loaded document snapshot; enables compare-and-swap for content saves",
       ),
+    recoveryExpectedUpdatedAt: z.string().optional(),
     baseRevision: z
       .string()
       .optional()
@@ -991,6 +992,13 @@ export default defineAction({
           .from(schema.documents)
           .where(eq(schema.documents.id, id))
           .limit(1);
+        if (
+          args.recoveryExpectedUpdatedAt !== undefined &&
+          historyBefore.updatedAt !== args.recoveryExpectedUpdatedAt
+        ) {
+          contentCasConflict = true;
+          return;
+        }
         const confirmBrowserSave = async (
           snapshot: { title: string; content: string },
           now: string,
