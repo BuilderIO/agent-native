@@ -1407,7 +1407,7 @@ export function SqlChart({
       : "min-h-[250px]";
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
-  if (!loadData || isLoading || isFetching) {
+  if (isLoading || isFetching) {
     return <SqlChartLoadingSkeleton panel={panel} />;
   }
 

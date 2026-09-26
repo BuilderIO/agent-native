@@ -198,7 +198,6 @@ export function AnalyticsReviewArtifactPreview({
         panel={panel}
         resolvedSql={resolvedSql}
         timeRange={timeRangeDays(vars.timeRange)}
-        dashboardId={artifactId}
         loadData={false}
       />
     </div>
