@@ -8,7 +8,8 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { isImageRecording } from "@shared/recording-kind";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -27,6 +28,7 @@ export default defineAction({
     const [existing] = await db
       .select({
         id: schema.recordings.id,
+        kind: schema.recordings.kind,
         editsJson: schema.recordings.editsJson,
       })
       .from(schema.recordings)
@@ -42,10 +44,26 @@ export default defineAction({
     }
 
     const now = new Date().toISOString();
-    await db
+    // Pinned to the unclaimed edits just read: a delete that claims the
+    // screenshot in between must win, or a delete that then stops part-way
+    // would put it back in the library without its base.
+    const restored = await db
       .update(schema.recordings)
       .set({ archivedAt: null, trashedAt: null, updatedAt: now })
-      .where(eq(schema.recordings.id, args.id));
+      .where(
+        isImageRecording(existing)
+          ? and(
+              eq(schema.recordings.id, args.id),
+              eq(schema.recordings.editsJson, existing.editsJson),
+            )
+          : eq(schema.recordings.id, args.id),
+      )
+      .returning({ id: schema.recordings.id });
+    if (!restored.length) {
+      throw new Error(
+        "This screenshot changed while it was being restored. Nothing was restored — try again.",
+      );
+    }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     console.log(`Restored recording ${args.id}`);
