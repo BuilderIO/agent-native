@@ -2031,72 +2031,75 @@ async function resourcePutIfSnapshotInternal(
   return { before: previous, resource };
 }
 
-const SNAPSHOT_PAIR_CONFLICT = Symbol("resource snapshot pair conflict");
+const SNAPSHOT_WRITE_CONFLICT = Symbol("resource snapshot write conflict");
 
-export type ResourceSnapshotPairOptions = {
+export type ResourceSnapshotWriteOptions = {
   beforeWrite?: (tx: DbExec) => Promise<void>;
 };
+export type ResourceSnapshotPairOptions = ResourceSnapshotWriteOptions;
 
-/** Update a resource pair atomically and emit change events only after commit. */
-export async function resourcePutSnapshotPairIfCurrent(
-  writes: readonly [ResourceSnapshotWrite, ResourceSnapshotWrite],
-  options?: ResourceSnapshotPairOptions,
-): Promise<
-  readonly [ResourceSnapshotWriteResult, ResourceSnapshotWriteResult] | null
-> {
-  const [first, second] = writes;
+/** Update a resource batch atomically and emit change events only after commit. */
+export async function resourcePutSnapshotBatchIfCurrent(
+  writes: readonly ResourceSnapshotWrite[],
+  options?: ResourceSnapshotWriteOptions,
+): Promise<readonly ResourceSnapshotWriteResult[] | null> {
+  const owner = writes[0]?.owner;
   if (
-    first.owner !== second.owner ||
-    first.path === second.path ||
-    first.owner === WORKSPACE_OWNER
+    writes.length < 2 ||
+    writes.some((write) => write.owner !== owner) ||
+    new Set(writes.map((write) => write.path)).size !== writes.length ||
+    owner === WORKSPACE_OWNER
   ) {
     throw new Error(
-      "Resource snapshot pairs require one SQL-backed owner and distinct paths.",
+      "Resource snapshot batches require one SQL-backed owner and distinct paths.",
     );
   }
 
   await ensureTable();
   const client = getDbExec();
   if (!client.transaction) {
-    throw new Error("Resource snapshot pairs require database transactions.");
+    throw new Error("Resource snapshot batches require database transactions.");
   }
 
-  let result: readonly [
-    ResourceSnapshotWriteResult,
-    ResourceSnapshotWriteResult,
-  ];
+  let result: readonly ResourceSnapshotWriteResult[];
   try {
     result = await client.transaction(async (tx) => {
       await options?.beforeWrite?.(tx);
-      const firstResult = await resourcePutIfSnapshotInternal(first, false, tx);
-      if (!firstResult) throw SNAPSHOT_PAIR_CONFLICT;
-      const secondResult = await resourcePutIfSnapshotInternal(
-        second,
-        false,
-        tx,
-      );
-      if (!secondResult) throw SNAPSHOT_PAIR_CONFLICT;
-      return [firstResult, secondResult] as const;
+      const written: ResourceSnapshotWriteResult[] = [];
+      for (const write of writes) {
+        const result = await resourcePutIfSnapshotInternal(write, false, tx);
+        if (!result) throw SNAPSHOT_WRITE_CONFLICT;
+        written.push(result);
+      }
+      return written;
     });
   } catch (error) {
-    if (error === SNAPSHOT_PAIR_CONFLICT) return null;
+    if (error === SNAPSHOT_WRITE_CONFLICT) return null;
     throw error;
   }
 
-  const [firstResult, secondResult] = result;
-  emitResourceChange(
-    firstResult.resource.id,
-    firstResult.resource.path,
-    firstResult.resource.owner,
-    first.options?.requestSource,
-  );
-  emitResourceChange(
-    secondResult.resource.id,
-    secondResult.resource.path,
-    secondResult.resource.owner,
-    second.options?.requestSource,
-  );
+  for (const [index, { resource }] of result.entries()) {
+    emitResourceChange(
+      resource.id,
+      resource.path,
+      resource.owner,
+      writes[index]?.options?.requestSource,
+    );
+  }
   return result;
+}
+
+/** Update a resource pair atomically and emit change events only after commit. */
+export async function resourcePutSnapshotPairIfCurrent(
+  writes: readonly [ResourceSnapshotWrite, ResourceSnapshotWrite],
+  options?: ResourceSnapshotWriteOptions,
+): Promise<
+  readonly [ResourceSnapshotWriteResult, ResourceSnapshotWriteResult] | null
+> {
+  const result = await resourcePutSnapshotBatchIfCurrent(writes, options);
+  return result as
+    | readonly [ResourceSnapshotWriteResult, ResourceSnapshotWriteResult]
+    | null;
 }
 
 export async function resourceRestoreSnapshotIfCurrent(

@@ -7,9 +7,9 @@
 
 import {
   resourceGetByPath,
-  resourcePutSnapshotPairIfCurrent,
+  resourcePutSnapshotBatchIfCurrent,
   sharedResourceOwner,
-  type ResourceSnapshotPairOptions,
+  type ResourceSnapshotWriteOptions,
 } from "../../resources/store.js";
 import {
   getAmbientUserEmail,
@@ -26,7 +26,16 @@ const EMPTY_INDEX = `# Memory Index
 const INDEX_WRITE_ATTEMPTS = 5;
 const MEMORY_SCOPES = ["personal", "current-org"] as const;
 
-export type SaveMemoryScriptOptions = ResourceSnapshotPairOptions;
+export type SaveMemoryEntry = {
+  name: string;
+  type: (typeof VALID_TYPES)[number];
+  description: string;
+  content: string;
+};
+
+export type SaveMemoryScriptOptions = ResourceSnapshotWriteOptions & {
+  additionalEntries?: readonly SaveMemoryEntry[];
+};
 
 export default async function saveMemoryScript(
   args: string[],
@@ -48,6 +57,23 @@ export default async function saveMemoryScript(
   const content = parsed.content;
   if (!content) fail("--content is required");
 
+  const entries: SaveMemoryEntry[] = [
+    { name, type: type as SaveMemoryEntry["type"], description, content },
+    ...(options?.additionalEntries ?? []),
+  ];
+  if (
+    entries.some(
+      (entry) =>
+        !entry.name ||
+        !VALID_TYPES.includes(entry.type) ||
+        !entry.description ||
+        !entry.content,
+    ) ||
+    new Set(entries.map((entry) => entry.name)).size !== entries.length
+  ) {
+    fail("save-memory requires complete entries with unique names.");
+  }
+
   const owner =
     getRequestRunContext()?.owner ??
     getRequestUserEmail() ??
@@ -66,76 +92,79 @@ export default async function saveMemoryScript(
     fail("--scope current-org requires an active organization.");
   }
   const memoryOwner = orgId ? sharedResourceOwner(orgId) : owner;
-  const memoryPath = `memory/${name}.md`;
   const indexPath = "memory/MEMORY.md";
   const now = new Date().toISOString().slice(0, 10);
 
-  // Build the memory file with frontmatter
-  const fileContent = `---
-type: ${type}
-description: ${description}
-updated: ${now}
----
-
-${content}`;
+  const fileContents = entries.map(
+    (entry) =>
+      `---\ntype: ${entry.type}\ndescription: ${entry.description}\nupdated: ${now}\n---\n\n${entry.content}`,
+  );
 
   let updatedIndex = "";
-  let pairSaved = false;
+  let batchSaved = false;
   for (let attempt = 0; attempt < INDEX_WRITE_ATTEMPTS; attempt += 1) {
-    // Read both snapshots before the transaction so conflicts cannot leave a
-    // new body paired with a stale index.
-    const existingIndex = await resourceGetByPath(memoryOwner, indexPath, {
-      orgId,
-    });
-    const existingMemory = await resourceGetByPath(memoryOwner, memoryPath, {
-      orgId,
-    });
+    const [existingIndex, ...existingMemories] = await Promise.all([
+      resourceGetByPath(memoryOwner, indexPath, { orgId }),
+      ...entries.map((entry) =>
+        resourceGetByPath(memoryOwner, `memory/${entry.name}.md`, { orgId }),
+      ),
+    ]);
     const index = existingIndex?.content ?? EMPTY_INDEX;
-    const lines = index.split("\n");
-    const entryLine = `- [${name}](${name}.md) — ${description}`;
-    const entryPrefix = `- [${name}]`;
-    let found = false;
-    const updatedLines = lines.map((line) => {
-      if (line.startsWith(entryPrefix)) {
-        found = true;
-        return entryLine;
-      }
-      return line;
+    const entryLines = new Map(
+      entries.map((entry) => [
+        entry.name,
+        `- [${entry.name}](${entry.name}.md) — ${entry.description}`,
+      ]),
+    );
+    const found = new Set<string>();
+    const updatedLines = index.split("\n").map((line) => {
+      const entryName = /^- \[([^\]]+)\]/.exec(line)?.[1];
+      const replacement = entryName ? entryLines.get(entryName) : undefined;
+      if (!entryName || !replacement) return line;
+      found.add(entryName);
+      return replacement;
     });
-    if (!found) updatedLines.push(entryLine);
+    for (const entry of entries) {
+      if (!found.has(entry.name))
+        updatedLines.push(entryLines.get(entry.name)!);
+    }
     updatedIndex = updatedLines.join("\n").trimEnd() + "\n";
 
-    const written = await resourcePutSnapshotPairIfCurrent(
-      [
-        {
-          owner: memoryOwner,
-          path: memoryPath,
-          content: fileContent,
-          mimeType: "text/markdown",
-          previous: existingMemory,
-        },
-        {
-          owner: memoryOwner,
-          path: indexPath,
-          content: updatedIndex,
-          mimeType: "text/markdown",
-          previous: existingIndex,
-        },
-      ],
-      options,
-    );
+    const writes = [
+      ...entries.map((entry, index) => ({
+        owner: memoryOwner,
+        path: `memory/${entry.name}.md`,
+        content: fileContents[index]!,
+        mimeType: "text/markdown",
+        previous: existingMemories[index] ?? null,
+      })),
+      {
+        owner: memoryOwner,
+        path: indexPath,
+        content: updatedIndex,
+        mimeType: "text/markdown",
+        previous: existingIndex,
+      },
+    ];
+    const written = await resourcePutSnapshotBatchIfCurrent(writes, {
+      beforeWrite: options?.beforeWrite,
+    });
     if (written) {
       if (
-        written[0].resource.content !== fileContent ||
-        written[1].resource.content !== updatedIndex
+        written.length !== writes.length ||
+        fileContents.some(
+          (fileContent, index) =>
+            written[index]?.resource.content !== fileContent,
+        ) ||
+        written.at(-1)?.resource.content !== updatedIndex
       ) {
-        fail("save-memory could not verify the committed memory pair.");
+        fail("save-memory could not verify the committed memory batch.");
       }
-      pairSaved = true;
+      batchSaved = true;
       break;
     }
   }
-  if (!pairSaved) {
+  if (!batchSaved) {
     fail(
       "Memory index changed repeatedly while saving; retry the memory write.",
     );
@@ -148,9 +177,13 @@ ${content}`;
     );
   }
 
-  // A later read can see a newer save; the pair result is the committed snapshot.
+  // A later read can see a newer save; these are the committed snapshots.
 
   if (parsed.quiet !== "true") {
-    console.log(`Saved memory "${name}" (${type}): ${description}`);
+    for (const entry of entries) {
+      console.log(
+        `Saved memory "${entry.name}" (${entry.type}): ${entry.description}`,
+      );
+    }
   }
 }

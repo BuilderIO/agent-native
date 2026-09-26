@@ -18,6 +18,12 @@ const {
     async (
       _args: string[],
       _options?: {
+        additionalEntries?: Array<{
+          name: string;
+          type: "reference";
+          description: string;
+          content: string;
+        }>;
         beforeWrite?: (tx: {
           execute: (query: any) => Promise<{ rows: any[] }>;
         }) => Promise<void>;
@@ -246,6 +252,72 @@ describe("Analytics async memory capture", () => {
     });
   });
 
+  it("saves multiple candidates with one thread and lease fence", async () => {
+    setupSweep();
+    const storedThread = thread([
+      {
+        message: {
+          id: "user-1",
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Correction: BigQuery uses STRING instead of TEXT for casts.",
+            },
+          ],
+        },
+        parentId: null,
+      },
+      {
+        message: {
+          id: "user-2",
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Correction: Postgres uses ILIKE for case-insensitive matching.",
+            },
+          ],
+        },
+        parentId: "user-1",
+      },
+    ]);
+    getThread.mockResolvedValue(storedThread);
+    const guardQueries: Array<{ sql: string; args: unknown[] }> = [];
+    const guardExecute = vi.fn(
+      async (query: { sql: string; args: unknown[] }) => {
+        guardQueries.push(query);
+        return { rows: [{ found: true }] };
+      },
+    );
+    saveMemory.mockImplementationOnce(async (_args, options) => {
+      await options?.beforeWrite?.({ execute: guardExecute });
+    });
+
+    await runAnalyticsMemoryCaptureSweep();
+
+    expect(saveMemory).toHaveBeenCalledTimes(1);
+    expect(saveMemory.mock.calls[0]?.[1]?.additionalEntries).toHaveLength(1);
+    expect(saveMemory.mock.calls[0]?.[1]?.additionalEntries?.[0]).toMatchObject(
+      {
+        type: "reference",
+        description: expect.stringContaining("Postgres"),
+        content:
+          "For future Analytics work: Postgres uses ILIKE for case-insensitive matching.",
+      },
+    );
+    expect(guardQueries).toHaveLength(2);
+    expect(guardQueries[0]?.sql).toContain("FROM chat_threads");
+    expect(guardQueries[1]?.sql).toContain(
+      "FROM analytics_memory_capture_queue",
+    );
+    expect(track).toHaveBeenCalledWith("analytics_memory_capture", {
+      status: "saved",
+      candidate_count: 2,
+      saved_count: 2,
+    });
+  });
+
   it("skips when a newer thread turn lands after capture reads it", async () => {
     setupSweep();
     const messages = [
@@ -260,6 +332,19 @@ describe("Analytics async memory capture", () => {
             },
           ],
         },
+      },
+      {
+        message: {
+          id: "user-2",
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Correction: Postgres uses ILIKE for case-insensitive matching.",
+            },
+          ],
+        },
+        parentId: "user-1",
       },
     ];
     const readUpdatedAt = Date.now() - ANALYTICS_MEMORY_CAPTURE_IDLE_MS - 1_000;
@@ -288,6 +373,7 @@ describe("Analytics async memory capture", () => {
     await runAnalyticsMemoryCaptureSweep();
 
     expect(saveMemory).toHaveBeenCalledTimes(1);
+    expect(saveMemory.mock.calls[0]?.[1]?.additionalEntries).toHaveLength(1);
     expect(guardQueries).toHaveLength(1);
     expect(guardQueries[0]?.sql).toContain("FROM chat_threads");
     expect(guardQueries[0]?.sql).toContain("FOR UPDATE");
@@ -309,7 +395,7 @@ describe("Analytics async memory capture", () => {
     ).toBe(false);
     expect(track).toHaveBeenCalledWith("analytics_memory_capture", {
       status: "skipped",
-      candidate_count: 1,
+      candidate_count: 2,
       saved_count: 0,
     });
   });

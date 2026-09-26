@@ -331,68 +331,72 @@ async function processJob(job: CaptureJob): Promise<void> {
       if (!saveMemory)
         throw new Error("Core save-memory script is unavailable.");
 
-      let savedCount = 0;
-      for (const candidate of candidates) {
-        const args = [
-          "--name",
-          candidate.name,
-          "--type",
-          "reference",
-          "--description",
-          candidate.description,
-          "--content",
-          candidate.content,
-        ];
-        if (orgId) args.push("--scope", "current-org");
-        args.push("--quiet", "true");
-        try {
-          await saveMemory(args, {
-            beforeWrite: async (tx) => {
-              const threadRows = await tx.execute({
-                sql: `SELECT 1 FROM chat_threads
-                  WHERE id = $1 AND owner_email = $2
-                    AND org_id IS NOT DISTINCT FROM $3
-                    AND updated_at = $4 AND source_app_id = 'analytics'
-                  FOR UPDATE`,
-                args: [job.thread_id, owner, orgId, thread.updatedAt],
-                timeoutMs: 10_000,
-                maxAttempts: 1,
-              });
-              if (threadRows.rows.length === 0) throw LOST_CAPTURE_WINDOW;
+      const [first, ...additional] = candidates;
+      if (!first) throw new Error("Analytics memory candidates disappeared.");
+      const args = [
+        "--name",
+        first.name,
+        "--type",
+        "reference",
+        "--description",
+        first.description,
+        "--content",
+        first.content,
+      ];
+      if (orgId) args.push("--scope", "current-org");
+      args.push("--quiet", "true");
+      try {
+        await saveMemory(args, {
+          additionalEntries: additional.map((candidate) => ({
+            name: candidate.name,
+            type: "reference",
+            description: candidate.description,
+            content: candidate.content,
+          })),
+          beforeWrite: async (tx) => {
+            const threadRows = await tx.execute({
+              sql: `SELECT 1 FROM chat_threads
+                WHERE id = $1 AND owner_email = $2
+                  AND org_id IS NOT DISTINCT FROM $3
+                  AND updated_at = $4 AND source_app_id = 'analytics'
+                FOR UPDATE`,
+              args: [job.thread_id, owner, orgId, thread.updatedAt],
+              timeoutMs: 10_000,
+              maxAttempts: 1,
+            });
+            if (threadRows.rows.length === 0) throw LOST_CAPTURE_WINDOW;
 
-              const queueRows = await tx.execute({
-                sql: `SELECT 1 FROM ${QUEUE_TABLE}
-                  WHERE owner_email = $1 AND thread_id = $2
-                    AND org_id IS NOT DISTINCT FROM $3
-                    AND lease_token = $4 AND ready_at = $5
-                  FOR UPDATE`,
-                args: [
-                  job.owner_email,
-                  job.thread_id,
-                  orgId,
-                  job.lease_token,
-                  job.ready_at,
-                ],
-                timeoutMs: 10_000,
-                maxAttempts: 1,
-              });
-              if (queueRows.rows.length === 0) throw LOST_CAPTURE_WINDOW;
-            },
-          });
-        } catch (error) {
-          if (error === LOST_CAPTURE_WINDOW) {
-            await trackCaptureOutcome(
-              owner,
-              orgId,
-              "skipped",
-              candidates.length,
-              savedCount,
-            );
-            return;
-          }
-          throw error;
+            const queueRows = await tx.execute({
+              sql: `SELECT 1 FROM ${QUEUE_TABLE}
+                WHERE owner_email = $1 AND thread_id = $2
+                  AND org_id IS NOT DISTINCT FROM $3
+                  AND lease_token = $4 AND ready_at = $5
+                FOR UPDATE`,
+              args: [
+                job.owner_email,
+                job.thread_id,
+                orgId,
+                job.lease_token,
+                job.ready_at,
+              ],
+              timeoutMs: 10_000,
+              maxAttempts: 1,
+            });
+            if (queueRows.rows.length === 0) throw LOST_CAPTURE_WINDOW;
+          },
+        });
+      } catch (error) {
+        if (error === LOST_CAPTURE_WINDOW) {
+          await trackCaptureOutcome(
+            owner,
+            orgId,
+            "skipped",
+            candidates.length,
+            0,
+          );
+          return;
         }
-        savedCount += 1;
+        throw error;
       }
 
       await deleteJob(job);
@@ -401,7 +405,7 @@ async function processJob(job: CaptureJob): Promise<void> {
         orgId,
         "saved",
         candidates.length,
-        savedCount,
+        candidates.length,
       );
     });
   } catch (error) {

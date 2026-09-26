@@ -1407,6 +1407,76 @@ describe("resourceEffectiveContext", () => {
     }
   });
 
+  it("rolls back every snapshot in a batch when a later write conflicts", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceGetByPath,
+      resourcePut,
+      resourcePutSnapshotBatchIfCurrent,
+    } = await import("./store.js");
+    const suffix = `${Date.now()}-${Math.random()}`;
+    const firstPath = `context/snapshot-batch-first-${suffix}.md`;
+    const secondPath = `context/snapshot-batch-second-${suffix}.md`;
+    const indexPath = `context/snapshot-batch-index-${suffix}.md`;
+
+    try {
+      const previousFirst = await resourcePut(
+        SHARED_OWNER,
+        firstPath,
+        "first before",
+      );
+      const previousSecond = await resourcePut(
+        SHARED_OWNER,
+        secondPath,
+        "second before",
+      );
+      const previousIndex = await resourcePut(
+        SHARED_OWNER,
+        indexPath,
+        "index before",
+      );
+      await resourcePut(SHARED_OWNER, indexPath, "concurrent index");
+
+      await expect(
+        resourcePutSnapshotBatchIfCurrent([
+          {
+            owner: SHARED_OWNER,
+            path: firstPath,
+            content: "first after",
+            previous: previousFirst,
+          },
+          {
+            owner: SHARED_OWNER,
+            path: secondPath,
+            content: "second after",
+            previous: previousSecond,
+          },
+          {
+            owner: SHARED_OWNER,
+            path: indexPath,
+            content: "index after",
+            previous: previousIndex,
+          },
+        ]),
+      ).resolves.toBeNull();
+
+      await expect(
+        resourceGetByPath(SHARED_OWNER, firstPath),
+      ).resolves.toMatchObject({ content: "first before" });
+      await expect(
+        resourceGetByPath(SHARED_OWNER, secondPath),
+      ).resolves.toMatchObject({ content: "second before" });
+      await expect(
+        resourceGetByPath(SHARED_OWNER, indexPath),
+      ).resolves.toMatchObject({ content: "concurrent index" });
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, firstPath);
+      await resourceDeleteByPath(SHARED_OWNER, secondPath);
+      await resourceDeleteByPath(SHARED_OWNER, indexPath);
+    }
+  });
+
   it("rolls back guard writes when a snapshot pair pre-write guard fails", async () => {
     const {
       SHARED_OWNER,

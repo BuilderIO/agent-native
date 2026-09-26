@@ -2,15 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   resourceGetByPath: vi.fn(),
-  resourcePutSnapshotPairIfCurrent: vi.fn(
+  resourcePutSnapshotBatchIfCurrent: vi.fn(
     async (_writes: any): Promise<any> => null,
   ),
 }));
 
 vi.mock("../../resources/store.js", () => ({
   resourceGetByPath: (...args: unknown[]) => mocks.resourceGetByPath(...args),
-  resourcePutSnapshotPairIfCurrent: (...args: unknown[]) =>
-    mocks.resourcePutSnapshotPairIfCurrent(...args),
+  resourcePutSnapshotBatchIfCurrent: (...args: unknown[]) =>
+    mocks.resourcePutSnapshotBatchIfCurrent(...args),
   sharedResourceOwner: (orgId?: string | null) =>
     orgId ? `__organization__:${orgId}` : "__shared__",
 }));
@@ -45,7 +45,7 @@ function useResourceStore() {
         : { owner: resourceOwner, path, content };
     },
   );
-  mocks.resourcePutSnapshotPairIfCurrent.mockImplementation(
+  mocks.resourcePutSnapshotBatchIfCurrent.mockImplementation(
     async (writes: any[]) =>
       writes.map((write) => {
         const previous = resources.get(key(write.owner, write.path));
@@ -82,7 +82,8 @@ describe("save-memory", () => {
       await saveMemoryScript(args);
     });
 
-    const [[writes]] = mocks.resourcePutSnapshotPairIfCurrent.mock.calls as any;
+    const [[writes]] = mocks.resourcePutSnapshotBatchIfCurrent.mock
+      .calls as any;
     const [bodyWrite, indexWrite] = writes;
     expect(bodyWrite).toMatchObject({
       owner,
@@ -104,7 +105,7 @@ describe("save-memory", () => {
     );
   });
 
-  it("passes the snapshot-pair write guard through save-memory", async () => {
+  it("passes the snapshot-batch write guard through save-memory", async () => {
     useResourceStore();
     const options = { beforeWrite: vi.fn(async () => {}) };
 
@@ -113,10 +114,49 @@ describe("save-memory", () => {
       await saveMemoryScript(args, options);
     });
 
-    expect(mocks.resourcePutSnapshotPairIfCurrent).toHaveBeenCalledWith(
+    expect(mocks.resourcePutSnapshotBatchIfCurrent).toHaveBeenCalledWith(
       expect.any(Array),
       options,
     );
+  });
+
+  it("writes multiple entries and their index in one transaction", async () => {
+    const { key, resources } = useResourceStore();
+
+    await runWithRequestContext({ orgId: "org-a" }, async () => {
+      ensureRequestRunContext()!.owner = owner;
+      await saveMemoryScript([...args, "--scope", "current-org"], {
+        additionalEntries: [
+          {
+            name: "query-dialect",
+            type: "reference",
+            description: "Use the right SQL dialect",
+            content: "Postgres uses ILIKE for case-insensitive matching.",
+          },
+        ],
+      });
+    });
+
+    const [[writes]] = mocks.resourcePutSnapshotBatchIfCurrent.mock
+      .calls as any;
+    const orgOwner = "__organization__:org-a";
+    expect(writes).toHaveLength(3);
+    expect(writes.map((write: any) => write.path)).toEqual([
+      "memory/coding-style.md",
+      "memory/query-dialect.md",
+      "memory/MEMORY.md",
+    ]);
+    expect(writes[2].content).toContain(
+      "- [coding-style](coding-style.md) — Use concise updates",
+    );
+    expect(writes[2].content).toContain(
+      "- [query-dialect](query-dialect.md) — Use the right SQL dialect",
+    );
+    expect(writes.every((write: any) => write.owner === orgOwner)).toBe(true);
+    expect(resources.get(key(orgOwner, "memory/query-dialect.md"))).toContain(
+      "Postgres uses ILIKE",
+    );
+    expect(mocks.resourcePutSnapshotBatchIfCurrent).toHaveBeenCalledTimes(1);
   });
 
   it("writes current-organization memories to the org resource scope", async () => {
@@ -127,7 +167,8 @@ describe("save-memory", () => {
       await saveMemoryScript([...args, "--scope", "current-org"]);
     });
 
-    const [[writes]] = mocks.resourcePutSnapshotPairIfCurrent.mock.calls as any;
+    const [[writes]] = mocks.resourcePutSnapshotBatchIfCurrent.mock
+      .calls as any;
     const [bodyWrite, indexWrite] = writes;
     const orgOwner = "__organization__:org-a";
     expect(bodyWrite).toMatchObject({
@@ -159,12 +200,12 @@ describe("save-memory", () => {
         await saveMemoryScript([...args, "--scope", "current-org"]);
       }),
     ).rejects.toThrow("--scope current-org requires an active organization");
-    expect(mocks.resourcePutSnapshotPairIfCurrent).not.toHaveBeenCalled();
+    expect(mocks.resourcePutSnapshotBatchIfCurrent).not.toHaveBeenCalled();
   });
 
-  it("does not claim success when the committed pair does not contain both writes", async () => {
+  it("does not claim success when the committed batch omits a write", async () => {
     mocks.resourceGetByPath.mockResolvedValue(null);
-    mocks.resourcePutSnapshotPairIfCurrent.mockResolvedValue([
+    mocks.resourcePutSnapshotBatchIfCurrent.mockResolvedValue([
       { before: null, resource: { content: "" } },
       { before: null, resource: { content: "# Memory Index\n" } },
     ]);
@@ -174,14 +215,14 @@ describe("save-memory", () => {
         ensureRequestRunContext()!.owner = owner;
         await saveMemoryScript(args);
       }),
-    ).rejects.toThrow("could not verify the committed memory pair");
+    ).rejects.toThrow("could not verify the committed memory batch");
   });
 
-  it("does not fail when another save updates the index after this pair commits", async () => {
+  it("does not fail when another save updates the index after this batch commits", async () => {
     const { key, resources } = useResourceStore();
     const save =
-      mocks.resourcePutSnapshotPairIfCurrent.getMockImplementation()!;
-    mocks.resourcePutSnapshotPairIfCurrent.mockImplementationOnce(
+      mocks.resourcePutSnapshotBatchIfCurrent.getMockImplementation()!;
+    mocks.resourcePutSnapshotBatchIfCurrent.mockImplementationOnce(
       async (writes: any[]) => {
         const committed = await save(writes);
         resources.set(
@@ -201,9 +242,9 @@ describe("save-memory", () => {
     expect(resources.get(key(owner, "memory/MEMORY.md"))).toContain("other");
   });
 
-  it("surfaces failures from the atomic pair transaction", async () => {
+  it("surfaces failures from the atomic batch transaction", async () => {
     useResourceStore();
-    mocks.resourcePutSnapshotPairIfCurrent.mockRejectedValueOnce(
+    mocks.resourcePutSnapshotBatchIfCurrent.mockRejectedValueOnce(
       new Error("transaction unavailable"),
     );
 
@@ -224,7 +265,7 @@ describe("save-memory", () => {
         await saveMemoryScript(args);
       }),
     ).rejects.toThrow("storage unavailable");
-    expect(mocks.resourcePutSnapshotPairIfCurrent).not.toHaveBeenCalled();
+    expect(mocks.resourcePutSnapshotBatchIfCurrent).not.toHaveBeenCalled();
   });
 
   it("can save a memory without logging its user-authored description", async () => {
@@ -242,8 +283,8 @@ describe("save-memory", () => {
   it("re-reads and merges the index after a concurrent update", async () => {
     const { key, resources } = useResourceStore();
     const save =
-      mocks.resourcePutSnapshotPairIfCurrent.getMockImplementation()!;
-    mocks.resourcePutSnapshotPairIfCurrent
+      mocks.resourcePutSnapshotBatchIfCurrent.getMockImplementation()!;
+    mocks.resourcePutSnapshotBatchIfCurrent
       .mockImplementationOnce(async () => {
         resources.set(
           key(owner, "memory/MEMORY.md"),
@@ -258,7 +299,7 @@ describe("save-memory", () => {
       await saveMemoryScript(args);
     });
 
-    const secondWrites = mocks.resourcePutSnapshotPairIfCurrent.mock
+    const secondWrites = mocks.resourcePutSnapshotBatchIfCurrent.mock
       .calls[1]?.[0] as any[];
     expect(secondWrites[1]).toMatchObject({
       path: "memory/MEMORY.md",

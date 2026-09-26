@@ -385,7 +385,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
 });
 
 describe("summarizeAnalyticsRun", () => {
-  it("counts source reads registered by their grounding metadata", () => {
+  it("counts source reads but excludes operational and metadata actions", () => {
     const events = [
       "list-monitors",
       "get-monitor-stats",
@@ -404,6 +404,13 @@ describe("summarizeAnalyticsRun", () => {
           "get-session-replay-summary",
           "get-session-replay-timeline",
           "get-monitor",
+          "list-monitors",
+          "get-monitor-stats",
+          "run-monitor-check",
+          "list-connected-database-tables",
+          "test-custom-api-connection",
+          "content-calendar-schema",
+          "hubspot-pipelines",
         ],
         events,
       }),
@@ -424,6 +431,11 @@ describe("summarizeAnalyticsRun", () => {
         "jira-search",
         "gong-calls",
         "sentry",
+        "get-monitor",
+        "list-connected-database-tables",
+        "test-custom-api-connection",
+        "content-calendar-schema",
+        "hubspot-pipelines",
       ],
       events: [
         {
@@ -469,6 +481,7 @@ describe("summarizeAnalyticsRun", () => {
             type: "tool_done",
             tool: "get-monitor",
             id: "monitor-1",
+            isError: true,
           },
         },
         {
@@ -541,7 +554,7 @@ describe("summarizeAnalyticsRun", () => {
             tool: "bigquery",
             id: "query-1",
             result: "private rows",
-            isError: true,
+            isError: false,
           },
         },
         {
@@ -616,7 +629,7 @@ describe("summarizeAnalyticsRun", () => {
       tool_search_calls: 1,
       catalog_calls: 4,
       query_calls: 7,
-      first_query_errored: true,
+      first_query_errored: false,
     });
     expect(JSON.stringify(properties)).not.toMatch(/private|SELECT|rows/i);
   });

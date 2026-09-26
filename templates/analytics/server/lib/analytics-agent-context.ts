@@ -51,6 +51,16 @@ const QUERY_TOOL_NAMES = new Set([
   "query-dashboard-panel",
   "query-staged-dataset",
 ]);
+const NON_QUERY_GROUNDING_ACTION_NAMES = new Set([
+  "content-calendar-schema",
+  "get-monitor",
+  "get-monitor-stats",
+  "hubspot-pipelines",
+  "list-connected-database-tables",
+  "list-monitors",
+  "run-monitor-check",
+  "test-custom-api-connection",
+]);
 
 export function summarizeAnalyticsRun(input: {
   events: readonly unknown[];
@@ -93,7 +103,9 @@ export function summarizeAnalyticsRun(input: {
   );
   const queryToolNames = new Set([
     ...QUERY_TOOL_NAMES,
-    ...input.groundingActionNames,
+    ...input.groundingActionNames.filter(
+      (name) => !NON_QUERY_GROUNDING_ACTION_NAMES.has(name),
+    ),
   ]);
   const queries = startedTools.filter(
     (event) =>

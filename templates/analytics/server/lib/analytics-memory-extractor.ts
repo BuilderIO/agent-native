@@ -80,6 +80,10 @@ const CONFIRMATION =
   /^(?:yes|yeah|yep|correct|confirmed|exactly|that's right|that is right|that's correct|that is correct|you got it|yes,?\s+(?:that's|that is)\s+(?:exactly\s+)?(?:right|correct))[.!]*$/i;
 const CONFIRMATION_QUESTION =
   /\b(?:is that right|did i get that right|is this (?:correct|right)|is that (?:correct|the definition)|correct\?)\b/i;
+const POINT_IN_TIME_RESULT_VALUE =
+  /(?:[$€£]\s*\d+(?:[,.]\d+)*(?:\.\d+)?|\d+(?:[,.]\d+)*(?:\.\d+)?\s*(?:%|percent\b))/i;
+const POINT_IN_TIME_RESULT_PERIOD =
+  /\b(?:(?:last|previous|prior|this)\s+(?:\d+\s+)?(?:day|week|month|quarter|year)s?|yesterday|today|as of|week ending|month ending|on 20\d{2}-\d{2}-\d{2})\b/i;
 const STOP_WORDS = new Set([
   "about",
   "are",
@@ -142,6 +146,27 @@ function containsLikelyCustomerOrPersonName(text: string): boolean {
     return true;
   }
 
+  const lowercaseLeadingName =
+    /^([a-z][\p{L}'-]{2,}(?:\s+[a-z][\p{L}'-]{2,}){1,2})(?:['’]s)?\s+(?:should|must|uses|use|needs|requires|has|is|was|owns|prefers|wants|said|says|means|equals|starts|returns)\b/u.exec(
+      text,
+    );
+  const lowercaseNameWords =
+    lowercaseLeadingName?.[1]?.trim().split(/\s+/) ?? [];
+  if (
+    lowercaseLeadingName &&
+    !lowercaseNameWords.every((word) => TECHNICAL_NAMES.has(word))
+  ) {
+    return true;
+  }
+
+  if (
+    /\b(?:owner|contact|analyst|author|assigned to|approved by|created by|reported by)\s+(?:is\s+)?[a-z][\p{L}'-]{2,}\s+[a-z][\p{L}'-]{2,}\b/u.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+
   return /\b(?:exclude|include|ignore|remove|filter\s+out|focus\s+on)\s+(?:[A-Z][\p{L}'-]{2,}\s+){1,2}[A-Z][\p{L}'-]{2,}\s+(?:from|in|on|for|to|with)\b/u.test(
     text,
   );
@@ -159,6 +184,9 @@ function isUnsafe(text: string): boolean {
     /(?:^|[^\d])(?!(?:000|666|9\d{2}))\d{3}[- ]?(?!00)\d{2}[- ]?(?!0000)\d{4}(?!\d)/.test(
       text,
     ) ||
+    /\b(?:employee|staff|personnel|worker)\s+(?:id|number|no\.?)\s*[:=#-]?\s*[A-Z0-9][A-Z0-9_-]*\b/i.test(
+      text,
+    ) ||
     /\b(?:api\s*key|api\s*token|access\s*token|auth(?:entication)?\s*token|password|passphrase|credential|private\s+key|secret\s+key|client\s+secret|signing\s+key|secret|bearer|ssn|social security|credit card|card number|my name is|my email is|my phone|home address|date of birth)\b/i.test(
       text,
     ) ||
@@ -172,6 +200,8 @@ function isUnsafe(text: string): boolean {
       text,
     ) ||
     containsLikelyCustomerOrPersonName(text) ||
+    (POINT_IN_TIME_RESULT_VALUE.test(text) &&
+      POINT_IN_TIME_RESULT_PERIOD.test(text)) ||
     /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(text) ||
     /\b(?:\+?\d[ .()-]*){10,}\b/.test(text)
   );
@@ -301,7 +331,7 @@ function findMetricConfirmationIndex(
     if (message.role === "assistant") {
       const assistantText = normalize(message.text).toLowerCase();
       const askedForConfirmation = CONFIRMATION_QUESTION.test(assistantText);
-      assistantRestatedDefinition ||=
+      assistantRestatedDefinition =
         askedForConfirmation &&
         tokens.some((token) => assistantText.includes(token)) &&
         restatesDefinition(assistantText, definition);

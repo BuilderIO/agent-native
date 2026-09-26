@@ -145,6 +145,26 @@ describe("extractAnalyticsMemoryCandidates", () => {
     ).toEqual([]);
   });
 
+  it("does not carry metric confirmation across another assistant turn", () => {
+    expect(
+      extractAnalyticsMemoryCandidates([
+        {
+          role: "user",
+          text: "We define qualified signup as an account that verifies its email within seven days.",
+        },
+        {
+          role: "assistant",
+          text: "Qualified signup means an account verifies its email within seven days. Is that right?",
+        },
+        {
+          role: "assistant",
+          text: "I will check the dashboard before we continue.",
+        },
+        { role: "user", text: "Yes, that's exactly right." },
+      ]),
+    ).toEqual([]);
+  });
+
   it("captures a specific user correction as reusable guidance", () => {
     expect(
       extractAnalyticsMemoryCandidates([
@@ -332,6 +352,25 @@ describe("extractAnalyticsMemoryCandidates", () => {
           text: "Qualified signup means an account is approved by Jane Doe within seven days. Is that right?",
         },
         { role: "user", text: "Yes, that's exactly right." },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("rejects lowercase names, employee IDs, and point-in-time metric results", () => {
+    expect(
+      extractAnalyticsMemoryCandidates([
+        {
+          role: "user",
+          text: "Correction: john smith uses the renewal dashboard for reporting.",
+        },
+        {
+          role: "user",
+          text: "Remember that employee ID 12345 is used for monthly reports.",
+        },
+        {
+          role: "user",
+          text: "Remember that trial conversion was 23% last week.",
+        },
       ]),
     ).toEqual([]);
   });
