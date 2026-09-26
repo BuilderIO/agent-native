@@ -1278,11 +1278,12 @@ describe("inline database lifecycle reconcile", () => {
       databaseId,
       databaseDocumentId,
     });
-    const db = getDb();
-    await db
-      .update(schema.documents)
-      .set({ content: originalContent })
-      .where(eq(schema.documents.id, hostDocumentId));
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: hostDocumentId,
+        content: originalContent,
+      }),
+    );
 
     const result = await runWithRequestContext({ userEmail: OWNER }, () =>
       updateDocumentAction.run({
@@ -1309,19 +1310,31 @@ describe("inline database lifecycle reconcile", () => {
       databaseId,
       databaseDocumentId,
     });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: hostDocumentId,
+        content: originalContent,
+      }),
+    );
     const db = getDb();
-    await db
-      .update(schema.documents)
-      .set({ content: originalContent })
-      .where(eq(schema.documents.id, hostDocumentId));
+    const base = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getDocumentAction.run({ id: hostDocumentId }),
+    );
     const attemptId = nextId("inline-remove-attempt");
+    const editorSessionId = nextId("inline-remove-session");
     const save = () =>
       runWithRequestContext({ userEmail: OWNER }, () =>
         updateDocumentAction.run(
           {
             id: hostDocumentId,
             content: "The database block was removed.",
+            baseRevision: base.revision,
+            authoredBaseRevision: base.revision,
+            authoredBaseContent: originalContent,
+            authoredCandidateContent: "The database block was removed.",
             browserSaveAttemptId: attemptId,
+            editorSessionId,
+            editorEditGeneration: 1,
           },
           { caller: "frontend", userEmail: OWNER },
         ),

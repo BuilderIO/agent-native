@@ -827,14 +827,7 @@ describe("private preview document drafts", () => {
     const updateSpy = vi
       .spyOn(updateDocument, "run")
       .mockImplementationOnce(async (args, ctx) => {
-        await getDb()
-          .update(schema.documents)
-          .set({
-            content: "Intervening edit",
-            bodyRevision: before.bodyRevision + 1,
-            updatedAt: new Date(Date.now() + 1_000).toISOString(),
-          })
-          .where(eq(schema.documents.id, documentId));
+        await originalRun({ id: documentId, content: "Intervening edit" });
         return originalRun(args, ctx);
       });
     try {
