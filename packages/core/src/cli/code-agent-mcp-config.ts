@@ -163,10 +163,8 @@ export function codexMcpConfigArgs(
 }
 
 /**
- * The same host-scoped HTTP servers as `codexMcpConfigArgs`, shaped as a
- * Claude Code `--mcp-config` document. The caller keeps
- * `--strict-mcp-config`, the Claude equivalent of `--ignore-user-config`.
- * Returns null when there is nothing to deliver.
+ * Callers must also pass `--strict-mcp-config` (Claude's equivalent of
+ * `--ignore-user-config`), or user-level MCP servers join this scoped set.
  */
 export function claudeMcpConfig(
   config: McpConfig | null = null,

@@ -501,7 +501,7 @@ describe("executeCodeAgentRun", () => {
     }
   });
 
-  it("completes the run and its follow-up when the MCP config cannot be removed", async () => {
+  it("completes the run and retries MCP config cleanup when the first delete fails", async () => {
     const root = useTempCodeAgentsHome();
     for (const key of providerEnvKeys) delete process.env[key];
     const originalMcpServers = process.env.MCP_SERVERS;
@@ -552,10 +552,13 @@ describe("executeCodeAgentRun", () => {
       source: "test",
     });
     const realRmSync = fs.rmSync;
+    const failedOnce = new Set<string>();
     const rmSync = vi
       .spyOn(fs, "rmSync")
       .mockImplementation((target, options) => {
-        if (String(target).includes("agent-native-code-claude-")) {
+        const dir = String(target);
+        if (dir.includes("agent-native-code-claude-") && !failedOnce.has(dir)) {
+          failedOnce.add(dir);
           throw new Error("EBUSY: resource busy or locked");
         }
         return realRmSync(target, options);
@@ -578,6 +581,9 @@ describe("executeCodeAgentRun", () => {
             event.message.includes("Could not remove the temporary"),
         ),
       ).toHaveLength(2);
+      // The later `finally` cleanup retried and removed both configs.
+      expect(failedOnce.size).toBe(2);
+      for (const dir of failedOnce) expect(fs.existsSync(dir)).toBe(false);
     } finally {
       rmSync.mockRestore();
       restoreEnv("MCP_SERVERS", originalMcpServers);

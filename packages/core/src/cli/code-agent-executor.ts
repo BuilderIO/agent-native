@@ -680,18 +680,18 @@ async function executeClaudeCliRun(options: {
 
   let mcpConfigDir: string | undefined;
   // Cleanup never decides the run's outcome: a delete failure is recorded in
-  // the transcript, and the run still completes or starts its follow-up.
+  // the transcript, and the run still completes or starts its follow-up. The
+  // reference is kept on failure so the `finally` cleanup retries.
   const removeMcpConfig = () => {
     if (!mcpConfigDir) return;
-    const dir = mcpConfigDir;
-    mcpConfigDir = undefined;
     try {
-      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(mcpConfigDir, { recursive: true, force: true });
+      mcpConfigDir = undefined;
     } catch (error) {
       appendCodeAgentTranscriptEvent({
         runId: options.run.id,
         kind: "note",
-        message: `Could not remove the temporary Claude MCP config at ${dir}: ${
+        message: `Could not remove the temporary Claude MCP config at ${mcpConfigDir}: ${
           error instanceof Error ? error.message : String(error)
         }`,
         metadata: { engine: CLAUDE_CLI_ENGINE_NAME },
