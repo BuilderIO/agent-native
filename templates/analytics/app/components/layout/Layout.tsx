@@ -3,7 +3,6 @@ import {
   GuidedQuestionFlow,
   focusAgentChat,
   isAgentChatHomeHandoffActive,
-  markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
@@ -28,6 +27,7 @@ import {
   discardAnalyticsChatHandoffOnSettings,
   isAnalyticsSettingsPath,
   markAnalyticsChatActivity,
+  updateAnalyticsChatHandoffForRun,
 } from "@/lib/chat-handoff";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -190,13 +190,12 @@ function InteractiveLayout({ children }: LayoutProps) {
     discardAnalyticsChatHandoffOnSettings(location.pathname);
   }, [location.pathname]);
   useEffect(() => {
+    const runningTabs = new Set<string>();
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
       if (isAskRoute && typeof detail?.isRunning === "boolean") {
         markAnalyticsChatActivity();
-        if (detail.isRunning === true) {
-          markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
-        }
+        updateAnalyticsChatHandoffForRun(runningTabs, detail);
       }
     }
 

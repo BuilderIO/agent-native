@@ -1,4 +1,7 @@
-import { consumeAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
+import {
+  consumeAgentChatHomeHandoff,
+  markAgentChatHomeHandoff,
+} from "@agent-native/core/client/agent-chat";
 
 export const ANALYTICS_CHAT_STORAGE_KEY = "analytics";
 
@@ -16,6 +19,23 @@ export function discardAnalyticsChatHandoffOnSettings(pathname: string): void {
   consumeAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY, {
     ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
   });
+}
+
+export function updateAnalyticsChatHandoffForRun(
+  runningTabs: Set<string>,
+  detail: unknown,
+): void {
+  if (!detail || typeof detail !== "object") return;
+  const run = detail as { isRunning?: unknown; tabId?: unknown };
+  if (typeof run.isRunning !== "boolean") return;
+  const tabId = typeof run.tabId === "string" ? run.tabId : "";
+
+  if (run.isRunning) {
+    runningTabs.add(tabId);
+    markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
+  } else if (runningTabs.delete(tabId)) {
+    markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
+  }
 }
 
 function readAnalyticsLastChatActivityAt(): number {

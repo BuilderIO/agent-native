@@ -4,7 +4,7 @@ import {
   consumeAgentChatHomeHandoff,
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client/agent-chat";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ANALYTICS_CHAT_STORAGE_KEY,
@@ -13,11 +13,13 @@ import {
   hasRecentAnalyticsChat,
   isAnalyticsSettingsPath,
   markAnalyticsChatActivity,
+  updateAnalyticsChatHandoffForRun,
 } from "./chat-handoff";
 
 describe("analytics chat handoff recency", () => {
   afterEach(() => {
     window.sessionStorage.clear();
+    vi.useRealTimers();
   });
 
   it("is false before any chat activity", () => {
@@ -68,5 +70,46 @@ describe("analytics chat handoff destinations", () => {
         ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
       }),
     ).toBe(true);
+  });
+
+  it("refreshes a long-running chat handoff when the run completes", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const runningTabs = new Set<string>();
+
+    updateAnalyticsChatHandoffForRun(runningTabs, {
+      isRunning: true,
+      tabId: "chat-1",
+    });
+    vi.setSystemTime(1_000 + ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS + 1);
+    expect(
+      consumeAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY, {
+        ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
+      }),
+    ).toBe(false);
+
+    updateAnalyticsChatHandoffForRun(runningTabs, {
+      isRunning: false,
+      tabId: "chat-1",
+    });
+
+    expect(
+      consumeAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY, {
+        ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not create a handoff for an unrelated run completion", () => {
+    updateAnalyticsChatHandoffForRun(new Set(), {
+      isRunning: false,
+      tabId: "chat-1",
+    });
+
+    expect(
+      consumeAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY, {
+        ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
+      }),
+    ).toBe(false);
   });
 });
