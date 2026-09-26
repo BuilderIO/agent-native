@@ -28,7 +28,7 @@ const mocks = vi.hoisted(() => ({
     data: undefined as
       | {
           runId: string;
-          status: "completed" | "failed" | "undone";
+          status: "completed" | "failed" | "undone" | "queued" | "running";
           totalThreads: number;
           processedThreads: number;
           matchedThreads: number;
@@ -772,7 +772,26 @@ describe("AiInboxSetup", () => {
     expect(screen.queryByText("mail.sort.aiSetupNoMatches")).toBeNull();
   });
 
-  it("shows the backfill error once when its status query fails", async () => {
+  it("shows the status refresh error once while preserving cached progress", async () => {
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "running",
+      totalThreads: 8,
+      processedThreads: 3,
+      matchedThreads: 2,
+      appliedThreads: 2,
+      failedThreads: 0,
+      perRule: [
+        {
+          ruleId: "rule-1",
+          name: "Receipts",
+          matchedCount: 2,
+          appliedCount: 2,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+    };
     mocks.backfillStatus.isError = true;
 
     render(<AiInboxSetup forceOpen />);
@@ -791,6 +810,8 @@ describe("AiInboxSetup", () => {
         screen.getAllByText("mail.sort.aiSetupSortingFailed"),
       ).toHaveLength(1),
     );
+    expect(screen.getByText("mail.sort.aiSetupSortingProgress")).not.toBeNull();
+    expect(screen.getByText("Matched 2")).not.toBeNull();
   });
 
   it("shows an indeterminate finding state until the backfill total is known", async () => {

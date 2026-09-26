@@ -357,6 +357,25 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("accountEmails: inboxAccountEmails,");
   });
 
+  it("keeps Filtered available from any connected account or an explicit pin", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain(
+      "data: connectedLabelsData, accountErrors: connectedLabelErrors, isError: connectedLabelsFailed, } = useLabels();",
+    );
+    expect(source).toContain("connectedLabelsFailed ||");
+    expect(source).toContain("Boolean(connectedLabelErrors?.length)");
+    expect(source).toContain(
+      "[connectedLabelsData ?? EMPTY_LABELS, labels].some(",
+    );
+    expect(source).toContain(
+      "const hasFilteredPin = userPinnedLabels?.includes(AI_FILTER_LABEL) === true;",
+    );
+    expect(source).toContain(
+      "hasFilteredRule || hasFilteredLabel || hasFilteredPin",
+    );
+  });
+
   it("never shows a red list-labels banner — useLabels degrades on its own", () => {
     const source = appLayoutSource();
 

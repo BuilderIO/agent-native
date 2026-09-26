@@ -567,6 +567,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const { data: labelsData } = useLabels(
     activeAccounts.size > 0 ? [...activeAccounts] : undefined,
   );
+  // The Filtered shortcut describes the whole connected mailbox, regardless
+  // of which accounts are selected for the current label list.
+  const {
+    data: connectedLabelsData,
+    accountErrors: connectedLabelErrors,
+    isError: connectedLabelsFailed,
+  } = useLabels();
   const labels = labelsData ?? EMPTY_LABELS;
   const labelDisplayNames = useMemo(
     () => buildLabelDisplayNames(labels),
@@ -625,17 +632,23 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       rule.kind === "ai-filter" &&
       aiFilterRuleMode(rule) === "filtered",
   );
-  const hasFilteredLabel = labels.some(
-    (label) =>
-      normalizedAiFilterLabelId(label.name) ===
-      normalizedAiFilterLabelId(AI_FILTER_LABEL),
-  );
+  const hasFilteredLabel =
+    connectedLabelsFailed ||
+    Boolean(connectedLabelErrors?.length) ||
+    [connectedLabelsData ?? EMPTY_LABELS, labels].some((labelSet) =>
+      labelSet.some(
+        (label) =>
+          normalizedAiFilterLabelId(label.name) ===
+          normalizedAiFilterLabelId(AI_FILTER_LABEL),
+      ),
+    );
+  const hasFilteredPin = userPinnedLabels?.includes(AI_FILTER_LABEL) === true;
   const systemViews = useMemo(
     () =>
-      hasFilteredRule || hasFilteredLabel
+      hasFilteredRule || hasFilteredLabel || hasFilteredPin
         ? [...collapsibleViews, filteredView]
         : collapsibleViews,
-    [hasFilteredLabel, hasFilteredRule],
+    [hasFilteredLabel, hasFilteredPin, hasFilteredRule],
   );
 
   // The top bar's tabs, their counts, and the account/sync status all come

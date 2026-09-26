@@ -405,7 +405,7 @@ describe("EmailList keyboard navigation interactions", () => {
         scores: emails.map(({ id, accountEmail }) => ({
           emailId: id,
           accountEmail,
-          score: id === "middle" ? 0.9 : id === "last" ? 0.8 : 0.1,
+          score: id === "middle" ? 0.9 : id === "last" ? 0.05 : 0.1,
         })),
       }),
     );
@@ -413,10 +413,12 @@ describe("EmailList keyboard navigation interactions", () => {
       ...email,
       labelIds: ["inbox"],
     }));
-    const secondTabEmails = [messages[1], messages[2]].map((email) => ({
-      ...email,
-      labelIds: ["inbox"],
-    }));
+    const secondTabEmails = [messages[0], messages[1], messages[2]].map(
+      (email) => ({
+        ...email,
+        labelIds: ["inbox"],
+      }),
+    );
     const { rerender } = render(
       <Harness emails={firstTabEmails} showPrioritySort sortMode="priority" />,
     );
@@ -429,8 +431,10 @@ describe("EmailList keyboard navigation interactions", () => {
     );
 
     await waitFor(() =>
-      expect(rows()[0].textContent).toContain("Subject last"),
+      expect(rows()[0].textContent).toContain("Subject middle"),
     );
+    expect(rows()[1].textContent).toContain("Subject first");
+    expect(rows()[2].textContent).toContain("Subject last");
     expect(mocks.priorityRequest).toHaveBeenLastCalledWith({
       emails: [expect.objectContaining({ id: "last" })],
     });

@@ -144,6 +144,12 @@ function priorityEmailCacheKey(
 }
 
 type CachedPriorityScore = { inputKey: string; score: number };
+type FrozenPriorityOrder = {
+  ruleRevision: string;
+  keys: string[];
+  priorityKeys: string[];
+  scores: Record<string, number>;
+};
 
 const priorityScoreCaches = new WeakMap<
   QueryClient,
@@ -708,10 +714,8 @@ export function EmailList({
   const [priorityScores, setPriorityScores] = useState(
     () => new Map(priorityScoreCache(queryClient)),
   );
-  const [priorityOrder, setPriorityOrder] = useState<{
-    ruleRevision: string;
-    keys: string[];
-  } | null>(null);
+  const [priorityOrder, setPriorityOrder] =
+    useState<FrozenPriorityOrder | null>(null);
   const recordPriorityFeedback = useCallback(
     (email: EmailMessage, decision: "important" | "not-important") => {
       const key = aiPriorityEmailKey(email.accountEmail, email.id);
@@ -982,35 +986,97 @@ export function EmailList({
           thread.latestMessage.id,
         ),
       ),
+      priorityKeys: [...priorityWindowIds],
+      scores: Object.fromEntries(cachedPriorityScores),
     });
+  }, [
+    cachedPriorityScores,
+    currentSortMode,
+    priorityOrder,
+    priorityWindowIds,
+    priorityRuleRevision,
+    priorityWindowEmails,
+    rankedPriorityThreads,
+  ]);
+  useEffect(() => {
+    if (
+      currentSortMode !== "priority" ||
+      !priorityOrder ||
+      priorityOrder.ruleRevision !== priorityRuleRevision
+    ) {
+      return;
+    }
+    const priorityKeys = new Set(priorityOrder.priorityKeys);
+    const scores = { ...priorityOrder.scores };
+    let changed = false;
+    for (const email of priorityWindowEmails) {
+      const key = aiPriorityEmailKey(email.accountEmail, email.id);
+      const score = cachedPriorityScores.get(key);
+      if (priorityKeys.has(key) || score === undefined) continue;
+      priorityKeys.add(key);
+      scores[key] = score;
+      changed = true;
+    }
+    if (!changed) return;
+    setPriorityOrder((current) =>
+      current === priorityOrder
+        ? { ...current, priorityKeys: [...priorityKeys], scores }
+        : current,
+    );
   }, [
     cachedPriorityScores,
     currentSortMode,
     priorityOrder,
     priorityRuleRevision,
     priorityWindowEmails,
-    rankedPriorityThreads,
   ]);
   const threads = useMemo(() => {
     if (currentSortMode !== "priority") return chronologicalThreads;
     if (!priorityOrder) return rankedPriorityThreads;
     const order = new Map(priorityOrder.keys.map((key, index) => [key, index]));
+    const frozenPriorityKeys = new Set(priorityOrder.priorityKeys);
     return [...rankedPriorityThreads].sort((a, b) => {
-      const aIndex = order.get(
-        aiPriorityEmailKey(a.latestMessage.accountEmail, a.latestMessage.id),
+      const aKey = aiPriorityEmailKey(
+        a.latestMessage.accountEmail,
+        a.latestMessage.id,
       );
-      const bIndex = order.get(
-        aiPriorityEmailKey(b.latestMessage.accountEmail, b.latestMessage.id),
+      const bKey = aiPriorityEmailKey(
+        b.latestMessage.accountEmail,
+        b.latestMessage.id,
       );
+      const aIndex = order.get(aKey);
+      const bIndex = order.get(bKey);
       if (aIndex !== undefined && bIndex !== undefined) return aIndex - bIndex;
-      if (aIndex !== undefined) return 1;
-      if (bIndex !== undefined) return -1;
-      return 0;
+      const aIsPriority =
+        aIndex !== undefined
+          ? frozenPriorityKeys.has(aKey)
+          : priorityWindowIds.has(aKey);
+      const bIsPriority =
+        bIndex !== undefined
+          ? frozenPriorityKeys.has(bKey)
+          : priorityWindowIds.has(bKey);
+      if (aIsPriority !== bIsPriority) return aIsPriority ? -1 : 1;
+      if (aIsPriority) {
+        const scoreDifference =
+          (priorityOrder.scores[bKey] ??
+            cachedPriorityScores.get(bKey) ??
+            0.5) -
+          (priorityOrder.scores[aKey] ?? cachedPriorityScores.get(aKey) ?? 0.5);
+        if (scoreDifference !== 0) return scoreDifference;
+      }
+      const chronologicalDifference =
+        (chronologicalIndexes.get(aKey) ?? 0) -
+        (chronologicalIndexes.get(bKey) ?? 0);
+      if (chronologicalDifference !== 0) return chronologicalDifference;
+      return b.latestMessage.id.localeCompare(a.latestMessage.id);
     });
   }, [
+    cachedPriorityScores,
+    chronologicalIndexes,
     chronologicalThreads,
     currentSortMode,
     priorityOrder,
+    priorityWindowIds,
     rankedPriorityThreads,
   ]);
 

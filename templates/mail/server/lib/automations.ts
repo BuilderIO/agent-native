@@ -7,6 +7,7 @@ import { getUserSetting, mutateUserSetting } from "@agent-native/core/settings";
 import { and, eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
+import { resolvePinnedLabels } from "../../app/lib/inbox-tabs.js";
 import {
   aiFilterRuleLabelName,
   aiFilterRuleMode,
@@ -20,7 +21,7 @@ import type {
 } from "../../shared/types.js";
 import { db, schema } from "../db/index.js";
 import { buildLabelCache, ensureGmailLabel } from "./automation-actions.js";
-import { getClientsWithErrors } from "./google-auth.js";
+import { getClientsWithErrors, isConnected } from "./google-auth.js";
 import { readCachedLabels } from "./inbox-store.js";
 import { normalizeMailSettings } from "./mail-settings.js";
 
@@ -76,14 +77,16 @@ async function reconcileAiTagPins(
   newlyAddedLabels: string[] = [],
   autoPinFilteredView = false,
 ): Promise<void> {
-  const [rules, storedLabels, cachedLabels] = await Promise.all([
-    db
-      .select()
-      .from(schema.automationRules)
-      .where(eq(schema.automationRules.ownerEmail, ownerEmail)),
-    getUserSetting(ownerEmail, "labels"),
-    readCachedLabels(ownerEmail).then((result) => result.labels),
-  ]);
+  const [rules, storedLabels, cachedLabels, googleConnected] =
+    await Promise.all([
+      db
+        .select()
+        .from(schema.automationRules)
+        .where(eq(schema.automationRules.ownerEmail, ownerEmail)),
+      getUserSetting(ownerEmail, "labels"),
+      readCachedLabels(ownerEmail).then((result) => result.labels),
+      isConnected(ownerEmail),
+    ]);
   const knownLabels = [...cachedLabels, ...labelsFromSetting(storedLabels)];
   const tags = new Map<string, string>();
   for (const rule of rules as any[]) {
@@ -118,7 +121,9 @@ async function reconcileAiTagPins(
 
   await mutateUserSetting(ownerEmail, "mail-settings", (current) => {
     const settings = normalizeMailSettings(current, ownerEmail);
-    const pinned = [...new Set(settings.pinnedLabels ?? [])];
+    const pinned = [
+      ...new Set(resolvePinnedLabels(settings.pinnedLabels, googleConnected)),
+    ];
     const newLabelIds = new Set(
       newlyAddedLabels.map(normalizedAiFilterLabelId),
     );

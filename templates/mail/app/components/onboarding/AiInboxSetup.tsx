@@ -194,7 +194,7 @@ function SetupResults({
     status?.status === "undoing";
   const undone = status?.status === "undone";
   const hasFailed =
-    status?.status === "failed" || (!status && !loading && hasRun && failed);
+    status?.status === "failed" || (!loading && hasRun && failed);
 
   return (
     <div className="space-y-5">

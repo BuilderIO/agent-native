@@ -135,6 +135,7 @@ const settingsMocks = vi.hoisted(() => {
 
 const providerMocks = vi.hoisted(() => ({
   getClientsWithErrors: vi.fn(),
+  isConnected: vi.fn(),
   readCachedLabels: vi.fn(),
 }));
 
@@ -176,6 +177,7 @@ vi.mock("./automation-actions.js", () => ({
 
 vi.mock("./google-auth.js", () => ({
   getClientsWithErrors: providerMocks.getClientsWithErrors,
+  isConnected: providerMocks.isConnected,
 }));
 
 vi.mock("./inbox-store.js", () => ({
@@ -260,6 +262,7 @@ beforeEach(() => {
     clients: [],
     errors: [],
   });
+  providerMocks.isConnected.mockResolvedValue(false);
   providerMocks.readCachedLabels.mockResolvedValue({ labels: [] });
 });
 
@@ -310,6 +313,26 @@ describe("createAutomationRule AI tags", () => {
     });
 
     await deleteAutomationRule("owner@example.test", created.id);
+
+    expect(settingsMocks.values.get("mail-settings")).toMatchObject({
+      pinnedLabels: ["important", "agent-native-filtered"],
+    });
+  });
+
+  it("preserves Gmail's default Important pin when adding the first Filtered rule", async () => {
+    dbMock.calls.rootRows = [];
+    providerMocks.isConnected.mockResolvedValue(true);
+
+    await createAutomationRule("owner@example.test", {
+      name: "AI filter: cold sales",
+      condition: "Cold sales messages from senders I have not replied to",
+      actions: [
+        { type: "label" as const, labelName: "agent-native-filtered" },
+        { type: "archive" as const },
+      ],
+      domain: "mail",
+      kind: "ai-filter",
+    });
 
     expect(settingsMocks.values.get("mail-settings")).toMatchObject({
       pinnedLabels: ["important", "agent-native-filtered"],
