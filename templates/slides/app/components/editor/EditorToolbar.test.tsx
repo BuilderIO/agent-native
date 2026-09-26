@@ -135,6 +135,10 @@ const deck: Deck = {
   updatedAt: "2026-08-11T00:00:00.000Z",
   slides: [],
 };
+const deckWithSlides: Deck = {
+  ...deck,
+  slides: [{ id: "slide-1", content: "", notes: "", layout: "blank" }],
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -165,7 +169,7 @@ describe("<EditorToolbar>", () => {
     render(
       <TooltipProvider>
         <EditorToolbar
-          deck={deck}
+          deck={deckWithSlides}
           deckId="deck-1"
           deckTitle="Test deck"
           onTitleChange={vi.fn()}
@@ -230,6 +234,49 @@ describe("<EditorToolbar>", () => {
     expect(onToggleLayers).toHaveBeenCalledOnce();
     expect(onChangeSlideTransition).toHaveBeenCalledWith("fade");
     expect(onShowHistory).toHaveBeenCalledOnce();
+  });
+
+  it("disables Present and omits export commands for an empty deck", () => {
+    const onPresent = vi.fn();
+
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          onExportGoogleSlides={vi.fn()}
+          onPresent={onPresent}
+        />
+      </TooltipProvider>,
+    );
+
+    const source = mocks.registerEditorCommands.mock.calls.at(-1)?.[0] as
+      | (() => ReadonlyArray<{ id: string; run: () => void }>)
+      | undefined;
+    const commandIds = (source?.() ?? []).map((command) => command.id);
+    expect(commandIds).not.toEqual(
+      expect.arrayContaining([
+        "download-html",
+        "export-pdf",
+        "export-pptx",
+        "export-to-google-slides",
+      ]),
+    );
+
+    const presentLink = screen.getByText("editorToolbar.present").closest("a");
+    expect(presentLink?.getAttribute("aria-disabled")).toBe("true");
+    expect(presentLink?.getAttribute("tabindex")).toBe("-1");
+    fireEvent.click(presentLink!);
+    expect(onPresent).not.toHaveBeenCalled();
   });
 
   it("does not register shape tools without an active slide", () => {
@@ -413,7 +460,7 @@ describe("<EditorToolbar>", () => {
     render(
       <TooltipProvider>
         <EditorToolbar
-          deck={deck}
+          deck={deckWithSlides}
           deckId="deck-1"
           deckTitle="Test deck"
           onTitleChange={vi.fn()}
@@ -442,7 +489,7 @@ describe("<EditorToolbar>", () => {
     render(
       <TooltipProvider>
         <EditorToolbar
-          deck={deck}
+          deck={deckWithSlides}
           deckId="deck-1"
           deckTitle="Test deck"
           onTitleChange={vi.fn()}
@@ -487,7 +534,7 @@ describe("<EditorToolbar>", () => {
     render(
       <TooltipProvider>
         <EditorToolbar
-          deck={deck}
+          deck={deckWithSlides}
           deckId="deck-1"
           deckTitle="Test deck"
           onTitleChange={vi.fn()}

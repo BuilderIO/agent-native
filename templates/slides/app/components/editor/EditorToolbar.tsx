@@ -253,6 +253,7 @@ export default function EditorToolbar({
   canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
+  const hasSlides = deck.slides.length > 0;
   const creativeContextEnabled = useCreativeContextLab();
   // Public decks default to the read-only presentation URL so recipients do
   // not get sent through the editor's auth gate. Restricted decks keep the
@@ -599,41 +600,43 @@ export default function EditorToolbar({
       });
     }
 
-    commands.push(
-      {
-        id: "download-html",
-        group: "deck",
-        label: t("editorExport.downloadHtml"),
-        keywords: ["export", "html", "download"],
-        icon: IconCode,
-        run: () => void exportMenuRef.current?.exportHtml(),
-      },
-      {
-        id: "export-pdf",
-        group: "deck",
-        label: t("editorExport.exportPdf"),
-        keywords: ["export", "pdf", "download"],
-        icon: IconFileTypePdf,
-        run: () => void exportMenuRef.current?.exportPdf(),
-      },
-      {
-        id: "export-pptx",
-        group: "deck",
-        label: t("editorExport.exportPptx"),
-        keywords: ["export", "powerpoint", "pptx", "download"],
-        icon: IconDownload,
-        run: () => void exportMenuRef.current?.exportPptx(),
-      },
-    );
-    if (onExportGoogleSlides) {
-      commands.push({
-        id: "export-to-google-slides",
-        group: "deck",
-        label: t("editorExport.openInGoogleSlides"),
-        keywords: ["google", "slides", "export"],
-        icon: IconBrandGoogle,
-        run: () => void exportMenuRef.current?.exportGoogleSlides(),
-      });
+    if (hasSlides) {
+      commands.push(
+        {
+          id: "download-html",
+          group: "deck",
+          label: t("editorExport.downloadHtml"),
+          keywords: ["export", "html", "download"],
+          icon: IconCode,
+          run: () => void exportMenuRef.current?.exportHtml(),
+        },
+        {
+          id: "export-pdf",
+          group: "deck",
+          label: t("editorExport.exportPdf"),
+          keywords: ["export", "pdf", "download"],
+          icon: IconFileTypePdf,
+          run: () => void exportMenuRef.current?.exportPdf(),
+        },
+        {
+          id: "export-pptx",
+          group: "deck",
+          label: t("editorExport.exportPptx"),
+          keywords: ["export", "powerpoint", "pptx", "download"],
+          icon: IconDownload,
+          run: () => void exportMenuRef.current?.exportPptx(),
+        },
+      );
+      if (onExportGoogleSlides) {
+        commands.push({
+          id: "export-to-google-slides",
+          group: "deck",
+          label: t("editorExport.openInGoogleSlides"),
+          keywords: ["google", "slides", "export"],
+          icon: IconBrandGoogle,
+          run: () => void exportMenuRef.current?.exportGoogleSlides(),
+        });
+      }
     }
     if (onDuplicateDeck) {
       commands.push({
@@ -686,6 +689,7 @@ export default function EditorToolbar({
     commentsOpen,
     currentSlide,
     drawMode,
+    hasSlides,
     importing,
     isDark,
     openFileImport,
@@ -718,6 +722,10 @@ export default function EditorToolbar({
   useEffect(() => registerEditorCommands(() => editorCommandsRef.current), []);
 
   const handlePresentClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (!hasSlides) {
+      event.preventDefault();
+      return;
+    }
     if (event.button !== 0 && event.button !== 1) return;
     const preserveNativeNavigation =
       event.button === 1 ||
@@ -985,6 +993,7 @@ export default function EditorToolbar({
               inline
               hideExportDialog
               onExportStatusChange={setExportStatus}
+              hasSlides={hasSlides}
               deckId={deckId}
               deckTitle={deckTitle}
               onDuplicate={onDuplicateDeck ?? (() => {})}
@@ -1062,9 +1071,13 @@ export default function EditorToolbar({
       {/* Present button — matches Share trigger height (h-9) */}
       <Link
         to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
-        onClick={onPresent ? handlePresentClick : undefined}
-        onAuxClick={onPresent ? handlePresentClick : undefined}
-        className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        aria-disabled={!hasSlides || undefined}
+        tabIndex={hasSlides ? undefined : -1}
+        onClick={handlePresentClick}
+        onAuxClick={handlePresentClick}
+        className={`inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors ${
+          hasSlides ? "hover:bg-primary/90" : "cursor-not-allowed opacity-50"
+        }`}
       >
         <IconPlayerPlay className="w-3.5 h-3.5" />
         <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
