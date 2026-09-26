@@ -132,7 +132,6 @@ interface QueryScope {
 
 interface ThreadPromptRow {
   id?: unknown;
-  preview?: unknown;
   thread_data?: unknown;
 }
 
@@ -408,22 +407,100 @@ function promptText(value: unknown): string {
     .trim();
 }
 
-function firstUserPrompt(threadData: unknown): string | null {
+function messageRecord(entry: unknown): Record<string, unknown> | null {
+  if (!entry || typeof entry !== "object") return null;
+  const record = entry as Record<string, unknown>;
+  return record.message && typeof record.message === "object"
+    ? (record.message as Record<string, unknown>)
+    : record;
+}
+
+function messageTurnId(message: Record<string, unknown>): string | null {
+  const metadata =
+    message.metadata && typeof message.metadata === "object"
+      ? (message.metadata as Record<string, unknown>)
+      : null;
+  const custom =
+    metadata?.custom && typeof metadata.custom === "object"
+      ? (metadata.custom as Record<string, unknown>)
+      : null;
+  const turnId = custom?.turnId ?? metadata?.turnId;
+  return typeof turnId === "string" && turnId.trim() ? turnId.trim() : null;
+}
+
+function messageTimestamp(message: Record<string, unknown>): number | null {
+  const value = message.createdAt;
+  const timestamp =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Date.parse(value)
+        : Number.NaN;
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function promptForTurn(
+  threadData: unknown,
+  taskId: string | null,
+  usageCreatedAt: number,
+): { prompt: string; messageId: string | null } | null {
   const parsed = parseJson(threadData);
   const messages = parsed?.messages;
   if (!Array.isArray(messages)) return null;
-  for (const entry of messages) {
-    if (!entry || typeof entry !== "object") continue;
-    const record = entry as Record<string, unknown>;
-    const message =
-      record.message && typeof record.message === "object"
-        ? (record.message as Record<string, unknown>)
-        : record;
-    const role = typeof message.role === "string" ? message.role : "";
-    if (role !== "user" && role !== "human") continue;
-    const text = promptText(message.content);
-    if (text)
-      return text.length > 360 ? `${text.slice(0, 359).trimEnd()}…` : text;
+
+  const promptAt = (index: number) => {
+    for (let i = index; i >= 0; i -= 1) {
+      const message = messageRecord(messages[i]);
+      if (!message) continue;
+      const role = typeof message.role === "string" ? message.role : "";
+      if (role !== "user" && role !== "human") continue;
+      const text = promptText(message.content);
+      if (!text) return null;
+      const id = typeof message.id === "string" ? message.id : null;
+      return {
+        prompt: text.length > 360 ? `${text.slice(0, 359).trimEnd()}…` : text,
+        messageId: id,
+      };
+    }
+    return null;
+  };
+
+  if (taskId) {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messageRecord(messages[i]);
+      if (message?.role === "assistant" && messageTurnId(message) === taskId) {
+        const prompt = promptAt(i - 1);
+        if (prompt) return prompt;
+      }
+    }
+  }
+
+  let latest: {
+    timestamp: number;
+    match: ReturnType<typeof promptAt>;
+  } | null = null;
+  let userMessageCount = 0;
+  let onlyUserMessageIndex = -1;
+  for (let i = 0; i < messages.length; i += 1) {
+    const message = messageRecord(messages[i]);
+    if (!message || (message.role !== "user" && message.role !== "human")) {
+      continue;
+    }
+    userMessageCount += 1;
+    onlyUserMessageIndex = i;
+    const timestamp = messageTimestamp(message);
+    if (timestamp === null || timestamp > usageCreatedAt) continue;
+    const match = promptAt(i);
+    if (!latest || timestamp >= latest.timestamp) {
+      latest = { timestamp, match };
+    }
+  }
+  if (latest) return latest.match;
+  if (userMessageCount === 1) {
+    const message = messageRecord(messages[onlyUserMessageIndex]);
+    if (message && messageTimestamp(message) === null) {
+      return promptAt(onlyUserMessageIndex);
+    }
   }
   return null;
 }
@@ -444,7 +521,7 @@ async function hydrateRecentPrompts(
   if (threadIds.length > 0) {
     try {
       const result = await getDbExec().execute({
-        sql: `SELECT id, preview, thread_data FROM chat_threads WHERE id IN (${threadIds.map(() => "?").join(", ")})`,
+        sql: `SELECT id, thread_data FROM chat_threads WHERE id IN (${threadIds.map(() => "?").join(", ")})`,
         args: threadIds,
       });
       for (const row of result.rows as ThreadPromptRow[]) {
@@ -456,13 +533,28 @@ async function hydrateRecentPrompts(
     }
   }
 
-  return rows.map((row) => {
+  const recent: UsageRecentMetric[] = [];
+  const seenTurns = new Set<string>();
+  for (const row of rows) {
     const threadId = nullableStringField(row, "thread_id");
     const thread = threadId ? threads.get(threadId) : undefined;
-    const prompt = thread ? firstUserPrompt(thread.thread_data) : null;
-    const preview =
-      typeof thread?.preview === "string" ? thread.preview.trim() : "";
-    return {
+    const taskId = nullableStringField(row, "task_id");
+    const prompt = thread
+      ? promptForTurn(
+          thread.thread_data,
+          taskId,
+          numberField(row, "created_at"),
+        )
+      : null;
+    const turnKey =
+      threadId && taskId
+        ? JSON.stringify([threadId, taskId])
+        : threadId && prompt?.messageId
+          ? JSON.stringify([threadId, prompt.messageId])
+          : null;
+    if (turnKey && seenTurns.has(turnKey)) continue;
+    if (turnKey) seenTurns.add(turnKey);
+    recent.push({
       id: numberField(row, "id"),
       createdAt: numberField(row, "created_at"),
       ownerEmail: stringField(row, "owner_email"),
@@ -492,17 +584,17 @@ async function hydrateRecentPrompts(
             engineName: nullableStringField(row, "engine_name"),
           }
         : {}),
-      prompt: prompt ?? (preview ? preview.slice(0, 359).trimEnd() : null),
+      prompt: prompt?.prompt ?? null,
       promptSource: prompt
         ? "thread"
-        : preview
-          ? "thread-preview"
-          : threadQueryUnavailable && threadId
-            ? "unavailable"
-            : "not-captured",
+        : threadQueryUnavailable && threadId
+          ? "unavailable"
+          : "not-captured",
       threadId,
-    } satisfies UsageRecentMetric;
-  });
+    });
+    if (recent.length === 12) break;
+  }
+  return recent;
 }
 
 async function detectUsageEngineName(): Promise<string | null> {
@@ -587,14 +679,16 @@ export async function listAppUsageMetrics(
           ORDER BY created_at ASC`,
         args: baseArgs,
       }),
+      // ponytail: cap legacy prompt hydration at 240 rows; raise only if real
+      // histories routinely crowd distinct prompts out of the 12-turn list.
       getDbExec().execute({
         sql: `SELECT id, created_at, owner_email, app, label, model,
             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-            cost_cents_x100, builder_credits_used, engine_name, thread_id
+            cost_cents_x100, builder_credits_used, engine_name, thread_id, task_id
           FROM token_usage
           WHERE ${appScope.where} AND ${resolved.ownerScope.where} AND created_at >= ?
-          ORDER BY created_at DESC
-          LIMIT 12`,
+          ORDER BY created_at DESC, id DESC
+          LIMIT 240`,
         args: baseArgs,
       }),
     ]);

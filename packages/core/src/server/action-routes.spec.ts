@@ -1116,6 +1116,45 @@ describe("mountActionRoutes", () => {
     );
   });
 
+  it("parses get-design metadata-only query booleans on the HTTP route", async () => {
+    const { defineAction } = await import("../action.js");
+    const { getDesignSchema } =
+      await import("../../../../templates/design/actions/get-design.schema.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (args) => args);
+
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "get-design": defineAction({
+          description: "Test get-design query parsing",
+          schema: getDesignSchema,
+          http: { method: "GET" },
+          requiresAuth: false,
+          run,
+        }) as any,
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        req: {
+          url: "http://app.test/_agent-native/actions/get-design?id=design_1&includeFileContent=false",
+        },
+      }),
+    ).resolves.toEqual({ id: "design_1", includeFileContent: false });
+    expect(run).toHaveBeenCalledWith(
+      { id: "design_1", includeFileContent: false },
+      expect.objectContaining({ caller: "http" }),
+    );
+  });
+
   it("propagates a verified capability to a public action without impersonating its owner", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const { getRequestAuthCapability, getRequestUserEmail } =
