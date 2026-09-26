@@ -39,7 +39,7 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
-import { FileStorageSetupCard } from "../FileStorageSetupCard.js";
+import { FileStorageSetupDialog } from "../FileStorageSetupCard.js";
 import { useOptionalLocale, useT } from "../i18n.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { findMcpIntegrationForToolName } from "../resources/mcp-integration-catalog.js";
@@ -99,6 +99,11 @@ export function ToolCallStackMotion({
   return (
     <div className={cn("agent-tool-call-stack", className)}>{children}</div>
   );
+}
+
+function FileStorageSetupToolCall() {
+  const [open, setOpen] = useState(true);
+  return <FileStorageSetupDialog open={open} onOpenChange={setOpen} />;
 }
 
 /**
@@ -900,7 +905,7 @@ function ToolCallDisplayGeneric({
     try {
       const parsed = JSON.parse(result);
       if (parsed?.kind === "connect-file-storage-card") {
-        return <FileStorageSetupCard />;
+        return <FileStorageSetupToolCall />;
       }
     } catch {
       // coercion-ok: malformed storage tool output should fall through to the default tool pill

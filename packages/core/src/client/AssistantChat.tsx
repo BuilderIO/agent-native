@@ -221,7 +221,7 @@ import {
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
 import { isProviderAuthenticationError } from "./error-format.js";
-import { FileStorageSetupCard } from "./FileStorageSetupCard.js";
+import { FileStorageSetupDialog } from "./FileStorageSetupCard.js";
 import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
@@ -3024,8 +3024,11 @@ const AssistantChatInner = forwardRef<
   const fileUploadStatus = useFileUploadStatus(isActiveComposer);
   const fileStorageConfigured =
     fileUploadStatus.data?.configured === true && !fileUploadStatus.isError;
-  const showFileStorageGate = isActiveComposer && !fileStorageConfigured;
+  const [fileStoragePromptOpen, setFileStoragePromptOpen] = useState(false);
   fileStorageReadyRef.current = fileStorageConfigured;
+  useEffect(() => {
+    if (fileStorageConfigured) setFileStoragePromptOpen(false);
+  }, [fileStorageConfigured]);
   const providerStatus = shouldCheckProviderStatus
     ? agentEngineConfigured.state
     : "configured";
@@ -7575,8 +7578,7 @@ const AssistantChatInner = forwardRef<
                           <div
                             className="agent-composer-stack"
                             data-agent-composer-adjacent-ui={
-                              hasComposerAccessoryAboveStack ||
-                              showFileStorageGate
+                              hasComposerAccessoryAboveStack
                                 ? "true"
                                 : undefined
                             }
@@ -7616,7 +7618,7 @@ const AssistantChatInner = forwardRef<
                               <BuilderSetupCard
                                 key={providerAuthErrorKey ?? "missing-provider"}
                                 fullWidth
-                                attached={!showFileStorageGate}
+                                attached
                                 bouncePulse={missingKeyBouncePulse}
                                 layout={missingApiKeySetupLayout}
                                 onDismiss={
@@ -7632,32 +7634,13 @@ const AssistantChatInner = forwardRef<
                                 }
                               />
                             ) : null}
-                            {showFileStorageGate ? (
-                              fileUploadStatus.data?.configured === false &&
-                              !fileUploadStatus.isError ? (
-                                <FileStorageSetupCard />
-                              ) : (
-                                <div
-                                  className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
-                                  role="status"
-                                >
-                                  <span>
-                                    {t("onboarding.fileStorage.title")}
-                                  </span>
-                                  {fileUploadStatus.isError ? (
-                                    <button
-                                      type="button"
-                                      className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                      onClick={() =>
-                                        void fileUploadStatus.refetch()
-                                      }
-                                    >
-                                      {t("agentChat.common.retry")}
-                                    </button>
-                                  ) : null}
-                                </div>
-                              )
-                            ) : null}
+                            <FileStorageSetupDialog
+                              open={fileStoragePromptOpen}
+                              onOpenChange={setFileStoragePromptOpen}
+                              onConnected={() =>
+                                void fileUploadStatus.refetch()
+                              }
+                            />
                             {/* Input area */}
                             <PromptBar mode="inline" className="contents">
                               <AgentComposerFrame
@@ -7741,6 +7724,9 @@ const AssistantChatInner = forwardRef<
                                     focusRef={tiptapRef}
                                     maxDocumentAttachmentBytes={MAX_PDF_BYTES}
                                     attachmentsEnabled={fileStorageConfigured}
+                                    onAttachmentRequest={() =>
+                                      setFileStoragePromptOpen(true)
+                                    }
                                     initialText={
                                       initialComposerText ?? undefined
                                     }

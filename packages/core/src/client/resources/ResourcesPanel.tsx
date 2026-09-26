@@ -30,12 +30,6 @@ import { serializeFrontmatter } from "../../resources/metadata.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "../components/ui/dialog.js";
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -47,7 +41,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { PromptComposer } from "../composer/index.js";
-import { FileStorageSetupCard } from "../FileStorageSetupCard.js";
+import { FileStorageSetupDialog } from "../FileStorageSetupCard.js";
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { useFileUploadStatus } from "../uploads/use-file-upload-status.js";
@@ -1615,19 +1609,31 @@ export function ResourcesPanel({
 
   const handleUploadFiles = useCallback(
     (files: FileList, targetScope: ResourceScope) => {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        if (!canUploadResourceFile(file.type, fileStorageConfigured)) {
-          setFileStorageSetupOpen(true);
-          continue;
+      const uploadFiles = (storageConfigured: boolean) => {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          if (!canUploadResourceFile(file.type, storageConfigured)) {
+            setFileStorageSetupOpen(true);
+            continue;
+          }
+          const formData = new FormData();
+          formData.append("file", file);
+          formData.append(
+            "shared",
+            targetScope === "shared" ? "true" : "false",
+          );
+          uploadResource.mutate(formData);
         }
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("shared", targetScope === "shared" ? "true" : "false");
-        uploadResource.mutate(formData);
+      };
+      if (fileUploadStatus.data && !fileUploadStatus.isError) {
+        uploadFiles(fileUploadStatus.data.configured);
+        return;
       }
+      void fileUploadStatus.refetch().then((result) => {
+        uploadFiles(!result.isError && result.data?.configured === true);
+      });
     },
-    [fileStorageConfigured, uploadResource],
+    [fileUploadStatus, uploadResource],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -1773,38 +1779,11 @@ export function ResourcesPanel({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <Dialog
+      <FileStorageSetupDialog
         open={fileStorageSetupOpen}
         onOpenChange={setFileStorageSetupOpen}
-      >
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="sr-only">
-              {t("onboarding.fileStorage.title")}
-            </DialogTitle>
-          </DialogHeader>
-          {fileUploadStatus.data?.configured === false &&
-          !fileUploadStatus.isError ? (
-            <FileStorageSetupCard />
-          ) : (
-            <div
-              role="status"
-              className="flex items-center justify-between gap-3 text-sm text-muted-foreground"
-            >
-              <span>{t("onboarding.fileStorage.title")}</span>
-              {fileUploadStatus.isError ? (
-                <button
-                  type="button"
-                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={() => void fileUploadStatus.refetch()}
-                >
-                  {t("agentChat.common.retry")}
-                </button>
-              ) : null}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+        onConnected={() => void fileUploadStatus.refetch()}
+      />
       {/* Toolbar */}
       {isEditing ? (
         <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5">

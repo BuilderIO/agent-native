@@ -1,17 +1,110 @@
 import { ActionButton } from "@agent-native/toolkit/design-system";
 import { Button } from "@agent-native/toolkit/ui/button";
+import { IconCloudUpload } from "@tabler/icons-react";
 import { useCallback, useEffect, useState } from "react";
 
 import {
   fetchFileUploadStatus,
   invalidateClientStatusRequest,
 } from "./client-status-requests.js";
+import { Dialog, DialogContent, DialogTitle } from "./components/ui/dialog.js";
 import { useT } from "./i18n.js";
 import { DeferredBuilderConnectPopover as BuilderConnectPopover } from "./settings/deferred-builder-connect-popover.js";
 import {
   BuilderConnectCard,
   DefaultBuilderConnectCardView,
 } from "./setup-connections/BuilderConnectCard.js";
+
+export interface FileStorageSetupDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConnected?: () => void;
+}
+
+/** Only mount the storage choices after the user asks to upload a file. */
+export function FileStorageSetupDialog({
+  open,
+  onOpenChange,
+  onConnected,
+}: FileStorageSetupDialogProps) {
+  const t = useT();
+  const openCustomStorage = () => {
+    onOpenChange(false);
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:open-settings", {
+        detail: { section: "uploads" },
+      }),
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="max-w-xs gap-3 p-4"
+        closeLabel={t("agentChat.common.dismiss")}
+      >
+        <DialogTitle className="flex items-center gap-2 text-sm font-medium leading-5">
+          <IconCloudUpload
+            aria-hidden="true"
+            className="size-4 shrink-0 text-muted-foreground"
+          />
+          {t("onboarding.fileStorage.title")}
+        </DialogTitle>
+        <BuilderConnectCard
+          title={t("onboarding.fileStorage.title")}
+          description=""
+          trackingSource="file_upload_chat_dialog"
+          onConnected={onConnected}
+          render={({ viewModel }) => {
+            const flow = viewModel.connectFlow;
+            const connectButton = (
+              <Button
+                type="button"
+                className="w-full"
+                disabled={!flow || viewModel.pending}
+                aria-busy={viewModel.pending}
+              >
+                {viewModel.pending
+                  ? t("onboarding.builderConnecting")
+                  : t("composer.connectBuilder")}
+              </Button>
+            );
+
+            return (
+              <div className="space-y-2">
+                {flow ? (
+                  <BuilderConnectPopover
+                    flow={flow}
+                    defaultProvisionAccount
+                    onConnect={(provisionAccount) =>
+                      flow.start({ provisionAccount })
+                    }
+                  >
+                    {connectButton}
+                  </BuilderConnectPopover>
+                ) : (
+                  connectButton
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={openCustomStorage}
+                >
+                  {t("onboarding.fileStorage.custom")}
+                </Button>
+                {viewModel.error ? (
+                  <p className="text-xs text-destructive">{viewModel.error}</p>
+                ) : null}
+              </div>
+            );
+          }}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 /**
  * Inline storage setup shown when an attachment cannot be made durable.

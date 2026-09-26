@@ -120,7 +120,7 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.description":
     "Verbinde Builder.io (kostenlos) oder konfiguriere deinen eigenen S3-kompatiblen Objektspeicher.",
   "onboarding.fileStorage.reconnectBuilder": "Builder.io erneut verbinden",
-  "onboarding.fileStorage.custom": "Eigene Objektspeicherschlüssel hinzufügen",
+  "onboarding.fileStorage.custom": "Eigene Schlüssel verwenden",
   "onboarding.fileStorage.customDescription":
     "Konfiguriere einen S3-kompatiblen Bucket mit einer stabilen öffentlichen URL.",
   "onboarding.capability.voiceInput.label": "Spracheingabe",

@@ -46,6 +46,7 @@ interface ComposerPlusMenuProps {
   onSelectMode?: (mode: ComposerMode) => void;
   addAttachment?: (file: File) => Promise<unknown>;
   attachmentsEnabled?: boolean;
+  onAttachmentRequest?: () => void;
   onAttachmentError?: (message: string) => void;
   attachmentAccept?: string;
   /**
@@ -242,11 +243,17 @@ function MenuItemHelp({
 
 function UploadOnlyAttachButton({
   addAttachment,
+  attachmentsEnabled,
+  onAttachmentRequest,
   onAttachmentError,
   attachmentAccept,
 }: Pick<
   ComposerPlusMenuProps,
-  "addAttachment" | "onAttachmentError" | "attachmentAccept"
+  | "addAttachment"
+  | "attachmentsEnabled"
+  | "onAttachmentRequest"
+  | "onAttachmentError"
+  | "attachmentAccept"
 >) {
   const composerRuntime = useComposerRuntime();
   const t = useComposerRuntimeAdapters().translate!;
@@ -273,17 +280,19 @@ function UploadOnlyAttachButton({
 
   return (
     <>
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        accept={attachmentAccept}
-        className="hidden"
-        onChange={(event) => {
-          void handleFilesSelected(event.target.files);
-          event.target.value = "";
-        }}
-      />
+      {attachmentsEnabled ? (
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept={attachmentAccept}
+          className="hidden"
+          onChange={(event) => {
+            void handleFilesSelected(event.target.files);
+            event.target.value = "";
+          }}
+        />
+      ) : null}
       <Tooltip>
         <TooltipTrigger asChild>
           <span className="inline-flex shrink-0">
@@ -293,7 +302,10 @@ function UploadOnlyAttachButton({
               aria-label={t("agentChat.composer.upload", {
                 defaultValue: "Upload",
               })}
-              onClick={() => inputRef.current?.click()}
+              onClick={() => {
+                if (attachmentsEnabled) inputRef.current?.click();
+                else onAttachmentRequest?.();
+              }}
             >
               <IconPlus className="h-4 w-4" />
             </button>
@@ -311,6 +323,7 @@ export function ComposerPlusMenu({
   onSelectMode,
   addAttachment,
   attachmentsEnabled = true,
+  onAttachmentRequest,
   onAttachmentError,
   attachmentAccept,
   extensionTools = false,
@@ -318,10 +331,12 @@ export function ComposerPlusMenu({
   terminalModeControl,
 }: ComposerPlusMenuProps) {
   if (mode === "upload-only") {
-    if (!attachmentsEnabled) return null;
+    if (!attachmentsEnabled && !onAttachmentRequest) return null;
     return (
       <UploadOnlyAttachButton
         addAttachment={addAttachment}
+        attachmentsEnabled={attachmentsEnabled}
+        onAttachmentRequest={onAttachmentRequest}
         onAttachmentError={onAttachmentError}
         attachmentAccept={attachmentAccept}
       />
@@ -337,6 +352,7 @@ export function ComposerPlusMenu({
       onSelectMode={onSelectMode}
       addAttachment={addAttachment}
       attachmentsEnabled={attachmentsEnabled}
+      onAttachmentRequest={onAttachmentRequest}
       onAttachmentError={onAttachmentError}
       attachmentAccept={attachmentAccept}
       extensionTools={extensionTools}
@@ -415,6 +431,7 @@ function ComposerPlusMenuFull({
   onSelectMode,
   addAttachment,
   attachmentsEnabled,
+  onAttachmentRequest,
   onAttachmentError,
   attachmentAccept,
   extensionTools,
@@ -422,6 +439,7 @@ function ComposerPlusMenuFull({
   ComposerPlusMenuProps,
   | "addAttachment"
   | "attachmentsEnabled"
+  | "onAttachmentRequest"
   | "onSelectMode"
   | "onAttachmentError"
   | "attachmentAccept"
@@ -595,7 +613,7 @@ function ComposerPlusMenuFull({
     hoverAction?: () => void;
     isSkill?: boolean;
   }[] = [
-    ...(attachmentsEnabled
+    ...(attachmentsEnabled || onAttachmentRequest
       ? [
           {
             icon: <IconUpload className="h-3.5 w-3.5" />,
@@ -607,7 +625,11 @@ function ComposerPlusMenuFull({
             }),
             action: () => {
               setOpen(false);
-              setTimeout(() => fileUploadRef.current?.click(), 0);
+              if (attachmentsEnabled) {
+                setTimeout(() => fileUploadRef.current?.click(), 0);
+              } else {
+                onAttachmentRequest?.();
+              }
             },
           },
         ]

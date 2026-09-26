@@ -17,6 +17,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 
 vi.mock("@agent-native/core/client/setup-connections", () => ({
   FileStorageSetupCard: () => null,
+  FileStorageSetupDialog: () => null,
 }));
 
 vi.mock("@/hooks/use-video-storage-status", () => ({

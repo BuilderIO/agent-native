@@ -4,7 +4,7 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupDialog } from "@agent-native/core/client/setup-connections";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
@@ -603,7 +603,7 @@ export function LibraryGrid({
   return (
     <div className="flex flex-1 flex-col min-h-0">
       <Dialog
-        open={storageGateIssue !== null}
+        open={storageGateIssue === "unavailable"}
         onOpenChange={(open) => {
           if (!open) setStorageGateIssue(null);
         }}
@@ -614,13 +614,16 @@ export function LibraryGrid({
               {t("storageSetup.configureS3")}
             </DialogTitle>
           </DialogHeader>
-          {storageGateIssue === "unavailable" ? (
-            <StorageStatusRetry onRetry={() => void retryStorageStatus()} />
-          ) : (
-            <FileStorageSetupCard />
-          )}
+          <StorageStatusRetry onRetry={() => void retryStorageStatus()} />
         </DialogContent>
       </Dialog>
+      <FileStorageSetupDialog
+        open={storageGateIssue === "missing"}
+        onOpenChange={(open) => {
+          if (!open) setStorageGateIssue(null);
+        }}
+        onConnected={() => void retryStorageStatus()}
+      />
 
       {/* Share dialog — programmatically opened from the card context menu */}
       {sharingRec && (

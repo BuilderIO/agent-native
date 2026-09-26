@@ -10,16 +10,15 @@ import {
   type RealtimeVoiceModeProviderProps,
   type TiptapComposerProps,
 } from "@agent-native/toolkit/composer";
+import { useCallback, useEffect, useState } from "react";
 
 import { readClientAppState } from "../application-state.js";
 import { ExternalAgentNudge } from "../external-agent-host.js";
-import { FileStorageSetupCard } from "../FileStorageSetupCard.js";
-import { useT } from "../i18n.js";
+import { FileStorageSetupDialog } from "../FileStorageSetupCard.js";
 import { useFileUploadStatus } from "../uploads/use-file-upload-status.js";
 import { CoreComposerRuntimeProvider } from "./runtime-adapters.js";
 
 export function PromptComposer(props: PromptComposerProps) {
-  const t = useT();
   const fileUploadStatus = useFileUploadStatus(
     props.attachmentsEnabled !== false,
   );
@@ -27,35 +26,33 @@ export function PromptComposer(props: PromptComposerProps) {
     fileUploadStatus.data?.configured === true && !fileUploadStatus.isError;
   const attachmentsEnabled =
     props.attachmentsEnabled !== false && fileStorageConfigured;
+  const [storagePromptOpen, setStoragePromptOpen] = useState(false);
+  const openStoragePrompt = useCallback(() => {
+    setStoragePromptOpen(true);
+  }, []);
+  const onAttachmentRequest =
+    props.attachmentsEnabled === false
+      ? undefined
+      : fileStorageConfigured
+        ? props.onAttachmentRequest
+        : openStoragePrompt;
+
+  useEffect(() => {
+    if (fileStorageConfigured) setStoragePromptOpen(false);
+  }, [fileStorageConfigured]);
 
   return (
     <div className="relative w-full min-w-0">
-      {props.attachmentsEnabled !== false && !fileStorageConfigured ? (
-        fileUploadStatus.data?.configured === false &&
-        !fileUploadStatus.isError ? (
-          <FileStorageSetupCard />
-        ) : (
-          <div
-            className="mb-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
-            role="status"
-          >
-            <span>{t("onboarding.fileStorage.title")}</span>
-            {fileUploadStatus.isError ? (
-              <button
-                type="button"
-                className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => void fileUploadStatus.refetch()}
-              >
-                {t("agentChat.common.retry")}
-              </button>
-            ) : null}
-          </div>
-        )
-      ) : null}
+      <FileStorageSetupDialog
+        open={storagePromptOpen}
+        onOpenChange={setStoragePromptOpen}
+        onConnected={() => void fileUploadStatus.refetch()}
+      />
       <CoreComposerRuntimeProvider>
         <ToolkitPromptComposer
           {...props}
           attachmentsEnabled={attachmentsEnabled}
+          onAttachmentRequest={onAttachmentRequest}
         />
       </CoreComposerRuntimeProvider>
       <ExternalAgentNudge variant="prompt" />

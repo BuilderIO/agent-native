@@ -112,7 +112,7 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.description":
     "Builder.io(무료)를 연결하거나 자체 S3 호환 객체 스토리지를 구성하세요.",
   "onboarding.fileStorage.reconnectBuilder": "Builder.io 다시 연결",
-  "onboarding.fileStorage.custom": "자체 객체 스토리지 키 추가",
+  "onboarding.fileStorage.custom": "사용자 지정 키 사용",
   "onboarding.fileStorage.customDescription":
     "안정적인 공개 URL을 사용하는 S3 호환 버킷을 구성하세요.",
   "onboarding.capability.voiceInput.label": "음성 입력",

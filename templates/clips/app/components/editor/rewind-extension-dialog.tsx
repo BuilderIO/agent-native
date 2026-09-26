@@ -4,7 +4,7 @@ import {
 } from "@agent-native/core/client/api-path";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupDialog } from "@agent-native/core/client/setup-connections";
 import { IconHistory, IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -102,6 +102,8 @@ export function RewindExtensionDialog({
   const [status, setStatus] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [privacyConfirmed, setPrivacyConfirmed] = useState(false);
+  const [storageCheckFailed, setStorageCheckFailed] = useState(false);
+  const [fileStoragePromptOpen, setFileStoragePromptOpen] = useState(false);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -115,8 +117,14 @@ export function RewindExtensionDialog({
       setStatus(null);
       setProgress(0);
       setPrivacyConfirmed(false);
+      setStorageCheckFailed(false);
+      setFileStoragePromptOpen(false);
     }
   }, [busy, open]);
+
+  useEffect(() => {
+    if (storageConfigured) setFileStoragePromptOpen(false);
+  }, [storageConfigured]);
 
   const makePrivate = useCallback(async () => {
     setBusy(true);
@@ -139,9 +147,17 @@ export function RewindExtensionDialog({
     async (seconds: 30 | 300) => {
       setBusy(true);
       setProgress(0);
+      setStorageCheckFailed(false);
       try {
         const storageCheck = await storageStatus.refetch();
-        if (storageCheck.isError || !storageCheck.data?.configured) return;
+        if (storageCheck.isError) {
+          setStorageCheckFailed(true);
+          return;
+        }
+        if (!storageCheck.data?.configured) {
+          setFileStoragePromptOpen(true);
+          return;
+        }
         setStatus("Asking Clips Alpha for local Rewind history…");
         const created = (await requestExtension.mutateAsync({
           recordingId,
@@ -310,10 +326,8 @@ export function RewindExtensionDialog({
               {t("rewindExtension.makePrivateContinue")}
             </Button>
           </div>
-        ) : storageStatus.isError ? (
+        ) : storageCheckFailed && storageStatus.isError ? (
           <StorageStatusRetry onRetry={() => void storageStatus.refetch()} />
-        ) : storageStatus.isLoading ? null : !storageConfigured ? (
-          <FileStorageSetupCard />
         ) : (
           <div className="grid gap-2">
             <Button
@@ -359,6 +373,11 @@ export function RewindExtensionDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+      <FileStorageSetupDialog
+        open={fileStoragePromptOpen}
+        onOpenChange={setFileStoragePromptOpen}
+        onConnected={() => void storageStatus.refetch()}
+      />
     </Dialog>
   );
 }

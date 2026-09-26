@@ -7,7 +7,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupDialog } from "@agent-native/core/client/setup-connections";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -2014,22 +2014,11 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           }}
         />
       ) : null}
-      <Dialog open={storageSetupOpen} onOpenChange={setStorageSetupOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="sr-only">
-              {t("storageSetup.configureS3")}
-            </DialogTitle>
-          </DialogHeader>
-          {videoStorageStatus.isError ? (
-            <StorageStatusRetry
-              onRetry={() => void videoStorageStatus.refetch()}
-            />
-          ) : (
-            <FileStorageSetupCard />
-          )}
-        </DialogContent>
-      </Dialog>
+      <FileStorageSetupDialog
+        open={storageSetupOpen}
+        onOpenChange={setStorageSetupOpen}
+        onConnected={() => void videoStorageStatus.refetch()}
+      />
     </div>
   );
 }

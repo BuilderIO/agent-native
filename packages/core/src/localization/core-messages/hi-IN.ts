@@ -110,7 +110,7 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.description":
     "Builder.io (मुफ़्त) कनेक्ट करें या अपना S3-संगत ऑब्जेक्ट स्टोरेज कॉन्फ़िगर करें।",
   "onboarding.fileStorage.reconnectBuilder": "Builder.io फिर से कनेक्ट करें",
-  "onboarding.fileStorage.custom": "अपनी ऑब्जेक्ट स्टोरेज कुंजियाँ जोड़ें",
+  "onboarding.fileStorage.custom": "कस्टम कुंजियों का उपयोग करें",
   "onboarding.fileStorage.customDescription":
     "स्थिर सार्वजनिक URL वाला S3-संगत बकेट कॉन्फ़िगर करें।",
   "onboarding.capability.voiceInput.label": "वॉइस इनपुट",

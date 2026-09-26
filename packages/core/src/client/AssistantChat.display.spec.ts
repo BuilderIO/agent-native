@@ -1972,7 +1972,7 @@ describe("dedupeReconnectContentAgainstMessages", () => {
 });
 
 describe("missing agent engine setup", () => {
-  it("renders an attached setup card for page and sidebar composers", () => {
+  it("shows storage setup only after an upload request", () => {
     const css = readFileSync("src/styles/agent-native.css", {
       encoding: "utf8",
     });
@@ -2023,10 +2023,10 @@ describe("missing agent engine setup", () => {
     expect(source).toContain('"agentChat.setup.connectPlaceholder"');
     expect(source).toContain('missingApiKeySetupLayout === "sidebar"');
     expect(source).toContain("missingKeyBouncePulse");
-    expect(source).toContain("attached={!showFileStorageGate}");
-    expect(source).toContain(
-      "hasComposerAccessoryAboveStack ||\n                              showFileStorageGate",
-    );
+    expect(source).toContain("attached");
+    expect(source).not.toContain("showFileStorageGate");
+    expect(source).toContain("open={fileStoragePromptOpen}");
+    expect(source).toContain("onAttachmentRequest={() =>");
     expect(source).toContain('"agent-composer-area--attached-above"');
     expect(source).toContain("layout={missingApiKeySetupLayout}");
     expect(source).toMatch(
