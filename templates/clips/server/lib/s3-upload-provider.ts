@@ -71,9 +71,17 @@ async function fetchWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number,
+  trustedPrivateOrigin?: string,
 ): Promise<Response> {
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  const createTimeoutError = () => {
+    const error = new Error(
+      `S3 request timed out after ${timeoutMs}ms: ${init.method ?? "GET"} ${url}`,
+    );
+    error.name = "TimeoutError";
+    return error;
+  };
   const clearTimeoutIfRunning = () => {
     if (timeout) {
       clearTimeout(timeout);
@@ -82,10 +90,7 @@ async function fetchWithTimeout(
   };
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeout = setTimeout(() => {
-      const timeoutError = new Error(
-        `S3 request timed out after ${timeoutMs}ms: ${init.method ?? "GET"} ${url}`,
-      );
-      timeoutError.name = "TimeoutError";
+      const timeoutError = createTimeoutError();
       controller.abort(timeoutError);
       reject(timeoutError);
     }, timeoutMs);
@@ -93,12 +98,19 @@ async function fetchWithTimeout(
 
   try {
     const request = (async () => {
-      if (await isBlockedExtensionUrlWithDns(url)) {
+      const isPrivateDestination = await isBlockedExtensionUrlWithDns(url);
+      if (controller.signal.aborted) throw controller.signal.reason;
+      const allowedPrivateOrigins =
+        isPrivateDestination &&
+        trustedPrivateOrigin === new URL(url).origin &&
+        trustedPrivateOrigin
+          ? [trustedPrivateOrigin]
+          : [];
+      if (isPrivateDestination && allowedPrivateOrigins.length === 0) {
         throw new Error(
           `SSRF blocked: refusing to fetch private/internal S3 endpoint (${url})`,
         );
       }
-      if (controller.signal.aborted) throw controller.signal.reason;
       return ssrfSafeFetch(
         url,
         {
@@ -108,43 +120,51 @@ async function fetchWithTimeout(
         {
           followRedirects: false,
           requireDispatcher: true,
-          allowedPrivateOrigins: [],
+          allowedPrivateOrigins,
         },
       );
     })();
     const response = await Promise.race([request, timeoutPromise]);
+    clearTimeoutIfRunning();
     if (!response.body) {
-      clearTimeoutIfRunning();
       return response;
     }
 
     const reader = response.body.getReader();
+    let idleTimeout: ReturnType<typeof setTimeout> | undefined;
+    const clearIdleTimeout = () => {
+      if (idleTimeout) {
+        clearTimeout(idleTimeout);
+        idleTimeout = undefined;
+      }
+    };
     const body = new ReadableStream<Uint8Array>(
       {
         async pull(streamController) {
           try {
             if (controller.signal.aborted) throw controller.signal.reason;
+            idleTimeout = setTimeout(
+              () => controller.abort(createTimeoutError()),
+              timeoutMs,
+            );
             const { done, value } = await reader.read();
+            clearIdleTimeout();
             if (controller.signal.aborted) throw controller.signal.reason;
             if (done) {
-              clearTimeoutIfRunning();
               streamController.close();
             } else {
               streamController.enqueue(value);
             }
           } catch (error) {
-            clearTimeoutIfRunning();
+            clearIdleTimeout();
             streamController.error(
               controller.signal.aborted ? controller.signal.reason : error,
             );
           }
         },
         async cancel(reason) {
-          try {
-            await Promise.race([reader.cancel(reason), timeoutPromise]);
-          } finally {
-            clearTimeoutIfRunning();
-          }
+          clearIdleTimeout();
+          await reader.cancel(reason);
         },
       },
       { highWaterMark: 0 },
@@ -157,11 +177,7 @@ async function fetchWithTimeout(
   } catch (err) {
     clearTimeoutIfRunning();
     if (err instanceof Error && err.name === "TimeoutError") {
-      const timeoutError = new Error(
-        `S3 request timed out after ${timeoutMs}ms: ${init.method ?? "GET"} ${url}`,
-      );
-      timeoutError.name = "TimeoutError";
-      throw timeoutError;
+      throw createTimeoutError();
     }
     if (err instanceof Error && err.name === "AbortError") {
       const abortError = new Error(
@@ -171,6 +187,17 @@ async function fetchWithTimeout(
       throw abortError;
     }
     throw err;
+  }
+}
+
+function trustedDeploymentS3Origin(endpoint: string): string | undefined {
+  const configuredEndpoint = readS3EnvSecret("S3_ENDPOINT", "R2_ENDPOINT");
+  if (!configuredEndpoint) return undefined;
+  try {
+    const origin = new URL(endpoint).origin;
+    return new URL(configuredEndpoint).origin === origin ? origin : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -466,6 +493,7 @@ async function signedS3Request(
         : {}),
     },
     options.timeoutMs,
+    trustedDeploymentS3Origin(cfg.endpoint),
   );
 }
 

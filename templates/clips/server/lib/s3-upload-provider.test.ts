@@ -262,6 +262,33 @@ describe("s3FileUploadProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("allows private S3 endpoints explicitly configured for deployment", async () => {
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+    process.env.S3_BUCKET = "current-bucket";
+    process.env.S3_ACCESS_KEY_ID = "access";
+    process.env.S3_SECRET_ACCESS_KEY = "secret";
+    process.env.S3_ENDPOINT = "http://10.0.0.12:9000/minio/";
+    process.env.S3_REGION = "us-east-1";
+    const fetchMock = vi.fn(async () => new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchS3OrganizationLogoByLegacyUrl(
+      "https://old-storage.example/clips/logo-abc123/1722720000000-abcd1234.png",
+      "org-1",
+    );
+
+    expect(result?.status).toBe(404);
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      expect.stringContaining("http://10.0.0.12:9000/minio/current-bucket/"),
+      expect.objectContaining({ method: "GET" }),
+      {
+        followRedirects: false,
+        requireDispatcher: true,
+        allowedPrivateOrigins: ["http://10.0.0.12:9000"],
+      },
+    );
+  });
+
   it("fails loudly when a recognized legacy logo URL has no current storage config", async () => {
     mockResolveSecret.mockResolvedValue(null);
 
@@ -522,6 +549,49 @@ describe("s3FileUploadProvider", () => {
       message: expect.stringContaining("S3 request timed out after 25ms"),
     });
     expect(requestSignal?.aborted).toBe(true);
+  });
+
+  it("lets progressing S3 playback streams outlast the idle timeout", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    let requestSignal: AbortSignal | null = null;
+    mockSsrfSafeFetch.mockImplementation(
+      async (_url: string, init: RequestInit) => {
+        requestSignal = init.signal as AbortSignal;
+        let chunk = 0;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            async pull(streamController) {
+              await new Promise((resolve) => setTimeout(resolve, 20));
+              if (chunk === 3) {
+                streamController.close();
+              } else {
+                streamController.enqueue(new Uint8Array([chunk++]));
+              }
+            },
+          }),
+        );
+      },
+    );
+
+    const startedAt = Date.now();
+    const response = await fetchS3ObjectByUrl(
+      "https://s3.example.com/clips-bucket/clips/recording/video.webm",
+      { recordingId: "recording", timeoutMs: 25 },
+    );
+
+    await expect(response!.arrayBuffer()).resolves.toEqual(
+      new Uint8Array([0, 1, 2]).buffer,
+    );
+    expect(Date.now() - startedAt).toBeGreaterThan(25);
+    expect(requestSignal?.aborted).toBe(false);
   });
 
   it("does not expose multipart staging objects through signed reads", async () => {
