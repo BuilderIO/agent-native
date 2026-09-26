@@ -11,6 +11,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Home headers keep search and controls aligned at intermediate widths
 - Browse every presentation template from the home page, with a responsive header and sticky Templates and Recent tabs.
 - The Slides home header aligns with Design, and starter suggestions reflect the role selected during onboarding.
 

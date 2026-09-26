@@ -11,6 +11,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Home headers keep search and controls aligned at intermediate widths
 - Browse every design template from the home page, with a responsive header and sticky Templates and Recent tabs.
 - Design home suggestions reflect the role selected during onboarding, and the prompt stays centered above templates.
 - Layers dragged out of frames now land at the board level, and copies keep their intended order and selection.
