@@ -12,7 +12,10 @@ import {
   type McpOAuthCredentialBundle,
 } from "../mcp-client/oauth-client.js";
 import { getOAuthTokens, listOAuthTokenOwners } from "../oauth-tokens/store.js";
-import { isPersonalProviderKeyUseRestricted } from "./personal-provider-key-policy.js";
+import {
+  isPersonalProviderKeyUseRestricted,
+  readOrgMemberRole,
+} from "./personal-provider-key-policy.js";
 
 const resolveOrgIdForEmail: (typeof import("../org/context.js"))["resolveOrgIdForEmail"] =
   (...args) =>
@@ -157,8 +160,10 @@ function userOwnerOptions(ownerEmail: string) {
 // Read paths try a member's personal grant first, then the org grant. An
 // explicit orgId wins over the user's active org so background work stays
 // bound to the organization that authorized it. `forUse` reads pick the grant
-// a request runs on, so they skip a personal grant the org policy disallows;
-// disconnect still sees it so its owner can remove it.
+// a request runs on, so they skip a personal grant the org policy disallows,
+// and one held by a current owner or admin (connected before a promotion),
+// which would otherwise shadow the org's connection. Disconnect still sees it
+// so its owner can remove it.
 async function resolveBuilderOAuthOptions(
   ownerEmail: string,
   orgId?: string | null,
@@ -172,10 +177,14 @@ async function resolveBuilderOAuthOptions(
       : orgId?.trim() || null;
   const personalAllowed =
     !forUse ||
-    (await isPersonalBuilderGrantAllowed({
-      ownerEmail: email,
-      orgId: resolvedOrgId,
-    }));
+    ((!resolvedOrgId ||
+      !isBuilderOrgManagerRole(
+        await readOrgMemberRole(resolvedOrgId, email),
+      )) &&
+      (await isPersonalBuilderGrantAllowed({
+        ownerEmail: email,
+        orgId: resolvedOrgId,
+      })));
   return [
     ...(personalAllowed ? [userOptions] : []),
     ...(resolvedOrgId ? [orgOwnerOptions(resolvedOrgId)] : []),

@@ -35,12 +35,16 @@ vi.mock("../org/context.js", () => ({
 }));
 
 const isRestrictedMock = vi.hoisted(() => vi.fn(async () => false));
+const readRoleMock = vi.hoisted(() =>
+  vi.fn(async (): Promise<string | null> => "member"),
+);
 
 vi.mock("./personal-provider-key-policy.js", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("./personal-provider-key-policy.js")
   >()),
   isPersonalProviderKeyUseRestricted: isRestrictedMock,
+  readOrgMemberRole: readRoleMock,
 }));
 
 import {
@@ -129,6 +133,8 @@ beforeEach(() => {
   resolveOrgMock.mockResolvedValue(DEFAULT_ORG);
   isRestrictedMock.mockReset();
   isRestrictedMock.mockResolvedValue(false);
+  readRoleMock.mockReset();
+  readRoleMock.mockResolvedValue("member");
 });
 
 describe("Builder hosted user OAuth", () => {
@@ -924,6 +930,24 @@ describe("Builder organization and personal connections", () => {
 
     // Turning the restriction off restores the personal grant.
     isRestrictedMock.mockResolvedValue(false);
+    await expect(
+      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+    ).resolves.toMatchObject({ scope: "user" });
+  });
+
+  it("runs an owner or admin on the org's grant, not one they connected before promotion", async () => {
+    const rows = installTokenStore();
+    rows.set(`org:${DEFAULT_ORG}`, { ...credentials(), connectedAt: 1_000 });
+    rows.set(`user:${ownerEmail}`, { ...credentials(), connectedAt: 2_000 });
+    readRoleMock.mockResolvedValue("admin");
+
+    await expect(
+      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+    ).resolves.toMatchObject({ scope: "org" });
+    expect(readRoleMock).toHaveBeenCalledWith(DEFAULT_ORG, ownerEmail);
+    expect(rows.has(`user:${ownerEmail}`)).toBe(true);
+
+    readRoleMock.mockResolvedValue("member");
     await expect(
       getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
     ).resolves.toMatchObject({ scope: "user" });
