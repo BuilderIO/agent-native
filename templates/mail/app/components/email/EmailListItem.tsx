@@ -31,8 +31,9 @@ import {
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { getLabelStyle } from "@/lib/label-colors";
+import { mailLabelDisplayName } from "@/lib/label-display";
 import type { ThreadSummary } from "@/lib/threads";
-import { cn, formatEmailDate, truncate } from "@/lib/utils";
+import { cn, formatEmailDate } from "@/lib/utils";
 
 interface EmailListItemProps {
   email: EmailMessage;
@@ -619,16 +620,13 @@ export const EmailListItem = memo(function EmailListItem({
               const labelName =
                 labelNames?.get(labelId) ??
                 labelId.replace(/^label:/, "").replace(/^CATEGORY_/, "");
-              const displayName = labelName
-                .slice(labelName.lastIndexOf("/") + 1)
-                .replace(/_/g, " ")
-                .toLowerCase();
+              const displayName = mailLabelDisplayName(labelName);
               return (
                 <span
                   key={labelId}
                   className={cn("label-badge", style.bg, style.text)}
                 >
-                  {truncate(displayName, 16)}
+                  {displayName}
                 </span>
               );
             })}
@@ -674,7 +672,11 @@ export const EmailListItem = memo(function EmailListItem({
                   {importanceScore.toFixed(2)}
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-60 p-3">
+              <PopoverContent
+                align="end"
+                className="w-72 p-3"
+                onClick={(event) => event.stopPropagation()}
+              >
                 <div className="flex items-baseline gap-2">
                   <span
                     className="email-importance-score text-xl font-semibold tabular-nums"
@@ -701,7 +703,7 @@ export const EmailListItem = memo(function EmailListItem({
                   <button
                     type="button"
                     onClick={() => onImportanceFeedback?.("important")}
-                    className="flex items-center justify-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                    className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-border px-2 py-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
                   >
                     <IconThumbUp className="size-3.5" />
                     {t("mail.aiFilter.importantMode")}
@@ -709,7 +711,7 @@ export const EmailListItem = memo(function EmailListItem({
                   <button
                     type="button"
                     onClick={() => onImportanceFeedback?.("not-important")}
-                    className="flex items-center justify-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                    className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-border px-2 py-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
                   >
                     <IconThumbDown className="size-3.5" />
                     {t("mail.aiFilter.notImportantMode")}
