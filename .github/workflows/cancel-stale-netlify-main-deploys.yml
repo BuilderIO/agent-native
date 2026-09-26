@@ -1,6 +1,5 @@
 name: Cancel superseded Netlify main deploys
 
-
 on:
   push:
     branches: [main]

@@ -12,7 +12,6 @@ concurrency:
   group: neon-preview-branches-pr-${{ github.event.pull_request.number || github.event.number }}
   cancel-in-progress: true
 
-
 env:
   NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
 

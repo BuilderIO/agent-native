@@ -1,6 +1,5 @@
 name: PR Visual Recap (reusable)
 
-
 on:
   workflow_call:
     inputs:

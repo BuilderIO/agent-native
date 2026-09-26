@@ -1,6 +1,5 @@
 name: Cancel active Netlify previews
 
-
 on:
   workflow_dispatch:
     inputs:

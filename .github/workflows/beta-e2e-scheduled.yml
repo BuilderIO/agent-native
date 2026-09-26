@@ -1,6 +1,5 @@
 name: Beta E2E (scheduled)
 
-
 on:
   schedule:
     - cron: "0 */6 * * *"

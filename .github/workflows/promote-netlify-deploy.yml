@@ -1,6 +1,5 @@
 name: Promote Netlify deploy
 
-
 on:
   workflow_dispatch:
     inputs:

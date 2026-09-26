@@ -1,6 +1,5 @@
 name: Changeset check
 
-
 on:
   pull_request:
     branches: [main]

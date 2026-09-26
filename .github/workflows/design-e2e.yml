@@ -1,6 +1,5 @@
 name: Design E2E (browser)
 
-
 on:
   push:
     branches: [main]

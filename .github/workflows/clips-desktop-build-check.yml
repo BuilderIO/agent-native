@@ -1,6 +1,5 @@
 name: Clips Desktop Build Check
 
-
 on:
   pull_request:
     branches: [main]

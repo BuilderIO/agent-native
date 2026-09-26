@@ -1,6 +1,5 @@
 name: Clips Desktop Release
 
-
 on:
   push:
     branches: [main]

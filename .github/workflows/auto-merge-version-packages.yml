@@ -1,6 +1,5 @@
 name: Auto-merge Version Packages PR
 
-
 on:
   pull_request:
     branches: [main]

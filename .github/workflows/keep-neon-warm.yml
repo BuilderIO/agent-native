@@ -1,6 +1,5 @@
 name: Audit hosted app health
 
-
 on:
   schedule:
     - cron: "*/15 * * * *"
