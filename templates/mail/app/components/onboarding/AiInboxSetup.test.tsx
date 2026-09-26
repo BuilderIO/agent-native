@@ -75,7 +75,10 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => (key: string, options?: { count?: number }) =>
+    key === "mail.sort.aiSetupRuleCount"
+      ? `Matched ${options?.count ?? ""}`
+      : key,
 }));
 
 vi.mock("@/components/settings/JevConnectionPrompt", () => ({
@@ -231,11 +234,68 @@ describe("AiInboxSetup", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("keeps setup results open while the rules query refreshes", async () => {
+  it("waits for the initial rules load before applying setup rules", async () => {
+    mocks.rulesLoading = true;
+    const { rerender } = render(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    const sortInbox = screen.getByRole("button", {
+      name: "mail.sort.aiSetupSortInbox",
+    });
+    expect((sortInbox as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(sortInbox);
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+    expect(mocks.createRule).not.toHaveBeenCalled();
+
+    mocks.rulesLoading = false;
+    rerender(<AiInboxSetup forceOpen />);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "mail.sort.aiSetupSortInbox",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  });
+
+  it("keeps live result counts, review, and undo visible during a rules refresh", async () => {
     mocks.startBackfill.mockImplementation(async () => {
       mocks.rulesLoading = true;
       return { runId: "run-1", status: "queued" };
     });
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "completed",
+      totalThreads: 1,
+      processedThreads: 1,
+      matchedThreads: 1,
+      appliedThreads: 1,
+      failedThreads: 0,
+      perRule: [
+        {
+          ruleId: "rule-1",
+          name: "Receipts",
+          matchedCount: 1,
+          appliedCount: 1,
+          suggestedCount: 0,
+          previews: [
+            {
+              id: "thread-1",
+              from: "sender@example.test",
+              subject: "An exact-pair message",
+              labels: ["Receipts"],
+              archived: false,
+            },
+          ],
+        },
+      ],
+      undoToken: "undo-1",
+    };
 
     render(<AiInboxSetup forceOpen />);
 
@@ -256,8 +316,16 @@ describe("AiInboxSetup", () => {
         }),
       ).not.toBeNull(),
     );
+    expect(screen.getByText("Matched 1")).not.toBeNull();
+    expect(screen.getByText("An exact-pair message")).not.toBeNull();
+    expect(
+      screen.getByRole("link", { name: "mail.sort.aiSetupTagReceipts" }),
+    ).not.toBeNull();
     expect(
       screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "mail.actions.undo" }),
     ).not.toBeNull();
   });
 

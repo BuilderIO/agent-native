@@ -483,7 +483,7 @@ export function AiInboxSetup({
       setStep((current) => (current + 1) as SetupStep);
       return;
     }
-    if (!jevConfigured) return;
+    if (!jevConfigured || rulesLoading) return;
 
     setSaving(true);
     try {
@@ -817,7 +817,9 @@ export function AiInboxSetup({
                 <Button
                   variant="ghost"
                   onClick={() => void skip()}
-                  disabled={saving}
+                  disabled={
+                    saving || (step === 2 && jevConfigured && rulesLoading)
+                  }
                 >
                   {t("mail.sort.aiSetupSkip")}
                 </Button>
@@ -829,11 +831,11 @@ export function AiInboxSetup({
                 disabled={
                   saving ||
                   customTagIncomplete ||
-                  (step === 2 && !jevConfigured)
+                  (step === 2 && (!jevConfigured || rulesLoading))
                 }
-                aria-busy={saving}
+                aria-busy={saving || (step === 2 && rulesLoading)}
               >
-                {saving ? (
+                {saving || (step === 2 && rulesLoading) ? (
                   <IconLoader2 className="size-4 animate-spin" />
                 ) : null}
                 {step === 2
