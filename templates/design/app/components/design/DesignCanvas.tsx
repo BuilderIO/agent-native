@@ -1923,9 +1923,10 @@ export function DesignCanvas({
     awaitingTransaction: boolean;
   } | null>(null);
   const lastRuntimeStructureDeleteRequestIdRef = useRef<string | null>(null);
-  const lastRuntimeStructureDeleteCancelRequestIdRef = useRef<string | null>(
-    null,
-  );
+  const lastRuntimeStructureDeleteCancelRequestRef = useRef<{
+    requestId: string;
+    retryCount: number;
+  } | null>(null);
   const lastRuntimeStructureTargetReloadTransactionIdRef = useRef<
     string | null
   >(null);
@@ -6937,19 +6938,26 @@ export function DesignCanvas({
   useEffect(() => {
     const request = runtimeStructureDeleteRequest;
     if (!request?.cancelRequested) {
-      lastRuntimeStructureDeleteCancelRequestIdRef.current = null;
+      lastRuntimeStructureDeleteCancelRequestRef.current = null;
       return;
     }
     if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
-      lastRuntimeStructureDeleteCancelRequestIdRef.current = null;
+      lastRuntimeStructureDeleteCancelRequestRef.current = null;
       return;
     }
+    const retryCount = request.cancellationRetryCount ?? 0;
     if (
-      lastRuntimeStructureDeleteCancelRequestIdRef.current === request.requestId
+      lastRuntimeStructureDeleteCancelRequestRef.current?.requestId ===
+        request.requestId &&
+      lastRuntimeStructureDeleteCancelRequestRef.current.retryCount ===
+        retryCount
     ) {
       return;
     }
-    lastRuntimeStructureDeleteCancelRequestIdRef.current = request.requestId;
+    lastRuntimeStructureDeleteCancelRequestRef.current = {
+      requestId: request.requestId,
+      retryCount,
+    };
     postOneShotBridgeMessage({
       type: "cancel-pending-delete-element",
       selector: request.selector,
@@ -7703,6 +7711,13 @@ export function DesignCanvas({
         return;
       }
       const focusedElement = document.activeElement;
+      if (
+        fromIframeLoad &&
+        focusedElement !== document.body &&
+        focusedElement !== iframeRef.current
+      ) {
+        return;
+      }
       if (focusedElement instanceof HTMLIFrameElement) {
         try {
           const frameDocument = focusedElement.contentDocument;
@@ -7720,9 +7735,9 @@ export function DesignCanvas({
           ) {
             throw error;
           }
-          // Pointer entry cannot distinguish a cross-origin app input from the
-          // iframe itself; only the load-time canvas-focus repair may take it.
-          if (!fromIframeLoad) return;
+          // A cross-origin frame may have an app-owned focused input; preserve
+          // its focus when the parent cannot inspect it.
+          return;
         }
       }
       // Taking focus for keyboard panning must never outrank a field the user

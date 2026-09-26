@@ -5,15 +5,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS,
   cancelCrossScreenRollbackTimeout,
+  crossScreenSourceCancellationNeedsRetry,
   crossScreenRollbackAfterSourceCancellation,
   crossScreenRollbackIsComplete,
   crossScreenRollbackDisposition,
   crossScreenSourceDeleteCancellation,
   retryCrossScreenRollbackRequest,
+  retryCrossScreenDeleteCancellation,
   scheduleCrossScreenDeleteTimeout,
   scheduleCrossScreenInsertTimeout,
   scheduleCrossScreenRollbackTimeout,
-  shouldClearCrossScreenRollbackRequest,
 } from "./cross-screen-insert-timeout";
 
 afterEach(() => {
@@ -44,7 +45,7 @@ describe("scheduleCrossScreenDeleteTimeout", () => {
     cancel();
   });
 
-  it("releases a canceled source delete when its bridge never acknowledges cancellation", () => {
+  it("times out a canceled source delete when its bridge never acknowledges cancellation", () => {
     vi.useFakeTimers();
     const onTimeout = vi.fn();
     const request = {
@@ -61,6 +62,50 @@ describe("scheduleCrossScreenDeleteTimeout", () => {
 
     expect(onTimeout).toHaveBeenCalledExactlyOnceWith(request);
   });
+
+  it("backs off and retries cancellation until the source is confirmed present", () => {
+    vi.useFakeTimers();
+    const onTimeout = vi.fn();
+    const request = {
+      requestId: "move-1:source",
+      transactionId: "move-1",
+      screenId: "source",
+      selector: "#source",
+      waitForInsertTransaction: false,
+      cancelRequested: true,
+    };
+    const retry = retryCrossScreenDeleteCancellation(request);
+
+    expect(retry).toMatchObject({
+      requestId: "move-1:source",
+      cancellationRetryCount: 1,
+      cancelRequested: true,
+    });
+    expect(retryCrossScreenDeleteCancellation(retry)).toMatchObject({
+      requestId: "move-1:source",
+      cancellationRetryCount: 2,
+    });
+    const cancel = scheduleCrossScreenDeleteTimeout(retry, "board", onTimeout);
+
+    vi.advanceTimersByTime(CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS * 2 - 1);
+    expect(onTimeout).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onTimeout).toHaveBeenCalledExactlyOnceWith(retry);
+    cancel();
+  });
+
+  it.each([
+    { reason: "source-delete-timeout", sourcePresent: undefined, retry: true },
+    { reason: "cancelled", sourcePresent: false, retry: true },
+    { reason: "cancelled", sourcePresent: true, retry: false },
+  ])(
+    "requires confirmed source presence before recovery completes (%o)",
+    (result) => {
+      expect(crossScreenSourceCancellationNeedsRetry(result)).toBe(
+        result.retry,
+      );
+    },
+  );
 
   it("times out a source cancellation while the destination insert is pending", () => {
     vi.useFakeTimers();
@@ -141,27 +186,6 @@ describe("crossScreenRollbackDisposition", () => {
       }),
     ).toBe("discard");
   });
-
-  it("clears a timed-out rollback once source cancellation owns recovery", () => {
-    expect(
-      shouldClearCrossScreenRollbackRequest({
-        sourceCancellationPending: true,
-        disposition: "preserve-insert",
-      }),
-    ).toBe(true);
-    expect(
-      shouldClearCrossScreenRollbackRequest({
-        sourceCancellationPending: false,
-        disposition: "retain-recovery",
-      }),
-    ).toBe(false);
-    expect(
-      shouldClearCrossScreenRollbackRequest({
-        sourceCancellationPending: false,
-        disposition: "discard",
-      }),
-    ).toBe(true);
-  });
 });
 
 describe("retryCrossScreenRollbackRequest", () => {
@@ -210,6 +234,29 @@ describe("crossScreenRollbackAfterSourceCancellation", () => {
       transactionId: "move-1",
       selector: "#inserted",
       sourceId: "inserted-id",
+      idempotent: true,
+    });
+  });
+
+  it("rolls back a transaction-tagged destination when its selector ack was lost", () => {
+    expect(
+      crossScreenRollbackAfterSourceCancellation(
+        {
+          requestId: "move-1:source",
+          transactionId: "move-1",
+          screenId: "source",
+          selector: "#source",
+          rollbackScreenId: "target",
+        },
+        true,
+        "rollback-1",
+      ),
+    ).toEqual({
+      screenId: "target",
+      requestId: "rollback-1",
+      transactionId: "move-1",
+      selector: "",
+      sourceId: undefined,
       idempotent: true,
     });
   });

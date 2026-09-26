@@ -298,6 +298,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
         rollbackSelector?: string;
         rollbackSourceId?: string;
         cancelRequested?: boolean;
+        cancellationRetryCount?: number;
       } | null,
     ) => {
       await act(async () => {
@@ -582,6 +583,35 @@ describe("DesignCanvas one-shot bridge queue", () => {
       routePath: "/",
       reason: "cancelled",
       sourcePresent: true,
+    });
+    posted.length = 0;
+    await render(null, null, "move-1", {
+      screenId: "screen-live",
+      requestId: "move-1:source",
+      transactionId: "move-1",
+      selector: "#source",
+      waitForInsertTransaction: true,
+      cancelRequested: true,
+      cancellationRetryCount: 1,
+      rollbackScreenId: "screen-target",
+      rollbackSelector: "#inserted",
+    });
+    expect(posted).toContainEqual({
+      type: "cancel-pending-delete-element",
+      selector: "#source",
+      selectorCandidates: [],
+      requestId: "move-1:source",
+      transactionId: "move-1",
+    });
+    expect(posted).toContainEqual({
+      type: "visual-structure-ack",
+      requestId: "move-1:source",
+      applied: false,
+      cancelRuntimeStructureDelete: {
+        transactionId: "move-1",
+        selector: "#source",
+        selectorCandidates: [],
+      },
     });
     await act(async () => root.render(null));
     expect(onRuntimeStructureInsertRejected).toHaveBeenCalledExactlyOnceWith(

@@ -67,7 +67,7 @@ describe("DesignEditor Layers-panel live-screen row drop", () => {
     const rejectionEnd = source.indexOf("useEffect(() => {", rejectionStart);
     const rejectionHandler = source.slice(rejectionStart, rejectionEnd);
     const cancellationBranch = rejectionHandler.indexOf(
-      'details.reason === "cancelled"',
+      "crossScreenSourceCancellationNeedsRetry(details)",
     );
     const admissionRelease = rejectionHandler.indexOf(
       "releaseCrossScreenDropAdmission(",
@@ -79,12 +79,20 @@ describe("DesignEditor Layers-panel live-screen row drop", () => {
     expect(rejectionHandler).toContain(
       "runtimeStructureRollbackRequest?.transactionId ===",
     );
-    expect(rejectionHandler).toContain("details.sourcePresent");
+    expect(rejectionHandler).toContain(
+      "crossScreenSourceCancellationNeedsRetry(details)",
+    );
+    expect(rejectionHandler).toContain(
+      "retryCrossScreenDeleteCancellation(request)",
+    );
     expect(rejectionHandler).toContain(
       "crossScreenRollbackAfterSourceCancellation(",
     );
     expect(rejectionHandler).toContain(
       "setRuntimeStructureRollbackRequest(recoveryRollbackRequest)",
+    );
+    expect(rejectionHandler).toMatch(
+      /if \(crossScreenSourceCancellationNeedsRetry\(details\)\) \{[\s\S]*?retrySourceCancellation\(\);[\s\S]*?return;/,
     );
 
     const deleteTimeoutStart = source.indexOf(
@@ -110,6 +118,15 @@ describe("DesignEditor Layers-panel live-screen row drop", () => {
       rollbackResultStart,
       rollbackResultEnd,
     );
+    expect(rollbackResultHandler).toContain("? pendingSourceCancellation");
+    expect(rollbackResultHandler).toContain(
+      "!sourceCancellationAlreadyPending",
+    );
+    expect(rollbackResultHandler).toMatch(
+      /setRuntimeStructureRollbackRequest\(\(current\) =>\s*current\?\.requestId === rollbackRequest\.requestId \? null : current,\s*\);/,
+    );
+    expect(rollbackResultHandler).not.toContain("rollbackSelector: undefined");
+    expect(rollbackResultHandler).not.toContain("rollbackSourceId: undefined");
     expect(rollbackResultHandler).toContain(
       'details.reason === "rollback-timeout"',
     );

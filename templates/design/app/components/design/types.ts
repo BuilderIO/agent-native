@@ -112,6 +112,7 @@ export interface RuntimeStructureDeleteRequest {
   rollbackSourceId?: string;
   /** Cancel a source delete and restore its DOM before rolling back the insert. */
   cancelRequested?: boolean;
+  cancellationRetryCount?: number;
 }
 
 export interface RuntimeStructureRollbackRequest {

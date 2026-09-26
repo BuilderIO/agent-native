@@ -5,6 +5,7 @@ import type {
 } from "@/components/design/types";
 
 export const CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS = 2_200;
+const CROSS_SCREEN_CANCEL_RETRY_MAX_DELAY_MS = 30_000;
 const MAX_CROSS_SCREEN_ROLLBACK_RETRIES = 1;
 
 export function scheduleCrossScreenInsertTimeout(
@@ -37,11 +38,32 @@ export function scheduleCrossScreenDeleteTimeout(
   ) {
     return () => {};
   }
-  const timeout = window.setTimeout(
-    () => onTimeout(request),
-    CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS,
-  );
+  const timeoutMs = request.cancelRequested
+    ? Math.min(
+        CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS *
+          2 ** (request.cancellationRetryCount ?? 0),
+        CROSS_SCREEN_CANCEL_RETRY_MAX_DELAY_MS,
+      )
+    : CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS;
+  const timeout = window.setTimeout(() => onTimeout(request), timeoutMs);
   return () => window.clearTimeout(timeout);
+}
+
+export function retryCrossScreenDeleteCancellation<
+  T extends RuntimeStructureDeleteRequest & { screenId: string },
+>(request: T): RuntimeStructureDeleteRequest & { screenId: string } {
+  const cancellationRetryCount = (request.cancellationRetryCount ?? 0) + 1;
+  return {
+    ...request,
+    cancellationRetryCount,
+  };
+}
+
+export function crossScreenSourceCancellationNeedsRetry(result: {
+  reason: string;
+  sourcePresent?: boolean;
+}): boolean {
+  return result.reason !== "cancelled" || result.sourcePresent !== true;
 }
 
 export function scheduleCrossScreenRollbackTimeout(
@@ -94,18 +116,14 @@ export function crossScreenRollbackAfterSourceCancellation(
   sourcePresent: boolean,
   requestId: string,
 ): (RuntimeStructureRollbackRequest & { screenId: string }) | null {
-  if (
-    !sourcePresent ||
-    !request.rollbackScreenId ||
-    !request.rollbackSelector
-  ) {
+  if (!sourcePresent || !request.rollbackScreenId) {
     return null;
   }
   return {
     screenId: request.rollbackScreenId,
     requestId,
     transactionId: request.transactionId,
-    selector: request.rollbackSelector,
+    selector: request.rollbackSelector ?? "",
     sourceId: request.rollbackSourceId,
     idempotent: true,
   };
@@ -135,14 +153,4 @@ export function crossScreenRollbackDisposition({
   if (applied || !destinationScreenExists) return "discard";
   if (destinationHasPendingInsert) return "preserve-insert";
   return "retain-recovery";
-}
-
-export function shouldClearCrossScreenRollbackRequest({
-  sourceCancellationPending,
-  disposition,
-}: {
-  sourceCancellationPending: boolean;
-  disposition: ReturnType<typeof crossScreenRollbackDisposition>;
-}): boolean {
-  return sourceCancellationPending || disposition === "discard";
 }

@@ -680,15 +680,16 @@ import {
 } from "./design-editor/commands/cross-screen-element-drop";
 import {
   cancelCrossScreenRollbackTimeout,
+  crossScreenSourceCancellationNeedsRetry,
   crossScreenRollbackAfterSourceCancellation,
   crossScreenRollbackIsComplete,
   crossScreenRollbackDisposition,
   crossScreenSourceDeleteCancellation,
   retryCrossScreenRollbackRequest,
+  retryCrossScreenDeleteCancellation,
   scheduleCrossScreenDeleteTimeout,
   scheduleCrossScreenInsertTimeout,
   scheduleCrossScreenRollbackTimeout,
-  shouldClearCrossScreenRollbackRequest,
 } from "./design-editor/commands/cross-screen-insert-timeout";
 import { runDeleteFiles } from "./design-editor/commands/delete-files";
 import { runDeleteSelection } from "./design-editor/commands/delete-selection";
@@ -17654,50 +17655,51 @@ function DesignEditor() {
         return;
       }
       if (request.cancelRequested) {
+        const retrySourceCancellation = () => {
+          const retryRequest = retryCrossScreenDeleteCancellation(request);
+          setRuntimeStructureDeleteRequest((current) =>
+            current?.transactionId === request.transactionId &&
+            current?.requestId === request.requestId
+              ? retryRequest
+              : current,
+          );
+        };
+        if (crossScreenSourceCancellationNeedsRetry(details)) {
+          retrySourceCancellation();
+          return;
+        }
         if (
           runtimeStructureRollbackRequest?.transactionId ===
           request.transactionId
         ) {
-          if (details.reason === "cancelled") {
-            setRuntimeStructureDeleteRequest((current) =>
-              current?.transactionId === request.transactionId ? null : current,
-            );
-          }
-          return;
-        }
-        if (details.reason === "cancelled") {
-          const recoveryRollbackRequest =
-            crossScreenRollbackAfterSourceCancellation(
-              request,
-              details.sourcePresent === true,
-              `${request.transactionId}:recovery-rollback:${runtimeStructureRollbackRevisionRef.current + 1}`,
-            );
           setRuntimeStructureDeleteRequest((current) =>
             current?.transactionId === request.transactionId ? null : current,
           );
-          if (recoveryRollbackRequest) {
-            runtimeStructureRollbackRevisionRef.current += 1;
-            setRuntimeStructureRollbackRequest(recoveryRollbackRequest);
-            return;
-          }
-          releaseCrossScreenDropAdmission(
-            runtimeStructurePendingTransactionRef,
-            request.transactionId,
+          return;
+        }
+        const recoveryRollbackRequest =
+          crossScreenRollbackAfterSourceCancellation(
+            request,
+            true,
+            `${request.transactionId}:recovery-rollback:${runtimeStructureRollbackRevisionRef.current + 1}`,
           );
-          if (request.rollbackSelector) {
-            toast.error(t("designEditor.toasts.layerMoveFailed"), {
-              duration: 4000,
-            });
-          }
+        setRuntimeStructureDeleteRequest((current) =>
+          current?.transactionId === request.transactionId ? null : current,
+        );
+        if (recoveryRollbackRequest) {
+          runtimeStructureRollbackRevisionRef.current += 1;
+          setRuntimeStructureRollbackRequest(recoveryRollbackRequest);
           return;
         }
         releaseCrossScreenDropAdmission(
           runtimeStructurePendingTransactionRef,
           request.transactionId,
         );
-        setRuntimeStructureDeleteRequest((current) =>
-          current?.transactionId === request.transactionId ? null : current,
-        );
+        if (request.rollbackSelector) {
+          toast.error(t("designEditor.toasts.layerMoveFailed"), {
+            duration: 4000,
+          });
+        }
         return;
       }
       const transactionId = request.transactionId;
@@ -17788,6 +17790,11 @@ function DesignEditor() {
       );
       const rollbackRequest = runtimeStructureRollbackRequest;
       const transactionId = rollbackRequest.transactionId;
+      const sourceCancellationAlreadyPending = Boolean(
+        transactionId &&
+        runtimeStructureDeleteRequest?.transactionId === transactionId &&
+        runtimeStructureDeleteRequest.cancelRequested,
+      );
       const destinationScreenExists =
         rollbackRequest.screenId === boardFileId ||
         overviewScreens.some(
@@ -17796,7 +17803,8 @@ function DesignEditor() {
       if (
         details.reason === "rollback-timeout" &&
         transactionId &&
-        destinationScreenExists
+        destinationScreenExists &&
+        !sourceCancellationAlreadyPending
       ) {
         const retryRevision = runtimeStructureRollbackRevisionRef.current + 1;
         const retryRequest = retryCrossScreenRollbackRequest(
@@ -17858,20 +17866,14 @@ function DesignEditor() {
               transactionId,
             )
           : null;
-      if (
-        shouldClearCrossScreenRollbackRequest({
-          sourceCancellationPending: Boolean(pendingSourceCancellation),
-          disposition,
-        })
-      ) {
-        setRuntimeStructureRollbackRequest(null);
-      }
+      setRuntimeStructureRollbackRequest((current) =>
+        current?.requestId === rollbackRequest.requestId ? null : current,
+      );
       if (pendingSourceCancellation) {
         setRuntimeStructureInsertRequest((current) =>
           current?.transactionId === transactionId ? null : current,
         );
-        // Once the destination rollback returns, source cancellation owns the
-        // remaining recovery; replaying this request can wedge later moves.
+        // Retry the destination compensation only after source restoration.
         if (disposition === "discard") {
           if (transactionId) {
             discardPendingLiveStructureTransaction(transactionId);
@@ -17879,11 +17881,7 @@ function DesignEditor() {
         }
         setRuntimeStructureDeleteRequest((current) =>
           current?.transactionId === transactionId
-            ? {
-                ...pendingSourceCancellation,
-                rollbackSelector: undefined,
-                rollbackSourceId: undefined,
-              }
+            ? pendingSourceCancellation
             : current,
         );
         if (!rollbackIsComplete) {

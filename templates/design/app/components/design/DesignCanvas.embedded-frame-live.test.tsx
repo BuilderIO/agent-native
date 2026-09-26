@@ -128,6 +128,99 @@ describe("DesignCanvas live embedded-frame offset", () => {
     }
   });
 
+  it("preserves focus inside a cross-origin live iframe after load", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="https://clips.example/library"
+            contentKey="cross-origin-live-frame-load-focus"
+            sourceType="localhost"
+            screenId="library"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            editMode
+            registerRuntimeBridge={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        ),
+      );
+
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(iframe).not.toBeNull();
+      Object.defineProperty(iframe, "contentDocument", {
+        configurable: true,
+        get: () => {
+          throw new DOMException(
+            "Blocked a frame with a different origin",
+            "SecurityError",
+          );
+        },
+      });
+      iframe!.focus();
+      expect(document.activeElement).toBe(iframe);
+
+      await act(async () => iframe!.dispatchEvent(new Event("load")));
+
+      expect(document.activeElement).toBe(iframe);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("preserves toolbar focus when a delayed URL-backed iframe loads", async () => {
+    const container = document.createElement("div");
+    const toolbarButton = document.createElement("button");
+    document.body.append(container, toolbarButton);
+    const root = createRoot(container);
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="http://localhost:3102/library"
+            contentKey="live-url-frame-delayed-focus"
+            sourceType="localhost"
+            screenId="library"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            editMode
+            registerRuntimeBridge={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        ),
+      );
+
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(iframe).not.toBeNull();
+
+      toolbarButton.focus();
+      expect(document.activeElement).toBe(toolbarButton);
+      await act(async () => iframe!.dispatchEvent(new Event("load")));
+
+      expect(document.activeElement).toBe(toolbarButton);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      toolbarButton.remove();
+    }
+  });
+
   it("preserves canvas focus and never steals focus from editable preview frames", async () => {
     const container = document.createElement("div");
     document.body.append(container);
