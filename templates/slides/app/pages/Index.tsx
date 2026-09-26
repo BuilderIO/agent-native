@@ -1,4 +1,7 @@
-import { useAgentEngineConfigured } from "@agent-native/core/client/agent-chat";
+import {
+  BuilderSetupCard,
+  useAgentEngineConfigured,
+} from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import {
@@ -15,10 +18,6 @@ import {
   fetchFirstRunOnboardingStatus,
   isFirstRunOnboardingEnabled,
 } from "@agent-native/core/client/onboarding";
-import {
-  BuilderConnectPopover,
-  useBuilderConnectFlow,
-} from "@agent-native/core/client/settings";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   AgentSuggestionBar,
@@ -28,6 +27,7 @@ import {
   PromptHome,
   PromptHomeLibrary,
   type PromptHomeLibraryTab,
+  useHomeSearchShortcut,
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
@@ -48,7 +48,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
@@ -64,11 +63,11 @@ import {
   type NewDeckReferenceSelection,
   type NewDeckReferenceSource,
 } from "@/components/editor/NewDeckReferenceStep";
-import type {
-  PromptAttachmentActions,
-  PromptImportSelection,
-  PromptChatAttachment,
-  PromptPopoverHandle,
+import PromptPopover, {
+  type PromptAttachmentActions,
+  type PromptImportSelection,
+  type PromptChatAttachment,
+  type PromptPopoverHandle,
 } from "@/components/editor/PromptDialog";
 import { useSlidesComposerContext } from "@/components/editor/SlidesComposerContext";
 import { usePromptImport } from "@/components/editor/use-prompt-import";
@@ -136,13 +135,8 @@ import {
 } from "@/lib/recent-references";
 import { hydrateReferenceDocuments } from "@/lib/reference-document-hydration";
 import { TAB_ID } from "@/lib/tab-id";
-import { cn, isMacPlatform } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
-const subscribeToPlatform = () => () => {};
-const serverUsesApplePlatform = () => false;
-
-const loadPromptPopover = () => import("@/components/editor/PromptDialog");
-const LazyPromptPopover = lazy(loadPromptPopover);
 const LazyDesignSystemSetup = lazy(() =>
   import("@/components/design-system/DesignSystemSetup").then(
     ({ DesignSystemSetup }) => ({
@@ -154,12 +148,6 @@ const LazyDesignSystemSetup = lazy(() =>
 async function uploadPromptFiles(files: File[]): Promise<UploadedFile[]> {
   const module = await import("@/lib/prompt-file-uploads");
   return module.uploadPromptFiles(files);
-}
-
-function preloadPromptPopover() {
-  // This is an optional hover/focus optimization; rendering the opened popover
-  // is where a failed chunk load is surfaced through its recovery boundary.
-  void loadPromptPopover().catch(() => {});
 }
 
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
@@ -424,11 +412,10 @@ export default function Index() {
   } = useWorkspaceDefaults();
   const { session } = useSession();
   const agentEngine = useAgentEngineConfigured();
-  const builderConnect = useBuilderConnectFlow({
-    enabled: agentEngine.missing,
-    provisionAccount: true,
-    trackingSource: "slides_home",
-  });
+  const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
+  const bounceSetupCard = () => {
+    if (agentEngine.missing) setSetupCardBouncePulse((pulse) => pulse + 1);
+  };
   const quickActionsEnabled =
     agentEngine.state === "configured" && !agentEngine.missing;
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
@@ -440,8 +427,20 @@ export default function Index() {
       staleTime: 5 * 60 * 1000,
     },
   );
+  const homeSuggestions = homeSuggestionsQuery.data?.suggestions.length
+    ? homeSuggestionsQuery.data.suggestions
+    : [
+        t("agent.suggestionPitch"),
+        t("agent.suggestionBrand"),
+        t("agent.suggestionHero"),
+      ].map((prompt, index) => ({
+        id: `slides-home-generic-${index}`,
+        label: prompt,
+        prompt,
+      }));
   const navigate = useNavigate();
   const location = useLocation();
+  useHomeSearchShortcut(location.pathname === "/home");
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
@@ -622,9 +621,7 @@ export default function Index() {
     initialPromptConsumedRef.current = true;
     setNewDeckInitialPrompt({ text: initialPrompt, key: Date.now() });
     setShowNewDeckPrompt(true);
-    void loadPromptPopover()
-      .then(clearInitialPromptFromUrl)
-      .catch(() => {});
+    clearInitialPromptFromUrl();
   }, [clearInitialPromptFromUrl, initialPrompt]);
 
   useEffect(() => {
@@ -704,7 +701,6 @@ export default function Index() {
 
   const setNewDeckPromptOpen = useCallback(
     (open: boolean, options: { clearInitialPrompt?: boolean } = {}) => {
-      if (open) preloadPromptPopover();
       setShowNewDeckPrompt(open);
       if (!open) {
         if (options.clearInitialPrompt !== false) {
@@ -2000,7 +1996,6 @@ export default function Index() {
     loadError,
     deckCount: decks.length,
   });
-  const hasRecentDecks = viewState === "decks" && decks.length > 0;
   const hasDeckSearch = normalizedDeckSearch.length > 0;
 
   useSetHeaderActions(
@@ -2047,122 +2042,87 @@ export default function Index() {
       }
       connection={
         agentEngine.missing ? (
-          <>
-            <BuilderConnectPopover flow={builderConnect}>
-              <Button variant="outline" disabled={builderConnect.connecting}>
-                {builderConnect.connecting
-                  ? t("home.connectingBuilder")
-                  : t("home.connectBuilderIo")}
-                <IconArrowRight />
-              </Button>
-            </BuilderConnectPopover>
-            {builderConnect.error ? (
-              <p role="alert" className="max-w-md text-xs text-destructive">
-                {builderConnect.error}
-              </p>
-            ) : null}
-          </>
+          <BuilderSetupCard
+            attached
+            fullWidth
+            layout="sidebar"
+            bouncePulse={setupCardBouncePulse}
+            onConnected={() =>
+              window.dispatchEvent(new Event("agent-engine:configured-changed"))
+            }
+          />
         ) : null
       }
       composer={
-        <div data-slides-home-composer>
-          <LazyChunkErrorBoundary
-            fallback={
-              <div
-                className="flex min-h-44 items-center justify-center gap-3"
-                role="alert"
-              >
-                <span className="text-sm text-muted-foreground">
-                  {t("home.loadFailed")}
-                </span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => window.location.reload()}
-                >
-                  {t("home.retry")}
-                </Button>
-              </div>
+        <div
+          data-slides-home-composer
+          className={
+            agentEngine.missing
+              ? "agent-composer-area--attached-above"
+              : undefined
+          }
+          onFocusCapture={bounceSetupCard}
+          onPointerDownCapture={bounceSetupCard}
+        >
+          <PromptPopover
+            presentation="inline"
+            context={composerContext}
+            controllerRef={homeComposerRef}
+            submissionDisabled={agentEngine.missing}
+            showModelSelector={!agentEngine.missing}
+            modelStatusChecksEnabled={!agentEngine.missing}
+            open={showNewDeckPrompt}
+            onOpenChange={setNewDeckPromptOpen}
+            title={t("home.newDeckPromptTitle")}
+            placeholder={t("home.newDeckPlaceholder")}
+            onSkip={handlePromptSkip}
+            skipLabel={t("home.skipPrompt")}
+            onSubmit={handlePromptSubmit}
+            onBeforeUpload={(prompt, files, context, attachments, options) => {
+              if (session) return true;
+              preservePromptForSignIn(prompt, {
+                context,
+                attachments,
+                hadFiles: files.length > 0,
+                modelSelection: options
+                  ? {
+                      model: options.model,
+                      engine: options.engine,
+                      effort: options.effort,
+                    }
+                  : undefined,
+              });
+              return false;
+            }}
+            loading={generating}
+            draftScope={NEW_DECK_DRAFT_SCOPE}
+            initialText={newDeckInitialPrompt?.text}
+            initialTextKey={newDeckInitialPrompt?.key}
+            initialModelSelection={newDeckRetryModelSelection}
+            onRetainedAttachmentsAbandoned={
+              handlePendingDeckAttachmentsAbandoned
             }
-          >
-            <Suspense
-              fallback={
-                <div
-                  className="skeleton-shimmer h-44 rounded-xl bg-muted"
-                  aria-busy="true"
-                />
-              }
-            >
-              <LazyPromptPopover
-                presentation="inline"
-                context={composerContext}
-                controllerRef={homeComposerRef}
-                submissionDisabled={agentEngine.missing}
-                showModelSelector={!agentEngine.missing}
-                modelStatusChecksEnabled={!agentEngine.missing}
-                open={showNewDeckPrompt}
-                onOpenChange={setNewDeckPromptOpen}
-                title={t("home.newDeckPromptTitle")}
-                placeholder={t("home.newDeckPlaceholder")}
-                onSkip={handlePromptSkip}
-                skipLabel={t("home.skipPrompt")}
-                onSubmit={handlePromptSubmit}
-                onBeforeUpload={(
-                  prompt,
-                  files,
-                  context,
-                  attachments,
-                  options,
-                ) => {
-                  if (session) return true;
-                  preservePromptForSignIn(prompt, {
-                    context,
-                    attachments,
-                    hadFiles: files.length > 0,
-                    modelSelection: options
-                      ? {
-                          model: options.model,
-                          engine: options.engine,
-                          effort: options.effort,
-                        }
-                      : undefined,
-                  });
-                  return false;
-                }}
-                loading={generating}
-                draftScope={NEW_DECK_DRAFT_SCOPE}
-                initialText={newDeckInitialPrompt?.text}
-                initialTextKey={newDeckInitialPrompt?.key}
-                initialModelSelection={newDeckRetryModelSelection}
-                onRetainedAttachmentsAbandoned={
-                  handlePendingDeckAttachmentsAbandoned
-                }
-              />
-            </Suspense>
-          </LazyChunkErrorBoundary>
+          />
         </div>
       }
       quickActions={
-        quickActionsEnabled && homeSuggestionsQuery.data?.suggestions.length ? (
-          <AgentSuggestionBar
-            suggestions={homeSuggestionsQuery.data.suggestions.map(
-              (suggestion, index) => ({
-                ...suggestion,
-                id: suggestion.id ?? `slides-home-${index}`,
-                disabled: !showNewDeckPrompt || generating,
-              }),
-            )}
-            ariaLabel={t("home.suggestedPrompts")}
-            className="px-0 py-0"
-            onSelect={(suggestion) => {
-              if (!showNewDeckPrompt || generating) return;
-              void homeComposerRef.current?.submitSource(
-                agentSuggestionPrompt(suggestion),
-                [],
-              );
-            }}
-          />
-        ) : null
+        <AgentSuggestionBar
+          suggestions={homeSuggestions.map((suggestion, index) => ({
+            ...suggestion,
+            id: suggestion.id ?? `slides-home-${index}`,
+            disabled: !quickActionsEnabled || !showNewDeckPrompt || generating,
+          }))}
+          ariaLabel={t("home.suggestedPrompts")}
+          className="px-0 py-0"
+          onSelect={(suggestion) => {
+            if (!quickActionsEnabled || !showNewDeckPrompt || generating)
+              return;
+            void homeComposerRef.current?.submitSource(
+              agentSuggestionPrompt(suggestion),
+              [],
+            );
+          }}
+        />
       }
     >
       {viewState === "error" ? (
@@ -2187,7 +2147,6 @@ export default function Index() {
       <PromptHomeLibrary
         value={homeSection}
         onValueChange={setHomeSection}
-        showRecent={hasRecentDecks || hasDeckSearch}
         labels={{
           templates: t("templatesPage.title"),
           recent: t("home.recent"),
@@ -2203,7 +2162,7 @@ export default function Index() {
         recentActions={
           <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
         }
-        templates={<DeckTemplateLibrary home />}
+        templates={<DeckTemplateLibrary />}
         recent={
           <div className="agent-template-library-grid">
             {visibleDecks.map((deck) => (
@@ -2369,12 +2328,6 @@ function DeckSearchInput({
   className?: string;
 }) {
   const t = useT();
-  const isApplePlatform = useSyncExternalStore(
-    subscribeToPlatform,
-    isMacPlatform,
-    serverUsesApplePlatform,
-  );
-  const searchShortcutLabel = isApplePlatform ? "⌘K" : "Ctrl K";
   return (
     <div className={cn("relative min-w-0", className)}>
       <IconSearch
@@ -2388,14 +2341,8 @@ function DeckSearchInput({
         placeholder={t("root.searchDecks")}
         aria-label={t("root.searchDecks")}
         data-home-search="true"
-        className="h-8 pe-12 ps-9"
+        className="h-8 pe-3 ps-9"
       />
-      <kbd
-        aria-hidden="true"
-        className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 select-none rounded bg-muted px-1 py-0.5 font-mono text-[10px] leading-4 text-muted-foreground"
-      >
-        {searchShortcutLabel}
-      </kbd>
     </div>
   );
 }

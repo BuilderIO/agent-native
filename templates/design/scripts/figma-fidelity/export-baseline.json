@@ -35,11 +35,53 @@
     "maxApproximated": 0,
     "sourceHash": "4cc8963191f5b35c1245fb92dd16f4ada4f8becb0ada7e9b537bb9e5dfe6fb78"
   },
+  "preset-display-luxury": {
+    "maxDiffPercent": 1.589,
+    "maxOmitted": 0,
+    "maxApproximated": 0,
+    "sourceHash": "456390712081ef6929b7f1edcd0c2099965914b0e79a1d9f5f874b6d7899c2f7"
+  },
+  "preset-event-poster": {
+    "maxDiffPercent": 1.112,
+    "maxOmitted": 0,
+    "maxApproximated": 0,
+    "sourceHash": "ebac187d40b91fcffa334b017377e29618fc64b911d02614654a7eaa041587dd"
+  },
+  "preset-keynote-title": {
+    "maxDiffPercent": 2.527,
+    "maxOmitted": 0,
+    "maxApproximated": 0,
+    "sourceHash": "c102523e5cbe5eefa30f0ebdd686189604b20a1504758868b1ad412644c5c293"
+  },
+  "preset-landing-devtool": {
+    "maxDiffPercent": 3.882,
+    "maxOmitted": 0,
+    "maxApproximated": 0,
+    "sourceHash": "a728493c2a5b3fe206f128f07c7bba29c4dc92bc6d8f66c99e939a84e0806210"
+  },
+  "preset-landing-dtc": {
+    "maxDiffPercent": 4.204,
+    "maxOmitted": 0,
+    "maxApproximated": 0,
+    "sourceHash": "3a428435444809b8e96b9122a630a6ed1297ae5c68149648038f022f43c5dfc0"
+  },
   "preset-landing-page": {
     "maxDiffPercent": 5.225,
     "maxOmitted": 0,
     "maxApproximated": 0,
     "sourceHash": "35de4252d4f1ba9879547fe151e2d6170eb519a6492db70517a21f60c6374bb5"
+  },
+  "preset-leaderboard": {
+    "maxDiffPercent": 3.507,
+    "maxOmitted": 0,
+    "maxApproximated": 0,
+    "sourceHash": "53522825bd6237dc54f65702c5f0983d7c59a72e51ac22c152f5e6fa12076cde"
+  },
+  "preset-menu-card": {
+    "maxDiffPercent": 3.855,
+    "maxOmitted": 0,
+    "maxApproximated": 0,
+    "sourceHash": "69ffb5a9b551bf1a21177334be2c799a97cdd803a3fc8ce97383ab4eb7058601"
   },
   "preset-one-pager": {
     "maxDiffPercent": 0.481,
@@ -47,11 +89,35 @@
     "maxApproximated": 0,
     "sourceHash": "a49ca0ad82eb0c35ab69a11b3ef1ae32aa27446b019ffe5ddbbbdd039126dd66"
   },
+  "preset-one-pager-editorial": {
+    "maxDiffPercent": 5.212,
+    "maxOmitted": 0,
+    "maxApproximated": 0,
+    "sourceHash": "08f864b21b806752f7052096229593809d49e73d63e3ab8b7e4e0ebc50346cc0"
+  },
+  "preset-social-brutalist": {
+    "maxDiffPercent": 2.866,
+    "maxOmitted": 0,
+    "maxApproximated": 0,
+    "sourceHash": "6e5cbade53e690452b318e69a071c10cf66cde37e961e8ff17388c63cef53734"
+  },
   "preset-social-square": {
     "maxDiffPercent": 1.612,
     "maxOmitted": 0,
     "maxApproximated": 0,
     "sourceHash": "850817544b98158f18c130eb4d003f6ef9c995c66adcc9eb86c63b9c4a01f6bb"
+  },
+  "preset-social-story": {
+    "maxDiffPercent": 2.578,
+    "maxOmitted": 0,
+    "maxApproximated": 0,
+    "sourceHash": "305b44e71a33963eb02c4fe4258f14ae306ef51227ee495edb43249d79e37d34"
+  },
+  "preset-video-thumbnail": {
+    "maxDiffPercent": 8.607,
+    "maxOmitted": 0,
+    "maxApproximated": 0,
+    "sourceHash": "f8175da09287c119822852ed7b933e9dd3b2a381d50b4b7d9a6f89da66407bd9"
   },
   "typography": {
     "maxDiffPercent": 6.218,

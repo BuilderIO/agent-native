@@ -26,8 +26,6 @@ const {
   referenceProps,
   signedIn,
   agentEngine,
-  builderConnect,
-  useBuilderConnectFlow,
   agentSubmit,
   callAction,
   contextOptions,
@@ -41,8 +39,6 @@ const {
   referenceProps: vi.fn(),
   signedIn: { value: true },
   agentEngine: { state: "configured", missing: false },
-  builderConnect: { connecting: false, error: null as string | null },
-  useBuilderConnectFlow: vi.fn(),
   agentSubmit: vi.fn(),
   callAction: vi.fn().mockResolvedValue(undefined),
   contextOptions: vi.fn(),
@@ -54,8 +50,9 @@ const translate = (key: string) =>
     "home.firstDeckPromptTitle":
       "What kind of presentation should we generate?",
     "home.recent": "Recent",
-    "home.connectBuilderIo": "Connect Builder.io",
-    "home.connectingBuilder": "Connecting Builder.io…",
+    "agent.suggestionPitch": "Create a pitch deck",
+    "agent.suggestionBrand": "Apply our brand system",
+    "agent.suggestionHero": "Create a presentation cover",
     "home.starters.pitch.label": "Pitch deck",
     "home.starters.pitch.prompt": "Create a pitch deck about ",
     "home.noDecksMatchSearch": "No decks match your search.",
@@ -68,28 +65,36 @@ const translate = (key: string) =>
 
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent: vi.fn() }));
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  useAgentEngineConfigured: () => agentEngine,
-}));
-vi.mock("@agent-native/core/client/settings", () => ({
-  useBuilderConnectFlow,
-  BuilderConnectPopover: ({ children }: { children: ReactNode }) => (
-    <div data-testid="builder-connect-popover">{children}</div>
+  BuilderSetupCard: ({ bouncePulse = 0 }: { bouncePulse?: number }) => (
+    <div data-testid="builder-setup-card" data-bounce-pulse={bouncePulse}>
+      <span>Connect AI</span>
+      <button type="button">Connect Builder.io</button>
+      <span>Custom keys</span>
+    </div>
   ),
+  useAgentEngineConfigured: () => agentEngine,
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction,
-  useActionQuery: (name: string) =>
+  useActionQuery: (
+    name: string,
+    _params: Record<string, unknown>,
+    options?: { enabled?: boolean },
+  ) =>
     name === "generate-home-suggestions"
       ? {
-          data: {
-            suggestions: [
-              {
-                id: "suggestion-1",
-                label: "Build a pitch",
-                prompt: "Create a pitch deck for a new product.",
-              },
-            ],
-          },
+          data:
+            options?.enabled === false
+              ? undefined
+              : {
+                  suggestions: [
+                    {
+                      id: "suggestion-1",
+                      label: "Build a pitch",
+                      prompt: "Create a pitch deck for a new product.",
+                    },
+                  ],
+                },
           isLoading: false,
           isError: false,
         }
@@ -111,6 +116,7 @@ vi.mock("@agent-native/core/client/ui", () => ({
 }));
 vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
+  useHomeSearchShortcut: vi.fn(),
   useSetHeaderActions: (actions: ReactNode) => {
     headerActions.current = actions;
   },
@@ -234,10 +240,7 @@ beforeEach(() => {
   signedIn.value = true;
   agentEngine.state = "configured";
   agentEngine.missing = false;
-  builderConnect.connecting = false;
-  builderConnect.error = null;
   headerActions.current = null;
-  useBuilderConnectFlow.mockReturnValue(builderConnect);
   for (const name of ["localStorage", "sessionStorage"]) {
     const values = new Map<string, string>();
     vi.stubGlobal(name, {
@@ -366,9 +369,13 @@ describe("Slides prompt-led home", () => {
     const picker = vi
       .spyOn(HTMLInputElement.prototype, "click")
       .mockImplementation(() => {});
-    fireEvent.click(
+    fireEvent.pointerDown(
       screen.getByRole("button", { name: "home.importMenu.import" }),
+      { button: 0, ctrlKey: false },
     );
+    expect(await screen.findByRole("menuitem", { name: "PDF" })).toBeTruthy();
+    expect(picker).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("menuitem", { name: "PDF" }));
     expect(picker).toHaveBeenCalledOnce();
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.change(screen.getByLabelText("editorToolbar.importFile"), {
@@ -382,20 +389,14 @@ describe("Slides prompt-led home", () => {
     expect(promptProps.mock.lastCall![0].submissionDisabled).toBe(true);
     expect(createDeck).not.toHaveBeenCalled();
   });
-  it("uses the separate Builder connection CTA and suppresses embedded provider UI only while missing", async () => {
+  it("uses the shared Builder setup card and preserves the prompt while provider setup is needed", async () => {
     agentEngine.missing = true;
-    const missing = renderHome();
-    await screen.findByRole("textbox", { name: "Presentation prompt" });
-    expect(
-      screen
-        .getByTestId("builder-connect-popover")
-        .contains(screen.getByRole("button", { name: "Connect Builder.io" })),
-    ).toBe(true);
-    expect(useBuilderConnectFlow).toHaveBeenLastCalledWith({
-      enabled: true,
-      provisionAccount: true,
-      trackingSource: "slides_home",
+    renderHome();
+    const prompt = await screen.findByRole("textbox", {
+      name: "Presentation prompt",
     });
+    expect(screen.getByText("Connect AI")).toBeTruthy();
+    expect(screen.getByText("Custom keys")).toBeTruthy();
     expect(promptProps).toHaveBeenLastCalledWith(
       expect.objectContaining({
         submissionDisabled: true,
@@ -404,51 +405,16 @@ describe("Slides prompt-led home", () => {
         onSkip: expect.any(Function),
       }),
     );
-    missing.unmount();
-    agentEngine.missing = false;
-    renderHome();
-    await screen.findByRole("textbox", { name: "Presentation prompt" });
-    expect(screen.queryByTestId("builder-connect-popover")).toBeNull();
-    expect(promptProps).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        submissionDisabled: false,
-        showModelSelector: true,
-        modelStatusChecksEnabled: true,
-      }),
-    );
+    fireEvent.pointerDown(prompt, { button: 0, ctrlKey: false });
+    expect(
+      screen
+        .getByTestId("builder-setup-card")
+        .getAttribute("data-bounce-pulse"),
+    ).toBe("1");
     expect(createDeck).not.toHaveBeenCalled();
   });
 
-  it("shows connection progress and preserves an actionable retry after a connection error", async () => {
-    agentEngine.missing = true;
-    builderConnect.connecting = true;
-    const connecting = renderHome();
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "Connecting Builder.io…",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
-    await screen.findByRole("textbox", { name: "Presentation prompt" });
-    connecting.unmount();
-    builderConnect.connecting = false;
-    builderConnect.error = "Connection interrupted";
-    renderHome();
-    expect(screen.getByRole("alert").textContent).toBe(
-      "Connection interrupted",
-    );
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "Connect Builder.io",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(false);
-    await screen.findByRole("textbox", { name: "Presentation prompt" });
-  });
-
-  it("keeps the composer as the focal point without accessible work", async () => {
+  it("keeps the composer as the focal point and shows both library tabs without accessible work", async () => {
     renderHome({ decks: [] });
     expect(
       screen.getByRole("heading", {
@@ -459,6 +425,8 @@ describe("Slides prompt-led home", () => {
       await screen.findByRole("textbox", { name: "Presentation prompt" }),
     ).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Recent" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "Templates" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Recent" })).toBeTruthy();
     expect(
       screen.getByRole("link", { name: /browse all/i }).getAttribute("href"),
     ).toBe("/templates");
@@ -564,12 +532,15 @@ describe("Slides prompt-led home", () => {
     expect(createDeck).not.toHaveBeenCalled();
   });
 
-  it("hides home suggestions until the provider status is confirmed", async () => {
+  it("shows generic disabled home suggestions until provider setup is ready", async () => {
     agentEngine.state = "missing";
     agentEngine.missing = true;
     renderHome();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
-    expect(screen.queryByRole("button", { name: "Build a pitch" })).toBeNull();
+    const suggestion = screen.getByRole("button", {
+      name: "Create a pitch deck",
+    });
+    expect((suggestion as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("reopens the inline prompt on reference cancellation without discarding uploads just for hiding it", async () => {

@@ -3,7 +3,6 @@ import { IconChevronDown, IconUpload } from "@tabler/icons-react";
 import { useId, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,22 +59,7 @@ export function ImportDeckButton({
       onOpenChange={(open) => !open && !busy && setPopover(null)}
     >
       <PopoverAnchor asChild>
-        <ButtonGroup aria-label={t("home.importMenu.import")}>
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy}
-            aria-busy={busy}
-            aria-label={t(
-              busy ? "editorToolbar.importing" : "home.importMenu.import",
-            )}
-            onClick={() => openPicker()}
-          >
-            <IconUpload />
-            <span className="slides-home-import-label">
-              {t(busy ? "editorToolbar.importing" : "home.importMenu.import")}
-            </span>
-          </Button>
+        <div className="inline-flex">
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <Button
@@ -83,8 +67,17 @@ export function ImportDeckButton({
                 type="button"
                 size="sm"
                 disabled={busy}
-                aria-label={t("home.importMenu.options")}
+                aria-busy={busy}
+                aria-label={t(
+                  busy ? "editorToolbar.importing" : "home.importMenu.import",
+                )}
               >
+                <IconUpload />
+                <span className="slides-home-import-label">
+                  {t(
+                    busy ? "editorToolbar.importing" : "home.importMenu.import",
+                  )}
+                </span>
                 <IconChevronDown />
               </Button>
             </DropdownMenuTrigger>
@@ -115,7 +108,7 @@ export function ImportDeckButton({
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-        </ButtonGroup>
+        </div>
       </PopoverAnchor>
       <input
         ref={input}

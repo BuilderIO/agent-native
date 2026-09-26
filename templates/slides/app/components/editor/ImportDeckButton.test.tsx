@@ -41,10 +41,10 @@ function Harness({ onImport }: { onImport: PromptImportHandler }) {
   return <ImportDeckButton controller={controller} />;
 }
 function openMenu() {
-  fireEvent.pointerDown(
-    screen.getByRole("button", { name: "Import options" }),
-    { button: 0, ctrlKey: false },
-  );
+  fireEvent.pointerDown(screen.getByRole("button", { name: "Import" }), {
+    button: 0,
+    ctrlKey: false,
+  });
 }
 function selectFile(file?: File) {
   fireEvent.change(screen.getByLabelText("Import file"), {
@@ -77,36 +77,24 @@ describe("toolbar deck import", () => {
     );
     expect(screen.getByRole("dialog", { name: "Google Slides" })).toBe(dialog);
   });
-  it("opens the combined PDF/PPTX native picker directly and cancelling is a no-op", () => {
+  it("opens import options from the whole button and cancelling is a no-op", () => {
     const onImport = vi.fn();
     const click = vi
       .spyOn(HTMLInputElement.prototype, "click")
       .mockImplementation(() => {});
     render(<Harness onImport={onImport} />);
-    fireEvent.click(screen.getByRole("button", { name: "Import" }));
-    expect(click).toHaveBeenCalledOnce();
-    expect(screen.getByLabelText("Import file").getAttribute("accept")).toBe(
-      Object.values(DECK_FILE_ACCEPT).join(","),
-    );
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Import" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(screen.getByRole("menuitem", { name: "PDF" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "PPT" })).toBeTruthy();
+    expect(click).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).toBeNull();
     selectFile();
     expect(onImport).not.toHaveBeenCalled();
     expect(screen.queryByRole("alert")).toBeNull();
   });
-  it.each(["pdf", "pptx"] as const)(
-    "dispatches a %s from the main picker without confirmation",
-    async (kind) => {
-      const onImport = vi.fn().mockResolvedValue(true);
-      render(<Harness onImport={onImport} />);
-      fireEvent.click(screen.getByRole("button", { name: "Import" }));
-      const file = new File(["source"], `source.${kind}`);
-      selectFile(file);
-      await waitFor(() =>
-        expect(onImport).toHaveBeenCalledWith({ kind, files: [file] }),
-      );
-      expect(screen.queryByRole("dialog")).toBeNull();
-    },
-  );
   it.each([
     ["PDF", "pdf"],
     ["PPT", "pptx"],
@@ -254,7 +242,7 @@ describe("toolbar deck import", () => {
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     await waitFor(() =>
       expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "Import options" }),
+        screen.getByRole("button", { name: "Import" }),
       ),
     );
     openMenu();
@@ -272,7 +260,7 @@ describe("toolbar deck import", () => {
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     await waitFor(() =>
       expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "Import options" }),
+        screen.getByRole("button", { name: "Import" }),
       ),
     );
   });

@@ -1,4 +1,7 @@
-import { useAgentEngineConfigured } from "@agent-native/core/client/agent-chat";
+import {
+  BuilderSetupCard,
+  useAgentEngineConfigured,
+} from "@agent-native/core/client/agent-chat";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
 import {
   snapshotComposerContextItems,
@@ -12,10 +15,6 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  BuilderConnectPopover,
-  useBuilderConnectFlow,
-} from "@agent-native/core/client/settings";
 import {
   CreativeContextShareSheet,
   parseCreativeContexts,
@@ -32,6 +31,7 @@ import {
   PromptHomeLibrary,
   TemplateLibraryGrid,
   type PromptHomeLibraryTab,
+  useHomeSearchShortcut,
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
@@ -99,7 +99,6 @@ import {
 } from "@/components/ui/tooltip";
 import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useDesignSystems } from "@/hooks/use-design-systems";
-import { useShortcutLabel } from "@/hooks/use-shortcut-label";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
   readStoredDesignFilter,
@@ -139,7 +138,7 @@ interface DesignListResult {
   designs: Design[];
 }
 
-const DESIGN_PAGE_SIZE = 12;
+const DESIGN_PAGE_SIZE = 50;
 
 interface HomeSuggestion {
   id?: string;
@@ -153,7 +152,7 @@ interface HomeSuggestionsResult {
 
 export default function Index() {
   const t = useT();
-  const searchShortcutLabel = useShortcutLabel("$mod+k");
+  useHomeSearchShortcut(true);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -236,14 +235,10 @@ export default function Index() {
     compact: "true",
     includePreview: "false",
   });
-  const hasRecentDesigns =
-    accessibleDesignsSummary.isSuccess &&
-    accessibleDesignsSummary.data.totalCount > 0;
   const hasSearchResultsSection = normalizedSearch.length > 0;
   useEffect(() => {
     if (hasSearchResultsSection) setHomeSection("recent");
   }, [hasSearchResultsSection]);
-  const activeHomeSection = hasRecentDesigns ? homeSection : "templates";
   const {
     data: templatesData,
     isLoading: templatesLoading,
@@ -276,6 +271,10 @@ export default function Index() {
     refetch: refetchDesignSystems,
   } = useDesignSystems(systemsEnabled);
   const agentEngine = useAgentEngineConfigured();
+  const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
+  const bounceSetupCard = () => {
+    if (agentEngine.missing) setSetupCardBouncePulse((pulse) => pulse + 1);
+  };
   const quickActionsEnabled =
     agentEngine.state === "configured" && !agentEngine.missing;
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
@@ -287,11 +286,17 @@ export default function Index() {
       staleTime: 5 * 60 * 1000,
     },
   );
-  const builderConnect = useBuilderConnectFlow({
-    enabled: agentEngine.missing,
-    provisionAccount: true,
-    trackingSource: "design_home",
-  });
+  const homeSuggestions = homeSuggestionsQuery.data?.suggestions.length
+    ? homeSuggestionsQuery.data.suggestions
+    : [
+        t("chat.suggestionLandingPage"),
+        t("chat.suggestionBrandMatch"),
+        t("chat.suggestionMobile"),
+      ].map((prompt, index) => ({
+        id: `design-home-generic-${index}`,
+        label: prompt,
+        prompt,
+      }));
 
   /**
    * The picker showed a column of near-identical names ("Builder indexed
@@ -1083,14 +1088,8 @@ export default function Index() {
         placeholder={t("home.searchPlaceholder")}
         aria-label={t("home.searchPlaceholder")}
         data-home-search="true"
-        className="h-8 w-full pe-12 ps-8"
+        className="h-8 w-full pe-3 ps-8"
       />
-      <kbd
-        aria-hidden="true"
-        className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 select-none rounded bg-muted px-1 py-0.5 font-mono text-[10px] leading-4 text-muted-foreground"
-      >
-        {searchShortcutLabel}
-      </kbd>
     </div>,
   );
 
@@ -1101,25 +1100,30 @@ export default function Index() {
         title={t("home.designPromptTitle")}
         connection={
           agentEngine.missing ? (
-            <>
-              <BuilderConnectPopover flow={builderConnect}>
-                <Button variant="outline" disabled={builderConnect.connecting}>
-                  {builderConnect.connecting
-                    ? t("home.connectingBuilder")
-                    : t("home.connectBuilderIo")}
-                  <IconArrowRight />
-                </Button>
-              </BuilderConnectPopover>
-              {builderConnect.error ? (
-                <p role="alert" className="max-w-md text-xs text-destructive">
-                  {builderConnect.error}
-                </p>
-              ) : null}
-            </>
+            <BuilderSetupCard
+              attached
+              fullWidth
+              layout="sidebar"
+              bouncePulse={setupCardBouncePulse}
+              onConnected={() =>
+                window.dispatchEvent(
+                  new Event("agent-engine:configured-changed"),
+                )
+              }
+            />
           ) : null
         }
         composer={
-          <div data-design-home-composer>
+          <div
+            data-design-home-composer
+            className={
+              agentEngine.missing
+                ? "agent-composer-area--attached-above"
+                : undefined
+            }
+            onFocusCapture={bounceSetupCard}
+            onPointerDownCapture={bounceSetupCard}
+          >
             <PromptPopover
               inline
               open
@@ -1184,37 +1188,40 @@ export default function Index() {
           </div>
         }
         quickActions={
-          quickActionsEnabled &&
-          homeSuggestionsQuery.data?.suggestions.length ? (
-            <AgentSuggestionBar
-              suggestions={homeSuggestionsQuery.data.suggestions.map(
-                (suggestion, index) => ({
-                  ...suggestion,
-                  id: suggestion.id ?? `design-home-${index}`,
-                  disabled: newDesignHandoffPending || quickStartPending,
-                }),
-              )}
-              ariaLabel={t("home.suggestedPrompts")}
-              className="px-0 py-0"
-              onSelect={async (suggestion) => {
-                if (quickStartRef.current || !composerRef.current) return;
-                quickStartRef.current = true;
-                submissionErrorRef.current = false;
-                setQuickStartPending(true);
-                try {
-                  const accepted = await composerRef.current.submitWithText(
-                    agentSuggestionPrompt(suggestion),
-                  );
-                  if (!accepted && !submissionErrorRef.current) {
-                    toast.error(t("homeContext.notReady"));
-                  }
-                } finally {
-                  quickStartRef.current = false;
-                  setQuickStartPending(false);
+          <AgentSuggestionBar
+            suggestions={homeSuggestions.map((suggestion, index) => ({
+              ...suggestion,
+              id: suggestion.id ?? `design-home-${index}`,
+              disabled:
+                !quickActionsEnabled ||
+                newDesignHandoffPending ||
+                quickStartPending,
+            }))}
+            ariaLabel={t("home.suggestedPrompts")}
+            className="px-0 py-0"
+            onSelect={async (suggestion) => {
+              if (
+                !quickActionsEnabled ||
+                quickStartRef.current ||
+                !composerRef.current
+              )
+                return;
+              quickStartRef.current = true;
+              submissionErrorRef.current = false;
+              setQuickStartPending(true);
+              try {
+                const accepted = await composerRef.current.submitWithText(
+                  agentSuggestionPrompt(suggestion),
+                );
+                if (!accepted && !submissionErrorRef.current) {
+                  toast.error(t("homeContext.notReady"));
                 }
-              }}
-            />
-          ) : null
+              } finally {
+                quickStartRef.current = false;
+                setQuickStartPending(false);
+              }
+            }}
+          />
         }
       >
         {accessibleDesignsSummary.isError ? (
@@ -1224,9 +1231,8 @@ export default function Index() {
           />
         ) : null}
         <PromptHomeLibrary
-          value={activeHomeSection}
+          value={homeSection}
           onValueChange={setHomeSection}
-          showRecent={hasRecentDesigns || hasSearchResultsSection}
           labels={{
             templates: t("navigation.templates"),
             recent: t("home.recent"),
@@ -1274,9 +1280,9 @@ export default function Index() {
               />
             ) : (
               <DesignTemplateLibrary
-                templates={templateOptions
-                  .filter((template) => template.isBuiltIn)
-                  .slice(0, 4)}
+                templates={templateOptions.filter(
+                  (template) => template.isBuiltIn,
+                )}
                 loading={templatesLoading}
               />
             )
@@ -1384,7 +1390,12 @@ export default function Index() {
                       <Link to={`/design/${design.id}`}>{children}</Link>
                     )}
                     renderPreview={(design) => (
-                      <DesignThumbnail html={design.previewHtml ?? null} />
+                      <div className="design-library-card-preview">
+                        <DesignThumbnail
+                          html={design.previewHtml ?? null}
+                          className="h-full w-full"
+                        />
+                      </div>
                     )}
                     renderMetadata={(design) => (
                       <div className="flex min-w-0 items-center gap-1.5">

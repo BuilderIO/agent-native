@@ -172,7 +172,14 @@ export async function runExportCase(
     JSON.stringify(report, null, 2),
   );
 
-  const candidate = await renderSvgToPng(browser, svg, renderOptions);
+  // The exported SVG names the design's web fonts but cannot load them. Figma
+  // resolves them by name, so render the SVG with the same stylesheets the
+  // design loaded; otherwise every web-font glyph falls back to a system face
+  // and the diff measures the fallback instead of the export.
+  const candidate = await renderSvgToPng(browser, svg, {
+    ...renderOptions,
+    headHtml: webFontLinks(testCase.html),
+  });
   writeFileSync(join(dir, "export.png"), candidate.png);
 
   const comparison = await comparePngs(browser, reference.png, candidate.png, {
@@ -206,6 +213,18 @@ export async function runExportCase(
     exportOmissions: report.omitted?.length ?? 0,
     exportApproximations: report.approximated?.length ?? 0,
   };
+}
+
+/** The design's own Google Fonts stylesheet links, verbatim. */
+export function webFontLinks(html: string): string {
+  return [...html.matchAll(/<link\b[^>]*>/gi)]
+    .map((match) => match[0])
+    .filter(
+      (tag) =>
+        /\brel=["']?stylesheet\b/i.test(tag) &&
+        /\bhref=["']https:\/\/fonts\.googleapis\.com\//i.test(tag),
+    )
+    .join("");
 }
 
 export function findExportBaselineProblems(

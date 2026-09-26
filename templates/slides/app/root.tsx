@@ -226,17 +226,8 @@ function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
   const handleCommandMenuShortcut = useCallback(() => {
-    if (location.pathname === "/home") {
-      const homeSearch = Array.from(
-        document.querySelectorAll<HTMLInputElement>("[data-home-search]"),
-      ).find((input) => input.getClientRects().length > 0);
-      if (homeSearch) {
-        homeSearch.focus();
-        return;
-      }
-    }
     setCmdkOpen(true);
-  }, [location.pathname]);
+  }, []);
   const shouldHandleContentEditableCommandMenuShortcut = useCallback(
     () => location.pathname !== "/home",
     [location.pathname],

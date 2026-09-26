@@ -230,17 +230,8 @@ function PrivateRootContent() {
   useCommandMenuShortcut(
     useCallback(() => {
       if (!hasSession || isPublicVisualEdit) return;
-      if (location.pathname === "/home") {
-        const homeSearch = Array.from(
-          document.querySelectorAll<HTMLInputElement>("[data-home-search]"),
-        ).find((input) => input.getClientRects().length > 0);
-        if (homeSearch) {
-          homeSearch.focus();
-          return;
-        }
-      }
       setCmdkOpen(true);
-    }, [hasSession, isPublicVisualEdit, location.pathname]),
+    }, [hasSession, isPublicVisualEdit]),
   );
 
   const content = isPublicVisualEdit ? (
