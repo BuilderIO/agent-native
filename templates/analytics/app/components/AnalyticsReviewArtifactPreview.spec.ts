@@ -69,16 +69,9 @@ describe("Analytics review artifact preview", () => {
     ).toBeUndefined();
   });
 
-  it("does not run saved BigQuery SQL in a review preview", () => {
-    const chart = panel("first-party", "safe-chart");
+  it("keeps saved charts available when review previews disable query loading", () => {
+    const chart = panel("bigquery");
 
-    expect(
-      firstReviewDashboardPanel({
-        panels: [panel("bigquery"), chart],
-      }),
-    ).toEqual(chart);
-    expect(firstReviewDashboardPanel({ panels: [panel("bigquery")] })).toBe(
-      undefined,
-    );
+    expect(firstReviewDashboardPanel({ panels: [chart] })).toEqual(chart);
   });
 });

@@ -135,8 +135,6 @@ export function firstReviewDashboardPanel(
     (panel) =>
       panel.source !== "demo" &&
       panel.source !== "program" &&
-      // Dashboard SQL may run with the reviewing admin's credentials.
-      panel.source !== "bigquery" &&
       panel.chartType !== "section" &&
       panel.chartType !== "extension",
   );
@@ -201,6 +199,7 @@ export function AnalyticsReviewArtifactPreview({
         resolvedSql={resolvedSql}
         timeRange={timeRangeDays(vars.timeRange)}
         dashboardId={artifactId}
+        loadData={false}
       />
     </div>
   );

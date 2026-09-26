@@ -3,4 +3,4 @@ type: security
 date: 2026-09-25
 ---
 
-Human Review skips saved BigQuery queries in previews
+Human Review previews do not run saved dashboard queries
