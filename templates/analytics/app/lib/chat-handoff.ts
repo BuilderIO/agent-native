@@ -9,10 +9,7 @@ export const ANALYTICS_CHAT_STORAGE_KEY = "analytics";
 
 export const ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS = 5 * 60 * 1000;
 
-export type AnalyticsChatRunningRuns = Map<
-  string,
-  { runIds: Set<string>; unidentifiedRunActive: boolean }
->;
+export type AnalyticsChatRunningRuns = Map<string, Set<string>>;
 
 const ANALYTICS_LAST_CHAT_ACTIVITY_KEY =
   "agent-native.analytics.last-chat-activity-at";
@@ -31,7 +28,7 @@ export function discardAnalyticsChatHandoffOnSettings(pathname: string): void {
 export function hasTrackedAnalyticsChatRun(
   runningRuns: AnalyticsChatRunningRuns,
 ): boolean {
-  return Array.from(runningRuns.values()).some(({ runIds }) => runIds.size > 0);
+  return Array.from(runningRuns.values()).some((runIds) => runIds.size > 0);
 }
 
 export function updateAnalyticsChatHandoffForRun(
@@ -52,37 +49,19 @@ export function updateAnalyticsChatHandoffForRun(
 
   if (run.isRunning) {
     if (pathname !== "/ask") return;
-    const next = state ?? {
-      runIds: new Set<string>(),
-      unidentifiedRunActive: false,
-    };
     if (runId) {
-      next.unidentifiedRunActive = false;
-      next.runIds.add(runId);
-    } else {
-      next.unidentifiedRunActive = true;
+      const next = state ?? new Set<string>();
+      next.add(runId);
+      runningRuns.set(tabId, next);
     }
-    runningRuns.set(tabId, next);
     markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
     return;
   }
 
-  if (!state) return;
-  let hadActiveRun = false;
-  if (runId) {
-    hadActiveRun = state.runIds.delete(runId);
-    if (!hadActiveRun && state.unidentifiedRunActive) {
-      state.unidentifiedRunActive = false;
-      hadActiveRun = true;
-    }
-  } else if (state.unidentifiedRunActive) {
-    state.unidentifiedRunActive = false;
-    hadActiveRun = true;
-  }
+  if (!runId || !state) return;
+  const hadActiveRun = state.delete(runId);
 
-  if (!state.unidentifiedRunActive && state.runIds.size === 0) {
-    runningRuns.delete(tabId);
-  }
+  if (state.size === 0) runningRuns.delete(tabId);
   if (hadActiveRun && pathname === "/ask") {
     markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
   }

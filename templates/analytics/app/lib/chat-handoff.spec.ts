@@ -194,7 +194,7 @@ describe("analytics chat handoff destinations", () => {
         ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
       }),
     ).toBe(false);
-    expect(runningRuns.get("chat-1")?.runIds.has("turn-b")).toBe(true);
+    expect(runningRuns.get("chat-1")?.has("turn-b")).toBe(true);
 
     updateAnalyticsChatHandoffForRun(
       runningRuns,
@@ -210,7 +210,7 @@ describe("analytics chat handoff destinations", () => {
     expect(runningRuns.has("chat-1")).toBe(false);
   });
 
-  it("renews only handoffs for runs with an identity", () => {
+  it("tracks only handoffs for runs with an identity", () => {
     const runningRuns: AnalyticsChatRunningRuns = new Map();
     updateAnalyticsChatHandoffForRun(
       runningRuns,
