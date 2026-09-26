@@ -1,7 +1,6 @@
 import { emailToName } from "@agent-native/core/client/collab";
 import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
   closestCenter,
@@ -95,6 +94,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -2729,7 +2729,9 @@ function FilesMediaValueEditor({
         className="sr-only"
         onChange={(event) => void uploadFiles(event.currentTarget.files)}
       />
-      {!fileStorageConfigured ? <FileStorageSetupCard /> : null}
+      {!fileStorageConfigured ? (
+        <FileStorageStatusGate status={fileUploadStatus} />
+      ) : null}
       <div className="flex justify-end gap-2">
         {fileStorageConfigured ? (
           <Button

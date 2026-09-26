@@ -41,6 +41,8 @@ import {
   useState,
 } from "react";
 
+import { Button } from "@/components/ui/button";
+
 import { PlanBlockView } from "../plan/DocumentArea";
 import { PlanImageNode } from "../plan/PlanImageNode";
 import { PlanBlockNode, PlanBlockDataProvider } from "./PlanBlockNode";
@@ -839,8 +841,15 @@ export function PlanDocumentEditor({
 }) {
   const t = useT();
   const fileUploadStatus = useFileUploadStatus();
-  const canUploadImages =
-    import.meta.env.DEV || fileUploadStatus.data?.configured === true;
+  const storageConfigured =
+    !fileUploadStatus.isError && fileUploadStatus.data?.configured === true;
+  const storageMissing =
+    !import.meta.env.DEV &&
+    !fileUploadStatus.isError &&
+    fileUploadStatus.data?.configured === false;
+  const storageUnavailable =
+    !import.meta.env.DEV && !storageConfigured && !storageMissing;
+  const canUploadImages = import.meta.env.DEV || storageConfigured;
   const registryValue = useOptionalBlockRegistry();
   const registry = registryValue?.registry ?? null;
 
@@ -1504,9 +1513,27 @@ export function PlanDocumentEditor({
   return (
     <PlanSideDropContext.Provider value={handleDrop}>
       <PlanBlockDataProvider value={dataValue}>
-        {!canUploadImages && editable ? (
+        {storageMissing && editable ? (
           <div className="mb-4">
             <FileStorageSetupCard />
+          </div>
+        ) : null}
+        {storageUnavailable && editable ? (
+          <div
+            className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4"
+            role="status"
+          >
+            <p className="text-sm text-muted-foreground">
+              {t("plansPage.loadError.storageStatusUnavailable")}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void fileUploadStatus.refetch()}
+            >
+              {t("plansPage.loadError.retry")}
+            </Button>
           </div>
         ) : null}
         <SharedRichEditor
@@ -1580,7 +1607,8 @@ export function NestedPlanBlocksEditor({
   const t = useT();
   const fileUploadStatus = useFileUploadStatus();
   const canUploadImages =
-    import.meta.env.DEV || fileUploadStatus.data?.configured === true;
+    import.meta.env.DEV ||
+    (!fileUploadStatus.isError && fileUploadStatus.data?.configured === true);
   const registryValue = useOptionalBlockRegistry();
   const registry = registryValue?.registry ?? null;
   const rootRef = useRef<HTMLDivElement | null>(null);

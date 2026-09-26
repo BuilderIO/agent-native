@@ -11,7 +11,13 @@ const { setPropertyMutation, uploadStatus } = vi.hoisted(() => ({
     isPending: false,
   },
   uploadStatus: {
-    current: { isSuccess: true, data: { configured: false } },
+    current: {
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      data: { configured: false } as { configured: boolean } | undefined,
+      refetch: vi.fn(),
+    },
   },
 }));
 
@@ -80,7 +86,13 @@ describe("files and media property editor", () => {
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
     setPropertyMutation.mutateAsync.mockClear();
-    uploadStatus.current = { isSuccess: true, data: { configured: false } };
+    uploadStatus.current = {
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      data: { configured: false },
+      refetch: vi.fn(),
+    };
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -171,4 +183,46 @@ describe("files and media property editor", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(setPropertyMutation.mutateAsync).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["loading", false],
+    ["error", true],
+  ] as const)(
+    "shows retry instead of setup when file storage status is %s",
+    async (_state, isError) => {
+      const refetch = vi.fn();
+      uploadStatus.current = {
+        isSuccess: false,
+        isError,
+        isFetching: !isError,
+        data: undefined,
+        refetch,
+      };
+      const trigger = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Edit Image"]',
+      );
+      await act(async () => trigger?.click());
+
+      expect(
+        container.querySelector('[data-testid="file-storage-setup-card"]'),
+      ).toBeNull();
+      expect(
+        container.querySelector<HTMLInputElement>('input[type="file"]')
+          ?.disabled,
+      ).toBe(true);
+      expect(container.textContent).toContain(
+        "onboarding.fileStorage.statusUnavailable",
+      );
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-testid="file-storage-retry"]',
+          )
+          ?.click();
+      });
+
+      expect(refetch).toHaveBeenCalledOnce();
+    },
+  );
 });

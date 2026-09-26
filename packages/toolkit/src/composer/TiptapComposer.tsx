@@ -2752,11 +2752,7 @@ export function TiptapComposer({
           return false;
         }
         if (!attachmentsEnabled) {
-          const paste = readClipboardPaste(event.clipboardData);
-          if (
-            event.clipboardData?.files.length ||
-            shouldConvertClipboardToAttachment(paste)
-          ) {
+          if (event.clipboardData?.files.length) {
             event.preventDefault();
             return true;
           }

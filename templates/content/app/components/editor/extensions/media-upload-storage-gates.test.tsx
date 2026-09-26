@@ -5,7 +5,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const uploadStatus = vi.hoisted(() => ({
-  current: { isSuccess: true, data: { configured: false } },
+  current: {
+    isSuccess: true,
+    isError: false,
+    isFetching: false,
+    data: { configured: false } as { configured: boolean } | undefined,
+    refetch: vi.fn(),
+  },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -59,7 +65,13 @@ describe("rich editor media upload storage gates", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    uploadStatus.current = { isSuccess: true, data: { configured: false } };
+    uploadStatus.current = {
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      data: { configured: false },
+      refetch: vi.fn(),
+    };
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -89,6 +101,49 @@ describe("rich editor media upload storage gates", () => {
           (button) => button.textContent === "editor.media.uploadFile",
         ),
       ).toBe(false);
+    },
+  );
+
+  it.each([
+    ["image", "loading", ImageBlock, false],
+    ["image", "error", ImageBlock, true],
+    ["video", "loading", VideoBlock, false],
+    ["video", "error", VideoBlock, true],
+    ["audio", "loading", AudioBlock, false],
+    ["audio", "error", AudioBlock, true],
+  ] as const)(
+    "shows retry instead of setup when %s storage status is %s",
+    async (type, _state, Block, isError) => {
+      const refetch = vi.fn();
+      uploadStatus.current = {
+        isSuccess: false,
+        isError,
+        isFetching: !isError,
+        data: undefined,
+        refetch,
+      };
+
+      act(() => root.render(createElement(Block, mediaNodeProps(type))));
+
+      expect(
+        container.querySelector('[data-testid="file-storage-setup-card"]'),
+      ).toBeNull();
+      const fileInput =
+        container.querySelector<HTMLInputElement>('input[type="file"]');
+      expect(fileInput === null || fileInput.disabled).toBe(true);
+      expect(container.textContent).toContain(
+        "onboarding.fileStorage.statusUnavailable",
+      );
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-testid="file-storage-retry"]',
+          )
+          ?.click();
+      });
+
+      expect(refetch).toHaveBeenCalledOnce();
     },
   );
 });

@@ -5,12 +5,21 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const fileStorage = vi.hoisted(() => ({
+  data: { configured: true } as { configured: boolean } | undefined,
+  isError: false as boolean,
+  refetch: vi.fn(),
+}));
+
 vi.mock("@agent-native/core/client/uploads", () => ({
   uploadEditorImage: vi.fn(),
-  useFileUploadStatus: () => ({ data: { configured: true } }),
+  useFileUploadStatus: () => fileStorage,
 }));
 vi.mock("@agent-native/core/client/setup-connections", () => ({
-  FileStorageSetupCard: () => null,
+  FileStorageSetupCard: () => <div data-testid="file-storage-setup-card" />,
+}));
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
 }));
 
 import { PlanBlockView } from "./DocumentArea";
@@ -19,6 +28,9 @@ let container: HTMLElement;
 let root: Root;
 
 beforeEach(() => {
+  fileStorage.data = { configured: true };
+  fileStorage.isError = false;
+  fileStorage.refetch.mockClear();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -27,6 +39,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  vi.unstubAllEnvs();
 });
 
 const IMAGE_BLOCK: PlanBlock = {
@@ -72,5 +85,30 @@ describe("editable image block", () => {
 
     // Read-only still shows the image; the overlay is the same shared component.
     expect(container.querySelector("img")).toBeTruthy();
+  });
+
+  it("keeps replacement disabled and offers status retry while storage is unavailable", () => {
+    vi.stubEnv("DEV", false);
+    fileStorage.data = undefined;
+
+    act(() => {
+      root.render(<PlanBlockView block={IMAGE_BLOCK} onChange={() => {}} />);
+    });
+
+    expect(
+      container.querySelector<HTMLInputElement>('input[type="file"]')?.disabled,
+    ).toBe(true);
+    expect(
+      container.querySelector("[data-testid=file-storage-setup-card]"),
+    ).toBeNull();
+    expect(container.textContent).toContain(
+      "plansPage.loadError.storageStatusUnavailable",
+    );
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "plansPage.loadError.retry",
+    );
+    expect(retry).toBeTruthy();
+    act(() => retry?.click());
+    expect(fileStorage.refetch).toHaveBeenCalledOnce();
   });
 });

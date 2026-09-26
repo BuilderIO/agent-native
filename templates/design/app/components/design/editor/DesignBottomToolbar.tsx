@@ -30,6 +30,7 @@ import {
 } from "@/components/design/editor/toolbar-controls";
 import { IconText } from "@/components/design/inspector/design-icons";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -99,7 +100,11 @@ export function DesignBottomToolbar({
 }) {
   const t = useT();
   const fileUploadStatus = useFileUploadStatus();
-  const canUploadMedia = fileUploadStatus.data?.configured === true;
+  const canUploadMedia =
+    fileUploadStatus.isSuccess && fileUploadStatus.data.configured === true;
+  const fileStorageMissing =
+    fileUploadStatus.isSuccess && fileUploadStatus.data.configured === false;
+  const fileStorageUnavailable = fileUploadStatus.isError;
   const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const applePlatform = useApplePlatform();
   const mediaInputRef = useRef<HTMLInputElement>(null);
@@ -445,12 +450,35 @@ export function DesignBottomToolbar({
           />
         ))}
       </div>
-      <Dialog open={storageSetupOpen} onOpenChange={setStorageSetupOpen}>
+      <Dialog
+        open={
+          storageSetupOpen && (fileStorageMissing || fileStorageUnavailable)
+        }
+        onOpenChange={setStorageSetupOpen}
+      >
         <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t("onboarding.fileStorage.title")}</DialogTitle>
-          </DialogHeader>
-          <FileStorageSetupCard />
+          {fileStorageMissing ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>{t("onboarding.fileStorage.title")}</DialogTitle>
+              </DialogHeader>
+              <FileStorageSetupCard />
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>{t("common.genericError")}</DialogTitle>
+              </DialogHeader>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={fileUploadStatus.isFetching}
+                onClick={() => void fileUploadStatus.refetch()}
+              >
+                {t("agentChat.common.retry")}
+              </Button>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 

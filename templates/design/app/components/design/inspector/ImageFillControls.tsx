@@ -5,6 +5,7 @@ import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { IconPhotoPlus, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -288,7 +289,10 @@ export function ImageFillControls({
 }: ImageFillControlsProps) {
   const t = useT();
   const fileUploadStatus = useFileUploadStatus();
-  const canUploadImages = fileUploadStatus.data?.configured === true;
+  const canUploadImages =
+    fileUploadStatus.isSuccess && fileUploadStatus.data.configured === true;
+  const fileStorageMissing =
+    fileUploadStatus.isSuccess && fileUploadStatus.data.configured === false;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [urlDraft, setUrlDraft] = useState(value.url);
   const urlDraftRef = useRef(value.url);
@@ -447,7 +451,24 @@ export function ImageFillControls({
           onChange={handleFilePick}
         />
       </div>
-      {!canUploadImages ? <FileStorageSetupCard /> : null}
+      {fileStorageMissing ? <FileStorageSetupCard /> : null}
+      {fileUploadStatus.isError && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-2 text-[10px] leading-snug text-destructive"
+        >
+          <span>{t("common.genericError")}</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-1.5 text-[10px]"
+            disabled={fileUploadStatus.isFetching}
+            onClick={() => void fileUploadStatus.refetch()}
+          >
+            {t("agentChat.common.retry")}
+          </Button>
+        </div>
+      )}
       {uploadError && (
         <p className="text-[10px] leading-snug text-destructive">
           {uploadError}

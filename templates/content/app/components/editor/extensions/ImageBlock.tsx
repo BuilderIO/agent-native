@@ -1,7 +1,6 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
   EmbeddedApp,
@@ -33,6 +32,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -937,7 +937,7 @@ export function ImageBlock({
                 {t("editor.media.uploadFile")}
               </Button>
             ) : (
-              <FileStorageSetupCard />
+              <FileStorageStatusGate status={fileUploadStatus} />
             )}
           </div>
         ) : sourceTab === "assets" ? (

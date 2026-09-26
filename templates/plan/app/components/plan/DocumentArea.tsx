@@ -6,8 +6,10 @@ import {
 } from "@agent-native/core/blocks";
 import { useT } from "@agent-native/core/client/i18n";
 import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
-import { uploadEditorImage } from "@agent-native/core/client/uploads";
-import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import {
+  uploadEditorImage,
+  useFileUploadStatus,
+} from "@agent-native/core/client/uploads";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import { imageDataSchema, type PlanBlock } from "@shared/plan-content";
 import {
@@ -1050,8 +1052,15 @@ function ImageBlock({
 }) {
   const t = useT();
   const fileUploadStatus = useFileUploadStatus();
-  const canUploadImages =
-    import.meta.env.DEV || fileUploadStatus.data?.configured === true;
+  const storageConfigured =
+    !fileUploadStatus.isError && fileUploadStatus.data?.configured === true;
+  const storageMissing =
+    !import.meta.env.DEV &&
+    !fileUploadStatus.isError &&
+    fileUploadStatus.data?.configured === false;
+  const storageUnavailable =
+    !import.meta.env.DEV && !storageConfigured && !storageMissing;
+  const canUploadImages = import.meta.env.DEV || storageConfigured;
   const blockRegistry = useOptionalBlockRegistry();
   const ctx = blockRegistry?.ctx;
   const src = block.data.url ?? imageSrcForAsset(block.data.assetId);
@@ -1166,9 +1175,27 @@ function ImageBlock({
           onChange={handleReplaceFile}
         />
       )}
-      {!canUploadImages && storageSetupRequested ? (
+      {storageMissing && storageSetupRequested ? (
         <div className="mb-4">
           <FileStorageSetupCard />
+        </div>
+      ) : null}
+      {storageUnavailable && editable ? (
+        <div
+          className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4"
+          role="status"
+        >
+          <p className="text-sm text-muted-foreground">
+            {t("plansPage.loadError.storageStatusUnavailable")}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void fileUploadStatus.refetch()}
+          >
+            {t("plansPage.loadError.retry")}
+          </Button>
         </div>
       ) : null}
       {src ? (
