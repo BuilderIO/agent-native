@@ -673,6 +673,58 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(result.at(-1)?.type).toBe("run.completed");
   });
 
+  it("does not attach a late widget to an already completed assistant message", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: { id: "assistant-1", role: "assistant", content: [] },
+      };
+      yield {
+        type: "message-done",
+        message: { id: "assistant-1", role: "assistant", content: [] },
+      };
+      yield {
+        type: "widget",
+        operation: "create",
+        widget: {
+          id: "tool-1:chat-ui",
+          kind: "mail.draft-created",
+          data: { toolCallId: "tool-1", toolName: "manage-draft" },
+        },
+      };
+      yield {
+        type: "message-start",
+        message: { id: "assistant-2", role: "assistant", content: [] },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Create a draft")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(
+      result.find((event) => event.type === "widget.created"),
+    ).not.toHaveProperty("messageId");
+    expect(
+      result.find((event) => event.type === "widget.updated"),
+    ).toMatchObject({
+      messageId: "assistant-2",
+      widget: { id: "tool-1:chat-ui", kind: "mail.draft-created" },
+    });
+    expect(
+      result.some(
+        (event) =>
+          event.type === "widget.updated" && event.messageId === "assistant-1",
+      ),
+    ).toBe(false);
+  });
+
   it("advertises host-owned feedback only when the operation is wired", () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield { type: "done", reason: "complete" };

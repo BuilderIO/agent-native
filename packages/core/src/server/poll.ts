@@ -2316,7 +2316,7 @@ export function createPollHandler(
       const cursor = decodeSyncCursor(query.cursor);
       const since =
         cursor?.version ?? (parseInt(String(query.since ?? "0"), 10) || 0);
-      return state.getCombinedChangesSinceForUser(
+      return await state.getCombinedChangesSinceForUser(
         since,
         session.email,
         session.orgId,

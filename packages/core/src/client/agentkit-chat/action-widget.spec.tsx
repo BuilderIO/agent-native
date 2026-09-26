@@ -85,6 +85,61 @@ describe("AgentKitActionWidget", () => {
     }
   });
 
+  it("preserves string results that contain JSON", async () => {
+    const toolCall: AgentToolCall = {
+      id: "tool-1",
+      name: "preview-inbox",
+      input: {},
+      output: '{"status":"ok"}',
+      status: "completed",
+    };
+    const widget: AgentWidget = {
+      id: "tool-1:chat-ui",
+      kind: "mail.inbox-preview",
+      data: { toolCallId: toolCall.id, toolName: toolCall.name },
+    };
+    const client = new AgentKitClient({
+      transport: {
+        async startRun() {
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+        async getThreadSnapshot() {
+          return {
+            id: "thread-1",
+            createdAt: "2026-09-26T00:00:00.000Z",
+            updatedAt: "2026-09-26T00:00:00.000Z",
+            messages: [],
+            toolCalls: [toolCall],
+          };
+        },
+      },
+    });
+    await client.loadThread("thread-1");
+    const unregister = registerActionChatRenderer({
+      id: "test.agentkit-action-widget-string-result",
+      renderer: widget.kind,
+      Component: ({ context }: ToolRendererProps) => (
+        <output>
+          {typeof context.resultJson}:{String(context.resultJson)}
+        </output>
+      ),
+    });
+
+    try {
+      const html = renderToStaticMarkup(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitActionWidget value={widget} threadId="thread-1" />
+        </AgentKitProvider>,
+      );
+
+      expect(html).toContain("string:{&quot;status&quot;:&quot;ok&quot;}");
+    } finally {
+      unregister();
+    }
+  });
+
   it("renders persisted Forms and Analytics data widgets with their core UI", async () => {
     await Promise.all([
       import("../chat/widgets/DataInsightsWidget.js"),

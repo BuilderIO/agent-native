@@ -432,7 +432,7 @@ function runtimeEventMessageId(
     const messageId = metadataString(value, "messageId");
     if (messageId) return messageId;
   }
-  return run.activeMessageId;
+  return run.activeMessageCompleted ? undefined : run.activeMessageId;
 }
 
 function runtimeAnnotationToProtocol(

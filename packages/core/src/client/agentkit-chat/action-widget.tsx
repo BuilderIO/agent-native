@@ -22,15 +22,6 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function parseResult(value: unknown): unknown {
-  if (typeof value !== "string") return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
-}
-
 export function AgentKitActionWidget({
   value: widget,
   threadId,
@@ -42,7 +33,7 @@ export function AgentKitActionWidget({
 
   if (!tool) return <AgentWidgetView value={widget} threadId={threadId} />;
 
-  const resultJson = parseResult(tool.output);
+  const resultJson = tool.output;
   const context: ToolRendererContext = {
     toolName: tool.name,
     args: asRecord(tool.input) ?? {},
