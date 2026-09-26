@@ -168,6 +168,96 @@ describe("createServer", () => {
     expect(JSON.stringify(body)).not.toContain("a".repeat(64));
   });
 
+  describe("missing-settings line of the configuration probe", () => {
+    // Cleared explicitly so ambient deploy markers and secrets in the shell or
+    // a leaked stub cannot decide the answer.
+    function stubUnconfiguredDeploy() {
+      for (const key of [
+        "APP_NAME",
+        "DATABASE_URL",
+        "DATABASE_URL_UNPOOLED",
+        "NETLIFY_DATABASE_URL",
+        "NETLIFY_DATABASE_URL_UNPOOLED",
+        "NETLIFY_FUNCTION_NAME",
+        "NETLIFY_LOCAL",
+        "AWS_LAMBDA_FUNCTION_NAME",
+        "LAMBDA_TASK_ROOT",
+        "AWS_EXECUTION_ENV",
+        "VERCEL_FUNCTION_ID",
+        "VERCEL_REGION",
+        "VERCEL_ENV",
+        "CONTEXT",
+        "NETLIFY_CONTEXT",
+        "BRANCH",
+        "SENTRY_ENVIRONMENT",
+        "AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT",
+        "AGENT_NATIVE_BUILD_PRODUCTION_SERVER",
+        "BETTER_AUTH_SECRET",
+        "A2A_SECRET",
+      ]) {
+        vi.stubEnv(key, "");
+      }
+    }
+
+    function codesOf(configuration: { issues: Array<{ code: string }> }) {
+      return configuration.issues.map((issue) => issue.code);
+    }
+
+    it("reports the database and auth secret a Netlify function refuses, without NODE_ENV", async () => {
+      stubUnconfiguredDeploy();
+      vi.stubEnv("NODE_ENV", "");
+      vi.stubEnv("NETLIFY_FUNCTION_NAME", "server");
+      const { app } = createServer();
+
+      const res = await app.request(
+        "http://localhost/_agent-native/ping?configuration=1",
+      );
+
+      expect(res.status).toBe(200);
+      const { configuration } = await res.json();
+      expect(configuration.status).toBe("error");
+      expect(codesOf(configuration)).toEqual(
+        expect.arrayContaining(["missing-database-url", "missing-auth-secret"]),
+      );
+      expect(JSON.stringify(configuration)).not.toContain("pglite:");
+    });
+
+    it("reports only the auth secret once the database is hosted Postgres", async () => {
+      stubUnconfiguredDeploy();
+      vi.stubEnv("NODE_ENV", "");
+      vi.stubEnv("NETLIFY_FUNCTION_NAME", "server");
+      vi.stubEnv("DATABASE_URL", "postgres://user:pass@db.example.test/app");
+      const { app } = createServer();
+
+      const res = await app.request(
+        "http://localhost/_agent-native/ping?configuration=1",
+      );
+
+      const { configuration } = await res.json();
+      expect(codesOf(configuration)).toEqual(["missing-auth-secret"]);
+    });
+
+    it("reports no missing setting for local PGlite under pnpm dev", async () => {
+      stubUnconfiguredDeploy();
+      vi.stubEnv("NODE_ENV", "development");
+      const { app } = createServer();
+
+      const res = await app.request(
+        "http://localhost/_agent-native/ping?configuration=1",
+      );
+
+      const { configuration } = await res.json();
+      for (const code of [
+        "missing-database-url",
+        "local-database-in-production",
+        "missing-auth-secret",
+        "missing-a2a-secret",
+      ]) {
+        expect(codesOf(configuration)).not.toContain(code);
+      }
+    });
+  });
+
   it("honors app opt-outs in the public configuration probe", async () => {
     vi.stubEnv("NODE_ENV", "production");
     const { app } = createServer();

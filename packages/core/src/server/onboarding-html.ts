@@ -232,6 +232,10 @@ const EN_AUTH_COPY = {
   passwordsMismatch: "Passwords do not match.",
   creatingAccount: "Creating account…",
   registrationFailed: "We couldn't create your account. Please try again.",
+  deploySettingsMissingNotice:
+    "This deployment isn't set up yet. Set {keys} in your host's environment settings, then redeploy.",
+  deploySettingsMissingError:
+    "Accounts are unavailable until this deployment is set up.",
   accountCreatedSigningIn: "Account created — signing you in…",
   emailVerifiedFinishing: "Email verified. Finishing sign-in...",
   emailVerifiedSignIn: "Email verified. Sign in to continue.",
@@ -311,6 +315,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "两次输入的密码不一致",
     creatingAccount: "正在创建账户…",
     registrationFailed: "注册失败",
+    deploySettingsMissingNotice:
+      "此部署尚未完成设置。请在托管平台的环境变量设置中设置 {keys}，然后重新部署。",
+    deploySettingsMissingError: "此部署完成设置之前，账户不可用。",
     accountCreatedSigningIn: "账户已创建 — 正在登录…",
     emailVerifiedFinishing: "邮箱已验证。正在完成登录...",
     emailVerifiedSignIn: "邮箱已验证。请登录以继续。",
@@ -386,6 +393,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "兩次輸入的密碼不一致",
     creatingAccount: "正在建立帳號...",
     registrationFailed: "註冊失敗",
+    deploySettingsMissingNotice:
+      "此部署尚未完成設定。請在託管平台的環境變數設定中設定 {keys}，然後重新部署。",
+    deploySettingsMissingError: "此部署完成設定之前，帳戶無法使用。",
     accountCreatedSigningIn: "帳號已建立，正在登入...",
     emailVerifiedFinishing: "電子郵件已驗證。正在完成登入...",
     emailVerifiedSignIn: "電子郵件已驗證。請登入以繼續。",
@@ -469,6 +479,10 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "Las contraseñas no coinciden",
     creatingAccount: "Creando cuenta…",
     registrationFailed: "Error al registrarse",
+    deploySettingsMissingNotice:
+      "Este despliegue aún no está configurado. Define {keys} en la configuración de entorno de tu proveedor y vuelve a desplegar.",
+    deploySettingsMissingError:
+      "Las cuentas no estarán disponibles hasta que este despliegue esté configurado.",
     accountCreatedSigningIn: "Cuenta creada — iniciando sesión…",
     emailVerifiedFinishing: "Email verificado. Terminando inicio de sesión...",
     emailVerifiedSignIn: "Email verificado. Inicia sesión para continuar.",
@@ -555,6 +569,10 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "Les mots de passe ne correspondent pas",
     creatingAccount: "Création du compte…",
     registrationFailed: "Échec de l'inscription",
+    deploySettingsMissingNotice:
+      "Ce déploiement n'est pas encore configuré. Définissez {keys} dans les variables d'environnement de votre hébergeur, puis redéployez.",
+    deploySettingsMissingError:
+      "Les comptes sont indisponibles tant que ce déploiement n'est pas configuré.",
     accountCreatedSigningIn: "Compte créé — connexion en cours…",
     emailVerifiedFinishing: "E-mail vérifié. Connexion en cours...",
     emailVerifiedSignIn: "E-mail vérifié. Connectez-vous pour continuer.",
@@ -642,6 +660,10 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "Die Passwörter stimmen nicht überein",
     creatingAccount: "Konto wird erstellt…",
     registrationFailed: "Registrierung fehlgeschlagen",
+    deploySettingsMissingNotice:
+      "Dieses Deployment ist noch nicht eingerichtet. Setze {keys} in den Umgebungseinstellungen deines Hosts und stelle es dann neu bereit.",
+    deploySettingsMissingError:
+      "Konten sind nicht verfügbar, solange dieses Deployment nicht eingerichtet ist.",
     accountCreatedSigningIn: "Konto erstellt — Anmeldung läuft…",
     emailVerifiedFinishing: "E-Mail bestätigt. Anmeldung wird abgeschlossen...",
     emailVerifiedSignIn: "E-Mail bestätigt. Melde dich an, um fortzufahren.",
@@ -725,6 +747,10 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "パスワードが一致しません",
     creatingAccount: "アカウントを作成中…",
     registrationFailed: "登録に失敗しました",
+    deploySettingsMissingNotice:
+      "このデプロイはまだ設定が完了していません。ホスティング先の環境変数設定で {keys} を設定してから、再デプロイしてください。",
+    deploySettingsMissingError:
+      "このデプロイの設定が完了するまで、アカウントは利用できません。",
     accountCreatedSigningIn: "アカウントを作成しました — サインイン中…",
     emailVerifiedFinishing: "メールを確認しました。サインインを完了中...",
     emailVerifiedSignIn:
@@ -807,6 +833,10 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "비밀번호가 일치하지 않습니다",
     creatingAccount: "계정 생성 중…",
     registrationFailed: "가입 실패",
+    deploySettingsMissingNotice:
+      "이 배포는 아직 설정이 완료되지 않았습니다. 호스팅 환경 변수 설정에서 {keys}을(를) 설정한 다음 다시 배포하세요.",
+    deploySettingsMissingError:
+      "이 배포의 설정이 완료될 때까지 계정을 사용할 수 없습니다.",
     accountCreatedSigningIn: "계정 생성됨 — 로그인 중…",
     emailVerifiedFinishing: "이메일 확인됨. 로그인 완료 중...",
     emailVerifiedSignIn: "이메일 확인됨. 계속하려면 로그인하세요.",
@@ -890,6 +920,10 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "As senhas não conferem",
     creatingAccount: "Criando conta…",
     registrationFailed: "Falha no cadastro",
+    deploySettingsMissingNotice:
+      "Esta implantação ainda não está configurada. Defina {keys} nas configurações de ambiente do seu provedor e faça um novo deploy.",
+    deploySettingsMissingError:
+      "As contas ficam indisponíveis até que esta implantação esteja configurada.",
     accountCreatedSigningIn: "Conta criada — entrando…",
     emailVerifiedFinishing: "Email verificado. Concluindo login...",
     emailVerifiedSignIn: "Email verificado. Entre para continuar.",
@@ -971,6 +1005,10 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "पासवर्ड मेल नहीं खाते",
     creatingAccount: "खाता बनाया जा रहा है…",
     registrationFailed: "रजिस्ट्रेशन असफल",
+    deploySettingsMissingNotice:
+      "यह डिप्लॉयमेंट अभी सेट अप नहीं हुआ है। अपने होस्ट की एनवायरनमेंट सेटिंग्स में {keys} सेट करें, फिर दोबारा डिप्लॉय करें।",
+    deploySettingsMissingError:
+      "जब तक यह डिप्लॉयमेंट सेट अप नहीं होता, अकाउंट उपलब्ध नहीं हैं।",
     accountCreatedSigningIn: "खाता बन गया — साइन इन हो रहा है…",
     emailVerifiedFinishing: "ईमेल सत्यापित। साइन इन पूरा हो रहा है...",
     emailVerifiedSignIn: "ईमेल सत्यापित। जारी रखने के लिए साइन इन करें।",
@@ -1052,6 +1090,10 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordsMismatch: "كلمتا المرور غير متطابقتين",
     creatingAccount: "جارٍ إنشاء الحساب…",
     registrationFailed: "فشل التسجيل",
+    deploySettingsMissingNotice:
+      "لم يكتمل إعداد عملية النشر هذه بعد. اضبط {keys} في إعدادات البيئة لدى المضيف، ثم أعد النشر.",
+    deploySettingsMissingError:
+      "الحسابات غير متاحة إلى أن يكتمل إعداد عملية النشر هذه.",
     accountCreatedSigningIn: "تم إنشاء الحساب — جارٍ تسجيل الدخول…",
     emailVerifiedFinishing: "تم التحقق من البريد. جارٍ إكمال تسجيل الدخول...",
     emailVerifiedSignIn: "تم التحقق من البريد. سجّل الدخول للمتابعة.",
@@ -1674,6 +1716,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       border-color: color-mix(in srgb, CanvasText 14%, transparent);
     }
     .auth-marketing-home .card .signup-local-mode-note code { color: CanvasText; }
+    .auth-marketing-home .card .msg.deploy-settings-notice {
+      /* guard:allow-raw-color — this standalone document has no theme tokens, and the dark palette's error red is too light on Canvas */
+      color: #b91c1c;
+    }
     .auth-marketing-home .card .progress-step { color: GrayText; }
     .auth-marketing-home .card .progress-step::before {
       background: color-mix(in srgb, CanvasText 12%, transparent);
@@ -2219,6 +2265,16 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .msg.error { color: #f87171; }
   .msg.success { color: #33C4FF; }
   .msg.show { display: block; }
+  .msg.deploy-settings-notice {
+    margin: 0 0 1.25rem;
+    padding: 0.625rem 0.75rem;
+    border: 1px solid color-mix(in srgb, currentColor 32%, transparent);
+    border-radius: 8px;
+    background: color-mix(in srgb, currentColor 8%, transparent);
+    line-height: 1.45;
+    text-align: start;
+    overflow-wrap: anywhere;
+  }
   .step-progress {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

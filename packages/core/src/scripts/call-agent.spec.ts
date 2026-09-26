@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RemoteAgentCredentialRejectedError } from "../a2a/remote-agent-auth.js";
 import type { ActionRunContext } from "../action.js";
@@ -153,7 +153,21 @@ vi.mock("../agent/run-store.js", () => ({
   },
 }));
 
+// Cleared after each test too, not only before: a marker the last test sets
+// would otherwise outlive this file, and the next spec in the same worker
+// would run as a Lambda invocation that refuses local PGlite.
+function clearHostedRuntimeEnv() {
+  delete process.env.NETLIFY;
+  delete process.env.NETLIFY_LOCAL;
+  delete process.env.SITE_ID; // guard:allow-env-credential -- tests isolate Netlify's public runtime host marker.
+  delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+  delete process.env.VERCEL;
+  delete process.env.AGENT_NATIVE_INTEGRATION_A2A_TIMEOUT_MS;
+}
+
 describe("call-agent action", () => {
+  afterEach(clearHostedRuntimeEnv);
+
   beforeEach(() => {
     vi.clearAllMocks();
     findAgentMock.mockResolvedValue({
@@ -162,12 +176,7 @@ describe("call-agent action", () => {
     });
     resolveRemoteAgentTokenMock.mockResolvedValue(undefined);
     managedHandlerMock.mockReset();
-    delete process.env.NETLIFY;
-    delete process.env.NETLIFY_LOCAL;
-    delete process.env.SITE_ID; // guard:allow-env-credential -- tests isolate Netlify's public runtime host marker.
-    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
-    delete process.env.VERCEL;
-    delete process.env.AGENT_NATIVE_INTEGRATION_A2A_TIMEOUT_MS;
+    clearHostedRuntimeEnv();
     integrationRequestContextMock.mockReturnValue(slackIntegrationContext);
     insertA2AContinuationMock.mockResolvedValue({ id: "cont-1" });
     getA2AContinuationsMock.mockResolvedValue([]);

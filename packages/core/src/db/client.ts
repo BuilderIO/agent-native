@@ -9,13 +9,17 @@ import path from "path";
  */
 import { getAppConfig } from "../app-config/index.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
+import { DEPLOY_SETTINGS_REQUIRED_CODE } from "../shared/runtime-config.js";
 import { isEmbeddedRuntimeAuthorized } from "./embedded-runtime.js";
 import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
 import {
   beginDatabaseOperation,
   recordDatabaseRetry,
 } from "./request-telemetry.js";
-import { isServerRuntimeStarted } from "./server-runtime.js";
+import {
+  isProductionServerBuild,
+  isServerRuntimeStarted,
+} from "./server-runtime.js";
 
 const recyclingPostgresPools = new WeakSet<object>();
 const loggedNeonPools = new WeakSet<object>();
@@ -1180,6 +1184,22 @@ export function isProductionServerlessFunctionRuntime(
 }
 
 /**
+ * Runtimes that set some of the same markers as a deploy but run locally:
+ * `netlify dev` / `netlify serve` set `NETLIFY_LOCAL=true`, `vercel dev`
+ * reports region `dev1`, and test runners set `NODE_ENV=test`, which
+ * `resolveDeployEnvironment()` also treats as local. They win over every
+ * deployed-runtime signal: a platform marker one spec leaks into a shared test
+ * worker must not turn every later spec's PGlite into a refusal.
+ */
+function isLocalRuntime(env: NodeJS.ProcessEnv): boolean {
+  return (
+    env.NETLIFY_LOCAL === "true" ||
+    env.VERCEL_REGION === "dev1" ||
+    env.NODE_ENV === "test"
+  );
+}
+
+/**
  * Narrower than isProductionServerlessFunctionRuntime(): true only inside an
  * actual hosted function INVOCATION, never during `netlify build` /
  * scripts/migrate-production.ts. Netlify's build container also sets
@@ -1189,26 +1209,26 @@ export function isProductionServerlessFunctionRuntime(
  * container never has. `AWS_LAMBDA_FUNCTION_NAME` / `LAMBDA_TASK_ROOT` are set
  * by the AWS Lambda execution environment itself only once a function actually
  * invokes; `NETLIFY_FUNCTION_NAME` and the Vercel function markers are the
- * same kind of invocation-only signal on their platforms.
+ * same kind of invocation-only signal on their platforms. `VERCEL=1` alone
+ * does not count: Vercel sets it during builds too.
  *
- * Cloudflare is checked first and outside the `NODE_ENV` gate below:
+ * There is deliberately no `NODE_ENV=production` gate. Netlify does not set
+ * `NODE_ENV` for functions, so a gate let a fresh site with no `DATABASE_URL`
+ * fall through to PGlite and fail sign-up with a PGlite install error instead
+ * of this refusal. The markers above already exist only inside a running
+ * function; the local runtimes that also set them are excluded first (see
+ * isLocalRuntime()).
+ *
  * `hasCloudflareRuntime()` (`__cf_env` / `__env__` on `globalThis`) is only
  * ever set by the generated Worker `fetch` handler on an actual request (see
  * `generateCloudflareModuleWorkerEntry()` in deploy/build.ts) — it is never
- * present in the Node process that runs the build, including the Cloudflare
- * Pages static-shell prerender, which spawns a plain Node subprocess with no
- * Workers globals. Unlike Netlify/Lambda/Vercel, Cloudflare's own runtime does
- * not reliably set `NODE_ENV=production`, so gating it on that check the same
- * way the other three are would make this branch silently never fire.
+ * present in the Node process that runs the build.
  */
 export function isHostedFunctionInvocationRuntime(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
+  if (isLocalRuntime(env)) return false;
   if (hasCloudflareRuntime()) return true;
-
-  if (env.NODE_ENV !== "production" || env.NETLIFY_LOCAL === "true") {
-    return false;
-  }
 
   return Boolean(
     env.NETLIFY_FUNCTION_NAME ||
@@ -1221,65 +1241,72 @@ export function isHostedFunctionInvocationRuntime(
 }
 
 /**
- * Thrown instead of silently serving requests off local PGlite on a hosted
- * function invocation. A serverless instance's local filesystem is ephemeral
- * and per-instance, so local data is not shared across instances.
+ * Thrown instead of silently serving requests off local PGlite on a deployed
+ * server. A serverless instance's filesystem is ephemeral and per-instance,
+ * and a container's is replaced on redeploy, so accounts written there vanish.
  */
 export class HostedRuntimeLocalDatabaseError extends Error {
+  readonly code = DEPLOY_SETTINGS_REQUIRED_CODE;
+
   constructor(source: string) {
     super(
-      `Hosted function invocation resolved to local PGlite (source: ${source}). ` +
-        "DATABASE_URL, DATABASE_URL_UNPOOLED, NETLIFY_DATABASE_URL, NETLIFY_DATABASE_URL_UNPOOLED " +
-        "(and their <APP_NAME>_ prefixed variants) were all empty or masked — refusing to serve " +
-        "requests off an ephemeral per-instance file instead of the shared database.",
+      `This deployed server has no hosted database: it resolved to local PGlite (source: ${source}). ` +
+        "Set DATABASE_URL to a hosted Postgres URL in the host's environment, then redeploy. " +
+        "DATABASE_URL_UNPOOLED, NETLIFY_DATABASE_URL, NETLIFY_DATABASE_URL_UNPOOLED, and their " +
+        "<APP_NAME>_ prefixed variants also work. For local development, use `pnpm dev`, which runs on PGlite.",
     );
     this.name = "HostedRuntimeLocalDatabaseError";
   }
 }
 
 /**
- * Shared refusal for every database opener. `getDbExec()` (via `initClient`)
- * and `createGetDb()`'s Drizzle opener resolve the same runtime URL and must
- * refuse the same way — a request that reaches Drizzle first used to skip
- * this check entirely and open PGlite silently.
+ * The one decision behind the refusal: the database source this process must
+ * refuse (the env key that resolved to local PGlite, or `"default"` when none
+ * is set), or null when local PGlite is allowed. `assertHostedRuntimeDatabase()`
+ * throws on it and the `/_agent-native/ping?configuration=1` probe reports it
+ * for the sign-in banner, so the banner and the refusal cannot disagree. Do
+ * not give either caller its own copy of these rules.
  *
- * `isMigrationAuthorizedRuntime()` is checked first: release scripts and
- * durable background workers can be a real hosted function invocation (a
- * Netlify background function still gets `NETLIFY_FUNCTION_NAME`) and are
- * still allowed to touch PGlite under `withMigrationRuntime()` — that path is
- * guarded separately by `assertReleaseMigrationTargetsRemoteDatabase()`.
+ * The order is load-bearing:
  *
- * A real hosted function invocation (`isHostedFunctionInvocationRuntime()`)
- * always refuses next, before `isEmbeddedRuntimeAuthorized()` is even
- * consulted: Netlify/Vercel/Lambda/Cloudflare are never a legitimate context
- * for "this is an intentionally embedded desktop app," regardless of
- * whether the local database was deliberately configured — an embedded host
- * that ends up actually running as one of those ephemeral, multi-instance
- * platforms hits the exact per-instance-PGlite failure the guard exists to
- * prevent either way. `isEmbeddedRuntimeAuthorized()` only exempts the
- * bare Node/Docker branch below: `createAgentNativeEmbeddedPlugin()` hosts
- * (packaged/desktop installs) deliberately pass a `pglite:` `databaseUrl`,
- * and — unlike the `NODE_ENV=test` integration-suite case
- * `isServerRuntimeStarted()`'s own gate assumed — a real packaged install
- * runs with `NODE_ENV=production`, so that gate alone does not exempt it.
- * `configureAgentNativeEmbeddedEnvironment()` claims this duty whenever the
- * embedding host supplies an explicit `databaseUrl`.
- *
- * `isServerRuntimeStarted()` is additionally gated on `NODE_ENV === "production"`
- * here, unlike `isHostedFunctionInvocationRuntime()`'s Cloudflare branch:
- * `getH3App()`'s bootstrap — where the flag is set — also runs for `pnpm dev`
- * and any `NODE_ENV=test` suite that boots a real H3 app.
+ * - `isMigrationAuthorizedRuntime()` comes first: release scripts and durable
+ *   background workers can be a real hosted invocation (a Netlify background
+ *   function still gets `NETLIFY_FUNCTION_NAME`) and may touch PGlite under
+ *   `withMigrationRuntime()`, which `assertReleaseMigrationTargetsRemoteDatabase()`
+ *   guards separately.
+ * - A hosted function invocation refuses before `isEmbeddedRuntimeAuthorized()`
+ *   is consulted: Netlify/Vercel/Lambda/Cloudflare are never a legitimate
+ *   home for an intentionally embedded desktop app, so an embedded host that
+ *   ends up running as one hits the same per-instance failure either way.
+ * - The embedded exemption covers only the bare Node/Docker rule below:
+ *   `createAgentNativeEmbeddedPlugin()` hosts (packaged/desktop installs)
+ *   deliberately pass a `pglite:` `databaseUrl`, and
+ *   `configureAgentNativeEmbeddedEnvironment()` claims the duty when they do.
+ * - Bare Node/Docker has no platform marker, so it refuses when a production
+ *   server bundle is actually serving. Never gate this on `NODE_ENV`: build
+ *   steps set `NODE_ENV=production` and `node .output/server/index.mjs` runs
+ *   without it (see db/server-runtime.ts).
+ */
+export function getRefusedLocalDatabaseSource(): string | null {
+  if (isMigrationAuthorizedRuntime()) return null;
+  if (!isLocalDatabase()) return null;
+  if (isHostedFunctionInvocationRuntime()) return getRuntimeDatabaseSource();
+  if (isEmbeddedRuntimeAuthorized()) return null;
+  if (isLocalRuntime(process.env)) return null;
+  return isProductionServerBuild() && isServerRuntimeStarted()
+    ? getRuntimeDatabaseSource()
+    : null;
+}
+
+/**
+ * Shared refusal for every database opener. `getDbExec()` (via `initClient`),
+ * `createGetDb()`'s Drizzle opener, and Better Auth's adapter setup resolve
+ * the same runtime URL and must refuse the same way — a request that reached
+ * one unguarded opener first used to open PGlite silently.
  */
 export function assertHostedRuntimeDatabase(): void {
-  if (isMigrationAuthorizedRuntime()) return;
-  if (!isLocalDatabase()) return;
-  if (isHostedFunctionInvocationRuntime()) {
-    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
-  }
-  if (isEmbeddedRuntimeAuthorized()) return;
-  if (process.env.NODE_ENV === "production" && isServerRuntimeStarted()) {
-    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
-  }
+  const source = getRefusedLocalDatabaseSource();
+  if (source !== null) throw new HostedRuntimeLocalDatabaseError(source);
 }
 
 const SCHEMA_MUTATION_STATEMENT =

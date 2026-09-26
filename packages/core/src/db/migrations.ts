@@ -3,6 +3,8 @@ import {
   createDbExec,
   getDbExec,
   getMigrationDatabaseUrl,
+  getRefusedLocalDatabaseSource,
+  HostedRuntimeLocalDatabaseError,
   isPgliteUrl,
   retryOnDdlRace,
   type DbExec,
@@ -250,6 +252,18 @@ export function runMigrations(
     ) {
       console.info(
         `[migrations] Skipping "${table}" migrations in a serverless request runtime`,
+      );
+      return;
+    }
+
+    // A deployed server with no hosted database refuses every request's
+    // database access, and its sign-in page explains the fix. Migrating would
+    // hit the same refusal and exit a long-lived Node server below, taking
+    // that page down with it.
+    const refusedSource = getRefusedLocalDatabaseSource();
+    if (refusedSource !== null) {
+      console.error(
+        `[migrations] Skipping "${table}" migrations. ${new HostedRuntimeLocalDatabaseError(refusedSource).message}`,
       );
       return;
     }

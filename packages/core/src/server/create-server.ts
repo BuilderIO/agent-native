@@ -200,12 +200,16 @@ export function createServer(
   if (!options.disablePing) {
     router.get(
       "/_agent-native/ping",
-      defineEventHandler((event) => {
+      defineEventHandler(async (event) => {
         const message = options.pingMessage ?? getAppConfig().app.pingMessage;
         const configuration =
           event.url?.searchParams.get("configuration") === "1" ||
           event.url?.searchParams.get("configuration") === "true";
         if (!configuration) return { message };
+        // Imported lazily, like credential-provider in the env-status route
+        // below, so createServer does not load it at module load.
+        const { getMissingDeploySettings } =
+          await import("./deploy-settings.js");
 
         // Custom required keys must come from server-side app configuration;
         // never let an anonymous caller turn this into an env-name oracle.
@@ -222,6 +226,7 @@ export function createServer(
           configuration: getRuntimeConfigReport(process.env, requirements, {
             phase: "runtime",
             appName: getAppConfig().app.name,
+            missingDeploySettings: getMissingDeploySettings(),
           }),
         };
       }),

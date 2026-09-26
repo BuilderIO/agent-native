@@ -630,6 +630,29 @@ describe("initClient hosted-runtime local database guard", () => {
     );
   });
 
+  function clearDatabaseUrls() {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+  }
+
+  // Cleared explicitly, never assumed absent: an earlier describe block here
+  // restores env with `process.env = snapshot`, which can leave a marker from
+  // a prior `vi.stubEnv` live. NODE_ENV is cleared too, the way a deploy that
+  // never set it runs: vitest's NODE_ENV=test counts as a local runtime.
+  function clearPlatformMarkers() {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("NETLIFY_LOCAL", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("AWS_EXECUTION_ENV", "");
+    vi.stubEnv("VERCEL_FUNCTION_ID", "");
+    vi.stubEnv("VERCEL_REGION", "");
+  }
+
   it("throws instead of silently serving a hosted function invocation without a database URL", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "app-server");
@@ -647,7 +670,8 @@ describe("initClient hosted-runtime local database guard", () => {
     );
   });
 
-  it("throws on a Cloudflare Worker/Pages invocation without a database URL, even without NODE_ENV=production", async () => {
+  it("throws on a Cloudflare Worker invocation without a database URL, even without NODE_ENV=production", async () => {
+    vi.stubEnv("NODE_ENV", "");
     vi.stubEnv("APP_NAME", "");
     vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv("DATABASE_URL_UNPOOLED", "");
@@ -687,21 +711,15 @@ describe("initClient hosted-runtime local database guard", () => {
   });
 
   // Bare Node/Docker has no platform env var for "this is a real invocation"
-  // the way Netlify/Lambda/Vercel/Cloudflare do, so this relies on the
-  // server-runtime marker set by `getH3App()`'s bootstrap instead (see
+  // the way Netlify/Lambda/Vercel/Cloudflare do, so it needs both the
+  // production build marker that `agent-native build` inlines and the
+  // server-runtime flag set by `getH3App()`'s bootstrap (see
   // db/server-runtime.js and server/framework-request-handler.spec.ts).
-  it("throws on a production Node/Docker server (server-runtime marker, no invocation env var) with no database URL", async () => {
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("APP_NAME", "");
-    vi.stubEnv("DATABASE_URL", "");
-    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
-    vi.stubEnv("NETLIFY_DATABASE_URL", "");
-    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
-    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
-    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
-    vi.stubEnv("LAMBDA_TASK_ROOT", "");
-    vi.stubEnv("VERCEL_FUNCTION_ID", "");
-    vi.stubEnv("VERCEL_REGION", "");
+  it("throws on a production Node/Docker server bundle that is serving with no database URL, without NODE_ENV", async () => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("AGENT_NATIVE_BUILD_PRODUCTION_SERVER", "true");
 
     const { getDbExec, HostedRuntimeLocalDatabaseError } =
       await import("./client.js");
@@ -713,21 +731,28 @@ describe("initClient hosted-runtime local database guard", () => {
     );
   });
 
-  it("does not throw for the server-runtime marker outside NODE_ENV=production (pnpm dev, test suites, embedded hosts)", async () => {
-    // getH3App() also bootstraps for `pnpm dev`, NODE_ENV=test integration
-    // suites, and createAgentNativeEmbeddedPlugin() hosts that deliberately
-    // pass a pglite: databaseUrl for a real embedded install — none of those
-    // are the "deployed server with a missing DATABASE_URL" bug this guards.
-    vi.stubEnv("NODE_ENV", "test");
-    vi.stubEnv("APP_NAME", "");
-    vi.stubEnv("DATABASE_URL", "");
-    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
-    vi.stubEnv("NETLIFY_DATABASE_URL", "");
-    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+  it("does not treat NODE_ENV=production plus a running server as deployed without the build marker (pnpm dev, test suites)", async () => {
+    // getH3App() also bootstraps for `pnpm dev` and integration suites that
+    // boot a real H3 app. Neither runs the production server bundle, so
+    // neither carries the marker, whatever NODE_ENV says.
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AGENT_NATIVE_BUILD_PRODUCTION_SERVER", "");
 
     const { assertHostedRuntimeDatabase } = await import("./client.js");
     const { markServerRuntimeStarted } = await import("./server-runtime.js");
     markServerRuntimeStarted();
+
+    expect(() => assertHostedRuntimeDatabase()).not.toThrow();
+  });
+
+  it("does not treat the production build marker as deployed before the server is serving", async () => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("AGENT_NATIVE_BUILD_PRODUCTION_SERVER", "true");
+
+    const { assertHostedRuntimeDatabase } = await import("./client.js");
 
     expect(() => assertHostedRuntimeDatabase()).not.toThrow();
   });
@@ -775,6 +800,130 @@ describe("initClient hosted-runtime local database guard", () => {
     expect(() => assertHostedRuntimeDatabase()).toThrow(
       HostedRuntimeLocalDatabaseError,
     );
+  });
+
+  // ENG-13951: Netlify does not set NODE_ENV for functions, so a fresh site
+  // with no env vars used to skip the refusal and fail sign-up with a PGlite
+  // install error. Every host marker must count on its own.
+  it.each([
+    ["Netlify", { NETLIFY_FUNCTION_NAME: "server" }],
+    ["Vercel", { VERCEL_REGION: "iad1" }],
+    ["Vercel function id", { VERCEL_FUNCTION_ID: "fn_123" }],
+    ["Lambda", { AWS_LAMBDA_FUNCTION_NAME: "app-server" }],
+    ["Lambda task root", { LAMBDA_TASK_ROOT: "/var/task" }],
+    ["Lambda execution env", { AWS_EXECUTION_ENV: "AWS_Lambda_nodejs22.x" }],
+  ])(
+    "refuses a %s invocation with no database URL and NODE_ENV unset",
+    async (_host, markers) => {
+      clearDatabaseUrls();
+      clearPlatformMarkers();
+      vi.stubEnv("NODE_ENV", "");
+      for (const [key, value] of Object.entries(markers)) {
+        vi.stubEnv(key, value);
+      }
+
+      const { getRefusedLocalDatabaseSource } = await import("./client.js");
+
+      expect(getRefusedLocalDatabaseSource()).toBe("default");
+    },
+  );
+
+  it.each([
+    ["netlify dev", { NETLIFY_FUNCTION_NAME: "server", NETLIFY_LOCAL: "true" }],
+    ["vercel dev", { VERCEL_REGION: "dev1" }],
+    ["VERCEL=1 alone (Vercel build)", { VERCEL: "1" }],
+    ["NETLIFY=true alone (netlify build)", { NETLIFY: "true" }],
+  ])("allows local PGlite under %s", async (_context, markers) => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("NODE_ENV", "production");
+    for (const [key, value] of Object.entries(markers)) {
+      vi.stubEnv(key, value);
+    }
+
+    const { getRefusedLocalDatabaseSource } = await import("./client.js");
+
+    expect(getRefusedLocalDatabaseSource()).toBeNull();
+  });
+
+  it("treats a test runner as local even when a host marker leaked into the worker", async () => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "leaked-from-another-spec");
+
+    const { getRefusedLocalDatabaseSource } = await import("./client.js");
+
+    expect(getRefusedLocalDatabaseSource()).toBeNull();
+  });
+
+  it("lets a local platform emulator running the production bundle keep local PGlite (netlify serve)", async () => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("NETLIFY_LOCAL", "true");
+    vi.stubEnv("AGENT_NATIVE_BUILD_PRODUCTION_SERVER", "true");
+
+    const { getRefusedLocalDatabaseSource } = await import("./client.js");
+    const { markServerRuntimeStarted } = await import("./server-runtime.js");
+    markServerRuntimeStarted();
+
+    expect(getRefusedLocalDatabaseSource()).toBeNull();
+  });
+
+  it("lets an embedded host keep its deliberate PGlite in a production server bundle", async () => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("AGENT_NATIVE_BUILD_PRODUCTION_SERVER", "true");
+
+    const { getRefusedLocalDatabaseSource } = await import("./client.js");
+    const { markServerRuntimeStarted } = await import("./server-runtime.js");
+    const { markEmbeddedRuntimeAuthorized } =
+      await import("./embedded-runtime.js");
+    markServerRuntimeStarted();
+    markEmbeddedRuntimeAuthorized();
+    vi.stubEnv("DATABASE_URL", "pglite:./data/embedded");
+
+    expect(getRefusedLocalDatabaseSource()).toBeNull();
+  });
+
+  it("accepts an unpooled-only Postgres URL on a hosted invocation, the way the runtime resolves it", async () => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "server");
+    vi.stubEnv(
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+      "postgres://user:pass@db.example.test:5432/app",
+    );
+
+    const { getRefusedLocalDatabaseSource } = await import("./client.js");
+
+    expect(getRefusedLocalDatabaseSource()).toBeNull();
+  });
+
+  it("names the variable that resolved to PGlite and carries the stable code", async () => {
+    clearDatabaseUrls();
+    clearPlatformMarkers();
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "server");
+    vi.stubEnv("DATABASE_URL", "pglite:./data/pglite");
+
+    const {
+      assertHostedRuntimeDatabase,
+      getRefusedLocalDatabaseSource,
+      HostedRuntimeLocalDatabaseError,
+    } = await import("./client.js");
+    const { DEPLOY_SETTINGS_REQUIRED_CODE } =
+      await import("../shared/runtime-config.js");
+
+    expect(getRefusedLocalDatabaseSource()).toBe("DATABASE_URL");
+    let thrown: unknown;
+    try {
+      assertHostedRuntimeDatabase();
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(HostedRuntimeLocalDatabaseError);
+    expect(thrown).toMatchObject({ code: DEPLOY_SETTINGS_REQUIRED_CODE });
+    expect(String((thrown as Error).message)).toContain("DATABASE_URL");
   });
 });
 
