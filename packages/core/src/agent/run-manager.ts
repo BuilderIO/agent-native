@@ -2127,6 +2127,15 @@ function subscribeFromSQL(
                 run?.status === "completed" ||
                 run?.status === "truncated"
               ) {
+                // A chunk boundary is status "truncated" (with a continuation
+                // terminal_reason, and a chained successor run already carrying
+                // the turn). Synthesizing `done` here told the client the agent
+                // stopped while it was still working, which surfaced as a
+                // premature "stopped without sending a final message". Prefer
+                // the run's REAL terminal event, then the terminal_reason,
+                // before falling back to `done`. "completed" is still checked
+                // for chunk-boundary rows written before the truncated status
+                // existed, which linger for one retention window.
                 const existing = await getLastTerminalRunEvent(runId).catch(
                   () => null,
                 );
