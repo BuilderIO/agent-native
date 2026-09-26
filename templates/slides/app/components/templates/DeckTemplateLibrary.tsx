@@ -79,7 +79,7 @@ export function DeckTemplateLibrary({
       const result = await create.mutateAsync({ templateId: id, newId });
       if (!result.id) throw new Error(t("templatesPage.createFailed"));
       const reloadStatus = await reloadDecksWithStatus();
-      if (reloadStatus !== "loaded") {
+      if (reloadStatus === "failed") {
         throw new Error(t("templatesPage.createFailed"));
       }
       retryIds.current.delete(id);

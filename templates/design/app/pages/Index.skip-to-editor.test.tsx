@@ -526,6 +526,7 @@ describe("Index skip to editor", () => {
       title: "Saved template",
       designSystemId: "override-system",
       newId: "design-1",
+      retryKey: expect.any(String),
     });
     expect(mocks.createDesign).not.toHaveBeenCalled();
     expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
@@ -684,6 +685,7 @@ describe("home library", () => {
       templateId: "starter-template",
       title: "Starter template",
       newId: "design-1",
+      retryKey: expect.any(String),
     });
     expect(mocks.promptProps?.selectedTemplateId).toBe(
       originalPrompt?.selectedTemplateId,

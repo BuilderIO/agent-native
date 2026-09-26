@@ -65,6 +65,7 @@ async function readRetryDesign(
   orgId: string | null,
   templateId: string,
   createdTitle: string,
+  retryKey?: string,
 ) {
   const access = await resolveAccess("design", id);
   if (!access) return null;
@@ -94,7 +95,9 @@ async function readRetryDesign(
     typeof templateSource !== "object" ||
     Array.isArray(templateSource) ||
     (templateSource as { templateId?: unknown }).templateId !== templateId ||
-    design.title !== createdTitle
+    design.title !== createdTitle ||
+    (retryKey !== undefined &&
+      (templateSource as { retryKey?: unknown }).retryKey !== retryKey)
   ) {
     return templateCopyConflict();
   }
@@ -105,6 +108,7 @@ async function readRetryDesign(
     .where(eq(schema.designFiles.designId, id));
   const source = templateSource as {
     designSystemOverridden?: unknown;
+    retryKey?: unknown;
   };
   const designSystemId = design.designSystemId ?? null;
   return {
@@ -170,6 +174,12 @@ export default defineAction({
       .describe(
         "Stable ID for an identical retry; omit to create a new independent copy",
       ),
+    retryKey: z
+      .string()
+      .min(1)
+      .max(4_000)
+      .optional()
+      .describe("Request fingerprint used to distinguish changed retries"),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -188,6 +198,7 @@ export default defineAction({
     designSystemId,
     targetDesignId,
     newId,
+    retryKey,
   }) => {
     const preset = getDesignTemplatePreset(templateId);
     const db = getDb();
@@ -283,6 +294,7 @@ export default defineAction({
         orgId,
         templateId,
         createdTitle,
+        retryKey,
       );
       if (existing) return existing;
     }
@@ -314,6 +326,7 @@ export default defineAction({
       templateDesignSystemId,
       appliedDesignSystemId: linkedDesignSystemId,
       designSystemOverridden,
+      ...(retryKey !== undefined ? { retryKey } : {}),
       files: files.map((file) => {
         const designFileId = fileIdMap.get(file.id)!;
         const { width, height } = templateFileDimensions(data, designFileId);
@@ -428,6 +441,7 @@ export default defineAction({
           orgId,
           templateId,
           createdTitle,
+          retryKey,
         );
         if (existing) return existing;
         return templateCopyConflict();

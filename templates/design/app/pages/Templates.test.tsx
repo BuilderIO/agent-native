@@ -249,6 +249,7 @@ describe("Design template library", () => {
       templateId: "starter",
       title: "Starter template",
       newId: expect.any(String),
+      retryKey: expect.any(String),
     });
     expect(mocks.navigate).toHaveBeenCalledWith("/design/new-copy");
     expect(named("dialog")).toHaveLength(0);
@@ -362,6 +363,7 @@ describe("Design template library", () => {
       templateId: "starter",
       title: "Starter template",
       newId: expect.any(String),
+      retryKey: expect.any(String),
     });
     expect(mocks.navigate).toHaveBeenCalledWith("/design/new-copy");
   });

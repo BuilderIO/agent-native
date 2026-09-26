@@ -192,7 +192,9 @@ export default function Index() {
 
   const skipToEditorPendingRef = useRef(false);
   const newDesignSystemWasChosenRef = useRef(false);
-  const templateCopyIdsRef = useRef(new Map<string, string>());
+  const templateCopyIdsRef = useRef(
+    new Map<string, { key: string; id: string }>(),
+  );
 
   const normalizedSearch = search.trim();
   const listDesignsParams = useMemo(
@@ -658,21 +660,40 @@ export default function Index() {
         const title = trimmedPrompt
           ? derivePromptTitle(trimmedPrompt)
           : selectedTemplate.title;
+        const retryKey = JSON.stringify({
+          templateId: selectedTemplate.id,
+          title,
+          designSystemId:
+            designSystemId === undefined ? "inherit" : designSystemId,
+          prompt: trimmedPrompt || null,
+        });
+        const previousRetry = templateCopyIdsRef.current.get(
+          selectedTemplate.id,
+        );
         const newId =
-          templateCopyIdsRef.current.get(selectedTemplate.id) ?? nanoid();
-        templateCopyIdsRef.current.set(selectedTemplate.id, newId);
+          previousRetry?.key === retryKey ? previousRetry.id : nanoid();
+        templateCopyIdsRef.current.set(selectedTemplate.id, {
+          key: retryKey,
+          id: newId,
+        });
         try {
           const result = await createFromTemplateMutation.mutateAsync({
             templateId: selectedTemplate.id,
             title,
             newId,
+            retryKey,
             ...(designSystemId !== undefined ? { designSystemId } : {}),
             ...(trimmedPrompt ? { prompt } : {}),
           });
           if (!result.id) {
             throw new Error("Template copy did not return a design ID");
           }
-          templateCopyIdsRef.current.delete(selectedTemplate.id);
+          const currentRetry = templateCopyIdsRef.current.get(
+            selectedTemplate.id,
+          );
+          if (currentRetry?.id === newId && currentRetry.key === retryKey) {
+            templateCopyIdsRef.current.delete(selectedTemplate.id);
+          }
           const effectiveDesignSystemId = result.designSystemId ?? null;
           if (result.adaptationPending) {
             const effectiveSystemTitle =

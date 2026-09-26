@@ -90,7 +90,7 @@ export function DesignTemplateLibrary({
   const remove = useActionMutation("delete-design-template");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const pending = useRef(false);
-  const retryIds = useRef(new Map<string, string>());
+  const retryIds = useRef(new Map<string, { key: string; id: string }>());
   const preview = templates.find(
     (template) => template.id === params.get("templateId"),
   );
@@ -113,15 +113,25 @@ export function DesignTemplateLibrary({
     pending.current = true;
     setPendingId(template.id);
     try {
-      const newId = retryIds.current.get(template.id) ?? nanoid();
-      retryIds.current.set(template.id, newId);
+      const retryKey = JSON.stringify({
+        templateId: template.id,
+        title: template.title,
+      });
+      const previousRetry = retryIds.current.get(template.id);
+      const newId =
+        previousRetry?.key === retryKey ? previousRetry.id : nanoid();
+      retryIds.current.set(template.id, { key: retryKey, id: newId });
       const result = await create.mutateAsync({
         templateId: template.id,
         title: template.title,
         newId,
+        retryKey,
       });
       if (!result.id) throw new Error(t("templatesPage.createFailed"));
-      retryIds.current.delete(template.id);
+      const currentRetry = retryIds.current.get(template.id);
+      if (currentRetry?.id === newId && currentRetry.key === retryKey) {
+        retryIds.current.delete(template.id);
+      }
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-designs"],
       });
