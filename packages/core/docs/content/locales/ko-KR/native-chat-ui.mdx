@@ -253,6 +253,48 @@ renderer의 크기는 백분율이 아니라 절대 단위로 지정하세요. �
 않은 것처럼 보입니다. 차트를 비롯해 높이에 의존하는 시각 요소에는 픽셀(또는 `rem`)
 기준을 주세요. 트랜스크립트 열은 확정된 너비를 가지므로 너비는 백분율로 두어도 됩니다.
 
+### 작업 UI가 표시되는 시점 선택 {#conditional-native-ui}
+
+작업 하나가 여러 작업 유형을 처리해도 카드가 필요한 결과는 일부일 수 있습니다. 해당 호출을 선택하려면 `chatUI`에 `when(args, result)`를 추가하세요. 서버는 작업이 성공한 후 이 조건 함수를 실행합니다. `false`를 반환하면 결과는 일반 접을 수 있는 도구 기록에 남습니다. 조건 함수는 저장하거나 브라우저로 보내지 않습니다.
+
+Mail의 `manage-draft`는 이 방식을 사용해 초안 생성 결과에 카드를 표시하고 업데이트와 삭제는 일반 도구 호출로 남깁니다.
+
+```ts
+chatUI: {
+  renderer: "mail.draft-created",
+  when: (args, result) => {
+    if (
+      args.action !== "create" ||
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result)
+    ) {
+      return false;
+    }
+    const output = result as Record<string, unknown>;
+    return typeof output.deepLink === "string" && Boolean(output.draft);
+  },
+},
+```
+
+여러 쓰기 작업이 있는 작업에서는 인수와 성공 결과를 함께 확인하세요. Mail의 Gmail 필터 작업은 요약 필드가 있는 생성 또는 교체 결과에만 규칙 카드를 선택합니다.
+
+```ts
+when: (args, result) => {
+  if (
+    (args.operation !== "create" && args.operation !== "replace") ||
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result)
+  ) {
+    return false;
+  }
+  const output = result as Record<string, unknown>;
+  const filter = output.filter as Record<string, unknown> | undefined;
+  return output.ok === true && Boolean(filter?.criteriaSummary);
+},
+```
+
 ## BYO 에이전트 런타임 {#byo-agent-runtimes}
 
 `AgentChatRuntime`는 채팅 셸을 위한 자체 에이전트 가져오기 계약이며,

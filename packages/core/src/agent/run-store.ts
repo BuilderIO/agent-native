@@ -504,6 +504,7 @@ export async function ensureRunTables(): Promise<void> {
           thread_id TEXT NOT NULL,
           tool_key TEXT NOT NULL,
           result_summary TEXT NOT NULL,
+          result_is_string BOOLEAN,
           artifacts_json TEXT,
           completed_at BIGINT NOT NULL,
           PRIMARY KEY (thread_id, tool_key)
@@ -605,6 +606,11 @@ export async function ensureRunTables(): Promise<void> {
         "artifacts_json",
         `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS artifacts_json TEXT`,
       );
+      await ensureColumnExists(
+        "agent_tool_ledger",
+        "result_is_string",
+        `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS result_is_string BOOLEAN`,
+      );
       await ensureTableExists(
         "agent_run_outcome_daily",
         agentRunOutcomeDailyCreateSql,
@@ -660,6 +666,7 @@ export async function writeLedgerEntry(
   toolKey: string,
   resultSummary: string,
   artifacts: ArtifactReceipt[] = [],
+  resultIsString?: boolean,
 ): Promise<void> {
   try {
     await ensureRunTables();
@@ -670,13 +677,21 @@ export async function writeLedgerEntry(
           `\n...[ledger truncated at ${LEDGER_RESULT_MAX_CHARS} chars]`
         : resultSummary;
     await client.execute({
-      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, completed_at)
-            VALUES (?, ?, ?, ?, ?)
+      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, result_is_string, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT (thread_id, tool_key) DO UPDATE SET
               result_summary = excluded.result_summary,
               artifacts_json = excluded.artifacts_json,
+              result_is_string = excluded.result_is_string,
               completed_at = excluded.completed_at`,
-      args: [threadId, toolKey, capped, JSON.stringify(artifacts), Date.now()],
+      args: [
+        threadId,
+        toolKey,
+        capped,
+        JSON.stringify(artifacts),
+        resultIsString ?? null,
+        Date.now(),
+      ],
     });
   } catch {
     // Ledger is best-effort; never surface failures to the caller.
@@ -690,22 +705,30 @@ export async function writeLedgerEntry(
 export async function readLedgerEntry(
   threadId: string,
   toolKey: string,
-): Promise<{ result: string; artifacts: ArtifactReceipt[] } | null> {
+): Promise<{
+  result: string;
+  artifacts: ArtifactReceipt[];
+  resultIsString?: boolean;
+} | null> {
   try {
     await ensureRunTables();
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `SELECT result_summary, artifacts_json FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
+      sql: `SELECT result_summary, artifacts_json, result_is_string FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
       args: [threadId, toolKey],
     });
     if (rows.length === 0) return null;
     const row = rows[0] as {
       result_summary: string;
       artifacts_json?: string | null;
+      result_is_string?: boolean | null;
     };
     return {
       result: row.result_summary,
       artifacts: parseLedgerArtifacts(row.artifacts_json, threadId, toolKey),
+      ...(typeof row.result_is_string === "boolean"
+        ? { resultIsString: row.result_is_string }
+        : {}),
     };
   } catch {
     return null;

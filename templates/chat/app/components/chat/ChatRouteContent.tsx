@@ -12,7 +12,7 @@ import {
   useAgentThread,
   type AgentKitRenderProps,
 } from "@agent-native/agentkit/react/context";
-import { AgentKitRoot } from "@agent-native/agentkit/react/root";
+import { CoreAgentKitRoot } from "@agent-native/core/client/agentkit-chat";
 import { CoreComposerRuntimeProvider } from "@agent-native/core/client/agentkit-chat/composer";
 import {
   McpAgentKitConnectionRequestCard,
@@ -109,7 +109,7 @@ function ChatThreadRouteContent({
         }`}
       >
         <CoreComposerRuntimeProvider>
-          <AgentKitRoot
+          <CoreAgentKitRoot
             transport={transport}
             clientOptions={{
               transportOwnership: "owned",
@@ -132,7 +132,7 @@ function ChatThreadRouteContent({
               workspaceOpen={workspaceOpen}
               setWorkspaceOpen={setWorkspaceOpen}
             />
-          </AgentKitRoot>
+          </CoreAgentKitRoot>
         </CoreComposerRuntimeProvider>
       </div>
       <aside

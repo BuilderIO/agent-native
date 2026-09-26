@@ -1113,6 +1113,47 @@ export interface ActionEntry {
   frameworkGroup?: import("../framework-tools.js").FrameworkToolGroup;
 }
 
+function actionChatUIForResult(
+  actionName: string,
+  actionEntry: ActionEntry,
+  args: Record<string, unknown>,
+  result: unknown,
+  isError: boolean,
+): Omit<import("../action-ui.js").ActionChatUIConfig, "when"> | undefined {
+  const chatUI = actionEntry.chatUI;
+  if (!chatUI || isError) return undefined;
+  if (chatUI.when) {
+    try {
+      if (!chatUI.when(args, result)) return undefined;
+    } catch (error) {
+      console.warn(
+        `Could not evaluate chatUI.when for ${actionName}; preserving action result.`,
+        error,
+      );
+      return undefined;
+    }
+  }
+  return {
+    renderer: chatUI.renderer,
+    ...(chatUI.title ? { title: chatUI.title } : {}),
+    ...(chatUI.description ? { description: chatUI.description } : {}),
+  };
+}
+
+function parseRecoveredActionResult(
+  result: string,
+  resultIsString: boolean | undefined,
+): { value: unknown } | undefined {
+  if (resultIsString === undefined) return undefined;
+  if (resultIsString) return { value: result };
+  try {
+    return { value: JSON.parse(result) as unknown };
+  } catch (error) {
+    if (error instanceof SyntaxError) return undefined;
+    throw error;
+  }
+}
+
 /** @deprecated Use `ActionEntry` instead */
 export type ScriptEntry = ActionEntry;
 
@@ -4274,7 +4315,7 @@ async function waitForInterruptedToolLedgerEntry(opts: {
   timeoutMs: number;
   signal: AbortSignal;
   send: (event: AgentChatEvent) => void;
-}): Promise<{ result: string; artifacts: ArtifactReceipt[] } | null> {
+}): Promise<Awaited<ReturnType<typeof readLedgerEntry>>> {
   const pollMs = INTERRUPTED_TOOL_LEDGER_POLL_MS;
   // Wait up to the tool's OWN declared timeout — the abandoned zombie can keep
   // running that long (e.g. a 12-minute image generation, whose provider keeps
@@ -7091,9 +7132,20 @@ export async function runAgentLoop(opts: {
           });
           if (ledgerResult !== null) {
             // Zombie completed — recover the real result without re-executing.
-            const result =
-              `(Recovered from prior interrupted chunk — action already completed.)\n\n` +
-              ledgerResult.result;
+            const result = ledgerResult.result;
+            const recoveredActionResult = parseRecoveredActionResult(
+              ledgerResult.result,
+              ledgerResult.resultIsString,
+            );
+            const chatUI = recoveredActionResult
+              ? actionChatUIForResult(
+                  toolCall.name,
+                  actionEntry,
+                  toolCall.input as Record<string, unknown>,
+                  recoveredActionResult.value,
+                  false,
+                )
+              : undefined;
             send({
               type: "tool_start",
               id: toolCall.id,
@@ -7110,7 +7162,7 @@ export async function runAgentLoop(opts: {
               ...(ledgerResult.artifacts.length > 0
                 ? { artifacts: ledgerResult.artifacts }
                 : {}),
-              ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
+              ...(chatUI ? { chatUI } : {}),
             });
             recordToolResult(result, false, ledgerResult.artifacts);
             noteToolCallSucceeded(actionEntry);
@@ -7385,6 +7437,7 @@ export async function runAgentLoop(opts: {
         }
 
         let result: string;
+        let chatUIResult: unknown;
         let isError = false;
         let mcpApp:
           | import("../mcp-client/app-result.js").AgentMcpAppPayload
@@ -7509,6 +7562,7 @@ export async function runAgentLoop(opts: {
                   ledgerToolKey,
                   zombieStr,
                   zombieArtifacts,
+                  typeof zombieResultForAgent === "string",
                 );
               })
               .catch(() => {
@@ -7576,6 +7630,7 @@ export async function runAgentLoop(opts: {
               toolResultImages = extracted.images;
             }
           }
+          chatUIResult = resultForAgent;
           toolArtifacts = detectArtifactReceipts(resultForAgent, toolCall.name);
           if (toolResultImages) {
             imageNotes = [
@@ -7687,6 +7742,14 @@ export async function runAgentLoop(opts: {
           result = `${result}\n\n${formatAgentWarningsForToolResult(agentWarnings)}`;
         }
 
+        const chatUI = actionChatUIForResult(
+          toolCall.name,
+          actionEntry,
+          toolCall.input as Record<string, unknown>,
+          chatUIResult,
+          isError,
+        );
+
         // Auto-refresh the UI after a successful mutating tool call. Any call
         // that isn't read-only — by its own per-call Plan-mode effect, else the
         // action's readOnly flag — is assumed to mutate. The client's useDbSync
@@ -7731,7 +7794,7 @@ export async function runAgentLoop(opts: {
               ? { completedSideEffect: true }
               : {}),
           ...(mcpApp ? { mcpApp } : {}),
-          ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
+          ...(chatUI ? { chatUI } : {}),
           ...(fileMutation ? { fileMutation } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
         });

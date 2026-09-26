@@ -27,6 +27,7 @@ const writeLedgerMock = vi.hoisted(() =>
       toolKey: string,
       result: string,
       artifacts: unknown[],
+      resultIsString?: boolean,
     ) => Promise<void>
   >(),
 );
@@ -34,6 +35,7 @@ const readLedgerMock = vi.hoisted(() =>
   vi.fn<
     () => Promise<{
       result: string;
+      resultIsString?: boolean;
       artifacts: Array<{
         kind: "image";
         id: string;
@@ -175,6 +177,7 @@ describe("tool-call result ledger", () => {
       expect.stringContaining("save-data"),
       "zombie-result",
       [],
+      true,
     );
   });
 
@@ -251,11 +254,53 @@ describe("tool-call result ledger", () => {
       expect.stringContaining("generate-asset"),
       expect.stringContaining('"payload"'),
       [receipt],
+      false,
     );
     const zombieWrite = writeLedgerMock.mock.calls.find(
       ([threadId]) => threadId === "thread-artifact",
     );
     expect(zombieWrite?.[2]).not.toContain("_agentImages");
+  });
+
+  it("keeps a draft delete as ordinary tool work when chatUI.when does not match", async () => {
+    const events: any[] = [];
+    const action = makeReadAction();
+    action.chatUI = {
+      renderer: "mail.draft-created",
+      when: (args, result) =>
+        args.action === "create" &&
+        Boolean(result) &&
+        typeof result === "object" &&
+        typeof (result as Record<string, unknown>).deepLink === "string",
+    };
+    action.run = vi.fn(async () => ({ message: "Deleted draft draft-1" }));
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", {
+        action: "delete",
+        id: "draft-1",
+      }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Delete the draft" }] },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const toolDone = events.find(
+      (event) => event.type === "tool_done" && event.tool === "manage-draft",
+    );
+    expect(toolDone).toMatchObject({
+      type: "tool_done",
+      tool: "manage-draft",
+      result: JSON.stringify({ message: "Deleted draft draft-1" }, null, 2),
+    });
+    expect(toolDone.chatUI).toBeUndefined();
+    expect(events.some((event) => event.type === "widget.created")).toBe(false);
   });
 
   it("returns the ledger result without re-executing on continuation match", async () => {
@@ -271,7 +316,11 @@ describe("tool-call result ledger", () => {
         runId: "generation-recovered",
       },
     ];
-    readLedgerMock.mockResolvedValue({ result: PRIOR_RESULT, artifacts });
+    readLedgerMock.mockResolvedValue({
+      result: PRIOR_RESULT,
+      resultIsString: true,
+      artifacts,
+    });
 
     const action = makeWriteAction();
     const events: any[] = [];
@@ -327,19 +376,15 @@ describe("tool-call result ledger", () => {
     // The action must NOT have been called again — the ledger result was used.
     expect(action.run).not.toHaveBeenCalled();
 
-    // The tool_done event must contain the recovered result.
+    // The recovered result stays intact so renderers can parse it.
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
         tool: "save-data",
-        result: expect.stringContaining(PRIOR_RESULT),
+        result: PRIOR_RESULT,
       }),
     );
-    // The result must indicate recovery.
     const toolDone = events.find((e: any) => e.type === "tool_done");
-    expect(toolDone?.result).toContain(
-      "Recovered from prior interrupted chunk",
-    );
     expect(toolDone?.completedSideEffect).toBe(true);
     expect(toolDone?.artifacts).toEqual(artifacts);
 
@@ -363,6 +408,224 @@ describe("tool-call result ledger", () => {
     expect(assembled.finalText).toContain("Artifacts:");
     expect(assembled.finalText).toContain(
       "https://assets.agent-native.com/asset/asset-recovered",
+    );
+  });
+
+  it("evaluates chatUI.when against a recovered structured action result", async () => {
+    const input = {
+      action: "create",
+      subject: "Launch notes",
+      to: "ana@example.test",
+    };
+    readLedgerMock.mockResolvedValue({
+      result: JSON.stringify({
+        draft: { subject: input.subject, to: input.to },
+        deepLink: "/_agent-native/open?composeDraftId=draft-1",
+      }),
+      resultIsString: false,
+      artifacts: [],
+    });
+
+    const action = makeWriteAction();
+    action.chatUI = {
+      renderer: "mail.draft-created",
+      when: (args, result) =>
+        args.action === "create" &&
+        Boolean(result) &&
+        typeof result === "object" &&
+        typeof (result as Record<string, unknown>).deepLink === "string",
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", input),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Create a draft" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-draft-1",
+              name: "manage-draft",
+              input,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-draft-1",
+              toolName: "manage-draft",
+              toolInput: JSON.stringify(input),
+              content: "Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-resume",
+    });
+
+    expect(action.run).not.toHaveBeenCalled();
+    expect(
+      events.find((event: any) => event.type === "tool_done")?.chatUI,
+    ).toEqual({ renderer: "mail.draft-created" });
+  });
+
+  it("keeps a JSON-looking string result as a string during recovery", async () => {
+    const input = { action: "create" };
+    const result = '{"deepLink":"/_agent-native/open?composeDraftId=draft-1"}';
+    readLedgerMock.mockResolvedValue({
+      result,
+      resultIsString: true,
+      artifacts: [],
+    });
+
+    const action = makeWriteAction();
+    action.chatUI = {
+      renderer: "mail.draft-created",
+      when: (_args, recovered) => typeof recovered === "string",
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", input),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Create a draft" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-draft-string-1",
+              name: "manage-draft",
+              input,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-draft-string-1",
+              toolName: "manage-draft",
+              toolInput: JSON.stringify(input),
+              content: "Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-resume-string",
+    });
+
+    const toolDone = events.find((event: any) => event.type === "tool_done");
+    expect(action.run).not.toHaveBeenCalled();
+    expect(toolDone?.result).toBe(result);
+    expect(toolDone?.chatUI).toEqual({ renderer: "mail.draft-created" });
+  });
+
+  it("does not guess widget eligibility for legacy ledger results", async () => {
+    const input = { action: "create" };
+    const result = JSON.stringify({
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+    });
+    readLedgerMock.mockResolvedValue({ result, artifacts: [] });
+
+    const action = makeWriteAction();
+    action.chatUI = {
+      renderer: "mail.draft-created",
+      when: (_args, recovered) =>
+        Boolean(recovered) &&
+        typeof recovered === "object" &&
+        typeof (recovered as Record<string, unknown>).deepLink === "string",
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", input),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Create a draft" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-draft-legacy-1",
+              name: "manage-draft",
+              input,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-draft-legacy-1",
+              toolName: "manage-draft",
+              toolInput: JSON.stringify(input),
+              content: "Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-resume-legacy",
+    });
+
+    const toolDone = events.find((event: any) => event.type === "tool_done");
+    expect(action.run).not.toHaveBeenCalled();
+    expect(toolDone?.result).toBe(result);
+    expect(toolDone?.chatUI).toBeUndefined();
+    expect(events.some((event: any) => event.type === "widget.created")).toBe(
+      false,
     );
   });
 

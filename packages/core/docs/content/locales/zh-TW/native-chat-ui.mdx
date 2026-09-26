@@ -252,6 +252,48 @@ export default defineAction({
 看起來就像轉譯器沒有畫出來。請為圖表及其他依賴高度的視覺元素設定像素（或 `rem`）
 基準；寬度使用百分比沒有問題，因為聊天記錄欄確實有確定的寬度。
 
+### 選擇動作介面的顯示時機 {#conditional-native-ui}
+
+一個動作可以處理多種操作，但只有部分結果需要顯示卡片。請在 `chatUI` 加入 `when(args, result)` 來選擇這些呼叫。動作成功後，伺服器會執行此述詞。如果回傳 `false`，結果會保留在一般可摺疊的工具記錄中。述詞不會儲存或傳送至瀏覽器。
+
+Mail 的 `manage-draft` 使用此方式在建立草稿時顯示卡片，並讓更新和刪除保留為一般工具呼叫：
+
+```ts
+chatUI: {
+  renderer: "mail.draft-created",
+  when: (args, result) => {
+    if (
+      args.action !== "create" ||
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result)
+    ) {
+      return false;
+    }
+    const output = result as Record<string, unknown>;
+    return typeof output.deepLink === "string" && Boolean(output.draft);
+  },
+},
+```
+
+對於包含多種寫入操作的動作，請同時檢查參數和成功結果。Mail 的 Gmail 篩選器動作只會為包含摘要欄位的新建或取代篩選器選取規則卡片：
+
+```ts
+when: (args, result) => {
+  if (
+    (args.operation !== "create" && args.operation !== "replace") ||
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result)
+  ) {
+    return false;
+  }
+  const output = result as Record<string, unknown>;
+  const filter = output.filter as Record<string, unknown> | undefined;
+  return output.ok === true && Boolean(filter?.criteriaSummary);
+},
+```
+
 ## BYO 代理執行時 {#byo-agent-runtimes}
 
 `AgentChatRuntime` 是聊天 shell 的自帶代理合約，並且

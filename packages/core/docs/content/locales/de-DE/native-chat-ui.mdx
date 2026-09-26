@@ -257,6 +257,48 @@ ein Renderer aussieht, der nicht gezeichnet hat. Geben Sie Diagrammen und andere
 höhenabhängigen Visualisierungen eine Pixel- (oder `rem`-)Basis; Breiten in Prozent
 sind in Ordnung, da die Transkriptspalte eine definite Breite hat.
 
+### Auswählen, wann Aktionsoberflächen erscheinen {#conditional-native-ui}
+
+Eine Aktion kann mehrere Vorgänge behandeln, während nur einige Ergebnisse eine Karte benötigen. Fügen Sie `when(args, result)` zu `chatUI` hinzu, um diese Aufrufe auszuwählen. Der Server ruft das Prädikat nach einer erfolgreichen Aktion auf. Gibt es `false` zurück, bleibt das Ergebnis im normalen einklappbaren Tool-Verlauf. Das Prädikat wird weder gespeichert noch an den Browser gesendet.
+
+Mail verwendet dies für `manage-draft`. Ergebnisse beim Erstellen erhalten eine Karte. Aktualisierungen und Löschungen bleiben normale Tool-Aufrufe:
+
+```ts
+chatUI: {
+  renderer: "mail.draft-created",
+  when: (args, result) => {
+    if (
+      args.action !== "create" ||
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result)
+    ) {
+      return false;
+    }
+    const output = result as Record<string, unknown>;
+    return typeof output.deepLink === "string" && Boolean(output.draft);
+  },
+},
+```
+
+Prüfen Sie bei Aktionen mit mehreren Schreibvorgängen die Argumente und das erfolgreiche Ergebnis. Mail wählt die Gmail-Filterkarte nur für erstellte oder ersetzte Filter mit Zusammenfassungsfeldern aus:
+
+```ts
+when: (args, result) => {
+  if (
+    (args.operation !== "create" && args.operation !== "replace") ||
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result)
+  ) {
+    return false;
+  }
+  const output = result as Record<string, unknown>;
+  const filter = output.filter as Record<string, unknown> | undefined;
+  return output.ok === true && Boolean(filter?.criteriaSummary);
+},
+```
+
 ## BYO Agentenlaufzeiten {#byo-agent-runtimes}
 
 `AgentChatRuntime` ist der Bring-Your-Own-Agent-Vertrag für die Chat-Shell und

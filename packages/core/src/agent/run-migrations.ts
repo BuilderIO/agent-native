@@ -68,4 +68,11 @@ export const AGENT_RUN_MIGRATIONS: MigrationEntry[] = [
       ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS continuation_order BIGINT
     `,
   },
+  {
+    version: 4,
+    name: "agent-tool-ledger-result-type",
+    sql: `
+      ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS result_is_string BOOLEAN
+    `,
+  },
 ];

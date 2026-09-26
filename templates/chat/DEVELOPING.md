@@ -62,9 +62,10 @@ conversation.
 The `/` route is the app's primary AgentKit surface. Its default integration is:
 
 - `createAgentNativeAgentKitTransport()` from
-  `@agent-native/core/client/agent-chat` for the production Agent-Native
+  `@agent-native/core/client/agentkit-chat/transport` for the production Agent-Native
   runtime.
-- `AgentKitRoot` for one managed controller and thread context.
+- `CoreAgentKitRoot` from `@agent-native/core/client/agentkit-chat` for one
+  managed controller, thread context, and the default action-widget renderer.
 - `AgentKitChat` for the reference transcript, composer, queue, approvals,
   activities, and suggestions.
 - `CoreComposerRuntimeProvider` for Agent-Native composer capabilities.
@@ -74,6 +75,14 @@ durable thread routing, and route-level chrome. `AgentKitChat` owns the
 conversation column. Pass route controls through its `toolbar` prop. Use
 `slots` and `registry` on `AgentKitRoot` for presentation overrides without
 forking conversation state.
+
+Action UI is opt-in on each action through `chatUI.renderer`. `CoreAgentKitRoot`
+provides Core's `AgentKitActionWidget` in `slots.widget`; it resolves the
+declared React renderer from the stored tool input and result, then keeps the
+widget with its assistant message after activity rollup and thread reload. App
+renderers can register with `registerActionChatRenderer()` from
+`@agent-native/core/client/agentkit-chat` using the same renderer id declared by
+the action. Built-in Core renderers need no app registration.
 
 This template is also the canonical AgentKit reference surface. Develop and
 verify shared chat UX here first, then use domain apps such as Dispatch as

@@ -5,6 +5,8 @@
  * unrelated panels, settings, editors, and observability UI on cold start.
  */
 export { CoreComposerRuntimeProvider } from "./core-composer-runtime.js";
+export { AgentKitActionWidget } from "./action-widget.js";
+export { CoreAgentKitRoot } from "./root.js";
 export { GuidedQuestionFlow, useGuidedQuestionFlow } from "./questions.js";
 export { useChatThreads, type ChatThreadSummary } from "../use-chat-threads.js";
 export {
@@ -30,3 +32,7 @@ export {
   McpAgentKitConnectionResume,
 } from "./connections.js";
 export { useAgentChatRunningThreads } from "../use-agent-chat-running-threads.js";
+export {
+  registerActionChatRenderer,
+  type ToolRendererProps,
+} from "../chat/tool-render-registry.js";

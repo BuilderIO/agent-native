@@ -171,6 +171,7 @@ const messages = {
       deleteDraft: "Eliminar borrador",
       deleteDrafts: "Eliminar borradores",
       reopenDraft: "Reabrir",
+      openInMail: "Abrir en Mail",
       discardDraft: "Descartar borrador",
       enterLinkUrl: "Introduce la URL del enlace.",
       forward: "Forward",

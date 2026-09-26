@@ -254,6 +254,48 @@ export default defineAction({
 العناصر المعتمدة على الارتفاع أساسًا بالبكسل (أو `rem`)؛ أما العروض فلا بأس بها
 كنسب مئوية لأن عمود المحادثة يملك عرضًا محددًا.
 
+### اختيار وقت ظهور واجهة الإجراء {#conditional-native-ui}
+
+قد يتعامل الإجراء مع عمليات متعددة، بينما تحتاج بعض النتائج فقط إلى بطاقة. أضف `when(args, result)` إلى `chatUI` لتحديد هذه الاستدعاءات. يشغّل الخادم هذا الشرط بعد نجاح الإجراء. إذا أعاد `false`، تبقى النتيجة ضمن سجل الأدوات العادي القابل للطي. لا يُحفظ الشرط ولا يُرسل إلى المتصفح.
+
+يستخدم Mail هذا النمط في `manage-draft` لعرض بطاقة عند إنشاء مسودة، مع إبقاء التحديث والحذف كاستدعاءات أدوات عادية:
+
+```ts
+chatUI: {
+  renderer: "mail.draft-created",
+  when: (args, result) => {
+    if (
+      args.action !== "create" ||
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result)
+    ) {
+      return false;
+    }
+    const output = result as Record<string, unknown>;
+    return typeof output.deepLink === "string" && Boolean(output.draft);
+  },
+},
+```
+
+في الإجراءات ذات عمليات الكتابة المتعددة، تحقّق من الوسيطات والنتيجة الناجحة. يختار إجراء فلاتر Gmail في Mail بطاقة القاعدة فقط للفلاتر التي أُنشئت أو استُبدلت وتحتوي على حقول الملخص:
+
+```ts
+when: (args, result) => {
+  if (
+    (args.operation !== "create" && args.operation !== "replace") ||
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result)
+  ) {
+    return false;
+  }
+  const output = result as Record<string, unknown>;
+  const filter = output.filter as Record<string, unknown> | undefined;
+  return output.ok === true && Boolean(filter?.criteriaSummary);
+},
+```
+
 ## أوقات تشغيل الوكيل BYO {#byo-agent-runtimes}
 
 `AgentChatRuntime` هو عقد إحضار الوكيل الخاص بك لقشرة الدردشة، و
