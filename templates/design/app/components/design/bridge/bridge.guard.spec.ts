@@ -10086,7 +10086,7 @@ it(
 );
 
 it(
-  "editor chrome bridge stacks a flow child above the frame it exits, even when its drag crosses that frame",
+  "editor chrome bridge preserves an explicit sibling slot when a flow child exits its frame",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -10268,8 +10268,8 @@ it(
         expect(dropResult.parentId, `${label}: ${observed}`).toBe("outer");
         expect(dropResult.childOrder, `${label}: ${observed}`).toEqual([
           "nested",
-          "dragme",
           "candidate",
+          "dragme",
           "overlap",
         ]);
         expect(dropResult.stack.indexOf("overlap")).toBeGreaterThanOrEqual(0);
@@ -10277,8 +10277,8 @@ it(
           dropResult.stack.indexOf("dragme"),
         );
         expect(dropResult.structureChange).toMatchObject({
-          anchorSourceId: "nested",
-          persistenceAnchorSourceId: "nested",
+          anchorSourceId: "candidate",
+          persistenceAnchorSourceId: "candidate",
           placement: "after",
           persistencePlacement: "after",
         });

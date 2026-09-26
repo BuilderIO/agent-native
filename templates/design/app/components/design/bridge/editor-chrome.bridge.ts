@@ -17575,10 +17575,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
 
-    // Leaving a frame for its direct parent stacks the layer immediately
-    // above the frame being exited. Pointer geometry chooses the receiving
-    // parent, not this layer stack position; preserve the origin frame for
-    // either pointer path.
+    // Leaving a frame for its parent's empty area stacks the layer immediately
+    // above the frame being exited. A hit on a sibling is an explicit slot
+    // and keeps that sibling as its insertion anchor.
     var exitedContainer = el.parentElement;
     var receivingContainer = exitedContainer && exitedContainer.parentElement;
     var targetContainer = dropContainerForTarget(target);
@@ -17588,7 +17587,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       exitedContainer &&
       receivingContainer &&
       isContainerDropTarget(exitedContainer) &&
-      targetContainer === receivingContainer
+      targetContainer === receivingContainer &&
+      (pointHit === receivingContainer ||
+        !pointHit ||
+        pointHit === document.body ||
+        pointHit === document.documentElement)
     ) {
       target = {
         ...target,
