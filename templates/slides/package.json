@@ -51,7 +51,7 @@
     "pdfjs-dist": "5.4.296",
     "postcss": "8.5.28",
     "pptxgenjs": "4.0.1",
-    "prettier": "^3.9.6",
+    "prettier": "^3.9.8",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-markdown": "^10.1.0",

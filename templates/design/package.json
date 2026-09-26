@@ -56,7 +56,7 @@
     "pdf-parse": "^2.4.5",
     "playwright": "^1.63.0",
     "postcss": "^8.5.28",
-    "prettier": "^3.9.4",
+    "prettier": "^3.9.8",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-router": "^8.1.0",
