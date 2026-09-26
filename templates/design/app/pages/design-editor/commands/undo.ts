@@ -48,6 +48,7 @@ import type {
   SelectionHistoryEntry,
 } from "@/pages/design-editor/history";
 import {
+  applyDuplicateStackHistoryChanges,
   MAX_DESIGN_UNDO_STACK,
   filterFileDeletionHistoryEntry,
   applyGeometryHistoryDiff,
@@ -56,6 +57,7 @@ import {
   contentHistoryEntryFromChanges,
   readYjsUndoSelection,
   remapFileDeletionHistoryEntryIds,
+  remapFileCreationHistoryEntryIds,
   restoreFileContentHistoryOrderToken,
 } from "@/pages/design-editor/history";
 import {
@@ -1404,28 +1406,94 @@ export function runUndo({
       {
         skipFileCreationRedoPrune: true,
         onMutationSettled: (deletedFiles, failedFiles) => {
-          const duplicateStack = entries.find(
-            (item) => item.duplicateStack,
-          )?.duplicateStack;
           if (
-            !duplicateStack ||
             failedFiles.length > 0 ||
             deletedFiles.length !== createdFiles.length
           ) {
             return;
           }
-          const restoredGeometry = {
-            ...getCanvasFrameGeometry(designDataJsonRef.current),
-          };
-          for (const [frameId, geometry] of Object.entries(
-            duplicateStack.before,
+          // Mutation callbacks can settle out of order. Reconcile every
+          // completed duplicate undo in redo-stack order so an older callback
+          // cannot leave a newer undo's z delta half-applied.
+          const settledBatchIds = new Set<string>();
+          const settledEntries = new Set(entries);
+          fileCreationRedoStackRef.current =
+            fileCreationRedoStackRef.current.map((item) =>
+              settledEntries.has(item)
+                ? { ...item, duplicateStackUndoSettled: true }
+                : item,
+            );
+          const settledDuplicateEntries =
+            fileCreationRedoStackRef.current.filter(
+              (item) => item.duplicateStack && item.duplicateStackUndoSettled,
+            );
+          const duplicateStackChanges = settledDuplicateEntries.flatMap(
+            (item) => {
+              if (!item.duplicateStack) return [];
+              if (item.historyBatchId) {
+                if (settledBatchIds.has(item.historyBatchId)) return [];
+                settledBatchIds.add(item.historyBatchId);
+              }
+              return [item.duplicateStack];
+            },
+          );
+          if (duplicateStackChanges.length === 0) return;
+          const deletedDuplicateIds = new Set([
+            ...deletedFiles.map((file) => file.id),
+            ...settledDuplicateEntries.flatMap((item) =>
+              item.createdFileId ? [item.createdFileId] : [],
+            ),
+          ]);
+          const survivingDuplicateStackChanges = duplicateStackChanges.map(
+            (change) => ({
+              before: Object.fromEntries(
+                Object.entries(change.before).filter(
+                  ([frameId]) => !deletedDuplicateIds.has(frameId),
+                ),
+              ),
+              after: Object.fromEntries(
+                Object.entries(change.after).filter(
+                  ([frameId]) => !deletedDuplicateIds.has(frameId),
+                ),
+              ),
+            }),
+          );
+          const persistedGeometry = getCanvasFrameGeometry(
+            designDataJsonRef.current,
+          );
+          const currentGeometry = { ...persistedGeometry };
+          for (const [frameId, liveFrame] of Object.entries(
+            liveFrameGeometryRef.current,
           )) {
-            if (geometry) restoredGeometry[frameId] = geometry;
-            else delete restoredGeometry[frameId];
+            const persistedFrame = persistedGeometry[frameId];
+            currentGeometry[frameId] = { ...persistedFrame, ...liveFrame };
+            if (typeof persistedFrame?.z === "number") {
+              currentGeometry[frameId] = {
+                ...currentGeometry[frameId],
+                z: persistedFrame.z,
+              };
+            }
           }
-          writeFrameGeometrySnapshot(restoredGeometry, {
-            replacePendingGeometrySave: true,
-          });
+          for (const deletedFile of deletedFiles) {
+            delete currentGeometry[deletedFile.id];
+          }
+          for (const item of settledDuplicateEntries) {
+            if (item.createdFileId) delete currentGeometry[item.createdFileId];
+          }
+          const restored = applyDuplicateStackHistoryChanges(
+            currentGeometry,
+            survivingDuplicateStackChanges,
+            "undo",
+          );
+          if (restored.staleFrameIds.length > 0) {
+            console.debug(
+              "[design] skipping stale duplicate stack undo; frames changed since capture:",
+              restored.staleFrameIds,
+            );
+            toast.info(t("designEditor.toasts.undoSkippedConcurrentEdit"));
+            return;
+          }
+          writeFrameGeometrySnapshot(restored.geometryById);
         },
       },
     );
@@ -1485,6 +1553,12 @@ export function runUndo({
         clipboardPasteRedoStackRef.current.map((item) =>
           remapHistoryChange(item, fileIds),
         );
+      fileCreationUndoStackRef.current = fileCreationUndoStackRef.current.map(
+        (item) => remapFileCreationHistoryEntryIds(item, fileIds),
+      );
+      fileCreationRedoStackRef.current = fileCreationRedoStackRef.current.map(
+        (item) => remapFileCreationHistoryEntryIds(item, fileIds),
+      );
       const remapDeletionEntry = (other: FileDeletionHistoryEntry) => {
         const remapped = remapFileDeletionHistoryEntryIds(
           other,

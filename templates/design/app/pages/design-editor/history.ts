@@ -149,6 +149,101 @@ export interface GeometryHistoryEntry {
   linkedContentChanges?: ContentHistoryChange[];
 }
 
+export interface DuplicateStackHistoryChange {
+  before: Record<string, number | null>;
+  after: Record<string, number>;
+}
+
+export function applyDuplicateStackHistoryChange(
+  current: CanvasFrameGeometryById,
+  change: DuplicateStackHistoryChange,
+  direction: "undo" | "redo",
+): { geometryById: CanvasFrameGeometryById; staleFrameIds: string[] } {
+  const expected = direction === "undo" ? change.after : change.before;
+  const target = direction === "undo" ? change.before : change.after;
+  const frameIds = new Set([...Object.keys(expected), ...Object.keys(target)]);
+  const staleFrameIds = [...frameIds].filter((frameId) => {
+    const geometry = current[frameId];
+    if (!geometry) return true;
+    const currentZ = geometry.z ?? null;
+    return currentZ !== expected[frameId] && currentZ !== target[frameId];
+  });
+  if (staleFrameIds.length > 0) {
+    return { geometryById: current, staleFrameIds };
+  }
+
+  let geometryById = current;
+  for (const frameId of frameIds) {
+    const geometry = current[frameId];
+    const nextZ = target[frameId];
+    if (!geometry || (geometry.z ?? null) === nextZ) continue;
+    if (geometryById === current) geometryById = { ...current };
+    const nextGeometry = { ...geometry };
+    if (nextZ === null || nextZ === undefined) delete nextGeometry.z;
+    else nextGeometry.z = nextZ;
+    geometryById[frameId] = nextGeometry;
+  }
+  return { geometryById, staleFrameIds };
+}
+
+export function applyDuplicateStackHistoryChanges(
+  current: CanvasFrameGeometryById,
+  changes: readonly DuplicateStackHistoryChange[],
+  direction: "undo" | "redo",
+): { geometryById: CanvasFrameGeometryById; staleFrameIds: string[] } {
+  let geometryById = current;
+  const staleFrameIds = new Set<string>();
+  for (const change of changes) {
+    const result = applyDuplicateStackHistoryChange(
+      geometryById,
+      change,
+      direction,
+    );
+    if (result.staleFrameIds.length > 0) {
+      result.staleFrameIds.forEach((frameId) => staleFrameIds.add(frameId));
+      return { geometryById: current, staleFrameIds: [...staleFrameIds] };
+    }
+    geometryById = result.geometryById;
+  }
+  return { geometryById, staleFrameIds: [] };
+}
+
+export function remapDuplicateStackHistoryChangeIds(
+  change: DuplicateStackHistoryChange | undefined,
+  fileIds: ReadonlyMap<string, string>,
+): DuplicateStackHistoryChange | undefined {
+  if (!change || fileIds.size === 0) return change;
+  const remap = <T>(values: Record<string, T>) =>
+    Object.fromEntries(
+      Object.entries(values).map(([id, value]) => [
+        fileIds.get(id) ?? id,
+        value,
+      ]),
+    );
+  return { before: remap(change.before), after: remap(change.after) };
+}
+
+export function remapFileCreationHistoryEntryIds(
+  entry: FileCreationHistoryEntry,
+  fileIds: ReadonlyMap<string, string>,
+): FileCreationHistoryEntry {
+  if (fileIds.size === 0) return entry;
+  return {
+    ...entry,
+    ...(entry.createdFileId && fileIds.has(entry.createdFileId)
+      ? { createdFileId: fileIds.get(entry.createdFileId)! }
+      : {}),
+    ...(entry.duplicateStack
+      ? {
+          duplicateStack: remapDuplicateStackHistoryChangeIds(
+            entry.duplicateStack,
+            fileIds,
+          ),
+        }
+      : {}),
+  };
+}
+
 /**
  * Figma parity (figma-ground-truth.md Round 4): a plain selection change with
  * no document edit is its own undo-stack entry — click A, click B, click C,
@@ -169,15 +264,14 @@ export interface FileCreationHistoryEntry {
   filename: string;
   content: string;
   fileType: string;
+  createdFileId?: string;
   geometry?: CanvasFrameGeometry;
   preserveCamera?: boolean;
   screenMetadata?: Record<string, unknown>;
   localhostScreen?: Record<string, unknown>;
   historyBatchId?: string;
-  duplicateStack?: {
-    before: Record<string, CanvasFrameGeometry | null>;
-    after: CanvasFrameGeometryById;
-  };
+  duplicateStack?: DuplicateStackHistoryChange;
+  duplicateStackUndoSettled?: boolean;
   /** Existing row to reuse when create-file succeeded but cleanup did not. */
   recoveryFileId?: string | null;
   /** IDs present before a create attempt that returned no id. */

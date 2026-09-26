@@ -2,14 +2,19 @@ import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("sonner", () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
+  toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
 }));
 
+import {
+  applyDuplicateStackHistoryChange,
+  remapFileCreationHistoryEntryIds,
+} from "../history";
 import {
   getDuplicateScreenGeometry,
   runDuplicateScreen,
   type DuplicateScreenArgs,
 } from "./duplicate-screen";
+import { runUndo } from "./undo";
 
 function duplicateArgs(
   overrides: Partial<DuplicateScreenArgs> = {},
@@ -261,7 +266,7 @@ describe("runDuplicateScreen", () => {
       .mockResolvedValueOnce({});
     const args = duplicateArgs({
       createFileAsync:
-        createFileAsync as DuplicateScreenArgs["createFileAsync"],
+        createFileAsync as unknown as DuplicateScreenArgs["createFileAsync"],
       deleteFileAsync:
         deleteFileAsync as DuplicateScreenArgs["deleteFileAsync"],
       updateDesignAsync:
@@ -393,13 +398,8 @@ describe("runDuplicateScreen", () => {
     expect(args.recordFileCreationHistoryEntry).toHaveBeenCalledWith(
       expect.objectContaining({
         duplicateStack: {
-          before: expect.objectContaining({
-            first: { x: 0, y: 0, width: 640, height: 480, z: 0 },
-            second: { x: 800, y: 0, width: 640, height: 480, z: 1 },
-          }),
-          after: expect.objectContaining({
-            second: { x: 800, y: 0, width: 640, height: 480, z: 2 },
-          }),
+          before: { second: 1 },
+          after: { second: 2 },
         },
       }),
     );
@@ -980,17 +980,92 @@ describe("runDuplicateScreen", () => {
       expect.objectContaining({ filename: "index-copy-2.html" }),
     );
 
-    resolvers.forEach((resolve) => resolve({ id: "copy" }));
+    resolvers.reverse().forEach((resolve) => resolve({ id: "copy" }));
     await vi.waitFor(() =>
       expect(args.recordFileCreationHistoryEntry).toHaveBeenCalledTimes(2),
     );
+    expect(
+      (args.focusCreatedScreen as any).mock.calls
+        .map(([, geometry]: [string, { z?: number }]) => geometry.z)
+        .sort((left: number, right: number) => left - right),
+    ).toEqual([1, 2]);
     const geometries = (args.writeFrameGeometrySnapshot as any).mock.calls.map(
       ([geometry]: [Record<string, { x: number }>]) =>
         Object.values(geometry)
           .filter((value) => value.x !== 0)
           .slice(-1)[0],
     );
-    expect(geometries[1]!.x).toBeGreaterThan(geometries[0]!.x);
+    expect(
+      geometries
+        .map((geometry: { x: number }) => geometry.x)
+        .sort((left: number, right: number) => left - right),
+    ).toEqual([696, 1392]);
+    const frames = (args.designDataJsonRef.current as any).canvasFrames;
+    expect([
+      frames["index-copy.html"].z,
+      frames["index-copy-2.html"].z,
+    ]).toEqual([1, 2]);
+  });
+
+  it("merges the latest screen movement when create-file settles", async () => {
+    let resolveCreate!: (value: { id: string }) => void;
+    const createFileAsync = vi.fn(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const files = [
+      {
+        id: "source",
+        filename: "source.html",
+        fileType: "html",
+        content: "<main>source</main>",
+        createdAt: "",
+        updatedAt: "",
+      },
+      {
+        id: "other",
+        filename: "other.html",
+        fileType: "html",
+        content: "<main>other</main>",
+        createdAt: "",
+        updatedAt: "",
+      },
+    ];
+    const initial = {
+      source: { x: 0, y: 0, width: 320, height: 240, z: 0 },
+      other: { x: 376, y: 0, width: 320, height: 240, z: 1 },
+    };
+    const args = duplicateArgs({
+      createFileAsync:
+        createFileAsync as unknown as DuplicateScreenArgs["createFileAsync"],
+      files,
+      overviewScreens: [{ id: "source" }, { id: "other" }] as any,
+      designDataJsonRef: { current: { canvasFrames: initial } },
+      liveFrameGeometryRef: { current: initial },
+    });
+
+    const duplicate = runDuplicateScreen(args, "source");
+    const movedOther = { ...initial.other, x: 1500, y: 360 };
+    args.designDataJsonRef.current = {
+      canvasFrames: { ...initial, other: movedOther },
+    };
+    args.liveFrameGeometryRef.current = {
+      ...initial,
+      other: movedOther,
+    };
+    resolveCreate({ id: "copy" });
+    await duplicate;
+
+    expect(args.writeFrameGeometrySnapshot).toHaveBeenLastCalledWith(
+      expect.objectContaining({ other: { ...movedOther, z: 2 } }),
+    );
+    const operations = (args.updateDesignAsync as any).mock.calls.at(-1)?.[0]
+      .dataOperations as Array<{ path: string[] }>;
+    expect(
+      operations.find((operation) => operation.path[1] === "other")?.path,
+    ).toEqual(["canvasFrames", "other", "z"]);
   });
 
   it("does not report success when metadata persistence fails", async () => {
@@ -1007,5 +1082,217 @@ describe("runDuplicateScreen", () => {
     expect(args.optimisticallyInsertCreatedFile).not.toHaveBeenCalled();
     expect(args.focusCreatedScreen).not.toHaveBeenCalled();
     expect(args.recordFileCreationHistoryEntry).not.toHaveBeenCalled();
+  });
+});
+
+describe("duplicate stack history", () => {
+  it("changes only z while preserving concurrent frame movement", () => {
+    const current = {
+      source: { x: 0, y: 0, width: 320, height: 240, z: 0 },
+      other: { x: 1600, y: 360, width: 320, height: 240, z: 1 },
+    };
+    const replayed = applyDuplicateStackHistoryChange(
+      current,
+      { before: { other: 1 }, after: { other: 2 } },
+      "redo",
+    );
+
+    expect(replayed.staleFrameIds).toEqual([]);
+    expect(replayed.geometryById.other).toEqual({
+      x: 1600,
+      y: 360,
+      width: 320,
+      height: 240,
+      z: 2,
+    });
+    expect(replayed.geometryById.source).toBe(current.source);
+  });
+
+  it("skips a deleted stack id without recreating a ghost frame", () => {
+    const current = {
+      source: { x: 0, y: 0, width: 320, height: 240, z: 0 },
+    };
+    const replayed = applyDuplicateStackHistoryChange(
+      current,
+      { before: { deleted: 0 }, after: { deleted: 1 } },
+      "redo",
+    );
+
+    expect(replayed.staleFrameIds).toEqual(["deleted"]);
+    expect(replayed.geometryById).toBe(current);
+    expect(replayed.geometryById).not.toHaveProperty("deleted");
+  });
+
+  it("skips a stack rewrite after a concurrent z-order change", () => {
+    const current = {
+      source: { x: 0, y: 0, width: 320, height: 240, z: 0 },
+      other: { x: 376, y: 0, width: 320, height: 240, z: 8 },
+    };
+    const replayed = applyDuplicateStackHistoryChange(
+      current,
+      { before: { other: 1 }, after: { other: 2 } },
+      "undo",
+    );
+
+    expect(replayed.staleFrameIds).toEqual(["other"]);
+    expect(replayed.geometryById).toBe(current);
+  });
+
+  it("remaps duplicate history keys when a deleted screen is recreated", () => {
+    const remapped = remapFileCreationHistoryEntryIds(
+      {
+        filename: "copy.html",
+        content: "",
+        fileType: "html",
+        createdFileId: "old-copy",
+        duplicateStack: {
+          before: { "old-copy": 1, other: 2 },
+          after: { "old-copy": 2, other: 3 },
+        },
+      },
+      new Map([["old-copy", "restored-copy"]]),
+    );
+
+    expect(remapped.createdFileId).toBe("restored-copy");
+    expect(remapped.duplicateStack).toEqual({
+      before: { "restored-copy": 1, other: 2 },
+      after: { "restored-copy": 2, other: 3 },
+    });
+  });
+
+  it("reconciles rapid duplicate undos and trusts persisted z over a stale live ref", () => {
+    const deletedFiles: Array<{
+      files: any[];
+      onMutationSettled: (deleted: any[], failed: any[]) => void;
+    }> = [];
+    const copy1 = {
+      id: "copy1",
+      filename: "copy1.html",
+      fileType: "html",
+      content: "",
+    };
+    const copy2 = {
+      id: "copy2",
+      filename: "copy2.html",
+      fileType: "html",
+      content: "",
+    };
+    const entry1 = {
+      filename: copy1.filename,
+      content: copy1.content,
+      fileType: copy1.fileType,
+      createdFileId: copy1.id,
+      duplicateStack: { before: { other: 1 }, after: { other: 2 } },
+    };
+    const entry2 = {
+      filename: copy2.filename,
+      content: copy2.content,
+      fileType: copy2.fileType,
+      createdFileId: copy2.id,
+      duplicateStack: {
+        before: { copy1: 1, other: 2 },
+        after: { copy1: 2, other: 3 },
+      },
+    };
+    const geometry = {
+      source: { x: 0, y: 0, width: 320, height: 240, z: 0 },
+      other: { x: 376, y: 0, width: 320, height: 240, z: 3 },
+    };
+    const fileCreationUndoStackRef = { current: [entry1, entry2] };
+    const fileCreationRedoStackRef = { current: [] as (typeof entry1)[] };
+    const historyOrderRef = {
+      current: ["file-created", "file-created"],
+    };
+    const designDataJsonRef = { current: { canvasFrames: geometry } };
+    const liveFrameGeometryRef = {
+      current: {
+        ...geometry,
+        copy1: { x: 696, y: 0, width: 320, height: 240, z: 2 },
+        copy2: { x: 1392, y: 0, width: 320, height: 240, z: 3 },
+      },
+    };
+    const writeFrameGeometrySnapshot = vi.fn();
+    const ref = <T>(current: T) => ({ current });
+    const args = {
+      activeEditorDragRef: ref(false),
+      activeFile: { id: "source", filename: "source.html", content: "" },
+      canEditDesign: true,
+      designDataJsonRef,
+      fileCreationUndoStackRef,
+      fileCreationRedoStackRef,
+      fileHistoryMutationPendingRef: ref(false),
+      files: [copy1, copy2],
+      historyOrderRef,
+      id: "design-1",
+      liveFrameGeometryRef,
+      pendingLiveNonStyleUndoStackRef: ref([]),
+      pendingVisualStyleUndoStackRef: ref([]),
+      performDeleteFiles: vi.fn((files: any[], options: any) => {
+        deletedFiles.push({
+          files,
+          onMutationSettled: options.onMutationSettled,
+        });
+      }),
+      redoOrderRef: ref([]),
+      syncUndoRedoState: vi.fn(),
+      t: (key: string) => key,
+      undoManagerRef: ref(null),
+      viewModeRef: ref("overview"),
+      writeFrameGeometrySnapshot,
+    };
+
+    runUndo(args as any);
+    runUndo(args as any);
+    expect(deletedFiles).toHaveLength(2);
+    const movedOther = { ...geometry.other, x: 1600, y: 360 };
+    designDataJsonRef.current = {
+      canvasFrames: { ...geometry, other: movedOther },
+    };
+    liveFrameGeometryRef.current = {
+      ...liveFrameGeometryRef.current,
+      other: movedOther,
+    };
+
+    // The first undo (copy2) is still pending when the older copy1 delete
+    // settles. Its callback must wait rather than write the older snapshot.
+    deletedFiles[1]!.onMutationSettled(deletedFiles[1]!.files, []);
+    expect(writeFrameGeometrySnapshot).not.toHaveBeenCalled();
+
+    deletedFiles[0]!.onMutationSettled(deletedFiles[0]!.files, []);
+    expect(writeFrameGeometrySnapshot).toHaveBeenCalledTimes(1);
+    expect(writeFrameGeometrySnapshot).toHaveBeenLastCalledWith(
+      expect.objectContaining({ other: { ...movedOther, z: 1 } }),
+    );
+    expect(writeFrameGeometrySnapshot.mock.lastCall?.[0]).not.toHaveProperty(
+      "copy1",
+    );
+    expect(writeFrameGeometrySnapshot.mock.lastCall?.[0]).not.toHaveProperty(
+      "copy2",
+    );
+    expect(writeFrameGeometrySnapshot.mock.lastCall?.[0]).toMatchObject({
+      other: { ...movedOther, z: 1 },
+    });
+
+    designDataJsonRef.current = {
+      canvasFrames: {
+        ...geometry,
+        other: { ...movedOther, z: 9 },
+      },
+    };
+    liveFrameGeometryRef.current = {
+      ...liveFrameGeometryRef.current,
+      other: { ...movedOther, z: 3 },
+    };
+    fileCreationUndoStackRef.current = [entry1];
+    fileCreationRedoStackRef.current = [];
+    historyOrderRef.current = ["file-created"];
+
+    runUndo(args as any);
+    deletedFiles[2]!.onMutationSettled(deletedFiles[2]!.files, []);
+
+    expect(writeFrameGeometrySnapshot).toHaveBeenCalledTimes(1);
+    expect(
+      (designDataJsonRef.current.canvasFrames as typeof geometry).other.z,
+    ).toBe(9);
   });
 });

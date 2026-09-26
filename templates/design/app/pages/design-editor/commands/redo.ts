@@ -62,6 +62,7 @@ import type {
   SelectionHistoryEntry,
 } from "@/pages/design-editor/history";
 import {
+  applyDuplicateStackHistoryChange,
   MAX_DESIGN_UNDO_STACK,
   applyGeometryHistoryDiff,
   filterFileDeletionHistoryEntry,
@@ -69,6 +70,7 @@ import {
   partitionContentHistoryEntry,
   contentHistoryEntryFromChanges,
   readYjsRedoSelection,
+  remapFileCreationHistoryEntryIds,
   removeRecentUndoRedoOrderKinds,
   restoreFileContentHistoryOrderToken,
 } from "@/pages/design-editor/history";
@@ -98,6 +100,40 @@ import {
 import { pendingEditTargetsSelectedElement } from "@/pages/design-editor/selection-state";
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+function duplicateStackZOperations(
+  before: CanvasFrameGeometryById,
+  after: CanvasFrameGeometryById,
+): DesignDataOperation[] {
+  const operations: DesignDataOperation[] = [];
+  for (const frameId of new Set([
+    ...Object.keys(before),
+    ...Object.keys(after),
+  ])) {
+    const previousZ = before[frameId]?.z;
+    const nextZ = after[frameId]?.z;
+    if (previousZ === nextZ) continue;
+    const path = ["canvasFrames", frameId, "z"] as [string, ...string[]];
+    if (nextZ === undefined) operations.push({ op: "delete", path });
+    else operations.push({ op: "set", path, value: nextZ });
+  }
+  return operations;
+}
+
+function currentFrameGeometry(
+  designData: Record<string, unknown>,
+  liveGeometry: CanvasFrameGeometryById,
+): CanvasFrameGeometryById {
+  const persisted = getCanvasFrameGeometry(designData);
+  const current = { ...persisted };
+  for (const [frameId, liveFrame] of Object.entries(liveGeometry)) {
+    current[frameId] = { ...persisted[frameId], ...liveFrame };
+    if (typeof persisted[frameId]?.z === "number") {
+      current[frameId] = { ...current[frameId], z: persisted[frameId].z };
+    }
+  }
+  return current;
+}
 
 export interface RedoArgs {
   activeEditorDragRef: RefObject<boolean>;
@@ -1394,6 +1430,8 @@ export function runRedo({
     syncUndoRedoState();
     const attemptedEntries = new Set<FileCreationHistoryEntry>();
     const createdFileIds = new Map<FileCreationHistoryEntry, string>();
+    const resolvedFileIds = new Map<FileCreationHistoryEntry, string>();
+    const recreatedFileIdRemap = new Map<string, string>();
     const retryRecoveryFileIds = new Map<
       FileCreationHistoryEntry,
       string | null | undefined
@@ -1437,30 +1475,34 @@ export function runRedo({
         }
       }
       for (const rollbackFileId of rollbackFileIds) {
-        const nextGeometry = {
-          ...getCanvasFrameGeometry(designDataJsonRef.current),
-        };
+        const nextGeometry = currentFrameGeometry(
+          designDataJsonRef.current,
+          liveFrameGeometryRef.current,
+        );
         delete nextGeometry[rollbackFileId];
-        writeFrameGeometrySnapshot(nextGeometry, {
-          replacePendingGeometrySave: true,
-        });
+        writeFrameGeometrySnapshot(nextGeometry);
       }
       const duplicateStack = entries.find(
         (item) => item.duplicateStack,
       )?.duplicateStack;
       if (duplicateStack && !rollbackFailed) {
-        const restoredGeometry = {
-          ...getCanvasFrameGeometry(designDataJsonRef.current),
-        };
-        for (const [frameId, geometry] of Object.entries(
-          duplicateStack.before,
-        )) {
-          if (geometry) restoredGeometry[frameId] = geometry;
-          else delete restoredGeometry[frameId];
+        const currentGeometry = currentFrameGeometry(
+          designDataJsonRef.current,
+          liveFrameGeometryRef.current,
+        );
+        const restored = applyDuplicateStackHistoryChange(
+          currentGeometry,
+          duplicateStack,
+          "undo",
+        );
+        if (restored.staleFrameIds.length === 0) {
+          writeFrameGeometrySnapshot(restored.geometryById);
+        } else {
+          console.debug(
+            "[design] skipping stale duplicate stack rollback; frames changed since capture:",
+            restored.staleFrameIds,
+          );
         }
-        writeFrameGeometrySnapshot(restoredGeometry, {
-          replacePendingGeometrySave: true,
-        });
       }
       for (const item of attemptedEntries) {
         if (
@@ -1578,6 +1620,10 @@ export function runRedo({
           `Failed to recreate "${item.filename}": create-file returned no id and no persisted file could be reconciled`,
         );
       }
+      resolvedFileIds.set(item, nextId);
+      if (item.createdFileId && item.createdFileId !== nextId) {
+        recreatedFileIdRemap.set(item.createdFileId, nextId);
+      }
       if (!reusedRecovery) createdFileIds.set(item, nextId);
       const geometry = {
         ...getInitialFrameGeometry(overviewScreens.length, {
@@ -1586,13 +1632,55 @@ export function runRedo({
         }),
         ...item.geometry,
       };
+      const oldCreatedFileId = item.createdFileId;
+      const currentGeometry = currentFrameGeometry(
+        designDataJsonRef.current,
+        liveFrameGeometryRef.current,
+      );
+      if (oldCreatedFileId && oldCreatedFileId !== nextId) {
+        delete currentGeometry[oldCreatedFileId];
+      }
+      const stackIds = new Map(recreatedFileIdRemap);
+      if (oldCreatedFileId && oldCreatedFileId !== nextId) {
+        stackIds.set(oldCreatedFileId, nextId);
+      }
+      const duplicateStack = remapFileCreationHistoryEntryIds(
+        item,
+        stackIds,
+      ).duplicateStack;
+      const geometryWithCreatedFile = {
+        ...currentGeometry,
+        [nextId]: geometry,
+      };
+      const appliedStack = duplicateStack
+        ? applyDuplicateStackHistoryChange(
+            geometryWithCreatedFile,
+            duplicateStack,
+            "redo",
+          )
+        : { geometryById: geometryWithCreatedFile, staleFrameIds: [] };
+      if (appliedStack.staleFrameIds.length > 0) {
+        console.debug(
+          "[design] skipping stale duplicate stack redo; frames changed since capture:",
+          appliedStack.staleFrameIds,
+        );
+        toast.info(t("designEditor.toasts.redoSkippedConcurrentEdit"));
+      }
       const dataOperations: DesignDataOperation[] = [
-        ...Object.entries(item.duplicateStack?.after ?? {}).map(
-          ([frameId, stackGeometry]) => ({
-            op: "set" as const,
-            path: ["canvasFrames", frameId] as [string, ...string[]],
-            value: stackGeometry,
-          }),
+        ...(oldCreatedFileId && oldCreatedFileId !== nextId
+          ? [
+              {
+                op: "delete" as const,
+                path: ["canvasFrames", oldCreatedFileId] as [
+                  string,
+                  ...string[],
+                ],
+              },
+            ]
+          : []),
+        ...duplicateStackZOperations(
+          geometryWithCreatedFile,
+          appliedStack.geometryById,
         ),
         {
           op: "set",
@@ -1633,11 +1721,28 @@ export function runRedo({
         );
         await updateDesignAsync({ id, dataOperations } as any);
       }
-      writeFrameGeometrySnapshot({
-        ...getCanvasFrameGeometry(designDataJsonRef.current),
-        ...(item.duplicateStack?.after ?? {}),
-        [nextId]: geometry,
-      });
+      const settledGeometry = currentFrameGeometry(
+        designDataJsonRef.current,
+        liveFrameGeometryRef.current,
+      );
+      if (oldCreatedFileId && oldCreatedFileId !== nextId) {
+        delete settledGeometry[oldCreatedFileId];
+      }
+      if (!settledGeometry[nextId]) settledGeometry[nextId] = geometry;
+      const settledStack = duplicateStack
+        ? applyDuplicateStackHistoryChange(
+            settledGeometry,
+            duplicateStack,
+            "redo",
+          )
+        : { geometryById: settledGeometry, staleFrameIds: [] };
+      if (settledStack.staleFrameIds.length > 0) {
+        console.debug(
+          "[design] skipping stale duplicate stack snapshot settlement; frames changed during redo:",
+          settledStack.staleFrameIds,
+        );
+      }
+      writeFrameGeometrySnapshot(settledStack.geometryById);
       optimisticallyInsertCreatedFile({
         fileId: nextId,
         filename: item.filename,
@@ -1654,19 +1759,39 @@ export function runRedo({
     void (async () => {
       try {
         for (const item of entries) await recreateFile(item);
+        const originalEntries = entries.slice();
+        const indexByEntry = new Map(
+          originalEntries.map((item, index) => [item, index]),
+        );
+        const remappedEntries = originalEntries.map((item) => {
+          const nextId = resolvedFileIds.get(item);
+          let remapped = remapFileCreationHistoryEntryIds(
+            item,
+            recreatedFileIdRemap,
+          );
+          if (nextId) remapped = { ...remapped, createdFileId: nextId };
+          const { duplicateStackUndoSettled: _settled, ...committedEntry } =
+            remapped;
+          delete committedEntry.recoveryFileId;
+          delete committedEntry.recoveryKnownFileIds;
+          return committedEntry;
+        });
+        entries.splice(0, entries.length, ...remappedEntries);
+        const remapStackEntry = (item: FileCreationHistoryEntry) => {
+          const index = indexByEntry.get(item);
+          return index === undefined
+            ? remapFileCreationHistoryEntryIds(item, recreatedFileIdRemap)
+            : remappedEntries[index]!;
+        };
+        fileCreationUndoStackRef.current =
+          fileCreationUndoStackRef.current.map(remapStackEntry);
+        fileCreationRedoStackRef.current = fileCreationRedoStackRef.current.map(
+          (item) =>
+            remapFileCreationHistoryEntryIds(item, recreatedFileIdRemap),
+        );
         if (entries.length > 1) {
           setOverviewSelectedScreenIds(recreatedFileIds);
         }
-        fileCreationUndoStackRef.current = fileCreationUndoStackRef.current.map(
-          (item) => {
-            if (!entries.includes(item) || item.recoveryFileId === undefined)
-              return item;
-            const committedEntry = { ...item };
-            delete committedEntry.recoveryFileId;
-            delete committedEntry.recoveryKnownFileIds;
-            return committedEntry;
-          },
-        );
         fileHistoryMutationPendingRef.current = false;
         syncUndoRedoState();
         void queryClient.invalidateQueries({
