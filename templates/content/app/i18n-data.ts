@@ -1073,6 +1073,13 @@ const enUS = {
     emailNotificationsDescription:
       "Get an email when someone comments on, replies in, or mentions you on your document.",
     saveFailed: "Failed to save",
+    notificationsEmail: "Email",
+    commentsRepliesMentions: "Comments, replies, and mentions",
+    commentsRepliesMentionsDescription:
+      "When someone comments on or replies in your document, or mentions you.",
+    retry: "Retry",
+    mcpAbout:
+      "Connect Content to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Content for you: search, write, and edit documents. It sees only what you can see.",
     languageTitle: "Language",
     languageDescription:
       "Choose the interface language. This preference is saved for your account.",

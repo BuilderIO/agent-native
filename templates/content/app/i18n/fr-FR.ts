@@ -1280,6 +1280,13 @@ const overrides = {
     emailNotificationsDescription:
       "Recevez un e-mail lorsqu’une personne commente, répond ou vous mentionne dans votre document.",
     saveFailed: "Échec de l’enregistrement",
+    notificationsEmail: "E-mail",
+    commentsRepliesMentions: "Commentaires, réponses et mentions",
+    commentsRepliesMentionsDescription:
+      "Lorsque quelqu’un commente ou répond dans votre document, ou vous mentionne.",
+    retry: "Réessayer",
+    mcpAbout:
+      "Connectez Content à Claude, ChatGPT, Cursor ou toute app d’IA compatible MCP. Cette app peut alors travailler dans Content pour vous : rechercher, rédiger et modifier des documents. Elle ne voit que ce que vous pouvez voir.",
     languageTitle: "Langue",
     languageDescription:
       "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",

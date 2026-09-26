@@ -9,3 +9,18 @@ export type ContentUserPrefs = {
   /** Comment, reply, and mention emails only — never share invites. */
   emailNotifications?: boolean;
 };
+
+export interface ContentNotificationPreferences {
+  /** Comment, reply, and mention emails. */
+  emailNotifications: boolean;
+}
+
+/**
+ * The preferences the comment senders act on. A missing blob or field is
+ * opted in, matching `resolveActivityRecipients`.
+ */
+export function getContentNotificationPreferences(
+  prefs: ContentUserPrefs | Record<string, unknown> | null | undefined,
+): ContentNotificationPreferences {
+  return { emailNotifications: prefs?.emailNotifications !== false };
+}

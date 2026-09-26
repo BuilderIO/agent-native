@@ -929,6 +929,34 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "comments.email-preferences",
+    surface: "comments",
+    label:
+      "Read and turn the current user's comment, reply, and mention emails on or off",
+    uiEntrypoints: [
+      "app/components/settings/notification-settings.tsx",
+      "app/routes/_app.settings.tsx",
+    ],
+    durableEffect:
+      "The per-user content-user-prefs setting stores emailNotifications, which the comment senders read before emailing each recipient.",
+    uiImplementation:
+      "Settings reads the preference and saves the switch optimistically, with rollback, through the same Actions the agent calls.",
+    status: "action-backed",
+    actions: [
+      "get-content-notification-prefs",
+      "update-content-notification-prefs",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-notification-prefs.test.ts",
+      "app/components/settings/notification-settings.test.tsx",
+    ],
+  },
+  {
     id: "comments.threads",
     surface: "comments",
     label: "List, add, reply, resolve, reopen, and delete comment threads",
