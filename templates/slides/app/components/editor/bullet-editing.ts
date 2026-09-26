@@ -11,6 +11,56 @@
  * typed characters inherit that span's font instead of the container's. */
 export const ZERO_WIDTH_SPACE = "\u200B";
 
+/**
+ * A copy made to split an element (Enter, a list or link split) keeps its
+ * look, never the original's identity: two elements answering to one `id` or
+ * object id break selection, freeform moves, and export.
+ */
+export function stripCopiedIdentity(root: Element) {
+  for (const element of [root, ...Array.from(root.querySelectorAll("*"))]) {
+    stripIdentity(element);
+  }
+}
+
+function stripIdentity(element: Element) {
+  for (const { name } of Array.from(element.attributes)) {
+    if (name === "id" || /^data-.+-id$/.test(name)) {
+      element.removeAttribute(name);
+    }
+  }
+}
+
+/**
+ * `range.extractContents()` for a split. An element the range only partly
+ * holds stays where it is and the fragment gets a copy of it, along the
+ * fragment's first and last edges; those copies lose their identity, while
+ * elements that moved whole keep theirs.
+ */
+export function extractWithoutCopiedIdentity(range: Range): DocumentFragment {
+  const common = range.commonAncestorContainer;
+  const copiedDepth = (node: Node) => {
+    let depth = 0;
+    for (let at: Node | null = node; at && at !== common; at = at.parentNode) {
+      if (at instanceof Element) depth += 1;
+    }
+    return depth;
+  };
+  const startDepth = copiedDepth(range.startContainer);
+  const endDepth = copiedDepth(range.endContainer);
+  const fragment = range.extractContents();
+  let copy = fragment.firstChild;
+  for (let left = startDepth; left > 0 && copy instanceof Element; left -= 1) {
+    stripIdentity(copy);
+    copy = copy.firstChild;
+  }
+  copy = fragment.lastChild;
+  for (let left = endDepth; left > 0 && copy instanceof Element; left -= 1) {
+    stripIdentity(copy);
+    copy = copy.lastChild;
+  }
+  return fragment;
+}
+
 /** Single glyphs commonly used as bullet markers in styled (non-<ul>) lists. */
 const BULLET_GLYPHS = new Set([
   "\u2022", // •
@@ -231,7 +281,7 @@ export function findEnclosingList(
 
 /** The non-marker text container of a row: a dedicated text <span> if present,
  * otherwise the row itself (rows whose text is a bare node). */
-function rowTextContainer(
+export function rowTextContainer(
   row: HTMLElement,
   marker: HTMLElement | null,
 ): HTMLElement {
@@ -417,8 +467,7 @@ function listWithNodes(
   orderedStart?: number,
 ): HTMLElement {
   const clone = list.cloneNode(false) as HTMLElement;
-  clone.removeAttribute("data-builder-id");
-  clone.removeAttribute("data-fusion-element-id");
+  stripCopiedIdentity(clone);
   clone.removeAttribute("contenteditable");
   clone.removeAttribute("data-editing-block");
   if (orderedStart !== undefined) {
@@ -467,6 +516,7 @@ function createRootLine(
   const textContainer = rowTextContainer(row, marker);
   if (textContainer !== row) {
     const text = textContainer.cloneNode(false) as HTMLElement;
+    stripCopiedIdentity(text);
     text.replaceChildren(list.ownerDocument.createTextNode(ZERO_WIDTH_SPACE));
     line.appendChild(text);
   } else {
@@ -671,7 +721,7 @@ export function insertBulletAfterCaret(list: HTMLElement): boolean {
     else tailRange.setEnd(container, container.childNodes.length);
     // extractContents() moves the trailing DOM subtree (preserving <strong>/
     // <em>) out of the original row so it can be reparented into the new one.
-    tail = tailRange.extractContents();
+    tail = extractWithoutCopiedIdentity(tailRange);
     // A caret at the very end of the text (the common case) makes tailRange
     // collapsed, but extractContents() on a collapsed range still clones the
     // boundary text node with empty data instead of returning an empty
@@ -683,10 +733,7 @@ export function insertBulletAfterCaret(list: HTMLElement): boolean {
   }
 
   const newRow = row.cloneNode(true) as HTMLElement;
-  for (const el of [newRow, ...Array.from(newRow.querySelectorAll("*"))]) {
-    el.removeAttribute("data-builder-id");
-    el.removeAttribute("data-fusion-element-id");
-  }
+  stripCopiedIdentity(newRow);
   row.after(newRow);
   primeNewRow(newRow, tail);
   return true;

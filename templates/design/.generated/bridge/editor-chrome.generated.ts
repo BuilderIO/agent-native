@@ -2188,7 +2188,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         documentId: runtimeDocumentId
       };
     }
-    function postRuntimeLayerSnapshot(reservationToken) {
+    function postRuntimeLayerSnapshot(reservationToken, requestId) {
       if (runtimeLayerSnapshotTimer !== null) {
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
@@ -2202,7 +2202,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.parent.postMessage(
           {
             type: "agent-native:runtime-layer-snapshot-error",
-            payload: snapshot
+            payload: {
+              ...snapshot,
+              requestId,
+              documentId: runtimeDocumentId,
+              ...reservationToken ? { reservationToken } : {}
+            }
           },
           "*"
         );
@@ -2210,10 +2215,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var snapshotReservationToken = reservationToken || "";
       if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken) {
+        window.parent.postMessage(
+          {
+            type: "agent-native:runtime-layer-snapshot-unchanged",
+            payload: {
+              requestId,
+              documentId: snapshot.documentId,
+              ...reservationToken ? { reservationToken } : {}
+            }
+          },
+          "*"
+        );
         return;
       }
       lastRuntimeLayerSnapshotHtml = snapshot.html;
       lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+      if (requestId !== void 0) snapshot.requestId = requestId;
       if (reservationToken) snapshot.reservationToken = reservationToken;
       window.parent.postMessage(
         {
@@ -2241,7 +2258,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       window.parent.postMessage(
         {
           type: "agent-native:runtime-layer-snapshot-reservation-request",
-          requestId: runtimeLayerSnapshotReservationRequestId
+          requestId: runtimeLayerSnapshotReservationRequestId,
+          documentId: runtimeDocumentId
         },
         "*"
       );
@@ -19854,7 +19872,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "grant-runtime-layer-snapshot-reservation") {
-        if (e.data.requestId !== runtimeLayerSnapshotReservationRequestId) return;
+        if (e.data.documentId !== runtimeDocumentId || e.data.requestId !== runtimeLayerSnapshotReservationRequestId) {
+          return;
+        }
         runtimeLayerSnapshotReservationInFlight = false;
         if (runtimeLayerSnapshotReservationDirty) {
           runtimeLayerSnapshotReservationDirty = false;
@@ -19862,7 +19882,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         postRuntimeLayerSnapshot(
-          typeof e.data.reservationToken === "string" ? e.data.reservationToken : void 0
+          typeof e.data.reservationToken === "string" ? e.data.reservationToken : void 0,
+          Number.isSafeInteger(e.data.requestId) ? e.data.requestId : void 0
         );
         return;
       }

@@ -14,6 +14,7 @@ import {
 } from "@agent-native/core/application-state";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { classifyUploadResponseError } from "@shared/recording-core.js";
 import { and, eq, isNull } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -30,6 +31,10 @@ import {
 } from "../../../../../shared/upload-interruption.js";
 import { getDb, schema } from "../../../../db/index.js";
 import {
+  normalizeRecordingFailureCode,
+  trackRecordingFailure,
+} from "../../../../lib/recording-failures.js";
+import {
   getEventOwnerContext,
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
@@ -42,7 +47,11 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Missing recordingId" };
   }
 
-  const { userEmail: ownerEmail, orgId } = await getEventOwnerContext(event);
+  const {
+    userEmail: ownerEmail,
+    orgId,
+    authUserId,
+  } = await getEventOwnerContext(event);
   if (
     !(await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
       userEmail: ownerEmail,
@@ -54,6 +63,9 @@ export default defineEventHandler(async (event: H3Event) => {
   }
   const body = (await readBody(event).catch(() => null)) as {
     detail?: unknown;
+    failureCode?: unknown;
+    failureStage?: unknown;
+    httpStatus?: unknown;
     attemptId?: unknown;
     uploadGenerationId?: unknown;
   } | null;
@@ -63,10 +75,40 @@ export default defineEventHandler(async (event: H3Event) => {
     body.attemptId.length <= 128
       ? body.attemptId
       : null;
-  const interruptionDetail =
+  const rawInterruptionDetail =
     typeof body?.detail === "string" && body.detail.trim()
       ? body.detail.trim().slice(0, 1000)
       : null;
+  const interruptionResponse = classifyUploadResponseError({
+    contentType: null,
+    body: rawInterruptionDetail ?? "",
+    status: 0,
+    stage: "chunk_upload",
+  });
+  const containsHtml =
+    interruptionResponse.isHtml ||
+    /(?:<!doctype\s+html\b|<html\b)/i.test(rawInterruptionDetail ?? "");
+  const interruptionDetail = containsHtml
+    ? "Upload returned an HTML error response."
+    : rawInterruptionDetail;
+  const requestedFailureCode = normalizeRecordingFailureCode(body?.failureCode);
+  const failureCode =
+    containsHtml || requestedFailureCode === "chunk_html_error"
+      ? "chunk_html_error"
+      : "upload_interrupted";
+  const failureStage =
+    body?.failureStage === "chunk_upload" ||
+    body?.failureStage === "reset_chunks"
+      ? body.failureStage
+      : containsHtml
+        ? "chunk_upload"
+        : undefined;
+  const httpStatus =
+    Number.isInteger(body?.httpStatus) &&
+    Number(body?.httpStatus) >= 100 &&
+    Number(body?.httpStatus) <= 599
+      ? Number(body?.httpStatus)
+      : undefined;
   const uploadGenerationId =
     typeof body?.uploadGenerationId === "string" &&
     body.uploadGenerationId.length > 0 &&
@@ -74,7 +116,8 @@ export default defineEventHandler(async (event: H3Event) => {
       ? body.uploadGenerationId
       : null;
 
-  return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+  const requestContext = { userEmail: ownerEmail, orgId, authUserId };
+  return runWithRequestContext(requestContext, async () => {
     const db = getDb();
     const [existing] = await db
       .select({
@@ -84,6 +127,7 @@ export default defineEventHandler(async (event: H3Event) => {
         videoUrl: schema.recordings.videoUrl,
         uploadAttemptId: schema.recordings.uploadAttemptId,
         uploadGenerationId: schema.recordings.uploadGenerationId,
+        recordingPlatform: schema.recordings.recordingPlatform,
       })
       .from(schema.recordings)
       .where(
@@ -137,6 +181,7 @@ export default defineEventHandler(async (event: H3Event) => {
         .update(schema.recordings)
         .set({
           status: "failed",
+          failureCode,
           failureReason,
           updatedAt: interruptedAt,
         })
@@ -153,12 +198,25 @@ export default defineEventHandler(async (event: H3Event) => {
               : eq(schema.recordings.uploadGenerationId, uploadGenerationId),
           ),
         )
-        .returning({ id: schema.recordings.id });
+        .returning({
+          id: schema.recordings.id,
+          uploadAttemptId: schema.recordings.uploadAttemptId,
+          recordingPlatform: schema.recordings.recordingPlatform,
+        });
 
       if (interrupted.length !== 1) {
         setResponseStatus(event, 409);
         return { error: "Recording upload changed while it was interrupted" };
       }
+      trackRecordingFailure({
+        recordingId,
+        userId: ownerEmail,
+        uploadAttemptId: interrupted[0]?.uploadAttemptId,
+        platform: interrupted[0]?.recordingPlatform,
+        failureCode,
+        failureStage,
+        httpStatus,
+      });
     }
 
     const uploadStateUpdated = await compareAndSetAppState(

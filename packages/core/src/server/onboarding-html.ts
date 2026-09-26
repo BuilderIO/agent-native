@@ -60,6 +60,7 @@ import {
 import {
   BUILT_IN_AUTH_MARKETING,
   resolveBuiltInAuthMarketing,
+  resolveBuiltInAuthMarketingByName,
   resolveBuiltInAuthMarketingPresentation,
   resolveBuiltInAuthMarketingSlug,
   type AuthMarketingContent,
@@ -1321,6 +1322,25 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath)}`
       : withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath),
   );
+  // Templates pass their short sign-in name ("Mail"); share cards label the
+  // link with og:title, so first-party apps use the full product name there.
+  // Catalog copy can also resolve from env app names on a custom host; only
+  // claim Agent-Native provenance when the host or the app's own config does.
+  const isFirstPartySocial =
+    isFirstPartyMarketing ||
+    (marketingWasResolvedFromCatalog &&
+      isAgentNativeHostedHost(opts.requestHost));
+  const socialAppName =
+    (isFirstPartySocial
+      ? resolveBuiltInAuthMarketingByName(marketing?.appName)?.appName
+      : undefined) ?? marketing?.appName;
+  const socialSiteName = isFirstPartySocial ? "Agent-Native" : socialAppName;
+  const socialImageAlt = marketingPresentation
+    ? `${socialAppName}: ${marketingPresentation.headline.replace(/\s*\n\s*/g, " ")}`
+    : AGENT_NATIVE_SOCIAL_IMAGE_ALT;
+  const socialPageUrl = opts.requestOrigin
+    ? `${opts.requestOrigin}${appBasePath || "/"}`
+    : undefined;
   const t = (key: keyof typeof EN_AUTH_COPY) => EN_AUTH_COPY[key];
   const hostedSignupLegalNotice: SignupLegalNoticeOptions | undefined =
     opts.signupLegalNotice === undefined &&
@@ -2846,9 +2866,28 @@ ${marketingStyles}
                 content: marketing!.tagline,
               }),
               createElement("meta", {
+                key: "og-type",
+                property: "og:type",
+                content: "website",
+              }),
+              socialSiteName
+                ? createElement("meta", {
+                    key: "og-site-name",
+                    property: "og:site_name",
+                    content: socialSiteName,
+                  })
+                : null,
+              socialPageUrl
+                ? createElement("meta", {
+                    key: "og-url",
+                    property: "og:url",
+                    content: socialPageUrl,
+                  })
+                : null,
+              createElement("meta", {
                 key: "og-title",
                 property: "og:title",
-                content: marketing!.appName,
+                content: socialAppName,
               }),
               createElement("meta", {
                 key: "og-description",
@@ -2883,7 +2922,7 @@ ${marketingStyles}
               createElement("meta", {
                 key: "og-image-alt",
                 property: "og:image:alt",
-                content: AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+                content: socialImageAlt,
               }),
               createElement("meta", {
                 key: "twitter-card",
@@ -2898,7 +2937,7 @@ ${marketingStyles}
               createElement("meta", {
                 key: "twitter-image-alt",
                 name: "twitter:image:alt",
-                content: AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+                content: socialImageAlt,
               }),
             ]
           : null,

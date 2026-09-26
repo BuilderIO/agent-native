@@ -76,7 +76,10 @@ export default defineAction({
       designId,
       allowPublicViewer: publicVisualEdit === true,
     });
-    const canIssueLiveEditCapability = access.role === "editor";
+    const canIssueLiveEditCapability =
+      access.role === "owner" ||
+      access.role === "admin" ||
+      access.role === "editor";
     const canIssueRegistrationCapability =
       canIssueLiveEditCapability || publicVisualEdit === true;
     const connections = await getDb()

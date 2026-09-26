@@ -338,7 +338,15 @@ export function InboxPage() {
   }, [routeThreadId, optimisticThreadId]);
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
-  const [sortMode, setSortMode] = useState<MailSortMode>("newest");
+  const [sortMode, setSortMode] = useState<MailSortMode>(() => {
+    try {
+      return localStorage.getItem("mail-sort-mode") === "priority"
+        ? "priority"
+        : "newest";
+    } catch {
+      return "newest";
+    }
+  });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const selectedThreadIds = useMemo(
     () => Array.from(selectedIds),
@@ -365,6 +373,21 @@ export function InboxPage() {
   const jevConfigured = jevAvailability.data?.configured === true;
   const showPrioritySort =
     jevConfigured || (jevAvailability.isError && sortMode === "priority");
+  const changeSortMode = useCallback((mode: MailSortMode) => {
+    setSortMode(mode);
+    try {
+      localStorage.setItem("mail-sort-mode", mode);
+      // coercion-ok: server preference remains available when browser storage is restricted.
+    } catch {
+      // The server preference remains available when browser storage is restricted.
+    }
+  }, []);
+  const toggleSortMode = useCallback(() => {
+    if (showPrioritySort) {
+      changeSortMode(sortMode === "priority" ? "newest" : "priority");
+    }
+  }, [changeSortMode, showPrioritySort, sortMode]);
+  useKeyboardShortcuts([{ key: "i", meta: true, handler: toggleSortMode }]);
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
@@ -458,17 +481,31 @@ export function InboxPage() {
   // search path as non-inbox views.
   const isInboxView = view === "inbox" && !searchParams.get("q");
   useEffect(() => {
-    if (!jevAvailability.isSuccess) return;
-    if (!jevConfigured && sortMode === "priority") setSortMode("newest");
-  }, [jevAvailability.isSuccess, jevConfigured, sortMode]);
+    try {
+      if (
+        localStorage.getItem("mail-sort-mode") === null &&
+        settings?.sortMode
+      ) {
+        setSortMode(settings.sortMode);
+      }
+    } catch {
+      if (settings?.sortMode) setSortMode(settings.sortMode);
+    }
+  }, [settings?.sortMode]);
+  useEffect(() => {
+    if (
+      jevAvailability.isSuccess &&
+      !jevConfigured &&
+      sortMode === "priority"
+    ) {
+      changeSortMode("newest");
+    }
+  }, [changeSortMode, jevAvailability.isSuccess, jevConfigured, sortMode]);
   useEffect(() => {
     if (jevAvailability.isError && sortMode === "priority") {
       toast.error(t("mail.sort.priorityFailed"));
     }
   }, [jevAvailability.isError, sortMode, t]);
-  useEffect(() => {
-    if (!isInboxView || activeLabel || searchQuery) setSortMode("newest");
-  }, [activeLabel, isInboxView, searchQuery]);
   const resolvedInboxTab = resolveInboxTabId(searchParams);
   const inboxAccountEmails =
     activeAccounts.size > 0 ? [...activeAccounts] : undefined;
@@ -902,9 +939,9 @@ export function InboxPage() {
     const targetThread = navCommand.threadId;
 
     if (navCommand.sort === "newest") {
-      setSortMode("newest");
+      changeSortMode("newest");
     } else if (navCommand.sort === "priority") {
-      setSortMode(
+      changeSortMode(
         jevAvailability.isError || jevConfigured ? "priority" : "newest",
       );
     }
@@ -1162,7 +1199,7 @@ export function InboxPage() {
             isFetchNextPageError={isFetchNextPageError}
             sortMode={sortMode}
             showPrioritySort={showPrioritySort}
-            onSortModeChange={setSortMode}
+            onSortModeChange={changeSortMode}
           />
         )}
       </div>

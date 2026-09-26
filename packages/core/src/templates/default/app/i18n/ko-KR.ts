@@ -670,6 +670,7 @@ const messages = {
     reviewFeedback: "피드백",
     reviewOutput: "답변 검토",
     reviewPreview: "답변 미리보기",
+    reviewPreviewUnavailable: "미리보기를 사용할 수 없습니다",
     closePreview: "미리보기 숨기기",
     addFeedback: "피드백 추가",
     draftInstruction: "지침 초안",

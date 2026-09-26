@@ -4,12 +4,7 @@ import type {
   ProductionAgentOptions,
 } from "../../agent/production-agent.js";
 import type { ActiveRun } from "../../agent/run-manager.js";
-import type {
-  AgentChatAttachment,
-  AgentChatReference,
-  AgentChatScope,
-  MentionProvider,
-} from "../../agent/types.js";
+import type { AgentChatScope, MentionProvider } from "../../agent/types.js";
 import type { FrameworkToolsConfig } from "../../framework-tools.js";
 import type { McpActionEntryOptions } from "../../mcp-client/index.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
@@ -34,6 +29,11 @@ export interface AgentChatPluginOptions {
    */
   onAgentTurnComplete?: (
     scope: AgentChatScope,
+    run: ActiveRun,
+  ) => void | Promise<void>;
+  /** Best-effort observer called after thread persistence for every completed agent run, including read-only runs. */
+  onAgentRunComplete?: (
+    scope: AgentChatScope | null | undefined,
     run: ActiveRun,
   ) => void | Promise<void>;
   /** Template-specific actions (email ops, booking ops, etc.) */
@@ -216,28 +216,7 @@ export interface AgentChatPluginOptions {
    * before the model sees the message, so apps can translate chat attachments
    * into template-native file handles while preserving the user's visible text.
    */
-  prepareRequest?: (details: {
-    event: any;
-    ownerEmail: string | null;
-    message: string;
-    displayMessage?: string;
-    attachments: AgentChatAttachment[];
-    references: AgentChatReference[];
-    threadId?: string;
-    internalContinuation?: boolean;
-    mode: "act" | "plan";
-  }) =>
-    | void
-    | {
-        message?: string;
-        displayMessage?: string;
-        attachments?: AgentChatAttachment[];
-      }
-    | Promise<void | {
-        message?: string;
-        displayMessage?: string;
-        attachments?: AgentChatAttachment[];
-      }>;
+  prepareRequest?: ProductionAgentOptions["prepareRequest"];
   /**
    * Resolve the exact native action surface for each interactive chat request.
    * Omitted allowlist names are not sent to the model or discoverable through

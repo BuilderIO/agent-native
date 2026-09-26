@@ -1,3 +1,7 @@
+import {
+  compareAndSetManyAppState,
+  readAppState,
+} from "@agent-native/core/application-state";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, isNull } from "drizzle-orm";
@@ -6,6 +10,7 @@ import finalizeRecording from "../../actions/finalize-recording.js";
 import { getDb, schema } from "../db/index.js";
 import {
   MEDIA_VERIFICATION_STATE_PREFIX,
+  mediaVerificationMarkerMatchesUpload,
   parseMediaVerificationMarker,
 } from "../lib/media-verification-state.js";
 import { ownerEmailMatches } from "../lib/recordings.js";
@@ -58,7 +63,8 @@ export async function runMediaVerificationSweepOnce(): Promise<void> {
       marker.status === "pending"
         ? now >= nextAttemptAt + DISPATCH_FALLBACK_GRACE_MS
         : now >= leaseUntil;
-    if (marker.completedAttempts >= MAX_ATTEMPTS || !due) {
+    const hasActiveLease = leaseUntil > now;
+    if (marker.completedAttempts >= MAX_ATTEMPTS || !due || hasActiveLease) {
       continue;
     }
 
@@ -67,6 +73,8 @@ export async function runMediaVerificationSweepOnce(): Promise<void> {
         .select({
           ownerEmail: schema.recordings.ownerEmail,
           orgId: schema.recordings.orgId,
+          videoUrl: schema.recordings.videoUrl,
+          uploadAttemptId: schema.recordings.uploadAttemptId,
           uploadGenerationId: schema.recordings.uploadGenerationId,
         })
         .from(schema.recordings)
@@ -80,6 +88,21 @@ export async function runMediaVerificationSweepOnce(): Promise<void> {
         )
         .limit(1);
       if (!recording) continue;
+      const uploadAttemptId = recording.uploadAttemptId ?? null;
+      const uploadGenerationId = recording.uploadGenerationId ?? null;
+      const hasAttemptIdentity = marker.uploadAttemptId !== undefined;
+      const hasGenerationIdentity = marker.uploadGenerationId !== undefined;
+      if (
+        hasAttemptIdentity !== hasGenerationIdentity ||
+        (hasAttemptIdentity &&
+          !mediaVerificationMarkerMatchesUpload(
+            marker,
+            uploadAttemptId,
+            uploadGenerationId,
+          ))
+      ) {
+        continue;
+      }
 
       await runWithRequestContext(
         {
@@ -87,15 +110,66 @@ export async function runMediaVerificationSweepOnce(): Promise<void> {
           orgId: recording.orgId ?? undefined,
         },
         async () => {
+          if (!hasAttemptIdentity) {
+            const uploadStateKey = `recording-upload-${recordingId}`;
+            const uploadStateRaw = await readAppState(uploadStateKey);
+            if (!uploadStateRaw || typeof uploadStateRaw !== "object") return;
+            const uploadState = uploadStateRaw as Record<string, unknown>;
+            const videoUrl =
+              typeof uploadState.videoUrl === "string"
+                ? uploadState.videoUrl
+                : "";
+            const hasUploadAttemptIdentity =
+              uploadState.uploadAttemptId !== undefined;
+            const hasUploadGenerationIdentity =
+              uploadState.uploadGenerationId !== undefined;
+            if (
+              uploadState.recordingId !== recordingId ||
+              uploadState.status !== "processing" ||
+              uploadState.pendingMediaVerification !== true ||
+              uploadState.mediaVerificationAttempt !==
+                marker.completedAttempts ||
+              !videoUrl.trim() ||
+              recording.videoUrl !== videoUrl ||
+              hasUploadAttemptIdentity !== hasUploadGenerationIdentity ||
+              (hasUploadAttemptIdentity &&
+                (uploadState.uploadAttemptId !== uploadAttemptId ||
+                  uploadState.uploadGenerationId !== uploadGenerationId))
+            ) {
+              return;
+            }
+
+            const uploadStateTagged = await compareAndSetManyAppState([
+              {
+                key,
+                expectedValue: rawState as Record<string, unknown>,
+                nextValue: {
+                  ...(rawState as Record<string, unknown>),
+                  uploadAttemptId,
+                  uploadGenerationId,
+                },
+              },
+              {
+                key: uploadStateKey,
+                expectedValue: uploadState,
+                nextValue: {
+                  ...uploadState,
+                  uploadAttemptId,
+                  uploadGenerationId,
+                },
+              },
+            ]);
+            if (!uploadStateTagged) return;
+          }
+
           await finalizeRecording.run({
             id: recordingId,
             mediaVerificationRetryAttempt: Math.min(
               MAX_ATTEMPTS,
               marker.completedAttempts + 1,
             ),
-            ...(recording.uploadGenerationId
-              ? { uploadGenerationId: recording.uploadGenerationId }
-              : {}),
+            uploadAttemptId,
+            uploadGenerationId,
           });
         },
       );

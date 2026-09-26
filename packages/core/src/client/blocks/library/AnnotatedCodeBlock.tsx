@@ -22,6 +22,7 @@ import {
   type ResolvedAnnotation,
 } from "./annotation-rail.js";
 import { useBlockCopy } from "./block-copy.js";
+import { CopyButton } from "./code-copy-button.js";
 import { CodeFilenameLabel } from "./code-filename-label.js";
 import {
   highlightCode,
@@ -444,7 +445,7 @@ function AnnotatedCodeRead({
   const codeSurface = (
     <div
       ref={codeRef}
-      className="overflow-hidden rounded-xl border border-plan-line bg-plan-code"
+      className="plan-code relative overflow-hidden rounded-xl border border-plan-line bg-plan-code"
     >
       {(hasFilename || showLangChip) && (
         <div className="flex items-center gap-2 border-b border-plan-line bg-plan-block/50 px-3.5 py-2">
@@ -460,7 +461,15 @@ function AnnotatedCodeRead({
               {langChip}
             </span>
           )}
+          <span className="plan-code-chrome">
+            <CopyButton value={data.code} />
+          </span>
         </div>
+      )}
+      {!hasFilename && !showLangChip && (
+        <span className="plan-code-chrome plan-code-chrome-float">
+          <CopyButton value={data.code} />
+        </span>
       )}
       <div className="overflow-x-auto py-1.5" data-code-surface>
         <div className="min-w-full font-mono [font-size:var(--plan-doc-code-size)] leading-[22px]">

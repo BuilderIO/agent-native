@@ -133,6 +133,38 @@ describe("embedding family availability", () => {
     expect(mocks.resolveBuilderGatewayAuth).toHaveBeenCalledOnce();
   });
 
+  it("aborts an in-flight Builder embedding request with the caller signal", async () => {
+    const family = createBuilderEmbeddingFamily({
+      authorization: "Bearer builder-session",
+      spaceId: null,
+      userId: null,
+    });
+    let providerSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, init: RequestInit) => {
+        providerSignal = init.signal as AbortSignal;
+        return await new Promise<Response>((_resolve, reject) => {
+          providerSignal?.addEventListener(
+            "abort",
+            () => reject(providerSignal?.reason),
+            { once: true },
+          );
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    const pending = family.embed([{ text: "active users" }], "query", {
+      signal: controller.signal,
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    controller.abort(new Error("preload deadline"));
+
+    await expect(pending).rejects.toThrow("preload deadline");
+    expect(providerSignal?.aborted).toBe(true);
+  });
+
   it("batches Builder embeddings within the service input size limits", async () => {
     const family = createBuilderEmbeddingFamily({
       authorization: "Bearer builder-session",
