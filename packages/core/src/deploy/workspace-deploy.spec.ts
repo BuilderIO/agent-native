@@ -1372,6 +1372,72 @@ describe("workspace deploy", () => {
     ]);
   });
 
+  it("does not synthesize a Dispatch directory for a workspace without Dispatch", async () => {
+    process.env.APP_URL = "https://community.example.test";
+    makeWorkspaceApp(tmpDir, "account-expert");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    expect(
+      buildCallForApp("account-expert")?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL,
+    ).toBeUndefined();
+    const server = fs.readFileSync(
+      path.join(
+        tmpDir,
+        ".netlify",
+        "functions-internal",
+        "account-expert-server",
+        "account-expert-server.mjs",
+      ),
+      "utf8",
+    );
+    expect(server).not.toContain("directoryOrigin");
+  });
+
+  it.each(["netlify", "vercel"] as const)(
+    "embeds an explicit directory URL in %s runtimes without Dispatch",
+    async (preset) => {
+      const orgDirectoryUrl = "https://directory.example.test";
+      process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = orgDirectoryUrl;
+      makeWorkspaceApp(tmpDir, "account-expert");
+
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset,
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+
+      expect(
+        buildCallForApp("account-expert")?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL,
+      ).toBe(orgDirectoryUrl);
+      const runtimeEntry =
+        preset === "netlify"
+          ? path.join(
+              tmpDir,
+              ".netlify",
+              "functions-internal",
+              "account-expert-server",
+              "account-expert-server.mjs",
+            )
+          : path.join(
+              tmpDir,
+              ".vercel",
+              "output",
+              "functions",
+              "account-expert-server.func",
+              "index.mjs",
+            );
+      const server = fs.readFileSync(runtimeEntry, "utf8");
+      expect(server).toContain(`    "${orgDirectoryUrl}" ||`);
+    },
+  );
+
   it("rejects app ids that conflict with reserved workspace routes", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "login");
