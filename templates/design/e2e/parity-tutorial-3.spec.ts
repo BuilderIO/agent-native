@@ -610,16 +610,25 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
       await page.waitForTimeout(500);
     }
 
-    // Alt-drag duplicate #1.
+    // Alt-drag duplicate #1. Poll instead of a single read after altDrag's
+    // fixed settle delay -- the duplicate's save is debounced, and a slower
+    // CI host can read the file before it lands (matches the Cmd+D poll below).
     await altDrag(originalId, 0, 40);
-    html = await fileContentByName(page, designId, navFilename);
-    ids = textPrimitiveNodeIds(html, "Link");
-    expect(
-      ids,
-      `Figma: Alt/Option-drag leaves the original in place and creates a ` +
-        `copy under the pointer. Expected 2 "Link" texts after one alt-drag, ` +
-        `got ${ids.length}.`,
-    ).toHaveLength(2);
+    await expect
+      .poll(
+        async () => {
+          html = await fileContentByName(page, designId, navFilename);
+          ids = textPrimitiveNodeIds(html, "Link");
+          return ids.length;
+        },
+        {
+          timeout: 15_000,
+          message:
+            `Figma: Alt/Option-drag leaves the original in place and creates a ` +
+            `copy under the pointer. Expected 2 "Link" texts after one alt-drag.`,
+        },
+      )
+      .toBe(2);
     expect(
       ids,
       "the original must still exist after an alt-drag duplicate",
@@ -633,12 +642,19 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
 
     // Alt-drag duplicate #2, off the first copy.
     await altDrag(copy1, 0, 40);
-    html = await fileContentByName(page, designId, navFilename);
-    ids = textPrimitiveNodeIds(html, "Link");
-    expect(
-      ids,
-      `expected 3 "Link" texts after a second alt-drag duplicate, got ${ids.length}`,
-    ).toHaveLength(3);
+    await expect
+      .poll(
+        async () => {
+          html = await fileContentByName(page, designId, navFilename);
+          ids = textPrimitiveNodeIds(html, "Link");
+          return ids.length;
+        },
+        {
+          timeout: 15_000,
+          message: `expected 3 "Link" texts after a second alt-drag duplicate`,
+        },
+      )
+      .toBe(3);
     const copy2 = ids.find((i) => i !== originalId && i !== copy1)!;
 
     // Cmd+D once more on the selection (copy2 is selected after its drag).
