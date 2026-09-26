@@ -63,17 +63,20 @@ export function getDuplicateScreenGeometry(
     (geometry) =>
       geometry.y < rowBottom && geometry.y + geometry.height > sourceGeometry.y,
   );
-  const x = Math.max(
-    sourceGeometry.x + sourceGeometry.width + DUPLICATE_SCREEN_GAP,
-    ...rowGeometries.map(
-      (geometry) => geometry.x + geometry.width + DUPLICATE_SCREEN_GAP,
-    ),
+  let x = sourceGeometry.x + sourceGeometry.width + DUPLICATE_SCREEN_GAP;
+  let candidate = { ...sourceGeometry, x, y: sourceGeometry.y };
+  let overlappingGeometry = rowGeometries.find((geometry) =>
+    duplicateGeometriesOverlap(candidate, geometry),
   );
-  const z = Math.max(
-    sourceGeometry.z ?? 0,
-    ...occupiedGeometries.map((geometry) => geometry.z ?? 0),
-  );
-  return { ...sourceGeometry, x, y: sourceGeometry.y, z: z + 1 };
+  while (overlappingGeometry) {
+    x =
+      overlappingGeometry.x + overlappingGeometry.width + DUPLICATE_SCREEN_GAP;
+    candidate = { ...candidate, x };
+    overlappingGeometry = rowGeometries.find((geometry) =>
+      duplicateGeometriesOverlap(candidate, geometry),
+    );
+  }
+  return { ...candidate, z: (sourceGeometry.z ?? 0) + 1 };
 }
 
 function duplicateGeometriesOverlap(

@@ -65,6 +65,35 @@ beforeEach(() => {
 });
 
 describe("getDuplicateScreenGeometry", () => {
+  it("uses the first slot to the right of the source and stacks above it", () => {
+    const source = { x: 200, y: 720, width: 320, height: 240, z: 4 };
+
+    expect(getDuplicateScreenGeometry(source, [])).toEqual({
+      x: 576,
+      y: 720,
+      width: 320,
+      height: 240,
+      z: 5,
+    });
+  });
+
+  it("uses the next free slot instead of jumping past farther screens", () => {
+    const source = { x: 200, y: 720, width: 320, height: 240, z: 4 };
+    const occupied = [
+      { x: 576, y: 720, width: 320, height: 240, z: 90 },
+      { x: 1800, y: 720, width: 320, height: 240, z: 100 },
+      { x: 576, y: 1200, width: 320, height: 240, z: 200 },
+    ];
+
+    expect(getDuplicateScreenGeometry(source, occupied)).toEqual({
+      x: 952,
+      y: 720,
+      width: 320,
+      height: 240,
+      z: 5,
+    });
+  });
+
   it("uses a moved source and skips occupied frames in the same row", () => {
     const source = { x: 1000, y: 240, width: 800, height: 600, z: 4 };
     const occupied = [
@@ -77,7 +106,7 @@ describe("getDuplicateScreenGeometry", () => {
       y: 240,
       width: 800,
       height: 600,
-      z: 10,
+      z: 5,
     });
   });
 });

@@ -12641,9 +12641,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           };
         }
       }
+      if (pointerOutsideCurrentParent && (!pointHit || pointHit === document.body || pointHit === document.documentElement) && dropContainerForTarget(target) === currentParent) {
+        target = unnestAbsoluteToScreenRoot(el, clientX, clientY) || target;
+      }
       var container = dropContainerForTarget(target);
       if (ignoreTargetAutoLayout && container && container !== document.body && isAutoLayoutElement(container)) {
-        return {
+        target = {
           anchor: container,
           placement: "inside",
           axis: parentFlowAxis(container),
@@ -12651,11 +12654,32 @@ export const editorChromeBridgeScript: string = `"use strict";
         };
       }
       if (currentParent !== document.body && (container === document.body || container === document.documentElement || target?.anchor === document.body)) {
-        return {
+        target = {
           anchor: currentParent,
           placement: "after",
           axis: "y",
           dropMode: "absolute-container"
+        };
+      }
+      var exitedContainer = el.parentElement;
+      var receivingContainer = exitedContainer && exitedContainer.parentElement;
+      var targetContainer = dropContainerForTarget(target);
+      if (!ignoreTargetAutoLayout && target && exitedContainer && receivingContainer && isContainerDropTarget(exitedContainer) && targetContainer === receivingContainer) {
+        target = {
+          ...target,
+          anchor: exitedContainer,
+          placement: "after",
+          axis: parentFlowAxis(receivingContainer),
+          persistenceAnchor: exitedContainer,
+          persistencePlacement: "after",
+          gridCell: void 0,
+          gridPlacement: void 0,
+          gridDisplacement: void 0,
+          gridDisplacementPlacements: void 0,
+          gridDisplacementPrevStyles: void 0,
+          guideRect: void 0,
+          guideMode: void 0,
+          guidePlacement: void 0
         };
       }
       if (target && target.dropMode === "flow-insert" && container && container !== document.body && isContainerDropTarget(container) && !isAutoLayoutElement(container) && isEmptyDropContainer(container, dragged)) {

@@ -17531,6 +17531,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         };
       }
     }
+    if (
+      pointerOutsideCurrentParent &&
+      (!pointHit ||
+        pointHit === document.body ||
+        pointHit === document.documentElement) &&
+      dropContainerForTarget(target) === currentParent
+    ) {
+      target = unnestAbsoluteToScreenRoot(el, clientX, clientY) || target;
+    }
     var container = dropContainerForTarget(target);
 
     // Figma Ignore auto layout: Control-drag into an auto-layout frame keeps
@@ -17541,7 +17550,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       container !== document.body &&
       isAutoLayoutElement(container)
     ) {
-      return {
+      target = {
         anchor: container,
         placement: "inside",
         axis: parentFlowAxis(container),
@@ -17558,11 +17567,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         container === document.documentElement ||
         target?.anchor === document.body)
     ) {
-      return {
+      target = {
         anchor: currentParent,
         placement: "after",
         axis: "y",
         dropMode: "absolute-container",
+      };
+    }
+
+    // Leaving a frame for its direct parent stacks the layer immediately
+    // above the frame being exited. Pointer geometry chooses the receiving
+    // parent, not this layer stack position; preserve the origin frame for
+    // either pointer path.
+    var exitedContainer = el.parentElement;
+    var receivingContainer = exitedContainer && exitedContainer.parentElement;
+    var targetContainer = dropContainerForTarget(target);
+    if (
+      !ignoreTargetAutoLayout &&
+      target &&
+      exitedContainer &&
+      receivingContainer &&
+      isContainerDropTarget(exitedContainer) &&
+      targetContainer === receivingContainer
+    ) {
+      target = {
+        ...target,
+        anchor: exitedContainer,
+        placement: "after",
+        axis: parentFlowAxis(receivingContainer),
+        persistenceAnchor: exitedContainer,
+        persistencePlacement: "after",
+        gridCell: undefined,
+        gridPlacement: undefined,
+        gridDisplacement: undefined,
+        gridDisplacementPlacements: undefined,
+        gridDisplacementPrevStyles: undefined,
+        guideRect: undefined,
+        guideMode: undefined,
+        guidePlacement: undefined,
       };
     }
 
