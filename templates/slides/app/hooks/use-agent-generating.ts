@@ -1,7 +1,9 @@
 import {
   sendToAgentChatAndConfirm,
+  useAbortRun,
   useAgentChatGenerating,
   useAgentEngineConfigured,
+  useRunStuckDetection,
   type AgentChatMessage,
 } from "@agent-native/core/client/agent-chat";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -74,6 +76,7 @@ type AgentGeneratingSubmitOptions = Pick<
   | "engine"
   | "effort"
   | "submitMessageId"
+  | "targetTabId"
 > & {
   reuseEmptyTab?: boolean;
   attachments?: ReadonlyArray<unknown>;
@@ -82,9 +85,8 @@ type AgentGeneratingSubmitOptions = Pick<
 };
 
 /**
- * Tracks whether an agent chat submission is in progress.
- * Wraps @agent-native/core's useAgentChatGenerating hook, with a timeout
- * fallback so a run that never reports completion can't spin forever.
+ * Tracks chat generation locally and uses durable run health before offering
+ * recovery for a quiet run.
  */
 export function useAgentGenerating(options?: {
   tabId: string | null;
@@ -100,6 +102,11 @@ export function useAgentGenerating(options?: {
   const [recentlyGenerating, setRecentlyGenerating] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const [runError, setRunError] = useState(false);
+  const serverRunState = useRunStuckDetection({
+    threadId: hasTabScope ? scopedTabId : null,
+    enabled: hasTabScope && timedOut,
+  });
+  const abortRun = useAbortRun();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stopDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeSubmitRef = useRef<string | null>(null);
@@ -138,6 +145,25 @@ export function useAgentGenerating(options?: {
   }, [clearWatchdog]);
 
   const providerMissing = engineConfigured.state === "missing";
+  const freshBackgroundWorker =
+    serverRunState.status === "running" &&
+    serverRunState.dispatchMode === "background-processing" &&
+    serverRunState.heartbeatSinceMs != null &&
+    serverRunState.heartbeatSinceMs >= 0 &&
+    serverRunState.heartbeatSinceMs < 30_000;
+  const canContinueAfterStall = Boolean(
+    timedOut &&
+    serverRunState.isStuck &&
+    serverRunState.status === "running" &&
+    serverRunState.runId &&
+    serverRunState.hasInFlightWork === false &&
+    !freshBackgroundWorker,
+  );
+  const abortStalledRun = useCallback(async () => {
+    const runId = serverRunState.runId;
+    if (!canContinueAfterStall || !runId) return false;
+    return (await abortRun(runId, "user_stuck_retry")) === runId;
+  }, [abortRun, canContinueAfterStall, serverRunState.runId]);
 
   useEffect(() => {
     if (!hasTabScope) return;
@@ -439,12 +465,13 @@ export function useAgentGenerating(options?: {
       !providerMissing &&
       stopReason !== "stopped" &&
       (generating || recentlyGenerating) &&
-      !timedOut &&
       !runError,
     runError,
     stopReason,
     observedRun,
     timedOut,
+    canContinueAfterStall,
+    abortStalledRun,
     submit,
     submitAndConfirm,
   };

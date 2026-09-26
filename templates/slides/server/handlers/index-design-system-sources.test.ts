@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockGetMcpOAuthBearerSession = vi.hoisted(() => vi.fn());
+const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockCdnSafeOriginStatus = vi.hoisted(
   () => (status: number) => (status === 502 || status === 504 ? 503 : status),
@@ -24,6 +25,11 @@ vi.mock("@agent-native/core/org", () => ({
   getOrgContext: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/feature-flags", () => ({
+  isFeatureFlagEnabled: (...args: unknown[]) =>
+    mockIsFeatureFlagEnabled(...args),
+}));
+
 vi.mock("../lib/builder-design-system-proxy.js", () => ({
   upsertBuilderProxyDesignSystem: (...args: unknown[]) =>
     mockUpsertBuilderProxyDesignSystem(...args),
@@ -42,6 +48,8 @@ describe("indexDesignSystemSources session-lookup regression", () => {
     mockGetSession.mockReset();
     mockGetMcpOAuthBearerSession.mockReset();
     mockGetMcpOAuthBearerSession.mockResolvedValue(null);
+    mockIsFeatureFlagEnabled.mockReset();
+    mockIsFeatureFlagEnabled.mockResolvedValue(true);
     mockSetResponseStatus.mockReset();
     mockIndexBuilderDesignSystem.mockReset();
     mockUpsertBuilderProxyDesignSystem.mockReset();

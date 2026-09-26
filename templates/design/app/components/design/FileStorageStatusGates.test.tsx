@@ -161,15 +161,20 @@ describe("ImageFillControls file storage gate", () => {
       <ImageFillControls value={{ url: "", fit: "fill" }} onChange={vi.fn()} />,
     );
 
-  it("keeps uploads disabled while the status is loading", async () => {
-    setUploadStatus();
+  it("keeps uploads disabled and offers retry while the status is unresolved", async () => {
+    const status = setUploadStatus();
     await renderControls();
 
     expect(
       container.querySelector<HTMLInputElement>('input[type="file"]')?.disabled,
     ).toBe(true);
     expect(container.querySelector("[data-storage-setup]")).toBeNull();
-    expect(container.textContent).not.toContain("Retry");
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Retry",
+    );
+    expect(retry).toBeTruthy();
+    await act(async () => retry?.click());
+    expect(status.refetch).toHaveBeenCalledOnce();
   });
 
   it("offers a status retry on error without showing setup", async () => {
@@ -260,15 +265,21 @@ describe("DesignBottomToolbar file storage gate", () => {
     await act(async () => imageVideo?.click());
   }
 
-  it("shows retry instead of setup when status is unavailable", async () => {
-    setUploadStatus();
+  it("shows retry instead of setup while status is unresolved", async () => {
+    const initialStatus = setUploadStatus();
     await renderToolbar();
 
     expect(
       container.querySelector<HTMLInputElement>('input[type="file"]')?.disabled,
     ).toBe(true);
     await openImageVideoGate();
-    expect(container.querySelector("[data-dialog]")).toBeNull();
+    expect(container.querySelector("[data-dialog]")).not.toBeNull();
+    const pendingRetry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Retry",
+    );
+    expect(pendingRetry).toBeTruthy();
+    await act(async () => pendingRetry?.click());
+    expect(initialStatus.refetch).toHaveBeenCalledOnce();
 
     const status = setUploadStatus({
       isError: true,

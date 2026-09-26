@@ -36,13 +36,16 @@ import {
   PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
   TextAttachmentAdapter,
 } from "./attachment-accept.js";
+import type { ComposerContextMenuItem } from "./ComposerContextMenu.js";
 import type { ComposerTerminalModeControl } from "./ComposerPlusMenu.js";
+import type { ComposerContextSnapshot } from "./context-items.js";
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
 import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
 import {
   type EngineModelGroup,
   type ComposerAgentEngineState,
+  type AgentChatContextItem,
   type ReasoningEffort,
   useComposerRuntimeAdapters,
 } from "./runtime-adapters.js";
@@ -77,9 +80,15 @@ export interface PromptComposerSubmitOptions {
   engine?: string;
   effort?: ReasoningEffort;
   attachments?: ReadonlyArray<unknown>;
+  contextItems?: ComposerContextSnapshot;
 }
 
 export interface PromptComposerProps {
+  contextItems?: readonly AgentChatContextItem[];
+  onRemoveContextItem?: (key: string) => void;
+  onInspectContextItem?: (key: string) => void;
+  onRetryContextItem?: (key: string) => void;
+  contextMenuItems?: readonly ComposerContextMenuItem[];
   /** Called when the user submits the composer. */
   onSubmit: (
     text: string,
@@ -91,6 +100,8 @@ export interface PromptComposerProps {
   /** Accessible name forwarded to the rich text editor. */
   ariaLabel?: string;
   disabled?: boolean;
+  /** Block all submission paths while allowing draft, file, and context staging. */
+  submissionDisabled?: boolean;
   /** Prevent submission while preserving editor focus and draft entry. */
   submitting?: boolean;
   /** Present the primary action as queueing instead of immediate send. */
@@ -120,6 +131,10 @@ export interface PromptComposerProps {
   voiceEnabled?: boolean;
   /** Show file upload controls and pass submitted files to onSubmit (default: true). */
   attachmentsEnabled?: boolean;
+  /** Host-owned file acceptance and staging; the shared composer still owns picker and chips. */
+  attachmentAdapter?: AttachmentAdapter;
+  /** Let hosts extract ordinary uploaded text without also inlining it. */
+  inlineTextAttachments?: boolean;
   /**
    * Controls the shared "+" affordance. Defaults to upload-only for standalone
    * prompt forms; chat surfaces can opt into the full sidebar menu.
@@ -285,6 +300,17 @@ export function shouldGateComposerForEngine(
   return state !== "configured";
 }
 
+/**
+ * Show setup treatment only for a confirmed-missing engine with a setup
+ * component. Unresolved status uses the retry treatment instead.
+ */
+export function shouldGateComposerForMissingEngine(input: {
+  state: string;
+  hasSetupComponent: boolean;
+}): boolean {
+  return input.state === "missing" && input.hasSetupComponent;
+}
+
 export function shouldCheckModelStatus(input: {
   enabled?: boolean;
   selectedEngine?: string;
@@ -306,6 +332,7 @@ export function resolveComposerModelStatusChecksEnabled(input: {
 export async function buildPromptComposerSubmission(options: {
   text: string;
   attachments?: ReadonlyArray<unknown>;
+  inlineTextAttachments?: boolean;
 }): Promise<{ text: string; files: File[] }> {
   const files: File[] = [];
   const pastedTextBlocks: string[] = [];
@@ -322,7 +349,10 @@ export async function buildPromptComposerSubmission(options: {
           files.push(file);
         }
       } else {
-        if (isInlineableTextFile(file)) {
+        if (
+          options.inlineTextAttachments !== false &&
+          isInlineableTextFile(file)
+        ) {
           try {
             pastedTextBlocks.push(
               formatInlineTextFile(file.name, await file.text()),
@@ -530,9 +560,15 @@ function PromptAttachmentStrip() {
 
 function PromptComposerInner({
   onSubmit,
+  contextItems,
+  onRemoveContextItem,
+  onInspectContextItem,
+  onRetryContextItem,
+  contextMenuItems,
   placeholder,
   ariaLabel,
   disabled,
+  submissionDisabled,
   submitting,
   willQueue = false,
   onDisabledClick,
@@ -550,6 +586,7 @@ function PromptComposerInner({
   showAutoModelOption = true,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   attachmentsEnabled = true,
+  inlineTextAttachments = true,
   plusMenuMode,
   terminalModeControl,
   extensionTools = false,
@@ -714,7 +751,7 @@ function PromptComposerInner({
   ]);
 
   useEffect(() => {
-    if (!autoFocus || gateComposer) return;
+    if (!autoFocus || disabled || gateComposer) return;
     const id = window.setTimeout(() => {
       const target =
         typeof handleRef === "object" && handleRef && "current" in handleRef
@@ -723,7 +760,7 @@ function PromptComposerInner({
       target?.focus();
     }, 50);
     return () => window.clearTimeout(id);
-  }, [autoFocus, gateComposer, handleRef]);
+  }, [autoFocus, disabled, gateComposer, handleRef]);
 
   const handleSubmit = useCallback(
     async (
@@ -741,6 +778,7 @@ function PromptComposerInner({
       const { text: finalText, files } = await buildPromptComposerSubmission({
         text,
         attachments,
+        inlineTextAttachments,
       });
       await onSubmit(finalText, files, references, {
         intent: submitOptions?.intent ?? "immediate",
@@ -748,9 +786,18 @@ function PromptComposerInner({
         engine: composerEngine,
         effort: composerEffort,
         attachments,
+        ...(submitOptions?.contextItems === undefined
+          ? {}
+          : { contextItems: submitOptions.contextItems }),
       });
     },
-    [composerEffort, composerEngine, composerModel, onSubmit],
+    [
+      composerEffort,
+      composerEngine,
+      composerModel,
+      onSubmit,
+      inlineTextAttachments,
+    ],
   );
   return (
     <>
@@ -795,7 +842,6 @@ function PromptComposerInner({
       <AgentComposerFrame
         className={cn(
           "text-start",
-          gateComposer && "cursor-pointer",
           (gateComposer || onDisabledClick) &&
             "agent-composer-area--attached-above",
           className,
@@ -809,17 +855,23 @@ function PromptComposerInner({
             ? missingApiKey
               ? bounceMissingKeySetup
               : retryEngineStatus
-            : onDisabledClick
+            : disabled && onDisabledClick
               ? () => onDisabledClick()
               : undefined
         }
       >
         <PromptAttachmentStrip />
         <TiptapComposer
-          ariaLabel={ariaLabel}
+          contextItems={contextItems}
+          contextMenuItems={contextMenuItems}
+          onRemoveContextItem={onRemoveContextItem}
+          onInspectContextItem={onInspectContextItem}
+          onRetryContextItem={onRetryContextItem}
           attachmentsEnabled={attachmentsEnabled}
+          ariaLabel={ariaLabel}
           focusRef={handleRef}
           disabled={disabled || gateComposer}
+          submissionDisabled={submissionDisabled || gateComposer}
           submitting={submitting}
           willQueue={willQueue}
           maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
@@ -901,12 +953,13 @@ function PromptComposerRuntime(props: PromptComposerProps) {
     useComposerRuntimeAdapters().agentChat!.StaleIndexBoundary!;
   const attachmentAdapter = useMemo(
     () =>
+      props.attachmentAdapter ??
       new CompositeAttachmentAdapter([
         new RasterImageAttachmentAdapter(),
         new BinaryDocumentAttachmentAdapter(),
         new TextAttachmentAdapter(),
       ]),
-    [],
+    [props.attachmentAdapter],
   );
   const runtime = useLocalRuntime(NOOP_ADAPTER, {
     adapters: { attachments: attachmentAdapter },

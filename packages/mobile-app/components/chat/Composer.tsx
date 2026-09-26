@@ -432,18 +432,21 @@ export function Composer({
     };
   }, [localRuntimeSelected, retryProviderStatus]);
 
-  const chatReady =
-    target === "computer" ||
-    localRuntimeSelected ||
-    providerStatus === "configured";
+  const chatReady = localRuntimeSelected || providerStatus === "configured";
   const chatReadyRef = useRef(chatReady);
   chatReadyRef.current = chatReady;
+  const targetRef = useRef(target);
+  targetRef.current = target;
 
   const [fileUploadStatus, setFileUploadStatus] =
     useState<FileUploadStatus>("unknown");
   const fileUploadStatusRef = useRef<FileUploadStatus>(fileUploadStatus);
   const fileUploadStatusRequestRef = useRef(0);
   fileUploadStatusRef.current = fileUploadStatus;
+  const canAttachToChat =
+    target !== "computer" && canUseChatAttachments(chatReady, fileUploadStatus);
+  const canAttachToChatRef = useRef(canAttachToChat);
+  canAttachToChatRef.current = canAttachToChat;
 
   const retryFileUploadStatus = useCallback(() => {
     const requestId = ++fileUploadStatusRequestRef.current;
@@ -493,6 +496,7 @@ export function Composer({
   const canSend =
     (text.trim().length > 0 || attachments.length > 0 || actionTag !== null) &&
     !isStreaming &&
+    !(target === "computer" && attachments.length > 0) &&
     canSendChatMessage(chatReady, fileUploadStatus, attachments.length > 0);
 
   // A mention is being typed only when the caret is a collapsed cursor.
@@ -590,6 +594,7 @@ export function Composer({
   const submit = () => {
     if (
       !canSend ||
+      (targetRef.current === "computer" && attachments.length > 0) ||
       !canSendChatMessage(
         chatReadyRef.current,
         fileUploadStatusRef.current,
@@ -617,32 +622,21 @@ export function Composer({
   };
 
   const addAttachment = useCallback((attachment: ChatAttachment | null) => {
-    if (
-      attachment &&
-      canUseChatAttachments(chatReadyRef.current, fileUploadStatusRef.current)
-    ) {
+    if (attachment && canAttachToChatRef.current) {
       setAttachments((current) => [...current, attachment]);
     }
   }, []);
 
   const addAttachments = useCallback((incoming: ChatAttachment[]) => {
-    if (
-      incoming.length > 0 &&
-      canUseChatAttachments(chatReadyRef.current, fileUploadStatusRef.current)
-    ) {
+    if (incoming.length > 0 && canAttachToChatRef.current) {
       setAttachments((current) => [...current, ...incoming]);
     }
   }, []);
 
   useEffect(() => {
-    if (!canUseChatAttachments(chatReady, fileUploadStatus)) return;
+    if (!canAttachToChat) return;
     const recover = () => {
-      if (
-        !canUseChatAttachments(
-          chatReadyRef.current,
-          fileUploadStatusRef.current,
-        )
-      ) {
+      if (!canAttachToChatRef.current) {
         return;
       }
       void ImagePicker.getPendingResultAsync()
@@ -658,7 +652,7 @@ export function Composer({
     recover();
     const unsubscribe = navigation.addListener("focus", recover);
     return unsubscribe;
-  }, [navigation, addAttachment, chatReady, fileUploadStatus]);
+  }, [navigation, addAttachment, canAttachToChat]);
 
   const pendingActionRef = useRef<(() => void) | null>(null);
   const runPendingAction = () => {
@@ -673,45 +667,39 @@ export function Composer({
   };
 
   const handleOpenPlusMenu = () => {
-    if (!chatReady || isStreaming) return;
+    if (!chatReady || target === "computer" || isStreaming) return;
     setMenuScreen("main");
     setPlusMenuOpen(true);
   };
 
   const handleUploadFile = () => {
-    if (!canUseChatAttachments(chatReady, fileUploadStatus) || isStreaming) {
+    if (!canAttachToChat || isStreaming) {
       return;
     }
     closeMenuThen(() => {
-      if (
-        canUseChatAttachments(chatReadyRef.current, fileUploadStatusRef.current)
-      ) {
+      if (canAttachToChatRef.current) {
         void pickAnyFileAttachments().then(addAttachments);
       }
     });
   };
 
   const handleTakePhoto = () => {
-    if (!canUseChatAttachments(chatReady, fileUploadStatus) || isStreaming) {
+    if (!canAttachToChat || isStreaming) {
       return;
     }
     closeMenuThen(() => {
-      if (
-        canUseChatAttachments(chatReadyRef.current, fileUploadStatusRef.current)
-      ) {
+      if (canAttachToChatRef.current) {
         void captureCameraAttachment().then(addAttachment);
       }
     });
   };
 
   const handlePickPhoto = () => {
-    if (!canUseChatAttachments(chatReady, fileUploadStatus) || isStreaming) {
+    if (!canAttachToChat || isStreaming) {
       return;
     }
     closeMenuThen(() => {
-      if (
-        canUseChatAttachments(chatReadyRef.current, fileUploadStatusRef.current)
-      ) {
+      if (canAttachToChatRef.current) {
         void pickPhotoFromLibrary().then(addAttachment);
       }
     });
@@ -723,7 +711,7 @@ export function Composer({
   };
 
   const handleUploadSkillFile = () => {
-    if (!canUseChatAttachments(chatReady, fileUploadStatus) || isStreaming) {
+    if (!canAttachToChat || isStreaming) {
       return;
     }
     setActionTag({
@@ -732,9 +720,7 @@ export function Composer({
       icon: "upload",
     });
     closeMenuThen(() => {
-      if (
-        canUseChatAttachments(chatReadyRef.current, fileUploadStatusRef.current)
-      ) {
+      if (canAttachToChatRef.current) {
         void pickAnyFileAttachments().then(addAttachments);
       }
     });
@@ -928,7 +914,7 @@ export function Composer({
           <Pressable
             className="w-8 h-8 rounded-full items-center justify-center -ml-1 active:opacity-75"
             onPress={handleOpenPlusMenu}
-            disabled={!chatReady || isStreaming}
+            disabled={!chatReady || target === "computer" || isStreaming}
             accessibilityRole="button"
             accessibilityLabel="Actions menu"
           >
@@ -1117,7 +1103,7 @@ export function Composer({
               <ActionMenuRow
                 label="Choose Photo"
                 onPress={handlePickPhoto}
-                disabled={!canUseChatAttachments(chatReady, fileUploadStatus)}
+                disabled={!canAttachToChat}
                 icon={
                   <IconPhoto color={foreground} size={18} strokeWidth={1.8} />
                 }
@@ -1125,7 +1111,7 @@ export function Composer({
               <ActionMenuRow
                 label="Upload File"
                 onPress={handleUploadFile}
-                disabled={!canUseChatAttachments(chatReady, fileUploadStatus)}
+                disabled={!canAttachToChat}
                 icon={
                   <IconUpload color={foreground} size={18} strokeWidth={1.8} />
                 }
@@ -1133,7 +1119,7 @@ export function Composer({
               <ActionMenuRow
                 label="Take Photo"
                 onPress={handleTakePhoto}
-                disabled={!canUseChatAttachments(chatReady, fileUploadStatus)}
+                disabled={!canAttachToChat}
                 icon={
                   <IconCamera color={foreground} size={18} strokeWidth={1.8} />
                 }
@@ -1225,7 +1211,7 @@ export function Composer({
               <ActionMenuRow
                 label="Upload skill file"
                 onPress={handleUploadSkillFile}
-                disabled={!canUseChatAttachments(chatReady, fileUploadStatus)}
+                disabled={!canAttachToChat}
                 icon={
                   <IconUpload color={foreground} size={18} strokeWidth={1.8} />
                 }

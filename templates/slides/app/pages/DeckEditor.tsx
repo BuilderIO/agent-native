@@ -1118,6 +1118,8 @@ export default function DeckEditor() {
       runError: attemptRunError,
       stopReason: attemptStopReason,
       timedOut: attemptTimedOut,
+      canContinueAfterStall: attemptCanContinueAfterStall,
+      abortStalledRun: abortStalledGeneration,
       submitAndConfirm: submitGenerationAttemptAndConfirm,
     },
     generating: newDeckGenerationSignal,
@@ -1137,6 +1139,7 @@ export default function DeckEditor() {
   useEffect(() => {
     if (
       !attemptTimedOut ||
+      !attemptCanContinueAfterStall ||
       !wasNewDeckCreation.current ||
       !generationAttemptId ||
       !id ||
@@ -1149,10 +1152,11 @@ export default function DeckEditor() {
       description: t("deckEditor.generationStalledDescription"),
       action: {
         label: t("deckEditor.continueInChat"),
-        onClick: () =>
-          sendToAgentChat({
-            message: t("deckEditor.continueGenerationPrompt"),
-            context: [
+        onClick: async () => {
+          if (!(await abortStalledGeneration())) return;
+          await submitGenerationAttemptAndConfirm(
+            t("deckEditor.continueGenerationPrompt"),
+            [
               `Deck ID: ${id}`,
               `Current slide count: ${slideCount}`,
               targetSlideCount !== null
@@ -1161,20 +1165,27 @@ export default function DeckEditor() {
             ]
               .filter(Boolean)
               .join("\n"),
-            submit: true,
-            openSidebar: true,
-            targetTabId: generationAttemptTabId,
-          }),
+            {
+              generationAttemptId,
+              generationOutputId: id,
+              openSidebar: true,
+              targetTabId: generationAttemptTabId,
+            },
+          );
+        },
       },
     });
   }, [
     attemptTimedOut,
+    attemptCanContinueAfterStall,
+    abortStalledGeneration,
     generationAttemptId,
     generationAttemptTabId,
     id,
     slideCount,
     t,
     targetSlideCount,
+    submitGenerationAttemptAndConfirm,
   ]);
 
   useEffect(() => {

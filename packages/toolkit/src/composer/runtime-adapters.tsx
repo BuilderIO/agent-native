@@ -84,11 +84,16 @@ export interface AgentChatContextItem {
   key: string;
   title: string;
   context: string;
+  status?: "ready" | "pending" | "error";
+  statusMessage?: string;
+  removable?: boolean;
+  blocksSubmission?: boolean;
 }
 
 export interface ComposerAgentChatMessage {
   message: string;
   context?: string;
+  contextItems?: readonly Readonly<AgentChatContextItem>[];
   mode?: "plan" | "act";
   submit?: boolean;
 }
@@ -361,7 +366,7 @@ export const AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE =
   "agent-native:insert-composer-reference";
 
 export function formatPromptContextItems(
-  items: AgentChatContextItem[] | undefined,
+  items: readonly AgentChatContextItem[] | undefined,
 ): string {
   return (
     items

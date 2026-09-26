@@ -23,7 +23,9 @@ import {
   type DeckFitState,
 } from "../shared/slide-fit.js";
 import { readAppStateForCurrentTab } from "./_tab-state.js";
+import getDeckTemplate from "./get-deck-template.js";
 import getDesignSystem from "./get-design-system.js";
+import listDeckTemplates from "./list-deck-templates.js";
 
 type CurrentSlideFitMeasurement = DeckFitState["slides"][string] & {
   slideId: string;
@@ -107,6 +109,8 @@ export default defineAction({
     const navigation = (await readAppStateForCurrentTab("navigation")) as {
       view?: string;
       deckId?: string;
+      templateId?: string;
+      search?: string;
       deckFilter?: "all" | "created-by-me";
       slideNumber?: number;
       slideIndex?: number;
@@ -129,6 +133,38 @@ export default defineAction({
             navigation?.deckId === scopedDeckId ? navigation.slideIndex : 0,
         }
       : navigation;
+    if (
+      !scopedDeckId &&
+      (navigation?.view === "templates" || navigation?.templateId)
+    ) {
+      const result = await listDeckTemplates.run({
+        search: navigation.search,
+        page: 1,
+        pageSize: 6,
+        includePreview: "false",
+      });
+      const selected = navigation.templateId
+        ? await getDeckTemplate.run({ id: navigation.templateId })
+        : null;
+      return [
+        "## Current Screen",
+        `view: ${navigation.view ?? "list"}`,
+        `templateSearch: ${navigation.search ?? ""}`,
+        ...(selected
+          ? [
+              `templateId: ${selected.id}`,
+              `templateTitle: ${selected.title}`,
+              `slideCount: ${selected.slideCount}`,
+            ]
+          : []),
+        "### Templates",
+        ...result.templates.map(
+          (template) =>
+            `- id=${template.id} title=${JSON.stringify(template.title)} slides=${template.slideCount}`,
+        ),
+        "Use get-deck-template to inspect a template, then create-deck-from-template to save an editable copy without AI generation.",
+      ].join("\n");
+    }
     const db = getDb();
 
     // ─── Editor view: user has a specific deck open ─────────────────────

@@ -1429,6 +1429,11 @@ const messages = {
     disconnected: "تم فصل الميكروفون.",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "تعذّر فتح Builder.io. إذا كان التطبيق مضمّنًا في محادثة، فافتحه في علامة تبويب بالمتصفح؛ وإلا فاسمح بالنوافذ المنبثقة لهذا الموقع ثم حاول مجددًا.",
+    builderConnectError:
+      "تعذّر الاتصال بـ Builder.io. حاول مرة أخرى أو تواصل مع الدعم.",
+    checkingBuilderConnection: "جارٍ التحقق من اتصال Builder…",
     builderTimeout:
       "لم يصل رد من Builder خلال 5 دقائق. تحقق من النافذة المنبثقة وحاول مرة أخرى.",
     builderConnected: "Builder.io متصل",

@@ -1,5 +1,7 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { docsUrl } from "@agent-native/core/shared";
 import { parseFigmaFileKey } from "@shared/figma-url";
 import {
@@ -52,6 +54,11 @@ import {
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
 } from "@/lib/figma-connection";
+import {
+  readPendingDesignImport,
+  clearPendingDesignImport,
+  claimPendingDesignImport,
+} from "@/lib/pending-import";
 import { cn } from "@/lib/utils";
 
 import type { DesignExtensionSlotContext } from "./DesignExtensionsPanel";
@@ -82,10 +89,14 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   const formatNumber = formatters.formatNumber.bind(formatters);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const fileUploadStatus = useFileUploadStatus();
   const importSource = useActionMutation("import-design-source");
   const importFigmaFrame = useActionMutation("import-figma-frame");
   const figFileInputRef = useRef<HTMLInputElement | null>(null);
   const htmlFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [homeImport, setHomeImport] = useState(() =>
+    readPendingDesignImport(context.designId),
+  );
   const [figmaUrl, setFigmaUrl] = useState("");
   const [figmaAccessToken, setFigmaAccessToken] = useState("");
   const [figmaConnectionChecked, setFigmaConnectionChecked] = useState(false);
@@ -117,6 +128,8 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     total: number;
   } | null>(null);
   const [figUploadBusy, setFigUploadBusy] = useState(false);
+  const [figUploadStorageRequired, setFigUploadStorageRequired] =
+    useState(false);
   const [figImportPreview, setFigImportPreview] =
     useState<FigImportPreview | null>(null);
   const [figImportSelection, setFigImportSelection] = useState<Set<string>>(
@@ -124,6 +137,21 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   );
   const pendingFigImportRef = useRef<PreparedFigImport | null>(null);
   const unmountedRef = useRef(false);
+
+  const ensureStorageForFigFallback = useCallback(async () => {
+    const status = fileUploadStatus.isSuccess
+      ? fileUploadStatus
+      : await fileUploadStatus.refetch();
+    const configured = status.isSuccess && status.data.configured === true;
+    setFigUploadStorageRequired(!configured);
+    return configured;
+  }, [fileUploadStatus]);
+
+  useEffect(() => {
+    if (fileUploadStatus.isSuccess && fileUploadStatus.data.configured) {
+      setFigUploadStorageRequired(false);
+    }
+  }, [fileUploadStatus.data?.configured, fileUploadStatus.isSuccess]);
 
   // A prepared import holds a Worker with the decoded document in it.
   useEffect(() => {
@@ -146,6 +174,8 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   const finishImport = useCallback(
     async (result: ImportResult | undefined, fallback: string) => {
       if (result?.error) throw new Error(result.error);
+      clearPendingDesignImport(context.designId);
+      setHomeImport(undefined);
       setLastResult(result ?? null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["action", "get-design"] }),
@@ -370,6 +400,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
             "[fig-import] in-browser conversion failed; falling back to the upload route.",
             localError,
           );
+          if (!(await ensureStorageForFigFallback())) return;
           setFigUploadPhase("uploading");
           result = await uploadDesignFile({
             designId: context.designId,
@@ -384,7 +415,13 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
         clearFigUploadState();
       }
     },
-    [clearFigUploadState, context.designId, finishImport, t],
+    [
+      clearFigUploadState,
+      context.designId,
+      ensureStorageForFigFallback,
+      finishImport,
+      t,
+    ],
   );
 
   const handleFigFileChange = useCallback(
@@ -442,6 +479,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
             "[fig-import] in-browser decode failed; falling back to the upload route.",
             localError,
           );
+          if (!(await ensureStorageForFigFallback())) return;
           setFigUploadPhase("uploading");
           const result = await uploadDesignFile({
             designId: context.designId,
@@ -466,11 +504,19 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     [
       clearFigUploadState,
       context.designId,
+      ensureStorageForFigFallback,
       finishImport,
       runPreparedFigImport,
       t,
     ],
   );
+
+  useEffect(() => {
+    const pending = readPendingDesignImport(context.designId);
+    setHomeImport(pending);
+    if (claimPendingDesignImport(context.designId))
+      void handleFigFileChange(pending?.file);
+  }, [context.designId, handleFigFileChange]);
 
   const toggleFigImportFrame = useCallback((id: string, checked: boolean) => {
     setFigImportSelection((current) => {
@@ -486,8 +532,10 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     pendingFigImportRef.current = null;
     setFigImportPreview(null);
     setFigImportSelection(new Set());
+    clearPendingDesignImport(context.designId);
+    setHomeImport(undefined);
     clearFigUploadState();
-  }, [clearFigUploadState]);
+  }, [clearFigUploadState, context.designId]);
 
   const confirmFigImport = useCallback(async () => {
     const prepared = pendingFigImportRef.current;
@@ -533,6 +581,19 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       </div>
 
       <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 pt-3">
+        {homeImport?.kind === "file" && !busy ? (
+          <div className="grid gap-2 pb-3">
+            <span className="truncate text-sm">{homeImport.file.name}</span>
+            <Button
+              disabled={busy}
+              onClick={() => {
+                void handleFigFileChange(homeImport.file);
+              }}
+            >
+              {t("homeContext.retry")}
+            </Button>
+          </div>
+        ) : null}
         <div className="space-y-0.5">
           {figmaRateLimitError ? (
             <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5 text-[11px] leading-snug">
@@ -738,6 +799,27 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
               <p className="text-[11px] leading-snug text-muted-foreground">
                 {t("designEditor.import.figUploadDescriptionShort")}
               </p>
+              {figUploadStorageRequired ? (
+                <div
+                  className="space-y-2"
+                  data-testid="fig-upload-storage-gate"
+                >
+                  {!fileUploadStatus.isSuccess ? (
+                    <div className="flex items-center justify-between gap-2 rounded-md border border-border p-2 text-xs text-muted-foreground">
+                      <span>{t("common.genericError")}</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void ensureStorageForFigFallback()}
+                      >
+                        {t("agentChat.common.retry")}
+                      </Button>
+                    </div>
+                  ) : null}
+                  <FileStorageSetupCard />
+                </div>
+              ) : null}
               {figImportPreview ? (
                 <div
                   className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs"

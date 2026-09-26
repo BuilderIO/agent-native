@@ -73,10 +73,10 @@ export function PlanMarkdownEditor({
   const fileUploadStatus = useFileUploadStatus();
   const canUploadImages =
     import.meta.env.DEV ||
-    (!fileUploadStatus.isError && fileUploadStatus.data?.configured === true);
+    (fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true);
   const storageMissing =
     !import.meta.env.DEV &&
-    !fileUploadStatus.isError &&
+    fileUploadStatus.isSuccess &&
     fileUploadStatus.data?.configured === false;
   const t = useT();
   const onSaveRef = useRef(onSave);
@@ -219,7 +219,7 @@ export function PlanMarkdownEditor({
           <FileStorageSetupCard />
         </div>
       ) : null}
-      {fileUploadStatus.isError && editable && !import.meta.env.DEV ? (
+      {!fileUploadStatus.isSuccess && editable && !import.meta.env.DEV ? (
         <div
           className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4"
           role="status"

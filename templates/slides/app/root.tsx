@@ -258,6 +258,15 @@ function AppContent() {
         chatStorageKey="slides"
       >
         <CommandMenu.Group heading={t("root.commandPresentations")}>
+          {location.pathname !== "/templates" ? (
+            <CommandMenu.Item onSelect={() => navigate("/templates")}>
+              {t("templatesPage.title")}
+            </CommandMenu.Item>
+          ) : (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.decks")}
+            </CommandMenu.Item>
+          )}
           {isDeckEditor ? (
             <CommandMenu.Item onSelect={() => navigate("/home")}>
               {t("navigation.decks")}

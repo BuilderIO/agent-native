@@ -452,7 +452,7 @@ export function ImageFillControls({
         />
       </div>
       {fileStorageMissing ? <FileStorageSetupCard /> : null}
-      {fileUploadStatus.isError && (
+      {!fileUploadStatus.isSuccess && (
         <div
           role="alert"
           className="flex items-center justify-between gap-2 text-[10px] leading-snug text-destructive"
@@ -462,7 +462,6 @@ export function ImageFillControls({
             size="sm"
             variant="ghost"
             className="h-6 px-1.5 text-[10px]"
-            disabled={fileUploadStatus.isFetching}
             onClick={() => void fileUploadStatus.refetch()}
           >
             {t("agentChat.common.retry")}

@@ -275,7 +275,7 @@ describe("OutputPreview artifact reads", () => {
 
     expect(mockUseActionQuery).toHaveBeenCalledWith(
       "get-design",
-      { id: "design-1", includeFileContent: false },
+      { id: "design-1", includeFileContent: false, reviewPreview: true },
       expect.objectContaining({ enabled: true }),
     );
     expect(mockUseActionQuery).toHaveBeenCalledWith(
@@ -284,6 +284,7 @@ describe("OutputPreview artifact reads", () => {
         id: "design-1",
         fileId: "file-1",
         includeFileContent: true,
+        reviewPreview: true,
       },
       expect.objectContaining({ enabled: true }),
     );
@@ -344,12 +345,17 @@ describe("OutputPreview artifact reads", () => {
 
     expect(mockUseActionQuery).toHaveBeenCalledWith(
       "get-deck",
-      { id: "deck-1", compact: "true" },
+      { id: "deck-1", compact: "true", reviewPreview: true },
       expect.objectContaining({ enabled: true }),
     );
     expect(mockUseActionQuery).toHaveBeenCalledWith(
       "get-deck",
-      { id: "deck-1", slideId: "slide-1", compact: "false" },
+      {
+        id: "deck-1",
+        slideId: "slide-1",
+        compact: "false",
+        reviewPreview: true,
+      },
       expect.objectContaining({ enabled: true }),
     );
     expect(

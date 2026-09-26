@@ -5,11 +5,13 @@ const mocks = vi.hoisted(() => ({
   shouldSkipPendingGenerationResume: vi.fn(() => false),
   isPendingGenerationStale: vi.fn(() => false),
   formatUploadedFileContext: vi.fn(() => ""),
+  patchPendingGeneration: vi.fn(),
+  loadDesignSystemGenerationContext: vi.fn(),
 }));
 
 vi.mock("@/lib/pending-generation", () => ({
   isPendingGenerationStale: mocks.isPendingGenerationStale,
-  patchPendingGeneration: vi.fn(),
+  patchPendingGeneration: mocks.patchPendingGeneration,
   readPendingGeneration: mocks.readPendingGeneration,
   shouldSkipPendingGenerationResume: mocks.shouldSkipPendingGenerationResume,
 }));
@@ -23,13 +25,13 @@ vi.mock("@/pages/design-editor/creative-context-precedent", () => ({
 }));
 
 vi.mock("@/pages/design-editor/generation-prompt-directives", () => ({
-  designGenerationDirectives: vi.fn(),
-  designIntakeQuestionDirectives: vi.fn(),
-  designTemplateRefinementDirectives: vi.fn(),
-  designVariantGenerationDirectives: vi.fn(),
+  designGenerationDirectives: vi.fn(() => []),
+  designIntakeQuestionDirectives: vi.fn(() => []),
+  designTemplateRefinementDirectives: vi.fn(() => []),
+  designVariantGenerationDirectives: vi.fn(() => []),
   formatUploadedFileContext: mocks.formatUploadedFileContext,
   imageAttachmentsFromUploadedFiles: vi.fn(() => []),
-  loadDesignSystemGenerationContext: vi.fn(),
+  loadDesignSystemGenerationContext: mocks.loadDesignSystemGenerationContext,
   promptRequestsVariantExploration: vi.fn(() => false),
 }));
 
@@ -38,7 +40,27 @@ vi.mock("@/pages/design-editor/intake-question-topics", () => ({
   loadIntakeContextFromAppState: vi.fn(),
 }));
 
+import {
+  SYSTEM_CONTEXT_KEY,
+  TEMPLATE_CONTEXT_KEY,
+} from "@/lib/composer-context";
+
+import { runStartRetryGeneration } from "../commands/start-retry-generation.js";
 import { runResumePendingGeneration } from "./resume-pending-generation.js";
+
+const frozenContext = Object.freeze([
+  Object.freeze({
+    key: SYSTEM_CONTEXT_KEY,
+    title: "Brand",
+    context: "Frozen brand rules",
+  }),
+  Object.freeze({
+    key: "reference",
+    title: "Reference",
+    context: "Frozen source content",
+  }),
+  Object.freeze({ key: TEMPLATE_CONTEXT_KEY, title: "Template", context: "" }),
+]);
 
 function createArgs(
   overrides: Partial<Parameters<typeof runResumePendingGeneration>[0]> = {},
@@ -97,5 +119,96 @@ describe("runResumePendingGeneration", () => {
     expect(args.setHasPendingGeneration).toHaveBeenCalledWith(true);
     expect(args.agentSubmit).not.toHaveBeenCalled();
     expect(mocks.formatUploadedFileContext).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, "template-1"])(
+    "resumes with frozen context and model selection (template: %s)",
+    async (templateId) => {
+      const files = [{ name: "brief.txt", textContent: "Uploaded brief" }];
+      mocks.readPendingGeneration.mockReturnValue({
+        prompt: "Keep the original brief",
+        files,
+        contextItems: frozenContext,
+        designSystemId: "system-1",
+        model: "selected-model",
+        engine: "builder",
+        effort: "high",
+        skipQuestions: true,
+        templateId,
+      });
+      const args = createArgs({
+        creativeContextLabLoading: false,
+        creativeContextEnabled: false,
+      });
+
+      runResumePendingGeneration(args);
+
+      await vi.waitFor(() => expect(args.agentSubmit).toHaveBeenCalledOnce());
+      expect(args.agentSubmit).toHaveBeenCalledWith(
+        "Keep the original brief",
+        expect.stringContaining("Frozen source content"),
+        expect.objectContaining({
+          model: "selected-model",
+          engine: "builder",
+          effort: "high",
+        }),
+      );
+      expect(args.agentSubmit).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.stringContaining("Frozen brand rules"),
+        expect.anything(),
+      );
+      expect(mocks.formatUploadedFileContext).toHaveBeenCalledWith(files);
+      expect(mocks.loadDesignSystemGenerationContext).not.toHaveBeenCalled();
+    },
+  );
+
+  it("retains the same frozen context, attachments and model through retry persistence and submission", async () => {
+    const args = {
+      ...createArgs(),
+      canEditDesign: true,
+      clearAutoRetryTimer: vi.fn(),
+      setRetryablePrompt: vi.fn(),
+    };
+    const promptState = {
+      prompt: "Keep the original brief",
+      files: [
+        {
+          originalName: "brief.txt",
+          filename: "brief.txt",
+          path: "/uploads/brief.txt",
+          size: 14,
+          type: "text/plain",
+          textContent: "Uploaded brief",
+        },
+      ],
+      contextItems: frozenContext,
+      designSystemId: "system-1",
+      model: "selected-model",
+      engine: "builder",
+      effort: "high" as const,
+    };
+
+    await runStartRetryGeneration(args, promptState, 2, "manual");
+
+    expect(mocks.patchPendingGeneration).toHaveBeenCalledWith(
+      "design-1",
+      expect.objectContaining({
+        contextItems: frozenContext,
+        files: promptState.files,
+        model: "selected-model",
+        effort: "high",
+      }),
+    );
+    expect(args.agentSubmit).toHaveBeenCalledWith(
+      promptState.prompt,
+      expect.stringContaining("Frozen source content"),
+      expect.objectContaining({
+        model: "selected-model",
+        engine: "builder",
+        effort: "high",
+      }),
+    );
+    expect(mocks.loadDesignSystemGenerationContext).not.toHaveBeenCalled();
   });
 });

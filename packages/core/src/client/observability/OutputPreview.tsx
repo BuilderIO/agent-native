@@ -105,7 +105,11 @@ function ReviewPreviewFrame({
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const designQuery = useActionQuery<Record<string, unknown>>(
     "get-design",
-    { id: artifactId ?? "", includeFileContent: false },
+    {
+      id: artifactId ?? "",
+      includeFileContent: false,
+      reviewPreview: true,
+    },
     {
       enabled: mounted && artifactAppId === "design" && Boolean(artifactId),
       staleTime: 5 * 60_000,
@@ -137,6 +141,7 @@ function ReviewPreviewFrame({
       id: artifactId ?? "",
       fileId: designFileId ?? "",
       includeFileContent: true,
+      reviewPreview: true,
     },
     {
       enabled:
@@ -148,7 +153,7 @@ function ReviewPreviewFrame({
   );
   const deckQuery = useActionQuery<Record<string, unknown>>(
     "get-deck",
-    { id: artifactId ?? "", compact: "true" },
+    { id: artifactId ?? "", compact: "true", reviewPreview: true },
     {
       enabled: mounted && artifactAppId === "slides" && Boolean(artifactId),
       staleTime: 5 * 60_000,
@@ -177,6 +182,7 @@ function ReviewPreviewFrame({
       id: artifactId ?? "",
       slideId: activeSlideId ?? "",
       compact: "false",
+      reviewPreview: true,
     },
     {
       enabled: mounted && artifactAppId === "slides" && Boolean(activeSlideId),

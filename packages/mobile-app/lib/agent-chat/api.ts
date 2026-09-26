@@ -68,13 +68,14 @@ async function readErrorMessage(response: {
 
 async function jsonRequest<T>(
   path: string,
-  init: { method?: string; body?: unknown } = {},
+  init: { method?: string; body?: unknown; signal?: AbortSignal } = {},
   baseUrl = DEFAULT_CHAT_BASE_URL,
 ): Promise<T> {
   const headers = await authHeaders();
   const response = await fetch(`${baseUrl}${path}`, {
     method: init.method ?? "GET",
     headers,
+    ...(init.signal ? { signal: init.signal } : {}),
     ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
   });
   if (!response.ok) {
@@ -590,11 +591,25 @@ export async function fetchModelCatalog(
 export async function getAgentEngineStatus(
   baseUrl = DEFAULT_CHAT_BASE_URL,
 ): Promise<"configured" | "missing"> {
-  const result = await jsonRequest<{ configured?: unknown }>(
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const request = jsonRequest<{ configured?: unknown }>(
     "/_agent-native/agent-engine/status",
-    {},
+    { signal: controller.signal },
     baseUrl,
   );
+  const timedOut = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(new AgentChatError("Agent engine status request timed out"));
+    }, 10_000);
+  });
+  let result: { configured?: unknown };
+  try {
+    result = await Promise.race([request, timedOut]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
   if (typeof result.configured !== "boolean") {
     throw new AgentChatError("Agent engine status response was incomplete");
   }

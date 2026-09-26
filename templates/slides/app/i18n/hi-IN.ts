@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "{{title}} टेम्पलेट की कार्रवाइयाँ",
+    previewAction: "पूर्वावलोकन",
+    title: "टेम्पलेट",
+    browseAll: "सभी देखें",
+    searchPlaceholder: "टेम्पलेट खोजें…",
+    loading: "टेम्पलेट लोड हो रहे हैं",
+    empty: "आपकी खोज से कोई टेम्पलेट मेल नहीं खाता।",
+    loadFailed: "टेम्पलेट लोड नहीं हो सके।",
+    preview: "टेम्पलेट का पूर्वावलोकन",
+    useTemplate: "टेम्पलेट इस्तेमाल करें",
+    opening: "टेम्पलेट खुल रहा है…",
+    createFailed: "इस टेम्पलेट से प्रेज़ेंटेशन नहीं बनाया जा सका।",
+    previous: "पिछली",
+    next: "अगली",
+    slidePosition: "स्लाइड {{current}} / {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["hi-IN"],
   root: {
     commandPresentations: "प्रेज़ेंटेशन",
@@ -788,6 +805,107 @@ const messages = {
     chooseAnotherFile: "दूसरी फ़ाइल चुनें",
   },
   home: {
+    suggestedPrompts: "सुझाए गए प्रॉम्प्ट",
+    importMenu: {
+      import: "आयात करें",
+      options: "आयात के विकल्प",
+      invalidPdf: "PDF फ़ाइल चुनें।",
+      invalidPptx: "PPTX फ़ाइल चुनें।",
+      invalidFile: "PDF या PPTX फ़ाइल चुनें।",
+      notStarted: "ज़रूरी साइन इन पूरा करें, फिर आयात दोबारा आज़माएँ।",
+    },
+    importDeck: "प्रस्तुति आयात करें",
+    context: {
+      websiteReference: "वेबसाइट जोड़ें",
+      websiteUrlLabel: "वेबसाइट URL",
+      websiteUrl: "वेबसाइट का URL पेस्ट करें",
+      figmaUrlLabel: "Figma लिंक",
+      invalidFigmaUrl: "figma.com फ़्रेम या फ़ाइल का मान्य URL दर्ज करें।",
+      createSystem: "डिज़ाइन सिस्टम बनाएँ",
+      noSystems:
+        "आपके पास अभी कोई डिज़ाइन सिस्टम नहीं है। वेबसाइट, फ़ाइलों या Figma से एक बनाएँ।",
+      searchSystems: "डिज़ाइन सिस्टम खोजें…",
+      searchFrames: "Figma फ़्रेम खोजें…",
+      searchDesigns: "डिज़ाइन खोजें…",
+      searchPresentations: "प्रस्तुतियाँ खोजें…",
+      menu: {
+        system: "डिज़ाइन सिस्टम का उपयोग करें",
+        figma: "Figma संलग्न करें",
+        design: "डिज़ाइन का संदर्भ लें",
+        deck: "प्रस्तुति का संदर्भ लें",
+        searchDesign: "डिज़ाइन खोजें…",
+      },
+      loadFailed: "यह संदर्भ लोड नहीं हो सका। फिर कोशिश करें।",
+      saveFailed: "संदर्भ का चयन सहेजा नहीं जा सका।",
+      system: "डिज़ाइन सिस्टम",
+      figmaUrl: "Figma लिंक पेस्ट करें",
+      browse: "फ़्रेम देखें",
+      empty: "कोई संदर्भ नहीं मिला।",
+      previous: "पिछला",
+      next: "अगला",
+      title: "संदर्भ",
+      remove: "संदर्भ हटाएं",
+      deck: "प्रस्तुतियां",
+      design: "डिज़ाइन संदर्भ",
+      figma: "Figma फ़्रेम",
+      notReady:
+        "संदर्भ लोड हो रहा है या उपलब्ध नहीं है। भेजने से पहले फिर कोशिश करें या उसे हटाएं।",
+      emptySource: "इस स्रोत से उपयोगी संदर्भ नहीं मिला।",
+      tooMany: "अधिकतम 20 संदर्भ चुनें।",
+      search: "संदर्भ खोजें",
+      designCategory: "डिज़ाइन",
+    },
+    quickStart: {
+      invalidUrl: "मान्य HTTP या HTTPS URL दर्ज करें।",
+      starting: "शुरू हो रहा है…",
+      generate: "बनाएं",
+      connectionRequired:
+        "होम प्रॉम्प्ट के ऊपर AI प्रदाता कनेक्ट करें या अपनी AI कुंजी जोड़ें, फिर दोबारा कोशिश करें।",
+      invalidPdf: "PDF फ़ाइल चुनें।",
+      notReady: "लंबित या विफल संदर्भ और कनेक्शन की स्थिति जांचकर फिर कोशिश करें।",
+      tooLong: "स्रोत पाठ 20,000 अक्षरों से कम रखें।",
+      trends: {
+        label: "उद्योग के नवीनतम रुझानों पर प्रस्तुति बनाएं",
+        field: "उद्योग या विषय",
+        prompt:
+          "दिए गए विषय के नवीनतम रुझानों पर शोध करें और वर्तमान स्रोतों के साथ प्रस्तुति बनाएं। बनाने से पहले जानकारी सत्यापित करें।",
+      },
+      notes: {
+        label: "मीटिंग नोट्स को प्रस्तुति में बदलें",
+        field: "मीटिंग नोट्स",
+        prompt:
+          "दिए गए मीटिंग नोट्स से मुख्य बातें, निर्णय और अगले कदम शामिल करते हुए प्रस्तुति बनाएं। नोट्स को स्रोत सामग्री के रूप में उपयोग करें।",
+      },
+      pdf: {
+        label: "PDF की मुख्य बातों का सार बनाएं",
+        field: "PDF फ़ाइल",
+        prompt:
+          "संलग्न PDF पढ़ें और उसकी मुख्य बातों का सार प्रस्तुत करने वाली प्रस्तुति बनाएं। अपठनीय सामग्री का अनुमान लगाने के बजाय उसकी जानकारी दें।",
+      },
+      website: {
+        label: "मेरी कंपनी की वेबसाइट से प्रस्तुति बनाएं",
+        field: "कंपनी की वेबसाइट का URL",
+        prompt:
+          "दी गई कंपनी की वेबसाइट पढ़ें और कंपनी के बारे में प्रस्तुति बनाएं। तथ्य गढ़ने के बजाय पहुंच की विफलताओं की जानकारी दें।",
+      },
+    },
+    connectBuilderIo: "Builder.io कनेक्ट करें",
+    connectingBuilder: "Builder.io से कनेक्ट हो रहा है…",
+    recent: "हाल के",
+    starters: {
+      pitch: {
+        label: "प्रस्ताव प्रस्तुति",
+        prompt: "इस विषय पर एक प्रस्ताव प्रस्तुति बनाएँ: ",
+      },
+      update: {
+        label: "परियोजना अपडेट",
+        prompt: "इस परियोजना की प्रगति, परिणाम और अगले चरणों पर अपडेट बनाएँ: ",
+      },
+      lesson: {
+        label: "विषय समझाएँ",
+        prompt: "इस विषय को समझाने वाली प्रस्तुति बनाएँ: ",
+      },
+    },
     loadFailed: "आपका कॉन्टेंट लोड नहीं हो सका",
     loadFailedDescription:
       "आपका सहेजा गया कॉन्टेंट अभी भी उपलब्ध है। कनेक्शन जाँचें और फिर कोशिश करें।",
@@ -822,7 +940,7 @@ const messages = {
     newDeckPromptTitle: "नया प्रेज़ेंटेशन",
     newDeckPlaceholder: "जिस प्रेज़ेंटेशन को आप बनाना चाहते हैं उसका वर्णन करें...",
     skipPrompt: "प्रॉम्प्ट छोड़ें",
-    firstDeckPromptTitle: "हम किस तरह का प्रेज़ेंटेशन बनाएं?",
+    firstDeckPromptTitle: "आइए आपकी पहली प्रस्तुति बनाएं",
     firstDeckSkip: "छोड़ें",
     chooseReferences: "संदर्भ चुनें",
     addDesignSystem: "+ डिज़ाइन सिस्टम",

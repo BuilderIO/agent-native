@@ -32,7 +32,8 @@ function PlanImageNodeView({
   const t = useT();
   const fileUploadStatus = useFileUploadStatus();
   const canUploadImages =
-    import.meta.env.DEV || fileUploadStatus.data?.configured === true;
+    import.meta.env.DEV ||
+    (fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const src = (node.attrs.src as string) || "";
   const alt = (node.attrs.alt as string) || "";

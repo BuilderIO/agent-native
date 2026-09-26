@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fileStorage = vi.hoisted(() => ({
   data: { configured: true } as { configured: boolean } | undefined,
+  isSuccess: true as boolean,
   isError: false as boolean,
   refetch: vi.fn(),
 }));
@@ -33,6 +34,7 @@ let root: Root;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   fileStorage.data = { configured: true };
+  fileStorage.isSuccess = true;
   fileStorage.isError = false;
   fileStorage.refetch.mockClear();
   container = document.createElement("div");
@@ -118,6 +120,43 @@ describe("PlanDocumentEditor image node", () => {
     expect(container.textContent).not.toContain(
       "plansPage.loadError.storageStatusUnavailable",
     );
+  });
+
+  it("does not enable image replacement from stale configured storage data", async () => {
+    vi.stubEnv("DEV", false);
+    fileStorage.data = { configured: true };
+    fileStorage.isSuccess = false;
+    fileStorage.isError = true;
+    const content: PlanContent = {
+      version: 2,
+      blocks: [
+        {
+          id: "rich-text-with-image",
+          type: "rich-text",
+          data: { markdown: `![A cat](${IMAGE_SRC})` },
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(
+        <PlanDocumentEditor
+          content={content}
+          editable
+          onBlocksChange={vi.fn()}
+        />,
+      );
+    });
+    await flushEditorEffects();
+
+    expect(
+      container.querySelector<HTMLInputElement>(
+        ".plan-image-node input[type=file]",
+      )?.disabled,
+    ).toBe(true);
+    expect(
+      container.querySelector("[data-testid=file-storage-setup-card]"),
+    ).toBeNull();
   });
 
   it("mounts markdown images without reading editor.view.dom before the view exists", async () => {

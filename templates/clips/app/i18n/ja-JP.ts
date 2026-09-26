@@ -1443,6 +1443,11 @@ const messages = {
     disconnected: "マイクが切断されました。",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "Builder.io を開けませんでした。このアプリがチャットに埋め込まれている場合は、ブラウザーのタブで開いてください。それ以外の場合は、このサイトのポップアップを許可して再試行してください。",
+    builderConnectError:
+      "Builder.io に接続できませんでした。もう一度お試しいただくか、サポートにお問い合わせください。",
+    checkingBuilderConnection: "Builder への接続を確認しています…",
     builderTimeout:
       "5分以内に Builder から応答がありませんでした。ポップアップを確認してもう一度お試しください。",
     builderConnected: "Builder.io 接続済み",

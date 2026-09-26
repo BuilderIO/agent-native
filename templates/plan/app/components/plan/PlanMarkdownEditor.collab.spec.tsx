@@ -10,6 +10,7 @@ const collab = vi.hoisted(() => ({
 const editorProps = vi.hoisted(() => vi.fn());
 const fileStorage = vi.hoisted(() => ({
   configured: false,
+  isSuccess: true,
   isError: false,
   refetch: vi.fn(),
   setupCardRendered: false,
@@ -37,9 +38,8 @@ vi.mock("@agent-native/toolkit/editor", () => ({
 vi.mock("@agent-native/core/client/uploads", () => ({
   uploadEditorImage: vi.fn(),
   useFileUploadStatus: () => ({
-    data: fileStorage.isError
-      ? undefined
-      : { configured: fileStorage.configured },
+    data: { configured: fileStorage.configured },
+    isSuccess: fileStorage.isSuccess,
     isError: fileStorage.isError,
     refetch: fileStorage.refetch,
   }),
@@ -63,6 +63,7 @@ describe("PlanMarkdownEditor collaboration initialization", () => {
     editorProps.mockClear();
     collab.initialization = { status: "loading" };
     fileStorage.configured = false;
+    fileStorage.isSuccess = true;
     fileStorage.isError = false;
     fileStorage.refetch.mockClear();
     fileStorage.setupCardRendered = false;
@@ -125,6 +126,7 @@ describe("PlanMarkdownEditor collaboration initialization", () => {
 
   it("offers status retry instead of missing-storage setup after a probe error", () => {
     vi.stubEnv("DEV", false);
+    fileStorage.isSuccess = false;
     fileStorage.isError = true;
     const props = {
       markdown: "Canonical body",
@@ -146,6 +148,31 @@ describe("PlanMarkdownEditor collaboration initialization", () => {
     expect(container.textContent).toContain(
       "plansPage.loadError.storageStatusUnavailable",
     );
+    act(() => retryButton?.click());
+    expect(fileStorage.refetch).toHaveBeenCalledOnce();
+
+    act(() => root.unmount());
+    vi.unstubAllEnvs();
+  });
+
+  it("offers status retry while storage status is still unresolved", () => {
+    vi.stubEnv("DEV", false);
+    fileStorage.isSuccess = false;
+    const props = {
+      markdown: "Canonical body",
+      onSave: vi.fn(),
+    };
+
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    act(() => root.render(<PlanMarkdownEditor {...props} />));
+
+    expect(fileStorage.setupCardRendered).toBe(false);
+    expect(container.textContent).toContain(
+      "plansPage.loadError.storageStatusUnavailable",
+    );
+    const retryButton = container.querySelector("button");
+    expect(retryButton?.textContent).toBe("plansPage.loadError.retry");
     act(() => retryButton?.click());
     expect(fileStorage.refetch).toHaveBeenCalledOnce();
 

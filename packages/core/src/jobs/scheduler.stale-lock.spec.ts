@@ -51,6 +51,10 @@ vi.mock("../chat-threads/store.js", () => ({
 vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: vi.fn(() => []),
   getOwnerActiveApiKey: vi.fn(async () => "test-api-key"),
+  resolveOwnerEngineApiKey: vi.fn(async () => ({
+    apiKey: undefined,
+    apiKeyEnvVar: undefined,
+  })),
   runAgentLoop: runAgentLoopMock,
   filterInitialEngineTools: (tools: unknown[]) => tools,
 }));

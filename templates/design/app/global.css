@@ -7,9 +7,62 @@
 
 @source "./**/*.{ts,tsx}";
 
+.design-home-toolbar {
+  container: design-home-toolbar / inline-size;
+}
+
+.design-template-preview-frame {
+  width: var(--design-template-width);
+  height: var(--design-template-height);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(var(--design-template-scale));
+  transform-origin: center;
+  border: 0;
+  pointer-events: none;
+  backface-visibility: hidden;
+}
+
+.design-template-preview-interactive {
+  pointer-events: auto;
+}
+
+.design-home-header {
+  display: grid;
+  height: auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: 3rem 3rem;
+  row-gap: 0;
+}
+
+.design-home-header-search {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+@container design-home-toolbar (min-width: 72rem) {
+  .design-home-header {
+    grid-template-columns: minmax(0, 1fr) 43.75rem minmax(0, 1fr);
+    grid-template-rows: 3rem;
+  }
+
+  .design-home-header-search {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+
+.design-home-prompt-composer-area.agent-composer-area--hero {
+  padding: 0;
+}
+
 /* Keep agent context available to the Design agent without making the
  * composer carry implementation details as visible chips. */
-[data-design-app] .agent-composer-context-row {
+[data-design-app]
+  .agent-composer-context-row:not(
+    [data-design-home-composer] .agent-composer-context-row
+  ) {
   display: none;
 }
 

@@ -104,7 +104,7 @@ export function DesignBottomToolbar({
     fileUploadStatus.isSuccess && fileUploadStatus.data.configured === true;
   const fileStorageMissing =
     fileUploadStatus.isSuccess && fileUploadStatus.data.configured === false;
-  const fileStorageUnavailable = fileUploadStatus.isError;
+  const fileStorageUnavailable = !fileUploadStatus.isSuccess;
   const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const applePlatform = useApplePlatform();
   const mediaInputRef = useRef<HTMLInputElement>(null);
@@ -472,7 +472,6 @@ export function DesignBottomToolbar({
               <Button
                 size="sm"
                 variant="outline"
-                disabled={fileUploadStatus.isFetching}
                 onClick={() => void fileUploadStatus.refetch()}
               >
                 {t("agentChat.common.retry")}

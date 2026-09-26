@@ -43,9 +43,10 @@ contract.
 - Scale effort to the task. A small, well-specified change is a short read, the
   edit, and the existing checks — not a codebase survey, unrequested tests, or
   browser automation. Save deep exploration for ambiguous or cross-cutting work.
-- In task-owned worktrees, create or switch to a safe task branch when needed
-  without asking; preserve changes and never move peer worktree branches. In
-  shared checkouts, ask before branch changes unless the user authorized them.
+- In task-owned worktrees, make needed safe branch changes without asking.
+  Classify dirty paths first; preserve unrelated work and never move peer or
+  platform branches. Shared checkouts need exact authorization. See
+  `new-branch`.
 - Never add `Co-Authored-By` or other agent attribution to commits.
 - PRs use the current suitable branch and are ready for review by default, not
   drafts, unless requested.

@@ -30,7 +30,7 @@ export function useNewDeckGenerationSignal({
     progressToken,
   });
   const [startedAttemptId, setStartedAttemptId] = useState<string | null>(null);
-  const generating = attempt.generating && !attempt.timedOut;
+  const generating = attempt.generating;
 
   useEffect(() => {
     if (attemptId && (generating || attempt.observedRun)) {

@@ -15,12 +15,12 @@ import { dndHostLog } from "@/components/design/dnd-debug";
 import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import { validateCrossScreenSourceHtmlSnapshot } from "@/components/design/multi-screen/cross-screen-drop";
 import { getPrimaryIframeId } from "@/components/design/multi-screen/iframe-targeting";
-import { sendLinkedScreenPreviewPendingDelete } from "@/components/design/multi-screen/linked-screen-preview";
 import type {
   ElementInfo,
   PortableStyleSnapshot,
   RuntimeStructureDeleteRequest,
   RuntimeStructureInsertRequest,
+  RuntimeStructureRollbackRequest,
 } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
@@ -96,6 +96,103 @@ export function absolutePlacePointForDrop(args: {
 }): { x: number; y: number } {
   if (args.placeAbsoluteOnEmptyScreen) return args.targetLocalPoint;
   return absoluteDropPoint(args.targetLocalPoint, args.targetAnchorRect);
+}
+
+export function releaseCrossScreenDropAdmission(
+  pendingTransactionRef: RefObject<string | null> | undefined,
+  transactionId: string | undefined,
+): boolean {
+  if (
+    !transactionId ||
+    !pendingTransactionRef ||
+    pendingTransactionRef.current !== transactionId
+  ) {
+    return false;
+  }
+  pendingTransactionRef.current = null;
+  return true;
+}
+
+export function resolveCrossScreenMoveFailureRecovery(args: {
+  reason: string;
+  transactionId: string;
+  insertRequest: (RuntimeStructureInsertRequest & { screenId: string }) | null;
+  sourceDeleteRequest:
+    | (RuntimeStructureDeleteRequest & { screenId: string })
+    | null;
+  rollbackRequestId: string;
+  pendingTransactionRef?: RefObject<string | null>;
+}): {
+  rollbackRequest:
+    | (RuntimeStructureRollbackRequest & { screenId: string })
+    | null;
+  sourceDeleteRequest:
+    | (RuntimeStructureDeleteRequest & { screenId: string })
+    | null
+    | undefined;
+} {
+  const insertRequest =
+    args.insertRequest?.transactionId === args.transactionId
+      ? args.insertRequest
+      : null;
+  const sourceDeleteRequest =
+    args.sourceDeleteRequest?.transactionId === args.transactionId
+      ? args.sourceDeleteRequest
+      : null;
+  const destinationDocumentLost =
+    args.reason === "target-canvas-unmounted" ||
+    args.reason === "target-document-replaced";
+  // A lost document discarded its transient insert; only an acknowledged
+  // insert needs the source's pending delete canceled before admission opens.
+  const needsRollback =
+    !destinationDocumentLost &&
+    (args.reason === "board-drop-timeout" ||
+      args.reason === "cross-screen-insert-timeout" ||
+      Boolean(sourceDeleteRequest?.rollbackSelector));
+  const rollbackScreenId =
+    sourceDeleteRequest?.rollbackScreenId ?? insertRequest?.screenId;
+  const sourceDeleteMayHaveApplied = Boolean(
+    sourceDeleteRequest &&
+    (sourceDeleteRequest.cancelRequested ||
+      sourceDeleteRequest.waitForInsertTransaction !== true ||
+      sourceDeleteRequest.rollbackSelector),
+  );
+  const sourceRestorationMustPrecedeRollback =
+    needsRollback && sourceDeleteMayHaveApplied;
+  const rollbackRequest =
+    needsRollback && !sourceRestorationMustPrecedeRollback && rollbackScreenId
+      ? {
+          screenId: rollbackScreenId,
+          requestId: args.rollbackRequestId,
+          transactionId: args.transactionId,
+          selector: sourceDeleteRequest?.rollbackSelector ?? "",
+          sourceId: sourceDeleteRequest?.rollbackSourceId,
+          idempotent: true,
+        }
+      : null;
+  const recoveredSourceDeleteRequest = sourceDeleteRequest
+    ? sourceDeleteMayHaveApplied
+      ? {
+          ...sourceDeleteRequest,
+          cancelRequested: true,
+          ...(sourceRestorationMustPrecedeRollback
+            ? {}
+            : { rollbackSelector: undefined, rollbackSourceId: undefined }),
+        }
+      : null
+    : undefined;
+
+  if (!rollbackRequest && !recoveredSourceDeleteRequest?.cancelRequested) {
+    releaseCrossScreenDropAdmission(
+      args.pendingTransactionRef,
+      args.transactionId,
+    );
+  }
+
+  return {
+    rollbackRequest,
+    sourceDeleteRequest: recoveredSourceDeleteRequest,
+  };
 }
 
 export interface CrossScreenElementDropArgs {
@@ -510,14 +607,6 @@ export function runCrossScreenElementDrop(
     const deleteSelectorCandidates = Array.from(
       new Set([sourceSelector, ...codeLayerSelectorAliases(sourceOwner.node)]),
     ).filter(Boolean);
-    // Conceal the source in the current DOM before the destination insert is
-    // posted. The React prop path below replays it after source-frame reloads.
-    sendLinkedScreenPreviewPendingDelete(sourceScreenId, {
-      selector: sourceSelector,
-      selectorCandidates: deleteSelectorCandidates,
-      requestId: deleteRequestId,
-      transactionId,
-    });
     runtimeStructureInsertRevisionRef.current += 1;
     setRuntimeStructureInsertRequest({
       requestId: runtimeStructureInsertRevisionRef.current,

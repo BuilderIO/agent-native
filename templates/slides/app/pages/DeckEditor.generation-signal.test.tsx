@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   attemptGenerating: false,
   attemptObservedRun: false,
   attemptTimedOut: false,
+  attemptCanContinueAfterStall: false,
   targetTabId: "target-tab",
   scopedCalls: [] as Array<{ attemptId: string | null; tabId: string | null }>,
   startedTabId: null as string | null,
@@ -34,7 +35,13 @@ const mocks = vi.hoisted(() => ({
     async (
       _message: string,
       _context: string,
-      _options?: { submitMessageId?: string },
+      _options?: {
+        submitMessageId?: string;
+        targetTabId?: string;
+        openSidebar?: boolean;
+        generationAttemptId?: string;
+        generationOutputId?: string;
+      },
     ) => ({
       tabId: "target-tab",
       delivered: true,
@@ -43,6 +50,7 @@ const mocks = vi.hoisted(() => ({
   revision: 0,
   listeners: new Set<() => void>(),
   sendToAgentChat: vi.fn(),
+  abortStalledRun: vi.fn(),
   toastError: vi.fn(),
 }));
 
@@ -87,6 +95,8 @@ vi.mock("@/hooks/use-agent-generating", async (importOriginal) => {
         stopReason: null,
         observedRun: isTargetTab && mocks.attemptObservedRun,
         timedOut: mocks.attemptTimedOut,
+        canContinueAfterStall: mocks.attemptCanContinueAfterStall,
+        abortStalledRun: mocks.abortStalledRun,
         submit: vi.fn(),
         submitAndConfirm: mocks.submitAndConfirm,
       };
@@ -308,6 +318,7 @@ describe("DeckEditor generation signal wiring", () => {
       attemptObservedRun: false,
       targetTabId: "target-tab",
       attemptTimedOut: false,
+      attemptCanContinueAfterStall: false,
       startedTabId: null,
       analyticsSessionId: "session-1",
       revision: 0,
@@ -321,6 +332,7 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.submitAndConfirm
       .mockReset()
       .mockResolvedValue({ tabId: "target-tab", delivered: true });
+    mocks.abortStalledRun.mockReset().mockResolvedValue(true);
     mocks.deck.generationContext = {
       generationAttemptId: "attempt-1",
       generationMode: undefined,
@@ -1133,6 +1145,7 @@ describe("DeckEditor generation signal wiring", () => {
 
   it("offers a stalled action-owned generation in its original chat", async () => {
     mocks.attemptTimedOut = true;
+    mocks.attemptCanContinueAfterStall = true;
     mocks.startedTabId = "target-tab";
     mocks.deck.generationContext.generationMode = "action";
     router = createMemoryRouter(
@@ -1160,19 +1173,22 @@ describe("DeckEditor generation signal wiring", () => {
     );
 
     const options = mocks.toastError.mock.calls[0]?.[1] as {
-      action: { onClick: () => void };
+      action: { onClick: () => void | Promise<void> };
     };
-    act(() => options.action.onClick());
+    await act(async () => options.action.onClick());
 
-    expect(mocks.sendToAgentChat).toHaveBeenCalledWith(
+    expect(mocks.abortStalledRun).toHaveBeenCalledOnce();
+    expect(mocks.submitAndConfirm).toHaveBeenCalledWith(
+      "deckEditor.continueGenerationPrompt",
+      expect.stringContaining("Deck ID: deck-1"),
       expect.objectContaining({
-        message: "deckEditor.continueGenerationPrompt",
-        context: expect.stringContaining("Deck ID: deck-1"),
-        submit: true,
         openSidebar: true,
         targetTabId: "target-tab",
+        generationAttemptId: "attempt-1",
+        generationOutputId: "deck-1",
       }),
     );
+    expect(mocks.sendToAgentChat).not.toHaveBeenCalled();
   });
 
   it("keeps a submitted attempt open when pagehide enters the back-forward cache", () => {

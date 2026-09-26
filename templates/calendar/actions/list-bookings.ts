@@ -20,6 +20,7 @@ function rowToBooking(
     | "notes"
     | "fieldResponses"
     | "meetingLink"
+    | "meetingLinkPending"
     | "googleEventId"
     | "status"
     | "createdAt"
@@ -46,6 +47,8 @@ function rowToBooking(
     notes: row.notes ?? undefined,
     fieldResponses,
     meetingLink: row.meetingLink ?? undefined,
+    meetingLinkPending:
+      row.meetingLinkPending && !row.meetingLink ? true : undefined,
     googleEventId: row.googleEventId ?? undefined,
     status: row.status,
     createdAt: row.createdAt,
@@ -77,6 +80,7 @@ export default defineAction({
         notes: schema.bookings.notes,
         fieldResponses: schema.bookings.fieldResponses,
         meetingLink: schema.bookings.meetingLink,
+        meetingLinkPending: schema.bookings.meetingLinkPending,
         googleEventId: schema.bookings.googleEventId,
         status: schema.bookings.status,
         createdAt: schema.bookings.createdAt,

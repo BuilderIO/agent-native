@@ -11,7 +11,11 @@ vi.mock("@/lib/session-token-store", () => ({
   getSessionToken: vi.fn(async () => "mobile-session-token"),
 }));
 
-import { AgentChatError, getFileUploadStatus } from "./api";
+import {
+  AgentChatError,
+  getAgentEngineStatus,
+  getFileUploadStatus,
+} from "./api";
 
 describe("getFileUploadStatus", () => {
   beforeEach(() => {
@@ -19,6 +23,7 @@ describe("getFileUploadStatus", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -65,5 +70,39 @@ describe("getFileUploadStatus", () => {
     );
 
     await expect(getFileUploadStatus()).rejects.toBeInstanceOf(AgentChatError);
+  });
+});
+
+describe("getAgentEngineStatus", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("aborts a hung provider status request", async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            requestSignal = init.signal as AbortSignal;
+            requestSignal.addEventListener("abort", () =>
+              reject(new DOMException("Aborted", "AbortError")),
+            );
+          }),
+      ),
+    );
+
+    const request = getAgentEngineStatus();
+    const rejected = expect(request).rejects.toThrow(
+      "Agent engine status request timed out",
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await rejected;
+    expect(requestSignal?.aborted).toBe(true);
   });
 });

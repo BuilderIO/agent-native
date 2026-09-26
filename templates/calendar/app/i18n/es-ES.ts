@@ -527,6 +527,8 @@ export default {
     confirmBooking: "Confirmar reserva",
     confirmation: "confirmación",
     confirmationSent: "Todo listo. Se ha enviado una confirmación a tu correo.",
+    meetingDetailsPending:
+      "Tu horario está reservado. El anfitrión te enviará los detalles de la reunión.",
     confirmed: "Confirmada",
     confirmedCount: "Confirmadas ({{count}})",
     confirming: "Confirmando",
