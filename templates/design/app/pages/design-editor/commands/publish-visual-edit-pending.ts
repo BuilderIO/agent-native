@@ -12,6 +12,13 @@ export interface PendingVisualEditHandoff {
   } | null;
 }
 
+interface PublishedVisualEditHandoff {
+  designId: string;
+  pendingEditCount: number | null;
+  revision: number | null;
+  status: "empty" | "ready" | "stale";
+}
+
 export interface PublishVisualEditPendingArgs {
   activeScreenBridgeUrl: string | null | undefined;
   activeScreenPreviewToken: string | null | undefined;
@@ -61,7 +68,19 @@ export async function runPublishVisualEditPending(
   const clearRequested = pending.pending === null;
   if (canPublishDurableHandoff) {
     try {
-      await callAction("publish-visual-edit-pending", pending);
+      const result = (await callAction(
+        "publish-visual-edit-pending",
+        pending,
+      )) as PublishedVisualEditHandoff | null;
+      const expectedStatus = clearRequested ? "empty" : "ready";
+      if (
+        result?.designId !== designId ||
+        result.status !== expectedStatus ||
+        !Number.isInteger(result.revision) ||
+        (result.revision ?? 0) < 1
+      ) {
+        throw { errorCode: "visual_edit_handoff_unconfirmed" };
+      }
       setPendingVisualEditPublicationFailed(false);
       if (
         clearRequested &&

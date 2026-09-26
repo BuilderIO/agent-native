@@ -10,6 +10,7 @@ import {
   scheduleCrossScreenDeleteTimeout,
   scheduleCrossScreenInsertTimeout,
   scheduleCrossScreenRollbackTimeout,
+  shouldClearCrossScreenRollbackRequest,
 } from "./cross-screen-insert-timeout";
 
 afterEach(() => {
@@ -118,6 +119,27 @@ describe("crossScreenRollbackDisposition", () => {
         destinationScreenExists: false,
       }),
     ).toBe("discard");
+  });
+
+  it("clears a timed-out rollback once source cancellation owns recovery", () => {
+    expect(
+      shouldClearCrossScreenRollbackRequest({
+        sourceCancellationPending: true,
+        disposition: "preserve-insert",
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearCrossScreenRollbackRequest({
+        sourceCancellationPending: false,
+        disposition: "retain-recovery",
+      }),
+    ).toBe(false);
+    expect(
+      shouldClearCrossScreenRollbackRequest({
+        sourceCancellationPending: false,
+        disposition: "discard",
+      }),
+    ).toBe(true);
   });
 });
 

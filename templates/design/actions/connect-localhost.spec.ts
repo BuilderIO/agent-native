@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 import { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const requestContextMock = vi.hoisted(() => ({
@@ -40,13 +41,17 @@ let upsertConfig: {
   set: Record<string, unknown>;
   setWhere?: unknown;
 } | null = null;
+let selectWhereClauses: unknown[] = [];
 
 function makeSelectChain(rowsForLimit: (limit: number) => unknown[]) {
   return {
     from: () => ({
-      where: () => ({
-        limit: (limit: number) => Promise.resolve(rowsForLimit(limit)),
-      }),
+      where: (condition: unknown) => {
+        selectWhereClauses.push(condition);
+        return {
+          limit: (limit: number) => Promise.resolve(rowsForLimit(limit)),
+        };
+      },
     }),
   };
 }
@@ -113,6 +118,7 @@ beforeEach(() => {
   selectCallCount = 0;
   insertedValues = null;
   upsertConfig = null;
+  selectWhereClauses = [];
 });
 
 describe("connect-localhost", () => {
@@ -209,6 +215,7 @@ describe("connect-localhost", () => {
 
     const result = await action.run({
       devServerUrl: "http://localhost:5173",
+      bridgeUrl: "http://127.0.0.1:7331",
       rootPath: "/tmp/app",
     });
 
@@ -217,6 +224,18 @@ describe("connect-localhost", () => {
     expect(result.id).toBe("localhost_legacy");
     expect(result.previewToken).toBe(
       derivePreviewToken("persisted_bridge_token"),
+    );
+    const legacyLookup = selectWhereClauses
+      .map((condition) => new PgDialect().sqlToQuery(condition as SQL))
+      .find(({ params }) => params.includes("http://localhost:5173"));
+    expect(legacyLookup?.params).toEqual(
+      expect.arrayContaining([
+        "user@example.com",
+        "org_1",
+        "http://localhost:5173",
+        "/tmp/app",
+        "http://127.0.0.1:7331",
+      ]),
     );
   });
 

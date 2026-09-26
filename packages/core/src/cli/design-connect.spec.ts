@@ -372,8 +372,10 @@ describe("design connect CLI", () => {
       port,
     });
     const bridge = await startDesignConnectBridge(manifest);
+    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] = "stale-preview-token";
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       await expect(
         runDesign([
@@ -393,9 +395,13 @@ describe("design connect CLI", () => {
       const output = JSON.stringify([...error.mock.calls, ...log.mock.calls]);
       expect(output).not.toContain(bridge.bridgeToken);
       expect(output).not.toContain(bridge.previewToken);
+      expect(warn).toHaveBeenCalledWith(
+        "Ignoring stale AGENT_NATIVE_PREVIEW_TOKEN; the current bridge token determines the preview token.",
+      );
     } finally {
       log.mockRestore();
       error.mockRestore();
+      warn.mockRestore();
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
       );
@@ -690,13 +696,19 @@ describe("design connect bridge endpoints", () => {
       firstBridge.server.close(() => resolve()),
     );
 
+    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] = "stale-preview-token";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const secondBridge = await startDesignConnectBridge(manifest);
     try {
       expect(secondBridge.bridgeToken).toBe(firstBridge.bridgeToken);
       expect(secondBridge.previewToken).toBe(firstBridge.previewToken);
+      expect(warn).toHaveBeenCalledWith(
+        "Ignoring stale AGENT_NATIVE_PREVIEW_TOKEN; the current bridge token determines the preview token.",
+      );
       const tokenPath = path.join(root, ".agent-native", "design-bridge-token");
       expect(fs.statSync(tokenPath).mode & 0o777).toBe(0o600);
     } finally {
+      warn.mockRestore();
       await new Promise<void>((resolve) =>
         secondBridge.server.close(() => resolve()),
       );

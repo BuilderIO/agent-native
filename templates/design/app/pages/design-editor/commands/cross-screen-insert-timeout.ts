@@ -98,3 +98,13 @@ export function crossScreenRollbackDisposition({
   if (destinationHasPendingInsert) return "preserve-insert";
   return "retain-recovery";
 }
+
+export function shouldClearCrossScreenRollbackRequest({
+  sourceCancellationPending,
+  disposition,
+}: {
+  sourceCancellationPending: boolean;
+  disposition: ReturnType<typeof crossScreenRollbackDisposition>;
+}): boolean {
+  return sourceCancellationPending || disposition === "discard";
+}

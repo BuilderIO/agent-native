@@ -2819,8 +2819,7 @@ export async function startDesignConnectBridge(
     manifest.rootPath,
     configuredBridgeToken,
   );
-  const configuredPreviewToken =
-    options.previewToken || process.env["AGENT_NATIVE_PREVIEW_TOKEN"];
+  const configuredPreviewToken = options.previewToken;
   const derivedPreviewToken = deriveDesignPreviewToken(bridgeToken);
   if (
     configuredPreviewToken &&
@@ -2830,7 +2829,15 @@ export async function startDesignConnectBridge(
       "previewToken must match the deterministic token derived from bridgeToken",
     );
   }
-  const previewToken = configuredPreviewToken || derivedPreviewToken;
+  if (
+    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] &&
+    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] !== derivedPreviewToken
+  ) {
+    console.warn(
+      "Ignoring stale AGENT_NATIVE_PREVIEW_TOKEN; the current bridge token determines the preview token.",
+    );
+  }
+  const previewToken = derivedPreviewToken;
   const configuredOrigins = new Set(
     (options.allowedOrigins ?? []).flatMap((raw): string[] => {
       try {
@@ -4218,7 +4225,7 @@ Options:
   --preview-token <token> Adopt the paired read-only browser preview token.
                           Optional when --bridge-token is present: compatible
                           clients derive the same one-way token automatically.
-                          (also reads AGENT_NATIVE_PREVIEW_TOKEN env)
+                          (stale AGENT_NATIVE_PREVIEW_TOKEN values are ignored)
   --daemon                Start the bridge detached, wait for /health, then exit
   --json                  Print the manifest JSON and exit
   --once                  Prepare/scaffold the manifest and exit
@@ -4464,7 +4471,6 @@ export async function runDesign(argv: string[]) {
     parsed.bridgeToken || process.env["AGENT_NATIVE_BRIDGE_TOKEN"] || undefined;
   const seedPreviewToken =
     parsed.previewToken ||
-    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] ||
     (seedBridgeToken ? deriveDesignPreviewToken(seedBridgeToken) : undefined);
   const appUrl = resolveAppUrl(parsed.appUrl);
   if (parsed.daemon) {
@@ -4473,9 +4479,17 @@ export async function runDesign(argv: string[]) {
       seedBridgeToken,
     );
     const derivedPreviewToken = deriveDesignPreviewToken(bridgeToken);
-    if (seedPreviewToken && seedPreviewToken !== derivedPreviewToken) {
+    if (parsed.previewToken && parsed.previewToken !== derivedPreviewToken) {
       throw new Error(
         "previewToken must match the deterministic token derived from bridgeToken",
+      );
+    }
+    if (
+      process.env["AGENT_NATIVE_PREVIEW_TOKEN"] &&
+      process.env["AGENT_NATIVE_PREVIEW_TOKEN"] !== derivedPreviewToken
+    ) {
+      console.warn(
+        "Ignoring stale AGENT_NATIVE_PREVIEW_TOKEN; the current bridge token determines the preview token.",
       );
     }
     return startDetachedDesignBridge(argv, manifest, bridgeToken);

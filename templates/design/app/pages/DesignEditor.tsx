@@ -685,6 +685,7 @@ import {
   scheduleCrossScreenDeleteTimeout,
   scheduleCrossScreenInsertTimeout,
   scheduleCrossScreenRollbackTimeout,
+  shouldClearCrossScreenRollbackRequest,
 } from "./design-editor/commands/cross-screen-insert-timeout";
 import { runDeleteFiles } from "./design-editor/commands/delete-files";
 import { runDeleteSelection } from "./design-editor/commands/delete-selection";
@@ -17778,15 +17779,24 @@ function DesignEditor() {
               transactionId,
             )
           : null;
+      if (
+        shouldClearCrossScreenRollbackRequest({
+          sourceCancellationPending: Boolean(pendingSourceCancellation),
+          disposition,
+        })
+      ) {
+        setRuntimeStructureRollbackRequest(null);
+      }
       if (pendingSourceCancellation) {
         setRuntimeStructureInsertRequest((current) =>
           current?.transactionId === transactionId ? null : current,
         );
+        // Once the destination rollback returns, source cancellation owns the
+        // remaining recovery; replaying this request can wedge later moves.
         if (disposition === "discard") {
           if (transactionId) {
             discardPendingLiveStructureTransaction(transactionId);
           }
-          setRuntimeStructureRollbackRequest(null);
         }
         setRuntimeStructureDeleteRequest((current) =>
           current?.transactionId === transactionId
@@ -17821,7 +17831,6 @@ function DesignEditor() {
         runtimeStructurePendingTransactionRef,
         transactionId,
       );
-      setRuntimeStructureRollbackRequest(null);
       if (transactionId) {
         setRuntimeStructureDeleteRequest((current) =>
           current?.transactionId === transactionId ? null : current,
@@ -20627,7 +20636,9 @@ function DesignEditor() {
           toast.error(
             errorCode === "visual_edit_pending_conflict"
               ? t("designEditor.toasts.visualEditPendingConflict")
-              : (actionErrorMessage(error) ??
+              : errorCode === "visual_edit_handoff_unconfirmed"
+                ? t("designEditor.toasts.codingHandoffError")
+                : (actionErrorMessage(error) ??
                   t("designEditor.toasts.codingHandoffError")),
             { id: "design-visual-edit-pending-publication" },
           );
