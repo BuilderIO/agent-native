@@ -1,3 +1,9 @@
+## 0.164.8
+
+### Patch Changes
+
+- 939f6d2: Keep the core CLI agent-tool imports formatter-clean for package builds.
+
 ## 0.164.7
 
 ### Patch Changes

@@ -857,6 +857,11 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "البريد الإلكتروني الجديد",
   "settings.emailNewPlaceholder": "أدخل بريدًا إلكترونيًا جديدًا",
   "usage.builderCredits": "أرصدة Builder",
+  "usage.inviteFriends": "ادعُ الأصدقاء",
+  "usage.inviteCredits":
+    "احصل على {{amount}} من أرصدة Builder عندما يشترك صديق.",
+  "usage.copyInviteLink": "نسخ رابط الدعوة",
+  "usage.inviteLinkCopied": "تم نسخ رابط الدعوة",
   "usage.creditBalance": "رصيد مساحة العمل",
   "usage.monthlyPlan": "الخطة الشهرية",
   "usage.dailyFreeLimit": "الحد اليومي المجاني",
