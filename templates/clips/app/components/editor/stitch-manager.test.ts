@@ -38,5 +38,8 @@ describe("StitchManager layout", () => {
     expect(storageCheckIndex).toBeLessThan(exportIndex);
     expect(storageCheckIndex).toBeLessThan(createIndex);
     expect(source).toContain("<FileStorageSetupPopover");
+    expect(source).toMatch(
+      /if \(storageConfigured\) setStorageSetupOpen\(false\);/,
+    );
   });
 });

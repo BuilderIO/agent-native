@@ -66,6 +66,10 @@ export function StitchManager({
   const storageConfigured =
     storageStatus.data?.configured === true && !storageStatus.isError;
 
+  useEffect(() => {
+    if (storageConfigured) setStorageSetupOpen(false);
+  }, [storageConfigured]);
+
   const listQuery = useActionQuery("list-recordings", {
     includeMedia: true,
   });
