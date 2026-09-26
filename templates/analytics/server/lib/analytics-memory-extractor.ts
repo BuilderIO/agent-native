@@ -21,6 +21,39 @@ export type AnalyticsMemoryCandidate = {
 const MAX_MESSAGES = 80;
 const MAX_SOURCE_CHARS = 320;
 const MAX_CANDIDATES = 5;
+const TECHNICAL_NAMES = new Set([
+  "athena",
+  "active",
+  "all",
+  "bigquery",
+  "data",
+  "databricks",
+  "daily",
+  "first",
+  "for",
+  "googlecloud",
+  "googlesql",
+  "looker",
+  "metric",
+  "metabase",
+  "mysql",
+  "new",
+  "our",
+  "postgres",
+  "postgresql",
+  "powerbi",
+  "redshift",
+  "revenue",
+  "snowflake",
+  "tableau",
+  "the",
+  "this",
+  "trino",
+  "trial",
+  "use",
+  "when",
+  "your",
+]);
 const CONFIRMATION =
   /^(?:yes|yeah|yep|correct|confirmed|exactly|that's right|that is right|that's correct|that is correct|you got it)(?:[.!\s,]|$)/i;
 const STOP_WORDS = new Set([
@@ -48,6 +81,24 @@ function normalize(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+function containsLikelyCustomerOrPersonName(text: string): boolean {
+  const labeledName =
+    /\b(?:customer|client|person|contact|subscriber|account|workspace|organization|org)\s+(?:(?:named|called)\s+)?(?:[A-Z][\p{L}'-]{2,}|[a-z][\p{L}'-]{2,}\s+(?:should|must|uses|use|needs|requires|has|is|was)\b)/u.test(
+      text,
+    );
+  if (labeledName) return true;
+
+  const leadingName =
+    /^([A-Z][\p{L}'-]{2,}(?:\s+[A-Z][\p{L}'-]{2,}){0,2})(?:['’]s)?\s+(?:should|must|uses|use|needs|requires|has|is|was|owns|prefers|wants|said|says|means|equals|starts|returns)\b/u.exec(
+      text,
+    );
+  const leadingNameWords = leadingName?.[1]?.trim().split(/\s+/) ?? [];
+  return Boolean(
+    leadingName &&
+    !leadingNameWords.every((word) => TECHNICAL_NAMES.has(word.toLowerCase())),
+  );
+}
+
 function isUnsafe(text: string): boolean {
   return (
     text.length > MAX_SOURCE_CHARS ||
@@ -56,7 +107,10 @@ function isUnsafe(text: string): boolean {
       text,
     ) ||
     /[{};]|=>|\$\{/.test(text) ||
-    /\b(?:api\s*key|access\s*token|password|secret|bearer|ssn|social security|credit card|card number|my name is|my email is|my phone|home address|date of birth)\b/i.test(
+    /\b(?:api\s*key|api\s*token|access\s*token|auth(?:entication)?\s*token|password|passphrase|credential|private\s+key|secret\s+key|client\s+secret|signing\s+key|secret|bearer|ssn|social security|credit card|card number|my name is|my email is|my phone|home address|date of birth)\b/i.test(
+      text,
+    ) ||
+    /\b(?=[A-Za-z0-9_-]{32,}\b)(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]+\b/.test(
       text,
     ) ||
     /\b(?:customer|client|user|subscriber|contact|account|workspace|organization|org)\s*(?:#|\s+(?:id|number|no\.?))?\s*[:=]?\s*(?:[A-Z][A-Z0-9_-]{3,}|\d{4,})\b/.test(
@@ -65,6 +119,7 @@ function isUnsafe(text: string): boolean {
     /\b(?:customer|client|subscriber|contact)\s+(?:named\s+)?[A-Z][\p{L}'-]{2,}\b/u.test(
       text,
     ) ||
+    containsLikelyCustomerOrPersonName(text) ||
     /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(text) ||
     /\b(?:\+?\d[ .()-]*){10,}\b/.test(text)
   );

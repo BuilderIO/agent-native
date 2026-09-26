@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -380,7 +382,10 @@ describe("preloadJevContextForPrompt", () => {
       mocks.resourceGetByPath.mock.calls
         .map(([, path]) => path)
         .filter((path) => path !== "memory/MEMORY.md"),
-    ).toEqual(["memory/selected-memory.md"]);
+    ).toEqual([
+      `memory/organizations/${createHash("sha256").update("org-test").digest("hex")}/MEMORY.md`,
+      "memory/selected-memory.md",
+    ]);
     const rankedCandidates = mocks.rankJevCandidates.mock.calls.flatMap(
       ([options]) =>
         (options as { candidates: Array<{ description: string }> }).candidates,
@@ -455,7 +460,64 @@ describe("preloadJevContextForPrompt", () => {
     expect(result).not.toContain("stale query preference");
     expect(mocks.resourceGetByPath.mock.calls.map(([, path]) => path)).toEqual([
       "memory/MEMORY.md",
+      `memory/organizations/${createHash("sha256").update("org-test").digest("hex")}/MEMORY.md`,
     ]);
+  });
+
+  it("loads only private memory for the active org and rejects index traversal", async () => {
+    const owner = "user@example.test";
+    const orgId = "org-a";
+    const otherOrgId = "org-b";
+    const orgDirectory = `memory/organizations/${createHash("sha256").update(orgId).digest("hex")}`;
+    const otherOrgDirectory = `memory/organizations/${createHash("sha256").update(otherOrgId).digest("hex")}`;
+    mocks.getRuntimeSkills.mockReturnValue([]);
+    mocks.resourceGetByPath.mockImplementation(
+      async (resourceOwner: string, path: string) => {
+        if (resourceOwner !== owner) return null;
+        if (path === "memory/MEMORY.md") return null;
+        if (path === `${orgDirectory}/MEMORY.md`) {
+          return {
+            content: [
+              "# Memory Index",
+              `- [other-org](../${otherOrgDirectory}/MEMORY.md) — Never read this cross-org entry.`,
+              "- [dialect](dialect.md) — Use BigQuery STRING instead of ILIKE.",
+            ].join("\n"),
+          };
+        }
+        if (path === `${orgDirectory}/dialect.md`) {
+          return { content: "For this organization, use BigQuery STRING." };
+        }
+        if (path === `${otherOrgDirectory}/other-org.md`) {
+          return { content: "This must stay in another organization." };
+        }
+        return null;
+      },
+    );
+    mocks.rankJevCandidates.mockImplementation((input: any) => {
+      const candidate = input.candidates.find(
+        (item: any) =>
+          item.metadata?.kind === "personal-memory" &&
+          item.metadata?.scope === "current-org",
+      );
+      return candidate ? [candidate.id] : [];
+    });
+
+    const result = await preloadJevContextForPrompt({
+      request: "How should I query active users?",
+      apiKey: "jev-test-key",
+      owner,
+      orgId,
+    });
+
+    expect(result).toContain("For this organization, use BigQuery STRING.");
+    expect(result).not.toContain("This must stay in another organization.");
+    const readPaths = mocks.resourceGetByPath.mock.calls.map(
+      ([, path]) => path,
+    );
+    expect(readPaths).toContain(`${orgDirectory}/MEMORY.md`);
+    expect(readPaths).toContain(`${orgDirectory}/dialect.md`);
+    expect(readPaths).not.toContain(`${otherOrgDirectory}/MEMORY.md`);
+    expect(readPaths).not.toContain(`${otherOrgDirectory}/other-org.md`);
   });
 
   it("skips Jev and memory retrieval before background dispatch", async () => {

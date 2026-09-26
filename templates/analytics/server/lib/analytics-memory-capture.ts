@@ -331,7 +331,7 @@ async function processJob(job: CaptureJob): Promise<void> {
 
       let savedCount = 0;
       for (const candidate of candidates) {
-        await saveMemory([
+        const args = [
           "--name",
           candidate.name,
           "--type",
@@ -340,9 +340,10 @@ async function processJob(job: CaptureJob): Promise<void> {
           candidate.description,
           "--content",
           candidate.content,
-          "--quiet",
-          "true",
-        ]);
+        ];
+        if (orgId) args.push("--scope", "current-org");
+        args.push("--quiet", "true");
+        await saveMemory(args);
         savedCount += 1;
       }
 

@@ -2,15 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   resourceGetByPath: vi.fn(),
-  resourcePut: vi.fn(),
-  resourcePutIfSnapshot: vi.fn(async (_input: any) => null),
+  resourcePutSnapshotPairIfCurrent: vi.fn(
+    async (_writes: any): Promise<any> => null,
+  ),
 }));
 
 vi.mock("../../resources/store.js", () => ({
   resourceGetByPath: (...args: unknown[]) => mocks.resourceGetByPath(...args),
-  resourcePut: (...args: unknown[]) => mocks.resourcePut(...args),
-  resourcePutIfSnapshot: (...args: unknown[]) =>
-    mocks.resourcePutIfSnapshot(...args),
+  resourcePutSnapshotPairIfCurrent: (...args: unknown[]) =>
+    mocks.resourcePutSnapshotPairIfCurrent(...args),
 }));
 
 import {
@@ -19,6 +19,7 @@ import {
 } from "../../server/request-context.js";
 import saveMemoryScript from "./save-memory.js";
 
+const owner = "run-owner@example.com";
 const args = [
   "--name",
   "coding-style",
@@ -29,6 +30,36 @@ const args = [
   "--content",
   "Remember this.",
 ];
+
+function useResourceStore() {
+  const resources = new Map<string, string>();
+  const key = (resourceOwner: string, path: string) =>
+    `${resourceOwner}:${path}`;
+  mocks.resourceGetByPath.mockImplementation(
+    async (resourceOwner: string, path: string) => {
+      const content = resources.get(key(resourceOwner, path));
+      return content === undefined
+        ? null
+        : { owner: resourceOwner, path, content };
+    },
+  );
+  mocks.resourcePutSnapshotPairIfCurrent.mockImplementation(
+    async (writes: any[]) =>
+      writes.map((write) => {
+        const previous = resources.get(key(write.owner, write.path));
+        resources.set(key(write.owner, write.path), write.content);
+        return {
+          before: previous === undefined ? null : { content: previous },
+          resource: {
+            owner: write.owner,
+            path: write.path,
+            content: write.content,
+          },
+        };
+      }),
+  );
+  return { key, resources };
+}
 
 describe("save-memory", () => {
   beforeEach(() => {
@@ -41,115 +72,103 @@ describe("save-memory", () => {
     vi.restoreAllMocks();
   });
 
-  it("writes and verifies memory under the active agent run owner", async () => {
-    const stored = new Map<string, string>();
-    mocks.resourcePut.mockImplementation(
-      async (owner: string, path: string, content: string) => {
-        stored.set(`${owner}:${path}`, content);
-        return { content };
-      },
-    );
-    mocks.resourceGetByPath.mockImplementation(
-      async (owner: string, path: string) => {
-        const content = stored.get(`${owner}:${path}`);
-        return content === undefined ? null : { content };
-      },
-    );
-    mocks.resourcePutIfSnapshot.mockImplementation(
-      async ({ owner, path, content }: any) => {
-        stored.set(`${owner}:${path}`, content);
-        return { before: null, resource: { owner, path, content } };
-      },
-    );
+  it("writes the private personal memory body and index atomically", async () => {
+    const { key, resources } = useResourceStore();
 
     await runWithRequestContext({}, async () => {
-      ensureRequestRunContext()!.owner = "run-owner@example.com";
+      ensureRequestRunContext()!.owner = owner;
       await saveMemoryScript(args);
     });
 
-    expect(mocks.resourcePut).toHaveBeenNthCalledWith(
-      1,
-      "run-owner@example.com",
-      "memory/coding-style.md",
-      expect.stringContaining("Remember this."),
-      "text/markdown",
+    const [[writes]] = mocks.resourcePutSnapshotPairIfCurrent.mock.calls as any;
+    const [bodyWrite, indexWrite] = writes;
+    expect(bodyWrite).toMatchObject({
+      owner,
+      path: "memory/coding-style.md",
+      content: expect.stringContaining("Remember this."),
+      previous: null,
+    });
+    expect(indexWrite).toMatchObject({
+      owner,
+      path: "memory/MEMORY.md",
+      content: expect.stringContaining("- [coding-style](coding-style.md)"),
+      previous: null,
+    });
+    expect(resources.get(key(owner, bodyWrite.path))).toContain(
+      "Remember this.",
     );
-    expect(mocks.resourcePutIfSnapshot).toHaveBeenCalledWith(
-      expect.objectContaining({
-        owner: "run-owner@example.com",
-        path: "memory/MEMORY.md",
-        content: expect.stringContaining("- [coding-style](coding-style.md)"),
-        previous: null,
-      }),
-    );
-    expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
-      "run-owner@example.com",
-      "memory/coding-style.md",
-    );
-    expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
-      "run-owner@example.com",
-      "memory/MEMORY.md",
+    expect(resources.get(key(owner, indexWrite.path))).toContain(
+      "coding-style",
     );
   });
 
-  it("does not claim success when the memory write cannot be read back", async () => {
-    mocks.resourcePut.mockResolvedValue({ content: "" });
-    mocks.resourceGetByPath.mockResolvedValue(null);
-    mocks.resourcePutIfSnapshot.mockResolvedValue({
-      before: null,
-      resource: { content: "" },
+  it("keeps current-organization memories private and namespaced per org", async () => {
+    const { key, resources } = useResourceStore();
+
+    await runWithRequestContext({ orgId: "org-a" }, async () => {
+      ensureRequestRunContext()!.owner = owner;
+      await saveMemoryScript([...args, "--scope", "current-org"]);
     });
+
+    const [[writes]] = mocks.resourcePutSnapshotPairIfCurrent.mock.calls as any;
+    const [bodyWrite, indexWrite] = writes;
+    expect(bodyWrite.owner).toBe(owner);
+    expect(indexWrite.owner).toBe(owner);
+    expect(bodyWrite.path).toMatch(
+      /^memory\/organizations\/[a-f0-9]{64}\/coding-style\.md$/,
+    );
+    expect(indexWrite.path).toBe(
+      bodyWrite.path.replace("coding-style.md", "MEMORY.md"),
+    );
+    expect(resources.get(key(owner, bodyWrite.path))).toContain(
+      "Remember this.",
+    );
+    expect(resources.get(key(owner, "memory/coding-style.md"))).toBeUndefined();
+  });
+
+  it("requires an active org before writing current-org memory", async () => {
+    await expect(
+      runWithRequestContext({}, async () => {
+        ensureRequestRunContext()!.owner = owner;
+        await saveMemoryScript([...args, "--scope", "current-org"]);
+      }),
+    ).rejects.toThrow("--scope current-org requires an active organization");
+    expect(mocks.resourcePutSnapshotPairIfCurrent).not.toHaveBeenCalled();
+  });
+
+  it("does not claim success when the memory write cannot be read back", async () => {
+    mocks.resourceGetByPath.mockResolvedValue(null);
+    mocks.resourcePutSnapshotPairIfCurrent.mockResolvedValue([
+      { before: null, resource: { content: "" } },
+      { before: null, resource: { content: "# Memory Index\n" } },
+    ]);
 
     await expect(
       runWithRequestContext({}, async () => {
-        ensureRequestRunContext()!.owner = "run-owner@example.com";
+        ensureRequestRunContext()!.owner = owner;
         await saveMemoryScript(args);
       }),
     ).rejects.toThrow('could not verify persisted memory "coding-style"');
   });
 
-  it("does not write either resource when the memory index cannot be read", async () => {
+  it("does not write either resource when an index read fails", async () => {
     mocks.resourceGetByPath.mockRejectedValue(new Error("storage unavailable"));
 
     await expect(
       runWithRequestContext({}, async () => {
-        ensureRequestRunContext()!.owner = "run-owner@example.com";
+        ensureRequestRunContext()!.owner = owner;
         await saveMemoryScript(args);
       }),
     ).rejects.toThrow("storage unavailable");
-
-    expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
-      "run-owner@example.com",
-      "memory/MEMORY.md",
-    );
-    expect(mocks.resourcePut).not.toHaveBeenCalled();
-    expect(mocks.resourcePutIfSnapshot).not.toHaveBeenCalled();
+    expect(mocks.resourcePutSnapshotPairIfCurrent).not.toHaveBeenCalled();
   });
 
   it("can save a memory without logging its user-authored description", async () => {
-    const stored = new Map<string, string>();
-    mocks.resourcePut.mockImplementation(
-      async (owner: string, path: string, content: string) => {
-        stored.set(`${owner}:${path}`, content);
-        return { content };
-      },
-    );
-    mocks.resourceGetByPath.mockImplementation(
-      async (owner: string, path: string) => {
-        const content = stored.get(`${owner}:${path}`);
-        return content === undefined ? null : { content };
-      },
-    );
-    mocks.resourcePutIfSnapshot.mockImplementation(
-      async ({ owner, path, content }: any) => {
-        stored.set(`${owner}:${path}`, content);
-        return { before: null, resource: { owner, path, content } };
-      },
-    );
+    useResourceStore();
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await runWithRequestContext({}, async () => {
-      ensureRequestRunContext()!.owner = "run-owner@example.com";
+      ensureRequestRunContext()!.owner = owner;
       await saveMemoryScript([...args, "--quiet", "true"]);
     });
 
@@ -157,59 +176,36 @@ describe("save-memory", () => {
   });
 
   it("re-reads and merges the index after a concurrent update", async () => {
-    let index = "# Memory Index\n";
-    let savedMemory = "";
-    let indexReadCount = 0;
-    const initialIndex = { content: "# Memory Index\n", updatedAt: 1 };
-    mocks.resourcePut.mockImplementation(
-      async (_owner: string, _path: string, content: string) => {
-        savedMemory = content;
-        return { content };
-      },
-    );
-    mocks.resourceGetByPath.mockImplementation(
-      async (_owner: string, path: string) => {
-        if (path === "memory/coding-style.md") {
-          return { content: savedMemory };
-        }
-        indexReadCount += 1;
-        if (indexReadCount === 1) return initialIndex;
-        return { content: index, updatedAt: 2 };
-      },
-    );
-    mocks.resourcePutIfSnapshot
+    const { key, resources } = useResourceStore();
+    const save =
+      mocks.resourcePutSnapshotPairIfCurrent.getMockImplementation()!;
+    mocks.resourcePutSnapshotPairIfCurrent
       .mockImplementationOnce(async () => {
-        index = "# Memory Index\n- [other](other.md) — Other guidance\n";
+        resources.set(
+          key(owner, "memory/MEMORY.md"),
+          "# Memory Index\n- [other](other.md) — Other guidance\n",
+        );
         return null;
       })
-      .mockImplementationOnce(async ({ owner, path, content }: any) => {
-        index = content;
-        return { before: null, resource: { owner, path, content } };
-      });
+      .mockImplementation(save);
 
     await runWithRequestContext({}, async () => {
-      ensureRequestRunContext()!.owner = "run-owner@example.com";
+      ensureRequestRunContext()!.owner = owner;
       await saveMemoryScript(args);
     });
 
-    expect(mocks.resourcePut).toHaveBeenCalledWith(
-      "run-owner@example.com",
-      "memory/coding-style.md",
-      expect.any(String),
-      "text/markdown",
-    );
-    expect(mocks.resourcePutIfSnapshot).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        owner: "run-owner@example.com",
-        path: "memory/MEMORY.md",
-        content: expect.stringContaining("- [coding-style](coding-style.md)"),
-        previous: expect.objectContaining({
-          content: "# Memory Index\n- [other](other.md) — Other guidance\n",
-        }),
+    const secondWrites = mocks.resourcePutSnapshotPairIfCurrent.mock
+      .calls[1]?.[0] as any[];
+    expect(secondWrites[1]).toMatchObject({
+      path: "memory/MEMORY.md",
+      content: expect.stringContaining("- [other](other.md) — Other guidance"),
+      previous: expect.objectContaining({
+        content: "# Memory Index\n- [other](other.md) — Other guidance\n",
       }),
+    });
+    expect(resources.get(key(owner, "memory/MEMORY.md"))).toContain(
+      "coding-style",
     );
-    expect(index).toContain("- [other](other.md) — Other guidance");
-    expect(index).toContain("- [coding-style](coding-style.md)");
+    expect(resources.get(key(owner, "memory/MEMORY.md"))).toContain("other");
   });
 });

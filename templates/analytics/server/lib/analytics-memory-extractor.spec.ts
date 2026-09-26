@@ -160,4 +160,32 @@ describe("extractAnalyticsMemoryCandidates", () => {
       ]),
     ).toEqual([]);
   });
+
+  it("rejects unlabelled and lowercase customer names and credential disclosures", () => {
+    const token = `${"a".repeat(20)}${"B".repeat(20)}${"7".repeat(12)}`;
+    expect(
+      extractAnalyticsMemoryCandidates([
+        {
+          role: "user",
+          text: "Correction: Acme should use the Enterprise Renewal dashboard for renewals.",
+        },
+        {
+          role: "user",
+          text: "Correction: Jane Doe should use the renewal dashboard for reporting.",
+        },
+        {
+          role: "user",
+          text: "Correction: customer acme should use the renewal dashboard for reporting.",
+        },
+        {
+          role: "user",
+          text: "Remember that the private key should be rotated before production reports.",
+        },
+        {
+          role: "user",
+          text: `Remember that ${token} is the right header value for production reports.`,
+        },
+      ]),
+    ).toEqual([]);
+  });
 });

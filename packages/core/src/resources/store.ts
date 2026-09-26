@@ -1742,6 +1742,25 @@ export async function resourcePutIfAbsent(
   mimeType?: string,
   options?: ResourceWriteOptions,
 ): Promise<Resource | null> {
+  return resourcePutIfAbsentInternal(
+    owner,
+    path,
+    content,
+    mimeType,
+    options,
+    true,
+  );
+}
+
+async function resourcePutIfAbsentInternal(
+  owner: string,
+  path: string,
+  content: string,
+  mimeType: string | undefined,
+  options: ResourceWriteOptions | undefined,
+  emitChange: boolean,
+  clientOverride?: DbExec,
+): Promise<Resource | null> {
   await ensureTable();
   if (
     isBareWorkspaceResourceOwner(owner) &&
@@ -1753,7 +1772,7 @@ export async function resourcePutIfAbsent(
     await assertWritableWorkspaceResourcePath(path);
   }
 
-  const client = getDbExec();
+  const client = clientOverride ?? getDbExec();
   const now = Date.now();
   const size = Buffer.byteLength(content, "utf8");
   const mime = mimeType || "text/markdown";
@@ -1795,7 +1814,7 @@ export async function resourcePutIfAbsent(
   });
   if (result.rowsAffected !== 1) return null;
 
-  emitResourceChange(id, path, owner, options?.requestSource);
+  if (emitChange) emitResourceChange(id, path, owner, options?.requestSource);
 
   return {
     id,
@@ -1899,6 +1918,14 @@ function localWorkspaceResourceSnapshot(resource: Resource) {
 export async function resourcePutIfSnapshot(
   input: ResourceSnapshotWrite,
 ): Promise<ResourceSnapshotWriteResult | null> {
+  return resourcePutIfSnapshotInternal(input, true);
+}
+
+async function resourcePutIfSnapshotInternal(
+  input: ResourceSnapshotWrite,
+  emitChange: boolean,
+  clientOverride?: DbExec,
+): Promise<ResourceSnapshotWriteResult | null> {
   await ensureTable();
   let previous = input.previous;
   if (
@@ -1955,12 +1982,14 @@ export async function resourcePutIfSnapshot(
   }
 
   if (!previous) {
-    const resource = await resourcePutIfAbsent(
+    const resource = await resourcePutIfAbsentInternal(
       input.owner,
       input.path,
       input.content,
       input.mimeType,
       input.options,
+      emitChange,
+      clientOverride,
     );
     return resource ? { before: null, resource } : null;
   }
@@ -1972,7 +2001,7 @@ export async function resourcePutIfSnapshot(
       ? input.options?.createdBy
       : previous.createdBy,
   );
-  const client = getDbExec();
+  const client = clientOverride ?? getDbExec();
   const updatedAt = Math.max(Date.now(), previous.updatedAt + 1);
   const size = Buffer.byteLength(input.content, "utf8");
   const mimeType = input.mimeType || "text/markdown";
@@ -1991,13 +2020,77 @@ export async function resourcePutIfSnapshot(
   });
   if (rows.length !== 1) return null;
   const resource = rowToResource(rows[0]);
-  emitResourceChange(
-    resource.id,
-    resource.path,
-    resource.owner,
-    input.options?.requestSource,
-  );
+  if (emitChange) {
+    emitResourceChange(
+      resource.id,
+      resource.path,
+      resource.owner,
+      input.options?.requestSource,
+    );
+  }
   return { before: previous, resource };
+}
+
+const SNAPSHOT_PAIR_CONFLICT = Symbol("resource snapshot pair conflict");
+
+/** Update a resource pair atomically and emit change events only after commit. */
+export async function resourcePutSnapshotPairIfCurrent(
+  writes: readonly [ResourceSnapshotWrite, ResourceSnapshotWrite],
+): Promise<
+  readonly [ResourceSnapshotWriteResult, ResourceSnapshotWriteResult] | null
+> {
+  const [first, second] = writes;
+  if (
+    first.owner !== second.owner ||
+    first.path === second.path ||
+    first.owner === WORKSPACE_OWNER
+  ) {
+    throw new Error(
+      "Resource snapshot pairs require one SQL-backed owner and distinct paths.",
+    );
+  }
+
+  await ensureTable();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Resource snapshot pairs require database transactions.");
+  }
+
+  let result: readonly [
+    ResourceSnapshotWriteResult,
+    ResourceSnapshotWriteResult,
+  ];
+  try {
+    result = await client.transaction(async (tx) => {
+      const firstResult = await resourcePutIfSnapshotInternal(first, false, tx);
+      if (!firstResult) throw SNAPSHOT_PAIR_CONFLICT;
+      const secondResult = await resourcePutIfSnapshotInternal(
+        second,
+        false,
+        tx,
+      );
+      if (!secondResult) throw SNAPSHOT_PAIR_CONFLICT;
+      return [firstResult, secondResult] as const;
+    });
+  } catch (error) {
+    if (error === SNAPSHOT_PAIR_CONFLICT) return null;
+    throw error;
+  }
+
+  const [firstResult, secondResult] = result;
+  emitResourceChange(
+    firstResult.resource.id,
+    firstResult.resource.path,
+    firstResult.resource.owner,
+    first.options?.requestSource,
+  );
+  emitResourceChange(
+    secondResult.resource.id,
+    secondResult.resource.path,
+    secondResult.resource.owner,
+    second.options?.requestSource,
+  );
+  return result;
 }
 
 export async function resourceRestoreSnapshotIfCurrent(

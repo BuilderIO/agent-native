@@ -167,6 +167,8 @@ describe("Analytics async memory capture", () => {
       expect.stringContaining("BigQuery"),
       "--content",
       "For future Analytics work: BigQuery uses STRING instead of TEXT for casts.",
+      "--scope",
+      "current-org",
       "--quiet",
       "true",
     ]);

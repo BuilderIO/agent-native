@@ -2,18 +2,19 @@
  * Core script: save-memory
  *
  * Create or update a structured memory entry and its index.
- * Stores memory as a resource at `memory/<name>.md` (personal scope)
- * and maintains a `memory/MEMORY.md` index.
+ * Stores memory privately under the current user and maintains its index.
  */
+
+import { createHash } from "node:crypto";
 
 import {
   resourceGetByPath,
-  resourcePut,
-  resourcePutIfSnapshot,
+  resourcePutSnapshotPairIfCurrent,
 } from "../../resources/store.js";
 import {
   getAmbientUserEmail,
   getRequestRunContext,
+  getRequestOrgId,
   getRequestUserEmail,
 } from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
@@ -23,6 +24,7 @@ const VALID_TYPES = ["user", "feedback", "project", "reference"] as const;
 const EMPTY_INDEX = `# Memory Index
 `;
 const INDEX_WRITE_ATTEMPTS = 5;
+const MEMORY_SCOPES = ["personal", "current-org"] as const;
 
 export default async function saveMemoryScript(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
@@ -50,8 +52,19 @@ export default async function saveMemoryScript(args: string[]): Promise<void> {
       "save-memory requires an authenticated user (request context or AGENT_USER_EMAIL env var).",
     );
   }
-  const memoryPath = `memory/${name}.md`;
-  const indexPath = "memory/MEMORY.md";
+  const scope = parsed.scope ?? "personal";
+  if (!MEMORY_SCOPES.includes(scope as (typeof MEMORY_SCOPES)[number])) {
+    fail(`--scope must be one of: ${MEMORY_SCOPES.join(", ")}`);
+  }
+  const orgId = scope === "current-org" ? getRequestOrgId() : null;
+  if (scope === "current-org" && !orgId) {
+    fail("--scope current-org requires an active organization.");
+  }
+  const memoryDirectory = orgId
+    ? `memory/organizations/${createHash("sha256").update(orgId).digest("hex")}`
+    : "memory";
+  const memoryPath = `${memoryDirectory}/${name}.md`;
+  const indexPath = `${memoryDirectory}/MEMORY.md`;
   const now = new Date().toISOString().slice(0, 10);
 
   // Build the memory file with frontmatter
@@ -63,13 +76,13 @@ updated: ${now}
 
 ${content}`;
 
-  // Read the index before either write so a failed read cannot replace it.
-  let existingIndex = await resourceGetByPath(owner, indexPath);
-  await resourcePut(owner, memoryPath, fileContent, "text/markdown");
-
   let updatedIndex = "";
   let indexSaved = false;
   for (let attempt = 0; attempt < INDEX_WRITE_ATTEMPTS; attempt += 1) {
+    // Read both snapshots before the transaction so conflicts cannot leave a
+    // new body paired with a stale index.
+    const existingIndex = await resourceGetByPath(owner, indexPath);
+    const existingMemory = await resourceGetByPath(owner, memoryPath);
     const index = existingIndex?.content ?? EMPTY_INDEX;
     const lines = index.split("\n");
     const entryLine = `- [${name}](${name}.md) — ${description}`;
@@ -85,18 +98,26 @@ ${content}`;
     if (!found) updatedLines.push(entryLine);
     updatedIndex = updatedLines.join("\n").trimEnd() + "\n";
 
-    const written = await resourcePutIfSnapshot({
-      owner,
-      path: indexPath,
-      content: updatedIndex,
-      mimeType: "text/markdown",
-      previous: existingIndex,
-    });
+    const written = await resourcePutSnapshotPairIfCurrent([
+      {
+        owner,
+        path: memoryPath,
+        content: fileContent,
+        mimeType: "text/markdown",
+        previous: existingMemory,
+      },
+      {
+        owner,
+        path: indexPath,
+        content: updatedIndex,
+        mimeType: "text/markdown",
+        previous: existingIndex,
+      },
+    ]);
     if (written) {
       indexSaved = true;
       break;
     }
-    existingIndex = await resourceGetByPath(owner, indexPath);
   }
   if (!indexSaved) {
     fail(

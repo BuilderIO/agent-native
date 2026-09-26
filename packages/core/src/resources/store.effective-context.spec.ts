@@ -18,6 +18,25 @@ interface FrameworkClient {
     rows: any[];
     rowsAffected: number;
   }>;
+  transaction?<T>(fn: (tx: FrameworkClient) => Promise<T>): Promise<T>;
+}
+
+function frameworkClientFor(client: any): FrameworkClient {
+  return {
+    async execute(arg) {
+      const sql = typeof arg === "string" ? arg : arg.sql;
+      const args = typeof arg === "string" ? [] : (arg.args ?? []);
+      let parameter = 0;
+      const postgresSql = sql.replace(/\?/g, () => `$${++parameter}`);
+      const result = await client.query(postgresSql, args);
+      return {
+        rows: Array.from(result.rows ?? []),
+        rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+      };
+    },
+    transaction: (fn) =>
+      client.transaction((tx: any) => fn(frameworkClientFor(tx))),
+  };
 }
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
@@ -29,19 +48,7 @@ let sharedClient: FrameworkClient = {
 
 beforeAll(async () => {
   pglite = await createTestPglite();
-  sharedClient = {
-    async execute(arg) {
-      const sql = typeof arg === "string" ? arg : arg.sql;
-      const args = typeof arg === "string" ? [] : (arg.args ?? []);
-      const stmt = await pglite.prepare(sql);
-      if (/^\s*select/i.test(sql) || /\breturning\b/i.test(sql)) {
-        const rows = (await stmt.all(...args)) as any[];
-        return { rows, rowsAffected: 0 };
-      }
-      const result = await stmt.run(...args);
-      return { rows: [], rowsAffected: Number(result.changes ?? 0) };
-    },
-  };
+  sharedClient = frameworkClientFor(pglite.db);
 });
 
 afterAll(async () => {
@@ -1339,6 +1346,111 @@ describe("resourceEffectiveContext", () => {
       ).resolves.toBe(false);
     } finally {
       await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
+
+  it("rolls back the first write when a snapshot pair conflicts", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceGetByPath,
+      resourcePut,
+      resourcePutSnapshotPairIfCurrent,
+    } = await import("./store.js");
+    const suffix = `${Date.now()}-${Math.random()}`;
+    const bodyPath = `context/snapshot-pair-body-${suffix}.md`;
+    const indexPath = `context/snapshot-pair-index-${suffix}.md`;
+
+    try {
+      const previousBody = await resourcePut(
+        SHARED_OWNER,
+        bodyPath,
+        "body before",
+      );
+      const previousIndex = await resourcePut(
+        SHARED_OWNER,
+        indexPath,
+        "index before",
+      );
+      await resourcePut(SHARED_OWNER, indexPath, "concurrent index");
+
+      await expect(
+        resourcePutSnapshotPairIfCurrent([
+          {
+            owner: SHARED_OWNER,
+            path: bodyPath,
+            content: "body after",
+            previous: previousBody,
+          },
+          {
+            owner: SHARED_OWNER,
+            path: indexPath,
+            content: "index after",
+            previous: previousIndex,
+          },
+        ]),
+      ).resolves.toBeNull();
+
+      await expect(
+        resourceGetByPath(SHARED_OWNER, bodyPath),
+      ).resolves.toMatchObject({
+        content: "body before",
+      });
+      await expect(
+        resourceGetByPath(SHARED_OWNER, indexPath),
+      ).resolves.toMatchObject({
+        content: "concurrent index",
+      });
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, bodyPath);
+      await resourceDeleteByPath(SHARED_OWNER, indexPath);
+    }
+  });
+
+  it("commits both inserts in a snapshot pair together", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceGetByPath,
+      resourcePutSnapshotPairIfCurrent,
+    } = await import("./store.js");
+    const suffix = `${Date.now()}-${Math.random()}`;
+    const bodyPath = `context/snapshot-pair-body-${suffix}.md`;
+    const indexPath = `context/snapshot-pair-index-${suffix}.md`;
+
+    try {
+      const written = await resourcePutSnapshotPairIfCurrent([
+        {
+          owner: SHARED_OWNER,
+          path: bodyPath,
+          content: "body saved",
+          previous: null,
+        },
+        {
+          owner: SHARED_OWNER,
+          path: indexPath,
+          content: "index saved",
+          previous: null,
+        },
+      ]);
+
+      expect(written?.map(({ resource }) => resource.content)).toEqual([
+        "body saved",
+        "index saved",
+      ]);
+      await expect(
+        resourceGetByPath(SHARED_OWNER, bodyPath),
+      ).resolves.toMatchObject({
+        content: "body saved",
+      });
+      await expect(
+        resourceGetByPath(SHARED_OWNER, indexPath),
+      ).resolves.toMatchObject({
+        content: "index saved",
+      });
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, bodyPath);
+      await resourceDeleteByPath(SHARED_OWNER, indexPath);
     }
   });
 

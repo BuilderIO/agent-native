@@ -190,7 +190,9 @@ When you complete an analysis and discover:
 Analytics automatically captures explicit user corrections and metric
 definitions the user confirms after the thread has been idle. State corrections
 plainly, and ask the user to confirm a new metric definition before treating it
-as durable. Do not call `save-memory` again for those same items.
+as durable. Captures stay private to the user and, when learned in an
+organization, are retrieved only in that same organization. Do not call
+`save-memory` again for those same items.
 
 Use `save-memory` for other verified, durable personal Analytics knowledge,
 with a short actionable description; read the existing entry first when
