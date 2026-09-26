@@ -9,9 +9,9 @@ import { describe, expect, it } from "vitest";
 function isPublicBookingPath(pathname: string): boolean {
   const p = pathname.replace(/\/+$/, "") || "/";
   return (
-    p.startsWith("/book/") ||
-    p.startsWith("/meet/") ||
-    p.startsWith("/booking/manage/")
+    /^\/book\/[^/]+(?:\/[^/]+)?$/.test(p) ||
+    /^\/meet\/[^/]+\/[^/]+$/.test(p) ||
+    /^\/booking\/manage\/[^/]+$/.test(p)
   );
 }
 
@@ -27,6 +27,10 @@ describe("isPublicBookingPath", () => {
 
   it("matches /meet/:username/:slug legacy pages", () => {
     expect(isPublicBookingPath("/meet/alice/intro")).toBe(true);
+  });
+
+  it("does not SSR a /meet/:username path without a booking slug", () => {
+    expect(isPublicBookingPath("/meet/steve")).toBe(false);
   });
 
   it("matches /booking/manage/:token pages", () => {
