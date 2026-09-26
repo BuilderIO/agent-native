@@ -149,7 +149,12 @@ export function describeUploadedFilesForAgent(
   deckId: string,
   importedSourceDeck: ImportedSourceDeck | null = null,
 ): string {
-  if (files.length === 0) return "";
+  if (files.length === 0) {
+    return [
+      "",
+      "No files are attached to this run. If the request refers to a document or file, do not invent a file path or call a file import action; ask the user to upload it or paste its contents.",
+    ].join("\n");
+  }
   const hasDocumentReferences = files.some((file) =>
     referenceDocumentFormat(file),
   );

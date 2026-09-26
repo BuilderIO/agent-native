@@ -45,7 +45,12 @@ function describeUploadedFilesForAgent(
   files: UploadedFile[],
   deckId: string,
 ): string {
-  if (files.length === 0) return "";
+  if (files.length === 0) {
+    return [
+      "",
+      "No files are attached to this run. If the request refers to a document or file, do not guess a path or call a file import action; ask the user to upload it or paste its contents.",
+    ].join("\n");
+  }
   const fileList = files
     .map(
       (f) =>

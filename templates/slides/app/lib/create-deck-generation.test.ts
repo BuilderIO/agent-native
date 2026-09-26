@@ -13,11 +13,24 @@ vi.mock("react-dom", () => ({
 }));
 
 import {
+  describeUploadedFilesForAgent,
   getUploadedImageAgentOptions,
   isSourceImprovementRequest,
   requestedSlideCount,
   startDeckGeneration,
 } from "./create-deck-generation";
+
+describe("describeUploadedFilesForAgent", () => {
+  it("prevents the agent from guessing a file path without attachments", () => {
+    const context = describeUploadedFilesForAgent([], "deck-id");
+
+    expect(context).toContain("No files are attached to this run");
+    expect(context).toContain("do not invent a file path");
+    expect(context).toContain(
+      "ask the user to upload it or paste its contents",
+    );
+  });
+});
 
 describe("getUploadedImageAgentOptions", () => {
   it("does not forward oversized inline image data", () => {
