@@ -2,7 +2,7 @@ import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import { IconAlertTriangle, IconCheck, IconLock } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,8 @@ interface ApprovalResult {
   deckId: string;
   deckTitle: string;
   shareId: string;
+  /** `null` when no email provider is configured; absent on repeat approvals. */
+  requesterNotified?: boolean | null;
   message: string;
 }
 
@@ -211,13 +213,7 @@ export default function ApproveDeckAccessRequestRoute() {
             </div>
           ) : state.kind === "error" ? (
             <div className="space-y-4">
-              <div className="flex items-start gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                <IconAlertTriangle
-                  className="mt-0.5 size-4 shrink-0"
-                  aria-hidden="true"
-                />
-                <span>{state.message}</span>
-              </div>
+              <ErrorNotice>{state.message}</ErrorNotice>
               {deckId ? (
                 <Button asChild variant="outline">
                   <Link to={`/deck/${encodeURIComponent(deckId)}`}>
@@ -241,8 +237,18 @@ export default function ApproveDeckAccessRequestRoute() {
                     : t("deckEditor.accessApprovalMessage", {
                         email: state.result.requesterEmail,
                       })}
+                  {state.result.requesterNotified === true
+                    ? ` ${t("deckEditor.accessApprovalRequesterEmailed")}`
+                    : null}
                 </span>
               </div>
+              {state.result.requesterNotified === false ? (
+                <ErrorNotice>
+                  {t("deckEditor.accessApprovalRequesterEmailFailed", {
+                    email: state.result.requesterEmail,
+                  })}
+                </ErrorNotice>
+              ) : null}
               <Button asChild variant="outline">
                 <Link to={`/deck/${encodeURIComponent(state.result.deckId)}`}>
                   {t("deckEditor.accessApprovalOpenDeck")}
@@ -252,6 +258,21 @@ export default function ApproveDeckAccessRequestRoute() {
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function ErrorNotice({ children }: { children: ReactNode }) {
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+    >
+      <IconAlertTriangle
+        className="mt-0.5 size-4 shrink-0"
+        aria-hidden="true"
+      />
+      <span>{children}</span>
     </div>
   );
 }

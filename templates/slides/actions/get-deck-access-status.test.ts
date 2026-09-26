@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
     | undefined,
   access: null as { role?: string } | null,
   accessProbeError: null as Error | null,
+  accessRequests: [] as { id: string; payload: string | null }[],
 }));
 
 const limitSelect = vi.hoisted(() =>
@@ -16,7 +17,11 @@ const limitSelect = vi.hoisted(() =>
 const db = vi.hoisted(() => ({
   select: vi.fn(() => ({
     from: vi.fn(() => ({
-      where: vi.fn(() => ({ limit: limitSelect })),
+      where: vi.fn(() =>
+        Object.assign(Promise.resolve(state.accessRequests), {
+          limit: limitSelect,
+        }),
+      ),
     })),
   })),
 }));
@@ -25,6 +30,12 @@ vi.mock("../server/db/index.js", () => ({
   getDb: () => db,
   schema: {
     decks: { id: "decks.id", visibility: "decks.visibility" },
+    deckEvents: {
+      id: "deck_events.id",
+      deckId: "deck_events.deck_id",
+      type: "deck_events.type",
+      payload: "deck_events.payload",
+    },
   },
 }));
 
@@ -42,6 +53,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => conditions,
   eq: (column: unknown, value: unknown) => ({ column, value }),
   sql: vi.fn((strings: unknown, ...values: unknown[]) => ({
     strings,
@@ -58,6 +70,7 @@ beforeEach(() => {
   state.deck = { id: "deck-1", visibility: "private" };
   state.access = null;
   state.accessProbeError = null;
+  state.accessRequests = [];
 });
 
 describe("get-deck-access-status", () => {
@@ -121,5 +134,60 @@ describe("get-deck-access-status", () => {
       visibility: "private",
     });
     expect(result.accessRequestToken).toEqual(expect.any(String));
+  });
+
+  it("returns the viewer's pending access request", async () => {
+    state.accessRequests = [
+      {
+        id: "access-request-other",
+        payload: JSON.stringify({ requesterEmail: "someone@example.com" }),
+      },
+      {
+        id: "access-request-viewer",
+        payload: JSON.stringify({
+          requesterEmail: "Viewer@Example.com",
+          note: "Launch review",
+          notifiedOwner: true,
+        }),
+      },
+    ];
+
+    await expect(action.run({ deckId: "deck-1" })).resolves.toMatchObject({
+      hasAccess: false,
+      pendingAccessRequest: {
+        note: "Launch review",
+        notifiedOwner: true,
+      },
+    });
+  });
+
+  it("does not report a request that was already granted", async () => {
+    state.accessRequests = [
+      {
+        id: "access-request-viewer",
+        payload: JSON.stringify({
+          requesterEmail: "viewer@example.com",
+          accessGrantedAt: "2026-09-26T11:00:00.000Z",
+        }),
+      },
+    ];
+
+    const result = await action.run({ deckId: "deck-1" });
+
+    expect(result).not.toHaveProperty("pendingAccessRequest");
+  });
+
+  it("does not look up requests for anonymous viewers", async () => {
+    state.viewerEmail = null;
+    state.accessRequests = [
+      {
+        id: "access-request-viewer",
+        payload: JSON.stringify({ requesterEmail: "viewer@example.com" }),
+      },
+    ];
+
+    const result = await action.run({ deckId: "deck-1" });
+
+    expect(result).not.toHaveProperty("pendingAccessRequest");
   });
 });

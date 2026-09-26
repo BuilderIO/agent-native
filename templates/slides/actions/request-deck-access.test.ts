@@ -175,6 +175,7 @@ vi.mock("../server/db/index.js", () => ({
 vi.mock("@agent-native/core/server", () => ({
   isEmailConfigured: () => Promise.resolve(state.emailConfigured),
   emailStrong: (value: string) => `<strong>${value}</strong>`,
+  emailQuote: (value: string) => `<blockquote>${value}</blockquote>`,
   renderEmail: () => ({ html: "<html />", text: "email" }),
   sendEmail: (...args: unknown[]) => sendEmail(...args),
   signScopedAgentAccessToken: (...args: unknown[]) =>
@@ -286,6 +287,30 @@ describe("request-deck-access", () => {
         templateId: "slides.deck-access-request",
       }),
     );
+  });
+
+  it("stores the requester's note and includes it in owner notifications", async () => {
+    await action.run({
+      deckId: "deck-1",
+      note: "  I'm working on the launch video.  ",
+    });
+
+    expect(JSON.parse(state.insertedRows[0].payload as string)).toMatchObject({
+      note: "I'm working on the launch video.",
+    });
+    expect(notifyWithDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("I'm working on the launch video."),
+      }),
+      { owner: "owner@example.com" },
+    );
+  });
+
+  it("rejects notes longer than the limit", () => {
+    expect(
+      action.schema.safeParse({ deckId: "deck-1", note: "x".repeat(501) })
+        .success,
+    ).toBe(false);
   });
 
   it("preserves the owner email casing used by notification reads", async () => {
@@ -507,6 +532,44 @@ describe("request-deck-access", () => {
       message: "Access request recorded for the deck owner.",
     });
     expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
+  });
+
+  it("reopens an approved request after the viewer's access was removed", async () => {
+    state.previousRequests = [
+      {
+        id: "access-request-existing",
+        payload: JSON.stringify({
+          requesterEmail: "requester@example.com",
+          notifiedOwner: true,
+          inAppNotified: true,
+          emailNotified: true,
+          approvalTokenHash: "old-approval-hash",
+          accessGrantedAt: "2026-09-20T10:00:00.000Z",
+        }),
+      },
+    ];
+
+    const result = await action.run({
+      deckId: "deck-1",
+      note: "Need it again for the review.",
+    });
+
+    expect(result).toMatchObject({
+      alreadyHasAccess: false,
+      notifiedOwner: true,
+      requestId: "access-request-existing",
+    });
+    expect(result).not.toHaveProperty("alreadyRequested");
+    expect(state.insertedRows).toHaveLength(0);
+    const payload = JSON.parse(state.previousRequests[0].payload as string);
+    expect(payload).not.toHaveProperty("accessGrantedAt");
+    expect(payload).toMatchObject({
+      note: "Need it again for the review.",
+      notifiedOwner: true,
+    });
+    expect(payload.approvalTokenHash).not.toBe("old-approval-hash");
+    expect(notifyWithDelivery).toHaveBeenCalledOnce();
+    expect(sendEmail).toHaveBeenCalledOnce();
   });
 
   it("does not duplicate a request already recorded for this requester", async () => {
