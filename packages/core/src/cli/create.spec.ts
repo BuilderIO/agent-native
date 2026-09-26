@@ -24,6 +24,7 @@ import {
   _ensureGuardedScaffold,
   _normalizeCommunityWorkspaceAppDependencies,
   _materializeArchiveSymlinks,
+  _mergeWorkspaceYamlSections,
   _standaloneTemplatePromptOptions,
   _startShapePromptOptions,
   _tarExtractArgs,
@@ -1346,5 +1347,93 @@ describe("findEnclosingRepo", () => {
     } finally {
       delete process.env.GIT_CEILING_DIRECTORIES;
     }
+  });
+});
+
+describe("mergeWorkspaceYamlSections", () => {
+  it("writes an allowBuilds entry even when the name appears elsewhere", () => {
+    const yaml = [
+      "overrides:",
+      '  "ffmpeg-static": "5.3.0"',
+      "",
+      "allowBuilds:",
+      "  esbuild: true",
+      "",
+    ].join("\n");
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      allowBuilds: { "ffmpeg-static": "true" },
+    });
+    const allowBuilds = out.slice(out.indexOf("allowBuilds:"));
+    expect(allowBuilds).toContain("ffmpeg-static: true");
+  });
+
+  // The generator extends node-pty as "node-pty@*" under packageExtensions.
+  it("is not fooled by a key that only appears as part of another", () => {
+    const yaml = [
+      "packageExtensions:",
+      '  "node-pty@*":',
+      "    dependencies:",
+      '      node-gyp: "^12.4.0"',
+      "",
+    ].join("\n");
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      allowBuilds: { "node-pty": "true" },
+    });
+    expect(out).toContain("allowBuilds:\n  node-pty: true");
+  });
+
+  it("does not add a key the section already has", () => {
+    const yaml = "allowBuilds:\n  ffmpeg-static: true\n";
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      allowBuilds: { "ffmpeg-static": "true" },
+    });
+    expect(out.match(/ffmpeg-static/g)).toHaveLength(1);
+  });
+
+  it("treats a quoted and an unquoted key as the same entry", () => {
+    const yaml = 'overrides:\n  "@assistant-ui/store": ">=0.2.9 <0.2.14"\n';
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      overrides: { '"@assistant-ui/store"': '">=0.2.9 <0.2.14"' },
+    });
+    expect(out.match(/@assistant-ui\/store/g)).toHaveLength(1);
+  });
+
+  it("stops at the section's end rather than reading the next one", () => {
+    const yaml = [
+      "allowBuilds:",
+      "  esbuild: true",
+      "overrides:",
+      '  "ffmpeg-static": "5.3.0"',
+      "",
+    ].join("\n");
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      allowBuilds: { "ffmpeg-static": "true" },
+    });
+    const allowBuilds = out.slice(
+      out.indexOf("allowBuilds:"),
+      out.indexOf("overrides:"),
+    );
+    expect(allowBuilds).toContain("ffmpeg-static: true");
+  });
+
+  it("reads past a column-zero comment inside the section", () => {
+    const yaml = [
+      "allowBuilds:",
+      "  esbuild: true",
+      "# lifecycle scripts",
+      "  ffmpeg-static: true",
+      "",
+    ].join("\n");
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      allowBuilds: { "ffmpeg-static": "true" },
+    });
+    expect(out.match(/ffmpeg-static/g)).toHaveLength(1);
+  });
+
+  it("creates the section when the document has none", () => {
+    const out = _mergeWorkspaceYamlSections("", {
+      allowBuilds: { "ffmpeg-static": "true" },
+    });
+    expect(out).toContain("allowBuilds:\n  ffmpeg-static: true");
   });
 });

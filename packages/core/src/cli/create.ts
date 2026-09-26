@@ -2148,6 +2148,9 @@ function postProcessStandalone(
     const sections: Record<string, Record<string, string>> = {
       allowBuilds: {
         esbuild: "true",
+        // Its postinstall downloads the binary. Without this it installs empty
+        // and the deploy silently bundles no ffmpeg.
+        "ffmpeg-static": "true",
         "node-pty": "true",
         "tesseract.js": "true",
       },
@@ -2401,6 +2404,7 @@ export { parseWorkspaceScope };
 
 /** @internal — exported for E2E tests */
 export {
+  mergeWorkspaceYamlSections as _mergeWorkspaceYamlSections,
   scaffoldWorkspaceRoot as _scaffoldWorkspaceRoot,
   ensureGuardedScaffold as _ensureGuardedScaffold,
   scaffoldAppTemplate as _scaffoldAppTemplate,
@@ -3285,6 +3289,29 @@ function githubTarballUrl(
  *   - If the section is absent, a new block is appended at the end.
  * Entries already present (by key) are skipped.
  */
+/**
+ * Whether `section` already has `key`. Scoped to the section body: a key
+ * mentioned in another section (`"node-pty@*"` under packageExtensions) must
+ * not stop it being written here. Quotes are ignored on both sides.
+ */
+function workspaceYamlSectionHasKey(
+  yaml: string,
+  section: string,
+  key: string,
+): boolean {
+  const header = new RegExp(`^${escapeRegExp(section)}:\\s*$`, "m").exec(yaml);
+  if (!header) return false;
+  const rest = yaml.slice(header.index + header[0].length);
+  // A column-zero comment is still inside the section; only a key ends it.
+  const end = rest.search(/\n(?=[^\s#])/);
+  const body = end === -1 ? rest : rest.slice(0, end);
+  const bare = key.replace(/^["']|["']$/g, "");
+  return body.split("\n").some((line) => {
+    const match = /^\s+(["']?)(.+?)\1\s*:/.exec(line);
+    return match !== null && match[2] === bare;
+  });
+}
+
 function mergeWorkspaceYamlSections(
   yaml: string,
   sections: Record<string, Record<string, string>>,
@@ -3292,7 +3319,7 @@ function mergeWorkspaceYamlSections(
   let result = yaml;
   for (const [section, entries] of Object.entries(sections)) {
     for (const [key, value] of Object.entries(entries)) {
-      if (result.includes(key)) continue;
+      if (workspaceYamlSectionHasKey(result, section, key)) continue;
       const sectionHeader = new RegExp(`^${section}:\\s*$`, "m");
       const match = sectionHeader.exec(result);
       if (match) {

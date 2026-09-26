@@ -90,6 +90,7 @@ onlyBuiltDependencies:
   - canvas
   - electron
   - esbuild
+  - ffmpeg-static
   - lightningcss
   - node-pty
   - tesseract.js
@@ -99,6 +100,7 @@ allowBuilds:
   canvas: true
   electron: true
   esbuild: true
+  ffmpeg-static: true
   lightningcss: true
   node-pty: true
   tesseract.js: true

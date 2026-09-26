@@ -49,5 +49,6 @@ overrides:
 
 allowBuilds:
   esbuild: true
+  ffmpeg-static: true
   node-pty: true
   tesseract.js: true
