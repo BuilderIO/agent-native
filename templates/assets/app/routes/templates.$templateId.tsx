@@ -1201,12 +1201,7 @@ export default function TemplateEditorRoute() {
                   variant="outline"
                   size="sm"
                   className="h-8 gap-2"
-                  disabled={
-                    readOnly ||
-                    pinningUnavailable ||
-                    uploadPending ||
-                    entry.assetIds.length >= 4
-                  }
+                  disabled={referenceUploadDisabled}
                   onClick={() => referenceUploadInputRef.current?.click()}
                 >
                   {uploadPending ? (

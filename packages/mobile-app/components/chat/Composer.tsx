@@ -68,6 +68,7 @@ import { useMobileNavigation } from "@/lib/navigation";
 import { getAndClearLastDictatedText } from "@/lib/voice-api";
 
 import { MobilePopover } from "./MobilePopover";
+import type { ChatTarget } from "./MobileWorkspaceControls";
 
 export type ActionTag = {
   id: string;
@@ -329,6 +330,7 @@ async function pickPhotoFromLibrary(): Promise<ChatAttachment | null> {
 
 export function Composer({
   isStreaming,
+  target,
   settings,
   baseUrl,
   onSend,
@@ -338,6 +340,7 @@ export function Composer({
   onSelectMode,
 }: {
   isStreaming: boolean;
+  target: ChatTarget;
   settings: AgentChatSettings;
   baseUrl?: string;
   onSend: (
@@ -429,7 +432,10 @@ export function Composer({
     };
   }, [localRuntimeSelected, retryProviderStatus]);
 
-  const chatReady = localRuntimeSelected || providerStatus === "configured";
+  const chatReady =
+    target === "computer" ||
+    localRuntimeSelected ||
+    providerStatus === "configured";
   const chatReadyRef = useRef(chatReady);
   chatReadyRef.current = chatReady;
 
