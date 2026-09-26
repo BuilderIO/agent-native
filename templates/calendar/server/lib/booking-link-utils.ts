@@ -8,6 +8,10 @@ import type {
 import { schema } from "../db/index.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const httpUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => /^https?:\/\//i.test(value));
 
 function stripCrlf(value: unknown): string {
   return (
@@ -39,7 +43,10 @@ const conferencingConfigSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("none"), url: z.string().optional() }),
   z.object({ type: z.literal("google_meet"), url: z.string().optional() }),
   z.object({ type: z.literal("zoom"), url: z.string().optional() }),
-  z.object({ type: z.literal("custom"), url: z.string().optional() }),
+  z.object({
+    type: z.literal("custom"),
+    url: httpUrlSchema,
+  }),
 ]);
 
 export function parseBookingConferencingConfig(

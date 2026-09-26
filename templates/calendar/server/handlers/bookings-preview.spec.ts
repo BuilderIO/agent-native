@@ -76,6 +76,7 @@ vi.mock("../lib/zoom.js", () => ({
 }));
 
 import { schema } from "../db/index.js";
+import { parseBookingConferencingConfig } from "../lib/booking-link-utils.js";
 import { createBooking, getAvailableSlots } from "./bookings.js";
 
 const availability = {
@@ -339,7 +340,14 @@ describe("draft booking availability previews", () => {
     expect(mocks.insertedBookings).toHaveLength(1);
   });
 
-  it.each(["{", "{}", JSON.stringify({ type: "unknown" })])(
+  it.each([
+    "{",
+    "{}",
+    JSON.stringify({ type: "unknown" }),
+    JSON.stringify({ type: "custom" }),
+    JSON.stringify({ type: "custom", url: "mailto:guest@example.com" }),
+    JSON.stringify({ type: "custom", url: "not a URL" }),
+  ])(
     "rejects a booking with invalid saved conferencing config: %s",
     async (conferencing) => {
       bookingLink.conferencing = conferencing;
@@ -357,6 +365,15 @@ describe("draft booking availability previews", () => {
       expect(db.transaction).not.toHaveBeenCalled();
       expect(mocks.insertedBookings).toHaveLength(0);
       expect(mocks.createZoomMeeting).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["http://meet.example.com/room", "https://meet.example.com/room"])(
+    "accepts a custom conferencing URL over HTTP(S): %s",
+    (url) => {
+      expect(
+        parseBookingConferencingConfig(JSON.stringify({ type: "custom", url })),
+      ).toEqual({ status: "valid", config: { type: "custom", url } });
     },
   );
 
