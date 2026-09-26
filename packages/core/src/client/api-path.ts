@@ -2,6 +2,7 @@ import {
   FRAMEWORK_INTERNAL_ROUTE_PREFIX,
   matchesPathPrefix,
   normalizeFrameworkRoutePrefix,
+  SERVER_ROUTE_PREFIXES,
   toPublicFrameworkPath,
 } from "../shared/framework-route-prefix.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
@@ -47,6 +48,18 @@ export function isFrameworkRoutePath(pathname: string): boolean {
   return (
     matchesPathPrefix(pathname, FRAMEWORK_INTERNAL_ROUTE_PREFIX) ||
     matchesPathPrefix(pathname, frameworkRoutePrefix())
+  );
+}
+
+/**
+ * True when the server answers `pathname` itself (the framework namespace,
+ * `/api`, `/mcp`, `/.well-known`, `/assets`) rather than the app's router.
+ * `pathname` is router-relative: strip the app base path first.
+ */
+export function isServerRoutePath(pathname: string): boolean {
+  return (
+    isFrameworkRoutePath(pathname) ||
+    SERVER_ROUTE_PREFIXES.some((prefix) => matchesPathPrefix(pathname, prefix))
   );
 }
 

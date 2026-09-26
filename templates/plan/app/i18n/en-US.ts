@@ -34,6 +34,7 @@ const messages = {
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
     openAgentSettings: "Manage agent",
+    editorGroupTitle: "Editor",
     editorTitle: "VS Code extension",
     editorDescription:
       "Open and review plans in a side panel inside VS Code instead of a separate browser tab.",

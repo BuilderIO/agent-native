@@ -2,7 +2,7 @@
 name: secrets
 description: >-
   Declaratively register API keys and service credentials a template needs so
-  they appear in the agent sidebar settings UI and the onboarding checklist.
+  they appear on Settings › API keys and in the onboarding checklist.
   Use before adding any third-party credential or setup UI so API keys, OAuth
   connections, and scoped configuration use the correct shared primitive.
 scope: dev
@@ -182,6 +182,37 @@ registerRequiredSecret({
 The sidebar shows a Connect button instead of a text input; no `app_secrets`
 row is written — status is derived from `hasOAuthTokens("google")`.
 
+### Builder.io: organization and personal connections
+
+Builder.io has two OAuth grants per caller, stored apart in
+`server/builder-oauth.ts`: the organization's (`org` scope, shared with every
+member) and a member's personal one (`user` scope, used only by that member,
+ahead of the org's). Name the one you mean; never let role pick it:
+
+- Connect with `/_agent-native/builder/connect?scope=org|personal`. `org` needs
+  owner/admin, checked at start and again in the callback, and fails rather
+  than landing as a personal grant. `personal` is for members only: owners and
+  admins connect for the organization (`canRoleConnectPersonalBuilder`).
+- Disconnect with the `manage-builder-connection` action,
+  `{ "disconnect": "org" | "personal" }` (the Settings Builder.io page calls it
+  too). `org` needs owner/admin, checked against the stored member role;
+  `personal` removes only the caller's grant, so they fall back to the org's.
+  Without `disconnect` it reads `grants`, `canConnect`, and `defaultModel`
+  (whether the default model runs on Builder.io and switches or stops once it
+  is gone). Older clients post the same body to
+  `/_agent-native/builder/disconnect`.
+- `/_agent-native/connection-status/builder` returns `grants` (`{}` none,
+  `null` unreadable), `effective` (`personal` / `org` / `workspace` / `env` /
+  `null`), and `canConnect`. Each grant has `kind`: `oauth`, or `keys` for a
+  key pair saved by account activation or an older connect at that scope. Client code reads them from `useBuilderConnectFlow`
+  and passes `scope` to `flow.start` and `BuilderConnectionMenu`.
+- "Restrict personal API keys" answers in `isPersonalBuilderGrantAllowed`; a
+  restricted personal grant stays stored, is skipped for requests, and reports
+  `restricted: true`.
+
+A scopeless connect keeps the old rule (owner/admin writes the org grant,
+anyone else a personal one) for older clients only.
+
 ## Registered options
 
 | Field              | Type                                    | Purpose                                                                  |
@@ -196,6 +227,48 @@ row is written — status is derived from `hasOAuthTokens("google")`.
 | `validator`        | `(v) => Promise<boolean \| {ok,error}>` | Runs on save and from the Test button. Never log `v`.                    |
 | `oauthProvider`    | `string?` (oauth-kind only)             | Provider id in `oauth-tokens` that backs this entry.                     |
 | `oauthConnectUrl`  | `string?` (oauth-kind only)             | URL the Connect button points at.                                        |
+| `usedFor` | `{ appId?, feature, effectWhenRemoved }[]?` | What this app uses the key for. Set `appId` to the app's id; omit it only for every-app uses. |
+| `managedBy` | `{ id, owner, route }?` | The Settings page that creates and rotates the key. Its deletes then need `?managedBy=<id>`. |
+
+### What a key powers
+
+Every registered secret should say what it powers, so API keys shows "Used by
+{feature}" and remove confirms list what stops. Write `effectWhenRemoved` as the
+user-visible outcome ("Uses another image provider, or stops if none is set
+up."), not the mechanism.
+
+- A provider key's model use ("Agent", models leaving the picker) is derived
+  from the engine registry. Don't add it to `usedFor`.
+- Framework-wide uses live in `register-framework-secrets.ts` via
+  `registerSecretUsage()`, which survives a template registering the same key.
+- Keys an owner flow writes (Builder.io credentials, `S3_*` storage fields,
+  channel tokens, calendar tokens) are mapped in `secrets/managed-keys.ts`. A
+  registration wins over the map: registering a key puts it on API keys unless
+  the registration sets `managedBy`.
+- Before deleting a key or removing a provider, call `preview-secret-removal`
+  and tell the user the effects.
+
+### Settings › API keys
+
+The page reads the `list-api-keys` action; the agent reads the same thing.
+
+- `keys`: every saved row the resolver can use for the caller. That is their
+  `user` row and pre-organization `solo:<email>` row, and for owners and
+  admins the organization's `org` and `workspace` rows. Each entry has
+  `scope` (`user` | `org`), `storedScope` (the row), a mask, `usedFor`,
+  `provider`, and `canReplace` / `canDelete` / `canTest`. Members never see
+  organization keys.
+- `managed`: keys with a `managedBy` owner, read-only, organization ones
+  included without masks. `addable`: registered keys nobody saved yet.
+- Delete with `delete-api-key { name, scope, storedScope }` after the preview
+  and the user's confirmation. It removes exactly that row, refuses managed
+  and Vault-synced keys, and fails with 404 when nothing was removed. A
+  provider key also takes its endpoint and older names at that row.
+- Values never go through an action. The page saves through
+  `saveApiKeyValue` (the secrets routes below). To add or replace a key, send
+  the user to the page (`open-settings-page`, page `api-keys`; a
+  `#secrets:KEY` anchor opens Add key with that name, or the provider dialog
+  when KEY is a model provider's key nobody saved).
 
 ## Reading a secret from an action
 
@@ -220,7 +293,7 @@ export default defineAction({
     const apiKey = stored?.value;
     if (!apiKey) {
       throw new Error(
-        "OPENAI_API_KEY is not set. Configure it in the sidebar settings.",
+        "OPENAI_API_KEY is not set. Add it in Settings.",
       );
     }
 
@@ -300,13 +373,28 @@ bugs are calls whose value can only live in another org's vault.
 Core routes plugin mounts these under `/_agent-native/secrets/` automatically:
 
 - `GET /_agent-native/secrets` — list registered secrets with status (`set`
-  / `unset` / `invalid`), metadata, and — for set api-keys — the last 4
-  characters. Values are never returned.
+  / `unset` / `invalid` / `unknown`), metadata, and — for set or invalid
+  api-keys — the last 4 characters. `invalid` means the provider rejected the
+  key in effect (`rejectedAt`); it stays until a call with the key succeeds or
+  the key is replaced. Values are never returned.
 - `POST /_agent-native/secrets/:key` — body `{ value, scope?, scopeId? }`.
   Runs the registered validator; returns 400 with the error on failure.
-- `DELETE /_agent-native/secrets/:key` — remove the stored value.
+- `DELETE /_agent-native/secrets/:key` — remove the stored value. A managed
+  key returns 409 naming its owner unless the owner passes `?managedBy=<id>`
+  (same on `DELETE /secrets/adhoc/:name`). Owner pages call
+  `removeManagedSecrets(keys, managerId)` from `@agent-native/core/client`,
+  or their own action when the agent must reach it too: Channels saves and
+  removes channel keys through `manage-messaging-channel`.
 - `POST /_agent-native/secrets/:key/test` — re-run the validator against the
   currently stored value.
+- List payloads carry `usedFor` and `managedBy` for registered and ad-hoc
+  keys. The remove-impact preview is the `preview-secret-removal` action.
+
+Model provider keys are checked by listing the models they reach: the
+`check-provider-key` action (client helper `fetchProviderModels`) returns
+`{ ok, models }` or `{ ok: false, code, reason }`. Call it before saving a key
+the user gives you; the key-save route runs the same check and refuses a
+rejected key.
 
 ## Storage & encryption
 
@@ -348,7 +436,9 @@ Core routes plugin mounts these under `/_agent-native/secrets/adhoc`:
   chars, URL allowlist). Values are never returned.
 - `POST /_agent-native/secrets/adhoc` — body `{ name, value, urlAllowlist? }`.
   Creates or updates an ad-hoc key.
-- `DELETE /_agent-native/secrets/adhoc/:name` — remove an ad-hoc key.
+- `DELETE /_agent-native/secrets/adhoc/:name[?scope=user|workspace]` —
+  remove an ad-hoc key. Pass the listed row's `scope` when a name is saved
+  at both; without it the personal row goes first.
 
 ### URL Allowlists
 
@@ -397,6 +487,89 @@ Key resolution falls back from user scope to workspace scope, so users can
 override shared keys without breaking automations that reference workspace
 defaults.
 
+## Model provider keys
+
+Save model provider keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, the other
+`PROVIDER_ENV_META` keys, and the OpenAI/Ollama endpoints) with
+`saveAgentEngineProviderSettings({ provider, apiKey, scope })`; remove them
+with `deleteAgentEngineProviderSettings({ provider, scope })`.
+
+- `scope` defaults to `"user"`. `"org"` needs an owner or admin; a member gets
+  403. A caller with no organization saves personally either way, and the
+  response's `scope` says which row was written.
+- A personal row and an organization row for the same provider coexist. An
+  organization save never deletes anyone's personal row, and the resolver
+  uses a personal key for its owner only (user before org).
+- Provider forms without a scope picker save at organization scope for owners
+  and admins and personally for everyone else (`useProviderKeySaveScope`).
+  Save stays off until the role is read; a failed read shows a retry and
+  never falls back to a personal save. Every provider key registers at `scope: "user"`, so Settings → API keys
+  writes the same personal row.
+- Gemini has one key, `GOOGLE_GENERATIVE_AI_API_KEY`, for chat models and
+  for voice input, embeddings, and image generation. Read it with
+  `resolveGeminiApiKey()` from `@agent-native/core/server` (never
+  `resolveSecret("GEMINI_API_KEY")`): rows saved under the older
+  `GEMINI_API_KEY` name still answer, and removing the key removes both
+  names at its own scope. An older-name row at another scope (Brain once
+  saved one for the whole workspace) still answers and is listed with the
+  ad-hoc keys; remove it with
+  `DELETE /_agent-native/secrets/adhoc/GEMINI_API_KEY?scope=workspace`
+  (owners and admins). Don't register `GEMINI_API_KEY`; record an app's uses with
+  `registerSecretUsage(GEMINI_API_KEY, [...])` from `@agent-native/core/secrets`.
+
+### Restrict personal API keys
+
+An org setting that stops members (not owners or admins) from using or adding
+their own model provider keys and personal Builder.io connection. Read and
+change it with the `manage-provider-key-policy` action: omit `set` to read it
+(owners and admins also get `affectedMembers`, each member and the providers
+that stop), `set: true|false` to change it (owners and admins only, audited).
+Read it before turning it on and tell the user who is affected.
+
+- Nothing is deleted. Restricted rows stay stored and work again when it is
+  turned off.
+- Scope is the provider keys, their endpoints, and the Builder key pair
+  (`isPersonalProviderPolicyKey` in `server/personal-provider-key-policy.ts`).
+  Other personal secrets are untouched.
+- Every resolver asks `isPersonalProviderKeyUseRestricted`: it skips the
+  member's `user` row, their `solo:<email>` row, and legacy personal settings
+  rows, then continues to the org's. An unreadable policy is a failed lookup,
+  never "not restricted". Add any new resolver or personal write path here.
+- Personal saves (provider-key route, secrets routes, scoped key saves,
+  personal Builder.io connect) refuse with "Owners and admins restricted
+  personal API keys." Removing a personal key stays allowed. A chat with no
+  usable key answers with the same message (`personal_provider_keys_restricted`).
+
+### Service providers
+
+Owners and admins pick which provider powers Voice input, Image generation, and
+Embeddings (Settings › Infrastructure). Read and change it with the
+`manage-service-providers` action: omit `provider` to read each service's
+choice, the provider that answers next, and each option's `keyState` (`org`,
+`personal`, `none`, `unavailable`); pass `service` and `provider` to change one
+(owners and admins only, audited). `"builder"` returns a service to Builder.io
+and `null` resets it to the default order.
+
+- Resolvers read the choice with `readServiceProviderChoice(service)` and order
+  providers with `serviceProviderOrder(service, choice)` from
+  `@agent-native/core/server`. Don't hard-code a second list of providers.
+- Voice and images try the choice first, then the default order (Builder.io
+  first). Embeddings use only the chosen provider, because vectors from another
+  one don't match the index; unset, they prefer Builder.io, then Gemini, Cohere,
+  Voyage. Changing the embeddings provider needs a re-index (Brain's
+  `backfill-search-embeddings`); the set call returns `reindexRequired`.
+- The choice picks a provider, not a key: its key still resolves through
+  `resolveSecretDetailed` (personal before organization). An unreadable choice
+  is a failed lookup, never "unset".
+- The rest of Settings › Infrastructure reads through actions too:
+  `get-file-storage` / `manage-file-storage` for uploads,
+  `list-model-providers` for the AI model, and `get-infrastructure-status`
+  (owners and admins) for the environment: the database provider and host,
+  where each app is hosted and its address, which deploy variables are set,
+  and the app profile's Required/Recommended tags. It never returns a value or
+  a database URL. Those variables live on the host, so the answer to "change
+  DATABASE_URL" is a host setting plus a redeploy, not a Settings write.
+
 ## Dispatch Vault Access
 
 Dispatch workspaces have a vault access policy for workspace app credentials:
@@ -412,7 +585,7 @@ Use `get-vault-access-settings` before deciding whether to create grants, and
 use `set-vault-access-settings` only when the user asks to change the policy.
 
 Vault keys land in the shared `app_secrets` store at `org` scope, so an app's
-Settings → API keys tab reports them as `Set · Vault` through
+Settings › API keys page reports them as `Set · Vault` through
 `resolveSecretDetailed` (`source`/`scopeId`) instead of the registered-scope
 row alone. Runtime precedence is personal (`user`) row → shared `org` row →
 legacy `workspace` row → designated vault org → deploy env. Never add a second

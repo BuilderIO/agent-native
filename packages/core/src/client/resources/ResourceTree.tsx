@@ -53,7 +53,7 @@ function StatusDot({
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function getFileIcon(node: TreeNode): React.ReactNode {
+export function getFileIcon(node: TreeNode): React.ReactNode {
   if (node.kind === "agent") {
     return (
       <IconHierarchy2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -237,9 +237,9 @@ function JobStatusDot({ meta }: { meta: JobMetadata }) {
   );
 }
 
-type LeafResourceNode = TreeNode & { resource: ResourceMeta };
+export type LeafResourceNode = TreeNode & { resource: ResourceMeta };
 
-function getLeafResources(nodes: TreeNode[]): LeafResourceNode[] {
+export function getLeafResources(nodes: TreeNode[]): LeafResourceNode[] {
   return nodes.flatMap((node) => {
     if (node.type === "folder") {
       return getLeafResources(node.children ?? []);
@@ -254,7 +254,7 @@ function formatResourceSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function getCollectionDescriptor(node: LeafResourceNode): string {
+export function getCollectionDescriptor(node: LeafResourceNode): string {
   if (node.kind === "agent") {
     return (
       node.agentMeta?.description || node.agentMeta?.model || "Custom agent"

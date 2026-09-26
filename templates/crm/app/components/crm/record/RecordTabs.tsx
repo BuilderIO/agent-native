@@ -48,7 +48,7 @@ export function RecordTabs({
       onValueChange={(next) => onTabChange(next as RecordTab)}
       className="flex flex-col p-5 sm:p-6"
     >
-      <TabsList className="h-9 self-start bg-muted/70">
+      <TabsList className="self-start bg-muted/70">
         <TabsTrigger value="activity" className="gap-1.5">
           <IconHistory className="size-3.5" />
           {t("record.tabActivity")}

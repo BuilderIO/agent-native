@@ -1,3 +1,4 @@
+import { createError, readBody } from "h3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -204,6 +205,63 @@ describe("framework request handler", () => {
     expect(debugSpy).toHaveBeenCalledWith(
       "[agent-native] GET /_agent-native/poll aborted by client: aborted",
     );
+  });
+
+  it("writes a JSON error for a route that throws after reading the body", async () => {
+    const nitroApp = createNitroApp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    getH3App(nitroApp).use("/_agent-native/org/invitations", async (event) => {
+      const body = await readBody<{ email?: string }>(event);
+      if (!body?.email) {
+        throw createError({ statusCode: 400, message: "Email is required" });
+      }
+      return { ok: true };
+    });
+
+    let event: any;
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/org/invitations",
+      (e) => {
+        event = e;
+        e.method = "POST";
+        e.req = new Request(e.url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: e.url.origin,
+            "sec-fetch-site": "same-origin",
+          },
+          body: JSON.stringify({ email: "" }),
+        });
+        // A Node IncomingMessage is destroyed once its body is fully read,
+        // while the client is still connected and waiting for this response.
+        e.node = { req: { destroyed: true }, res: { destroyed: false } };
+      },
+    );
+
+    expect(result).toEqual({ error: "Email is required" });
+    expect(event.res.status).toBe(400);
+    expect(event.res.headers.get("content-type")).toBe("application/json");
+    expect(debugSpy).not.toHaveBeenCalled();
+  });
+
+  it("treats a closed response as a client abort", async () => {
+    const nitroApp = createNitroApp();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "debug").mockImplementation(() => {});
+    getH3App(nitroApp).use("/_agent-native/org/members", () => {
+      throw createError({ statusCode: 500, message: "offboarding failed" });
+    });
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/org/members/a%40example.com", (e) => {
+        e.node = { req: { destroyed: true }, res: { destroyed: true } };
+      }),
+    ).resolves.toBe(undefined);
+
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
   it("keeps dynamic framework middleware visible to Nitro generated dispatchers", async () => {

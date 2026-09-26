@@ -1290,6 +1290,13 @@ const overrides = {
     emailNotificationsDescription:
       "Erhalte eine E-Mail, wenn jemand dein Dokument kommentiert, antwortet oder dich erwähnt.",
     saveFailed: "Speichern fehlgeschlagen",
+    notificationsEmail: "E-Mail",
+    commentsRepliesMentions: "Kommentare, Antworten und Erwähnungen",
+    commentsRepliesMentionsDescription:
+      "Wenn jemand dein Dokument kommentiert, darin antwortet oder dich erwähnt.",
+    retry: "Erneut versuchen",
+    mcpAbout:
+      "Verbinde Content mit Claude, ChatGPT, Cursor oder jeder KI-App, die MCP unterstützt. Diese App kann dann in Content für dich arbeiten: Dokumente durchsuchen, schreiben und bearbeiten. Sie sieht nur, was du sehen kannst.",
     languageTitle: "Sprache",
     languageDescription:
       "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",

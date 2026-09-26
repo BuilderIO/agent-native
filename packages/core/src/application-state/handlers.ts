@@ -61,6 +61,7 @@ const TAB_SCOPED_KEYS = new Set([
   "navigate",
   "__url__",
   "__set_url__",
+  "settings-view",
 ]);
 
 function requestScopedKey(key: string, event: H3Event): string {

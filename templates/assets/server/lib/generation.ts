@@ -2,9 +2,13 @@ import { createHash } from "node:crypto";
 
 import {
   FeatureNotConfiguredError,
+  GEMINI_API_KEY,
   getBuilderImageGenerationBaseUrl,
   resolveBuilderGatewayAuth,
+  readServiceProviderChoice,
+  resolveGeminiApiKey,
   resolveSecret,
+  type ServiceProviderId,
 } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
 import sharp from "sharp";
@@ -134,10 +138,10 @@ function formatLogValue(value: unknown): string {
 }
 
 export async function getGeminiApiKey(): Promise<string> {
-  const key = await resolveSecret("GEMINI_API_KEY");
+  const key = await resolveGeminiApiKey();
   if (!key) {
     throw new FeatureNotConfiguredError({
-      requiredCredential: "GEMINI_API_KEY",
+      requiredCredential: GEMINI_API_KEY,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
@@ -148,7 +152,8 @@ export async function getGeminiApiKey(): Promise<string> {
 }
 
 export async function isGeminiImageGenerationConfigured(): Promise<boolean> {
-  return !!(await resolveSecret("GEMINI_API_KEY").catch(() => null));
+  // coercion-ok: unchanged from the resolveSecret("GEMINI_API_KEY") read it replaces; an unreadable store still lets generation try the next provider, matching the OpenAI check below.
+  return !!(await resolveGeminiApiKey().catch(() => null));
 }
 
 async function getOpenAIImageApiKey(): Promise<string> {
@@ -642,23 +647,59 @@ async function generateWithRetryingBuilderImageApi(
   }
 }
 
+/**
+ * The organization's Image generation provider (Settings › Infrastructure)
+ * when it is Gemini or OpenAI, has a key, and can serve this run. Otherwise
+ * null, and generation keeps the Builder-first path with its fallbacks: mask
+ * edits need Builder, Gemini can't run gpt-* models, and OpenAI can't attach
+ * reference boards or source images.
+ */
+async function chosenImageProvider(
+  choice: ServiceProviderId<"images"> | null,
+  input: GenerateProviderInput,
+): Promise<
+  ((input: GenerateProviderInput) => Promise<GenerateProviderOutput>) | null
+> {
+  if (!choice || choice === "builder" || input.mode === "edit") return null;
+  if (choice === "gemini") {
+    if (input.model.startsWith("gpt-")) return null;
+    return (await isGeminiImageGenerationConfigured())
+      ? generateWithGemini
+      : null;
+  }
+  if (
+    input.hasBoardReferences ||
+    input.intent === "restyle" ||
+    input.intent === "edit"
+  ) {
+    return null;
+  }
+  return (await isOpenAIImageGenerationConfigured())
+    ? generateWithOpenAI
+    : null;
+}
+
 export async function generateWithManagedImageProvider(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
+  const orgProvider = await readServiceProviderChoice("images");
   logGeneration("dispatch", {
     model: input.model,
     mode: input.mode,
     intent: input.intent,
     background: input.background,
     builderEnabled: isBuilderImageGenerationEnabled(),
+    orgProvider,
     runId: input.runId,
   });
+  const chosen = await chosenImageProvider(orgProvider, input);
+  if (chosen) return chosen(input);
   if (!isBuilderImageGenerationEnabled()) {
     if (await isManualImageGenerationConfigured()) {
       return generateWithManualImageProvider(input);
     }
     throw new FeatureNotConfiguredError({
-      requiredCredential: "GEMINI_API_KEY or OPENAI_API_KEY",
+      requiredCredential: `${GEMINI_API_KEY} or OPENAI_API_KEY`,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
@@ -703,7 +744,7 @@ function createBuilderImageGenerationFallbackError(
       requiredCredential:
         input?.mode === "edit" || err.status === 401
           ? "BUILDER_PRIVATE_KEY"
-          : "GEMINI_API_KEY",
+          : GEMINI_API_KEY,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message,
@@ -966,7 +1007,7 @@ async function generateWithManualImageProvider(
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a Gemini API key.",
     });
   }
   if (await isGeminiImageGenerationConfigured()) {
@@ -974,16 +1015,16 @@ async function generateWithManualImageProvider(
   }
   if (input.hasBoardReferences) {
     throw new FeatureNotConfiguredError({
-      requiredCredential: "BUILDER_PRIVATE_KEY or GEMINI_API_KEY",
+      requiredCredential: `BUILDER_PRIVATE_KEY or ${GEMINI_API_KEY}`,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a Gemini API key.",
     });
   }
   if (input.intent === "restyle" || input.intent === "edit") {
     throw new FeatureNotConfiguredError({
-      requiredCredential: "GEMINI_API_KEY",
+      requiredCredential: GEMINI_API_KEY,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
@@ -998,11 +1039,11 @@ export async function generateWithOpenAI(
 ): Promise<GenerateProviderOutput> {
   if (input.hasBoardReferences) {
     throw new FeatureNotConfiguredError({
-      requiredCredential: "BUILDER_PRIVATE_KEY or GEMINI_API_KEY",
+      requiredCredential: `BUILDER_PRIVATE_KEY or ${GEMINI_API_KEY}`,
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a Gemini API key.",
     });
   }
   const startedAt = Date.now();

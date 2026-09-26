@@ -26,7 +26,7 @@ vi.mock("@agent-native/core/server", () => ({
   },
   resolveHasBuilderGatewayCredential: (...args: unknown[]) =>
     mockResolveHasBuilderGatewayCredential(...args),
-  resolveSecret: (...args: unknown[]) => mockResolveSecret(...args),
+  resolveGeminiApiKey: () => mockResolveSecret("GOOGLE_GENERATIVE_AI_API_KEY"),
 }));
 
 vi.mock("@agent-native/core/voice", () => ({

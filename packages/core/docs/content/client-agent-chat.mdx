@@ -233,9 +233,10 @@ If the current screen doesn't match anything the heuristic recognizes and nothin
 
 ## openAgentSettings(section?) {#openagentsettings}
 
-Use `openAgentSettings()` when an app settings page or setup card should open
-the canonical `/settings` page. Pass a section id such as `"llm"`, `"secrets"`,
-`"automations"`, `"voice"`, or `"limits"` to open a specific section.
+Use `openAgentSettings()` when a setup card or chat surface should open
+Settings. Pass a section id such as `"llm"`, `"secrets"`, `"automations"`,
+`"voice"`, or `"limits"`; the Settings redirect table opens the page that owns
+it (Model, API keys, Automations, Preferences, or the limits row on Model).
 
 ```ts
 import { openAgentSettings } from "@agent-native/core/client/navigation";
@@ -243,7 +244,9 @@ openAgentSettings();
 openAgentSettings("secrets");
 ```
 
-Prefer this helper over dispatching `agent-panel:open-settings` directly.
+Prefer this helper over dispatching `agent-panel:open-settings` directly. To
+open a page by its id, call `openSettingsPage("integrations")` or link with
+`buildSettingsRoute(page, sub?)`; see [Settings Kit](/docs/toolkit-settings#links).
 
 ## Agent Chat Context State {#agent-chat-context-state}
 

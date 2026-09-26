@@ -104,9 +104,14 @@ Utilisez `useFormatters()` pour les dates, les nombres, les durées relatives et
 listes. Ne placez pas de formatage de date ou de nombre sensible aux paramètres
 régionaux à l'intérieur des chaînes de traduction.
 
-Placez `<LanguagePicker />` partout où l'application permet à un utilisateur de changer
-de langue. Consultez [Toolkit : Réglages](/docs/toolkit-settings) pour le modèle
-standard de page de réglages, y compris la place qu'y occupe `openAgentSettings()`.
+Les réglages ont déjà une ligne **Interface language** dans Account › Preferences,
+et un changement à cet endroit s'applique dans chaque application : les pages de
+réglages propres à une application n'ajoutent donc pas de second sélecteur. Quand
+le flag `settings-redesign` est désactivé, placez le sélecteur dans l'onglet General
+de la page à onglets. Placez `<LanguagePicker />` partout ailleurs où l'application
+permet à un utilisateur de changer de langue, comme un raccourci dans l'en-tête.
+Consultez [Toolkit : Réglages](/docs/toolkit-settings) pour le contrat de la page de
+réglages.
 
 ## Actions et persistance
 
@@ -159,7 +164,6 @@ fournisseurs.
 
 - [**Vue d'ensemble**](/docs/client-overview#app-shell) — le wrapper `AppProviders` et
   les autres hooks navigateur sur lesquels s'appuie l'i18n
-- [**Toolkit : Réglages**](/docs/toolkit-settings) — placer `<LanguagePicker>` sur la
-  page de réglages standard
+- [**Toolkit : Réglages**](/docs/toolkit-settings) — le contrat de la page de réglages, où Account › Preferences gère la langue de l'interface
 - [**Démarrage**](/docs/getting-started) — créez votre première application à partir
   d'un modèle livrant déjà des catalogues localisés

@@ -1243,6 +1243,13 @@ const overrides = {
     emailNotificationsDescription:
       "누군가 내 문서에 댓글을 달거나 답글을 남기거나 나를 멘션하면 이메일을 받습니다.",
     saveFailed: "저장 실패",
+    notificationsEmail: "이메일",
+    commentsRepliesMentions: "댓글, 답글, 멘션",
+    commentsRepliesMentionsDescription:
+      "누군가 내 문서에 댓글이나 답글을 달거나 나를 멘션할 때.",
+    retry: "다시 시도",
+    mcpAbout:
+      "Content를 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 모든 AI 앱에 연결하세요. 연결된 앱은 문서 검색, 작성, 편집 등 Content에서 대신 작업할 수 있습니다. 앱은 내가 볼 수 있는 항목만 볼 수 있습니다.",
     languageTitle: "언어",
     languageDescription:
       "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",

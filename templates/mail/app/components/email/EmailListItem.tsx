@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage } from "@shared/types";
 import {
   IconArchive,
@@ -718,7 +719,7 @@ export const EmailListItem = memo(function EmailListItem({
                   </button>
                 </div>
                 <Link
-                  to="/settings?section=ai-filter#importance-rules"
+                  to={`${mailSettingsRoute("ai-filter")}#importance-rules`}
                   className="mt-2 flex items-center justify-between px-0.5 pt-1 text-xs text-muted-foreground hover:text-foreground"
                 >
                   {t("mail.sort.priorityEditRules")}

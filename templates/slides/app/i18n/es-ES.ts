@@ -40,7 +40,6 @@ const messages = {
     brand: "Diapositivas",
     decks: "Decks",
     designSystems: "Sistemas de diseño",
-    team: "Equipo",
   },
   settings: {
     agentObservability: "Observabilidad del agente",
@@ -54,6 +53,13 @@ const messages = {
     emailNotificationsDescription:
       "Recibe un correo cuando alguien comente o responda en tu presentación.",
     saveFailed: "No se pudo guardar",
+    notificationsEmail: "Correo electrónico",
+    commentsAndReplies: "Comentarios y respuestas",
+    commentsAndRepliesDescription:
+      "Cuando alguien comenta o responde en tu presentación.",
+    retry: "Reintentar",
+    mcpAbout:
+      "Conecta Slides con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Slides por ti: crear presentaciones, añadir diapositivas y exportar a PowerPoint. Solo ve lo que tú puedes ver.",
     languageTitle: "Idioma",
     languageDescription:
       "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
@@ -187,8 +193,6 @@ const messages = {
     slideUnavailable: "Diapositiva no disponible",
     couldNotLoadSlide: "No se pudo cargar la diapositiva.",
     openInApp: "Abrir en la app",
-    teamDescription:
-      "Configura un equipo para compartir presentaciones con tus compañeros.",
   },
 
   designSystems: {

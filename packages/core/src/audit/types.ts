@@ -23,7 +23,15 @@ export type AuditStatus = "success" | "error" | "denied";
  */
 export type AuditActorKind = "agent" | "human" | "system";
 
-export type AuditVisibility = "private" | "org" | "public";
+/**
+ * Who can read an event besides its owner.
+ * - `private` — the owner only (the default; personal content stays here).
+ * - `org` — every member of `org_id`.
+ * - `admins` — owners and admins of `org_id`: organization settings and admin
+ *   actions. Members still see their own rows through `owner_email`.
+ * - `public` — reserved; reads never widen on it.
+ */
+export type AuditVisibility = "private" | "org" | "admins" | "public";
 
 /**
  * The resource an action mutated, plus the ownership used to scope who can
@@ -118,6 +126,9 @@ export interface AuditEvent {
   networkProtocol?: string | null;
   networkId?: string | null;
   networkPeer?: string | null;
+  /** App that recorded the event (`app.id`, else `app.name`). Null on rows
+   *  written before the column existed or by an app with no identity. */
+  app?: string | null;
 }
 
 /** Filters for `queryAuditEvents`. */
@@ -133,7 +144,12 @@ export interface AuditQueryFilters {
   taskId?: string;
   runId?: string;
   sourcePlatform?: string;
+  /** Only rows recorded by this app. */
+  app?: string;
+  /** Only rows at or after this Unix epoch (ms). */
   sinceMs?: number;
+  /** Only rows strictly before this Unix epoch (ms). */
+  beforeMs?: number;
   limit?: number;
   /** Skip this many matching rows before applying `limit` (0-based). Used by
    *  `export-audit-events` to page past the per-call `MAX_LIMIT` clamp. */

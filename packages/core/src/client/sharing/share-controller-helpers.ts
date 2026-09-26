@@ -240,6 +240,16 @@ export function useShareOrgMemberSearch(
       setError(false);
       return;
     }
+    // Drop the previous query's results now, not when the debounced fetch
+    // starts: until then they no longer match what was typed, and a picker
+    // that doesn't filter client-side would still offer them.
+    requestIdRef.current += 1;
+    abortRef.current?.abort();
+    setMembers([]);
+    setNextOffset(null);
+    setHasMore(false);
+    setError(false);
+    setIsLoading(true);
     const delay = search ? debounceMs : 0;
     if (delay === 0) {
       fetchPage(0, false);

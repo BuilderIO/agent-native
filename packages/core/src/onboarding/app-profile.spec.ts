@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { getOnboardingAppProfile } from "./app-profile.js";
+import { WORKSPACE_SERVICES } from "./workspace-services.js";
 
 const APP_IDS = [
   "analytics",
@@ -80,13 +81,21 @@ describe("onboarding app profiles", () => {
       "system-one",
       "video-storage",
       "voice-input",
+      "image-generation",
       "embeddings",
+      "background-agents",
+      "browser-automation",
       "transcription",
     ]);
     expect(clips.capabilities[2]?.required).toBe(true);
     expect(clips.capabilities[2]?.keySummary).toBe("Object storage");
     expect(clips.capabilities[2]?.label).toBe("Object storage");
-    expect(clips.capabilities[4]?.required).toBe(false);
+    expect(clips.capabilities[2]?.service).toBe("storage");
+    expect(clips.capabilities[5]).toMatchObject({
+      id: "embeddings",
+      required: false,
+      suggested: true,
+    });
 
     clips.capabilities[0]!.label = "Changed locally";
     expect(getOnboardingAppProfile("clips").capabilities[0]?.label).toBe(
@@ -128,11 +137,12 @@ describe("onboarding app profiles", () => {
           id: "media-generation",
           required: true,
         }),
+        // Builder.io powers video generation too (Assets' video provider).
         expect.objectContaining({
           id: "video-generation",
           required: false,
           suggested: true,
-          builderIncluded: false,
+          builderIncluded: true,
         }),
         expect.objectContaining({
           id: "file-storage",
@@ -157,4 +167,83 @@ describe("onboarding app profiles", () => {
       );
     },
   );
+
+  it.each(APP_IDS)(
+    "lists every shared service Infrastructure shows for %s",
+    (appId) => {
+      const capabilities = getOnboardingAppProfile(appId).capabilities;
+      const tagged = capabilities
+        .map((capability) => capability.service)
+        .filter(Boolean);
+
+      // In Infrastructure's order, once each, and only where declared for
+      // services not every app lists.
+      expect(tagged).toEqual(
+        WORKSPACE_SERVICES.filter(
+          (service) =>
+            service.everyApp ||
+            capabilities.some(
+              (capability) => capability.service === service.id,
+            ),
+        ).map((service) => service.id),
+      );
+      for (const capability of capabilities) {
+        if (!capability.service) continue;
+        expect(capability.builderIncluded).toBe(true);
+        expect(capability.builderOnly === true).toBe(
+          WORKSPACE_SERVICES.find(
+            (service) => service.id === capability.service,
+          )?.kind === "builder-only",
+        );
+      }
+    },
+  );
+
+  it("marks the Builder.io-only services and keeps them optional", () => {
+    const capabilities = getOnboardingAppProfile("design").capabilities;
+    const builderOnly = capabilities.filter(
+      (capability) => capability.builderOnly,
+    );
+
+    expect(builderOnly.map((capability) => capability.service)).toEqual([
+      "design-system-intelligence",
+      "background-agents",
+      "browser-automation",
+    ]);
+    expect(
+      builderOnly.every(
+        (capability) => !capability.required && !capability.suggested,
+      ),
+    ).toBe(true);
+  });
+
+  it("uses an app's declared capability for a service without lowering its tag", () => {
+    const assets = getOnboardingAppProfile("assets").capabilities;
+    const images = assets.filter(
+      (capability) => capability.service === "images",
+    );
+
+    expect(images).toEqual([
+      expect.objectContaining({ id: "media-generation", required: true }),
+    ]);
+    expect(assets.map((capability) => capability.id)).not.toContain(
+      "image-generation",
+    );
+    const forms = getOnboardingAppProfile("forms").capabilities.find(
+      (capability) => capability.service === "storage",
+    );
+    expect(forms).toMatchObject({
+      label: "File storage",
+      required: false,
+      suggested: true,
+    });
+  });
+
+  it("leaves image generation untagged where no app declares it", () => {
+    expect(
+      getOnboardingAppProfile("mail").capabilities.find(
+        (capability) => capability.service === "images",
+      ),
+    ).toMatchObject({ required: false, suggested: false });
+  });
 });

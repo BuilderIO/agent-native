@@ -755,11 +755,12 @@ function RequestRow({
           <div className="flex-1 space-y-1">
             <Label className="text-xs">Key value to provision</Label>
             <Input
+              size="sm"
               type="password"
               placeholder="Enter the key value"
               value={secretValue}
               onChange={(e) => setSecretValue(e.target.value)}
-              className="h-8 text-sm"
+              className="text-sm"
             />
           </div>
           <Button
@@ -1030,7 +1031,7 @@ export default function VaultRoute() {
                       initial: { credentialKey: name ?? "" },
                     })
                   }
-                  triggerClassName="h-9 px-3 text-sm"
+                  size="default"
                 />
                 <AddSecretDialog
                   open={addDialogState.open}

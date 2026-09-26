@@ -286,6 +286,39 @@ export default {
     eventRulesConflict: "تخطّينا دعوة لأن قاعدتي القبول والرفض تطابقتا.",
     eventRulesUnregistered: "أتمتة Calendar غير مسجلة على هذا الخادم.",
   },
+  calendarSettings: {
+    calendarsTab: "التقويمات",
+    bookingTab: "الحجز",
+    eventsGroup: "الأحداث",
+    appearanceGroup: "المظهر",
+    colorTheme: "سمة الألوان",
+    timezone: "المنطقة الزمنية للتقويم",
+    timezoneDescription: "يُستخدم لعرض الأحداث وإنشاء أحداث جديدة.",
+    defaultDuration: "المدة الافتراضية للحدث",
+    defaultDurationDescription:
+      "بالدقائق. يمكن لروابط الحجز تعيين مدة خاصة بها.",
+    durationInvalid: "أدخل مدة من 5 إلى 480 دقيقة.",
+    zoom: "Zoom",
+    connectedAs: "متصل باسم {{accounts}}",
+    setUp: "إعداد",
+    disconnectGoogleTitle: "هل تريد قطع الاتصال بتقويم Google؟",
+    disconnectGoogleDescription:
+      "يتوقف Calendar عن عرض الأحداث من حسابات Google ومزامنتها.",
+    disconnectZoomTitle: "هل تريد قطع الاتصال بـ Zoom؟",
+    disconnectZoomDescription:
+      "لن تحصل الأحداث والحجوزات الجديدة على روابط اجتماعات Zoom حتى تعيد الاتصال.",
+    manage: "إدارة",
+    edit: "تعديل",
+    cancel: "إلغاء",
+    save: "حفظ",
+    fallbackBookingPage: "صفحة الحجز البديلة",
+    fallbackBookingPageDescription:
+      "تُستخدم عندما لا يكون لرابط الحجز عنوان أو وصف خاص به.",
+    fallbackTitle: "العنوان",
+    fallbackDescription: "الوصف",
+    bookingLinksDescription:
+      "أنشئ روابط حجز وانسخ عناوين URL العامة الخاصة بها.",
+  },
   eventDialog: {
     eventUpdated: "تم تحديث الحدث",
     updateFailed: "فشل تحديث الحدث",

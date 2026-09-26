@@ -46,6 +46,9 @@ vi.mock("../i18n.js", () => ({
       if (key === "org.groups") return "Groups";
       if (key === "org.groupName") return "Group name";
       if (key === "org.deleteGroup") return "Delete group?";
+      if (key === "org.deleteGroupConfirm") {
+        return `Type ${options?.name ?? ""} to confirm.`;
+      }
       if (key === "org.deleteGroupAria") {
         return `Delete group ${options?.name ?? ""}`;
       }
@@ -222,7 +225,7 @@ describe("MemberRow organization controls", () => {
     expect(onMemberSearchChange).toHaveBeenCalledWith("morgan");
   });
 
-  it("hides the invite flow when email delivery is not configured", () => {
+  it("keeps the invite flow for admins when email delivery is not configured", () => {
     act(() => {
       root.render(
         <TooltipProvider>
@@ -252,7 +255,7 @@ describe("MemberRow organization controls", () => {
       );
     });
 
-    expect(container.textContent).not.toContain("Invite members");
+    expect(container.textContent).toContain("Invite members");
   });
 
   it("uses a search-specific empty state", () => {
@@ -373,7 +376,7 @@ describe("MemberRow organization controls", () => {
     const input = document.querySelector<HTMLInputElement>(
       "#workspace-delete-group-name-group-1",
     );
-    expect(input?.labels?.[0]?.textContent).toBe("Group name");
+    expect(input?.labels?.[0]?.textContent).toBe("Type Rev Ops to confirm.");
     expect(input).not.toBeNull();
     act(() => {
       const valueSetter = Object.getOwnPropertyDescriptor(

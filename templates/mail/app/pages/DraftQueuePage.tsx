@@ -159,7 +159,7 @@ function QueueDraftDialog({
                 {t("mail.draftQueue.reviewer")}
               </label>
               <Select value={ownerEmail} onValueChange={setOwnerEmail}>
-                <SelectTrigger className="h-9">
+                <SelectTrigger>
                   <SelectValue
                     placeholder={t("mail.draftQueue.chooseMember")}
                   />

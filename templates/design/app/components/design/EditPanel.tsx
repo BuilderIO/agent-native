@@ -1550,7 +1550,7 @@ function ScreenGeometryProperties({
                 <Button
                   type="button"
                   size="sm"
-                  variant="outline"
+                  variant="secondary"
                   className="h-6 shrink-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] shadow-none hover:bg-[var(--design-editor-panel-raised-bg)]"
                   disabled={
                     !sourceEditable ||

@@ -96,8 +96,8 @@ export function RecordingOptionsMenu({
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            size="icon"
-            className="order-last h-8 w-8 shrink-0"
+            size="icon-sm"
+            className="order-last shrink-0"
             aria-label={t("deleteRecordingMenu.clipOptions")}
           >
             <IconDotsVertical className="h-4 w-4" />

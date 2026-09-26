@@ -6,6 +6,7 @@ export {
   getFeatureFlagDefinition,
   listFeatureFlags,
   registerFeatureFlags,
+  SETTINGS_REDESIGN_FLAG,
   type FeatureFlagDefinition,
 } from "./registry.js";
 export {

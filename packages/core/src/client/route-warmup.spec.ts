@@ -111,6 +111,41 @@ describe("route warmup runtime helpers", () => {
     );
   });
 
+  it("never warms paths the server answers, even under a catch-all route", () => {
+    window.__reactRouterManifest = {
+      routes: {
+        root: { id: "root", path: "", hasLoader: true },
+        "routes/$": {
+          id: "routes/$",
+          parentId: "root",
+          path: "*",
+          hasLoader: true,
+        },
+      },
+    };
+    const serverPaths = [
+      "/mcp/connect",
+      "/mcp",
+      "/.well-known/agent-card.json",
+      "/api/automations/trigger",
+      "/_agent-native/actions/list-automations",
+      "/cdn-cgi/trace",
+    ];
+
+    for (const path of serverPaths) {
+      expect(dataRouteUrlsForHref(path), path).toEqual([]);
+      expect(
+        isClientRouteUrl(new URL(path, window.location.origin)),
+        path,
+      ).toBe(false);
+    }
+    expect(dataRouteUrlsForHref("/mcp-servers")).toHaveLength(1);
+
+    window.__reactRouterContext = { basename: "/mail" };
+    expect(dataRouteUrlsForHref("/mail/mcp/connect?locale=en")).toEqual([]);
+    expect(dataRouteUrlsForHref("/mail/inbox")).toHaveLength(1);
+  });
+
   it("refreshes the route tree when React Router patches manifest routes in place", () => {
     const manifest = {
       routes: {

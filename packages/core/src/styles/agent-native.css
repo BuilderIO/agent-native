@@ -1033,6 +1033,22 @@
   container-name: settings-row;
 }
 
+/* The row a Settings search hit opened, briefly highlighted so the eye can
+   find it after the page scrolls. */
+[data-settings-flash] {
+  animation: settings-search-flash 1.6s ease-out;
+}
+
+@keyframes settings-search-flash {
+  0%,
+  35% {
+    background-color: hsl(var(--accent));
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
 /* Integration cards use their content column, not the viewport, to choose a
    two-column layout. Settings can leave a desktop viewport with only a narrow
    content column once the navigation rail is open. */

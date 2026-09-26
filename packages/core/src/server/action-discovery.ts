@@ -665,9 +665,37 @@ export async function mergeCoreSharingActions(
       "set-workspace-app-access",
       () => import("../org/actions/set-workspace-app-access.js"),
     ],
+    [
+      "list-sign-in-methods",
+      () => import("../org/actions/list-sign-in-methods.js"),
+    ],
     ["explain-access", () => import("../org/actions/explain-access.js")],
     ["offboard-member", () => import("../org/actions/offboard-member.js")],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
+    [
+      "get-file-storage",
+      () => import("../file-upload/actions/get-file-storage.js"),
+    ],
+    [
+      "manage-file-storage",
+      () => import("../file-upload/actions/manage-file-storage.js"),
+    ],
+    [
+      "manage-service-providers",
+      () => import("../agent/actions/manage-service-providers.js"),
+    ],
+    [
+      "get-infrastructure-status",
+      () => import("../agent/actions/get-infrastructure-status.js"),
+    ],
+    [
+      "list-messaging-channels",
+      () => import("../integrations/actions/list-messaging-channels.js"),
+    ],
+    [
+      "manage-messaging-channel",
+      () => import("../integrations/actions/manage-messaging-channel.js"),
+    ],
     [
       "list-workspace-user-groups",
       () =>
@@ -752,6 +780,36 @@ export async function mergeCoreSharingActions(
     [
       "disconnect-chatgpt-subscription",
       () => import("../agent/actions/disconnect-chatgpt-subscription.js"),
+    ],
+    [
+      "preview-secret-removal",
+      () => import("../secrets/actions/preview-secret-removal.js"),
+    ],
+    ["list-api-keys", () => import("../secrets/actions/list-api-keys.js")],
+    ["delete-api-key", () => import("../secrets/actions/delete-api-key.js")],
+    [
+      "check-provider-key",
+      () => import("../agent/actions/check-provider-key.js"),
+    ],
+    [
+      "manage-provider-key-policy",
+      () => import("../agent/actions/manage-provider-key-policy.js"),
+    ],
+    [
+      "manage-builder-connection",
+      () => import("../agent/actions/manage-builder-connection.js"),
+    ],
+    [
+      "get-provider-models",
+      () => import("../agent/actions/get-provider-models.js"),
+    ],
+    [
+      "manage-provider-models",
+      () => import("../agent/actions/manage-provider-models.js"),
+    ],
+    [
+      "list-model-providers",
+      () => import("../agent/actions/list-model-providers.js"),
     ],
     [
       "get-experiments",

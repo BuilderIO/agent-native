@@ -69,6 +69,31 @@ const rows = await db.select().from(tasks).where(eq(tasks.id, taskId));
 Outside a managed Drizzle scaffold, use `drizzle-orm/pg-core` so app schemas
 state their PostgreSQL types directly.
 
+#### Identity-shaped columns need a policy
+
+Member offboarding and email changes refuse to run while any column named
+`email`, `*_email`, `*scope_id`, `created_by`, `updated_by`, `invited_by`,
+`owner`, `principal_id`, `session_id`, or `user_id` has no policy. `owner_email`
+and `createSharesTable()` tables are handled for you. Declare every other one,
+including columns that are not member identities, from the app's database
+plugin graph (Clips does it in `server/db/index.ts`):
+
+```ts
+import { registerIdentityColumns } from "@agent-native/core/org";
+
+registerIdentityColumns([
+  // Access grant: follows an email change, ends with the membership.
+  { table: "space_members", column: "email", emailChange: "rekey", offboard: "delete", orgScope: { column: "space_id", references: { table: "spaces", column: "id", orgColumn: "org_id" } }, reason: "Space membership grants access." },
+  // Someone else's address: never rewritten.
+  { table: "meeting_participants", column: "email", emailChange: "retain", offboard: "retain", reason: "Attendee address from the calendar provider." },
+]);
+```
+
+Choose `delete` for grants, credentials, and pending tokens; `retain` for
+attribution, history, and third-party addresses; `transfer` only for owned
+data. A table without `org_id` needs `orgScope` or an organization-scoped
+removal leaves its rows alone.
+
 | Template     | Tables                                        |
 | ------------ | --------------------------------------------- |
 | **Mail**     | emails, labels (+ Gmail API when connected)   |

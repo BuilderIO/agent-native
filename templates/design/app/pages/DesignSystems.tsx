@@ -564,9 +564,9 @@ export default function DesignSystems() {
                       <TooltipTrigger asChild>
                         <Button
                           variant="ghost"
-                          size="icon"
+                          size="icon-sm"
                           onClick={toggleAllSystems}
-                          className="h-8 w-8 cursor-pointer"
+                          className="cursor-pointer"
                         >
                           <IconChecks className="w-4 h-4" />
                         </Button>
@@ -581,9 +581,9 @@ export default function DesignSystems() {
                       <TooltipTrigger asChild>
                         <Button
                           variant="ghost"
-                          size="icon"
+                          size="icon-sm"
                           onClick={clearSelection}
-                          className="h-8 w-8 cursor-pointer"
+                          className="cursor-pointer"
                         >
                           <IconX className="w-4 h-4" />
                         </Button>

@@ -1,9 +1,17 @@
+import {
+  ActionButton,
+  Avatar,
+  TextField,
+} from "@agent-native/toolkit/design-system";
 import { ResourceIcon } from "@agent-native/toolkit/icons";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
 import {
   IconArrowUpRight,
   IconBriefcase,
+  IconChartBar,
   IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
+  IconDownload,
   IconExternalLink,
   IconKey,
   IconLoader2,
@@ -13,16 +21,40 @@ import {
   IconSelector,
   IconSettings,
   IconUser,
-  IconUserCircle,
-  IconUserPlus,
   IconUsersGroup,
 } from "@tabler/icons-react";
-import { useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { Link, useNavigate } from "react-router";
 
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
-import { canInviteOrgMembers } from "../../org/permissions.js";
+import { buildSettingsRoute } from "../../navigation/index.js";
 import { shouldOfferWorkspace } from "../../org/workspace-url.js";
+import type { UserProfile } from "../../user-profile/shared.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu.js";
 import {
   Tooltip,
   TooltipContent,
@@ -31,13 +63,15 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { signOut } from "../sign-out.js";
+import { useActionQuery } from "../use-action.js";
+import { useAvatarUrl } from "../use-avatar.js";
 import { useDemoModeStatus } from "../use-demo-mode-status.js";
 import { useSession } from "../use-session.js";
+import { cn } from "../utils.js";
 import {
   useOrg,
   useSwitchOrg,
   useCreateOrg,
-  useInviteMember,
   useAcceptInvitation,
   useJoinByDomain,
 } from "./hooks.js";
@@ -57,34 +91,41 @@ export interface OrgSwitcherProps {
   /** Keep the switcher's slot reserved when there is no organization to show. */
   reserveSpace?: boolean;
   /**
-   * Icon-only trigger for collapsed sidebar rails. The popover — and with it
-   * the org list, pending invitations and "Join your team" — is identical;
-   * dropping the switcher instead leaves a collapsed rail with no way to
-   * reach another workspace.
+   * Avatar-only trigger for collapsed sidebar rails. The menu, and with it the
+   * org list, pending invitations and "Join your team", is identical; dropping
+   * the menu instead leaves a collapsed rail with no way to reach another
+   * workspace or Settings.
    */
   compact?: boolean;
   /**
-   * Path to navigate to when the user clicks "Organization settings".
-   * Defaults to the Organization tab inside Settings. Templates with an
-   * established org surface can pass their own path; pass `null` to only open
-   * the in-sidebar settings panel.
+   * @deprecated The account menu no longer has an "Organization settings"
+   * item. Settings opens through the shared settings route. Accepted for one
+   * release so existing callers keep compiling.
    */
   settingsPath?: string | null;
-  /** Path to navigate to when the user clicks "Profile". Defaults to the shared Account settings section. */
+  /**
+   * @deprecated The account menu no longer has a "Profile" item. Settings
+   * opens on the account page through the shared settings route.
+   */
   profilePath?: string | null;
   /** @deprecated Manage agent is available in Settings and is not shown here. */
   agentPath?: string | null;
   /** @deprecated The switcher no longer renders an app list. */
   currentAppId?: string;
-  /** App-owned, low-frequency utilities rendered before sign out. */
+  /**
+   * App-owned downloads, listed under "Get apps and extensions". The item is
+   * hidden when no links are passed.
+   */
   utilityLinks?: readonly OrgSwitcherUtilityLink[];
 }
 
-function personalLabelFromEmail(email: string | null | undefined): string {
-  if (!email) return "Personal";
+export type AccountMenuProps = OrgSwitcherProps;
+export type AccountMenuUtilityLink = OrgSwitcherUtilityLink;
+
+function nameFromEmail(email: string | null | undefined): string {
+  if (!email) return "";
   const local = email.split("@")[0] ?? email;
   const cleaned = local.replace(/[._-]+/g, " ").trim();
-  if (!cleaned) return "Personal";
   return cleaned
     .split(" ")
     .filter(Boolean)
@@ -92,30 +133,37 @@ function personalLabelFromEmail(email: string | null | undefined): string {
     .join(" ");
 }
 
-type Mode = "list" | "create" | "invite";
-
-const POPOVER_CONTENT_CLASS =
-  "z-50 min-w-[14rem] rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2";
-
-const ITEM_CLASS =
-  "flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-foreground hover:bg-accent focus-visible:bg-accent focus:outline-none disabled:opacity-50 disabled:pointer-events-none";
-
-const SECTION_LABEL_CLASS =
-  "px-2.5 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground";
-
-const SWITCHER_BUTTON_CLASS =
-  "flex w-full items-center gap-2 rounded-md border-0 bg-accent/50 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer";
-
-const COMPACT_SWITCHER_BUTTON_CLASS =
-  "flex items-center justify-center rounded-md border-0 bg-accent/50 p-1.5 text-muted-foreground hover:bg-accent/70 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer";
-
-const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings/organization";
-const DEFAULT_PROFILE_PATH = "/settings/account";
-function organizationSettingsPath(path: string): string {
-  if (path.includes("#")) return path;
-  const pathname = path.split("?")[0]?.replace(/\/+$/, "");
-  return pathname === "/settings" ? `${path}#organization` : path;
+function initials(name: string): string {
+  return (
+    name
+      .split(/[ @._-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "?"
+  );
 }
+
+function isApplePlatform(): boolean {
+  return (
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.userAgent)
+  );
+}
+
+type MenuView = "main" | "apps";
+
+const ITEM_CLASS = "text-xs";
+const ITEM_ICON_CLASS = "size-3.5 shrink-0 text-muted-foreground";
+
+const TRIGGER_CLASS =
+  "flex w-full min-w-0 items-center gap-2 rounded-md border-0 bg-transparent px-1.5 py-1 text-start text-foreground hover:bg-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 data-[state=open]:bg-accent/60 cursor-pointer";
+
+const COMPACT_TRIGGER_CLASS =
+  "flex items-center justify-center rounded-md border-0 bg-transparent p-1 text-foreground hover:bg-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 data-[state=open]:bg-accent/60 cursor-pointer";
+
+const AVATAR_CLASS =
+  "shrink-0 rounded-full border border-border bg-accent text-[11px] font-semibold text-muted-foreground";
 
 function ReservedOrgSwitcherSpace({ className }: { className?: string }) {
   return <div aria-hidden="true" className={`h-8 ${className ?? ""}`} />;
@@ -124,24 +172,33 @@ function ReservedOrgSwitcherSpace({ className }: { className?: string }) {
 function OrgSwitcherLoadingPlaceholder({
   className,
   compact,
+  label,
 }: {
   className?: string;
   compact?: boolean;
+  label: string;
 }) {
   return (
     <button
       type="button"
       disabled
-      aria-label="Loading organization"
-      className={`${compact ? COMPACT_SWITCHER_BUTTON_CLASS : SWITCHER_BUTTON_CLASS} animate-pulse ${className ?? ""}`}
+      aria-label={label}
+      className={cn(
+        compact ? COMPACT_TRIGGER_CLASS : TRIGGER_CLASS,
+        "animate-pulse",
+        className,
+      )}
     >
       {compact ? (
-        <span className="size-3.5 rounded-sm bg-muted-foreground/20" />
+        <span className="size-6 rounded-full bg-muted-foreground/20" />
       ) : (
         <>
-          <IconBriefcase className="h-3.5 w-3.5 shrink-0 opacity-60" />
-          <span className="h-3 min-w-0 flex-1 rounded-sm bg-muted-foreground/20" />
-          <IconSelector className="h-3 w-3 shrink-0 opacity-30" />
+          <span className="size-7 shrink-0 rounded-full bg-muted-foreground/20" />
+          <span className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className="h-3 w-3/4 rounded-sm bg-muted-foreground/20" />
+            <span className="h-2.5 w-1/2 rounded-sm bg-muted-foreground/15" />
+          </span>
+          <IconSelector className="size-3.5 shrink-0 opacity-30" />
         </>
       )}
     </button>
@@ -149,18 +206,16 @@ function OrgSwitcherLoadingPlaceholder({
 }
 
 /**
- * Compact org switcher button. Shows the active org (or "Personal" when the
- * user has none); opens a popover with the user's other orgs, pending
- * invitations, inline forms to create a new org / invite a teammate, and a
- * sign-out item. Renders nothing in dev / no-auth mode.
+ * Account menu for app sidebars. The trigger shows the signed-in person's
+ * photo, name, and current organization; the menu lists organizations,
+ * pending invitations, and domain matches, then Settings, Usage, the app's
+ * downloads, and Log out. Renders nothing in dev / no-auth mode.
  */
 export function OrgSwitcher({
   className,
   hideWhenSingle,
   reserveSpace,
   compact,
-  settingsPath = DEFAULT_ORGANIZATION_SETTINGS_PATH,
-  profilePath = DEFAULT_PROFILE_PATH,
   utilityLinks,
 }: OrgSwitcherProps) {
   const { data: org, isLoading } = useOrg();
@@ -169,24 +224,47 @@ export function OrgSwitcher({
   const t = useT();
   const switchOrg = useSwitchOrg();
   const createOrg = useCreateOrg();
-  const inviteMember = useInviteMember();
   const acceptInvitation = useAcceptInvitation();
   const joinByDomain = useJoinByDomain();
   const navigate = useNavigate();
+  const email = session?.email ?? org?.email ?? null;
+  const profileQuery = useActionQuery<UserProfile>(
+    "get-user-profile",
+    undefined,
+    { enabled: !!email },
+  );
+  const avatarUrl = useAvatarUrl(email);
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<Mode>("list");
+  const [view, setView] = useState<MenuView>("main");
+  const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
-  const [inviteEmail, setInviteEmail] = useState("");
   const [signingOut, setSigningOut] = useState(false);
-  const [joiningOrgId, setJoiningOrgId] = useState<string | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const viewChangedRef = useRef(false);
+  const openingDialogRef = useRef(false);
+  const settingsShortcut = useMemo(
+    () => (isApplePlatform() ? "⌘," : "Ctrl+,"),
+    [],
+  );
+
+  // The drill-in swaps the menu's items, which unmounts the focused one.
+  // Hand focus to the first item of the new list so arrow keys keep working.
+  useEffect(() => {
+    if (!viewChangedRef.current) return;
+    viewChangedRef.current = false;
+    contentRef.current
+      ?.querySelector<HTMLElement>('[role="menuitem"]:not([data-disabled])')
+      ?.focus();
+  }, [view]);
+
+  const showView = (next: MenuView) => {
+    viewChangedRef.current = true;
+    setView(next);
+  };
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
-    if (!next) {
-      setMode("list");
-      setNewName("");
-      setInviteEmail("");
-    }
+    if (!next) setView("main");
   };
 
   const handleSignOut = async () => {
@@ -195,9 +273,26 @@ export function OrgSwitcher({
     await signOut();
   };
 
+  const handleCreateSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = newName.trim();
+    if (!name) return;
+    // Failures stay on `createOrg.error`, which the dialog renders.
+    createOrg.mutate(name, {
+      onSuccess: () => {
+        setCreateOpen(false);
+        setNewName("");
+      },
+    });
+  };
+
   if (!org) {
     return isLoading ? (
-      <OrgSwitcherLoadingPlaceholder className={className} compact={compact} />
+      <OrgSwitcherLoadingPlaceholder
+        className={className}
+        compact={compact}
+        label={t("agentChat.accountMenu.loading")}
+      />
     ) : null;
   }
 
@@ -223,555 +318,498 @@ export function OrgSwitcher({
     ) : null;
   }
 
-  const canInvite =
-    !!org.orgId && canInviteOrgMembers(org.role, org.emailConfigured);
-
-  const personalLabel = session?.name || personalLabelFromEmail(org.email);
   const inOrg = !!org.orgId;
-  const buttonLabel = org.orgName ?? "Personal";
+  const organizationLabel = org.orgName ?? t("agentChat.accountMenu.personal");
+  const displayName =
+    profileQuery.data?.name ||
+    session?.name ||
+    nameFromEmail(org.email) ||
+    organizationLabel;
   const triggerLabel = demoModeEnabled
-    ? `${buttonLabel}, Demo mode`
-    : buttonLabel;
-  const ButtonIcon = inOrg ? IconBriefcase : IconUser;
-  const buttonIcon = inOrg ? org.icon : null;
-  const organizationSettingsHref = settingsPath
-    ? organizationSettingsPath(settingsPath)
-    : null;
+    ? t("agentChat.accountMenu.triggerLabelDemo", {
+        name: displayName,
+        organization: organizationLabel,
+      })
+    : t("agentChat.accountMenu.triggerLabel", {
+        name: displayName,
+        organization: organizationLabel,
+      });
+  const workspaceUrl =
+    typeof window !== "undefined" &&
+    org.workspaceUrl &&
+    shouldOfferWorkspace(window.location.href, org.workspaceUrl)
+      ? org.workspaceUrl
+      : null;
+  const links = utilityLinks ?? [];
+  const menuError = (switchOrg.error ||
+    acceptInvitation.error ||
+    joinByDomain.error) as Error | null;
 
-  return (
-    <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
-      {compact ? (
-        // The popover trigger has to sit directly on the button: both Radix
-        // slots merge their props into the same DOM node, and a provider
-        // between them would swallow the click that opens the switcher.
-        <TooltipProvider delayDuration={0}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <PopoverPrimitive.Trigger asChild>
-                <button
-                  type="button"
-                  aria-label={triggerLabel}
-                  className={`${COMPACT_SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
-                >
-                  <ResourceIcon
-                    value={buttonIcon}
-                    size={14}
-                    resolveImageUrl={(image) =>
-                      image.authority === "url" ? image.assetId : undefined
-                    }
-                    fallback={<ButtonIcon className="h-3.5 w-3.5 shrink-0" />}
-                  />
-                </button>
-              </PopoverPrimitive.Trigger>
-            </TooltipTrigger>
-            <TooltipContent side="right">{triggerLabel}</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      ) : (
-        <PopoverPrimitive.Trigger asChild>
-          <button
-            type="button"
-            aria-label={triggerLabel}
-            className={`${SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
-          >
+  const avatar = (
+    <Avatar
+      name={displayName}
+      src={avatarUrl}
+      fallback={initials(displayName)}
+      className={cn(AVATAR_CLASS, compact ? "size-6" : "size-7")}
+    />
+  );
+
+  const trigger = compact ? (
+    <button
+      type="button"
+      aria-label={triggerLabel}
+      className={cn(COMPACT_TRIGGER_CLASS, className)}
+    >
+      {avatar}
+    </button>
+  ) : (
+    <button
+      type="button"
+      aria-label={triggerLabel}
+      className={cn(TRIGGER_CLASS, className)}
+    >
+      {avatar}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-[13px] font-medium leading-tight">
+          {displayName}
+        </span>
+        <span className="flex min-w-0 items-center gap-1 text-xs leading-tight text-muted-foreground">
+          {inOrg && org.icon ? (
             <ResourceIcon
-              value={buttonIcon}
-              size={14}
+              value={org.icon}
+              size={12}
               resolveImageUrl={(image) =>
                 image.authority === "url" ? image.assetId : undefined
               }
-              fallback={<ButtonIcon className="h-3.5 w-3.5 shrink-0" />}
+              fallback={<IconBriefcase className="size-3 shrink-0" />}
             />
-            <span className="truncate flex-1 text-start">{buttonLabel}</span>
-            {demoModeEnabled && (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                <IconPresentation className="h-3 w-3" aria-hidden="true" />
-                Demo mode
-              </span>
-            )}
-            <IconSelector className="h-3 w-3 shrink-0 opacity-50" />
-          </button>
-        </PopoverPrimitive.Trigger>
+          ) : null}
+          <span className="truncate">{organizationLabel}</span>
+          {demoModeEnabled && (
+            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
+              <IconPresentation className="size-3" aria-hidden="true" />
+              {t("agentChat.accountMenu.demoMode")}
+            </span>
+          )}
+        </span>
+      </span>
+      <IconSelector className="size-3.5 shrink-0 text-muted-foreground" />
+    </button>
+  );
+
+  const selectOrg = (orgId: string | null) => {
+    if (orgId === (org.orgId ?? null)) {
+      setOpen(false);
+      return;
+    }
+    // `null` switches to Personal, which the server stores as an explicit
+    // choice rather than falling back to the first membership.
+    switchOrg.mutate(orgId, { onSuccess: () => setOpen(false) });
+  };
+  const isSwitchingTo = (orgId: string | null) =>
+    switchOrg.isPending && switchOrg.variables === orgId;
+
+  const mainItems = (
+    <>
+      {!demoModeEnabled && org.email ? (
+        <DropdownMenuLabel className="truncate text-xs font-normal text-muted-foreground">
+          {org.email}
+        </DropdownMenuLabel>
+      ) : null}
+      {demoModeEnabled && (
+        <>
+          <div
+            role="status"
+            className="mx-1 mb-1 rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5 text-[11px]"
+          >
+            <div className="flex items-center gap-1.5 font-medium text-primary">
+              <IconPresentation
+                className="size-3.5 shrink-0"
+                aria-hidden="true"
+              />
+              {t("agentChat.accountMenu.demoModeOn")}
+            </div>
+            <p className="mt-0.5 leading-snug text-muted-foreground">
+              {t("agentChat.accountMenu.demoModeDescription")}
+            </p>
+          </div>
+          <DropdownMenuItem
+            className={ITEM_CLASS}
+            onSelect={() => setBrowserDemoModeEnabled(false)}
+          >
+            <IconPresentation className={ITEM_ICON_CLASS} />
+            <span className="flex-1">
+              {t("agentChat.accountMenu.turnOffDemoMode")}
+            </span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+        </>
       )}
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
+      <DropdownMenuGroup>
+        {orgs.map((o) => {
+          const current = o.orgId === org.orgId;
+          return (
+            <DropdownMenuItem
+              key={o.orgId}
+              className={ITEM_CLASS}
+              disabled={switchOrg.isPending && !current}
+              onSelect={(event) => {
+                if (current) return;
+                event.preventDefault();
+                selectOrg(o.orgId);
+              }}
+            >
+              <ResourceIcon
+                value={o.icon}
+                size={14}
+                resolveImageUrl={(image) =>
+                  image.authority === "url" ? image.assetId : undefined
+                }
+                fallback={<IconBriefcase className={ITEM_ICON_CLASS} />}
+              />
+              <span className="min-w-0 flex-1 truncate">{o.orgName}</span>
+              {isSwitchingTo(o.orgId) ? (
+                <IconLoader2 className={cn(ITEM_ICON_CLASS, "animate-spin")} />
+              ) : current ? (
+                <IconCheck className={ITEM_ICON_CLASS} />
+              ) : null}
+            </DropdownMenuItem>
+          );
+        })}
+        <DropdownMenuItem
+          className={ITEM_CLASS}
+          disabled={switchOrg.isPending && inOrg}
+          onSelect={(event) => {
+            if (!inOrg) return;
+            event.preventDefault();
+            selectOrg(null);
+          }}
+        >
+          <IconUser className={ITEM_ICON_CLASS} />
+          <span className="min-w-0 flex-1 truncate">
+            {t("agentChat.accountMenu.personal")}
+          </span>
+          {isSwitchingTo(null) ? (
+            <IconLoader2 className={cn(ITEM_ICON_CLASS, "animate-spin")} />
+          ) : !inOrg ? (
+            <IconCheck className={ITEM_ICON_CLASS} />
+          ) : null}
+        </DropdownMenuItem>
+      </DropdownMenuGroup>
+
+      {pendingInvitations.length > 0 && (
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="pb-0.5 text-[11px] font-normal text-muted-foreground">
+            {t("agentChat.accountMenu.invitations")}
+          </DropdownMenuLabel>
+          {pendingInvitations.map((inv) => (
+            <DropdownMenuItem
+              key={inv.id}
+              className={cn(ITEM_CLASS, "flex-col items-stretch gap-1")}
+              disabled={acceptInvitation.isPending}
+              onSelect={(event) => {
+                event.preventDefault();
+                acceptInvitation.mutate(inv.id, {
+                  onSuccess: () => setOpen(false),
+                });
+              }}
+            >
+              <span className="flex items-center gap-2">
+                <IconUsersGroup className={ITEM_ICON_CLASS} />
+                <span className="min-w-0 flex-1 truncate">{inv.orgName}</span>
+                {acceptInvitation.isPending ? (
+                  <IconLoader2
+                    className={cn(ITEM_ICON_CLASS, "animate-spin")}
+                  />
+                ) : (
+                  <span className="text-[11px] font-medium text-primary">
+                    {t("agentChat.accountMenu.join")}
+                  </span>
+                )}
+              </span>
+              {org.orgId && (
+                <span className="flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
+                  <IconKey className="mt-0.5 size-3 shrink-0" />
+                  <span>
+                    {t("org.acceptInvitationOrgSwitchNotice", {
+                      name: inv.orgName,
+                    })}
+                  </span>
+                </span>
+              )}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+      )}
+
+      {domainMatches.length > 0 && (
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="pb-0.5 text-[11px] font-normal text-muted-foreground">
+            {t("agentChat.accountMenu.joinYourTeam")}
+          </DropdownMenuLabel>
+          {domainMatches.map((match) => {
+            const isJoining =
+              joinByDomain.isPending && joinByDomain.variables === match.orgId;
+            return (
+              <DropdownMenuItem
+                key={match.orgId}
+                className={ITEM_CLASS}
+                disabled={joinByDomain.isPending}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  joinByDomain.mutate(match.orgId, {
+                    onSuccess: () => setOpen(false),
+                  });
+                }}
+              >
+                <IconUsersGroup className={ITEM_ICON_CLASS} />
+                <span className="min-w-0 flex-1 truncate">{match.orgName}</span>
+                {isJoining ? (
+                  <IconLoader2
+                    className={cn(ITEM_ICON_CLASS, "animate-spin")}
+                  />
+                ) : (
+                  <span className="text-[11px] font-medium text-primary">
+                    {t("agentChat.accountMenu.join")}
+                  </span>
+                )}
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuGroup>
+      )}
+
+      <DropdownMenuGroup>
+        {workspaceUrl && (
+          <DropdownMenuItem asChild className={ITEM_CLASS}>
+            <a href={workspaceUrl}>
+              <IconExternalLink className={ITEM_ICON_CLASS} />
+              <span className="flex-1">
+                {t("agentChat.accountMenu.yourWorkspace")}
+              </span>
+            </a>
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem
+          className={ITEM_CLASS}
+          onSelect={() => {
+            // The menu restores focus to its trigger as it closes, which
+            // would pull focus out of the dialog opening in its place.
+            openingDialogRef.current = true;
+            createOrg.reset();
+            setNewName("");
+            setCreateOpen(true);
+          }}
+        >
+          <IconPlus className={ITEM_ICON_CLASS} />
+          <span className="flex-1">
+            {t("agentChat.accountMenu.createOrganization")}
+          </span>
+        </DropdownMenuItem>
+      </DropdownMenuGroup>
+
+      <DropdownMenuSeparator />
+      <DropdownMenuGroup>
+        <DropdownMenuItem
+          className={ITEM_CLASS}
+          onSelect={() => void navigate(buildSettingsRoute("account"))}
+        >
+          <IconSettings className={ITEM_ICON_CLASS} />
+          <span className="flex-1">{t("agentChat.common.settings")}</span>
+          <DropdownMenuShortcut className="tracking-normal">
+            {settingsShortcut}
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className={ITEM_CLASS}
+          onSelect={() => void navigate(buildSettingsRoute("usage"))}
+        >
+          <IconChartBar className={ITEM_ICON_CLASS} />
+          <span className="flex-1">{t("agentChat.accountMenu.usage")}</span>
+        </DropdownMenuItem>
+        {links.length > 0 && (
+          <DropdownMenuItem
+            className={ITEM_CLASS}
+            onSelect={(event) => {
+              event.preventDefault();
+              showView("apps");
+            }}
+          >
+            <IconDownload className={ITEM_ICON_CLASS} />
+            <span className="flex-1">{t("agentChat.accountMenu.getApps")}</span>
+            <IconChevronRight
+              className={cn(ITEM_ICON_CLASS, "rtl:-scale-x-100")}
+            />
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuGroup>
+
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        className={ITEM_CLASS}
+        disabled={signingOut}
+        onSelect={(event) => {
+          event.preventDefault();
+          void handleSignOut();
+        }}
+      >
+        {signingOut ? (
+          <IconLoader2 className={cn(ITEM_ICON_CLASS, "animate-spin")} />
+        ) : (
+          <IconLogout className={cn(ITEM_ICON_CLASS, "rtl:-scale-x-100")} />
+        )}
+        <span className="flex-1">{t("agentChat.auth.logOut")}</span>
+      </DropdownMenuItem>
+
+      {menuError && (
+        <div
+          role="alert"
+          className="px-2 pb-1 pt-0.5 text-[11px] text-destructive"
+        >
+          {menuError.message}
+        </div>
+      )}
+    </>
+  );
+
+  const appItems = (
+    <>
+      <DropdownMenuItem
+        className={ITEM_CLASS}
+        aria-label={t("agentChat.accountMenu.back")}
+        onSelect={(event) => {
+          event.preventDefault();
+          showView("main");
+        }}
+      >
+        <IconChevronLeft className={cn(ITEM_ICON_CLASS, "rtl:-scale-x-100")} />
+        <span className="flex-1">{t("agentChat.accountMenu.getApps")}</span>
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuGroup>
+        {links.map((link) => {
+          const content = (
+            <>
+              <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-3.5">
+                {link.icon ?? <IconExternalLink />}
+              </span>
+              <span className="flex-1">{link.label}</span>
+              {link.external && (
+                <IconArrowUpRight
+                  className={cn(ITEM_ICON_CLASS, "rtl:-scale-x-100")}
+                />
+              )}
+            </>
+          );
+          return (
+            <DropdownMenuItem key={link.id} asChild className={ITEM_CLASS}>
+              {link.external ? (
+                <a href={link.href} target="_blank" rel="noopener noreferrer">
+                  {content}
+                </a>
+              ) : (
+                <Link to={link.href}>{content}</Link>
+              )}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuGroup>
+    </>
+  );
+
+  return (
+    <>
+      <DropdownMenu open={open} onOpenChange={handleOpenChange}>
+        {compact ? (
+          // The menu trigger has to sit directly on the button: both Radix
+          // slots merge their props into the same DOM node, and a provider
+          // between them would swallow the click that opens the menu.
+          <TooltipProvider delayDuration={0}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                <span className="block font-medium">{displayName}</span>
+                <span className="block opacity-70">{organizationLabel}</span>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : (
+          <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+        )}
+        <DropdownMenuContent
+          ref={contentRef}
           side="top"
           align="start"
           sideOffset={6}
           collisionPadding={12}
-          className={`${POPOVER_CONTENT_CLASS} w-64 max-w-[calc(100vw-1.5rem)]`}
-          onOpenAutoFocus={(e) => {
-            // Don't auto-focus the first item — feels heavy on a switcher.
-            if (mode === "list") e.preventDefault();
+          aria-label={t("agentChat.accountMenu.label")}
+          className="w-[max(15.5rem,var(--radix-dropdown-menu-trigger-width))] max-w-[calc(100vw-1.5rem)]"
+          onCloseAutoFocus={(event) => {
+            if (!openingDialogRef.current) return;
+            openingDialogRef.current = false;
+            event.preventDefault();
           }}
         >
-          {mode === "list" && (
-            <>
-              {/* The org name alone is ambiguous: the same org exists on every
-                  deployment a member has signed into, so the switcher reads
-                  identically on all of them. The host is what tells them
-                  which one they're actually looking at. */}
-              {typeof window !== "undefined" && (
-                <div className="px-2.5 pb-1.5 pt-1 text-[11px] text-muted-foreground">
-                  <div className="truncate">{window.location.host}</div>
-                  {shouldOfferWorkspace(
-                    window.location.href,
-                    org.workspaceUrl,
-                  ) && (
-                    <a
-                      href={org.workspaceUrl ?? undefined}
-                      className="mt-0.5 inline-flex items-center gap-1 text-foreground no-underline hover:underline"
-                    >
-                      <IconExternalLink className="h-3 w-3 shrink-0" />
-                      Your workspace
-                    </a>
-                  )}
-                </div>
-              )}
-              {demoModeEnabled && (
-                <div
-                  role="status"
-                  className="mx-2.5 mb-1.5 rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5 text-[11px]"
-                >
-                  <div className="flex items-center gap-1.5 font-medium text-primary">
-                    <IconPresentation
-                      className="h-3.5 w-3.5 shrink-0"
-                      aria-hidden="true"
-                    />
-                    Demo mode is on
-                  </div>
-                  <p className="mt-0.5 leading-snug text-muted-foreground">
-                    Displayed emails and supported charts are adjusted for
-                    presentations. Your account and permissions are unchanged.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setBrowserDemoModeEnabled(false)}
-                    className="mt-1 rounded text-[11px] font-medium text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    Turn off demo mode
-                  </button>
-                </div>
-              )}
-              {!inOrg && (
-                <div
-                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-muted-foreground"
-                  aria-disabled="true"
-                >
-                  <IconUser className="h-3.5 w-3.5 shrink-0" />
-                  <span className="min-w-0 truncate flex-1 text-start">
-                    Personal ({personalLabel})
-                  </span>
-                </div>
-              )}
-              <div className={SECTION_LABEL_CLASS}>Organizations</div>
-              {orgs.map((o) => (
-                <button
-                  key={o.orgId}
-                  type="button"
-                  onClick={async () => {
-                    if (o.orgId === org.orgId) {
-                      setOpen(false);
-                      return;
-                    }
-                    try {
-                      await switchOrg.mutateAsync(o.orgId);
-                      setOpen(false);
-                    } catch {
-                      /* error surfaced via switchOrg.error */
-                    }
-                  }}
-                  disabled={switchOrg.isPending}
-                  className={`${ITEM_CLASS} cursor-pointer`}
-                >
-                  <ResourceIcon
-                    value={o.icon}
-                    size={14}
-                    resolveImageUrl={(image) =>
-                      image.authority === "url" ? image.assetId : undefined
-                    }
-                    fallback={
-                      <IconBriefcase className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    }
-                  />
-                  <span className="min-w-0 truncate flex-1 text-start">
-                    {o.orgName}
-                  </span>
-                  {o.orgId === org.orgId && (
-                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  )}
-                </button>
-              ))}
+          {view === "apps" && links.length > 0 ? appItems : mainItems}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
-              {pendingInvitations.length > 0 && (
-                <>
-                  {orgs.length > 0 && <div className="my-1 h-px bg-border" />}
-                  <div className={SECTION_LABEL_CLASS}>Invitations</div>
-                  {pendingInvitations.map((inv) => (
-                    <div key={inv.id} className="px-2.5 py-1.5 text-xs">
-                      <div className="flex items-center gap-2">
-                        <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 truncate flex-1 text-foreground">
-                          {inv.orgName}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            try {
-                              await acceptInvitation.mutateAsync(inv.id);
-                              setOpen(false);
-                            } catch {
-                              /* error surfaced via acceptInvitation.error */
-                            }
-                          }}
-                          disabled={acceptInvitation.isPending}
-                          className="rounded px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10 disabled:opacity-50 cursor-pointer"
-                        >
-                          {acceptInvitation.isPending ? (
-                            <IconLoader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            "Join"
-                          )}
-                        </button>
-                      </div>
-                      {org.orgId && (
-                        <p className="mt-1 flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
-                          <IconKey className="mt-0.5 h-3 w-3 shrink-0" />
-                          <span>
-                            {t("org.acceptInvitationOrgSwitchNotice", {
-                              name: inv.orgName,
-                            })}
-                          </span>
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </>
-              )}
-
-              {domainMatches.length > 0 && (
-                <>
-                  {(orgs.length > 0 || pendingInvitations.length > 0) && (
-                    <div className="my-1 h-px bg-border" />
-                  )}
-                  <div className={SECTION_LABEL_CLASS}>Join your team</div>
-                  {domainMatches.map((match) => {
-                    const isJoining =
-                      joinByDomain.isPending && joiningOrgId === match.orgId;
-                    return (
-                      <div
-                        key={match.orgId}
-                        className="flex items-center gap-2 px-2.5 py-1.5 text-xs"
-                      >
-                        <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 truncate flex-1 text-foreground">
-                          {match.orgName}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            setJoiningOrgId(match.orgId);
-                            try {
-                              await joinByDomain.mutateAsync(match.orgId);
-                              setOpen(false);
-                            } catch {
-                              /* error surfaced via joinByDomain.error */
-                            } finally {
-                              setJoiningOrgId(null);
-                            }
-                          }}
-                          disabled={joinByDomain.isPending}
-                          className="rounded px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10 disabled:opacity-50 cursor-pointer"
-                        >
-                          {isJoining ? (
-                            <IconLoader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            "Join"
-                          )}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </>
-              )}
-
-              {(pendingInvitations.length > 0 || domainMatches.length > 0) && (
-                <div className="my-1 h-px bg-border" />
-              )}
-              {canInvite && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setInviteEmail("");
-                    setMode("invite");
-                  }}
-                  className={`${ITEM_CLASS} cursor-pointer`}
-                >
-                  <IconUserPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 text-start">Invite member</span>
-                </button>
-              )}
-              {inOrg && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    if (organizationSettingsHref) {
-                      void navigate(organizationSettingsHref);
-                    } else {
-                      window.dispatchEvent(new CustomEvent("agent-panel:open"));
-                      window.dispatchEvent(
-                        new CustomEvent("agent-panel:open-settings", {
-                          detail: { section: "workspace-settings" },
-                        }),
-                      );
-                    }
-                  }}
-                  className={`${ITEM_CLASS} cursor-pointer`}
-                >
-                  <IconSettings className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 text-start">
-                    Organization settings
-                  </span>
-                </button>
-              )}
-              <button
+      <Dialog
+        open={createOpen}
+        onOpenChange={(next) => {
+          if (createOrg.isPending) return;
+          setCreateOpen(next);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <form onSubmit={handleCreateSubmit} className="flex flex-col gap-4">
+            <DialogHeader>
+              <DialogTitle>
+                {t("agentChat.accountMenu.createOrganization")}
+              </DialogTitle>
+              <DialogDescription className="flex items-start gap-1.5 text-xs">
+                <IconKey className="mt-0.5 size-3.5 shrink-0" />
+                <span>{t("org.createOrgVaultNotice")}</span>
+              </DialogDescription>
+            </DialogHeader>
+            <TextField
+              autoFocus
+              value={newName}
+              onChange={setNewName}
+              label={t("agentChat.accountMenu.organizationName")}
+              disabled={createOrg.isPending}
+              invalid={!!createOrg.error}
+              errorMessage={
+                createOrg.error ? (createOrg.error as Error).message : undefined
+              }
+            />
+            <DialogFooter>
+              <ActionButton
                 type="button"
-                onClick={() => {
-                  // Clear any leftover input from a prior session — otherwise
-                  // the create form re-opens prefilled with the just-created
-                  // org's name and looks like a create dialog for the new org.
-                  setNewName("");
-                  setMode("create");
-                }}
-                className={`${ITEM_CLASS} cursor-pointer`}
-              >
-                <IconPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="flex-1 text-start">Create organization</span>
-              </button>
-
-              {profilePath && (
-                <>
-                  <div className="my-1 h-px bg-border" />
-                  <div className={SECTION_LABEL_CLASS}>
-                    {t("settings.profileTitle")}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpen(false);
-                      void navigate(profilePath);
-                    }}
-                    className={`${ITEM_CLASS} cursor-pointer`}
-                  >
-                    <IconUserCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="flex-1 text-start">
-                      {t("settings.profileMenuItem")}
-                    </span>
-                  </button>
-                </>
-              )}
-              {utilityLinks && utilityLinks.length > 0 && (
-                <>
-                  <div className="my-1 h-px bg-border" />
-                  <div className={SECTION_LABEL_CLASS}>
-                    {t("contextXray.provenance.tools", {
-                      defaultValue: "Tools",
-                    })}
-                  </div>
-                  {utilityLinks.map((link) => {
-                    const content = (
-                      <>
-                        <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-3.5">
-                          {link.icon ?? <IconExternalLink />}
-                        </span>
-                        <span className="flex-1 text-start">{link.label}</span>
-                        {link.external && (
-                          <IconArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" />
-                        )}
-                      </>
-                    );
-
-                    return link.external ? (
-                      <a
-                        key={link.id}
-                        href={link.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={() => setOpen(false)}
-                        className={ITEM_CLASS}
-                      >
-                        {content}
-                      </a>
-                    ) : (
-                      <Link
-                        key={link.id}
-                        to={link.href}
-                        onClick={() => setOpen(false)}
-                        className={ITEM_CLASS}
-                      >
-                        {content}
-                      </Link>
-                    );
-                  })}
-                </>
-              )}
-
-              <div className="my-1 h-px bg-border" />
-              <button
-                type="button"
-                onClick={handleSignOut}
-                disabled={signingOut}
-                className={`${ITEM_CLASS} cursor-pointer`}
-              >
-                {signingOut ? (
-                  <IconLoader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
-                ) : (
-                  <IconLogout className="h-3.5 w-3.5 shrink-0 text-muted-foreground rtl:-scale-x-100" />
-                )}
-                <span className="flex-1 text-start">
-                  Sign out
-                  {!demoModeEnabled && org.email ? (
-                    <span className="ms-1 text-muted-foreground">
-                      ({org.email})
-                    </span>
-                  ) : null}
-                </span>
-              </button>
-
-              {(switchOrg.error ||
-                acceptInvitation.error ||
-                joinByDomain.error) && (
-                <div className="px-2.5 pt-1 text-[11px] text-destructive">
-                  {
-                    (
-                      (switchOrg.error ||
-                        acceptInvitation.error ||
-                        joinByDomain.error) as Error
-                    ).message
-                  }
-                </div>
-              )}
-            </>
-          )}
-
-          {mode === "create" && (
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const name = newName.trim();
-                if (!name) return;
-                try {
-                  await createOrg.mutateAsync(name);
-                  handleOpenChange(false);
-                } catch {
-                  /* error surfaced via createOrg.error */
-                }
-              }}
-              className="px-2 py-1.5"
-            >
-              <div className="px-0.5 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-                New organization
-              </div>
-              <p className="pe-0.5 pb-1.5 ps-2 text-[11px] leading-snug text-muted-foreground">
-                <IconKey className="me-1.5 inline-block h-3 w-3 align-text-top" />
-                {t("org.createOrgVaultNotice")}
-              </p>
-              <input
-                autoFocus
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Organization name"
+                intent="neutral"
+                emphasis="ghost"
                 disabled={createOrg.isPending}
-                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-              />
-              {createOrg.error && (
-                <div className="pt-1 text-[11px] text-destructive">
-                  {(createOrg.error as Error).message}
-                </div>
-              )}
-              <div className="flex items-center gap-1.5 pt-1.5">
-                <button
-                  type="button"
-                  onClick={() => setMode("list")}
-                  disabled={createOrg.isPending}
-                  className="flex-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent disabled:opacity-50 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={createOrg.isPending || !newName.trim()}
-                  className="flex flex-1 items-center justify-center rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 cursor-pointer"
-                >
-                  {createOrg.isPending ? (
-                    <IconLoader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    "Create"
-                  )}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {mode === "invite" && (
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const email = inviteEmail.trim();
-                if (!email) return;
-                try {
-                  await inviteMember.mutateAsync(email);
-                  setInviteEmail("");
-                  setMode("list");
-                } catch {
-                  /* error surfaced via inviteMember.error */
-                }
-              }}
-              className="px-2 py-1.5"
-            >
-              <div className="px-0.5 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-                Invite to {org.orgName}
-              </div>
-              <input
-                autoFocus
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="teammate@company.com"
-                disabled={inviteMember.isPending}
-                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-              />
-              {inviteMember.error && (
-                <div className="pt-1 text-[11px] text-destructive">
-                  {(inviteMember.error as Error).message}
-                </div>
-              )}
-              <div className="flex items-center gap-1.5 pt-1.5">
-                <button
-                  type="button"
-                  onClick={() => setMode("list")}
-                  disabled={inviteMember.isPending}
-                  className="flex-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent disabled:opacity-50 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={inviteMember.isPending || !inviteEmail.trim()}
-                  className="flex flex-1 items-center justify-center rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 cursor-pointer"
-                >
-                  {inviteMember.isPending ? (
-                    <IconLoader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    "Send invite"
-                  )}
-                </button>
-              </div>
-            </form>
-          )}
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
+                onPress={() => setCreateOpen(false)}
+              >
+                {t("agentChat.common.cancel")}
+              </ActionButton>
+              <ActionButton
+                type="submit"
+                intent="primary"
+                pending={createOrg.isPending}
+                disabled={createOrg.isPending || !newName.trim()}
+              >
+                {t("agentChat.accountMenu.create")}
+              </ActionButton>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
+
+/** The account menu under its product name. Same component as `OrgSwitcher`. */
+export const AccountMenu = OrgSwitcher;

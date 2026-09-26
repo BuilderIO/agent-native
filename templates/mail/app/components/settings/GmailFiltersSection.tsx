@@ -243,7 +243,7 @@ function FilterEditRow({
             disabled={Boolean(filter) || accounts.length <= 1}
             onValueChange={(value) => setField("account", value)}
           >
-            <SelectTrigger className="h-8 text-[13px]">
+            <SelectTrigger size="sm" className="text-[13px]">
               <SelectValue placeholder={t("mail.gmailFilters.selectAccount")} />
             </SelectTrigger>
             <SelectContent>
@@ -260,11 +260,12 @@ function FilterEditRow({
             {t("mail.gmailFilters.from")}
           </label>
           <Input
+            size="sm"
             autoFocus
             value={state.from}
             onChange={(event) => setField("from", event.target.value)}
             placeholder="alerts@example.com"
-            className="h-8 px-3 text-[13px]"
+            className="px-3 text-[13px]"
           />
         </div>
         <div>
@@ -272,10 +273,11 @@ function FilterEditRow({
             {t("mail.gmailFilters.to")}
           </label>
           <Input
+            size="sm"
             value={state.to}
             onChange={(event) => setField("to", event.target.value)}
             placeholder="me@example.com"
-            className="h-8 px-3 text-[13px]"
+            className="px-3 text-[13px]"
           />
         </div>
         <div>
@@ -283,10 +285,11 @@ function FilterEditRow({
             {t("mail.gmailFilters.subject")}
           </label>
           <Input
+            size="sm"
             value={state.subject}
             onChange={(event) => setField("subject", event.target.value)}
             placeholder="Invoice"
-            className="h-8 px-3 text-[13px]"
+            className="px-3 text-[13px]"
           />
         </div>
       </div>
@@ -367,10 +370,11 @@ function FilterEditRow({
             {t("mail.gmailFilters.applyLabel")}
           </label>
           <Input
+            size="sm"
             value={state.label}
             onChange={(event) => setField("label", event.target.value)}
             placeholder="Receipts"
-            className="h-8 px-3 text-[13px]"
+            className="px-3 text-[13px]"
           />
         </div>
         <label className="flex items-center gap-2 self-end pb-1.5 text-[12px] text-muted-foreground">
@@ -387,10 +391,11 @@ function FilterEditRow({
           {t("mail.gmailFilters.forwardTo")}
         </label>
         <Input
+          size="sm"
           value={state.forward}
           onChange={(event) => setField("forward", event.target.value)}
           placeholder="verified-address@example.com"
-          className="h-8 px-3 text-[13px]"
+          className="px-3 text-[13px]"
         />
       </div>
 
@@ -537,7 +542,11 @@ function FilterRow({
   );
 }
 
-export function GmailFiltersSection() {
+export function GmailFiltersSection({
+  embedded = false,
+}: {
+  embedded?: boolean;
+}) {
   const t = useT();
   const { data, isLoading, error } = useGmailFilters();
   const createFilter = useCreateGmailFilter();
@@ -553,31 +562,39 @@ export function GmailFiltersSection() {
     [data?.accounts],
   );
 
+  const newFilterButton = (
+    <Button
+      size="sm"
+      disabled={accounts.length === 0}
+      onClick={() => {
+        setShowNewForm(true);
+        setEditingId(null);
+      }}
+    >
+      <IconPlus className="h-3.5 w-3.5" />
+      {t("mail.gmailFilters.newFilter")}
+    </Button>
+  );
+
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h2 className="text-[16px] font-semibold text-foreground">
-            {t("mail.gmailFilters.title")}
-          </h2>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
-            {t("mail.gmailFilters.description")}
-          </p>
+      {embedded ? (
+        <div className="mb-4 flex justify-end">{newFilterButton}</div>
+      ) : (
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h2 className="text-[16px] font-semibold text-foreground">
+              {t("mail.gmailFilters.title")}
+            </h2>
+            <p className="mt-0.5 text-[13px] text-muted-foreground">
+              {t("mail.gmailFilters.description")}
+            </p>
+          </div>
+          {newFilterButton}
         </div>
-        <Button
-          size="sm"
-          disabled={accounts.length === 0}
-          onClick={() => {
-            setShowNewForm(true);
-            setEditingId(null);
-          }}
-        >
-          <IconPlus className="h-3.5 w-3.5" />
-          {t("mail.gmailFilters.newFilter")}
-        </Button>
-      </div>
+      )}
 
-      <div className="max-w-2xl space-y-2">
+      <div className={embedded ? "space-y-2" : "max-w-2xl space-y-2"}>
         {showNewForm && (
           <FilterEditRow
             accounts={accounts}

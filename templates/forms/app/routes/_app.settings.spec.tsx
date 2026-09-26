@@ -4,17 +4,30 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const flag = vi.hoisted(() => ({ enabled: false }));
+const pageProps = vi.hoisted(() => ({
+  current: null as {
+    general?: unknown;
+    team?: unknown;
+    generalSearchEntries?: unknown;
+  } | null,
+}));
+
 vi.mock("@agent-native/core/client/changelog", () => ({
   ChangelogSettingsCard: () => null,
+}));
+
+vi.mock("@agent-native/core/client/feature-flags", () => ({
+  useFeatureFlagState: () => ({ status: "ready", enabled: flag.enabled }),
+}));
+
+vi.mock("@agent-native/core/feature-flags/registry", () => ({
+  SETTINGS_REDESIGN_FLAG: { key: "settings-redesign" },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
   LanguagePicker: () => null,
-}));
-
-vi.mock("@agent-native/core/client/org", () => ({
-  TeamPage: () => null,
 }));
 
 vi.mock("@agent-native/core/client/settings", () => ({
@@ -34,20 +47,22 @@ vi.mock("@agent-native/core/client/settings", () => ({
       {control}
     </div>
   ),
-  SettingsTabsPage: ({
-    general,
-    extraTabs,
-  }: {
-    general: React.ReactNode;
+  SettingsTabsPage: (props: {
+    general?: React.ReactNode;
+    team?: React.ReactNode;
+    generalSearchEntries?: unknown;
     extraTabs?: Array<{ content: React.ReactNode }>;
-  }) => (
-    <main>
-      {general}
-      {extraTabs?.map((tab, index) => (
-        <div key={index}>{tab.content}</div>
-      ))}
-    </main>
-  ),
+  }) => {
+    pageProps.current = props;
+    return (
+      <main>
+        {props.general}
+        {props.extraTabs?.map((tab, index) => (
+          <div key={index}>{tab.content}</div>
+        ))}
+      </main>
+    );
+  },
   useAgentSettingsTabs: (options: { extensionTools?: boolean } = {}) =>
     options.extensionTools === true
       ? [
@@ -72,6 +87,8 @@ describe("Forms settings route", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    flag.enabled = false;
+    pageProps.current = null;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -92,6 +109,27 @@ describe("Forms settings route", () => {
     // /settings/extensions, and the agent's own navigate instructions list
     // "extensions" as a workspace view — without this, that destination
     // silently falls back to General.
+    expect(container.textContent).toContain("Extension management");
+  });
+
+  it("keeps the language row on today's General tab", () => {
+    act(() => {
+      root.render(<SettingsRoute />);
+    });
+
+    expect(container.textContent).toContain("settings.languageTitle");
+    expect(pageProps.current?.team).toBeUndefined();
+  });
+
+  it("drops the language row in the redesigned Settings", () => {
+    flag.enabled = true;
+    act(() => {
+      root.render(<SettingsRoute />);
+    });
+
+    expect(pageProps.current?.general).toBeUndefined();
+    expect(pageProps.current?.generalSearchEntries).toBeUndefined();
+    expect(container.textContent).not.toContain("settings.languageTitle");
     expect(container.textContent).toContain("Extension management");
   });
 });

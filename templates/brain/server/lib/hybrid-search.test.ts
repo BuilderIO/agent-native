@@ -247,12 +247,20 @@ vi.mock("@agent-native/core/db", () => ({
   getDbExec: hybridMocks.getDbExec,
 }));
 
-vi.mock("@agent-native/core/embeddings", () => ({
-  availableEmbeddingFamilies: hybridMocks.availableEmbeddingFamilies,
-  defaultEmbeddingFamily: (families: EmbeddingFamily[]) =>
-    families.length === 1 ? families[0] : null,
-  readEmbeddingFamilyAvailability: hybridMocks.readEmbeddingFamilyAvailability,
-}));
+vi.mock("@agent-native/core/embeddings", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/embeddings")>();
+  return {
+    availableEmbeddingFamilies: hybridMocks.availableEmbeddingFamilies,
+    defaultEmbeddingFamily: actual.defaultEmbeddingFamily,
+    readEmbeddingFamilyAvailability:
+      hybridMocks.readEmbeddingFamilyAvailability,
+    resolveDefaultEmbeddingFamily: async () =>
+      actual.defaultEmbeddingFamily(
+        await hybridMocks.availableEmbeddingFamilies(),
+      ),
+  };
+});
 
 vi.mock("@agent-native/core/search", () => ({
   deletePgVectors: hybridMocks.deletePgVectors,
@@ -880,13 +888,61 @@ describe("Brain embedding readiness", () => {
     });
   });
 
+  it("prefers Builder.io when several providers are configured", () => {
+    const builder: EmbeddingFamily = {
+      ...family,
+      id: "builder:test:3",
+      provider: "builder",
+    };
+    expect(embeddingReadinessFromFamilies([family, builder])).toMatchObject({
+      status: "ready",
+      ready: true,
+      configuredProviders: ["gemini", "builder"],
+      configuredFamilies: 2,
+      provider: "builder",
+      embeddingSetId: "builder:test:3",
+    });
+  });
+
+  it("uses the organization's embeddings choice", () => {
+    const builder: EmbeddingFamily = {
+      ...family,
+      id: "builder:test:3",
+      provider: "builder",
+    };
+    expect(
+      embeddingReadinessFromFamilies([builder, family], [], "gemini"),
+    ).toMatchObject({
+      status: "ready",
+      provider: "gemini",
+      embeddingSetId: "gemini:test:3",
+    });
+    // A chosen provider without a key stays off instead of indexing with
+    // another provider's vectors.
+    expect(
+      embeddingReadinessFromFamilies([builder], [], "cohere"),
+    ).toMatchObject({
+      status: "not-configured",
+      ready: false,
+      embeddingSetId: null,
+      warning: expect.stringContaining("cohere"),
+    });
+  });
+
   it("reports missing and ambiguous provider configurations", () => {
     expect(embeddingReadinessFromFamilies([])).toMatchObject({
       status: "not-configured",
       ready: false,
       configuredFamilies: 0,
     });
-    expect(embeddingReadinessFromFamilies([family, family])).toMatchObject({
+    const unknown = (provider: string): EmbeddingFamily => ({
+      ...family,
+      id: `${provider}:test:3`,
+      provider,
+    });
+    expect(
+      embeddingReadinessFromFamilies([unknown("acme"), unknown("other")]),
+    ).toMatchObject({
       status: "ambiguous",
       ready: false,
       configuredFamilies: 2,

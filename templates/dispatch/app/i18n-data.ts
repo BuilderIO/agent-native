@@ -29,6 +29,7 @@ const enUS = {
     workspaceDescription:
       "Manage team access and shared workspace resources for Dispatch.",
     openTeamSettings: "Open team settings",
+    resourcesTitle: "Resources",
     openResourceSettings: "Open resource settings",
     automationsTitle: "Automations",
     automationsDescription:
@@ -996,6 +997,7 @@ export const messagesByLocale = {
         workspaceTitle: "工作区",
         workspaceDescription: "管理 Dispatch 的团队访问权限和共享工作区资源。",
         openTeamSettings: "打开团队设置",
+        resourcesTitle: "资源",
         openResourceSettings: "打开资源设置",
         automationsTitle: "自动化",
         automationsDescription: "查看、暂停并创建定时或事件触发的任务。",
@@ -1426,6 +1428,7 @@ export const messagesByLocale = {
         workspaceDescription:
           "Gestiona el acceso del equipo y los recursos compartidos de Dispatch.",
         openTeamSettings: "Abrir ajustes del equipo",
+        resourcesTitle: "Recursos",
         openResourceSettings: "Abrir ajustes de recursos",
         automationsTitle: "Automatizaciones",
         automationsDescription:
@@ -1898,6 +1901,7 @@ export const messagesByLocale = {
         workspaceDescription:
           "Gérez l’accès de l’équipe et les ressources partagées de Dispatch.",
         openTeamSettings: "Ouvrir les paramètres d’équipe",
+        resourcesTitle: "Ressources",
         openResourceSettings: "Ouvrir les paramètres des ressources",
         automationsTitle: "Automatisations",
         automationsDescription:
@@ -2371,6 +2375,7 @@ export const messagesByLocale = {
         workspaceDescription:
           "Verwalte Teamzugriff und gemeinsam genutzte Dispatch-Ressourcen.",
         openTeamSettings: "Teameinstellungen öffnen",
+        resourcesTitle: "Ressourcen",
         openResourceSettings: "Ressourceneinstellungen öffnen",
         automationsTitle: "Automatisierungen",
         automationsDescription:
@@ -2828,6 +2833,7 @@ export const messagesByLocale = {
         workspaceDescription:
           "Dispatch のチームアクセスと共有ワークスペースリソースを管理します。",
         openTeamSettings: "チーム設定を開く",
+        resourcesTitle: "リソース",
         openResourceSettings: "リソース設定を開く",
         automationsTitle: "自動化",
         automationsDescription:
@@ -3280,6 +3286,7 @@ export const messagesByLocale = {
         workspaceDescription:
           "Dispatch의 팀 접근 권한과 공유 워크스페이스 리소스를 관리합니다.",
         openTeamSettings: "팀 설정 열기",
+        resourcesTitle: "리소스",
         openResourceSettings: "리소스 설정 열기",
         automationsTitle: "자동화",
         automationsDescription:
@@ -3726,6 +3733,7 @@ export const messagesByLocale = {
         workspaceDescription:
           "Gerencie acesso da equipe e recursos compartilhados do Dispatch.",
         openTeamSettings: "Abrir configurações da equipe",
+        resourcesTitle: "Recursos",
         openResourceSettings: "Abrir configurações de recursos",
         automationsTitle: "Automações",
         automationsDescription:
@@ -4191,6 +4199,7 @@ export const messagesByLocale = {
         workspaceDescription:
           "Dispatch के लिए टीम पहुंच और साझा कार्यस्थान संसाधनों को प्रबंधित करें।",
         openTeamSettings: "टीम सेटिंग्स खोलें",
+        resourcesTitle: "संसाधन",
         openResourceSettings: "संसाधन सेटिंग्स खोलें",
         automationsTitle: "ऑटोमेशन",
         automationsDescription:
@@ -4628,6 +4637,7 @@ export const messagesByLocale = {
         workspaceDescription:
           "إدارة وصول الفريق وموارد مساحة العمل المشتركة في Dispatch.",
         openTeamSettings: "فتح إعدادات الفريق",
+        resourcesTitle: "الموارد",
         openResourceSettings: "فتح إعدادات الموارد",
         automationsTitle: "الأتمتة",
         automationsDescription:

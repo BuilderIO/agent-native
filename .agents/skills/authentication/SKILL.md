@@ -118,7 +118,9 @@ nothing else, so
 cannot silently widen a guard. Org membership is a precondition, resolved in the
 same statement as the assignment, so a leftover assignment for a removed member
 can never authorize. Only org owners/admins may assign app roles; render the
-picker with `<TeamPage appRoles={descriptor} />`.
+picker with `<TeamPage appRoles={descriptor} />`. With the `settings-redesign`
+flag on, register a replacement `members` page that renders
+`<OrgMembersPage appRoles={descriptor} />` instead.
 
 Members may have multiple roles. `resolve` returns `{ status: "assigned", roles }`,
 and `assertAny` accepts any intersection with its requested roles. Declare
@@ -234,6 +236,13 @@ Full runbook + flow detail: [Cross-App SSO doc](/docs/cross-app-sso).
 ## Builder Browser Access
 
 Apps can connect to Builder via the `cli-auth` flow and persist shared browser credentials in `.env`. Agents then use the built-in `get-browser-connection` tool to provision a real browser session via AI Services.
+
+Signed-in users connect Builder.io through OAuth as one of two connections.
+Owners and admins connect the organization's connection, which every member
+uses. Members can add a personal connection that only they use, ahead of the
+organization's; owners and admins get none. Roles are enforced on the server
+at connect start, in the callback, and on disconnect. The `secrets` skill has
+the routes and status fields.
 
 ## Protecting Custom Routes
 

@@ -1175,8 +1175,7 @@ function BulkBar({
         ) : null}
         <Button
           variant="ghost"
-          size="icon"
-          className="size-8"
+          size="icon-sm"
           aria-label={t("grid.clearSelection")}
           onClick={onClear}
         >

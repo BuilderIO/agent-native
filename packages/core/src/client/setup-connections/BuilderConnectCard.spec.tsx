@@ -173,6 +173,9 @@ describe("BuilderConnectCard", () => {
         hasFetchedStatus: true,
         credentialSource: "user",
         canDisconnect: true,
+        grants: null,
+        effective: null,
+        canConnect: { org: false, personal: false },
         start: vi.fn(),
         retry: vi.fn(),
       },
@@ -207,6 +210,9 @@ describe("BuilderConnectCard", () => {
       hasFetchedStatus: true,
       credentialSource: "user" as const,
       canDisconnect: true,
+      grants: null,
+      effective: null,
+      canConnect: { org: false, personal: false },
       start: vi.fn(),
       cancel: vi.fn(),
       retry: vi.fn(),
@@ -265,6 +271,9 @@ describe("BuilderConnectCard", () => {
         hasFetchedStatus: true,
         credentialSource: "workspace",
         canDisconnect: false,
+        grants: null,
+        effective: null,
+        canConnect: { org: false, personal: false },
         start: vi.fn(),
         retry: vi.fn(),
       },
@@ -286,6 +295,224 @@ describe("BuilderConnectCard", () => {
 
     expect(document.body.textContent).toContain("Reconnect Builder.io");
     expect(document.body.textContent).not.toContain("Disconnect");
+  });
+
+  describe("organization and personal connections", () => {
+    function scopedFlow(
+      overrides: Partial<
+        NonNullable<BuilderConnectCardViewModel["connectFlow"]>
+      >,
+    ) {
+      return {
+        configured: true,
+        statusResolved: true,
+        statusReadSettledCount: 1,
+        envManaged: false,
+        agentNativeProvisioningEnabled: false,
+        codeChangeConfigured: false,
+        builderEnabled: true,
+        orgName: "Acme",
+        connecting: false,
+        error: null,
+        accountExists: false,
+        hasFetchedStatus: true,
+        credentialSource: "org" as const,
+        canDisconnect: false,
+        grants: {
+          org: { connectedAt: 1_000, needsReconnect: false },
+        },
+        effective: "org" as const,
+        canConnect: { org: false, personal: true },
+        start: vi.fn(),
+        cancel: vi.fn(),
+        retry: vi.fn(() => true),
+        ...overrides,
+      };
+    }
+
+    function renderManaged(
+      flow: ReturnType<typeof scopedFlow>,
+      scope?: "org" | "personal",
+    ) {
+      viewModel = {
+        ...viewModel,
+        configured: true,
+        status: { kind: "connected", label: "Connected" },
+        action: null,
+        connectFlow: flow,
+        ...(scope ? { scope } : {}),
+      };
+      mocks.useBuilderConnectCardController.mockReturnValue(viewModel);
+      act(() => root.render(<BuilderConnectCard showManage />));
+    }
+
+    function openMenu() {
+      act(() => {
+        (
+          container.querySelector(
+            'button[aria-label="Manage Builder.io connection"]',
+          ) as HTMLButtonElement
+        ).click();
+      });
+    }
+
+    function menuButton(label: string) {
+      return Array.from(document.body.querySelectorAll("button")).find(
+        (button) => button.textContent?.includes(label),
+      );
+    }
+
+    it("gives a member riding the org connection no Reconnect that would shadow it", () => {
+      renderManaged(scopedFlow({}));
+
+      expect(
+        container.querySelector(
+          'button[aria-label="Manage Builder.io connection"]',
+        ),
+      ).toBeNull();
+    });
+
+    it("reconnects and disconnects the organization connection by name for an admin", async () => {
+      const fetchMock = vi.fn(
+        async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const flow = scopedFlow({
+        canConnect: { org: true, personal: false },
+        canDisconnect: true,
+      });
+      renderManaged(flow);
+
+      openMenu();
+      act(() => menuButton("Reconnect Builder.io")?.click());
+      expect(flow.start).toHaveBeenCalledWith(
+        expect.objectContaining({ scope: "org", provisionAccount: false }),
+      );
+
+      openMenu();
+      act(() => menuButton("Disconnect")?.click());
+      await act(async () => {
+        menuButton("Confirm disconnect")?.click();
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/_agent-native/builder/disconnect"),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ scope: "org" }),
+        }),
+      );
+    });
+
+    it("targets the member's own grant from the Personal row", async () => {
+      const fetchMock = vi.fn(
+        async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const flow = scopedFlow({
+        grants: {
+          org: { connectedAt: 1_000, needsReconnect: false },
+          personal: {
+            connectedAt: 2_000,
+            needsReconnect: false,
+            restricted: false,
+          },
+        },
+        effective: "personal",
+        credentialSource: "user",
+      });
+      renderManaged(flow, "personal");
+
+      openMenu();
+      act(() => menuButton("Reconnect Builder.io")?.click());
+      expect(flow.start).toHaveBeenCalledWith(
+        expect.objectContaining({ scope: "personal" }),
+      );
+
+      openMenu();
+      act(() => menuButton("Disconnect")?.click());
+      await act(async () => {
+        menuButton("Confirm disconnect")?.click();
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          body: JSON.stringify({ scope: "personal" }),
+        }),
+      );
+    });
+
+    it("keeps Reconnect for an owner whose activated account is in effect personally", async () => {
+      const fetchMock = vi.fn(
+        async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const flow = scopedFlow({
+        grants: {
+          personal: {
+            connectedAt: 2_000,
+            needsReconnect: false,
+            restricted: false,
+            kind: "keys",
+          },
+        },
+        effective: "personal",
+        credentialSource: "user",
+        canDisconnect: true,
+        canConnect: { org: true, personal: false },
+      });
+      renderManaged(flow);
+
+      openMenu();
+      act(() => menuButton("Reconnect Builder.io")?.click());
+      expect(flow.start).toHaveBeenCalledWith(
+        expect.objectContaining({ scope: "org", provisionAccount: false }),
+      );
+
+      openMenu();
+      act(() => menuButton("Disconnect")?.click());
+      await act(async () => {
+        menuButton("Confirm disconnect")?.click();
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          body: JSON.stringify({ scope: "personal" }),
+        }),
+      );
+    });
+
+    it("keeps the role-decided Reconnect for a caller without an organization", () => {
+      const flow = scopedFlow({
+        grants: {
+          personal: {
+            connectedAt: 2_000,
+            needsReconnect: false,
+            restricted: false,
+          },
+        },
+        effective: "personal",
+        credentialSource: "user",
+        canDisconnect: true,
+        canConnect: { org: false, personal: false },
+      });
+      renderManaged(flow);
+
+      openMenu();
+      act(() => menuButton("Reconnect Builder.io")?.click());
+      expect(flow.start).toHaveBeenCalledWith(
+        expect.not.objectContaining({ scope: expect.anything() }),
+      );
+    });
+
+    it("keeps the organization row read-only for a member", () => {
+      renderManaged(scopedFlow({}), "org");
+
+      expect(
+        container.querySelector(
+          'button[aria-label="Manage Builder.io connection"]',
+        ),
+      ).toBeNull();
+    });
   });
 
   it("falls back to the default view when a product renderer fails", () => {

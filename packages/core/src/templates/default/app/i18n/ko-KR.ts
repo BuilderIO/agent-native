@@ -221,6 +221,9 @@ const messages = {
       noErrorMessage: "(오류 메시지 없음)",
     },
   },
+  settingsShortcut: {
+    command: "설정",
+  },
   agentPanel: {
     useBuilder: "빌더 사용",
     openDesktopToEditCode: "데스크톱을 열어 코드 편집",
@@ -236,6 +239,7 @@ const messages = {
     newChat: "새 채팅",
     newTerminal: "새로운 터미널",
     panelOptions: "상담원 패널 옵션",
+    integrations: "통합",
     collapseSidebar: "사이드바 접기",
     widenChat: "채팅 넓히기",
     returnChatToLayout: "채팅을 레이아웃으로 되돌리기",
@@ -261,6 +265,8 @@ const messages = {
     sharedKeyInEffect: "공유 키를 사용 중입니다.",
     useOrganizationKey: "조직 키 사용",
     keyStatusUnavailable: "키 상태를 확인할 수 없습니다.",
+    saveScopeRoleUnavailable:
+      "조직 역할을 불러오지 못해 아직 키를 저장할 수 없습니다.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',

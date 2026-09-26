@@ -281,6 +281,9 @@ export function googleDocsAdapter(): PlatformAdapter {
           key: "GOOGLE_SERVICE_ACCOUNT_KEY",
           label: "Google Service Account Key (JSON)",
           required: true,
+          // `getServiceAccountKey` reads process.env, and the poller runs
+          // outside any request, so there is no workspace to read it from.
+          deploymentOnly: true,
         },
       ];
     },

@@ -176,7 +176,7 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5">
+              <Button variant="ghost" size="sm" className="text-xs gap-1.5">
                 <IconLayoutGrid className="h-3.5 w-3.5" />
                 <span className="max-w-[160px] truncate">{triggerLabel}</span>
                 <IconChevronDown className="h-3 w-3 opacity-60" />

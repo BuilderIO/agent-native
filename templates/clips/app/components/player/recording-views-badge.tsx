@@ -168,7 +168,7 @@ export function RecordingViewsBadge({
           variant="ghost"
           size="sm"
           className={cn(
-            "h-8 cursor-pointer gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+            "cursor-pointer gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground",
             className,
           )}
           aria-label={countLabel}

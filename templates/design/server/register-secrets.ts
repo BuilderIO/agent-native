@@ -12,6 +12,13 @@ registerRequiredSecret({
     "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "design",
+      feature: "Design system import",
+      effectWhenRemoved: "Private GitHub repositories can't be imported.",
+    },
+  ],
   required: false,
   validator: async (value) => {
     if (!value) return true;
@@ -55,6 +62,13 @@ registerRequiredSecret({
   docsUrl: "https://developers.figma.com/docs/rest-api/personal-access-tokens/",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "design",
+      feature: "Figma import",
+      effectWhenRemoved: "Figma frames, libraries, and styles stop loading.",
+    },
+  ],
   required: false,
   validator: async (value) => {
     if (!value) return true;

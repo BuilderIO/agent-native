@@ -38,16 +38,21 @@ const nanoid = (): string =>
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 import { warnAgent } from "../agent/action-warnings.js";
 import { getAppConfig } from "../app-config/index.js";
+import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { getDbExec } from "../db/client.js";
 import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { offboardMember } from "../identity/offboard.js";
 import { getAppProductionUrl } from "../server/app-url.js";
-import { resolveVercelDeploymentProtectionHeaders } from "../server/credential-provider.js";
+import {
+  isTrustedSelfHostedRuntime,
+  resolveVercelDeploymentProtectionHeaders,
+} from "../server/credential-provider.js";
 import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
+import { resolveDeploymentSignInMethods } from "../server/social-sign-in-providers.js";
 import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
 import { isEmailDerivedName } from "../user-profile/shared.js";
 import { getUserProfiles } from "../user-profile/store.js";
@@ -69,6 +74,7 @@ import {
   syncOrganizationToIdentityHub,
 } from "./federation.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
+import { canManageOrgA2ASecret, canManageOrgDomain } from "./permissions.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import { isBootstrapAdmin } from "./signup-admission.js";
 import {
@@ -120,7 +126,7 @@ async function syncFederatedOrgBestEffort(
   }).catch((error) => {
     // Federation is an opt-in cross-deployment enhancement. A hub outage must
     // not turn a healthy local organization read or create into an outage.
-    void error;
+    console.warn("[org] cross-app organization sync failed", error);
     warnAgent({
       severity: "advisory",
       code: "cross-app-organization-sync-failed",
@@ -325,11 +331,16 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     workspaceUrl,
     requiredAuthProvider,
     workspaceAppDefaultVisibility,
+    // Deployment configuration, so only the people who manage sign-in see it.
+    signInMethods: isOwnerOrAdmin
+      ? resolveDeploymentSignInMethods()
+      : undefined,
     // Never serialize the A2A secret here. This route runs on every page load,
     // so the value would sit in JSON any script on the page can read, and it
     // signs the JWTs peers accept as first-party callers. Reveal is an explicit
-    // owner/admin GET on /_agent-native/org/a2a-secret.
-    a2aSecretSet: isOwnerOrAdmin ? a2aSecretSet : undefined,
+    // owner GET on /_agent-native/org/a2a-secret.
+    a2aSecretSet: canManageOrgA2ASecret(ctx.role) ? a2aSecretSet : undefined,
+    soloDeploymentAdmin: ctx.orgId ? undefined : isTrustedSelfHostedRuntime(),
   };
 });
 
@@ -404,7 +415,7 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
         memberEmail: email,
       });
     } catch (error) {
-      void error;
+      console.error("[org] leave: identity authority revoke failed", error);
       throw createError({
         statusCode: 503,
         message:
@@ -423,7 +434,7 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
         actorEmail: email,
       });
     } catch (error) {
-      void error;
+      console.error("[org] leave: local offboard cleanup failed", error);
       throw createError({
         statusCode: 503,
         message: "Identity removal succeeded but local cleanup is pending.",
@@ -682,6 +693,18 @@ function normalizeInviteRole(input: unknown): "member" | "admin" {
   return input === "admin" ? "admin" : "member";
 }
 
+function assertCanInviteRole(
+  inviterRole: OrgRole | null,
+  role: "member" | "admin",
+): void {
+  if (role === "admin" && inviterRole !== "owner") {
+    throw createError({
+      statusCode: 403,
+      message: "Only the organization owner can invite admins",
+    });
+  }
+}
+
 interface SingleInviteResult {
   id: string;
   email: string;
@@ -865,10 +888,12 @@ export const createInvitationHandler = defineEventHandler(
         seen.add(lower);
 
         try {
+          const role = normalizeInviteRole(inv.role);
+          assertCanInviteRole(ctx.role, role);
           const result = await inviteOne(
             { orgId: ctx.orgId, orgName: ctx.orgName, email: ctx.email },
             inv.email,
-            normalizeInviteRole(inv.role),
+            role,
             event,
             inv.appId,
             inv.appRoles,
@@ -889,6 +914,7 @@ export const createInvitationHandler = defineEventHandler(
 
     // Single-invite shape.
     const role = normalizeInviteRole(body?.role);
+    assertCanInviteRole(ctx.role, role);
     const result = await inviteOne(
       { orgId: ctx.orgId, orgName: ctx.orgName, email: ctx.email },
       body?.email ?? "",
@@ -1042,7 +1068,10 @@ export const acceptInvitationHandler = defineEventHandler(
       } catch (error) {
         // A linked invitation cannot safely fall back while rollout state is
         // unreadable, but should report a retryable authority failure.
-        void error;
+        console.error(
+          "[org] invitation: federation rollout state unreadable",
+          error,
+        );
         throw createError({
           statusCode: 503,
           message:
@@ -1066,7 +1095,10 @@ export const acceptInvitationHandler = defineEventHandler(
       } catch (error) {
         // The invitation remains pending so the authorized inviter can repair
         // or retry the federation path without granting local access.
-        void error;
+        console.error(
+          "[org] invitation: identity authority sync failed",
+          error,
+        );
         throw createError({
           statusCode: 503,
           message:
@@ -1227,7 +1259,10 @@ export const removeMemberHandler = defineEventHandler(
       // authority cannot revoke the copied membership, keep the restrictive
       // marker so the member remains unauthorized until a later removal retry
       // can finish the cleanup.
-      void error;
+      console.error(
+        "[org] member removal: identity authority revoke failed",
+        error,
+      );
       throw createError({
         statusCode: 503,
         message:
@@ -1244,7 +1279,10 @@ export const removeMemberHandler = defineEventHandler(
     } catch (error) {
       // The durable pending marker keeps this member out of auth lookups until
       // the idempotent authority revocation and local delete are retried.
-      void error;
+      console.error(
+        "[org] member removal: local offboard cleanup failed",
+        error,
+      );
       throw createError({
         statusCode: 503,
         message:
@@ -1339,7 +1377,7 @@ export const changeMemberRoleHandler = defineEventHandler(
         memberRole: role,
       });
     } catch (error) {
-      void error;
+      console.error("[org] member role: identity authority sync failed", error);
       throw createError({
         statusCode: 503,
         message:
@@ -1352,6 +1390,15 @@ export const changeMemberRoleHandler = defineEventHandler(
       args: [role, ctx.orgId, memberEmailLower],
     });
     invalidateMemberOrgCaches();
+    await recordOrgAdminAuditEvent({
+      action: "change-member-role",
+      targetType: "org-member-role",
+      targetId: memberEmailLower,
+      summary: `Changed ${memberEmailLower} from ${currentRole} to ${role}`,
+      userEmail: ctx.email,
+      orgId: ctx.orgId,
+      args: { email: memberEmailLower, previousRole: currentRole, role },
+    });
 
     return { email: memberEmailLower, role };
   },
@@ -1736,7 +1783,7 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
   if (!ctx.orgId) {
     throw createError({ statusCode: 400, message: "No active organization" });
   }
-  if (ctx.role !== "owner" && ctx.role !== "admin") {
+  if (!canManageOrgDomain(ctx.role)) {
     throw createError({
       statusCode: 403,
       message: "Only owners and admins can set the allowed domain",
@@ -1889,7 +1936,7 @@ export const setRequiredAuthProviderHandler = defineEventHandler(
 
 /**
  * GET /_agent-native/org/a2a-secret — reveal the org's A2A secret
- * (owner/admin only). Separate from `/org/me` so the secret is only ever sent
+ * (owner only). Separate from `/org/me` so the secret is only ever sent
  * to the browser when an operator explicitly asks to see or copy it.
  */
 export const revealA2ASecretHandler = defineEventHandler(
@@ -1901,10 +1948,10 @@ export const revealA2ASecretHandler = defineEventHandler(
         message: "No active organization",
       });
     }
-    if (ctx.role !== "owner" && ctx.role !== "admin") {
+    if (!canManageOrgA2ASecret(ctx.role)) {
       throw createError({
         statusCode: 403,
-        message: "Only owners and admins can read the A2A secret",
+        message: "Only the organization owner can read the A2A secret",
       });
     }
 
@@ -1920,7 +1967,7 @@ export const revealA2ASecretHandler = defineEventHandler(
   },
 );
 
-/** PUT /_agent-native/org/a2a-secret — regenerate or set the org's A2A secret (owner/admin only) */
+/** PUT /_agent-native/org/a2a-secret — regenerate or set the org's A2A secret (owner only) */
 export const setA2ASecretHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -1930,10 +1977,10 @@ export const setA2ASecretHandler = defineEventHandler(
         message: "No active organization",
       });
     }
-    if (ctx.role !== "owner" && ctx.role !== "admin") {
+    if (!canManageOrgA2ASecret(ctx.role)) {
       throw createError({
         statusCode: 403,
-        message: "Only owners and admins can manage the A2A secret",
+        message: "Only the organization owner can manage the A2A secret",
       });
     }
 
@@ -1969,7 +2016,7 @@ export const setA2ASecretHandler = defineEventHandler(
  * POST /_agent-native/org/a2a-secret/sync — push the org's A2A secret to all
  * connected apps so cross-app delegation works without manual copy/paste.
  *
- * Auth: standard session — owner/admin only.
+ * Auth: standard session — owner only.
  *
  * For each discovered agent, signs a JWT with the org's CURRENT a2a_secret
  * and POSTs to `<app>/_agent-native/org/a2a-secret/receive` with the same
@@ -1983,8 +2030,8 @@ export const setA2ASecretHandler = defineEventHandler(
  * Body (optional): { signSecret?: string } — sign the outbound JWTs with
  * this secret instead of the org's current secret. Used by the regenerate-
  * then-sync flow: regenerate stores the NEW secret, but sync needs to
- * authenticate using the OLD one that peers still hold. Owner/admin only,
- * gated by the session.
+ * authenticate using the OLD one that peers still hold. Owner only, gated by
+ * the session.
  */
 export const syncA2ASecretHandler = defineEventHandler(
   async (event: H3Event) => {
@@ -1995,10 +2042,10 @@ export const syncA2ASecretHandler = defineEventHandler(
         message: "No active organization",
       });
     }
-    if (ctx.role !== "owner" && ctx.role !== "admin") {
+    if (!canManageOrgA2ASecret(ctx.role)) {
       throw createError({
         statusCode: 403,
-        message: "Only owners and admins can sync the A2A secret",
+        message: "Only the organization owner can sync the A2A secret",
       });
     }
 

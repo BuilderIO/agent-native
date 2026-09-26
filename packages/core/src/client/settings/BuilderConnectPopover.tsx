@@ -1,5 +1,6 @@
 import { Button } from "@agent-native/toolkit/ui/button";
-import { IconArrowRight, IconLoader2 } from "@tabler/icons-react";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { IconArrowRight } from "@tabler/icons-react";
 import React, { useEffect, useRef, useState } from "react";
 
 import {
@@ -8,7 +9,6 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { useT } from "../i18n.js";
-import { cn } from "../utils.js";
 import type { BuilderConnectFlow } from "./useBuilderStatus.js";
 
 type BuilderConnectTrigger = React.ReactElement<{
@@ -157,7 +157,7 @@ export function BuilderConnectPopover({
         type="button"
         variant="ghost"
         size="sm"
-        className="shrink-0 text-xs font-normal text-muted-foreground"
+        className="shrink-0"
         onClick={flow.cancel}
       >
         {t("common.cancel")}
@@ -200,27 +200,23 @@ export function BuilderConnectPopover({
               ? t("agentChat.onboarding.builderAccountExistsDescription")
               : t("agentChat.onboarding.builderActivationDescription")}
           </p>
-          <button
+          <Button
             type="button"
             data-testid={primaryTestId}
-            className={cn(
-              "inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-foreground px-4 text-xs font-medium text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60",
-            )}
+            className="w-full"
             onClick={() => start(accountExists ? false : true)}
             disabled={flow.connecting}
           >
-            {flow.connecting ? (
-              <IconLoader2 size={14} className="animate-spin" />
-            ) : null}
+            {flow.connecting ? <Spinner aria-hidden /> : null}
             {accountExists
               ? t("agentChat.auth.logIn")
               : flow.connecting
                 ? t("agentChat.onboarding.builderActivating")
                 : t("agentChat.onboarding.builderCreateAndActivate")}
             {!accountExists && !flow.connecting ? (
-              <IconArrowRight size={15} />
+              <IconArrowRight aria-hidden />
             ) : null}
-          </button>
+          </Button>
           {!accountExists && (
             <>
               <p className="text-[11px] leading-4 text-muted-foreground">
@@ -244,15 +240,16 @@ export function BuilderConnectPopover({
                 </a>
                 .
               </p>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
                 data-testid={secondaryTestId}
-                className="inline-flex min-h-9 w-full items-center justify-center rounded-lg px-4 text-xs font-normal text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60"
+                className="w-full"
                 onClick={() => start(false)}
                 disabled={flow.connecting}
               >
                 {t("agentChat.onboarding.builderExistingAccount")}
-              </button>
+              </Button>
             </>
           )}
         </div>

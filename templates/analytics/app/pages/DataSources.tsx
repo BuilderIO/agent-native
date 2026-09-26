@@ -1081,9 +1081,9 @@ function ConnectedView({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                size="icon"
+                size="icon-sm"
                 variant="ghost"
-                className="-mr-1 -mt-1 h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                className="-mr-1 -mt-1 shrink-0 text-muted-foreground hover:text-foreground"
                 aria-label={t("dataSources.sourceActions", {
                   name: source.name,
                 })}
@@ -1997,9 +1997,9 @@ function FirstPartyAnalyticsCard() {
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
-                          size="icon"
+                          size="icon-sm"
                           variant="ghost"
-                          className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                          className="shrink-0 text-muted-foreground hover:text-foreground"
                           aria-label={t("dataSources.keyActions", {
                             name: key.name,
                           })}

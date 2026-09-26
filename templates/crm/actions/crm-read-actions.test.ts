@@ -537,16 +537,19 @@ describe("navigate", () => {
     [{ view: "settings" }, "/settings"],
     [
       { view: "settings", settingsSection: "connection" },
-      "/settings/connection",
+      "/settings/app/connection",
     ],
-    [{ view: "settings", settingsSection: "fields" }, "/settings/fields"],
-    [{ view: "settings", settingsSection: "lists" }, "/settings/lists"],
+    [{ view: "settings", settingsSection: "fields" }, "/settings/app/fields"],
+    [{ view: "settings", settingsSection: "lists" }, "/settings/app/lists"],
     [
       { view: "settings", settingsSection: "intelligence" },
-      "/settings/intelligence",
+      "/settings/app/intelligence",
     ],
     [{ view: "settings", settingsSection: "mcp" }, "/settings/mcp"],
-    [{ view: "settings", settingsSection: "advanced" }, "/settings/advanced"],
+    [
+      { view: "settings", settingsSection: "advanced" },
+      "/settings/app/advanced",
+    ],
   ];
 
   it.each(cases)("routes %j to %s", async (input, expected) => {
@@ -663,7 +666,7 @@ describe("view-screen surfaces", () => {
   it("reports the settings tab that is open", async () => {
     const screen = await onScreen({
       view: "settings",
-      path: "/settings/lists",
+      path: "/settings/app/lists",
     });
     expect(screen.selection.settingsSection).toBe("lists");
     expect(screen.connections).toEqual([

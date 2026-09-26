@@ -874,12 +874,13 @@ export default function PromptPopover({
                     <GoogleDriveConnectionCta />
                     <div className="flex gap-2">
                       <Input
+                        size="sm"
                         autoFocus
                         type="url"
                         value={googleSlidesUrl}
                         placeholder={t("home.googleSlidesReferenceUrl")}
                         aria-label={t("home.googleSlidesReferenceUrl")}
-                        className="h-8 text-xs"
+                        className="text-xs"
                         disabled={importingSource !== null || loading}
                         onChange={(event) =>
                           setGoogleSlidesUrl(event.target.value)
@@ -891,7 +892,7 @@ export default function PromptPopover({
                       <Button
                         type="button"
                         size="sm"
-                        className="h-8 shrink-0 px-3 text-xs"
+                        className="shrink-0 text-xs"
                         disabled={
                           !googleSlidesUrl.trim() ||
                           importingSource !== null ||

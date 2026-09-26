@@ -26,6 +26,17 @@ const deferredUiModuleLoads = vi.hoisted(() => ({
   builderConnectPopover: false,
 }));
 
+const featureFlagMock = vi.hoisted(() => ({
+  state: { status: "ready", enabled: false } as {
+    status: "loading" | "ready" | "unavailable";
+    enabled: boolean;
+  },
+}));
+
+vi.mock("../feature-flags/use-feature-flag.js", () => ({
+  useFeatureFlagState: () => featureFlagMock.state,
+}));
+
 vi.mock("../clipboard.js", () => ({
   writeClipboardText: clipboardMock.writeClipboardText,
 }));
@@ -606,6 +617,31 @@ describe("run recovery surfaces", () => {
     expect(container.querySelector('input[type="password"]')).toBeNull();
   });
 
+  it("links custom keys to the Model page with the settings redesign on", async () => {
+    featureFlagMock.state = { status: "ready", enabled: true };
+    try {
+      await act(async () => {
+        root.render(
+          <AgentNativeI18nProvider
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <BuilderSetupContent />
+          </AgentNativeI18nProvider>,
+        );
+      });
+
+      const customKeysLink = Array.from(container.querySelectorAll("a")).find(
+        (link) => link.textContent?.includes("Custom keys"),
+      );
+      expect(customKeysLink?.getAttribute("href")).toBe("/settings/model");
+      expect(container.querySelector('input[type="password"]')).toBeNull();
+    } finally {
+      featureFlagMock.state = { status: "ready", enabled: false };
+    }
+  });
+
   it("keeps sidebar provider actions in a horizontal row", async () => {
     await act(async () => {
       root.render(
@@ -679,6 +715,41 @@ describe("run recovery surfaces", () => {
       dismissButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the Max iterations setting by its section, not the URL hash", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    const sections: unknown[] = [];
+    const listener = (event: Event) =>
+      sections.push((event as CustomEvent<{ section?: string }>).detail);
+    window.addEventListener("agent-panel:open-settings", listener);
+    const hashBefore = window.location.hash;
+    try {
+      await act(async () => {
+        root.render(
+          <AgentNativeI18nProvider
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <LoopLimitContinueCard
+              info={{ maxIterations: 40 }}
+              onContinue={vi.fn()}
+            />
+          </AgentNativeI18nProvider>,
+        );
+      });
+      const settingsButton = Array.from(
+        container.querySelectorAll("button"),
+      ).find((button) => /settings/i.test(button.textContent ?? ""));
+      await act(async () => {
+        settingsButton?.click();
+      });
+      expect(sections).toEqual([{ section: "limits" }]);
+      expect(window.location.hash).toBe(hashBefore);
+    } finally {
+      window.removeEventListener("agent-panel:open-settings", listener);
+    }
   });
 
   it("formats the step limit with the selected locale", async () => {

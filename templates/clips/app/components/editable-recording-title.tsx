@@ -181,6 +181,7 @@ export function EditableRecordingTitle({
   if (editing) {
     return (
       <Input
+        size="sm"
         ref={inputRef}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
@@ -204,7 +205,7 @@ export function EditableRecordingTitle({
           commitTitle();
         }}
         placeholder={t("editableTitle.placeholder")}
-        className={cn("h-8 w-full min-w-0", inputClassName)}
+        className={cn("w-full min-w-0", inputClassName)}
         disabled={updateTitle.isPending}
       />
     );

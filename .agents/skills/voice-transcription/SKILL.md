@@ -16,8 +16,13 @@ metadata:
 The microphone inside the sidebar composer offers two distinct paths:
 editable dictation and an opt-in realtime speech-to-speech agent session.
 Users configure dictation separately from AI cleanup in Settings → Voice
-Transcription. Both paths are available in every template that renders the
-shared agent sidebar.
+Transcription. With the `settings-redesign` flag on, the source picker (Mac
+Native, Google Realtime, Batch) is the Voice transcription row on Settings ›
+Account › Preferences (`VoiceTranscriptionSection compact`, anchor `voice`);
+cleanup and batch provider keys stay in the agent sidebar's Voice
+Transcription section. Both write the per-user `voice-transcription-prefs`
+application state. Both paths are available in every template that renders
+the shared agent sidebar.
 
 ## UX rules
 
@@ -115,7 +120,8 @@ Settings must keep these as separate choices:
 
 - **Live transcription source**: `mac-native`, `google-realtime`, or `batch`.
 - **AI cleanup**: independent off/on toggle. Cleanup uses managed Gemini first
-  when a managed AI services connection is configured, then BYOK Gemini (`GEMINI_API_KEY`).
+  when a managed AI services connection is configured, then BYOK Gemini (the one
+  Gemini key, `GOOGLE_GENERATIVE_AI_API_KEY`; older `GEMINI_API_KEY` rows still work).
   Gemini cleanup/title/summary generation is not a live STT source.
 
 `application_state["voice-transcription-prefs"]` stores
@@ -129,7 +135,7 @@ is still written for old clients and batch provider preferences:
 | `batch`           | Upload audio after stop through the existing batch route       | Builder/Gemini/Groq/OpenAI depending on fallback |
 | `auto` provider   | Browser SpeechRecognition when supported; server batch fallback chain otherwise | No key needed in browsers that support SpeechRecognition |
 | `builder-gemini`  | Managed Gemini Flash-Lite batch/cleanup preference             | Managed AI services account connected |
-| `gemini`          | Direct Google Gemini BYOK batch/cleanup preference             | `GEMINI_API_KEY`             |
+| `gemini`          | Direct Google Gemini BYOK batch/cleanup preference             | `GOOGLE_GENERATIVE_AI_API_KEY` (or legacy `GEMINI_API_KEY`) |
 | `groq`            | Groq Whisper batch preference                                  | `GROQ_API_KEY`               |
 | `openai`          | OpenAI Whisper batch preference                                | `OPENAI_API_KEY`             |
 | `browser`         | Legacy native/browser live speech preference                   | No                           |
@@ -158,7 +164,7 @@ Default behavior:
 | `packages/toolkit/src/composer/RealtimeVoiceMode.tsx`                | Opt-in popover + persistent speech orb              |
 | `packages/toolkit/src/composer/useRealtimeVoiceMode.tsx`             | WebRTC lifecycle, provider events, and tool bridge  |
 | `packages/toolkit/src/composer/TiptapComposer.tsx`                    | Wires the hook, insertion, and keyboard shortcut    |
-| `packages/core/src/client/settings/VoiceTranscriptionSection.tsx`     | Live source + cleanup controls in sidebar settings  |
+| `packages/core/src/client/settings/VoiceTranscriptionSection.tsx`     | Live source + cleanup controls in sidebar settings; `compact` is the Preferences row |
 | `packages/core/src/client/transcription/BuilderTranscriptionCta.tsx`  | CTA shown when Builder account isn't connected      |
 | `packages/core/src/client/transcription/use-live-transcription.ts`    | Web Speech live-transcription hook for recordings   |
 | `packages/core/src/server/transcribe-voice.ts`                        | Route handler (routes to Builder/Gemini/Groq/Whisper) |
@@ -180,14 +186,25 @@ Batch routing is based on the user's provider preference:
 
 1. If `builder-gemini` and `resolveHasBuilderPrivateKey()` → calls `transcribeWithBuilder({ model: "gemini-3-1-flash-lite" })` via Builder proxy, or uses Builder Gemini Flash-Lite to clean up a live native/browser transcript when the desktop client sends text instead of audio.
 2. If `builder` and `resolveHasBuilderPrivateKey()` → legacy alias; prefer `builder-gemini`.
-3. If `gemini` → resolves `GEMINI_API_KEY` and calls the direct Google Gemini path.
+3. If `gemini` → resolves the Gemini key under either name (`resolveGeminiApiKey`) and calls the direct Google Gemini path.
 4. If `groq` → resolves `GROQ_API_KEY` and calls Groq's Whisper-compatible endpoint.
 5. If `openai` → resolves `OPENAI_API_KEY`:
    - `readAppSecret({ key: "OPENAI_API_KEY", scope: "user", scopeId: session.email })` — user's encrypted secret.
    - `resolveCredential("OPENAI_API_KEY")` — env var + SQL settings fallback.
 
 In auto mode / no preference, the route tries Builder Gemini Flash-Lite first
-when Builder is connected, then Gemini BYOK, Groq, and OpenAI.
+when Builder is connected, then Gemini BYOK, Groq, and OpenAI. The
+organization's **Voice input** provider (Settings › Infrastructure, the
+`manage-service-providers` action, org setting `service-providers`) moves one
+of those to the front; a chosen provider with no key is skipped, a failed
+Builder or Gemini attempt falls through, and the first Whisper-compatible
+provider with a key answers. Read the order with
+`serviceProviderOrder("voice", choice)`; never re-list it. The org choice
+applies only when the user's own provider is auto: a user's single-provider
+preference (and the live source: Mac native, Google realtime, or Batch) stays
+per user and wins. An unreadable org setting fails the request with 503 rather
+than using the default order, and `/_agent-native/voice-providers/status`
+reports it as `orgProvider` (with `orgProviderLookupFailed` when unreadable).
 When a request includes `instructions`, pass them through to the selected LLM
 provider. Gemini uses them in the transcription prompt, Builder receives them
 as transcription/cleanup instructions, and Whisper-compatible providers receive

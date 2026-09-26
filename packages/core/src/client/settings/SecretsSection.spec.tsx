@@ -282,6 +282,37 @@ describe("SecretsSection", () => {
     expect(findButton("Delete")).toBeUndefined();
   });
 
+  it("shows a key its provider rejected as invalid, still with Rotate and Delete", async () => {
+    mockFetchWithSecrets([
+      {
+        key: "OPENAI_API_KEY",
+        label: "OpenAI API key",
+        description: "OpenAI services",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+        status: "invalid",
+        error: "The provider rejected this key",
+        rejectedAt: 1,
+        source: "personal",
+        managedHere: true,
+        last4: "1234",
+      },
+    ]);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    expect(container.textContent).toContain("Invalid");
+    expect(container.textContent).toContain("••••1234");
+
+    await openRow("OpenAI API key");
+
+    expect(findButton("Rotate")).toBeTruthy();
+    expect(findButton("Delete")).toBeTruthy();
+  });
+
   it("adds a custom key by typed name from the New search", async () => {
     await act(async () => {
       renderSecretsSection(root);
@@ -413,5 +444,106 @@ describe("SecretsSection", () => {
     expect(container.textContent).toContain(
       "This personal key overrides the workspace Vault value. Remove it to use the Vault key.",
     );
+  });
+
+  it("shows a key another page manages as read-only, naming its owner", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith("/secrets/adhoc")) {
+          return Response.json([
+            {
+              name: "S3_BUCKET",
+              scope: "workspace",
+              scopeId: "org-1",
+              source: "workspace",
+              description: null,
+              last4: "cket",
+              createdAt: 1,
+              updatedAt: 1,
+              usedFor: [],
+              managedBy: {
+                id: "storage",
+                owner: "File uploads and storage",
+                route: "infra",
+              },
+            },
+            {
+              name: "CUSTOM_TOKEN",
+              scope: "user",
+              scopeId: "user-1",
+              source: "personal",
+              description: null,
+              last4: "5678",
+              createdAt: 1,
+              updatedAt: 1,
+              usedFor: [],
+            },
+          ]);
+        }
+        return Response.json(registeredSecrets);
+      }),
+    );
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    expect(
+      container.querySelector(
+        '[aria-label="Managed in File uploads and storage"]',
+      ),
+    ).toBeTruthy();
+    // Only the unmanaged custom key keeps its trash button.
+    expect(container.querySelectorAll(".tabler-icon-trash")).toHaveLength(1);
+  });
+
+  it("removes a same-named key at the scope of the row that was deleted", async () => {
+    const row = (scope: "user" | "workspace", last4: string) => ({
+      name: "GEMINI_API_KEY",
+      scope,
+      scopeId: scope === "user" ? "user-1" : "org-1",
+      source: scope === "user" ? "personal" : "workspace",
+      description: null,
+      last4,
+      createdAt: 1,
+      updatedAt: 1,
+      usedFor: [],
+    });
+    const fetchMock = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (init?.method === "DELETE") return Response.json({ removed: true });
+        if (url.endsWith("/secrets/adhoc")) {
+          return Response.json([row("user", "1111"), row("workspace", "9999")]);
+        }
+        return Response.json(registeredSecrets);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    const trashButtons = Array.from(
+      container.querySelectorAll(".tabler-icon-trash"),
+    ).map((icon) => icon.closest("button"));
+    expect(trashButtons).toHaveLength(2);
+    await click(trashButtons[1]);
+    expect(
+      Array.from(container.querySelectorAll("button")).filter(
+        (button) => button.textContent?.trim() === "Confirm",
+      ),
+    ).toHaveLength(1);
+    await click(findButton("Confirm"));
+
+    const deletes = fetchMock.mock.calls.filter(
+      ([, init]) => init?.method === "DELETE",
+    );
+    expect(deletes.map(([url]) => String(url))).toEqual([
+      "/_agent-native/secrets/adhoc/GEMINI_API_KEY?scope=workspace",
+    ]);
   });
 });

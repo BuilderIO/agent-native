@@ -35,7 +35,7 @@ Event triggers can optionally include a `condition` -- a natural-language string
 
 ## How It Works
 
-1. User asks the agent to create an automation (or uses the settings UI).
+1. User asks the agent to create an automation (or uses the app's Automations page in Settings, `/settings/automations`; open it with `open-settings-page` page `automations`).
 2. Agent calls `manage-automations` with `action=list-events` to discover available events.
 3. Agent calls `manage-automations` with `action=define` to write a `jobs/<name>.md` resource.
 4. The trigger dispatcher subscribes to the event on the bus.
@@ -189,7 +189,7 @@ When an automation has a `condition`, the dispatcher calls the configured fast/c
 
 Automations use the `web-request` tool for outbound HTTP. It supports `${keys.NAME}` placeholders in the URL, headers, and body. These are resolved server-side after the agent emits the tool call -- the raw secret value never enters the agent's context.
 
-- Keys are ad-hoc secrets created by the user via the settings UI or the `/_agent-native/secrets/adhoc` API.
+- Keys are ad-hoc secrets created by the user on Settings › API keys or through the `/_agent-native/secrets/adhoc` API.
 - Each key can have a URL allowlist that restricts which origins the key can be sent to.
 - `resolveKeyReferences()` resolves placeholders, falling back from user scope to workspace scope.
 - `validateUrlAllowlist()` checks the resolved URL against per-key allowlists (origin-level matching).

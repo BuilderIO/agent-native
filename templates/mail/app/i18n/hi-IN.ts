@@ -791,8 +791,6 @@ const messages = {
     slackPostEndpoint: "Slack POST एंडपॉइंट",
     slackPostEndpointHelp:
       "Slack Event Subscriptions में उपयोग करें। Browser GET Not Found दिखा सकता है।",
-    teamDescription:
-      "सहकर्मियों के साथ email automations और settings share करने के लिए team setup करें।",
     title: "सेटिंग्स",
     general: "सामान्य",
     generalDescription: "Mail की भाषा और account-level preferences.",
@@ -817,12 +815,19 @@ const messages = {
     deleteSnippetDescription:
       'स्निपेट "{{name}}" हटाएं? इसे वापस नहीं लाया जा सकता।',
     automations: "स्वचालन",
+    rules: "नियम",
+    rulesModel: "नियमों का मॉडल",
+    rulesModelDescription: "आने वाले मेल को आपके नियमों से मिलाता है।",
+    slackDraftRequests: "ड्राफ़्ट अनुरोध",
+    slackDraftQueue: "Slack से ड्राफ़्ट कतार में जोड़ें",
+    slackDraftQueueDescription:
+      "साथी ईमेल ड्राफ़्ट का अनुरोध करने के लिए Slack में एजेंट का उल्लेख करते हैं। ड्राफ़्ट समीक्षा के लिए आपकी ड्राफ़्ट कतार में रहते हैं।",
+    openDraftQueue: "ड्राफ़्ट कतार खोलें",
     aiFilter: "ट्रायेज",
     gmailFilters: "Gmail फ़िल्टर",
     aliases: "Aliases",
     tracking: "Tracking",
     slack: "Slack",
-    team: "टीम",
     deleteAlias: "उपनाम हटाएँ",
     editAlias: "उपनाम संपादित करें",
   },

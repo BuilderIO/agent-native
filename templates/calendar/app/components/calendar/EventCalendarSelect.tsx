@@ -49,8 +49,9 @@ export function EventCalendarSelect({
         disabled={disabled}
       >
         <SelectTrigger
+          size="sm"
           aria-label={t("navigation.calendar")}
-          className="h-8 flex-1 text-sm"
+          className="flex-1 text-sm"
         >
           <SelectValue />
         </SelectTrigger>

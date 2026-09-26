@@ -26,6 +26,7 @@ import {
   CLAUDE_SONNET_MODEL_ID,
   CLAUDE_SONNET_MODEL_LABEL,
 } from "../../agent/model-config.js";
+import type { OrgInfo } from "../../org/types.js";
 import { serializeFrontmatter } from "../../resources/metadata.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
@@ -60,7 +61,16 @@ import {
 } from "./mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
 import { McpServerDetail } from "./McpServerDetail.js";
+import {
+  filterResourceTree,
+  type ResourceTreeVariant,
+  type ResourceView,
+} from "./resource-views.js";
 import { ResourceEditor } from "./ResourceEditor.js";
+import {
+  ResourceSettingsGroups,
+  type ResourceSettingsGroupConfig,
+} from "./ResourceSettingsGroups.js";
 import { ResourceTree } from "./ResourceTree.js";
 import {
   parseMcpBuiltinVirtualId,
@@ -85,7 +95,6 @@ import {
   type ResourceScope,
   type ResourceMeta,
   type Resource,
-  type TreeNode,
 } from "./use-resources.js";
 
 const LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE = "local-workspace-resource";
@@ -119,6 +128,18 @@ const EMPTY_RESOURCE_ACTION_LABELS: Record<ResourceView, string> = {
   "remote-agents": "Add remote agent",
 };
 
+export const MEMORY_RESOURCE_SEED = {
+  path: "memory/MEMORY.md",
+  content: "# Memory\n\n",
+  mimeType: "text/markdown",
+};
+
+export const LEARNINGS_RESOURCE_SEED = {
+  path: "LEARNINGS.md",
+  content: "# Learnings\n\n",
+  mimeType: "text/markdown",
+};
+
 const EMPTY_RESOURCE_SEEDS: Partial<
   Record<ResourceView, { path: string; content: string; mimeType?: string }>
 > = {
@@ -127,16 +148,8 @@ const EMPTY_RESOURCE_SEEDS: Partial<
     content: "# Agent Instructions\n\n",
     mimeType: "text/markdown",
   },
-  memory: {
-    path: "memory/MEMORY.md",
-    content: "# Memory\n\n",
-    mimeType: "text/markdown",
-  },
-  learnings: {
-    path: "LEARNINGS.md",
-    content: "# Learnings\n\n",
-    mimeType: "text/markdown",
-  },
+  memory: MEMORY_RESOURCE_SEED,
+  learnings: LEARNINGS_RESOURCE_SEED,
   "remote-agents": {
     path: "remote-agents/new-agent.json",
     content:
@@ -145,78 +158,11 @@ const EMPTY_RESOURCE_SEEDS: Partial<
   },
 };
 
-export type ResourceView =
-  | "files"
-  | "instructions"
-  | "agents"
-  | "memory"
-  | "skills"
-  | "learnings"
-  | "remote-agents";
-
-export type ResourceTreeVariant = "tree" | "collection";
-
-const SPECIAL_RESOURCE_ROOTS = new Set([
-  "agents",
-  "agent-scratch",
-  "jobs",
-  "memory",
-  "remote-agents",
-  "skills",
-]);
-const SPECIAL_RESOURCE_FILES = new Set(["agents.md", "learnings.md"]);
-
-function normalizedResourcePath(path: string): string {
-  return path.replace(/^\/+/, "").toLowerCase();
-}
-
-function resourceMatchesView(node: TreeNode, view: ResourceView): boolean {
-  const path = normalizedResourcePath(node.path);
-  switch (view) {
-    case "files":
-      return (
-        !SPECIAL_RESOURCE_ROOTS.has(path.split("/", 1)[0]) &&
-        !SPECIAL_RESOURCE_FILES.has(path.split("/").pop() ?? "")
-      );
-    case "instructions":
-      return path.split("/").pop() === "agents.md";
-    case "agents":
-      return node.kind === "agent";
-    case "memory":
-      return path === "memory" || path.startsWith("memory/");
-    case "skills":
-      return node.kind === "skill";
-    case "learnings":
-      return path.split("/").pop() === "learnings.md";
-    case "remote-agents":
-      return node.kind === "remote-agent";
-  }
-}
-
-export function filterResourceTree(
-  tree: TreeNode[],
-  view: ResourceView | undefined,
-): TreeNode[] {
-  if (!view) return tree;
-  return tree.flatMap((node) => {
-    if (node.type === "folder") {
-      if (
-        view === "files" &&
-        (SPECIAL_RESOURCE_ROOTS.has(
-          normalizedResourcePath(node.path).split("/", 1)[0],
-        ) ||
-          SPECIAL_RESOURCE_FILES.has(
-            normalizedResourcePath(node.path).split("/").pop() ?? "",
-          ))
-      ) {
-        return [];
-      }
-      const children = filterResourceTree(node.children ?? [], view);
-      return children.length > 0 ? [{ ...node, children }] : [];
-    }
-    return resourceMatchesView(node, view) ? [node] : [];
-  });
-}
+export {
+  filterResourceTree,
+  type ResourceTreeVariant,
+  type ResourceView,
+} from "./resource-views.js";
 
 // ─── Create Menu (unified + button) ────────────────────────────────────────
 
@@ -238,13 +184,142 @@ const AGENT_MODEL_OPTIONS = [
   { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
 ] as const;
 
-function slugifyName(value: string): string {
+export function slugifyName(value: string): string {
   return (
     value
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "") || "agent"
   );
+}
+
+/** Ask the agent to draft a custom agent profile, saved at `scope`. */
+export function requestCustomAgentFromAgent(
+  description: string,
+  scope: ResourceScope,
+): void {
+  const trimmed = description.trim();
+  if (!trimmed) return;
+  sendToAgentChat({
+    message: `Create a custom agent: ${trimmed}`,
+    newTab: true,
+    context: `The user wants a reusable custom sub-agent profile for the workspace. Their description: "${trimmed}"
+
+Create it as a ${scope} resource under "agents/<name>.md" using the \`resources\` tool with \`action: "write"\`.
+
+Requirements:
+1. Derive a hyphen-case file name from the intent
+2. Use YAML frontmatter with:
+   - name
+   - description
+   - model (use "inherit" unless the request clearly needs a different model)
+   - tools (set to "inherit")
+   - delegate-default (set to false)
+3. Put the main operating instructions in the markdown body
+4. Keep it concise and directive, similar to a Claude Code-style custom agent
+
+Template:
+\`\`\`markdown
+---
+name: Design
+description: >-
+  Helps with product and interface design decisions.
+model: inherit
+tools: inherit
+delegate-default: false
+---
+
+# Role
+
+You are a focused design agent.
+
+## Responsibilities
+
+- ...
+
+## Approach
+
+- ...
+\`\`\`
+
+The result should be a reusable agent profile, not a one-off task response.`,
+    submit: true,
+  });
+}
+
+/** Ask the agent to draft a skill from a description, saved at `scope`. */
+export function requestSkillFromAgent(
+  description: string,
+  scope: ResourceScope,
+): void {
+  const trimmed = description.trim();
+  if (!trimmed) return;
+  sendToAgentChat({
+    message: `Create a skill: ${trimmed}`,
+    newTab: true,
+    context: `The user wants to create an agent skill. Their description: "${trimmed}"
+
+Follow the create-skill pattern to build this. Before writing:
+
+1. **Determine the skill name** — derive a hyphen-case name from the description (e.g. "code review" → "code-review")
+2. **Determine the skill type** — Pattern (architectural rule), Workflow (step-by-step), or Generator (scaffolding)
+3. **Write the skill** as a ${scope} resource at path "skills/<name>/SKILL.md" using the \`resources\` tool with \`action: "write"\`
+
+The skill file MUST have YAML frontmatter with name and description (under 40 words), then markdown with:
+- Clear rule/purpose statement
+- Why this skill exists
+- How to follow it (with code examples where helpful)
+- Common violations to avoid
+- Related skills
+
+Template for a Pattern skill:
+\`\`\`markdown
+---
+name: <hyphen-case-name>
+description: >-
+  <Under 40 words. When should this trigger?>
+---
+
+# <Skill Name>
+
+## Rule
+<One sentence: what must be true>
+
+## Why
+<Why this rule exists>
+
+## How
+<How to follow it, with code examples>
+
+## Don't
+<Common violations>
+\`\`\`
+
+Template for a Workflow skill:
+\`\`\`markdown
+---
+name: <hyphen-case-name>
+description: >-
+  <Under 40 words. When should this trigger?>
+---
+
+# <Workflow Name>
+
+## Prerequisites
+<What must be in place>
+
+## Steps
+<Numbered steps with code examples>
+
+## Verification
+<How to confirm it worked>
+\`\`\`
+
+After creating, update the shared AGENTS.md resource to reference the new skill in its skills table.
+
+Keep the skill concise (under 500 lines) and actionable.`,
+    submit: true,
+  });
 }
 
 function isLocalWorkspaceResource(resource: Resource | null | undefined) {
@@ -257,7 +332,10 @@ function isLocalWorkspaceResource(resource: Resource | null | undefined) {
   }
 }
 
-function buildAgentResourceContent({
+/** Starting body for a custom agent profile written by hand. */
+export const CUSTOM_AGENT_BODY_TEMPLATE = `# Role\n\nDefine how this agent should work.\n\n## Focus\n\n- What kinds of tasks it should handle\n- What tone or approach it should use\n- Important constraints or preferences\n`;
+
+export function buildAgentResourceContent({
   name,
   description,
   model,
@@ -342,7 +420,7 @@ function CreateMenu({
   const [agentDescription, setAgentDescription] = useState("");
   const [agentModel, setAgentModel] = useState<string>("inherit");
   const [agentInstructions, setAgentInstructions] = useState(
-    `# Role\n\nDefine how this agent should work.\n\n## Focus\n\n- What kinds of tasks it should handle\n- What tone or approach it should use\n- Important constraints or preferences\n`,
+    CUSTOM_AGENT_BODY_TEMPLATE,
   );
   const defaultMcpScope: McpServerScope = personalMcpOnly
     ? "user"
@@ -393,9 +471,7 @@ function CreateMenu({
       setAgentName("");
       setAgentDescription("");
       setAgentModel("inherit");
-      setAgentInstructions(
-        `# Role\n\nDefine how this agent should work.\n\n## Focus\n\n- What kinds of tasks it should handle\n- What tone or approach it should use\n- Important constraints or preferences\n`,
-      );
+      setAgentInstructions(CUSTOM_AGENT_BODY_TEMPLATE);
       setSkillUploadSlug("");
       setSkillUploadContent("");
       setSkillUploadFileName("");
@@ -423,72 +499,7 @@ function CreateMenu({
     const trimmed = text.trim();
     if (!trimmed) return;
 
-    sendToAgentChat({
-      message: `Create a skill: ${trimmed}`,
-      newTab: true,
-      context: `The user wants to create an agent skill. Their description: "${trimmed}"
-
-Follow the create-skill pattern to build this. Before writing:
-
-1. **Determine the skill name** — derive a hyphen-case name from the description (e.g. "code review" → "code-review")
-2. **Determine the skill type** — Pattern (architectural rule), Workflow (step-by-step), or Generator (scaffolding)
-3. **Write the skill** as a ${scope} resource at path "skills/<name>/SKILL.md" using the \`resources\` tool with \`action: "write"\`
-
-The skill file MUST have YAML frontmatter with name and description (under 40 words), then markdown with:
-- Clear rule/purpose statement
-- Why this skill exists
-- How to follow it (with code examples where helpful)
-- Common violations to avoid
-- Related skills
-
-Template for a Pattern skill:
-\`\`\`markdown
----
-name: <hyphen-case-name>
-description: >-
-  <Under 40 words. When should this trigger?>
----
-
-# <Skill Name>
-
-## Rule
-<One sentence: what must be true>
-
-## Why
-<Why this rule exists>
-
-## How
-<How to follow it, with code examples>
-
-## Don't
-<Common violations>
-\`\`\`
-
-Template for a Workflow skill:
-\`\`\`markdown
----
-name: <hyphen-case-name>
-description: >-
-  <Under 40 words. When should this trigger?>
----
-
-# <Workflow Name>
-
-## Prerequisites
-<What must be in place>
-
-## Steps
-<Numbered steps with code examples>
-
-## Verification
-<How to confirm it worked>
-\`\`\`
-
-After creating, update the shared AGENTS.md resource to reference the new skill in its skills table.
-
-Keep the skill concise (under 500 lines) and actionable.`,
-      submit: true,
-    });
+    requestSkillFromAgent(trimmed, scope);
 
     setOpen(false);
     onCreated?.();
@@ -553,55 +564,8 @@ The job will run automatically on the schedule. Make the instructions specific �
   };
 
   const submitAgentPrompt = (text: string = value) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-
-    sendToAgentChat({
-      message: `Create a custom agent: ${trimmed}`,
-      newTab: true,
-      context: `The user wants a reusable custom sub-agent profile for the workspace. Their description: "${trimmed}"
-
-Create it as a ${scope} resource under "agents/<name>.md" using the \`resources\` tool with \`action: "write"\`.
-
-Requirements:
-1. Derive a hyphen-case file name from the intent
-2. Use YAML frontmatter with:
-   - name
-   - description
-   - model (use "inherit" unless the request clearly needs a different model)
-   - tools (set to "inherit")
-   - delegate-default (set to false)
-3. Put the main operating instructions in the markdown body
-4. Keep it concise and directive, similar to a Claude Code-style custom agent
-
-Template:
-\`\`\`markdown
----
-name: Design
-description: >-
-  Helps with product and interface design decisions.
-model: inherit
-tools: inherit
-delegate-default: false
----
-
-# Role
-
-You are a focused design agent.
-
-## Responsibilities
-
-- ...
-
-## Approach
-
-- ...
-\`\`\`
-
-The result should be a reusable agent profile, not a one-off task response.`,
-      submit: true,
-    });
-
+    if (!text.trim()) return;
+    requestCustomAgentFromAgent(text, scope);
     setOpen(false);
     onCreated?.();
   };
@@ -1187,6 +1151,15 @@ Agent resources are files users intentionally add, edit, or manage. Agents may c
 
 const WORKSPACE_RESOURCE_OWNER = "__workspace__";
 const SHARED_RESOURCE_OWNER = "__shared__";
+const ORGANIZATION_RESOURCE_OWNER_PREFIX = "__organization__:";
+
+/** Legacy shared or organization owner; members only read these. */
+export function isOrganizationResourceOwner(owner: string): boolean {
+  return (
+    owner === SHARED_RESOURCE_OWNER ||
+    owner.startsWith(ORGANIZATION_RESOURCE_OWNER_PREFIX)
+  );
+}
 
 /** Bare or organization-scoped workspace owner; mirrors `isWorkspaceResourceOwner`. */
 function isWorkspaceResourceOwner(owner: string): boolean {
@@ -1209,6 +1182,22 @@ export interface ResourcesPanelProps {
   resourceTreeVariant?: ResourceTreeVariant;
   /** Optional app-owned remote MCP catalog. */
   mcpIntegrations?: DefaultMcpIntegration[];
+  /**
+   * Settings pages: list `resourceFilter` rows in these groups instead of
+   * the scope trees and floating toolbar.
+   */
+  settingsGroups?: readonly ResourceSettingsGroupConfig[];
+  /** Receives a function that opens a resource in this panel's editor. */
+  openResourceRef?: { current: ((id: string) => void) | null };
+  /** Called when the editor opens or closes, so a page can yield to it. */
+  onEditingChange?: (editing: boolean) => void;
+}
+
+/** Owners, admins, and solo deployments (no organization) edit org resources. */
+export function canEditOrganizationResources(
+  org: Pick<OrgInfo, "orgId" | "role"> | null | undefined,
+): boolean {
+  return !org?.orgId || org.role === "owner" || org.role === "admin";
 }
 
 export function resolveInitialResourceScope(
@@ -1256,13 +1245,15 @@ export function ResourcesPanel({
   resourceFilter,
   resourceTreeVariant = "tree",
   mcpIntegrations,
+  settingsGroups,
+  openResourceRef,
+  onEditingChange,
 }: ResourcesPanelProps = {}) {
   const t = useT();
   const { data: org } = useOrg();
   // Non-admin org members get read-only access to organization resources.
   // Solo deployments (no orgId) behave as owner — users can edit their own.
-  const canEditOrg =
-    !org?.orgId || org.role === "owner" || org.role === "admin";
+  const canEditOrg = canEditOrganizationResources(org);
 
   const [activeScope, setActiveScope] = useState<ResourceScope>(() =>
     resolveInitialResourceScope(requestedScope, canEditOrg),
@@ -1452,7 +1443,7 @@ export function ResourcesPanel({
     !!resourceQuery.data &&
     ((isWorkspaceResourceOwner(resourceQuery.data.owner) &&
       !isLocalWorkspaceResource(resourceQuery.data)) ||
-      (resourceQuery.data.owner === SHARED_RESOURCE_OWNER && !canEditOrg));
+      (isOrganizationResourceOwner(resourceQuery.data.owner) && !canEditOrg));
 
   // Ensure AGENTS.md exists in the organization scope when the panel opens.
   // The server also seeds it on table init; this is a safety net. Only attempt
@@ -1480,6 +1471,18 @@ export function ResourcesPanel({
   const handleSelect = useCallback((resource: ResourceMeta) => {
     setSelectedResourceId(resource.id);
   }, []);
+
+  useEffect(() => {
+    if (!openResourceRef) return;
+    openResourceRef.current = (id: string) => setSelectedResourceId(id);
+    return () => {
+      openResourceRef.current = null;
+    };
+  }, [openResourceRef]);
+
+  useEffect(() => {
+    onEditingChange?.(isEditing);
+  }, [isEditing, onEditingChange]);
 
   const handleBack = useCallback(() => {
     setSelectedResourceId(null);
@@ -1647,12 +1650,12 @@ export function ResourcesPanel({
       e.preventDefault();
       e.stopPropagation();
       setDragOver(false);
-      if (activeCreateMenuMode !== "full") return;
+      if (settingsGroups || activeCreateMenuMode !== "full") return;
       if (e.dataTransfer.files.length > 0) {
         handleUploadFiles(e.dataTransfer.files, activeScope);
       }
     },
-    [activeCreateMenuMode, activeScope, handleUploadFiles],
+    [activeCreateMenuMode, activeScope, handleUploadFiles, settingsGroups],
   );
 
   const renderScopeCreateMenu = (targetScope: ResourceScope) => {
@@ -1767,7 +1770,7 @@ export function ResourcesPanel({
     <div
       className={cn(
         "relative flex h-full flex-col min-h-0",
-        dragOver && "ring-2 ring-inset ring-accent",
+        dragOver && !settingsGroups && "ring-2 ring-inset ring-accent",
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -1948,7 +1951,7 @@ export function ResourcesPanel({
             )}
           </div>
         </div>
-      ) : (
+      ) : settingsGroups ? null : (
         /* Floating action buttons — absolute top-right over tree view */
         <div className="absolute end-3 top-3 z-10 flex items-center gap-1">
           {activeCreateMenuMode !== "hidden" &&
@@ -2072,6 +2075,39 @@ export function ResourcesPanel({
               Loading...
             </div>
           )
+        ) : settingsGroups ? (
+          <ResourceSettingsGroups
+            groups={settingsGroups}
+            trees={{
+              personal: {
+                nodes: personalTree,
+                isLoading: personalTreeQuery.isLoading,
+                isError: personalTreeQuery.isError,
+                retry: () => void personalTreeQuery.refetch(),
+              },
+              shared: {
+                nodes: sharedTree,
+                isLoading: sharedTreeQuery.isLoading,
+                isError: sharedTreeQuery.isError,
+                retry: () => void sharedTreeQuery.refetch(),
+              },
+              workspace: {
+                nodes: workspaceTree,
+                isLoading: workspaceTreeQuery.isLoading,
+                isError: workspaceTreeQuery.isError,
+                retry: () => void workspaceTreeQuery.refetch(),
+              },
+            }}
+            canEditOrg={canEditOrg}
+            orgName={org?.orgName ?? null}
+            deletingId={
+              deleteResource.isPending
+                ? (deleteResource.variables as string)
+                : null
+            }
+            onOpen={handleSelect}
+            onRemove={(resource) => deleteResource.mutateAsync(resource.id)}
+          />
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto">
             {visibleWorkspaceTree.length > 0 && (

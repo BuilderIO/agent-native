@@ -1,4 +1,8 @@
-import { registerRequiredSecret } from "@agent-native/core/secrets";
+import {
+  GEMINI_API_KEY,
+  registerRequiredSecret,
+  registerSecretUsage,
+} from "@agent-native/core/secrets";
 
 // ── Image generation provider secrets ────────────────────────────────
 // Two providers are supported: Gemini (with style reference matching)
@@ -12,36 +16,17 @@ import { registerRequiredSecret } from "@agent-native/core/secrets";
 // side-effect module imported at the top of `server/plugins/agent-chat.ts`
 // guarantees the registerRequiredSecret() calls run at boot.
 
-registerRequiredSecret({
-  key: "GEMINI_API_KEY",
-  label: "Gemini API Key",
-  description:
-    "Required for image generation with Gemini. Supports style reference matching and up to 4K resolution.",
-  docsUrl: "https://aistudio.google.com/apikey",
-  scope: "user",
-  kind: "api-key",
-  required: false,
-  validator: async (value) => {
-    if (!value) return true;
-    if (typeof value !== "string" || value.length < 20) {
-      return { ok: false, error: "Key looks too short." };
-    }
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${value}`,
-      );
-      if (res.ok) return true;
-      if (res.status === 400 || res.status === 403)
-        return { ok: false, error: "Gemini rejected this key." };
-      return { ok: false, error: `Gemini returned ${res.status}.` };
-    } catch (err: any) {
-      return {
-        ok: false,
-        error: `Could not reach Gemini: ${err?.message ?? err}`,
-      };
-    }
+// The framework registers the one Gemini key (Google Gemini API key), so
+// Slides records what it uses the key for instead of registering a
+// second copy under another name or scope.
+registerSecretUsage(GEMINI_API_KEY, [
+  {
+    appId: "slides",
+    feature: "Image generation",
+    effectWhenRemoved:
+      "Uses another image provider, or stops if none is set up.",
   },
-});
+]);
 
 registerRequiredSecret({
   key: "OPENAI_API_KEY",
@@ -51,6 +36,14 @@ registerRequiredSecret({
   docsUrl: "https://platform.openai.com/api-keys",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Image generation",
+      effectWhenRemoved:
+        "Uses another image provider, or stops if none is set up.",
+    },
+  ],
   required: false,
   validator: async (value) => {
     if (!value) return true;
@@ -81,6 +74,13 @@ registerRequiredSecret({
   docsUrl: "https://console.cloud.google.com/apis/credentials",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Image search",
+      effectWhenRemoved: "Image search stops.",
+    },
+  ],
   required: false,
 });
 
@@ -91,6 +91,13 @@ registerRequiredSecret({
   docsUrl: "https://programmablesearchengine.google.com/controlpanel/all",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Image search",
+      effectWhenRemoved: "Image search stops.",
+    },
+  ],
   required: false,
 });
 
@@ -101,6 +108,13 @@ registerRequiredSecret({
   docsUrl: "https://www.logo.dev/",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Logo search",
+      effectWhenRemoved: "Logo search uses the other logo sources.",
+    },
+  ],
   required: false,
 });
 
@@ -111,6 +125,13 @@ registerRequiredSecret({
   docsUrl: "https://www.logo.dev/",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Logo search",
+      effectWhenRemoved: "Logo search uses the other logo sources.",
+    },
+  ],
   required: false,
 });
 
@@ -121,6 +142,13 @@ registerRequiredSecret({
   docsUrl: "https://developers.brandfetch.com/",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Logo search",
+      effectWhenRemoved: "Logo search uses the other logo sources.",
+    },
+  ],
   required: false,
 });
 
@@ -131,6 +159,13 @@ registerRequiredSecret({
   docsUrl: "https://console.cloud.google.com/apis/credentials",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Google Docs import",
+      effectWhenRemoved: "Google Docs import stops.",
+    },
+  ],
   required: false,
 });
 
@@ -141,6 +176,13 @@ registerRequiredSecret({
   docsUrl: "https://console.cloud.google.com/apis/credentials",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Google Docs import",
+      effectWhenRemoved: "Google Docs import stops.",
+    },
+  ],
   required: false,
 });
 
@@ -151,6 +193,13 @@ registerRequiredSecret({
   docsUrl: "https://console.cloud.google.com/apis/credentials",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Google Docs import",
+      effectWhenRemoved: "The Google Docs picker stops.",
+    },
+  ],
   required: false,
 });
 
@@ -161,5 +210,12 @@ registerRequiredSecret({
   docsUrl: "https://console.cloud.google.com/apis/credentials",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Google Docs import",
+      effectWhenRemoved: "The Google Docs picker stops.",
+    },
+  ],
   required: false,
 });

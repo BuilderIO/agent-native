@@ -13,7 +13,7 @@ import {
  *
  * The active step is expanded; completed steps collapse with a green check;
  * remaining steps sit dimmed below. Each method renders differently based on
- * its `kind` (link / form / builder-cli-auth / agent-task).
+ * its `kind` (link / form / builder-cli-auth / agent-task / file-storage).
  */
 import React, { useState, useEffect } from "react";
 
@@ -32,6 +32,7 @@ import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
 } from "../settings/index.js";
+import { StorageSettingsForm } from "../settings/StorageSettingsForm.js";
 import { useDevMode } from "../use-dev-mode.js";
 import { trackOnboardingEvent, useOnboarding } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
@@ -559,6 +560,10 @@ function MethodBody({
           stepId={stepId}
           onClick={trackMethodClick}
         />
+      );
+    case "file-storage":
+      return (
+        <StorageSettingsForm columns={1} onSaved={() => void onCompleted()} />
       );
   }
 }

@@ -183,6 +183,9 @@ export default {
     bellSoundDescription:
       "Einen Ton abspielen, wenn der Agent einen Lauf beendet. Standardmäßig deaktiviert.",
     bellSoundSaveFailed: "Die Toneinstellung konnte nicht gespeichert werden.",
+    notificationsTitle: "Benachrichtigungen",
+    notificationsEmailGroup: "E-Mail",
+    notificationsSoundGroup: "Ton",
     replayStorage: "Speicher für Sitzungswiedergabe",
     replayStorageDescription:
       "Aufzeichnungen der Sitzungswiedergabe benötigen einen konfigurierten Datei-Upload-Anbieter. Verbinden Sie Builder.io für Objektspeicher im kostenlosen Kontingent oder verwenden Sie Ihren eigenen S3-kompatiblen Bucket.",

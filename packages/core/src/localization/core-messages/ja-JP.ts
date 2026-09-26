@@ -165,6 +165,8 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "共有キーを使用しています。",
   "agentPanel.useOrganizationKey": "組織のキーを使用",
   "agentPanel.keyStatusUnavailable": "キーの状態を取得できません。",
+  "agentPanel.saveScopeRoleUnavailable":
+    "組織でのロールを読み込めなかったため、まだキーを保存できません。",
   "agentPanel.chatgptSubscriptionPopupBlocked":
     "このサイトのポップアップを許可してから、もう一度お試しください。",
   "agentPanel.chatgptSubscriptionTitle": "ChatGPT サブスクリプション",
@@ -254,6 +256,41 @@ const messages: AgentChatTranslation = {
   "agents.directoryRegistryHint":
     "公開 Agent Card を参照し、接続前に確認してください。",
   "agents.directoryBrowse": "レジストリを開く",
+  "agents.formName": "名前",
+  "agents.formUrl": "URL",
+  "agents.formUrlPlaceholder": "URL (例: http://localhost:8085)",
+  "agents.formDescription": "説明",
+  "agents.formDescriptionPlaceholder": "説明 (任意)",
+  "agents.formCheck": "確認",
+  "agents.formAdd": "追加",
+  "agents.formAdding": "追加しています",
+  "agents.formAddAnyway": "このまま追加",
+  "agents.formRemove": "削除",
+  "agents.formSaveFailed": "エージェントを保存できませんでした。",
+  "agents.formAddFailed": "エージェントを追加できませんでした。",
+  "agents.checkFailed": "確認に失敗しました",
+  "agents.checkFailedStatus": "確認に失敗しました ({{status}})",
+  "agents.checkNotReachable": "到達できません",
+  "agents.checkLive": "稼働中 · {{scheme}}",
+  "agents.checkNoAuthScheme": "認証スキームが公開されていません",
+  "agents.checkTokenRejected":
+    "相手がこちらのトークンを拒否したため、本番環境では呼び出しが 401 になります",
+  "agents.checkTokenUnverified": "こちらのトークンを検証できませんでした",
+  "agents.checkTokenUnverifiedReason":
+    "こちらのトークンを検証できませんでした ({{reason}})",
+  "agents.checkTokenWorks": "こちらのトークンは有効です",
+  "agents.checkReadsRequireAuth": "読み取りには認証が必要です",
+  "agents.checkPublicSkills": "公開スキル: {{count}}",
+  "agents.unreachableHint":
+    "アプリがまだ起動していない可能性があります。このまま追加することもできます。",
+  "agents.addedOneWay":
+    "{{name}} をこちら側にのみ追加しました。登録は一方向のため、{{name}} 側でもこのアプリを追加するまで、相手はこのアプリを認識しません。",
+  "agents.openPeerSettings": "{{name}} の設定を開く",
+  "agents.syncSecret": "シークレットをアプリに同期",
+  "agents.noSharedSecret": "共有シークレットがまだ設定されていません。",
+  "agents.noSharedSecretLink": "まずチームページで設定してください。",
+  "agents.askOwnerSyncSecret":
+    "ワークスペースのオーナーに共有シークレットの同期を依頼してください。",
   "common.saveFailed": "保存に失敗しました",
   "common.saveFailedStatus": "保存に失敗しました（{{status}}）",
   "common.saving": "保存中...",
@@ -560,6 +597,306 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "管理",
   "integrations.recommended": "おすすめ",
   "integrations.subtitle": "エージェントが使用できるツールを接続します。",
+  "mcpIntegrations.menuLabel": "連携",
+  "mcpIntegrations.menuDescription": "ツールやサービスをエージェントに接続",
+  "mcpIntegrations.title": "連携を接続",
+  "mcpIntegrations.description":
+    "{{count}} 件のエージェント連携を参照するか、カスタム連携を追加します。",
+  "mcpIntegrations.searchPlaceholder": "連携を検索",
+  "mcpIntegrations.addYourOwn": "独自に追加",
+  "mcpIntegrations.noMatches": "検索に一致する連携はありません。",
+  "mcpIntegrations.connected": "接続済み",
+  "mcpIntegrations.connectionError": "接続エラー",
+  "mcpIntegrations.connectionErrorReason": "理由: {{reason}}",
+  "mcpIntegrations.reconnect": "再接続",
+  "mcpIntegrations.reconnecting": "再接続中…",
+  "mcpIntegrations.reconnectFailed": "再接続に失敗しました: {{error}}",
+  "mcpIntegrations.configure": "設定",
+  "mcpIntegrations.connect": "接続",
+  "mcpIntegrations.connectWithOAuth": "接続",
+  "mcpIntegrations.connecting": "接続中…",
+  "mcpIntegrations.useApiToken": "API トークンを使用",
+  "mcpIntegrations.customOAuthDefault": "OAuth でサインイン",
+  "mcpIntegrations.customHeadersMode": "API キーを使用",
+  "mcpIntegrations.useApiKeyInstead": "代わりに API キーを使用",
+  "mcpIntegrations.useOAuthInstead": "代わりに OAuth を使用",
+  "mcpIntegrations.connectSuggestion":
+    "{{name}} を接続するとチャットで使用できます",
+  "mcpIntegrations.connectSuggestionWithApiToken":
+    "API トークンで {{name}} を接続するとチャットで使用できます",
+  "mcpIntegrations.dismissSuggestion": "連携の提案を閉じる",
+  "mcpIntegrations.backToIntegrations": "連携に戻る",
+  "mcpIntegrations.customTitle": "カスタムのエージェント連携を追加",
+  "mcpIntegrations.configureTitle": "{{name}} を設定",
+  "mcpIntegrations.presetNoAuthDescription":
+    "プリセット値が入力されています。エンドポイントをテストするか、今すぐ接続してください。",
+  "mcpIntegrations.presetAuthDescription":
+    "プリセット値が入力されています。接続する前に、必要な認証情報を追加してください。",
+  "mcpIntegrations.customDescription":
+    "Streamable HTTP または SSE のエンドポイントと、必要に応じてヘッダーを貼り付けます。",
+  "mcpIntegrations.oauthNotice":
+    "このプロバイダーでは通常 OAuth のセットアップが必要です。プロバイダーのドキュメントに従うか、エンドポイントがトークンベースのアクセスに対応している場合は Authorization ヘッダーを追加してください。",
+  "mcpIntegrations.providerSetupRequired":
+    "プロバイダーのセットアップが必要です",
+  "mcpIntegrations.providerSetupDescription":
+    "まず {{name}} で必要なセットアップを完了してください。その後ここに戻ってアカウントを接続します。",
+  "mcpIntegrations.providerSetupFormDescription":
+    "アカウントを接続する前に、プロバイダーのセットアップを完了してください。",
+  "mcpIntegrations.continueToConnect": "自分のアカウントを接続",
+  "mcpIntegrations.setupTitle": "{{name}} を接続",
+  "mcpIntegrations.personal": "個人",
+  "mcpIntegrations.personalConnection": "個人の接続",
+  "mcpIntegrations.organization": "組織",
+  "mcpIntegrations.scopeQuestion": "この接続を使用できるのは誰ですか？",
+  "mcpIntegrations.scopeChoiceTitle": "誰が使用しますか？",
+  "mcpIntegrations.scopeChoiceDescription":
+    "この接続を利用できる範囲を選択します。",
+  "mcpIntegrations.connectForMe": "自分用に接続",
+  "mcpIntegrations.setUpForWorkspace": "ワークスペース用に設定",
+  "mcpIntegrations.workspaceAdminRequired":
+    "ワークスペースのオーナーまたは管理者の権限が必要です。",
+  "mcpIntegrations.workspaceJoinRequired":
+    "まずワークスペースに参加してください。",
+  "mcpIntegrations.personalOnlyDescription":
+    "この連携でサポートされているのは個人の接続のみです。",
+  "mcpIntegrations.workspaceOnlyDescription":
+    "この連携はワークスペース全体で一度だけ接続するため、自分のアカウントだけに接続することはできません。ワークスペースのオーナーまたは管理者が設定できます。",
+  "mcpIntegrations.loadingScopeMetadata": "接続の範囲を読み込み中…",
+  "mcpIntegrations.retry": "再試行",
+  "mcpIntegrations.retrying": "再試行中…",
+  "mcpIntegrations.personalDescription":
+    "この接続を使用できるのはあなただけです。",
+  "mcpIntegrations.sharedWithWorkspace": "ワークスペースと共有",
+  "mcpIntegrations.organizationDescription":
+    "許可されたワークスペースメンバーがこの接続を使用できます。プロバイダー側の権限も引き続き適用されます。",
+  "mcpIntegrations.serverNameRequired":
+    "OAuth で接続する前に連携名を入力してください。",
+  "mcpIntegrations.serverName": "連携名",
+  "mcpIntegrations.url": "URL",
+  "mcpIntegrations.fieldDescription": "説明",
+  "mcpIntegrations.headers": "ヘッダー",
+  "mcpIntegrations.serverNamePlaceholder": "連携名",
+  "mcpIntegrations.urlPlaceholder": "https://example.com/agent-integration",
+  "mcpIntegrations.descriptionPlaceholder": "説明 (任意)",
+  "mcpIntegrations.headersPlaceholder": "Authorization: Bearer <token>",
+  "mcpIntegrations.openSetupDocs": "セットアップのドキュメントを開く",
+  "mcpIntegrations.viewSetup": "セットアップガイドを開く",
+  "mcpIntegrations.test": "テスト",
+  "mcpIntegrations.testing": "テスト中…",
+  "mcpIntegrations.toolsAvailable_other": "{{count}} 個のツールを利用できます",
+  "mcpIntegrations.failed": "失敗",
+  "mcpIntegrations.docsLabel": "{{name}} のドキュメントを表示",
+  "mcpIntegrations.catalog.context7.description":
+    "エージェントのチャットで最新のライブラリドキュメントを取得します。",
+  "mcpIntegrations.catalog.context7.useCase":
+    "ドキュメント、技術リファレンス、API ドキュメント、フレームワークガイド",
+  "mcpIntegrations.catalog.sentry.description":
+    "Issue、イベント、デバッグデータを調査します。",
+  "mcpIntegrations.catalog.sentry.useCase":
+    "エラー監視、デバッグ、パフォーマンス、クラッシュレポート",
+  "mcpIntegrations.catalog.fullstory.description":
+    "行動分析を読み取り、セッションリプレイを調査します。",
+  "mcpIntegrations.catalog.fullstory.useCase":
+    "プロダクト分析、セッションリプレイ、定性的な行動分析、ユーザーリサーチ",
+  "mcpIntegrations.catalog.fullstory.setupNote":
+    "FullStory MCP は現在ベータ版です。FullStory の組織管理者が StoryAI 機能と Model Context Protocol のトグルを有効にする必要があります。",
+  "mcpIntegrations.catalog.amplitude.description":
+    "Amplitude のプロダクト分析を読み取り、操作します。",
+  "mcpIntegrations.catalog.amplitude.useCase":
+    "プロダクト分析、チャート、ダッシュボード、コホート、実験",
+  "mcpIntegrations.catalog.amplitude.setupNote":
+    "Amplitude MCP はストリーミング HTTP 上の OAuth を使用します。デフォルトのエンドポイントは米国のデータ所在地向けです。アカウントで EU のデータ所在地が必要な場合は、Amplitude の EU エンドポイントを使用してください。",
+  "mcpIntegrations.catalog.sigma.description":
+    "Sigma のワークブックとダッシュボードを検索、探索、分析します。",
+  "mcpIntegrations.catalog.sigma.useCase":
+    "分析、ダッシュボード、ワークブック、データ探索、ビジネスインテリジェンス",
+  "mcpIntegrations.catalog.sigma.setupNote":
+    "Sigma の MCP URL は組織ごとに異なります。Sigma で Profile > Integrations > Connect Sigma to AI tools を開き、URL をコピーしてここに貼り付けてください。Sigma MCP は現在、検索、メタデータの探索、分析に対応しています。ダッシュボードやワークブックの作成とインポートは、この接続では利用できません。",
+  "mcpIntegrations.catalog.notion.description":
+    "ページとチームのナレッジを検索します。",
+  "mcpIntegrations.catalog.notion.useCase":
+    "ドキュメント、ナレッジ管理、メモ、コンテンツ作成",
+  "mcpIntegrations.catalog.notion.setupNote":
+    "Notion 連携はユーザー OAuth を使用します。Enterprise ワークスペースでは連携の利用状況を監査し、クライアントを許可またはブロックできます。管理者がポリシーを変更した後は再接続してください。",
+  "mcpIntegrations.catalog.granola.description":
+    "会議メモ、文字起こし、アクションアイテムを検索します。",
+  "mcpIntegrations.catalog.granola.useCase":
+    "会議メモ、録音、文字起こし、アクションアイテム、フォローアップ",
+  "mcpIntegrations.catalog.granola.setupNote":
+    "Granola 連携はブラウザでの OAuth を使用します。サインイン中の Granola アカウントを承認し、エージェントがアクセスできる会議メモと文字起こしを確認してください。",
+  "mcpIntegrations.catalog.gong.description":
+    "Gong の通話を検索し、アカウントや商談のインサイトを生成します。",
+  "mcpIntegrations.catalog.gong.useCase":
+    "営業通話、文字起こし、商談のインサイト、アカウントの概要",
+  "mcpIntegrations.catalog.gong.setupNote":
+    "Gong では、技術管理者が MCP 連携を作成し、個人または共有の認証を選択する必要があります。接続する前に、生成されたクライアント ID とシークレットを設定してください。",
+  "mcpIntegrations.catalog.semgrep.description":
+    "コードをスキャンしてセキュリティ上の問題を検出します。",
+  "mcpIntegrations.catalog.semgrep.useCase":
+    "セキュリティスキャン、脆弱性の検出、コード分析",
+  "mcpIntegrations.catalog.linear.description":
+    "Linear の Issue を読み書きします。",
+  "mcpIntegrations.catalog.linear.useCase":
+    "プロジェクト管理、Issue 管理、計画、バグレポート",
+  "mcpIntegrations.catalog.apollo.description":
+    "Apollo の GTM データを検索、エンリッチ、管理します。",
+  "mcpIntegrations.catalog.apollo.useCase":
+    "見込み客の開拓、エンリッチメント、連絡先、シーケンス、アカウント調査",
+  "mcpIntegrations.catalog.apollo.setupNote":
+    "Apollo MCP はユーザー OAuth を使用するため、Apollo の API キーは不要です。Apollo のプランの権限、クレジット、プロバイダーによるモデル学習の制限は引き続き適用されます。",
+  "mcpIntegrations.catalog.commonRoom.description":
+    "購買シグナル、連絡先、組織を調査します。",
+  "mcpIntegrations.catalog.commonRoom.useCase":
+    "購買インテリジェンス、プロダクトシグナル、購買意向、連絡先のエンリッチメント",
+  "mcpIntegrations.catalog.commonRoom.setupNote":
+    "Common Room MCP はユーザーごとの OAuth を使用し、承認したユーザーのワークスペースでのロールに従います。インスタンスで MCP 接続を有効にするには管理者の操作が必要な場合があります。",
+  "mcpIntegrations.catalog.exa.description":
+    "Exa でウェブを検索し、ページを取得します。",
+  "mcpIntegrations.catalog.exa.useCase":
+    "ウェブ検索、リサーチ、コード検索、ページ取得",
+  "mcpIntegrations.catalog.exa.setupNote":
+    "Exa のリモート MCP エンドポイントは、キーなしで基本的な無料利用に対応しています。上限の引き上げや追加のツールが必要な場合は、プロバイダーのヘッダー設定で Exa の API キーを追加してください。",
+  "mcpIntegrations.catalog.supabase.description":
+    "データ、認証、バックエンドサービスを管理します。",
+  "mcpIntegrations.catalog.supabase.useCase":
+    "データベース、認証、ストレージ、Edge Functions",
+  "mcpIntegrations.catalog.neon.description":
+    "サーバーレス Postgres のプロジェクトを操作します。",
+  "mcpIntegrations.catalog.neon.useCase":
+    "データベース管理、サーバーレス Postgres、データストレージ",
+  "mcpIntegrations.catalog.stripe.description":
+    "支払い、サブスクリプション、顧客を管理します。",
+  "mcpIntegrations.catalog.stripe.useCase":
+    "支払い、サブスクリプション、請求書発行、顧客管理",
+  "mcpIntegrations.catalog.atlassian.description":
+    "Jira の課題と Confluence のコンテンツを読み書きします。",
+  "mcpIntegrations.catalog.atlassian.useCase":
+    "プロジェクト管理、課題管理、ドキュメント、チームコラボレーション",
+  "mcpIntegrations.catalog.atlassian.setupNote":
+    "Atlassian の管理者に依頼して、Clips アプリのドメインを許可し、Jira サイトで読み取り、書き込み、検索の権限付きで Rovo/MCP を有効にしてもらってください。",
+  "mcpIntegrations.catalog.cloudflare.description":
+    "連携を通じて Cloudflare のサービスを検索、操作します。",
+  "mcpIntegrations.catalog.cloudflare.useCase":
+    "DNS、Workers、ドメイン、セキュリティ、オブザーバビリティ、プラットフォーム API",
+  "mcpIntegrations.catalog.cloudflare.setupNote":
+    "Cloudflare のマネージド連携ディレクトリには、製品別の連携と、幅広い API をカバーする連携があります。スコープを確認し、ワークフローに合う最も範囲の狭いエンドポイントを選択してください。",
+  "mcpIntegrations.catalog.grafana.description":
+    "Grafana Cloud のメトリクス、ログ、オブザーバビリティデータをクエリします。",
+  "mcpIntegrations.catalog.grafana.useCase":
+    "オブザーバビリティ、メトリクス、ログ、トレース、ダッシュボード",
+  "mcpIntegrations.catalog.grafana.setupNote":
+    "Grafana Cloud MCP はパブリックプレビュー中で、Grafana Cloud Assistant MCP へのアクセスが必要です。ホスト型の Grafana Cloud 専用のため、セルフホストの Grafana ではローカルの MCP サーバーが必要です。",
+  "mcpIntegrations.catalog.gitlab.description":
+    "GitLab のプロジェクト、Issue、マージリクエストを読み取り、管理します。",
+  "mcpIntegrations.catalog.gitlab.useCase":
+    "リポジトリ、Issue、マージリクエスト、CI/CD、コード分析",
+  "mcpIntegrations.catalog.gitlab.setupNote":
+    "GitLab 連携は現在ベータ版です。GitLab.com では、OAuth を完了する前にトップレベルグループの管理者が連携のアクセスを許可する必要があります。セルフマネージドのインスタンスにも同等のインスタンス設定があります。",
+  "mcpIntegrations.catalog.figma.description":
+    "Figma のデザインコンテキストとキャンバス操作をエージェントで利用できます。",
+  "mcpIntegrations.catalog.figma.useCase":
+    "デザインファイル、コンポーネント、変数、デザインシステム、キャンバス",
+  "mcpIntegrations.catalog.figma.setupNote":
+    "Figma 連携は Figma の連携カタログに掲載されたクライアントのみを許可するため、このリモートエンドポイントには Agent-Native からまだ接続できません。ファイルやノードのコンテキストを読み取るには、個人アクセストークンを使った Figma REST API のフォールバックを使用してください。Figma が Agent-Native を承認するまで、キャンバス操作は利用できません。",
+  "mcpIntegrations.catalog.canva.description":
+    "Canva のデザインとアセットを検索、作成、更新します。",
+  "mcpIntegrations.catalog.canva.useCase":
+    "デザイン、テンプレート、アセット、ブランドキット、エクスポート、コラボレーション",
+  "mcpIntegrations.catalog.canva.setupNote":
+    "Canva 連携はユーザーごとの OAuth を使用し、クライアント側で Canva の canva.com と canva.ai のドメインを許可する必要があります。接続する前に、Canva の連携ドキュメントで最新のリダイレクトとクライアントの設定を確認してください。",
+  "mcpIntegrations.catalog.vercel.description":
+    "Vercel のドキュメントを検索し、プロジェクト、デプロイ、ログを調査します。",
+  "mcpIntegrations.catalog.vercel.useCase":
+    "デプロイ、プロジェクト、ログ、ドメイン、ホスティング、ドキュメント",
+  "mcpIntegrations.catalog.vercel.setupNote":
+    "Vercel 連携は、審査を経て承認された AI クライアントのみを受け付けます。汎用のフレームワーク接続を利用するには、Agent-Native が Vercel の対応クライアントリストに追加される必要があります。",
+  "mcpIntegrations.catalog.github.description":
+    "リポジトリ、Issue、プルリクエスト、コードのコンテキストを読み取ります。",
+  "mcpIntegrations.catalog.github.useCase":
+    "リポジトリ、Issue、プルリクエスト、コード、エンジニアリング分析",
+  "mcpIntegrations.catalog.github.setupNote":
+    "GitHub のサインインプロバイダーではアプリが自身を登録できないため、接続ボタンでは OAuth を完了できません。代わりに GitHub の個人アクセストークンで接続してください。なお、組織によっては OAuth App Access Policies が適用される場合があります。",
+  "mcpIntegrations.catalog.slack.description":
+    "連携を通じて Slack の会話を検索し、ワークスペースで操作を実行します。",
+  "mcpIntegrations.catalog.slack.useCase":
+    "メッセージ、チャンネル、メンバー、社内の知見、ワークフロー",
+  "mcpIntegrations.catalog.slack.setupNote":
+    "Slack 連携には、固定のアプリ ID を持つ登録済みの Slack アプリが必要です。動的クライアント登録には対応しておらず、接続できるのは Slack Marketplace のアプリまたは社内アプリのみです。Agent-Native のワークフローには、Slack のマネージドメッセージング OAuth フローを使用してください。",
+  "mcpIntegrations.catalog.asana.description":
+    "Asana のタスク、プロジェクト、ワークグラフのデータを検索、管理します。",
+  "mcpIntegrations.catalog.asana.useCase":
+    "タスク、プロジェクト、ポートフォリオ、計画、作業負荷",
+  "mcpIntegrations.catalog.asana.setupNote":
+    "Asana のエージェント連携には事前登録済みの OAuth アプリが必要で、動的クライアント登録には対応していません。接続する前に Asana のアプリクライアントを設定してください。",
+  "mcpIntegrations.catalog.hubspot.description":
+    "連携を通じて HubSpot の CRM レコードを検索、更新します。",
+  "mcpIntegrations.catalog.hubspot.useCase":
+    "CRM、連絡先、会社、取引、チケット、顧客分析",
+  "mcpIntegrations.catalog.hubspot.setupNote":
+    "ワークスペースで管理する HubSpot MCP Auth App が設定されている場合、どのメンバーも OAuth と PKCE で個人の HubSpot アカウントを接続できます。設定されていない場合は、接続する前に HubSpot Developer Platform でアプリを作成してください。既存の HubSpot OAuth コネクターは引き続きアプリのアクションで利用できます。",
+  "mcpIntegrations.catalog.pylon.description":
+    "Pylon のサポートデータを検索、更新します。",
+  "mcpIntegrations.catalog.pylon.useCase":
+    "カスタマーサポート、課題、アカウント、連絡先、会話",
+  "mcpIntegrations.catalog.pylon.setupNote":
+    "接続する前に、対象ユーザーの Pylon MCP アクセスを有効にし、Pylon で MCP サーバーをオンにしてください。Pylon では Member または Admin のシートが必要で、ユーザー OAuth のみを使用します。",
+  "mcpIntegrations.catalog.intercom.description":
+    "会話とカスタマーサポートのナレッジを検索します。",
+  "mcpIntegrations.catalog.intercom.useCase":
+    "カスタマーサポート、会話、連絡先、ヘルプセンターのコンテンツ",
+  "mcpIntegrations.catalog.intercom.setupNote":
+    "Intercom 連携は OAuth を使用し、米国でホストされているワークスペースで利用できます。承認時にワークスペースのリージョンと要求されるスコープを確認してください。",
+  "mcpIntegrations.catalog.monday.description":
+    "ボード、アイテム、チームのワークフローを操作します。",
+  "mcpIntegrations.catalog.monday.useCase":
+    "ワークマネジメント、ボード、プロジェクト、タスク、チームの運営",
+  "mcpIntegrations.catalog.monday.setupNote":
+    "monday.com 連携は Streamable HTTP 上の OAuth を使用します。承認時に、共有するワークスペースと権限を選択してください。",
+  "mcpIntegrations.catalog.webflow.description":
+    "Webflow のサイトとコンテンツを読み取り、更新します。",
+  "mcpIntegrations.catalog.webflow.useCase":
+    "ウェブサイト、CMS、サイトコンテンツ、公開、デザインワークフロー",
+  "mcpIntegrations.catalog.webflow.setupNote":
+    "Webflow 連携は OAuth を使用します。Designer の機能を使う場合、承認時に Webflow の Bridge App がインストールされることがあります。Data API へのアクセスは別途利用できます。",
+  "mcpIntegrations.catalog.paypal.description":
+    "PayPal の支払い、請求書、コマースデータを操作します。",
+  "mcpIntegrations.catalog.paypal.useCase":
+    "支払い、請求書、取引、加盟店の業務",
+  "mcpIntegrations.catalog.paypal.setupNote":
+    "PayPal はリモートのエージェント連携向けに OAuth ディスカバリーとログインを提供しています。Agent-Native は現在稼働中の /sse エンドポイントを使用します。承認する前に加盟店の権限を確認してください。",
+  "mcpIntegrations.catalog.box.description":
+    "Box のファイルとフォルダーを検索、管理します。",
+  "mcpIntegrations.catalog.box.useCase":
+    "ファイル、フォルダー、エンタープライズコンテンツ、検索、コラボレーション",
+  "mcpIntegrations.catalog.box.setupNote":
+    "Box 連携はベータ版で、管理者による有効化が必要です。カスタムクライアントには、Box Integration Credentials、リダイレクト URI、承認済みのスコープも必要です。",
+  "mcpIntegrations.catalog.builder.description":
+    "Builder の Publish と Hybrid Space のコンテンツを検索します。",
+  "mcpIntegrations.catalog.builder.useCase":
+    "コンテンツモデル、ページ、エントリー、Publish と Hybrid Spaces",
+  "mcpIntegrations.catalog.builder.setupNote":
+    "Builder CMS MCP は動的クライアント登録による OAuth を使用します。接続できるのは Publish または Hybrid Spaces のみで、承認フローで Space を選択するよう求められます。",
+  "mcpIntegrations.catalog.netlify.description":
+    "Netlify のサイトとデプロイを調査、操作します。",
+  "mcpIntegrations.catalog.netlify.useCase":
+    "サイト、デプロイ、ビルド、ドメイン、ホスティングの運用",
+  "mcpIntegrations.catalog.netlify.setupNote":
+    "Netlify は対応クライアント向けにリモート連携のセットアップ手順を公開しています。OAuth を完了する前に、サイトとチームの権限を確認してください。",
+  "mcpIntegrations.catalog.zapier.description":
+    "ツールを数千種類のアプリアクションに接続します。",
+  "mcpIntegrations.catalog.zapier.useCase":
+    "自動化、ワークフロー、アプリアクション、サービス間の操作",
+  "mcpIntegrations.catalog.zapier.setupNote":
+    "Zapier のエージェント連携では、未掲載のクライアント向けにユーザーが作成した接続とトークンを使用します。Zapier で接続を作成し、生成された Bearer トークンをヘッダー欄に貼り付けてください。",
+  "mcpIntegrations.auth.none": "認証なし",
+  "mcpIntegrations.auth.headers": "ヘッダー",
+  "mcpIntegrations.auth.oauth": "OAuth",
+  "mcpIntegrations.status.beta": "ベータ",
+  "mcpIntegrations.status.setupRequired": "プロバイダー設定",
+  "mcpIntegrations.status.clientRestricted": "承認済みクライアントのみ",
+  "mcpIntegrations.status.verified": "検証済み",
+  "mcpIntegrations.status.preflightOnly": "事前確認のみ",
+  "mcpIntegrations.status.restricted": "制限あり",
   "limit.account": "アカウント",
   "limit.descriptionAll":
     "エージェントは使用可能なすべてのステップを使い切りました。新しいターンで続行するか、先に{{scope}}の上限を引き上げてください。",
@@ -706,6 +1043,11 @@ const messages: AgentChatTranslation = {
   "secrets.managedInVault":
     "ワークスペースの Vault で管理されています。このワークスペース内のすべてのアプリがこの値を使用します。",
   "secrets.openVault": "Vault を開く",
+  "secrets.managedByOwner": "{{owner}} で管理",
+  "secrets.removeCredentials": "認証情報を削除",
+  "secrets.confirmRemove": "削除",
+  "secrets.sharedKeysKept":
+    "一部の共有キーは削除されませんでした。削除できるのはワークスペース管理者のみです。",
   "secrets.newKey": "新規",
   "secrets.noKeysFound": "キーが見つかりません。",
   "secrets.overridesVault":
@@ -889,6 +1231,1369 @@ const messages: AgentChatTranslation = {
     "Builder 請求対象外のプロバイダー利用または過去の呼び出し",
   "usage.providerSpendToday": "本日のその他または未分類の利用額: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder クレジット / USD",
+  "settings.usage.tabsLabel": "使用状況の表示",
+  "settings.usage.tabOverview": "概要",
+  "settings.usage.tabActivity": "アクティビティ",
+  "settings.usage.rangeLabel": "期間",
+  "settings.usage.range7": "過去 7 日間",
+  "settings.usage.range30": "過去 30 日間",
+  "settings.usage.range90": "過去 90 日間",
+  "settings.usage.appFilterLabel": "アプリ",
+  "settings.usage.allApps": "すべてのアプリ",
+  "settings.usage.unattributedApp": "未分類",
+  "settings.usage.peopleFilterLabel": "メンバー",
+  "settings.usage.everyone": "全員",
+  "settings.usage.justYou": "自分のみ",
+  "settings.usage.estimatedSpend": "推定費用",
+  "settings.usage.creditSpend": "Builder.io クレジット使用量",
+  "settings.usage.yourEstimatedSpend": "あなたの推定費用",
+  "settings.usage.yourCreditSpend": "あなたの Builder.io クレジット使用量",
+  "settings.usage.calls": "呼び出し",
+  "settings.usage.tokens": "トークン",
+  "settings.usage.activePeople": "アクティブなメンバー",
+  "settings.usage.history": "使用履歴",
+  "settings.usage.historyDimensionLabel": "使用履歴のグループ化",
+  "settings.usage.byFeature": "機能別",
+  "settings.usage.byApp": "アプリ別",
+  "settings.usage.byModel": "モデル別",
+  "settings.usage.bySurface": "利用元別",
+  "settings.usage.historyChartLabel": "日別の使用量",
+  "settings.usage.noUsage": "この期間の使用はありません。",
+  "settings.usage.total": "合計",
+  "settings.usage.featureChat": "チャット",
+  "settings.usage.featureSubAgents": "サブエージェント",
+  "settings.usage.featureAutomations": "オートメーション",
+  "settings.usage.other": "その他",
+  "settings.usage.unknownModel": "不明なモデル",
+  "settings.usage.surfaceApp": "アプリ内",
+  "settings.usage.topChats": "上位のチャット",
+  "settings.usage.untitledChat": "無題のチャット",
+  "settings.usage.titleUnavailable": "タイトルを読み込めませんでした",
+  "settings.usage.showAll": "すべて表示",
+  "settings.usage.showLess": "表示を減らす",
+  "settings.usage.topPeople": "上位のメンバー",
+  "settings.usage.you": "あなた",
+  "settings.usage.toolCalls": "ツール呼び出し",
+  "settings.usage.toolCallsChartLabel": "日別のツール呼び出し",
+  "settings.usage.noToolCalls": "この期間のツール呼び出しはありません。",
+  "settings.usage.toolCallsUnavailable":
+    "ツール呼び出しを読み込めませんでした。",
+  "settings.usage.modelCalls": "モデル呼び出し",
+  "settings.usage.modelCallsDimensionLabel": "モデル呼び出しのグループ化",
+  "settings.usage.modelCallsChartLabel": "日別のモデル呼び出し",
+  "settings.usage.noModelCalls": "この期間のモデル呼び出しはありません。",
+  "settings.usage.recentPrompts": "最近のプロンプト",
+  "settings.usage.promptNotCaptured": "プロンプトは記録されていません",
+  "settings.usage.promptUnavailable": "プロンプトを読み込めませんでした",
+  "settings.usage.loadError": "使用状況を読み込めませんでした。",
+  "settings.usage.yourAlerts": "あなたのアラート",
+  "settings.usage.alertsLoadError": "アラートを読み込めませんでした。",
+  "settings.usage.alertDailySpend": "1 日の費用",
+  "settings.usage.alertMonthlySpend": "1 か月の費用",
+  "settings.usage.alertDailyTokens": "1 日のトークン",
+  "settings.usage.alertMonthlyTokens": "1 か月のトークン",
+  "settings.usage.alertOnTrack": "上限内",
+  "settings.usage.alertOverLimit": "上限超過",
+  "settings.usage.alertDismissed": "非表示済み",
+  "settings.usage.alertOff": "オフ",
+  "settings.usage.alertProgressDay": "今日 {{current}} / {{limit}}",
+  "settings.usage.alertProgressMonth": "今月 {{current}} / {{limit}}",
+  "settings.usage.alertChannelsBoth": "アプリ内とメール",
+  "settings.usage.alertChannelInApp": "アプリ内",
+  "settings.usage.alertChannelEmail": "メール",
+  "settings.usage.alertDefault": "デフォルト",
+  "settings.usage.alertEdit": "編集",
+  "settings.usage.alertDialogTitle": "{{name}}のアラート",
+  "settings.usage.alertThreshold": "通知するしきい値",
+  "settings.usage.alertHintDayAll": "1 日あたり、すべてのアプリ。",
+  "settings.usage.alertHintMonthAll": "1 か月あたり、すべてのアプリ。",
+  "settings.usage.alertHintDayApp": "1 日あたり、{{app}}。",
+  "settings.usage.alertHintMonthApp": "1 か月あたり、{{app}}。",
+  "settings.usage.alertNotify": "通知方法",
+  "settings.usage.alertEnabled": "アラートをオン",
+  "settings.usage.alertReset": "デフォルトに戻す",
+  "settings.usage.alertInvalidLimit": "0 より大きい値を入力してください。",
+  "settings.usage.alertNoChannel": "通知方法を 1 つ以上選んでください。",
+  "settings.usage.alertSaveError": "アラートを保存できませんでした。",
+  "settings.usage.unitUsd": "USD",
+  "settings.usage.unitCredits": "クレジット",
+  "settings.usage.unitTokens": "トークン",
+  "settings.usage.creditAmount_other": "{{amount}} クレジット",
+  "settings.usage.tokenAmount_other": "{{amount}} トークン",
+  "settings.storage.provider": "プロバイダー",
+  "settings.storage.providerOther": "その他の S3 互換サービス",
+  "settings.storage.endpoint": "エンドポイント URL",
+  "settings.storage.bucket": "バケット",
+  "settings.storage.accessKeyId": "アクセスキー ID",
+  "settings.storage.secretAccessKey": "シークレットアクセスキー",
+  "settings.storage.region": "リージョン",
+  "settings.storage.publicUrl": "公開 URL",
+  "settings.storage.optional": "任意",
+  "settings.storage.saved": "保存済み",
+  "settings.storage.hintAws":
+    "バケットのリージョンのエンドポイントを使用します。",
+  "settings.storage.hintR2": "R2 バケットの設定で確認できます。",
+  "settings.storage.hintSupabase":
+    "プロジェクトの Storage 設定で確認できます。",
+  "settings.storage.hintOther":
+    "MinIO、Backblaze B2、Wasabi、DigitalOcean Spaces も使えます。",
+  "settings.storage.save": "保存",
+  "settings.storage.saving": "保存中…",
+  "settings.storage.cancel": "キャンセル",
+  "settings.storage.clear": "認証情報を消去",
+  "settings.storage.clearing": "消去中…",
+  "settings.storage.clearTitle": "ストレージの認証情報を消去しますか？",
+  "settings.storage.clearBuilder":
+    "新しいアップロードは Builder.io のストレージに保存されます。",
+  "settings.storage.clearNoFallback":
+    "ストレージを再設定するまで、アップロードは失敗します。",
+  "settings.storage.clearExisting": "既存のファイルは {{bucket}} に残ります。",
+  "settings.storage.clearExistingGeneric":
+    "既存のファイルはバケットに残ります。",
+  "settings.storage.invalidUrl":
+    "https:// または http:// で始まる URL を使用してください。",
+  "settings.storage.invalidBucket":
+    "バケット名に使えるのは英数字、ドット、ハイフン、アンダースコアです。",
+  "settings.storage.savedNotice":
+    "ファイルストレージを保存しました。新しいアップロードは {{bucket}} に保存されます。",
+  "settings.storage.cleared": "ストレージの認証情報を消去しました。",
+  "settings.storage.clearedBuilder":
+    "ストレージの認証情報を消去しました。新しいアップロードは Builder.io に保存されます。",
+  "settings.storage.saveFailed": "ファイルストレージを保存できませんでした。",
+  "settings.storage.clearFailed":
+    "ストレージの認証情報を消去できませんでした。",
+  "settings.storage.loadFailed":
+    "ファイルストレージの設定を読み込めませんでした。",
+  "settings.storage.retry": "再試行",
+  "settings.storage.adminOnly":
+    "ファイルストレージを変更できるのは組織のオーナーと管理者だけです。",
+  "settings.audit.action": "アクション",
+  "settings.audit.allApps": "すべてのアプリ",
+  "settings.audit.app": "アプリ",
+  "settings.audit.changedBy": "変更者",
+  "settings.audit.close": "閉じる",
+  "settings.audit.empty": "この期間に変更はありません。",
+  "settings.audit.emptyDescription":
+    "ユーザーとエージェントによる変更がここに表示されます。",
+  "settings.audit.failed": "失敗",
+  "settings.audit.input": "入力",
+  "settings.audit.inputLoadFailed": "入力を読み込めませんでした。",
+  "settings.audit.last30Days": "過去 30 日間",
+  "settings.audit.last7Days": "過去 7 日間",
+  "settings.audit.last90Days": "過去 90 日間",
+  "settings.audit.loadFailed": "監査ログを読み込めませんでした。",
+  "settings.audit.loading": "監査ログを読み込み中",
+  "settings.audit.onBehalfOf": "依頼者",
+  "settings.audit.range": "期間",
+  "settings.audit.refused": "拒否",
+  "settings.audit.result": "結果",
+  "settings.audit.showMore": "さらに {{count}} 件表示",
+  "settings.audit.succeeded": "成功",
+  "settings.audit.system": "システム",
+  "settings.audit.target": "対象",
+  "settings.audit.when": "日時",
+  "accountMenu.label": "アカウント",
+  "accountMenu.loading": "アカウントを読み込み中",
+  "accountMenu.triggerLabel": "{{name}}、{{organization}}",
+  "accountMenu.triggerLabelDemo": "{{name}}、{{organization}}、デモモード",
+  "accountMenu.personal": "個人",
+  "accountMenu.demoMode": "デモモード",
+  "accountMenu.demoModeOn": "デモモードがオンです",
+  "accountMenu.demoModeDescription":
+    "表示されるメールアドレスと対応するグラフはプレゼンテーション用に調整されます。アカウントと権限は変わりません。",
+  "accountMenu.turnOffDemoMode": "デモモードをオフにする",
+  "accountMenu.invitations": "招待",
+  "accountMenu.joinYourTeam": "チームに参加",
+  "accountMenu.join": "参加",
+  "accountMenu.yourWorkspace": "あなたのワークスペース",
+  "accountMenu.createOrganization": "組織を作成",
+  "accountMenu.organizationName": "組織名",
+  "accountMenu.create": "作成",
+  "accountMenu.usage": "使用状況",
+  "accountMenu.getApps": "アプリと拡張機能を入手",
+  "accountMenu.back": "戻る",
+  "settingsOrg.general.organization": "組織",
+  "settingsOrg.general.name": "名前",
+  "settingsOrg.general.nameLocked": "名前はオーナーと管理者が変更できます。",
+  "settingsOrg.general.membership": "メンバーシップ",
+  "settingsOrg.general.yourRole": "あなたのロール",
+  "settingsOrg.general.deleteDescription":
+    "{{name}}、そのメンバー、データを完全に削除します。",
+  "settingsOrg.members.removeTitle": "{{name}}を削除しますか？",
+  "settingsOrg.members.removeDescription":
+    "{{org}}にアクセスできなくなります。所有しているものは選択した人に移ります。",
+  "settingsOrg.members.roleFor": "{{name}}のロール",
+  "settingsOrg.members.moreActions": "{{name}}のその他の操作",
+  "settingsOrg.members.removing": "削除中…",
+  "settingsOrg.members.groupsEmpty":
+    "メンバーをグループにまとめて、アプリへのアクセスを一緒に管理します。",
+  "settingsOrg.auth.signIn": "サインイン",
+  "settingsOrg.auth.joining": "参加",
+  "settingsOrg.auth.betweenApps": "アプリ間",
+  "settingsOrg.auth.methodsEmailOnly": "メールアドレスとパスワード。",
+  "settingsOrg.auth.methodsEmailAndOne":
+    "メールアドレスとパスワード、{{method}}。",
+  "settingsOrg.auth.methodsEmailAndTwo":
+    "メールアドレスとパスワード、{{first}}、{{second}}。",
+  "settingsOrg.auth.emailPassword": "メールアドレスとパスワード",
+  "settingsOrg.auth.emailPasswordNote": "すべてのデプロイで有効です。",
+  "settingsOrg.auth.methodConfigured":
+    "ホストでこれらの変数により設定されています。",
+  "settingsOrg.auth.methodNotConfigured":
+    "未設定です。ホストにこれらの変数を追加してから再デプロイしてください。",
+  "settingsOrg.auth.methodOn": "オン",
+  "settingsOrg.auth.methodOff": "オフ",
+  "settingsOrg.auth.requireHint":
+    "{{org}}の全員にいずれかを必須にするには、組織のサインインを使用します。",
+  "settingsOrg.auth.view": "表示",
+  "settingsOrg.auth.close": "閉じる",
+  "settingsOrg.apps.access": "アクセス",
+  "settingsOrg.apps.browse": "アプリを見る",
+  "settingsOrg.apps.defaults": "デフォルト",
+  "settingsOrg.search.domainAutoJoin": "メールドメインによる自動参加",
+  "settingsOrg.search.roles": "メンバーのロール",
+  "settingsOrg.learnMore": "詳細",
+  "settingsOrg.moreInformation": "詳しい情報",
+  "settingsOrg.general.workspaceUrl": "ワークスペースの URL",
+  "settingsOrg.general.workspaceUrlDescription":
+    "別のデプロイからこのワークスペースにメンバーを案内します。",
+  "settingsOrg.general.workspaceUrlHelp":
+    "別のデプロイにアクセスしたメンバーは、空のアプリではなくこのワークスペースに移動します。",
+  "settingsOrg.general.editWorkspaceUrl": "ワークスペースの URL を編集",
+  "settingsOrg.general.removeWorkspaceUrl": "ワークスペースの URL を削除",
+  "settingsOrg.general.setWorkspaceUrl": "URL を設定",
+  "settingsOrg.auth.domainDescription":
+    "@{{domain}} のメールアドレスを持つ人を自動的に追加します。",
+  "settingsOrg.auth.domainDescriptionNoDomain":
+    "仕事用メールのドメインを持つ人を自動的に追加します。",
+  "settingsOrg.auth.domainHelp":
+    "このドメインのメールアドレスで登録した人は組織に参加します。使用できるのは自分のメールドメインのみで、無料メールプロバイダーは使用できません。",
+  "settingsOrg.auth.editDomain": "ドメインを編集",
+  "settingsOrg.auth.removeDomain": "ドメインを削除",
+  "settingsOrg.auth.sharedSecret": "共有シークレット",
+  "settingsOrg.auth.sharedSecretSet":
+    "設定済み。このワークスペースのアプリが互いを検証できます。",
+  "settingsOrg.auth.sharedSecretNotSet":
+    "未設定。このワークスペースのアプリが互いを検証できます。",
+  "settingsOrg.auth.secretNotSetValue": "未設定",
+  "settingsOrg.auth.manage": "管理",
+  "settingsOrg.auth.reveal": "表示",
+  "settingsOrg.auth.hide": "非表示",
+  "settingsOrg.auth.regenerate": "再生成",
+  "settingsOrg.auth.syncToApps": "アプリと同期",
+  "settingsOrg.auth.pasteSecret": "シークレットを貼り付け",
+  "settingsOrg.auth.pasteSecretLabel": "共有シークレットを貼り付け",
+  "settingsOrg.auth.syncing": "アプリと同期しています…",
+  "settingsOrg.auth.syncErrorStatus": "HTTP {{status}}",
+  "settingsOrg.invite.emails": "メールアドレス",
+  "settingsOrg.invite.emailPlaceholder": "name@company.com",
+  "settingsOrg.invite.note":
+    "招待された人は、このメールアドレスでサインインして承諾します。",
+  "settingsOrg.invite.noteNoEmail":
+    "招待はメールで送信されないため、このメールアドレスでサインインするよう各自に伝えてください。",
+  "settingsOrg.invite.role": "ロール",
+  "settingsOrg.invite.member": "メンバー",
+  "settingsOrg.invite.admin": "管理者",
+  "settingsOrg.invite.ownerOnlyAdmin":
+    "管理者を招待できるのは組織のオーナーだけです。",
+  "settingsOrg.invite.removeRow": "削除",
+  "settingsOrg.invite.addAnother": "さらに追加",
+  "settingsOrg.invite.pasteMany": "まとめて貼り付け",
+  "settingsOrg.invite.importCsv": "CSV をインポート",
+  "settingsOrg.invite.pasteLabel":
+    "カンマ、スペース、または改行で区切ったメールアドレスを貼り付けます。",
+  "settingsOrg.invite.addAsMembers": "メンバーとして追加",
+  "settingsOrg.invite.addAsAdmins": "管理者として追加",
+  "settingsOrg.invite.add": "追加",
+  "settingsOrg.invite.send": "招待を送信",
+  "settingsOrg.invite.sending": "送信中…",
+  "settingsOrg.invite.invalidEmail": "完全なメールアドレスを入力してください。",
+  "settingsOrg.invite.csvNoEmails":
+    "この CSV に有効なメールアドレスが見つかりませんでした。",
+  "settingsOrg.auth.synced_other": "{{count}} 個のアプリと同期しました。",
+  "settingsOrg.auth.syncedPartial_other":
+    "{{count}} 個中 {{succeeded}} 個のアプリと同期しました。{{failed}} 個が失敗しました。",
+  "settingsOrg.invite.sent_other": "{{count}} 件の招待を送信しました。",
+  "settingsOrg.invite.saved_other":
+    "{{count}} 件の招待を保存しました。サインインすると表示されます。",
+  "settingsShell.account.addPassword": "パスワードを追加",
+  "settingsShell.account.authenticatorCode": "認証コード",
+  "settingsShell.account.change": "変更",
+  "settingsShell.account.changeEmail": "メールアドレスを変更",
+  "settingsShell.account.changePassword": "パスワードを変更",
+  "settingsShell.account.confirmPassword": "新しいパスワード（確認）",
+  "settingsShell.account.currentPassword": "現在のパスワード",
+  "settingsShell.account.deletionDialogDescription":
+    "管理者に削除リクエストを送信します。管理者が確認するまで、データは保持されます。",
+  "settingsShell.account.done": "完了",
+  "settingsShell.account.email": "メールアドレス",
+  "settingsShell.account.emailChangeError":
+    "確認メールを送信できませんでした。",
+  "settingsShell.account.emailChangeSent":
+    "メールを確認し、手順に従ってこの変更を確定してください。",
+  "settingsShell.account.languageAndRegion": "言語と地域",
+  "settingsShell.account.languageDescription":
+    "すべてのデバイスに適用されます。",
+  "settingsShell.account.manage": "管理",
+  "settingsShell.account.name": "名前",
+  "settingsShell.account.nameDescription":
+    "Agent-Native の各アプリであなたを表す名前として使われます。",
+  "settingsShell.account.namePlaceholder": "あなたの名前",
+  "settingsShell.account.nameSaveError": "名前を更新できませんでした。",
+  "settingsShell.account.nameSaved": "名前を更新しました",
+  "settingsShell.account.newEmail": "新しいメールアドレス",
+  "settingsShell.account.newPassword": "新しいパスワード",
+  "settingsShell.account.password": "パスワード",
+  "settingsShell.account.passwordDescription":
+    "パスワードを追加すると、別の方法でアカウントにログインできます。",
+  "settingsShell.account.passwordLoadError":
+    "ログイン方法を読み込めませんでした。",
+  "settingsShell.account.passwordMinLength":
+    "{{count}} 文字以上のパスワードを設定してください。",
+  "settingsShell.account.passwordMismatch": "パスワードが一致しません。",
+  "settingsShell.account.passwordSaveError":
+    "パスワードを更新できませんでした。",
+  "settingsShell.account.passwordSaved": "パスワードを更新しました",
+  "settingsShell.account.photoError": "写真を更新できませんでした。",
+  "settingsShell.account.photoUpdated": "写真を更新しました",
+  "settingsShell.account.profilePhoto": "プロフィール写真",
+  "settingsShell.account.requestCopyDescription":
+    "管理者が本人確認を行い、対応します。",
+  "settingsShell.account.requestCopyLabel": "データのコピーをリクエスト",
+  "settingsShell.account.requestDeletionDescription":
+    "管理者がリクエストを完了するまで、データは保持されます。",
+  "settingsShell.account.requestDeletionLabel": "データの削除をリクエスト",
+  "settingsShell.account.savePassword": "パスワードを保存",
+  "settingsShell.account.sendConfirmation": "確認メールを送信",
+  "settingsShell.account.sending": "送信中...",
+  "settingsShell.account.setUpTwoFactor": "2 要素認証を設定",
+  "settingsShell.account.settingUp": "設定中...",
+  "settingsShell.account.signIn": "ログイン",
+  "settingsShell.account.timezone": "タイムゾーン",
+  "settingsShell.account.timezoneDescription":
+    "タイムスタンプとスケジュールされた自動化に使われます。",
+  "settingsShell.account.turnOffTwoFactor": "2 要素認証をオフにする",
+  "settingsShell.account.turningOff": "オフにしています...",
+  "settingsShell.account.twoFactor": "2 要素認証",
+  "settingsShell.account.twoFactorBackupCodes":
+    "これらのバックアップコードを安全な場所に保管してください。認証アプリにアクセスできなくなった場合、各コードを 1 回ずつ使用できます。",
+  "settingsShell.account.twoFactorCodeError":
+    "認証アプリに表示される 6 桁のコードを入力してください。",
+  "settingsShell.account.twoFactorDescription":
+    "認証アプリを使って、アカウントのログインに 2 つ目の手順を追加します。",
+  "settingsShell.account.twoFactorDisableError":
+    "2 要素認証をオフにできませんでした。",
+  "settingsShell.account.twoFactorEnabled": "2 要素認証はオンです。",
+  "settingsShell.account.twoFactorLoadError":
+    "2 要素認証の設定を読み込めませんでした。",
+  "settingsShell.account.twoFactorQrLabel": "2 要素認証の設定用 QR コード",
+  "settingsShell.account.twoFactorSaved": "2 要素認証を有効にしました",
+  "settingsShell.account.twoFactorScan":
+    "認証アプリでこの QR コードをスキャンし、表示されたコードを入力してください。",
+  "settingsShell.account.twoFactorSetupError":
+    "2 要素認証の設定を更新できませんでした。",
+  "settingsShell.account.twoFactorSetupTitle": "2 要素認証を設定",
+  "settingsShell.account.uploading": "アップロード中...",
+  "settingsShell.account.verifyAndEnable": "確認して有効にする",
+  "settingsShell.account.verifying": "確認中...",
+  "settingsShell.account.voiceBatch": "一括",
+  "settingsShell.account.voiceDescription":
+    "音声入力の文字起こし方法を選択します。",
+  "settingsShell.account.voiceGoogleRealtime": "Google リアルタイム",
+  "settingsShell.account.voiceInput": "音声入力",
+  "settingsShell.account.voiceLoadError":
+    "音声文字起こしの設定を読み込めませんでした。",
+  "settingsShell.account.voiceMacNative": "Mac ネイティブ",
+  "settingsShell.account.voiceSaveError":
+    "音声文字起こしの設定を保存できませんでした。",
+  "settingsShell.account.yourData": "あなたのデータ",
+  "settingsShell.appFallbackName": "アプリ",
+  "settingsShell.appGroup.adminOnly": "オーナーと管理者のみが変更できます",
+  "settingsShell.appGroup.automationsCreateTitle": "いつ、何を実行しますか？",
+  "settingsShell.appGroup.defaultModel": "デフォルトモデル",
+  "settingsShell.appGroup.defaultModelDescription":
+    "{{app}} の新しいエージェントチャットで使用します。デフォルトは {{model}} です。",
+  "settingsShell.appGroup.defaultModelDescriptionUnset":
+    "{{app}} の新しいエージェントチャットで使用します。",
+  "settingsShell.appGroup.defaultModelLoadError":
+    "デフォルトモデルを読み込めませんでした。",
+  "settingsShell.appGroup.defaultModelSaveError":
+    "デフォルトモデルを保存できませんでした。もう一度お試しください。",
+  "settingsShell.appGroup.demoMode": "デモモード",
+  "settingsShell.appGroup.demoModeDescription":
+    "プレゼンテーション用に、このブラウザでサンプルデータを使用します。",
+  "settingsShell.appGroup.labsFootnote":
+    "これらの新しい不安定な機能にはバグがある可能性があります。",
+  "settingsShell.appGroup.labsLoadError": "ラボを読み込めませんでした。",
+  "settingsShell.appGroup.labsSaveError":
+    "{{lab}} を変更できませんでした。もう一度お試しください。",
+  "settingsShell.appGroup.mcpAbout":
+    "{{app}} を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって {{app}} で作業できます。アプリが見られるのは、あなたが見られるものだけです。",
+  "settingsShell.appGroup.mcpFootnote":
+    "エージェント自身が使うツールについては、{{integrations}} を参照してください。",
+  "settingsShell.appGroup.newAutomation": "新しい自動化",
+  "settingsShell.appGroup.retry": "再試行",
+  "settingsShell.appGroup.thisBrowser": "このブラウザ",
+  "settingsShell.appGroup.useDefault": "デフォルトを使用",
+  "settingsShell.appGroup.whatsNewChip":
+    "{{app}} の更新情報です。変更履歴はアプリごとにあります。",
+  "settingsShell.appGroup.whatsNewEmpty": "まだ更新はありません。",
+  "settingsShell.appGroup.whatsNewShowFewer": "更新の表示を減らす",
+  "settingsShell.appGroup.whatsNewViewAll": "すべての更新を表示",
+  "settingsShell.backToApp": "{{app}} に戻る",
+  "settingsShell.breadcrumbLabel": "パンくずリスト",
+  "settingsShell.builder.connect": "接続",
+  "settingsShell.builder.connected": "接続済み",
+  "settingsShell.builder.connectedTo": "接続済み · {{space}}",
+  "settingsShell.builder.connection": "接続",
+  "settingsShell.builder.disconnect": "接続を解除",
+  "settingsShell.builder.disconnecting": "接続を解除中…",
+  "settingsShell.builder.disconnectBody":
+    "{{org}} で自分のアカウントを接続していない全員に影響します。",
+  "settingsShell.builder.disconnectFailed":
+    "Builder.io の接続を解除できませんでした。",
+  "settingsShell.builder.disconnectTitle": "Builder.io の接続を解除しますか？",
+  "settingsShell.builder.grantsFailed":
+    "Builder.io の接続を読み込めませんでした。",
+  "settingsShell.builder.loss.defaultStops":
+    "組織のプロバイダーを追加するまでチャットは停止します。",
+  "settingsShell.builder.loss.defaultSwitches":
+    "デフォルトモデルが {{next}} に切り替わります。",
+  "settingsShell.builder.loss.modelPicker":
+    "Builder.io のモデルがモデル選択から消えます。",
+  "settingsShell.builder.loss.serviceStops":
+    "別のプロバイダーを設定するまで停止します。",
+  "settingsShell.builder.loss.stops": "使えなくなります。",
+  "settingsShell.builder.loss.uploadsFail":
+    "ストレージを設定するまでアップロードに失敗します。",
+  "settingsShell.builder.manage": "管理",
+  "settingsShell.builder.needsReconnect": "再接続が必要です。",
+  "settingsShell.builder.orgFallback": "組織",
+  "settingsShell.builder.orgNotConnectedAdmin":
+    "未接続です。接続すると {{org}} の全員が使えます。",
+  "settingsShell.builder.orgNotConnectedMember":
+    "未接続です。オーナーまたは管理者が接続できます。",
+  "settingsShell.builder.organization": "組織",
+  "settingsShell.builder.personal": "個人",
+  "settingsShell.builder.personalConnected":
+    "接続済み。使うのはあなただけです。",
+  "settingsShell.builder.personalConnectedOverOrg":
+    "接続済み。組織の接続の代わりに、あなただけが使います。",
+  "settingsShell.builder.personalConnectedTo":
+    "接続済み · {{space}}。使うのはあなただけです。",
+  "settingsShell.builder.personalConnectedToOverOrg":
+    "接続済み · {{space}}。組織の接続の代わりに、あなただけが使います。",
+  "settingsShell.builder.personalNotConnected":
+    "自分のアカウントを接続します。使うのはあなただけです。",
+  "settingsShell.builder.personalRestricted":
+    "オーナーと管理者が個人の API キーを制限しています。",
+  "settingsShell.builder.personalRestrictedUnused":
+    "個人の API キーが制限されている間は使われません。",
+  "settingsShell.builder.reconnect": "再接続",
+  "settingsShell.builder.retry": "再試行",
+  "settingsShell.builder.use.aiModel": "AI モデル",
+  "settingsShell.builder.use.aiModelDefaultNote":
+    "デフォルトモデル、{{model}}。",
+  "settingsShell.builder.use.aiModelNote":
+    "Builder.io のモデルはモデル選択にあります。",
+  "settingsShell.builder.use.backgroundAgentsNote":
+    "本番環境からコードを変更します。",
+  "settingsShell.builder.use.browserAutomationNote":
+    "本番環境でエージェントがブラウザを使えるようにします。",
+  "settingsShell.builder.use.designSystem": "デザインシステムインテリジェンス",
+  "settingsShell.builder.use.designSystemNote":
+    "生成したスライドやデザインをブランドに沿わせます。",
+  "settingsShell.builder.use.embeddings": "埋め込み",
+  "settingsShell.builder.use.embeddingsNote": "Brain での検索。",
+  "settingsShell.builder.use.fileStorageNote":
+    "新しいアップロードは Builder.io に保存されます。",
+  "settingsShell.builder.use.images": "画像生成",
+  "settingsShell.builder.use.imagesNote": "Slides と Design。",
+  "settingsShell.builder.use.voice": "音声入力",
+  "settingsShell.builder.use.voiceNote": "すべてのアプリでの音声入力。",
+  "settingsShell.builder.usedFor": "用途",
+  "settingsShell.builder.usedForFootnote":
+    "Builder.io で実行するものは {{link}} で選べます。",
+  "settingsShell.builder.usedForLoadFailed":
+    "Builder.io で実行されているサービスを確認できませんでした。",
+  "settingsShell.builder.whatHappens": "影響",
+  "settingsShell.channels.about.discord":
+    "Discord のスラッシュコマンドからエージェントを実行します。",
+  "settingsShell.channels.about.email":
+    "エージェントにメールを送ると、同じスレッドで返信します。",
+  "settingsShell.channels.about.googleDocs":
+    "Google ドキュメントのコメントでエージェントをタグ付けすると返信が届きます。",
+  "settingsShell.channels.about.microsoftTeams":
+    "Microsoft Teams でエージェントをメンションすると、その会話で返信します。",
+  "settingsShell.channels.about.page":
+    "{{app}} エージェントにメッセージを送れる場所です。各アプリのエージェントは個別に設定します。",
+  "settingsShell.channels.about.slack":
+    "スレッドでエージェントを @メンションするか DM を送ると、そのスレッドで返信します。",
+  "settingsShell.channels.about.telegram":
+    "Telegram ボットでエージェントとチャットします。",
+  "settingsShell.channels.about.whatsapp":
+    "エージェントを WhatsApp Business に接続します。",
+  "settingsShell.channels.action.manage": "管理",
+  "settingsShell.channels.action.manageAria": "{{platform}} を管理",
+  "settingsShell.channels.action.setUp": "設定",
+  "settingsShell.channels.action.setUpAria": "{{platform}} を設定",
+  "settingsShell.channels.action.view": "表示",
+  "settingsShell.channels.action.viewAria": "{{platform}} を表示",
+  "settingsShell.channels.agentIn": "{{platform}} のエージェント",
+  "settingsShell.channels.connection": "接続",
+  "settingsShell.channels.copyServiceAccountEmail":
+    "サービスアカウントのメールアドレスをコピー",
+  "settingsShell.channels.copyWebhookUrl": "Webhook URL をコピー",
+  "settingsShell.channels.credentials": "認証情報",
+  "settingsShell.channels.developerSite": "開発者サイト",
+  "settingsShell.channels.documentation": "ドキュメント",
+  "settingsShell.channels.empty": "{{app}} で利用できるチャネルはありません。",
+  "settingsShell.channels.information": "情報",
+  "settingsShell.channels.loadFailed": "チャネルを読み込めませんでした。",
+  "settingsShell.channels.membersFootnote":
+    "チャネルを設定できるのはオーナーと管理者のみです。",
+  "settingsShell.channels.notFound":
+    "このチャネルは {{app}} では利用できません。",
+  "settingsShell.channels.open": "開く",
+  "settingsShell.channels.openDocs": "ドキュメントを開く",
+  "settingsShell.channels.registerWebhook": "登録",
+  "settingsShell.channels.removeCredentials.action": "削除",
+  "settingsShell.channels.removeCredentials.aria":
+    "{{platform}} の認証情報を削除",
+  "settingsShell.channels.removeCredentials.body":
+    "デプロイ環境でもこれらのキーが設定されていない限り、エージェントは全員に対して {{platform}} で返信しなくなります。",
+  "settingsShell.channels.removeCredentials.confirm": "削除",
+  "settingsShell.channels.removeCredentials.failed":
+    "認証情報を削除できませんでした。",
+  "settingsShell.channels.removeCredentials.removing": "削除中…",
+  "settingsShell.channels.removeCredentials.title":
+    "{{platform}} の認証情報を削除しますか？",
+  "settingsShell.channels.retry": "再試行",
+  "settingsShell.channels.setup.addToEnvironment":
+    "デプロイ環境に追加してください",
+  "settingsShell.channels.setup.body":
+    "これらをこのデプロイに追加してから、オンにします。",
+  "settingsShell.channels.setup.close": "閉じる",
+  "settingsShell.channels.setup.failed": "変数を保存できませんでした。",
+  "settingsShell.channels.setup.optional": "任意",
+  "settingsShell.channels.setup.replace": "置き換え",
+  "settingsShell.channels.setup.replaceAria": "{{key}} を置き換え",
+  "settingsShell.channels.setup.save": "保存",
+  "settingsShell.channels.setup.saveAndTurnOn": "保存してオンにする",
+  "settingsShell.channels.setup.saving": "保存中…",
+  "settingsShell.channels.setup.saved": "保存済み",
+  "settingsShell.channels.setup.savedElsewhere": "チャネル以外で保存済み",
+  "settingsShell.channels.setup.setInEnvironment": "デプロイ環境で設定",
+  "settingsShell.channels.setup.stillMissing":
+    "必須の変数がまだ不足しています。",
+  "settingsShell.channels.setup.title": "{{platform}} を設定",
+  "settingsShell.channels.shareDocumentsWith": "ドキュメントの共有先",
+  "settingsShell.channels.state.notSetUp": "未設定",
+  "settingsShell.channels.state.off": "オフ",
+  "settingsShell.channels.state.on": "オン",
+  "settingsShell.channels.status": "ステータス",
+  "settingsShell.channels.toggleFailed":
+    "{{platform}} を更新できませんでした。",
+  "settingsShell.channels.turnOnAria": "{{platform}} をオンにする",
+  "settingsShell.channels.unavailable":
+    "{{platform}} は {{app}} では利用できません。",
+  "settingsShell.channels.webhookLocalOnly":
+    "{{platform}} はこのアドレスにアクセスできません。Webhook URL を取得するには、アプリの公開 HTTPS アドレスからこのページを開いてください。",
+  "settingsShell.channels.webhookRegistered": "登録済み",
+  "settingsShell.channels.webhookRegistration": "Webhook",
+  "settingsShell.channels.webhookUrl": "Webhook URL",
+  "settingsShell.channels.category": "カテゴリ",
+  "settingsShell.channels.developer": "開発元",
+  "settingsShell.channels.mentionAgent": "エージェントにメンション",
+  "settingsShell.channels.rowDescription": "{{about}}{{state}}。",
+  "settingsShell.channels.separately":
+    "エージェントはアプリごとに個別に設定します。",
+  "settingsShell.channels.setUpLocked":
+    "設定できるのはオーナーと管理者のみです",
+  "settingsShell.integrationDetail.access.none":
+    "公開サーバーなので、サインインは不要です。",
+  "settingsShell.integrationDetail.access.oauth":
+    "エージェントはあなたの {{name}} の権限で動作するため、あなたが見られるものだけを参照します。",
+  "settingsShell.integrationDetail.access.token":
+    "エージェントは追加されたアクセストークンを使うため、そのトークンで参照できるものを参照します。",
+  "settingsShell.integrationDetail.accessToken": "アクセストークン",
+  "settingsShell.integrationDetail.addAccessToken": "アクセストークンを追加",
+  "settingsShell.integrationDetail.callout.adminNeeded":
+    "管理者による設定が必要です",
+  "settingsShell.integrationDetail.callout.adminNeededBody":
+    "{{org}} のオーナーまたは管理者に、{{name}} のクライアント ID とシークレットの追加を依頼してください。その後、自分のアカウントを接続できます。",
+  "settingsShell.integrationDetail.callout.beforeAnyone": "接続を始める前に",
+  "settingsShell.integrationDetail.callout.beforeYouConnect": "接続する前に",
+  "settingsShell.integrationDetail.callout.token":
+    "アクセストークンで接続します",
+  "settingsShell.integrationDetail.callout.unavailable": "まだ利用できません",
+  "settingsShell.integrationDetail.category": "カテゴリ",
+  "settingsShell.integrationDetail.connected": "{{name}} を接続しました",
+  "settingsShell.integrationDetail.copyServerUrl": "サーバー URL をコピー",
+  "settingsShell.integrationDetail.developer": "開発元",
+  "settingsShell.integrationDetail.howToCreateToken": "トークンの作成方法",
+  "settingsShell.integrationDetail.justMe": "自分のみ",
+  "settingsShell.integrationDetail.notFound":
+    "この連携はカタログにありません。",
+  "settingsShell.integrationDetail.notFoundTitle": "見つかりません",
+  "settingsShell.integrationDetail.prompt.amplitude.1":
+    "今月の週間アクティブユーザーの推移は？",
+  "settingsShell.integrationDetail.prompt.amplitude.2":
+    "サインアップから最初の録画までのファネルを作って",
+  "settingsShell.integrationDetail.prompt.amplitude.3":
+    "定着率がいちばん高いコホートは？",
+  "settingsShell.integrationDetail.prompt.apollo.1":
+    "シリーズ B のスタートアップのデザイン責任者を探して",
+  "settingsShell.integrationDetail.prompt.apollo.2":
+    "このメールアドレスのリストをエンリッチして",
+  "settingsShell.integrationDetail.prompt.apollo.3":
+    "これらのコンタクトを Q4 のシーケンスに追加して",
+  "settingsShell.integrationDetail.prompt.asana.1":
+    "今週自分が期限のタスクは？",
+  "settingsShell.integrationDetail.prompt.asana.2":
+    "この録画のアクションアイテムからタスクを作成して",
+  "settingsShell.integrationDetail.prompt.asana.3":
+    "予定より遅れているプロジェクトは？",
+  "settingsShell.integrationDetail.prompt.atlassian.1":
+    "この録画のアクションアイテムから Jira チケットを作成して",
+  "settingsShell.integrationDetail.prompt.atlassian.2":
+    "Q4 リリースを妨げているものは？",
+  "settingsShell.integrationDetail.prompt.atlassian.3":
+    "オンボーディングについての Confluence ページを探して",
+  "settingsShell.integrationDetail.prompt.box.1":
+    "Acme の署名済み契約書を探して",
+  "settingsShell.integrationDetail.prompt.box.2":
+    "Q3 レポートのフォルダを経理と共有して",
+  "settingsShell.integrationDetail.prompt.box.3":
+    "今週法務フォルダで何が変わった？",
+  "settingsShell.integrationDetail.prompt.canva.1":
+    "この録画のハイライトから SNS 投稿を作成して",
+  "settingsShell.integrationDetail.prompt.canva.2":
+    "ブランドキットの色を探して",
+  "settingsShell.integrationDetail.prompt.canva.3":
+    "最新のプレゼンを PDF で書き出して",
+  "settingsShell.integrationDetail.prompt.cloudflare.1":
+    "{{host}} を指している DNS レコードは？",
+  "settingsShell.integrationDetail.prompt.cloudflare.2":
+    "直近 1 時間の Worker のエラーを見せて",
+  "settingsShell.integrationDetail.prompt.cloudflare.3":
+    "この URL のキャッシュを削除して",
+  "settingsShell.integrationDetail.prompt.commonRoom.1":
+    "購買シグナルを示している企業は？",
+  "settingsShell.integrationDetail.prompt.commonRoom.2":
+    "Acme でコミュニティ活動が活発なのは誰？",
+  "settingsShell.integrationDetail.prompt.commonRoom.3":
+    "主要アカウントのアクティビティを要約して",
+  "settingsShell.integrationDetail.prompt.context7.1":
+    "ローダーに関する最新の React Router ドキュメントを見せて",
+  "settingsShell.integrationDetail.prompt.context7.2":
+    "Drizzle のマイグレーションはどう設定する？",
+  "settingsShell.integrationDetail.prompt.context7.3":
+    "最新の Tailwind リリースの新機能は？",
+  "settingsShell.integrationDetail.prompt.exa.1":
+    "agent-native アプリに関する最近の記事を探して",
+  "settingsShell.integrationDetail.prompt.exa.2": "{{app}} の競合を調べて",
+  "settingsShell.integrationDetail.prompt.exa.3":
+    "このページを取得して要約して",
+  "settingsShell.integrationDetail.prompt.figma.1":
+    "この Figma ファイルのコンポーネントを要約して",
+  "settingsShell.integrationDetail.prompt.figma.2":
+    "デザインシステムのカラー変数を一覧にして",
+  "settingsShell.integrationDetail.prompt.figma.3":
+    "このフレームのレイアウトを説明して",
+  "settingsShell.integrationDetail.prompt.fullstory.1":
+    "共有ボタンがレイジクリックされたセッションを見せて",
+  "settingsShell.integrationDetail.prompt.fullstory.2":
+    "料金ページでのつまずきを要約して",
+  "settingsShell.integrationDetail.prompt.fullstory.3":
+    "オンボーディングのどこで離脱している？",
+  "settingsShell.integrationDetail.prompt.github.1":
+    "レビュー待ちのプルリクエストを要約して",
+  "settingsShell.integrationDetail.prompt.github.2":
+    "agent-native で Slack のリンクプレビューに関する Issue を探して",
+  "settingsShell.integrationDetail.prompt.github.3":
+    "今週 packages/core で何が変わった？",
+  "settingsShell.integrationDetail.prompt.gitlab.1":
+    "今日 CI で失敗したマージリクエストは？",
+  "settingsShell.integrationDetail.prompt.gitlab.2":
+    "bug ラベルの付いたオープンな Issue を要約して",
+  "settingsShell.integrationDetail.prompt.gitlab.3":
+    "今週いちばん遅かったパイプラインは？",
+  "settingsShell.integrationDetail.prompt.gong.1":
+    "Acme との直近の通話を要約して",
+  "settingsShell.integrationDetail.prompt.gong.2": "今月出た反論は？",
+  "settingsShell.integrationDetail.prompt.gong.3":
+    "価格への懸念に触れている取引は？",
+  "settingsShell.integrationDetail.prompt.googleDocs.1":
+    "@agent このドキュメントのコメントを要約して",
+  "settingsShell.integrationDetail.prompt.googleDocs.2":
+    "@agent このコメントへの返信を下書きして",
+  "settingsShell.integrationDetail.prompt.googleDocs.3":
+    "@agent このメモをチェックリストにして",
+  "settingsShell.integrationDetail.prompt.grafana.1":
+    "過去 1 日の API の p95 レイテンシをグラフにして",
+  "settingsShell.integrationDetail.prompt.grafana.2":
+    "14 時ごろのエラーログを探して",
+  "settingsShell.integrationDetail.prompt.grafana.3":
+    "今週発生したアラートは？",
+  "settingsShell.integrationDetail.prompt.granola.1":
+    "昨日のデザインレビューで何を決めた？",
+  "settingsShell.integrationDetail.prompt.granola.2":
+    "会議で出た未完了のアクションアイテムを一覧にして",
+  "settingsShell.integrationDetail.prompt.granola.3": "Acme との通話を要約して",
+  "settingsShell.integrationDetail.prompt.hubspot.1":
+    "Acme の取引を Closed won に移動して",
+  "settingsShell.integrationDetail.prompt.hubspot.2":
+    "交渉段階で止まっている取引は？",
+  "settingsShell.integrationDetail.prompt.hubspot.3":
+    "この通話をコンタクトのメモとして記録して",
+  "settingsShell.integrationDetail.prompt.intercom.1":
+    "今日のオープンな会話を要約して",
+  "settingsShell.integrationDetail.prompt.intercom.2":
+    "SSO に関するヘルプ記事を探して",
+  "settingsShell.integrationDetail.prompt.intercom.3":
+    "今週いちばん多い顧客からの質問は？",
+  "settingsShell.integrationDetail.prompt.linear.1":
+    "壊れた Slack プレビューの Issue を作成して自分に割り当てて",
+  "settingsShell.integrationDetail.prompt.linear.2":
+    "現在のサイクルで残っているものは？",
+  "settingsShell.integrationDetail.prompt.linear.3":
+    "今週報告されたバグを要約して",
+  "settingsShell.integrationDetail.prompt.monday.1":
+    "今回のスプリントのデザインボードには何がある？",
+  "settingsShell.integrationDetail.prompt.monday.2":
+    "このアイテムを Done に移動して",
+  "settingsShell.integrationDetail.prompt.monday.3": "期限切れのアイテムは？",
+  "settingsShell.integrationDetail.prompt.neon.1":
+    "テスト用に本番のブランチを作成して",
+  "settingsShell.integrationDetail.prompt.neon.2":
+    "今週いちばん遅かったクエリを見せて",
+  "settingsShell.integrationDetail.prompt.neon.3":
+    "メインのデータベースのサイズは？",
+  "settingsShell.integrationDetail.prompt.netlify.1":
+    "直近のデプロイが失敗したのはなぜ？",
+  "settingsShell.integrationDetail.prompt.netlify.2":
+    "今週ビルドが失敗したサイトは？",
+  "settingsShell.integrationDetail.prompt.netlify.3":
+    "1 つ前の本番デプロイにロールバックして",
+  "settingsShell.integrationDetail.prompt.notion.1":
+    "オンボーディングのチェックリストを探して",
+  "settingsShell.integrationDetail.prompt.notion.2": "今週の会議メモを要約して",
+  "settingsShell.integrationDetail.prompt.notion.3":
+    "これらのアクションアイテムをチームの Wiki に追加して",
+  "settingsShell.integrationDetail.prompt.paypal.1":
+    "支払期限を過ぎた請求書を一覧にして",
+  "settingsShell.integrationDetail.prompt.paypal.2": "今月の取引を要約して",
+  "settingsShell.integrationDetail.prompt.paypal.3":
+    "Acme 宛ての請求書を作成して",
+  "settingsShell.integrationDetail.prompt.pylon.1":
+    "緊急のオープン Issue があるアカウントは？",
+  "settingsShell.integrationDetail.prompt.pylon.2":
+    "Acme の最新チケットを要約して",
+  "settingsShell.integrationDetail.prompt.pylon.3":
+    "この Issue への返信を下書きして",
+  "settingsShell.integrationDetail.prompt.semgrep.1":
+    "packages/core のセキュリティ上の問題をスキャンして",
+  "settingsShell.integrationDetail.prompt.semgrep.2":
+    "この検出結果と修正方法を説明して",
+  "settingsShell.integrationDetail.prompt.semgrep.3":
+    "このリポジトリにハードコードされたシークレットはある？",
+  "settingsShell.integrationDetail.prompt.sentry.1":
+    "昨日のデプロイ以降に増えた主な新しいエラーは？",
+  "settingsShell.integrationDetail.prompt.sentry.2":
+    "最も多いクラッシュのスタックトレースを見せて",
+  "settingsShell.integrationDetail.prompt.sentry.3":
+    "このエラーはどのリリースで発生した？",
+  "settingsShell.integrationDetail.prompt.sigma.1":
+    "売上のダッシュボードを探して",
+  "settingsShell.integrationDetail.prompt.sigma.2":
+    "先月の MRR の変化の要因は？",
+  "settingsShell.integrationDetail.prompt.sigma.3":
+    "このワークブックの主な指標を説明して",
+  "settingsShell.integrationDetail.prompt.slack.1": "今週の #design を要約して",
+  "settingsShell.integrationDetail.prompt.slack.2":
+    "価格変更についてのスレッドを探して",
+  "settingsShell.integrationDetail.prompt.slack.3":
+    "ローンチについて Camila は何と言っていた？",
+  "settingsShell.integrationDetail.prompt.stripe.1": "先月の売上はいくら？",
+  "settingsShell.integrationDetail.prompt.stripe.2": "この請求書の顧客を探して",
+  "settingsShell.integrationDetail.prompt.stripe.3":
+    "更新に失敗したサブスクリプションは？",
+  "settingsShell.integrationDetail.prompt.supabase.1":
+    "今週何人がサインアップした？",
+  "settingsShell.integrationDetail.prompt.supabase.2":
+    "recordings テーブルのスキーマを見せて",
+  "settingsShell.integrationDetail.prompt.supabase.3":
+    "今日エラーになった Edge Functions は？",
+  "settingsShell.integrationDetail.prompt.telegram.1": "今日の録画を要約して",
+  "settingsShell.integrationDetail.prompt.telegram.2":
+    "15 時のレビューをリマインドして",
+  "settingsShell.integrationDetail.prompt.telegram.3":
+    "昨日のデモのリンクを共有して",
+  "settingsShell.integrationDetail.prompt.vercel.1":
+    "直近のプレビューデプロイが失敗したのはなぜ？",
+  "settingsShell.integrationDetail.prompt.vercel.2":
+    "本番デプロイのログを見せて",
+  "settingsShell.integrationDetail.prompt.vercel.3":
+    "このプロジェクトを指しているドメインは？",
+  "settingsShell.integrationDetail.prompt.webflow.1":
+    "料金ページの見出しを更新して",
+  "settingsShell.integrationDetail.prompt.webflow.2":
+    "今週公開された CMS アイテムを一覧にして",
+  "settingsShell.integrationDetail.prompt.webflow.3":
+    "メタディスクリプションがないページは？",
+  "settingsShell.integrationDetail.prompt.whatsapp.1": "今日の予定は？",
+  "settingsShell.integrationDetail.prompt.whatsapp.2": "最新の録画を要約して",
+  "settingsShell.integrationDetail.prompt.whatsapp.3":
+    "デザインレビューのメモを送って",
+  "settingsShell.integrationDetail.prompt.zapier.1":
+    "新しい録画を Slack の #design に投稿して",
+  "settingsShell.integrationDetail.prompt.zapier.2":
+    "新しいサインアップを CRM に追加して",
+  "settingsShell.integrationDetail.prompt.zapier.3": "実行できる Zap は？",
+  "settingsShell.integrationDetail.serverUrl": "サーバー URL",
+  "settingsShell.integrationDetail.setUp": "設定",
+  "settingsShell.integrationDetail.signIn": "サインイン",
+  "settingsShell.integrationDetail.signInNone": "なし",
+  "settingsShell.integrationDetail.tokenHint.figma":
+    "Figma で個人アクセストークンを作成し、ここに貼り付けてください。",
+  "settingsShell.integrationDetail.tokenHint.github":
+    "GitHub で個人アクセストークンを作成し、ここに貼り付けてください。",
+  "settingsShell.integrationDetail.tokenHint.sentry":
+    "Sentry でユーザー認証トークンを作成し、ここに貼り付けてください。",
+  "settingsShell.integrationDetail.tokenHint.zapier":
+    "Zapier で接続を作成し、その Bearer トークンをここに貼り付けてください。",
+  "settingsShell.integrationDetail.tokenPlaceholder":
+    "{{name}} のトークンを貼り付け",
+  "settingsShell.integrationDetail.who": "使える人",
+  "settingsShell.integrationDetail.whoMember":
+    "{{org}} と共有できるのはオーナーと管理者のみです。",
+  "settingsShell.integrationDetail.whoOrgOnly":
+    "{{org}} の全員のために一度だけ接続します。",
+  "settingsShell.integrationDetail.whoPersonal":
+    "各自が自分のアカウントを接続します。",
+  "settingsShell.integrationDetail.whoShared":
+    "共有接続にすると、{{org}} の全員があなたのアクセス権を使えます。",
+  "settingsShell.clearSearch": "検索をクリア",
+  "settingsShell.group.account": "アカウント",
+  "settingsShell.group.agent": "エージェント",
+  "settingsShell.group.connections": "接続",
+  "settingsShell.group.organization": "組織",
+  "settingsShell.interfaceLanguage": "表示言語",
+  "settingsShell.integrations.addCustom": "カスタム連携を追加",
+  "settingsShell.integrations.builderDescription":
+    "モデルへのアクセス、ブラウザ自動化、ファイルストレージ、ワークスペース ID。無料プランがあります。",
+  "settingsShell.integrations.builderStatusFailed":
+    "Builder.io の接続を確認できませんでした。",
+  "settingsShell.integrations.category.analytics": "分析",
+  "settingsShell.integrations.category.design": "デザイン",
+  "settingsShell.integrations.category.engineering": "エンジニアリング",
+  "settingsShell.integrations.category.finance": "財務",
+  "settingsShell.integrations.category.other": "その他",
+  "settingsShell.integrations.category.productivity": "生産性",
+  "settingsShell.integrations.category.sales": "営業",
+  "settingsShell.integrations.category.support": "サポート",
+  "settingsShell.integrations.connectName": "{{name}} を接続",
+  "settingsShell.integrations.connectedEmptyDescription":
+    "下のツールを接続すると、エージェントがチャットで使えるようになります。",
+  "settingsShell.integrations.connectedEmptyTitle":
+    "まだ何も接続されていません",
+  "settingsShell.integrations.footnote":
+    "これらはエージェントが使うツールです。Claude、ChatGPT、Cursor から {{app}} を使うには、{{link}} を参照してください。",
+  "settingsShell.integrations.moreActions": "{{name}} のその他の操作",
+  "settingsShell.integrations.noResults":
+    "一致する連携がありません。別の名前でお試しください。",
+  "settingsShell.integrations.remove": "削除",
+  "settingsShell.integrations.removeFailed":
+    "{{name}} を削除できませんでした。",
+  "settingsShell.integrations.removePersonal":
+    "エージェントはあなたのために {{name}} を使わなくなります。",
+  "settingsShell.integrations.removeTitle": "{{name}} を削除しますか？",
+  "settingsShell.integrations.removeWorkspace":
+    "エージェントはワークスペースの全員のために {{name}} を使わなくなります。",
+  "settingsShell.integrations.removing": "削除中…",
+  "settingsShell.integrations.retry": "再試行",
+  "settingsShell.integrations.seeMoreMany": "{{first}}、{{second}} などを表示",
+  "settingsShell.integrations.seeMoreOne": "{{first}} を表示",
+  "settingsShell.integrations.seeMoreTwo": "{{first}} と {{second}} を表示",
+  "settingsShell.integrations.serversLoadFailed":
+    "接続済みの連携を読み込めませんでした。",
+  "settingsShell.learnings": "学習内容",
+  "settingsShell.loading": "設定を読み込んでいます",
+  "settingsShell.navLabel": "設定",
+  "settingsShell.noResults": "一致する設定はありません",
+  "settingsShell.openNav": "設定メニューを開く",
+  "settingsShell.page.apiKeys": "API キー",
+  "settingsShell.page.appGeneral": "一般",
+  "settingsShell.page.apps": "アプリ",
+  "settingsShell.page.audit": "監査ログ",
+  "settingsShell.page.auth": "認証",
+  "settingsShell.page.automations": "自動化",
+  "settingsShell.page.channels": "チャネル",
+  "settingsShell.page.creativeContext": "クリエイティブコンテキスト",
+  "settingsShell.page.files": "ファイル",
+  "settingsShell.page.infra": "インフラストラクチャ",
+  "settingsShell.page.instructions": "指示",
+  "settingsShell.page.integrations": "連携",
+  "settingsShell.page.labs": "ラボ",
+  "settingsShell.page.mcp": "MCP サーバー",
+  "settingsShell.page.members": "メンバー",
+  "settingsShell.page.memory": "メモリ",
+  "settingsShell.page.model": "モデル",
+  "settingsShell.page.notifications": "通知",
+  "settingsShell.page.orgGeneral": "一般",
+  "settingsShell.page.preferences": "環境設定",
+  "settingsShell.page.profile": "プロフィール",
+  "settingsShell.page.security": "セキュリティ",
+  "settingsShell.page.skills": "スキル",
+  "settingsShell.page.subAgents": "サブエージェント",
+  "settingsShell.page.usage": "使用状況",
+  "settingsShell.page.whatsNew": "新機能",
+  "settingsShell.pagePending": "まだ利用できません",
+  "settingsShell.resultsLabel": "設定の検索結果",
+  "settingsShell.search.appDefaultModel": "アプリのデフォルトモデル",
+  "settingsShell.search.backgroundAgents": "バックグラウンドエージェント",
+  "settingsShell.search.browserAutomation": "ブラウザ自動化",
+  "settingsShell.search.connectedAgents": "接続済みエージェント",
+  "settingsShell.search.database": "データベース",
+  "settingsShell.search.defaultModel": "デフォルトモデル",
+  "settingsShell.search.demoMode": "デモモード",
+  "settingsShell.search.email": "メール",
+  "settingsShell.search.fileUploads": "ファイルのアップロードとストレージ",
+  "settingsShell.search.hosting": "ホスティング",
+  "settingsShell.search.maxIterations": "最大反復回数",
+  "settingsShell.search.signInMethods": "サインイン方法",
+  "settingsShell.search.voiceTranscription": "音声の文字起こし",
+  "settingsShell.searchPlaceholder": "設定を検索",
+  "settingsShell.unread": "新着",
+  "settingsResources.personal": "個人",
+  "settingsResources.organization": "組織",
+  "settingsResources.fromDispatch": "Dispatch から",
+  "settingsResources.readOnly": "読み取り専用",
+  "settingsResources.readOnlyHint": "オーナーと管理者のみ変更できます",
+  "settingsResources.editInDispatch": "Dispatch で編集してください",
+  "settingsResources.openDispatch": "Dispatch を開く",
+  "settingsResources.allApps": "すべてのアプリ",
+  "settingsResources.allAppsHint": "Dispatch がすべてのアプリと共有しています",
+  "settingsResources.dispatchEmpty":
+    "Dispatch から共有されているものはありません",
+  "settingsResources.loadFailed": "これらのリソースを読み込めませんでした。",
+  "settingsResources.moreActions": "その他の操作",
+  "settingsResources.open": "開く",
+  "settingsResources.download": "ダウンロード",
+  "settingsResources.remove": "削除",
+  "settingsResources.removeTitle": "{{name}} を削除しますか？",
+  "settingsResources.removeFailed": "{{name}} を削除できませんでした。",
+  "settingsResources.saveFailed": "{{name}} を保存できませんでした。",
+  "settingsResources.uploadFailed": "{{name}} をアップロードできませんでした。",
+  "settingsResources.cancel": "キャンセル",
+  "settingsResources.save": "保存",
+  "settingsResources.create": "作成",
+  "settingsResources.saving": "保存しています",
+  "settingsResources.creating": "作成しています",
+  "settingsResources.removing": "削除しています",
+  "settingsResources.instructions.empty":
+    "エージェントにあなたとの働き方を伝えましょう。",
+  "settingsResources.instructions.emptyTitle": "指示はまだありません",
+  "settingsResources.instructions.orgEmpty": "{{org}} の指示はまだありません",
+  "settingsResources.instructions.add": "指示を追加",
+  "settingsResources.instructions.fieldLabel":
+    "エージェントにどのように働いてほしいですか？",
+  "settingsResources.instructions.placeholder":
+    "回答は短く。メートル法を使ってください。",
+  "settingsResources.instructions.savedAs":
+    "個人リソースに AGENTS.md として保存されます。",
+  "settingsResources.memory.empty":
+    "エージェントがあなたについて学んだことをここに保存します。",
+  "settingsResources.memory.emptyTitle": "メモリーはまだありません",
+  "settingsResources.memory.orgEmpty": "共有メモリーはまだありません",
+  "settingsResources.memory.add": "メモリーを追加",
+  "settingsResources.learnings.empty":
+    "エージェントに伝えた修正は学習として保存されます。",
+  "settingsResources.learnings.emptyTitle": "学習はまだありません",
+  "settingsResources.learnings.add": "学習を追加",
+  "settingsResources.skills.empty":
+    "ワークフローを一度保存すれば、エージェントが再利用できます。",
+  "settingsResources.skills.emptyTitle": "スキルはまだありません",
+  "settingsResources.skills.orgEmpty": "共有スキルはまだありません",
+  "settingsResources.skills.add": "スキルを追加",
+  "settingsResources.skills.describe": "エージェントに説明する",
+  "settingsResources.skills.upload": "スキルファイルをアップロード",
+  "settingsResources.skills.describePlaceholder":
+    "プルリクエストのセキュリティ問題をレビューするスキル",
+  "settingsResources.files.empty":
+    "ファイルを追加して、エージェントにより多くのコンテキストを与えましょう。",
+  "settingsResources.files.emptyTitle": "ファイルはまだありません",
+  "settingsResources.files.orgEmpty": "共有ファイルはまだありません",
+  "settingsResources.files.add": "ファイルを追加",
+  "settingsResources.files.upload": "ファイルをアップロード",
+  "settingsResources.files.create": "ファイルを作成",
+  "settingsInfra.setup": "セットアップ",
+  "settingsInfra.services": "サービス",
+  "settingsInfra.environment": "環境",
+  "settingsInfra.builderConnected":
+    "接続済み。Builder.io と表示されたサービスはすべてアカウントのクレジットで動きます。",
+  "settingsInfra.builderNotConnected":
+    "未接続。各サービスを自分で設定するか、Builder.io を接続してアカウントのクレジットを使います。",
+  "settingsInfra.builderUnknown": "Builder.io の接続を確認できませんでした。",
+  "settingsInfra.manage": "管理",
+  "settingsInfra.connect": "接続",
+  "settingsInfra.connecting": "接続しています…",
+  "settingsInfra.setUp": "設定",
+  "settingsInfra.view": "表示",
+  "settingsInfra.retry": "再試行",
+  "settingsInfra.close": "閉じる",
+  "settingsInfra.cancel": "キャンセル",
+  "settingsInfra.save": "保存",
+  "settingsInfra.saving": "保存中…",
+  "settingsInfra.required": "必須",
+  "settingsInfra.recommended": "推奨",
+  "settingsInfra.optional": "任意",
+  "settingsInfra.builderRecommended":
+    "下のすべてのサービスを Builder.io アカウントのクレジットで利用できます。無料プランがあります。",
+  "settingsInfra.builderOnly": "Builder.io のみ",
+  "settingsInfra.rowDescription": "{{source}} · {{use}}",
+  "settingsInfra.notSetUp": "未設定",
+  "settingsInfra.availableWithBuilder": "Builder.io で利用可能",
+  "settingsInfra.loadFailed": "読み込めませんでした。",
+  "settingsInfra.aiModel": "AI モデル",
+  "settingsInfra.useEveryApp": "すべてのアプリ",
+  "settingsInfra.storageBucket": "{{provider}}、バケット {{bucket}}",
+  "settingsInfra.useUploads": "すべてのアプリのアップロード",
+  "settingsInfra.storageTitle": "ファイルストレージ",
+  "settingsInfra.storageIntro":
+    "新しいアップロードはバケットに保存されます。既存のファイルはそのままです。",
+  "settingsInfra.voice": "音声入力",
+  "settingsInfra.images": "画像生成",
+  "settingsInfra.embeddings": "埋め込み",
+  "settingsInfra.useVoice": "すべてのアプリの音声入力",
+  "settingsInfra.useImages": "Slides と Design",
+  "settingsInfra.useEmbeddings": "Brain の検索",
+  "settingsInfra.whyVoice":
+    "音声をテキストに変換します。入力はこれがなくても使えます。",
+  "settingsInfra.whyImages": "スライドとデザインの画像を生成します。",
+  "settingsInfra.whyEmbeddings":
+    "セマンティック検索を改善します。キーワード検索はこれがなくても使えます。",
+  "settingsInfra.designSystem": "デザインシステムインテリジェンス",
+  "settingsInfra.whyDesignSystem":
+    "生成したスライドとデザインをブランドに沿わせます。",
+  "settingsInfra.whyBackground": "本番環境からコードを変更します。",
+  "settingsInfra.whyBrowser":
+    "本番環境でエージェントがブラウザを使えるようにします。",
+  "settingsInfra.provider": "プロバイダー",
+  "settingsInfra.keyOrg": "組織の {{provider}} キーを使います。",
+  "settingsInfra.manageKey": "キーを管理",
+  "settingsInfra.keyPersonal":
+    "{{provider}} キーは個人用です。サービスには組織のキーが必要です。",
+  "settingsInfra.keyNone":
+    "サービスは組織のキーを使いますが、{{provider}} キーはまだありません。",
+  "settingsInfra.keyUnavailable":
+    "組織の {{provider}} キーを確認できませんでした。",
+  "settingsInfra.useBuilder": "Builder.io を使う",
+  "settingsInfra.addNamed": "{{provider}} を追加",
+  "settingsInfra.serviceSaved":
+    "{{service}} は {{provider}} を使うようになりました。",
+  "settingsInfra.serviceSaveFailed": "{{service}} を変更できませんでした。",
+  "settingsInfra.reindex":
+    "既存の項目がセマンティック検索の対象になるよう、Brain を再インデックスしてください。",
+  "settingsInfra.variables": "必須の変数",
+  "settingsInfra.databaseHosted":
+    "{{name}}。ホストで設定され、すべてのアプリが共有します。",
+  "settingsInfra.databaseHostedSingle": "{{name}}。ホストで設定されています。",
+  "settingsInfra.databaseLocal":
+    "このコンピューター上の {{name}}。デプロイする前にホストで DATABASE_URL を設定してください。",
+  "settingsInfra.databaseMissing":
+    "未設定です。ホストで DATABASE_URL を設定してください。",
+  "settingsInfra.hostingWorkspace":
+    "{{host}}。ワークスペースは各アプリをそれぞれのアドレスにデプロイします。",
+  "settingsInfra.hostingSingle": "{{host}}、{{address}}。",
+  "settingsInfra.hostingPlain": "{{host}}。",
+  "settingsInfra.hostOwnServer": "自分のサーバー",
+  "settingsInfra.hostThisComputer": "このコンピューター",
+  "settingsInfra.variablesSet": "{{keys}} はホストで設定されています。",
+  "settingsInfra.variablesMissing": "ホストで {{keys}} を設定してください。",
+  "settingsInfra.dbConnected": "接続済み",
+  "settingsInfra.dbLocal": "このコンピューター上",
+  "settingsInfra.notSet": "未設定",
+  "settingsInfra.set": "設定済み",
+  "settingsInfra.dbIntro":
+    "各アプリは起動前にデータベースを読み込むため、ホストで一度だけ設定します。別のデータベースに移るには:",
+  "settingsInfra.dbStep1":
+    "Neon、Supabase、または任意の Postgres ホストで Postgres データベースを作成します。",
+  "settingsInfra.dbStep2": "ホストの環境で {{key}} に接続文字列を設定します。",
+  "settingsInfra.dbStep3": "再デプロイします。移行はデプロイ中に実行されます。",
+  "settingsInfra.dbOwn":
+    "1 つのアプリに専用のデータベースを使わせるには、{{key}} のようなそのアプリ専用の変数を設定します。",
+  "settingsInfra.hostIntroWorkspace":
+    "ワークスペースは各アプリをそれぞれのアドレスにデプロイします。Vercel、Cloudflare、または自分のサーバーでホストするには:",
+  "settingsInfra.hostIntro":
+    "Vercel、Cloudflare、または自分のサーバーでホストするには:",
+  "settingsInfra.hostStep1":
+    "{{key}} でターゲットを選びます (vercel、cloudflare_module、node など)。",
+  "settingsInfra.hostStep2":
+    "新しいホストにも {{keys}} を含む同じ環境を設定します。",
+  "settingsInfra.hostStep3":
+    "デプロイします。ワークスペースでは、すべてのアプリをビルドして公開コマンドを表示します:",
+  "settingsInfra.envIntro":
+    "各アプリは起動前にこれらを読み込みます。ホストで一度設定してから再デプロイしてください。",
+  "settingsInfra.varDatabaseUrl": "Postgres の接続文字列です。",
+  "settingsInfra.varA2a":
+    "このワークスペースのアプリ同士が呼び出し合えるようにします。ワークスペースでは、BETTER_AUTH_SECRET が未設定のときにサインインセッションの署名にも使われます。",
+  "settingsInfra.varBetterAuth":
+    "サインインセッションに署名します。32 文字以上のランダムな文字列を使ってください。",
+  "settingsInfra.varAppUrl":
+    "ホストがアプリに公開 URL を伝えられない場合にだけ必要です。",
+  "settingsInfra.varEncryption":
+    "設定に保存したキーを暗号化します。未設定の場合、ワークスペースは A2A_SECRET から鍵を導出します。",
+  "settingsInfra.varEncryptionSingle":
+    "設定に保存したキーを暗号化します。未設定の場合、アプリは BETTER_AUTH_SECRET から鍵を導出します。",
+  "settingsInfra.varWeak":
+    "短すぎます。32 文字以上のランダムな文字列を使ってください。",
+  "settingsInfra.varWeakLabel": "短すぎます",
+  "settingsInfra.generateSecret": "シークレットを生成するには:",
+  "settingsInfra.copy": "コピー",
+  "settingsInfra.copied": "コピーしました",
+  "settingsInfra.copyFailed": "コピーできませんでした。",
+  "settingsApiKeys.addKey": "キーを追加",
+  "settingsApiKeys.adding": "追加中…",
+  "settingsApiKeys.availableTo": "利用できる人",
+  "settingsApiKeys.deleteKey": "キーを削除",
+  "settingsApiKeys.deleting": "削除中…",
+  "settingsApiKeys.deleteTitle": "{{name}} を削除しますか？",
+  "settingsApiKeys.everyoneIn": "{{org}} の全員",
+  "settingsApiKeys.getKey": "キーを取得",
+  "settingsApiKeys.hideKeys": "キーを非表示",
+  "settingsApiKeys.justMe": "自分のみ",
+  "settingsApiKeys.keyAdded": "キーを追加しました",
+  "settingsApiKeys.keyDeleted": "キーを削除しました",
+  "settingsApiKeys.loadFailed": "キーを読み込めませんでした。",
+  "settingsApiKeys.manageKey": "{{name}} を管理",
+  "settingsApiKeys.managedKeys": "連携で管理",
+  "settingsApiKeys.managedName": "このキーは {{owner}} が管理しています。",
+  "settingsApiKeys.managedTooltip":
+    "{{owner}} が作成・ローテーションしています。接続はそちらで解除してください。",
+  "settingsApiKeys.membersLocked":
+    "{{org}} とキーを共有できるのはオーナーと管理者のみです。",
+  "settingsApiKeys.modelFootnote":
+    "独自のモデルプロバイダーを使うには、{{link}}。",
+  "settingsApiKeys.modelFootnoteLink": "モデルで追加します",
+  "settingsApiKeys.name": "名前",
+  "settingsApiKeys.noKeys": "まだキーはありません",
+  "settingsApiKeys.noKeysDescription":
+    "キーを追加すると、アプリとエージェントがサービスにアクセスできます。",
+  "settingsApiKeys.orgKeys": "組織のキー",
+  "settingsApiKeys.providerInModel": "{{provider}} は {{link}} で追加します。",
+  "settingsApiKeys.replaceTitle": "{{name}} を置き換え",
+  "settingsApiKeys.replaceValue": "値を置き換え",
+  "settingsApiKeys.saving": "保存中…",
+  "settingsApiKeys.showKeys_other": "{{count}} 件のキーを表示",
+  "settingsApiKeys.test": "テスト",
+  "settingsApiKeys.testPassed": "保存された値は有効です。",
+  "settingsApiKeys.usedBy": "使用元: {{link}}",
+  "settingsApiKeys.value": "値",
+  "settingsApiKeys.valueReplaced": "値を置き換えました",
+  "settingsApiKeys.yourKeys": "自分のキー",
+  "settingsModel.addEndpoint": "エンドポイント URL を追加",
+  "settingsModel.addNamed": "{{provider}} を追加",
+  "settingsModel.addProvider": "プロバイダーを追加",
+  "settingsModel.adding": "追加しています",
+  "settingsModel.affectsOrg": "{{org}} の全員に影響します。",
+  "settingsModel.affectsYou": "影響するのはあなただけです。",
+  "settingsModel.allApps": "すべてのアプリ",
+  "settingsModel.apiKey": "API キー",
+  "settingsModel.builderConnected": "接続済み · {{space}}",
+  "settingsModel.builderConnectedPlain": "接続済み",
+  "settingsModel.builderOrgNotConnectedAdmin":
+    "未接続です。接続すると {{org}} の全員が使えるようになります。",
+  "settingsModel.builderOrgNotConnectedMember":
+    "未接続です。オーナーまたは管理者が接続できます。",
+  "settingsModel.builderPersonalConnect":
+    "自分のアカウントを接続すると、自分の Builder.io クレジットを使えます。",
+  "settingsModel.builderPersonalInsteadOfOrg":
+    "自分のアカウントを接続すると、組織の接続の代わりに使えます。",
+  "settingsModel.builderPersonalOverOrg":
+    "接続済み · {{space}}。組織の接続の代わりに使われます。",
+  "settingsModel.builderPersonalOverOrgPlain":
+    "接続済み。組織の接続の代わりに使われます。",
+  "settingsModel.builderUnknown": "Builder.io の接続を確認できませんでした。",
+  "settingsModel.cancel": "キャンセル",
+  "settingsModel.change": "変更",
+  "settingsModel.chatgptConnected": "接続済み",
+  "settingsModel.chatgptDescription":
+    "ChatGPT のプランで Codex エンジンを使えます。",
+  "settingsModel.chatgptPopupBlocked":
+    "このサイトのポップアップを許可してから、もう一度お試しください。",
+  "settingsModel.chatgptTitle": "ChatGPT サブスクリプション",
+  "settingsModel.checkAgain": "もう一度確認",
+  "settingsModel.checkedJustNow": "たった今確認しました。",
+  "settingsModel.checkedOn": "{{date}} に確認しました。",
+  "settingsModel.checking": "{{provider}} でキーを確認しています",
+  "settingsModel.checkingEndpoint": "エンドポイントを確認しています",
+  "settingsModel.checkingOllama": "インストール済みのモデルを確認しています…",
+  "settingsModel.checkingSaved": "保存済みのキーを確認しています",
+  "settingsModel.chooseModel": "モデルを選択",
+  "settingsModel.clear": "クリア",
+  "settingsModel.connect": "接続",
+  "settingsModel.connecting": "接続しています…",
+  "settingsModel.defaultModelDescription":
+    "アプリが独自に設定しない限り、すべてのアプリで使われます。",
+  "settingsModel.defaultModelNeedsProvider":
+    "デフォルトのモデルを選ぶには、プロバイダーを追加してください。",
+  "settingsModel.disconnect": "接続を解除",
+  "settingsModel.effectDefaultStops":
+    "別のプロバイダーを設定するまでチャットが停止します。",
+  "settingsModel.effectDefaultSwitches":
+    "デフォルトモデルが {{next}} に切り替わります。",
+  "settingsModel.effectKeepsOrg": "組織のキーで引き続き動作します。",
+  "settingsModel.effectKeepsVault": "Vault のキーで引き続き動作します。",
+  "settingsModel.effectKeepsWorkspace":
+    "ワークスペースのキーで引き続き動作します。",
+  "settingsModel.effectModelsLeave":
+    "{{provider}} のモデルがモデル選択から外れます。",
+  "settingsModel.emptyAskAdmin":
+    "オーナーまたは管理者に追加を依頼してください。",
+  "settingsModel.emptyDescription":
+    "エージェントが応答するにはプロバイダーが必要です。",
+  "settingsModel.emptyDescriptionBuilder":
+    "エージェントが応答するにはプロバイダーが必要です。モデルへのアクセス、ブラウザ自動化、ファイルストレージ、ワークスペース ID には Builder.io をおすすめします。無料プランがあります。",
+  "settingsModel.emptyTitle": "モデルプロバイダーを追加",
+  "settingsModel.endpointFirst": "先にエンドポイント URL を入力してください。",
+  "settingsModel.endpointHint":
+    "任意。LiteLLM などの OpenAI 互換ゲートウェイで使います。",
+  "settingsModel.endpointUrl": "エンドポイント URL",
+  "settingsModel.keyHint":
+    "{{host}} で作成できます。料金は {{provider}} から直接請求されます。",
+  "settingsModel.keyPlaceholder": "{{provider}} のキーを貼り付け",
+  "settingsModel.labs": "Labs",
+  "settingsModel.loadFailed": "プロバイダーを読み込めませんでした。",
+  "settingsModel.lockedTip": "変更できるのはオーナーと管理者だけです。",
+  "settingsModel.manage": "管理",
+  "settingsModel.maxIterationsDescription":
+    "1 回の応答が一時停止するまでに作業できる長さです。",
+  "settingsModel.maxIterationsInvalid":
+    "{{min}} から {{max}} までの整数を入力してください。",
+  "settingsModel.modelCount_other": "{{count}} 個のモデル",
+  "settingsModel.modelOption": "{{model}} · {{provider}}",
+  "settingsModel.models": "モデル",
+  "settingsModel.modelsHint": "選択したモデルがモデル選択に表示されます。",
+  "settingsModel.modelsHintService":
+    "チャットモデルは任意です。チェックを外したままにすると、このキーを {{service}} だけに使います。",
+  "settingsModel.modelsIdle":
+    "キーを貼り付けると、使えるモデルが表示されます。",
+  "settingsModel.modelsIdleOllama":
+    "エンドポイント URL を入力すると、インストール済みのモデルが表示されます。",
+  "settingsModel.modelsSaveFailed":
+    "キーは保存されましたが、モデルの一覧は保存されませんでした。{{message}}",
+  "settingsModel.noChatModels": "チャットモデルなし",
+  "settingsModel.noModelsFound": "モデルが見つかりません。",
+  "settingsModel.notSet": "未設定",
+  "settingsModel.nothingElse": "このキーを使っているものはほかにありません。",
+  "settingsModel.ollamaHint": "API キーは不要です。",
+  "settingsModel.orgProviders": "組織のプロバイダー",
+  "settingsModel.orgSettings": "組織の設定",
+  "settingsModel.organization": "組織",
+  "settingsModel.pasteFirst": "先にキーを貼り付けてください。",
+  "settingsModel.personal": "個人",
+  "settingsModel.personalProviders": "個人のプロバイダー",
+  "settingsModel.previewFailed": "影響を確認できませんでした。",
+  "settingsModel.provider": "プロバイダー",
+  "settingsModel.providerErrorHeadline":
+    "{{provider}} はこのキーを確認できませんでした",
+  "settingsModel.reasonEndpoint": "エンドポイント URL を確認してください。",
+  "settingsModel.reasonOllamaUnreachable":
+    "URL と Ollama が起動していることを確認してください。",
+  "settingsModel.reasonPrefix":
+    "{{provider}} のキーは {{prefix}} で始まります。",
+  "settingsModel.reasonRejected":
+    "すべてコピーしたか確認するか、新しいキーを作成してください。",
+  "settingsModel.reasonTryAgain": "しばらくしてからもう一度お試しください。",
+  "settingsModel.reasonWrongProvider": "これは {{provider}} のキーのようです。",
+  "settingsModel.reasonWrongProviderVowel":
+    "これは {{provider}} のキーのようです。",
+  "settingsModel.reconnect": "再接続",
+  "settingsModel.rejected":
+    "{{provider}} は {{date}} にこのキーを拒否しました。キーを置き換えるまで、このキーを使うチャットは停止します。",
+  "settingsModel.rejectedAskAdmin":
+    "{{provider}} は {{date}} にこのキーを拒否しました。オーナーまたは管理者に置き換えを依頼してください。",
+  "settingsModel.rejectedHeadline": "{{provider}} がこのキーを拒否しました",
+  "settingsModel.remove": "削除",
+  "settingsModel.removeProvider": "プロバイダーを削除",
+  "settingsModel.removeTitle": "{{provider}} を削除しますか？",
+  "settingsModel.removing": "削除しています",
+  "settingsModel.replace": "置き換え",
+  "settingsModel.replaceKey": "キーを置き換え",
+  "settingsModel.restrictBody": "メンバーは組織のプロバイダーだけを使えます。",
+  "settingsModel.restrictConfirm": "キーを制限",
+  "settingsModel.restrictDescription":
+    "メンバーは組織のプロバイダーだけを使えるようになり、メンバーが追加したキーは動作しなくなります。",
+  "settingsModel.restrictLabel": "個人の API キーを制限",
+  "settingsModel.restrictMemberBuilder":
+    "個人の Builder.io 接続が動作しなくなります。",
+  "settingsModel.restrictMemberChats":
+    "チャットは組織のプロバイダーに切り替わります。",
+  "settingsModel.restrictMemberKeys_other":
+    "{{providers}} のキーが動作しなくなります。",
+  "settingsModel.restrictNewKeysBody":
+    "メンバーは追加できません。オーナーと管理者は引き続き追加できます。",
+  "settingsModel.restrictNewKeysTitle": "新しい個人のキー",
+  "settingsModel.restrictTitle": "個人の API キーを制限しますか？",
+  "settingsModel.restricted":
+    "オーナーと管理者が個人の API キーを制限しています。",
+  "settingsModel.restrictedRow":
+    "個人の API キーが制限されている間は使われません。",
+  "settingsModel.restricting": "制限しています",
+  "settingsModel.retry": "再試行",
+  "settingsModel.save": "保存",
+  "settingsModel.savedRejected":
+    "{{provider}} が保存済みのキーを拒否しました。新しいキーを貼り付けてください。",
+  "settingsModel.saving": "保存しています",
+  "settingsModel.selectAll": "すべて選択",
+  "settingsModel.settingLoadFailed": "この設定を読み込めませんでした。",
+  "settingsModel.unreachableHeadline": "{{provider}} に接続できませんでした",
+  "settingsModel.view": "表示",
+  "settingsModel.whatHappens": "どうなるか",
+  "settingsModel.who": "使える人",
+  "settingsModel.whoHintAdmin":
+    "個人のプロバイダーはあなただけのものです。組織のプロバイダーは {{org}} の全員が使えます。",
+  "settingsModel.whoHintMember":
+    "組織のプロバイダーを追加できるのはオーナーと管理者だけです。",
+  "settingsModel.whoHintService": "サービスは組織のキーを使います。",
+  "settingsSubAgents.connect": "エージェントを接続",
+  "settingsSubAgents.orgApps": "{{org}} のアプリ",
+  "settingsSubAgents.workspaceApps": "ワークスペースのアプリ",
+  "settingsSubAgents.external": "外部エージェント",
+  "settingsSubAgents.custom": "カスタムエージェント",
+  "settingsSubAgents.managedByAdmins": "管理者が管理",
+  "settingsSubAgents.appsEmpty": "接続済みのアプリはまだありません",
+  "settingsSubAgents.externalEmpty":
+    "Foundry、Gemini Enterprise、Anthropic、または任意の A2A エージェントを接続します。",
+  "settingsSubAgents.externalEmptyTitle": "外部エージェントはまだありません",
+  "settingsSubAgents.customEmpty":
+    "メインエージェントが作業を任せられる専用エージェントを定義します。",
+  "settingsSubAgents.customEmptyTitle": "カスタムエージェントはまだありません",
+  "settingsSubAgents.addAgent": "エージェントを追加",
+  "settingsSubAgents.describe": "エージェントに説明する",
+  "settingsSubAgents.describePlaceholder":
+    "レイアウトを評価し UI の方向性を提案するデザインエージェント",
+  "settingsSubAgents.write": "自分で書く",
+  "settingsSubAgents.name": "名前",
+  "settingsSubAgents.description": "説明",
+  "settingsSubAgents.instructions": "指示",
+  "settingsSubAgents.loadFailed":
+    "接続済みエージェントを読み込めませんでした。",
+  "settingsSubAgents.statusUnreachable": "接続不可",
+  "settingsSubAgents.edit": "編集",
+  "settingsSubAgents.editTitle": "{{name}} を編集",
+  "settingsSubAgents.removeDescription":
+    "{{org}} の全員について、エージェントは {{name}} に作業を任せなくなります。",
+  "settingsSubAgents.removeDescriptionSolo":
+    "エージェントは {{name}} に作業を任せなくなります。",
+  "settingsSubAgents.directoryTitle": "エージェントを接続",
+  "settingsSubAgents.anyAgent": "任意の A2A エージェント",
+  "settingsSubAgents.anyAgentHint": "エージェントカードの URL を貼り付けます。",
+  "settingsSubAgents.registryLink": "Global A2A Registry を見る",
+  "settingsSubAgents.connectTitle": "{{name}} を接続",
+  "settingsSubAgents.close": "閉じる",
 };
 
 export default messages;

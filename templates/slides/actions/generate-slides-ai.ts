@@ -1,8 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
 import { createBuilderEngine } from "@agent-native/core/agent/engine";
 import {
+  resolveGeminiApiKey,
   resolveHasBuilderGatewayCredential,
-  resolveSecret,
 } from "@agent-native/core/server";
 import type { GeneratedSlide } from "@shared/api";
 import { z } from "zod";
@@ -89,12 +89,12 @@ Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the 
     }
 
     if (!text?.trim()) {
-      const apiKey = await resolveSecret("GEMINI_API_KEY");
+      const apiKey = await resolveGeminiApiKey();
       if (!apiKey) {
         throw (
           builderError ??
           new Error(
-            "Slides outline generation needs Builder.io Connect (free tier available) or GEMINI_API_KEY.",
+            "Slides outline generation needs Builder.io Connect (free tier available) or a Gemini API key (GOOGLE_GENERATIVE_AI_API_KEY).",
           )
         );
       }

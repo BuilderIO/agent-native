@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { getAgentProviderOption } from "../agent-provider-catalog.js";
 import { invalidateClientStatusRequests } from "../client-status-requests.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
 import { AgentSettingsContent } from "./SettingsPanel.js";
@@ -78,6 +79,8 @@ function createFetchFixture({
   providerSettingsResponse,
   disconnectResponse,
   ollamaModelsResponse,
+  role = "admin",
+  orgMeResponse,
 }: {
   engines?: EngineFixture[] | (() => EngineFixture[]);
   current?: { engine: string; model: string };
@@ -88,6 +91,8 @@ function createFetchFixture({
   providerSettingsResponse?: () => Promise<Response> | Response;
   disconnectResponse?: () => Promise<Response> | Response;
   ollamaModelsResponse?: () => Promise<Response> | Response;
+  role?: "owner" | "admin" | "member" | null;
+  orgMeResponse?: () => Promise<Response> | Response;
 }) {
   const setRequests: Array<Record<string, unknown>> = [];
   const providerSettingsRequests: Array<Record<string, unknown>> = [];
@@ -97,6 +102,17 @@ function createFetchFixture({
       const url = String(input);
       if (url.endsWith("/_agent-native/agent-chat/mode")) {
         return json({ devMode: false, canToggle: false });
+      }
+      if (url.endsWith("/_agent-native/org/me")) {
+        if (orgMeResponse) return orgMeResponse();
+        return json({
+          email: "viewer@example.test",
+          orgId: role ? "org-1" : null,
+          orgName: role ? "Acme" : null,
+          role,
+          icon: null,
+          iconRevision: 0,
+        });
       }
       if (url.includes("/_agent-native/connection-status/builder")) {
         return json({
@@ -217,6 +233,12 @@ function buttonNamed(name: string): HTMLButtonElement {
   return button;
 }
 
+function hasButton(name: string): boolean {
+  return Array.from(document.querySelectorAll("button")).some(
+    (candidate) => candidate.textContent?.trim() === name,
+  );
+}
+
 async function chooseOpenAi(): Promise<void> {
   const setup = Array.from(document.querySelectorAll("button")).find((button) =>
     ["Custom keys", "Manage"].includes(button.textContent?.trim() ?? ""),
@@ -288,7 +310,7 @@ describe("AgentSettingsContent provider save", () => {
     act(() => root.unmount());
   });
 
-  it("keeps Apply available and shows a bare action error without success or events", async () => {
+  it("keeps Save available and shows a bare action error without success or events", async () => {
     const fixture = createFetchFixture({
       setResponse: () => json("Error: optional packages are not installed"),
     });
@@ -300,12 +322,12 @@ describe("AgentSettingsContent provider save", () => {
       configuredChanged,
     );
 
-    await click(buttonNamed("Apply"));
+    await click(buttonNamed("Save"));
 
     expect(document.querySelector('[role="alert"]')?.textContent).toContain(
       "optional packages are not installed",
     );
-    expect(buttonNamed("Apply")).toBeTruthy();
+    expect(buttonNamed("Save")).toBeTruthy();
     expect(document.body.textContent).not.toContain(
       "Changes take effect on next conversation",
     );
@@ -314,7 +336,7 @@ describe("AgentSettingsContent provider save", () => {
     act(() => root.unmount());
   });
 
-  it("renders the authoritative server-normalized model after Apply", async () => {
+  it("renders the authoritative server-normalized model after Save", async () => {
     const fixture = createFetchFixture({
       listResponse: (request) =>
         json({
@@ -334,7 +356,7 @@ describe("AgentSettingsContent provider save", () => {
     const { root } = await renderSettings(fixture.fetchMock);
     await chooseOpenAi();
 
-    await click(buttonNamed("Apply"));
+    await click(buttonNamed("Save"));
 
     const model = document.querySelector(
       'input[list="model-suggestions-ai-sdk:openai"]',
@@ -344,11 +366,7 @@ describe("AgentSettingsContent provider save", () => {
     expect(document.body.textContent).toContain(
       "Changes take effect on next conversation",
     );
-    expect(
-      Array.from(document.querySelectorAll("button")).some(
-        (candidate) => candidate.textContent?.trim() === "Apply",
-      ),
-    ).toBe(false);
+    expect(hasButton("Save")).toBe(false);
     act(() => root.unmount());
   });
 
@@ -371,7 +389,7 @@ describe("AgentSettingsContent provider save", () => {
       'input[list="model-suggestions-anthropic"]',
     );
     expect(model?.value).toBe("claude-sonnet-5");
-    expect(document.body.textContent).not.toContain("Apply");
+    expect(hasButton("Save")).toBe(false);
     expect(fixture.setRequests).toHaveLength(0);
     act(() => root.unmount());
   });
@@ -396,10 +414,10 @@ describe("AgentSettingsContent provider save", () => {
       window.dispatchEvent(new Event("focus"));
     });
     expect(model.value).toBe("dirty/custom-model");
-    expect(buttonNamed("Apply")).toBeTruthy();
+    expect(buttonNamed("Save")).toBeTruthy();
 
     await changeInput(model, current.model);
-    expect(document.body.textContent).not.toContain("Apply");
+    expect(hasButton("Save")).toBe(false);
 
     current = { engine: "anthropic", model: "claude-sonnet-5" };
     await act(async () => {
@@ -410,7 +428,7 @@ describe("AgentSettingsContent provider save", () => {
         'input[list="model-suggestions-anthropic"]',
       )?.value,
     ).toBe("claude-sonnet-5");
-    expect(document.body.textContent).not.toContain("Apply");
+    expect(hasButton("Save")).toBe(false);
     act(() => root.unmount());
   });
 
@@ -429,7 +447,7 @@ describe("AgentSettingsContent provider save", () => {
     });
     const { root } = await renderSettings(fixture.fetchMock);
     await chooseOpenAi();
-    await click(buttonNamed("Apply"));
+    await click(buttonNamed("Save"));
     expect(
       document.querySelector<HTMLInputElement>(
         'input[list="model-suggestions-ai-sdk:openai"]',
@@ -443,7 +461,7 @@ describe("AgentSettingsContent provider save", () => {
         'input[list="model-suggestions-anthropic"]',
       )?.value,
     ).toBe("claude-sonnet-5");
-    expect(document.body.textContent).not.toContain("Apply");
+    expect(hasButton("Save")).toBe(false);
     expect(document.body.textContent).not.toContain(
       "Changes take effect on next conversation",
     );
@@ -518,11 +536,202 @@ describe("AgentSettingsContent provider save", () => {
             ? { baseUrl: "https://gateway.example/v1" }
             : {}),
           ...(draft === "clear-endpoint" ? { clearBaseUrl: true } : {}),
+          defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.4" },
         },
       ]);
       act(() => root.unmount());
     },
   );
+
+  it("saves an admin's new key and picks its provider in one request", async () => {
+    const fixture = createFetchFixture({
+      envKeys: [
+        { key: "ANTHROPIC_API_KEY", configured: true },
+        { key: "OPENAI_API_KEY", configured: false },
+      ],
+      listResponse: () =>
+        json({
+          engines: [anthropic, openai],
+          current: { engine: "anthropic", model: "claude-sonnet-5" },
+          canUpdateDefault: true,
+        }),
+      setResponse: () => {
+        throw new Error("Saving a key must not need a separate Apply");
+      },
+      providerSettingsResponse: () =>
+        json({
+          ok: true,
+          key: "OPENAI_API_KEY",
+          scope: "org",
+          defaultModel: {
+            status: "selected",
+            engine: "ai-sdk:openai",
+            model: "gpt-5.4",
+          },
+        }),
+    });
+    const { root } = await renderSettings(fixture.fetchMock);
+    await chooseOpenAi();
+    const key = document.querySelector<HTMLInputElement>(
+      'input[type="password"]',
+    );
+    if (!key) throw new Error("Missing API key input");
+    await changeInput(key, "sk-obviously-fake-openai-key");
+
+    await click(buttonNamed("Save"));
+
+    expect(fixture.providerSettingsRequests).toEqual([
+      {
+        key: "OPENAI_API_KEY",
+        value: "sk-obviously-fake-openai-key",
+        scope: "org",
+        defaultModel: {
+          engine: "ai-sdk:openai",
+          model: getAgentProviderOption("openai").defaultModel,
+        },
+      },
+    ]);
+    expect(fixture.setRequests).toHaveLength(0);
+    expect(document.body.textContent).toContain(
+      "Changes take effect on next conversation",
+    );
+    act(() => root.unmount());
+  });
+
+  it("shows members the default model without Save or Disconnect", async () => {
+    const fixture = createFetchFixture({
+      envKeys: [
+        { key: "ANTHROPIC_API_KEY", configured: true },
+        { key: "OPENAI_API_KEY", configured: false },
+      ],
+      listResponse: () =>
+        json({
+          engines: [anthropic, openai],
+          current: { engine: "anthropic", model: "claude-sonnet-5" },
+          canUpdateDefault: false,
+        }),
+      setResponse: () => {
+        throw new Error("Members cannot change the default model");
+      },
+      role: "member",
+    });
+    const { root } = await renderSettings(fixture.fetchMock);
+    expect(hasButton("Disconnect")).toBe(false);
+    await chooseOpenAi();
+    const key = document.querySelector<HTMLInputElement>(
+      'input[type="password"]',
+    );
+    if (!key) throw new Error("Missing API key input");
+    expect(buttonNamed("Save").disabled).toBe(true);
+
+    await changeInput(key, "sk-obviously-fake-openai-key");
+    await click(buttonNamed("Save"));
+
+    expect(fixture.providerSettingsRequests).toEqual([
+      {
+        key: "OPENAI_API_KEY",
+        value: "sk-obviously-fake-openai-key",
+        scope: "user",
+      },
+    ]);
+    expect(fixture.setRequests).toHaveLength(0);
+    act(() => root.unmount());
+  });
+
+  it("saves a key personally for a user with no organization", async () => {
+    const fixture = createFetchFixture({
+      envKeys: [
+        { key: "ANTHROPIC_API_KEY", configured: true },
+        { key: "OPENAI_API_KEY", configured: false },
+      ],
+      listResponse: () =>
+        json({
+          engines: [anthropic, openai],
+          current: { engine: "anthropic", model: "claude-sonnet-5" },
+          canUpdateDefault: true,
+        }),
+      setResponse: () => json({ ok: true }),
+      providerSettingsResponse: () =>
+        json({
+          ok: true,
+          key: "OPENAI_API_KEY",
+          scope: "user",
+          defaultModel: {
+            status: "selected",
+            engine: "ai-sdk:openai",
+            model: "gpt-5.4",
+          },
+        }),
+      role: null,
+    });
+    const { root } = await renderSettings(fixture.fetchMock);
+    await chooseOpenAi();
+    const key = document.querySelector<HTMLInputElement>(
+      'input[type="password"]',
+    );
+    if (!key) throw new Error("Missing API key input");
+    await changeInput(key, "sk-obviously-fake-openai-key");
+    await click(buttonNamed("Save"));
+
+    expect(fixture.providerSettingsRequests).toEqual([
+      expect.objectContaining({ key: "OPENAI_API_KEY", scope: "user" }),
+    ]);
+    act(() => root.unmount());
+  });
+
+  it("keeps Save off with a retry when the viewer's role can't be read", async () => {
+    let orgMeFails = true;
+    const fixture = createFetchFixture({
+      envKeys: [
+        { key: "ANTHROPIC_API_KEY", configured: true },
+        { key: "OPENAI_API_KEY", configured: false },
+      ],
+      listResponse: () =>
+        json({
+          engines: [anthropic, openai],
+          current: { engine: "anthropic", model: "claude-sonnet-5" },
+          canUpdateDefault: true,
+        }),
+      setResponse: () => json({ ok: true }),
+      orgMeResponse: () =>
+        orgMeFails
+          ? json({ error: "Org context unavailable" }, 500)
+          : json({
+              email: "viewer@example.test",
+              orgId: "org-1",
+              orgName: "Acme",
+              role: "admin",
+              icon: null,
+              iconRevision: 0,
+            }),
+    });
+    const { root } = await renderSettings(fixture.fetchMock);
+    await chooseOpenAi();
+    const key = document.querySelector<HTMLInputElement>(
+      'input[type="password"]',
+    );
+    if (!key) throw new Error("Missing API key input");
+    await changeInput(key, "sk-obviously-fake-openai-key");
+
+    expect(buttonNamed("Save").disabled).toBe(true);
+    expect(document.body.textContent).toContain(
+      "Couldn't load your organization role",
+    );
+    await click(buttonNamed("Save"));
+    expect(fixture.providerSettingsRequests).toEqual([]);
+
+    orgMeFails = false;
+    await click(buttonNamed("Retry"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await click(buttonNamed("Save"));
+
+    expect(fixture.providerSettingsRequests).toEqual([
+      expect.objectContaining({ key: "OPENAI_API_KEY", scope: "org" }),
+    ]);
+    act(() => root.unmount());
+  });
 
   it("does not show a provider as connected when its package and configuration are false", async () => {
     const unavailableOpenAi = {
@@ -559,7 +768,7 @@ describe("AgentSettingsContent provider save", () => {
     act(() => root.unmount());
   });
 
-  it("disables the form and prevents duplicate Apply requests while pending", async () => {
+  it("disables the form and prevents duplicate Save requests while pending", async () => {
     let resolveSet!: (response: Response) => void;
     const pending = new Promise<Response>((resolve) => {
       resolveSet = resolve;
@@ -568,12 +777,12 @@ describe("AgentSettingsContent provider save", () => {
     const { root } = await renderSettings(fixture.fetchMock);
     await chooseOpenAi();
 
-    const apply = buttonNamed("Apply");
-    await click(apply);
-    const fieldset = apply.closest("fieldset");
+    const save = buttonNamed("Save");
+    await click(save);
+    const fieldset = save.closest("fieldset");
     expect(fieldset).toBeInstanceOf(HTMLFieldSetElement);
     expect((fieldset as HTMLFieldSetElement).disabled).toBe(true);
-    await click(apply);
+    await click(save);
     expect(fixture.setRequests).toHaveLength(1);
 
     await act(async () => {
@@ -660,14 +869,10 @@ describe("AgentSettingsContent provider save", () => {
 
     expect(fixture.listRequests).toBe(2);
     expect(model.value).toBe("dirty/custom-model");
-    expect(buttonNamed("Apply")).toBeTruthy();
+    expect(buttonNamed("Save")).toBeTruthy();
 
     await changeInput(model, "server/current-model");
-    expect(
-      Array.from(document.querySelectorAll("button")).some(
-        (candidate) => candidate.textContent?.trim() === "Apply",
-      ),
-    ).toBe(false);
+    expect(hasButton("Save")).toBe(false);
     act(() => root.unmount());
   });
 

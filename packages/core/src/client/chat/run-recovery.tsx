@@ -25,6 +25,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router";
 
 import { isCreditsLimitErrorCode } from "../../agent/engine/error-detail.js";
+import { SETTINGS_REDESIGN_FLAG } from "../../feature-flags/registry.js";
 import { buildSettingsRoute } from "../../navigation/index.js";
 import { withBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import { agentNativePath } from "../api-path.js";
@@ -34,6 +35,7 @@ import {
   isProviderAuthenticationError,
   localizeKnownChatErrorText,
 } from "../error-format.js";
+import { useFeatureFlagState } from "../feature-flags/use-feature-flag.js";
 import { useFormatters, useT } from "../i18n.js";
 import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
@@ -375,6 +377,8 @@ export function BuilderSetupContent({
 }) {
   const t = useT();
   const sidebarLayout = layout === "sidebar";
+  // Model providers moved to Agent › Model in the redesigned Settings.
+  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
 
   return (
     <div
@@ -409,7 +413,7 @@ export function BuilderSetupContent({
         >
           <BuilderConnectCta variant="compact" onConnected={onConnected} />
           <Link
-            to={buildSettingsRoute("keys")}
+            to={buildSettingsRoute(redesign.enabled ? "model" : "keys")}
             className={cn(
               "agent-builder-setup-card__key-button inline-flex shrink-0 items-center whitespace-nowrap rounded-md text-[11px] font-medium",
               sidebarLayout
@@ -1013,10 +1017,11 @@ export function LoopLimitContinueCard({
   }, [hasPendingChange, onContinue, saveLimit]);
 
   const openSettings = useCallback(() => {
-    try {
-      window.location.hash = "agent-limits";
-    } catch {}
-    window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:open-settings", {
+        detail: { section: "limits" },
+      }),
+    );
   }, []);
 
   return (

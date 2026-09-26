@@ -972,7 +972,7 @@ function ThreadDetail({ detail }: { detail: ThreadDebugResponse }) {
       ) : null}
 
       <Tabs defaultValue="overview" className="p-5">
-        <TabsList className="h-9">
+        <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
           <TabsTrigger value="transcript">Transcript</TabsTrigger>

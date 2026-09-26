@@ -23,7 +23,7 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 export function useAutomations(options?: { enabled?: boolean }) {
   return useQuery<AutomationRule[]>({
     queryKey: ["automations"],
-    queryFn: () => callAction("list-automations", {}, { method: "GET" }),
+    queryFn: () => callAction("list-email-rules", {}, { method: "GET" }),
     staleTime: 60_000,
     enabled: options?.enabled ?? true,
   });
@@ -38,7 +38,7 @@ export function useCreateAutomation() {
       actions: AutomationAction[];
       domain?: AutomationRule["domain"];
       kind?: AutomationRule["kind"];
-    }) => callAction("create-automation", data) as Promise<AutomationRule>,
+    }) => callAction("create-email-rule", data) as Promise<AutomationRule>,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["automations"] }),
   });
 }
@@ -53,7 +53,7 @@ export function useUpdateAutomation() {
       actions?: AutomationAction[];
       enabled?: boolean;
     }) =>
-      callAction("update-automation", data, {
+      callAction("update-email-rule", data, {
         method: "PUT",
       }) as Promise<AutomationRule>,
     onMutate: async ({ id, ...data }) => {
@@ -84,7 +84,7 @@ export function useDeleteAutomation() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      callAction("delete-automation", { id }, { method: "DELETE" }),
+      callAction("delete-email-rule", { id }, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["automations"] }),
   });
 }

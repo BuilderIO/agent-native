@@ -874,6 +874,9 @@ export async function fetchS3ObjectByUrl(
 export const s3FileUploadProvider: FileUploadProvider = {
   id: "s3",
   name: "S3-compatible storage",
+  // Clips reads objects back through signed requests (`fetchS3ObjectByUrl`),
+  // so storage settings can leave the public base URL blank.
+  publicBaseUrlOptional: true,
   isConfigured: () => readS3EnvConfig() !== null,
   isConfiguredForRequest: async () => (await readS3Config()) !== null,
   upload: async ({ data, filename, mimeType }) => {

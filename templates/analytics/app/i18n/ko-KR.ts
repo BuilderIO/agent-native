@@ -172,6 +172,9 @@ export default {
     bellSoundDescription:
       "에이전트가 실행을 완료하면 소리를 재생합니다. 기본값은 꺼짐입니다.",
     bellSoundSaveFailed: "소리 설정을 저장하지 못했습니다.",
+    notificationsTitle: "알림",
+    notificationsEmailGroup: "이메일",
+    notificationsSoundGroup: "소리",
     replayStorage: "세션 재생 저장소",
     replayStorageDescription:
       "세션 재생 녹화에는 파일 업로드 제공자 구성이 필요합니다. 무료 등급 객체 저장소를 사용하려면 Builder.io를 연결하거나, 직접 S3 호환 버킷을 사용하세요.",

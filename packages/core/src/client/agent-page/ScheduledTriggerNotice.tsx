@@ -155,7 +155,7 @@ export function ScheduledTriggerNotice({
                 })}
               </span>
             </summary>
-            <p className="mt-1 whitespace-pre-line text-[11px] leading-4 text-amber-700/90 dark:text-amber-300/90">
+            <p className="mt-1 whitespace-pre-line break-words text-[11px] leading-4 text-amber-700/90 dark:text-amber-300/90">
               {fix}
             </p>
           </details>

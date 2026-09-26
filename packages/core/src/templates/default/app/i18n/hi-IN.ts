@@ -217,6 +217,9 @@ const messages = {
       noErrorMessage: "(कोई त्रुटि संदेश नहीं)",
     },
   },
+  settingsShortcut: {
+    command: "सेटिंग्स",
+  },
   agentPanel: {
     useBuilder: "बिल्डर का प्रयोग करें",
     openDesktopToEditCode: "कोड संपादित करने के लिए डेस्कटॉप खोलें",
@@ -232,6 +235,7 @@ const messages = {
     newChat: "नई चैट",
     newTerminal: "नया टर्मिनल",
     panelOptions: "एजेंट पैनल विकल्प",
+    integrations: "इंटीग्रेशन",
     collapseSidebar: "साइडबार समेटें",
     widenChat: "चैट को चौड़ा करें",
     returnChatToLayout: "चैट को लेआउट में वापस लाएँ",
@@ -257,6 +261,8 @@ const messages = {
     sharedKeyInEffect: "साझा कुंजी उपयोग में है।",
     useOrganizationKey: "संगठन की कुंजी इस्तेमाल करें",
     keyStatusUnavailable: "कुंजी की स्थिति उपलब्ध नहीं है।",
+    saveScopeRoleUnavailable:
+      "आपकी संगठन भूमिका लोड नहीं हो सकी, इसलिए अभी कुंजियाँ सहेजी नहीं जा सकतीं।",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',

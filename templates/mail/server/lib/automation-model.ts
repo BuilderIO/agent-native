@@ -1,5 +1,6 @@
 import {
   isResolvedEngineUsableForRequest,
+  readDefaultAgentEngineSetting,
   registerBuiltinEngines,
   resolveEngine,
 } from "@agent-native/core/agent/engine";
@@ -9,7 +10,6 @@ import {
   readDeployCredentialEnv,
   runWithRequestContext,
 } from "@agent-native/core/server";
-import { getSetting } from "@agent-native/core/settings";
 
 export interface AutomationModelSettings {
   engine?: string;
@@ -112,7 +112,7 @@ export async function resolveDefaultAutomationModel(
     }
   }
 
-  const agentEngine = (await getSetting("agent-engine")) as {
+  const agentEngine = (await readDefaultAgentEngineSetting()) as {
     engine?: string;
     model?: string;
   } | null;
@@ -146,7 +146,7 @@ export async function resolveTextAutomationModelSettings(
     }
   }
 
-  const agentEngine = (await getSetting("agent-engine")) as {
+  const agentEngine = (await readDefaultAgentEngineSetting()) as {
     engine?: string;
     model?: string;
   } | null;

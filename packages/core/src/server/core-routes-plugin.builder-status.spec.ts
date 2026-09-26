@@ -1,11 +1,27 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const isRestrictedMock = vi.hoisted(() => vi.fn(async () => false));
+
+vi.mock("./personal-provider-key-policy.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("./personal-provider-key-policy.js")
+  >()),
+  isPersonalProviderKeyUseRestricted: isRestrictedMock,
+}));
+
+beforeEach(() => {
+  isRestrictedMock.mockReset();
+  isRestrictedMock.mockResolvedValue(false);
+});
 
 import {
   BUILDER_STATUS_LEGACY_CREDENTIAL_KEYS,
   BUILDER_STATUS_ROUTE_SUFFIXES,
+  builderEffectiveConnectionFor,
   getBuilderConnectErrorDisposition,
   getBuilderConnectErrorKey,
   mountBuilderStatusRouteAliases,
+  resolveBuilderConnectionsStatus,
   resolveOAuthCustodyBuilderKeyStatus,
 } from "./core-routes-plugin.js";
 
@@ -136,5 +152,178 @@ describe("resolveOAuthCustodyBuilderKeyStatus", () => {
     expect(thrown.privateKeyConfigured).toBe(false);
     expect(thrown.publicKeyConfigured).toBe(false);
     expect(thrown).toMatchObject({ keyLookupFailed: true });
+  });
+});
+
+describe("resolveBuilderConnectionsStatus", () => {
+  const bothGrants = {
+    org: { connectedAt: 1_000, needsReconnect: false },
+    personal: { connectedAt: 2_000, needsReconnect: false, restricted: false },
+  };
+  const noKeys = async () => ({});
+
+  it("reports both grants and lets a member connect only a personal one", async () => {
+    await expect(
+      resolveBuilderConnectionsStatus(
+        { ownerEmail: "member@example.com", orgId: "org-123", role: "member" },
+        { getGrants: async () => bothGrants, getKeyConnections: noKeys },
+      ),
+    ).resolves.toEqual({
+      grants: {
+        org: { ...bothGrants.org, kind: "oauth" },
+        personal: { ...bothGrants.personal, kind: "oauth" },
+      },
+      canConnect: { org: false, personal: true },
+    });
+  });
+
+  it("reports key-pair connections at the scope that stores them", async () => {
+    await expect(
+      resolveBuilderConnectionsStatus(
+        { ownerEmail: "owner@example.com", orgId: "org-123", role: "owner" },
+        {
+          getGrants: async () => ({}),
+          getKeyConnections: async () => ({
+            org: { connectedAt: 3_000, needsReconnect: false },
+            personal: { connectedAt: 4_000, needsReconnect: true },
+          }),
+        },
+      ),
+    ).resolves.toEqual({
+      grants: {
+        org: { connectedAt: 3_000, needsReconnect: false, kind: "keys" },
+        personal: {
+          connectedAt: 4_000,
+          needsReconnect: true,
+          kind: "keys",
+          restricted: false,
+        },
+      },
+      canConnect: { org: true, personal: false },
+    });
+  });
+
+  it("reports the OAuth grant over a key pair stored at the same scope", async () => {
+    await expect(
+      resolveBuilderConnectionsStatus(
+        { ownerEmail: "admin@example.com", orgId: "org-123", role: "admin" },
+        {
+          getGrants: async () => ({ org: bothGrants.org }),
+          getKeyConnections: async () => ({
+            org: { connectedAt: 9_000, needsReconnect: false },
+          }),
+        },
+      ),
+    ).resolves.toMatchObject({
+      grants: { org: { connectedAt: 1_000, kind: "oauth" } },
+    });
+  });
+
+  it("marks a member's personal connection restricted and stops new ones", async () => {
+    isRestrictedMock.mockResolvedValue(true);
+    await expect(
+      resolveBuilderConnectionsStatus(
+        { ownerEmail: "member@example.com", orgId: "org-123", role: "member" },
+        {
+          getGrants: async () => ({}),
+          getKeyConnections: async () => ({
+            personal: { connectedAt: 4_000, needsReconnect: false },
+          }),
+        },
+      ),
+    ).resolves.toEqual({
+      grants: {
+        personal: {
+          connectedAt: 4_000,
+          needsReconnect: false,
+          kind: "keys",
+          restricted: true,
+        },
+      },
+      canConnect: { org: false, personal: false },
+    });
+    expect(isRestrictedMock).toHaveBeenCalledWith({
+      email: "member@example.com",
+      orgId: "org-123",
+    });
+  });
+
+  it("fails the status read when the restriction can't be read", async () => {
+    isRestrictedMock.mockRejectedValue(new Error("settings unavailable"));
+    await expect(
+      resolveBuilderConnectionsStatus(
+        { ownerEmail: "member@example.com", orgId: "org-123", role: "member" },
+        { getGrants: async () => ({}), getKeyConnections: noKeys },
+      ),
+    ).rejects.toThrow("settings unavailable");
+  });
+
+  it("lets owners and admins connect only the organization's connection", async () => {
+    for (const role of ["owner", "admin"]) {
+      await expect(
+        resolveBuilderConnectionsStatus(
+          { ownerEmail: "admin@example.com", orgId: "org-123", role },
+          { getGrants: async () => ({}), getKeyConnections: noKeys },
+        ),
+      ).resolves.toEqual({
+        grants: {},
+        canConnect: { org: true, personal: false },
+      });
+    }
+  });
+
+  it("offers no connection without an organization or a signed-in caller", async () => {
+    await expect(
+      resolveBuilderConnectionsStatus(
+        { ownerEmail: "member@example.com", orgId: null, role: null },
+        { getGrants: async () => ({}), getKeyConnections: noKeys },
+      ),
+    ).resolves.toMatchObject({ canConnect: { org: false, personal: false } });
+    const getGrants = vi.fn(async () => ({}));
+    await expect(
+      resolveBuilderConnectionsStatus(
+        { ownerEmail: null, orgId: "org-123", role: "owner" },
+        { getGrants, getKeyConnections: noKeys },
+      ),
+    ).resolves.toEqual({
+      grants: {},
+      canConnect: { org: false, personal: false },
+    });
+    expect(getGrants).not.toHaveBeenCalled();
+  });
+
+  it("reports unreadable grants as null, not as no grants", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(
+      resolveBuilderConnectionsStatus(
+        { ownerEmail: "member@example.com", orgId: "org-123", role: "member" },
+        {
+          getGrants: async () => {
+            throw new Error("credential store unavailable");
+          },
+          getKeyConnections: noKeys,
+        },
+      ),
+    ).resolves.toMatchObject({ grants: null });
+    await expect(
+      resolveBuilderConnectionsStatus(
+        { ownerEmail: "member@example.com", orgId: "org-123", role: "member" },
+        {
+          getGrants: async () => ({}),
+          getKeyConnections: async () => {
+            throw new Error("credential store unavailable");
+          },
+        },
+      ),
+    ).resolves.toMatchObject({ grants: null });
+    warn.mockRestore();
+  });
+
+  it("names the effective connection with the UI's scope names", () => {
+    expect(builderEffectiveConnectionFor("user")).toBe("personal");
+    expect(builderEffectiveConnectionFor("org")).toBe("org");
+    expect(builderEffectiveConnectionFor("workspace")).toBe("workspace");
+    expect(builderEffectiveConnectionFor("env")).toBe("env");
+    expect(builderEffectiveConnectionFor(null)).toBeNull();
   });
 });

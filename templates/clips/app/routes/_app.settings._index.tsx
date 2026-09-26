@@ -1,7 +1,7 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import { useOrg, useSwitchOrg } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
   SettingsGroup,
@@ -13,6 +13,7 @@ import {
   type SettingsSearchEntry,
   type SettingsTabItem,
 } from "@agent-native/core/client/settings";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
   DEFAULT_CLIPS_RECORDING_VISIBILITY,
   type ClipsDefaultVisibility,
@@ -24,8 +25,14 @@ import { toast } from "sonner";
 
 import { PageHeader } from "@/components/library/page-header";
 import { AiSetupSection } from "@/components/settings/ai-setup-section";
+import { useClipsSettingsRedesign } from "@/components/settings/clips-settings-redesign";
 import { NotificationSettings } from "@/components/settings/notification-settings";
+import "@/components/settings/slack-channel-extension";
 import { SlackSection } from "@/components/settings/slack-section";
+import {
+  UploadWorkspaceRow,
+  useHasUploadWorkspaces,
+} from "@/components/settings/upload-workspace-row";
 import { VideoStorageSection } from "@/components/settings/video-storage-section";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,6 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 import { OrganizationIdentityCard } from "@/components/workspace/organization-identity-card";
 import { useSecretStatus } from "@/hooks/use-secret-status";
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
@@ -80,69 +88,11 @@ async function saveSettings(value: ClipsUserSettings): Promise<void> {
   }
 }
 
-export default function SettingsIndexRoute() {
+// Today's General tab, shown while the settings-redesign flag is off. Its
+// hooks live here so the redesigned Settings never loads them.
+function LegacyGeneralSettings() {
   const t = useT();
-  const labs = useMemo(
-    () =>
-      CLIPS_LABS.map((lab) => {
-        if (lab.key === "clips.video-editing") {
-          return {
-            ...lab,
-            displayName: t("settings.labVideoEditing"),
-            description: t("settings.labVideoEditingDescription"),
-          };
-        }
-        if (lab.key === "clips.meetings") {
-          return {
-            ...lab,
-            displayName: t("settings.labMeetings"),
-            description: t("settings.labMeetingsDescription"),
-          };
-        }
-        return {
-          ...lab,
-          displayName: t("settings.labWisprFlow"),
-          description: t("settings.labWisprFlowDescription"),
-        };
-      }),
-    [t],
-  );
-  const agentSettingsTabs = useAgentSettingsTabs();
-  const notificationSettingsTab = useMemo<SettingsTabItem>(
-    () => ({
-      id: "notifications",
-      label: t("settings.notifications"),
-      icon: IconBell,
-      group: "app",
-      keywords:
-        "email notifications alerts views comments reactions monthly recap",
-      content: <NotificationSettings />,
-    }),
-    [t],
-  );
-  // Organization identity (name, logo, brand color) belongs with membership,
-  // so it rides on the framework's Organization tab rather than a second one.
-  const settingsTabs = useMemo(
-    () => [
-      notificationSettingsTab,
-      ...agentSettingsTabs.map((tab) =>
-        tab.id === "organization"
-          ? {
-              ...tab,
-              content: (
-                <div className="mx-auto w-full max-w-2xl space-y-6">
-                  <OrganizationIdentityCard />
-                  {tab.content}
-                </div>
-              ),
-            }
-          : tab,
-      ),
-    ],
-    [agentSettingsTabs, notificationSettingsTab],
-  );
-  const { data: org } = useOrg();
-  const switchOrg = useSwitchOrg();
+  const hasUploadWorkspaces = useHasUploadWorkspaces();
   const storageStatus = useVideoStorageStatus();
   const secrets = useSecretStatus();
   const builderStatus = useBuilderStatus();
@@ -188,8 +138,6 @@ export default function SettingsIndexRoute() {
     };
   }, []);
 
-  const orgs = org?.orgs ?? [];
-
   const builder = useMemo(
     () => ({
       connected:
@@ -211,20 +159,6 @@ export default function SettingsIndexRoute() {
     [builderConnect, builderStatus, startBuilderConnect, storageStatus],
   );
 
-  async function handleUploadWorkspaceChange(organizationId: string) {
-    if (!organizationId || organizationId === org?.orgId) return;
-    try {
-      await switchOrg.mutateAsync(organizationId);
-      toast.success(t("settings.uploadWorkspaceSaved"));
-    } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : t("settings.uploadWorkspaceSaveFailed"),
-      );
-    }
-  }
-
   async function handleSave() {
     setSaving(true);
     try {
@@ -241,6 +175,183 @@ export default function SettingsIndexRoute() {
       setSaving(false);
     }
   }
+
+  return (
+    <div className="mx-auto w-full max-w-4xl space-y-6">
+      <div className="min-w-0 space-y-6">
+        <p className="text-sm text-muted-foreground">{t("settings.intro")}</p>
+
+        <SettingsGroup id="preferences" title={t("settings.preferencesTitle")}>
+          <SettingsRow
+            id="language"
+            label={t("settings.languageLabel")}
+            description={t("settings.languageDescription")}
+            control={
+              <div className="w-56">
+                <LanguagePicker label={t("settings.languageLabel")} />
+              </div>
+            }
+          />
+          <SettingsRow
+            id="playback"
+            label={t("settings.defaultPlaybackSpeed")}
+            description={t("settings.playbackDescription")}
+            control={
+              <Select
+                value={defaultSpeed}
+                onValueChange={setDefaultSpeed}
+                disabled={loading}
+              >
+                <SelectTrigger id="speed" size="sm" className="w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SPEEDS.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}×
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            }
+          />
+          <SettingsRow
+            id="sharing"
+            label={t("settings.defaultVisibility")}
+            description={t("settings.defaultVisibilityDescription")}
+            control={
+              <Select
+                value={defaultVisibility}
+                onValueChange={(value) =>
+                  setDefaultVisibility(value as ClipsDefaultVisibility)
+                }
+                disabled={loading}
+              >
+                <SelectTrigger
+                  id="default-visibility"
+                  size="sm"
+                  className="w-56"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="private">
+                    {t("settings.visibilityPrivate")}
+                  </SelectItem>
+                  <SelectItem value="org">
+                    {t("settings.visibilityOrg")}
+                  </SelectItem>
+                  <SelectItem value="public">
+                    {t("settings.visibilityPublic")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            }
+          />
+        </SettingsGroup>
+
+        {hasUploadWorkspaces ? (
+          <SettingsGroup
+            title={t("settings.uploadWorkspaceTitle")}
+            description={t("settings.uploadWorkspaceDescription")}
+          >
+            <UploadWorkspaceRow />
+          </SettingsGroup>
+        ) : null}
+
+        <VideoStorageSection
+          builder={builder}
+          secrets={secrets}
+          storageStatus={storageStatus}
+        />
+
+        <AiSetupSection builder={builder} secrets={secrets} />
+
+        <SlackSection />
+
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            onClick={handleSave}
+            disabled={loading || saving}
+          >
+            {saving ? <Spinner /> : null}
+            {saving ? t("common.saving") : t("common.saveChanges")}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function SettingsIndexRoute() {
+  const t = useT();
+  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key).enabled;
+  const redesigned = useClipsSettingsRedesign();
+  const labs = useMemo(
+    () =>
+      CLIPS_LABS.map((lab) => {
+        if (lab.key === "clips.video-editing") {
+          return {
+            ...lab,
+            displayName: t("settings.labVideoEditing"),
+            description: t("settings.labVideoEditingDescription"),
+          };
+        }
+        if (lab.key === "clips.meetings") {
+          return {
+            ...lab,
+            displayName: t("settings.labMeetings"),
+            description: t("settings.labMeetingsDescription"),
+          };
+        }
+        return {
+          ...lab,
+          displayName: t("settings.labWisprFlow"),
+          description: t("settings.labWisprFlowDescription"),
+        };
+      }),
+    [t],
+  );
+  const agentSettingsTabs = useAgentSettingsTabs();
+  const notificationSettingsTab = useMemo<SettingsTabItem>(
+    () => ({
+      id: "notifications",
+      label: t("settings.notifications"),
+      icon: IconBell,
+      group: "app",
+      keywords:
+        "email notifications alerts views comments reactions monthly recap",
+      content: <NotificationSettings />,
+    }),
+    [t],
+  );
+  // Organization identity (name, logo, brand color) belongs with membership,
+  // so it rides on the framework's Organization tab rather than a second one.
+  // The redesigned Settings shows the logo and brand color on Clips › General
+  // and the name on Organization › General instead.
+  const settingsTabs = useMemo(
+    () =>
+      redesign
+        ? agentSettingsTabs
+        : [
+            notificationSettingsTab,
+            ...agentSettingsTabs.map((tab) =>
+              tab.id === "organization"
+                ? {
+                    ...tab,
+                    content: (
+                      <div className="mx-auto w-full max-w-2xl space-y-6">
+                        <OrganizationIdentityCard />
+                        {tab.content}
+                      </div>
+                    ),
+                  }
+                : tab,
+            ),
+          ],
+    [agentSettingsTabs, notificationSettingsTab, redesign],
+  );
 
   // Hashes match the row ids below, so a search hit still scrolls to the
   // individual setting now that the one-control cards are rows in a group.
@@ -296,11 +407,13 @@ export default function SettingsIndexRoute() {
 
   return (
     <>
-      <PageHeader>
-        <h1 className="text-base font-semibold tracking-tight truncate">
-          {t("settings.title")}
-        </h1>
-      </PageHeader>
+      {redesign ? null : (
+        <PageHeader>
+          <h1 className="text-base font-semibold tracking-tight truncate">
+            {t("settings.title")}
+          </h1>
+        </PageHeader>
+      )}
       <SettingsTabsPage
         account={<AccountSettingsCard />}
         labs={labs}
@@ -308,149 +421,19 @@ export default function SettingsIndexRoute() {
         labsLabel={t("settings.labs")}
         whatsNewLabel={t("settings.whatsNew")}
         extraTabs={settingsTabs}
-        generalSearchEntries={generalSearchEntries}
-        general={
-          <div className="mx-auto w-full max-w-4xl space-y-6">
-            <div className="min-w-0 space-y-6">
-              <p className="text-sm text-muted-foreground">
-                {t("settings.intro")}
-              </p>
-
-              <SettingsGroup
-                id="preferences"
-                title={t("settings.preferencesTitle")}
-              >
-                <SettingsRow
-                  id="language"
-                  label={t("settings.languageLabel")}
-                  description={t("settings.languageDescription")}
-                  control={
-                    <div className="w-56">
-                      <LanguagePicker label={t("settings.languageLabel")} />
-                    </div>
-                  }
-                />
-                <SettingsRow
-                  id="playback"
-                  label={t("settings.defaultPlaybackSpeed")}
-                  description={t("settings.playbackDescription")}
-                  control={
-                    <Select
-                      value={defaultSpeed}
-                      onValueChange={setDefaultSpeed}
-                      disabled={loading}
-                    >
-                      <SelectTrigger id="speed" className="w-40">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SPEEDS.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {s}×
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  }
-                />
-                <SettingsRow
-                  id="sharing"
-                  label={t("settings.defaultVisibility")}
-                  description={t("settings.defaultVisibilityDescription")}
-                  control={
-                    <Select
-                      value={defaultVisibility}
-                      onValueChange={(value) =>
-                        setDefaultVisibility(value as ClipsDefaultVisibility)
-                      }
-                      disabled={loading}
-                    >
-                      <SelectTrigger id="default-visibility" className="w-56">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="private">
-                          {t("settings.visibilityPrivate")}
-                        </SelectItem>
-                        <SelectItem value="org">
-                          {t("settings.visibilityOrg")}
-                        </SelectItem>
-                        <SelectItem value="public">
-                          {t("settings.visibilityPublic")}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  }
-                />
-              </SettingsGroup>
-
-              {orgs.length > 0 ? (
-                <SettingsGroup
-                  title={t("settings.uploadWorkspaceTitle")}
-                  description={t("settings.uploadWorkspaceDescription")}
-                >
-                  <SettingsRow
-                    id="upload-workspace"
-                    label={t("settings.uploadWorkspaceLabel")}
-                    description={
-                      switchOrg.isPending
-                        ? t("settings.uploadWorkspaceSaving")
-                        : t("settings.uploadWorkspaceHint")
-                    }
-                    control={
-                      <Select
-                        value={org?.orgId ?? undefined}
-                        onValueChange={handleUploadWorkspaceChange}
-                        disabled={switchOrg.isPending || orgs.length < 2}
-                      >
-                        <SelectTrigger
-                          id="upload-workspace-select"
-                          className="w-64"
-                        >
-                          <SelectValue
-                            placeholder={t(
-                              "settings.uploadWorkspacePlaceholder",
-                            )}
-                          />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {orgs.map((workspace) => (
-                            <SelectItem
-                              key={workspace.orgId}
-                              value={workspace.orgId}
-                            >
-                              {workspace.orgName}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    }
-                  />
-                </SettingsGroup>
-              ) : null}
-
-              <VideoStorageSection
-                builder={builder}
-                secrets={secrets}
-                storageStatus={storageStatus}
-              />
-
-              <AiSetupSection builder={builder} secrets={secrets} />
-
-              <SlackSection />
-
-              <div className="flex justify-end">
-                <Button
-                  onClick={handleSave}
-                  disabled={loading || saving}
-                  className="bg-primary hover:bg-primary/90"
-                >
-                  {saving ? t("common.saving") : t("common.saveChanges")}
-                </Button>
-              </div>
-            </div>
-          </div>
+        generalSearchEntries={
+          redesign ? redesigned.generalSearchEntries : generalSearchEntries
         }
+        generalGroups={redesigned.generalGroups}
+        // Today's tabs would show app areas and notifications as extra tabs,
+        // so they are passed only to the redesigned shell.
+        appAreas={redesign ? redesigned.appAreas : undefined}
+        notifications={redesign ? redesigned.notifications : undefined}
+        notificationsSearchEntries={
+          redesign ? redesigned.notificationsSearchEntries : undefined
+        }
+        whatsNewMarkdown={changelog}
+        general={<LegacyGeneralSettings />}
         whatsNew={
           <div className="mx-auto w-full max-w-3xl">
             <ChangelogSettingsCard

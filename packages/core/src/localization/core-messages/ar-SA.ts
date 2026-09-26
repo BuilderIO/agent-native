@@ -158,6 +158,8 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "مفتاح مشترك قيد الاستخدام.",
   "agentPanel.useOrganizationKey": "استخدم مفتاح المؤسسة",
   "agentPanel.keyStatusUnavailable": "حالة المفتاح غير متاحة.",
+  "agentPanel.saveScopeRoleUnavailable":
+    "تعذّر تحميل دورك في المؤسسة، لذا لا يمكن حفظ المفاتيح بعد.",
   "agentPanel.chatgptSubscriptionPopupBlocked":
     "اسمح بالنوافذ المنبثقة لهذا الموقع، ثم حاول مرة أخرى.",
   "agentPanel.chatgptSubscriptionTitle": "اشتراك ChatGPT",
@@ -242,6 +244,39 @@ const messages: AgentChatTranslation = {
   "agents.directoryRegistryHint":
     "تصفّح بطاقات الوكلاء العامة ثم تحقّق منها قبل الربط.",
   "agents.directoryBrowse": "تصفح السجل",
+  "agents.formName": "الاسم",
+  "agents.formUrl": "عنوان URL",
+  "agents.formUrlPlaceholder": "عنوان URL (مثل http://localhost:8085)",
+  "agents.formDescription": "الوصف",
+  "agents.formDescriptionPlaceholder": "الوصف (اختياري)",
+  "agents.formCheck": "تحقق",
+  "agents.formAdd": "إضافة",
+  "agents.formAdding": "جارٍ الإضافة",
+  "agents.formAddAnyway": "إضافة على أي حال",
+  "agents.formRemove": "إزالة",
+  "agents.formSaveFailed": "تعذّر حفظ الوكيل.",
+  "agents.formAddFailed": "تعذّرت إضافة الوكيل.",
+  "agents.checkFailed": "فشل التحقق",
+  "agents.checkFailedStatus": "فشل التحقق ({{status}})",
+  "agents.checkNotReachable": "غير قابل للوصول",
+  "agents.checkLive": "متصل · {{scheme}}",
+  "agents.checkNoAuthScheme": "لا يوجد مخطط مصادقة معلن",
+  "agents.checkTokenRejected":
+    "رفض الطرف الآخر رمزنا المميز، لذا ستُرجع الاستدعاءات 401 في بيئة الإنتاج",
+  "agents.checkTokenUnverified": "تعذّر التحقق من رمزنا المميز",
+  "agents.checkTokenUnverifiedReason":
+    "تعذّر التحقق من رمزنا المميز ({{reason}})",
+  "agents.checkTokenWorks": "رمزنا المميز يعمل",
+  "agents.checkReadsRequireAuth": "القراءة تتطلب المصادقة",
+  "agents.checkPublicSkills": "المهارات العامة: {{count}}",
+  "agents.unreachableHint": "ربما لا يعمل التطبيق بعد. لا يزال بإمكانك إضافته.",
+  "agents.addedOneWay":
+    "تمت إضافة {{name}} من جهتك فقط. التسجيل أحادي الاتجاه، لذا لن يعرف {{name}} بهذا التطبيق حتى تضيفه هناك أيضًا.",
+  "agents.openPeerSettings": "فتح إعدادات {{name}}",
+  "agents.syncSecret": "مزامنة السر مع التطبيقات",
+  "agents.noSharedSecret": "لم يتم تعيين سر مشترك بعد.",
+  "agents.noSharedSecretLink": "عيّن واحدًا في صفحة الفريق أولًا.",
+  "agents.askOwnerSyncSecret": "اطلب من مالك مساحة العمل مزامنة السر المشترك.",
   "common.saveFailed": "فشل الحفظ",
   "common.saveFailedStatus": "فشل الحفظ ({{status}})",
   "common.saving": "جارٍ الحفظ...",
@@ -547,6 +582,306 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "إدارة",
   "integrations.recommended": "موصى به",
   "integrations.subtitle": "اربط الأدوات التي يمكن لوكيلك استخدامها.",
+  "mcpIntegrations.menuLabel": "عمليات التكامل",
+  "mcpIntegrations.menuDescription": "ربط الأدوات والخدمات بالوكيل",
+  "mcpIntegrations.title": "ربط عمليات التكامل",
+  "mcpIntegrations.description":
+    "تصفّح {{count}} من عمليات تكامل الوكيل أو أضف تكاملًا مخصصًا.",
+  "mcpIntegrations.searchPlaceholder": "البحث في عمليات التكامل",
+  "mcpIntegrations.addYourOwn": "إضافة تكامل خاص بك",
+  "mcpIntegrations.noMatches": "لا توجد عمليات تكامل تطابق هذا البحث.",
+  "mcpIntegrations.connected": "متصل",
+  "mcpIntegrations.connectionError": "خطأ في الاتصال",
+  "mcpIntegrations.connectionErrorReason": "السبب: {{reason}}",
+  "mcpIntegrations.reconnect": "إعادة الاتصال",
+  "mcpIntegrations.reconnecting": "جارٍ إعادة الاتصال…",
+  "mcpIntegrations.reconnectFailed": "فشلت إعادة الاتصال: {{error}}",
+  "mcpIntegrations.configure": "إعداد",
+  "mcpIntegrations.connect": "ربط",
+  "mcpIntegrations.connectWithOAuth": "ربط",
+  "mcpIntegrations.connecting": "جارٍ الاتصال…",
+  "mcpIntegrations.useApiToken": "استخدام رمز API",
+  "mcpIntegrations.customOAuthDefault": "تسجيل الدخول باستخدام OAuth",
+  "mcpIntegrations.customHeadersMode": "استخدام مفتاح API",
+  "mcpIntegrations.useApiKeyInstead": "استخدام مفتاح API بدلًا من ذلك",
+  "mcpIntegrations.useOAuthInstead": "استخدام OAuth بدلًا من ذلك",
+  "mcpIntegrations.connectSuggestion": "اربط {{name}} لاستخدامه في الدردشة",
+  "mcpIntegrations.connectSuggestionWithApiToken":
+    "اربط {{name}} برمز API لاستخدامه في الدردشة",
+  "mcpIntegrations.dismissSuggestion": "تجاهل اقتراح التكامل",
+  "mcpIntegrations.backToIntegrations": "العودة إلى عمليات التكامل",
+  "mcpIntegrations.customTitle": "إضافة تكامل مخصص للوكيل",
+  "mcpIntegrations.configureTitle": "إعداد {{name}}",
+  "mcpIntegrations.presetNoAuthDescription":
+    "تم ملء القيم المعدّة مسبقًا. اختبر نقطة النهاية أو اربطها الآن.",
+  "mcpIntegrations.presetAuthDescription":
+    "تم ملء القيم المعدّة مسبقًا. أضف أي تفاصيل تفويض مطلوبة قبل الربط.",
+  "mcpIntegrations.customDescription":
+    "الصق نقطة نهاية Streamable HTTP أو SSE وترويسات اختيارية.",
+  "mcpIntegrations.oauthNotice":
+    "يتطلب هذا المزوّد عادةً إعداد OAuth. اتبع وثائق المزوّد، أو أضف ترويسة Authorization إذا كانت نقطة النهاية تدعم الوصول المستند إلى الرموز.",
+  "mcpIntegrations.providerSetupRequired": "يلزم إعداد المزوّد",
+  "mcpIntegrations.providerSetupDescription":
+    "أكمل الإعداد المطلوب في {{name}} أولًا. ثم عد إلى هنا لربط حسابك.",
+  "mcpIntegrations.providerSetupFormDescription":
+    "أكمل إعداد المزوّد قبل ربط حسابك.",
+  "mcpIntegrations.continueToConnect": "ربط حسابي",
+  "mcpIntegrations.setupTitle": "ربط {{name}}",
+  "mcpIntegrations.personal": "شخصي",
+  "mcpIntegrations.personalConnection": "اتصال شخصي",
+  "mcpIntegrations.organization": "المؤسسة",
+  "mcpIntegrations.scopeQuestion":
+    "من الذي يجب أن يتمكن من استخدام هذا الاتصال؟",
+  "mcpIntegrations.scopeChoiceTitle": "من يجب أن يستخدم هذا؟",
+  "mcpIntegrations.scopeChoiceDescription": "اختر أين يكون هذا الاتصال متاحًا.",
+  "mcpIntegrations.connectForMe": "ربط لحسابي",
+  "mcpIntegrations.setUpForWorkspace": "إعداد لمساحة العمل",
+  "mcpIntegrations.workspaceAdminRequired":
+    "يلزم أن تكون مالكًا أو مسؤولًا في مساحة العمل.",
+  "mcpIntegrations.workspaceJoinRequired": "انضم إلى مساحة عمل أولًا.",
+  "mcpIntegrations.personalOnlyDescription":
+    "لا يدعم هذا التكامل إلا الاتصالات الشخصية.",
+  "mcpIntegrations.workspaceOnlyDescription":
+    "يتصل هذا التكامل مرة واحدة لمساحة العمل بأكملها، لذا لا يمكن ربطه بحسابك وحدك. يمكن لمالك أو مسؤول في مساحة العمل إعداده.",
+  "mcpIntegrations.loadingScopeMetadata": "جارٍ تحميل نطاق الاتصال…",
+  "mcpIntegrations.retry": "إعادة المحاولة",
+  "mcpIntegrations.retrying": "جارٍ إعادة المحاولة…",
+  "mcpIntegrations.personalDescription":
+    "أنت وحدك من يمكنه استخدام هذا الاتصال.",
+  "mcpIntegrations.sharedWithWorkspace": "مشترك مع مساحة العمل",
+  "mcpIntegrations.organizationDescription":
+    "يمكن لأعضاء مساحة العمل المصرّح لهم استخدام هذا الاتصال. تظل أذونات المزوّد سارية.",
+  "mcpIntegrations.serverNameRequired": "أدخل اسم التكامل قبل الربط عبر OAuth.",
+  "mcpIntegrations.serverName": "اسم التكامل",
+  "mcpIntegrations.url": "URL",
+  "mcpIntegrations.fieldDescription": "الوصف",
+  "mcpIntegrations.headers": "الترويسات",
+  "mcpIntegrations.serverNamePlaceholder": "اسم التكامل",
+  "mcpIntegrations.urlPlaceholder": "https://example.com/agent-integration",
+  "mcpIntegrations.descriptionPlaceholder": "الوصف (اختياري)",
+  "mcpIntegrations.headersPlaceholder": "Authorization: Bearer <token>",
+  "mcpIntegrations.openSetupDocs": "فتح وثائق الإعداد",
+  "mcpIntegrations.viewSetup": "فتح دليل الإعداد",
+  "mcpIntegrations.test": "اختبار",
+  "mcpIntegrations.testing": "جارٍ الاختبار…",
+  "mcpIntegrations.toolsAvailable_zero": "{{count}} أداة متاحة",
+  "mcpIntegrations.toolsAvailable_one": "{{count}} أداة متاحة",
+  "mcpIntegrations.toolsAvailable_two": "{{count}} أداتان متاحتان",
+  "mcpIntegrations.toolsAvailable_few": "{{count}} أدوات متاحة",
+  "mcpIntegrations.toolsAvailable_many": "{{count}} أداةً متاحة",
+  "mcpIntegrations.toolsAvailable_other": "{{count}} أداة متاحة",
+  "mcpIntegrations.failed": "فشل",
+  "mcpIntegrations.docsLabel": "عرض وثائق {{name}}",
+  "mcpIntegrations.catalog.context7.description":
+    "جلب الوثائق الحالية للمكتبات في دردشات الوكيل.",
+  "mcpIntegrations.catalog.context7.useCase":
+    "الوثائق، والمراجع التقنية، ووثائق API، وأدلة أطر العمل",
+  "mcpIntegrations.catalog.sentry.description":
+    "فحص المشكلات والأحداث وبيانات تصحيح الأخطاء.",
+  "mcpIntegrations.catalog.sentry.useCase":
+    "مراقبة الأخطاء، وتصحيح الأخطاء، والأداء، وتقارير الأعطال",
+  "mcpIntegrations.catalog.fullstory.description":
+    "قراءة التحليلات السلوكية وفحص عمليات إعادة تشغيل الجلسات.",
+  "mcpIntegrations.catalog.fullstory.useCase":
+    "تحليلات المنتج، وإعادة تشغيل الجلسات، والسلوك النوعي، وأبحاث المستخدمين",
+  "mcpIntegrations.catalog.fullstory.setupNote":
+    "FullStory MCP في مرحلة تجريبية حاليًا، ويتطلب أن يفعّل مسؤول المؤسسة في FullStory ميزات StoryAI وخيار Model Context Protocol.",
+  "mcpIntegrations.catalog.amplitude.description":
+    "قراءة تحليلات المنتج في Amplitude والعمل عليها.",
+  "mcpIntegrations.catalog.amplitude.useCase":
+    "تحليلات المنتج، والمخططات، ولوحات المعلومات، والمجموعات، والتجارب",
+  "mcpIntegrations.catalog.amplitude.setupNote":
+    "يستخدم Amplitude MCP بروتوكول OAuth عبر HTTP المتدفق. نقطة النهاية الافتراضية مخصصة لإقامة البيانات في الولايات المتحدة؛ استخدم نقطة نهاية Amplitude الأوروبية عندما يتطلب الحساب إقامة البيانات في الاتحاد الأوروبي.",
+  "mcpIntegrations.catalog.sigma.description":
+    "البحث في مصنفات Sigma ولوحات معلوماتها واستكشافها وتحليلها.",
+  "mcpIntegrations.catalog.sigma.useCase":
+    "التحليلات، ولوحات المعلومات، والمصنفات، واستكشاف البيانات، وذكاء الأعمال",
+  "mcpIntegrations.catalog.sigma.setupNote":
+    "عنوان URL الخاص بـ Sigma MCP خاص بكل مؤسسة. في Sigma، افتح Profile > Integrations > Connect Sigma to AI tools، وانسخ عنوان URL، ثم الصقه هنا. يدعم Sigma MCP حاليًا البحث واستكشاف البيانات الوصفية والتحليل؛ ولا يتيح هذا الاتصال إنشاء لوحات المعلومات أو المصنفات أو استيرادها.",
+  "mcpIntegrations.catalog.notion.description":
+    "البحث في الصفحات ومعارف الفريق.",
+  "mcpIntegrations.catalog.notion.useCase":
+    "الوثائق، وإدارة المعرفة، والملاحظات، وإنشاء المحتوى",
+  "mcpIntegrations.catalog.notion.setupNote":
+    "يستخدم تكامل Notion مصادقة OAuth للمستخدم. يمكن لمساحات عمل المؤسسات تدقيق استخدام التكامل والسماح بالعملاء أو حظرهم؛ أعد الاتصال بعد تغيير سياسات المسؤول.",
+  "mcpIntegrations.catalog.granola.description":
+    "البحث في ملاحظات الاجتماعات والنصوص المفرّغة وبنود العمل.",
+  "mcpIntegrations.catalog.granola.useCase":
+    "ملاحظات الاجتماعات، والتسجيلات، والنصوص المفرّغة، وبنود العمل، والمتابعات",
+  "mcpIntegrations.catalog.granola.setupNote":
+    "يستخدم تكامل Granola مصادقة OAuth عبر المتصفح. امنح الإذن لحساب Granola الذي سجّلت الدخول إليه، وراجع ملاحظات الاجتماعات والنصوص المفرّغة التي يمكن للوكيل الوصول إليها.",
+  "mcpIntegrations.catalog.gong.description":
+    "البحث في مكالمات Gong وإنشاء رؤى حول الحسابات والصفقات.",
+  "mcpIntegrations.catalog.gong.useCase":
+    "مكالمات المبيعات، والنصوص المفرّغة، ورؤى الصفقات، وملخصات الحسابات",
+  "mcpIntegrations.catalog.gong.setupNote":
+    "يتطلب Gong أن ينشئ مسؤول تقني تكامل MCP ويختار تفويضًا شخصيًا أو مشتركًا. يجب إعداد معرّف العميل والسر الناتجين قبل الربط.",
+  "mcpIntegrations.catalog.semgrep.description":
+    "فحص التعليمات البرمجية بحثًا عن مشكلات أمنية.",
+  "mcpIntegrations.catalog.semgrep.useCase":
+    "الفحص الأمني، واكتشاف الثغرات، وتحليل التعليمات البرمجية",
+  "mcpIntegrations.catalog.linear.description": "قراءة مشكلات Linear وكتابتها.",
+  "mcpIntegrations.catalog.linear.useCase":
+    "إدارة المشاريع، وتتبع المشكلات، والتخطيط، وتقارير الأخطاء",
+  "mcpIntegrations.catalog.apollo.description":
+    "البحث في بيانات Apollo للتسويق والمبيعات وإثرائها وإدارتها.",
+  "mcpIntegrations.catalog.apollo.useCase":
+    "التنقيب عن العملاء المحتملين، والإثراء، وجهات الاتصال، والتسلسلات، والبحث عن الحسابات",
+  "mcpIntegrations.catalog.apollo.setupNote":
+    "يستخدم Apollo MCP مصادقة OAuth للمستخدم ولا يتطلب مفتاح API من Apollo. تظل أذونات خطة Apollo وأرصدتها وقيود المزوّد على تدريب النماذج سارية.",
+  "mcpIntegrations.catalog.commonRoom.description":
+    "البحث في إشارات المشترين وجهات الاتصال والمؤسسات.",
+  "mcpIntegrations.catalog.commonRoom.useCase":
+    "معلومات المشترين، وإشارات المنتج، ونية الشراء، وإثراء جهات الاتصال",
+  "mcpIntegrations.catalog.commonRoom.setupNote":
+    "يستخدم Common Room MCP مصادقة OAuth لكل مستخدم ويحترم دور المستخدم المصرّح له في مساحة العمل. قد يحتاج أحد المسؤولين إلى تفعيل اتصال MCP للمثيل.",
+  "mcpIntegrations.catalog.exa.description":
+    "البحث في الويب وجلب الصفحات باستخدام Exa.",
+  "mcpIntegrations.catalog.exa.useCase":
+    "البحث في الويب، والأبحاث، والبحث في التعليمات البرمجية، وجلب الصفحات",
+  "mcpIntegrations.catalog.exa.setupNote":
+    "تدعم نقطة نهاية MCP البعيدة من Exa الاستخدام المجاني الأساسي دون مفتاح. أضف مفتاح Exa API عبر إعداد الترويسات لدى المزوّد عند الحاجة إلى حدود أعلى أو أدوات إضافية.",
+  "mcpIntegrations.catalog.supabase.description":
+    "إدارة البيانات والمصادقة والخدمات الخلفية.",
+  "mcpIntegrations.catalog.supabase.useCase":
+    "قاعدة البيانات، والمصادقة، والتخزين، ووظائف الحافة",
+  "mcpIntegrations.catalog.neon.description":
+    "العمل على مشاريع Postgres بدون خادم.",
+  "mcpIntegrations.catalog.neon.useCase":
+    "إدارة قواعد البيانات، وPostgres بدون خادم، وتخزين البيانات",
+  "mcpIntegrations.catalog.stripe.description":
+    "إدارة المدفوعات والاشتراكات والعملاء.",
+  "mcpIntegrations.catalog.stripe.useCase":
+    "المدفوعات، والاشتراكات، والفوترة، وإدارة العملاء",
+  "mcpIntegrations.catalog.atlassian.description":
+    "قراءة مشكلات Jira ومحتوى Confluence وكتابتها.",
+  "mcpIntegrations.catalog.atlassian.useCase":
+    "إدارة المشاريع، وتتبع المشكلات، والوثائق، وتعاون الفريق",
+  "mcpIntegrations.catalog.atlassian.setupNote":
+    "اطلب من مسؤول Atlassian السماح بنطاق تطبيق Clips وتفعيل Rovo/MCP بأذونات القراءة والكتابة والبحث لموقع Jira الخاص بك.",
+  "mcpIntegrations.catalog.cloudflare.description":
+    "البحث في خدمات Cloudflare وتشغيلها عبر تكاملها.",
+  "mcpIntegrations.catalog.cloudflare.useCase":
+    "DNS، وWorkers، والنطاقات، والأمان، وقابلية المراقبة، وواجهات API للمنصة",
+  "mcpIntegrations.catalog.cloudflare.setupNote":
+    "يحتوي دليل عمليات التكامل المُدارة من Cloudflare على عمليات تكامل خاصة بكل منتج إلى جانب تكامل API الشامل. راجع النطاقات واختر أضيق نقطة نهاية تناسب سير عملك.",
+  "mcpIntegrations.catalog.grafana.description":
+    "الاستعلام عن مقاييس Grafana Cloud وسجلاتها وبيانات قابلية المراقبة.",
+  "mcpIntegrations.catalog.grafana.useCase":
+    "قابلية المراقبة، والمقاييس، والسجلات، والتتبعات، ولوحات المعلومات",
+  "mcpIntegrations.catalog.grafana.setupNote":
+    "Grafana Cloud MCP في مرحلة معاينة عامة ويتطلب وصولًا إلى MCP في Grafana Cloud Assistant. وهو متاح لـ Grafana Cloud المستضاف فقط؛ أما Grafana المستضاف ذاتيًا فيحتاج إلى خادم MCP المحلي.",
+  "mcpIntegrations.catalog.gitlab.description":
+    "قراءة مشاريع GitLab ومشكلاتها وطلبات الدمج وإدارتها.",
+  "mcpIntegrations.catalog.gitlab.useCase":
+    "المستودعات، والمشكلات، وطلبات الدمج، وCI/CD، وتحليلات التعليمات البرمجية",
+  "mcpIntegrations.catalog.gitlab.setupNote":
+    "تكامل GitLab في مرحلة تجريبية حاليًا. على GitLab.com، يجب أن يسمح مسؤول مجموعة المستوى الأعلى بوصول التكامل قبل أن تكتمل مصادقة OAuth؛ وللمثيلات المُدارة ذاتيًا إعداد مكافئ على مستوى المثيل.",
+  "mcpIntegrations.catalog.figma.description":
+    "إحضار سياق تصميمات Figma وإجراءات لوحة الرسم إلى الوكيل.",
+  "mcpIntegrations.catalog.figma.useCase":
+    "ملفات التصميم، والمكونات، والمتغيرات، وأنظمة التصميم، ولوحة الرسم",
+  "mcpIntegrations.catalog.figma.setupNote":
+    "لا يسمح تكامل Figma إلا بالعملاء المدرجين في كتالوج عمليات التكامل لدى Figma، لذا لا يمكن لنقطة النهاية البعيدة هذه الاتصال من Agent-Native بعد. استخدم Figma REST API بديلًا مع رمز وصول شخصي لقراءة سياق الملفات والعقد؛ وتظل إجراءات لوحة الرسم غير متاحة حتى توافق Figma على Agent-Native.",
+  "mcpIntegrations.catalog.canva.description":
+    "البحث في تصميمات Canva وأصولها وإنشاؤها وتحديثها.",
+  "mcpIntegrations.catalog.canva.useCase":
+    "التصميمات، والقوالب، والأصول، ومجموعات العلامة التجارية، والتصدير، والتعاون",
+  "mcpIntegrations.catalog.canva.setupNote":
+    "يستخدم تكامل Canva مصادقة OAuth لكل مستخدم ويتطلب أن تسمح العملاء بنطاقي Canva وهما canva.com وcanva.ai. تأكد من إعداد إعادة التوجيه والعميل الحالي في وثائق تكامل Canva قبل الربط.",
+  "mcpIntegrations.catalog.vercel.description":
+    "البحث في وثائق Vercel وفحص المشاريع وعمليات النشر والسجلات.",
+  "mcpIntegrations.catalog.vercel.useCase":
+    "عمليات النشر، والمشاريع، والسجلات، والنطاقات، والاستضافة، والوثائق",
+  "mcpIntegrations.catalog.vercel.setupNote":
+    "لا يقبل تكامل Vercel إلا عملاء الذكاء الاصطناعي الذين تمت مراجعتهم والموافقة عليهم. يجب إضافة Agent-Native إلى قائمة العملاء المدعومين لدى Vercel قبل أن يعمل اتصال إطار العمل العام.",
+  "mcpIntegrations.catalog.github.description":
+    "قراءة المستودعات والمشكلات وطلبات السحب وسياق التعليمات البرمجية.",
+  "mcpIntegrations.catalog.github.useCase":
+    "المستودعات، والمشكلات، وطلبات السحب، والتعليمات البرمجية، والتحليلات الهندسية",
+  "mcpIntegrations.catalog.github.setupNote":
+    "لا يسمح مزوّد تسجيل الدخول في GitHub للتطبيقات بتسجيل نفسها، لذا لا يمكن لزر الربط إكمال مصادقة OAuth. اربط باستخدام رمز وصول شخصي من GitHub بدلًا من ذلك، ولاحظ أن المؤسسات قد تفرض سياسات OAuth App Access Policies.",
+  "mcpIntegrations.catalog.slack.description":
+    "البحث في محادثات Slack واتخاذ إجراءات في مساحة العمل عبر تكاملها.",
+  "mcpIntegrations.catalog.slack.useCase":
+    "الرسائل، والقنوات، والأشخاص، وذاكرة الشركة، وسير العمل",
+  "mcpIntegrations.catalog.slack.setupNote":
+    "يتطلب تكامل Slack تطبيق Slack مسجّلًا بمعرّف تطبيق ثابت. التسجيل الديناميكي للعملاء غير مدعوم، ولا يمكن الاتصال إلا لتطبيقات Slack Marketplace أو التطبيقات الداخلية. استخدم تدفق OAuth للمراسلة المُدار من Slack لسير عمل Agent-Native.",
+  "mcpIntegrations.catalog.asana.description":
+    "البحث في مهام Asana ومشاريعها وبيانات مخطط العمل وإدارتها.",
+  "mcpIntegrations.catalog.asana.useCase":
+    "المهام، والمشاريع، والمحافظ، والتخطيط، وعبء العمل",
+  "mcpIntegrations.catalog.asana.setupNote":
+    "يتطلب تكامل الوكيل في Asana تطبيق OAuth مسجّلًا مسبقًا ولا يدعم التسجيل الديناميكي للعملاء. أعدّ عميل تطبيق Asana قبل الربط.",
+  "mcpIntegrations.catalog.hubspot.description":
+    "البحث في سجلات HubSpot CRM وتحديثها عبر تكاملها.",
+  "mcpIntegrations.catalog.hubspot.useCase":
+    "CRM، وجهات الاتصال، والشركات، والصفقات، والتذاكر، وتحليلات العملاء",
+  "mcpIntegrations.catalog.hubspot.setupNote":
+    "عند إعداد HubSpot MCP Auth App تديره مساحة العمل، يمكن لأي عضو ربط حساب HubSpot شخصي باستخدام OAuth وPKCE. وإلا، فأنشئ التطبيق في HubSpot Developer Platform قبل الربط؛ ويظل موصل HubSpot OAuth الحالي متاحًا لإجراءات التطبيق.",
+  "mcpIntegrations.catalog.pylon.description":
+    "البحث في بيانات الدعم في Pylon وتحديثها.",
+  "mcpIntegrations.catalog.pylon.useCase":
+    "دعم العملاء، والمشكلات، والحسابات، وجهات الاتصال، والمحادثات",
+  "mcpIntegrations.catalog.pylon.setupNote":
+    "فعّل وصول Pylon MCP للمستخدمين المعنيين وشغّل خادم MCP في Pylon قبل الربط. يتطلب Pylon مقعد عضو أو مسؤول ويستخدم مصادقة OAuth للمستخدم فقط.",
+  "mcpIntegrations.catalog.intercom.description":
+    "البحث في المحادثات ومعارف دعم العملاء.",
+  "mcpIntegrations.catalog.intercom.useCase":
+    "دعم العملاء، والمحادثات، وجهات الاتصال، ومحتوى مركز المساعدة",
+  "mcpIntegrations.catalog.intercom.setupNote":
+    "يستخدم تكامل Intercom مصادقة OAuth وهو متاح لمساحات العمل المستضافة في الولايات المتحدة. تأكد من منطقة مساحة العمل والنطاقات المطلوبة أثناء التفويض.",
+  "mcpIntegrations.catalog.monday.description":
+    "العمل على اللوحات والعناصر وسير عمل الفريق.",
+  "mcpIntegrations.catalog.monday.useCase":
+    "إدارة العمل، واللوحات، والمشاريع، والمهام، وعمليات الفريق",
+  "mcpIntegrations.catalog.monday.setupNote":
+    "يستخدم تكامل monday.com مصادقة OAuth عبر Streamable HTTP. اختر مساحة العمل والأذونات التي تريد مشاركتها أثناء التفويض.",
+  "mcpIntegrations.catalog.webflow.description":
+    "قراءة مواقع Webflow ومحتواها وتحديثها.",
+  "mcpIntegrations.catalog.webflow.useCase":
+    "المواقع الإلكترونية، ونظام إدارة المحتوى، ومحتوى المواقع، والنشر، وسير عمل التصميم",
+  "mcpIntegrations.catalog.webflow.setupNote":
+    "يستخدم تكامل Webflow مصادقة OAuth. قد تثبّت إمكانات المصمم تطبيق Bridge App من Webflow أثناء التفويض؛ ويتوفر الوصول إلى Data API بشكل منفصل.",
+  "mcpIntegrations.catalog.paypal.description":
+    "العمل على مدفوعات PayPal وفواتيرها وبيانات التجارة.",
+  "mcpIntegrations.catalog.paypal.useCase":
+    "المدفوعات، والفواتير، والمعاملات، وعمليات التجار",
+  "mcpIntegrations.catalog.paypal.setupNote":
+    "يوفّر PayPal اكتشاف OAuth وتسجيل الدخول لتكامل الوكيل البعيد الخاص به. يستخدم Agent-Native نقطة النهاية /sse العاملة حاليًا؛ راجع أذونات التاجر قبل التفويض.",
+  "mcpIntegrations.catalog.box.description":
+    "البحث في الملفات والمجلدات في Box وإدارتها.",
+  "mcpIntegrations.catalog.box.useCase":
+    "الملفات، والمجلدات، ومحتوى المؤسسات، والبحث، والتعاون",
+  "mcpIntegrations.catalog.box.setupNote":
+    "تكامل Box في مرحلة تجريبية ويتطلب أن يفعّله أحد المسؤولين. تحتاج العملاء المخصصة أيضًا إلى Box Integration Credentials وURI لإعادة التوجيه ونطاقات معتمدة.",
+  "mcpIntegrations.catalog.builder.description":
+    "البحث في محتوى Builder Publish وHybrid Space.",
+  "mcpIntegrations.catalog.builder.useCase":
+    "نماذج المحتوى، والصفحات، والإدخالات، وPublish وHybrid Spaces",
+  "mcpIntegrations.catalog.builder.setupNote":
+    "يستخدم Builder CMS MCP مصادقة OAuth مع التسجيل الديناميكي للعملاء. ولا يتصل إلا بمساحات Publish أو Hybrid Spaces، ويطلب منك تدفق التفويض تحديد المساحة.",
+  "mcpIntegrations.catalog.netlify.description":
+    "فحص مواقع Netlify وعمليات النشر وتشغيلها.",
+  "mcpIntegrations.catalog.netlify.useCase":
+    "المواقع، وعمليات النشر، وعمليات البناء، والنطاقات، وعمليات الاستضافة",
+  "mcpIntegrations.catalog.netlify.setupNote":
+    "توثّق Netlify إعداد تكامل بعيد للعملاء المدعومين. راجع أذونات الموقع والفريق قبل إكمال مصادقة OAuth.",
+  "mcpIntegrations.catalog.zapier.description":
+    "ربط الأدوات بآلاف إجراءات التطبيقات.",
+  "mcpIntegrations.catalog.zapier.useCase":
+    "الأتمتة، وسير العمل، وإجراءات التطبيقات، والعمليات عبر الخدمات",
+  "mcpIntegrations.catalog.zapier.setupNote":
+    "يستخدم تكامل الوكيل في Zapier اتصالًا ورمزًا ينشئهما المستخدم للعملاء غير المدرجين. أنشئ الاتصال في Zapier، ثم الصق رمز الحامل الذي تم إنشاؤه في حقل الترويسة.",
+  "mcpIntegrations.auth.none": "بدون مصادقة",
+  "mcpIntegrations.auth.headers": "ترويسة",
+  "mcpIntegrations.auth.oauth": "OAuth",
+  "mcpIntegrations.status.beta": "تجريبي",
+  "mcpIntegrations.status.setupRequired": "إعداد المزوّد",
+  "mcpIntegrations.status.clientRestricted": "العملاء المعتمدون فقط",
+  "mcpIntegrations.status.verified": "تم التحقق",
+  "mcpIntegrations.status.preflightOnly": "فحص تمهيدي فقط",
+  "mcpIntegrations.status.restricted": "مقيّد",
   "limit.account": "حسابك",
   "limit.descriptionAll":
     "استخدم الوكيل جميع الخطوات المتاحة. تابع في دورة جديدة، أو ارفع حد {{scope}} أولًا.",
@@ -702,6 +1037,11 @@ const messages: AgentChatTranslation = {
   "secrets.managedInVault":
     "تتم إدارته في Vault الخاص بمساحة العمل. يستخدم كل تطبيق في مساحة العمل هذه القيمة.",
   "secrets.openVault": "فتح Vault",
+  "secrets.managedByOwner": "تتم إدارته في {{owner}}",
+  "secrets.removeCredentials": "إزالة بيانات الاعتماد",
+  "secrets.confirmRemove": "إزالة",
+  "secrets.sharedKeysKept":
+    "لم تتم إزالة بعض المفاتيح المشتركة. يمكن لمسؤولي مساحة العمل فقط إزالتها.",
   "secrets.newKey": "جديد",
   "secrets.noKeysFound": "لم يتم العثور على مفاتيح.",
   "secrets.overridesVault":
@@ -902,6 +1242,1379 @@ const messages: AgentChatTranslation = {
     "استخدام المزوّد أو المكالمات الأقدم خارج فوترة Builder",
   "usage.providerSpendToday": "استخدام آخر أو غير مصنّف اليوم: {{amount}}",
   "usage.driverCreditsAndUsd": "أرصدة Builder / دولار أمريكي",
+  "settings.usage.tabsLabel": "طرق عرض الاستخدام",
+  "settings.usage.tabOverview": "نظرة عامة",
+  "settings.usage.tabActivity": "النشاط",
+  "settings.usage.rangeLabel": "النطاق الزمني",
+  "settings.usage.range7": "آخر 7 أيام",
+  "settings.usage.range30": "آخر 30 يومًا",
+  "settings.usage.range90": "آخر 90 يومًا",
+  "settings.usage.appFilterLabel": "التطبيق",
+  "settings.usage.allApps": "كل التطبيقات",
+  "settings.usage.unattributedApp": "غير منسوب",
+  "settings.usage.peopleFilterLabel": "الأشخاص",
+  "settings.usage.everyone": "الجميع",
+  "settings.usage.justYou": "أنت فقط",
+  "settings.usage.estimatedSpend": "الإنفاق التقديري",
+  "settings.usage.creditSpend": "إنفاق أرصدة Builder.io",
+  "settings.usage.yourEstimatedSpend": "إنفاقك التقديري",
+  "settings.usage.yourCreditSpend": "إنفاقك من أرصدة Builder.io",
+  "settings.usage.calls": "الاستدعاءات",
+  "settings.usage.tokens": "الرموز",
+  "settings.usage.activePeople": "الأشخاص النشطون",
+  "settings.usage.history": "سجل الاستخدام",
+  "settings.usage.historyDimensionLabel": "تجميع سجل الاستخدام",
+  "settings.usage.byFeature": "حسب الميزة",
+  "settings.usage.byApp": "حسب التطبيق",
+  "settings.usage.byModel": "حسب النموذج",
+  "settings.usage.bySurface": "حسب المصدر",
+  "settings.usage.historyChartLabel": "الاستخدام اليومي",
+  "settings.usage.noUsage": "لا يوجد استخدام في هذه الفترة.",
+  "settings.usage.total": "الإجمالي",
+  "settings.usage.featureChat": "الدردشة",
+  "settings.usage.featureSubAgents": "الوكلاء الفرعيون",
+  "settings.usage.featureAutomations": "عمليات التشغيل الآلي",
+  "settings.usage.other": "أخرى",
+  "settings.usage.unknownModel": "نموذج غير معروف",
+  "settings.usage.surfaceApp": "داخل التطبيق",
+  "settings.usage.topChats": "أكثر الدردشات استخدامًا",
+  "settings.usage.untitledChat": "دردشة بلا عنوان",
+  "settings.usage.titleUnavailable": "تعذّر تحميل العنوان",
+  "settings.usage.showAll": "عرض الكل",
+  "settings.usage.showLess": "عرض أقل",
+  "settings.usage.topPeople": "أكثر الأشخاص استخدامًا",
+  "settings.usage.you": "أنت",
+  "settings.usage.toolCalls": "استدعاءات الأدوات",
+  "settings.usage.toolCallsChartLabel": "استدعاءات الأدوات يوميًا",
+  "settings.usage.noToolCalls": "لا توجد استدعاءات أدوات في هذه الفترة.",
+  "settings.usage.toolCallsUnavailable": "تعذر تحميل استدعاءات الأدوات.",
+  "settings.usage.modelCalls": "استدعاءات النموذج",
+  "settings.usage.modelCallsDimensionLabel": "تجميع استدعاءات النموذج",
+  "settings.usage.modelCallsChartLabel": "استدعاءات النموذج يوميًا",
+  "settings.usage.noModelCalls": "لا توجد استدعاءات نموذج في هذه الفترة.",
+  "settings.usage.recentPrompts": "المطالبات الأخيرة",
+  "settings.usage.promptNotCaptured": "لم تُسجَّل المطالبة",
+  "settings.usage.promptUnavailable": "تعذّر تحميل المطالبة",
+  "settings.usage.loadError": "تعذر تحميل الاستخدام.",
+  "settings.usage.yourAlerts": "تنبيهاتك",
+  "settings.usage.alertsLoadError": "تعذر تحميل التنبيهات.",
+  "settings.usage.alertDailySpend": "الإنفاق اليومي",
+  "settings.usage.alertMonthlySpend": "الإنفاق الشهري",
+  "settings.usage.alertDailyTokens": "الرموز اليومية",
+  "settings.usage.alertMonthlyTokens": "الرموز الشهرية",
+  "settings.usage.alertOnTrack": "ضمن الحد",
+  "settings.usage.alertOverLimit": "تجاوز الحد",
+  "settings.usage.alertDismissed": "تم التجاهل",
+  "settings.usage.alertOff": "متوقف",
+  "settings.usage.alertProgressDay": "{{current}} من {{limit}} اليوم",
+  "settings.usage.alertProgressMonth": "{{current}} من {{limit}} هذا الشهر",
+  "settings.usage.alertChannelsBoth": "داخل التطبيق وعبر البريد الإلكتروني",
+  "settings.usage.alertChannelInApp": "داخل التطبيق",
+  "settings.usage.alertChannelEmail": "البريد الإلكتروني",
+  "settings.usage.alertDefault": "افتراضي",
+  "settings.usage.alertEdit": "تعديل",
+  "settings.usage.alertDialogTitle": "تنبيه {{name}}",
+  "settings.usage.alertThreshold": "نبّهني عند",
+  "settings.usage.alertHintDayAll": "يوميًا، عبر كل التطبيقات.",
+  "settings.usage.alertHintMonthAll": "شهريًا، عبر كل التطبيقات.",
+  "settings.usage.alertHintDayApp": "يوميًا، في {{app}}.",
+  "settings.usage.alertHintMonthApp": "شهريًا، في {{app}}.",
+  "settings.usage.alertNotify": "الإشعار",
+  "settings.usage.alertEnabled": "التنبيه مفعّل",
+  "settings.usage.alertReset": "إعادة التعيين إلى الافتراضي",
+  "settings.usage.alertInvalidLimit": "أدخل مبلغًا أكبر من صفر.",
+  "settings.usage.alertNoChannel": "اختر طريقة إشعار واحدة على الأقل.",
+  "settings.usage.alertSaveError": "تعذر حفظ التنبيه.",
+  "settings.usage.unitUsd": "USD",
+  "settings.usage.unitCredits": "أرصدة",
+  "settings.usage.unitTokens": "رموز",
+  "settings.usage.creditAmount_zero": "{{amount}} رصيد",
+  "settings.usage.creditAmount_one": "{{amount}} رصيد",
+  "settings.usage.creditAmount_two": "{{amount}} رصيد",
+  "settings.usage.creditAmount_few": "{{amount}} أرصدة",
+  "settings.usage.creditAmount_many": "{{amount}} رصيدًا",
+  "settings.usage.creditAmount_other": "{{amount}} رصيد",
+  "settings.usage.tokenAmount_zero": "{{amount}} رمز",
+  "settings.usage.tokenAmount_one": "{{amount}} رمز",
+  "settings.usage.tokenAmount_two": "{{amount}} رمز",
+  "settings.usage.tokenAmount_few": "{{amount}} رموز",
+  "settings.usage.tokenAmount_many": "{{amount}} رمزًا",
+  "settings.usage.tokenAmount_other": "{{amount}} رمز",
+  "settings.storage.provider": "المزوّد",
+  "settings.storage.providerOther": "خدمة أخرى متوافقة مع S3",
+  "settings.storage.endpoint": "عنوان URL لنقطة النهاية",
+  "settings.storage.bucket": "الحاوية",
+  "settings.storage.accessKeyId": "معرّف مفتاح الوصول",
+  "settings.storage.secretAccessKey": "مفتاح الوصول السري",
+  "settings.storage.region": "المنطقة",
+  "settings.storage.publicUrl": "عنوان URL العام",
+  "settings.storage.optional": "اختياري",
+  "settings.storage.saved": "محفوظ",
+  "settings.storage.hintAws": "استخدم نقطة النهاية الخاصة بمنطقة حاويتك.",
+  "settings.storage.hintR2": "ستجده في إعدادات حاوية R2.",
+  "settings.storage.hintSupabase": "ستجده في إعدادات Storage لمشروعك.",
+  "settings.storage.hintOther":
+    "تعمل أيضًا MinIO وBackblaze B2 وWasabi وDigitalOcean Spaces.",
+  "settings.storage.save": "حفظ",
+  "settings.storage.saving": "جارٍ الحفظ…",
+  "settings.storage.cancel": "إلغاء",
+  "settings.storage.clear": "مسح بيانات الاعتماد",
+  "settings.storage.clearing": "جارٍ المسح…",
+  "settings.storage.clearTitle": "هل تريد مسح بيانات اعتماد التخزين؟",
+  "settings.storage.clearBuilder":
+    "ستذهب الملفات الجديدة إلى تخزين Builder.io.",
+  "settings.storage.clearNoFallback":
+    "ستفشل عمليات الرفع حتى تُعِد التخزين مرة أخرى.",
+  "settings.storage.clearExisting": "تبقى الملفات الحالية في {{bucket}}.",
+  "settings.storage.clearExistingGeneric": "تبقى الملفات الحالية في حاويتك.",
+  "settings.storage.invalidUrl":
+    "استخدم عنوان URL يبدأ بـ https:// أو http://.",
+  "settings.storage.invalidBucket":
+    "تتكوّن أسماء الحاويات من أحرف وأرقام ونقاط وشرطات وشرطات سفلية.",
+  "settings.storage.savedNotice":
+    "تم حفظ تخزين الملفات. ستذهب الملفات الجديدة إلى {{bucket}}.",
+  "settings.storage.cleared": "تم مسح بيانات اعتماد التخزين.",
+  "settings.storage.clearedBuilder":
+    "تم مسح بيانات اعتماد التخزين. ستذهب الملفات الجديدة إلى Builder.io.",
+  "settings.storage.saveFailed": "تعذّر حفظ تخزين الملفات.",
+  "settings.storage.clearFailed": "تعذّر مسح بيانات اعتماد التخزين.",
+  "settings.storage.loadFailed": "تعذّر تحميل إعدادات تخزين الملفات.",
+  "settings.storage.retry": "إعادة المحاولة",
+  "settings.storage.adminOnly":
+    "يمكن لمالكي المؤسسة ومسؤوليها فقط تغيير تخزين الملفات.",
+  "settings.audit.action": "الإجراء",
+  "settings.audit.allApps": "كل التطبيقات",
+  "settings.audit.app": "التطبيق",
+  "settings.audit.changedBy": "تم التغيير بواسطة",
+  "settings.audit.close": "إغلاق",
+  "settings.audit.empty": "لا توجد تغييرات في هذه الفترة.",
+  "settings.audit.emptyDescription":
+    "تظهر هنا التغييرات التي يجريها الأشخاص والوكيل.",
+  "settings.audit.failed": "فشل",
+  "settings.audit.input": "المدخلات",
+  "settings.audit.inputLoadFailed": "تعذّر تحميل المدخلات.",
+  "settings.audit.last30Days": "آخر 30 يومًا",
+  "settings.audit.last7Days": "آخر 7 أيام",
+  "settings.audit.last90Days": "آخر 90 يومًا",
+  "settings.audit.loadFailed": "تعذّر تحميل سجل التدقيق.",
+  "settings.audit.loading": "جارٍ تحميل سجل التدقيق",
+  "settings.audit.onBehalfOf": "نيابةً عن",
+  "settings.audit.range": "النطاق الزمني",
+  "settings.audit.refused": "مرفوض",
+  "settings.audit.result": "النتيجة",
+  "settings.audit.showMore": "عرض {{count}} أخرى",
+  "settings.audit.succeeded": "تم بنجاح",
+  "settings.audit.system": "النظام",
+  "settings.audit.target": "الهدف",
+  "settings.audit.when": "الوقت",
+  "accountMenu.label": "الحساب",
+  "accountMenu.loading": "جارٍ تحميل الحساب",
+  "accountMenu.triggerLabel": "{{name}}، {{organization}}",
+  "accountMenu.triggerLabelDemo":
+    "{{name}}، {{organization}}، وضع العرض التوضيحي",
+  "accountMenu.personal": "شخصي",
+  "accountMenu.demoMode": "وضع العرض التوضيحي",
+  "accountMenu.demoModeOn": "وضع العرض التوضيحي مفعّل",
+  "accountMenu.demoModeDescription":
+    "يتم تعديل عناوين البريد الإلكتروني المعروضة والمخططات المدعومة للعروض التقديمية. لا يتغير حسابك ولا أذوناتك.",
+  "accountMenu.turnOffDemoMode": "إيقاف وضع العرض التوضيحي",
+  "accountMenu.invitations": "الدعوات",
+  "accountMenu.joinYourTeam": "انضم إلى فريقك",
+  "accountMenu.join": "انضمام",
+  "accountMenu.yourWorkspace": "مساحة عملك",
+  "accountMenu.createOrganization": "إنشاء مؤسسة",
+  "accountMenu.organizationName": "اسم المؤسسة",
+  "accountMenu.create": "إنشاء",
+  "accountMenu.usage": "الاستخدام",
+  "accountMenu.getApps": "الحصول على التطبيقات والإضافات",
+  "accountMenu.back": "رجوع",
+  "settingsOrg.general.organization": "المؤسسة",
+  "settingsOrg.general.name": "الاسم",
+  "settingsOrg.general.nameLocked": "يمكن للمالكين والمسؤولين تغيير الاسم.",
+  "settingsOrg.general.membership": "العضوية",
+  "settingsOrg.general.yourRole": "دورك",
+  "settingsOrg.general.deleteDescription":
+    "يحذف {{name}} وأعضاءها وبياناتها نهائيًا.",
+  "settingsOrg.members.removeTitle": "هل تريد إزالة {{name}}؟",
+  "settingsOrg.members.removeDescription":
+    "سيفقد الوصول إلى {{org}}. ما يملكه ينتقل إلى الشخص الذي تختاره.",
+  "settingsOrg.members.roleFor": "دور {{name}}",
+  "settingsOrg.members.moreActions": "مزيد من الإجراءات لـ {{name}}",
+  "settingsOrg.members.removing": "جارٍ الإزالة…",
+  "settingsOrg.members.groupsEmpty":
+    "جمّع الأعضاء في مجموعات لإدارة الوصول إلى التطبيقات معًا.",
+  "settingsOrg.auth.signIn": "تسجيل الدخول",
+  "settingsOrg.auth.joining": "الانضمام",
+  "settingsOrg.auth.betweenApps": "بين التطبيقات",
+  "settingsOrg.auth.methodsEmailOnly": "البريد الإلكتروني وكلمة المرور.",
+  "settingsOrg.auth.methodsEmailAndOne":
+    "البريد الإلكتروني وكلمة المرور، و{{method}}.",
+  "settingsOrg.auth.methodsEmailAndTwo":
+    "البريد الإلكتروني وكلمة المرور، و{{first}}، و{{second}}.",
+  "settingsOrg.auth.emailPassword": "البريد الإلكتروني وكلمة المرور",
+  "settingsOrg.auth.emailPasswordNote": "مفعّل في كل عملية نشر.",
+  "settingsOrg.auth.methodConfigured":
+    "مُعدّ على الاستضافة باستخدام هذه المتغيرات.",
+  "settingsOrg.auth.methodNotConfigured":
+    "غير مُعدّ. أضف هذه المتغيرات على الاستضافة، ثم أعد النشر.",
+  "settingsOrg.auth.methodOn": "مفعّل",
+  "settingsOrg.auth.methodOff": "غير مفعّل",
+  "settingsOrg.auth.requireHint":
+    "لفرض إحدى هذه الطرق على الجميع في {{org}}، استخدم تسجيل دخول المؤسسة.",
+  "settingsOrg.auth.view": "عرض",
+  "settingsOrg.auth.close": "إغلاق",
+  "settingsOrg.apps.access": "الوصول",
+  "settingsOrg.apps.browse": "تصفح التطبيقات",
+  "settingsOrg.apps.defaults": "الإعدادات الافتراضية",
+  "settingsOrg.search.domainAutoJoin":
+    "الانضمام التلقائي حسب نطاق البريد الإلكتروني",
+  "settingsOrg.search.roles": "أدوار الأعضاء",
+  "settingsOrg.learnMore": "معرفة المزيد",
+  "settingsOrg.moreInformation": "مزيد من المعلومات",
+  "settingsOrg.general.workspaceUrl": "عنوان URL لمساحة العمل",
+  "settingsOrg.general.workspaceUrlDescription":
+    "وجّه الأعضاء إلى مساحة العمل هذه من نشر آخر.",
+  "settingsOrg.general.workspaceUrlHelp":
+    "ينتقل الأعضاء الذين يصلون إلى نشر آخر إلى مساحة العمل هذه بدلًا من تطبيق فارغ.",
+  "settingsOrg.general.editWorkspaceUrl": "تعديل عنوان URL لمساحة العمل",
+  "settingsOrg.general.removeWorkspaceUrl": "إزالة عنوان URL لمساحة العمل",
+  "settingsOrg.general.setWorkspaceUrl": "تعيين عنوان URL",
+  "settingsOrg.auth.domainDescription":
+    "أضف الأشخاص الذين لديهم بريد إلكتروني @{{domain}} تلقائيًا.",
+  "settingsOrg.auth.domainDescriptionNoDomain":
+    "أضف الأشخاص الذين يستخدمون نطاق بريد العمل الخاص بك تلقائيًا.",
+  "settingsOrg.auth.domainHelp":
+    "كل من يسجّل ببريد إلكتروني من هذا النطاق ينضم إلى المؤسسة. يمكن استخدام نطاق بريدك الإلكتروني فقط، ولا يُسمح بمزوّدي البريد المجاني.",
+  "settingsOrg.auth.editDomain": "تعديل النطاق",
+  "settingsOrg.auth.removeDomain": "إزالة النطاق",
+  "settingsOrg.auth.sharedSecret": "السر المشترك",
+  "settingsOrg.auth.sharedSecretSet":
+    "معيّن. يتيح لتطبيقات مساحة العمل هذه التحقق من بعضها.",
+  "settingsOrg.auth.sharedSecretNotSet":
+    "غير معيّن. يتيح لتطبيقات مساحة العمل هذه التحقق من بعضها.",
+  "settingsOrg.auth.secretNotSetValue": "غير معيّن",
+  "settingsOrg.auth.manage": "إدارة",
+  "settingsOrg.auth.reveal": "إظهار",
+  "settingsOrg.auth.hide": "إخفاء",
+  "settingsOrg.auth.regenerate": "إعادة الإنشاء",
+  "settingsOrg.auth.syncToApps": "مزامنة مع التطبيقات",
+  "settingsOrg.auth.pasteSecret": "لصق السر",
+  "settingsOrg.auth.pasteSecretLabel": "الصق سرًا مشتركًا",
+  "settingsOrg.auth.syncing": "جارٍ المزامنة مع التطبيقات…",
+  "settingsOrg.auth.syncErrorStatus": "HTTP {{status}}",
+  "settingsOrg.invite.emails": "عناوين البريد الإلكتروني",
+  "settingsOrg.invite.emailPlaceholder": "name@company.com",
+  "settingsOrg.invite.note":
+    "يسجّل كل شخص الدخول بهذا البريد الإلكتروني نفسه لقبول الدعوة.",
+  "settingsOrg.invite.noteNoEmail":
+    "لن تُرسل الدعوات بالبريد الإلكتروني، لذا اطلب من كل شخص تسجيل الدخول بهذا البريد الإلكتروني نفسه.",
+  "settingsOrg.invite.role": "الدور",
+  "settingsOrg.invite.member": "عضو",
+  "settingsOrg.invite.admin": "مسؤول",
+  "settingsOrg.invite.ownerOnlyAdmin": "يمكن لمالك المؤسسة فقط دعوة المسؤولين.",
+  "settingsOrg.invite.removeRow": "إزالة",
+  "settingsOrg.invite.addAnother": "إضافة آخر",
+  "settingsOrg.invite.pasteMany": "لصق عدة عناوين",
+  "settingsOrg.invite.importCsv": "استيراد CSV",
+  "settingsOrg.invite.pasteLabel":
+    "الصق عناوين البريد الإلكتروني مفصولة بفواصل أو مسافات أو أسطر جديدة.",
+  "settingsOrg.invite.addAsMembers": "إضافة كأعضاء",
+  "settingsOrg.invite.addAsAdmins": "إضافة كمسؤولين",
+  "settingsOrg.invite.add": "إضافة",
+  "settingsOrg.invite.send": "إرسال الدعوات",
+  "settingsOrg.invite.sending": "جارٍ الإرسال…",
+  "settingsOrg.invite.invalidEmail": "أدخل عنوان بريد إلكتروني كاملًا.",
+  "settingsOrg.invite.csvNoEmails":
+    "لم يتم العثور على عناوين بريد إلكتروني صالحة في ملف CSV هذا.",
+  "settingsOrg.auth.synced_zero": "تمت المزامنة مع {{count}} تطبيق.",
+  "settingsOrg.auth.synced_one": "تمت المزامنة مع {{count}} تطبيق.",
+  "settingsOrg.auth.synced_two": "تمت المزامنة مع {{count}} تطبيقين.",
+  "settingsOrg.auth.synced_few": "تمت المزامنة مع {{count}} تطبيقات.",
+  "settingsOrg.auth.synced_many": "تمت المزامنة مع {{count}} تطبيقًا.",
+  "settingsOrg.auth.synced_other": "تمت المزامنة مع {{count}} تطبيق.",
+  "settingsOrg.auth.syncedPartial_zero":
+    "تمت المزامنة مع {{succeeded}} من {{count}} تطبيق. فشل {{failed}}.",
+  "settingsOrg.auth.syncedPartial_one":
+    "تمت المزامنة مع {{succeeded}} من {{count}} تطبيق. فشل {{failed}}.",
+  "settingsOrg.auth.syncedPartial_two":
+    "تمت المزامنة مع {{succeeded}} من {{count}} تطبيقين. فشل {{failed}}.",
+  "settingsOrg.auth.syncedPartial_few":
+    "تمت المزامنة مع {{succeeded}} من {{count}} تطبيقات. فشل {{failed}}.",
+  "settingsOrg.auth.syncedPartial_many":
+    "تمت المزامنة مع {{succeeded}} من {{count}} تطبيقًا. فشل {{failed}}.",
+  "settingsOrg.auth.syncedPartial_other":
+    "تمت المزامنة مع {{succeeded}} من {{count}} تطبيق. فشل {{failed}}.",
+  "settingsOrg.invite.sent_zero": "تم إرسال {{count}} دعوة.",
+  "settingsOrg.invite.sent_one": "تم إرسال {{count}} دعوة.",
+  "settingsOrg.invite.sent_two": "تم إرسال {{count}} دعوتين.",
+  "settingsOrg.invite.sent_few": "تم إرسال {{count}} دعوات.",
+  "settingsOrg.invite.sent_many": "تم إرسال {{count}} دعوةً.",
+  "settingsOrg.invite.sent_other": "تم إرسال {{count}} دعوة.",
+  "settingsOrg.invite.saved_zero":
+    "تم حفظ {{count}} دعوة. ستظهر عند تسجيل الدخول.",
+  "settingsOrg.invite.saved_one":
+    "تم حفظ {{count}} دعوة. ستظهر عند تسجيل الدخول.",
+  "settingsOrg.invite.saved_two":
+    "تم حفظ {{count}} دعوتين. ستظهران عند تسجيل الدخول.",
+  "settingsOrg.invite.saved_few":
+    "تم حفظ {{count}} دعوات. ستظهر عند تسجيل الدخول.",
+  "settingsOrg.invite.saved_many":
+    "تم حفظ {{count}} دعوةً. ستظهر عند تسجيل الدخول.",
+  "settingsOrg.invite.saved_other":
+    "تم حفظ {{count}} دعوة. ستظهر عند تسجيل الدخول.",
+  "settingsShell.account.addPassword": "إضافة كلمة مرور",
+  "settingsShell.account.authenticatorCode": "رمز المصادقة",
+  "settingsShell.account.change": "تغيير",
+  "settingsShell.account.changeEmail": "تغيير البريد الإلكتروني",
+  "settingsShell.account.changePassword": "تغيير كلمة المرور",
+  "settingsShell.account.confirmPassword": "تأكيد كلمة المرور الجديدة",
+  "settingsShell.account.currentPassword": "كلمة المرور الحالية",
+  "settingsShell.account.deletionDialogDescription":
+    "يُرسل هذا طلب حذف إلى أحد المسؤولين. تبقى بياناتك حتى يراجعه.",
+  "settingsShell.account.done": "تم",
+  "settingsShell.account.email": "البريد الإلكتروني",
+  "settingsShell.account.emailChangeError": "تعذّر إرسال التأكيد.",
+  "settingsShell.account.emailChangeSent":
+    "تحقق من بريدك الإلكتروني للاطلاع على تعليمات تأكيد هذا التغيير.",
+  "settingsShell.account.languageAndRegion": "اللغة والمنطقة",
+  "settingsShell.account.languageDescription": "يُطبَّق على جميع أجهزتك.",
+  "settingsShell.account.manage": "إدارة",
+  "settingsShell.account.name": "الاسم",
+  "settingsShell.account.nameDescription":
+    "يُستخدم للإشارة إليك في تطبيقات Agent-Native.",
+  "settingsShell.account.namePlaceholder": "اسمك",
+  "settingsShell.account.nameSaveError": "تعذّر تحديث اسمك.",
+  "settingsShell.account.nameSaved": "تم تحديث الاسم",
+  "settingsShell.account.newEmail": "البريد الإلكتروني الجديد",
+  "settingsShell.account.newPassword": "كلمة المرور الجديدة",
+  "settingsShell.account.password": "كلمة المرور",
+  "settingsShell.account.passwordDescription":
+    "أضف كلمة مرور لتحصل على طريقة أخرى لتسجيل الدخول إلى حسابك.",
+  "settingsShell.account.passwordLoadError":
+    "تعذّر تحميل طرق تسجيل الدخول الخاصة بك.",
+  "settingsShell.account.passwordMinLength":
+    "اختر كلمة مرور لا تقل عن {{count}} حرفًا.",
+  "settingsShell.account.passwordMismatch": "كلمتا المرور غير متطابقتين.",
+  "settingsShell.account.passwordSaveError": "تعذّر تحديث كلمة المرور.",
+  "settingsShell.account.passwordSaved": "تم تحديث كلمة المرور",
+  "settingsShell.account.photoError": "تعذّر تحديث الصورة.",
+  "settingsShell.account.photoUpdated": "تم تحديث الصورة",
+  "settingsShell.account.profilePhoto": "صورة الملف الشخصي",
+  "settingsShell.account.requestCopyDescription":
+    "يتحقق أحد المسؤولين من هويتك ويتابع معك.",
+  "settingsShell.account.requestCopyLabel": "طلب نسخة من بياناتك",
+  "settingsShell.account.requestDeletionDescription":
+    "تبقى بياناتك حتى يُكمل أحد المسؤولين الطلب.",
+  "settingsShell.account.requestDeletionLabel": "طلب حذف البيانات",
+  "settingsShell.account.savePassword": "حفظ كلمة المرور",
+  "settingsShell.account.sendConfirmation": "إرسال التأكيد",
+  "settingsShell.account.sending": "جارٍ الإرسال...",
+  "settingsShell.account.setUpTwoFactor": "إعداد المصادقة الثنائية",
+  "settingsShell.account.settingUp": "جارٍ الإعداد...",
+  "settingsShell.account.signIn": "تسجيل الدخول",
+  "settingsShell.account.timezone": "المنطقة الزمنية",
+  "settingsShell.account.timezoneDescription":
+    "تُستخدم للطوابع الزمنية وعمليات الأتمتة المجدولة.",
+  "settingsShell.account.turnOffTwoFactor": "إيقاف المصادقة الثنائية",
+  "settingsShell.account.turningOff": "جارٍ الإيقاف...",
+  "settingsShell.account.twoFactor": "المصادقة الثنائية",
+  "settingsShell.account.twoFactorBackupCodes":
+    "احفظ رموز النسخ الاحتياطي هذه في مكان آمن. يمكن استخدام كل رمز مرة واحدة إذا فقدت الوصول إلى تطبيق المصادقة.",
+  "settingsShell.account.twoFactorCodeError":
+    "أدخل الرمز المكوّن من ستة أرقام من تطبيق المصادقة.",
+  "settingsShell.account.twoFactorDescription":
+    "استخدم تطبيق مصادقة لإضافة خطوة ثانية لتسجيل الدخول إلى حسابك.",
+  "settingsShell.account.twoFactorDisableError":
+    "تعذّر إيقاف المصادقة الثنائية.",
+  "settingsShell.account.twoFactorEnabled": "المصادقة الثنائية مفعّلة.",
+  "settingsShell.account.twoFactorLoadError":
+    "تعذّر تحميل إعدادات المصادقة الثنائية.",
+  "settingsShell.account.twoFactorQrLabel": "رمز QR لإعداد المصادقة الثنائية",
+  "settingsShell.account.twoFactorSaved": "تم تفعيل المصادقة الثنائية",
+  "settingsShell.account.twoFactorScan":
+    "امسح رمز QR هذا بتطبيق المصادقة، ثم أدخل الرمز الذي يعرضه.",
+  "settingsShell.account.twoFactorSetupError":
+    "تعذّر تحديث إعدادات المصادقة الثنائية.",
+  "settingsShell.account.twoFactorSetupTitle": "إعداد المصادقة الثنائية",
+  "settingsShell.account.uploading": "جارٍ الرفع...",
+  "settingsShell.account.verifyAndEnable": "التحقق والتفعيل",
+  "settingsShell.account.verifying": "جارٍ التحقق...",
+  "settingsShell.account.voiceBatch": "دفعة واحدة",
+  "settingsShell.account.voiceDescription":
+    "اختر طريقة تحويل الإدخال الصوتي إلى نص.",
+  "settingsShell.account.voiceGoogleRealtime": "Google في الوقت الفعلي",
+  "settingsShell.account.voiceInput": "الإدخال الصوتي",
+  "settingsShell.account.voiceLoadError":
+    "تعذّر تحميل إعداد تحويل الصوت إلى نص.",
+  "settingsShell.account.voiceMacNative": "Mac الأصلي",
+  "settingsShell.account.voiceSaveError": "تعذّر حفظ إعداد تحويل الصوت إلى نص.",
+  "settingsShell.account.yourData": "بياناتك",
+  "settingsShell.appFallbackName": "التطبيق",
+  "settingsShell.appGroup.adminOnly": "يمكن للمالكين والمسؤولين فقط تغيير هذا",
+  "settingsShell.appGroup.automationsCreateTitle": "ما الذي يجب أن يحدث، ومتى؟",
+  "settingsShell.appGroup.defaultModel": "النموذج الافتراضي",
+  "settingsShell.appGroup.defaultModelDescription":
+    "يُستخدم في محادثات الوكيل الجديدة في {{app}}. النموذج الافتراضي هو {{model}}.",
+  "settingsShell.appGroup.defaultModelDescriptionUnset":
+    "يُستخدم في محادثات الوكيل الجديدة في {{app}}.",
+  "settingsShell.appGroup.defaultModelLoadError":
+    "تعذّر تحميل النموذج الافتراضي.",
+  "settingsShell.appGroup.defaultModelSaveError":
+    "تعذّر حفظ النموذج الافتراضي. حاول مرة أخرى.",
+  "settingsShell.appGroup.demoMode": "وضع العرض التوضيحي",
+  "settingsShell.appGroup.demoModeDescription":
+    "استخدم بيانات نموذجية في هذا المتصفح للعروض التقديمية.",
+  "settingsShell.appGroup.labsFootnote":
+    "قد تحتوي هذه الميزات الجديدة غير المستقرة على أخطاء.",
+  "settingsShell.appGroup.labsLoadError": "تعذّر تحميل المختبرات.",
+  "settingsShell.appGroup.labsSaveError": "تعذّر تغيير {{lab}}. حاول مرة أخرى.",
+  "settingsShell.appGroup.mcpAbout":
+    "اربط {{app}} بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في {{app}} نيابةً عنك. ولا يرى إلا ما يمكنك رؤيته.",
+  "settingsShell.appGroup.mcpFootnote":
+    "للاطلاع على الأدوات التي يستخدمها الوكيل نفسه، راجع {{integrations}}.",
+  "settingsShell.appGroup.newAutomation": "أتمتة جديدة",
+  "settingsShell.appGroup.retry": "إعادة المحاولة",
+  "settingsShell.appGroup.thisBrowser": "هذا المتصفح",
+  "settingsShell.appGroup.useDefault": "استخدام الافتراضي",
+  "settingsShell.appGroup.whatsNewChip":
+    "تحديثات {{app}}. لكل تطبيق سجل تغييرات خاص به.",
+  "settingsShell.appGroup.whatsNewEmpty": "لا توجد تحديثات بعد.",
+  "settingsShell.appGroup.whatsNewShowFewer": "عرض تحديثات أقل",
+  "settingsShell.appGroup.whatsNewViewAll": "عرض كل التحديثات",
+  "settingsShell.backToApp": "العودة إلى {{app}}",
+  "settingsShell.breadcrumbLabel": "مسار التنقل",
+  "settingsShell.builder.connect": "ربط",
+  "settingsShell.builder.connected": "مرتبط",
+  "settingsShell.builder.connectedTo": "مرتبط · {{space}}",
+  "settingsShell.builder.connection": "الاتصال",
+  "settingsShell.builder.disconnect": "قطع الاتصال",
+  "settingsShell.builder.disconnecting": "جارٍ قطع الاتصال…",
+  "settingsShell.builder.disconnectBody":
+    "يؤثر هذا على كل من في {{org}} ممن لم يربطوا حساباتهم الخاصة.",
+  "settingsShell.builder.disconnectFailed": "تعذّر قطع اتصال Builder.io.",
+  "settingsShell.builder.disconnectTitle": "هل تريد قطع اتصال Builder.io؟",
+  "settingsShell.builder.grantsFailed": "تعذّرت قراءة اتصالات Builder.io.",
+  "settingsShell.builder.loss.defaultStops":
+    "تتوقف المحادثات حتى تضيف موفرًا للمؤسسة.",
+  "settingsShell.builder.loss.defaultSwitches":
+    "يتحول النموذج الافتراضي إلى {{next}}.",
+  "settingsShell.builder.loss.modelPicker":
+    "تُزال نماذج Builder.io من أداة اختيار النموذج.",
+  "settingsShell.builder.loss.serviceStops": "يتوقف إلى أن يُعدّ مزوّد آخر.",
+  "settingsShell.builder.loss.stops": "يتوقف عن العمل.",
+  "settingsShell.builder.loss.uploadsFail":
+    "يفشل الرفع إلى أن تُعدّ مساحة التخزين.",
+  "settingsShell.builder.manage": "إدارة",
+  "settingsShell.builder.needsReconnect": "يجب إعادة ربطه.",
+  "settingsShell.builder.orgFallback": "مؤسستك",
+  "settingsShell.builder.orgNotConnectedAdmin":
+    "غير مرتبط. عند ربطه يمكن لكل من في {{org}} استخدامه.",
+  "settingsShell.builder.orgNotConnectedMember":
+    "غير مرتبط. يمكن للمالك أو المسؤول ربطه.",
+  "settingsShell.builder.organization": "المؤسسة",
+  "settingsShell.builder.personal": "شخصي",
+  "settingsShell.builder.personalConnected": "مرتبط. أنت وحدك تستخدمه.",
+  "settingsShell.builder.personalConnectedOverOrg":
+    "مرتبط. أنت وحدك تستخدمه بدلًا من اتصال المؤسسة.",
+  "settingsShell.builder.personalConnectedTo":
+    "مرتبط · {{space}}. أنت وحدك تستخدمه.",
+  "settingsShell.builder.personalConnectedToOverOrg":
+    "مرتبط · {{space}}. أنت وحدك تستخدمه بدلًا من اتصال المؤسسة.",
+  "settingsShell.builder.personalNotConnected":
+    "اربط حسابك الخاص. أنت وحدك تستخدمه.",
+  "settingsShell.builder.personalRestricted":
+    "قيّد المالكون والمسؤولون مفاتيح API الشخصية.",
+  "settingsShell.builder.personalRestrictedUnused":
+    "لا يُستخدم ما دامت مفاتيح API الشخصية مقيّدة.",
+  "settingsShell.builder.reconnect": "إعادة الربط",
+  "settingsShell.builder.retry": "إعادة المحاولة",
+  "settingsShell.builder.use.aiModel": "نموذج الذكاء الاصطناعي",
+  "settingsShell.builder.use.aiModelDefaultNote":
+    "النموذج الافتراضي، {{model}}.",
+  "settingsShell.builder.use.aiModelNote":
+    "نماذج Builder.io موجودة في أداة اختيار النموذج.",
+  "settingsShell.builder.use.backgroundAgentsNote":
+    "يجري تغييرات على الكود من بيئة الإنتاج.",
+  "settingsShell.builder.use.browserAutomationNote":
+    "يتيح للوكيل استخدام متصفح في بيئة الإنتاج.",
+  "settingsShell.builder.use.designSystem": "ذكاء نظام التصميم",
+  "settingsShell.builder.use.designSystemNote":
+    "يحافظ على توافق الشرائح والتصاميم المُنشأة مع العلامة التجارية.",
+  "settingsShell.builder.use.embeddings": "التضمينات",
+  "settingsShell.builder.use.embeddingsNote": "البحث في Brain.",
+  "settingsShell.builder.use.fileStorageNote":
+    "تُخزَّن الملفات المرفوعة الجديدة على Builder.io.",
+  "settingsShell.builder.use.images": "إنشاء الصور",
+  "settingsShell.builder.use.imagesNote": "Slides وDesign.",
+  "settingsShell.builder.use.voice": "الإدخال الصوتي",
+  "settingsShell.builder.use.voiceNote": "الإملاء في كل تطبيق.",
+  "settingsShell.builder.usedFor": "يُستخدم في",
+  "settingsShell.builder.usedForFootnote":
+    "اختر ما يعمل على Builder.io في {{link}}.",
+  "settingsShell.builder.usedForLoadFailed":
+    "تعذّر التحقق من الخدمات التي تعمل على Builder.io.",
+  "settingsShell.builder.whatHappens": "ما الذي سيحدث",
+  "settingsShell.channels.about.discord":
+    "شغّل الوكيل من أوامر الشرطة المائلة في Discord.",
+  "settingsShell.channels.about.email":
+    "أرسل بريدًا إلكترونيًا إلى الوكيل، وسيرد في سلسلة الرسائل نفسها.",
+  "settingsShell.channels.about.googleDocs":
+    "أشِر إلى الوكيل في تعليقات مستندات Google لتلقي الردود.",
+  "settingsShell.channels.about.microsoftTeams":
+    "أشِر إلى الوكيل في Microsoft Teams، وسيرد في تلك المحادثة.",
+  "settingsShell.channels.about.page":
+    "الأماكن التي يمكن للأشخاص مراسلة وكيل {{app}} منها. يُعدّ وكيل كل تطبيق بشكل منفصل.",
+  "settingsShell.channels.about.slack":
+    "أشِر إلى الوكيل باستخدام @ في سلسلة رسائل أو راسله مباشرةً، وسيرد في سلسلة الرسائل نفسها.",
+  "settingsShell.channels.about.telegram": "تحدّث مع وكيلك عبر روبوت Telegram.",
+  "settingsShell.channels.about.whatsapp": "اربط وكيلك بـ WhatsApp Business.",
+  "settingsShell.channels.action.manage": "إدارة",
+  "settingsShell.channels.action.manageAria": "إدارة {{platform}}",
+  "settingsShell.channels.action.setUp": "إعداد",
+  "settingsShell.channels.action.setUpAria": "إعداد {{platform}}",
+  "settingsShell.channels.action.view": "عرض",
+  "settingsShell.channels.action.viewAria": "عرض {{platform}}",
+  "settingsShell.channels.agentIn": "الوكيل في {{platform}}",
+  "settingsShell.channels.connection": "الاتصال",
+  "settingsShell.channels.copyServiceAccountEmail":
+    "نسخ البريد الإلكتروني لحساب الخدمة",
+  "settingsShell.channels.copyWebhookUrl": "نسخ عنوان URL للويب هوك",
+  "settingsShell.channels.credentials": "بيانات الاعتماد",
+  "settingsShell.channels.developerSite": "موقع المطورين",
+  "settingsShell.channels.documentation": "الوثائق",
+  "settingsShell.channels.empty": "لا توجد قنوات متاحة في {{app}}.",
+  "settingsShell.channels.information": "المعلومات",
+  "settingsShell.channels.loadFailed": "تعذّر تحميل القنوات.",
+  "settingsShell.channels.membersFootnote":
+    "يمكن للمالكين والمسؤولين فقط إعداد القنوات.",
+  "settingsShell.channels.notFound": "هذه القناة غير متاحة في {{app}}.",
+  "settingsShell.channels.open": "فتح",
+  "settingsShell.channels.openDocs": "فتح الوثائق",
+  "settingsShell.channels.registerWebhook": "تسجيل",
+  "settingsShell.channels.removeCredentials.action": "إزالة",
+  "settingsShell.channels.removeCredentials.aria":
+    "إزالة بيانات اعتماد {{platform}}",
+  "settingsShell.channels.removeCredentials.body":
+    "يتوقف الوكيل عن الرد في {{platform}} للجميع، ما لم تضبط بيئة النشر هذه المفاتيح أيضًا.",
+  "settingsShell.channels.removeCredentials.confirm": "إزالة",
+  "settingsShell.channels.removeCredentials.failed":
+    "تعذّرت إزالة بيانات الاعتماد.",
+  "settingsShell.channels.removeCredentials.removing": "جارٍ الإزالة…",
+  "settingsShell.channels.removeCredentials.title":
+    "هل تريد إزالة بيانات اعتماد {{platform}}؟",
+  "settingsShell.channels.retry": "إعادة المحاولة",
+  "settingsShell.channels.setup.addToEnvironment": "أضفه إلى بيئة النشر",
+  "settingsShell.channels.setup.body": "أضف هذه القيم إلى هذا النشر، ثم شغّله.",
+  "settingsShell.channels.setup.close": "إغلاق",
+  "settingsShell.channels.setup.failed": "تعذّر حفظ المتغيرات.",
+  "settingsShell.channels.setup.optional": "اختياري",
+  "settingsShell.channels.setup.replace": "استبدال",
+  "settingsShell.channels.setup.replaceAria": "استبدال {{key}}",
+  "settingsShell.channels.setup.save": "حفظ",
+  "settingsShell.channels.setup.saveAndTurnOn": "حفظ وتشغيل",
+  "settingsShell.channels.setup.saving": "جارٍ الحفظ…",
+  "settingsShell.channels.setup.saved": "محفوظ",
+  "settingsShell.channels.setup.savedElsewhere": "محفوظ خارج القنوات",
+  "settingsShell.channels.setup.setInEnvironment": "يُضبط في بيئة النشر",
+  "settingsShell.channels.setup.stillMissing":
+    "لا تزال بعض المتغيرات المطلوبة مفقودة.",
+  "settingsShell.channels.setup.title": "إعداد {{platform}}",
+  "settingsShell.channels.shareDocumentsWith": "شارك المستندات مع",
+  "settingsShell.channels.state.notSetUp": "غير مُعدّ",
+  "settingsShell.channels.state.off": "متوقف",
+  "settingsShell.channels.state.on": "مُشغّل",
+  "settingsShell.channels.status": "الحالة",
+  "settingsShell.channels.toggleFailed": "تعذّر تحديث {{platform}}.",
+  "settingsShell.channels.turnOnAria": "تشغيل {{platform}}",
+  "settingsShell.channels.unavailable": "{{platform}} غير متاح في {{app}}.",
+  "settingsShell.channels.webhookLocalOnly":
+    "لا يمكن لـ {{platform}} الوصول إلى هذا العنوان. افتح هذه الصفحة من عنوان HTTPS العام للتطبيق للحصول على عنوان URL للويب هوك.",
+  "settingsShell.channels.webhookRegistered": "تم التسجيل",
+  "settingsShell.channels.webhookRegistration": "الويب هوك",
+  "settingsShell.channels.webhookUrl": "عنوان URL للويب هوك",
+  "settingsShell.channels.category": "الفئة",
+  "settingsShell.channels.developer": "المطوّر",
+  "settingsShell.channels.mentionAgent": "إشارة إلى الوكيل",
+  "settingsShell.channels.rowDescription": "{{about}} {{state}}.",
+  "settingsShell.channels.separately": "يُعدّ وكيل كل تطبيق بشكل منفصل.",
+  "settingsShell.channels.setUpLocked":
+    "يمكن للمالكين والمسؤولين فقط إعداد هذا",
+  "settingsShell.integrationDetail.access.none":
+    "إنه خادم عام، لذلك لا حاجة لتسجيل الدخول إلى أي شيء.",
+  "settingsShell.integrationDetail.access.oauth":
+    "يعمل الوكيل بأذونات {{name}} الخاصة بك، لذلك لا يرى إلا ما يمكنك رؤيته.",
+  "settingsShell.integrationDetail.access.token":
+    "يستخدم الوكيل رمز الوصول الذي تضيفه، لذلك يرى ما يمكن لهذا الرمز رؤيته.",
+  "settingsShell.integrationDetail.accessToken": "رمز الوصول",
+  "settingsShell.integrationDetail.addAccessToken": "إضافة رمز وصول",
+  "settingsShell.integrationDetail.callout.adminNeeded": "يجب أن يُعدّ مسؤول هذا",
+  "settingsShell.integrationDetail.callout.adminNeededBody":
+    "اطلب من مالك أو مسؤول في {{org}} إضافة معرّف العميل والسر الخاصين بـ {{name}}. بعد ذلك يمكنك ربط حسابك.",
+  "settingsShell.integrationDetail.callout.beforeAnyone":
+    "قبل أن يتمكن أي شخص من الاتصال",
+  "settingsShell.integrationDetail.callout.beforeYouConnect": "قبل الاتصال",
+  "settingsShell.integrationDetail.callout.token": "يتصل برمز وصول",
+  "settingsShell.integrationDetail.callout.unavailable": "غير متاح بعد",
+  "settingsShell.integrationDetail.category": "الفئة",
+  "settingsShell.integrationDetail.connected": "تم ربط {{name}}",
+  "settingsShell.integrationDetail.copyServerUrl": "نسخ عنوان URL للخادم",
+  "settingsShell.integrationDetail.developer": "المطوّر",
+  "settingsShell.integrationDetail.howToCreateToken": "كيفية إنشاء رمز",
+  "settingsShell.integrationDetail.justMe": "أنا فقط",
+  "settingsShell.integrationDetail.notFound":
+    "هذا التكامل غير موجود في الكتالوج.",
+  "settingsShell.integrationDetail.notFoundTitle": "غير موجود",
+  "settingsShell.integrationDetail.prompt.amplitude.1":
+    "كيف تطوّر عدد المستخدمين النشطين أسبوعيًا هذا الشهر؟",
+  "settingsShell.integrationDetail.prompt.amplitude.2":
+    "أنشئ مسارًا تحويليًا من الاشتراك حتى أول تسجيل",
+  "settingsShell.integrationDetail.prompt.amplitude.3":
+    "ما المجموعات التي تتمتع بأفضل احتفاظ؟",
+  "settingsShell.integrationDetail.prompt.apollo.1":
+    "ابحث عن رؤساء التصميم في الشركات الناشئة في الجولة B",
+  "settingsShell.integrationDetail.prompt.apollo.2":
+    "أثرِ قائمة عناوين البريد الإلكتروني هذه",
+  "settingsShell.integrationDetail.prompt.apollo.3":
+    "أضف جهات الاتصال هذه إلى تسلسل الربع الرابع",
+  "settingsShell.integrationDetail.prompt.asana.1":
+    "ما المهام المستحقة عليّ هذا الأسبوع؟",
+  "settingsShell.integrationDetail.prompt.asana.2":
+    "أنشئ مهام من بنود العمل في هذا التسجيل",
+  "settingsShell.integrationDetail.prompt.asana.3":
+    "ما المشروعات المتأخرة عن الجدول؟",
+  "settingsShell.integrationDetail.prompt.atlassian.1":
+    "أنشئ تذكرة Jira من بنود العمل في هذا التسجيل",
+  "settingsShell.integrationDetail.prompt.atlassian.2":
+    "ما الذي يعيق إصدار الربع الرابع؟",
+  "settingsShell.integrationDetail.prompt.atlassian.3":
+    "ابحث عن صفحة Confluence الخاصة بالتهيئة",
+  "settingsShell.integrationDetail.prompt.box.1":
+    "ابحث عن العقد الموقّع لـ Acme",
+  "settingsShell.integrationDetail.prompt.box.2":
+    "شارك مجلد تقرير الربع الثالث مع فريق المالية",
+  "settingsShell.integrationDetail.prompt.box.3":
+    "ما الذي تغيّر في المجلد القانوني هذا الأسبوع؟",
+  "settingsShell.integrationDetail.prompt.canva.1":
+    "أنشئ منشورًا لوسائل التواصل من أبرز لحظات هذا التسجيل",
+  "settingsShell.integrationDetail.prompt.canva.2":
+    "ابحث عن ألوان مجموعة علامتنا التجارية",
+  "settingsShell.integrationDetail.prompt.canva.3":
+    "صدّر أحدث عرض تقديمي بصيغة PDF",
+  "settingsShell.integrationDetail.prompt.cloudflare.1":
+    "ما سجلات DNS التي تشير إلى {{host}}؟",
+  "settingsShell.integrationDetail.prompt.cloudflare.2":
+    "اعرض أخطاء Worker خلال الساعة الأخيرة",
+  "settingsShell.integrationDetail.prompt.cloudflare.3":
+    "امسح ذاكرة التخزين المؤقت لعنوان URL هذا",
+  "settingsShell.integrationDetail.prompt.commonRoom.1":
+    "ما الشركات التي تُظهر إشارات شراء؟",
+  "settingsShell.integrationDetail.prompt.commonRoom.2":
+    "من في Acme نشط في مجتمعنا؟",
+  "settingsShell.integrationDetail.prompt.commonRoom.3":
+    "لخّص نشاط أهم حساباتنا",
+  "settingsShell.integrationDetail.prompt.context7.1":
+    "اعرض وثائق React Router الحالية حول loaders",
+  "settingsShell.integrationDetail.prompt.context7.2":
+    "كيف أضبط عمليات ترحيل Drizzle؟",
+  "settingsShell.integrationDetail.prompt.context7.3":
+    "ما الجديد في أحدث إصدار من Tailwind؟",
+  "settingsShell.integrationDetail.prompt.exa.1":
+    "ابحث عن مقالات حديثة حول تطبيقات agent-native",
+  "settingsShell.integrationDetail.prompt.exa.2": "ابحث عن منافسي {{app}}",
+  "settingsShell.integrationDetail.prompt.exa.3": "اجلب هذه الصفحة ولخّصها",
+  "settingsShell.integrationDetail.prompt.figma.1":
+    "لخّص المكوّنات في ملف Figma هذا",
+  "settingsShell.integrationDetail.prompt.figma.2":
+    "اعرض متغيرات الألوان في نظام التصميم لدينا",
+  "settingsShell.integrationDetail.prompt.figma.3": "صِف تخطيط هذا الإطار",
+  "settingsShell.integrationDetail.prompt.fullstory.1":
+    "اعرض الجلسات التي نقر فيها المستخدمون بغضب على مشاركة",
+  "settingsShell.integrationDetail.prompt.fullstory.2":
+    "لخّص نقاط الاحتكاك في صفحة الأسعار",
+  "settingsShell.integrationDetail.prompt.fullstory.3":
+    "أين يتوقف المستخدمون خلال التهيئة؟",
+  "settingsShell.integrationDetail.prompt.github.1":
+    "لخّص طلبات السحب التي تنتظر مراجعتي",
+  "settingsShell.integrationDetail.prompt.github.2":
+    "ابحث عن مشكلات حول معاينات روابط Slack في agent-native",
+  "settingsShell.integrationDetail.prompt.github.3":
+    "ما الذي تغيّر في packages/core هذا الأسبوع؟",
+  "settingsShell.integrationDetail.prompt.gitlab.1":
+    "ما طلبات الدمج التي فشلت في CI اليوم؟",
+  "settingsShell.integrationDetail.prompt.gitlab.2":
+    "لخّص المشكلات المفتوحة التي تحمل التصنيف bug",
+  "settingsShell.integrationDetail.prompt.gitlab.3":
+    "ما خطوط التنفيذ الأبطأ هذا الأسبوع؟",
+  "settingsShell.integrationDetail.prompt.gong.1": "لخّص آخر مكالمة لي مع Acme",
+  "settingsShell.integrationDetail.prompt.gong.2":
+    "ما الاعتراضات التي ظهرت هذا الشهر؟",
+  "settingsShell.integrationDetail.prompt.gong.3":
+    "ما الصفقات التي تذكر مخاوف بشأن الأسعار؟",
+  "settingsShell.integrationDetail.prompt.googleDocs.1":
+    "@agent لخّص التعليقات في هذا المستند",
+  "settingsShell.integrationDetail.prompt.googleDocs.2":
+    "@agent اكتب مسودة رد على هذا التعليق",
+  "settingsShell.integrationDetail.prompt.googleDocs.3":
+    "@agent حوّل هذه الملاحظات إلى قائمة تحقق",
+  "settingsShell.integrationDetail.prompt.grafana.1":
+    "اعرض مخططًا لزمن استجابة API عند p95 خلال اليوم الأخير",
+  "settingsShell.integrationDetail.prompt.grafana.2":
+    "ابحث عن سجلات الأخطاء في حوالي الساعة 2 ظهرًا",
+  "settingsShell.integrationDetail.prompt.grafana.3":
+    "ما التنبيهات التي انطلقت هذا الأسبوع؟",
+  "settingsShell.integrationDetail.prompt.granola.1":
+    "ماذا قررنا في مراجعة التصميم بالأمس؟",
+  "settingsShell.integrationDetail.prompt.granola.2":
+    "اعرض بنود العمل المفتوحة لي من الاجتماعات",
+  "settingsShell.integrationDetail.prompt.granola.3": "لخّص مكالماتي مع Acme",
+  "settingsShell.integrationDetail.prompt.hubspot.1":
+    "انقل صفقة Acme إلى Closed won",
+  "settingsShell.integrationDetail.prompt.hubspot.2":
+    "ما الصفقات العالقة في مرحلة التفاوض؟",
+  "settingsShell.integrationDetail.prompt.hubspot.3":
+    "سجّل هذه المكالمة كملاحظة على جهة الاتصال",
+  "settingsShell.integrationDetail.prompt.intercom.1":
+    "لخّص المحادثات المفتوحة اليوم",
+  "settingsShell.integrationDetail.prompt.intercom.2":
+    "ابحث عن مقالات مساعدة حول SSO",
+  "settingsShell.integrationDetail.prompt.intercom.3":
+    "ما أكثر ما يسأل عنه العملاء هذا الأسبوع؟",
+  "settingsShell.integrationDetail.prompt.linear.1":
+    "أنشئ مشكلة لمعاينة Slack المعطلة وأسندها إليّ",
+  "settingsShell.integrationDetail.prompt.linear.2":
+    "ما المتبقي في الدورة الحالية؟",
+  "settingsShell.integrationDetail.prompt.linear.3":
+    "لخّص الأخطاء المُبلّغ عنها هذا الأسبوع",
+  "settingsShell.integrationDetail.prompt.monday.1":
+    "ما الموجود على لوحة التصميم في هذا السباق؟",
+  "settingsShell.integrationDetail.prompt.monday.2": "انقل هذا العنصر إلى Done",
+  "settingsShell.integrationDetail.prompt.monday.3": "ما العناصر المتأخرة؟",
+  "settingsShell.integrationDetail.prompt.neon.1":
+    "أنشئ فرعًا من الإنتاج للاختبار",
+  "settingsShell.integrationDetail.prompt.neon.2":
+    "اعرض أبطأ الاستعلامات هذا الأسبوع",
+  "settingsShell.integrationDetail.prompt.neon.3":
+    "ما حجم قاعدة البيانات الرئيسية؟",
+  "settingsShell.integrationDetail.prompt.netlify.1": "لماذا فشل آخر نشر؟",
+  "settingsShell.integrationDetail.prompt.netlify.2":
+    "ما المواقع التي فشلت عمليات بنائها هذا الأسبوع؟",
+  "settingsShell.integrationDetail.prompt.netlify.3":
+    "ارجع إلى نشر الإنتاج السابق",
+  "settingsShell.integrationDetail.prompt.notion.1":
+    "ابحث عن قائمة التحقق الخاصة بالتهيئة",
+  "settingsShell.integrationDetail.prompt.notion.2":
+    "لخّص ملاحظات اجتماعات هذا الأسبوع",
+  "settingsShell.integrationDetail.prompt.notion.3":
+    "أضف بنود العمل هذه إلى ويكي الفريق",
+  "settingsShell.integrationDetail.prompt.paypal.1":
+    "اعرض الفواتير المتأخرة السداد",
+  "settingsShell.integrationDetail.prompt.paypal.2": "لخّص معاملات هذا الشهر",
+  "settingsShell.integrationDetail.prompt.paypal.3": "أنشئ فاتورة لـ Acme",
+  "settingsShell.integrationDetail.prompt.pylon.1":
+    "ما الحسابات التي لديها مشكلات عاجلة مفتوحة؟",
+  "settingsShell.integrationDetail.prompt.pylon.2": "لخّص أحدث تذكرة لـ Acme",
+  "settingsShell.integrationDetail.prompt.pylon.3":
+    "اكتب مسودة رد على هذه المشكلة",
+  "settingsShell.integrationDetail.prompt.semgrep.1":
+    "افحص packages/core بحثًا عن مشكلات أمنية",
+  "settingsShell.integrationDetail.prompt.semgrep.2":
+    "اشرح هذه النتيجة وكيفية إصلاحها",
+  "settingsShell.integrationDetail.prompt.semgrep.3":
+    "هل توجد أسرار مكتوبة مباشرة في هذا المستودع؟",
+  "settingsShell.integrationDetail.prompt.sentry.1":
+    "ما أبرز الأخطاء الجديدة منذ نشر الأمس؟",
+  "settingsShell.integrationDetail.prompt.sentry.2":
+    "اعرض تتبع المكدس لأكثر الأعطال تكرارًا",
+  "settingsShell.integrationDetail.prompt.sentry.3":
+    "أي إصدار تسبب في هذا الخطأ؟",
+  "settingsShell.integrationDetail.prompt.sigma.1":
+    "ابحث عن لوحة معلومات الإيرادات",
+  "settingsShell.integrationDetail.prompt.sigma.2":
+    "ما سبب تغيّر MRR في الشهر الماضي؟",
+  "settingsShell.integrationDetail.prompt.sigma.3":
+    "اشرح المقاييس الرئيسية في دفتر العمل هذا",
+  "settingsShell.integrationDetail.prompt.slack.1": "لخّص #design لهذا الأسبوع",
+  "settingsShell.integrationDetail.prompt.slack.2":
+    "ابحث عن سلسلة الرسائل حول تغيير الأسعار",
+  "settingsShell.integrationDetail.prompt.slack.3":
+    "ماذا قالت Camila عن الإطلاق؟",
+  "settingsShell.integrationDetail.prompt.stripe.1":
+    "كم بلغت إيراداتنا في الشهر الماضي؟",
+  "settingsShell.integrationDetail.prompt.stripe.2":
+    "ابحث عن العميل في هذه الفاتورة",
+  "settingsShell.integrationDetail.prompt.stripe.3":
+    "ما الاشتراكات التي فشل تجديدها؟",
+  "settingsShell.integrationDetail.prompt.supabase.1":
+    "كم شخصًا اشترك هذا الأسبوع؟",
+  "settingsShell.integrationDetail.prompt.supabase.2":
+    "اعرض مخطط جدول recordings",
+  "settingsShell.integrationDetail.prompt.supabase.3":
+    "ما وظائف Edge التي حدثت فيها أخطاء اليوم؟",
+  "settingsShell.integrationDetail.prompt.telegram.1": "لخّص تسجيلات اليوم",
+  "settingsShell.integrationDetail.prompt.telegram.2":
+    "ذكّرني بمراجعة الساعة 3 عصرًا",
+  "settingsShell.integrationDetail.prompt.telegram.3":
+    "شارك رابط العرض التوضيحي بالأمس",
+  "settingsShell.integrationDetail.prompt.vercel.1":
+    "لماذا فشل آخر نشر للمعاينة؟",
+  "settingsShell.integrationDetail.prompt.vercel.2": "اعرض سجلات نشر الإنتاج",
+  "settingsShell.integrationDetail.prompt.vercel.3":
+    "ما النطاقات التي تشير إلى هذا المشروع؟",
+  "settingsShell.integrationDetail.prompt.webflow.1": "حدّث عنوان صفحة الأسعار",
+  "settingsShell.integrationDetail.prompt.webflow.2":
+    "اعرض عناصر CMS المنشورة هذا الأسبوع",
+  "settingsShell.integrationDetail.prompt.webflow.3":
+    "ما الصفحات التي تفتقد وصف meta؟",
+  "settingsShell.integrationDetail.prompt.whatsapp.1":
+    "ما الموجود في تقويمي اليوم؟",
+  "settingsShell.integrationDetail.prompt.whatsapp.2": "لخّص أحدث تسجيل",
+  "settingsShell.integrationDetail.prompt.whatsapp.3":
+    "أرسل لي ملاحظات مراجعة التصميم",
+  "settingsShell.integrationDetail.prompt.zapier.1":
+    "انشر التسجيلات الجديدة في #design على Slack",
+  "settingsShell.integrationDetail.prompt.zapier.2":
+    "أضف المشتركين الجدد إلى نظام CRM لدينا",
+  "settingsShell.integrationDetail.prompt.zapier.3":
+    "ما Zaps التي يمكنك تشغيلها؟",
+  "settingsShell.integrationDetail.serverUrl": "عنوان URL للخادم",
+  "settingsShell.integrationDetail.setUp": "إعداد",
+  "settingsShell.integrationDetail.signIn": "تسجيل الدخول",
+  "settingsShell.integrationDetail.signInNone": "لا يوجد",
+  "settingsShell.integrationDetail.tokenHint.figma":
+    "أنشئ رمز وصول شخصيًا في Figma، ثم الصقه هنا.",
+  "settingsShell.integrationDetail.tokenHint.github":
+    "أنشئ رمز وصول شخصيًا في GitHub، ثم الصقه هنا.",
+  "settingsShell.integrationDetail.tokenHint.sentry":
+    "أنشئ رمز مصادقة مستخدم في Sentry، ثم الصقه هنا.",
+  "settingsShell.integrationDetail.tokenHint.zapier":
+    "أنشئ اتصالًا في Zapier، ثم الصق رمز Bearer الخاص به هنا.",
+  "settingsShell.integrationDetail.tokenPlaceholder":
+    "الصق رمز {{name}} الخاص بك",
+  "settingsShell.integrationDetail.who": "من يمكنه استخدامه",
+  "settingsShell.integrationDetail.whoMember":
+    "يمكن للمالكين والمسؤولين فقط مشاركته مع {{org}}.",
+  "settingsShell.integrationDetail.whoOrgOnly":
+    "يتصل مرة واحدة للجميع في {{org}}.",
+  "settingsShell.integrationDetail.whoPersonal": "يربط كل شخص حسابه الخاص.",
+  "settingsShell.integrationDetail.whoShared":
+    "يتيح الاتصال المشترك للجميع في {{org}} استخدام وصولك.",
+  "settingsShell.clearSearch": "مسح البحث",
+  "settingsShell.group.account": "الحساب",
+  "settingsShell.group.agent": "الوكيل",
+  "settingsShell.group.connections": "الاتصالات",
+  "settingsShell.group.organization": "المؤسسة",
+  "settingsShell.interfaceLanguage": "لغة الواجهة",
+  "settingsShell.integrations.addCustom": "إضافة تكامل مخصص",
+  "settingsShell.integrations.builderDescription":
+    "الوصول إلى النماذج وأتمتة المتصفح وتخزين الملفات وهوية مساحة العمل. تتوفر خطة مجانية.",
+  "settingsShell.integrations.builderStatusFailed":
+    "تعذّر التحقق من اتصال Builder.io.",
+  "settingsShell.integrations.category.analytics": "التحليلات",
+  "settingsShell.integrations.category.design": "التصميم",
+  "settingsShell.integrations.category.engineering": "الهندسة",
+  "settingsShell.integrations.category.finance": "المالية",
+  "settingsShell.integrations.category.other": "أخرى",
+  "settingsShell.integrations.category.productivity": "الإنتاجية",
+  "settingsShell.integrations.category.sales": "المبيعات",
+  "settingsShell.integrations.category.support": "الدعم",
+  "settingsShell.integrations.connectName": "ربط {{name}}",
+  "settingsShell.integrations.connectedEmptyDescription":
+    "اربط أداة أدناه ليتمكن الوكيل من استخدامها في المحادثة.",
+  "settingsShell.integrations.connectedEmptyTitle": "لا يوجد شيء متصل بعد",
+  "settingsShell.integrations.footnote":
+    "هذه هي الأدوات التي يستخدمها الوكيل. لاستخدام {{app}} من Claude أو ChatGPT أو Cursor، راجع {{link}}.",
+  "settingsShell.integrations.moreActions": "مزيد من الإجراءات لـ {{name}}",
+  "settingsShell.integrations.noResults": "لا توجد تكاملات مطابقة. جرّب اسمًا آخر.",
+  "settingsShell.integrations.remove": "إزالة",
+  "settingsShell.integrations.removeFailed": "تعذّرت إزالة {{name}}.",
+  "settingsShell.integrations.removePersonal":
+    "سيتوقف الوكيل عن استخدام {{name}} لك.",
+  "settingsShell.integrations.removeTitle": "إزالة {{name}}؟",
+  "settingsShell.integrations.removeWorkspace":
+    "سيتوقف الوكيل عن استخدام {{name}} لكل من في مساحة العمل.",
+  "settingsShell.integrations.removing": "جارٍ الإزالة…",
+  "settingsShell.integrations.retry": "إعادة المحاولة",
+  "settingsShell.integrations.seeMoreMany": "عرض {{first}} و{{second}} والمزيد",
+  "settingsShell.integrations.seeMoreOne": "عرض {{first}}",
+  "settingsShell.integrations.seeMoreTwo": "عرض {{first}} و{{second}}",
+  "settingsShell.integrations.serversLoadFailed":
+    "تعذّر تحميل تكاملاتك المرتبطة.",
+  "settingsShell.learnings": "المعارف المكتسبة",
+  "settingsShell.loading": "جارٍ تحميل الإعدادات",
+  "settingsShell.navLabel": "الإعدادات",
+  "settingsShell.noResults": "لا توجد إعدادات مطابقة",
+  "settingsShell.openNav": "فتح قائمة الإعدادات",
+  "settingsShell.page.apiKeys": "مفاتيح API",
+  "settingsShell.page.appGeneral": "عام",
+  "settingsShell.page.apps": "التطبيقات",
+  "settingsShell.page.audit": "سجل التدقيق",
+  "settingsShell.page.auth": "المصادقة",
+  "settingsShell.page.automations": "عمليات الأتمتة",
+  "settingsShell.page.channels": "القنوات",
+  "settingsShell.page.creativeContext": "السياق الإبداعي",
+  "settingsShell.page.files": "الملفات",
+  "settingsShell.page.infra": "البنية التحتية",
+  "settingsShell.page.instructions": "التعليمات",
+  "settingsShell.page.integrations": "عمليات التكامل",
+  "settingsShell.page.labs": "المختبرات",
+  "settingsShell.page.mcp": "خادم MCP",
+  "settingsShell.page.members": "الأعضاء",
+  "settingsShell.page.memory": "الذاكرة",
+  "settingsShell.page.model": "النموذج",
+  "settingsShell.page.notifications": "الإشعارات",
+  "settingsShell.page.orgGeneral": "عام",
+  "settingsShell.page.preferences": "التفضيلات",
+  "settingsShell.page.profile": "الملف الشخصي",
+  "settingsShell.page.security": "الأمان",
+  "settingsShell.page.skills": "المهارات",
+  "settingsShell.page.subAgents": "الوكلاء الفرعيون",
+  "settingsShell.page.usage": "الاستخدام",
+  "settingsShell.page.whatsNew": "الجديد",
+  "settingsShell.pagePending": "غير متاح بعد",
+  "settingsShell.resultsLabel": "نتائج البحث في الإعدادات",
+  "settingsShell.search.appDefaultModel": "النموذج الافتراضي للتطبيق",
+  "settingsShell.search.backgroundAgents": "الوكلاء في الخلفية",
+  "settingsShell.search.browserAutomation": "أتمتة المتصفح",
+  "settingsShell.search.connectedAgents": "الوكلاء المتصلون",
+  "settingsShell.search.database": "قاعدة البيانات",
+  "settingsShell.search.defaultModel": "النموذج الافتراضي",
+  "settingsShell.search.demoMode": "وضع العرض التوضيحي",
+  "settingsShell.search.email": "البريد الإلكتروني",
+  "settingsShell.search.fileUploads": "رفع الملفات والتخزين",
+  "settingsShell.search.hosting": "الاستضافة",
+  "settingsShell.search.maxIterations": "الحد الأقصى للتكرارات",
+  "settingsShell.search.signInMethods": "طرق تسجيل الدخول",
+  "settingsShell.search.voiceTranscription": "تحويل الصوت إلى نص",
+  "settingsShell.searchPlaceholder": "البحث في الإعدادات",
+  "settingsShell.unread": "جديد",
+  "settingsResources.personal": "شخصي",
+  "settingsResources.organization": "المؤسسة",
+  "settingsResources.fromDispatch": "من Dispatch",
+  "settingsResources.readOnly": "للقراءة فقط",
+  "settingsResources.readOnlyHint": "يمكن للمالكين والمسؤولين فقط تغيير هذا",
+  "settingsResources.editInDispatch": "عدّله في Dispatch",
+  "settingsResources.openDispatch": "فتح Dispatch",
+  "settingsResources.allApps": "كل التطبيقات",
+  "settingsResources.allAppsHint": "يشارك Dispatch هذا مع كل التطبيقات",
+  "settingsResources.dispatchEmpty": "لا توجد مشاركات من Dispatch",
+  "settingsResources.loadFailed": "تعذّر تحميل هذه الموارد.",
+  "settingsResources.moreActions": "مزيد من الإجراءات",
+  "settingsResources.open": "فتح",
+  "settingsResources.download": "تنزيل",
+  "settingsResources.remove": "إزالة",
+  "settingsResources.removeTitle": "إزالة {{name}}؟",
+  "settingsResources.removeFailed": "تعذّرت إزالة {{name}}.",
+  "settingsResources.saveFailed": "تعذّر حفظ {{name}}.",
+  "settingsResources.uploadFailed": "تعذّر رفع {{name}}.",
+  "settingsResources.cancel": "إلغاء",
+  "settingsResources.save": "حفظ",
+  "settingsResources.create": "إنشاء",
+  "settingsResources.saving": "جارٍ الحفظ",
+  "settingsResources.creating": "جارٍ الإنشاء",
+  "settingsResources.removing": "جارٍ الإزالة",
+  "settingsResources.instructions.empty": "أخبر الوكيل بكيفية العمل معك.",
+  "settingsResources.instructions.emptyTitle": "لا توجد تعليمات بعد",
+  "settingsResources.instructions.orgEmpty": "لا توجد تعليمات لـ {{org}} بعد",
+  "settingsResources.instructions.add": "إضافة تعليمات",
+  "settingsResources.instructions.fieldLabel": "كيف يجب أن يعمل الوكيل معك؟",
+  "settingsResources.instructions.placeholder":
+    "اجعل الإجابات قصيرة. استخدم الوحدات المترية.",
+  "settingsResources.instructions.savedAs":
+    "يُحفظ باسم AGENTS.md في مواردك الشخصية.",
+  "settingsResources.memory.empty": "يحفظ الوكيل هنا ما يتعلمه عنك.",
+  "settingsResources.memory.emptyTitle": "لا توجد ذكريات بعد",
+  "settingsResources.memory.orgEmpty": "لا توجد ذكريات مشتركة بعد",
+  "settingsResources.memory.add": "إضافة ذكرى",
+  "settingsResources.learnings.empty":
+    "تُحفظ التصحيحات التي تقدمها للوكيل كدروس مستفادة.",
+  "settingsResources.learnings.emptyTitle": "لا توجد دروس مستفادة بعد",
+  "settingsResources.learnings.add": "إضافة درس مستفاد",
+  "settingsResources.skills.empty":
+    "احفظ سير عمل مرة واحدة ويمكن للوكيل إعادة استخدامه.",
+  "settingsResources.skills.emptyTitle": "لا توجد مهارات بعد",
+  "settingsResources.skills.orgEmpty": "لا توجد مهارات مشتركة بعد",
+  "settingsResources.skills.add": "إضافة مهارة",
+  "settingsResources.skills.describe": "صِفها للوكيل",
+  "settingsResources.skills.upload": "رفع ملف مهارة",
+  "settingsResources.skills.describePlaceholder":
+    "مهارة تراجع طلبات الدمج بحثًا عن مشكلات أمنية",
+  "settingsResources.files.empty": "أضف ملفًا لمنح وكيلك سياقًا أكثر.",
+  "settingsResources.files.emptyTitle": "لا توجد ملفات بعد",
+  "settingsResources.files.orgEmpty": "لا توجد ملفات مشتركة بعد",
+  "settingsResources.files.add": "إضافة ملف",
+  "settingsResources.files.upload": "رفع ملف",
+  "settingsResources.files.create": "إنشاء ملف",
+  "settingsInfra.setup": "الإعداد",
+  "settingsInfra.services": "الخدمات",
+  "settingsInfra.environment": "البيئة",
+  "settingsInfra.builderConnected":
+    "متصل. رصيد حسابك يشغّل كل خدمة عليها علامة Builder.io.",
+  "settingsInfra.builderNotConnected":
+    "غير متصل. أعدّ كل خدمة بنفسك، أو صِل Builder.io لاستخدام رصيد حسابك.",
+  "settingsInfra.builderUnknown": "تعذّر التحقق من اتصال Builder.io.",
+  "settingsInfra.manage": "إدارة",
+  "settingsInfra.connect": "توصيل",
+  "settingsInfra.connecting": "جارٍ التوصيل…",
+  "settingsInfra.setUp": "إعداد",
+  "settingsInfra.view": "عرض",
+  "settingsInfra.retry": "إعادة المحاولة",
+  "settingsInfra.close": "إغلاق",
+  "settingsInfra.cancel": "إلغاء",
+  "settingsInfra.save": "حفظ",
+  "settingsInfra.saving": "جارٍ الحفظ…",
+  "settingsInfra.required": "مطلوب",
+  "settingsInfra.recommended": "موصى به",
+  "settingsInfra.optional": "اختياري",
+  "settingsInfra.builderRecommended":
+    "شغّل كل الخدمات أدناه برصيد حسابك في Builder.io. تتوفر خطة مجانية.",
+  "settingsInfra.builderOnly": "Builder.io فقط",
+  "settingsInfra.rowDescription": "{{source}} · {{use}}",
+  "settingsInfra.notSetUp": "غير معدّ",
+  "settingsInfra.availableWithBuilder": "متاح مع Builder.io",
+  "settingsInfra.loadFailed": "تعذّر تحميل هذا.",
+  "settingsInfra.aiModel": "نموذج الذكاء الاصطناعي",
+  "settingsInfra.useEveryApp": "كل تطبيق",
+  "settingsInfra.storageBucket": "{{provider}}، الحاوية {{bucket}}",
+  "settingsInfra.useUploads": "الرفع في كل تطبيق",
+  "settingsInfra.storageTitle": "تخزين الملفات",
+  "settingsInfra.storageIntro":
+    "تذهب الملفات المرفوعة الجديدة إلى حاويتك. تبقى الملفات الحالية في مكانها.",
+  "settingsInfra.voice": "الإدخال الصوتي",
+  "settingsInfra.images": "إنشاء الصور",
+  "settingsInfra.embeddings": "التضمينات",
+  "settingsInfra.useVoice": "الإملاء في كل تطبيق",
+  "settingsInfra.useImages": "Slides وDesign",
+  "settingsInfra.useEmbeddings": "البحث في Brain",
+  "settingsInfra.whyVoice": "يحوّل الكلام إلى نص. الكتابة تعمل دائمًا بدونه.",
+  "settingsInfra.whyImages": "ينشئ صورًا للشرائح والتصاميم.",
+  "settingsInfra.whyEmbeddings":
+    "يحسّن البحث الدلالي. البحث بالكلمات المفتاحية يعمل بدونه.",
+  "settingsInfra.designSystem": "ذكاء نظام التصميم",
+  "settingsInfra.whyDesignSystem":
+    "يُبقي الشرائح والتصاميم المُنشأة متوافقة مع علامتك التجارية.",
+  "settingsInfra.whyBackground": "يُجري تغييرات في الكود من بيئة الإنتاج.",
+  "settingsInfra.whyBrowser": "يتيح للوكيل استخدام متصفح في بيئة الإنتاج.",
+  "settingsInfra.provider": "المزوّد",
+  "settingsInfra.keyOrg": "يستخدم مفتاح {{provider}} الخاص بالمؤسسة.",
+  "settingsInfra.manageKey": "إدارة المفتاح",
+  "settingsInfra.keyPersonal":
+    "مفتاح {{provider}} الخاص بك شخصي. تحتاج الخدمات إلى مفتاح للمؤسسة.",
+  "settingsInfra.keyNone":
+    "تستخدم الخدمات مفاتيح المؤسسة، ولا يوجد مفتاح {{provider}} بعد.",
+  "settingsInfra.keyUnavailable":
+    "تعذّر التحقق من مفتاح {{provider}} الخاص بالمؤسسة.",
+  "settingsInfra.useBuilder": "استخدام Builder.io",
+  "settingsInfra.addNamed": "إضافة {{provider}}",
+  "settingsInfra.serviceSaved": "تستخدم {{service}} الآن {{provider}}.",
+  "settingsInfra.serviceSaveFailed": "تعذّر تغيير {{service}}.",
+  "settingsInfra.reindex":
+    "أعد فهرسة Brain ليشمل البحث الدلالي العناصر الحالية.",
+  "settingsInfra.variables": "المتغيرات المطلوبة",
+  "settingsInfra.databaseHosted":
+    "{{name}}، معدّة على الاستضافة. تشترك فيها كل التطبيقات.",
+  "settingsInfra.databaseHostedSingle": "{{name}}، معدّة على الاستضافة.",
+  "settingsInfra.databaseLocal":
+    "{{name}} على هذا الكمبيوتر. اضبط DATABASE_URL على الاستضافة قبل النشر.",
+  "settingsInfra.databaseMissing":
+    "غير مضبوطة. اضبط DATABASE_URL على الاستضافة.",
+  "settingsInfra.hostingWorkspace":
+    "{{host}}. تنشر مساحة العمل كل تطبيق على عنوانه الخاص.",
+  "settingsInfra.hostingSingle": "{{host}}، على {{address}}.",
+  "settingsInfra.hostingPlain": "{{host}}.",
+  "settingsInfra.hostOwnServer": "خادمك الخاص",
+  "settingsInfra.hostThisComputer": "هذا الكمبيوتر",
+  "settingsInfra.variablesSet": "{{keys}} مضبوطة على الاستضافة.",
+  "settingsInfra.variablesMissing": "اضبط {{keys}} على الاستضافة.",
+  "settingsInfra.dbConnected": "متصلة",
+  "settingsInfra.dbLocal": "على هذا الكمبيوتر",
+  "settingsInfra.notSet": "غير مضبوط",
+  "settingsInfra.set": "مضبوط",
+  "settingsInfra.dbIntro":
+    "يقرأ كل تطبيق قاعدة البيانات قبل أن يبدأ، لذا تُضبط مرة واحدة على الاستضافة. للانتقال إلى قاعدة بيانات أخرى:",
+  "settingsInfra.dbStep1":
+    "أنشئ قاعدة بيانات Postgres في Neon أو Supabase أو أي استضافة Postgres.",
+  "settingsInfra.dbStep2":
+    "اضبط {{key}} على سلسلة الاتصال الخاصة بها في بيئة الاستضافة.",
+  "settingsInfra.dbStep3": "أعد النشر. تعمل عمليات الترحيل أثناء النشر.",
+  "settingsInfra.dbOwn":
+    "لمنح تطبيق واحد قاعدة بيانات خاصة به، اضبط متغيره الخاص، مثل {{key}}.",
+  "settingsInfra.hostIntroWorkspace":
+    "تنشر مساحة العمل كل تطبيق، كلٌّ على عنوانه الخاص. للاستضافة على Vercel أو Cloudflare أو خادمك الخاص:",
+  "settingsInfra.hostIntro":
+    "للاستضافة على Vercel أو Cloudflare أو خادمك الخاص:",
+  "settingsInfra.hostStep1":
+    "اختر الهدف باستخدام {{key}}، مثل vercel أو cloudflare_module أو node.",
+  "settingsInfra.hostStep2":
+    "امنح الاستضافة الجديدة البيئة نفسها، بما في ذلك {{keys}}.",
+  "settingsInfra.hostStep3":
+    "انشر. في مساحة العمل، يبني هذا كل تطبيق ويطبع أمر النشر:",
+  "settingsInfra.envIntro":
+    "يقرأ كل تطبيق هذه القيم قبل أن يبدأ. اضبطها مرة واحدة على الاستضافة، ثم أعد النشر.",
+  "settingsInfra.varDatabaseUrl": "سلسلة اتصال Postgres الخاصة بك.",
+  "settingsInfra.varA2a":
+    "يتيح لتطبيقات مساحة العمل هذه استدعاء بعضها. في مساحة العمل، يوقّع أيضًا جلسات تسجيل الدخول عندما لا يكون BETTER_AUTH_SECRET مضبوطًا.",
+  "settingsInfra.varBetterAuth":
+    "يوقّع جلسات تسجيل الدخول. استخدم 32 حرفًا عشوائيًا على الأقل.",
+  "settingsInfra.varAppUrl":
+    "مطلوب فقط عندما لا تستطيع الاستضافة إبلاغ التطبيق بعنوان URL العام.",
+  "settingsInfra.varEncryption":
+    "يشفّر المفاتيح المحفوظة في الإعدادات. بدونه، تشتق مساحة العمل مفتاحًا من A2A_SECRET.",
+  "settingsInfra.varEncryptionSingle":
+    "يشفّر المفاتيح المحفوظة في الإعدادات. بدونه، يشتق التطبيق مفتاحًا من BETTER_AUTH_SECRET.",
+  "settingsInfra.varWeak": "قصير جدًا. استخدم 32 حرفًا عشوائيًا على الأقل.",
+  "settingsInfra.varWeakLabel": "قصير جدًا",
+  "settingsInfra.generateSecret": "لإنشاء قيمة سرية:",
+  "settingsInfra.copy": "نسخ",
+  "settingsInfra.copied": "تم النسخ",
+  "settingsInfra.copyFailed": "تعذّر النسخ.",
+  "settingsApiKeys.addKey": "إضافة مفتاح",
+  "settingsApiKeys.adding": "جارٍ الإضافة…",
+  "settingsApiKeys.availableTo": "متاح لـ",
+  "settingsApiKeys.deleteKey": "حذف المفتاح",
+  "settingsApiKeys.deleting": "جارٍ الحذف…",
+  "settingsApiKeys.deleteTitle": "حذف {{name}}؟",
+  "settingsApiKeys.everyoneIn": "الجميع في {{org}}",
+  "settingsApiKeys.getKey": "الحصول على مفتاح",
+  "settingsApiKeys.hideKeys": "إخفاء المفاتيح",
+  "settingsApiKeys.justMe": "أنا فقط",
+  "settingsApiKeys.keyAdded": "تمت إضافة المفتاح",
+  "settingsApiKeys.keyDeleted": "تم حذف المفتاح",
+  "settingsApiKeys.loadFailed": "تعذر تحميل مفاتيحك.",
+  "settingsApiKeys.manageKey": "إدارة {{name}}",
+  "settingsApiKeys.managedKeys": "تديرها عمليات التكامل",
+  "settingsApiKeys.managedName": "يدير {{owner}} هذا المفتاح.",
+  "settingsApiKeys.managedTooltip":
+    "أنشأه {{owner}} ويتولى تدويره. افصل الاتصال من هناك.",
+  "settingsApiKeys.membersLocked":
+    "يمكن للمالكين والمسؤولين فقط مشاركة المفاتيح مع {{org}}.",
+  "settingsApiKeys.modelFootnote": "لاستخدام مزوّد النماذج الخاص بك، {{link}}.",
+  "settingsApiKeys.modelFootnoteLink": "أضفه في النموذج",
+  "settingsApiKeys.name": "الاسم",
+  "settingsApiKeys.noKeys": "لا توجد مفاتيح بعد",
+  "settingsApiKeys.noKeysDescription":
+    "أضف مفتاحًا ليتمكن تطبيقاتك والوكيل من الوصول إلى خدمة.",
+  "settingsApiKeys.orgKeys": "مفاتيح المؤسسة",
+  "settingsApiKeys.providerInModel": "أضف {{provider}} في {{link}}.",
+  "settingsApiKeys.replaceTitle": "استبدال {{name}}",
+  "settingsApiKeys.replaceValue": "استبدال القيمة",
+  "settingsApiKeys.saving": "جارٍ الحفظ…",
+  "settingsApiKeys.showKeys_few": "عرض {{count}} مفاتيح",
+  "settingsApiKeys.showKeys_many": "عرض {{count}} مفتاحًا",
+  "settingsApiKeys.showKeys_one": "عرض مفتاح واحد ({{count}})",
+  "settingsApiKeys.showKeys_other": "عرض {{count}} مفتاح",
+  "settingsApiKeys.showKeys_two": "عرض مفتاحين ({{count}})",
+  "settingsApiKeys.showKeys_zero": "عرض {{count}} مفتاح",
+  "settingsApiKeys.test": "اختبار",
+  "settingsApiKeys.testPassed": "القيمة المحفوظة تعمل.",
+  "settingsApiKeys.usedBy": "يستخدمه {{link}}",
+  "settingsApiKeys.value": "القيمة",
+  "settingsApiKeys.valueReplaced": "تم استبدال القيمة",
+  "settingsApiKeys.yourKeys": "مفاتيحك",
+  "settingsModel.addEndpoint": "إضافة عنوان URL لنقطة النهاية",
+  "settingsModel.addNamed": "إضافة {{provider}}",
+  "settingsModel.addProvider": "إضافة مزوّد",
+  "settingsModel.adding": "جارٍ الإضافة",
+  "settingsModel.affectsOrg": "يؤثر هذا على الجميع في {{org}}.",
+  "settingsModel.affectsYou": "يؤثر هذا عليك فقط.",
+  "settingsModel.allApps": "كل التطبيقات",
+  "settingsModel.apiKey": "مفتاح API",
+  "settingsModel.builderConnected": "متصل · {{space}}",
+  "settingsModel.builderConnectedPlain": "متصل",
+  "settingsModel.builderOrgNotConnectedAdmin":
+    "غير متصل. عند توصيله، يمكن للجميع في {{org}} استخدامه.",
+  "settingsModel.builderOrgNotConnectedMember":
+    "غير متصل. يمكن لمالك أو مسؤول توصيله.",
+  "settingsModel.builderPersonalConnect":
+    "صِل حسابك الخاص لاستخدام أرصدة Builder.io الخاصة بك.",
+  "settingsModel.builderPersonalInsteadOfOrg":
+    "صِل حسابك الخاص لاستخدامه بدلًا من اتصال المؤسسة.",
+  "settingsModel.builderPersonalOverOrg":
+    "متصل · {{space}}. يُستخدم بدلًا من اتصال المؤسسة.",
+  "settingsModel.builderPersonalOverOrgPlain":
+    "متصل. يُستخدم بدلًا من اتصال المؤسسة.",
+  "settingsModel.builderUnknown": "تعذّر التحقق من اتصال Builder.io.",
+  "settingsModel.cancel": "إلغاء",
+  "settingsModel.change": "تغيير",
+  "settingsModel.chatgptConnected": "متصل",
+  "settingsModel.chatgptDescription":
+    "استخدم محرك Codex مع خطة ChatGPT الخاصة بك.",
+  "settingsModel.chatgptPopupBlocked":
+    "اسمح بالنوافذ المنبثقة لهذا الموقع، ثم حاول مرة أخرى.",
+  "settingsModel.chatgptTitle": "اشتراك ChatGPT",
+  "settingsModel.checkAgain": "التحقق مرة أخرى",
+  "settingsModel.checkedJustNow": "تم التحقق الآن.",
+  "settingsModel.checkedOn": "تم التحقق في {{date}}.",
+  "settingsModel.checking": "جارٍ التحقق من مفتاحك لدى {{provider}}",
+  "settingsModel.checkingEndpoint": "جارٍ التحقق من نقطة النهاية",
+  "settingsModel.checkingOllama": "جارٍ التحقق من النماذج المثبتة…",
+  "settingsModel.checkingSaved": "جارٍ التحقق من المفتاح المحفوظ",
+  "settingsModel.chooseModel": "اختر نموذجًا",
+  "settingsModel.clear": "مسح",
+  "settingsModel.connect": "توصيل",
+  "settingsModel.connecting": "جارٍ التوصيل…",
+  "settingsModel.defaultModelDescription":
+    "يُستخدم في كل تطبيق ما لم يحدد التطبيق نموذجه الخاص.",
+  "settingsModel.defaultModelNeedsProvider": "أضف مزوّدًا لاختيار نموذج افتراضي.",
+  "settingsModel.disconnect": "قطع الاتصال",
+  "settingsModel.effectDefaultStops":
+    "تتوقف المحادثات إلى أن يتم إعداد مزوّد آخر.",
+  "settingsModel.effectDefaultSwitches": "يتغير النموذج الافتراضي إلى {{next}}.",
+  "settingsModel.effectKeepsOrg": "يستمر في العمل باستخدام مفتاح المؤسسة.",
+  "settingsModel.effectKeepsVault": "يستمر في العمل باستخدام مفتاح Vault.",
+  "settingsModel.effectKeepsWorkspace":
+    "يستمر في العمل باستخدام مفتاح مساحة العمل.",
+  "settingsModel.effectModelsLeave":
+    "تختفي نماذج {{provider}} من أداة اختيار النموذج.",
+  "settingsModel.emptyAskAdmin": "اطلب من مالك أو مسؤول إضافة مزوّد.",
+  "settingsModel.emptyDescription": "يحتاج الوكيل إلى مزوّد ليتمكن من الرد.",
+  "settingsModel.emptyDescriptionBuilder":
+    "يحتاج الوكيل إلى مزوّد ليتمكن من الرد. ننصح بـ Builder.io للوصول إلى النماذج وأتمتة المتصفح وتخزين الملفات وهوية مساحة العمل. تتوفر خطة مجانية.",
+  "settingsModel.emptyTitle": "أضف مزوّد نماذج",
+  "settingsModel.endpointFirst": "أدخل عنوان URL لنقطة النهاية أولًا.",
+  "settingsModel.endpointHint":
+    "اختياري. استخدمه مع LiteLLM أو بوابة أخرى متوافقة مع OpenAI.",
+  "settingsModel.endpointUrl": "عنوان URL لنقطة النهاية",
+  "settingsModel.keyHint":
+    "أنشئ مفتاحًا على {{host}}. يُصدر {{provider}} الفاتورة مباشرةً.",
+  "settingsModel.keyPlaceholder": "الصق مفتاح {{provider}} الخاص بك",
+  "settingsModel.labs": "Labs",
+  "settingsModel.loadFailed": "تعذّر تحميل المزوّدين.",
+  "settingsModel.lockedTip": "يمكن للمالكين والمسؤولين فقط تغيير هذا.",
+  "settingsModel.manage": "إدارة",
+  "settingsModel.maxIterationsDescription":
+    "المدة التي يمكن أن يعمل فيها الرد قبل أن يتوقف مؤقتًا.",
+  "settingsModel.maxIterationsInvalid":
+    "أدخل عددًا صحيحًا من {{min}} إلى {{max}}.",
+  "settingsModel.modelCount_few": "{{count}} نماذج",
+  "settingsModel.modelCount_many": "{{count}} نموذجًا",
+  "settingsModel.modelCount_one": "{{count}} نموذج",
+  "settingsModel.modelCount_other": "{{count}} نموذج",
+  "settingsModel.modelCount_two": "{{count}} نموذجان",
+  "settingsModel.modelCount_zero": "{{count}} نموذج",
+  "settingsModel.modelOption": "{{model}} · {{provider}}",
+  "settingsModel.models": "النماذج",
+  "settingsModel.modelsHint": "تظهر النماذج المحددة في أداة اختيار النموذج.",
+  "settingsModel.modelsHintService":
+    "نماذج المحادثة اختيارية. اتركها دون تحديد لاستخدام هذا المفتاح لـ {{service}} فقط.",
+  "settingsModel.modelsIdle": "الصق مفتاحًا لرؤية النماذج التي يمكنه استخدامها.",
+  "settingsModel.modelsIdleOllama":
+    "أدخل عنوان URL لنقطة النهاية لرؤية النماذج المثبتة.",
+  "settingsModel.modelsSaveFailed":
+    "تم حفظ المفتاح، لكن لم يتم حفظ قائمة النماذج. {{message}}",
+  "settingsModel.noChatModels": "لا توجد نماذج محادثة",
+  "settingsModel.noModelsFound": "لم يتم العثور على نماذج.",
+  "settingsModel.notSet": "غير محدد",
+  "settingsModel.nothingElse": "لا يستخدم أي شيء آخر هذا المفتاح.",
+  "settingsModel.ollamaHint": "لا يلزم مفتاح API.",
+  "settingsModel.orgProviders": "مزوّدو المؤسسة",
+  "settingsModel.orgSettings": "إعدادات المؤسسة",
+  "settingsModel.organization": "المؤسسة",
+  "settingsModel.pasteFirst": "الصق مفتاحًا أولًا.",
+  "settingsModel.personal": "شخصي",
+  "settingsModel.personalProviders": "المزوّدون الشخصيون",
+  "settingsModel.previewFailed": "تعذّر التحقق مما يؤثر عليه هذا.",
+  "settingsModel.provider": "المزوّد",
+  "settingsModel.providerErrorHeadline":
+    "تعذّر على {{provider}} التحقق من هذا المفتاح",
+  "settingsModel.reasonEndpoint": "تحقق من عنوان URL لنقطة النهاية.",
+  "settingsModel.reasonOllamaUnreachable":
+    "تحقق من عنوان URL ومن أن Ollama قيد التشغيل.",
+  "settingsModel.reasonPrefix": "تبدأ مفاتيح {{provider}} بـ {{prefix}}.",
+  "settingsModel.reasonRejected":
+    "تحقق من أنك نسخت المفتاح كاملًا، أو أنشئ مفتاحًا جديدًا.",
+  "settingsModel.reasonTryAgain": "حاول مرة أخرى بعد قليل.",
+  "settingsModel.reasonWrongProvider": "يبدو هذا مفتاح {{provider}}.",
+  "settingsModel.reasonWrongProviderVowel": "يبدو هذا مفتاح {{provider}}.",
+  "settingsModel.reconnect": "إعادة التوصيل",
+  "settingsModel.rejected":
+    "رفض {{provider}} هذا المفتاح في {{date}}. تتوقف المحادثات التي تستخدمه إلى أن تستبدله.",
+  "settingsModel.rejectedAskAdmin":
+    "رفض {{provider}} هذا المفتاح في {{date}}. اطلب من مالك أو مسؤول استبداله.",
+  "settingsModel.rejectedHeadline": "رفض {{provider}} هذا المفتاح",
+  "settingsModel.remove": "إزالة",
+  "settingsModel.removeProvider": "إزالة المزوّد",
+  "settingsModel.removeTitle": "هل تريد إزالة {{provider}}؟",
+  "settingsModel.removing": "جارٍ الإزالة",
+  "settingsModel.replace": "استبدال",
+  "settingsModel.replaceKey": "استبدال المفتاح",
+  "settingsModel.restrictBody": "يمكن للأعضاء استخدام مزوّدي المؤسسة فقط.",
+  "settingsModel.restrictConfirm": "تقييد المفاتيح",
+  "settingsModel.restrictDescription":
+    "يمكن للأعضاء استخدام مزوّدي المؤسسة فقط، وتتوقف المفاتيح التي أضافوها عن العمل.",
+  "settingsModel.restrictLabel": "تقييد مفاتيح API الشخصية",
+  "settingsModel.restrictMemberBuilder":
+    "يتوقف اتصال Builder.io الشخصي الخاص به عن العمل.",
+  "settingsModel.restrictMemberChats": "تنتقل محادثاته إلى مزوّدي المؤسسة.",
+  "settingsModel.restrictMemberKeys_few":
+    "تتوقف مفاتيح {{providers}} الخاصة به عن العمل.",
+  "settingsModel.restrictMemberKeys_many":
+    "تتوقف مفاتيح {{providers}} الخاصة به عن العمل.",
+  "settingsModel.restrictMemberKeys_one":
+    "يتوقف مفتاح {{providers}} الخاص به عن العمل.",
+  "settingsModel.restrictMemberKeys_other":
+    "تتوقف مفاتيح {{providers}} الخاصة به عن العمل.",
+  "settingsModel.restrictMemberKeys_two":
+    "تتوقف مفاتيح {{providers}} الخاصة به عن العمل.",
+  "settingsModel.restrictMemberKeys_zero":
+    "يتوقف مفتاح {{providers}} الخاص به عن العمل.",
+  "settingsModel.restrictNewKeysBody":
+    "لا يمكن للأعضاء إضافتها. لا يزال بإمكان المالكين والمسؤولين ذلك.",
+  "settingsModel.restrictNewKeysTitle": "مفاتيح شخصية جديدة",
+  "settingsModel.restrictTitle": "هل تريد تقييد مفاتيح API الشخصية؟",
+  "settingsModel.restricted": "قيّد المالكون والمسؤولون مفاتيح API الشخصية.",
+  "settingsModel.restrictedRow": "لا يُستخدم ما دامت مفاتيح API الشخصية مقيّدة.",
+  "settingsModel.restricting": "جارٍ التقييد",
+  "settingsModel.retry": "إعادة المحاولة",
+  "settingsModel.save": "حفظ",
+  "settingsModel.savedRejected":
+    "رفض {{provider}} المفتاح المحفوظ. الصق مفتاحًا جديدًا.",
+  "settingsModel.saving": "جارٍ الحفظ",
+  "settingsModel.selectAll": "تحديد الكل",
+  "settingsModel.settingLoadFailed": "تعذّر تحميل هذا الإعداد.",
+  "settingsModel.unreachableHeadline": "تعذّر الوصول إلى {{provider}}",
+  "settingsModel.view": "عرض",
+  "settingsModel.whatHappens": "ما الذي سيحدث",
+  "settingsModel.who": "من يمكنه استخدامه",
+  "settingsModel.whoHintAdmin":
+    "المزوّدون الشخصيون لك وحدك. يعمل مزوّدو المؤسسة للجميع في {{org}}.",
+  "settingsModel.whoHintMember":
+    "يمكن للمالكين والمسؤولين فقط إضافة مزوّدين للمؤسسة.",
+  "settingsModel.whoHintService": "تستخدم الخدمات مفاتيح المؤسسة.",
+  "settingsSubAgents.connect": "ربط وكيل",
+  "settingsSubAgents.orgApps": "تطبيقات {{org}}",
+  "settingsSubAgents.workspaceApps": "تطبيقات مساحة العمل",
+  "settingsSubAgents.external": "الوكلاء الخارجيون",
+  "settingsSubAgents.custom": "الوكلاء المخصصون",
+  "settingsSubAgents.managedByAdmins": "يديره المسؤولون",
+  "settingsSubAgents.appsEmpty": "لا توجد تطبيقات متصلة بعد",
+  "settingsSubAgents.externalEmpty":
+    "اربط Foundry أو Gemini Enterprise أو Anthropic أو أي وكيل A2A.",
+  "settingsSubAgents.externalEmptyTitle": "لا يوجد وكلاء خارجيون بعد",
+  "settingsSubAgents.customEmpty":
+    "حدّد وكيلًا متخصصًا يمكن للوكيل الرئيسي تفويض العمل إليه.",
+  "settingsSubAgents.customEmptyTitle": "لا يوجد وكلاء مخصصون بعد",
+  "settingsSubAgents.addAgent": "إضافة وكيل",
+  "settingsSubAgents.describe": "صِفه للوكيل",
+  "settingsSubAgents.describePlaceholder":
+    "وكيل تصميم ينتقد التخطيطات ويقترح اتجاهًا لواجهة المستخدم",
+  "settingsSubAgents.write": "اكتبه بنفسك",
+  "settingsSubAgents.name": "الاسم",
+  "settingsSubAgents.description": "الوصف",
+  "settingsSubAgents.instructions": "التعليمات",
+  "settingsSubAgents.loadFailed": "تعذر تحميل الوكلاء المتصلين.",
+  "settingsSubAgents.statusUnreachable": "لا يمكن الوصول إليه",
+  "settingsSubAgents.edit": "تعديل",
+  "settingsSubAgents.editTitle": "تعديل {{name}}",
+  "settingsSubAgents.removeDescription":
+    "يتوقف الوكيل عن تفويض العمل إلى {{name}} لجميع أعضاء {{org}}.",
+  "settingsSubAgents.removeDescriptionSolo":
+    "يتوقف الوكيل عن تفويض العمل إلى {{name}}.",
+  "settingsSubAgents.directoryTitle": "ربط وكيل",
+  "settingsSubAgents.anyAgent": "أي وكيل A2A",
+  "settingsSubAgents.anyAgentHint": "الصق رابط بطاقة الوكيل.",
+  "settingsSubAgents.registryLink": "تصفح Global A2A Registry",
+  "settingsSubAgents.connectTitle": "ربط {{name}}",
+  "settingsSubAgents.close": "إغلاق",
 };
 
 export default messages;

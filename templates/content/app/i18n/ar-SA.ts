@@ -1240,6 +1240,13 @@ const overrides = {
     emailNotificationsDescription:
       "احصل على بريد إلكتروني عندما يعلّق شخص على مستندك أو يرد أو يذكرك.",
     saveFailed: "فشل الحفظ",
+    notificationsEmail: "البريد الإلكتروني",
+    commentsRepliesMentions: "التعليقات والردود والإشارات",
+    commentsRepliesMentionsDescription:
+      "عندما يعلّق أحد على مستندك أو يرد فيه، أو يشير إليك.",
+    retry: "إعادة المحاولة",
+    mcpAbout:
+      "اربط Content بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Content نيابةً عنك: البحث في المستندات وكتابتها وتحريرها. ولا يرى إلا ما يمكنك رؤيته.",
     languageTitle: "اللغة",
     languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
     languageLabel: "لغة الواجهة",

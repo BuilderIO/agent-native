@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { EventEmitter } from "node:events";
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 
@@ -6,15 +8,23 @@ const state = vi.hoisted(() => ({
   hasGatewayCredential: false,
   status: 0,
   provider: "builder" as string,
+  secrets: {} as Record<string, string>,
+  orgVoiceProvider: null as string | null,
+  orgVoiceProviderError: null as Error | null,
 }));
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getMethod: () => "POST",
-  readMultipartFormData: vi.fn(async () => [
-    { name: "provider", data: Buffer.from(state.provider) },
-    { name: "audio", data: Buffer.from([1, 2, 3]), type: "audio/webm" },
-  ]),
+  readMultipartFormData: vi.fn(async (event: any) => {
+    // Node's IncomingMessage emits `close` as soon as its body is fully
+    // read, while the client is still waiting for the response.
+    event?.node?.req?.emit?.("close");
+    return [
+      { name: "provider", data: Buffer.from(state.provider) },
+      { name: "audio", data: Buffer.from([1, 2, 3]), type: "audio/webm" },
+    ];
+  }),
   setResponseStatus: (_event: unknown, status: number) => {
     state.status = status;
   },
@@ -40,8 +50,28 @@ vi.mock("./request-context.js", () => ({
 // reads `BUILDER_GATEWAY_TOKEN` from the environment.
 vi.mock("./credential-provider.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./credential-provider.js")>()),
-  resolveSecret: async () => null,
+  resolveSecret: async (key: string) => state.secrets[key] ?? null,
+  resolveSecretDetailed: async (key: string) =>
+    state.secrets[key]
+      ? {
+          value: state.secrets[key],
+          lookupFailed: false,
+          source: "user",
+          scopeId: "owner@example.com",
+        }
+      : { value: null, lookupFailed: false },
   resolveHasBuilderGatewayCredential: async () => state.hasGatewayCredential,
+}));
+
+const readServiceProviderChoice = vi.hoisted(() =>
+  vi.fn(async (_service: string, _options?: unknown) => {
+    if (state.orgVoiceProviderError) throw state.orgVoiceProviderError;
+    return state.orgVoiceProvider;
+  }),
+);
+vi.mock("./service-providers.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./service-providers.js")>()),
+  readServiceProviderChoice,
 }));
 
 const transcribeWithBuilder = vi.hoisted(() => vi.fn());
@@ -51,17 +81,18 @@ vi.mock("../transcription/builder-transcription.js", () => ({
 
 const { createTranscribeVoiceHandler } = await import("./transcribe-voice.js");
 
-async function post() {
+async function post(event: unknown = { node: {} }) {
   const handler = createTranscribeVoiceHandler() as unknown as (
     event: unknown,
   ) => Promise<{ text?: string; error?: string }>;
-  return handler({ node: {} });
+  return handler(event);
 }
 
 describe("transcribe-voice Builder provider gate", () => {
   beforeEach(() => {
     state.status = 0;
     state.provider = "builder";
+    state.secrets = {};
     delete process.env.BUILDER_GATEWAY_TOKEN;
     // Pinned rather than inherited: the deploy-lane predicate reads these, and a
     // runner with a preview/hosted value set takes the owner path, so the visitor
@@ -165,8 +196,214 @@ describe("transcribe-voice Builder provider gate", () => {
 
       const result = await post();
       expect(result.error).toContain("revoked token");
-      expect(result.error).toContain("GEMINI_API_KEY");
+      expect(result.error).toContain("GOOGLE_GENERATIVE_AI_API_KEY");
       expect(state.status).toBe(502);
     });
+  });
+});
+
+describe("transcribe-voice Gemini key", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    state.status = 0;
+    state.provider = "gemini";
+    state.hasGatewayCredential = false;
+    state.secrets = {};
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: "hello there" }] } }],
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    ["GOOGLE_GENERATIVE_AI_API_KEY", "gemini-chat-key"],
+    ["GEMINI_API_KEY", "gemini-legacy-key"],
+  ])("transcribes with a Gemini key saved as %s", async (name, value) => {
+    state.secrets = { [name]: value };
+
+    await expect(post()).resolves.toEqual({ text: "hello there" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("generativelanguage.googleapis.com");
+    expect((init as RequestInit).headers).toMatchObject({
+      "x-goog-api-key": value,
+    });
+  });
+
+  it("names the canonical key when no Gemini key is saved", async () => {
+    const result = await post();
+
+    expect(state.status).toBe(400);
+    expect(result.error).toContain("GOOGLE_GENERATIVE_AI_API_KEY");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("transcribe-voice organization Voice input choice", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    state.status = 0;
+    state.provider = "auto";
+    state.hasGatewayCredential = true;
+    state.secrets = {
+      GOOGLE_GENERATIVE_AI_API_KEY: "gemini-test-key",
+      GROQ_API_KEY: "gsk-test-key",
+      OPENAI_API_KEY: "sk-test-key",
+    };
+    state.orgVoiceProvider = null;
+    state.orgVoiceProviderError = null;
+    readServiceProviderChoice.mockClear();
+    transcribeWithBuilder.mockReset();
+    transcribeWithBuilder.mockResolvedValue({ text: "from builder" });
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async (url: string | URL | Request) =>
+      String(url).includes("generativelanguage.googleapis.com")
+        ? new Response(
+            JSON.stringify({
+              candidates: [{ content: { parts: [{ text: "from gemini" }] } }],
+            }),
+            { status: 200 },
+          )
+        : new Response(
+            JSON.stringify({
+              text: String(url).includes("groq") ? "from groq" : "from openai",
+            }),
+            { status: 200 },
+          ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps Builder.io first when the organization hasn't chosen", async () => {
+    await expect(post()).resolves.toEqual({ text: "from builder" });
+    expect(readServiceProviderChoice).toHaveBeenCalledWith("voice", {
+      orgId: null,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses Groq first when the organization chooses Groq", async () => {
+    state.orgVoiceProvider = "groq";
+
+    await expect(post()).resolves.toEqual({ text: "from groq" });
+    expect(transcribeWithBuilder).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]![0])).toContain("api.groq.com");
+  });
+
+  it("uses OpenAI before Builder.io and Gemini when chosen", async () => {
+    state.orgVoiceProvider = "openai";
+
+    await expect(post()).resolves.toEqual({ text: "from openai" });
+    expect(transcribeWithBuilder).not.toHaveBeenCalled();
+    expect(String(fetchMock.mock.calls[0]![0])).toContain("api.openai.com");
+  });
+
+  it("falls back to the default order when the chosen provider has no key", async () => {
+    state.orgVoiceProvider = "groq";
+    delete state.secrets.GROQ_API_KEY;
+
+    await expect(post()).resolves.toEqual({ text: "from builder" });
+  });
+
+  it("falls through a failed Gemini choice to the rest of the chain", async () => {
+    state.orgVoiceProvider = "gemini";
+    fetchMock.mockImplementationOnce(
+      async () => new Response("overloaded", { status: 503 }),
+    );
+
+    await expect(post()).resolves.toEqual({ text: "from builder" });
+  });
+
+  it("leaves a member's own single-provider choice alone", async () => {
+    state.provider = "gemini";
+    state.orgVoiceProvider = "groq";
+
+    await expect(post()).resolves.toEqual({ text: "from gemini" });
+    expect(readServiceProviderChoice).not.toHaveBeenCalled();
+  });
+
+  it("fails loudly when the organization's choice can't be read", async () => {
+    state.orgVoiceProviderError = new Error("settings store unavailable");
+
+    const result = await post();
+    expect(state.status).toBe(503);
+    expect(result.error).toContain("voice input provider");
+    expect(transcribeWithBuilder).not.toHaveBeenCalled();
+  });
+});
+
+describe("transcribe-voice client disconnect signal", () => {
+  beforeEach(() => {
+    state.status = 0;
+    state.provider = "gemini";
+    state.secrets = { GOOGLE_GENERATIVE_AI_API_KEY: "test-gemini-key" };
+  });
+
+  afterEach(() => {
+    state.secrets = {};
+    vi.unstubAllGlobals();
+  });
+
+  function stubGeminiFetch(onFetch?: () => void) {
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        onFetch?.();
+        signals.push(init.signal as AbortSignal);
+        return new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: "hello" }] } }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }),
+    );
+    return signals;
+  }
+
+  it("keeps the provider call alive after the request body has been read", async () => {
+    const signals = stubGeminiFetch();
+    const client = new AbortController();
+
+    await expect(
+      post({
+        node: { req: new EventEmitter() },
+        req: { signal: client.signal },
+      }),
+    ).resolves.toEqual({ text: "hello" });
+
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.aborted).toBe(false);
+  });
+
+  it("aborts the provider call when the client disconnects", async () => {
+    const client = new AbortController();
+    const signals = stubGeminiFetch(() => client.abort());
+
+    await post({
+      node: { req: new EventEmitter() },
+      req: { signal: client.signal },
+    });
+
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.aborted).toBe(true);
   });
 });

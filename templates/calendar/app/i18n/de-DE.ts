@@ -289,6 +289,40 @@ export default {
     eventRulesUnregistered:
       "Die Calendar-Automatisierung ist auf diesem Server nicht registriert.",
   },
+  calendarSettings: {
+    calendarsTab: "Kalender",
+    bookingTab: "Buchung",
+    eventsGroup: "Termine",
+    appearanceGroup: "Darstellung",
+    colorTheme: "Farbschema",
+    timezone: "Kalender-Zeitzone",
+    timezoneDescription:
+      "Wird zum Anzeigen und Erstellen von Terminen verwendet.",
+    defaultDuration: "Standarddauer für Termine",
+    defaultDurationDescription:
+      "In Minuten. Buchungslinks können eine eigene festlegen.",
+    durationInvalid: "Gib eine Dauer von 5 bis 480 Minuten ein.",
+    zoom: "Zoom",
+    connectedAs: "Verbunden als {{accounts}}",
+    setUp: "Einrichten",
+    disconnectGoogleTitle: "Google Kalender trennen?",
+    disconnectGoogleDescription:
+      "Calendar zeigt Termine aus deinen Google-Konten nicht mehr an und synchronisiert sie nicht mehr.",
+    disconnectZoomTitle: "Zoom trennen?",
+    disconnectZoomDescription:
+      "Neue Termine und Buchungen erhalten keine Zoom-Meeting-Links, bis du Zoom wieder verbindest.",
+    manage: "Verwalten",
+    edit: "Bearbeiten",
+    cancel: "Abbrechen",
+    save: "Speichern",
+    fallbackBookingPage: "Standard-Buchungsseite",
+    fallbackBookingPageDescription:
+      "Wird verwendet, wenn ein Buchungslink keinen eigenen Titel und keine eigene Beschreibung hat.",
+    fallbackTitle: "Titel",
+    fallbackDescription: "Beschreibung",
+    bookingLinksDescription:
+      "Erstelle Buchungslinks und kopiere ihre öffentlichen URLs.",
+  },
   eventDialog: {
     eventUpdated: "Ereignis aktualisiert",
     updateFailed: "Ereignis konnte nicht aktualisiert werden",

@@ -7,6 +7,7 @@ import {
   loadAgentChatMessagesForLocale,
   loadCoreMessagesForLocale,
 } from "./core-messages.js";
+import defaultEnglishMessages from "./default-messages.js";
 import { ENVIRONMENT_BADGE_MESSAGES } from "./environment-badge-messages.js";
 import { MCP_SETTINGS_MESSAGES } from "./mcp-settings-messages.js";
 import { PRIVACY_SETTINGS_MESSAGES } from "./privacy-settings-messages.js";
@@ -119,7 +120,25 @@ describe("built-in Core chat translations", () => {
       contextXray: {
         panelTitle: "Kontext-Röntgen",
       },
+      mcpIntegrations: {
+        customTitle: "Eigene Agent-Integration hinzufügen",
+        status: { verified: "Verifiziert" },
+      },
     });
+  });
+
+  it("keeps English mcpIntegrations chat keys identical to the default catalog", () => {
+    const drifted = Object.entries(englishAgentChatMessages).filter(
+      ([key, value]) => {
+        if (!key.startsWith("mcpIntegrations.")) return false;
+        let fallback: unknown = defaultEnglishMessages;
+        for (const part of key.split(".")) {
+          fallback = (fallback as Record<string, unknown> | undefined)?.[part];
+        }
+        return fallback !== value;
+      },
+    );
+    expect(drifted).toEqual([]);
   });
 
   it.each([

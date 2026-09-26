@@ -77,15 +77,15 @@ Die Route ist **nur Same-Origin** – Site-übergreifende POSTs werden abgelehnt
 
 ## Anbieter aktivieren {#enabling-providers}
 
-Builder ist der einfachste Weg: Verbinden Sie Builder.io (kostenloser Tarif verfügbar) über die Einstellungen und der Standardanbieter wird Builder Gemini Flash-Lite. Für BYOK-Anbieter fügen Sie den passenden Schlüssel unter Einstellungen → API-Schlüssel hinzu.
+Builder ist der einfachste Weg: Verbinden Sie Builder.io (kostenloser Tarif verfügbar) unter **Settings → Connections → Integrations** und der Standardanbieter wird Builder Gemini Flash-Lite. Für BYOK-Anbieter fügen Sie den passenden Gemini-, Groq- oder OpenAI-Schlüssel hinzu.
 
 ### Pro Benutzer (empfohlen für SaaS)
 
-Der Benutzer legt seinen eigenen Schlüssel über die Agent-Seitenleisteneinstellungen UI fest. Es wird als benutzerbezogenes verschlüsseltes Geheimnis gespeichert (über `readAppSecret`). Jeder Benutzer zahlt für seine Transkription selbst; Keine Kosten für den Host.
+Der Benutzer fügt seinen eigenen Schlüssel unter **Personal providers** auf **Settings → Agent → Model** hinzu. Er wird als benutzerbezogenes verschlüsseltes Geheimnis gespeichert (über `readAppSecret`). Jeder Benutzer zahlt für seine Transkription selbst; keine Kosten für den Host.
 
 ### Freigegeben (für interne Tools)
 
-Legen Sie `GEMINI_API_KEY`, `GROQ_API_KEY` oder `OPENAI_API_KEY` als Umgebungsvariable oder in der Tabelle `settings` fest. Die Transkription jedes Benutzers trifft auf den gemeinsamen Schlüssel.
+Legen Sie `GEMINI_API_KEY`, `GROQ_API_KEY` oder `OPENAI_API_KEY` als Umgebungsvariable fest, oder lassen Sie einen Owner oder Admin den Schlüssel für die Organisation unter **Organization providers** auf **Settings → Agent → Model** hinzufügen. Die Zeile **Voice input** auf **Settings → Organization → Infrastructure** legt fest, welcher Anbieter zuerst antwortet. Die Transkription jedes Benutzers nutzt den gemeinsamen Schlüssel.
 
 <Callout id="doc-block-41vfzy" tone="info">
 

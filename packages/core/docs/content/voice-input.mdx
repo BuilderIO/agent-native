@@ -71,15 +71,15 @@ The route is **same-origin only** — cross-site POSTs are rejected so an attack
 
 ## Enabling Providers {#enabling-providers}
 
-Builder is the easiest path: connect Builder.io (free tier available) from Settings and the default provider becomes Builder Gemini Flash-Lite. For BYOK providers, add the matching key in Settings → API Keys.
+Builder is the easiest path: connect Builder.io (free tier available) from **Settings → Connections → Integrations** and the default provider becomes Builder Gemini Flash-Lite. For BYOK providers, add the matching Gemini, Groq, or OpenAI key.
 
 ### Per-user (recommended for SaaS)
 
-The user sets their own key via the agent sidebar settings UI. It's stored as a user-scoped encrypted secret (via `readAppSecret`). Each user pays for their own transcription; zero cost to the host.
+The user adds their own key under **Personal providers** on **Settings → Agent → Model**. It's stored as a user-scoped encrypted secret (via `readAppSecret`). Each user pays for their own transcription; zero cost to the host.
 
 ### Shared (for internal tools)
 
-Set `GEMINI_API_KEY`, `GROQ_API_KEY`, or `OPENAI_API_KEY` as an environment variable, or have a workspace admin add it in Settings → API Keys (stored as a shared, encrypted workspace secret). Every user's transcription hits the shared key.
+Set `GEMINI_API_KEY`, `GROQ_API_KEY`, or `OPENAI_API_KEY` as an environment variable, or have an owner or admin add it for the organization under **Organization providers** on **Settings → Agent → Model**. The **Voice input** row on **Settings → Organization → Infrastructure** picks which provider answers first. Every user's transcription hits the shared key.
 
 <Callout id="doc-block-1jgl027" tone="info">
 

@@ -10,6 +10,7 @@ import {
 import { fetchOllamaModels } from "./agent-engine-key.js";
 import {
   buildChatModelGroups,
+  usesLiveOllamaModels,
   type ChatModelEngineEntry,
   type EngineModelGroup,
 } from "./chat-model-groups.js";
@@ -98,6 +99,102 @@ async function fetchEngineCatalog(): Promise<EngineCatalogResult> {
   } catch {
     return { state: "unavailable" };
   }
+}
+
+export type ChatModelCatalogLoad =
+  | {
+      state: "available";
+      groups: EngineModelGroup[];
+      /** The server's current model, or `DEFAULT_MODEL` when it names none. */
+      defaultModel: string;
+      /**
+       * The catalog again with Ollama's installed models in place of its
+       * static suggestions, or null when there is nothing to swap in (Ollama
+       * isn't the current engine, its models are checked, or it is
+       * unreachable). A separate call so the picker's first paint never waits
+       * on a local network round trip.
+       */
+      loadLiveGroups: () => Promise<EngineModelGroup[] | null>;
+    }
+  | {
+      state: "unavailable";
+      /** The engine list itself failed, not just a readiness lookup. */
+      enginesUnavailable: boolean;
+    };
+
+/**
+ * Fetch the engine catalog and readiness, and build the model picker's groups.
+ * The one source for every surface with a model picker (`useChatModels`,
+ * `MultiTabAssistantChat`), so they can't disagree about what is offered.
+ */
+export async function loadChatModelCatalog(): Promise<ChatModelCatalogLoad> {
+  const [engineResult, envResult, builderResult] = await Promise.all([
+    fetchEngineCatalog(),
+    fetchEnvironmentStatus<Array<{ key: string; configured: boolean }>>(),
+    fetchBuilderStatus<{ configured?: boolean }>(),
+  ]);
+  if (
+    engineResult.state !== "available" ||
+    envResult.state !== "available" ||
+    builderResult.state !== "available"
+  ) {
+    return {
+      state: "unavailable",
+      enginesUnavailable: engineResult.state !== "available",
+    };
+  }
+  const enginesData = engineResult.value;
+  const configuredKeys = new Set(
+    envResult.value.filter((k) => k.configured).map((k) => k.key),
+  );
+  const builderConnected = builderResult.value?.configured === true;
+  const currentEngineName = enginesData.current?.engine;
+  const currentModel = enginesData.current?.model;
+  const build = (engines: readonly ChatModelEngineEntry[]) =>
+    buildChatModelGroups({
+      engines,
+      configuredKeys,
+      builderConnected,
+      currentEngineName,
+      currentModel,
+    });
+
+  return {
+    state: "available",
+    groups: build(enginesData.engines),
+    defaultModel: currentModel ?? DEFAULT_MODEL,
+    loadLiveGroups: async () => {
+      // Gated on Ollama actually being the current engine (not merely present
+      // in the catalog, which it always is): every app registers it by
+      // default, so an unconditional probe would 502 on every chat load for
+      // the vast majority of setups that never touched Ollama.
+      const ollama = enginesData.engines.find(
+        (engine) => engine.name === "ai-sdk:ollama",
+      );
+      if (
+        currentEngineName !== "ai-sdk:ollama" ||
+        !ollama ||
+        !usesLiveOllamaModels(ollama)
+      ) {
+        return null;
+      }
+      let liveModels: string[];
+      try {
+        liveModels = await fetchOllamaModels();
+        // coercion-ok: an unreachable Ollama keeps the groups already rendered, which list its static suggestions.
+      } catch {
+        return null;
+      }
+      if (liveModels.length === 0) return null;
+      return build(
+        enginesData.engines.map((engine) =>
+          engine === ollama
+            ? { ...engine, supportedModels: liveModels }
+            : engine,
+        ),
+      );
+    },
+  };
 }
 
 function readPersisted(key: string | null): PersistedSelection {
@@ -266,20 +363,12 @@ export function useChatModels({
 
     function load(attempt: number): void {
       if (!isCurrentRefresh()) return;
-      Promise.all([
-        fetchEngineCatalog(),
-        fetchEnvironmentStatus<Array<{ key: string; configured: boolean }>>(),
-        fetchBuilderStatus<{ configured?: boolean }>(),
-      ])
-        .then(([engineResult, envResult, builderResult]) => {
+      loadChatModelCatalog()
+        .then((catalog) => {
           if (!isCurrentRefresh()) return;
-          if (
-            engineResult.state !== "available" ||
-            envResult.state !== "available" ||
-            builderResult.state !== "available"
-          ) {
+          if (catalog.state !== "available") {
             if (scheduleRetry(attempt)) return;
-            if (engineResult.state !== "available") {
+            if (catalog.enginesUnavailable) {
               // Without a catalog the picker keeps an unvalidated DEFAULT_MODEL,
               // which is indistinguishable from a real selection unless we say so.
               console.warn(
@@ -289,61 +378,15 @@ export function useChatModels({
             finish();
             return;
           }
-          const enginesData = engineResult.value;
-          const envKeys = envResult.value;
-          const builderStatus = builderResult.value;
-          const configuredKeys = new Set(
-            envKeys.filter((k) => k.configured).map((k) => k.key),
-          );
-          const builderConnected = builderStatus?.configured === true;
-          const currentEngineName: string | undefined =
-            enginesData.current?.engine;
-          const currentModel: string | undefined = enginesData.current?.model;
-
-          const groups = buildChatModelGroups({
-            engines: enginesData.engines,
-            configuredKeys,
-            builderConnected,
-            currentEngineName,
-            currentModel,
-          });
-          const nextDefaultModel = currentModel ?? DEFAULT_MODEL;
+          const { groups, defaultModel: nextDefaultModel } = catalog;
           setAvailableModels(groups);
           setDefaultModel(nextDefaultModel);
 
-          // The static catalog only has the curated suggestion models for
-          // Ollama. Once the engine list is in, ask the configured Ollama
-          // server what it actually has installed and swap those in — a
-          // second, later render, so it never blocks the picker's first
-          // paint on a local network round trip. Gated on Ollama actually
-          // being the current engine (not merely present in the catalog,
-          // which it always is): every app registers it by default, so an
-          // unconditional probe would 502 on every chat load for the vast
-          // majority of setups that never touched Ollama.
-          if (currentEngineName === "ai-sdk:ollama") {
-            void fetchOllamaModels()
-              .then((liveModels) => {
-                if (!isCurrentRefresh() || liveModels.length === 0) return;
-                const liveEngines = enginesData.engines.map((engine) =>
-                  engine.name === "ai-sdk:ollama"
-                    ? { ...engine, supportedModels: liveModels }
-                    : engine,
-                );
-                setAvailableModels(
-                  buildChatModelGroups({
-                    engines: liveEngines,
-                    configuredKeys,
-                    builderConnected,
-                    currentEngineName,
-                    currentModel,
-                  }),
-                );
-              })
-              .catch(() => {
-                // No local Ollama server reachable — keep the static
-                // suggestion list already rendered above.
-              });
-          }
+          void catalog.loadLiveGroups().then((liveGroups) => {
+            if (liveGroups && isCurrentRefresh()) {
+              setAvailableModels(liveGroups);
+            }
+          });
 
           const selection = selectionRef.current;
 

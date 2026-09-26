@@ -35,8 +35,15 @@ export type {
 } from "./types.js";
 
 export {
+  SIGN_IN_METHOD_ENV_VARS,
+  type OrgSignInMethods,
+  type SocialSignInMethod,
+} from "./sign-in-methods.js";
+
+export {
   canInviteOrgMembers,
   canManageOrg,
+  canManageOrgA2ASecret,
   canManageOrgDomain,
   orgRoleAtLeast,
   orgRoleRank,
@@ -81,6 +88,13 @@ export type {
   OffboardMemberOptions,
   OffboardMemberResult,
 } from "../identity/offboard.js";
+export { registerIdentityColumns } from "../identity/rekey.js";
+export type {
+  AppIdentityColumn,
+  IdentityEmailChange,
+  IdentityOffboard,
+  IdentityOrgScope,
+} from "../identity/rekey.js";
 export {
   claimWorkspaceAppForOrganization,
   isStandaloneDispatchRuntime,

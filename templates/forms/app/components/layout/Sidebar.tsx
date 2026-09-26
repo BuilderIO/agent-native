@@ -18,7 +18,6 @@ import {
   IconMessageCircle,
   IconPlus,
   IconSearch,
-  IconSettings,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -133,16 +132,6 @@ export function Sidebar() {
     },
   ];
 
-  const secondaryItems: AppSidebarItemDefinition[] = [
-    {
-      to: "/settings",
-      label: t("navigation.settings"),
-      icon: IconSettings,
-      active: location.pathname === "/settings",
-      onClick: () => isMobile && setMobileOpen(false),
-    },
-  ];
-
   const newFormPopoverContent = (
     <PopoverContent
       side="right"
@@ -184,8 +173,8 @@ export function Sidebar() {
           </span>
           <Button
             variant="secondary"
-            size="icon"
-            className="size-10 rounded-lg transition-[background-color,box-shadow,transform] active:scale-[0.96] motion-reduce:active:scale-100"
+            size="icon-lg"
+            className="rounded-lg transition-[background-color,box-shadow,transform] active:scale-[0.96] motion-reduce:active:scale-100"
             onClick={handleSubmitPrompt}
             disabled={!prompt.trim() || promptRun.isActivePrompt(prompt)}
             aria-label={t("sidebar.sendPrompt")}
@@ -252,7 +241,7 @@ export function Sidebar() {
           type="button"
           variant="ghost"
           size="icon"
-          className="size-9 shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
+          className="shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
           onClick={openCommandMenu}
           aria-label={t("root.searchForms")}
         >
@@ -271,7 +260,6 @@ export function Sidebar() {
       appId="forms"
       brandHref="/forms"
       items={items}
-      secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
       footerExtras={searchButton}
@@ -287,8 +275,8 @@ export function Sidebar() {
       <div className="fixed top-2.5 start-2.5 z-40 md:hidden">
         <Button
           variant="ghost"
-          size="icon"
-          className="size-10 rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+          size="icon-lg"
+          className="rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,transform]"
           onClick={() => setMobileOpen(true)}
           aria-label={t("sidebar.openSidebar")}
         >

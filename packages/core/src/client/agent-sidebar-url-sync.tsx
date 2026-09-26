@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router";
 
 import { agentNativePath, isWorkspaceAppPath } from "./api-path.js";
 import { readClientAppState } from "./application-state.js";
+import { rememberSettingsReturnPath } from "./settings/shell/return-path.js";
 import { useScreenRefreshKey } from "./use-db-sync.js";
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
@@ -25,6 +26,10 @@ export function URLSync({ browserTabId }: { browserTabId?: string }) {
     () => ["__set_url__", normalizedBrowserTabId ?? "global"],
     [normalizedBrowserTabId],
   );
+
+  React.useEffect(() => {
+    rememberSettingsReturnPath(location.pathname, location.search);
+  }, [location.pathname, location.search]);
 
   // Outbound: write the current URL to app-state whenever it changes.
   React.useEffect(() => {

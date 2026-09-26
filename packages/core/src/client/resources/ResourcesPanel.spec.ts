@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { isResourceRowReadOnly } from "./ResourceSettingsGroups.js";
 import {
+  canEditOrganizationResources,
   canUploadResourceFile,
   filterResourceTree,
+  isOrganizationResourceOwner,
   hasAvailableMcpIntegrations,
   normalizeResourceFileName,
   resolveInitialResourceScope,
@@ -214,5 +217,68 @@ describe("filterResourceTree", () => {
     expect(filterResourceTree(tree, "skills")[0]?.path).toBe("skills");
     expect(filterResourceTree(tree, "instructions")[0]?.path).toBe("AGENTS.md");
     expect(filterResourceTree(tree, "learnings")[0]?.path).toBe("LEARNINGS.md");
+  });
+});
+
+describe("canEditOrganizationResources", () => {
+  it("lets owners, admins, and solo deployments edit organization resources", () => {
+    expect(canEditOrganizationResources({ orgId: "org", role: "owner" })).toBe(
+      true,
+    );
+    expect(canEditOrganizationResources({ orgId: "org", role: "admin" })).toBe(
+      true,
+    );
+    expect(canEditOrganizationResources({ orgId: null, role: null })).toBe(
+      true,
+    );
+  });
+
+  it("keeps organization resources read only for members", () => {
+    expect(canEditOrganizationResources({ orgId: "org", role: "member" })).toBe(
+      false,
+    );
+  });
+});
+
+describe("isOrganizationResourceOwner", () => {
+  it("treats legacy shared and organization owners as organization resources", () => {
+    expect(isOrganizationResourceOwner("__shared__")).toBe(true);
+    expect(isOrganizationResourceOwner("__organization__:org-1")).toBe(true);
+    expect(isOrganizationResourceOwner("member@example.test")).toBe(false);
+    expect(isOrganizationResourceOwner("__workspace__")).toBe(false);
+  });
+});
+
+describe("isResourceRowReadOnly", () => {
+  const meta = (metadata: string | null) => ({
+    id: "id",
+    path: "AGENTS.md",
+    owner: "owner",
+    mimeType: "text/markdown",
+    size: 1,
+    createdAt: 0,
+    updatedAt: 0,
+    createdBy: "user" as const,
+    visibility: "workspace" as const,
+    threadId: null,
+    runId: null,
+    expiresAt: null,
+    metadata,
+  });
+
+  it("follows the viewer's role for organization rows", () => {
+    expect(isResourceRowReadOnly("personal", meta(null), false)).toBe(false);
+    expect(isResourceRowReadOnly("shared", meta(null), false)).toBe(true);
+    expect(isResourceRowReadOnly("shared", meta(null), true)).toBe(false);
+  });
+
+  it("keeps Dispatch rows read only and local workspace files editable", () => {
+    const dispatch = JSON.stringify({ source: "dispatch-workspace-resource" });
+    const local = JSON.stringify({ source: "local-workspace-resource" });
+    expect(isResourceRowReadOnly("workspace", meta(dispatch), true)).toBe(true);
+    expect(isResourceRowReadOnly("workspace", meta("{bad json"), true)).toBe(
+      true,
+    );
+    expect(isResourceRowReadOnly("workspace", meta(local), false)).toBe(false);
   });
 });

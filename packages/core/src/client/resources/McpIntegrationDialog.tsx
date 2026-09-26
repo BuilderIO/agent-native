@@ -1,11 +1,33 @@
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Input } from "@agent-native/toolkit/ui/input";
 import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@agent-native/toolkit/ui/input-group";
+import { Label } from "@agent-native/toolkit/ui/label";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@agent-native/toolkit/ui/toggle-group";
+import {
+  IconAlertCircle,
   IconArrowLeft,
   IconCheck,
   IconExternalLink,
-  IconLoader2,
   IconSearch,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { agentNativePath } from "../api-path.js";
 import { openAgentSettings } from "../CommandMenu.js";
@@ -13,6 +35,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog.js";
@@ -153,8 +176,19 @@ export function McpIntegrationDialog({
     "oauth",
   );
   const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [urlError, setUrlError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const fieldId = useId();
+  const ids = {
+    name: `${fieldId}-name`,
+    url: `${fieldId}-url`,
+    urlError: `${fieldId}-url-error`,
+    description: `${fieldId}-description`,
+    headers: `${fieldId}-headers`,
+    scope: `${fieldId}-scope`,
+  };
   const inputRef = useRef<HTMLInputElement>(null);
   const quickConnectAttemptedRef = useRef<string | null>(null);
   const quickConnectRef = useRef<
@@ -239,7 +273,9 @@ export function McpIntegrationDialog({
     setHeadersText(initialDefaults.headersText);
     setCustomAuthMode(initialIntegration ? "headers" : "oauth");
     setBusy(false);
+    setTesting(false);
     setError(null);
+    setUrlError(null);
     setTestResult(null);
   }, [
     defaultIntegrations,
@@ -262,6 +298,7 @@ export function McpIntegrationDialog({
 
   const clearFeedback = () => {
     setError(null);
+    setUrlError(null);
     setTestResult(null);
   };
 
@@ -286,6 +323,7 @@ export function McpIntegrationDialog({
     setHeadersText(defaults.headersText);
     setCustomAuthMode(integration ? "headers" : "oauth");
     setError(null);
+    setUrlError(null);
     setTestResult(null);
     setMode("form");
   };
@@ -645,6 +683,7 @@ export function McpIntegrationDialog({
       return;
     }
     setBusy(true);
+    setTesting(true);
     setError(null);
     setTestResult(null);
     try {
@@ -663,6 +702,7 @@ export function McpIntegrationDialog({
       setTestResult({ ok: false, message: formatMcpServerError(err) });
     } finally {
       setBusy(false);
+      setTesting(false);
     }
   };
 
@@ -680,7 +720,7 @@ export function McpIntegrationDialog({
     // be created for the workspace, so say that instead of showing a toggle.
     if (formRequiresOrganizationScope) {
       return (
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
+        <p className="text-xs leading-5 text-muted-foreground">
           {t("mcpIntegrations.workspaceOnlyDescription")}
         </p>
       );
@@ -695,39 +735,28 @@ export function McpIntegrationDialog({
     if (!canSelectScope) return null;
 
     return (
-      <div className="space-y-1.5">
-        <p className="text-[11px] font-medium text-foreground">
+      <div className="grid gap-2">
+        <span id={ids.scope} className="text-sm font-medium leading-none">
           {t("mcpIntegrations.scopeQuestion")}
-        </p>
-        <div className="flex gap-1 rounded-md border border-border bg-background p-0.5">
-          <button
-            type="button"
-            onClick={() => setScope("user")}
-            aria-pressed={scope === "user"}
-            className={cn(
-              "flex-1 rounded px-2 py-1.5 text-[11px] font-medium",
-              scope === "user"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
+        </span>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          value={scope}
+          onValueChange={(value) => {
+            if (value === "user" || value === "org") setScope(value);
+          }}
+          aria-labelledby={ids.scope}
+          className="grid grid-cols-2"
+        >
+          <ToggleGroupItem value="user">
             {t("mcpIntegrations.personal")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setScope("org")}
-            aria-pressed={scope === "org"}
-            className={cn(
-              "flex-1 rounded px-2 py-1.5 text-[11px] font-medium",
-              scope === "org"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
+          </ToggleGroupItem>
+          <ToggleGroupItem value="org">
             {t("mcpIntegrations.sharedWithWorkspace")}
-          </button>
-        </div>
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          </ToggleGroupItem>
+        </ToggleGroup>
+        <p className="text-xs leading-5 text-muted-foreground">
           {t(
             scope === "user"
               ? "mcpIntegrations.personalDescription"
@@ -736,6 +765,41 @@ export function McpIntegrationDialog({
         </p>
       </div>
     );
+  };
+
+  const primaryAction = selectedRequiresSetup
+    ? selected?.authMode === "oauth"
+      ? {
+          run: () => connectWithOAuth(selected),
+          disabled: !oauthReady || busy,
+          label: t("mcpIntegrations.continueToConnect"),
+        }
+      : null
+    : selected?.authMode === "oauth" ||
+        (!selected && customAuthMode === "oauth")
+      ? {
+          run: selected ? connectSelectedWithOAuth : connectCustomWithOAuth,
+          disabled: !oauthReady || !name.trim() || !url.trim() || busy,
+          label: t("mcpIntegrations.connectWithOAuth"),
+        }
+      : {
+          run: submitForm,
+          disabled: !name.trim() || !url.trim() || busy,
+          label: t("mcpIntegrations.connect"),
+        };
+
+  const submitPrimary = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!primaryAction || primaryAction.disabled) return;
+    if (!selectedRequiresSetup) {
+      const validationError = getMcpUrlValidationError(url.trim());
+      if (validationError) {
+        setUrlError(validationError);
+        setTestResult(null);
+        return;
+      }
+    }
+    primaryAction.run();
   };
 
   if (!showCatalog && !customIntegrationEnabled) return null;
@@ -752,22 +816,26 @@ export function McpIntegrationDialog({
         )}
       >
         {mcpServersQuery.isError ? (
-          <div
-            role="alert"
-            className="mx-7 mt-4 shrink-0 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive sm:mx-10"
+          <Alert
+            variant="destructive"
+            className="mx-7 mt-4 w-auto shrink-0 sm:mx-10"
           >
-            <p>{formatMcpServersLoadError(mcpServersQuery.error)}</p>
-            <button
-              type="button"
-              onClick={() => void mcpServersQuery.refetch()}
-              disabled={mcpServersQuery.isFetching}
-              className="mt-2 font-medium underline underline-offset-2 hover:text-foreground disabled:cursor-wait disabled:opacity-60"
-            >
-              {mcpServersQuery.isFetching
-                ? t("mcpIntegrations.retrying")
-                : t("mcpIntegrations.retry")}
-            </button>
-          </div>
+            <IconAlertCircle aria-hidden="true" />
+            <AlertDescription className="flex flex-col items-start gap-2">
+              <p>{formatMcpServersLoadError(mcpServersQuery.error)}</p>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => void mcpServersQuery.refetch()}
+                disabled={mcpServersQuery.isFetching}
+              >
+                {mcpServersQuery.isFetching
+                  ? t("mcpIntegrations.retrying")
+                  : t("mcpIntegrations.retry")}
+              </Button>
+            </AlertDescription>
+          </Alert>
         ) : null}
         {mode === "choice" && selected ? (
           <>
@@ -829,41 +897,43 @@ export function McpIntegrationDialog({
             </DialogHeader>
             <div className="shrink-0 px-7 pb-5 sm:px-10">
               <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 sm:flex-row">
-                <label className="relative min-w-0 flex-1">
-                  <IconSearch className="pointer-events-none absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <input
+                <InputGroup className="min-w-0 flex-1">
+                  <InputGroupInput
+                    type="search"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    className="h-9 w-full rounded-md border border-border bg-background pe-3 ps-8 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
                     placeholder={t("mcpIntegrations.searchPlaceholder")}
                   />
-                </label>
-                <button
+                  <InputGroupAddon>
+                    <IconSearch aria-hidden="true" />
+                  </InputGroupAddon>
+                </InputGroup>
+                <Button
                   type="button"
+                  variant="secondary"
                   onClick={() => openForm(null)}
-                  className={cn(
-                    "inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 text-[12px] font-medium text-foreground hover:bg-accent",
-                    !customIntegrationEnabled && "hidden",
-                  )}
+                  className={cn(!customIntegrationEnabled && "hidden")}
                 >
                   {t("mcpIntegrations.addYourOwn")}
-                </button>
+                </Button>
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-7 pb-10 pt-7 sm:px-10">
-              <div className="mx-auto w-full max-w-5xl">
-                {error && (
-                  <div className="mb-3 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-[12px] leading-relaxed text-destructive">
-                    {error}
-                  </div>
-                )}
+              <div className="mx-auto grid w-full max-w-5xl gap-3">
+                {error ? (
+                  <Alert variant="destructive">
+                    <IconAlertCircle aria-hidden="true" />
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                ) : null}
                 {!mcpServersQuery.isSuccess && !mcpServersQuery.isError ? (
-                  <div
+                  <p
                     role="status"
-                    className="mb-3 rounded-md border border-border bg-muted/30 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground"
+                    className="flex items-center gap-2 text-sm text-muted-foreground"
                   >
+                    <Spinner aria-hidden="true" />
                     {t("mcpIntegrations.loadingScopeMetadata")}
-                  </div>
+                  </p>
                 ) : null}
                 <IntegrationGrid
                   items={filteredIntegrations.map((integration) => {
@@ -927,17 +997,22 @@ export function McpIntegrationDialog({
               )}
             >
               {showCatalog && presentation === "takeover" ? (
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="xs"
                   onClick={() => {
                     clearFeedback();
                     setMode("catalog");
                   }}
-                  className="mb-1 inline-flex w-fit items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                  className="-ms-2 mb-1 self-start"
                 >
-                  <IconArrowLeft className="h-3 w-3 rtl:-scale-x-100" />
+                  <IconArrowLeft
+                    aria-hidden="true"
+                    className="rtl:-scale-x-100"
+                  />
                   {t("mcpIntegrations.backToIntegrations")}
-                </button>
+                </Button>
               ) : null}
               <DialogTitle>
                 {selected
@@ -960,295 +1035,278 @@ export function McpIntegrationDialog({
                   : t("mcpIntegrations.customDescription")}
               </DialogDescription>
             </DialogHeader>
-            <div
-              className={cn(
-                "min-h-0 flex-1 overflow-y-auto",
-                presentation === "takeover"
-                  ? "px-7 py-7 sm:px-10"
-                  : "px-6 py-5",
-              )}
+            <form
+              noValidate
+              onSubmit={submitPrimary}
+              className="flex min-h-0 flex-1 flex-col"
             >
-              <div className="mx-auto max-w-2xl space-y-3">
-                {renderScopeSelector()}
-                {selected?.setupNoteKey && !selectedRequiresSetup ? (
-                  <div className="rounded-md bg-muted/40 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                    {t(selected.setupNoteKey)}
-                  </div>
-                ) : null}
-                {selectedRequiresSetup && selected && (
-                  <div
-                    className={cn(
-                      "mx-auto grid w-full max-w-xl gap-4",
-                      presentation === "takeover" ? "py-8" : "py-1",
-                    )}
-                  >
-                    {presentation === "takeover" ? (
-                      <div>
-                        <p className="text-base font-semibold tracking-[-0.02em] text-foreground">
-                          {t("mcpIntegrations.providerSetupRequired")}
-                        </p>
-                        <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                          {t("mcpIntegrations.providerSetupDescription", {
-                            name: selected.name,
-                          })}
-                        </p>
-                      </div>
-                    ) : null}
-                    {selected.setupNoteKey ? (
-                      <p className="text-sm leading-6 text-muted-foreground">
-                        {t(selected.setupNoteKey)}
-                      </p>
-                    ) : null}
-                    <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground">
-                          {t("mcpIntegrations.personalConnection")}
-                        </p>
-                        <p className="text-[11px] leading-relaxed text-muted-foreground">
-                          {t("mcpIntegrations.personalDescription")}
-                        </p>
-                      </div>
-                      <span className="shrink-0 text-[11px] text-muted-foreground">
-                        {t("mcpIntegrations.personal")}
-                      </span>
-                    </div>
-                    {selected.docsUrl ? (
-                      <a
-                        href={selected.docsUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex w-fit items-center gap-1 text-sm font-medium text-foreground underline underline-offset-4 hover:text-muted-foreground"
-                      >
-                        {t("mcpIntegrations.viewSetup")}
-                        <IconExternalLink className="size-3.5" />
-                      </a>
-                    ) : null}
-                  </div>
+              <div
+                className={cn(
+                  "min-h-0 flex-1 overflow-y-auto",
+                  presentation === "takeover"
+                    ? "px-7 py-7 sm:px-10"
+                    : "px-6 py-5",
                 )}
-                {!selected && (
-                  <div className="flex items-center justify-between gap-3 rounded-md bg-muted/30 px-3 py-2 text-[11px]">
-                    <span className="text-muted-foreground">
-                      {customAuthMode === "oauth"
-                        ? t(
-                            /* i18n-key-ignore */
-                            "mcpIntegrations.customOAuthDefault",
-                            { defaultValue: "Sign in with OAuth" },
-                          )
-                        : t(
-                            /* i18n-key-ignore */
-                            "mcpIntegrations.customHeadersMode",
-                            { defaultValue: "Use an API key" },
-                          )}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCustomAuthMode((current) =>
-                          current === "oauth" ? "headers" : "oauth",
-                        );
-                        clearFeedback();
-                      }}
-                      className="font-medium text-foreground underline underline-offset-2 hover:text-muted-foreground"
+              >
+                <div className="mx-auto grid max-w-2xl gap-5">
+                  {renderScopeSelector()}
+                  {selected?.setupNoteKey && !selectedRequiresSetup ? (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {t(selected.setupNoteKey)}
+                    </p>
+                  ) : null}
+                  {selectedRequiresSetup && selected && (
+                    <div
+                      className={cn(
+                        "mx-auto grid w-full max-w-xl gap-4",
+                        presentation === "takeover" ? "py-8" : "py-1",
+                      )}
                     >
-                      {customAuthMode === "oauth"
-                        ? t(
-                            /* i18n-key-ignore */
-                            "mcpIntegrations.useApiKeyInstead",
-                            { defaultValue: "Use an API key instead" },
-                          )
-                        : t(
-                            /* i18n-key-ignore */
-                            "mcpIntegrations.useOAuthInstead",
-                            { defaultValue: "Use OAuth instead" },
-                          )}
-                    </button>
-                  </div>
-                )}
-                {!selectedRequiresSetup && (
-                  <>
-                    {selected?.authMode === "oauth" && (
-                      <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] leading-relaxed text-primary">
-                        {t("mcpIntegrations.oauthNotice")}
-                      </div>
-                    )}
-                    <label className="block">
-                      <span className="mb-1 block text-[10px] font-medium text-muted-foreground">
-                        {t("mcpIntegrations.serverName")}
-                      </span>
-                      <input
-                        ref={inputRef}
-                        value={name}
-                        onChange={(event) => {
-                          setName(event.target.value);
-                          clearFeedback();
-                        }}
-                        className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
-                        placeholder={t("mcpIntegrations.serverNamePlaceholder")}
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="mb-1 block text-[10px] font-medium text-muted-foreground">
-                        {t("mcpIntegrations.url")}
-                      </span>
-                      <input
-                        value={url}
-                        onChange={(event) => {
-                          setUrl(event.target.value);
-                          clearFeedback();
-                        }}
-                        className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
-                        placeholder={t("mcpIntegrations.urlPlaceholder")}
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="mb-1 block text-[10px] font-medium text-muted-foreground">
-                        {t("mcpIntegrations.fieldDescription")}
-                      </span>
-                      <input
-                        value={description}
-                        onChange={(event) => {
-                          setDescription(event.target.value);
-                          clearFeedback();
-                        }}
-                        className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
-                        placeholder={t(
-                          "mcpIntegrations.descriptionPlaceholder",
-                        )}
-                      />
-                    </label>
-                    {(selected
-                      ? selected.authMode !== "oauth"
-                      : customAuthMode === "headers") && (
-                      <label className="block">
-                        <span className="mb-1 block text-[10px] font-medium text-muted-foreground">
-                          {t("mcpIntegrations.headers")}
+                      {presentation === "takeover" ? (
+                        <div>
+                          <p className="text-base font-semibold tracking-[-0.02em] text-foreground">
+                            {t("mcpIntegrations.providerSetupRequired")}
+                          </p>
+                          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                            {t("mcpIntegrations.providerSetupDescription", {
+                              name: selected.name,
+                            })}
+                          </p>
+                        </div>
+                      ) : null}
+                      {selected.setupNoteKey ? (
+                        <p className="text-sm leading-6 text-muted-foreground">
+                          {t(selected.setupNoteKey)}
+                        </p>
+                      ) : null}
+                      <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground">
+                            {t("mcpIntegrations.personalConnection")}
+                          </p>
+                          <p className="text-xs leading-5 text-muted-foreground">
+                            {t("mcpIntegrations.personalDescription")}
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {t("mcpIntegrations.personal")}
                         </span>
-                        <textarea
-                          value={headersText}
+                      </div>
+                      {selected.docsUrl ? (
+                        <a
+                          href={selected.docsUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex w-fit items-center gap-1 text-sm font-medium text-foreground underline underline-offset-4 hover:text-muted-foreground"
+                        >
+                          {t("mcpIntegrations.viewSetup")}
+                          <IconExternalLink
+                            aria-hidden="true"
+                            className="size-3.5"
+                          />
+                        </a>
+                      ) : null}
+                    </div>
+                  )}
+                  {!selected && (
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-muted-foreground">
+                        {customAuthMode === "oauth"
+                          ? t("mcpIntegrations.customOAuthDefault")
+                          : t("mcpIntegrations.customHeadersMode")}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="xs"
+                        onClick={() => {
+                          setCustomAuthMode((current) =>
+                            current === "oauth" ? "headers" : "oauth",
+                          );
+                          clearFeedback();
+                        }}
+                      >
+                        {customAuthMode === "oauth"
+                          ? t("mcpIntegrations.useApiKeyInstead")
+                          : t("mcpIntegrations.useOAuthInstead")}
+                      </Button>
+                    </div>
+                  )}
+                  {!selectedRequiresSetup && (
+                    <>
+                      {selected?.authMode === "oauth" && (
+                        <Alert>
+                          <AlertDescription>
+                            {t("mcpIntegrations.oauthNotice")}
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                      <div className="grid gap-2">
+                        <Label htmlFor={ids.name}>
+                          {t("mcpIntegrations.serverName")}
+                        </Label>
+                        <Input
+                          id={ids.name}
+                          ref={inputRef}
+                          value={name}
                           onChange={(event) => {
-                            setHeadersText(event.target.value);
+                            setName(event.target.value);
                             clearFeedback();
                           }}
-                          rows={3}
-                          className="w-full resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
-                          style={{
-                            fontFamily:
-                              'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-                          }}
-                          placeholder={
-                            selected?.headerPlaceholder ??
-                            t("mcpIntegrations.headersPlaceholder")
-                          }
+                          placeholder={t(
+                            "mcpIntegrations.serverNamePlaceholder",
+                          )}
                         />
-                      </label>
-                    )}
-                    {selected?.docsUrl && (
-                      <a
-                        href={selected.docsUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline hover:text-foreground"
-                      >
-                        {t("mcpIntegrations.openSetupDocs")}
-                        <IconExternalLink className="h-3 w-3" />
-                      </a>
-                    )}
-                  </>
-                )}
-                {testResult && (
-                  <div
-                    className={cn(
-                      "flex items-start gap-1 rounded-md px-3 py-2 text-[11px] leading-snug",
-                      testResult.ok
-                        ? "bg-green-500/5 text-green-600 dark:text-green-400"
-                        : "bg-red-500/5 text-red-600 dark:text-red-400",
-                    )}
-                  >
-                    {testResult.ok && (
-                      <IconCheck className="mt-0.5 h-3 w-3 shrink-0" />
-                    )}
-                    <span className="min-w-0 break-words">
-                      {testResult.message}
-                    </span>
-                  </div>
-                )}
-                {error && (
-                  <div className="break-words rounded-md bg-red-500/5 px-3 py-2 text-[11px] leading-snug text-red-600 dark:text-red-400">
-                    {error}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div
-              className={cn(
-                "flex shrink-0 items-center justify-between gap-2 border-t border-border py-4",
-                presentation === "takeover" ? "px-7" : "px-6",
-              )}
-            >
-              {!selectedRequiresSetup && (
-                <button
-                  type="button"
-                  onClick={runTest}
-                  disabled={!url.trim() || busy}
-                  className="rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
-                >
-                  {t("mcpIntegrations.test")}
-                </button>
-              )}
-              {!selected && customAuthMode === "oauth" ? (
-                <button
-                  type="button"
-                  onClick={connectCustomWithOAuth}
-                  disabled={!oauthReady || !name.trim() || !url.trim() || busy}
-                  aria-busy={busy}
-                  className="rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
-                >
-                  {busy && (
-                    <IconLoader2 className="me-1.5 inline h-3.5 w-3.5 animate-spin" />
-                  )}
-                  {t("mcpIntegrations.connectWithOAuth")}
-                </button>
-              ) : null}
-              {selectedRequiresSetup ? (
-                <div className="ms-auto flex items-center gap-2">
-                  {selected?.authMode === "oauth" && (
-                    <button
-                      type="button"
-                      onClick={() => connectWithOAuth(selected)}
-                      disabled={!oauthReady || busy}
-                      aria-busy={busy}
-                      className="inline-flex min-w-[132px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
-                    >
-                      {busy && (
-                        <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor={ids.url}>
+                          {t("mcpIntegrations.url")}
+                        </Label>
+                        <Input
+                          id={ids.url}
+                          type="url"
+                          value={url}
+                          onChange={(event) => {
+                            setUrl(event.target.value);
+                            clearFeedback();
+                          }}
+                          aria-invalid={urlError ? true : undefined}
+                          aria-describedby={urlError ? ids.urlError : undefined}
+                          placeholder={t("mcpIntegrations.urlPlaceholder")}
+                        />
+                        {urlError ? (
+                          <p
+                            id={ids.urlError}
+                            className="text-xs leading-5 text-destructive"
+                          >
+                            {urlError}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor={ids.description}>
+                          {t("mcpIntegrations.fieldDescription")}
+                        </Label>
+                        <Input
+                          id={ids.description}
+                          value={description}
+                          onChange={(event) => {
+                            setDescription(event.target.value);
+                            clearFeedback();
+                          }}
+                          placeholder={t(
+                            "mcpIntegrations.descriptionPlaceholder",
+                          )}
+                        />
+                      </div>
+                      {(selected
+                        ? selected.authMode !== "oauth"
+                        : customAuthMode === "headers") && (
+                        <div className="grid gap-2">
+                          <Label htmlFor={ids.headers}>
+                            {t("mcpIntegrations.headers")}
+                          </Label>
+                          <Textarea
+                            id={ids.headers}
+                            value={headersText}
+                            onChange={(event) => {
+                              setHeadersText(event.target.value);
+                              clearFeedback();
+                            }}
+                            rows={3}
+                            className="resize-y font-mono"
+                            placeholder={
+                              selected?.headerPlaceholder ??
+                              t("mcpIntegrations.headersPlaceholder")
+                            }
+                          />
+                        </div>
                       )}
-                      {t("mcpIntegrations.continueToConnect")}
-                    </button>
+                      {selected?.docsUrl && (
+                        <a
+                          href={selected.docsUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex w-fit items-center gap-1 text-sm font-medium text-foreground underline-offset-4 hover:underline"
+                        >
+                          {t("mcpIntegrations.openSetupDocs")}
+                          <IconExternalLink
+                            aria-hidden="true"
+                            className="size-3.5"
+                          />
+                        </a>
+                      )}
+                    </>
                   )}
+                  {testResult ? (
+                    testResult.ok ? (
+                      <Alert role="status">
+                        <IconCheck aria-hidden="true" />
+                        <AlertDescription className="break-words">
+                          {testResult.message}
+                        </AlertDescription>
+                      </Alert>
+                    ) : (
+                      <Alert variant="destructive">
+                        <IconAlertCircle aria-hidden="true" />
+                        <AlertDescription className="break-words">
+                          {testResult.message}
+                        </AlertDescription>
+                      </Alert>
+                    )
+                  ) : null}
+                  {error ? (
+                    <Alert variant="destructive">
+                      <IconAlertCircle aria-hidden="true" />
+                      <AlertDescription className="break-words">
+                        {error}
+                      </AlertDescription>
+                    </Alert>
+                  ) : null}
                 </div>
-              ) : selected?.authMode === "oauth" ? (
-                <button
+              </div>
+              <DialogFooter
+                className={cn(
+                  "shrink-0 gap-2 border-t border-border py-4 sm:space-x-0",
+                  presentation === "takeover" ? "px-7" : "px-6",
+                )}
+              >
+                {!selectedRequiresSetup && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={runTest}
+                    disabled={!url.trim() || busy}
+                    aria-busy={testing || undefined}
+                    className="sm:me-auto"
+                  >
+                    {testing ? <Spinner aria-hidden="true" /> : null}
+                    {testing
+                      ? t("mcpIntegrations.testing")
+                      : t("mcpIntegrations.test")}
+                  </Button>
+                )}
+                <Button
                   type="button"
-                  onClick={connectSelectedWithOAuth}
-                  disabled={!oauthReady || !name.trim() || !url.trim() || busy}
-                  aria-busy={busy}
-                  className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
+                  variant="secondary"
+                  onClick={() => onOpenChange(false)}
                 >
-                  {busy && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
-                  {t("mcpIntegrations.connectWithOAuth")}
-                </button>
-              ) : !selected && customAuthMode === "oauth" ? null : (
-                <button
-                  type="button"
-                  onClick={submitForm}
-                  disabled={!name.trim() || !url.trim() || busy}
-                  className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
-                >
-                  {busy && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
-                  {t("mcpIntegrations.connect")}
-                </button>
-              )}
-            </div>
+                  {t("common.cancel")}
+                </Button>
+                {primaryAction ? (
+                  <Button
+                    type="submit"
+                    disabled={primaryAction.disabled}
+                    aria-busy={(busy && !testing) || undefined}
+                  >
+                    {busy && !testing ? <Spinner aria-hidden="true" /> : null}
+                    {busy && !testing
+                      ? t("mcpIntegrations.connecting")
+                      : primaryAction.label}
+                  </Button>
+                ) : null}
+              </DialogFooter>
+            </form>
           </>
         )}
       </DialogContent>

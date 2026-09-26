@@ -417,8 +417,8 @@ export function FormsListPage() {
           </Button>
           <Button
             variant="ghost"
-            size="icon"
-            className="relative ms-auto size-10 transition-[background-color,box-shadow,transform] active:scale-[0.96] sm:size-8 sm:before:absolute sm:before:-inset-1 sm:before:content-['']"
+            size="icon-lg"
+            className="relative ms-auto transition-[background-color,box-shadow,transform] active:scale-[0.96] sm:size-8 sm:before:absolute sm:before:-inset-1 sm:before:content-['']"
             onClick={clearSelection}
             aria-label={t("forms.exitSelectionMode")}
           >

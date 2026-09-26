@@ -999,6 +999,7 @@ function RecordingAccessControls({
           <div className="grid gap-2 pt-2">
             <div className="flex gap-2">
               <Input
+                size="sm"
                 type="text"
                 value={password}
                 disabled={!canEdit}
@@ -1009,12 +1010,12 @@ function RecordingAccessControls({
                     ? t("playerSettings.passwordSetPlaceholder")
                     : t("playerSettings.passwordInputPlaceholder")
                 }
-                className="h-8 min-w-0"
+                className="min-w-0"
               />
               <Button
                 type="button"
                 size="sm"
-                className="h-8 shrink-0"
+                className="shrink-0"
                 disabled={
                   !canEdit || updateRecording.isPending || !password.trim()
                 }
@@ -1066,6 +1067,7 @@ function RecordingAccessControls({
         <CollapsibleContent className="px-1 pb-1 pt-2">
           <div className="flex gap-2">
             <Input
+              size="sm"
               type="datetime-local"
               value={toDatetimeLocal(expiryDraft)}
               disabled={!canEdit}
@@ -1073,12 +1075,12 @@ function RecordingAccessControls({
               onChange={(event) =>
                 setExpiryDraft(fromDatetimeLocal(event.target.value))
               }
-              className="h-8 min-w-0"
+              className="min-w-0"
             />
             <Button
               type="button"
               size="sm"
-              className="h-8 shrink-0"
+              className="shrink-0"
               disabled={!canEdit || updateRecording.isPending}
               onClick={() => {
                 const nextExpiry = expiryDraft || null;
@@ -1400,7 +1402,7 @@ function ClipsEmbedConfigurator({
               <div className="flex-1">
                 <Label className="text-xs">{t("shareDialog.width")}</Label>
                 <Input
-                  className="h-8"
+                  size="sm"
                   type="number"
                   value={width}
                   onChange={(e) => setWidth(parseInt(e.target.value) || 640)}
@@ -1409,7 +1411,7 @@ function ClipsEmbedConfigurator({
               <div className="flex-1">
                 <Label className="text-xs">{t("shareDialog.height")}</Label>
                 <Input
-                  className="h-8"
+                  size="sm"
                   type="number"
                   value={height}
                   onChange={(e) => setHeight(parseInt(e.target.value) || 360)}
@@ -1426,7 +1428,7 @@ function ClipsEmbedConfigurator({
           <div>
             <Label className="text-xs">{t("shareDialog.startAt")}</Label>
             <Input
-              className="h-8"
+              size="sm"
               type="number"
               min={0}
               value={Math.round(startMs / 1000)}

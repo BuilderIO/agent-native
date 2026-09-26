@@ -497,7 +497,8 @@ function ConstraintSelect({
       disabled={disabled}
     >
       <SelectTrigger
-        className="h-8 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[12px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)] focus:ring-offset-0 [&>svg]:size-3"
+        size="sm"
+        className="rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[12px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)] focus:ring-offset-0 [&>svg]:size-3"
         aria-label={axis === "horizontal" ? labels.horizontal : labels.vertical}
       >
         {value === "mixed" ? labels.mixed : <SelectValue />}

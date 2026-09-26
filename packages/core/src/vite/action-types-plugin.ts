@@ -81,6 +81,42 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
       "@agent-native/core/agent/actions/disconnect-chatgpt-subscription",
   },
   {
+    name: "preview-secret-removal",
+    specifier: "@agent-native/core/secrets/actions/preview-secret-removal",
+  },
+  {
+    name: "list-api-keys",
+    specifier: "@agent-native/core/secrets/actions/list-api-keys",
+  },
+  {
+    name: "delete-api-key",
+    specifier: "@agent-native/core/secrets/actions/delete-api-key",
+  },
+  {
+    name: "check-provider-key",
+    specifier: "@agent-native/core/agent/actions/check-provider-key",
+  },
+  {
+    name: "manage-provider-key-policy",
+    specifier: "@agent-native/core/agent/actions/manage-provider-key-policy",
+  },
+  {
+    name: "manage-builder-connection",
+    specifier: "@agent-native/core/agent/actions/manage-builder-connection",
+  },
+  {
+    name: "get-provider-models",
+    specifier: "@agent-native/core/agent/actions/get-provider-models",
+  },
+  {
+    name: "manage-provider-models",
+    specifier: "@agent-native/core/agent/actions/manage-provider-models",
+  },
+  {
+    name: "list-model-providers",
+    specifier: "@agent-native/core/agent/actions/list-model-providers",
+  },
+  {
     name: "get-hosted-harness-config",
     specifier:
       "@agent-native/core/hosted-harness/actions/get-hosted-harness-config",
@@ -113,6 +149,32 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
   {
     name: "upload-image",
     specifier: "@agent-native/core/file-upload/actions/upload-image",
+  },
+  {
+    name: "get-file-storage",
+    specifier: "@agent-native/core/file-upload/actions/get-file-storage",
+  },
+  {
+    name: "manage-file-storage",
+    specifier: "@agent-native/core/file-upload/actions/manage-file-storage",
+  },
+  {
+    name: "manage-service-providers",
+    specifier: "@agent-native/core/agent/actions/manage-service-providers",
+  },
+  {
+    name: "get-infrastructure-status",
+    specifier: "@agent-native/core/agent/actions/get-infrastructure-status",
+  },
+  {
+    name: "list-messaging-channels",
+    specifier:
+      "@agent-native/core/integrations/actions/list-messaging-channels",
+  },
+  {
+    name: "manage-messaging-channel",
+    specifier:
+      "@agent-native/core/integrations/actions/manage-messaging-channel",
   },
   {
     name: "list-workspace-user-groups",

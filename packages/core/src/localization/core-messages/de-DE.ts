@@ -170,6 +170,8 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "Ein gemeinsamer Schlüssel wird verwendet.",
   "agentPanel.useOrganizationKey": "Organisationsschlüssel verwenden",
   "agentPanel.keyStatusUnavailable": "Der Schlüsselstatus ist nicht verfügbar.",
+  "agentPanel.saveScopeRoleUnavailable":
+    "Deine Rolle in der Organisation konnte nicht geladen werden, daher können noch keine Schlüssel gespeichert werden.",
   "agentPanel.chatgptSubscriptionPopupBlocked":
     "Erlaube Pop-ups für diese Website und versuche es erneut.",
   "agentPanel.chatgptSubscriptionTitle": "ChatGPT-Abonnement",
@@ -262,6 +264,41 @@ const messages: AgentChatTranslation = {
   "agents.directoryRegistryHint":
     "Durchsuchen Sie öffentliche Agent-Karten und prüfen Sie sie vor dem Verbinden.",
   "agents.directoryBrowse": "Register durchsuchen",
+  "agents.formName": "Name",
+  "agents.formUrl": "URL",
+  "agents.formUrlPlaceholder": "URL (z. B. http://localhost:8085)",
+  "agents.formDescription": "Beschreibung",
+  "agents.formDescriptionPlaceholder": "Beschreibung (optional)",
+  "agents.formCheck": "Prüfen",
+  "agents.formAdd": "Hinzufügen",
+  "agents.formAdding": "Wird hinzugefügt",
+  "agents.formAddAnyway": "Trotzdem hinzufügen",
+  "agents.formRemove": "Entfernen",
+  "agents.formSaveFailed": "Der Agent konnte nicht gespeichert werden.",
+  "agents.formAddFailed": "Der Agent konnte nicht hinzugefügt werden.",
+  "agents.checkFailed": "Prüfung fehlgeschlagen",
+  "agents.checkFailedStatus": "Prüfung fehlgeschlagen ({{status}})",
+  "agents.checkNotReachable": "Nicht erreichbar",
+  "agents.checkLive": "Live · {{scheme}}",
+  "agents.checkNoAuthScheme": "kein Authentifizierungsschema angegeben",
+  "agents.checkTokenRejected":
+    "die Gegenstelle hat unser Token abgelehnt, daher liefern Aufrufe in der Produktion 401",
+  "agents.checkTokenUnverified": "unser Token konnte nicht geprüft werden",
+  "agents.checkTokenUnverifiedReason":
+    "unser Token konnte nicht geprüft werden ({{reason}})",
+  "agents.checkTokenWorks": "unser Token funktioniert",
+  "agents.checkReadsRequireAuth": "Lesezugriffe erfordern Authentifizierung",
+  "agents.checkPublicSkills": "öffentliche Skills: {{count}}",
+  "agents.unreachableHint":
+    "Die App läuft vielleicht noch nicht. Du kannst sie trotzdem hinzufügen.",
+  "agents.addedOneWay":
+    "{{name}} wurde nur auf deiner Seite hinzugefügt. Die Registrierung ist einseitig, daher kennt {{name}} diese App erst, wenn du sie dort ebenfalls hinzufügst.",
+  "agents.openPeerSettings": "Einstellungen von {{name}} öffnen",
+  "agents.syncSecret": "Secret mit Apps synchronisieren",
+  "agents.noSharedSecret": "Noch kein gemeinsames Secret festgelegt.",
+  "agents.noSharedSecretLink": "Lege zuerst eines auf der Team-Seite fest.",
+  "agents.askOwnerSyncSecret":
+    "Bitte den Workspace-Inhaber, das gemeinsame Secret zu synchronisieren.",
   "common.saveFailed": "Speichern fehlgeschlagen",
   "common.saveFailedStatus": "Speichern fehlgeschlagen ({{status}})",
   "common.saving": "Wird gespeichert...",
@@ -305,6 +342,308 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "Verwalten",
   "integrations.recommended": "Empfohlen",
   "integrations.subtitle": "Verbinde die Tools, die dein Agent nutzen kann.",
+  "mcpIntegrations.menuLabel": "Integrationen",
+  "mcpIntegrations.menuDescription":
+    "Tools und Dienste mit dem Agenten verbinden",
+  "mcpIntegrations.title": "Integrationen verbinden",
+  "mcpIntegrations.description":
+    "Durchsuche {{count}} Agent-Integrationen oder füge eine eigene hinzu.",
+  "mcpIntegrations.searchPlaceholder": "Integrationen durchsuchen",
+  "mcpIntegrations.addYourOwn": "Eigene hinzufügen",
+  "mcpIntegrations.noMatches": "Keine Integrationen passen zu dieser Suche.",
+  "mcpIntegrations.connected": "Verbunden",
+  "mcpIntegrations.connectionError": "Verbindungsfehler",
+  "mcpIntegrations.connectionErrorReason": "Grund: {{reason}}",
+  "mcpIntegrations.reconnect": "Erneut verbinden",
+  "mcpIntegrations.reconnecting": "Wird erneut verbunden…",
+  "mcpIntegrations.reconnectFailed":
+    "Erneutes Verbinden fehlgeschlagen: {{error}}",
+  "mcpIntegrations.configure": "Konfigurieren",
+  "mcpIntegrations.connect": "Verbinden",
+  "mcpIntegrations.connectWithOAuth": "Verbinden",
+  "mcpIntegrations.connecting": "Wird verbunden…",
+  "mcpIntegrations.useApiToken": "API-Token verwenden",
+  "mcpIntegrations.customOAuthDefault": "Mit OAuth anmelden",
+  "mcpIntegrations.customHeadersMode": "API-Schlüssel verwenden",
+  "mcpIntegrations.useApiKeyInstead": "Stattdessen API-Schlüssel verwenden",
+  "mcpIntegrations.useOAuthInstead": "Stattdessen OAuth verwenden",
+  "mcpIntegrations.connectSuggestion":
+    "Verbinde {{name}}, um es im Chat zu nutzen",
+  "mcpIntegrations.connectSuggestionWithApiToken":
+    "Verbinde {{name}} mit einem API-Token, um es im Chat zu nutzen",
+  "mcpIntegrations.dismissSuggestion": "Integrationsvorschlag schließen",
+  "mcpIntegrations.backToIntegrations": "Zurück zu den Integrationen",
+  "mcpIntegrations.customTitle": "Eigene Agent-Integration hinzufügen",
+  "mcpIntegrations.configureTitle": "{{name}} konfigurieren",
+  "mcpIntegrations.presetNoAuthDescription":
+    "Die Standardwerte sind bereits ausgefüllt. Teste den Endpunkt oder verbinde ihn jetzt.",
+  "mcpIntegrations.presetAuthDescription":
+    "Die Standardwerte sind bereits ausgefüllt. Füge vor dem Verbinden alle erforderlichen Autorisierungsangaben hinzu.",
+  "mcpIntegrations.customDescription":
+    "Füge einen Streamable HTTP- oder SSE-Endpunkt und optionale Header ein.",
+  "mcpIntegrations.oauthNotice":
+    "Dieser Anbieter erfordert in der Regel eine OAuth-Einrichtung. Folge der Dokumentation des Anbieters oder füge einen Authorization-Header hinzu, wenn dein Endpunkt tokenbasierten Zugriff unterstützt.",
+  "mcpIntegrations.providerSetupRequired":
+    "Einrichtung beim Anbieter erforderlich",
+  "mcpIntegrations.providerSetupDescription":
+    "Schließe zuerst die erforderliche Einrichtung in {{name}} ab. Kehre dann hierher zurück, um dein Konto zu verbinden.",
+  "mcpIntegrations.providerSetupFormDescription":
+    "Schließe die Einrichtung beim Anbieter ab, bevor du dein Konto verbindest.",
+  "mcpIntegrations.continueToConnect": "Mein Konto verbinden",
+  "mcpIntegrations.setupTitle": "{{name}} verbinden",
+  "mcpIntegrations.personal": "Persönlich",
+  "mcpIntegrations.personalConnection": "Persönliche Verbindung",
+  "mcpIntegrations.organization": "Organisation",
+  "mcpIntegrations.scopeQuestion": "Wer soll diese Verbindung nutzen können?",
+  "mcpIntegrations.scopeChoiceTitle": "Wer soll das nutzen?",
+  "mcpIntegrations.scopeChoiceDescription":
+    "Wähle, wo diese Verbindung verfügbar ist.",
+  "mcpIntegrations.connectForMe": "Für mich verbinden",
+  "mcpIntegrations.setUpForWorkspace": "Für den Workspace einrichten",
+  "mcpIntegrations.workspaceAdminRequired":
+    "Inhaber oder Admin des Workspace erforderlich.",
+  "mcpIntegrations.workspaceJoinRequired": "Tritt zuerst einem Workspace bei.",
+  "mcpIntegrations.personalOnlyDescription":
+    "Für diese Integration werden nur persönliche Verbindungen unterstützt.",
+  "mcpIntegrations.workspaceOnlyDescription":
+    "Diese Integration wird einmal für den gesamten Workspace verbunden und kann daher nicht nur mit deinem Konto verbunden werden. Ein Inhaber oder Admin des Workspace kann sie einrichten.",
+  "mcpIntegrations.loadingScopeMetadata": "Verbindungsbereich wird geladen…",
+  "mcpIntegrations.retry": "Erneut versuchen",
+  "mcpIntegrations.retrying": "Wird erneut versucht…",
+  "mcpIntegrations.personalDescription":
+    "Nur du kannst diese Verbindung nutzen.",
+  "mcpIntegrations.sharedWithWorkspace": "Mit dem Workspace geteilt",
+  "mcpIntegrations.organizationDescription":
+    "Berechtigte Workspace-Mitglieder können diese Verbindung nutzen. Die Berechtigungen des Anbieters gelten weiterhin.",
+  "mcpIntegrations.serverNameRequired":
+    "Gib einen Integrationsnamen ein, bevor du dich mit OAuth verbindest.",
+  "mcpIntegrations.serverName": "Integrationsname",
+  "mcpIntegrations.url": "URL",
+  "mcpIntegrations.fieldDescription": "Beschreibung",
+  "mcpIntegrations.headers": "Header",
+  "mcpIntegrations.serverNamePlaceholder": "Integrationsname",
+  "mcpIntegrations.urlPlaceholder": "https://example.com/agent-integration",
+  "mcpIntegrations.descriptionPlaceholder": "Beschreibung (optional)",
+  "mcpIntegrations.headersPlaceholder": "Authorization: Bearer <token>",
+  "mcpIntegrations.openSetupDocs": "Einrichtungsdokumentation öffnen",
+  "mcpIntegrations.viewSetup": "Einrichtungsanleitung öffnen",
+  "mcpIntegrations.test": "Testen",
+  "mcpIntegrations.testing": "Wird getestet…",
+  "mcpIntegrations.toolsAvailable_one": "{{count}} Tool verfügbar",
+  "mcpIntegrations.toolsAvailable_other": "{{count}} Tools verfügbar",
+  "mcpIntegrations.failed": "Fehlgeschlagen",
+  "mcpIntegrations.docsLabel": "Dokumentation zu {{name}} ansehen",
+  "mcpIntegrations.catalog.context7.description":
+    "Aktuelle Bibliotheksdokumentation in Agent-Chats abrufen.",
+  "mcpIntegrations.catalog.context7.useCase":
+    "Dokumentation, technische Referenz, API-Dokumentation, Framework-Anleitungen",
+  "mcpIntegrations.catalog.sentry.description":
+    "Issues, Events und Debugging-Daten untersuchen.",
+  "mcpIntegrations.catalog.sentry.useCase":
+    "Fehlerüberwachung, Debugging, Performance, Absturzberichte",
+  "mcpIntegrations.catalog.fullstory.description":
+    "Verhaltensanalysen lesen und Session-Replays untersuchen.",
+  "mcpIntegrations.catalog.fullstory.useCase":
+    "Produktanalyse, Session-Replay, qualitatives Nutzerverhalten, User Research",
+  "mcpIntegrations.catalog.fullstory.setupNote":
+    "FullStory MCP ist derzeit in der Beta. Ein Admin der FullStory-Organisation muss die StoryAI-Funktionen und den Schalter für das Model Context Protocol aktivieren.",
+  "mcpIntegrations.catalog.amplitude.description":
+    "Mit Amplitude-Produktanalysen arbeiten und sie lesen.",
+  "mcpIntegrations.catalog.amplitude.useCase":
+    "Produktanalyse, Diagramme, Dashboards, Kohorten, Experimente",
+  "mcpIntegrations.catalog.amplitude.setupNote":
+    "Amplitude MCP nutzt OAuth über Streaming-HTTP. Der Standard-Endpunkt gilt für Datenspeicherung in den USA. Verwende den EU-Endpunkt von Amplitude, wenn das Konto Datenspeicherung in der EU erfordert.",
+  "mcpIntegrations.catalog.sigma.description":
+    "Sigma-Workbooks und -Dashboards durchsuchen, erkunden und analysieren.",
+  "mcpIntegrations.catalog.sigma.useCase":
+    "Analytics, Dashboards, Workbooks, Datenexploration, Business Intelligence",
+  "mcpIntegrations.catalog.sigma.setupNote":
+    "Die MCP-URL von Sigma ist organisationsspezifisch. Öffne in Sigma Profile > Integrations > Connect Sigma to AI tools, kopiere die URL und füge sie hier ein. Sigma MCP unterstützt derzeit Suche, Metadaten-Exploration und Analyse. Das Erstellen und Importieren von Dashboards oder Workbooks ist über diese Verbindung nicht möglich.",
+  "mcpIntegrations.catalog.notion.description":
+    "Seiten und Teamwissen durchsuchen.",
+  "mcpIntegrations.catalog.notion.useCase":
+    "Dokumentation, Wissensmanagement, Notizen, Content-Erstellung",
+  "mcpIntegrations.catalog.notion.setupNote":
+    "Die Notion-Integration nutzt OAuth auf Benutzerebene. Enterprise-Workspaces können die Nutzung von Integrationen prüfen und Clients zulassen oder blockieren. Verbinde dich nach Änderungen an den Admin-Richtlinien erneut.",
+  "mcpIntegrations.catalog.granola.description":
+    "Meeting-Notizen, Transkripte und Aufgaben durchsuchen.",
+  "mcpIntegrations.catalog.granola.useCase":
+    "Meeting-Notizen, Aufnahmen, Transkripte, Aufgaben, Follow-ups",
+  "mcpIntegrations.catalog.granola.setupNote":
+    "Die Granola-Integration nutzt OAuth im Browser. Autorisiere das angemeldete Granola-Konto und prüfe, auf welche Meeting-Notizen und Transkripte der Agent zugreifen kann.",
+  "mcpIntegrations.catalog.gong.description":
+    "Gong-Anrufe durchsuchen und Erkenntnisse zu Accounts und Deals gewinnen.",
+  "mcpIntegrations.catalog.gong.useCase":
+    "Verkaufsgespräche, Transkripte, Deal-Erkenntnisse, Account-Zusammenfassungen",
+  "mcpIntegrations.catalog.gong.setupNote":
+    "In Gong muss ein technischer Admin eine MCP-Integration erstellen und persönliche oder geteilte Autorisierung wählen. Die generierte Client-ID und das Secret müssen vor dem Verbinden konfiguriert werden.",
+  "mcpIntegrations.catalog.semgrep.description":
+    "Code auf Sicherheitsbefunde scannen.",
+  "mcpIntegrations.catalog.semgrep.useCase":
+    "Sicherheitsscans, Erkennung von Schwachstellen, Codeanalyse",
+  "mcpIntegrations.catalog.linear.description":
+    "Linear-Issues lesen und schreiben.",
+  "mcpIntegrations.catalog.linear.useCase":
+    "Projektmanagement, Issue-Tracking, Planung, Fehlerberichte",
+  "mcpIntegrations.catalog.apollo.description":
+    "Apollo-GTM-Daten durchsuchen, anreichern und verwalten.",
+  "mcpIntegrations.catalog.apollo.useCase":
+    "Prospecting, Datenanreicherung, Kontakte, Sequenzen, Account-Recherche",
+  "mcpIntegrations.catalog.apollo.setupNote":
+    "Apollo MCP nutzt OAuth auf Benutzerebene und benötigt keinen Apollo-API-Schlüssel. Die Berechtigungen deines Apollo-Tarifs, Credits und die Einschränkungen des Anbieters zum Modelltraining gelten weiterhin.",
+  "mcpIntegrations.catalog.commonRoom.description":
+    "Käufersignale, Kontakte und Organisationen recherchieren.",
+  "mcpIntegrations.catalog.commonRoom.useCase":
+    "Käuferinformationen, Produktsignale, Kaufabsicht, Kontaktanreicherung",
+  "mcpIntegrations.catalog.commonRoom.setupNote":
+    "Common Room MCP nutzt OAuth pro Benutzer und berücksichtigt die Workspace-Rolle des autorisierten Benutzers. Eventuell muss ein Administrator die MCP-Verbindung für die Instanz aktivieren.",
+  "mcpIntegrations.catalog.exa.description":
+    "Mit Exa das Web durchsuchen und Seiten abrufen.",
+  "mcpIntegrations.catalog.exa.useCase":
+    "Websuche, Recherche, Codesuche, Seitenabruf",
+  "mcpIntegrations.catalog.exa.setupNote":
+    "Der Remote-MCP-Endpunkt von Exa unterstützt eine einfache kostenlose Nutzung ohne Schlüssel. Füge über die Header-Konfiguration des Anbieters einen Exa-API-Schlüssel hinzu, wenn du höhere Limits oder zusätzliche Tools brauchst.",
+  "mcpIntegrations.catalog.supabase.description":
+    "Daten, Authentifizierung und Backend-Dienste verwalten.",
+  "mcpIntegrations.catalog.supabase.useCase":
+    "Datenbank, Authentifizierung, Speicher, Edge Functions",
+  "mcpIntegrations.catalog.neon.description":
+    "Mit serverlosen Postgres-Projekten arbeiten.",
+  "mcpIntegrations.catalog.neon.useCase":
+    "Datenbankverwaltung, serverloses Postgres, Datenspeicherung",
+  "mcpIntegrations.catalog.stripe.description":
+    "Zahlungen, Abonnements und Kunden verwalten.",
+  "mcpIntegrations.catalog.stripe.useCase":
+    "Zahlungen, Abonnements, Rechnungsstellung, Kundenverwaltung",
+  "mcpIntegrations.catalog.atlassian.description":
+    "Jira-Issues und Confluence-Inhalte lesen und schreiben.",
+  "mcpIntegrations.catalog.atlassian.useCase":
+    "Projektmanagement, Issue-Tracking, Dokumentation, Teamzusammenarbeit",
+  "mcpIntegrations.catalog.atlassian.setupNote":
+    "Bitte deinen Atlassian-Admin, die Domain der Clips-App zuzulassen und Rovo/MCP mit Lese-, Schreib- und Suchberechtigungen für deine Jira-Site zu aktivieren.",
+  "mcpIntegrations.catalog.cloudflare.description":
+    "Cloudflare-Dienste über die Integration durchsuchen und betreiben.",
+  "mcpIntegrations.catalog.cloudflare.useCase":
+    "DNS, Workers, Domains, Sicherheit, Observability, Plattform-APIs",
+  "mcpIntegrations.catalog.cloudflare.setupNote":
+    "Das Verzeichnis der verwalteten Cloudflare-Integrationen enthält produktspezifische Integrationen und die umfassende API-Integration. Prüfe die Berechtigungsbereiche und wähle den engsten Endpunkt, der zu deinem Workflow passt.",
+  "mcpIntegrations.catalog.grafana.description":
+    "Metriken, Logs und Observability-Daten aus Grafana Cloud abfragen.",
+  "mcpIntegrations.catalog.grafana.useCase":
+    "Observability, Metriken, Logs, Traces, Dashboards",
+  "mcpIntegrations.catalog.grafana.setupNote":
+    "Grafana Cloud MCP ist in der öffentlichen Vorschau und erfordert MCP-Zugriff auf Grafana Cloud Assistant. Es funktioniert nur mit gehostetem Grafana Cloud. Selbst gehostetes Grafana benötigt den lokalen MCP-Server.",
+  "mcpIntegrations.catalog.gitlab.description":
+    "GitLab-Projekte, Issues und Merge Requests lesen und verwalten.",
+  "mcpIntegrations.catalog.gitlab.useCase":
+    "Repositorys, Issues, Merge Requests, CI/CD, Codeanalysen",
+  "mcpIntegrations.catalog.gitlab.setupNote":
+    "Die GitLab-Integration ist derzeit in der Beta. Auf GitLab.com muss ein Admin einer Gruppe der obersten Ebene den Integrationszugriff erlauben, bevor OAuth abgeschlossen werden kann. Selbstverwaltete Instanzen haben eine entsprechende Instanzeinstellung.",
+  "mcpIntegrations.catalog.figma.description":
+    "Figma-Designkontext und Canvas-Aktionen in einen Agenten bringen.",
+  "mcpIntegrations.catalog.figma.useCase":
+    "Designdateien, Komponenten, Variablen, Designsysteme, Canvas",
+  "mcpIntegrations.catalog.figma.setupNote":
+    "Die Figma-Integration lässt nur Clients aus dem Integrationskatalog von Figma zu, daher kann sich Agent-Native noch nicht mit diesem Remote-Endpunkt verbinden. Nutze als Alternative die Figma REST API mit einem persönlichen Zugriffstoken, um Datei- und Knotenkontext zu lesen. Canvas-Aktionen bleiben nicht verfügbar, bis Figma Agent-Native freigibt.",
+  "mcpIntegrations.catalog.canva.description":
+    "Canva-Designs und -Assets durchsuchen, erstellen und aktualisieren.",
+  "mcpIntegrations.catalog.canva.useCase":
+    "Designs, Vorlagen, Assets, Brand Kits, Exporte, Zusammenarbeit",
+  "mcpIntegrations.catalog.canva.setupNote":
+    "Die Canva-Integration nutzt OAuth pro Benutzer und erfordert, dass Clients die Domains canva.com und canva.ai von Canva zulassen. Prüfe vor dem Verbinden die aktuelle Weiterleitungs- und Client-Einrichtung in der Integrationsdokumentation von Canva.",
+  "mcpIntegrations.catalog.vercel.description":
+    "Vercel-Dokumentation durchsuchen und Projekte, Deployments und Logs untersuchen.",
+  "mcpIntegrations.catalog.vercel.useCase":
+    "Deployments, Projekte, Logs, Domains, Hosting, Dokumentation",
+  "mcpIntegrations.catalog.vercel.setupNote":
+    "Die Vercel-Integration akzeptiert nur geprüfte und freigegebene KI-Clients. Agent-Native muss in die Liste der unterstützten Clients von Vercel aufgenommen werden, bevor eine allgemeine Framework-Verbindung funktioniert.",
+  "mcpIntegrations.catalog.github.description":
+    "Repositorys, Issues, Pull Requests und Codekontext lesen.",
+  "mcpIntegrations.catalog.github.useCase":
+    "Repositorys, Issues, Pull Requests, Code, Engineering-Analysen",
+  "mcpIntegrations.catalog.github.setupNote":
+    "Der Anmeldeanbieter von GitHub erlaubt Apps nicht, sich selbst zu registrieren, daher kann die Schaltfläche „Verbinden“ OAuth nicht abschließen. Verbinde dich stattdessen mit einem persönlichen GitHub-Zugriffstoken. Beachte, dass Organisationen OAuth App Access Policies erzwingen können.",
+  "mcpIntegrations.catalog.slack.description":
+    "Slack-Unterhaltungen durchsuchen und über die Integration Workspace-Aktionen ausführen.",
+  "mcpIntegrations.catalog.slack.useCase":
+    "Nachrichten, Kanäle, Personen, Unternehmenswissen, Workflows",
+  "mcpIntegrations.catalog.slack.setupNote":
+    "Die Slack-Integration erfordert eine registrierte Slack-App mit fester App-ID. Dynamische Client-Registrierung wird nicht unterstützt, und nur Apps aus dem Slack Marketplace oder interne Apps können sich verbinden. Nutze für Agent-Native-Workflows den verwalteten Messaging-OAuth-Ablauf von Slack.",
+  "mcpIntegrations.catalog.asana.description":
+    "Asana-Aufgaben, -Projekte und Work-Graph-Daten durchsuchen und verwalten.",
+  "mcpIntegrations.catalog.asana.useCase":
+    "Aufgaben, Projekte, Portfolios, Planung, Arbeitslast",
+  "mcpIntegrations.catalog.asana.setupNote":
+    "Die Agent-Integration von Asana erfordert eine vorab registrierte OAuth-App und unterstützt keine dynamische Client-Registrierung. Konfiguriere vor dem Verbinden einen Asana-App-Client.",
+  "mcpIntegrations.catalog.hubspot.description":
+    "HubSpot-CRM-Datensätze über die Integration durchsuchen und aktualisieren.",
+  "mcpIntegrations.catalog.hubspot.useCase":
+    "CRM, Kontakte, Unternehmen, Deals, Tickets, Kundenanalysen",
+  "mcpIntegrations.catalog.hubspot.setupNote":
+    'Wenn eine vom Workspace verwaltete "HubSpot MCP Auth App" konfiguriert ist, kann jedes Mitglied ein persönliches HubSpot-Konto mit OAuth und PKCE verbinden. Andernfalls erstelle die App vor dem Verbinden in der HubSpot Developer Platform. Der bestehende HubSpot-OAuth-Connector bleibt für App-Aktionen verfügbar.',
+  "mcpIntegrations.catalog.pylon.description":
+    "Pylon-Supportdaten durchsuchen und aktualisieren.",
+  "mcpIntegrations.catalog.pylon.useCase":
+    "Kundensupport, Issues, Accounts, Kontakte, Unterhaltungen",
+  "mcpIntegrations.catalog.pylon.setupNote":
+    "Aktiviere vor dem Verbinden den Pylon-MCP-Zugriff für die betreffenden Benutzer und schalte den MCP-Server in Pylon ein. Pylon erfordert einen Member- oder Admin-Platz und nutzt ausschließlich OAuth auf Benutzerebene.",
+  "mcpIntegrations.catalog.intercom.description":
+    "Unterhaltungen und Wissen aus dem Kundensupport durchsuchen.",
+  "mcpIntegrations.catalog.intercom.useCase":
+    "Kundensupport, Unterhaltungen, Kontakte, Help-Center-Inhalte",
+  "mcpIntegrations.catalog.intercom.setupNote":
+    "Die Intercom-Integration nutzt OAuth und ist für in den USA gehostete Workspaces verfügbar. Prüfe bei der Autorisierung die Region des Workspace und die angeforderten Berechtigungsbereiche.",
+  "mcpIntegrations.catalog.monday.description":
+    "Mit Boards, Elementen und Team-Workflows arbeiten.",
+  "mcpIntegrations.catalog.monday.useCase":
+    "Arbeitsmanagement, Boards, Projekte, Aufgaben, Teamabläufe",
+  "mcpIntegrations.catalog.monday.setupNote":
+    "Die monday.com-Integration nutzt OAuth über Streamable HTTP. Wähle bei der Autorisierung den Workspace und die Berechtigungen, die du teilen möchtest.",
+  "mcpIntegrations.catalog.webflow.description":
+    "Webflow-Sites und -Inhalte lesen und aktualisieren.",
+  "mcpIntegrations.catalog.webflow.useCase":
+    "Websites, CMS, Website-Inhalte, Veröffentlichung, Design-Workflows",
+  "mcpIntegrations.catalog.webflow.setupNote":
+    "Die Webflow-Integration nutzt OAuth. Für Designer-Funktionen wird bei der Autorisierung eventuell die Bridge App von Webflow installiert. Zugriff auf die Data API ist separat verfügbar.",
+  "mcpIntegrations.catalog.paypal.description":
+    "Mit PayPal-Zahlungen, -Rechnungen und Commerce-Daten arbeiten.",
+  "mcpIntegrations.catalog.paypal.useCase":
+    "Zahlungen, Rechnungen, Transaktionen, Händlerabläufe",
+  "mcpIntegrations.catalog.paypal.setupNote":
+    "PayPal stellt für seine Remote-Agent-Integration OAuth-Discovery und Anmeldung bereit. Agent-Native nutzt den derzeit aktiven /sse-Endpunkt. Prüfe vor der Autorisierung die Händlerberechtigungen.",
+  "mcpIntegrations.catalog.box.description":
+    "Dateien und Ordner in Box durchsuchen und verwalten.",
+  "mcpIntegrations.catalog.box.useCase":
+    "Dateien, Ordner, Unternehmensinhalte, Suche, Zusammenarbeit",
+  "mcpIntegrations.catalog.box.setupNote":
+    "Die Box-Integration ist in der Beta und muss von einem Administrator aktiviert werden. Eigene Clients benötigen außerdem Box Integration Credentials, eine Weiterleitungs-URI und freigegebene Berechtigungsbereiche.",
+  "mcpIntegrations.catalog.builder.description":
+    "Inhalte in Builder Publish und Hybrid Spaces durchsuchen.",
+  "mcpIntegrations.catalog.builder.useCase":
+    "Content-Modelle, Seiten, Einträge, Publish und Hybrid Spaces",
+  "mcpIntegrations.catalog.builder.setupNote":
+    "Builder CMS MCP nutzt OAuth mit dynamischer Client-Registrierung. Es verbindet sich nur mit Publish oder Hybrid Spaces, und beim Autorisieren wählst du den Space aus.",
+  "mcpIntegrations.catalog.netlify.description":
+    "Netlify-Sites und -Deployments untersuchen und betreiben.",
+  "mcpIntegrations.catalog.netlify.useCase":
+    "Sites, Deployments, Builds, Domains, Hosting-Betrieb",
+  "mcpIntegrations.catalog.netlify.setupNote":
+    "Netlify dokumentiert die Einrichtung einer Remote-Integration für unterstützte Clients. Prüfe die Site- und Teamberechtigungen, bevor du OAuth abschließt.",
+  "mcpIntegrations.catalog.zapier.description":
+    "Tools mit Tausenden App-Aktionen verbinden.",
+  "mcpIntegrations.catalog.zapier.useCase":
+    "Automatisierung, Workflows, App-Aktionen, dienstübergreifende Abläufe",
+  "mcpIntegrations.catalog.zapier.setupNote":
+    "Die Agent-Integration von Zapier nutzt für nicht gelistete Clients eine selbst erstellte Verbindung und ein Token. Erstelle die Verbindung in Zapier und füge dann das generierte Bearer-Token in das Header-Feld ein.",
+  "mcpIntegrations.auth.none": "Keine Authentifizierung",
+  "mcpIntegrations.auth.headers": "Header",
+  "mcpIntegrations.auth.oauth": "OAuth",
+  "mcpIntegrations.status.beta": "Beta",
+  "mcpIntegrations.status.setupRequired": "Einrichtung beim Anbieter",
+  "mcpIntegrations.status.clientRestricted": "Nur freigegebene Clients",
+  "mcpIntegrations.status.verified": "Verifiziert",
+  "mcpIntegrations.status.preflightOnly": "Nur Vorabprüfung",
+  "mcpIntegrations.status.restricted": "Eingeschränkt",
   "limit.account": "deines Kontos",
   "limit.descriptionAll":
     "Der Agent hat alle verfügbaren Schritte verwendet. Fahre in einem neuen Durchlauf fort oder erhöhe zuerst das Limit {{scope}}.",
@@ -398,6 +737,11 @@ const messages: AgentChatTranslation = {
   "secrets.managedInVault":
     "Wird im Vault des Arbeitsbereichs verwaltet. Jede App in diesem Arbeitsbereich verwendet diesen Wert.",
   "secrets.openVault": "Vault öffnen",
+  "secrets.managedByOwner": "Verwaltet in {{owner}}",
+  "secrets.removeCredentials": "Zugangsdaten entfernen",
+  "secrets.confirmRemove": "Entfernen",
+  "secrets.sharedKeysKept":
+    "Einige gemeinsame Schlüssel wurden nicht entfernt. Nur Workspace-Admins können sie entfernen.",
   "secrets.newKey": "Neu",
   "secrets.noKeysFound": "Keine Schlüssel gefunden.",
   "secrets.overridesVault":
@@ -931,6 +1275,1425 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendToday":
     "Sonstige oder nicht zugeordnete Nutzung heute: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder-Credits / USD",
+  "settings.usage.tabsLabel": "Nutzungsansichten",
+  "settings.usage.tabOverview": "Übersicht",
+  "settings.usage.tabActivity": "Aktivität",
+  "settings.usage.rangeLabel": "Zeitraum",
+  "settings.usage.range7": "Letzte 7 Tage",
+  "settings.usage.range30": "Letzte 30 Tage",
+  "settings.usage.range90": "Letzte 90 Tage",
+  "settings.usage.appFilterLabel": "App",
+  "settings.usage.allApps": "Alle Apps",
+  "settings.usage.unattributedApp": "Nicht zugeordnet",
+  "settings.usage.peopleFilterLabel": "Personen",
+  "settings.usage.everyone": "Alle",
+  "settings.usage.justYou": "Nur du",
+  "settings.usage.estimatedSpend": "Geschätzte Kosten",
+  "settings.usage.creditSpend": "Builder.io-Credit-Verbrauch",
+  "settings.usage.yourEstimatedSpend": "Deine geschätzten Kosten",
+  "settings.usage.yourCreditSpend": "Dein Builder.io-Credit-Verbrauch",
+  "settings.usage.calls": "Aufrufe",
+  "settings.usage.tokens": "Tokens",
+  "settings.usage.activePeople": "Aktive Personen",
+  "settings.usage.history": "Nutzungsverlauf",
+  "settings.usage.historyDimensionLabel": "Nutzungsverlauf gruppieren",
+  "settings.usage.byFeature": "Nach Funktion",
+  "settings.usage.byApp": "Nach App",
+  "settings.usage.byModel": "Nach Modell",
+  "settings.usage.bySurface": "Nach Oberfläche",
+  "settings.usage.historyChartLabel": "Tägliche Nutzung",
+  "settings.usage.noUsage": "Keine Nutzung in diesem Zeitraum.",
+  "settings.usage.total": "Gesamt",
+  "settings.usage.featureChat": "Chat",
+  "settings.usage.featureSubAgents": "Sub-Agenten",
+  "settings.usage.featureAutomations": "Automatisierungen",
+  "settings.usage.other": "Sonstige",
+  "settings.usage.unknownModel": "Unbekanntes Modell",
+  "settings.usage.surfaceApp": "In der App",
+  "settings.usage.topChats": "Top-Chats",
+  "settings.usage.untitledChat": "Unbenannter Chat",
+  "settings.usage.titleUnavailable": "Titel konnte nicht geladen werden",
+  "settings.usage.showAll": "Alle anzeigen",
+  "settings.usage.showLess": "Weniger anzeigen",
+  "settings.usage.topPeople": "Top-Personen",
+  "settings.usage.you": "Du",
+  "settings.usage.toolCalls": "Tool-Aufrufe",
+  "settings.usage.toolCallsChartLabel": "Tool-Aufrufe pro Tag",
+  "settings.usage.noToolCalls": "Keine Tool-Aufrufe in diesem Zeitraum.",
+  "settings.usage.toolCallsUnavailable":
+    "Tool-Aufrufe konnten nicht geladen werden.",
+  "settings.usage.modelCalls": "Modellaufrufe",
+  "settings.usage.modelCallsDimensionLabel": "Modellaufrufe gruppieren",
+  "settings.usage.modelCallsChartLabel": "Modellaufrufe pro Tag",
+  "settings.usage.noModelCalls": "Keine Modellaufrufe in diesem Zeitraum.",
+  "settings.usage.recentPrompts": "Letzte Prompts",
+  "settings.usage.promptNotCaptured": "Prompt nicht erfasst",
+  "settings.usage.promptUnavailable": "Prompt konnte nicht geladen werden",
+  "settings.usage.loadError": "Nutzung konnte nicht geladen werden.",
+  "settings.usage.yourAlerts": "Deine Benachrichtigungen",
+  "settings.usage.alertsLoadError":
+    "Benachrichtigungen konnten nicht geladen werden.",
+  "settings.usage.alertDailySpend": "Tägliche Kosten",
+  "settings.usage.alertMonthlySpend": "Monatliche Kosten",
+  "settings.usage.alertDailyTokens": "Tägliche Tokens",
+  "settings.usage.alertMonthlyTokens": "Monatliche Tokens",
+  "settings.usage.alertOnTrack": "Im Rahmen",
+  "settings.usage.alertOverLimit": "Über dem Limit",
+  "settings.usage.alertDismissed": "Ausgeblendet",
+  "settings.usage.alertOff": "Aus",
+  "settings.usage.alertProgressDay": "{{current}} von {{limit}} heute",
+  "settings.usage.alertProgressMonth": "{{current}} von {{limit}} diesen Monat",
+  "settings.usage.alertChannelsBoth": "In der App und per E-Mail",
+  "settings.usage.alertChannelInApp": "In der App",
+  "settings.usage.alertChannelEmail": "E-Mail",
+  "settings.usage.alertDefault": "Standard",
+  "settings.usage.alertEdit": "Bearbeiten",
+  "settings.usage.alertDialogTitle": "Benachrichtigung: {{name}}",
+  "settings.usage.alertThreshold": "Benachrichtigen ab",
+  "settings.usage.alertHintDayAll": "Pro Tag, über alle Apps.",
+  "settings.usage.alertHintMonthAll": "Pro Monat, über alle Apps.",
+  "settings.usage.alertHintDayApp": "Pro Tag, in {{app}}.",
+  "settings.usage.alertHintMonthApp": "Pro Monat, in {{app}}.",
+  "settings.usage.alertNotify": "Benachrichtigen per",
+  "settings.usage.alertEnabled": "Benachrichtigung an",
+  "settings.usage.alertReset": "Auf Standard zurücksetzen",
+  "settings.usage.alertInvalidLimit": "Gib einen Betrag größer als null ein.",
+  "settings.usage.alertNoChannel":
+    "Wähle mindestens einen Benachrichtigungsweg.",
+  "settings.usage.alertSaveError":
+    "Die Benachrichtigung konnte nicht gespeichert werden.",
+  "settings.usage.unitUsd": "USD",
+  "settings.usage.unitCredits": "Credits",
+  "settings.usage.unitTokens": "Tokens",
+  "settings.usage.creditAmount_one": "{{amount}} Credit",
+  "settings.usage.creditAmount_other": "{{amount}} Credits",
+  "settings.usage.tokenAmount_one": "{{amount}} Token",
+  "settings.usage.tokenAmount_other": "{{amount}} Tokens",
+  "settings.storage.provider": "Anbieter",
+  "settings.storage.providerOther": "Anderer S3-kompatibler Dienst",
+  "settings.storage.endpoint": "Endpunkt-URL",
+  "settings.storage.bucket": "Bucket",
+  "settings.storage.accessKeyId": "Zugriffsschlüssel-ID",
+  "settings.storage.secretAccessKey": "Geheimer Zugriffsschlüssel",
+  "settings.storage.region": "Region",
+  "settings.storage.publicUrl": "Öffentliche URL",
+  "settings.storage.optional": "Optional",
+  "settings.storage.saved": "Gespeichert",
+  "settings.storage.hintAws": "Verwende den Regions-Endpunkt deines Buckets.",
+  "settings.storage.hintR2":
+    "Du findest ihn in den Einstellungen deines R2-Buckets.",
+  "settings.storage.hintSupabase":
+    "Du findest ihn in den Storage-Einstellungen deines Projekts.",
+  "settings.storage.hintOther":
+    "MinIO, Backblaze B2, Wasabi und DigitalOcean Spaces funktionieren auch.",
+  "settings.storage.save": "Speichern",
+  "settings.storage.saving": "Wird gespeichert…",
+  "settings.storage.cancel": "Abbrechen",
+  "settings.storage.clear": "Zugangsdaten löschen",
+  "settings.storage.clearing": "Wird gelöscht…",
+  "settings.storage.clearTitle": "Speicher-Zugangsdaten löschen?",
+  "settings.storage.clearBuilder":
+    "Neue Uploads gehen in den Builder.io-Speicher.",
+  "settings.storage.clearNoFallback":
+    "Uploads schlagen fehl, bis du wieder einen Speicher einrichtest.",
+  "settings.storage.clearExisting": "Vorhandene Dateien bleiben in {{bucket}}.",
+  "settings.storage.clearExistingGeneric":
+    "Vorhandene Dateien bleiben in deinem Bucket.",
+  "settings.storage.invalidUrl":
+    "Verwende eine URL, die mit https:// oder http:// beginnt.",
+  "settings.storage.invalidBucket":
+    "Bucket-Namen bestehen aus Buchstaben, Ziffern, Punkten, Bindestrichen und Unterstrichen.",
+  "settings.storage.savedNotice":
+    "Dateispeicher gespeichert. Neue Uploads gehen in {{bucket}}.",
+  "settings.storage.cleared": "Speicher-Zugangsdaten gelöscht.",
+  "settings.storage.clearedBuilder":
+    "Speicher-Zugangsdaten gelöscht. Neue Uploads gehen zu Builder.io.",
+  "settings.storage.saveFailed":
+    "Dateispeicher konnte nicht gespeichert werden.",
+  "settings.storage.clearFailed":
+    "Speicher-Zugangsdaten konnten nicht gelöscht werden.",
+  "settings.storage.loadFailed":
+    "Dateispeicher-Einstellungen konnten nicht geladen werden.",
+  "settings.storage.retry": "Erneut versuchen",
+  "settings.storage.adminOnly":
+    "Nur Inhaber und Admins der Organisation können den Dateispeicher ändern.",
+  "settings.audit.action": "Aktion",
+  "settings.audit.allApps": "Alle Apps",
+  "settings.audit.app": "App",
+  "settings.audit.changedBy": "Geändert von",
+  "settings.audit.close": "Schließen",
+  "settings.audit.empty": "Keine Änderungen in diesem Zeitraum.",
+  "settings.audit.emptyDescription":
+    "Hier erscheinen Änderungen von Personen und vom Agenten.",
+  "settings.audit.failed": "Fehlgeschlagen",
+  "settings.audit.input": "Eingabe",
+  "settings.audit.inputLoadFailed": "Die Eingabe konnte nicht geladen werden.",
+  "settings.audit.last30Days": "Letzte 30 Tage",
+  "settings.audit.last7Days": "Letzte 7 Tage",
+  "settings.audit.last90Days": "Letzte 90 Tage",
+  "settings.audit.loadFailed": "Das Audit-Log konnte nicht geladen werden.",
+  "settings.audit.loading": "Audit-Log wird geladen",
+  "settings.audit.onBehalfOf": "Im Auftrag von",
+  "settings.audit.range": "Zeitraum",
+  "settings.audit.refused": "Abgelehnt",
+  "settings.audit.result": "Ergebnis",
+  "settings.audit.showMore": "{{count}} weitere anzeigen",
+  "settings.audit.succeeded": "Erfolgreich",
+  "settings.audit.system": "System",
+  "settings.audit.target": "Ziel",
+  "settings.audit.when": "Zeitpunkt",
+  "accountMenu.label": "Konto",
+  "accountMenu.loading": "Konto wird geladen",
+  "accountMenu.triggerLabel": "{{name}}, {{organization}}",
+  "accountMenu.triggerLabelDemo": "{{name}}, {{organization}}, Demo-Modus",
+  "accountMenu.personal": "Persönlich",
+  "accountMenu.demoMode": "Demo-Modus",
+  "accountMenu.demoModeOn": "Demo-Modus ist aktiv",
+  "accountMenu.demoModeDescription":
+    "Angezeigte E-Mail-Adressen und unterstützte Diagramme werden für Präsentationen angepasst. Dein Konto und deine Berechtigungen bleiben unverändert.",
+  "accountMenu.turnOffDemoMode": "Demo-Modus ausschalten",
+  "accountMenu.invitations": "Einladungen",
+  "accountMenu.joinYourTeam": "Deinem Team beitreten",
+  "accountMenu.join": "Beitreten",
+  "accountMenu.yourWorkspace": "Dein Workspace",
+  "accountMenu.createOrganization": "Organisation erstellen",
+  "accountMenu.organizationName": "Name der Organisation",
+  "accountMenu.create": "Erstellen",
+  "accountMenu.usage": "Nutzung",
+  "accountMenu.getApps": "Apps und Erweiterungen holen",
+  "accountMenu.back": "Zurück",
+  "settingsOrg.general.organization": "Organisation",
+  "settingsOrg.general.name": "Name",
+  "settingsOrg.general.nameLocked":
+    "Inhaber und Admins können den Namen ändern.",
+  "settingsOrg.general.membership": "Mitgliedschaft",
+  "settingsOrg.general.yourRole": "Deine Rolle",
+  "settingsOrg.general.deleteDescription":
+    "Löscht {{name}}, die Mitglieder und alle Daten dauerhaft.",
+  "settingsOrg.members.removeTitle": "{{name}} entfernen?",
+  "settingsOrg.members.removeDescription":
+    "Die Person verliert den Zugriff auf {{org}}. Was ihr gehört, geht an die Person, die du auswählst.",
+  "settingsOrg.members.roleFor": "Rolle für {{name}}",
+  "settingsOrg.members.moreActions": "Weitere Aktionen für {{name}}",
+  "settingsOrg.members.removing": "Wird entfernt…",
+  "settingsOrg.members.groupsEmpty":
+    "Gruppiere Mitglieder, um den App-Zugriff gemeinsam zu verwalten.",
+  "settingsOrg.auth.signIn": "Anmeldung",
+  "settingsOrg.auth.joining": "Beitreten",
+  "settingsOrg.auth.betweenApps": "Zwischen Apps",
+  "settingsOrg.auth.methodsEmailOnly": "E-Mail und Passwort.",
+  "settingsOrg.auth.methodsEmailAndOne":
+    "E-Mail und Passwort sowie {{method}}.",
+  "settingsOrg.auth.methodsEmailAndTwo":
+    "E-Mail und Passwort, {{first}} und {{second}}.",
+  "settingsOrg.auth.emailPassword": "E-Mail und Passwort",
+  "settingsOrg.auth.emailPasswordNote": "In jeder Bereitstellung aktiv.",
+  "settingsOrg.auth.methodConfigured":
+    "Auf deinem Host mit diesen Variablen eingerichtet.",
+  "settingsOrg.auth.methodNotConfigured":
+    "Nicht eingerichtet. Füge diese Variablen auf deinem Host hinzu und stelle dann neu bereit.",
+  "settingsOrg.auth.methodOn": "An",
+  "settingsOrg.auth.methodOff": "Aus",
+  "settingsOrg.auth.requireHint":
+    "Um eine dieser Methoden für alle in {{org}} vorzuschreiben, nutze die Organisationsanmeldung.",
+  "settingsOrg.auth.view": "Anzeigen",
+  "settingsOrg.auth.close": "Schließen",
+  "settingsOrg.apps.access": "Zugriff",
+  "settingsOrg.apps.browse": "Apps durchsuchen",
+  "settingsOrg.apps.defaults": "Standards",
+  "settingsOrg.search.domainAutoJoin":
+    "Automatischer Beitritt per E-Mail-Domain",
+  "settingsOrg.search.roles": "Mitgliederrollen",
+  "settingsOrg.learnMore": "Mehr erfahren",
+  "settingsOrg.moreInformation": "Weitere Informationen",
+  "settingsOrg.general.workspaceUrl": "Workspace-URL",
+  "settingsOrg.general.workspaceUrlDescription":
+    "Leite Mitglieder von einer anderen Bereitstellung zu diesem Workspace.",
+  "settingsOrg.general.workspaceUrlHelp":
+    "Mitglieder, die auf einer anderen Bereitstellung landen, kommen zu diesem Workspace statt zu einer leeren App.",
+  "settingsOrg.general.editWorkspaceUrl": "Workspace-URL bearbeiten",
+  "settingsOrg.general.removeWorkspaceUrl": "Workspace-URL entfernen",
+  "settingsOrg.general.setWorkspaceUrl": "URL festlegen",
+  "settingsOrg.auth.domainDescription":
+    "Personen mit einer @{{domain}}-E-Mail-Adresse automatisch hinzufügen.",
+  "settingsOrg.auth.domainDescriptionNoDomain":
+    "Personen mit deiner geschäftlichen E-Mail-Domain automatisch hinzufügen.",
+  "settingsOrg.auth.domainHelp":
+    "Wer sich mit einer E-Mail-Adresse dieser Domain registriert, tritt der Organisation bei. Nur deine eigene E-Mail-Domain ist möglich, kostenlose E-Mail-Anbieter sind nicht erlaubt.",
+  "settingsOrg.auth.editDomain": "Domain bearbeiten",
+  "settingsOrg.auth.removeDomain": "Domain entfernen",
+  "settingsOrg.auth.sharedSecret": "Gemeinsames Secret",
+  "settingsOrg.auth.sharedSecretSet":
+    "Festgelegt. Damit können sich die Apps in diesem Workspace gegenseitig verifizieren.",
+  "settingsOrg.auth.sharedSecretNotSet":
+    "Nicht festgelegt. Damit können sich die Apps in diesem Workspace gegenseitig verifizieren.",
+  "settingsOrg.auth.secretNotSetValue": "Nicht festgelegt",
+  "settingsOrg.auth.manage": "Verwalten",
+  "settingsOrg.auth.reveal": "Anzeigen",
+  "settingsOrg.auth.hide": "Ausblenden",
+  "settingsOrg.auth.regenerate": "Neu generieren",
+  "settingsOrg.auth.syncToApps": "Mit Apps synchronisieren",
+  "settingsOrg.auth.pasteSecret": "Secret einfügen",
+  "settingsOrg.auth.pasteSecretLabel": "Gemeinsames Secret einfügen",
+  "settingsOrg.auth.syncing": "Wird mit Apps synchronisiert…",
+  "settingsOrg.auth.syncErrorStatus": "HTTP {{status}}",
+  "settingsOrg.invite.emails": "E-Mail-Adressen",
+  "settingsOrg.invite.emailPlaceholder": "name@firma.de",
+  "settingsOrg.invite.note":
+    "Jede Person meldet sich mit genau dieser E-Mail-Adresse an, um anzunehmen.",
+  "settingsOrg.invite.noteNoEmail":
+    "Einladungen werden nicht per E-Mail verschickt, also bitte jede Person, sich mit genau dieser E-Mail-Adresse anzumelden.",
+  "settingsOrg.invite.role": "Rolle",
+  "settingsOrg.invite.member": "Mitglied",
+  "settingsOrg.invite.admin": "Admin",
+  "settingsOrg.invite.ownerOnlyAdmin":
+    "Nur der Eigentümer der Organisation kann Admins einladen.",
+  "settingsOrg.invite.removeRow": "Entfernen",
+  "settingsOrg.invite.addAnother": "Weitere hinzufügen",
+  "settingsOrg.invite.pasteMany": "Mehrere einfügen",
+  "settingsOrg.invite.importCsv": "CSV importieren",
+  "settingsOrg.invite.pasteLabel":
+    "Füge E-Mail-Adressen getrennt durch Kommas, Leerzeichen oder Zeilenumbrüche ein.",
+  "settingsOrg.invite.addAsMembers": "Als Mitglieder hinzufügen",
+  "settingsOrg.invite.addAsAdmins": "Als Admins hinzufügen",
+  "settingsOrg.invite.add": "Hinzufügen",
+  "settingsOrg.invite.send": "Einladungen senden",
+  "settingsOrg.invite.sending": "Wird gesendet…",
+  "settingsOrg.invite.invalidEmail":
+    "Gib eine vollständige E-Mail-Adresse ein.",
+  "settingsOrg.invite.csvNoEmails":
+    "In dieser CSV wurden keine gültigen E-Mail-Adressen gefunden.",
+  "settingsOrg.auth.synced_one": "Mit {{count}} App synchronisiert.",
+  "settingsOrg.auth.synced_other": "Mit {{count}} Apps synchronisiert.",
+  "settingsOrg.auth.syncedPartial_one":
+    "Mit {{succeeded}} von {{count}} App synchronisiert. {{failed}} fehlgeschlagen.",
+  "settingsOrg.auth.syncedPartial_other":
+    "Mit {{succeeded}} von {{count}} Apps synchronisiert. {{failed}} fehlgeschlagen.",
+  "settingsOrg.invite.sent_one": "{{count}} Einladung gesendet.",
+  "settingsOrg.invite.sent_other": "{{count}} Einladungen gesendet.",
+  "settingsOrg.invite.saved_one":
+    "{{count}} Einladung gespeichert. Die Person sieht sie bei der Anmeldung.",
+  "settingsOrg.invite.saved_other":
+    "{{count}} Einladungen gespeichert. Die Personen sehen sie bei der Anmeldung.",
+  "settingsShell.account.addPassword": "Passwort hinzufügen",
+  "settingsShell.account.authenticatorCode": "Authenticator-Code",
+  "settingsShell.account.change": "Ändern",
+  "settingsShell.account.changeEmail": "E-Mail-Adresse ändern",
+  "settingsShell.account.changePassword": "Passwort ändern",
+  "settingsShell.account.confirmPassword": "Neues Passwort bestätigen",
+  "settingsShell.account.currentPassword": "Aktuelles Passwort",
+  "settingsShell.account.deletionDialogDescription":
+    "Damit wird eine Löschanfrage an einen Administrator gesendet. Deine Daten bleiben erhalten, bis er sie prüft.",
+  "settingsShell.account.done": "Fertig",
+  "settingsShell.account.email": "E-Mail",
+  "settingsShell.account.emailChangeError":
+    "Bestätigung konnte nicht gesendet werden.",
+  "settingsShell.account.emailChangeSent":
+    "Prüfe deine E-Mails, um die Änderung zu bestätigen.",
+  "settingsShell.account.languageAndRegion": "Sprache und Region",
+  "settingsShell.account.languageDescription": "Gilt auf allen deinen Geräten.",
+  "settingsShell.account.manage": "Verwalten",
+  "settingsShell.account.name": "Name",
+  "settingsShell.account.nameDescription":
+    "Wird in allen Agent-Native-Apps verwendet, wenn von dir die Rede ist.",
+  "settingsShell.account.namePlaceholder": "Dein Name",
+  "settingsShell.account.nameSaveError":
+    "Dein Name konnte nicht aktualisiert werden.",
+  "settingsShell.account.nameSaved": "Name aktualisiert",
+  "settingsShell.account.newEmail": "Neue E-Mail-Adresse",
+  "settingsShell.account.newPassword": "Neues Passwort",
+  "settingsShell.account.password": "Passwort",
+  "settingsShell.account.passwordDescription":
+    "Füge ein Passwort hinzu, um dich auf eine weitere Art bei deinem Konto anzumelden.",
+  "settingsShell.account.passwordLoadError":
+    "Deine Anmeldemethoden konnten nicht geladen werden.",
+  "settingsShell.account.passwordMinLength":
+    "Wähle ein Passwort mit mindestens {{count}} Zeichen.",
+  "settingsShell.account.passwordMismatch":
+    "Die Passwörter stimmen nicht überein.",
+  "settingsShell.account.passwordSaveError":
+    "Passwort konnte nicht aktualisiert werden.",
+  "settingsShell.account.passwordSaved": "Passwort aktualisiert",
+  "settingsShell.account.photoError": "Foto konnte nicht aktualisiert werden.",
+  "settingsShell.account.photoUpdated": "Foto aktualisiert",
+  "settingsShell.account.profilePhoto": "Profilfoto",
+  "settingsShell.account.requestCopyDescription":
+    "Ein Administrator prüft deine Identität und meldet sich bei dir.",
+  "settingsShell.account.requestCopyLabel": "Kopie deiner Daten anfordern",
+  "settingsShell.account.requestDeletionDescription":
+    "Deine Daten bleiben erhalten, bis ein Administrator die Anfrage abschließt.",
+  "settingsShell.account.requestDeletionLabel":
+    "Löschung deiner Daten anfordern",
+  "settingsShell.account.savePassword": "Passwort speichern",
+  "settingsShell.account.sendConfirmation": "Bestätigung senden",
+  "settingsShell.account.sending": "Wird gesendet...",
+  "settingsShell.account.setUpTwoFactor": "Zwei-Faktor einrichten",
+  "settingsShell.account.settingUp": "Wird eingerichtet...",
+  "settingsShell.account.signIn": "Anmeldung",
+  "settingsShell.account.timezone": "Zeitzone",
+  "settingsShell.account.timezoneDescription":
+    "Wird für Zeitstempel und geplante Automatisierungen verwendet.",
+  "settingsShell.account.turnOffTwoFactor": "Zwei-Faktor deaktivieren",
+  "settingsShell.account.turningOff": "Wird deaktiviert...",
+  "settingsShell.account.twoFactor": "Zwei-Faktor-Authentifizierung",
+  "settingsShell.account.twoFactorBackupCodes":
+    "Bewahre diese Backup-Codes sicher auf. Jeder Code kann einmal verwendet werden, falls du keinen Zugriff mehr auf deinen Authenticator hast.",
+  "settingsShell.account.twoFactorCodeError":
+    "Gib den sechsstelligen Code aus deiner Authenticator-App ein.",
+  "settingsShell.account.twoFactorDescription":
+    "Verwende eine Authenticator-App, um deinem Konto einen zweiten Anmeldeschritt hinzuzufügen.",
+  "settingsShell.account.twoFactorDisableError":
+    "Zwei-Faktor-Authentifizierung konnte nicht deaktiviert werden.",
+  "settingsShell.account.twoFactorEnabled":
+    "Zwei-Faktor-Authentifizierung ist aktiviert.",
+  "settingsShell.account.twoFactorLoadError":
+    "Zwei-Faktor-Einstellungen konnten nicht geladen werden.",
+  "settingsShell.account.twoFactorQrLabel":
+    "QR-Code zur Zwei-Faktor-Einrichtung",
+  "settingsShell.account.twoFactorSaved":
+    "Zwei-Faktor-Authentifizierung aktiviert",
+  "settingsShell.account.twoFactorScan":
+    "Scanne diesen QR-Code mit deiner Authenticator-App und gib dann den angezeigten Code ein.",
+  "settingsShell.account.twoFactorSetupError":
+    "Zwei-Faktor-Einstellungen konnten nicht aktualisiert werden.",
+  "settingsShell.account.twoFactorSetupTitle":
+    "Zwei-Faktor-Authentifizierung einrichten",
+  "settingsShell.account.uploading": "Wird hochgeladen...",
+  "settingsShell.account.verifyAndEnable": "Bestätigen und aktivieren",
+  "settingsShell.account.verifying": "Wird überprüft...",
+  "settingsShell.account.voiceBatch": "Stapelverarbeitung",
+  "settingsShell.account.voiceDescription":
+    "Wähle, wie Spracheingaben transkribiert werden.",
+  "settingsShell.account.voiceGoogleRealtime": "Google Echtzeit",
+  "settingsShell.account.voiceInput": "Spracheingabe",
+  "settingsShell.account.voiceLoadError":
+    "Deine Einstellung für die Sprachtranskription konnte nicht geladen werden.",
+  "settingsShell.account.voiceMacNative": "Mac nativ",
+  "settingsShell.account.voiceSaveError":
+    "Deine Einstellung für die Sprachtranskription konnte nicht gespeichert werden.",
+  "settingsShell.account.yourData": "Deine Daten",
+  "settingsShell.appFallbackName": "App",
+  "settingsShell.appGroup.adminOnly":
+    "Nur Inhaber und Admins können das ändern",
+  "settingsShell.appGroup.automationsCreateTitle": "Was soll wann passieren?",
+  "settingsShell.appGroup.defaultModel": "Standardmodell",
+  "settingsShell.appGroup.defaultModelDescription":
+    "Wird für neue Agent-Chats in {{app}} verwendet. Der Standard ist {{model}}.",
+  "settingsShell.appGroup.defaultModelDescriptionUnset":
+    "Wird für neue Agent-Chats in {{app}} verwendet.",
+  "settingsShell.appGroup.defaultModelLoadError":
+    "Das Standardmodell konnte nicht geladen werden.",
+  "settingsShell.appGroup.defaultModelSaveError":
+    "Das Standardmodell konnte nicht gespeichert werden. Versuche es erneut.",
+  "settingsShell.appGroup.demoMode": "Demo-Modus",
+  "settingsShell.appGroup.demoModeDescription":
+    "Beispieldaten in diesem Browser für Präsentationen verwenden.",
+  "settingsShell.appGroup.labsFootnote":
+    "Diese neuen, instabilen Funktionen können Fehler enthalten.",
+  "settingsShell.appGroup.labsLoadError":
+    "Deine Labs konnten nicht geladen werden.",
+  "settingsShell.appGroup.labsSaveError":
+    "{{lab}} konnte nicht geändert werden. Versuche es erneut.",
+  "settingsShell.appGroup.mcpAbout":
+    "Verbinde {{app}} mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in {{app}} für dich arbeiten. Sie sieht nur, was du sehen kannst.",
+  "settingsShell.appGroup.mcpFootnote":
+    "Tools, die der Agent selbst verwendet, findest du unter {{integrations}}.",
+  "settingsShell.appGroup.newAutomation": "Neue Automatisierung",
+  "settingsShell.appGroup.retry": "Erneut versuchen",
+  "settingsShell.appGroup.thisBrowser": "Dieser Browser",
+  "settingsShell.appGroup.useDefault": "Standard verwenden",
+  "settingsShell.appGroup.whatsNewChip":
+    "Updates für {{app}}. Jede App hat ein eigenes Änderungsprotokoll.",
+  "settingsShell.appGroup.whatsNewEmpty": "Noch keine Updates.",
+  "settingsShell.appGroup.whatsNewShowFewer": "Weniger Updates anzeigen",
+  "settingsShell.appGroup.whatsNewViewAll": "Alle Updates anzeigen",
+  "settingsShell.backToApp": "Zurück zu {{app}}",
+  "settingsShell.breadcrumbLabel": "Brotkrümelnavigation",
+  "settingsShell.builder.connect": "Verbinden",
+  "settingsShell.builder.connected": "Verbunden",
+  "settingsShell.builder.connectedTo": "Verbunden · {{space}}",
+  "settingsShell.builder.connection": "Verbindung",
+  "settingsShell.builder.disconnect": "Trennen",
+  "settingsShell.builder.disconnecting": "Wird getrennt…",
+  "settingsShell.builder.disconnectBody":
+    "Das betrifft alle in {{org}}, die kein eigenes Konto verbunden haben.",
+  "settingsShell.builder.disconnectFailed":
+    "Builder.io konnte nicht getrennt werden.",
+  "settingsShell.builder.disconnectTitle": "Builder.io trennen?",
+  "settingsShell.builder.grantsFailed":
+    "Die Builder.io-Verbindungen konnten nicht gelesen werden.",
+  "settingsShell.builder.loss.defaultStops":
+    "Chats stoppen, bis du einen Organisationsanbieter hinzufügst.",
+  "settingsShell.builder.loss.defaultSwitches":
+    "Das Standardmodell wechselt zu {{next}}.",
+  "settingsShell.builder.loss.modelPicker":
+    "Builder.io-Modelle verschwinden aus der Modellauswahl.",
+  "settingsShell.builder.loss.serviceStops":
+    "Funktioniert erst wieder, wenn ein anderer Anbieter eingerichtet ist.",
+  "settingsShell.builder.loss.stops": "Funktioniert nicht mehr.",
+  "settingsShell.builder.loss.uploadsFail":
+    "Uploads schlagen fehl, bis du Speicher einrichtest.",
+  "settingsShell.builder.manage": "Verwalten",
+  "settingsShell.builder.needsReconnect": "Muss neu verbunden werden.",
+  "settingsShell.builder.orgFallback": "deiner Organisation",
+  "settingsShell.builder.orgNotConnectedAdmin":
+    "Nicht verbunden. Wenn du es verbindest, können alle in {{org}} es nutzen.",
+  "settingsShell.builder.orgNotConnectedMember":
+    "Nicht verbunden. Ein Owner oder Admin kann es verbinden.",
+  "settingsShell.builder.organization": "Organisation",
+  "settingsShell.builder.personal": "Persönlich",
+  "settingsShell.builder.personalConnected": "Verbunden. Nur du nutzt es.",
+  "settingsShell.builder.personalConnectedOverOrg":
+    "Verbunden. Nur du nutzt es, anstelle der Verbindung der Organisation.",
+  "settingsShell.builder.personalConnectedTo":
+    "Verbunden · {{space}}. Nur du nutzt es.",
+  "settingsShell.builder.personalConnectedToOverOrg":
+    "Verbunden · {{space}}. Nur du nutzt es, anstelle der Verbindung der Organisation.",
+  "settingsShell.builder.personalNotConnected":
+    "Verbinde dein eigenes Konto. Nur du nutzt es.",
+  "settingsShell.builder.personalRestricted":
+    "Owner und Admins haben persönliche API-Schlüssel eingeschränkt.",
+  "settingsShell.builder.personalRestrictedUnused":
+    "Wird nicht genutzt, solange persönliche API-Schlüssel eingeschränkt sind.",
+  "settingsShell.builder.reconnect": "Neu verbinden",
+  "settingsShell.builder.retry": "Erneut versuchen",
+  "settingsShell.builder.use.aiModel": "KI-Modell",
+  "settingsShell.builder.use.aiModelDefaultNote":
+    "Das Standardmodell, {{model}}.",
+  "settingsShell.builder.use.aiModelNote":
+    "Builder.io-Modelle sind in der Modellauswahl.",
+  "settingsShell.builder.use.backgroundAgentsNote":
+    "Nimmt Codeänderungen aus der Produktion vor.",
+  "settingsShell.builder.use.browserAutomationNote":
+    "Lässt den Agenten in der Produktion einen Browser nutzen.",
+  "settingsShell.builder.use.designSystem": "Design-System-Intelligenz",
+  "settingsShell.builder.use.designSystemNote":
+    "Hält generierte Folien und Designs markenkonform.",
+  "settingsShell.builder.use.embeddings": "Embeddings",
+  "settingsShell.builder.use.embeddingsNote": "Suche in Brain.",
+  "settingsShell.builder.use.fileStorageNote":
+    "Neue Uploads werden bei Builder.io gespeichert.",
+  "settingsShell.builder.use.images": "Bildgenerierung",
+  "settingsShell.builder.use.imagesNote": "Slides und Design.",
+  "settingsShell.builder.use.voice": "Spracheingabe",
+  "settingsShell.builder.use.voiceNote": "Diktat in jeder App.",
+  "settingsShell.builder.usedFor": "Verwendet für",
+  "settingsShell.builder.usedForFootnote":
+    "Unter {{link}} legst du fest, was über Builder.io läuft.",
+  "settingsShell.builder.usedForLoadFailed":
+    "Es konnte nicht geprüft werden, welche Dienste über Builder.io laufen.",
+  "settingsShell.builder.whatHappens": "Was passiert",
+  "settingsShell.channels.about.discord":
+    "Starte den Agenten über Discord-Slash-Befehle.",
+  "settingsShell.channels.about.email":
+    "Schreib dem Agenten eine E-Mail, und er antwortet im selben Verlauf.",
+  "settingsShell.channels.about.googleDocs":
+    "Markiere den Agenten in Google-Docs-Kommentaren, um Antworten zu erhalten.",
+  "settingsShell.channels.about.microsoftTeams":
+    "Erwähne den Agenten in Microsoft Teams, und er antwortet in dieser Unterhaltung.",
+  "settingsShell.channels.about.page":
+    "Hier können Personen dem {{app}}-Agenten Nachrichten senden. Der Agent jeder App wird separat eingerichtet.",
+  "settingsShell.channels.about.slack":
+    "Erwähne den Agenten mit @ in einem Thread oder schreib ihm direkt, und er antwortet in diesem Thread.",
+  "settingsShell.channels.about.telegram":
+    "Chatte über einen Telegram-Bot mit deinem Agenten.",
+  "settingsShell.channels.about.whatsapp":
+    "Verbinde deinen Agenten mit WhatsApp Business.",
+  "settingsShell.channels.action.manage": "Verwalten",
+  "settingsShell.channels.action.manageAria": "{{platform}} verwalten",
+  "settingsShell.channels.action.setUp": "Einrichten",
+  "settingsShell.channels.action.setUpAria": "{{platform}} einrichten",
+  "settingsShell.channels.action.view": "Ansehen",
+  "settingsShell.channels.action.viewAria": "{{platform}} ansehen",
+  "settingsShell.channels.agentIn": "Agent in {{platform}}",
+  "settingsShell.channels.connection": "Verbindung",
+  "settingsShell.channels.copyServiceAccountEmail":
+    "E-Mail des Dienstkontos kopieren",
+  "settingsShell.channels.copyWebhookUrl": "Webhook-URL kopieren",
+  "settingsShell.channels.credentials": "Zugangsdaten",
+  "settingsShell.channels.developerSite": "Entwicklerseite",
+  "settingsShell.channels.documentation": "Dokumentation",
+  "settingsShell.channels.empty": "In {{app}} sind keine Kanäle verfügbar.",
+  "settingsShell.channels.information": "Informationen",
+  "settingsShell.channels.loadFailed": "Kanäle konnten nicht geladen werden.",
+  "settingsShell.channels.membersFootnote":
+    "Nur Inhaber und Admins können Kanäle einrichten.",
+  "settingsShell.channels.notFound":
+    "Dieser Kanal ist in {{app}} nicht verfügbar.",
+  "settingsShell.channels.open": "Öffnen",
+  "settingsShell.channels.openDocs": "Dokumentation öffnen",
+  "settingsShell.channels.registerWebhook": "Registrieren",
+  "settingsShell.channels.removeCredentials.action": "Entfernen",
+  "settingsShell.channels.removeCredentials.aria":
+    "{{platform}}-Zugangsdaten entfernen",
+  "settingsShell.channels.removeCredentials.body":
+    "Der Agent antwortet für alle nicht mehr in {{platform}}, es sei denn, die Deployment-Umgebung setzt diese Schlüssel ebenfalls.",
+  "settingsShell.channels.removeCredentials.confirm": "Entfernen",
+  "settingsShell.channels.removeCredentials.failed":
+    "Die Zugangsdaten konnten nicht entfernt werden.",
+  "settingsShell.channels.removeCredentials.removing": "Wird entfernt…",
+  "settingsShell.channels.removeCredentials.title":
+    "{{platform}}-Zugangsdaten entfernen?",
+  "settingsShell.channels.retry": "Erneut versuchen",
+  "settingsShell.channels.setup.addToEnvironment":
+    "In der Deployment-Umgebung hinzufügen",
+  "settingsShell.channels.setup.body":
+    "Füge diese Werte zu diesem Deployment hinzu und aktiviere den Kanal dann.",
+  "settingsShell.channels.setup.close": "Schließen",
+  "settingsShell.channels.setup.failed":
+    "Die Variablen konnten nicht gespeichert werden.",
+  "settingsShell.channels.setup.optional": "Optional",
+  "settingsShell.channels.setup.replace": "Ersetzen",
+  "settingsShell.channels.setup.replaceAria": "{{key}} ersetzen",
+  "settingsShell.channels.setup.save": "Speichern",
+  "settingsShell.channels.setup.saveAndTurnOn": "Speichern und aktivieren",
+  "settingsShell.channels.setup.saving": "Wird gespeichert…",
+  "settingsShell.channels.setup.saved": "Gespeichert",
+  "settingsShell.channels.setup.savedElsewhere":
+    "Außerhalb der Kanäle-Seite gespeichert",
+  "settingsShell.channels.setup.setInEnvironment":
+    "In der Deployment-Umgebung festlegen",
+  "settingsShell.channels.setup.stillMissing":
+    "Einige erforderliche Variablen fehlen noch.",
+  "settingsShell.channels.setup.title": "{{platform}} einrichten",
+  "settingsShell.channels.shareDocumentsWith": "Dokumente freigeben für",
+  "settingsShell.channels.state.notSetUp": "Nicht eingerichtet",
+  "settingsShell.channels.state.off": "Aus",
+  "settingsShell.channels.state.on": "An",
+  "settingsShell.channels.status": "Status",
+  "settingsShell.channels.toggleFailed":
+    "{{platform}} konnte nicht aktualisiert werden.",
+  "settingsShell.channels.turnOnAria": "{{platform}} aktivieren",
+  "settingsShell.channels.unavailable":
+    "{{platform}} ist in {{app}} nicht verfügbar.",
+  "settingsShell.channels.webhookLocalOnly":
+    "{{platform}} kann diese Adresse nicht erreichen. Öffne diese Seite über die öffentliche HTTPS-Adresse der App, um eine Webhook-URL zu erhalten.",
+  "settingsShell.channels.webhookRegistered": "Registriert",
+  "settingsShell.channels.webhookRegistration": "Webhook",
+  "settingsShell.channels.webhookUrl": "Webhook-URL",
+  "settingsShell.channels.category": "Kategorie",
+  "settingsShell.channels.developer": "Entwickler",
+  "settingsShell.channels.mentionAgent": "Den Agenten erwähnen",
+  "settingsShell.channels.rowDescription": "{{about}} {{state}}.",
+  "settingsShell.channels.separately":
+    "Der Agent jeder App wird separat eingerichtet.",
+  "settingsShell.channels.setUpLocked":
+    "Nur Inhaber und Admins können das einrichten",
+  "settingsShell.integrationDetail.access.none":
+    "Es ist ein öffentlicher Server, du musst dich also nirgends anmelden.",
+  "settingsShell.integrationDetail.access.oauth":
+    "Der Agent handelt mit deinen {{name}}-Berechtigungen und sieht daher nur, was du sehen kannst.",
+  "settingsShell.integrationDetail.access.token":
+    "Der Agent nutzt das Zugriffstoken, das du hinzufügst, und sieht daher, was dieses Token sehen kann.",
+  "settingsShell.integrationDetail.accessToken": "Zugriffstoken",
+  "settingsShell.integrationDetail.addAccessToken": "Zugriffstoken hinzufügen",
+  "settingsShell.integrationDetail.callout.adminNeeded":
+    "Ein Admin muss das einrichten",
+  "settingsShell.integrationDetail.callout.adminNeededBody":
+    "Bitte einen Inhaber oder Admin in {{org}}, die Client-ID und das Secret für {{name}} hinzuzufügen. Danach kannst du dein eigenes Konto verbinden.",
+  "settingsShell.integrationDetail.callout.beforeAnyone":
+    "Bevor sich jemand verbinden kann",
+  "settingsShell.integrationDetail.callout.beforeYouConnect":
+    "Bevor du dich verbindest",
+  "settingsShell.integrationDetail.callout.token":
+    "Verbindet sich mit einem Zugriffstoken",
+  "settingsShell.integrationDetail.callout.unavailable": "Noch nicht verfügbar",
+  "settingsShell.integrationDetail.category": "Kategorie",
+  "settingsShell.integrationDetail.connected": "{{name}} verbunden",
+  "settingsShell.integrationDetail.copyServerUrl": "Server-URL kopieren",
+  "settingsShell.integrationDetail.developer": "Entwickler",
+  "settingsShell.integrationDetail.howToCreateToken":
+    "So erstellst du ein Token",
+  "settingsShell.integrationDetail.justMe": "Nur ich",
+  "settingsShell.integrationDetail.notFound":
+    "Diese Integration ist nicht im Katalog.",
+  "settingsShell.integrationDetail.notFoundTitle": "Nicht gefunden",
+  "settingsShell.integrationDetail.prompt.amplitude.1":
+    "Wie haben sich die wöchentlich aktiven Nutzer diesen Monat entwickelt?",
+  "settingsShell.integrationDetail.prompt.amplitude.2":
+    "Erstelle einen Funnel von der Registrierung bis zur ersten Aufnahme",
+  "settingsShell.integrationDetail.prompt.amplitude.3":
+    "Welche Kohorten haben die beste Bindung?",
+  "settingsShell.integrationDetail.prompt.apollo.1":
+    "Finde Design-Leads bei Series-B-Startups",
+  "settingsShell.integrationDetail.prompt.apollo.2":
+    "Reichere diese Liste von E-Mail-Adressen an",
+  "settingsShell.integrationDetail.prompt.apollo.3":
+    "Füge diese Kontakte zur Q4-Sequenz hinzu",
+  "settingsShell.integrationDetail.prompt.asana.1":
+    "Was ist diese Woche für mich fällig?",
+  "settingsShell.integrationDetail.prompt.asana.2":
+    "Erstelle Aufgaben aus den Aufgaben dieser Aufnahme",
+  "settingsShell.integrationDetail.prompt.asana.3":
+    "Welche Projekte liegen hinter dem Zeitplan?",
+  "settingsShell.integrationDetail.prompt.atlassian.1":
+    "Erstelle ein Jira-Ticket aus den Aufgaben dieser Aufnahme",
+  "settingsShell.integrationDetail.prompt.atlassian.2":
+    "Was blockiert das Q4-Release?",
+  "settingsShell.integrationDetail.prompt.atlassian.3":
+    "Finde die Confluence-Seite zum Onboarding",
+  "settingsShell.integrationDetail.prompt.box.1":
+    "Finde den unterschriebenen Vertrag für Acme",
+  "settingsShell.integrationDetail.prompt.box.2":
+    "Teile den Ordner mit dem Q3-Bericht mit der Finanzabteilung",
+  "settingsShell.integrationDetail.prompt.box.3":
+    "Was hat sich diese Woche im Rechtsordner geändert?",
+  "settingsShell.integrationDetail.prompt.canva.1":
+    "Erstelle einen Social-Media-Post aus den Highlights dieser Aufnahme",
+  "settingsShell.integrationDetail.prompt.canva.2":
+    "Finde die Farben unseres Brand Kits",
+  "settingsShell.integrationDetail.prompt.canva.3":
+    "Exportiere die neueste Präsentation als PDF",
+  "settingsShell.integrationDetail.prompt.cloudflare.1":
+    "Welche DNS-Einträge zeigen auf {{host}}?",
+  "settingsShell.integrationDetail.prompt.cloudflare.2":
+    "Zeig Worker-Fehler der letzten Stunde",
+  "settingsShell.integrationDetail.prompt.cloudflare.3":
+    "Leere den Cache für diese URL",
+  "settingsShell.integrationDetail.prompt.commonRoom.1":
+    "Welche Unternehmen zeigen Kaufsignale?",
+  "settingsShell.integrationDetail.prompt.commonRoom.2":
+    "Wer bei Acme ist in unserer Community aktiv?",
+  "settingsShell.integrationDetail.prompt.commonRoom.3":
+    "Fasse die Aktivität unserer Top-Accounts zusammen",
+  "settingsShell.integrationDetail.prompt.context7.1":
+    "Zeig die aktuelle React-Router-Doku zu Loadern",
+  "settingsShell.integrationDetail.prompt.context7.2":
+    "Wie konfiguriere ich Drizzle-Migrationen?",
+  "settingsShell.integrationDetail.prompt.context7.3":
+    "Was ist neu im neuesten Tailwind-Release?",
+  "settingsShell.integrationDetail.prompt.exa.1":
+    "Finde aktuelle Artikel über agent-native Apps",
+  "settingsShell.integrationDetail.prompt.exa.2":
+    "Recherchiere Wettbewerber von {{app}}",
+  "settingsShell.integrationDetail.prompt.exa.3":
+    "Rufe diese Seite ab und fasse sie zusammen",
+  "settingsShell.integrationDetail.prompt.figma.1":
+    "Fasse die Komponenten in dieser Figma-Datei zusammen",
+  "settingsShell.integrationDetail.prompt.figma.2":
+    "Liste die Farbvariablen in unserem Designsystem auf",
+  "settingsShell.integrationDetail.prompt.figma.3":
+    "Beschreibe das Layout dieses Frames",
+  "settingsShell.integrationDetail.prompt.fullstory.1":
+    "Zeig Sitzungen, in denen jemand wütend auf Teilen geklickt hat",
+  "settingsShell.integrationDetail.prompt.fullstory.2":
+    "Fasse die Reibungspunkte auf der Preisseite zusammen",
+  "settingsShell.integrationDetail.prompt.fullstory.3":
+    "Wo springen Personen im Onboarding ab?",
+  "settingsShell.integrationDetail.prompt.github.1":
+    "Fasse die Pull Requests zusammen, die auf mein Review warten",
+  "settingsShell.integrationDetail.prompt.github.2":
+    "Finde Issues zu Slack-Linkvorschauen in agent-native",
+  "settingsShell.integrationDetail.prompt.github.3":
+    "Was hat sich diese Woche in packages/core geändert?",
+  "settingsShell.integrationDetail.prompt.gitlab.1":
+    "Welche Merge Requests sind heute in der CI fehlgeschlagen?",
+  "settingsShell.integrationDetail.prompt.gitlab.2":
+    "Fasse offene Issues mit dem Label bug zusammen",
+  "settingsShell.integrationDetail.prompt.gitlab.3":
+    "Welche Pipelines waren diese Woche am langsamsten?",
+  "settingsShell.integrationDetail.prompt.gong.1":
+    "Fasse mein letztes Gespräch mit Acme zusammen",
+  "settingsShell.integrationDetail.prompt.gong.2":
+    "Welche Einwände kamen diesen Monat auf?",
+  "settingsShell.integrationDetail.prompt.gong.3":
+    "Welche Deals erwähnen Bedenken zum Preis?",
+  "settingsShell.integrationDetail.prompt.googleDocs.1":
+    "@agent fasse die Kommentare in diesem Dokument zusammen",
+  "settingsShell.integrationDetail.prompt.googleDocs.2":
+    "@agent entwirf eine Antwort auf diesen Kommentar",
+  "settingsShell.integrationDetail.prompt.googleDocs.3":
+    "@agent mach aus diesen Notizen eine Checkliste",
+  "settingsShell.integrationDetail.prompt.grafana.1":
+    "Zeig die p95-API-Latenz des letzten Tages als Diagramm",
+  "settingsShell.integrationDetail.prompt.grafana.2":
+    "Finde Fehlerlogs von etwa 14 Uhr",
+  "settingsShell.integrationDetail.prompt.grafana.3":
+    "Welche Alerts wurden diese Woche ausgelöst?",
+  "settingsShell.integrationDetail.prompt.granola.1":
+    "Was haben wir im gestrigen Design-Review entschieden?",
+  "settingsShell.integrationDetail.prompt.granola.2":
+    "Liste meine offenen Aufgaben aus Meetings auf",
+  "settingsShell.integrationDetail.prompt.granola.3":
+    "Fasse meine Gespräche mit Acme zusammen",
+  "settingsShell.integrationDetail.prompt.hubspot.1":
+    "Verschiebe den Acme-Deal nach Closed won",
+  "settingsShell.integrationDetail.prompt.hubspot.2":
+    "Welche Deals stecken in der Verhandlung fest?",
+  "settingsShell.integrationDetail.prompt.hubspot.3":
+    "Protokolliere dieses Gespräch als Notiz beim Kontakt",
+  "settingsShell.integrationDetail.prompt.intercom.1":
+    "Fasse die heute offenen Unterhaltungen zusammen",
+  "settingsShell.integrationDetail.prompt.intercom.2":
+    "Finde Hilfeartikel zu SSO",
+  "settingsShell.integrationDetail.prompt.intercom.3":
+    "Wonach fragen Kunden diese Woche am häufigsten?",
+  "settingsShell.integrationDetail.prompt.linear.1":
+    "Erstelle ein Issue für die kaputte Slack-Vorschau und weise es mir zu",
+  "settingsShell.integrationDetail.prompt.linear.2":
+    "Was ist im aktuellen Zyklus noch offen?",
+  "settingsShell.integrationDetail.prompt.linear.3":
+    "Fasse die diese Woche gemeldeten Bugs zusammen",
+  "settingsShell.integrationDetail.prompt.monday.1":
+    "Was steht in diesem Sprint auf dem Design-Board?",
+  "settingsShell.integrationDetail.prompt.monday.2":
+    "Verschiebe dieses Element nach Done",
+  "settingsShell.integrationDetail.prompt.monday.3":
+    "Welche Elemente sind überfällig?",
+  "settingsShell.integrationDetail.prompt.neon.1":
+    "Erstelle einen Branch der Produktion zum Testen",
+  "settingsShell.integrationDetail.prompt.neon.2":
+    "Zeig die langsamsten Abfragen dieser Woche",
+  "settingsShell.integrationDetail.prompt.neon.3":
+    "Wie groß ist die Hauptdatenbank?",
+  "settingsShell.integrationDetail.prompt.netlify.1":
+    "Warum ist der letzte Deploy fehlgeschlagen?",
+  "settingsShell.integrationDetail.prompt.netlify.2":
+    "Welche Sites hatten diese Woche fehlgeschlagene Builds?",
+  "settingsShell.integrationDetail.prompt.netlify.3":
+    "Rolle auf den vorherigen Produktions-Deploy zurück",
+  "settingsShell.integrationDetail.prompt.notion.1":
+    "Finde unsere Onboarding-Checkliste",
+  "settingsShell.integrationDetail.prompt.notion.2":
+    "Fasse die Meeting-Notizen dieser Woche zusammen",
+  "settingsShell.integrationDetail.prompt.notion.3":
+    "Füge diese Aufgaben zum Team-Wiki hinzu",
+  "settingsShell.integrationDetail.prompt.paypal.1":
+    "Liste überfällige Rechnungen auf",
+  "settingsShell.integrationDetail.prompt.paypal.2":
+    "Fasse die Transaktionen dieses Monats zusammen",
+  "settingsShell.integrationDetail.prompt.paypal.3":
+    "Erstelle eine Rechnung für Acme",
+  "settingsShell.integrationDetail.prompt.pylon.1":
+    "Welche Accounts haben dringende offene Issues?",
+  "settingsShell.integrationDetail.prompt.pylon.2":
+    "Fasse das neueste Acme-Ticket zusammen",
+  "settingsShell.integrationDetail.prompt.pylon.3":
+    "Entwirf eine Antwort auf dieses Issue",
+  "settingsShell.integrationDetail.prompt.semgrep.1":
+    "Scanne packages/core nach Sicherheitsbefunden",
+  "settingsShell.integrationDetail.prompt.semgrep.2":
+    "Erkläre diesen Befund und wie man ihn behebt",
+  "settingsShell.integrationDetail.prompt.semgrep.3":
+    "Gibt es hartcodierte Secrets in diesem Repo?",
+  "settingsShell.integrationDetail.prompt.sentry.1":
+    "Was sind die häufigsten neuen Fehler seit dem gestrigen Deploy?",
+  "settingsShell.integrationDetail.prompt.sentry.2":
+    "Zeig den Stacktrace des häufigsten Absturzes",
+  "settingsShell.integrationDetail.prompt.sentry.3":
+    "Welches Release hat diesen Fehler eingeführt?",
+  "settingsShell.integrationDetail.prompt.sigma.1":
+    "Finde das Umsatz-Dashboard",
+  "settingsShell.integrationDetail.prompt.sigma.2":
+    "Was hat die MRR-Veränderung im letzten Monat verursacht?",
+  "settingsShell.integrationDetail.prompt.sigma.3":
+    "Erkläre die wichtigsten Kennzahlen dieses Workbooks",
+  "settingsShell.integrationDetail.prompt.slack.1":
+    "Fasse #design dieser Woche zusammen",
+  "settingsShell.integrationDetail.prompt.slack.2":
+    "Finde den Thread zur Preisänderung",
+  "settingsShell.integrationDetail.prompt.slack.3":
+    "Was hat Camila zum Launch gesagt?",
+  "settingsShell.integrationDetail.prompt.stripe.1":
+    "Wie viel Umsatz haben wir letzten Monat gemacht?",
+  "settingsShell.integrationDetail.prompt.stripe.2":
+    "Finde den Kunden zu dieser Rechnung",
+  "settingsShell.integrationDetail.prompt.stripe.3":
+    "Welche Abonnements konnten nicht verlängert werden?",
+  "settingsShell.integrationDetail.prompt.supabase.1":
+    "Wie viele Personen haben sich diese Woche registriert?",
+  "settingsShell.integrationDetail.prompt.supabase.2":
+    "Zeig das Schema der Tabelle recordings",
+  "settingsShell.integrationDetail.prompt.supabase.3":
+    "Welche Edge Functions sind heute fehlgeschlagen?",
+  "settingsShell.integrationDetail.prompt.telegram.1":
+    "Fasse die heutigen Aufnahmen zusammen",
+  "settingsShell.integrationDetail.prompt.telegram.2":
+    "Erinnere mich an das Review um 15 Uhr",
+  "settingsShell.integrationDetail.prompt.telegram.3":
+    "Teile den Link zur gestrigen Demo",
+  "settingsShell.integrationDetail.prompt.vercel.1":
+    "Warum ist der letzte Preview-Deploy fehlgeschlagen?",
+  "settingsShell.integrationDetail.prompt.vercel.2":
+    "Zeig die Logs des Produktions-Deployments",
+  "settingsShell.integrationDetail.prompt.vercel.3":
+    "Welche Domains zeigen auf dieses Projekt?",
+  "settingsShell.integrationDetail.prompt.webflow.1":
+    "Aktualisiere die Überschrift der Preisseite",
+  "settingsShell.integrationDetail.prompt.webflow.2":
+    "Liste die diese Woche veröffentlichten CMS-Einträge auf",
+  "settingsShell.integrationDetail.prompt.webflow.3":
+    "Welchen Seiten fehlen Meta-Beschreibungen?",
+  "settingsShell.integrationDetail.prompt.whatsapp.1":
+    "Was steht heute in meinem Kalender?",
+  "settingsShell.integrationDetail.prompt.whatsapp.2":
+    "Fasse die neueste Aufnahme zusammen",
+  "settingsShell.integrationDetail.prompt.whatsapp.3":
+    "Schick mir die Notizen aus dem Design-Review",
+  "settingsShell.integrationDetail.prompt.zapier.1":
+    "Poste neue Aufnahmen in #design in Slack",
+  "settingsShell.integrationDetail.prompt.zapier.2":
+    "Füge neue Anmeldungen zu unserem CRM hinzu",
+  "settingsShell.integrationDetail.prompt.zapier.3":
+    "Welche Zaps kannst du ausführen?",
+  "settingsShell.integrationDetail.serverUrl": "Server-URL",
+  "settingsShell.integrationDetail.setUp": "Einrichten",
+  "settingsShell.integrationDetail.signIn": "Anmeldung",
+  "settingsShell.integrationDetail.signInNone": "Keine",
+  "settingsShell.integrationDetail.tokenHint.figma":
+    "Erstelle in Figma ein persönliches Zugriffstoken und füge es dann hier ein.",
+  "settingsShell.integrationDetail.tokenHint.github":
+    "Erstelle in GitHub ein persönliches Zugriffstoken und füge es dann hier ein.",
+  "settingsShell.integrationDetail.tokenHint.sentry":
+    "Erstelle in Sentry ein Benutzer-Auth-Token und füge es dann hier ein.",
+  "settingsShell.integrationDetail.tokenHint.zapier":
+    "Erstelle in Zapier eine Verbindung und füge dann ihr Bearer-Token hier ein.",
+  "settingsShell.integrationDetail.tokenPlaceholder":
+    "Dein {{name}}-Token einfügen",
+  "settingsShell.integrationDetail.who": "Wer es nutzen kann",
+  "settingsShell.integrationDetail.whoMember":
+    "Nur Inhaber und Admins können es mit {{org}} teilen.",
+  "settingsShell.integrationDetail.whoOrgOnly":
+    "Wird einmal für alle in {{org}} verbunden.",
+  "settingsShell.integrationDetail.whoPersonal":
+    "Jede Person verbindet ihr eigenes Konto.",
+  "settingsShell.integrationDetail.whoShared":
+    "Mit einer geteilten Verbindung können alle in {{org}} deinen Zugriff nutzen.",
+  "settingsShell.clearSearch": "Suche löschen",
+  "settingsShell.group.account": "Konto",
+  "settingsShell.group.agent": "Agent",
+  "settingsShell.group.connections": "Verbindungen",
+  "settingsShell.group.organization": "Organisation",
+  "settingsShell.interfaceLanguage": "Sprache der Oberfläche",
+  "settingsShell.integrations.addCustom": "Eigene Integration hinzufügen",
+  "settingsShell.integrations.builderDescription":
+    "Modellzugriff, Browserautomatisierung, Dateispeicher und Workspace-Identität. Kostenloser Tarif verfügbar.",
+  "settingsShell.integrations.builderStatusFailed":
+    "Die Builder.io-Verbindung konnte nicht geprüft werden.",
+  "settingsShell.integrations.category.analytics": "Analytics",
+  "settingsShell.integrations.category.design": "Design",
+  "settingsShell.integrations.category.engineering": "Entwicklung",
+  "settingsShell.integrations.category.finance": "Finanzen",
+  "settingsShell.integrations.category.other": "Sonstiges",
+  "settingsShell.integrations.category.productivity": "Produktivität",
+  "settingsShell.integrations.category.sales": "Vertrieb",
+  "settingsShell.integrations.category.support": "Support",
+  "settingsShell.integrations.connectName": "{{name}} verbinden",
+  "settingsShell.integrations.connectedEmptyDescription":
+    "Verbinde unten ein Tool, dann kann der Agent es im Chat nutzen.",
+  "settingsShell.integrations.connectedEmptyTitle": "Noch nichts verbunden",
+  "settingsShell.integrations.footnote":
+    "Diese Tools nutzt der Agent. Wie du {{app}} aus Claude, ChatGPT oder Cursor nutzt, siehst du unter {{link}}.",
+  "settingsShell.integrations.moreActions": "Weitere Aktionen für {{name}}",
+  "settingsShell.integrations.noResults":
+    "Keine passenden Integrationen. Versuche einen anderen Namen.",
+  "settingsShell.integrations.remove": "Entfernen",
+  "settingsShell.integrations.removeFailed":
+    "{{name}} konnte nicht entfernt werden.",
+  "settingsShell.integrations.removePersonal":
+    "Der Agent nutzt {{name}} dann nicht mehr für dich.",
+  "settingsShell.integrations.removeTitle": "{{name}} entfernen?",
+  "settingsShell.integrations.removeWorkspace":
+    "Der Agent nutzt {{name}} dann für niemanden im Workspace mehr.",
+  "settingsShell.integrations.removing": "Wird entfernt…",
+  "settingsShell.integrations.retry": "Erneut versuchen",
+  "settingsShell.integrations.seeMoreMany":
+    "{{first}}, {{second}} und mehr ansehen",
+  "settingsShell.integrations.seeMoreOne": "{{first}} ansehen",
+  "settingsShell.integrations.seeMoreTwo": "{{first}} und {{second}} ansehen",
+  "settingsShell.integrations.serversLoadFailed":
+    "Deine verbundenen Integrationen konnten nicht geladen werden.",
+  "settingsShell.learnings": "Erkenntnisse",
+  "settingsShell.loading": "Einstellungen werden geladen",
+  "settingsShell.navLabel": "Einstellungen",
+  "settingsShell.noResults": "Keine passenden Einstellungen",
+  "settingsShell.openNav": "Einstellungsmenü öffnen",
+  "settingsShell.page.apiKeys": "API-Schlüssel",
+  "settingsShell.page.appGeneral": "Allgemein",
+  "settingsShell.page.apps": "Apps",
+  "settingsShell.page.audit": "Audit-Protokoll",
+  "settingsShell.page.auth": "Authentifizierung",
+  "settingsShell.page.automations": "Automatisierungen",
+  "settingsShell.page.channels": "Kanäle",
+  "settingsShell.page.creativeContext": "Kreativer Kontext",
+  "settingsShell.page.files": "Dateien",
+  "settingsShell.page.infra": "Infrastruktur",
+  "settingsShell.page.instructions": "Anweisungen",
+  "settingsShell.page.integrations": "Integrationen",
+  "settingsShell.page.labs": "Labs",
+  "settingsShell.page.mcp": "MCP-Server",
+  "settingsShell.page.members": "Mitglieder",
+  "settingsShell.page.memory": "Gedächtnis",
+  "settingsShell.page.model": "Modell",
+  "settingsShell.page.notifications": "Benachrichtigungen",
+  "settingsShell.page.orgGeneral": "Allgemein",
+  "settingsShell.page.preferences": "Präferenzen",
+  "settingsShell.page.profile": "Profil",
+  "settingsShell.page.security": "Sicherheit",
+  "settingsShell.page.skills": "Skills",
+  "settingsShell.page.subAgents": "Sub-Agenten",
+  "settingsShell.page.usage": "Nutzung",
+  "settingsShell.page.whatsNew": "Neuigkeiten",
+  "settingsShell.pagePending": "Noch nicht verfügbar",
+  "settingsShell.resultsLabel": "Suchergebnisse in den Einstellungen",
+  "settingsShell.search.appDefaultModel": "Standardmodell der App",
+  "settingsShell.search.backgroundAgents": "Hintergrund-Agenten",
+  "settingsShell.search.browserAutomation": "Browser-Automatisierung",
+  "settingsShell.search.connectedAgents": "Verbundene Agenten",
+  "settingsShell.search.database": "Datenbank",
+  "settingsShell.search.defaultModel": "Standardmodell",
+  "settingsShell.search.demoMode": "Demomodus",
+  "settingsShell.search.email": "E-Mail",
+  "settingsShell.search.fileUploads": "Datei-Uploads und Speicher",
+  "settingsShell.search.hosting": "Hosting-Anbieter",
+  "settingsShell.search.maxIterations": "Maximale Iterationen",
+  "settingsShell.search.signInMethods": "Anmeldemethoden",
+  "settingsShell.search.voiceTranscription": "Sprachtranskription",
+  "settingsShell.searchPlaceholder": "Einstellungen durchsuchen",
+  "settingsShell.unread": "Neu",
+  "settingsResources.personal": "Persönlich",
+  "settingsResources.organization": "Organisation",
+  "settingsResources.fromDispatch": "Aus Dispatch",
+  "settingsResources.readOnly": "Schreibgeschützt",
+  "settingsResources.readOnlyHint": "Nur Inhaber und Admins können das ändern",
+  "settingsResources.editInDispatch": "In Dispatch bearbeiten",
+  "settingsResources.openDispatch": "Dispatch öffnen",
+  "settingsResources.allApps": "Alle Apps",
+  "settingsResources.allAppsHint": "Dispatch teilt das mit jeder App",
+  "settingsResources.dispatchEmpty": "Nichts aus Dispatch geteilt",
+  "settingsResources.loadFailed":
+    "Diese Ressourcen konnten nicht geladen werden.",
+  "settingsResources.moreActions": "Weitere Aktionen",
+  "settingsResources.open": "Öffnen",
+  "settingsResources.download": "Herunterladen",
+  "settingsResources.remove": "Entfernen",
+  "settingsResources.removeTitle": "{{name}} entfernen?",
+  "settingsResources.removeFailed": "{{name}} konnte nicht entfernt werden.",
+  "settingsResources.saveFailed": "{{name}} konnte nicht gespeichert werden.",
+  "settingsResources.uploadFailed": "{{name}} konnte nicht hochgeladen werden.",
+  "settingsResources.cancel": "Abbrechen",
+  "settingsResources.save": "Speichern",
+  "settingsResources.create": "Erstellen",
+  "settingsResources.saving": "Wird gespeichert",
+  "settingsResources.creating": "Wird erstellt",
+  "settingsResources.removing": "Wird entfernt",
+  "settingsResources.instructions.empty":
+    "Sag dem Agenten, wie er mit dir arbeiten soll.",
+  "settingsResources.instructions.emptyTitle": "Noch keine Anweisungen",
+  "settingsResources.instructions.orgEmpty":
+    "Noch keine Anweisungen für {{org}}",
+  "settingsResources.instructions.add": "Anweisungen hinzufügen",
+  "settingsResources.instructions.fieldLabel":
+    "Wie soll der Agent mit dir arbeiten?",
+  "settingsResources.instructions.placeholder":
+    "Antworte kurz. Verwende metrische Einheiten.",
+  "settingsResources.instructions.savedAs":
+    "Wird als AGENTS.md in deinen persönlichen Ressourcen gespeichert.",
+  "settingsResources.memory.empty":
+    "Hier speichert der Agent, was er über dich lernt.",
+  "settingsResources.memory.emptyTitle": "Noch keine Erinnerungen",
+  "settingsResources.memory.orgEmpty": "Noch keine geteilten Erinnerungen",
+  "settingsResources.memory.add": "Erinnerung hinzufügen",
+  "settingsResources.learnings.empty":
+    "Korrekturen, die du dem Agenten gibst, werden als Learnings gespeichert.",
+  "settingsResources.learnings.emptyTitle": "Noch keine Learnings",
+  "settingsResources.learnings.add": "Learning hinzufügen",
+  "settingsResources.skills.empty":
+    "Speichere einen Ablauf einmal, und der Agent kann ihn wiederverwenden.",
+  "settingsResources.skills.emptyTitle": "Noch keine Skills",
+  "settingsResources.skills.orgEmpty": "Noch keine geteilten Skills",
+  "settingsResources.skills.add": "Skill hinzufügen",
+  "settingsResources.skills.describe": "Dem Agenten beschreiben",
+  "settingsResources.skills.upload": "Skill-Datei hochladen",
+  "settingsResources.skills.describePlaceholder":
+    "Ein Skill, der Pull Requests auf Sicherheitsprobleme prüft",
+  "settingsResources.files.empty":
+    "Füge eine Datei hinzu, um deinem Agenten mehr Kontext zu geben.",
+  "settingsResources.files.emptyTitle": "Noch keine Dateien",
+  "settingsResources.files.orgEmpty": "Noch keine geteilten Dateien",
+  "settingsResources.files.add": "Datei hinzufügen",
+  "settingsResources.files.upload": "Datei hochladen",
+  "settingsResources.files.create": "Datei erstellen",
+  "settingsInfra.setup": "Einrichtung",
+  "settingsInfra.services": "Dienste",
+  "settingsInfra.environment": "Umgebung",
+  "settingsInfra.builderConnected":
+    "Verbunden. Die Credits deines Kontos betreiben jeden Dienst mit Builder.io.",
+  "settingsInfra.builderNotConnected":
+    "Nicht verbunden. Richte jeden Dienst selbst ein oder verbinde Builder.io, um die Credits deines Kontos zu nutzen.",
+  "settingsInfra.builderUnknown":
+    "Die Builder.io-Verbindung konnte nicht geprüft werden.",
+  "settingsInfra.manage": "Verwalten",
+  "settingsInfra.connect": "Verbinden",
+  "settingsInfra.connecting": "Wird verbunden…",
+  "settingsInfra.setUp": "Einrichten",
+  "settingsInfra.view": "Ansehen",
+  "settingsInfra.retry": "Erneut versuchen",
+  "settingsInfra.close": "Schließen",
+  "settingsInfra.cancel": "Abbrechen",
+  "settingsInfra.save": "Speichern",
+  "settingsInfra.saving": "Wird gespeichert…",
+  "settingsInfra.required": "Erforderlich",
+  "settingsInfra.recommended": "Empfohlen",
+  "settingsInfra.optional": "Optional",
+  "settingsInfra.builderRecommended":
+    "Betreibe alle Dienste unten mit den Credits deines Builder.io-Kontos. Kostenloser Tarif verfügbar.",
+  "settingsInfra.builderOnly": "Nur mit Builder.io",
+  "settingsInfra.rowDescription": "{{source}} · {{use}}",
+  "settingsInfra.notSetUp": "Nicht eingerichtet",
+  "settingsInfra.availableWithBuilder": "Verfügbar mit Builder.io",
+  "settingsInfra.loadFailed": "Konnte nicht geladen werden.",
+  "settingsInfra.aiModel": "KI-Modell",
+  "settingsInfra.useEveryApp": "Jede App",
+  "settingsInfra.storageBucket": "{{provider}}, Bucket {{bucket}}",
+  "settingsInfra.useUploads": "Uploads in jeder App",
+  "settingsInfra.storageTitle": "Dateispeicher",
+  "settingsInfra.storageIntro":
+    "Neue Uploads landen in deinem Bucket. Vorhandene Dateien bleiben, wo sie sind.",
+  "settingsInfra.voice": "Spracheingabe",
+  "settingsInfra.images": "Bildgenerierung",
+  "settingsInfra.embeddings": "Embeddings",
+  "settingsInfra.useVoice": "Diktieren in jeder App",
+  "settingsInfra.useImages": "Slides und Design",
+  "settingsInfra.useEmbeddings": "Suche in Brain",
+  "settingsInfra.whyVoice":
+    "Wandelt Sprache in Text um. Tippen funktioniert auch ohne.",
+  "settingsInfra.whyImages": "Erzeugt Bilder für Folien und Designs.",
+  "settingsInfra.whyEmbeddings":
+    "Verbessert die semantische Suche. Die Stichwortsuche funktioniert auch ohne.",
+  "settingsInfra.designSystem": "Design-System-Intelligenz",
+  "settingsInfra.whyDesignSystem":
+    "Hält generierte Folien und Designs markenkonform.",
+  "settingsInfra.whyBackground": "Nimmt Codeänderungen aus der Produktion vor.",
+  "settingsInfra.whyBrowser":
+    "Lässt den Agenten in der Produktion einen Browser nutzen.",
+  "settingsInfra.provider": "Anbieter",
+  "settingsInfra.keyOrg": "Nutzt den {{provider}}-Schlüssel der Organisation.",
+  "settingsInfra.manageKey": "Schlüssel verwalten",
+  "settingsInfra.keyPersonal":
+    "Dein {{provider}}-Schlüssel ist persönlich. Dienste brauchen einen Schlüssel der Organisation.",
+  "settingsInfra.keyNone":
+    "Dienste nutzen Schlüssel der Organisation, und es gibt noch keinen {{provider}}-Schlüssel.",
+  "settingsInfra.keyUnavailable":
+    "Der {{provider}}-Schlüssel der Organisation konnte nicht geprüft werden.",
+  "settingsInfra.useBuilder": "Builder.io verwenden",
+  "settingsInfra.addNamed": "{{provider}} hinzufügen",
+  "settingsInfra.serviceSaved": "{{service}} nutzt jetzt {{provider}}.",
+  "settingsInfra.serviceSaveFailed":
+    "{{service}} konnte nicht geändert werden.",
+  "settingsInfra.reindex":
+    "Indiziere Brain neu, damit die semantische Suche vorhandene Einträge abdeckt.",
+  "settingsInfra.variables": "Erforderliche Variablen",
+  "settingsInfra.databaseHosted":
+    "{{name}}, auf deinem Host festgelegt. Alle Apps teilen sie.",
+  "settingsInfra.databaseHostedSingle": "{{name}}, auf deinem Host festgelegt.",
+  "settingsInfra.databaseLocal":
+    "{{name}} auf diesem Computer. Lege DATABASE_URL auf deinem Host fest, bevor du deployst.",
+  "settingsInfra.databaseMissing":
+    "Nicht festgelegt. Lege DATABASE_URL auf deinem Host fest.",
+  "settingsInfra.hostingWorkspace":
+    "{{host}}. Der Workspace stellt jede App unter ihrer eigenen Adresse bereit.",
+  "settingsInfra.hostingSingle": "{{host}}, unter {{address}}.",
+  "settingsInfra.hostingPlain": "{{host}}.",
+  "settingsInfra.hostOwnServer": "Dein eigener Server",
+  "settingsInfra.hostThisComputer": "Dieser Computer",
+  "settingsInfra.variablesSet": "{{keys}} sind auf deinem Host festgelegt.",
+  "settingsInfra.variablesMissing": "Lege {{keys}} auf deinem Host fest.",
+  "settingsInfra.dbConnected": "Verbunden",
+  "settingsInfra.dbLocal": "Auf diesem Computer",
+  "settingsInfra.notSet": "Nicht festgelegt",
+  "settingsInfra.set": "Festgelegt",
+  "settingsInfra.dbIntro":
+    "Jede App liest die Datenbank vor dem Start, deshalb wird sie einmal auf deinem Host festgelegt. So wechselst du zu einer anderen Datenbank:",
+  "settingsInfra.dbStep1":
+    "Erstelle eine Postgres-Datenbank bei Neon, Supabase oder einem anderen Postgres-Host.",
+  "settingsInfra.dbStep2":
+    "Setze {{key}} in der Umgebung deines Hosts auf ihren Verbindungsstring.",
+  "settingsInfra.dbStep3":
+    "Stelle neu bereit. Migrationen laufen während des Deployments.",
+  "settingsInfra.dbOwn":
+    "Um einer App eine eigene Datenbank zu geben, setze ihre eigene Variable, etwa {{key}}.",
+  "settingsInfra.hostIntroWorkspace":
+    "Der Workspace stellt jede App bereit, jede unter ihrer eigenen Adresse. So hostest du bei Vercel, Cloudflare oder auf deinem eigenen Server:",
+  "settingsInfra.hostIntro":
+    "So hostest du bei Vercel, Cloudflare oder auf deinem eigenen Server:",
+  "settingsInfra.hostStep1":
+    "Wähle das Ziel mit {{key}}, etwa vercel, cloudflare_module oder node.",
+  "settingsInfra.hostStep2":
+    "Gib dem neuen Host dieselbe Umgebung, einschließlich {{keys}}.",
+  "settingsInfra.hostStep3":
+    "Stelle bereit. Bei einem Workspace baut das jede App und gibt den Befehl zum Veröffentlichen aus:",
+  "settingsInfra.envIntro":
+    "Jede App liest diese Werte vor dem Start. Lege sie einmal auf deinem Host fest und stelle dann neu bereit.",
+  "settingsInfra.varDatabaseUrl": "Dein Postgres-Verbindungsstring.",
+  "settingsInfra.varA2a":
+    "Lässt die Apps in diesem Workspace einander aufrufen. In einem Workspace signiert er auch Anmeldesitzungen, wenn BETTER_AUTH_SECRET nicht festgelegt ist.",
+  "settingsInfra.varBetterAuth":
+    "Signiert Anmeldesitzungen. Verwende mindestens 32 zufällige Zeichen.",
+  "settingsInfra.varAppUrl":
+    "Nur nötig, wenn der Host der App ihre öffentliche URL nicht mitteilen kann.",
+  "settingsInfra.varEncryption":
+    "Verschlüsselt die in den Einstellungen gespeicherten Schlüssel. Ohne ihn leitet der Workspace einen aus A2A_SECRET ab.",
+  "settingsInfra.varEncryptionSingle":
+    "Verschlüsselt die in den Einstellungen gespeicherten Schlüssel. Ohne ihn leitet die App einen aus BETTER_AUTH_SECRET ab.",
+  "settingsInfra.varWeak": "Zu kurz. Verwende mindestens 32 zufällige Zeichen.",
+  "settingsInfra.varWeakLabel": "Zu kurz",
+  "settingsInfra.generateSecret": "So erzeugst du ein Secret:",
+  "settingsInfra.copy": "Kopieren",
+  "settingsInfra.copied": "Kopiert",
+  "settingsInfra.copyFailed": "Kopieren fehlgeschlagen.",
+  "settingsApiKeys.addKey": "Schlüssel hinzufügen",
+  "settingsApiKeys.adding": "Wird hinzugefügt…",
+  "settingsApiKeys.availableTo": "Verfügbar für",
+  "settingsApiKeys.deleteKey": "Schlüssel löschen",
+  "settingsApiKeys.deleting": "Wird gelöscht…",
+  "settingsApiKeys.deleteTitle": "{{name}} löschen?",
+  "settingsApiKeys.everyoneIn": "Alle in {{org}}",
+  "settingsApiKeys.getKey": "Schlüssel erhalten",
+  "settingsApiKeys.hideKeys": "Schlüssel ausblenden",
+  "settingsApiKeys.justMe": "Nur ich",
+  "settingsApiKeys.keyAdded": "Schlüssel hinzugefügt",
+  "settingsApiKeys.keyDeleted": "Schlüssel gelöscht",
+  "settingsApiKeys.loadFailed": "Deine Schlüssel konnten nicht geladen werden.",
+  "settingsApiKeys.manageKey": "{{name}} verwalten",
+  "settingsApiKeys.managedKeys": "Von Integrationen verwaltet",
+  "settingsApiKeys.managedName": "{{owner}} verwaltet diesen Schlüssel.",
+  "settingsApiKeys.managedTooltip":
+    "Von {{owner}} erstellt und rotiert. Trenne die Verbindung dort.",
+  "settingsApiKeys.membersLocked":
+    "Nur Inhaber und Admins können Schlüssel mit {{org}} teilen.",
+  "settingsApiKeys.modelFootnote":
+    "Um deinen eigenen Modellanbieter zu nutzen, {{link}}.",
+  "settingsApiKeys.modelFootnoteLink": "füge ihn unter Modell hinzu",
+  "settingsApiKeys.name": "Name",
+  "settingsApiKeys.noKeys": "Noch keine Schlüssel",
+  "settingsApiKeys.noKeysDescription":
+    "Füge einen Schlüssel hinzu, damit deine Apps und der Agent einen Dienst erreichen.",
+  "settingsApiKeys.orgKeys": "Organisationsschlüssel",
+  "settingsApiKeys.providerInModel": "Füge {{provider}} unter {{link}} hinzu.",
+  "settingsApiKeys.replaceTitle": "{{name}} ersetzen",
+  "settingsApiKeys.replaceValue": "Wert ersetzen",
+  "settingsApiKeys.saving": "Wird gespeichert…",
+  "settingsApiKeys.showKeys_one": "{{count}} Schlüssel anzeigen",
+  "settingsApiKeys.showKeys_other": "{{count}} Schlüssel anzeigen",
+  "settingsApiKeys.test": "Testen",
+  "settingsApiKeys.testPassed": "Der gespeicherte Wert funktioniert.",
+  "settingsApiKeys.usedBy": "Verwendet von {{link}}",
+  "settingsApiKeys.value": "Wert",
+  "settingsApiKeys.valueReplaced": "Wert ersetzt",
+  "settingsApiKeys.yourKeys": "Deine Schlüssel",
+  "settingsModel.addEndpoint": "Endpunkt-URL hinzufügen",
+  "settingsModel.addNamed": "{{provider}} hinzufügen",
+  "settingsModel.addProvider": "Anbieter hinzufügen",
+  "settingsModel.adding": "Wird hinzugefügt",
+  "settingsModel.affectsOrg": "Das betrifft alle in {{org}}.",
+  "settingsModel.affectsYou": "Das betrifft nur dich.",
+  "settingsModel.allApps": "Alle Apps",
+  "settingsModel.apiKey": "API-Schlüssel",
+  "settingsModel.builderConnected": "Verbunden · {{space}}",
+  "settingsModel.builderConnectedPlain": "Verbunden",
+  "settingsModel.builderOrgNotConnectedAdmin":
+    "Nicht verbunden. Wenn du es verbindest, können alle in {{org}} es nutzen.",
+  "settingsModel.builderOrgNotConnectedMember":
+    "Nicht verbunden. Ein Inhaber oder Admin kann es verbinden.",
+  "settingsModel.builderPersonalConnect":
+    "Verbinde dein eigenes Konto, um deine Builder.io-Credits zu nutzen.",
+  "settingsModel.builderPersonalInsteadOfOrg":
+    "Verbinde dein eigenes Konto, um es statt der Verbindung der Organisation zu nutzen.",
+  "settingsModel.builderPersonalOverOrg":
+    "Verbunden · {{space}}. Wird statt der Verbindung der Organisation verwendet.",
+  "settingsModel.builderPersonalOverOrgPlain":
+    "Verbunden. Wird statt der Verbindung der Organisation verwendet.",
+  "settingsModel.builderUnknown":
+    "Die Builder.io-Verbindung konnte nicht geprüft werden.",
+  "settingsModel.cancel": "Abbrechen",
+  "settingsModel.change": "Ändern",
+  "settingsModel.chatgptConnected": "Verbunden",
+  "settingsModel.chatgptDescription":
+    "Nutze die Codex-Engine mit deinem ChatGPT-Abo.",
+  "settingsModel.chatgptPopupBlocked":
+    "Erlaube Pop-ups für diese Website und versuche es dann erneut.",
+  "settingsModel.chatgptTitle": "ChatGPT-Abonnement",
+  "settingsModel.checkAgain": "Erneut prüfen",
+  "settingsModel.checkedJustNow": "Gerade eben geprüft.",
+  "settingsModel.checkedOn": "Geprüft am {{date}}.",
+  "settingsModel.checking": "Dein Schlüssel wird bei {{provider}} geprüft",
+  "settingsModel.checkingEndpoint": "Der Endpunkt wird geprüft",
+  "settingsModel.checkingOllama": "Installierte Modelle werden geprüft…",
+  "settingsModel.checkingSaved": "Der gespeicherte Schlüssel wird geprüft",
+  "settingsModel.chooseModel": "Modell auswählen",
+  "settingsModel.clear": "Leeren",
+  "settingsModel.connect": "Verbinden",
+  "settingsModel.connecting": "Wird verbunden…",
+  "settingsModel.defaultModelDescription":
+    "Wird in jeder App verwendet, sofern die App kein eigenes festlegt.",
+  "settingsModel.defaultModelNeedsProvider":
+    "Füge einen Anbieter hinzu, um ein Standardmodell auszuwählen.",
+  "settingsModel.disconnect": "Trennen",
+  "settingsModel.effectDefaultStops":
+    "Chats stoppen, bis ein anderer Anbieter eingerichtet ist.",
+  "settingsModel.effectDefaultSwitches":
+    "Das Standardmodell wechselt zu {{next}}.",
+  "settingsModel.effectKeepsOrg":
+    "Funktioniert weiter mit dem Schlüssel der Organisation.",
+  "settingsModel.effectKeepsVault":
+    "Funktioniert weiter mit dem Vault-Schlüssel.",
+  "settingsModel.effectKeepsWorkspace":
+    "Funktioniert weiter mit dem Workspace-Schlüssel.",
+  "settingsModel.effectModelsLeave":
+    "{{provider}}-Modelle verschwinden aus der Modellauswahl.",
+  "settingsModel.emptyAskAdmin":
+    "Bitte einen Inhaber oder Admin, einen hinzuzufügen.",
+  "settingsModel.emptyDescription":
+    "Der Agent braucht einen Anbieter, um zu antworten.",
+  "settingsModel.emptyDescriptionBuilder":
+    "Der Agent braucht einen Anbieter, um zu antworten. Wir empfehlen Builder.io für Modellzugriff, Browserautomatisierung, Dateispeicher und Workspace-Identität. Kostenloser Tarif verfügbar.",
+  "settingsModel.emptyTitle": "Modellanbieter hinzufügen",
+  "settingsModel.endpointFirst": "Gib zuerst die Endpunkt-URL ein.",
+  "settingsModel.endpointHint":
+    "Optional. Nutze dies für LiteLLM oder ein anderes OpenAI-kompatibles Gateway.",
+  "settingsModel.endpointUrl": "Endpunkt-URL",
+  "settingsModel.keyHint":
+    "Erstelle einen unter {{host}}. {{provider}} rechnet ihn direkt ab.",
+  "settingsModel.keyPlaceholder": "Füge deinen {{provider}}-Schlüssel ein",
+  "settingsModel.labs": "Labs",
+  "settingsModel.loadFailed": "Anbieter konnten nicht geladen werden.",
+  "settingsModel.lockedTip": "Nur Inhaber und Admins können das ändern.",
+  "settingsModel.manage": "Verwalten",
+  "settingsModel.maxIterationsDescription":
+    "Wie lange eine Antwort arbeiten kann, bevor sie pausiert.",
+  "settingsModel.maxIterationsInvalid":
+    "Gib eine ganze Zahl von {{min}} bis {{max}} ein.",
+  "settingsModel.modelCount_one": "{{count}} Modell",
+  "settingsModel.modelCount_other": "{{count}} Modelle",
+  "settingsModel.modelOption": "{{model}} · {{provider}}",
+  "settingsModel.models": "Modelle",
+  "settingsModel.modelsHint":
+    "Ausgewählte Modelle erscheinen in der Modellauswahl.",
+  "settingsModel.modelsHintService":
+    "Chatmodelle sind optional. Lass sie abgewählt, um diesen Schlüssel nur für {{service}} zu nutzen.",
+  "settingsModel.modelsIdle":
+    "Füge einen Schlüssel ein, um die Modelle zu sehen, die er nutzen kann.",
+  "settingsModel.modelsIdleOllama":
+    "Gib die Endpunkt-URL ein, um die installierten Modelle zu sehen.",
+  "settingsModel.modelsSaveFailed":
+    "Der Schlüssel wurde gespeichert, die Modellliste aber nicht. {{message}}",
+  "settingsModel.noChatModels": "Keine Chatmodelle",
+  "settingsModel.noModelsFound": "Keine Modelle gefunden.",
+  "settingsModel.notSet": "Nicht festgelegt",
+  "settingsModel.nothingElse": "Nichts anderes nutzt diesen Schlüssel.",
+  "settingsModel.ollamaHint": "Kein API-Schlüssel erforderlich.",
+  "settingsModel.orgProviders": "Anbieter der Organisation",
+  "settingsModel.orgSettings": "Einstellungen der Organisation",
+  "settingsModel.organization": "Organisation",
+  "settingsModel.pasteFirst": "Füge zuerst einen Schlüssel ein.",
+  "settingsModel.personal": "Persönlich",
+  "settingsModel.personalProviders": "Persönliche Anbieter",
+  "settingsModel.previewFailed":
+    "Die Auswirkungen konnten nicht geprüft werden.",
+  "settingsModel.provider": "Anbieter",
+  "settingsModel.providerErrorHeadline":
+    "{{provider}} konnte diesen Schlüssel nicht prüfen",
+  "settingsModel.reasonEndpoint": "Prüfe die Endpunkt-URL.",
+  "settingsModel.reasonOllamaUnreachable": "Prüfe die URL und ob Ollama läuft.",
+  "settingsModel.reasonPrefix":
+    "{{provider}}-Schlüssel beginnen mit {{prefix}}.",
+  "settingsModel.reasonRejected":
+    "Prüfe, ob du ihn vollständig kopiert hast, oder erstelle einen neuen.",
+  "settingsModel.reasonTryAgain": "Versuche es gleich noch einmal.",
+  "settingsModel.reasonWrongProvider":
+    "Das sieht nach einem {{provider}}-Schlüssel aus.",
+  "settingsModel.reasonWrongProviderVowel":
+    "Das sieht nach einem {{provider}}-Schlüssel aus.",
+  "settingsModel.reconnect": "Erneut verbinden",
+  "settingsModel.rejected":
+    "{{provider}} hat diesen Schlüssel am {{date}} abgelehnt. Chats, die ihn nutzen, stoppen, bis du ihn ersetzt.",
+  "settingsModel.rejectedAskAdmin":
+    "{{provider}} hat diesen Schlüssel am {{date}} abgelehnt. Bitte einen Inhaber oder Admin, ihn zu ersetzen.",
+  "settingsModel.rejectedHeadline":
+    "{{provider}} hat diesen Schlüssel abgelehnt",
+  "settingsModel.remove": "Entfernen",
+  "settingsModel.removeProvider": "Anbieter entfernen",
+  "settingsModel.removeTitle": "{{provider}} entfernen?",
+  "settingsModel.removing": "Wird entfernt",
+  "settingsModel.replace": "Ersetzen",
+  "settingsModel.replaceKey": "Schlüssel ersetzen",
+  "settingsModel.restrictBody":
+    "Mitglieder können nur Anbieter der Organisation nutzen.",
+  "settingsModel.restrictConfirm": "Schlüssel einschränken",
+  "settingsModel.restrictDescription":
+    "Mitglieder können nur Anbieter der Organisation nutzen, und Schlüssel, die sie hinzugefügt haben, funktionieren nicht mehr.",
+  "settingsModel.restrictLabel": "Persönliche API-Schlüssel einschränken",
+  "settingsModel.restrictMemberBuilder":
+    "Ihre persönliche Builder.io-Verbindung funktioniert nicht mehr.",
+  "settingsModel.restrictMemberChats":
+    "Ihre Chats wechseln zu Anbietern der Organisation.",
+  "settingsModel.restrictMemberKeys_one":
+    "Ihr {{providers}}-Schlüssel funktioniert nicht mehr.",
+  "settingsModel.restrictMemberKeys_other":
+    "Ihre {{providers}}-Schlüssel funktionieren nicht mehr.",
+  "settingsModel.restrictNewKeysBody":
+    "Mitglieder können keine hinzufügen. Inhaber und Admins weiterhin schon.",
+  "settingsModel.restrictNewKeysTitle": "Neue persönliche Schlüssel",
+  "settingsModel.restrictTitle": "Persönliche API-Schlüssel einschränken?",
+  "settingsModel.restricted":
+    "Inhaber und Admins haben persönliche API-Schlüssel eingeschränkt.",
+  "settingsModel.restrictedRow":
+    "Wird nicht verwendet, solange persönliche API-Schlüssel eingeschränkt sind.",
+  "settingsModel.restricting": "Wird eingeschränkt",
+  "settingsModel.retry": "Erneut versuchen",
+  "settingsModel.save": "Speichern",
+  "settingsModel.savedRejected":
+    "{{provider}} hat den gespeicherten Schlüssel abgelehnt. Füge einen neuen ein.",
+  "settingsModel.saving": "Wird gespeichert",
+  "settingsModel.selectAll": "Alle auswählen",
+  "settingsModel.settingLoadFailed":
+    "Diese Einstellung konnte nicht geladen werden.",
+  "settingsModel.unreachableHeadline": "{{provider}} ist nicht erreichbar",
+  "settingsModel.view": "Ansehen",
+  "settingsModel.whatHappens": "Was passiert",
+  "settingsModel.who": "Wer es nutzen kann",
+  "settingsModel.whoHintAdmin":
+    "Persönliche Anbieter gehören nur dir. Anbieter der Organisation funktionieren für alle in {{org}}.",
+  "settingsModel.whoHintMember":
+    "Nur Inhaber und Admins können Anbieter der Organisation hinzufügen.",
+  "settingsModel.whoHintService": "Dienste nutzen Schlüssel der Organisation.",
+  "settingsSubAgents.connect": "Agent verbinden",
+  "settingsSubAgents.orgApps": "{{org}}-Apps",
+  "settingsSubAgents.workspaceApps": "Workspace-Apps",
+  "settingsSubAgents.external": "Externe Agenten",
+  "settingsSubAgents.custom": "Eigene Agenten",
+  "settingsSubAgents.managedByAdmins": "Von Admins verwaltet",
+  "settingsSubAgents.appsEmpty": "Noch keine Apps verbunden",
+  "settingsSubAgents.externalEmpty":
+    "Verbinde Foundry, Gemini Enterprise, Anthropic oder einen beliebigen A2A-Agenten.",
+  "settingsSubAgents.externalEmptyTitle": "Noch keine externen Agenten",
+  "settingsSubAgents.customEmpty":
+    "Lege einen fokussierten Agenten an, an den der Hauptagent Aufgaben delegieren kann.",
+  "settingsSubAgents.customEmptyTitle": "Noch keine eigenen Agenten",
+  "settingsSubAgents.addAgent": "Agent hinzufügen",
+  "settingsSubAgents.describe": "Dem Agenten beschreiben",
+  "settingsSubAgents.describePlaceholder":
+    "Ein Design-Agent, der Layouts bewertet und UI-Richtungen vorschlägt",
+  "settingsSubAgents.write": "Selbst schreiben",
+  "settingsSubAgents.name": "Name",
+  "settingsSubAgents.description": "Beschreibung",
+  "settingsSubAgents.instructions": "Anweisungen",
+  "settingsSubAgents.loadFailed":
+    "Verbundene Agenten konnten nicht geladen werden.",
+  "settingsSubAgents.statusUnreachable": "Nicht erreichbar",
+  "settingsSubAgents.edit": "Bearbeiten",
+  "settingsSubAgents.editTitle": "{{name}} bearbeiten",
+  "settingsSubAgents.removeDescription":
+    "Der Agent delegiert für alle in {{org}} nicht mehr an {{name}}.",
+  "settingsSubAgents.removeDescriptionSolo":
+    "Der Agent delegiert nicht mehr an {{name}}.",
+  "settingsSubAgents.directoryTitle": "Agenten verbinden",
+  "settingsSubAgents.anyAgent": "Beliebiger A2A-Agent",
+  "settingsSubAgents.anyAgentHint": "Füge die URL einer Agent Card ein.",
+  "settingsSubAgents.registryLink": "Global A2A Registry durchsuchen",
+  "settingsSubAgents.connectTitle": "{{name}} verbinden",
+  "settingsSubAgents.close": "Schließen",
 };
 
 export default messages;

@@ -1,13 +1,15 @@
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
+import {
+  buildSettingsRoute,
+  openCommandMenu,
+} from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   AppSidebar,
   AppSidebarNavItem,
   FeedbackButton,
-  type AppSidebarItemDefinition,
 } from "@agent-native/core/client/ui";
 import type { GoogleCalendarSource, OverlayPerson } from "@shared/api";
 import { getWeekdayOrder, getWeekStartsOn } from "@shared/calendar-week";
@@ -101,10 +103,6 @@ const navItems = [
     labelKey: "navigation.bookingLinks",
     icon: IconLink,
   },
-];
-
-const bottomNavItems = [
-  { path: "/settings", labelKey: "navigation.settings", icon: IconSettings },
 ];
 
 interface SidebarProps {
@@ -623,7 +621,7 @@ function GoogleCalendarsSections({ onClose }: { onClose: () => void }) {
           <Tooltip>
             <TooltipTrigger asChild>
               <Link
-                to="/settings"
+                to={buildSettingsRoute("app", "calendars")}
                 onClick={onClose}
                 className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
               >
@@ -809,8 +807,8 @@ export function Sidebar({
         <Button
           type="button"
           variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground"
+          size="icon-sm"
+          className="shrink-0 text-muted-foreground"
           onClick={openCommandMenu}
           aria-label={t("root.commandSearch")}
         >
@@ -820,16 +818,6 @@ export function Sidebar({
       <TooltipContent side="top">{t("root.commandSearch")}</TooltipContent>
     </Tooltip>
   );
-  const secondaryItems: AppSidebarItemDefinition[] = bottomNavItems.map(
-    (item) => ({
-      to: item.path,
-      label: t(item.labelKey),
-      icon: item.icon,
-      active: location.pathname.startsWith(item.path),
-      onClick: onClose,
-    }),
-  );
-
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
@@ -854,7 +842,6 @@ export function Sidebar({
         brandName={t("navigation.brand")}
         appId="calendar"
         brandHref="/home"
-        secondaryItems={secondaryItems}
         feedback={feedbackButton}
         orgSwitcher={orgSwitcher}
         footerExtras={

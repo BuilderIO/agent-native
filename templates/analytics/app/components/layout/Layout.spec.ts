@@ -39,9 +39,8 @@ describe("Analytics layout sidebar route policy", () => {
     expect(source).toContain(
       'className="mt-3 shrink-0 min-w-0 space-y-1 border-t border-border/70 pt-3"',
     );
-    expect(source).toContain(
-      'className="flex min-w-0 flex-col space-y-0.5 px-2"',
-    );
+    expect(source).not.toContain("bottomItems");
+    expect(source).not.toContain('href: "/settings"');
     expect(source).toContain('className="space-y-1 px-2"');
     expect(source).toContain(
       'className="min-w-0 flex-1 !px-2 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"',

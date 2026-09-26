@@ -17,6 +17,7 @@ import {
 import type { H3Event } from "h3";
 import { readMultipartFormData } from "h3";
 
+import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import { registerBuiltinEngines } from "../agent/engine/builtin.js";
 import {
@@ -54,6 +55,7 @@ import {
   APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY,
   type AppStateAnonymousOwnerResolver,
 } from "../application-state/handlers.js";
+import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
 import {
@@ -72,6 +74,7 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
   BUILDER_CREDIT_USAGE_REPORTING_FLAG,
   registerFeatureFlags,
+  SETTINGS_REDESIGN_FLAG,
 } from "../feature-flags/registry.js";
 import {
   uploadFile,
@@ -144,6 +147,7 @@ import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
+import { createAgentEngineDisconnectHandler } from "./agent-engine-default-model-route.js";
 import { createAgentEngineOllamaModelsHandler } from "./agent-engine-ollama-models-route.js";
 import {
   readAnalyticsClientPlatformHeader,
@@ -207,12 +211,21 @@ import {
 import {
   BUILDER_ASSETS_WRITE_SCOPE,
   BUILDER_OAUTH_SCOPE,
+  builderOAuthScopeFor,
+  canRoleConnectPersonalBuilder,
   deleteBuilderOAuthSession,
   exchangeBuilderOAuthAuthorization,
+  getBuilderOAuthGrants,
   getBuilderOAuthStoredScope,
+  hasStoredBuilderOAuthGrant,
+  isBuilderOrgManagerRole,
+  isPersonalBuilderGrantAllowed,
   saveBuilderOAuthCredentials,
   startBuilderOAuthAuthorization,
+  type BuilderConnectionScope,
+  type BuilderOAuthGrantSummary,
   type BuilderOAuthPendingFlow,
+  type BuilderOAuthScope,
 } from "./builder-oauth.js";
 import { captureError, registerErrorCaptureProvider } from "./capture-error.js";
 import {
@@ -231,6 +244,7 @@ import type { EnvKeyConfig } from "./create-server.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   CredentialStoreUnavailableError,
+  getBuilderKeyConnections,
   prefetchSecrets,
   readDeployCredentialEnv,
   resolveSecret,
@@ -270,6 +284,10 @@ import {
 } from "./h3-helpers.js";
 import { handleIdentitySso } from "./identity-sso.js";
 import { createOpenRouteHandler } from "./open-route.js";
+import {
+  PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
+  PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
+} from "./personal-provider-key-policy.js";
 import {
   createPollEventsHandler,
   validateSseMaxDurationMs,
@@ -448,7 +466,7 @@ export async function resolveAgentEngineStatus<
 function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry> {
   return {
     readStoredEngine: async () =>
-      (await getSetting("agent-engine")) as {
+      (await readDefaultAgentEngineSetting()) as {
         engine?: string;
         model?: string;
       } | null,
@@ -520,13 +538,335 @@ export async function resolveBuilderOrgMutation(
     };
   }
   if (role !== "owner" && role !== "admin") {
-    return {
-      orgId,
-      role,
-      deny: "Only an organization owner or admin can change the shared Builder connection.",
-    };
+    return { orgId, role, deny: BUILDER_ORG_CONNECTION_DENIED };
   }
   return { orgId, role, deny: null };
+}
+
+const BUILDER_ORG_CONNECTION_DENIED =
+  "Only an organization owner or admin can change the shared Builder connection.";
+
+/** Query/body field naming which Builder.io connection a request targets. */
+export const BUILDER_CONNECTION_SCOPE_PARAM = "scope";
+
+/**
+ * `null` means the caller named no connection: connect then decides custody
+ * by role and disconnect removes the first stored grant, as older clients
+ * expect. Anything else that isn't a known scope is refused, never guessed.
+ */
+export function parseBuilderConnectionScope(
+  value: unknown,
+): BuilderConnectionScope | null | "invalid" {
+  if (value === undefined || value === null || value === "") return null;
+  return value === "org" || value === "personal" ? value : "invalid";
+}
+
+/**
+ * Who may start a connect for the named Builder.io connection. The org
+ * connection needs owner/admin; a personal one is for members only, and only
+ * while the org allows personal grants.
+ */
+export async function resolveBuilderConnectAuthorization(
+  event: H3Event,
+  ownerEmail: string,
+  scope: BuilderConnectionScope | null,
+): Promise<{ orgId: string | null; role: string | null; deny: string | null }> {
+  const member = await resolveBuilderOrgMutation(event, {
+    allowMemberInitiation: true,
+  });
+  if (member.deny || scope === null) return member;
+  if (scope === "org") {
+    return isBuilderOrgManagerRole(member.role)
+      ? member
+      : { ...member, deny: BUILDER_ORG_CONNECTION_DENIED };
+  }
+  if (!canRoleConnectPersonalBuilder(member.role)) {
+    return {
+      ...member,
+      deny: "Owners and admins connect Builder.io for the organization.",
+    };
+  }
+  if (
+    !(await isPersonalBuilderGrantAllowed({
+      ownerEmail,
+      orgId: member.orgId,
+    }))
+  ) {
+    return {
+      ...member,
+      deny: PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
+    };
+  }
+  return member;
+}
+
+/**
+ * A connect that names no connection lands as a personal grant for anyone who
+ * isn't an owner or admin, so it is refused while personal keys are
+ * restricted. Returns the refusal, or null.
+ */
+export async function resolveScopelessBuilderConnectRestriction(
+  event: H3Event,
+  ownerEmail: string,
+): Promise<string | null> {
+  const member = await resolveBuilderOrgMutation(event, {
+    allowMemberInitiation: true,
+  });
+  if (!member.orgId || isBuilderOrgManagerRole(member.role)) return null;
+  return (await isPersonalBuilderGrantAllowed({
+    ownerEmail,
+    orgId: member.orgId,
+  }))
+    ? null
+    : PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE;
+}
+
+/**
+ * Decide custody when the OAuth callback lands. Authority captured at connect
+ * start is re-checked here: a named org connection whose connector is no
+ * longer an owner/admin of that org fails instead of landing as a personal
+ * grant, which would silently shadow the org's connection for that person.
+ */
+export function resolveBuilderCallbackWrite(input: {
+  requestedScope: BuilderConnectionScope | null;
+  pendingOrgId: string | null;
+  pendingRole: string | null;
+  currentOrg: { orgId: string | null; role: string | null } | null;
+}): { scope?: BuilderOAuthScope; role: string | null } | { deny: string } {
+  const currentManagerRole =
+    input.pendingOrgId !== null &&
+    input.currentOrg?.orgId === input.pendingOrgId &&
+    isBuilderOrgManagerRole(input.currentOrg.role)
+      ? input.currentOrg.role
+      : null;
+  if (input.requestedScope === "personal") return { scope: "user", role: null };
+  if (input.requestedScope === "org") {
+    return currentManagerRole
+      ? { scope: "org", role: currentManagerRole }
+      : { deny: BUILDER_ORG_CONNECTION_DENIED };
+  }
+  return {
+    role: isBuilderOrgManagerRole(input.pendingRole)
+      ? currentManagerRole
+      : null,
+  };
+}
+
+export type BuilderEffectiveConnection =
+  | "personal"
+  | "org"
+  | "workspace"
+  | "env";
+
+export function builderEffectiveConnectionFor(
+  source: "user" | "org" | "workspace" | "env" | null | undefined,
+): BuilderEffectiveConnection | null {
+  if (source === "user") return "personal";
+  return source ?? null;
+}
+
+/**
+ * How a Builder.io connection is held. Account activation and older connect
+ * flows store a key pair instead of an OAuth grant, and that pair is just as
+ * much the org's or the member's connection.
+ */
+export type BuilderConnectionKind = "oauth" | "keys";
+
+export type BuilderConnectionGrant = BuilderOAuthGrantSummary & {
+  kind: BuilderConnectionKind;
+};
+
+export interface BuilderConnectionGrants {
+  org?: BuilderConnectionGrant;
+  personal?: BuilderConnectionGrant & {
+    /** Stored, but the org's personal-key restriction keeps it unused. */
+    restricted: boolean;
+  };
+}
+
+export interface BuilderConnectionsStatus {
+  /**
+   * The caller's stored Builder.io connections, org and personal read
+   * independently. `{}` means none exist; `null` means the credential store
+   * could not be read.
+   */
+  grants: BuilderConnectionGrants | null;
+  /**
+   * Which connection this caller may connect or reconnect. Disconnecting the
+   * org connection needs `org`; anyone may disconnect their own personal one.
+   */
+  canConnect: Record<BuilderConnectionScope, boolean>;
+}
+
+export interface BuilderConnectionsStatusDeps {
+  getGrants: typeof getBuilderOAuthGrants;
+  getKeyConnections: typeof getBuilderKeyConnections;
+}
+
+/**
+ * An OAuth grant at a scope answers that scope's requests over a key pair
+ * stored beside it, so it is the one reported.
+ */
+function mergeBuilderConnectionGrants(
+  oauth: Awaited<ReturnType<typeof getBuilderOAuthGrants>>,
+  keys: Awaited<ReturnType<typeof getBuilderKeyConnections>>,
+  personalRestricted: boolean,
+): BuilderConnectionGrants {
+  const grants: BuilderConnectionGrants = {};
+  if (oauth.org) grants.org = { ...oauth.org, kind: "oauth" };
+  else if (keys.org) grants.org = { ...keys.org, kind: "keys" };
+  if (oauth.personal) grants.personal = { ...oauth.personal, kind: "oauth" };
+  else if (keys.personal) {
+    grants.personal = {
+      ...keys.personal,
+      kind: "keys",
+      restricted: personalRestricted,
+    };
+  }
+  return grants;
+}
+
+export async function resolveBuilderConnectionsStatus(
+  input: {
+    ownerEmail: string | null | undefined;
+    orgId: string | null;
+    role: string | null;
+  },
+  deps: BuilderConnectionsStatusDeps = {
+    getGrants: getBuilderOAuthGrants,
+    getKeyConnections: getBuilderKeyConnections,
+  },
+): Promise<BuilderConnectionsStatus> {
+  const ownerEmail = input.ownerEmail?.trim();
+  if (!ownerEmail) {
+    return { grants: {}, canConnect: { org: false, personal: false } };
+  }
+  const personalAllowed = await isPersonalBuilderGrantAllowed({
+    ownerEmail,
+    orgId: input.orgId,
+  });
+  let grants: BuilderConnectionGrants | null;
+  try {
+    const [oauth, keys] = await Promise.all([
+      deps.getGrants(ownerEmail, input.orgId),
+      deps.getKeyConnections(ownerEmail, input.orgId),
+    ]);
+    grants = mergeBuilderConnectionGrants(oauth, keys, !personalAllowed);
+  } catch (error) {
+    // coercion-ok: null is the documented "unreadable" value, distinct from {}.
+    console.warn(
+      "[builder-status] could not read Builder grants:",
+      error instanceof Error ? error.message : error,
+    );
+    grants = null;
+  }
+  const hasOrg = Boolean(input.orgId);
+  return {
+    grants,
+    canConnect: {
+      org: hasOrg && isBuilderOrgManagerRole(input.role),
+      personal:
+        hasOrg && canRoleConnectPersonalBuilder(input.role) && personalAllowed,
+    },
+  };
+}
+
+export interface BuilderScopedDisconnectDeps {
+  hasStoredGrant: typeof hasStoredBuilderOAuthGrant;
+  deleteGrant: typeof deleteBuilderOAuthSession;
+  /** Key pairs stored at each scope; throws when the store is unreadable. */
+  getKeyConnections: typeof getBuilderKeyConnections;
+  deleteLegacy: (
+    email: string,
+    options?: { orgId?: string | null; role?: string | null },
+  ) => Promise<unknown>;
+  recordAudit: typeof recordBuilderConnectionAudit;
+}
+
+const defaultScopedDisconnectDeps: BuilderScopedDisconnectDeps = {
+  hasStoredGrant: hasStoredBuilderOAuthGrant,
+  deleteGrant: deleteBuilderOAuthSession,
+  getKeyConnections: getBuilderKeyConnections,
+  deleteLegacy: async (email, options) => {
+    const { deleteBuilderCredentials } =
+      await import("./credential-provider.js");
+    return deleteBuilderCredentials(email, options);
+  },
+  recordAudit: recordBuilderConnectionAudit,
+};
+
+/**
+ * Disconnect exactly one Builder.io connection. The org connection needs an
+ * owner/admin and removes the org grant plus any org-scoped legacy keys, which
+ * would otherwise take over once the grant is gone. A personal disconnect
+ * removes only the caller's own grant and keys, so members fall back to the
+ * org's connection. A successful disconnect is recorded in the audit log at
+ * the connection's scope.
+ */
+export async function disconnectBuilderConnectionAtScope(
+  input: {
+    email: string;
+    orgId: string | null;
+    role: string | null;
+    scope: BuilderConnectionScope;
+  },
+  deps: BuilderScopedDisconnectDeps = defaultScopedDisconnectDeps,
+): Promise<
+  | {
+      status: 200;
+      body: {
+        ok: true;
+        scope: BuilderConnectionScope;
+        remoteRevoked?: boolean;
+        warning?: string;
+      };
+    }
+  | { status: 403 | 409; body: { error: string } }
+> {
+  const { email, orgId, role, scope } = input;
+  if (scope === "org" && (!orgId || !isBuilderOrgManagerRole(role))) {
+    return { status: 403, body: { error: BUILDER_ORG_CONNECTION_DENIED } };
+  }
+  const oauthScope = builderOAuthScopeFor(scope);
+  const hadGrant = await deps.hasStoredGrant(email, oauthScope, orgId);
+  if (
+    !hadGrant &&
+    !(await deps.getKeyConnections(email, scope === "org" ? orgId : null))[
+      scope
+    ]
+  ) {
+    return {
+      status: 409,
+      body: {
+        error:
+          scope === "org"
+            ? "No organization Builder.io connection was found."
+            : "No personal Builder.io connection was found.",
+      },
+    };
+  }
+  const oauthResult = hadGrant
+    ? await deps.deleteGrant(email, oauthScope, orgId)
+    : null;
+  await deps.deleteLegacy(email, scope === "org" ? { orgId, role } : undefined);
+  await deps.recordAudit({
+    connected: false,
+    ownerEmail: email,
+    orgId,
+    scope: oauthScope,
+  });
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      scope,
+      remoteRevoked: oauthResult ? oauthResult.remoteRevoked : undefined,
+      warning:
+        oauthResult && !oauthResult.remoteRevoked
+          ? "Local Builder access was removed, but remote revocation could not be confirmed."
+          : undefined,
+    },
+  };
 }
 
 export function getFrameworkEnvKeys(): EnvKeyConfig[] {
@@ -1243,6 +1583,43 @@ async function trackBuilderLifecycle(
     },
     { userId: userEmail },
   );
+}
+
+/**
+ * Scope of the connection a role-decided disconnect removed: the stored OAuth
+ * grant's scope, else the legacy keys' scope. Only org-scoped legacy keys are
+ * deleted with options.
+ */
+export function builderDisconnectAuditScope(
+  oauthScope: "user" | "org" | null,
+  legacyDeleteOptions: object | undefined,
+): "user" | "org" {
+  return oauthScope ?? (legacyDeleteOptions ? "org" : "user");
+}
+
+export function recordBuilderConnectionAudit(input: {
+  connected: boolean;
+  ownerEmail: string;
+  orgId: string | null | undefined;
+  scope: "user" | "org";
+}): Promise<void> {
+  const org = input.scope === "org";
+  return recordOrgAdminAuditEvent({
+    action: input.connected ? "builder-connect" : "builder-disconnect",
+    targetType: "builder-connection",
+    targetId: org ? input.orgId : input.ownerEmail,
+    summary: input.connected
+      ? org
+        ? "Connected Builder.io for the organization"
+        : "Connected a personal Builder.io account"
+      : org
+        ? "Disconnected the organization's Builder.io"
+        : "Disconnected a personal Builder.io account",
+    userEmail: input.ownerEmail,
+    orgId: input.orgId,
+    personal: !org,
+    args: { scope: input.scope },
+  });
 }
 
 function isAgentNativeAnonymousOwner(email: string | undefined): boolean {
@@ -2105,7 +2482,10 @@ export function createCoreRoutesPlugin(
     options.googleOAuthManagedConnection ?? "unknown";
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "core-routes");
-    registerFeatureFlags([BUILDER_CREDIT_USAGE_REPORTING_FLAG]);
+    registerFeatureFlags([
+      BUILDER_CREDIT_USAGE_REPORTING_FLAG,
+      SETTINGS_REDESIGN_FLAG,
+    ]);
     registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
     // No-op when called from inside the bootstrap (auto-mount path).
     // Otherwise wait so other default plugins finish mounting first.
@@ -3090,6 +3470,13 @@ export function createCoreRoutesPlugin(
                 ownerContext.session.token,
               )
             : undefined;
+        let connections: BuilderConnectionsStatus = {
+          grants: {},
+          canConnect: { org: false, personal: false },
+        };
+        // Every response names which connection is in effect for this caller
+        // (`effective`) alongside the grants that exist, so the UI can show
+        // the organization and personal connections as separate rows.
         const withConnectToken = <
           T extends {
             connectUrl: string;
@@ -3097,10 +3484,15 @@ export function createCoreRoutesPlugin(
           },
         >(
           status: T,
-        ): T => {
-          if (!userEmail) return status;
+          effective: BuilderEffectiveConnection | null = null,
+        ): T &
+          BuilderConnectionsStatus & {
+            effective: BuilderEffectiveConnection | null;
+          } => {
+          const withConnections = { ...status, ...connections, effective };
+          if (!userEmail) return withConnections;
           return {
-            ...status,
+            ...withConnections,
             agentNativeProvisioningEnabled:
               status.agentNativeProvisioningEnabled &&
               Boolean(provisioningToken),
@@ -3126,6 +3518,11 @@ export function createCoreRoutesPlugin(
             /* org module not present in this template — keep userEmail-only */
           }
         }
+        connections = await resolveBuilderConnectionsStatus({
+          ownerEmail: ownerContext.anonymous ? null : userEmail,
+          orgId,
+          role: orgRole,
+        });
 
         return runWithRequestContext(
           { userEmail, orgId: orgId ?? undefined },
@@ -3204,33 +3601,42 @@ export function createCoreRoutesPlugin(
                   });
                 if (requestAuthorization?.source === "oauth") {
                   const keyStatus = await resolveOAuthCustodyBuilderKeyStatus();
-                  return withConnectToken({
-                    ...requestStatus,
-                    configured: true,
-                    credentialSource: "user" as const,
-                    canDisconnect:
-                      requestAuthorization.oauthScope === "user" ||
-                      (requestAuthorization.oauthScope === "org" &&
-                        (orgRole === "owner" || orgRole === "admin")),
-                    privateKeyConfigured: keyStatus.privateKeyConfigured,
-                    publicKeyConfigured: keyStatus.publicKeyConfigured,
-                    keyLookupFailed: keyStatus.keyLookupFailed,
-                    orgName: keyStatus.orgName,
-                    spaces: [],
-                  });
+                  const oauthSource =
+                    requestAuthorization.oauthScope === "org"
+                      ? ("org" as const)
+                      : ("user" as const);
+                  return withConnectToken(
+                    {
+                      ...requestStatus,
+                      configured: true,
+                      credentialSource: oauthSource,
+                      canDisconnect:
+                        oauthSource === "user" ||
+                        isBuilderOrgManagerRole(orgRole),
+                      privateKeyConfigured: keyStatus.privateKeyConfigured,
+                      publicKeyConfigured: keyStatus.publicKeyConfigured,
+                      keyLookupFailed: keyStatus.keyLookupFailed,
+                      orgName: keyStatus.orgName,
+                      spaces: [],
+                    },
+                    builderEffectiveConnectionFor(oauthSource),
+                  );
                 }
                 if (
                   requestAuthorization?.legacyCredentialKey ===
                   "BUILDER_CMS_PRIVATE_KEY"
                 ) {
-                  return withConnectToken({
-                    ...requestStatus,
-                    configured: true,
-                    credentialSource: "user" as const,
-                    privateKeyConfigured: true,
-                    publicKeyConfigured: false,
-                    spaces: [],
-                  });
+                  return withConnectToken(
+                    {
+                      ...requestStatus,
+                      configured: true,
+                      credentialSource: "user" as const,
+                      privateKeyConfigured: true,
+                      publicKeyConfigured: false,
+                      spaces: [],
+                    },
+                    "personal",
+                  );
                 }
               } catch (error) {
                 return withConnectToken({
@@ -3315,35 +3721,40 @@ export function createCoreRoutesPlugin(
                 } catch {
                   // Admin API helper unavailable — leave spaces undefined.
                 }
-                return withConnectToken({
-                  ...requestStatus,
-                  configured: true,
-                  privateKeyConfigured: true,
-                  publicKeyConfigured: !!creds.publicKey,
-                  userId: creds.userId || envStatus.userId,
-                  orgName: creds.orgName || envStatus.orgName,
-                  spaces,
-                  orgKind: creds.orgKind || envStatus.orgKind,
-                  subscription:
-                    creds.subscription || envStatus.subscription || undefined,
-                  subscriptionLevel:
-                    creds.subscriptionLevel ||
-                    envStatus.subscriptionLevel ||
-                    undefined,
-                  subscriptionName:
-                    creds.subscriptionName ||
-                    envStatus.subscriptionName ||
-                    undefined,
-                  isEnterprise:
-                    creds.isEnterprise ?? envStatus.isEnterprise ?? undefined,
-                  isFreeAccount:
-                    creds.isFreeAccount ?? envStatus.isFreeAccount ?? undefined,
-                  credentialSource: credentialSource ?? undefined,
-                  canDisconnect:
-                    credentialSource === "user" ||
-                    (credentialSource === "org" &&
-                      (orgRole === "owner" || orgRole === "admin")),
-                });
+                return withConnectToken(
+                  {
+                    ...requestStatus,
+                    configured: true,
+                    privateKeyConfigured: true,
+                    publicKeyConfigured: !!creds.publicKey,
+                    userId: creds.userId || envStatus.userId,
+                    orgName: creds.orgName || envStatus.orgName,
+                    spaces,
+                    orgKind: creds.orgKind || envStatus.orgKind,
+                    subscription:
+                      creds.subscription || envStatus.subscription || undefined,
+                    subscriptionLevel:
+                      creds.subscriptionLevel ||
+                      envStatus.subscriptionLevel ||
+                      undefined,
+                    subscriptionName:
+                      creds.subscriptionName ||
+                      envStatus.subscriptionName ||
+                      undefined,
+                    isEnterprise:
+                      creds.isEnterprise ?? envStatus.isEnterprise ?? undefined,
+                    isFreeAccount:
+                      creds.isFreeAccount ??
+                      envStatus.isFreeAccount ??
+                      undefined,
+                    credentialSource: credentialSource ?? undefined,
+                    canDisconnect:
+                      credentialSource === "user" ||
+                      (credentialSource === "org" &&
+                        isBuilderOrgManagerRole(orgRole)),
+                  },
+                  builderEffectiveConnectionFor(credentialSource),
+                );
               }
             } catch {
               // Secrets table not ready — fall through to env status
@@ -3560,9 +3971,97 @@ export function createCoreRoutesPlugin(
             });
           }
 
+          const denyConnect = async (
+            status: number,
+            message: string,
+            reason: string,
+          ) => {
+            await putSetting(
+              getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
+              {
+                message,
+                at: Date.now(),
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+              },
+            ).catch(() => {});
+            await trackBuilderLifecycle(
+              event,
+              "builder connect failed",
+              ownerEmail,
+              {
+                ...builderConnectTrackingProperties(connectTracking),
+                reason,
+                stage: "connect",
+              },
+            );
+            setResponseStatus(event, status);
+            setResponseHeader(
+              event,
+              "Content-Type",
+              "text/html; charset=utf-8",
+            );
+            return createBuilderBrowserCallbackErrorPage(message, {
+              title: "Not allowed to connect Builder for this organization",
+              body: message,
+              parentOrigin: getBuilderBrowserOriginForEvent(event),
+              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+            });
+          };
+
           const shouldProvisionAgentNativeAccount =
             requestUrl.searchParams.get(BUILDER_CONNECT_MODE_PARAM) ===
             BUILDER_AGENT_NATIVE_PROVISION_MODE;
+
+          // A named connection is authorized before anything is written,
+          // including account activation, which saves a personal connection.
+          const requestedConnectionScope = parseBuilderConnectionScope(
+            requestUrl.searchParams.get(BUILDER_CONNECTION_SCOPE_PARAM),
+          );
+          if (requestedConnectionScope === "invalid") {
+            return denyConnect(
+              400,
+              "Unknown Builder.io connection. Close this popup and try again.",
+              "invalid_connection_scope",
+            );
+          }
+          const scopedConnectAuthorization = requestedConnectionScope
+            ? await resolveBuilderConnectAuthorization(
+                event,
+                ownerEmail,
+                requestedConnectionScope,
+              )
+            : null;
+          if (scopedConnectAuthorization?.deny) {
+            return denyConnect(
+              403,
+              scopedConnectAuthorization.deny,
+              "org_authorization_required",
+            );
+          }
+          const scopelessRestriction = requestedConnectionScope
+            ? null
+            : await resolveScopelessBuilderConnectRestriction(
+                event,
+                ownerEmail,
+              );
+          if (scopelessRestriction) {
+            return denyConnect(
+              403,
+              scopelessRestriction,
+              PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
+            );
+          }
+          if (
+            requestedConnectionScope === "org" &&
+            shouldProvisionAgentNativeAccount
+          ) {
+            return denyConnect(
+              400,
+              "Account activation creates a personal Builder.io account. Connect an existing account for the organization.",
+              "provision_org_scope",
+            );
+          }
+
           if (shouldProvisionAgentNativeAccount) {
             const failProvisioning = async (
               status: number,
@@ -3659,6 +4158,12 @@ export function createCoreRoutesPlugin(
                   account_provisioned: true,
                 },
               );
+              await recordBuilderConnectionAudit({
+                connected: true,
+                ownerEmail,
+                orgId: null,
+                scope: "user",
+              });
               const parentOrigin = getBuilderBrowserOriginForEvent(event);
               setResponseHeader(event, "Cache-Control", "no-store");
               setResponseHeader(
@@ -3733,40 +4238,16 @@ export function createCoreRoutesPlugin(
             orgId: connectOrgId,
             role: connectRole,
             deny: orgConnectDenied,
-          } = await resolveBuilderOrgMutation(event, {
+          } = scopedConnectAuthorization ??
+          (await resolveBuilderOrgMutation(event, {
             allowMemberInitiation: true,
-          });
+          }));
           if (orgConnectDenied) {
-            await putSetting(
-              getBuilderConnectErrorKey(ownerEmail, connectAttemptId),
-              {
-                message: orgConnectDenied,
-                at: Date.now(),
-                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
-              },
-            ).catch(() => {});
-            await trackBuilderLifecycle(
-              event,
-              "builder connect failed",
-              ownerEmail,
-              {
-                ...builderConnectTrackingProperties(connectTracking),
-                reason: "org_authorization_required",
-                stage: "connect",
-              },
+            return denyConnect(
+              403,
+              orgConnectDenied,
+              "org_authorization_required",
             );
-            setResponseStatus(event, 403);
-            setResponseHeader(
-              event,
-              "Content-Type",
-              "text/html; charset=utf-8",
-            );
-            return createBuilderBrowserCallbackErrorPage(orgConnectDenied, {
-              title: "Not allowed to connect Builder for this organization",
-              body: orgConnectDenied,
-              parentOrigin: getBuilderBrowserOriginForEvent(event),
-              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
-            });
           }
           // The standard OAuth client discovers Builder's protected-resource
           // metadata, dynamically registers, and creates its S256 verifier.
@@ -3788,6 +4269,9 @@ export function createCoreRoutesPlugin(
               ownerEmail,
               orgId: connectOrgId,
               role: connectRole,
+              ...(requestedConnectionScope
+                ? { connectionScope: requestedConnectionScope }
+                : {}),
               encryptedOAuthFlow: encryptSecretValue(JSON.stringify(oauthFlow)),
               redirectUri: callbackUrl,
               expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
@@ -4068,13 +4552,23 @@ export function createCoreRoutesPlugin(
               writeCredentials: async (ownerEmail, credentials, scope) => {
                 const { writeBuilderCredentials } =
                   await import("./credential-provider.js");
-                await writeBuilderCredentials(ownerEmail, credentials, scope);
+                const written = await writeBuilderCredentials(
+                  ownerEmail,
+                  credentials,
+                  scope,
+                );
                 await Promise.all([
                   deleteSetting("builder-disconnected").catch(() => false),
                   deleteSetting(getBuilderConnectErrorKey(ownerEmail)).catch(
                     () => false,
                   ),
                 ]);
+                await recordBuilderConnectionAudit({
+                  connected: true,
+                  ownerEmail,
+                  orgId: scope.orgId,
+                  scope: written.scope,
+                });
               },
             },
           ).catch(() => ({
@@ -4438,27 +4932,54 @@ export function createCoreRoutesPlugin(
           // PKCE proves the callback belongs to this flow before its pending
           // row is consumed. Persist first so a transient credential-store
           // failure does not strand an otherwise valid pending flow.
-          let callbackRole: string | null = null;
-          if (pending.role === "owner" || pending.role === "admin") {
-            // Re-check authority after the external OAuth round trip. A role
-            // captured at connect start must not authorize a later org write.
-            const currentOrg = await resolveBuilderOrgMutation(event, {
-              allowMemberInitiation: true,
-            });
-            if (
-              currentOrg.orgId === pending.orgId &&
-              (currentOrg.role === "owner" || currentOrg.role === "admin")
-            ) {
-              callbackRole = currentOrg.role;
-            }
+          const requestedConnectionScope = parseBuilderConnectionScope(
+            pending.connectionScope,
+          );
+          if (requestedConnectionScope === "invalid") {
+            return fail(
+              403,
+              "Builder connect callback could not be verified. Restart the connection.",
+              ownerEmail,
+              "callback_verification_failed",
+              tracking,
+            );
           }
-          let credentialScope: "user" | "org" = "user";
+          const pendingOrgId =
+            typeof pending.orgId === "string" ? pending.orgId : null;
+          const pendingRole =
+            typeof pending.role === "string" ? pending.role : null;
+          // Re-check authority after the external OAuth round trip. A role
+          // captured at connect start must not authorize a later org write.
+          const needsOrgRecheck =
+            requestedConnectionScope === "org" ||
+            (requestedConnectionScope === null &&
+              isBuilderOrgManagerRole(pendingRole));
+          const callbackWrite = resolveBuilderCallbackWrite({
+            requestedScope: requestedConnectionScope,
+            pendingOrgId,
+            pendingRole,
+            currentOrg: needsOrgRecheck
+              ? await resolveBuilderOrgMutation(event, {
+                  allowMemberInitiation: true,
+                })
+              : null,
+          });
+          if ("deny" in callbackWrite) {
+            return fail(
+              403,
+              callbackWrite.deny,
+              ownerEmail,
+              "org_authorization_required",
+              tracking,
+            );
+          }
+          let credentialScope: BuilderOAuthScope = "user";
           try {
             credentialScope = await saveBuilderOAuthCredentials({
               ownerEmail,
-              orgId:
-                typeof pending.orgId === "string" ? pending.orgId : undefined,
-              role: callbackRole,
+              orgId: pendingOrgId ?? undefined,
+              role: callbackWrite.role,
+              scope: callbackWrite.scope,
               credentials,
             });
           } catch {
@@ -4516,6 +5037,12 @@ export function createCoreRoutesPlugin(
               credential_scope: credentialScope,
             },
           );
+          await recordBuilderConnectionAudit({
+            connected: true,
+            ownerEmail,
+            orgId: typeof pending.orgId === "string" ? pending.orgId : null,
+            scope: credentialScope,
+          });
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
           return createBuilderBrowserCallbackPage(
             `${parentOrigin}${getAppBasePath() || "/"}`,
@@ -4548,6 +5075,27 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
           }
+          let disconnectBody: unknown;
+          try {
+            disconnectBody = await readBody(event);
+          } catch {
+            setResponseStatus(event, 400);
+            return { error: "Invalid request body." };
+          }
+          const requestedConnectionScope = parseBuilderConnectionScope(
+            (disconnectBody && typeof disconnectBody === "object"
+              ? (disconnectBody as Record<string, unknown>)[
+                  BUILDER_CONNECTION_SCOPE_PARAM
+                ]
+              : undefined) ??
+              getFrameworkRouteRequestUrl(event).searchParams.get(
+                BUILDER_CONNECTION_SCOPE_PARAM,
+              ),
+          );
+          if (requestedConnectionScope === "invalid") {
+            setResponseStatus(event, 400);
+            return { error: "Unknown Builder.io connection." };
+          }
 
           try {
             const {
@@ -4563,6 +5111,28 @@ export function createCoreRoutesPlugin(
               role = orgCtx.role ?? null;
             } catch {
               // coercion-ok: org module is optional; disconnect still clears user-scoped custody.
+            }
+            if (requestedConnectionScope) {
+              const result = await disconnectBuilderConnectionAtScope({
+                email: session.email,
+                orgId,
+                role,
+                scope: requestedConnectionScope,
+              });
+              if (result.status === 200) {
+                await trackBuilderLifecycle(
+                  event,
+                  "builder disconnect succeeded",
+                  session.email,
+                  {
+                    connection_scope: requestedConnectionScope,
+                    oauth_present: result.body.remoteRevoked !== undefined,
+                    remote_revoked: result.body.remoteRevoked,
+                  },
+                );
+              }
+              setResponseStatus(event, result.status);
+              return result.body;
             }
             const oauthScope = await getBuilderOAuthStoredScope(
               session.email,
@@ -4621,6 +5191,15 @@ export function createCoreRoutesPlugin(
               session.email,
               oauthScope ? undefined : legacyDeleteOptions,
             );
+            await recordBuilderConnectionAudit({
+              connected: false,
+              ownerEmail: session.email,
+              orgId,
+              scope: builderDisconnectAuditScope(
+                oauthScope,
+                legacyDeleteOptions,
+              ),
+            });
             await trackBuilderLifecycle(
               event,
               "builder disconnect succeeded",
@@ -4944,32 +5523,11 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // POST /_agent-native/agent-engine/disconnect — clear the agent-engine
-      // setting. Env vars are left alone so the next chat turn falls back to
-      // resolveEngine's env/default resolution.
+      // POST /_agent-native/agent-engine/disconnect — clear the default model
+      // for the caller's organization (owners and admins only).
       getH3App(nitroApp).use(
         `${P}/agent-engine/disconnect`,
-        defineEventHandler(async (event: H3Event) => {
-          if (getMethod(event) !== "POST") {
-            setResponseStatus(event, 405);
-            return { error: "Method not allowed" };
-          }
-          const session = await getSession(event).catch(() => null);
-          if (!session?.email) {
-            setResponseStatus(event, 401);
-            return { error: "unauthorized" };
-          }
-          try {
-            await deleteSetting("agent-engine");
-            return { ok: true };
-          } catch (err) {
-            setResponseStatus(event, 500);
-            return {
-              ok: false,
-              error: err instanceof Error ? err.message : String(err),
-            };
-          }
-        }),
+        createAgentEngineDisconnectHandler(),
       );
 
       // GET/PUT/DELETE /_agent-native/agent-loop-settings — org/user-scoped

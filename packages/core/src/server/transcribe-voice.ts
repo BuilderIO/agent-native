@@ -40,10 +40,18 @@ import { getSession } from "./auth.js";
 import {
   gatewayLaneUnavailableMessage,
   resolveHasBuilderGatewayCredential,
-  resolveSecret,
 } from "./credential-provider.js";
 import { runWithRequestContext } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
+import {
+  GEMINI_API_KEY,
+  resolveSecretWithAliases,
+} from "./secret-key-aliases.js";
+import {
+  readServiceProviderChoice,
+  serviceProviderOrder,
+  type ServiceProviderId,
+} from "./service-providers.js";
 
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
@@ -67,7 +75,7 @@ const MAX_TRANSCRIPT_CHARS = 150_000;
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
 const BUILDER_CLEANUP_MODEL = "gpt-5-6-luna";
 
-// Gemini Flash Lite BYOK path when GEMINI_API_KEY is configured.
+// Gemini Flash Lite BYOK path when a Gemini key is configured.
 // Gemini accepts inline audio; we just give it the bytes and a "transcribe
 // this" prompt and it replies with text. 2.5x faster TTFT than 2.5 Flash
 // per Google's release notes, and noticeably snappier than the Whisper
@@ -82,21 +90,16 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GE
  * (e.g. the desktop client's own 8s ceiling firing before a provider call's
  * longer timeout). Without this, an abandoned client connection leaves the
  * server-side provider fetch running for its full timeout, burning provider
- * quota/cost on a response nobody will read. `req.on("close", ...)` fires on
- * abnormal/early disconnect in Node's http server; a stray fire after normal
- * completion is a harmless no-op since the response has already been sent.
- * Returns undefined if the underlying Node request isn't available (e.g. a
- * non-Node adapter), so callers fall back to their existing timeout-only
- * signal.
+ * quota/cost on a response nobody will read. Never listen for the Node
+ * IncomingMessage's own `close`: it fires as soon as the body is fully read,
+ * which would abort every provider call made after `readMultipartFormData`.
+ * The web request's signal (srvx derives it from the response's `close`
+ * without `writableEnded`) only fires on a real disconnect. Returns undefined
+ * when the runtime exposes no request signal, so callers fall back to their
+ * existing timeout-only signal.
  */
 function clientDisconnectSignal(event: H3Event): AbortSignal | undefined {
-  const req = event.node?.req as
-    | (NodeJS.EventEmitter & { on?: (...args: any[]) => void })
-    | undefined;
-  if (!req?.on) return undefined;
-  const controller = new AbortController();
-  req.on("close", () => controller.abort());
-  return controller.signal;
+  return event.req?.signal;
 }
 
 /** Combine a provider call's own timeout signal with the request's optional
@@ -251,7 +254,10 @@ export function createTranscribeVoiceHandler() {
     // Per-user-or-fallback API key resolution. Hoisted up so the Gemini
     // path below can use it without duplicating logic.
     async function resolveApiKey(key: string): Promise<string | undefined> {
-      return (await withRequestContext(() => resolveSecret(key))) ?? undefined;
+      return (
+        (await withRequestContext(() => resolveSecretWithAliases(key))) ??
+        undefined
+      );
     }
 
     if (transcriptText) {
@@ -290,12 +296,12 @@ export function createTranscribeVoiceHandler() {
     // earlier providers and lands on the Whisper path).
 
     if (providerPref === "gemini") {
-      const geminiKey = await resolveApiKey("GEMINI_API_KEY");
+      const geminiKey = await resolveApiKey(GEMINI_API_KEY);
       if (!geminiKey) {
         setResponseStatus(event, 400);
         return {
           error:
-            "Gemini is selected but GEMINI_API_KEY is not configured. Add it in Settings → API Keys, or change the provider preference.",
+            "Gemini is selected but no Gemini API key (GOOGLE_GENERATIVE_AI_API_KEY) is configured. Add it in Settings → API Keys, or change the provider preference.",
         };
       }
       try {
@@ -372,12 +378,7 @@ export function createTranscribeVoiceHandler() {
       }
       return await callWhisperCompat({
         event,
-        provider: {
-          name: "groq",
-          endpoint: GROQ_URL,
-          model: GROQ_MODEL,
-          apiKey: groqKey,
-        },
+        provider: whisperProvider("groq", groqKey),
         audioBytes,
         mime,
         language,
@@ -388,38 +389,63 @@ export function createTranscribeVoiceHandler() {
     }
 
     // ── Auto / undefined / openai fallback chain ────────────────────────
-
-    // ── Builder Gemini Flash-Lite path ─────────────────────────────────
-    // First-priority in auto mode when Builder is connected. This lets users
-    // try Gemini 3.1 Flash-Lite without bringing their own Google key.
-    if (providerPref !== "openai" && (await hasBuilderCredential())) {
+    // Builder Gemini Flash-Lite → Gemini BYOK → Groq → OpenAI Whisper, with
+    // the organization's Voice input choice (Settings › Infrastructure) moved
+    // to the front. A member's own single-provider preference above wins over
+    // it; the legacy "openai" preference skips straight to Whisper.
+    let orgVoiceProvider: ServiceProviderId<"voice"> | null = null;
+    if (!providerPref || providerPref === "auto") {
       try {
-        const result = await transcribeWithBuilderForRequest({
-          audioBytes,
-          mimeType: mime,
-          model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
-          language: language || undefined,
-          instructions: voiceGuidance,
+        orgVoiceProvider = await readServiceProviderChoice("voice", {
+          orgId: requestContext.orgId ?? null,
         });
-        return { text: applyVoiceContext(result.text ?? "") };
       } catch (err) {
-        const message = (err as Error)?.message ?? String(err);
-        // Surface 402 (credits exhausted) as a 402 so the client can show
-        // a specific upgrade prompt.
-        if (message.includes("credits exhausted")) {
-          setResponseStatus(event, 402);
-          return { error: gatewayLaneUnavailableMessage(message) };
-        }
-        builderError = message;
+        console.error(
+          "[transcribe-voice] Could not read the organization's voice provider:",
+          (err as Error)?.message ?? err,
+        );
+        setResponseStatus(event, 503);
+        return {
+          error:
+            "Couldn't read the organization's voice input provider. Try again.",
+        };
       }
     }
+    const chain: ServiceProviderId<"voice">[] =
+      providerPref === "openai"
+        ? ["openai"]
+        : serviceProviderOrder("voice", orgVoiceProvider);
 
-    // ── Gemini Flash Lite BYOK path ────────────────────────────────────
-    // If Builder is unavailable, try a user-provided Gemini key before
-    // Whisper-compatible providers.
-    if (providerPref !== "openai") {
-      const geminiKey = await resolveApiKey("GEMINI_API_KEY");
-      if (geminiKey) {
+    for (const candidate of chain) {
+      if (candidate === "builder") {
+        // First in the default order when Builder is connected. This lets
+        // users try Gemini 3.1 Flash-Lite without bringing their own key.
+        if (!(await hasBuilderCredential())) continue;
+        try {
+          const result = await transcribeWithBuilderForRequest({
+            audioBytes,
+            mimeType: mime,
+            model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
+            language: language || undefined,
+            instructions: voiceGuidance,
+          });
+          return { text: applyVoiceContext(result.text ?? "") };
+        } catch (err) {
+          const message = (err as Error)?.message ?? String(err);
+          // Surface 402 (credits exhausted) as a 402 so the client can show
+          // a specific upgrade prompt.
+          if (message.includes("credits exhausted")) {
+            setResponseStatus(event, 402);
+            return { error: gatewayLaneUnavailableMessage(message) };
+          }
+          builderError = message;
+        }
+        continue;
+      }
+
+      if (candidate === "gemini") {
+        const geminiKey = await resolveApiKey(GEMINI_API_KEY);
+        if (!geminiKey) continue;
         try {
           const text = await transcribeWithGemini({
             audioBytes,
@@ -443,67 +469,48 @@ export function createTranscribeVoiceHandler() {
             (err as Error)?.message ?? err,
           );
         }
+        continue;
       }
+
+      // The first Whisper-compatible provider with a key answers, success or
+      // failure, as it did before the organization choice existed.
+      const apiKey = await resolveApiKey(WHISPER_PROVIDERS[candidate].keyName);
+      if (!apiKey) continue;
+      return await callWhisperCompat({
+        event,
+        provider: whisperProvider(candidate, apiKey),
+        audioBytes,
+        mime,
+        language,
+        instructions: voiceGuidance,
+        contextPack: voiceContext,
+        clientAbortSignal: clientAbort,
+      });
     }
 
-    // If Builder is unavailable, fall through to BYOK providers rather than
-    // hard-failing. This mirrors Clips' batch transcription path.
-
-    // ── Groq / OpenAI Whisper-compatible path ──────────────────────────
-    // (resolveApiKey is hoisted above so the Gemini path can use it too.)
-
-    let provider: {
-      name: "groq" | "openai";
-      endpoint: string;
-      model: string;
-      apiKey: string;
-    } | null = null;
-
-    if (providerPref !== "openai") {
-      const groqKey = await resolveApiKey("GROQ_API_KEY");
-      if (groqKey) {
-        provider = {
-          name: "groq",
-          endpoint: GROQ_URL,
-          model: GROQ_MODEL,
-          apiKey: groqKey,
-        };
-      }
-    }
-    if (!provider) {
-      const openaiKey = await resolveApiKey("OPENAI_API_KEY");
-      if (openaiKey) {
-        provider = {
-          name: "openai",
-          endpoint: WHISPER_URL,
-          model: OPENAI_MODEL,
-          apiKey: openaiKey,
-        };
-      }
-    }
-
-    if (!provider) {
-      setResponseStatus(event, builderError ? 502 : 400);
-      return {
-        error: gatewayLaneUnavailableMessage(
-          builderError
-            ? `Builder transcription failed: ${builderError}. Add GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
-            : "No voice transcription provider configured. Connect Builder.io (free tier available) or add GEMINI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
-        ),
-      };
-    }
-
-    return await callWhisperCompat({
-      event,
-      provider,
-      audioBytes,
-      mime,
-      language,
-      instructions: voiceGuidance,
-      contextPack: voiceContext,
-      clientAbortSignal: clientAbort,
-    });
+    setResponseStatus(event, builderError ? 502 : 400);
+    return {
+      error: gatewayLaneUnavailableMessage(
+        builderError
+          ? `Builder transcription failed: ${builderError}. Add GOOGLE_GENERATIVE_AI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
+          : "No voice transcription provider configured. Connect Builder.io (free tier available) or add GOOGLE_GENERATIVE_AI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
+      ),
+    };
   });
+}
+
+const WHISPER_PROVIDERS = {
+  groq: { endpoint: GROQ_URL, model: GROQ_MODEL, keyName: "GROQ_API_KEY" },
+  openai: {
+    endpoint: WHISPER_URL,
+    model: OPENAI_MODEL,
+    keyName: "OPENAI_API_KEY",
+  },
+} as const;
+
+function whisperProvider(name: "groq" | "openai", apiKey: string) {
+  const { endpoint, model } = WHISPER_PROVIDERS[name];
+  return { name, endpoint, model, apiKey };
 }
 
 /**
@@ -662,12 +669,12 @@ async function cleanupTranscriptText({
   }
 
   if (providerPref === "gemini") {
-    const geminiKey = await resolveApiKey("GEMINI_API_KEY");
+    const geminiKey = await resolveApiKey(GEMINI_API_KEY);
     if (!geminiKey) {
       setResponseStatus(event, 400);
       return {
         error:
-          "Gemini cleanup is selected but GEMINI_API_KEY is not configured.",
+          "Gemini cleanup is selected but no Gemini API key (GOOGLE_GENERATIVE_AI_API_KEY) is configured.",
       };
     }
     try {
@@ -740,7 +747,7 @@ async function cleanupTranscriptText({
     }
   }
 
-  const geminiKey = await resolveApiKey("GEMINI_API_KEY");
+  const geminiKey = await resolveApiKey(GEMINI_API_KEY);
   if (geminiKey) {
     try {
       const cleaned = await cleanupWithGemini({

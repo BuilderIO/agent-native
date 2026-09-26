@@ -304,12 +304,12 @@ describe("AgentJobsTab organization automations", () => {
     const eventRow = Array.from(container.querySelectorAll("article")).find(
       (row) => row.textContent?.includes("new lead alert"),
     );
-    const pauseButton = Array.from(
-      eventRow?.querySelectorAll("button") ?? [],
-    ).find((button) => button.textContent?.includes("Pause"));
+    const toggle =
+      eventRow?.querySelector<HTMLButtonElement>('[role="switch"]');
+    expect(toggle?.getAttribute("aria-checked")).toBe("true");
 
     act(() => {
-      pauseButton?.click();
+      toggle?.click();
     });
 
     expect(jobMocks.manageAutomation.org).toHaveBeenCalledWith(
@@ -322,6 +322,100 @@ describe("AgentJobsTab organization automations", () => {
       undefined,
     );
     expect(jobMocks.manageAutomation.user).not.toHaveBeenCalled();
+  });
+
+  describe("in Settings", () => {
+    it("tells a member which organization automations they manage, and still lets them create one", () => {
+      act(() => {
+        root.render(
+          <AgentJobsTab
+            variant="settings"
+            canManageOrg={false}
+            organizationId="org-a"
+            organizationName="Builder.io"
+          />,
+        );
+      });
+
+      const headings = [...container.querySelectorAll("h2")].map(
+        (heading) => heading.textContent,
+      );
+      expect(headings).toEqual(["Personal", "Builder.io"]);
+      const organizationSection = container.querySelectorAll("section")[1];
+      expect(organizationSection?.lastElementChild?.textContent).toBe(
+        "You can manage automations you created.",
+      );
+      expect(
+        organizationSection?.querySelector(
+          '[data-draft-scope="agent-jobs:organization-create:org-a"]',
+        ),
+      ).not.toBeNull();
+      expect(container.textContent).not.toContain(
+        "Scheduled, event-triggered, and webhook-triggered automations shared with this organization.",
+      );
+      // The Settings header carries New automation, so the body doesn't.
+      expect(
+        container.querySelector(
+          '[data-draft-scope="agent-jobs:compact-create"]',
+        ),
+      ).toBeNull();
+    });
+
+    it("gives a member no controls on someone else's automation", () => {
+      jobMocks.useAutomations.mockImplementation((scope: "user" | "org") =>
+        queryResult(
+          scope === "org"
+            ? [
+                {
+                  id: "someone-elses",
+                  name: "owner-digest",
+                  path: "jobs/owner-digest.md",
+                  scope: "organization",
+                  triggerType: "event",
+                  event: "lead.created",
+                  schedule: null,
+                  scheduleDescription: null,
+                  condition: null,
+                  body: "Send the digest.",
+                  enabled: true,
+                  lastRun: null,
+                  lastStatus: null,
+                  lastError: null,
+                  nextRun: null,
+                  createdBy: "owner@example.com",
+                  canUpdate: false,
+                },
+              ]
+            : [],
+        ),
+      );
+      jobMocks.useRecurringJobs.mockReturnValue(queryResult([]));
+
+      act(() => {
+        root.render(<AgentJobsTab variant="settings" canManageOrg={false} />);
+      });
+
+      const row = [...container.querySelectorAll("article")].find((article) =>
+        article.textContent?.includes("owner digest"),
+      );
+      expect(row?.querySelector('[role="switch"]')).toBeNull();
+      expect(row?.textContent).not.toContain("Pause");
+    });
+
+    it("keeps the note off for owners and admins", () => {
+      act(() => {
+        root.render(
+          <AgentJobsTab
+            variant="settings"
+            canManageOrg
+            organizationName="Acme"
+          />,
+        );
+      });
+      expect(container.textContent).not.toContain(
+        "You can manage automations you created.",
+      );
+    });
   });
 
   it("creates organization automations through the scoped automation tool", () => {

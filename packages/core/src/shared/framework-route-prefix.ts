@@ -32,15 +32,24 @@ export const FRAMEWORK_ROUTE_PREFIX_ENV =
   "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX";
 
 /**
+ * Top-level namespaces the server answers before the app's router, besides
+ * the framework prefix. No React Router route renders under them, so the
+ * browser loads them as documents and must never ask them for `.data`.
+ */
+export const SERVER_ROUTE_PREFIXES = [
+  "/api",
+  "/mcp",
+  "/.well-known",
+  "/assets",
+] as const;
+
+/**
  * Namespaces the framework already routes on, or that apps own by convention.
  * A public prefix that shadows one of these would make the request boundary
  * ambiguous: `/api/actions/...` could be an app route or a framework route.
  */
 export const RESERVED_FRAMEWORK_ROUTE_PREFIXES = [
-  "/api",
-  "/mcp",
-  "/.well-known",
-  "/assets",
+  ...SERVER_ROUTE_PREFIXES,
   "/sign-in",
   "/login",
   "/signup",

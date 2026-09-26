@@ -33,6 +33,40 @@ describe("Mail navigate", () => {
     });
   });
 
+  it.each([
+    ["rules", "/settings/app/rules"],
+    ["ai-filter", "/settings/app/ai-filter"],
+    ["slack", "/settings/channels/slack"],
+    ["members", "/settings/members"],
+    ["general", "/settings/app"],
+  ] as const)(
+    "opens the %s settings route in the requesting tab",
+    async (settingsSection, pathname) => {
+      await action.run({ settingsSection });
+
+      expect(writeAppStateForCurrentTab).toHaveBeenCalledTimes(1);
+      expect(writeAppStateForCurrentTab).toHaveBeenCalledWith(
+        "__set_url__",
+        expect.objectContaining({ pathname, mergeSearchParams: false }),
+      );
+    },
+  );
+
+  it("opens Mail › General for the bare settings view", async () => {
+    await action.run({ view: "settings" });
+
+    expect(writeAppStateForCurrentTab).toHaveBeenCalledWith(
+      "__set_url__",
+      expect.objectContaining({ pathname: "/settings/app" }),
+    );
+  });
+
+  it("rejects a settings section Mail doesn't have", () => {
+    expect(
+      action.schema.safeParse({ settingsSection: "automations" }).success,
+    ).toBe(false);
+  });
+
   it("rejects Priority navigation without Jev credentials", async () => {
     mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
     mocks.getJevContextCredentials.mockResolvedValue({

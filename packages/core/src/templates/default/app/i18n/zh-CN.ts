@@ -215,6 +215,9 @@ const messages = {
       noErrorMessage: "（无错误消息）",
     },
   },
+  settingsShortcut: {
+    command: "设置",
+  },
   agentPanel: {
     useBuilder: "使用生成器",
     openDesktopToEditCode: "打开桌面编辑代码",
@@ -230,6 +233,7 @@ const messages = {
     newChat: "新聊天",
     newTerminal: "新航站楼",
     panelOptions: "代理面板选项",
+    integrations: "集成",
     collapseSidebar: "收起侧边栏",
     widenChat: "加宽聊天窗口",
     returnChatToLayout: "将聊天窗口恢复到布局中",
@@ -255,6 +259,8 @@ const messages = {
     sharedKeyInEffect: "当前使用的是共享密钥。",
     useOrganizationKey: "改用组织密钥",
     keyStatusUnavailable: "无法获取密钥状态。",
+    saveScopeRoleUnavailable:
+      "无法加载你在组织中的角色，因此暂时无法保存密钥。",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',

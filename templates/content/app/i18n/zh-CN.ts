@@ -1325,6 +1325,13 @@ const overrides = {
     emailNotificationsDescription:
       "当有人评论你的文档、在讨论串中回复或提到你时，收到邮件通知。",
     saveFailed: "保存失败",
+    notificationsEmail: "电子邮件",
+    commentsRepliesMentions: "评论、回复和提及",
+    commentsRepliesMentionsDescription:
+      "当有人评论或回复你的文档，或提及你时。",
+    retry: "重试",
+    mcpAbout:
+      "将 Content 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。该应用随后可以代你在 Content 中工作：搜索、撰写和编辑文档。它只能看到你能看到的内容。",
     languageTitle: "语言",
     languageDescription: "选择界面语言。此偏好会保存到你的账户。",
     languageLabel: "界面语言",

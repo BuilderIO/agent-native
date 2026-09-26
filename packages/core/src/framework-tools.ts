@@ -106,7 +106,12 @@ export interface FrameworkToolsOption {
   web?: boolean;
   /** `describe-workspace-apps` and `call-agent` for cross-app delegation. */
   workspaceApps?: boolean;
-  /** `chat-history`, `manage-agent-engine`, `manage-agent-loop-settings`. */
+  /** `chat-history`, `manage-agent-engine`, `manage-agent-loop-settings`,
+   *  `preview-secret-removal`, `list-api-keys`, `delete-api-key`,
+   *  `check-provider-key`,
+   *  `manage-provider-key-policy`, `manage-builder-connection`,
+   *  `get-provider-models`, `manage-provider-models`,
+   *  `list-model-providers`. */
   chat?: boolean;
   /** `core-send-email`. */
   email?: boolean;
@@ -125,7 +130,12 @@ export interface FrameworkToolsOption {
    *  `mcp.enabled` decides whether the ROUTES exist, this decides whether the
    *  model can call them. */
   orgServiceTokens?: boolean;
-  /** Administer app roles and app permission mappings for the active org. */
+  /** Administer app roles, app permission mappings, file storage
+   *  (`get-file-storage`, `manage-file-storage`), service providers
+   *  (`manage-service-providers`), the infrastructure read
+   *  (`get-infrastructure-status`), and messaging channels
+   *  (`list-messaging-channels`, `manage-messaging-channel`) for the active
+   *  org. */
   orgAdministration?: boolean;
   /** `"minimal"` turns every group above off, for voice-first and
    *  single-purpose apps that want the template's own actions and nothing else.
@@ -285,8 +295,15 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "set-app-permission-roles": "orgAdministration",
   "list-workspace-app-access": "orgAdministration",
   "set-workspace-app-access": "orgAdministration",
+  "list-sign-in-methods": "orgAdministration",
   "explain-access": "orgAdministration",
   "offboard-member": "orgAdministration",
+  "get-file-storage": "orgAdministration",
+  "manage-file-storage": "orgAdministration",
+  "manage-service-providers": "orgAdministration",
+  "get-infrastructure-status": "orgAdministration",
+  "list-messaging-channels": "orgAdministration",
+  "manage-messaging-channel": "orgAdministration",
   "share-resource": "sharing",
   "unshare-resource": "sharing",
   "list-resource-shares": "sharing",
@@ -303,6 +320,15 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "set-lab": "labs",
   "get-chatgpt-subscription-status": "chat",
   "disconnect-chatgpt-subscription": "chat",
+  "preview-secret-removal": "chat",
+  "list-api-keys": "chat",
+  "delete-api-key": "chat",
+  "check-provider-key": "chat",
+  "manage-provider-key-policy": "chat",
+  "manage-builder-connection": "chat",
+  "get-provider-models": "chat",
+  "manage-provider-models": "chat",
+  "list-model-providers": "chat",
   "get-experiments": "labs",
   "set-experiment": "labs",
 

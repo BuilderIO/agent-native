@@ -229,13 +229,23 @@ describe("AgentJobsTab blocked automation", () => {
       root.render(<AgentJobsTab />);
     });
 
-    const editButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Edit",
+    // Edit lives in the row's More actions menu.
+    const menuTrigger = container.querySelector<HTMLButtonElement>(
+      'article button[aria-haspopup="menu"]',
     );
-    expect(editButton).toBeDefined();
+    expect(menuTrigger).not.toBeNull();
+    act(() => {
+      menuTrigger!.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    const editItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "Edit");
+    expect(editItem).toBeDefined();
 
     act(() => {
-      editButton?.click();
+      editItem?.click();
     });
 
     const input = document.querySelector<HTMLInputElement>(

@@ -893,7 +893,7 @@ export default function PromptPopover({
                         type="button"
                         variant="outline"
                         size="icon"
-                        className="size-9 shrink-0"
+                        className="shrink-0"
                         onClick={() => {
                           trackEvent("design_system_creator_opened", {
                             app_name: "design",
@@ -929,7 +929,7 @@ export default function PromptPopover({
                       if (!nextOpen) markNestedSelectJustClosed();
                     }}
                   >
-                    <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
+                    <SelectTrigger className="min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
                       <IconBrain className="size-4 shrink-0 text-muted-foreground" />
                       <span
                         className="min-w-0 flex-1 truncate text-start"

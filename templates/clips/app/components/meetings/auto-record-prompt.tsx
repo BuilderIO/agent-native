@@ -112,7 +112,7 @@ export function AutoRecordPrompt({
             cancel();
             onStart();
           }}
-          className="cursor-pointer h-8 gap-1.5"
+          className="cursor-pointer gap-1.5"
         >
           <IconPlayerPlayFilled className="h-3.5 w-3.5" />
           {t("autoRecordPrompt.startNotes")}

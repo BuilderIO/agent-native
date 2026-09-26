@@ -20,8 +20,10 @@ const requestBodyText = (body: BodyInit | null | undefined): string =>
 
 const resolveBuilderGatewayAuthMock = vi.hoisted(() => vi.fn());
 const resolveSecretMock = vi.hoisted(() => vi.fn());
+const resolveGeminiApiKeyMock = vi.hoisted(() => vi.fn());
 const resolveHasBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
 const googleGenerateContentMock = vi.hoisted(() => vi.fn());
+const readServiceProviderChoiceMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => {
   class FeatureNotConfiguredError extends Error {
@@ -45,10 +47,13 @@ vi.mock("@agent-native/core/server", () => {
 
   return {
     FeatureNotConfiguredError,
+    GEMINI_API_KEY: "GOOGLE_GENERATIVE_AI_API_KEY",
     getBuilderImageGenerationBaseUrl: vi.fn(
       () => "https://builder.test/agent-native/images/v1",
     ),
+    readServiceProviderChoice: readServiceProviderChoiceMock,
     resolveBuilderGatewayAuth: resolveBuilderGatewayAuthMock,
+    resolveGeminiApiKey: resolveGeminiApiKeyMock,
     resolveHasBuilderPrivateKey: resolveHasBuilderPrivateKeyMock,
     resolveSecret: resolveSecretMock,
   };
@@ -141,11 +146,97 @@ describe("generateWithManagedImageProvider", () => {
     });
     resolveHasBuilderPrivateKeyMock.mockResolvedValue(true);
     resolveSecretMock.mockResolvedValue(null);
+    resolveGeminiApiKeyMock.mockResolvedValue(null);
+    readServiceProviderChoiceMock.mockResolvedValue(null);
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+  });
+
+  it("uses the organization's OpenAI choice before Builder", async () => {
+    readServiceProviderChoiceMock.mockResolvedValue("openai");
+    resolveSecretMock.mockImplementation(async (key: string) =>
+      key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
+    );
+    const fetchMock = vi.fn(async (_url: string | URL | Request) => {
+      return new Response(
+        JSON.stringify({
+          data: [{ b64_json: Buffer.from([4, 5, 6]).toString("base64") }],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(generateWithManagedImageProvider(baseInput)).resolves.toEqual(
+      expect.objectContaining({ provider: "openai" }),
+    );
+    expect(readServiceProviderChoiceMock).toHaveBeenCalledWith("images");
+    expect(fetchMock.mock.calls.map(([url]) => requestUrl(url))).toEqual([
+      "https://api.openai.com/v1/images/generations",
+    ]);
+  });
+
+  it("uses the organization's Gemini choice before Builder", async () => {
+    readServiceProviderChoiceMock.mockResolvedValue("gemini");
+    resolveGeminiApiKeyMock.mockResolvedValue("gemini-test");
+    googleGenerateContentMock.mockResolvedValue({
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                inlineData: {
+                  data: Buffer.from([1, 1, 1]).toString("base64"),
+                  mimeType: "image/png",
+                },
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(generateWithManagedImageProvider(baseInput)).resolves.toEqual(
+      expect.objectContaining({ provider: "gemini" }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps Builder first when the chosen provider has no key or can't serve the run", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) =>
+      requestUrl(url).endsWith("/generations")
+        ? builderGenerationSuccess()
+        : builderImageBytes(),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    // Gemini chosen, but no Gemini key.
+    readServiceProviderChoiceMock.mockResolvedValue("gemini");
+    await expect(generateWithManagedImageProvider(baseInput)).resolves.toEqual(
+      expect.objectContaining({ provider: "builder" }),
+    );
+
+    // OpenAI chosen with a key, but OpenAI can't attach reference boards.
+    readServiceProviderChoiceMock.mockResolvedValue("openai");
+    resolveSecretMock.mockImplementation(async (key: string) =>
+      key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
+    );
+    await expect(
+      generateWithManagedImageProvider({
+        ...baseInput,
+        hasBoardReferences: true,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ provider: "builder" }));
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        requestUrl(url).includes("api.openai.com"),
+      ),
+    ).toBe(false);
   });
 
   it("reports Builder credit failures as a connected-space problem", async () => {
@@ -154,7 +245,7 @@ describe("generateWithManagedImageProvider", () => {
     await expect(generateWithManagedImageProvider(baseInput)).rejects.toEqual(
       expect.objectContaining({
         name: "FeatureNotConfiguredError",
-        requiredCredential: "GEMINI_API_KEY",
+        requiredCredential: "GOOGLE_GENERATIVE_AI_API_KEY",
         message: expect.stringContaining("Builder.io is connected"),
       }),
     );
@@ -270,9 +361,7 @@ describe("generateWithManagedImageProvider", () => {
   it("refuses to reroute gpt board-reference runs into the manual Gemini fallback", async () => {
     vi.stubEnv("BUILDER_IMAGE_GENERATION_ENABLED", "false");
     resolveBuilderGatewayAuthMock.mockResolvedValue(null);
-    resolveSecretMock.mockImplementation(async (key: string) =>
-      key === "GEMINI_API_KEY" ? "gemini-test" : null,
-    );
+    resolveGeminiApiKeyMock.mockResolvedValue("gemini-test");
 
     await expect(
       generateWithManagedImageProvider({
@@ -300,9 +389,7 @@ describe("generateWithManagedImageProvider", () => {
 
   it("passes board references through the manual Gemini fallback", async () => {
     resolveBuilderGatewayAuthMock.mockResolvedValue(null);
-    resolveSecretMock.mockImplementation(async (key: string) =>
-      key === "GEMINI_API_KEY" ? "gemini-test" : null,
-    );
+    resolveGeminiApiKeyMock.mockResolvedValue("gemini-test");
     googleGenerateContentMock.mockResolvedValue({
       candidates: [
         {
@@ -351,6 +438,8 @@ describe("generateWithManagedImageProvider", () => {
         ]),
       }),
     );
+    expect(resolveGeminiApiKeyMock).toHaveBeenCalled();
+    expect(resolveSecretMock).not.toHaveBeenCalledWith("GEMINI_API_KEY");
   });
 
   it("preserves gpt-image-1 for transparent OpenAI fallback requests", async () => {
@@ -555,7 +644,7 @@ describe("generateWithManagedImageProvider", () => {
     ).rejects.toEqual(
       expect.objectContaining({
         name: "FeatureNotConfiguredError",
-        requiredCredential: "GEMINI_API_KEY",
+        requiredCredential: "GOOGLE_GENERATIVE_AI_API_KEY",
         message: expect.stringContaining("Restyle and edit runs need"),
       }),
     );

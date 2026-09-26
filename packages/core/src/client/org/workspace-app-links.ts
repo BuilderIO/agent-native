@@ -264,7 +264,7 @@ export function isWorkspaceAppEnvironment(
 
 function dispatchPageHref(
   apps: OrgSwitcherAppLink[],
-  page: "overview" | "apps" | "vault",
+  page: "overview" | "apps" | "vault" | "workspace",
   env: RuntimeEnv,
 ): string {
   const dispatch = apps.find((app) => app.isDispatch);
@@ -291,6 +291,14 @@ export function dispatchVaultHref(
   env: RuntimeEnv = runtimeEnv(),
 ): string {
   return dispatchPageHref(apps, "vault", env);
+}
+
+/** Dispatch's Resources page, where workspace resources are edited. */
+export function dispatchResourcesHref(
+  apps: OrgSwitcherAppLink[],
+  env: RuntimeEnv = runtimeEnv(),
+): string {
+  return dispatchPageHref(apps, "workspace", env);
 }
 
 export function visibleOrgAppLinks(
@@ -355,6 +363,7 @@ export interface UseOrgSwitcherAppLinksResult {
   dispatchHref: string;
   dispatchAllAppsHref: string;
   dispatchVaultHref: string;
+  dispatchResourcesHref: string;
 }
 
 export function useOrgSwitcherAppLinks(
@@ -409,5 +418,6 @@ export function useOrgSwitcherAppLinks(
     dispatchHref: dispatchOverviewHref(apps, env),
     dispatchAllAppsHref: dispatchAppsHref(apps, env),
     dispatchVaultHref: dispatchVaultHref(apps, env),
+    dispatchResourcesHref: dispatchResourcesHref(apps, env),
   };
 }

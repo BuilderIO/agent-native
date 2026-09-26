@@ -27,7 +27,7 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain("h-8 w-full justify-start");
     expect(shareDialogSource).toContain("<ViewerSwitch");
     expect(shareUiSource).toContain("flex h-8 min-w-0 flex-1");
-    expect(shareUiSource).toContain('className="size-8 shrink-0"');
+    expect(shareUiSource).toContain('size="icon-sm"');
   });
 
   it("keeps human and agent actions in separate tab panels", () => {

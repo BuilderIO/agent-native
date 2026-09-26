@@ -851,10 +851,10 @@ function CustomHtmlBlock({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
+            size="icon-sm"
             data-plan-interactive
             aria-label={editing ? "Cancel editing source" : "Edit source"}
-            className="size-8 text-plan-muted hover:bg-transparent hover:text-plan-text"
+            className="text-plan-muted hover:bg-transparent hover:text-plan-text"
             onClick={() => (editing ? setEditing(false) : openEditing())}
           >
             {editing ? (

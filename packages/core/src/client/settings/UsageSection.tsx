@@ -122,7 +122,7 @@ interface UsageMetricsData {
   recent: UsageRecentMetric[];
 }
 
-interface BuilderCreditUsageData {
+export interface BuilderCreditUsageData {
   plan: "free" | "paid";
   balance: number;
   quota: {
@@ -549,7 +549,7 @@ function UsageLoadingState() {
   );
 }
 
-function BuilderCreditUsageSkeleton() {
+export function BuilderCreditUsageSkeleton() {
   return (
     <section
       aria-hidden="true"
@@ -563,7 +563,11 @@ function BuilderCreditUsageSkeleton() {
   );
 }
 
-function BuilderCreditUsagePanel({ usage }: { usage: BuilderCreditUsageData }) {
+export function BuilderCreditUsagePanel({
+  usage,
+}: {
+  usage: BuilderCreditUsageData;
+}) {
   const t = useT();
   const quotaLabel =
     usage.quota.period === "daily"
@@ -1003,7 +1007,7 @@ export function UsageSection({
     scope,
     userEmail:
       scope === "workspace" ? (selectedUserEmail ?? undefined) : undefined,
-    appId: appId ?? undefined,
+    ...(appId == null ? { app: "current" } : { appId }),
   });
   const data = query.data;
   const canViewBuilderCreditUsage = Boolean(

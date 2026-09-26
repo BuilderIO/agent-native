@@ -10,7 +10,16 @@
  * mirrors the server transcription route's key/env resolution.
  */
 
-import { Picker, Skeleton, Switch } from "@agent-native/toolkit/design-system";
+import { Skeleton, Switch } from "@agent-native/toolkit/design-system";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
 import {
   IconAlertCircle,
   IconCheck,
@@ -25,7 +34,9 @@ import {
   buildSettingsRoute,
   STANDARD_APP_ROUTES,
 } from "../../navigation/index.js";
+import { GEMINI_API_KEY } from "../../secrets/key-aliases.js";
 import { agentNativePath, appMountedPath } from "../api-path.js";
+import { useT } from "../i18n.js";
 import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
 import { SettingsRow } from "./SettingsRow.js";
 import { SettingsSkeleton } from "./SettingsSkeleton.js";
@@ -140,6 +151,10 @@ export function VoiceTranscriptionSection({
   >(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // The picker must not present the Batch default as the saved choice when
+  // the saved choice could not be read.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [prefsRequest, setPrefsRequest] = useState(0);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [cleanupEnabled, setCleanupEnabled] = useState<boolean | null>(null);
   const { status: builderStatus, refetch: refetchBuilderStatus } =
@@ -212,7 +227,12 @@ export function VoiceTranscriptionSection({
   useEffect(() => {
     let cancelled = false;
     fetch(PREFS_URL)
-      .then((r) => (r.ok ? r.json() : null))
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        // A key that was never saved comes back as an empty 200.
+        const text = await r.text();
+        return text ? JSON.parse(text) : null;
+      })
       .then((body: Prefs | { value?: Prefs } | null) => {
         if (cancelled) return;
         const value =
@@ -238,6 +258,7 @@ export function VoiceTranscriptionSection({
       })
       .catch(() => {
         if (!cancelled) {
+          setLoadFailed(true);
           setTranscriptionMode(DEFAULT_TRANSCRIPTION_MODE);
           setProvider(DEFAULT_BATCH_PROVIDER);
         }
@@ -245,7 +266,7 @@ export function VoiceTranscriptionSection({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [prefsRequest]);
 
   useEffect(() => {
     let cancelled = false;
@@ -267,7 +288,7 @@ export function VoiceTranscriptionSection({
             const find = (key: string) =>
               Array.isArray(list) ? list.find((s) => s.key === key) : null;
             setOpenAiConfigured(find("OPENAI_API_KEY")?.status === "set");
-            setGeminiConfigured(find("GEMINI_API_KEY")?.status === "set");
+            setGeminiConfigured(find(GEMINI_API_KEY)?.status === "set");
             setGroqConfigured(find("GROQ_API_KEY")?.status === "set");
             setGoogleRealtimeConfigured(
               find("GOOGLE_APPLICATION_CREDENTIALS")?.status === "set",
@@ -334,7 +355,9 @@ export function VoiceTranscriptionSection({
       null,
       "",
       appMountedPath(
-        buildSettingsRoute(`integrations:secrets:${key}`),
+        buildSettingsRoute("api-keys", undefined, {
+          anchor: `secrets:${key}`,
+        }),
         STANDARD_APP_ROUTES.settings,
       ),
     );
@@ -376,48 +399,24 @@ export function VoiceTranscriptionSection({
     }
   };
 
-  if (transcriptionMode === null) {
-    if (compact) {
-      return (
-        <SettingsRow
-          label="Voice transcription"
-          description="Choose how voice input is transcribed."
-          control={
-            <Skeleton
-              className="h-9 w-44 border border-border bg-muted-foreground/10"
-              aria-label="Loading voice transcription"
-            />
-          }
-        />
-      );
-    }
-    return <SettingsSkeleton lines={1} />;
-  }
-
   if (compact) {
     return (
-      <SettingsRow
-        label="Voice transcription"
-        description="Choose how voice input is transcribed."
-        control={
-          <Picker
-            mode="select"
-            options={[
-              { value: "mac-native", label: "Mac Native" },
-              { value: "google-realtime", label: "Google Realtime" },
-              { value: "batch", label: "Batch" },
-            ]}
-            value={transcriptionMode}
-            onChange={(next) => {
-              const value = String(next ?? "");
-              if (isTranscriptionMode(value)) chooseSource(value);
-            }}
-            aria-label="Voice transcription"
-            className="w-44 text-start"
-          />
-        }
+      <CompactVoiceTranscriptionRow
+        mode={transcriptionMode}
+        loadFailed={loadFailed}
+        saveFailed={!!saveError && !saving}
+        onChoose={chooseSource}
+        onRetry={() => {
+          setLoadFailed(false);
+          setTranscriptionMode(null);
+          setPrefsRequest((request) => request + 1);
+        }}
       />
     );
+  }
+
+  if (transcriptionMode === null) {
+    return <SettingsSkeleton lines={1} />;
   }
 
   return (
@@ -662,7 +661,7 @@ export function VoiceTranscriptionSection({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      focusKey("GEMINI_API_KEY");
+                      focusKey(GEMINI_API_KEY);
                     }}
                     className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
                   >
@@ -770,6 +769,82 @@ interface ProviderOptionProps {
   title: string;
   subtitle?: React.ReactNode;
   rightSlot?: React.ReactNode;
+}
+
+const COMPACT_MODES = ["mac-native", "google-realtime", "batch"] as const;
+
+const COMPACT_MODE_LABEL_KEYS: Record<TranscriptionMode, string> = {
+  "mac-native": "agentChat.settingsShell.account.voiceMacNative",
+  "google-realtime": "agentChat.settingsShell.account.voiceGoogleRealtime",
+  batch: "agentChat.settingsShell.account.voiceBatch",
+};
+
+/** One Settings row with a select, used by the Preferences page. */
+function CompactVoiceTranscriptionRow({
+  mode,
+  loadFailed,
+  saveFailed,
+  onChoose,
+  onRetry,
+}: {
+  mode: TranscriptionMode | null;
+  loadFailed: boolean;
+  saveFailed: boolean;
+  onChoose: (mode: TranscriptionMode) => void;
+  onRetry: () => void;
+}) {
+  const t = useT();
+  const label = t("agentChat.settingsShell.search.voiceTranscription");
+  const description = loadFailed ? (
+    <span className="text-destructive" role="alert">
+      {t("agentChat.settingsShell.account.voiceLoadError")}
+    </span>
+  ) : saveFailed ? (
+    <span className="text-destructive" role="alert">
+      {t("agentChat.settingsShell.account.voiceSaveError")}
+    </span>
+  ) : (
+    t("agentChat.settingsShell.account.voiceDescription")
+  );
+  return (
+    <SettingsRow
+      id="voice"
+      label={label}
+      description={description}
+      control={
+        mode === null ? (
+          <Skeleton
+            className="h-8 w-44"
+            aria-label={t("agentChat.common.loading")}
+          />
+        ) : loadFailed ? (
+          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+            {t("agentChat.common.retry")}
+          </Button>
+        ) : (
+          <Select
+            value={mode}
+            onValueChange={(value) => {
+              if (isTranscriptionMode(value)) onChoose(value);
+            }}
+          >
+            <SelectTrigger size="sm" className="w-44" aria-label={label}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {COMPACT_MODES.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {t(COMPACT_MODE_LABEL_KEYS[value])}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        )
+      }
+    />
+  );
 }
 
 function ProviderOption({

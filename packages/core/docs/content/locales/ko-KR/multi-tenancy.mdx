@@ -62,9 +62,9 @@ CRM, 프로젝트 추적기, 지원 받은 편지함 또는 모든 팀 도구에
 
 </Diagram>
 
-## 조직 전환기 UI {#org-switcher}
+## 계정 메뉴 {#org-switcher}
 
-조직 전환기와 회원 UI는 추가 코드 없이 모든 템플릿을 렌더링합니다. 이들은 `/_agent-native/org/*` 아래에서 핵심 조직 REST 경로를 구동합니다(조직 생성, 조직 전환, 구성원 목록/초대/제거, 역할 변경, 허용된 이메일 도메인 설정). 사용자는 전환기에서 활성 조직을 선택합니다. 회원 패널은 초대 및 역할 변경을 처리합니다.
+계정 메뉴(`OrgSwitcher`, 사이드바 하단)와 설정의 조직 페이지는 추가 코드 없이 모든 템플릿에서 렌더링됩니다. 이들은 `/_agent-native/org/*` 아래의 핵심 조직 REST 경로를 사용합니다(조직 생성, 조직 전환, 구성원 목록/초대/제거, 역할 변경, 허용된 이메일 도메인 설정). 사용자는 계정 메뉴에서 활성 조직을 선택하고, **Settings › Organization › Members**에서 초대와 역할 변경을 처리합니다.
 
 이것은 Better Auth의 조직 플러그인(의도적으로 등록되지 않음)이 아닌 프레임워크 자체 `org/` 모듈입니다. 전체 조직 관리 표면(`createOrganization`, REST 경로 및 `invite-member`와 같은 템플릿 작성 `defineAction` 래퍼)은 [Authentication → Organizations](/docs/authentication#organizations)에 문서화되어 있습니다.
 

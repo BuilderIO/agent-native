@@ -21,6 +21,22 @@ export {
   type WorkspaceProviderOAuthOptions,
   type WorkspaceProviderOAuthScope,
 } from "./workspace-provider-oauth.js";
+export {
+  channelConnectionState,
+  channelIcon,
+  hasMissingRequiredCredentials,
+  listChannelsForSettings,
+  type ChannelConnectionState,
+  type ChannelCredential,
+  type ChannelIcon,
+} from "./channel-setup.js";
+export {
+  getChannelSettingsExtensions,
+  registerChannelSettingsExtensions,
+  useChannelSettingsExtensions,
+  type ChannelSettingsExtension,
+  type ChannelSettingsExtensionProps,
+} from "./channel-extensions.js";
 export { useIntegrationStatus } from "./useIntegrationStatus.js";
 export type { IntegrationStatus } from "./useIntegrationStatus.js";
 export {

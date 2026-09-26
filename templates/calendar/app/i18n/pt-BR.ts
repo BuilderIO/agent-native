@@ -289,6 +289,39 @@ export default {
     eventRulesUnregistered:
       "A automação do Calendar não está registrada neste servidor.",
   },
+  calendarSettings: {
+    calendarsTab: "Calendários",
+    bookingTab: "Agendamento",
+    eventsGroup: "Eventos",
+    appearanceGroup: "Aparência",
+    colorTheme: "Tema de cores",
+    timezone: "Fuso horário do calendário",
+    timezoneDescription: "Usado para mostrar eventos e criar novos.",
+    defaultDuration: "Duração padrão dos eventos",
+    defaultDurationDescription:
+      "Em minutos. Links de agendamento podem definir a própria.",
+    durationInvalid: "Insira uma duração de 5 a 480 minutos.",
+    zoom: "Zoom",
+    connectedAs: "Conectado como {{accounts}}",
+    setUp: "Configurar",
+    disconnectGoogleTitle: "Desconectar o Google Calendar?",
+    disconnectGoogleDescription:
+      "O Calendar para de mostrar e sincronizar os eventos das suas contas do Google.",
+    disconnectZoomTitle: "Desconectar o Zoom?",
+    disconnectZoomDescription:
+      "Novos eventos e agendamentos não recebem links de reunião do Zoom até você conectar de novo.",
+    manage: "Gerenciar",
+    edit: "Editar",
+    cancel: "Cancelar",
+    save: "Salvar",
+    fallbackBookingPage: "Página de agendamento padrão",
+    fallbackBookingPageDescription:
+      "Usada quando um link de agendamento não tem título nem descrição próprios.",
+    fallbackTitle: "Título",
+    fallbackDescription: "Descrição",
+    bookingLinksDescription:
+      "Crie links de agendamento e copie os URLs públicos.",
+  },
   eventDialog: {
     eventUpdated: "Evento atualizado",
     updateFailed: "Falha ao atualizar evento",

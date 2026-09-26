@@ -1,13 +1,7 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
-import {
-  callAction,
-  useActionMutation,
-  useActionQuery,
-  actionErrorMessage,
-} from "@agent-native/core/client/hooks";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
+import { callAction } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
-import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
   SettingsGroup,
@@ -20,6 +14,7 @@ import {
   AppearancePicker,
   type AppearancePresetId,
 } from "@agent-native/core/client/ui";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import type { CalendarWeekStart } from "@shared/calendar-week";
 import { isCalendarWeekStart } from "@shared/calendar-week";
 import {
@@ -55,101 +50,33 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  useGoogleAuthStatus,
-  useGoogleDesktopAuth,
-  useDisconnectGoogle,
-} from "@/hooks/use-google-auth";
-import {
-  getMeetingStartNotificationPermission,
-  requestMeetingStartNotificationPermission,
-} from "@/hooks/use-meeting-start-notifications";
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
-import {
-  useConnectZoom,
-  useDisconnectZoom,
-  useZoomStatus,
-} from "@/hooks/use-zoom-auth";
-import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 
 import changelog from "../../CHANGELOG.md?raw";
-
-const AVAILABILITY_SETTINGS_PATH = "/booking-links?tab=availability";
+import { CalendarEventRulesFields } from "./settings/CalendarEventRules";
+import {
+  AVAILABILITY_SETTINGS_PATH,
+  useCalendarSettingsRedesign,
+  useDesktopNotificationPermission,
+} from "./settings/CalendarSettingsRedesign";
+import { useCalendarConnections } from "./settings/use-calendar-connections";
 
 export default function Settings() {
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs();
+  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key).enabled;
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
-  const eventRulesStatus = useActionQuery<{
-    enabled: boolean;
-    intervalMinutes: number | null;
-    message: string | null;
-    lastError: string | null;
-    accountRefreshErrors: Array<{ email: string; error: string }>;
-    conflictsSkipped: boolean;
-    reason: string | null;
-    registered: boolean;
-  }>("get-event-rules-status");
-  const undoEventRuleActivity = useActionMutation<
-    { success: boolean; activityId: string },
-    { activityId: string }
-  >("undo-calendar-event-rule", {
-    onSuccess: () => toast.success(t("settings.eventRuleUndoDone")),
-    onError: (error) => {
-      const code = (error as { errorCode?: unknown } | null)?.errorCode;
-      const message =
-        code === "conflict" ? undefined : actionErrorMessage(error);
-      toast.error(message ?? t("settings.eventRuleUndoFailed"));
-    },
-  });
-  const googleStatus = useGoogleAuthStatus();
-  const disconnectGoogle = useDisconnectGoogle();
-  const {
-    isDesktopGoogleAuth,
-    isGoogleDesktopAuthPending,
-    startDesktopGoogleAuth,
-  } = useGoogleDesktopAuth({
-    onError: (issue) =>
-      toast.error(issue.message || issue.error || t("settings.googleFailed")),
-    onSuccess: () => window.location.reload(),
-  });
-  const zoomStatus = useZoomStatus();
-  const connectZoom = useConnectZoom();
-  const disconnectZoom = useDisconnectZoom();
-  const canOfferGoogleOAuthSetup = shouldOfferGoogleOAuthSetup();
+  const connections = useCalendarConnections();
+  const { googleStatus, zoomStatus, canOfferGoogleOAuthSetup } = connections;
+  const notificationPermission = useDesktopNotificationPermission();
+  const redesigned = useCalendarSettingsRedesign(notificationPermission);
 
   const [timezone, setTimezone] = useState("");
   const [bookingTitle, setBookingTitle] = useState("");
   const [bookingDescription, setBookingDescription] = useState("");
   const [defaultDuration, setDefaultDuration] = useState(30);
   const [weekStart, setWeekStart] = useState<CalendarWeekStart>("sunday");
-  const [eventRules, setEventRules] = useState({
-    accept: "",
-    decline: "",
-    hide: "",
-  });
-  const eventRuleLabels = {
-    accept: t("settings.eventRuleAccept"),
-    decline: t("settings.eventRuleDecline"),
-    hide: t("settings.eventRuleHide"),
-  };
-  const eventRulePlaceholders = {
-    accept: t("settings.eventRulePlaceholderAccept"),
-    decline: t("settings.eventRulePlaceholderDecline"),
-    hide: t("settings.eventRulePlaceholderHide"),
-  };
-  const eventRuleActivityLabels = {
-    accepted: t("settings.eventRuleActivityAccepted"),
-    declined: t("settings.eventRuleActivityDeclined"),
-    hidden: t("settings.eventRuleActivityHidden"),
-  };
-  const [notificationPermission, setNotificationPermission] =
-    useState<NotificationPermission | null>(() =>
-      getMeetingStartNotificationPermission(),
-    );
-  const [notificationPermissionPending, setNotificationPermissionPending] =
-    useState(false);
 
   useEffect(() => {
     if (settings) {
@@ -159,18 +86,6 @@ export default function Settings() {
       setDefaultDuration(settings.defaultEventDuration);
       setWeekStart(
         isCalendarWeekStart(settings.weekStart) ? settings.weekStart : "sunday",
-      );
-      const nextEventRules = {
-        accept: settings.eventRules?.accept ?? "",
-        decline: settings.eventRules?.decline ?? "",
-        hide: settings.eventRules?.hide ?? "",
-      };
-      setEventRules((current) =>
-        current.accept === nextEventRules.accept &&
-        current.decline === nextEventRules.decline &&
-        current.hide === nextEventRules.hide
-          ? current
-          : nextEventRules,
       );
     }
   }, [settings]);
@@ -189,80 +104,6 @@ export default function Settings() {
         onError: () => toast.error(t("settings.saveFailed")),
       },
     );
-  }
-
-  function handleSaveRules() {
-    updateSettings.mutate(
-      { eventRules },
-      {
-        onSuccess: () => toast.success(t("settings.saved")),
-        onError: () => toast.error(t("settings.saveFailed")),
-      },
-    );
-  }
-
-  function handleConnect() {
-    if (isDesktopGoogleAuth) {
-      startDesktopGoogleAuth({
-        previousAccountCount: googleStatus.data?.accounts?.length ?? 0,
-      });
-      return;
-    }
-    const returnPath = `${window.location.pathname}${window.location.search}`;
-    startWorkspaceProviderOAuth("google_calendar", {
-      appId: "calendar",
-      returnPath,
-      scope: "user",
-    });
-  }
-
-  async function handleDisconnect() {
-    const accounts = (googleStatus.data?.accounts ?? []).filter(
-      (account) => !account.shared,
-    );
-    if (accounts.length === 0) return;
-    try {
-      for (const account of accounts) {
-        await disconnectGoogle.mutateAsync(account.email);
-      }
-      toast.success(t("settings.googleDisconnected"));
-    } catch {
-      toast.error(t("settings.disconnectFailed"));
-    }
-  }
-
-  function handleConnectZoom() {
-    connectZoom.mutate(undefined, {
-      onSuccess: () => toast(t("settings.zoomOpened")),
-      onError: (error) =>
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : t("settings.zoomConnectFailed"),
-        ),
-    });
-  }
-
-  async function handleEnableDesktopNotifications() {
-    setNotificationPermissionPending(true);
-    try {
-      const permission = await requestMeetingStartNotificationPermission();
-      setNotificationPermission(permission);
-      if (permission !== "granted") {
-        toast.error(t("settings.desktopNotificationsBlocked"));
-      }
-    } catch {
-      toast.error(t("settings.desktopNotificationsBlocked"));
-    } finally {
-      setNotificationPermissionPending(false);
-    }
-  }
-
-  function handleDisconnectZoom() {
-    disconnectZoom.mutate(undefined, {
-      onSuccess: () => toast.success(t("settings.zoomDisconnected")),
-      onError: () => toast.error(t("settings.zoomDisconnectFailed")),
-    });
   }
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
@@ -319,32 +160,23 @@ export default function Settings() {
     ],
     [t],
   );
-  const hasEventRules = Object.values(eventRules).some((rule) => rule.trim());
-  const statusData = eventRulesStatus.data;
-  const unavailableRulesMessage =
-    statusData?.enabled === false && hasEventRules
-      ? t(
-          !statusData.registered
-            ? "settings.eventRulesUnregistered"
-            : statusData.reason === "disabled-by-env"
-              ? "settings.eventRulesDeploymentDisabled"
-              : "settings.eventRulesDisabled",
-        )
-      : null;
-  const eventRulesStatusError = eventRulesStatus.isError
-    ? t("common.loadFailed")
-    : (statusData?.lastError ??
-      (statusData?.conflictsSkipped
-        ? t("settings.eventRulesConflict")
-        : unavailableRulesMessage));
-
   return (
     <SettingsTabsPage
       account={<AccountSettingsCard />}
       generalLabel={t("settings.general")}
-      teamLabel={t("navigation.team")}
       extraTabs={agentSettingsTabs}
-      generalSearchEntries={generalSearchEntries}
+      generalSearchEntries={
+        redesign ? redesigned.generalSearchEntries : generalSearchEntries
+      }
+      generalGroups={redesigned.generalGroups}
+      // Today's tabs would show app areas and notifications as extra tabs, so
+      // they are passed only to the redesigned shell.
+      appAreas={redesign ? redesigned.appAreas : undefined}
+      notifications={redesign ? redesigned.notifications : undefined}
+      notificationsSearchEntries={
+        redesign ? redesigned.notificationsSearchEntries : undefined
+      }
+      whatsNewMarkdown={changelog}
       general={
         <div className="mx-auto max-w-2xl space-y-6 pb-12">
           <p className="text-sm text-muted-foreground">
@@ -380,13 +212,13 @@ export default function Settings() {
                 }}
               />
             </SettingsRow>
-            {notificationPermission !== null ? (
+            {notificationPermission.permission !== null ? (
               <SettingsRow
                 id="notifications"
                 label={t("settings.desktopNotifications")}
                 description={t("settings.desktopNotificationsDescription")}
                 control={
-                  notificationPermission === "granted" ? (
+                  notificationPermission.permission === "granted" ? (
                     <span className="text-sm text-muted-foreground">
                       {t("settings.desktopNotificationsEnabled")}
                     </span>
@@ -394,8 +226,8 @@ export default function Settings() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => void handleEnableDesktopNotifications()}
-                      disabled={notificationPermissionPending}
+                      onClick={() => void notificationPermission.request()}
+                      disabled={notificationPermission.pending}
                     >
                       {t("settings.enableDesktopNotifications")}
                     </Button>
@@ -424,98 +256,7 @@ export default function Settings() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {eventRulesStatusError ? (
-                <p className="text-sm text-destructive" role="status">
-                  {eventRulesStatusError}
-                </p>
-              ) : null}
-              {statusData?.accountRefreshErrors.map(({ email, error }) => (
-                <p
-                  key={email}
-                  className="text-sm text-destructive"
-                  role="status"
-                >
-                  {email}: {error}
-                </p>
-              ))}
-              {(["accept", "decline", "hide"] as const).map((rule) => (
-                <div key={rule} className="space-y-2">
-                  <Label htmlFor={`event-rule-${rule}`}>
-                    {eventRuleLabels[rule]}
-                  </Label>
-                  <Textarea
-                    id={`event-rule-${rule}`}
-                    value={eventRules[rule]}
-                    onChange={(event) =>
-                      setEventRules((current) => ({
-                        ...current,
-                        [rule]: event.target.value,
-                      }))
-                    }
-                    placeholder={eventRulePlaceholders[rule]}
-                    maxLength={2000}
-                    rows={2}
-                  />
-                </div>
-              ))}
-              <Button
-                size="sm"
-                onClick={handleSaveRules}
-                disabled={updateSettings.isPending}
-              >
-                {t("settings.eventRulesSave")}
-              </Button>
-              <details className="border-t pt-3">
-                <summary className="cursor-pointer text-sm font-medium">
-                  {t("settings.eventRulesRecentActivity")}
-                </summary>
-                {settings?.eventRuleActivity?.length ? (
-                  <ul className="mt-2 divide-y">
-                    {[...settings.eventRuleActivity].reverse().map((entry) => (
-                      <li
-                        key={entry.id}
-                        className="flex min-w-0 items-center gap-2 py-2 text-xs"
-                      >
-                        <span className="min-w-0 flex-1 truncate">
-                          {entry.title || t("eventForm.ai.untitledEvent")}
-                        </span>
-                        <span className="shrink-0 text-muted-foreground">
-                          {eventRuleActivityLabels[entry.action]}
-                        </span>
-                        <time className="shrink-0 text-muted-foreground">
-                          {new Date(entry.occurredAt).toLocaleString(
-                            undefined,
-                            {
-                              month: "short",
-                              day: "numeric",
-                              hour: "numeric",
-                              minute: "2-digit",
-                            },
-                          )}
-                        </time>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 shrink-0 px-2"
-                          disabled={undoEventRuleActivity.isPending}
-                          onClick={() =>
-                            undoEventRuleActivity.mutate({
-                              activityId: entry.id,
-                            })
-                          }
-                        >
-                          {t("calendarView.undo")}
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {t("settings.eventRulesNoActivity")}
-                  </p>
-                )}
-              </details>
+              <CalendarEventRulesFields />
             </CardContent>
           </Card>
 
@@ -578,8 +319,10 @@ export default function Settings() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={handleDisconnect}
-                      disabled={disconnectGoogle.isPending}
+                      onClick={() =>
+                        void connections.disconnectGoogleAccounts()
+                      }
+                      disabled={connections.isGoogleDisconnectPending}
                     >
                       <IconUnlink className="me-1.5 h-3.5 w-3.5" />
                       {t("common.disconnect")}
@@ -588,8 +331,8 @@ export default function Settings() {
                     canOfferGoogleOAuthSetup ? (
                     <Button
                       size="sm"
-                      onClick={handleConnect}
-                      disabled={isGoogleDesktopAuthPending}
+                      onClick={connections.connectGoogle}
+                      disabled={connections.isGoogleDesktopAuthPending}
                     >
                       <IconExternalLink className="me-1.5 h-3.5 w-3.5" />
                       {t("common.connect")}
@@ -647,8 +390,8 @@ export default function Settings() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={handleDisconnectZoom}
-                    disabled={disconnectZoom.isPending}
+                    onClick={connections.disconnectZoomAccount}
+                    disabled={connections.isZoomDisconnectPending}
                   >
                     <IconUnlink className="me-1.5 h-3.5 w-3.5" />
                     {t("common.disconnect")}
@@ -656,9 +399,9 @@ export default function Settings() {
                 ) : (
                   <Button
                     size="sm"
-                    onClick={handleConnectZoom}
+                    onClick={connections.connectZoomAccount}
                     disabled={
-                      connectZoom.isPending ||
+                      connections.isZoomConnectPending ||
                       zoomStatus.data?.configured === false
                     }
                   >
@@ -793,14 +536,6 @@ export default function Settings() {
               </div>
             </CardContent>
           </Card>
-        </div>
-      }
-      team={
-        <div className="mx-auto w-full max-w-3xl">
-          <TeamPage
-            showTitle={false}
-            createOrgDescription="Set up a team to share calendars and booking links with your colleagues."
-          />
         </div>
       }
       whatsNew={

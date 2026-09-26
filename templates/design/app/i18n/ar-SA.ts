@@ -170,6 +170,8 @@ export default {
       "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
     labTweaks: "تعديلات التصميم",
     labTweaksDescription: "جرّب تعديلات التصميم المدعومة بالذكاء الاصطناعي.",
+    mcpAbout:
+      "اربط Design بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Design نيابةً عنك: إنشاء التصاميم وتعديلها. ولا يرى إلا ما يمكنك رؤيته.",
   },
   pages: {
     presentEmpty: "لا يوجد محتوى للعرض",
@@ -178,7 +180,6 @@ export default {
     notFoundDescription: "الصفحة التي تبحث عنها غير موجودة.",
     notFoundSignIn: "تسجيل الدخول",
     notFoundBackToDesigns: "العودة إلى التصاميم",
-    teamCreateOrgDescription: "أعد فريقا لمشاركة التصاميم مع زملائك.",
   },
   onboarding: {
     fileStorage: {

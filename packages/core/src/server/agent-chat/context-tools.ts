@@ -7,6 +7,7 @@ import {
   dataWidgetResultSchema,
 } from "../../data-widgets/index.js";
 import { getRequestRunContext } from "../request-context.js";
+import { createOpenSettingsPageTool } from "./open-settings-page-tool.js";
 
 // ---------------------------------------------------------------------------
 // Framework-owned "context" action entries: get-framework-context,
@@ -432,6 +433,7 @@ export function createUrlTools(): Record<string, ActionEntry> {
         return `set-url-path: ${pathname}`;
       },
     },
+    "open-settings-page": createOpenSettingsPageTool(),
     "ask-question": {
       // The turn is over once the question is on screen. Without this the loop
       // asks the model for another step, and it keeps working (and re-asking)

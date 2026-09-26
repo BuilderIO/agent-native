@@ -136,7 +136,7 @@ describe("SettingsTabsPage", () => {
     ).toBe(true);
   });
 
-  it("finds the account tab for sign-out aliases and localized labels", async () => {
+  it("finds the account tab by profile terms but not by Log out, which lives in the account menu", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/settings"]}>
@@ -153,7 +153,7 @@ describe("SettingsTabsPage", () => {
     );
     expect(searchInput).not.toBeNull();
 
-    for (const term of [...SIGN_OUT_SEARCH_TERMS, "Cerrar sesión"]) {
+    const search = async (term: string) => {
       await act(async () => {
         const valueSetter = Object.getOwnPropertyDescriptor(
           HTMLInputElement.prototype,
@@ -162,9 +162,12 @@ describe("SettingsTabsPage", () => {
         valueSetter?.call(searchInput, term);
         searchInput!.dispatchEvent(new Event("input", { bubbles: true }));
       });
-      expect(
-        container.querySelector('[role="listbox"]')?.textContent,
-      ).toContain("Account");
+      return container.querySelector('[role="listbox"]')?.textContent ?? "";
+    };
+
+    expect(await search("avatar")).toContain("Account");
+    for (const term of [...SIGN_OUT_SEARCH_TERMS, "Cerrar sesión"]) {
+      expect(await search(term)).not.toContain("Account");
     }
   });
 
@@ -574,6 +577,43 @@ describe("SettingsTabsPage", () => {
       "What's new",
       "Team",
     ]);
+  });
+
+  it("shows the app-group props as today's tabs, so a migrated template works with the flag off", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          generalGroups={<div>App groups</div>}
+          notifications={<div>Email settings</div>}
+          notificationsLabel="Notifications"
+          appAreas={[
+            {
+              id: "recordings",
+              label: "Recordings",
+              content: <div>Recording defaults</div>,
+            },
+            {
+              id: "meetings",
+              label: "Meetings",
+              visible: false,
+              content: <div>Meeting settings</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    const tabLabels = Array.from(
+      container.querySelectorAll('[role="tab"]'),
+      (tab) => tab.textContent,
+    );
+    expect(tabLabels).toEqual([
+      "General",
+      "Notifications",
+      "Recordings",
+      "Labs",
+    ]);
+    expect(container.textContent).toContain("App groups");
   });
 
   it("visually separates app, agent, and workspace tabs", () => {
@@ -1098,6 +1138,51 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).toContain("Agent files");
     expect(container.textContent).not.toContain("Agent overview");
   });
+
+  it.each([
+    ["/settings/model", "Agent overview"],
+    ["/settings/api-keys", "Keys content"],
+    ["/settings/instructions", "Agent files"],
+    ["/settings/app/recordings", "Recordings content"],
+  ])(
+    "opens the closest tab for a redesigned page link %s",
+    (pathname, content) => {
+      window.history.replaceState(null, "", pathname);
+
+      act(() => {
+        root.render(
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            extraTabs={[
+              {
+                id: "agent",
+                label: "Overview",
+                content: <div>Agent overview</div>,
+              },
+              {
+                id: "agent:resources",
+                label: "Resources",
+                content: <div>Agent files</div>,
+              },
+              {
+                id: "keys",
+                label: "API keys",
+                content: <div>Keys content</div>,
+              },
+              {
+                id: "recordings",
+                label: "Recordings",
+                content: <div>Recordings content</div>,
+              },
+            ]}
+          />,
+        );
+      });
+
+      expect(container.textContent).toContain(content);
+      expect(container.textContent).not.toContain("General content");
+    },
+  );
 
   it("opens an extra workspace tab from the workspace hash", () => {
     window.history.replaceState(null, "", "/settings#workspace");

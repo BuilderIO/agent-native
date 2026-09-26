@@ -76,7 +76,7 @@ export function useOrgRole(): UseOrgRoleResult {
     role,
     isOwner: role === "owner",
     canManageOrg: canManageOrg(role),
-    canInviteMembers: canInviteOrgMembers(role, query.data?.emailConfigured),
+    canInviteMembers: canInviteOrgMembers(role),
     canManageDomain: canManageOrgDomain(role),
     isLoading: query.isLoading,
     error: query.error,

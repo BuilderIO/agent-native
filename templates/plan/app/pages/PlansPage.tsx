@@ -5017,8 +5017,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                         <Button
                           type="button"
                           variant="ghost"
-                          size="icon"
-                          className="pointer-events-auto size-8 rounded-lg border border-border/70 bg-background/82 shadow-2xl backdrop-blur-xl"
+                          size="icon-sm"
+                          className="pointer-events-auto rounded-lg border border-border/70 bg-background/82 shadow-2xl backdrop-blur-xl"
                           onClick={() => {
                             if (session) {
                               navigate("/plans");
@@ -5087,8 +5087,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       <Button
                         type="button"
                         variant="ghost"
-                        size="icon"
-                        className="pointer-events-auto size-8"
+                        size="icon-sm"
+                        className="pointer-events-auto"
                         onClick={() =>
                           preservePlanReaderScroll(() => {
                             if (prototypeOnly) {
@@ -5194,8 +5194,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     <Button
                       type="button"
                       variant="ghost"
-                      size="icon"
-                      className="pointer-events-auto size-8"
+                      size="icon-sm"
+                      className="pointer-events-auto"
                       data-plan-actions-trigger
                       aria-label={t("plansPage.overview.planActions")}
                     >
@@ -5570,8 +5570,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     <Button
                       type="button"
                       variant="ghost"
-                      size="icon"
-                      className="pointer-events-auto size-8"
+                      size="icon-sm"
+                      className="pointer-events-auto"
                       onClick={togglePlansAgent}
                       aria-label={t("plansPage.reader.toggleAgentSidebar")}
                     >
@@ -6062,8 +6062,8 @@ function PlanReportControl({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="pointer-events-auto size-8"
+            size="icon-sm"
+            className="pointer-events-auto"
             onClick={() => setDialogOpen(true)}
             aria-label={t("plansPage.report.reportAria", { noun })}
           >
@@ -7307,7 +7307,7 @@ function PlanLoadError({
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="h-8 w-full justify-between px-1.5 text-muted-foreground hover:text-foreground"
+                        className="w-full justify-between px-1.5 text-muted-foreground hover:text-foreground"
                       >
                         <span className="inline-flex items-center gap-2">
                           <IconLogin2 className="size-4" />
@@ -7737,7 +7737,7 @@ function LoggedOutEmptyPlan() {
             variant="ghost"
             size="sm"
             onClick={copyInstallCommand}
-            className="h-8 min-w-20 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+            className="min-w-20 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
             aria-label={
               installCommandCopied
                 ? t("plansPage.loggedOut.installCopied")
@@ -7968,7 +7968,7 @@ function PlansOverview({
 
             {authorEmails.length > 1 && (
               <Select value={author} onValueChange={setAuthor}>
-                <SelectTrigger className="h-9 w-[170px] text-sm">
+                <SelectTrigger className="w-[170px] text-sm">
                   <SelectValue
                     placeholder={t("plansPage.overview.createdBy")}
                   />
@@ -8006,7 +8006,7 @@ function PlansOverview({
                 placeholder={t("plansPage.overview.searchPlaceholder")}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-9 pl-8 text-sm"
+                className="pl-8 text-sm"
               />
             </div>
           </div>
@@ -8769,7 +8769,7 @@ function CreatePlanDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-8 rounded-full border-border/80 px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
+                className="rounded-full border-border/80 text-xs font-medium text-muted-foreground hover:text-foreground"
                 disabled={composerLocked}
                 onClick={() => {
                   const presetPrompt = t(
@@ -9217,9 +9217,9 @@ function InlineCommentPopover({
         <div className="flex items-center gap-1">
           <Button
             type="button"
-            size="icon"
+            size="icon-sm"
             variant="ghost"
-            className="size-8 shrink-0 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
+            className="shrink-0 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
             onClick={onCancel}
             aria-label={t("plansPage.comments.cancelComment")}
           >
@@ -9292,9 +9292,9 @@ function GuestCommentCta({
         </p>
         <Button
           type="button"
-          size="icon"
+          size="icon-sm"
           variant="ghost"
-          className="size-8 shrink-0 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
+          className="shrink-0 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
           onClick={onCancel}
           aria-label={t("plansPage.common.cancel")}
         >
@@ -9424,8 +9424,8 @@ function ReplyComposer({
           />
           <Button
             type="button"
-            size="icon"
-            className="mb-0.5 size-8 shrink-0 rounded-full"
+            size="icon-sm"
+            className="mb-0.5 shrink-0 rounded-full"
             onClick={() => void submit()}
             disabled={!canSubmit}
             aria-label={t("plansPage.comments.sendReply")}
@@ -9591,9 +9591,9 @@ function AnnotationPopover({
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
-                  size="icon"
+                  size="icon-sm"
                   variant="ghost"
-                  className="size-8 shrink-0"
+                  className="shrink-0"
                   aria-label={t("plansPage.comments.options")}
                 >
                   <IconDotsVertical className="size-4" />
@@ -9646,9 +9646,9 @@ function AnnotationPopover({
               <TooltipTrigger asChild>
                 <Button
                   type="button"
-                  size="icon"
+                  size="icon-sm"
                   variant={isResolved ? "secondary" : "ghost"}
-                  className="size-8 shrink-0 rounded-full"
+                  className="shrink-0 rounded-full"
                   onClick={() =>
                     onStatusChange(isResolved ? "open" : "resolved")
                   }
@@ -9671,9 +9671,9 @@ function AnnotationPopover({
           {onClose && (
             <Button
               type="button"
-              size="icon"
+              size="icon-sm"
               variant="ghost"
-              className="size-8 shrink-0"
+              className="shrink-0"
               onClick={onClose}
               aria-label={t("plansPage.comments.closeComment")}
             >
@@ -9857,9 +9857,8 @@ function AnnotationsPanel({
         </div>
         <Button
           type="button"
-          size="icon"
+          size="icon-sm"
           variant="ghost"
-          className="size-8"
           onClick={onClose}
           aria-label={t("plansPage.comments.closeComments")}
         >
@@ -9943,9 +9942,9 @@ function AnnotationsPanel({
                             <TooltipTrigger asChild>
                               <Button
                                 type="button"
-                                size="icon"
+                                size="icon-sm"
                                 variant={isResolved ? "secondary" : "ghost"}
-                                className="size-8 rounded-full"
+                                className="rounded-full"
                                 onClick={() =>
                                   onStatusChange(
                                     thread,
@@ -9972,9 +9971,9 @@ function AnnotationsPanel({
                               <TooltipTrigger asChild>
                                 <Button
                                   type="button"
-                                  size="icon"
+                                  size="icon-sm"
                                   variant="ghost"
-                                  className="size-8 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                  className="rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                                   onClick={() => onDeleteThread(thread)}
                                   aria-label={rootDeleteLabel}
                                 >
@@ -9991,9 +9990,9 @@ function AnnotationsPanel({
                           <TooltipTrigger asChild>
                             <Button
                               type="button"
-                              size="icon"
+                              size="icon-sm"
                               variant="ghost"
-                              className="size-8 shrink-0 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                              className="shrink-0 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                               onClick={() => onDeleteThread(thread)}
                               aria-label={rootDeleteLabel}
                             >

@@ -3,7 +3,10 @@ import { type SettingsTabItem } from "@agent-native/core/client/settings";
 import { IconLibrary } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
-import { CreativeContextPanel } from "./CreativeContextPanel.js";
+import {
+  CreativeContextPanel,
+  type CreativeContextPanelProps,
+} from "./CreativeContextPanel.js";
 import { creativeContextMessagesByLocale } from "./messages.js";
 
 function creativeContextMessages() {
@@ -20,12 +23,15 @@ export type CreativeContextAgentTabFactory = (context: {
   scope: AgentPageScope;
   canManageOrg?: boolean;
   scopeControl: ReactNode;
+  /** `"settings"` when the redesigned Settings page supplies the title. */
+  variant?: CreativeContextPanelProps["variant"];
 }) => SettingsTabItem;
 
 export const createCreativeContextAgentTab: CreativeContextAgentTabFactory = ({
   scope,
   canManageOrg,
   scopeControl,
+  variant,
 }) => ({
   id: "library",
   label: creativeContextMessages().title,
@@ -50,6 +56,7 @@ export const createCreativeContextAgentTab: CreativeContextAgentTabFactory = ({
       scope={scope}
       canManageOrg={canManageOrg}
       scopeControl={scopeControl}
+      variant={variant}
     />
   ),
 });

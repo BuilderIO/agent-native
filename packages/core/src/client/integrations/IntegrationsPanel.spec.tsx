@@ -30,6 +30,7 @@ vi.mock("../resources/mcp-integration-catalog.js", () => ({
       name: "Context7",
       provider: "context7",
       description: "Fetch current library docs in agent chats.",
+      descriptionKey: "mcpIntegrations.catalog.context7.description",
       useCase: "documentation",
       url: "https://mcp.context7.com/mcp",
       authMode: "none",
@@ -42,6 +43,7 @@ vi.mock("../resources/mcp-integration-catalog.js", () => ({
       name: "Builder.io",
       provider: "builder",
       description: "Search Builder Publish and Hybrid Space content.",
+      descriptionKey: "mcpIntegrations.catalog.builder.description",
       useCase: "content models",
       url: "https://mcp.builder.io/mcp/publish",
       authMode: "oauth",
@@ -70,7 +72,7 @@ vi.mock("../i18n.js", () => ({
       "integrations.connectedSection": "Connected",
       "integrations.availableSection": "Available integrations",
     };
-    return (messages[key] ?? key).replace(
+    return (messages[key] ?? String(options?.defaultValue ?? key)).replace(
       /\{\{(\w+)\}\}/g,
       (_match, name: string) => String(options?.[name] ?? ""),
     );
@@ -249,6 +251,117 @@ describe("IntegrationsPanel MCP connection errors", () => {
     await act(async () => connectSlack?.click());
 
     expect(container.textContent).toContain("Turn off Socket Mode");
+  });
+
+  it("removes a channel's stored credentials as their owner", async () => {
+    integrationMocks.useIntegrationStatus.mockReturnValue({
+      statuses: [
+        {
+          platform: "slack",
+          label: "Slack",
+          enabled: false,
+          configured: false,
+          requiredEnvKeys: [
+            {
+              key: "SLACK_BOT_TOKEN",
+              label: "Slack Bot Token",
+              required: false,
+            },
+            {
+              key: "SLACK_SIGNING_SECRET",
+              label: "Slack Signing Secret",
+              required: true,
+            },
+          ],
+        },
+      ],
+      loading: false,
+      refetch: vi.fn(),
+    });
+    const deletes: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (init?.method === "DELETE") {
+          deletes.push(url);
+          return Response.json({ ok: true, removed: true });
+        }
+        if (url.endsWith("/_agent-native/secrets/adhoc")) {
+          return Response.json([
+            { name: "SLACK_BOT_TOKEN", scope: "workspace" },
+            { name: "SLACK_SIGNING_SECRET", scope: "org" },
+          ]);
+        }
+        return Response.json({});
+      }),
+    );
+
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Connect Slack (agent in channels)"]',
+        )
+        ?.click(),
+    );
+
+    const buttonWithText = (text: string) =>
+      Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent?.trim() === text,
+      );
+    await act(async () => buttonWithText("secrets.removeCredentials")?.click());
+    await act(async () => buttonWithText("secrets.confirmRemove")?.click());
+
+    expect(deletes).toEqual([
+      "/_agent-native/secrets/adhoc/SLACK_BOT_TOKEN?managedBy=channels",
+    ]);
+  });
+
+  it("lists the variables the adapter reports, not a hardcoded set", async () => {
+    integrationMocks.useIntegrationStatus.mockReturnValue({
+      statuses: [
+        {
+          platform: "whatsapp",
+          label: "WhatsApp",
+          enabled: false,
+          configured: false,
+          requiredEnvKeys: [
+            "WHATSAPP_ACCESS_TOKEN",
+            "WHATSAPP_VERIFY_TOKEN",
+            "WHATSAPP_PHONE_NUMBER_ID",
+            "WHATSAPP_APP_SECRET",
+          ].map((key) => ({ key, label: key, required: true })),
+        },
+      ],
+      loading: false,
+      refetch: vi.fn(),
+    });
+
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Connect WhatsApp"]',
+        )
+        ?.click(),
+    );
+
+    const codes = Array.from(container.querySelectorAll("code")).map(
+      (code) => code.textContent,
+    );
+    expect(codes).toEqual(
+      expect.arrayContaining([
+        "WHATSAPP_ACCESS_TOKEN",
+        "WHATSAPP_PHONE_NUMBER_ID",
+        "WHATSAPP_APP_SECRET",
+      ]),
+    );
+    expect(codes).not.toContain("WHATSAPP_TOKEN");
   });
 
   it.each([

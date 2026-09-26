@@ -603,6 +603,30 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     await view.cleanup();
   });
 
+  it("offers a provider's own key next to Builder.io", async () => {
+    const view = await mountWithCatalog(
+      [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: ["gpt-5-6-luna"],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        },
+        {
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          supportedModels: ["gpt-5.6-luna"],
+          requiredEnvVars: ["OPENAI_API_KEY"],
+        },
+      ],
+      ["OPENAI_API_KEY"],
+      true,
+    );
+
+    expect(view.catalogOf()).toBe("builder:true,ai-sdk:openai:true");
+    await view.cleanup();
+  });
+
   it("blocks a fresh chat until the model catalog resolves", async () => {
     const engines = [
       {

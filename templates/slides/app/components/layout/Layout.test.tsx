@@ -4,12 +4,22 @@ import type { ReactNode } from "react";
 import { MemoryRouter, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { agentSidebarMock, useDecksMock, creativeContextLabEnabled } =
-  vi.hoisted(() => ({
-    agentSidebarMock: vi.fn(),
-    useDecksMock: vi.fn(),
-    creativeContextLabEnabled: { value: false },
-  }));
+const {
+  agentSidebarMock,
+  useDecksMock,
+  creativeContextLabEnabled,
+  settingsRedesign,
+} = vi.hoisted(() => ({
+  agentSidebarMock: vi.fn(),
+  useDecksMock: vi.fn(),
+  creativeContextLabEnabled: { value: false },
+  settingsRedesign: {
+    value: { status: "ready", enabled: false } as {
+      status: "ready";
+      enabled: boolean;
+    },
+  },
+}));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentSidebar: ({
@@ -57,6 +67,9 @@ vi.mock("@tabler/icons-react", () => ({
   IconMenu2: () => <span data-testid="menu-icon" />,
 }));
 vi.mock("@/context/DeckContext", () => ({ useDecks: useDecksMock }));
+vi.mock("@/hooks/use-settings-redesign", () => ({
+  useSettingsRedesign: () => settingsRedesign.value,
+}));
 vi.mock("@/hooks/use-sidebar-collapsed", () => ({
   useSidebarCollapsed: () => ({ collapsed: false, setCollapsed: vi.fn() }),
 }));
@@ -109,6 +122,7 @@ describe("Slides Layout", () => {
     agentSidebarMock.mockClear();
     useDecksMock.mockReturnValue({ decks: [], loading: false });
     creativeContextLabEnabled.value = false;
+    settingsRedesign.value = { status: "ready", enabled: false };
   });
 
   it("hides the Creative Context composer chip until its lab is enabled", () => {
@@ -250,6 +264,27 @@ describe("Slides Layout", () => {
         scope: expect.objectContaining({ label: "Slide 5" }),
       }),
     );
+  });
+
+  it("gives the redesigned Settings the full width", () => {
+    settingsRedesign.value = { status: "ready", enabled: true };
+    renderLayout("/settings/notifications");
+
+    expect(screen.getByTestId("agent-sidebar")).toBeTruthy();
+    expect(screen.queryByTestId("app-sidebar")).toBeNull();
+    expect(screen.queryByTestId("header")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "sidebar.openNavigation" }),
+    ).toBeNull();
+    expect(screen.getByTestId("page-content")).toBeTruthy();
+  });
+
+  it("keeps the app shell around Settings with the redesign off", () => {
+    settingsRedesign.value = { status: "ready", enabled: false };
+    renderLayout("/settings");
+
+    expect(screen.getByTestId("app-sidebar")).toBeTruthy();
+    expect(screen.getByTestId("header")).toBeTruthy();
   });
 
   it("renders full-page chat without the sidebar wrapper", () => {

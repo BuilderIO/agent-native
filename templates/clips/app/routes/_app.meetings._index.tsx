@@ -55,10 +55,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import enMessages from "@/i18n/en-US";
 import { isCalendarConnectionComplete } from "@/lib/calendar-connection";
+import { startCalendarOAuth } from "@/lib/calendar-oauth";
 import {
   buildMeetingHistoryQuery,
   MEETING_HISTORY_PAGE_SIZE,
 } from "@/lib/meeting-history-query";
+import { PopupBlockedError } from "@/lib/popup-blocked";
 import { shortcutLabel } from "@/lib/utils";
 
 export function meta() {
@@ -147,90 +149,6 @@ async function requestDisconnectCalendar(accountId: string): Promise<void> {
   }
 }
 
-interface CalendarOAuthResult {
-  accountId: string;
-}
-
-async function startCalendarOAuth(
-  expectedAccountId?: string,
-): Promise<CalendarOAuthResult | null> {
-  const flowId = window.crypto.randomUUID();
-  const actionUrl = new URL(
-    agentNativePath("/_agent-native/actions/connect-calendar"),
-    window.location.origin,
-  );
-  actionUrl.searchParams.set("provider", "google");
-  actionUrl.searchParams.set("flowId", flowId);
-  if (expectedAccountId) {
-    actionUrl.searchParams.set("calendarAccountId", expectedAccountId);
-  }
-  const r = await fetch(actionUrl);
-  const text = await r.text();
-  let data: {
-    url?: string;
-    error?: string;
-    result?: { url?: string };
-  } = {};
-  try {
-    data = JSON.parse(text);
-  } catch {
-    // Keep the fallback below.
-  }
-  if (!r.ok) throw new Error(data.error || `Failed (${r.status})`);
-  const url = data.result?.url ?? data.url;
-  if (!url) throw new Error("No OAuth URL returned");
-  const authUrl = new URL(url, window.location.origin);
-  const popupUrl = authUrl.toString();
-  const popup = window.open(
-    popupUrl,
-    "clips-calendar-oauth",
-    "width=600,height=700",
-  );
-  if (!popup) {
-    throw new Error(
-      "Popup blocked — please allow popups for this site and try again.",
-    );
-  }
-  return await new Promise<CalendarOAuthResult | null>((resolve) => {
-    let settled = false;
-    const finish = (result: CalendarOAuthResult | null) => {
-      if (settled) return;
-      settled = true;
-      window.clearInterval(interval);
-      window.clearTimeout(timeout);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("message", onMessage);
-      resolve(result);
-    };
-    const interval = window.setInterval(() => {
-      if (popup.closed) finish(null);
-    }, 500);
-    // Some browsers (COOP) never report popup.closed; also resolve when the
-    // user returns to this tab, and give up after 5 minutes regardless so the
-    // connect flow can't hang forever.
-    const onFocus = () => {
-      if (popup.closed) finish(null);
-    };
-    const onMessage = (event: MessageEvent) => {
-      if (
-        event.source !== popup ||
-        event.origin !== window.location.origin ||
-        !event.data ||
-        typeof event.data !== "object" ||
-        event.data.type !== "agent-native:calendar-connected" ||
-        event.data.flowId !== flowId ||
-        typeof event.data.accountId !== "string"
-      ) {
-        return;
-      }
-      finish({ accountId: event.data.accountId });
-    };
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("message", onMessage);
-    const timeout = window.setTimeout(() => finish(null), 5 * 60 * 1000);
-  });
-}
-
 function calendarAccountLabel(account: CalendarAccount): string {
   return (
     account.email ||
@@ -303,7 +221,7 @@ function CalendarReauthBanner({
         onClick={onReconnect}
         disabled={isPending}
         aria-busy={isPending}
-        className="h-8 cursor-pointer"
+        className="cursor-pointer"
       >
         {isPending && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
         Reconnect
@@ -613,7 +531,7 @@ function MeetingsHeader({
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder={t("meetingsRoute.searchPlaceholder")}
             aria-label={t("meetingsRoute.searchPlaceholder")}
-            className="h-9 ps-9 pe-12 text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 focus-visible:ring-offset-0 [appearance:textfield] [&::-webkit-search-cancel-button]:appearance-none"
+            className="ps-9 pe-12 text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 focus-visible:ring-offset-0 [appearance:textfield] [&::-webkit-search-cancel-button]:appearance-none"
           />
           {query ? (
             <Button
@@ -837,13 +755,19 @@ export default function MeetingsIndexRoute() {
             return handleCalendarConnected(result.accountId, expectedAccountId);
           }
         })
-        .catch((err: Error) => toast.error(err.message))
+        .catch((err: Error) =>
+          toast.error(
+            err instanceof PopupBlockedError
+              ? t("clipsSettings.popupBlocked")
+              : err.message,
+          ),
+        )
         .finally(() => {
           calendarConnectionInFlightRef.current = false;
           setIsCalendarConnectionInFlight(false);
         });
     },
-    [handleCalendarConnected],
+    [handleCalendarConnected, t],
   );
 
   const isLoading = accounts.isLoading || history.isLoading;
@@ -1020,7 +944,7 @@ export default function MeetingsIndexRoute() {
                             size="sm"
                             onClick={() => history.fetchNextPage()}
                             disabled={history.isFetchingNextPage}
-                            className="h-8 cursor-pointer gap-1.5 text-xs"
+                            className="cursor-pointer gap-1.5 text-xs"
                           >
                             {history.isFetchingNextPage ? (
                               <IconLoader2 className="size-3.5 animate-spin" />

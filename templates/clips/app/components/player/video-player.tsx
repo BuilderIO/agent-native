@@ -2198,7 +2198,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               />
               <Button
                 type="button"
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 data-player-ui
                 aria-label={t("videoPlayer.playClip")}
@@ -2214,7 +2214,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   }
                   requestPlay();
                 }}
-                className="border-player-control-foreground/30 bg-player-control-foreground/10 text-player-control-foreground hover:bg-player-control-foreground/20 hover:text-player-control-foreground focus-visible:ring-player-control-foreground pointer-events-auto h-8 px-2.5 text-xs"
+                className="border-player-control-foreground/30 bg-player-control-foreground/10 text-player-control-foreground hover:bg-player-control-foreground/20 hover:text-player-control-foreground focus-visible:ring-player-control-foreground pointer-events-auto px-2.5 text-xs"
               >
                 <IconPlayerPlay className="fill-current" />
                 {t("videoPlayer.playClip")}

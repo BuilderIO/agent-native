@@ -159,6 +159,8 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "공유 키를 사용 중입니다.",
   "agentPanel.useOrganizationKey": "조직 키 사용",
   "agentPanel.keyStatusUnavailable": "키 상태를 확인할 수 없습니다.",
+  "agentPanel.saveScopeRoleUnavailable":
+    "조직 역할을 불러오지 못해 아직 키를 저장할 수 없습니다.",
   "agentPanel.chatgptSubscriptionPopupBlocked":
     "이 사이트의 팝업을 허용한 후 다시 시도하세요.",
   "agentPanel.chatgptSubscriptionTitle": "ChatGPT 구독",
@@ -246,6 +248,40 @@ const messages: AgentChatTranslation = {
   "agents.directoryRegistryHint":
     "공개 Agent Card를 찾아 연결하기 전에 확인하세요.",
   "agents.directoryBrowse": "레지스트리 찾아보기",
+  "agents.formName": "이름",
+  "agents.formUrl": "URL",
+  "agents.formUrlPlaceholder": "URL (예: http://localhost:8085)",
+  "agents.formDescription": "설명",
+  "agents.formDescriptionPlaceholder": "설명 (선택 사항)",
+  "agents.formCheck": "확인",
+  "agents.formAdd": "추가",
+  "agents.formAdding": "추가하는 중",
+  "agents.formAddAnyway": "그래도 추가",
+  "agents.formRemove": "제거",
+  "agents.formSaveFailed": "에이전트를 저장할 수 없습니다.",
+  "agents.formAddFailed": "에이전트를 추가할 수 없습니다.",
+  "agents.checkFailed": "확인 실패",
+  "agents.checkFailedStatus": "확인 실패 ({{status}})",
+  "agents.checkNotReachable": "연결할 수 없음",
+  "agents.checkLive": "활성 · {{scheme}}",
+  "agents.checkNoAuthScheme": "공개된 인증 스킴 없음",
+  "agents.checkTokenRejected":
+    "상대가 토큰을 거부했으므로 프로덕션에서 호출이 401을 반환합니다",
+  "agents.checkTokenUnverified": "토큰을 확인할 수 없음",
+  "agents.checkTokenUnverifiedReason": "토큰을 확인할 수 없음 ({{reason}})",
+  "agents.checkTokenWorks": "토큰이 작동함",
+  "agents.checkReadsRequireAuth": "읽기에 인증 필요",
+  "agents.checkPublicSkills": "공개 스킬: {{count}}",
+  "agents.unreachableHint":
+    "앱이 아직 실행 중이 아닐 수 있습니다. 그래도 추가할 수 있습니다.",
+  "agents.addedOneWay":
+    "{{name}}을(를) 이쪽에만 추가했습니다. 등록은 단방향이므로 {{name}}에서도 이 앱을 추가해야 상대가 이 앱을 인식합니다.",
+  "agents.openPeerSettings": "{{name}} 설정 열기",
+  "agents.syncSecret": "앱에 시크릿 동기화",
+  "agents.noSharedSecret": "아직 공유 시크릿이 설정되지 않았습니다.",
+  "agents.noSharedSecretLink": "먼저 팀 페이지에서 설정하세요.",
+  "agents.askOwnerSyncSecret":
+    "워크스페이스 소유자에게 공유 시크릿 동기화를 요청하세요.",
   "common.saveFailed": "저장 실패",
   "common.saveFailedStatus": "저장 실패({{status}})",
   "common.saving": "저장 중...",
@@ -544,6 +580,302 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "관리",
   "integrations.recommended": "추천",
   "integrations.subtitle": "에이전트가 사용할 수 있는 도구를 연결하세요.",
+  "mcpIntegrations.menuLabel": "연동",
+  "mcpIntegrations.menuDescription": "도구와 서비스를 에이전트에 연결",
+  "mcpIntegrations.title": "연동 연결",
+  "mcpIntegrations.description":
+    "에이전트 연동 {{count}}개를 둘러보거나 사용자 지정 연동을 추가하세요.",
+  "mcpIntegrations.searchPlaceholder": "연동 검색",
+  "mcpIntegrations.addYourOwn": "직접 추가",
+  "mcpIntegrations.noMatches": "검색과 일치하는 연동이 없습니다.",
+  "mcpIntegrations.connected": "연결됨",
+  "mcpIntegrations.connectionError": "연결 오류",
+  "mcpIntegrations.connectionErrorReason": "원인: {{reason}}",
+  "mcpIntegrations.reconnect": "다시 연결",
+  "mcpIntegrations.reconnecting": "다시 연결 중…",
+  "mcpIntegrations.reconnectFailed": "다시 연결하지 못했습니다: {{error}}",
+  "mcpIntegrations.configure": "구성",
+  "mcpIntegrations.connect": "연결",
+  "mcpIntegrations.connectWithOAuth": "연결",
+  "mcpIntegrations.connecting": "연결 중…",
+  "mcpIntegrations.useApiToken": "API 토큰 사용",
+  "mcpIntegrations.customOAuthDefault": "OAuth로 로그인",
+  "mcpIntegrations.customHeadersMode": "API 키 사용",
+  "mcpIntegrations.useApiKeyInstead": "대신 API 키 사용",
+  "mcpIntegrations.useOAuthInstead": "대신 OAuth 사용",
+  "mcpIntegrations.connectSuggestion":
+    "채팅에서 사용하려면 {{name}}을(를) 연결하세요",
+  "mcpIntegrations.connectSuggestionWithApiToken":
+    "채팅에서 사용하려면 API 토큰으로 {{name}}을(를) 연결하세요",
+  "mcpIntegrations.dismissSuggestion": "연동 제안 닫기",
+  "mcpIntegrations.backToIntegrations": "연동으로 돌아가기",
+  "mcpIntegrations.customTitle": "사용자 지정 에이전트 연동 추가",
+  "mcpIntegrations.configureTitle": "{{name}} 구성",
+  "mcpIntegrations.presetNoAuthDescription":
+    "미리 설정된 값이 입력되어 있습니다. 엔드포인트를 테스트하거나 지금 연결하세요.",
+  "mcpIntegrations.presetAuthDescription":
+    "미리 설정된 값이 입력되어 있습니다. 연결하기 전에 필요한 인증 정보를 추가하세요.",
+  "mcpIntegrations.customDescription":
+    "Streamable HTTP 또는 SSE 엔드포인트와 선택적 헤더를 붙여 넣으세요.",
+  "mcpIntegrations.oauthNotice":
+    "이 제공업체는 일반적으로 OAuth 설정이 필요합니다. 제공업체 문서를 따르거나, 엔드포인트가 토큰 기반 액세스를 지원하는 경우 Authorization 헤더를 추가하세요.",
+  "mcpIntegrations.providerSetupRequired": "제공업체 설정 필요",
+  "mcpIntegrations.providerSetupDescription":
+    "먼저 {{name}}에서 필요한 설정을 완료하세요. 그런 다음 여기로 돌아와 계정을 연결하세요.",
+  "mcpIntegrations.providerSetupFormDescription":
+    "계정을 연결하기 전에 제공업체 설정을 완료하세요.",
+  "mcpIntegrations.continueToConnect": "내 계정 연결",
+  "mcpIntegrations.setupTitle": "{{name}} 연결",
+  "mcpIntegrations.personal": "개인",
+  "mcpIntegrations.personalConnection": "개인 연결",
+  "mcpIntegrations.organization": "조직",
+  "mcpIntegrations.scopeQuestion": "누가 이 연결을 사용할 수 있어야 하나요?",
+  "mcpIntegrations.scopeChoiceTitle": "누가 사용하나요?",
+  "mcpIntegrations.scopeChoiceDescription":
+    "이 연결을 사용할 수 있는 범위를 선택하세요.",
+  "mcpIntegrations.connectForMe": "나만 연결",
+  "mcpIntegrations.setUpForWorkspace": "워크스페이스용으로 설정",
+  "mcpIntegrations.workspaceAdminRequired":
+    "워크스페이스 소유자 또는 관리자 권한이 필요합니다.",
+  "mcpIntegrations.workspaceJoinRequired": "먼저 워크스페이스에 참여하세요.",
+  "mcpIntegrations.personalOnlyDescription":
+    "이 연동은 개인 연결만 지원합니다.",
+  "mcpIntegrations.workspaceOnlyDescription":
+    "이 연동은 워크스페이스 전체에 한 번만 연결되므로 내 계정에만 연결할 수 없습니다. 워크스페이스 소유자 또는 관리자가 설정할 수 있습니다.",
+  "mcpIntegrations.loadingScopeMetadata": "연결 범위를 불러오는 중…",
+  "mcpIntegrations.retry": "다시 시도",
+  "mcpIntegrations.retrying": "다시 시도하는 중…",
+  "mcpIntegrations.personalDescription": "나만 이 연결을 사용할 수 있습니다.",
+  "mcpIntegrations.sharedWithWorkspace": "워크스페이스와 공유됨",
+  "mcpIntegrations.organizationDescription":
+    "허용된 워크스페이스 멤버가 이 연결을 사용할 수 있습니다. 제공업체 권한은 계속 적용됩니다.",
+  "mcpIntegrations.serverNameRequired":
+    "OAuth로 연결하기 전에 연동 이름을 입력하세요.",
+  "mcpIntegrations.serverName": "연동 이름",
+  "mcpIntegrations.url": "URL",
+  "mcpIntegrations.fieldDescription": "설명",
+  "mcpIntegrations.headers": "헤더",
+  "mcpIntegrations.serverNamePlaceholder": "연동 이름",
+  "mcpIntegrations.urlPlaceholder": "https://example.com/agent-integration",
+  "mcpIntegrations.descriptionPlaceholder": "설명 (선택 사항)",
+  "mcpIntegrations.headersPlaceholder": "Authorization: Bearer <token>",
+  "mcpIntegrations.openSetupDocs": "설정 문서 열기",
+  "mcpIntegrations.viewSetup": "설정 가이드 열기",
+  "mcpIntegrations.test": "테스트",
+  "mcpIntegrations.testing": "테스트 중…",
+  "mcpIntegrations.toolsAvailable_other": "사용 가능한 도구 {{count}}개",
+  "mcpIntegrations.failed": "실패",
+  "mcpIntegrations.docsLabel": "{{name}} 문서 보기",
+  "mcpIntegrations.catalog.context7.description":
+    "에이전트 채팅에서 최신 라이브러리 문서를 가져옵니다.",
+  "mcpIntegrations.catalog.context7.useCase":
+    "문서, 기술 참조, API 문서, 프레임워크 가이드",
+  "mcpIntegrations.catalog.sentry.description":
+    "이슈, 이벤트, 디버깅 데이터를 살펴봅니다.",
+  "mcpIntegrations.catalog.sentry.useCase":
+    "오류 모니터링, 디버깅, 성능, 충돌 보고서",
+  "mcpIntegrations.catalog.fullstory.description":
+    "행동 분석을 읽고 세션 리플레이를 살펴봅니다.",
+  "mcpIntegrations.catalog.fullstory.useCase":
+    "제품 분석, 세션 리플레이, 정성적 행동, 사용자 조사",
+  "mcpIntegrations.catalog.fullstory.setupNote":
+    "FullStory MCP는 현재 베타이며, FullStory 조직 관리자가 StoryAI 기능과 Model Context Protocol 토글을 활성화해야 합니다.",
+  "mcpIntegrations.catalog.amplitude.description":
+    "Amplitude 제품 분석을 읽고 활용합니다.",
+  "mcpIntegrations.catalog.amplitude.useCase":
+    "제품 분석, 차트, 대시보드, 코호트, 실험",
+  "mcpIntegrations.catalog.amplitude.setupNote":
+    "Amplitude MCP는 스트리밍 HTTP를 통한 OAuth를 사용합니다. 기본 엔드포인트는 미국 데이터 레지던시용입니다. 계정에 EU 레지던시가 필요하면 Amplitude의 EU 엔드포인트를 사용하세요.",
+  "mcpIntegrations.catalog.sigma.description":
+    "Sigma 워크북과 대시보드를 검색, 탐색, 분석합니다.",
+  "mcpIntegrations.catalog.sigma.useCase":
+    "분석, 대시보드, 워크북, 데이터 탐색, 비즈니스 인텔리전스",
+  "mcpIntegrations.catalog.sigma.setupNote":
+    "Sigma의 MCP URL은 조직마다 다릅니다. Sigma에서 Profile > Integrations > Connect Sigma to AI tools를 열고 URL을 복사한 다음 여기에 붙여 넣으세요. Sigma MCP는 현재 검색, 메타데이터 탐색, 분석을 지원합니다. 대시보드나 워크북 생성 및 가져오기는 이 연결에서 제공되지 않습니다.",
+  "mcpIntegrations.catalog.notion.description":
+    "페이지와 팀 지식을 검색합니다.",
+  "mcpIntegrations.catalog.notion.useCase":
+    "문서, 지식 관리, 메모, 콘텐츠 작성",
+  "mcpIntegrations.catalog.notion.setupNote":
+    "Notion 연동은 사용자 OAuth를 사용합니다. Enterprise 워크스페이스는 연동 사용을 감사하고 클라이언트를 허용하거나 차단할 수 있습니다. 관리자 정책이 변경되면 다시 연결하세요.",
+  "mcpIntegrations.catalog.granola.description":
+    "회의 메모, 스크립트, 실행 항목을 검색합니다.",
+  "mcpIntegrations.catalog.granola.useCase":
+    "회의 메모, 녹음, 스크립트, 실행 항목, 후속 조치",
+  "mcpIntegrations.catalog.granola.setupNote":
+    "Granola 연동은 브라우저 OAuth를 사용합니다. 로그인된 Granola 계정을 승인하고 에이전트가 액세스할 수 있는 회의 메모와 스크립트를 검토하세요.",
+  "mcpIntegrations.catalog.gong.description":
+    "Gong 통화를 검색하고 계정 및 거래 인사이트를 생성합니다.",
+  "mcpIntegrations.catalog.gong.useCase":
+    "영업 통화, 스크립트, 거래 인사이트, 계정 요약",
+  "mcpIntegrations.catalog.gong.setupNote":
+    "Gong에서는 기술 관리자가 MCP 연동을 만들고 개인 또는 공유 승인 방식을 선택해야 합니다. 연결하기 전에 생성된 클라이언트 ID와 시크릿을 구성해야 합니다.",
+  "mcpIntegrations.catalog.semgrep.description":
+    "코드에서 보안 문제를 스캔합니다.",
+  "mcpIntegrations.catalog.semgrep.useCase":
+    "보안 스캔, 취약점 탐지, 코드 분석",
+  "mcpIntegrations.catalog.linear.description":
+    "Linear 이슈를 읽고 작성합니다.",
+  "mcpIntegrations.catalog.linear.useCase":
+    "프로젝트 관리, 이슈 추적, 계획, 버그 보고",
+  "mcpIntegrations.catalog.apollo.description":
+    "Apollo GTM 데이터를 검색, 보강, 관리합니다.",
+  "mcpIntegrations.catalog.apollo.useCase":
+    "잠재 고객 발굴, 데이터 보강, 연락처, 시퀀스, 계정 조사",
+  "mcpIntegrations.catalog.apollo.setupNote":
+    "Apollo MCP는 사용자 OAuth를 사용하며 Apollo API 키가 필요하지 않습니다. Apollo 요금제 권한, 크레딧, 제공업체의 모델 학습 제한은 계속 적용됩니다.",
+  "mcpIntegrations.catalog.commonRoom.description":
+    "구매자 신호, 연락처, 조직을 조사합니다.",
+  "mcpIntegrations.catalog.commonRoom.useCase":
+    "구매자 인텔리전스, 제품 신호, 구매 의도, 연락처 보강",
+  "mcpIntegrations.catalog.commonRoom.setupNote":
+    "Common Room MCP는 사용자별 OAuth를 사용하며 승인한 사용자의 워크스페이스 역할을 따릅니다. 관리자가 인스턴스에서 MCP 연결을 활성화해야 할 수 있습니다.",
+  "mcpIntegrations.catalog.exa.description":
+    "Exa로 웹을 검색하고 페이지를 가져옵니다.",
+  "mcpIntegrations.catalog.exa.useCase":
+    "웹 검색, 조사, 코드 검색, 페이지 가져오기",
+  "mcpIntegrations.catalog.exa.setupNote":
+    "Exa의 원격 MCP 엔드포인트는 키 없이 기본 무료 사용을 지원합니다. 더 높은 한도나 추가 도구가 필요하면 제공업체의 헤더 구성을 통해 Exa API 키를 추가하세요.",
+  "mcpIntegrations.catalog.supabase.description":
+    "데이터, 인증, 백엔드 서비스를 관리합니다.",
+  "mcpIntegrations.catalog.supabase.useCase":
+    "데이터베이스, 인증, 스토리지, 엣지 함수",
+  "mcpIntegrations.catalog.neon.description":
+    "서버리스 Postgres 프로젝트를 다룹니다.",
+  "mcpIntegrations.catalog.neon.useCase":
+    "데이터베이스 관리, 서버리스 Postgres, 데이터 스토리지",
+  "mcpIntegrations.catalog.stripe.description":
+    "결제, 구독, 고객을 관리합니다.",
+  "mcpIntegrations.catalog.stripe.useCase":
+    "결제, 구독, 청구서 발행, 고객 관리",
+  "mcpIntegrations.catalog.atlassian.description":
+    "Jira 이슈와 Confluence 콘텐츠를 읽고 작성합니다.",
+  "mcpIntegrations.catalog.atlassian.useCase":
+    "프로젝트 관리, 이슈 추적, 문서, 팀 협업",
+  "mcpIntegrations.catalog.atlassian.setupNote":
+    "Atlassian 관리자에게 Clips 앱 도메인을 허용하고 Jira 사이트에 대해 읽기, 쓰기, 검색 권한으로 Rovo/MCP를 활성화해 달라고 요청하세요.",
+  "mcpIntegrations.catalog.cloudflare.description":
+    "Cloudflare 연동을 통해 Cloudflare 서비스를 검색하고 운영합니다.",
+  "mcpIntegrations.catalog.cloudflare.useCase":
+    "DNS, Workers, 도메인, 보안, 관측성, 플랫폼 API",
+  "mcpIntegrations.catalog.cloudflare.setupNote":
+    "Cloudflare의 관리형 연동 디렉터리에는 광범위한 API 연동과 함께 제품별 연동이 있습니다. 범위를 검토하고 워크플로에 맞는 가장 좁은 엔드포인트를 선택하세요.",
+  "mcpIntegrations.catalog.grafana.description":
+    "Grafana Cloud 메트릭, 로그, 관측성 데이터를 쿼리합니다.",
+  "mcpIntegrations.catalog.grafana.useCase":
+    "관측성, 메트릭, 로그, 트레이스, 대시보드",
+  "mcpIntegrations.catalog.grafana.setupNote":
+    "Grafana Cloud MCP는 공개 미리보기 단계이며 Grafana Cloud Assistant MCP 액세스가 필요합니다. 호스팅된 Grafana Cloud 전용이며, 자체 호스팅 Grafana에는 로컬 MCP 서버가 필요합니다.",
+  "mcpIntegrations.catalog.gitlab.description":
+    "GitLab 프로젝트, 이슈, 병합 요청을 읽고 관리합니다.",
+  "mcpIntegrations.catalog.gitlab.useCase":
+    "저장소, 이슈, 병합 요청, CI/CD, 코드 분석",
+  "mcpIntegrations.catalog.gitlab.setupNote":
+    "GitLab 연동은 현재 베타입니다. GitLab.com에서는 최상위 그룹 관리자가 연동 액세스를 허용해야 OAuth를 완료할 수 있습니다. 자체 관리형 인스턴스에는 이에 해당하는 인스턴스 설정이 있습니다.",
+  "mcpIntegrations.catalog.figma.description":
+    "Figma 디자인 컨텍스트와 캔버스 작업을 에이전트로 가져옵니다.",
+  "mcpIntegrations.catalog.figma.useCase":
+    "디자인 파일, 컴포넌트, 변수, 디자인 시스템, 캔버스",
+  "mcpIntegrations.catalog.figma.setupNote":
+    "Figma 연동은 Figma 연동 카탈로그에 등록된 클라이언트만 허용하므로 아직 Agent-Native에서 이 원격 엔드포인트에 연결할 수 없습니다. 파일 및 노드 컨텍스트를 읽으려면 개인 액세스 토큰과 함께 Figma REST API 대체 방식을 사용하세요. Figma가 Agent-Native를 승인할 때까지 캔버스 작업은 사용할 수 없습니다.",
+  "mcpIntegrations.catalog.canva.description":
+    "Canva 디자인과 에셋을 검색, 생성, 업데이트합니다.",
+  "mcpIntegrations.catalog.canva.useCase":
+    "디자인, 템플릿, 에셋, 브랜드 키트, 내보내기, 협업",
+  "mcpIntegrations.catalog.canva.setupNote":
+    "Canva 연동은 사용자별 OAuth를 사용하며 클라이언트가 Canva의 canva.com 및 canva.ai 도메인을 허용해야 합니다. 연결하기 전에 Canva 연동 문서에서 현재 리디렉션 및 클라이언트 설정을 확인하세요.",
+  "mcpIntegrations.catalog.vercel.description":
+    "Vercel 문서를 검색하고 프로젝트, 배포, 로그를 살펴봅니다.",
+  "mcpIntegrations.catalog.vercel.useCase":
+    "배포, 프로젝트, 로그, 도메인, 호스팅, 문서",
+  "mcpIntegrations.catalog.vercel.setupNote":
+    "Vercel 연동은 검토 및 승인된 AI 클라이언트만 허용합니다. 일반 프레임워크 연결이 작동하려면 먼저 Agent-Native가 Vercel의 지원 클라이언트 목록에 추가되어야 합니다.",
+  "mcpIntegrations.catalog.github.description":
+    "저장소, 이슈, 풀 리퀘스트, 코드 컨텍스트를 읽습니다.",
+  "mcpIntegrations.catalog.github.useCase":
+    "저장소, 이슈, 풀 리퀘스트, 코드, 엔지니어링 분석",
+  "mcpIntegrations.catalog.github.setupNote":
+    "GitHub의 로그인 제공업체는 앱이 스스로 등록하도록 허용하지 않으므로 연결 버튼으로는 OAuth를 완료할 수 없습니다. 대신 GitHub 개인 액세스 토큰으로 연결하세요. 조직에서 OAuth App Access Policies를 적용할 수 있다는 점도 참고하세요.",
+  "mcpIntegrations.catalog.slack.description":
+    "Slack 연동을 통해 Slack 대화를 검색하고 워크스페이스 작업을 수행합니다.",
+  "mcpIntegrations.catalog.slack.useCase":
+    "메시지, 채널, 사람, 회사 기억, 워크플로",
+  "mcpIntegrations.catalog.slack.setupNote":
+    "Slack 연동에는 고정된 앱 ID가 있는 등록된 Slack 앱이 필요합니다. 동적 클라이언트 등록은 지원되지 않으며 Slack Marketplace 앱 또는 내부 앱만 연결할 수 있습니다. Agent-Native 워크플로에는 Slack의 관리형 메시징 OAuth 흐름을 사용하세요.",
+  "mcpIntegrations.catalog.asana.description":
+    "Asana 작업, 프로젝트, 작업 그래프 데이터를 검색하고 관리합니다.",
+  "mcpIntegrations.catalog.asana.useCase":
+    "작업, 프로젝트, 포트폴리오, 계획, 작업량",
+  "mcpIntegrations.catalog.asana.setupNote":
+    "Asana의 에이전트 연동에는 미리 등록된 OAuth 앱이 필요하며 동적 클라이언트 등록은 지원되지 않습니다. 연결하기 전에 Asana 앱 클라이언트를 구성하세요.",
+  "mcpIntegrations.catalog.hubspot.description":
+    "HubSpot 연동을 통해 HubSpot CRM 레코드를 검색하고 업데이트합니다.",
+  "mcpIntegrations.catalog.hubspot.useCase":
+    "CRM, 연락처, 회사, 거래, 티켓, 고객 분석",
+  "mcpIntegrations.catalog.hubspot.setupNote":
+    "워크스페이스에서 관리하는 HubSpot MCP Auth App이 구성되어 있으면 모든 멤버가 OAuth와 PKCE로 개인 HubSpot 계정을 연결할 수 있습니다. 그렇지 않으면 연결하기 전에 HubSpot Developer Platform에서 앱을 만드세요. 기존 HubSpot OAuth 커넥터는 앱 작업에서 계속 사용할 수 있습니다.",
+  "mcpIntegrations.catalog.pylon.description":
+    "Pylon 지원 데이터를 검색하고 업데이트합니다.",
+  "mcpIntegrations.catalog.pylon.useCase":
+    "고객 지원, 이슈, 계정, 연락처, 대화",
+  "mcpIntegrations.catalog.pylon.setupNote":
+    "연결하기 전에 해당 사용자에 대해 Pylon MCP 액세스를 활성화하고 Pylon에서 MCP 서버를 켜세요. Pylon에는 Member 또는 Admin 시트가 필요하며 사용자 OAuth만 사용합니다.",
+  "mcpIntegrations.catalog.intercom.description":
+    "대화와 고객 지원 지식을 검색합니다.",
+  "mcpIntegrations.catalog.intercom.useCase":
+    "고객 지원, 대화, 연락처, 도움말 센터 콘텐츠",
+  "mcpIntegrations.catalog.intercom.setupNote":
+    "Intercom 연동은 OAuth를 사용하며 미국에서 호스팅되는 워크스페이스에서 사용할 수 있습니다. 승인 중에 워크스페이스 리전과 요청된 범위를 확인하세요.",
+  "mcpIntegrations.catalog.monday.description":
+    "보드, 항목, 팀 워크플로를 다룹니다.",
+  "mcpIntegrations.catalog.monday.useCase":
+    "업무 관리, 보드, 프로젝트, 작업, 팀 운영",
+  "mcpIntegrations.catalog.monday.setupNote":
+    "monday.com 연동은 Streamable HTTP를 통한 OAuth를 사용합니다. 승인 중에 공유할 워크스페이스와 권한을 선택하세요.",
+  "mcpIntegrations.catalog.webflow.description":
+    "Webflow 사이트와 콘텐츠를 읽고 업데이트합니다.",
+  "mcpIntegrations.catalog.webflow.useCase":
+    "웹사이트, CMS, 사이트 콘텐츠, 게시, 디자인 워크플로",
+  "mcpIntegrations.catalog.webflow.setupNote":
+    "Webflow 연동은 OAuth를 사용합니다. Designer 기능을 사용하면 승인 중에 Webflow의 Bridge App이 설치될 수 있습니다. Data API 액세스는 별도로 제공됩니다.",
+  "mcpIntegrations.catalog.paypal.description":
+    "PayPal 결제, 청구서, 커머스 데이터를 다룹니다.",
+  "mcpIntegrations.catalog.paypal.useCase": "결제, 청구서, 거래, 판매자 운영",
+  "mcpIntegrations.catalog.paypal.setupNote":
+    "PayPal은 원격 에이전트 연동을 위한 OAuth 검색 및 로그인을 제공합니다. Agent-Native는 현재 운영 중인 /sse 엔드포인트를 사용합니다. 승인하기 전에 판매자 권한을 검토하세요.",
+  "mcpIntegrations.catalog.box.description":
+    "Box에서 파일과 폴더를 검색하고 관리합니다.",
+  "mcpIntegrations.catalog.box.useCase":
+    "파일, 폴더, 엔터프라이즈 콘텐츠, 검색, 협업",
+  "mcpIntegrations.catalog.box.setupNote":
+    "Box 연동은 베타이며 관리자가 활성화해야 합니다. 사용자 지정 클라이언트에는 Box Integration Credentials, 리디렉션 URI, 승인된 범위도 필요합니다.",
+  "mcpIntegrations.catalog.builder.description":
+    "Builder Publish 및 Hybrid Space 콘텐츠를 검색합니다.",
+  "mcpIntegrations.catalog.builder.useCase":
+    "콘텐츠 모델, 페이지, 항목, Publish 및 Hybrid Spaces",
+  "mcpIntegrations.catalog.builder.setupNote":
+    "Builder CMS MCP는 동적 클라이언트 등록과 함께 OAuth를 사용합니다. Publish 또는 Hybrid Spaces에만 연결되며, 승인 과정에서 Space를 선택하라는 요청이 표시됩니다.",
+  "mcpIntegrations.catalog.netlify.description":
+    "Netlify 사이트와 배포를 살펴보고 운영합니다.",
+  "mcpIntegrations.catalog.netlify.useCase":
+    "사이트, 배포, 빌드, 도메인, 호스팅 운영",
+  "mcpIntegrations.catalog.netlify.setupNote":
+    "Netlify는 지원되는 클라이언트를 위한 원격 연동 설정을 문서로 제공합니다. OAuth를 완료하기 전에 사이트 및 팀 권한을 검토하세요.",
+  "mcpIntegrations.catalog.zapier.description":
+    "도구를 수천 개의 앱 작업에 연결합니다.",
+  "mcpIntegrations.catalog.zapier.useCase":
+    "자동화, 워크플로, 앱 작업, 서비스 간 작업",
+  "mcpIntegrations.catalog.zapier.setupNote":
+    "Zapier의 에이전트 연동은 목록에 없는 클라이언트에 대해 사용자가 만든 연결과 토큰을 사용합니다. Zapier에서 연결을 만든 다음 생성된 Bearer 토큰을 헤더 필드에 붙여 넣으세요.",
+  "mcpIntegrations.auth.none": "인증 없음",
+  "mcpIntegrations.auth.headers": "헤더",
+  "mcpIntegrations.auth.oauth": "OAuth",
+  "mcpIntegrations.status.beta": "베타",
+  "mcpIntegrations.status.setupRequired": "제공업체 설정",
+  "mcpIntegrations.status.clientRestricted": "승인된 클라이언트 전용",
+  "mcpIntegrations.status.verified": "확인됨",
+  "mcpIntegrations.status.preflightOnly": "사전 점검 전용",
+  "mcpIntegrations.status.restricted": "제한됨",
   "limit.account": "계정",
   "limit.descriptionAll":
     "에이전트가 사용 가능한 모든 단계를 소진했습니다. 새 차례에서 계속하거나 먼저 {{scope}} 한도를 높이세요.",
@@ -691,6 +1023,11 @@ const messages: AgentChatTranslation = {
   "secrets.managedInVault":
     "워크스페이스 Vault에서 관리됩니다. 이 워크스페이스의 모든 앱이 이 값을 사용합니다.",
   "secrets.openVault": "Vault 열기",
+  "secrets.managedByOwner": "{{owner}}에서 관리",
+  "secrets.removeCredentials": "자격 증명 제거",
+  "secrets.confirmRemove": "제거",
+  "secrets.sharedKeysKept":
+    "일부 공유 키가 제거되지 않았습니다. 워크스페이스 관리자만 제거할 수 있습니다.",
   "secrets.newKey": "새로 만들기",
   "secrets.noKeysFound": "키를 찾을 수 없습니다.",
   "secrets.overridesVault":
@@ -873,6 +1210,1344 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendDetail": "Builder 청구 외 제공업체 사용 또는 이전 호출",
   "usage.providerSpendToday": "오늘 기타 또는 분류되지 않은 사용량: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder 크레딧 / USD",
+  "settings.usage.tabsLabel": "사용량 보기",
+  "settings.usage.tabOverview": "개요",
+  "settings.usage.tabActivity": "활동",
+  "settings.usage.rangeLabel": "기간",
+  "settings.usage.range7": "최근 7일",
+  "settings.usage.range30": "최근 30일",
+  "settings.usage.range90": "최근 90일",
+  "settings.usage.appFilterLabel": "앱",
+  "settings.usage.allApps": "모든 앱",
+  "settings.usage.unattributedApp": "미지정",
+  "settings.usage.peopleFilterLabel": "사용자",
+  "settings.usage.everyone": "모든 사람",
+  "settings.usage.justYou": "나만",
+  "settings.usage.estimatedSpend": "예상 비용",
+  "settings.usage.creditSpend": "Builder.io 크레딧 사용량",
+  "settings.usage.yourEstimatedSpend": "내 예상 비용",
+  "settings.usage.yourCreditSpend": "내 Builder.io 크레딧 사용량",
+  "settings.usage.calls": "호출",
+  "settings.usage.tokens": "토큰",
+  "settings.usage.activePeople": "활성 사용자",
+  "settings.usage.history": "사용 기록",
+  "settings.usage.historyDimensionLabel": "사용 기록 그룹화",
+  "settings.usage.byFeature": "기능별",
+  "settings.usage.byApp": "앱별",
+  "settings.usage.byModel": "모델별",
+  "settings.usage.bySurface": "사용 위치별",
+  "settings.usage.historyChartLabel": "일별 사용량",
+  "settings.usage.noUsage": "이 기간에 사용량이 없습니다.",
+  "settings.usage.total": "합계",
+  "settings.usage.featureChat": "채팅",
+  "settings.usage.featureSubAgents": "하위 에이전트",
+  "settings.usage.featureAutomations": "자동화",
+  "settings.usage.other": "기타",
+  "settings.usage.unknownModel": "알 수 없는 모델",
+  "settings.usage.surfaceApp": "앱 내",
+  "settings.usage.topChats": "상위 채팅",
+  "settings.usage.untitledChat": "제목 없는 채팅",
+  "settings.usage.titleUnavailable": "제목을 불러올 수 없습니다",
+  "settings.usage.showAll": "모두 보기",
+  "settings.usage.showLess": "간단히 보기",
+  "settings.usage.topPeople": "상위 사용자",
+  "settings.usage.you": "나",
+  "settings.usage.toolCalls": "도구 호출",
+  "settings.usage.toolCallsChartLabel": "일별 도구 호출",
+  "settings.usage.noToolCalls": "이 기간에 도구 호출이 없습니다.",
+  "settings.usage.toolCallsUnavailable": "도구 호출을 불러올 수 없습니다.",
+  "settings.usage.modelCalls": "모델 호출",
+  "settings.usage.modelCallsDimensionLabel": "모델 호출 그룹화",
+  "settings.usage.modelCallsChartLabel": "일별 모델 호출",
+  "settings.usage.noModelCalls": "이 기간에 모델 호출이 없습니다.",
+  "settings.usage.recentPrompts": "최근 프롬프트",
+  "settings.usage.promptNotCaptured": "기록되지 않은 프롬프트",
+  "settings.usage.promptUnavailable": "프롬프트를 불러올 수 없습니다",
+  "settings.usage.loadError": "사용량을 불러올 수 없습니다.",
+  "settings.usage.yourAlerts": "내 알림",
+  "settings.usage.alertsLoadError": "알림을 불러올 수 없습니다.",
+  "settings.usage.alertDailySpend": "일일 비용",
+  "settings.usage.alertMonthlySpend": "월간 비용",
+  "settings.usage.alertDailyTokens": "일일 토큰",
+  "settings.usage.alertMonthlyTokens": "월간 토큰",
+  "settings.usage.alertOnTrack": "한도 내",
+  "settings.usage.alertOverLimit": "한도 초과",
+  "settings.usage.alertDismissed": "닫음",
+  "settings.usage.alertOff": "꺼짐",
+  "settings.usage.alertProgressDay": "오늘 {{limit}} 중 {{current}}",
+  "settings.usage.alertProgressMonth": "이번 달 {{limit}} 중 {{current}}",
+  "settings.usage.alertChannelsBoth": "앱 내 및 이메일",
+  "settings.usage.alertChannelInApp": "앱 내",
+  "settings.usage.alertChannelEmail": "이메일",
+  "settings.usage.alertDefault": "기본값",
+  "settings.usage.alertEdit": "편집",
+  "settings.usage.alertDialogTitle": "{{name}} 알림",
+  "settings.usage.alertThreshold": "알림 기준",
+  "settings.usage.alertHintDayAll": "하루 기준, 모든 앱.",
+  "settings.usage.alertHintMonthAll": "한 달 기준, 모든 앱.",
+  "settings.usage.alertHintDayApp": "하루 기준, {{app}}.",
+  "settings.usage.alertHintMonthApp": "한 달 기준, {{app}}.",
+  "settings.usage.alertNotify": "알림 방법",
+  "settings.usage.alertEnabled": "알림 켜기",
+  "settings.usage.alertReset": "기본값으로 재설정",
+  "settings.usage.alertInvalidLimit": "0보다 큰 금액을 입력하세요.",
+  "settings.usage.alertNoChannel": "알림 방법을 하나 이상 선택하세요.",
+  "settings.usage.alertSaveError": "알림을 저장할 수 없습니다.",
+  "settings.usage.unitUsd": "USD",
+  "settings.usage.unitCredits": "크레딧",
+  "settings.usage.unitTokens": "토큰",
+  "settings.usage.creditAmount_other": "{{amount}} 크레딧",
+  "settings.usage.tokenAmount_other": "{{amount}} 토큰",
+  "settings.storage.provider": "제공업체",
+  "settings.storage.providerOther": "기타 S3 호환 서비스",
+  "settings.storage.endpoint": "엔드포인트 URL",
+  "settings.storage.bucket": "버킷",
+  "settings.storage.accessKeyId": "액세스 키 ID",
+  "settings.storage.secretAccessKey": "비밀 액세스 키",
+  "settings.storage.region": "리전",
+  "settings.storage.publicUrl": "공개 URL",
+  "settings.storage.optional": "선택 사항",
+  "settings.storage.saved": "저장됨",
+  "settings.storage.hintAws": "버킷 리전의 엔드포인트를 사용하세요.",
+  "settings.storage.hintR2": "R2 버킷 설정에서 확인할 수 있습니다.",
+  "settings.storage.hintSupabase":
+    "프로젝트의 Storage 설정에서 확인할 수 있습니다.",
+  "settings.storage.hintOther":
+    "MinIO, Backblaze B2, Wasabi, DigitalOcean Spaces도 사용할 수 있습니다.",
+  "settings.storage.save": "저장",
+  "settings.storage.saving": "저장 중…",
+  "settings.storage.cancel": "취소",
+  "settings.storage.clear": "자격 증명 지우기",
+  "settings.storage.clearing": "지우는 중…",
+  "settings.storage.clearTitle": "스토리지 자격 증명을 지울까요?",
+  "settings.storage.clearBuilder":
+    "새 업로드는 Builder.io 스토리지에 저장됩니다.",
+  "settings.storage.clearNoFallback":
+    "스토리지를 다시 설정할 때까지 업로드가 실패합니다.",
+  "settings.storage.clearExisting": "기존 파일은 {{bucket}}에 남아 있습니다.",
+  "settings.storage.clearExistingGeneric": "기존 파일은 버킷에 남아 있습니다.",
+  "settings.storage.invalidUrl":
+    "https:// 또는 http://로 시작하는 URL을 사용하세요.",
+  "settings.storage.invalidBucket":
+    "버킷 이름에는 문자, 숫자, 점, 하이픈, 밑줄만 사용할 수 있습니다.",
+  "settings.storage.savedNotice":
+    "파일 스토리지를 저장했습니다. 새 업로드는 {{bucket}}에 저장됩니다.",
+  "settings.storage.cleared": "스토리지 자격 증명을 지웠습니다.",
+  "settings.storage.clearedBuilder":
+    "스토리지 자격 증명을 지웠습니다. 새 업로드는 Builder.io에 저장됩니다.",
+  "settings.storage.saveFailed": "파일 스토리지를 저장할 수 없습니다.",
+  "settings.storage.clearFailed": "스토리지 자격 증명을 지울 수 없습니다.",
+  "settings.storage.loadFailed": "파일 스토리지 설정을 불러올 수 없습니다.",
+  "settings.storage.retry": "다시 시도",
+  "settings.storage.adminOnly":
+    "조직 소유자와 관리자만 파일 스토리지를 변경할 수 있습니다.",
+  "settings.audit.action": "작업",
+  "settings.audit.allApps": "모든 앱",
+  "settings.audit.app": "앱",
+  "settings.audit.changedBy": "변경한 사람",
+  "settings.audit.close": "닫기",
+  "settings.audit.empty": "이 기간에는 변경 사항이 없습니다.",
+  "settings.audit.emptyDescription":
+    "사용자와 에이전트가 변경한 내용이 여기에 표시됩니다.",
+  "settings.audit.failed": "실패",
+  "settings.audit.input": "입력",
+  "settings.audit.inputLoadFailed": "입력을 불러올 수 없습니다.",
+  "settings.audit.last30Days": "지난 30일",
+  "settings.audit.last7Days": "지난 7일",
+  "settings.audit.last90Days": "지난 90일",
+  "settings.audit.loadFailed": "감사 로그를 불러올 수 없습니다.",
+  "settings.audit.loading": "감사 로그 불러오는 중",
+  "settings.audit.onBehalfOf": "요청한 사람",
+  "settings.audit.range": "기간",
+  "settings.audit.refused": "거부됨",
+  "settings.audit.result": "결과",
+  "settings.audit.showMore": "{{count}}개 더 보기",
+  "settings.audit.succeeded": "성공",
+  "settings.audit.system": "시스템",
+  "settings.audit.target": "대상",
+  "settings.audit.when": "시간",
+  "accountMenu.label": "계정",
+  "accountMenu.loading": "계정을 불러오는 중",
+  "accountMenu.triggerLabel": "{{name}}, {{organization}}",
+  "accountMenu.triggerLabelDemo": "{{name}}, {{organization}}, 데모 모드",
+  "accountMenu.personal": "개인",
+  "accountMenu.demoMode": "데모 모드",
+  "accountMenu.demoModeOn": "데모 모드가 켜져 있습니다",
+  "accountMenu.demoModeDescription":
+    "표시되는 이메일과 지원되는 차트가 프레젠테이션에 맞게 조정됩니다. 계정과 권한은 변경되지 않습니다.",
+  "accountMenu.turnOffDemoMode": "데모 모드 끄기",
+  "accountMenu.invitations": "초대",
+  "accountMenu.joinYourTeam": "팀에 참여",
+  "accountMenu.join": "참여",
+  "accountMenu.yourWorkspace": "내 워크스페이스",
+  "accountMenu.createOrganization": "조직 만들기",
+  "accountMenu.organizationName": "조직 이름",
+  "accountMenu.create": "만들기",
+  "accountMenu.usage": "사용량",
+  "accountMenu.getApps": "앱 및 확장 프로그램 받기",
+  "accountMenu.back": "뒤로",
+  "settingsOrg.general.organization": "조직",
+  "settingsOrg.general.name": "이름",
+  "settingsOrg.general.nameLocked":
+    "소유자와 관리자가 이름을 변경할 수 있습니다.",
+  "settingsOrg.general.membership": "멤버십",
+  "settingsOrg.general.yourRole": "내 역할",
+  "settingsOrg.general.deleteDescription":
+    "{{name}}, 멤버, 데이터를 영구적으로 삭제합니다.",
+  "settingsOrg.members.removeTitle": "{{name}}님을 제거할까요?",
+  "settingsOrg.members.removeDescription":
+    "{{org}}에 대한 액세스 권한을 잃습니다. 소유한 항목은 선택한 사람에게 이전됩니다.",
+  "settingsOrg.members.roleFor": "{{name}}님의 역할",
+  "settingsOrg.members.moreActions": "{{name}}님에 대한 추가 작업",
+  "settingsOrg.members.removing": "제거하는 중…",
+  "settingsOrg.members.groupsEmpty":
+    "멤버를 그룹으로 묶어 앱 액세스를 함께 관리하세요.",
+  "settingsOrg.auth.signIn": "로그인",
+  "settingsOrg.auth.joining": "참여",
+  "settingsOrg.auth.betweenApps": "앱 간",
+  "settingsOrg.auth.methodsEmailOnly": "이메일 및 비밀번호.",
+  "settingsOrg.auth.methodsEmailAndOne":
+    "이메일 및 비밀번호, 그리고 {{method}}.",
+  "settingsOrg.auth.methodsEmailAndTwo":
+    "이메일 및 비밀번호, {{first}}, {{second}}.",
+  "settingsOrg.auth.emailPassword": "이메일 및 비밀번호",
+  "settingsOrg.auth.emailPasswordNote": "모든 배포에서 켜져 있습니다.",
+  "settingsOrg.auth.methodConfigured": "호스트에서 이 변수로 설정되었습니다.",
+  "settingsOrg.auth.methodNotConfigured":
+    "설정되지 않았습니다. 호스트에 이 변수를 추가한 다음 다시 배포하세요.",
+  "settingsOrg.auth.methodOn": "켜짐",
+  "settingsOrg.auth.methodOff": "꺼짐",
+  "settingsOrg.auth.requireHint":
+    "{{org}}의 모든 사람에게 이 중 하나를 요구하려면 조직 로그인을 사용하세요.",
+  "settingsOrg.auth.view": "보기",
+  "settingsOrg.auth.close": "닫기",
+  "settingsOrg.apps.access": "액세스",
+  "settingsOrg.apps.browse": "앱 둘러보기",
+  "settingsOrg.apps.defaults": "기본값",
+  "settingsOrg.search.domainAutoJoin": "이메일 도메인 자동 참여",
+  "settingsOrg.search.roles": "멤버 역할",
+  "settingsOrg.learnMore": "자세히 알아보기",
+  "settingsOrg.moreInformation": "추가 정보",
+  "settingsOrg.general.workspaceUrl": "워크스페이스 URL",
+  "settingsOrg.general.workspaceUrlDescription":
+    "다른 배포에서 이 워크스페이스로 멤버를 보냅니다.",
+  "settingsOrg.general.workspaceUrlHelp":
+    "다른 배포에 도착한 멤버는 빈 앱 대신 이 워크스페이스로 이동합니다.",
+  "settingsOrg.general.editWorkspaceUrl": "워크스페이스 URL 편집",
+  "settingsOrg.general.removeWorkspaceUrl": "워크스페이스 URL 제거",
+  "settingsOrg.general.setWorkspaceUrl": "URL 설정",
+  "settingsOrg.auth.domainDescription":
+    "@{{domain}} 이메일을 사용하는 사람을 자동으로 추가합니다.",
+  "settingsOrg.auth.domainDescriptionNoDomain":
+    "회사 이메일 도메인을 사용하는 사람을 자동으로 추가합니다.",
+  "settingsOrg.auth.domainHelp":
+    "이 도메인의 이메일로 가입한 사람은 누구나 조직에 참여합니다. 본인의 이메일 도메인만 사용할 수 있으며 무료 이메일 제공업체는 허용되지 않습니다.",
+  "settingsOrg.auth.editDomain": "도메인 편집",
+  "settingsOrg.auth.removeDomain": "도메인 제거",
+  "settingsOrg.auth.sharedSecret": "공유 시크릿",
+  "settingsOrg.auth.sharedSecretSet":
+    "설정됨. 이 워크스페이스의 앱이 서로를 확인할 수 있습니다.",
+  "settingsOrg.auth.sharedSecretNotSet":
+    "설정 안 됨. 이 워크스페이스의 앱이 서로를 확인할 수 있습니다.",
+  "settingsOrg.auth.secretNotSetValue": "설정 안 됨",
+  "settingsOrg.auth.manage": "관리",
+  "settingsOrg.auth.reveal": "표시",
+  "settingsOrg.auth.hide": "숨기기",
+  "settingsOrg.auth.regenerate": "다시 생성",
+  "settingsOrg.auth.syncToApps": "앱에 동기화",
+  "settingsOrg.auth.pasteSecret": "시크릿 붙여넣기",
+  "settingsOrg.auth.pasteSecretLabel": "공유 시크릿 붙여넣기",
+  "settingsOrg.auth.syncing": "앱에 동기화하는 중…",
+  "settingsOrg.auth.syncErrorStatus": "HTTP {{status}}",
+  "settingsOrg.invite.emails": "이메일 주소",
+  "settingsOrg.invite.emailPlaceholder": "name@company.com",
+  "settingsOrg.invite.note": "초대받은 사람은 이 이메일로 로그인해 수락합니다.",
+  "settingsOrg.invite.noteNoEmail":
+    "초대는 이메일로 발송되지 않으니 각자 이 이메일로 로그인하도록 안내하세요.",
+  "settingsOrg.invite.role": "역할",
+  "settingsOrg.invite.member": "멤버",
+  "settingsOrg.invite.admin": "관리자",
+  "settingsOrg.invite.ownerOnlyAdmin":
+    "조직 소유자만 관리자를 초대할 수 있습니다.",
+  "settingsOrg.invite.removeRow": "제거",
+  "settingsOrg.invite.addAnother": "하나 더 추가",
+  "settingsOrg.invite.pasteMany": "여러 개 붙여넣기",
+  "settingsOrg.invite.importCsv": "CSV 가져오기",
+  "settingsOrg.invite.pasteLabel":
+    "쉼표, 공백 또는 줄바꿈으로 구분한 이메일을 붙여넣으세요.",
+  "settingsOrg.invite.addAsMembers": "멤버로 추가",
+  "settingsOrg.invite.addAsAdmins": "관리자로 추가",
+  "settingsOrg.invite.add": "추가",
+  "settingsOrg.invite.send": "초대 보내기",
+  "settingsOrg.invite.sending": "보내는 중…",
+  "settingsOrg.invite.invalidEmail": "전체 이메일 주소를 입력하세요.",
+  "settingsOrg.invite.csvNoEmails":
+    "이 CSV에서 유효한 이메일을 찾지 못했습니다.",
+  "settingsOrg.auth.synced_other": "앱 {{count}}개에 동기화했습니다.",
+  "settingsOrg.auth.syncedPartial_other":
+    "앱 {{count}}개 중 {{succeeded}}개에 동기화했습니다. {{failed}}개는 실패했습니다.",
+  "settingsOrg.invite.sent_other": "초대 {{count}}개를 보냈습니다.",
+  "settingsOrg.invite.saved_other":
+    "초대 {{count}}개를 저장했습니다. 로그인하면 초대가 표시됩니다.",
+  "settingsShell.account.addPassword": "비밀번호 추가",
+  "settingsShell.account.authenticatorCode": "인증 코드",
+  "settingsShell.account.change": "변경",
+  "settingsShell.account.changeEmail": "이메일 변경",
+  "settingsShell.account.changePassword": "비밀번호 변경",
+  "settingsShell.account.confirmPassword": "새 비밀번호 확인",
+  "settingsShell.account.currentPassword": "현재 비밀번호",
+  "settingsShell.account.deletionDialogDescription":
+    "관리자에게 삭제 요청을 보냅니다. 관리자가 검토할 때까지 데이터는 유지됩니다.",
+  "settingsShell.account.done": "완료",
+  "settingsShell.account.email": "이메일",
+  "settingsShell.account.emailChangeError": "확인 메일을 보낼 수 없습니다.",
+  "settingsShell.account.emailChangeSent":
+    "이메일을 확인하고 안내에 따라 이 변경을 확정하세요.",
+  "settingsShell.account.languageAndRegion": "언어 및 지역",
+  "settingsShell.account.languageDescription": "모든 기기에 적용됩니다.",
+  "settingsShell.account.manage": "관리",
+  "settingsShell.account.name": "이름",
+  "settingsShell.account.nameDescription":
+    "Agent-Native 앱 전체에서 사용자를 부를 때 사용됩니다.",
+  "settingsShell.account.namePlaceholder": "이름",
+  "settingsShell.account.nameSaveError": "이름을 업데이트할 수 없습니다.",
+  "settingsShell.account.nameSaved": "이름이 업데이트되었습니다",
+  "settingsShell.account.newEmail": "새 이메일",
+  "settingsShell.account.newPassword": "새 비밀번호",
+  "settingsShell.account.password": "비밀번호",
+  "settingsShell.account.passwordDescription":
+    "비밀번호를 추가하면 다른 방법으로 계정에 로그인할 수 있습니다.",
+  "settingsShell.account.passwordLoadError":
+    "로그인 방법을 불러올 수 없습니다.",
+  "settingsShell.account.passwordMinLength":
+    "{{count}}자 이상의 비밀번호를 선택하세요.",
+  "settingsShell.account.passwordMismatch": "비밀번호가 일치하지 않습니다.",
+  "settingsShell.account.passwordSaveError":
+    "비밀번호를 업데이트할 수 없습니다.",
+  "settingsShell.account.passwordSaved": "비밀번호가 업데이트되었습니다",
+  "settingsShell.account.photoError": "사진을 업데이트할 수 없습니다.",
+  "settingsShell.account.photoUpdated": "사진이 업데이트되었습니다",
+  "settingsShell.account.profilePhoto": "프로필 사진",
+  "settingsShell.account.requestCopyDescription":
+    "관리자가 본인 확인 후 후속 조치를 합니다.",
+  "settingsShell.account.requestCopyLabel": "내 데이터 사본 요청",
+  "settingsShell.account.requestDeletionDescription":
+    "관리자가 요청을 완료할 때까지 데이터는 유지됩니다.",
+  "settingsShell.account.requestDeletionLabel": "데이터 삭제 요청",
+  "settingsShell.account.savePassword": "비밀번호 저장",
+  "settingsShell.account.sendConfirmation": "확인 메일 보내기",
+  "settingsShell.account.sending": "보내는 중...",
+  "settingsShell.account.setUpTwoFactor": "2단계 인증 설정",
+  "settingsShell.account.settingUp": "설정 중...",
+  "settingsShell.account.signIn": "로그인",
+  "settingsShell.account.timezone": "시간대",
+  "settingsShell.account.timezoneDescription":
+    "타임스탬프와 예약된 자동화에 사용됩니다.",
+  "settingsShell.account.turnOffTwoFactor": "2단계 인증 끄기",
+  "settingsShell.account.turningOff": "끄는 중...",
+  "settingsShell.account.twoFactor": "2단계 인증",
+  "settingsShell.account.twoFactorBackupCodes":
+    "이 백업 코드를 안전한 곳에 보관하세요. 인증 앱에 접근할 수 없게 되면 각 코드를 한 번씩 사용할 수 있습니다.",
+  "settingsShell.account.twoFactorCodeError":
+    "인증 앱의 6자리 코드를 입력하세요.",
+  "settingsShell.account.twoFactorDescription":
+    "인증 앱을 사용해 계정 로그인에 두 번째 단계를 추가합니다.",
+  "settingsShell.account.twoFactorDisableError": "2단계 인증을 끌 수 없습니다.",
+  "settingsShell.account.twoFactorEnabled": "2단계 인증이 켜져 있습니다.",
+  "settingsShell.account.twoFactorLoadError":
+    "2단계 인증 설정을 불러올 수 없습니다.",
+  "settingsShell.account.twoFactorQrLabel": "2단계 인증 설정 QR 코드",
+  "settingsShell.account.twoFactorSaved": "2단계 인증이 활성화되었습니다",
+  "settingsShell.account.twoFactorScan":
+    "인증 앱으로 이 QR 코드를 스캔한 다음 표시된 코드를 입력하세요.",
+  "settingsShell.account.twoFactorSetupError":
+    "2단계 인증 설정을 업데이트할 수 없습니다.",
+  "settingsShell.account.twoFactorSetupTitle": "2단계 인증 설정",
+  "settingsShell.account.uploading": "업로드 중...",
+  "settingsShell.account.verifyAndEnable": "확인 후 사용",
+  "settingsShell.account.verifying": "확인 중...",
+  "settingsShell.account.voiceBatch": "일괄",
+  "settingsShell.account.voiceDescription":
+    "음성 입력을 받아쓰는 방법을 선택합니다.",
+  "settingsShell.account.voiceGoogleRealtime": "Google 실시간",
+  "settingsShell.account.voiceInput": "음성 입력",
+  "settingsShell.account.voiceLoadError":
+    "음성 받아쓰기 설정을 불러올 수 없습니다.",
+  "settingsShell.account.voiceMacNative": "Mac 기본",
+  "settingsShell.account.voiceSaveError":
+    "음성 받아쓰기 설정을 저장할 수 없습니다.",
+  "settingsShell.account.yourData": "내 데이터",
+  "settingsShell.appFallbackName": "앱",
+  "settingsShell.appGroup.adminOnly": "소유자와 관리자만 변경할 수 있습니다",
+  "settingsShell.appGroup.automationsCreateTitle": "언제 무엇을 해야 하나요?",
+  "settingsShell.appGroup.defaultModel": "기본 모델",
+  "settingsShell.appGroup.defaultModelDescription":
+    "{{app}}의 새 에이전트 채팅에 사용됩니다. 기본값은 {{model}}입니다.",
+  "settingsShell.appGroup.defaultModelDescriptionUnset":
+    "{{app}}의 새 에이전트 채팅에 사용됩니다.",
+  "settingsShell.appGroup.defaultModelLoadError":
+    "기본 모델을 불러오지 못했습니다.",
+  "settingsShell.appGroup.defaultModelSaveError":
+    "기본 모델을 저장하지 못했습니다. 다시 시도하세요.",
+  "settingsShell.appGroup.demoMode": "데모 모드",
+  "settingsShell.appGroup.demoModeDescription":
+    "프레젠테이션을 위해 이 브라우저에서 샘플 데이터를 사용합니다.",
+  "settingsShell.appGroup.labsFootnote":
+    "이 새롭고 불안정한 기능에는 버그가 있을 수 있습니다.",
+  "settingsShell.appGroup.labsLoadError": "실험실 기능을 불러오지 못했습니다.",
+  "settingsShell.appGroup.labsSaveError":
+    "{{lab}}을(를) 변경하지 못했습니다. 다시 시도하세요.",
+  "settingsShell.appGroup.mcpAbout":
+    "{{app}}을(를) Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 {{app}}에서 작업할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
+  "settingsShell.appGroup.mcpFootnote":
+    "에이전트가 직접 사용하는 도구는 {{integrations}}에서 확인하세요.",
+  "settingsShell.appGroup.newAutomation": "새 자동화",
+  "settingsShell.appGroup.retry": "다시 시도",
+  "settingsShell.appGroup.thisBrowser": "이 브라우저",
+  "settingsShell.appGroup.useDefault": "기본값 사용",
+  "settingsShell.appGroup.whatsNewChip":
+    "{{app}}의 업데이트입니다. 앱마다 변경 기록이 따로 있습니다.",
+  "settingsShell.appGroup.whatsNewEmpty": "아직 업데이트가 없습니다.",
+  "settingsShell.appGroup.whatsNewShowFewer": "업데이트 적게 보기",
+  "settingsShell.appGroup.whatsNewViewAll": "모든 업데이트 보기",
+  "settingsShell.backToApp": "{{app}}(으)로 돌아가기",
+  "settingsShell.breadcrumbLabel": "탐색 경로",
+  "settingsShell.builder.connect": "연결",
+  "settingsShell.builder.connected": "연결됨",
+  "settingsShell.builder.connectedTo": "연결됨 · {{space}}",
+  "settingsShell.builder.connection": "연결",
+  "settingsShell.builder.disconnect": "연결 해제",
+  "settingsShell.builder.disconnecting": "연결 해제 중…",
+  "settingsShell.builder.disconnectBody":
+    "{{org}}에서 자신의 계정을 연결하지 않은 모든 사람에게 영향을 줍니다.",
+  "settingsShell.builder.disconnectFailed":
+    "Builder.io 연결을 해제하지 못했습니다.",
+  "settingsShell.builder.disconnectTitle": "Builder.io 연결을 해제할까요?",
+  "settingsShell.builder.grantsFailed": "Builder.io 연결을 읽지 못했습니다.",
+  "settingsShell.builder.loss.defaultStops":
+    "조직 제공자를 추가할 때까지 채팅이 중지됩니다.",
+  "settingsShell.builder.loss.defaultSwitches":
+    "기본 모델이 {{next}}(으)로 바뀝니다.",
+  "settingsShell.builder.loss.modelPicker":
+    "Builder.io 모델이 모델 선택기에서 사라집니다.",
+  "settingsShell.builder.loss.serviceStops":
+    "다른 제공업체를 설정할 때까지 중지됩니다.",
+  "settingsShell.builder.loss.stops": "작동이 중지됩니다.",
+  "settingsShell.builder.loss.uploadsFail":
+    "스토리지를 설정할 때까지 업로드가 실패합니다.",
+  "settingsShell.builder.manage": "관리",
+  "settingsShell.builder.needsReconnect": "다시 연결해야 합니다.",
+  "settingsShell.builder.orgFallback": "조직",
+  "settingsShell.builder.orgNotConnectedAdmin":
+    "연결되지 않았습니다. 연결하면 {{org}}의 모든 사람이 사용할 수 있습니다.",
+  "settingsShell.builder.orgNotConnectedMember":
+    "연결되지 않았습니다. 소유자나 관리자가 연결할 수 있습니다.",
+  "settingsShell.builder.organization": "조직",
+  "settingsShell.builder.personal": "개인",
+  "settingsShell.builder.personalConnected": "연결됨. 나만 사용합니다.",
+  "settingsShell.builder.personalConnectedOverOrg":
+    "연결됨. 조직 연결 대신 나만 사용합니다.",
+  "settingsShell.builder.personalConnectedTo":
+    "연결됨 · {{space}}. 나만 사용합니다.",
+  "settingsShell.builder.personalConnectedToOverOrg":
+    "연결됨 · {{space}}. 조직 연결 대신 나만 사용합니다.",
+  "settingsShell.builder.personalNotConnected":
+    "내 계정을 연결하세요. 나만 사용합니다.",
+  "settingsShell.builder.personalRestricted":
+    "소유자와 관리자가 개인 API 키를 제한했습니다.",
+  "settingsShell.builder.personalRestrictedUnused":
+    "개인 API 키가 제한된 동안에는 사용되지 않습니다.",
+  "settingsShell.builder.reconnect": "다시 연결",
+  "settingsShell.builder.retry": "다시 시도",
+  "settingsShell.builder.use.aiModel": "AI 모델",
+  "settingsShell.builder.use.aiModelDefaultNote": "기본 모델, {{model}}.",
+  "settingsShell.builder.use.aiModelNote":
+    "Builder.io 모델은 모델 선택기에 있습니다.",
+  "settingsShell.builder.use.backgroundAgentsNote":
+    "프로덕션에서 코드를 변경합니다.",
+  "settingsShell.builder.use.browserAutomationNote":
+    "프로덕션에서 에이전트가 브라우저를 사용할 수 있게 합니다.",
+  "settingsShell.builder.use.designSystem": "디자인 시스템 인텔리전스",
+  "settingsShell.builder.use.designSystemNote":
+    "생성된 슬라이드와 디자인을 브랜드에 맞게 유지합니다.",
+  "settingsShell.builder.use.embeddings": "임베딩",
+  "settingsShell.builder.use.embeddingsNote": "Brain에서 검색.",
+  "settingsShell.builder.use.fileStorageNote":
+    "새 업로드는 Builder.io에 저장됩니다.",
+  "settingsShell.builder.use.images": "이미지 생성",
+  "settingsShell.builder.use.imagesNote": "Slides 및 Design.",
+  "settingsShell.builder.use.voice": "음성 입력",
+  "settingsShell.builder.use.voiceNote": "모든 앱에서 받아쓰기.",
+  "settingsShell.builder.usedFor": "사용처",
+  "settingsShell.builder.usedForFootnote":
+    "Builder.io에서 실행할 항목은 {{link}}에서 선택하세요.",
+  "settingsShell.builder.usedForLoadFailed":
+    "Builder.io에서 실행되는 서비스를 확인하지 못했습니다.",
+  "settingsShell.builder.whatHappens": "영향",
+  "settingsShell.channels.about.discord":
+    "Discord 슬래시 명령으로 에이전트를 실행합니다.",
+  "settingsShell.channels.about.email":
+    "에이전트에게 이메일을 보내면 같은 스레드에서 답장합니다.",
+  "settingsShell.channels.about.googleDocs":
+    "Google Docs 댓글에서 에이전트를 태그하면 답변을 받을 수 있습니다.",
+  "settingsShell.channels.about.microsoftTeams":
+    "Microsoft Teams에서 에이전트를 멘션하면 그 대화에서 답장합니다.",
+  "settingsShell.channels.about.page":
+    "{{app}} 에이전트에게 메시지를 보낼 수 있는 곳입니다. 각 앱의 에이전트는 따로 설정합니다.",
+  "settingsShell.channels.about.slack":
+    "스레드에서 에이전트를 @멘션하거나 DM을 보내면 그 스레드에서 답장합니다.",
+  "settingsShell.channels.about.telegram":
+    "Telegram 봇으로 에이전트와 채팅합니다.",
+  "settingsShell.channels.about.whatsapp":
+    "에이전트를 WhatsApp Business에 연결합니다.",
+  "settingsShell.channels.action.manage": "관리",
+  "settingsShell.channels.action.manageAria": "{{platform}} 관리",
+  "settingsShell.channels.action.setUp": "설정",
+  "settingsShell.channels.action.setUpAria": "{{platform}} 설정",
+  "settingsShell.channels.action.view": "보기",
+  "settingsShell.channels.action.viewAria": "{{platform}} 보기",
+  "settingsShell.channels.agentIn": "{{platform}}의 에이전트",
+  "settingsShell.channels.connection": "연결",
+  "settingsShell.channels.copyServiceAccountEmail": "서비스 계정 이메일 복사",
+  "settingsShell.channels.copyWebhookUrl": "웹훅 URL 복사",
+  "settingsShell.channels.credentials": "자격 증명",
+  "settingsShell.channels.developerSite": "개발자 사이트",
+  "settingsShell.channels.documentation": "문서",
+  "settingsShell.channels.empty": "{{app}}에서 사용할 수 있는 채널이 없습니다.",
+  "settingsShell.channels.information": "정보",
+  "settingsShell.channels.loadFailed": "채널을 불러오지 못했습니다.",
+  "settingsShell.channels.membersFootnote":
+    "채널은 소유자와 관리자만 설정할 수 있습니다.",
+  "settingsShell.channels.notFound":
+    "이 채널은 {{app}}에서 사용할 수 없습니다.",
+  "settingsShell.channels.open": "열기",
+  "settingsShell.channels.openDocs": "문서 열기",
+  "settingsShell.channels.registerWebhook": "등록",
+  "settingsShell.channels.removeCredentials.action": "제거",
+  "settingsShell.channels.removeCredentials.aria":
+    "{{platform}} 자격 증명 제거",
+  "settingsShell.channels.removeCredentials.body":
+    "배포 환경에서도 이 키를 설정하지 않는 한, 에이전트가 모든 사용자에게 {{platform}}에서 더 이상 응답하지 않습니다.",
+  "settingsShell.channels.removeCredentials.confirm": "제거",
+  "settingsShell.channels.removeCredentials.failed":
+    "자격 증명을 제거하지 못했습니다.",
+  "settingsShell.channels.removeCredentials.removing": "제거 중…",
+  "settingsShell.channels.removeCredentials.title":
+    "{{platform}} 자격 증명을 제거할까요?",
+  "settingsShell.channels.retry": "다시 시도",
+  "settingsShell.channels.setup.addToEnvironment": "배포 환경에 추가하세요",
+  "settingsShell.channels.setup.body":
+    "이 값들을 이 배포에 추가한 다음 켜세요.",
+  "settingsShell.channels.setup.close": "닫기",
+  "settingsShell.channels.setup.failed": "변수를 저장하지 못했습니다.",
+  "settingsShell.channels.setup.optional": "선택 사항",
+  "settingsShell.channels.setup.replace": "교체",
+  "settingsShell.channels.setup.replaceAria": "{{key}} 교체",
+  "settingsShell.channels.setup.save": "저장",
+  "settingsShell.channels.setup.saveAndTurnOn": "저장하고 켜기",
+  "settingsShell.channels.setup.saving": "저장 중…",
+  "settingsShell.channels.setup.saved": "저장됨",
+  "settingsShell.channels.setup.savedElsewhere": "채널 외부에 저장됨",
+  "settingsShell.channels.setup.setInEnvironment": "배포 환경에서 설정",
+  "settingsShell.channels.setup.stillMissing":
+    "필수 변수가 아직 누락되었습니다.",
+  "settingsShell.channels.setup.title": "{{platform}} 설정",
+  "settingsShell.channels.shareDocumentsWith": "문서 공유 대상",
+  "settingsShell.channels.state.notSetUp": "설정 안 됨",
+  "settingsShell.channels.state.off": "꺼짐",
+  "settingsShell.channels.state.on": "켜짐",
+  "settingsShell.channels.status": "상태",
+  "settingsShell.channels.toggleFailed":
+    "{{platform}}을(를) 업데이트하지 못했습니다.",
+  "settingsShell.channels.turnOnAria": "{{platform}} 켜기",
+  "settingsShell.channels.unavailable":
+    "{{platform}}은(는) {{app}}에서 사용할 수 없습니다.",
+  "settingsShell.channels.webhookLocalOnly":
+    "{{platform}}이(가) 이 주소에 접근할 수 없습니다. 웹훅 URL을 받으려면 앱의 공개 HTTPS 주소에서 이 페이지를 여세요.",
+  "settingsShell.channels.webhookRegistered": "등록됨",
+  "settingsShell.channels.webhookRegistration": "웹훅",
+  "settingsShell.channels.webhookUrl": "웹훅 URL",
+  "settingsShell.channels.category": "카테고리",
+  "settingsShell.channels.developer": "개발사",
+  "settingsShell.channels.mentionAgent": "에이전트 멘션",
+  "settingsShell.channels.rowDescription": "{{about}} {{state}}.",
+  "settingsShell.channels.separately": "에이전트는 앱마다 따로 설정합니다.",
+  "settingsShell.channels.setUpLocked": "소유자와 관리자만 설정할 수 있습니다",
+  "settingsShell.integrationDetail.access.none":
+    "공개 서버라서 로그인할 필요가 없습니다.",
+  "settingsShell.integrationDetail.access.oauth":
+    "에이전트가 내 {{name}} 권한으로 작업하므로 내가 볼 수 있는 것만 봅니다.",
+  "settingsShell.integrationDetail.access.token":
+    "에이전트가 추가한 액세스 토큰을 사용하므로 그 토큰이 볼 수 있는 것을 봅니다.",
+  "settingsShell.integrationDetail.accessToken": "액세스 토큰",
+  "settingsShell.integrationDetail.addAccessToken": "액세스 토큰 추가",
+  "settingsShell.integrationDetail.callout.adminNeeded":
+    "관리자가 설정해야 합니다",
+  "settingsShell.integrationDetail.callout.adminNeededBody":
+    "{{org}}의 소유자나 관리자에게 {{name}}의 클라이언트 ID와 시크릿을 추가해 달라고 요청하세요. 그러면 내 계정을 연결할 수 있습니다.",
+  "settingsShell.integrationDetail.callout.beforeAnyone":
+    "누구든 연결하기 전에",
+  "settingsShell.integrationDetail.callout.beforeYouConnect": "연결하기 전에",
+  "settingsShell.integrationDetail.callout.token": "액세스 토큰으로 연결합니다",
+  "settingsShell.integrationDetail.callout.unavailable": "아직 사용할 수 없음",
+  "settingsShell.integrationDetail.category": "카테고리",
+  "settingsShell.integrationDetail.connected": "{{name}}을(를) 연결했습니다",
+  "settingsShell.integrationDetail.copyServerUrl": "서버 URL 복사",
+  "settingsShell.integrationDetail.developer": "개발사",
+  "settingsShell.integrationDetail.howToCreateToken": "토큰 만드는 방법",
+  "settingsShell.integrationDetail.justMe": "나만",
+  "settingsShell.integrationDetail.notFound": "이 통합은 카탈로그에 없습니다.",
+  "settingsShell.integrationDetail.notFoundTitle": "찾을 수 없음",
+  "settingsShell.integrationDetail.prompt.amplitude.1":
+    "이번 달 주간 활성 사용자 추세는 어땠어?",
+  "settingsShell.integrationDetail.prompt.amplitude.2":
+    "가입부터 첫 녹화까지의 퍼널을 만들어 줘",
+  "settingsShell.integrationDetail.prompt.amplitude.3":
+    "리텐션이 가장 좋은 코호트는?",
+  "settingsShell.integrationDetail.prompt.apollo.1":
+    "시리즈 B 스타트업의 디자인 책임자를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.apollo.2":
+    "이 이메일 목록을 보강해 줘",
+  "settingsShell.integrationDetail.prompt.apollo.3":
+    "이 연락처를 Q4 시퀀스에 추가해 줘",
+  "settingsShell.integrationDetail.prompt.asana.1": "이번 주 내 마감 작업은?",
+  "settingsShell.integrationDetail.prompt.asana.2":
+    "이 녹화의 액션 아이템으로 작업을 만들어 줘",
+  "settingsShell.integrationDetail.prompt.asana.3":
+    "일정보다 늦어진 프로젝트는?",
+  "settingsShell.integrationDetail.prompt.atlassian.1":
+    "이 녹화의 액션 아이템으로 Jira 티켓을 만들어 줘",
+  "settingsShell.integrationDetail.prompt.atlassian.2":
+    "Q4 릴리스를 막고 있는 게 뭐야?",
+  "settingsShell.integrationDetail.prompt.atlassian.3":
+    "온보딩에 관한 Confluence 페이지를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.box.1":
+    "Acme의 서명된 계약서를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.box.2":
+    "Q3 보고서 폴더를 재무팀과 공유해 줘",
+  "settingsShell.integrationDetail.prompt.box.3":
+    "이번 주 법무 폴더에서 무엇이 바뀌었어?",
+  "settingsShell.integrationDetail.prompt.canva.1":
+    "이 녹화의 하이라이트로 소셜 게시물을 만들어 줘",
+  "settingsShell.integrationDetail.prompt.canva.2":
+    "브랜드 키트 색상을 찾아 줘",
+  "settingsShell.integrationDetail.prompt.canva.3":
+    "최신 프레젠테이션을 PDF로 내보내 줘",
+  "settingsShell.integrationDetail.prompt.cloudflare.1":
+    "{{host}}를 가리키는 DNS 레코드는?",
+  "settingsShell.integrationDetail.prompt.cloudflare.2":
+    "지난 1시간의 Worker 오류를 보여 줘",
+  "settingsShell.integrationDetail.prompt.cloudflare.3":
+    "이 URL의 캐시를 삭제해 줘",
+  "settingsShell.integrationDetail.prompt.commonRoom.1":
+    "구매 신호를 보이는 회사는?",
+  "settingsShell.integrationDetail.prompt.commonRoom.2":
+    "Acme에서 우리 커뮤니티에 활발한 사람은?",
+  "settingsShell.integrationDetail.prompt.commonRoom.3":
+    "주요 계정의 활동을 요약해 줘",
+  "settingsShell.integrationDetail.prompt.context7.1":
+    "로더에 관한 최신 React Router 문서를 보여 줘",
+  "settingsShell.integrationDetail.prompt.context7.2":
+    "Drizzle 마이그레이션은 어떻게 설정해?",
+  "settingsShell.integrationDetail.prompt.context7.3":
+    "최신 Tailwind 릴리스의 새로운 점은?",
+  "settingsShell.integrationDetail.prompt.exa.1":
+    "agent-native 앱에 관한 최근 기사를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.exa.2":
+    "{{app}}의 경쟁사를 조사해 줘",
+  "settingsShell.integrationDetail.prompt.exa.3":
+    "이 페이지를 가져와서 요약해 줘",
+  "settingsShell.integrationDetail.prompt.figma.1":
+    "이 Figma 파일의 컴포넌트를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.figma.2":
+    "디자인 시스템의 색상 변수를 나열해 줘",
+  "settingsShell.integrationDetail.prompt.figma.3":
+    "이 프레임의 레이아웃을 설명해 줘",
+  "settingsShell.integrationDetail.prompt.fullstory.1":
+    "공유 버튼을 분노 클릭한 세션을 보여 줘",
+  "settingsShell.integrationDetail.prompt.fullstory.2":
+    "가격 페이지의 불편 사항을 요약해 줘",
+  "settingsShell.integrationDetail.prompt.fullstory.3":
+    "온보딩의 어디에서 이탈해?",
+  "settingsShell.integrationDetail.prompt.github.1":
+    "내 리뷰를 기다리는 풀 리퀘스트를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.github.2":
+    "agent-native에서 Slack 링크 미리보기 관련 이슈를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.github.3":
+    "이번 주 packages/core에서 무엇이 바뀌었어?",
+  "settingsShell.integrationDetail.prompt.gitlab.1":
+    "오늘 CI에서 실패한 머지 리퀘스트는?",
+  "settingsShell.integrationDetail.prompt.gitlab.2":
+    "bug 라벨이 붙은 열린 이슈를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.gitlab.3":
+    "이번 주 가장 느렸던 파이프라인은?",
+  "settingsShell.integrationDetail.prompt.gong.1":
+    "Acme와의 마지막 통화를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.gong.2": "이번 달 나온 반대 의견은?",
+  "settingsShell.integrationDetail.prompt.gong.3": "가격 우려를 언급한 거래는?",
+  "settingsShell.integrationDetail.prompt.googleDocs.1":
+    "@agent 이 문서의 댓글을 요약해 줘",
+  "settingsShell.integrationDetail.prompt.googleDocs.2":
+    "@agent 이 댓글에 대한 답장 초안을 써 줘",
+  "settingsShell.integrationDetail.prompt.googleDocs.3":
+    "@agent 이 메모를 체크리스트로 바꿔 줘",
+  "settingsShell.integrationDetail.prompt.grafana.1":
+    "지난 하루 동안의 API p95 지연 시간을 차트로 보여 줘",
+  "settingsShell.integrationDetail.prompt.grafana.2":
+    "오후 2시쯤의 오류 로그를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.grafana.3": "이번 주 발생한 알림은?",
+  "settingsShell.integrationDetail.prompt.granola.1":
+    "어제 디자인 리뷰에서 무엇을 결정했어?",
+  "settingsShell.integrationDetail.prompt.granola.2":
+    "회의에서 나온 미완료 액션 아이템을 나열해 줘",
+  "settingsShell.integrationDetail.prompt.granola.3":
+    "Acme와의 통화를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.hubspot.1":
+    "Acme 거래를 Closed won으로 옮겨 줘",
+  "settingsShell.integrationDetail.prompt.hubspot.2":
+    "협상 단계에서 멈춘 거래는?",
+  "settingsShell.integrationDetail.prompt.hubspot.3":
+    "이 통화를 연락처의 메모로 기록해 줘",
+  "settingsShell.integrationDetail.prompt.intercom.1":
+    "오늘 열린 대화를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.intercom.2":
+    "SSO에 관한 도움말 문서를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.intercom.3":
+    "이번 주 고객이 가장 많이 묻는 건?",
+  "settingsShell.integrationDetail.prompt.linear.1":
+    "깨진 Slack 미리보기 이슈를 만들고 나에게 할당해 줘",
+  "settingsShell.integrationDetail.prompt.linear.2":
+    "현재 사이클에 남은 게 뭐야?",
+  "settingsShell.integrationDetail.prompt.linear.3":
+    "이번 주 보고된 버그를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.monday.1":
+    "이번 스프린트 디자인 보드에 뭐가 있어?",
+  "settingsShell.integrationDetail.prompt.monday.2":
+    "이 항목을 Done으로 옮겨 줘",
+  "settingsShell.integrationDetail.prompt.monday.3": "기한이 지난 항목은?",
+  "settingsShell.integrationDetail.prompt.neon.1":
+    "테스트용으로 프로덕션 브랜치를 만들어 줘",
+  "settingsShell.integrationDetail.prompt.neon.2":
+    "이번 주 가장 느린 쿼리를 보여 줘",
+  "settingsShell.integrationDetail.prompt.neon.3":
+    "메인 데이터베이스 크기는 얼마야?",
+  "settingsShell.integrationDetail.prompt.netlify.1":
+    "마지막 배포가 왜 실패했어?",
+  "settingsShell.integrationDetail.prompt.netlify.2":
+    "이번 주 빌드가 실패한 사이트는?",
+  "settingsShell.integrationDetail.prompt.netlify.3":
+    "이전 프로덕션 배포로 롤백해 줘",
+  "settingsShell.integrationDetail.prompt.notion.1":
+    "온보딩 체크리스트를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.notion.2":
+    "이번 주 회의록을 요약해 줘",
+  "settingsShell.integrationDetail.prompt.notion.3":
+    "이 액션 아이템을 팀 위키에 추가해 줘",
+  "settingsShell.integrationDetail.prompt.paypal.1":
+    "연체된 인보이스를 나열해 줘",
+  "settingsShell.integrationDetail.prompt.paypal.2": "이번 달 거래를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.paypal.3":
+    "Acme에 보낼 인보이스를 만들어 줘",
+  "settingsShell.integrationDetail.prompt.pylon.1":
+    "긴급한 열린 이슈가 있는 계정은?",
+  "settingsShell.integrationDetail.prompt.pylon.2":
+    "최신 Acme 티켓을 요약해 줘",
+  "settingsShell.integrationDetail.prompt.pylon.3":
+    "이 이슈에 대한 답장 초안을 써 줘",
+  "settingsShell.integrationDetail.prompt.semgrep.1":
+    "packages/core의 보안 문제를 스캔해 줘",
+  "settingsShell.integrationDetail.prompt.semgrep.2":
+    "이 발견 사항과 수정 방법을 설명해 줘",
+  "settingsShell.integrationDetail.prompt.semgrep.3":
+    "이 저장소에 하드코딩된 시크릿이 있어?",
+  "settingsShell.integrationDetail.prompt.sentry.1":
+    "어제 배포 이후 가장 많은 새 오류는?",
+  "settingsShell.integrationDetail.prompt.sentry.2":
+    "가장 자주 발생하는 크래시의 스택 트레이스를 보여 줘",
+  "settingsShell.integrationDetail.prompt.sentry.3":
+    "이 오류는 어느 릴리스에서 생겼어?",
+  "settingsShell.integrationDetail.prompt.sigma.1": "매출 대시보드를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.sigma.2": "지난달 MRR 변화의 원인은?",
+  "settingsShell.integrationDetail.prompt.sigma.3":
+    "이 워크북의 주요 지표를 설명해 줘",
+  "settingsShell.integrationDetail.prompt.slack.1":
+    "이번 주 #design을 요약해 줘",
+  "settingsShell.integrationDetail.prompt.slack.2":
+    "가격 변경에 관한 스레드를 찾아 줘",
+  "settingsShell.integrationDetail.prompt.slack.3":
+    "출시에 대해 Camila가 뭐라고 했어?",
+  "settingsShell.integrationDetail.prompt.stripe.1": "지난달 매출은 얼마야?",
+  "settingsShell.integrationDetail.prompt.stripe.2":
+    "이 인보이스의 고객을 찾아 줘",
+  "settingsShell.integrationDetail.prompt.stripe.3": "갱신에 실패한 구독은?",
+  "settingsShell.integrationDetail.prompt.supabase.1":
+    "이번 주 몇 명이 가입했어?",
+  "settingsShell.integrationDetail.prompt.supabase.2":
+    "recordings 테이블의 스키마를 보여 줘",
+  "settingsShell.integrationDetail.prompt.supabase.3":
+    "오늘 오류가 난 Edge Functions는?",
+  "settingsShell.integrationDetail.prompt.telegram.1":
+    "오늘의 녹화를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.telegram.2":
+    "오후 3시 리뷰를 알려 줘",
+  "settingsShell.integrationDetail.prompt.telegram.3":
+    "어제 데모 링크를 공유해 줘",
+  "settingsShell.integrationDetail.prompt.vercel.1":
+    "마지막 프리뷰 배포가 왜 실패했어?",
+  "settingsShell.integrationDetail.prompt.vercel.2":
+    "프로덕션 배포 로그를 보여 줘",
+  "settingsShell.integrationDetail.prompt.vercel.3":
+    "이 프로젝트를 가리키는 도메인은?",
+  "settingsShell.integrationDetail.prompt.webflow.1":
+    "가격 페이지 헤드라인을 업데이트해 줘",
+  "settingsShell.integrationDetail.prompt.webflow.2":
+    "이번 주 게시된 CMS 항목을 나열해 줘",
+  "settingsShell.integrationDetail.prompt.webflow.3":
+    "메타 설명이 없는 페이지는?",
+  "settingsShell.integrationDetail.prompt.whatsapp.1": "오늘 내 일정은 뭐야?",
+  "settingsShell.integrationDetail.prompt.whatsapp.2": "최신 녹화를 요약해 줘",
+  "settingsShell.integrationDetail.prompt.whatsapp.3":
+    "디자인 리뷰 메모를 보내 줘",
+  "settingsShell.integrationDetail.prompt.zapier.1":
+    "새 녹화를 Slack의 #design에 게시해 줘",
+  "settingsShell.integrationDetail.prompt.zapier.2":
+    "새 가입자를 CRM에 추가해 줘",
+  "settingsShell.integrationDetail.prompt.zapier.3": "실행할 수 있는 Zap은?",
+  "settingsShell.integrationDetail.serverUrl": "서버 URL",
+  "settingsShell.integrationDetail.setUp": "설정",
+  "settingsShell.integrationDetail.signIn": "로그인",
+  "settingsShell.integrationDetail.signInNone": "없음",
+  "settingsShell.integrationDetail.tokenHint.figma":
+    "Figma에서 개인 액세스 토큰을 만든 다음 여기에 붙여 넣으세요.",
+  "settingsShell.integrationDetail.tokenHint.github":
+    "GitHub에서 개인 액세스 토큰을 만든 다음 여기에 붙여 넣으세요.",
+  "settingsShell.integrationDetail.tokenHint.sentry":
+    "Sentry에서 사용자 인증 토큰을 만든 다음 여기에 붙여 넣으세요.",
+  "settingsShell.integrationDetail.tokenHint.zapier":
+    "Zapier에서 연결을 만든 다음 그 Bearer 토큰을 여기에 붙여 넣으세요.",
+  "settingsShell.integrationDetail.tokenPlaceholder": "{{name}} 토큰 붙여 넣기",
+  "settingsShell.integrationDetail.who": "사용할 수 있는 사람",
+  "settingsShell.integrationDetail.whoMember":
+    "{{org}}와 공유는 소유자와 관리자만 할 수 있습니다.",
+  "settingsShell.integrationDetail.whoOrgOnly":
+    "{{org}}의 모든 사람을 위해 한 번만 연결합니다.",
+  "settingsShell.integrationDetail.whoPersonal":
+    "각자 자신의 계정을 연결합니다.",
+  "settingsShell.integrationDetail.whoShared":
+    "공유 연결을 사용하면 {{org}}의 모든 사람이 내 액세스를 사용할 수 있습니다.",
+  "settingsShell.clearSearch": "검색 지우기",
+  "settingsShell.group.account": "계정",
+  "settingsShell.group.agent": "에이전트",
+  "settingsShell.group.connections": "연결",
+  "settingsShell.group.organization": "조직",
+  "settingsShell.interfaceLanguage": "인터페이스 언어",
+  "settingsShell.integrations.addCustom": "사용자 지정 통합 추가",
+  "settingsShell.integrations.builderDescription":
+    "모델 액세스, 브라우저 자동화, 파일 스토리지, 워크스페이스 ID. 무료 요금제가 있습니다.",
+  "settingsShell.integrations.builderStatusFailed":
+    "Builder.io 연결을 확인하지 못했습니다.",
+  "settingsShell.integrations.category.analytics": "분석",
+  "settingsShell.integrations.category.design": "디자인",
+  "settingsShell.integrations.category.engineering": "엔지니어링",
+  "settingsShell.integrations.category.finance": "재무",
+  "settingsShell.integrations.category.other": "기타",
+  "settingsShell.integrations.category.productivity": "생산성",
+  "settingsShell.integrations.category.sales": "영업",
+  "settingsShell.integrations.category.support": "지원",
+  "settingsShell.integrations.connectName": "{{name}} 연결",
+  "settingsShell.integrations.connectedEmptyDescription":
+    "아래에서 도구를 연결하면 에이전트가 채팅에서 사용할 수 있습니다.",
+  "settingsShell.integrations.connectedEmptyTitle":
+    "아직 연결된 항목이 없습니다",
+  "settingsShell.integrations.footnote":
+    "에이전트가 사용하는 도구입니다. Claude, ChatGPT, Cursor에서 {{app}}을(를) 사용하려면 {{link}}을(를) 참고하세요.",
+  "settingsShell.integrations.moreActions": "{{name}} 추가 작업",
+  "settingsShell.integrations.noResults":
+    "일치하는 통합이 없습니다. 다른 이름으로 시도해 보세요.",
+  "settingsShell.integrations.remove": "제거",
+  "settingsShell.integrations.removeFailed":
+    "{{name}}을(를) 제거하지 못했습니다.",
+  "settingsShell.integrations.removePersonal":
+    "에이전트가 더 이상 회원님을 위해 {{name}}을(를) 사용하지 않습니다.",
+  "settingsShell.integrations.removeTitle": "{{name}}을(를) 제거할까요?",
+  "settingsShell.integrations.removeWorkspace":
+    "에이전트가 더 이상 워크스페이스의 모든 사람을 위해 {{name}}을(를) 사용하지 않습니다.",
+  "settingsShell.integrations.removing": "제거 중…",
+  "settingsShell.integrations.retry": "다시 시도",
+  "settingsShell.integrations.seeMoreMany": "{{first}}, {{second}} 외 더 보기",
+  "settingsShell.integrations.seeMoreOne": "{{first}} 보기",
+  "settingsShell.integrations.seeMoreTwo": "{{first}} 및 {{second}} 보기",
+  "settingsShell.integrations.serversLoadFailed":
+    "연결된 통합을 불러오지 못했습니다.",
+  "settingsShell.learnings": "학습 내용",
+  "settingsShell.loading": "설정을 불러오는 중",
+  "settingsShell.navLabel": "설정",
+  "settingsShell.noResults": "일치하는 설정이 없습니다",
+  "settingsShell.openNav": "설정 메뉴 열기",
+  "settingsShell.page.apiKeys": "API 키",
+  "settingsShell.page.appGeneral": "일반",
+  "settingsShell.page.apps": "앱",
+  "settingsShell.page.audit": "감사 로그",
+  "settingsShell.page.auth": "인증",
+  "settingsShell.page.automations": "자동화",
+  "settingsShell.page.channels": "채널",
+  "settingsShell.page.creativeContext": "크리에이티브 컨텍스트",
+  "settingsShell.page.files": "파일",
+  "settingsShell.page.infra": "인프라",
+  "settingsShell.page.instructions": "지침",
+  "settingsShell.page.integrations": "연동",
+  "settingsShell.page.labs": "실험실",
+  "settingsShell.page.mcp": "MCP 서버",
+  "settingsShell.page.members": "멤버",
+  "settingsShell.page.memory": "메모리",
+  "settingsShell.page.model": "모델",
+  "settingsShell.page.notifications": "알림",
+  "settingsShell.page.orgGeneral": "일반",
+  "settingsShell.page.preferences": "환경설정",
+  "settingsShell.page.profile": "프로필",
+  "settingsShell.page.security": "보안",
+  "settingsShell.page.skills": "스킬",
+  "settingsShell.page.subAgents": "하위 에이전트",
+  "settingsShell.page.usage": "사용량",
+  "settingsShell.page.whatsNew": "새로운 기능",
+  "settingsShell.pagePending": "아직 사용할 수 없습니다",
+  "settingsShell.resultsLabel": "설정 검색 결과",
+  "settingsShell.search.appDefaultModel": "앱 기본 모델",
+  "settingsShell.search.backgroundAgents": "백그라운드 에이전트",
+  "settingsShell.search.browserAutomation": "브라우저 자동화",
+  "settingsShell.search.connectedAgents": "연결된 에이전트",
+  "settingsShell.search.database": "데이터베이스",
+  "settingsShell.search.defaultModel": "기본 모델",
+  "settingsShell.search.demoMode": "데모 모드",
+  "settingsShell.search.email": "이메일",
+  "settingsShell.search.fileUploads": "파일 업로드 및 저장소",
+  "settingsShell.search.hosting": "호스팅",
+  "settingsShell.search.maxIterations": "최대 반복 횟수",
+  "settingsShell.search.signInMethods": "로그인 방법",
+  "settingsShell.search.voiceTranscription": "음성 전사",
+  "settingsShell.searchPlaceholder": "설정 검색",
+  "settingsShell.unread": "새 항목",
+  "settingsResources.personal": "개인",
+  "settingsResources.organization": "조직",
+  "settingsResources.fromDispatch": "Dispatch에서",
+  "settingsResources.readOnly": "읽기 전용",
+  "settingsResources.readOnlyHint": "소유자와 관리자만 변경할 수 있습니다",
+  "settingsResources.editInDispatch": "Dispatch에서 편집하세요",
+  "settingsResources.openDispatch": "Dispatch 열기",
+  "settingsResources.allApps": "모든 앱",
+  "settingsResources.allAppsHint": "Dispatch가 모든 앱과 공유합니다",
+  "settingsResources.dispatchEmpty": "Dispatch에서 공유된 항목이 없습니다",
+  "settingsResources.loadFailed": "이 리소스를 불러오지 못했습니다.",
+  "settingsResources.moreActions": "추가 작업",
+  "settingsResources.open": "열기",
+  "settingsResources.download": "다운로드",
+  "settingsResources.remove": "제거",
+  "settingsResources.removeTitle": "{{name}}을(를) 제거할까요?",
+  "settingsResources.removeFailed": "{{name}}을(를) 제거하지 못했습니다.",
+  "settingsResources.saveFailed": "{{name}}을(를) 저장하지 못했습니다.",
+  "settingsResources.uploadFailed": "{{name}}을(를) 업로드하지 못했습니다.",
+  "settingsResources.cancel": "취소",
+  "settingsResources.save": "저장",
+  "settingsResources.create": "만들기",
+  "settingsResources.saving": "저장하는 중",
+  "settingsResources.creating": "만드는 중",
+  "settingsResources.removing": "제거하는 중",
+  "settingsResources.instructions.empty":
+    "에이전트에게 함께 일하는 방식을 알려 주세요.",
+  "settingsResources.instructions.emptyTitle": "아직 지침이 없습니다",
+  "settingsResources.instructions.orgEmpty": "아직 {{org}}의 지침이 없습니다",
+  "settingsResources.instructions.add": "지침 추가",
+  "settingsResources.instructions.fieldLabel":
+    "에이전트가 어떻게 일하길 원하시나요?",
+  "settingsResources.instructions.placeholder":
+    "답변은 짧게. 미터법 단위를 사용하세요.",
+  "settingsResources.instructions.savedAs":
+    "개인 리소스에 AGENTS.md로 저장됩니다.",
+  "settingsResources.memory.empty":
+    "에이전트가 당신에 대해 알게 된 내용을 여기에 저장합니다.",
+  "settingsResources.memory.emptyTitle": "아직 메모리가 없습니다",
+  "settingsResources.memory.orgEmpty": "아직 공유된 메모리가 없습니다",
+  "settingsResources.memory.add": "메모리 추가",
+  "settingsResources.learnings.empty":
+    "에이전트에게 준 수정 사항은 학습 내용으로 저장됩니다.",
+  "settingsResources.learnings.emptyTitle": "아직 학습 내용이 없습니다",
+  "settingsResources.learnings.add": "학습 내용 추가",
+  "settingsResources.skills.empty":
+    "워크플로를 한 번 저장하면 에이전트가 재사용할 수 있습니다.",
+  "settingsResources.skills.emptyTitle": "아직 스킬이 없습니다",
+  "settingsResources.skills.orgEmpty": "아직 공유된 스킬이 없습니다",
+  "settingsResources.skills.add": "스킬 추가",
+  "settingsResources.skills.describe": "에이전트에게 설명하기",
+  "settingsResources.skills.upload": "스킬 파일 업로드",
+  "settingsResources.skills.describePlaceholder":
+    "풀 리퀘스트의 보안 문제를 검토하는 스킬",
+  "settingsResources.files.empty":
+    "파일을 추가해 에이전트에게 더 많은 컨텍스트를 제공하세요.",
+  "settingsResources.files.emptyTitle": "아직 파일이 없습니다",
+  "settingsResources.files.orgEmpty": "아직 공유된 파일이 없습니다",
+  "settingsResources.files.add": "파일 추가",
+  "settingsResources.files.upload": "파일 업로드",
+  "settingsResources.files.create": "파일 만들기",
+  "settingsInfra.setup": "설정",
+  "settingsInfra.services": "서비스",
+  "settingsInfra.environment": "환경",
+  "settingsInfra.builderConnected":
+    "연결됨. Builder.io로 표시된 모든 서비스는 계정 크레딧으로 작동합니다.",
+  "settingsInfra.builderNotConnected":
+    "연결되지 않음. 각 서비스를 직접 설정하거나 Builder.io를 연결해 계정 크레딧을 사용하세요.",
+  "settingsInfra.builderUnknown": "Builder.io 연결을 확인할 수 없습니다.",
+  "settingsInfra.manage": "관리",
+  "settingsInfra.connect": "연결",
+  "settingsInfra.connecting": "연결 중…",
+  "settingsInfra.setUp": "설정",
+  "settingsInfra.view": "보기",
+  "settingsInfra.retry": "다시 시도",
+  "settingsInfra.close": "닫기",
+  "settingsInfra.cancel": "취소",
+  "settingsInfra.save": "저장",
+  "settingsInfra.saving": "저장 중…",
+  "settingsInfra.required": "필수",
+  "settingsInfra.recommended": "권장",
+  "settingsInfra.optional": "선택",
+  "settingsInfra.builderRecommended":
+    "아래의 모든 서비스를 Builder.io 계정 크레딧으로 사용하세요. 무료 요금제가 있습니다.",
+  "settingsInfra.builderOnly": "Builder.io 전용",
+  "settingsInfra.rowDescription": "{{source}} · {{use}}",
+  "settingsInfra.notSetUp": "설정되지 않음",
+  "settingsInfra.availableWithBuilder": "Builder.io로 사용 가능",
+  "settingsInfra.loadFailed": "불러올 수 없습니다.",
+  "settingsInfra.aiModel": "AI 모델",
+  "settingsInfra.useEveryApp": "모든 앱",
+  "settingsInfra.storageBucket": "{{provider}}, 버킷 {{bucket}}",
+  "settingsInfra.useUploads": "모든 앱의 업로드",
+  "settingsInfra.storageTitle": "파일 저장소",
+  "settingsInfra.storageIntro":
+    "새 업로드는 버킷에 저장됩니다. 기존 파일은 그대로 유지됩니다.",
+  "settingsInfra.voice": "음성 입력",
+  "settingsInfra.images": "이미지 생성",
+  "settingsInfra.embeddings": "임베딩",
+  "settingsInfra.useVoice": "모든 앱의 받아쓰기",
+  "settingsInfra.useImages": "Slides 및 Design",
+  "settingsInfra.useEmbeddings": "Brain 검색",
+  "settingsInfra.whyVoice":
+    "음성을 텍스트로 바꿉니다. 입력은 이것 없이도 항상 작동합니다.",
+  "settingsInfra.whyImages": "슬라이드와 디자인용 이미지를 생성합니다.",
+  "settingsInfra.whyEmbeddings":
+    "의미 기반 검색을 개선합니다. 키워드 검색은 이것 없이도 작동합니다.",
+  "settingsInfra.designSystem": "디자인 시스템 인텔리전스",
+  "settingsInfra.whyDesignSystem":
+    "생성된 슬라이드와 디자인을 브랜드에 맞게 유지합니다.",
+  "settingsInfra.whyBackground": "프로덕션에서 코드를 변경합니다.",
+  "settingsInfra.whyBrowser":
+    "에이전트가 프로덕션에서 브라우저를 사용할 수 있게 합니다.",
+  "settingsInfra.provider": "제공업체",
+  "settingsInfra.keyOrg": "조직의 {{provider}} 키를 사용합니다.",
+  "settingsInfra.manageKey": "키 관리",
+  "settingsInfra.keyPersonal":
+    "{{provider}} 키는 개인 키입니다. 서비스에는 조직 키가 필요합니다.",
+  "settingsInfra.keyNone":
+    "서비스는 조직 키를 사용하며, 아직 {{provider}} 키가 없습니다.",
+  "settingsInfra.keyUnavailable":
+    "조직의 {{provider}} 키를 확인할 수 없습니다.",
+  "settingsInfra.useBuilder": "Builder.io 사용",
+  "settingsInfra.addNamed": "{{provider}} 추가",
+  "settingsInfra.serviceSaved":
+    "{{service}}에서 이제 {{provider}}를 사용합니다.",
+  "settingsInfra.serviceSaveFailed": "{{service}}을(를) 변경할 수 없습니다.",
+  "settingsInfra.reindex":
+    "기존 항목이 의미 기반 검색에 포함되도록 Brain을 다시 인덱싱하세요.",
+  "settingsInfra.variables": "필수 변수",
+  "settingsInfra.databaseHosted":
+    "{{name}}, 호스트에서 설정됨. 모든 앱이 공유합니다.",
+  "settingsInfra.databaseHostedSingle": "{{name}}, 호스트에서 설정됨.",
+  "settingsInfra.databaseLocal":
+    "이 컴퓨터의 {{name}}. 배포하기 전에 호스트에서 DATABASE_URL을 설정하세요.",
+  "settingsInfra.databaseMissing":
+    "설정되지 않음. 호스트에서 DATABASE_URL을 설정하세요.",
+  "settingsInfra.hostingWorkspace":
+    "{{host}}. 워크스페이스가 각 앱을 고유한 주소에 배포합니다.",
+  "settingsInfra.hostingSingle": "{{host}}, {{address}}.",
+  "settingsInfra.hostingPlain": "{{host}}.",
+  "settingsInfra.hostOwnServer": "자체 서버",
+  "settingsInfra.hostThisComputer": "이 컴퓨터",
+  "settingsInfra.variablesSet": "{{keys}}이(가) 호스트에 설정되어 있습니다.",
+  "settingsInfra.variablesMissing": "호스트에서 {{keys}}을(를) 설정하세요.",
+  "settingsInfra.dbConnected": "연결됨",
+  "settingsInfra.dbLocal": "이 컴퓨터",
+  "settingsInfra.notSet": "설정되지 않음",
+  "settingsInfra.set": "설정됨",
+  "settingsInfra.dbIntro":
+    "모든 앱은 시작하기 전에 데이터베이스를 읽으므로 호스트에서 한 번만 설정합니다. 다른 데이터베이스로 옮기려면:",
+  "settingsInfra.dbStep1":
+    "Neon, Supabase 또는 다른 Postgres 호스트에서 Postgres 데이터베이스를 만드세요.",
+  "settingsInfra.dbStep2":
+    "호스트 환경에서 {{key}}을(를) 해당 연결 문자열로 설정하세요.",
+  "settingsInfra.dbStep3":
+    "다시 배포하세요. 마이그레이션은 배포 중에 실행됩니다.",
+  "settingsInfra.dbOwn":
+    "앱 하나에 별도 데이터베이스를 주려면 {{key}} 같은 해당 앱 전용 변수를 설정하세요.",
+  "settingsInfra.hostIntroWorkspace":
+    "워크스페이스가 각 앱을 고유한 주소에 배포합니다. Vercel, Cloudflare 또는 자체 서버에서 호스팅하려면:",
+  "settingsInfra.hostIntro":
+    "Vercel, Cloudflare 또는 자체 서버에서 호스팅하려면:",
+  "settingsInfra.hostStep1":
+    "{{key}}(으)로 대상을 선택하세요. 예: vercel, cloudflare_module, node.",
+  "settingsInfra.hostStep2":
+    "새 호스트에 {{keys}}을(를) 포함한 같은 환경을 설정하세요.",
+  "settingsInfra.hostStep3":
+    "배포하세요. 워크스페이스에서는 모든 앱을 빌드하고 게시 명령을 출력합니다:",
+  "settingsInfra.envIntro":
+    "모든 앱은 시작하기 전에 이 값을 읽습니다. 호스트에서 한 번 설정한 뒤 다시 배포하세요.",
+  "settingsInfra.varDatabaseUrl": "Postgres 연결 문자열입니다.",
+  "settingsInfra.varA2a":
+    "이 워크스페이스의 앱이 서로 호출할 수 있게 합니다. 워크스페이스에서는 BETTER_AUTH_SECRET이 설정되지 않았을 때 로그인 세션에도 서명합니다.",
+  "settingsInfra.varBetterAuth":
+    "로그인 세션에 서명합니다. 임의의 문자 32자 이상을 사용하세요.",
+  "settingsInfra.varAppUrl":
+    "호스트가 앱에 공개 URL을 알려 줄 수 없을 때만 필요합니다.",
+  "settingsInfra.varEncryption":
+    "설정에 저장된 키를 암호화합니다. 없으면 워크스페이스가 A2A_SECRET에서 키를 파생합니다.",
+  "settingsInfra.varEncryptionSingle":
+    "설정에 저장된 키를 암호화합니다. 없으면 앱이 BETTER_AUTH_SECRET에서 키를 파생합니다.",
+  "settingsInfra.varWeak": "너무 짧습니다. 임의의 문자 32자 이상을 사용하세요.",
+  "settingsInfra.varWeakLabel": "너무 짧음",
+  "settingsInfra.generateSecret": "시크릿을 생성하려면:",
+  "settingsInfra.copy": "복사",
+  "settingsInfra.copied": "복사됨",
+  "settingsInfra.copyFailed": "복사할 수 없습니다.",
+  "settingsApiKeys.addKey": "키 추가",
+  "settingsApiKeys.adding": "추가 중…",
+  "settingsApiKeys.availableTo": "사용 가능 대상",
+  "settingsApiKeys.deleteKey": "키 삭제",
+  "settingsApiKeys.deleting": "삭제 중…",
+  "settingsApiKeys.deleteTitle": "{{name}}을(를) 삭제할까요?",
+  "settingsApiKeys.everyoneIn": "{{org}}의 모든 사용자",
+  "settingsApiKeys.getKey": "키 받기",
+  "settingsApiKeys.hideKeys": "키 숨기기",
+  "settingsApiKeys.justMe": "나만",
+  "settingsApiKeys.keyAdded": "키를 추가했습니다",
+  "settingsApiKeys.keyDeleted": "키를 삭제했습니다",
+  "settingsApiKeys.loadFailed": "키를 불러오지 못했습니다.",
+  "settingsApiKeys.manageKey": "{{name}} 관리",
+  "settingsApiKeys.managedKeys": "연동에서 관리",
+  "settingsApiKeys.managedName": "이 키는 {{owner}}에서 관리합니다.",
+  "settingsApiKeys.managedTooltip":
+    "{{owner}}에서 생성하고 교체합니다. 연결 해제도 그곳에서 하세요.",
+  "settingsApiKeys.membersLocked":
+    "소유자와 관리자만 {{org}}와(과) 키를 공유할 수 있습니다.",
+  "settingsApiKeys.modelFootnote": "자체 모델 제공업체를 사용하려면 {{link}}.",
+  "settingsApiKeys.modelFootnoteLink": "모델에서 추가하세요",
+  "settingsApiKeys.name": "이름",
+  "settingsApiKeys.noKeys": "아직 키가 없습니다",
+  "settingsApiKeys.noKeysDescription":
+    "키를 추가하면 앱과 에이전트가 서비스에 접근할 수 있습니다.",
+  "settingsApiKeys.orgKeys": "조직 키",
+  "settingsApiKeys.providerInModel":
+    "{{provider}}은(는) {{link}}에서 추가하세요.",
+  "settingsApiKeys.replaceTitle": "{{name}} 교체",
+  "settingsApiKeys.replaceValue": "값 교체",
+  "settingsApiKeys.saving": "저장 중…",
+  "settingsApiKeys.showKeys_other": "키 {{count}}개 표시",
+  "settingsApiKeys.test": "테스트",
+  "settingsApiKeys.testPassed": "저장된 값이 작동합니다.",
+  "settingsApiKeys.usedBy": "사용처: {{link}}",
+  "settingsApiKeys.value": "값",
+  "settingsApiKeys.valueReplaced": "값을 교체했습니다",
+  "settingsApiKeys.yourKeys": "내 키",
+  "settingsModel.addEndpoint": "엔드포인트 URL 추가",
+  "settingsModel.addNamed": "{{provider}} 추가",
+  "settingsModel.addProvider": "공급자 추가",
+  "settingsModel.adding": "추가하는 중",
+  "settingsModel.affectsOrg": "{{org}}의 모든 사용자에게 영향을 줍니다.",
+  "settingsModel.affectsYou": "나에게만 영향을 줍니다.",
+  "settingsModel.allApps": "모든 앱",
+  "settingsModel.apiKey": "API 키",
+  "settingsModel.builderConnected": "연결됨 · {{space}}",
+  "settingsModel.builderConnectedPlain": "연결됨",
+  "settingsModel.builderOrgNotConnectedAdmin":
+    "연결되지 않았습니다. 연결하면 {{org}}의 모든 사용자가 사용할 수 있습니다.",
+  "settingsModel.builderOrgNotConnectedMember":
+    "연결되지 않았습니다. 소유자나 관리자가 연결할 수 있습니다.",
+  "settingsModel.builderPersonalConnect":
+    "내 계정을 연결해 내 Builder.io 크레딧을 사용하세요.",
+  "settingsModel.builderPersonalInsteadOfOrg":
+    "내 계정을 연결해 조직 연결 대신 사용하세요.",
+  "settingsModel.builderPersonalOverOrg":
+    "연결됨 · {{space}}. 조직 연결 대신 사용됩니다.",
+  "settingsModel.builderPersonalOverOrgPlain":
+    "연결됨. 조직 연결 대신 사용됩니다.",
+  "settingsModel.builderUnknown": "Builder.io 연결을 확인할 수 없습니다.",
+  "settingsModel.cancel": "취소",
+  "settingsModel.change": "변경",
+  "settingsModel.chatgptConnected": "연결됨",
+  "settingsModel.chatgptDescription":
+    "ChatGPT 요금제로 Codex 엔진을 사용합니다.",
+  "settingsModel.chatgptPopupBlocked":
+    "이 사이트의 팝업을 허용한 다음 다시 시도하세요.",
+  "settingsModel.chatgptTitle": "ChatGPT 구독",
+  "settingsModel.checkAgain": "다시 확인",
+  "settingsModel.checkedJustNow": "방금 확인했습니다.",
+  "settingsModel.checkedOn": "{{date}}에 확인했습니다.",
+  "settingsModel.checking": "{{provider}}에서 키를 확인하는 중",
+  "settingsModel.checkingEndpoint": "엔드포인트를 확인하는 중",
+  "settingsModel.checkingOllama": "설치된 모델을 확인하는 중…",
+  "settingsModel.checkingSaved": "저장된 키를 확인하는 중",
+  "settingsModel.chooseModel": "모델 선택",
+  "settingsModel.clear": "지우기",
+  "settingsModel.connect": "연결",
+  "settingsModel.connecting": "연결하는 중…",
+  "settingsModel.defaultModelDescription":
+    "앱에서 따로 설정하지 않으면 모든 앱에서 사용됩니다.",
+  "settingsModel.defaultModelNeedsProvider":
+    "기본 모델을 선택하려면 공급자를 추가하세요.",
+  "settingsModel.disconnect": "연결 해제",
+  "settingsModel.effectDefaultStops":
+    "다른 공급자를 설정할 때까지 채팅이 중지됩니다.",
+  "settingsModel.effectDefaultSwitches": "기본 모델이 {{next}}(으)로 바뀝니다.",
+  "settingsModel.effectKeepsOrg": "조직 키로 계속 작동합니다.",
+  "settingsModel.effectKeepsVault": "Vault 키로 계속 작동합니다.",
+  "settingsModel.effectKeepsWorkspace": "워크스페이스 키로 계속 작동합니다.",
+  "settingsModel.effectModelsLeave":
+    "{{provider}} 모델이 모델 선택기에서 사라집니다.",
+  "settingsModel.emptyAskAdmin": "소유자나 관리자에게 추가를 요청하세요.",
+  "settingsModel.emptyDescription":
+    "에이전트가 응답하려면 공급자가 필요합니다.",
+  "settingsModel.emptyDescriptionBuilder":
+    "에이전트가 응답하려면 공급자가 필요합니다. 모델 액세스, 브라우저 자동화, 파일 스토리지, 워크스페이스 ID에는 Builder.io를 권장합니다. 무료 요금제가 있습니다.",
+  "settingsModel.emptyTitle": "모델 공급자 추가",
+  "settingsModel.endpointFirst": "먼저 엔드포인트 URL을 입력하세요.",
+  "settingsModel.endpointHint":
+    "선택 사항입니다. LiteLLM이나 다른 OpenAI 호환 게이트웨이에 사용하세요.",
+  "settingsModel.endpointUrl": "엔드포인트 URL",
+  "settingsModel.keyHint":
+    "{{host}}에서 만들 수 있습니다. 요금은 {{provider}}에서 직접 청구합니다.",
+  "settingsModel.keyPlaceholder": "{{provider}} 키 붙여넣기",
+  "settingsModel.labs": "Labs",
+  "settingsModel.loadFailed": "공급자를 불러올 수 없습니다.",
+  "settingsModel.lockedTip": "소유자와 관리자만 변경할 수 있습니다.",
+  "settingsModel.manage": "관리",
+  "settingsModel.maxIterationsDescription":
+    "응답 하나가 일시 중지되기 전까지 작업할 수 있는 길이입니다.",
+  "settingsModel.maxIterationsInvalid":
+    "{{min}}에서 {{max}} 사이의 정수를 입력하세요.",
+  "settingsModel.modelCount_other": "모델 {{count}}개",
+  "settingsModel.modelOption": "{{model}} · {{provider}}",
+  "settingsModel.models": "모델",
+  "settingsModel.modelsHint": "선택한 모델이 모델 선택기에 표시됩니다.",
+  "settingsModel.modelsHintService":
+    "채팅 모델은 선택 사항입니다. 선택하지 않으면 이 키를 {{service}}에만 사용합니다.",
+  "settingsModel.modelsIdle":
+    "키를 붙여넣으면 사용할 수 있는 모델이 표시됩니다.",
+  "settingsModel.modelsIdleOllama":
+    "엔드포인트 URL을 입력하면 설치된 모델이 표시됩니다.",
+  "settingsModel.modelsSaveFailed":
+    "키는 저장했지만 모델 목록은 저장하지 못했습니다. {{message}}",
+  "settingsModel.noChatModels": "채팅 모델 없음",
+  "settingsModel.noModelsFound": "모델을 찾을 수 없습니다.",
+  "settingsModel.notSet": "설정되지 않음",
+  "settingsModel.nothingElse": "이 키를 사용하는 다른 항목이 없습니다.",
+  "settingsModel.ollamaHint": "API 키가 필요하지 않습니다.",
+  "settingsModel.orgProviders": "조직 공급자",
+  "settingsModel.orgSettings": "조직 설정",
+  "settingsModel.organization": "조직",
+  "settingsModel.pasteFirst": "먼저 키를 붙여넣으세요.",
+  "settingsModel.personal": "개인",
+  "settingsModel.personalProviders": "개인 공급자",
+  "settingsModel.previewFailed": "영향을 확인할 수 없습니다.",
+  "settingsModel.provider": "공급자",
+  "settingsModel.providerErrorHeadline":
+    "{{provider}}에서 이 키를 확인할 수 없습니다",
+  "settingsModel.reasonEndpoint": "엔드포인트 URL을 확인하세요.",
+  "settingsModel.reasonOllamaUnreachable":
+    "URL과 Ollama가 실행 중인지 확인하세요.",
+  "settingsModel.reasonPrefix":
+    "{{provider}} 키는 {{prefix}}(으)로 시작합니다.",
+  "settingsModel.reasonRejected":
+    "키 전체를 복사했는지 확인하거나 새 키를 만드세요.",
+  "settingsModel.reasonTryAgain": "잠시 후 다시 시도하세요.",
+  "settingsModel.reasonWrongProvider": "{{provider}} 키로 보입니다.",
+  "settingsModel.reasonWrongProviderVowel": "{{provider}} 키로 보입니다.",
+  "settingsModel.reconnect": "다시 연결",
+  "settingsModel.rejected":
+    "{{provider}}에서 {{date}}에 이 키를 거부했습니다. 키를 교체할 때까지 이 키를 사용하는 채팅이 중지됩니다.",
+  "settingsModel.rejectedAskAdmin":
+    "{{provider}}에서 {{date}}에 이 키를 거부했습니다. 소유자나 관리자에게 교체를 요청하세요.",
+  "settingsModel.rejectedHeadline": "{{provider}}에서 이 키를 거부했습니다",
+  "settingsModel.remove": "삭제",
+  "settingsModel.removeProvider": "공급자 삭제",
+  "settingsModel.removeTitle": "{{provider}}을(를) 삭제할까요?",
+  "settingsModel.removing": "삭제하는 중",
+  "settingsModel.replace": "교체",
+  "settingsModel.replaceKey": "키 교체",
+  "settingsModel.restrictBody": "멤버는 조직 공급자만 사용할 수 있습니다.",
+  "settingsModel.restrictConfirm": "키 제한",
+  "settingsModel.restrictDescription":
+    "멤버는 조직 공급자만 사용할 수 있고, 멤버가 추가한 키는 작동하지 않습니다.",
+  "settingsModel.restrictLabel": "개인 API 키 제한",
+  "settingsModel.restrictMemberBuilder":
+    "개인 Builder.io 연결이 작동하지 않습니다.",
+  "settingsModel.restrictMemberChats": "채팅은 조직 공급자로 전환됩니다.",
+  "settingsModel.restrictMemberKeys_other":
+    "{{providers}} 키가 작동하지 않습니다.",
+  "settingsModel.restrictNewKeysBody":
+    "멤버는 추가할 수 없습니다. 소유자와 관리자는 계속 추가할 수 있습니다.",
+  "settingsModel.restrictNewKeysTitle": "새 개인 키",
+  "settingsModel.restrictTitle": "개인 API 키를 제한할까요?",
+  "settingsModel.restricted": "소유자와 관리자가 개인 API 키를 제한했습니다.",
+  "settingsModel.restrictedRow":
+    "개인 API 키가 제한되어 있는 동안에는 사용되지 않습니다.",
+  "settingsModel.restricting": "제한하는 중",
+  "settingsModel.retry": "다시 시도",
+  "settingsModel.save": "저장",
+  "settingsModel.savedRejected":
+    "{{provider}}에서 저장된 키를 거부했습니다. 새 키를 붙여넣으세요.",
+  "settingsModel.saving": "저장하는 중",
+  "settingsModel.selectAll": "모두 선택",
+  "settingsModel.settingLoadFailed": "이 설정을 불러올 수 없습니다.",
+  "settingsModel.unreachableHeadline": "{{provider}}에 연결할 수 없습니다",
+  "settingsModel.view": "보기",
+  "settingsModel.whatHappens": "변경 사항",
+  "settingsModel.who": "사용할 수 있는 사람",
+  "settingsModel.whoHintAdmin":
+    "개인 공급자는 나만 사용합니다. 조직 공급자는 {{org}}의 모든 사용자가 사용할 수 있습니다.",
+  "settingsModel.whoHintMember":
+    "소유자와 관리자만 조직 공급자를 추가할 수 있습니다.",
+  "settingsModel.whoHintService": "서비스는 조직 키를 사용합니다.",
+  "settingsSubAgents.connect": "에이전트 연결",
+  "settingsSubAgents.orgApps": "{{org}} 앱",
+  "settingsSubAgents.workspaceApps": "워크스페이스 앱",
+  "settingsSubAgents.external": "외부 에이전트",
+  "settingsSubAgents.custom": "사용자 지정 에이전트",
+  "settingsSubAgents.managedByAdmins": "관리자가 관리",
+  "settingsSubAgents.appsEmpty": "아직 연결된 앱이 없습니다",
+  "settingsSubAgents.externalEmpty":
+    "Foundry, Gemini Enterprise, Anthropic 또는 모든 A2A 에이전트를 연결하세요.",
+  "settingsSubAgents.externalEmptyTitle": "아직 외부 에이전트가 없습니다",
+  "settingsSubAgents.customEmpty":
+    "메인 에이전트가 작업을 맡길 수 있는 전문 에이전트를 정의하세요.",
+  "settingsSubAgents.customEmptyTitle": "아직 사용자 지정 에이전트가 없습니다",
+  "settingsSubAgents.addAgent": "에이전트 추가",
+  "settingsSubAgents.describe": "에이전트에게 설명하기",
+  "settingsSubAgents.describePlaceholder":
+    "레이아웃을 평가하고 UI 방향을 제안하는 디자인 에이전트",
+  "settingsSubAgents.write": "직접 작성하기",
+  "settingsSubAgents.name": "이름",
+  "settingsSubAgents.description": "설명",
+  "settingsSubAgents.instructions": "지침",
+  "settingsSubAgents.loadFailed": "연결된 에이전트를 불러오지 못했습니다.",
+  "settingsSubAgents.statusUnreachable": "연결할 수 없음",
+  "settingsSubAgents.edit": "편집",
+  "settingsSubAgents.editTitle": "{{name}} 편집",
+  "settingsSubAgents.removeDescription":
+    "{{org}}의 모든 사용자에 대해 에이전트가 더 이상 {{name}}에 작업을 맡기지 않습니다.",
+  "settingsSubAgents.removeDescriptionSolo":
+    "에이전트가 더 이상 {{name}}에 작업을 맡기지 않습니다.",
+  "settingsSubAgents.directoryTitle": "에이전트 연결",
+  "settingsSubAgents.anyAgent": "모든 A2A 에이전트",
+  "settingsSubAgents.anyAgentHint": "에이전트 카드 URL을 붙여넣으세요.",
+  "settingsSubAgents.registryLink": "Global A2A Registry 둘러보기",
+  "settingsSubAgents.connectTitle": "{{name}} 연결",
+  "settingsSubAgents.close": "닫기",
 };
 
 export default messages;

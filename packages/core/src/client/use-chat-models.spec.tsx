@@ -248,6 +248,55 @@ describe("useChatModels", () => {
     ).toBe("qwen3.8-code-131k:latest,mistral:latest");
   });
 
+  it("keeps checked Ollama models instead of probing installed ones", async () => {
+    actionMocks.callAction.mockResolvedValue({
+      engines: [
+        {
+          name: "ai-sdk:ollama",
+          label: "Ollama",
+          supportedModels: ["mistral:latest"],
+          modelSelection: { state: "selected", scope: "user" },
+          requiredEnvVars: [],
+        },
+      ],
+      current: { engine: "ai-sdk:ollama", model: "mistral:latest" },
+    });
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.includes("env-status")) return Response.json([]);
+      if (url.includes("builder/status")) {
+        return Response.json({ configured: false });
+      }
+      if (url.includes("ollama-models")) {
+        return Response.json({
+          ok: true,
+          models: ["qwen3.8-code-131k:latest", "mistral:latest"],
+        });
+      }
+      return new Response("{}");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey="ollama-checked" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-ollama-models"]')
+        ?.textContent,
+    ).toBe("mistral:latest");
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).includes("ollama-models"),
+      ),
+    ).toBe(false);
+  });
+
   it("keeps the last model readiness when status refresh is unavailable", async () => {
     stubCatalog({
       engines: [

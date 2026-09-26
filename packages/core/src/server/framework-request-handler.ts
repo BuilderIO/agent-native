@@ -708,12 +708,16 @@ function isClientAbortError(error: unknown, event: H3Event): boolean {
   const err = error as any;
   const message = typeof err?.message === "string" ? err.message : "";
   const code = typeof err?.code === "string" ? err.code : "";
-  const node = (event as any).node;
+  // Only response-side state means the client left. Node's IncomingMessage
+  // auto-destroys once its body is fully read, so `req.destroyed` is true for
+  // every handler that threw after `readBody()` while the client still waits.
+  // srvx's `req.signal` aborts from the response's `close` without
+  // `writableEnded`, and `res.destroyed` covers a close before it was read.
   return (
     message === "aborted" ||
     code === "ECONNRESET" ||
-    node?.req?.destroyed === true ||
-    node?.res?.destroyed === true
+    (event as any).req?.signal?.aborted === true ||
+    (event as any).node?.res?.destroyed === true
   );
 }
 

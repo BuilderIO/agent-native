@@ -254,19 +254,20 @@ export function ReviewCommentsPanel({
         <div className="relative min-w-0 flex-1">
           <IconSearch className="pointer-events-none absolute start-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
+            size="sm"
             value={search}
             onChange={(event) => setSearch(event.currentTarget.value)}
             placeholder={t("review.search")}
             aria-label={t("review.search")}
-            className="h-8 ps-7 text-xs"
+            className="ps-7 text-xs"
           />
         </div>
         {canSetThreadPreferences && unreadThreadIds.size ? (
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="size-8 shrink-0"
+            size="icon-sm"
+            className="shrink-0"
             aria-label={t("review.markAllRead")}
             onClick={markAllRead}
           >
@@ -278,8 +279,8 @@ export function ReviewCommentsPanel({
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="size-8 shrink-0"
+              size="icon-sm"
+              className="shrink-0"
               aria-label={t("review.filter")}
             >
               <IconAdjustmentsHorizontal className="size-4" />

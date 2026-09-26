@@ -31,6 +31,7 @@ import {
   isTransientDatabaseError,
 } from "../db/client.js";
 import { getOrgSetting } from "../settings/org-settings.js";
+import { BUILDER_CREDENTIAL_KEYS } from "./builder-credential-keys.js";
 import {
   BuilderOAuthScopeError,
   BUILDER_OAUTH_SCOPE,
@@ -38,6 +39,10 @@ import {
   hasBuilderOAuthSession,
 } from "./builder-oauth.js";
 import { isHostedWorkspaceRuntime } from "./deployment-protection.js";
+import {
+  isPersonalProviderKeyUseRestricted,
+  isPersonalProviderPolicyKey,
+} from "./personal-provider-key-policy.js";
 export {
   isHostedWorkspaceRuntime,
   resolveVercelDeploymentProtectionHeaders,
@@ -279,18 +284,7 @@ export const BUILDER_GATEWAY_TOKEN_ENV_VAR = "BUILDER_GATEWAY_TOKEN";
 /** The space id that pairs with it, sent as `x-builder-api-key`. */
 export const BUILDER_GATEWAY_SPACE_ID_ENV_VAR = "BUILDER_GATEWAY_SPACE_ID";
 
-const BUILDER_CREDENTIAL_KEYS = [
-  "BUILDER_PRIVATE_KEY",
-  "BUILDER_PUBLIC_KEY",
-  "BUILDER_USER_ID",
-  "BUILDER_ORG_NAME",
-  "BUILDER_ORG_KIND",
-  "BUILDER_SUBSCRIPTION",
-  "BUILDER_SUBSCRIPTION_LEVEL",
-  "BUILDER_SUBSCRIPTION_NAME",
-  "BUILDER_IS_ENTERPRISE",
-  "BUILDER_IS_FREE_ACCOUNT",
-] as const;
+export { BUILDER_CREDENTIAL_KEYS };
 
 function isBuilderCredentialKey(key: string): boolean {
   return (BUILDER_CREDENTIAL_KEYS as readonly string[]).includes(key);
@@ -493,6 +487,25 @@ async function resolveOrgIdForRequestEmail(
   }
 }
 
+/**
+ * A member's personal Builder key pair (user row, or the pre-org solo row) is
+ * unused while their org restricts personal API keys. Mirrors the resolvers'
+ * org choice: a background identity's explicit org, `null` for none, else the
+ * request's org.
+ */
+function isPersonalBuilderCredentialRestricted(
+  email: string,
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<boolean> {
+  if (identity === undefined)
+    return isPersonalProviderKeyUseRestricted({ email });
+  if (identity.orgId === null) return Promise.resolve(false);
+  const orgId = identity.orgId?.trim();
+  return isPersonalProviderKeyUseRestricted(
+    orgId ? { email, orgId } : { email },
+  );
+}
+
 interface ScopedCredentialResult {
   value: string | null;
   source: "user" | "org" | "workspace" | null;
@@ -527,13 +540,20 @@ async function resolveScopedBuilderCredential(
   try {
     const { readAppSecret } = await import("../secrets/storage.js");
 
+    const personalRestricted = await isPersonalBuilderCredentialRestricted(
+      email,
+      identity,
+    );
+
     // 1. Per-user override: a user can paste their own key in settings to
     //    overrule the org-shared one (handy for a personal sandbox).
-    const userSecret = await readAppSecret({
-      key,
-      scope: "user",
-      scopeId: email,
-    });
+    const userSecret = personalRestricted
+      ? null
+      : await readAppSecret({
+          key,
+          scope: "user",
+          scopeId: email,
+        });
     if (userSecret) {
       if (traceLookup) {
         console.log(
@@ -621,11 +641,13 @@ async function resolveScopedBuilderCredential(
     //    written before the user joined/created an org must not become
     //    unreachable once that org exists.
     scopeAttempted = "workspace-solo";
-    const soloWorkspaceSecret = await readAppSecret({
-      key,
-      scope: "workspace",
-      scopeId: `solo:${email}`,
-    });
+    const soloWorkspaceSecret = personalRestricted
+      ? null
+      : await readAppSecret({
+          key,
+          scope: "workspace",
+          scopeId: `solo:${email}`,
+        });
     if (soloWorkspaceSecret) {
       if (traceLookup) {
         console.log(
@@ -701,14 +723,20 @@ async function resolveScopedBuilderCredentials(
       );
     };
 
-    const userCreds = await readBuilderCredentialScope(
-      readAppSecrets,
-      "user",
+    const personalRestricted = await isPersonalBuilderCredentialRestricted(
       email,
+      identity,
     );
-    await traceScope(userCreds, email);
-    if (await isCompleteBuilderConnection(userCreds)) {
-      return { creds: userCreds, lookupFailed: false };
+    if (!personalRestricted) {
+      const userCreds = await readBuilderCredentialScope(
+        readAppSecrets,
+        "user",
+        email,
+      );
+      await traceScope(userCreds, email);
+      if (await isCompleteBuilderConnection(userCreds)) {
+        return { creds: userCreds, lookupFailed: false };
+      }
     }
 
     let orgId: string | null | undefined =
@@ -756,18 +784,20 @@ async function resolveScopedBuilderCredentials(
     // gated behind "no org".
     scopeAttempted = "workspace-solo";
     const soloScopeId = `solo:${email}`;
-    const soloCreds = await readBuilderCredentialScope(
-      readAppSecrets,
-      "workspace",
-      soloScopeId,
-    );
-    await traceScope(
-      soloCreds,
-      soloScopeId,
-      ` orgId=${orgId ?? "(none)"} orgSource=${orgSource}`,
-    );
-    if (await isCompleteBuilderConnection(soloCreds)) {
-      return { creds: soloCreds, lookupFailed: false };
+    if (!personalRestricted) {
+      const soloCreds = await readBuilderCredentialScope(
+        readAppSecrets,
+        "workspace",
+        soloScopeId,
+      );
+      await traceScope(
+        soloCreds,
+        soloScopeId,
+        ` orgId=${orgId ?? "(none)"} orgSource=${orgSource}`,
+      );
+      if (await isCompleteBuilderConnection(soloCreds)) {
+        return { creds: soloCreds, lookupFailed: false };
+      }
     }
   } catch (err) {
     if (traceLookup) {
@@ -1549,6 +1579,46 @@ export async function getProviderCredentialAuthFailure(opts: {
   }
 }
 
+/** The recorded message is the provider's own and can echo the key, so it stays server-side. */
+export interface ProviderCredentialRejection {
+  at: number;
+  status?: number;
+}
+
+/**
+ * The last rejection recorded for each exact key/value pair, keyed by `key`,
+ * whether or not its backoff has passed: the engine retries an expired
+ * marker, but only a successful call or a new value clears it, so Settings
+ * shows the key as rejected until then. Throws when the markers can't be read,
+ * unlike `getProviderCredentialAuthFailure`, so an unreadable marker is never
+ * reported as a working key.
+ */
+export async function readProviderCredentialRejections(
+  credentials: ReadonlyArray<{ key: string; value: string }>,
+): Promise<Map<string, ProviderCredentialRejection>> {
+  const fingerprints = new Map<string, string>();
+  for (const { key, value } of credentials) {
+    const fingerprint = providerCredentialFingerprint(key, value);
+    if (fingerprint) fingerprints.set(key, fingerprint);
+  }
+  const result = new Map<string, ProviderCredentialRejection>();
+  if (fingerprints.size === 0) return result;
+  const { getSettings } = await import("../settings/store.js");
+  const rows = await getSettings(
+    [...fingerprints.values()].map(providerAuthFailureSettingKey),
+  );
+  for (const [key, fingerprint] of fingerprints) {
+    const row = rows.get(providerAuthFailureSettingKey(fingerprint));
+    if (!row || row.fingerprint !== fingerprint) continue;
+    if (typeof row.at !== "number") continue;
+    result.set(key, {
+      at: row.at,
+      ...(typeof row.status === "number" ? { status: row.status } : {}),
+    });
+  }
+  return result;
+}
+
 export async function recordProviderCredentialAuthFailure(opts: {
   key?: string | null;
   value?: string | null;
@@ -1805,6 +1875,65 @@ export async function deleteBuilderCredentials(
   return target;
 }
 
+export interface BuilderKeyConnectionSummary {
+  /** When the stored private key was last written; null when unrecorded. */
+  connectedAt: number | null;
+  /** Stored but unusable: its public key is missing or Builder rejected it. */
+  needsReconnect: boolean;
+}
+
+export interface BuilderKeyConnections {
+  org?: BuilderKeyConnectionSummary;
+  personal?: BuilderKeyConnectionSummary;
+}
+
+async function summarizeBuilderKeyScope(
+  readAppSecrets: typeof import("../secrets/storage.js").readAppSecrets,
+  scope: "user" | "org",
+  scopeId: string,
+): Promise<BuilderKeyConnectionSummary | null> {
+  const secrets = await readAppSecrets({
+    keys: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+    scope,
+    scopeId,
+  });
+  const privateKey = secrets.get("BUILDER_PRIVATE_KEY");
+  if (!privateKey) return null;
+  const publicKey = secrets.get("BUILDER_PUBLIC_KEY");
+  const usable =
+    Boolean(publicKey) &&
+    !(await getBuilderCredentialAuthFailure({
+      privateKey: privateKey.value,
+      publicKey: publicKey?.value,
+    }));
+  return {
+    connectedAt: privateKey.updatedAt || null,
+    needsReconnect: !usable,
+  };
+}
+
+/**
+ * The Builder key pairs stored as the org's shared connection and as this
+ * user's personal one, each read on its own: unlike the resolvers, a personal
+ * pair never hides the org's. These are the rows `deleteBuilderCredentials`
+ * removes at each scope. Throws when the store cannot be read, so "no keys"
+ * and "could not look" stay different answers.
+ */
+export async function getBuilderKeyConnections(
+  email: string,
+  orgId: string | null,
+): Promise<BuilderKeyConnections> {
+  const { readAppSecrets } = await import("../secrets/storage.js");
+  const [personal, org] = await Promise.all([
+    summarizeBuilderKeyScope(readAppSecrets, "user", email),
+    orgId ? summarizeBuilderKeyScope(readAppSecrets, "org", orgId) : null,
+  ]);
+  const connections: BuilderKeyConnections = {};
+  if (org) connections.org = org;
+  if (personal) connections.personal = personal;
+  return connections;
+}
+
 // ---------------------------------------------------------------------------
 // Generic request-scoped secret resolution
 //
@@ -2053,15 +2182,21 @@ export async function resolveSecretDetailed(
   if (email) {
     try {
       const { readAppSecret } = await import("../secrets/storage.js");
+      // A restricted member's own provider keys stay stored but unused: skip
+      // both personal rows (user and pre-org solo workspace), never delete.
+      const personalRestricted =
+        isPersonalProviderPolicyKey(key) &&
+        (await isPersonalProviderKeyUseRestricted({ email }));
 
       // Per-user override first.
-      const userSecret = options.skipUserScope
-        ? null
-        : await readAppSecret({
-            key,
-            scope: "user",
-            scopeId: email,
-          });
+      const userSecret =
+        options.skipUserScope || personalRestricted
+          ? null
+          : await readAppSecret({
+              key,
+              scope: "user",
+              scopeId: email,
+            });
       if (userSecret?.value) {
         if (traceLookup) {
           console.log(
@@ -2148,11 +2283,13 @@ export async function resolveSecretDetailed(
       // here, and must not become unreachable once that org exists. It stays
       // inside this try so a failed org-scoped read still surfaces as
       // retryable instead of being answered by a stale pre-org row.
-      const soloWorkspaceSecret = await readAppSecret({
-        key,
-        scope: "workspace",
-        scopeId: `solo:${email}`,
-      });
+      const soloWorkspaceSecret = personalRestricted
+        ? null
+        : await readAppSecret({
+            key,
+            scope: "workspace",
+            scopeId: `solo:${email}`,
+          });
       if (soloWorkspaceSecret?.value) {
         if (traceLookup) {
           console.log(

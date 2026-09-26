@@ -43,6 +43,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
+import {
+  CrmSettingsPanelHeader,
+  crmSettingsPanelClassName,
+  type CrmSettingsPanelProps,
+} from "./settings/SettingsPanelHeader";
+
 type TrackerKind = "keyword" | "smart";
 
 interface SignalTracker {
@@ -74,7 +80,7 @@ interface ManageTrackerInput {
   enabled?: boolean;
 }
 
-export function IntelligenceSettings() {
+export function IntelligenceSettings({ embedded }: CrmSettingsPanelProps = {}) {
   const t = useT();
   const trackersQuery = useActionQuery<SignalTrackersResult>(
     "list-crm-signal-trackers" as never,
@@ -118,18 +124,14 @@ export function IntelligenceSettings() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight">
-            {t("intelligence.title")}
-          </h1>
-          <p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">
-            {t("intelligence.description")}
-          </p>
-        </div>
-        <CreateTrackerDialog mutation={createTracker} />
-      </div>
+    <div className={crmSettingsPanelClassName(embedded)}>
+      <CrmSettingsPanelHeader
+        embedded={embedded}
+        title={t("intelligence.title")}
+        description={t("intelligence.description")}
+        descriptionClassName="max-w-xl"
+        action={<CreateTrackerDialog mutation={createTracker} />}
+      />
 
       {trackersQuery.isLoading ? (
         <div

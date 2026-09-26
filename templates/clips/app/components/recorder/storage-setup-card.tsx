@@ -1,4 +1,4 @@
-import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   hasBuilderOAuthCredential,
@@ -12,6 +12,7 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useStorageSetupHref } from "@/components/settings/settings-links";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -59,6 +60,7 @@ export function StorageSetupCard({
   connectFlow = "file_upload",
 }: StorageSetupCardProps) {
   const t = useT();
+  const storageSetupHref = useStorageSetupHref();
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -368,18 +370,26 @@ export function StorageSetupCard({
           <div className="flex items-center gap-3 border-t border-border pt-4">
             <IconServer className="h-4 w-4 text-muted-foreground" />
             <div className="flex-1">
-              <span className="text-sm text-muted-foreground">
-                Or{" "}
-                <a
-                  href={appPath("/settings/general#video-storage")}
-                  className="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
-                >
-                  {t("storageSetup.configureS3")}
-                </a>
-              </span>
-              <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
-              </span>
+              {storageSetupHref ? (
+                <>
+                  <span className="text-sm text-muted-foreground">
+                    Or{" "}
+                    <a
+                      href={storageSetupHref}
+                      className="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
+                    >
+                      {t("storageSetup.configureS3")}
+                    </a>
+                  </span>
+                  <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                    AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
+                  </span>
+                </>
+              ) : (
+                <span className="text-sm text-muted-foreground">
+                  {t("clipsSettings.storageAskAdmin")}
+                </span>
+              )}
             </div>
           </div>
           <TooltipProvider delayDuration={150}>

@@ -172,6 +172,8 @@ export default {
       "이 기능은 새롭고 불안정하며 버그가 있을 수 있습니다. 여러분의 피드백을 소중히 여깁니다.",
     labTweaks: "디자인 트윅",
     labTweaksDescription: "AI 기반 디자인 트윅을 사용해 보세요.",
+    mcpAbout:
+      "Design을 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Design에서 디자인을 만들고 편집할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   },
   pages: {
     presentEmpty: "발표할 콘텐츠가 없습니다",
@@ -180,7 +182,6 @@ export default {
     notFoundDescription: "찾고 있는 페이지가 없습니다.",
     notFoundSignIn: "로그인",
     notFoundBackToDesigns: "디자인으로 돌아가기",
-    teamCreateOrgDescription: "동료와 디자인을 공유할 팀을 설정하세요.",
   },
   onboarding: {
     fileStorage: {

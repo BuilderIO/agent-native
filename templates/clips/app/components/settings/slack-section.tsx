@@ -4,15 +4,17 @@ import {
 } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
-import { IconBrandSlack, IconLoader2, IconTrash } from "@tabler/icons-react";
+import {
+  SettingsGroup,
+  SettingsLoadingRow,
+  SettingsRow,
+} from "@agent-native/core/client/settings";
+import { IconBrandSlack, IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import {
   AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -20,6 +22,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Spinner } from "@/components/ui/spinner";
+import { PopupBlockedError } from "@/lib/popup-blocked";
+
+import { LoadFailedRow } from "./load-failed-row";
 
 interface SlackInstallation {
   id: string;
@@ -91,11 +105,7 @@ async function startSlackOAuth(): Promise<void> {
     "clips-slack-oauth",
     "width=600,height=760",
   );
-  if (!popup) {
-    throw new Error(
-      "Popup blocked — please allow popups for this site and try again.",
-    );
-  }
+  if (!popup) throw new PopupBlockedError();
   await waitForPopupClose(popup);
 }
 
@@ -117,8 +127,17 @@ async function requestDisconnectSlack(id: string): Promise<void> {
   }
 }
 
-export function SlackSection() {
+export interface SlackSectionProps {
+  /**
+   * `channel` is Settings › Channels › Slack, where these rows are the Link
+   * previews group beside the agent's own Slack connection.
+   */
+  variant?: "general" | "channel";
+}
+
+export function SlackSection({ variant = "general" }: SlackSectionProps) {
   const t = useT();
+  const onChannelPage = variant === "channel";
   const slackStatus = useActionQuery<SlackInstallationsResponse>(
     "list-slack-installations",
     undefined,
@@ -148,7 +167,11 @@ export function SlackSection() {
       }
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : t("settings.slackConnectFailed"),
+        err instanceof PopupBlockedError
+          ? t("clipsSettings.popupBlocked")
+          : err instanceof Error
+            ? err.message
+            : t("settings.slackConnectFailed"),
       );
     } finally {
       setConnecting(false);
@@ -175,73 +198,108 @@ export function SlackSection() {
     }
   }
 
+  const statusDescription = !oauthConfigured
+    ? t("settings.slackClientMissing")
+    : !signingConfigured
+      ? t("settings.slackSigningMissing")
+      : t("settings.slackPreviewDescription");
+  const connectButton = (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={handleConnect}
+      disabled={connecting || !oauthConfigured}
+    >
+      {connecting ? <Spinner /> : null}
+      {onChannelPage
+        ? t("clipsSettings.addWorkspace")
+        : t("settings.connectSlack")}
+    </Button>
+  );
+
   return (
     <>
       <SettingsGroup
-        id="slack"
-        title={t("settings.slackTitle")}
-        description={t("settings.slackDescription")}
+        id={onChannelPage ? "link-previews" : "slack"}
+        title={
+          onChannelPage
+            ? t("clipsSettings.linkPreviews")
+            : t("settings.slackTitle")
+        }
+        description={onChannelPage ? undefined : t("settings.slackDescription")}
       >
-        <SettingsRow
-          label={
-            slackStatus.isLoading
-              ? t("settings.checkingSlack")
-              : connected
-                ? t("settings.slackConnected", {
-                    count: installations.length,
-                  })
-                : oauthConfigured
+        {slackStatus.isError ? (
+          <LoadFailedRow onRetry={() => void slackStatus.refetch()} />
+        ) : !slackStatus.data ? (
+          <SettingsLoadingRow />
+        ) : !connected ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <IconBrandSlack />
+              </EmptyMedia>
+              <EmptyTitle>
+                {oauthConfigured
                   ? t("common.notConnected")
-                  : t("settings.slackOauthNeeded")
-          }
-          description={
-            !oauthConfigured
-              ? t("settings.slackClientMissing")
-              : !signingConfigured
-                ? t("settings.slackSigningMissing")
-                : t("settings.slackPreviewDescription")
-          }
-          icon={<IconBrandSlack className="text-primary" />}
-          control={
-            <Button
-              type="button"
-              variant="default"
-              size="sm"
-              onClick={handleConnect}
-              disabled={connecting || slackStatus.isLoading || !oauthConfigured}
-            >
-              {connecting ? <IconLoader2 className="animate-spin" /> : null}
-              {t("settings.connectSlack")}
-            </Button>
-          }
-        />
-
-        {installations.map((installation) => (
-          <SettingsRow
-            key={installation.id}
-            label={installation.teamName || installation.teamId}
-            description={[
-              installation.status,
-              installation.enterpriseName,
-              t("settings.connectedBy", { email: installation.ownerEmail }),
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-            control={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={t("settings.disconnectSlackLabel", {
-                  team: installation.teamName || installation.teamId,
-                })}
-                onClick={() => setDisconnectTarget(installation)}
-              >
-                <IconTrash />
-              </Button>
-            }
-          />
-        ))}
+                  : t("settings.slackOauthNeeded")}
+              </EmptyTitle>
+              <EmptyDescription>{statusDescription}</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>{connectButton}</EmptyContent>
+          </Empty>
+        ) : (
+          <>
+            <SettingsRow
+              label={t("settings.slackConnected", {
+                count: installations.length,
+              })}
+              description={statusDescription}
+              icon={<IconBrandSlack />}
+              control={connectButton}
+            />
+            {installations.map((installation) => (
+              <SettingsRow
+                key={installation.id}
+                label={installation.teamName || installation.teamId}
+                description={[
+                  installation.status,
+                  installation.enterpriseName,
+                  t("settings.connectedBy", { email: installation.ownerEmail }),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+                control={
+                  onChannelPage ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      aria-label={t("settings.disconnectSlackLabel", {
+                        team: installation.teamName || installation.teamId,
+                      })}
+                      onClick={() => setDisconnectTarget(installation)}
+                    >
+                      {t("common.disconnect")}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={t("settings.disconnectSlackLabel", {
+                        team: installation.teamName || installation.teamId,
+                      })}
+                      onClick={() => setDisconnectTarget(installation)}
+                    >
+                      <IconTrash />
+                    </Button>
+                  )
+                }
+              />
+            ))}
+          </>
+        )}
       </SettingsGroup>
 
       <AlertDialog
@@ -265,20 +323,25 @@ export function SlackSection() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={disconnecting}>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={disconnecting}
+              onClick={() => setDisconnectTarget(null)}
+            >
               {t("common.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(event) => {
-                event.preventDefault();
-                void handleDisconnect();
-              }}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void handleDisconnect()}
               disabled={disconnecting}
             >
+              {disconnecting ? <Spinner /> : null}
               {disconnecting
                 ? t("common.disconnecting")
                 : t("common.disconnect")}
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

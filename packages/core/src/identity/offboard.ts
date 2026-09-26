@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto";
 import { ensureAuditTables } from "../audit/store.js";
 import type { DbExec } from "../db/client.js";
 import {
-  assertIdentityColumnRows,
-  IDENTITY_REKEY_COLUMNS,
+  resolveIdentityColumns,
+  sessionUserColumn,
   type IdentityColumn,
 } from "./rekey.js";
 
@@ -22,6 +22,54 @@ export type OffboardMemberResult = {
 };
 
 const quote = (identifier: string) => `"${identifier.replaceAll('"', '""')}"`;
+
+const ATTRIBUTION_COLUMNS = new Set([
+  "created_by",
+  "updated_by",
+  "invited_by",
+  "author_email",
+  "actor_email",
+]);
+
+/**
+ * What offboarding does to one registered column. App declarations state it;
+ * framework entries derive it from their mode. `separate` columns have a
+ * dedicated step in offboardMember (owner sweep, groups, OAuth, roles,
+ * memberships) instead of the generic loop.
+ */
+function offboardAction(
+  entry: IdentityColumn,
+): "transfer" | "delete" | "retain" | "separate" {
+  if (entry.column === "owner_email")
+    return entry.offboard === "delete" ? "delete" : "separate";
+  if (entry.offboard) return entry.offboard;
+  if (
+    entry.table === "user" ||
+    entry.mode === "group-json" ||
+    entry.mode === "unsupported-oauth" ||
+    entry.table === "org_members" ||
+    entry.table === "app_member_roles" ||
+    entry.table === "workspace_connection_grants"
+  )
+    return "separate";
+  if (ATTRIBUTION_COLUMNS.has(entry.column)) return "retain";
+  switch (entry.mode) {
+    case "user-share":
+    case "viewer-consent":
+    case "user-scope":
+    case "secret-scope":
+    case "state-session":
+      return "delete";
+    case "email-user-id":
+    case "owner":
+    case "typed-scope":
+    case "custom-scope":
+    case "scope-key":
+      return "transfer";
+    default:
+      return "retain";
+  }
+}
 
 /** Remove a member and transfer owned rows atomically within one app database. */
 export async function offboardMember(
@@ -67,7 +115,9 @@ export async function offboardMember(
             WHERE table_schema = 'public'
             ORDER BY table_name, column_name`,
     });
-    assertIdentityColumnRows(schema.rows as Array<Record<string, unknown>>);
+    const identityColumns = resolveIdentityColumns(
+      schema.rows as Array<Record<string, unknown>>,
+    );
     const tableColumns = new Map<string, Set<string>>();
     for (const row of schema.rows) {
       const table = String(row.table_name ?? "");
@@ -78,23 +128,58 @@ export async function offboardMember(
       tableColumns.set(table, columns);
     }
 
+    // A member removal scoped to one organization must not touch
+    // account-owned rows from another organization (or personal mode).
+    // Tables with no way to find the organization's rows are skipped (null).
+    const orgPredicate = (
+      entry: IdentityColumn,
+      columns: Set<string>,
+    ): { sql: string; args: unknown[] } | null => {
+      if (!orgId) return { sql: "", args: [] };
+      const scope = entry.orgScope;
+      if (!scope)
+        return columns.has("org_id")
+          ? { sql: ` AND "org_id" = ?`, args: [orgId] }
+          : null;
+      if (!columns.has(scope.column))
+        throw new Error(
+          `${entry.table}.${scope.column} is missing; refusing an offboard that cannot be limited to the organization.`,
+        );
+      if (!("references" in scope))
+        return { sql: ` AND ${quote(scope.column)} = ?`, args: [orgId] };
+      const { table, column, orgColumn } = scope.references;
+      const referenced = tableColumns.get(table);
+      if (!referenced?.has(column) || !referenced.has(orgColumn))
+        throw new Error(
+          `${table}.${column}/${orgColumn} is missing; refusing an offboard that cannot be limited to the organization.`,
+        );
+      return {
+        sql: ` AND ${quote(scope.column)} IN (SELECT ${quote(column)} FROM ${quote(table)} WHERE ${quote(orgColumn)} = ?)`,
+        args: [orgId],
+      };
+    };
+
     // Grants are revocations, not ownership that should follow the successor.
     // They must be removed before the owner_email transfer below; otherwise a
     // grant owned by the departing member but created by somebody else would
     // be rewritten to the successor and escape the old-owner predicate.
-    await tx.execute({
-      sql: `DELETE FROM workspace_connection_grants
+    // Workspace connections migrate only in apps that mount them, so a
+    // database without the table has no grants to revoke.
+    if (tableColumns.has("workspace_connection_grants")) {
+      await tx.execute({
+        sql: `DELETE FROM workspace_connection_grants
             WHERE (LOWER(owner_email) = ? OR LOWER(granted_by_email) = ?)${
               orgId ? " AND org_id = ?" : ""
             }`,
-      args: orgId ? [oldEmail, oldEmail, orgId] : [oldEmail, oldEmail],
-    });
+        args: orgId ? [oldEmail, oldEmail, orgId] : [oldEmail, oldEmail],
+      });
+    }
 
     // The registry is shared with identity rekey. The information_schema
     // sweep retains the extension escape hatch used by rekey for app-owned
     // owner_email tables.
     const ownerEntries = new Map<string, IdentityColumn>();
-    for (const entry of IDENTITY_REKEY_COLUMNS) {
+    for (const entry of identityColumns) {
       if (entry.column === "owner_email") ownerEntries.set(entry.table, entry);
     }
     for (const [table, columns] of tableColumns) {
@@ -108,24 +193,17 @@ export async function offboardMember(
         !/^[A-Za-z0-9_]+$/.test(table) ||
         table === "agent_audit_log" ||
         table === "tool_history" ||
-        table === "workspace_connection_grants"
+        table === "workspace_connection_grants" ||
+        (entry.offboard && entry.offboard !== "transfer")
       )
         continue;
       const columns = tableColumns.get(table) ?? new Set<string>();
       if (!columns.has(entry.column)) continue;
-      const hasOrgId = columns.has("org_id");
-      // A member removal scoped to one organization must not transfer
-      // account-owned rows from another organization (or personal mode).
-      // Tables without an org_id have no safe predicate for this operation.
-      if (orgId && !hasOrgId) continue;
-      const where =
-        hasOrgId && orgId
-          ? `LOWER("owner_email") = ? AND "org_id" = ?`
-          : `LOWER("owner_email") = ?`;
-      const args = hasOrgId && orgId ? [oldEmail, orgId] : [oldEmail];
+      const scope = orgPredicate(entry, columns);
+      if (!scope) continue;
       const result = await tx.execute({
-        sql: `UPDATE ${quote(table)} SET ${quote(entry.column)} = ? WHERE ${where}`,
-        args: [transferTo, oldEmail, ...args.slice(1)],
+        sql: `UPDATE ${quote(table)} SET ${quote(entry.column)} = ? WHERE LOWER("owner_email") = ?${scope.sql}`,
+        args: [transferTo, oldEmail, ...scope.args],
       });
       transferredRows += result.rowsAffected;
     }
@@ -172,70 +250,37 @@ export async function offboardMember(
       }
     }
 
-    for (const entry of IDENTITY_REKEY_COLUMNS) {
+    for (const entry of identityColumns) {
       const columns = tableColumns.get(entry.table);
-      if (
-        !columns?.has(entry.column) ||
-        entry.table === "user" ||
-        entry.column === "owner_email" ||
-        entry.mode === "group-json" ||
-        entry.mode === "unsupported-oauth" ||
-        entry.table === "org_members" ||
-        entry.table === "app_member_roles" ||
-        entry.table === "workspace_connection_grants" ||
-        [
-          "created_by",
-          "updated_by",
-          "invited_by",
-          "author_email",
-          "actor_email",
-        ].includes(entry.column)
-      )
-        continue;
-      const hasOrgId = columns.has("org_id");
-      // A workspace-scoped removal must not mutate account-wide rows that may
-      // still be needed by the member in another organization.
-      if (orgId && !hasOrgId) continue;
-      const scoped = hasOrgId && orgId ? ` AND "org_id" = ?` : "";
-      const scopeArgs = hasOrgId && orgId ? [orgId] : [];
-      let result: { rowsAffected: number } | undefined;
-      if (entry.mode === "user-share" || entry.mode === "viewer-consent") {
+      if (!columns?.has(entry.column)) continue;
+      const action = offboardAction(entry);
+      if (action === "retain" || action === "separate") continue;
+      const scope = orgPredicate(entry, columns);
+      if (!scope) continue;
+      const column = quote(entry.column);
+      let result: { rowsAffected: number };
+      if (action === "delete") {
+        const match =
+          entry.mode === "user-share" && columns.has("principal_type")
+            ? {
+                sql: `LOWER(${column}) = ? AND principal_type = 'user'`,
+                args: [oldEmail],
+              }
+            : entry.mode === "user-scope"
+              ? {
+                  sql: `LOWER("scope") = 'user' AND LOWER(${column}) = ?`,
+                  args: [oldEmail],
+                }
+              : entry.mode === "secret-scope"
+                ? {
+                    sql: `LOWER("secret_scope") = 'user' AND LOWER(${column}) IN (?, ?)`,
+                    args: [oldEmail, `user:${oldEmail}`],
+                  }
+                : { sql: `LOWER(${column}) = ?`, args: [oldEmail] };
         result = await tx.execute({
-          sql: `DELETE FROM ${quote(entry.table)}
-                WHERE LOWER(${quote(entry.column)}) = ?${
-                  entry.mode === "user-share" && columns.has("principal_type")
-                    ? ` AND principal_type = 'user'`
-                    : ""
-                }${scoped}`,
-          args: [oldEmail, ...scopeArgs],
+          sql: `DELETE FROM ${quote(entry.table)} WHERE ${match.sql}${scope.sql}`,
+          args: [...match.args, ...scope.args],
         });
-      } else if (entry.mode === "user-scope") {
-        result = await tx.execute({
-          sql: `DELETE FROM ${quote(entry.table)}
-                WHERE LOWER("scope") = 'user' AND LOWER(${quote(entry.column)}) = ?${scoped}`,
-          args: [oldEmail, ...scopeArgs],
-        });
-      } else if (entry.mode === "secret-scope") {
-        result = await tx.execute({
-          sql: `DELETE FROM ${quote(entry.table)}
-                WHERE LOWER("secret_scope") = 'user'
-                  AND LOWER(${quote(entry.column)}) IN (?, ?)
-                  ${scoped}`,
-          args: [oldEmail, `user:${oldEmail}`, ...scopeArgs],
-        });
-      } else if (entry.mode === "state-session") {
-        result = await tx.execute({
-          sql: `DELETE FROM ${quote(entry.table)}
-                WHERE LOWER(${quote(entry.column)}) = ?${scoped}`,
-          args: [oldEmail, ...scopeArgs],
-        });
-      } else if (entry.mode === "email-user-id") {
-        result = await tx.execute({
-          sql: `UPDATE ${quote(entry.table)} SET ${quote(entry.column)} = ?
-                WHERE LOWER(${quote(entry.column)}) = ?${scoped}`,
-          args: [transferTo, oldEmail, ...scopeArgs],
-        });
-        transferredRows += result.rowsAffected;
       } else if (
         entry.mode === "owner" ||
         entry.mode === "typed-scope" ||
@@ -250,23 +295,30 @@ export async function offboardMember(
               : "";
         result = await tx.execute({
           sql: `UPDATE ${quote(entry.table)}
-                SET ${quote(entry.column)} = CASE
-                  WHEN LOWER(${quote(entry.column)}) = ? THEN ?
+                SET ${column} = CASE
+                  WHEN LOWER(${column}) = ? THEN ?
                   ELSE 'user:' || ?
                 END
-                WHERE ${scopePredicate}(LOWER(${quote(entry.column)}) = ? OR LOWER(${quote(entry.column)}) = ?)${scoped}`,
+                WHERE ${scopePredicate}(LOWER(${column}) = ? OR LOWER(${column}) = ?)${scope.sql}`,
           args: [
             oldEmail,
             transferTo,
             transferTo,
             oldEmail,
             `user:${oldEmail}`,
-            ...scopeArgs,
+            ...scope.args,
           ],
         });
         transferredRows += result.rowsAffected;
+      } else {
+        result = await tx.execute({
+          sql: `UPDATE ${quote(entry.table)} SET ${column} = ?
+                WHERE LOWER(${column}) = ?${scope.sql}`,
+          args: [transferTo, oldEmail, ...scope.args],
+        });
+        transferredRows += result.rowsAffected;
       }
-      if (result && result.rowsAffected > 0) {
+      if (result.rowsAffected > 0) {
         cleanupCounts[`${entry.table}.${entry.column}`] = result.rowsAffected;
       }
     }
@@ -281,12 +333,14 @@ export async function offboardMember(
       if (revoked.rowsAffected > 0)
         cleanupCounts["oauth_tokens.owner"] = revoked.rowsAffected;
     }
-    const roles = await tx.execute({
-      sql: `DELETE FROM app_member_roles WHERE LOWER(email) = ?${
-        orgId ? " AND org_id = ?" : ""
-      }`,
-      args: orgId ? [oldEmail, orgId] : [oldEmail],
-    });
+    const roles = tableColumns.has("app_member_roles")
+      ? await tx.execute({
+          sql: `DELETE FROM app_member_roles WHERE LOWER(email) = ?${
+            orgId ? " AND org_id = ?" : ""
+          }`,
+          args: orgId ? [oldEmail, orgId] : [oldEmail],
+        })
+      : { rowsAffected: 0 };
     let revokeSessions = true;
     if (orgId) {
       const remainingMemberships = await tx.execute({
@@ -298,13 +352,17 @@ export async function offboardMember(
       revokeSessions =
         Number((remainingMemberships.rows[0] as any)?.count ?? 0) === 0;
     }
-    const sessions = revokeSessions
-      ? await tx.execute({
-          sql: `DELETE FROM "session" WHERE "userId" IN
+    const sessionUser = sessionUserColumn(
+      tableColumns.get("session") ?? new Set(),
+    );
+    const sessions =
+      revokeSessions && sessionUser
+        ? await tx.execute({
+            sql: `DELETE FROM "session" WHERE ${quote(sessionUser)} IN
                 (SELECT id FROM "user" WHERE LOWER("email") = ?)`,
-          args: [oldEmail],
-        })
-      : { rowsAffected: 0 };
+            args: [oldEmail],
+          })
+        : { rowsAffected: 0 };
     // Delete the membership after all scoped ownership, role, and session
     // cleanup has succeeded. This keeps a retryable membership marker until
     // the last destructive step in the transaction.

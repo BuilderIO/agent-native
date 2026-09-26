@@ -86,7 +86,7 @@ describe("export-audit-events", () => {
     expect(result.truncated).toBe(false);
     const lines = result.content.split("\n");
     expect(lines[0]).toBe(
-      "id,created_at,action,caller,actor_kind,actor_email,org_id,thread_id,turn_id,target_type,target_id,status,summary,error_code,owner_email,visibility",
+      "id,created_at,action,caller,actor_kind,actor_email,org_id,thread_id,turn_id,target_type,target_id,status,summary,error_code,owner_email,visibility,app",
     );
     // The escaped summary field embeds a real newline inside its quotes, so
     // it spans two lines of the joined CSV string.

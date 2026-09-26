@@ -57,6 +57,10 @@ import {
   type McpServer,
 } from "../resources/use-mcp-servers.js";
 import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
+import {
+  listRemovableSecretNames,
+  removeManagedSecrets,
+} from "../settings/managed-secrets.js";
 import { SettingsCrossLinkHint } from "../settings/SettingsCrossLinkHint.js";
 import { SettingsSurfaceProvider } from "../settings/SettingsSection.js";
 import {
@@ -81,7 +85,6 @@ interface PlatformInfo {
   label: string;
   icon: React.ComponentType<any>;
   description: string;
-  envVars: string[];
   setupSteps: string[];
   docsUrl?: string;
   /** If true, this is a "client" integration (user connects TO the agent) rather than a webhook */
@@ -96,7 +99,6 @@ const PLATFORMS: PlatformInfo[] = [
     icon: IconBrandSlack,
     description:
       "@mention the agent in a Slack thread or DM it, and it replies in that thread.",
-    envVars: ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"],
     setupSteps: [
       "At api.slack.com/apps, create an app for your workspace, then under OAuth & Permissions add the bot scopes app_mentions:read, chat:write, channels:history, and im:history",
       "Click Install to Workspace, then copy the Bot User OAuth Token and the Signing Secret (Basic Information → App Credentials) into the two secrets listed below",
@@ -112,7 +114,6 @@ const PLATFORMS: PlatformInfo[] = [
     label: "Telegram",
     icon: IconBrandTelegram,
     description: "Chat with your agent via a Telegram bot.",
-    envVars: ["TELEGRAM_BOT_TOKEN"],
     setupSteps: [
       "Message @BotFather on Telegram to create a new bot",
       "Copy the bot token into your environment",
@@ -125,7 +126,6 @@ const PLATFORMS: PlatformInfo[] = [
     label: "WhatsApp",
     icon: IconBrandWhatsapp,
     description: "Connect your agent to WhatsApp Business.",
-    envVars: ["WHATSAPP_TOKEN", "WHATSAPP_VERIFY_TOKEN"],
     setupSteps: [
       "Create a Meta Business app at developers.facebook.com",
       "Set up WhatsApp Business API",
@@ -140,7 +140,6 @@ const PLATFORMS: PlatformInfo[] = [
     label: "Google Docs",
     icon: IconBrandGoogleDrive,
     description: "Tag the agent in Google Doc comments to get responses.",
-    envVars: ["GOOGLE_SERVICE_ACCOUNT_KEY"],
     setupSteps: [
       "Create a Google Cloud service account and download the JSON key",
       "Set GOOGLE_SERVICE_ACCOUNT_KEY in your environment (JSON string or file path)",
@@ -154,7 +153,6 @@ const PLATFORMS: PlatformInfo[] = [
     label: "OpenClaw",
     icon: IconTerminal2,
     description: "Access this agent from OpenClaw's unified agent interface.",
-    envVars: [],
     isClient: true,
     setupSteps: [
       "Install OpenClaw: npm install -g openclaw",
@@ -207,6 +205,59 @@ function IntegrationDetail({
   const [copied, setCopied] = useState(false);
   const [toggleError, setToggleError] = useState<string | null>(null);
   const agentEngineConfigured = useAgentEngineConfigured();
+  // null until the key list loads, or when it cannot be read.
+  const [storedKeys, setStoredKeys] = useState<string[] | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const [keysReloadToken, setKeysReloadToken] = useState(0);
+
+  // The adapter's own list, as the server reports it, so this never drifts
+  // from what the adapter checks.
+  const envVarsKey = (serverStatus?.requiredEnvKeys ?? [])
+    .map((envKey) => envKey.key)
+    .join(",");
+  const envVars = useMemo(
+    () => (envVarsKey ? envVarsKey.split(",") : []),
+    [envVarsKey],
+  );
+
+  useEffect(() => {
+    if (envVars.length === 0) return;
+    let cancelled = false;
+    listRemovableSecretNames()
+      .then((names) => {
+        if (!cancelled) {
+          setStoredKeys(envVars.filter((key) => names.has(key)));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setStoredKeys(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [envVars, keysReloadToken]);
+
+  const handleRemoveCredentials = useCallback(async () => {
+    if (removing || !storedKeys?.length) return;
+    setRemoving(true);
+    setRemoveError(null);
+    try {
+      const result = await removeManagedSecrets(storedKeys, "channels");
+      setConfirmRemove(false);
+      if (result.kept.length > 0) setRemoveError(t("secrets.sharedKeysKept"));
+      window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
+      onRefresh();
+    } catch (err) {
+      setRemoveError(
+        err instanceof Error ? err.message : t("integrations.networkError"),
+      );
+    } finally {
+      setRemoving(false);
+      setKeysReloadToken((token) => token + 1);
+    }
+  }, [removing, storedKeys, onRefresh, t]);
 
   const handleToggle = useCallback(async () => {
     setToggling(true);
@@ -357,13 +408,13 @@ function IntegrationDetail({
       )}
 
       {/* Required secrets */}
-      {platform.envVars.length > 0 && (
+      {envVars.length > 0 && (
         <div className="mb-3">
           <div className="text-[10px] font-medium text-muted-foreground mb-1">
             {t("integrations.requiredSecrets")}
           </div>
           <div className="space-y-0.5">
-            {platform.envVars.map((v) => (
+            {envVars.map((v) => (
               <div key={v} className="flex items-center gap-1">
                 <code className="text-[10px] text-foreground bg-muted px-1 py-0.5 rounded">
                   {v}
@@ -381,6 +432,44 @@ function IntegrationDetail({
             <p className="text-[10px] text-amber-500 mt-1">
               {t("integrations.envHelp")}
             </p>
+          )}
+          {storedKeys && storedKeys.length > 0 && (
+            <div className="mt-1.5 flex items-center gap-1">
+              {confirmRemove ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleRemoveCredentials}
+                    disabled={removing}
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-destructive/15 text-destructive hover:bg-destructive/25 disabled:opacity-40"
+                  >
+                    {removing ? (
+                      <IconLoader2 size={10} className="animate-spin" />
+                    ) : null}
+                    {t("secrets.confirmRemove")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmRemove(false)}
+                    disabled={removing}
+                    className="rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    {t("common.cancel")}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmRemove(true)}
+                  className="rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-destructive"
+                >
+                  {t("secrets.removeCredentials")}
+                </button>
+              )}
+            </div>
+          )}
+          {removeError && (
+            <p className="text-[10px] text-destructive mt-1">{removeError}</p>
           )}
         </div>
       )}
@@ -476,7 +565,7 @@ function IntegrationDetail({
 
 // ─── Main panel ──────────────────────────────────────────────────────────────
 
-function startMcpOAuthReconnect(server: McpServer): void {
+export function startMcpOAuthReconnect(server: McpServer): void {
   const returnUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   const params = new URLSearchParams({
     serverId: server.id,
@@ -566,7 +655,7 @@ function McpServerStatus({
  * keeps the richer diagnostic card (reason + reconnect) since that detail
  * doesn't fit a one-line row.
  */
-function McpServerRows({
+export function McpServerRows({
   servers,
   role,
   deleteTarget,
@@ -680,7 +769,7 @@ function McpServerRows({
   );
 }
 
-function useMcpIntegrationsController({
+export function useMcpIntegrationsController({
   integrations: integrationOptions,
 }: {
   integrations?: DefaultMcpIntegration[];
@@ -996,7 +1085,9 @@ export function McpIntegrationsSection({
               return {
                 id: integration.id,
                 name: integration.name,
-                description: integration.description || integration.useCase,
+                description: t(integration.descriptionKey, {
+                  defaultValue: integration.description || integration.useCase,
+                }),
                 logo: (
                   <McpIntegrationLogo
                     name={integration.name}
@@ -1219,7 +1310,9 @@ export function IntegrationsPanel() {
       .map((integration) => ({
         id: `mcp:${integration.id}`,
         name: mcpDisplayName(integration),
-        description: integration.description || integration.useCase,
+        description: t(integration.descriptionKey, {
+          defaultValue: integration.description || integration.useCase,
+        }),
         logo: (
           <McpIntegrationLogo
             name={integration.name}
@@ -1357,7 +1450,7 @@ export function IntegrationsPanel() {
           const builderItem: IntegrationGridItem = {
             id: "builder-cms",
             name: "Builder.io",
-            badge: t("integrations.recommended"),
+            badge: builderConnected ? undefined : t("integrations.recommended"),
             description: viewModel.description,
             logo: (
               <McpIntegrationLogo

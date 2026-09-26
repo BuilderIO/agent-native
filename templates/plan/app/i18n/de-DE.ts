@@ -34,6 +34,7 @@ const messages = {
     agentDescription:
       "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
     openAgentSettings: "Agent verwalten",
+    editorGroupTitle: "Editor",
     editorTitle: "VS-Code-Erweiterung",
     editorDescription:
       "Öffne und prüfe Pläne in einem Seitenbereich in VS Code statt in einem separaten Browser-Tab.",

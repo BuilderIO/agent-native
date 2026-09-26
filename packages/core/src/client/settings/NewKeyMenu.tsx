@@ -5,7 +5,10 @@
  * adding a key feels identical wherever you do it.
  */
 
-import { ButtonBase as ToolkitButtonBase } from "@agent-native/toolkit/ui/button";
+import {
+  ButtonBase as ToolkitButtonBase,
+  type ButtonProps,
+} from "@agent-native/toolkit/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -45,6 +48,17 @@ export interface NewKeyMenuProps {
   onCustom: (name?: string) => void;
   /** Trigger button text. Defaults to "New". */
   label?: string;
+  /**
+   * Trigger size and variant, per the Settings control contract: `xs`
+   * outline beside a group title (the default), `sm` for a row or page
+   * action, `default` inside a dialog field.
+   */
+  size?: "xs" | "sm" | "default";
+  variant?: Extract<
+    ButtonProps["variant"],
+    "default" | "secondary" | "outline" | "ghost"
+  >;
+  /** Layout only (flex, margin, width); size and color come from the props. */
   triggerClassName?: string;
 }
 
@@ -62,6 +76,8 @@ export function NewKeyMenu({
   onPick,
   onCustom,
   label,
+  size = "xs",
+  variant = "outline",
   triggerClassName,
 }: NewKeyMenuProps) {
   const t = useT();
@@ -81,13 +97,11 @@ export function NewKeyMenu({
       <PopoverTrigger asChild>
         <ToolkitButtonBase
           type="button"
-          variant="outline"
-          className={cn(
-            "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground",
-            triggerClassName,
-          )}
+          variant={variant}
+          size={size}
+          className={triggerClassName}
         >
-          <IconPlus size={11} />
+          <IconPlus aria-hidden />
           {triggerLabel}
         </ToolkitButtonBase>
       </PopoverTrigger>

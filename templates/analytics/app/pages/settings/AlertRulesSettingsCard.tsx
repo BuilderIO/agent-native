@@ -276,7 +276,15 @@ function parseFilters(filtersJson: string): AnalyticsAlertFilter[] {
   return parsed as AnalyticsAlertFilter[];
 }
 
-export function AlertRulesSettingsCard() {
+export function AlertRulesSettingsCard({
+  embedded = false,
+}: {
+  /**
+   * Drop the card and its title for a surface that already names the rules,
+   * like the Alerts tab on the redesigned Analytics General page.
+   */
+  embedded?: boolean;
+} = {}) {
   const t = useT();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<AlertRuleFormState | null>(null);
@@ -464,241 +472,250 @@ export function AlertRulesSettingsCard() {
     }
   }
 
+  const actions = (
+    <div className="flex shrink-0 flex-wrap items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={handleRunAlerts}
+        disabled={runAlerts.isPending || enabledCount === 0}
+      >
+        {runAlerts.isPending ? (
+          <IconLoader2 className="size-3.5 animate-spin" />
+        ) : (
+          <IconPlayerPlay className="size-3.5" />
+        )}
+        {t("settings.alertRunNow")}
+      </Button>
+      <Button type="button" size="sm" onClick={startCreateAlert}>
+        <IconPlus className="size-3.5" />
+        {t("settings.alertNew")}
+      </Button>
+    </div>
+  );
+  const body = isLoading ? (
+    <div className="space-y-2">
+      {[0, 1, 2].map((item) => (
+        <Skeleton
+          key={item}
+          className="h-14 w-full rounded-md border border-border bg-muted/30"
+        />
+      ))}
+    </div>
+  ) : rules.length === 0 ? (
+    <div className="rounded-md border border-dashed px-3 py-6 text-center">
+      <p className="text-sm font-medium">{t("settings.alertsEmptyTitle")}</p>
+      <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+        {t("settings.alertsEmptyDescription")}
+      </p>
+      <Button
+        type="button"
+        size="sm"
+        className="mt-4"
+        onClick={startCreateAlert}
+      >
+        <IconPlus className="size-3.5" />
+        {t("settings.alertNew")}
+      </Button>
+    </div>
+  ) : (
+    <div className="space-y-2">
+      {rules.map((rule) => {
+        const expanded = expandedRuleIds.has(rule.id);
+        return (
+          <Collapsible
+            key={rule.id}
+            open={expanded}
+            onOpenChange={(open) => setRuleExpanded(rule.id, open)}
+            className="rounded-lg border border-border/60 bg-background/40"
+          >
+            <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center">
+              <div className="flex min-w-0 flex-1 items-start gap-3">
+                <Switch
+                  checked={rule.enabled}
+                  onCheckedChange={(enabled) =>
+                    void handleToggle(rule, enabled)
+                  }
+                  aria-label={t("settings.alertToggleLabel", {
+                    name: rule.name,
+                  })}
+                  className="mt-0.5 shrink-0"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="truncate text-sm font-medium">
+                      {rule.name}
+                    </span>
+                    <Badge
+                      variant={
+                        rule.severity === "critical" ? "destructive" : "outline"
+                      }
+                      className="shrink-0 text-[10px]"
+                    >
+                      {rule.severity === "critical"
+                        ? t("settings.alertSeverityCritical")
+                        : t("settings.alertSeverityWarning")}
+                    </Badge>
+                  </div>
+                  <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                    {rule.description || formatScope(rule, t)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+                <div className="min-w-0 text-xs sm:w-40">
+                  <div className="truncate font-medium">
+                    {formatThreshold(rule, t)}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1.5 text-muted-foreground">
+                    <span
+                      className={cn(
+                        "size-1.5 rounded-full",
+                        statusDotClass(rule.lastStatus),
+                      )}
+                    />
+                    <span>{statusLabel(rule.lastStatus, t)}</span>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditing(formFromRule(rule))}
+                    aria-label={t("settings.alertEditLabel", {
+                      name: rule.name,
+                    })}
+                  >
+                    <IconPencil className="size-3.5" />
+                    {t("sidebar.edit")}
+                  </Button>
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      aria-label={t("sessions.devtoolsToggleDetails")}
+                    >
+                      {t("sqlDashboard.details")}
+                      <IconChevronDown
+                        className={cn(
+                          "size-3.5 transition-transform",
+                          expanded && "rotate-180",
+                        )}
+                      />
+                    </Button>
+                  </CollapsibleTrigger>
+                </div>
+              </div>
+            </div>
+
+            <CollapsibleContent className="border-t border-border/60 px-3 py-3">
+              <div className="grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-3">
+                <AlertRuleDetail
+                  label={t("settings.alertConditionColumn")}
+                  value={formatThreshold(rule, t)}
+                  detail={formatScope(rule, t)}
+                />
+                <AlertRuleDetail
+                  label={t("settings.alertDeliveryColumn")}
+                  value={rule.channels
+                    .map((channel) => knownChannelLabel(channel, t))
+                    .join(", ")}
+                  detail={
+                    rule.emailRecipients.length > 0
+                      ? rule.emailRecipients.join(", ")
+                      : undefined
+                  }
+                />
+                <AlertRuleDetail
+                  label={t("settings.alertStatusColumn")}
+                  value={statusLabel(rule.lastStatus, t)}
+                  detail={t("settings.alertLastChecked", {
+                    date: formatDate(
+                      rule.lastEvaluatedAt,
+                      t("settings.alertNever"),
+                    ),
+                  })}
+                />
+                <AlertRuleDetail
+                  label={t("settings.alertEventName")}
+                  value={rule.eventName || t("settings.alertAllEvents")}
+                />
+                <AlertRuleDetail
+                  label={t("settings.alertFilters")}
+                  value={
+                    rule.filters.length > 0
+                      ? JSON.stringify(rule.filters)
+                      : "[]"
+                  }
+                />
+                <AlertRuleDetail
+                  label={t("settings.alertStatusTriggered")}
+                  value={formatDate(
+                    rule.lastTriggeredAt,
+                    t("settings.alertNever"),
+                  )}
+                />
+              </div>
+              {rule.lastError ? (
+                <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                  {rule.lastError}
+                </div>
+              ) : null}
+              <div className="mt-3 flex justify-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setRuleToDelete(rule)}
+                  aria-label={t("settings.alertDeleteLabel", {
+                    name: rule.name,
+                  })}
+                >
+                  <IconTrash className="size-3.5" />
+                  {t("sidebar.delete")}
+                </Button>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        );
+      })}
+    </div>
+  );
+
   return (
     <>
-      <Card id="alert-rules" className="bg-card border-border/50 scroll-mt-16">
-        <CardHeader>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <IconBell className="size-4 text-primary" />
-                {t("settings.alertsTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.alertsDescription")}
-              </CardDescription>
+      {embedded ? (
+        <div id="alert-rules" className="flex scroll-mt-16 flex-col gap-4">
+          <div className="flex justify-end">{actions}</div>
+          {body}
+        </div>
+      ) : (
+        <Card
+          id="alert-rules"
+          className="bg-card border-border/50 scroll-mt-16"
+        >
+          <CardHeader>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <IconBell className="size-4 text-primary" />
+                  {t("settings.alertsTitle")}
+                </CardTitle>
+                <CardDescription>
+                  {t("settings.alertsDescription")}
+                </CardDescription>
+              </div>
+              {actions}
             </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleRunAlerts}
-                disabled={runAlerts.isPending || enabledCount === 0}
-              >
-                {runAlerts.isPending ? (
-                  <IconLoader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <IconPlayerPlay className="size-3.5" />
-                )}
-                {t("settings.alertRunNow")}
-              </Button>
-              <Button type="button" size="sm" onClick={startCreateAlert}>
-                <IconPlus className="size-3.5" />
-                {t("settings.alertNew")}
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="space-y-2">
-              {[0, 1, 2].map((item) => (
-                <Skeleton
-                  key={item}
-                  className="h-14 w-full rounded-md border border-border bg-muted/30"
-                />
-              ))}
-            </div>
-          ) : rules.length === 0 ? (
-            <div className="rounded-md border border-dashed px-3 py-6 text-center">
-              <p className="text-sm font-medium">
-                {t("settings.alertsEmptyTitle")}
-              </p>
-              <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
-                {t("settings.alertsEmptyDescription")}
-              </p>
-              <Button
-                type="button"
-                size="sm"
-                className="mt-4"
-                onClick={startCreateAlert}
-              >
-                <IconPlus className="size-3.5" />
-                {t("settings.alertNew")}
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {rules.map((rule) => {
-                const expanded = expandedRuleIds.has(rule.id);
-                return (
-                  <Collapsible
-                    key={rule.id}
-                    open={expanded}
-                    onOpenChange={(open) => setRuleExpanded(rule.id, open)}
-                    className="rounded-lg border border-border/60 bg-background/40"
-                  >
-                    <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center">
-                      <div className="flex min-w-0 flex-1 items-start gap-3">
-                        <Switch
-                          checked={rule.enabled}
-                          onCheckedChange={(enabled) =>
-                            void handleToggle(rule, enabled)
-                          }
-                          aria-label={t("settings.alertToggleLabel", {
-                            name: rule.name,
-                          })}
-                          className="mt-0.5 shrink-0"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex min-w-0 flex-wrap items-center gap-2">
-                            <span className="truncate text-sm font-medium">
-                              {rule.name}
-                            </span>
-                            <Badge
-                              variant={
-                                rule.severity === "critical"
-                                  ? "destructive"
-                                  : "outline"
-                              }
-                              className="shrink-0 text-[10px]"
-                            >
-                              {rule.severity === "critical"
-                                ? t("settings.alertSeverityCritical")
-                                : t("settings.alertSeverityWarning")}
-                            </Badge>
-                          </div>
-                          <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
-                            {rule.description || formatScope(rule, t)}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-3 sm:justify-end">
-                        <div className="min-w-0 text-xs sm:w-40">
-                          <div className="truncate font-medium">
-                            {formatThreshold(rule, t)}
-                          </div>
-                          <div className="mt-0.5 flex items-center gap-1.5 text-muted-foreground">
-                            <span
-                              className={cn(
-                                "size-1.5 rounded-full",
-                                statusDotClass(rule.lastStatus),
-                              )}
-                            />
-                            <span>{statusLabel(rule.lastStatus, t)}</span>
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setEditing(formFromRule(rule))}
-                            aria-label={t("settings.alertEditLabel", {
-                              name: rule.name,
-                            })}
-                          >
-                            <IconPencil className="size-3.5" />
-                            {t("sidebar.edit")}
-                          </Button>
-                          <CollapsibleTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              aria-label={t("sessions.devtoolsToggleDetails")}
-                            >
-                              {t("sqlDashboard.details")}
-                              <IconChevronDown
-                                className={cn(
-                                  "size-3.5 transition-transform",
-                                  expanded && "rotate-180",
-                                )}
-                              />
-                            </Button>
-                          </CollapsibleTrigger>
-                        </div>
-                      </div>
-                    </div>
-
-                    <CollapsibleContent className="border-t border-border/60 px-3 py-3">
-                      <div className="grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-3">
-                        <AlertRuleDetail
-                          label={t("settings.alertConditionColumn")}
-                          value={formatThreshold(rule, t)}
-                          detail={formatScope(rule, t)}
-                        />
-                        <AlertRuleDetail
-                          label={t("settings.alertDeliveryColumn")}
-                          value={rule.channels
-                            .map((channel) => knownChannelLabel(channel, t))
-                            .join(", ")}
-                          detail={
-                            rule.emailRecipients.length > 0
-                              ? rule.emailRecipients.join(", ")
-                              : undefined
-                          }
-                        />
-                        <AlertRuleDetail
-                          label={t("settings.alertStatusColumn")}
-                          value={statusLabel(rule.lastStatus, t)}
-                          detail={t("settings.alertLastChecked", {
-                            date: formatDate(
-                              rule.lastEvaluatedAt,
-                              t("settings.alertNever"),
-                            ),
-                          })}
-                        />
-                        <AlertRuleDetail
-                          label={t("settings.alertEventName")}
-                          value={rule.eventName || t("settings.alertAllEvents")}
-                        />
-                        <AlertRuleDetail
-                          label={t("settings.alertFilters")}
-                          value={
-                            rule.filters.length > 0
-                              ? JSON.stringify(rule.filters)
-                              : "[]"
-                          }
-                        />
-                        <AlertRuleDetail
-                          label={t("settings.alertStatusTriggered")}
-                          value={formatDate(
-                            rule.lastTriggeredAt,
-                            t("settings.alertNever"),
-                          )}
-                        />
-                      </div>
-                      {rule.lastError ? (
-                        <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                          {rule.lastError}
-                        </div>
-                      ) : null}
-                      <div className="mt-3 flex justify-end">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => setRuleToDelete(rule)}
-                          aria-label={t("settings.alertDeleteLabel", {
-                            name: rule.name,
-                          })}
-                        >
-                          <IconTrash className="size-3.5" />
-                          {t("sidebar.delete")}
-                        </Button>
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent>{body}</CardContent>
+        </Card>
+      )}
 
       <AlertRuleDialog
         form={editing}

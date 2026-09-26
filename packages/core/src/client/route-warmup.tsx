@@ -7,7 +7,7 @@ import {
   type AgentNativeRouteWarmupResolvedConfig,
   type AgentNativeRouteWarmupStrategy,
 } from "../shared/route-warmup-config.js";
-import { isFrameworkRoutePath } from "./api-path.js";
+import { isServerRoutePath } from "./api-path.js";
 
 declare const __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__:
   | AgentNativeRouteWarmupConfigInput
@@ -113,12 +113,10 @@ function stripBasename(pathname: string): string {
   return pathname;
 }
 
-function isFrameworkOrApiPath(pathname: string): boolean {
+function isServerServedPath(pathname: string): boolean {
   const appPath = stripBasename(pathname);
   return (
-    isFrameworkRoutePath(appPath) ||
-    appPath === "/api" ||
-    appPath.startsWith("/api/") ||
+    isServerRoutePath(appPath) ||
     appPath === "/cdn-cgi" ||
     appPath.startsWith("/cdn-cgi/")
   );
@@ -135,7 +133,7 @@ function hrefUrl(href: string): URL | null {
 function isWarmableRouteUrl(url: URL): boolean {
   if (url.origin !== window.location.origin) return false;
   if (url.pathname === window.location.pathname && url.hash) return false;
-  if (isFrameworkOrApiPath(url.pathname)) return false;
+  if (isServerServedPath(url.pathname)) return false;
   if (/\.\w+$/.test(url.pathname)) return false;
   return true;
 }

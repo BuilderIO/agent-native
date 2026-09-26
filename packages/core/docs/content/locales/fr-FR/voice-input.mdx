@@ -77,15 +77,15 @@ L'itinéraire est **de même origine uniquement** : les POST intersites sont re
 
 ## Activation des fournisseurs {#enabling-providers}
 
-Builder est le chemin le plus simple : connectez Builder.io (offre gratuite disponible) à partir des paramètres et le fournisseur par défaut devient Builder Gemini Flash-Lite. Pour les fournisseurs BYOK, ajoutez la clé correspondante dans Paramètres → Clés API.
+Builder est le chemin le plus simple : connectez Builder.io (offre gratuite disponible) depuis **Settings → Connections → Integrations** et le fournisseur par défaut devient Builder Gemini Flash-Lite. Pour les fournisseurs BYOK, ajoutez la clé Gemini, Groq ou OpenAI correspondante.
 
 ### Par utilisateur (recommandé pour SaaS)
 
-L'utilisateur définit sa propre clé via les paramètres de la barre latérale de l'agent UI. Il est stocké en tant que secret chiffré à l'échelle de l'utilisateur (via `readAppSecret`). Chaque utilisateur paie sa propre transcription ; aucun coût pour l'hôte.
+L'utilisateur ajoute sa propre clé sous **Personal providers** dans **Settings → Agent → Model**. Elle est stockée en tant que secret chiffré à l'échelle de l'utilisateur (via `readAppSecret`). Chaque utilisateur paie sa propre transcription ; aucun coût pour l'hôte.
 
 ### Partagé (pour les outils internes)
 
-Définissez `GEMINI_API_KEY`, `GROQ_API_KEY` ou `OPENAI_API_KEY` en tant que variable d'environnement ou dans la table `settings`. La transcription de chaque utilisateur atteint la clé partagée.
+Définissez `GEMINI_API_KEY`, `GROQ_API_KEY` ou `OPENAI_API_KEY` comme variable d'environnement, ou demandez à un propriétaire ou un administrateur de l'ajouter pour l'organisation sous **Organization providers** dans **Settings → Agent → Model**. La ligne **Voice input** de **Settings → Organization → Infrastructure** choisit le fournisseur qui répond en premier. La transcription de chaque utilisateur utilise la clé partagée.
 
 <Callout id="doc-block-154744d" tone="info">
 

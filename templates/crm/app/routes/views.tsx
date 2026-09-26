@@ -408,7 +408,7 @@ function SavedViewSurface({
             value={saveDraft.groupByAttributeId ?? ""}
             onValueChange={(next) => updateDraft({ groupByAttributeId: next })}
           >
-            <SelectTrigger className="h-8 w-56">
+            <SelectTrigger size="sm" className="w-56">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

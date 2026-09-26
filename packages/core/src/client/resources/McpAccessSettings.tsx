@@ -1,4 +1,17 @@
-import { IconExternalLink, IconHelpCircle } from "@tabler/icons-react";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@agent-native/toolkit/ui/tabs";
+import {
+  IconCheck,
+  IconCopy,
+  IconExternalLink,
+  IconHelpCircle,
+} from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { docsUrl } from "../../shared/docs-url.js";
@@ -13,7 +26,6 @@ import {
 import { AgentTabFrame } from "../agent-page/AgentTabFrame.js";
 import { appPath } from "../api-path.js";
 import { useLocale, useT } from "../i18n.js";
-import { cn } from "../utils.js";
 
 interface AccessUrls {
   appName: string;
@@ -50,42 +62,113 @@ function CopyField({ label, value, docsHref, docsLabel }: CopyFieldProps) {
   return (
     <div className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-muted/20 p-2">
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+        <div className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
           {label}
           {docsHref && (
-            <a
-              href={docsHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={docsLabel}
-              title={docsLabel}
-              className="inline-flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <IconHelpCircle className="size-2.5" />
-            </a>
+            <Button asChild variant="ghost" size="icon-xs">
+              <a
+                href={docsHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={docsLabel}
+                title={docsLabel}
+              >
+                <IconHelpCircle aria-hidden="true" />
+              </a>
+            </Button>
           )}
         </div>
-        <code className="mt-1 block truncate text-xs text-foreground">
+        <code className="mt-1 block truncate font-mono text-xs text-foreground">
           {value}
         </code>
       </div>
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="xs"
         onClick={() => void copy()}
-        className="shrink-0 cursor-pointer rounded-md border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium text-foreground hover:bg-accent"
       >
+        {copied ? (
+          <IconCheck aria-hidden="true" />
+        ) : (
+          <IconCopy aria-hidden="true" />
+        )}
         {copied ? t("settings.mcpCopied") : t("settings.mcpCopy")}
-      </button>
+      </Button>
     </div>
+  );
+}
+
+type McpConnectGuide = ReturnType<typeof getMcpConnectGuides>[number];
+
+function McpGuidePanel({
+  guide,
+  templateValues,
+}: {
+  guide: McpConnectGuide;
+  templateValues: McpConnectTemplateValues;
+}) {
+  const t = useT();
+  return (
+    <>
+      {guide.steps?.length ? (
+        <ol className="list-decimal space-y-2 ps-5 text-xs leading-relaxed text-muted-foreground">
+          {guide.steps.map((step) => (
+            <li key={step}>
+              {interpolateMcpConnectTemplate(step, templateValues)}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      {guide.intro && (
+        <p className="text-xs text-muted-foreground">
+          {interpolateMcpConnectTemplate(guide.intro, templateValues)}
+        </p>
+      )}
+      {guide.commandTemplate && (
+        <CopyField
+          label={t("settings.mcpCommand")}
+          value={interpolateMcpConnectTemplate(
+            guide.commandTemplate,
+            templateValues,
+          )}
+        />
+      )}
+      {guide.configTemplate && (
+        <CopyField
+          label={t("settings.mcpConfig")}
+          value={interpolateMcpConnectTemplate(
+            guide.configTemplate,
+            templateValues,
+          )}
+        />
+      )}
+      {guide.action?.kind === "link" && guide.action.href && (
+        <Button asChild variant="outline" size="sm">
+          <a href={guide.action.href} target="_blank" rel="noopener noreferrer">
+            {guide.action.label}
+            <IconExternalLink aria-hidden="true" />
+          </a>
+        </Button>
+      )}
+      {guide.note && (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {interpolateMcpConnectTemplate(guide.note, templateValues)}
+        </p>
+      )}
+    </>
   );
 }
 
 export interface McpAccessSettingsProps {
   appName?: string;
+  /** Drop the title and description, for a page whose header already names it. */
+  hideHeader?: boolean;
 }
 
 export function McpAccessSettings({
   appName: appNameProp,
+  hideHeader = false,
 }: McpAccessSettingsProps) {
   const t = useT();
   const { locale } = useLocale();
@@ -177,7 +260,6 @@ export function McpAccessSettings({
         serverId: `agent-native-${window.location.hostname || "app"}`,
       }
     : null;
-  const guide = guides.find((item) => item.id === activeGuide);
   const selectGuide = (guideId: string) => {
     const url = new URL(window.location.href);
     url.searchParams.set("guide", guideId);
@@ -187,6 +269,7 @@ export function McpAccessSettings({
 
   return (
     <AgentTabFrame
+      compact={hideHeader}
       title={t("settings.mcpTitle")}
       description={t("settings.mcpDescription")}
       helpHref={MCP_ACCESS_DOCS_HREF.mcp}
@@ -223,98 +306,39 @@ export function McpAccessSettings({
                   {t("settings.mcpClientSetupDescription")}
                 </p>
               </div>
-              <div
-                className="flex gap-1 overflow-x-auto border-b border-border pb-2"
-                role="tablist"
-                aria-label={t("settings.mcpChooseAssistant")}
-              >
-                {guides.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="tab"
-                    id={`mcp-guide-tab-${item.id}`}
-                    aria-selected={item.id === activeGuide}
-                    aria-controls={
-                      item.id === activeGuide
-                        ? `mcp-guide-panel-${item.id}`
-                        : undefined
-                    }
-                    onClick={() => selectGuide(item.id)}
-                    className={cn(
-                      "shrink-0 cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium",
-                      item.id === activeGuide
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                    )}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-              {guide && templateValues && (
-                <div
-                  id={`mcp-guide-panel-${guide.id}`}
-                  className="space-y-3 pt-1"
-                  role="tabpanel"
-                  aria-labelledby={`mcp-guide-tab-${guide.id}`}
+              <Tabs value={activeGuide} onValueChange={selectGuide}>
+                <TabsList
+                  aria-label={t("settings.mcpChooseAssistant")}
+                  className="max-w-full justify-start overflow-x-auto"
                 >
-                  {guide.steps?.length ? (
-                    <ol className="list-decimal space-y-2 ps-5 text-xs leading-relaxed text-muted-foreground">
-                      {guide.steps.map((step) => (
-                        <li key={step}>
-                          {interpolateMcpConnectTemplate(step, templateValues)}
-                        </li>
-                      ))}
-                    </ol>
-                  ) : null}
-                  {guide.intro && (
-                    <p className="text-xs text-muted-foreground">
-                      {interpolateMcpConnectTemplate(
-                        guide.intro,
-                        templateValues,
-                      )}
-                    </p>
-                  )}
-                  {guide.commandTemplate && (
-                    <CopyField
-                      label={t("settings.mcpCommand")}
-                      value={interpolateMcpConnectTemplate(
-                        guide.commandTemplate,
-                        templateValues,
-                      )}
-                    />
-                  )}
-                  {guide.configTemplate && (
-                    <CopyField
-                      label={t("settings.mcpConfig")}
-                      value={interpolateMcpConnectTemplate(
-                        guide.configTemplate,
-                        templateValues,
-                      )}
-                    />
-                  )}
-                  {guide.action?.kind === "link" && guide.action.href && (
-                    <a
-                      href={guide.action.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+                  {guides.map((item) => (
+                    <TabsTrigger
+                      key={item.id}
+                      value={item.id}
+                      id={`mcp-guide-tab-${item.id}`}
+                      aria-controls={`mcp-guide-panel-${item.id}`}
                     >
-                      {guide.action.label}
-                      <IconExternalLink className="size-3.5" />
-                    </a>
-                  )}
-                  {guide.note && (
-                    <p className="text-xs leading-relaxed text-muted-foreground">
-                      {interpolateMcpConnectTemplate(
-                        guide.note,
-                        templateValues,
-                      )}
-                    </p>
-                  )}
-                </div>
-              )}
+                      {item.label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+                {templateValues
+                  ? guides.map((item) => (
+                      <TabsContent
+                        key={item.id}
+                        value={item.id}
+                        id={`mcp-guide-panel-${item.id}`}
+                        aria-labelledby={`mcp-guide-tab-${item.id}`}
+                        className="mt-4 space-y-3"
+                      >
+                        <McpGuidePanel
+                          guide={item}
+                          templateValues={templateValues}
+                        />
+                      </TabsContent>
+                    ))
+                  : null}
+              </Tabs>
             </section>
             <section className="border-t border-border/70 pt-6">
               <h3 className="text-sm font-semibold text-foreground">
@@ -324,20 +348,19 @@ export function McpAccessSettings({
                 {staticTokenFallback.state}.{" "}
                 {t("settings.mcpStaticTokenDescription")}
               </p>
-              <a
-                href={urls.connectUrl}
-                className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
-              >
-                {t("settings.mcpOpenConnectPage")}
-                <IconExternalLink className="size-3.5" />
-              </a>
+              <Button asChild variant="outline" size="sm" className="mt-3">
+                <a href={urls.connectUrl} target="_blank" rel="noopener">
+                  {t("settings.mcpOpenConnectPage")}
+                  <IconExternalLink aria-hidden="true" />
+                </a>
+              </Button>
             </section>
           </>
         ) : (
           <div className="space-y-3" aria-busy="true">
-            <div className="h-5 w-36 animate-pulse rounded bg-muted" />
-            <div className="h-20 rounded-lg border border-border bg-muted/30" />
-            <div className="h-20 rounded-lg border border-border bg-muted/30" />
+            <Skeleton className="h-5 w-36" />
+            <Skeleton className="h-16 rounded-md" />
+            <Skeleton className="h-16 rounded-md" />
           </div>
         )}
       </div>

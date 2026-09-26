@@ -8,6 +8,7 @@ import {
 } from "../lib/app";
 import { originFor, productionHostFor, selectedSites } from "../lib/fleet";
 import { mustRespond, parseJson, probe, warm } from "../lib/http";
+import { SETTINGS_DEFAULT_PAGE } from "../lib/settings";
 import { installBetaE2ETrafficMarker } from "../lib/test-traffic";
 
 /**
@@ -387,15 +388,17 @@ for (const site of sites) {
     test("sends an anonymous visitor to sign-in without looping", async ({
       page,
     }) => {
-      const settings = `${origin}/settings/general`;
-      await page.goto(settings, {
+      // The page ⌘, and the account menu open: the redesigned Settings
+      // shell must gate an anonymous visitor exactly as the old tabs did.
+      const settingsPath = `/settings/${SETTINGS_DEFAULT_PAGE}`;
+      await page.goto(`${origin}${settingsPath}`, {
         waitUntil: "domcontentloaded",
       });
 
       const gate = await settleAuthGate(page);
       expect(
         gate.gated,
-        `${site.host} settled on ${gate.url} for an anonymous request to /settings/general with no sign-in surface`,
+        `${site.host} settled on ${gate.url} for an anonymous request to ${settingsPath} with no sign-in surface`,
       ).toBe(true);
 
       expect(

@@ -226,6 +226,9 @@ const messages = {
       noErrorMessage: "（エラーメッセージなし）",
     },
   },
+  settingsShortcut: {
+    command: "設定",
+  },
   agentPanel: {
     useBuilder: "ビルダーを使用する",
     openDesktopToEditCode: "デスクトップを開いてコードを編集する",
@@ -241,6 +244,7 @@ const messages = {
     newChat: "新しいチャット",
     newTerminal: "新しいターミナル",
     panelOptions: "エージェントパネルのオプション",
+    integrations: "連携",
     collapseSidebar: "サイドバーを折りたたむ",
     widenChat: "チャットを広げる",
     returnChatToLayout: "チャットをレイアウトに戻す",
@@ -266,6 +270,8 @@ const messages = {
     sharedKeyInEffect: "共有キーを使用しています。",
     useOrganizationKey: "組織のキーを使用",
     keyStatusUnavailable: "キーの状態を取得できません。",
+    saveScopeRoleUnavailable:
+      "組織でのロールを読み込めなかったため、まだキーを保存できません。",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',

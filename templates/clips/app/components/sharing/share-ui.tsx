@@ -438,10 +438,11 @@ export function GeneralAccessSelect({
           hit area. The icon is a bare svg, not a wrapped span, because the
           shared trigger applies line-clamp to every direct span child. */}
       <SelectTrigger
+        size="sm"
         aria-label={t("shareUi.selectAccess")}
         // The caret's trailing margin lines it up with the accordion row's
         // caret, which sits inside a 28px box.
-        className="h-8 w-full cursor-pointer justify-start gap-2 rounded-md border-0 bg-transparent px-1.5 py-1 text-sm shadow-none transition-colors hover:bg-muted/50 focus:ring-0 focus:ring-offset-0 [&>span]:flex-1 [&>span]:text-start [&>svg:last-child]:me-1"
+        className="w-full cursor-pointer justify-start gap-2 rounded-md border-0 bg-transparent px-1.5 py-1 text-sm shadow-none transition-colors hover:bg-muted/50 focus:ring-0 focus:ring-offset-0 [&>span]:flex-1 [&>span]:text-start [&>svg:last-child]:me-1"
       >
         <meta.Icon
           aria-hidden
@@ -556,12 +557,12 @@ export function InvitePeopleField({
         </div>
         <Button
           type="button"
-          size="icon"
+          size="icon-sm"
           onClick={handleAdd}
           disabled={!hasInviteEmail || share.isPending}
           aria-label={t("shareUi.invite")}
           title={t("shareUi.invite")}
-          className="size-8 shrink-0"
+          className="shrink-0"
         >
           <IconSend2 size={16} />
         </Button>
@@ -744,7 +745,10 @@ export function PeopleAccessSettingsBody({
               onValueChange={(value) => handleChangeRole(s, value as Role)}
               disabled={share.isPending}
             >
-              <SelectTrigger className="h-8 w-auto shrink-0 gap-1 border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none focus:ring-0">
+              <SelectTrigger
+                size="sm"
+                className="w-auto shrink-0 gap-1 border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none focus:ring-0"
+              >
                 <SelectValue>{getRoleLabel(s.role)}</SelectValue>
               </SelectTrigger>
               <SelectContent align="end">

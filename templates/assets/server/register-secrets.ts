@@ -1,32 +1,25 @@
-import { registerRequiredSecret } from "@agent-native/core/secrets";
+import {
+  GEMINI_API_KEY,
+  registerRequiredSecret,
+  registerSecretUsage,
+} from "@agent-native/core/secrets";
 
-registerRequiredSecret({
-  key: "GEMINI_API_KEY",
-  label: "Gemini API Key",
-  description:
-    "Manual video-generation option and optional image-generation fallback when Builder-managed generation is unavailable.",
-  docsUrl: "https://aistudio.google.com/apikey",
-  scope: "user",
-  kind: "api-key",
-  required: false,
-  validator: async (value) => {
-    if (!value || value.length < 20) {
-      return { ok: false, error: "Key looks too short." };
-    }
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${value}`,
-      );
-      if (res.ok) return true;
-      return { ok: false, error: `Gemini returned ${res.status}.` };
-    } catch (err: any) {
-      return {
-        ok: false,
-        error: `Could not reach Gemini: ${err?.message ?? err}`,
-      };
-    }
+// The framework registers the one Gemini key (Google Gemini API key), so
+// Assets records what it uses the key for instead of registering a
+// second copy under another name or scope.
+registerSecretUsage(GEMINI_API_KEY, [
+  {
+    appId: "assets",
+    feature: "Video generation",
+    effectWhenRemoved: "Video generation uses Builder.io, or stops.",
   },
-});
+  {
+    appId: "assets",
+    feature: "Image generation",
+    effectWhenRemoved:
+      "Uses another image provider, or stops if none is set up.",
+  },
+]);
 
 registerRequiredSecret({
   key: "OPENAI_API_KEY",
@@ -36,6 +29,14 @@ registerRequiredSecret({
   docsUrl: "https://platform.openai.com/api-keys",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "assets",
+      feature: "Image generation",
+      effectWhenRemoved:
+        "Uses another image provider, or stops if none is set up.",
+    },
+  ],
   required: false,
   validator: async (value) => {
     if (!value) return true;

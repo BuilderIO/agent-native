@@ -157,6 +157,8 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "साझा कुंजी उपयोग में है।",
   "agentPanel.useOrganizationKey": "संगठन की कुंजी इस्तेमाल करें",
   "agentPanel.keyStatusUnavailable": "कुंजी की स्थिति उपलब्ध नहीं है।",
+  "agentPanel.saveScopeRoleUnavailable":
+    "आपकी संगठन भूमिका लोड नहीं हो सकी, इसलिए अभी कुंजियाँ सहेजी नहीं जा सकतीं।",
   "agentPanel.chatgptSubscriptionPopupBlocked":
     "इस साइट के लिए पॉप-अप की अनुमति दें, फिर दोबारा प्रयास करें।",
   "agentPanel.chatgptSubscriptionTitle": "ChatGPT सदस्यता",
@@ -241,6 +243,40 @@ const messages: AgentChatTranslation = {
   "agents.directoryRegistryHint":
     "सार्वजनिक Agent Cards देखें और कनेक्ट करने से पहले सत्यापित करें।",
   "agents.directoryBrowse": "रजिस्ट्री ब्राउज़ करें",
+  "agents.formName": "नाम",
+  "agents.formUrl": "URL",
+  "agents.formUrlPlaceholder": "URL (उदा. http://localhost:8085)",
+  "agents.formDescription": "विवरण",
+  "agents.formDescriptionPlaceholder": "विवरण (वैकल्पिक)",
+  "agents.formCheck": "जांचें",
+  "agents.formAdd": "जोड़ें",
+  "agents.formAdding": "जोड़ा जा रहा है",
+  "agents.formAddAnyway": "फिर भी जोड़ें",
+  "agents.formRemove": "हटाएं",
+  "agents.formSaveFailed": "एजेंट सहेजा नहीं जा सका।",
+  "agents.formAddFailed": "एजेंट जोड़ा नहीं जा सका।",
+  "agents.checkFailed": "जांच विफल रही",
+  "agents.checkFailedStatus": "जांच विफल रही ({{status}})",
+  "agents.checkNotReachable": "पहुंच योग्य नहीं",
+  "agents.checkLive": "लाइव · {{scheme}}",
+  "agents.checkNoAuthScheme": "कोई प्रमाणीकरण स्कीम घोषित नहीं",
+  "agents.checkTokenRejected":
+    "पीयर ने हमारा टोकन अस्वीकार कर दिया, इसलिए प्रोडक्शन में कॉल 401 लौटाएंगी",
+  "agents.checkTokenUnverified": "हमारा टोकन सत्यापित नहीं हो सका",
+  "agents.checkTokenUnverifiedReason":
+    "हमारा टोकन सत्यापित नहीं हो सका ({{reason}})",
+  "agents.checkTokenWorks": "हमारा टोकन काम करता है",
+  "agents.checkReadsRequireAuth": "पढ़ने के लिए प्रमाणीकरण ज़रूरी है",
+  "agents.checkPublicSkills": "सार्वजनिक स्किल: {{count}}",
+  "agents.unreachableHint":
+    "हो सकता है ऐप अभी चल न रहा हो। आप इसे फिर भी जोड़ सकते हैं।",
+  "agents.addedOneWay":
+    "{{name}} को केवल आपकी ओर जोड़ा गया है। पंजीकरण एकतरफ़ा है, इसलिए जब तक आप इस ऐप को {{name}} में भी नहीं जोड़ते, उसे इसके बारे में पता नहीं चलेगा।",
+  "agents.openPeerSettings": "{{name}} की सेटिंग खोलें",
+  "agents.syncSecret": "सीक्रेट को ऐप्स में सिंक करें",
+  "agents.noSharedSecret": "अभी तक कोई साझा सीक्रेट सेट नहीं है।",
+  "agents.noSharedSecretLink": "पहले टीम पेज पर एक सेट करें।",
+  "agents.askOwnerSyncSecret": "अपने वर्कस्पेस के स्वामी से साझा सीक्रेट सिंक करने को कहें।",
   "common.saveFailed": "सहेजा नहीं जा सका",
   "common.saveFailedStatus": "सहेजा नहीं जा सका ({{status}})",
   "common.saving": "सहेजा जा रहा है...",
@@ -539,6 +575,296 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "प्रबंधित करें",
   "integrations.recommended": "अनुशंसित",
   "integrations.subtitle": "वे टूल कनेक्ट करें जिन्हें आपका एजेंट उपयोग कर सकता है।",
+  "mcpIntegrations.menuLabel": "इंटीग्रेशन",
+  "mcpIntegrations.menuDescription": "टूल और सेवाओं को एजेंट से कनेक्ट करें",
+  "mcpIntegrations.title": "इंटीग्रेशन कनेक्ट करें",
+  "mcpIntegrations.description":
+    "{{count}} एजेंट इंटीग्रेशन ब्राउज़ करें या कोई कस्टम इंटीग्रेशन जोड़ें।",
+  "mcpIntegrations.searchPlaceholder": "इंटीग्रेशन खोजें",
+  "mcpIntegrations.addYourOwn": "अपना जोड़ें",
+  "mcpIntegrations.noMatches": "इस खोज से कोई इंटीग्रेशन मेल नहीं खाता।",
+  "mcpIntegrations.connected": "कनेक्ट हो गया",
+  "mcpIntegrations.connectionError": "कनेक्शन त्रुटि",
+  "mcpIntegrations.connectionErrorReason": "कारण: {{reason}}",
+  "mcpIntegrations.reconnect": "फिर से कनेक्ट करें",
+  "mcpIntegrations.reconnecting": "फिर से कनेक्ट हो रहा है…",
+  "mcpIntegrations.reconnectFailed": "फिर से कनेक्ट नहीं हो सका: {{error}}",
+  "mcpIntegrations.configure": "कॉन्फ़िगर करें",
+  "mcpIntegrations.connect": "कनेक्ट करें",
+  "mcpIntegrations.connectWithOAuth": "कनेक्ट करें",
+  "mcpIntegrations.connecting": "कनेक्ट हो रहा है…",
+  "mcpIntegrations.useApiToken": "API टोकन इस्तेमाल करें",
+  "mcpIntegrations.customOAuthDefault": "OAuth से साइन इन करें",
+  "mcpIntegrations.customHeadersMode": "API कुंजी इस्तेमाल करें",
+  "mcpIntegrations.useApiKeyInstead": "इसके बजाय API कुंजी इस्तेमाल करें",
+  "mcpIntegrations.useOAuthInstead": "इसके बजाय OAuth इस्तेमाल करें",
+  "mcpIntegrations.connectSuggestion": "चैट में इस्तेमाल करने के लिए {{name}} कनेक्ट करें",
+  "mcpIntegrations.connectSuggestionWithApiToken":
+    "चैट में इस्तेमाल करने के लिए API टोकन से {{name}} कनेक्ट करें",
+  "mcpIntegrations.dismissSuggestion": "इंटीग्रेशन सुझाव हटाएँ",
+  "mcpIntegrations.backToIntegrations": "इंटीग्रेशन पर वापस जाएँ",
+  "mcpIntegrations.customTitle": "कस्टम एजेंट इंटीग्रेशन जोड़ें",
+  "mcpIntegrations.configureTitle": "{{name}} कॉन्फ़िगर करें",
+  "mcpIntegrations.presetNoAuthDescription":
+    "प्रीसेट वैल्यू भर दी गई हैं। एंडपॉइंट टेस्ट करें या इसे अभी कनेक्ट करें।",
+  "mcpIntegrations.presetAuthDescription":
+    "प्रीसेट वैल्यू भर दी गई हैं। कनेक्ट करने से पहले ज़रूरी ऑथराइज़ेशन विवरण जोड़ें।",
+  "mcpIntegrations.customDescription":
+    "Streamable HTTP या SSE एंडपॉइंट और वैकल्पिक हेडर पेस्ट करें।",
+  "mcpIntegrations.oauthNotice":
+    "इस प्रदाता के लिए आमतौर पर OAuth सेटअप ज़रूरी होता है। प्रदाता के डॉक्स का पालन करें, या अगर आपका एंडपॉइंट टोकन-आधारित एक्सेस सपोर्ट करता है तो Authorization हेडर जोड़ें।",
+  "mcpIntegrations.providerSetupRequired": "प्रदाता सेटअप ज़रूरी है",
+  "mcpIntegrations.providerSetupDescription":
+    "पहले {{name}} में ज़रूरी सेटअप पूरा करें। फिर अपना खाता कनेक्ट करने के लिए यहाँ लौटें।",
+  "mcpIntegrations.providerSetupFormDescription":
+    "अपना खाता कनेक्ट करने से पहले प्रदाता सेटअप पूरा करें।",
+  "mcpIntegrations.continueToConnect": "मेरा खाता कनेक्ट करें",
+  "mcpIntegrations.setupTitle": "{{name}} कनेक्ट करें",
+  "mcpIntegrations.personal": "व्यक्तिगत",
+  "mcpIntegrations.personalConnection": "व्यक्तिगत कनेक्शन",
+  "mcpIntegrations.organization": "संगठन",
+  "mcpIntegrations.scopeQuestion": "इस कनेक्शन का इस्तेमाल कौन कर सकेगा?",
+  "mcpIntegrations.scopeChoiceTitle": "इसका इस्तेमाल कौन करेगा?",
+  "mcpIntegrations.scopeChoiceDescription": "चुनें कि यह कनेक्शन कहाँ उपलब्ध हो।",
+  "mcpIntegrations.connectForMe": "मेरे लिए कनेक्ट करें",
+  "mcpIntegrations.setUpForWorkspace": "वर्कस्पेस के लिए सेट अप करें",
+  "mcpIntegrations.workspaceAdminRequired":
+    "वर्कस्पेस का मालिक या एडमिन होना ज़रूरी है।",
+  "mcpIntegrations.workspaceJoinRequired": "पहले किसी वर्कस्पेस से जुड़ें।",
+  "mcpIntegrations.personalOnlyDescription":
+    "इस इंटीग्रेशन के लिए केवल व्यक्तिगत कनेक्शन समर्थित हैं।",
+  "mcpIntegrations.workspaceOnlyDescription":
+    "यह इंटीग्रेशन पूरे वर्कस्पेस के लिए एक बार कनेक्ट होता है, इसलिए इसे सिर्फ़ आपके खाते से कनेक्ट नहीं किया जा सकता। वर्कस्पेस का मालिक या एडमिन इसे सेट अप कर सकता है।",
+  "mcpIntegrations.loadingScopeMetadata": "कनेक्शन का दायरा लोड हो रहा है…",
+  "mcpIntegrations.retry": "फिर से प्रयास करें",
+  "mcpIntegrations.retrying": "फिर से प्रयास किया जा रहा है…",
+  "mcpIntegrations.personalDescription": "इस कनेक्शन का इस्तेमाल केवल आप कर सकते हैं।",
+  "mcpIntegrations.sharedWithWorkspace": "वर्कस्पेस के साथ साझा",
+  "mcpIntegrations.organizationDescription":
+    "अनुमति प्राप्त वर्कस्पेस सदस्य इस कनेक्शन का इस्तेमाल कर सकते हैं। प्रदाता की अनुमतियाँ फिर भी लागू रहती हैं।",
+  "mcpIntegrations.serverNameRequired":
+    "OAuth से कनेक्ट करने से पहले इंटीग्रेशन का नाम डालें।",
+  "mcpIntegrations.serverName": "इंटीग्रेशन का नाम",
+  "mcpIntegrations.url": "URL",
+  "mcpIntegrations.fieldDescription": "विवरण",
+  "mcpIntegrations.headers": "हेडर",
+  "mcpIntegrations.serverNamePlaceholder": "इंटीग्रेशन का नाम",
+  "mcpIntegrations.urlPlaceholder": "https://example.com/agent-integration",
+  "mcpIntegrations.descriptionPlaceholder": "विवरण (वैकल्पिक)",
+  "mcpIntegrations.headersPlaceholder": "Authorization: Bearer <token>",
+  "mcpIntegrations.openSetupDocs": "सेटअप डॉक्स खोलें",
+  "mcpIntegrations.viewSetup": "सेटअप गाइड खोलें",
+  "mcpIntegrations.test": "टेस्ट करें",
+  "mcpIntegrations.testing": "टेस्ट हो रहा है…",
+  "mcpIntegrations.toolsAvailable_one": "{{count}} टूल उपलब्ध",
+  "mcpIntegrations.toolsAvailable_other": "{{count}} टूल उपलब्ध",
+  "mcpIntegrations.failed": "विफल",
+  "mcpIntegrations.docsLabel": "{{name}} डॉक्स देखें",
+  "mcpIntegrations.catalog.context7.description":
+    "एजेंट चैट में लाइब्रेरी के नवीनतम डॉक्स पाएँ।",
+  "mcpIntegrations.catalog.context7.useCase":
+    "दस्तावेज़ीकरण, तकनीकी संदर्भ, API डॉक्स, फ़्रेमवर्क गाइड",
+  "mcpIntegrations.catalog.sentry.description":
+    "इश्यू, इवेंट और डीबगिंग डेटा की जाँच करें।",
+  "mcpIntegrations.catalog.sentry.useCase":
+    "त्रुटि मॉनिटरिंग, डीबगिंग, परफ़ॉर्मेंस, क्रैश रिपोर्ट",
+  "mcpIntegrations.catalog.fullstory.description":
+    "बिहेवियरल एनालिटिक्स पढ़ें और सेशन रीप्ले देखें।",
+  "mcpIntegrations.catalog.fullstory.useCase":
+    "प्रोडक्ट एनालिटिक्स, सेशन रीप्ले, गुणात्मक व्यवहार, यूज़र रिसर्च",
+  "mcpIntegrations.catalog.fullstory.setupNote":
+    "FullStory MCP अभी बीटा में है। इसके लिए FullStory संगठन के एडमिन को StoryAI सुविधाएँ और Model Context Protocol टॉगल चालू करना होगा।",
+  "mcpIntegrations.catalog.amplitude.description":
+    "Amplitude प्रोडक्ट एनालिटिक्स पढ़ें और उस पर काम करें।",
+  "mcpIntegrations.catalog.amplitude.useCase":
+    "प्रोडक्ट एनालिटिक्स, चार्ट, डैशबोर्ड, कोहॉर्ट, एक्सपेरिमेंट",
+  "mcpIntegrations.catalog.amplitude.setupNote":
+    "Amplitude MCP स्ट्रीमिंग HTTP पर OAuth इस्तेमाल करता है। डिफ़ॉल्ट एंडपॉइंट US डेटा रेज़िडेंसी के लिए है। अगर खाते के लिए EU रेज़िडेंसी ज़रूरी है, तो Amplitude का EU एंडपॉइंट इस्तेमाल करें।",
+  "mcpIntegrations.catalog.sigma.description":
+    "Sigma वर्कबुक और डैशबोर्ड खोजें, एक्सप्लोर करें और उनका विश्लेषण करें।",
+  "mcpIntegrations.catalog.sigma.useCase":
+    "एनालिटिक्स, डैशबोर्ड, वर्कबुक, डेटा एक्सप्लोरेशन, बिज़नेस इंटेलिजेंस",
+  "mcpIntegrations.catalog.sigma.setupNote":
+    "Sigma का MCP URL हर संगठन के लिए अलग होता है। Sigma में Profile > Integrations > Connect Sigma to AI tools खोलें, URL कॉपी करें और उसे यहाँ पेस्ट करें। Sigma MCP अभी खोज, मेटाडेटा एक्सप्लोरेशन और विश्लेषण सपोर्ट करता है। यह कनेक्शन डैशबोर्ड या वर्कबुक बनाने और इंपोर्ट करने की सुविधा नहीं देता।",
+  "mcpIntegrations.catalog.notion.description": "पेज और टीम की जानकारी खोजें।",
+  "mcpIntegrations.catalog.notion.useCase":
+    "दस्तावेज़ीकरण, नॉलेज मैनेजमेंट, नोट्स, कंटेंट बनाना",
+  "mcpIntegrations.catalog.notion.setupNote":
+    "Notion इंटीग्रेशन यूज़र OAuth इस्तेमाल करता है। Enterprise वर्कस्पेस इंटीग्रेशन के उपयोग का ऑडिट कर सकते हैं और क्लाइंट को अनुमति दे सकते हैं या ब्लॉक कर सकते हैं। एडमिन नीति बदलने के बाद फिर से कनेक्ट करें।",
+  "mcpIntegrations.catalog.granola.description":
+    "मीटिंग नोट्स, ट्रांसक्रिप्ट और एक्शन आइटम खोजें।",
+  "mcpIntegrations.catalog.granola.useCase":
+    "मीटिंग नोट्स, रिकॉर्डिंग, ट्रांसक्रिप्ट, एक्शन आइटम, फ़ॉलो-अप",
+  "mcpIntegrations.catalog.granola.setupNote":
+    "Granola इंटीग्रेशन ब्राउज़र OAuth इस्तेमाल करता है। साइन-इन किए गए Granola खाते को ऑथराइज़ करें और देखें कि एजेंट किन मीटिंग नोट्स और ट्रांसक्रिप्ट तक पहुँच सकता है।",
+  "mcpIntegrations.catalog.gong.description":
+    "Gong कॉल खोजें और खाते व डील की जानकारी तैयार करें।",
+  "mcpIntegrations.catalog.gong.useCase":
+    "सेल्स कॉल, ट्रांसक्रिप्ट, डील इनसाइट, खाते का सारांश",
+  "mcpIntegrations.catalog.gong.setupNote":
+    "Gong में एक टेक एडमिन को MCP इंटीग्रेशन बनाना होगा और व्यक्तिगत या साझा ऑथराइज़ेशन चुनना होगा। कनेक्ट करने से पहले जनरेट किए गए क्लाइंट ID और सीक्रेट को कॉन्फ़िगर करना ज़रूरी है।",
+  "mcpIntegrations.catalog.semgrep.description":
+    "सुरक्षा से जुड़ी समस्याओं के लिए कोड स्कैन करें।",
+  "mcpIntegrations.catalog.semgrep.useCase":
+    "सुरक्षा स्कैनिंग, कमज़ोरियों का पता लगाना, कोड विश्लेषण",
+  "mcpIntegrations.catalog.linear.description": "Linear इश्यू पढ़ें और लिखें।",
+  "mcpIntegrations.catalog.linear.useCase":
+    "प्रोजेक्ट मैनेजमेंट, इश्यू ट्रैकिंग, प्लानिंग, बग रिपोर्ट",
+  "mcpIntegrations.catalog.apollo.description":
+    "Apollo GTM डेटा खोजें, समृद्ध करें और प्रबंधित करें।",
+  "mcpIntegrations.catalog.apollo.useCase":
+    "प्रॉस्पेक्टिंग, एनरिचमेंट, संपर्क, सीक्वेंस, खाता रिसर्च",
+  "mcpIntegrations.catalog.apollo.setupNote":
+    "Apollo MCP यूज़र OAuth इस्तेमाल करता है और इसके लिए Apollo API कुंजी की ज़रूरत नहीं है। Apollo प्लान की अनुमतियाँ, क्रेडिट और प्रदाता के मॉडल-ट्रेनिंग प्रतिबंध फिर भी लागू रहते हैं।",
+  "mcpIntegrations.catalog.commonRoom.description":
+    "खरीदार के सिग्नल, संपर्कों और संगठनों पर रिसर्च करें।",
+  "mcpIntegrations.catalog.commonRoom.useCase":
+    "खरीदार इंटेलिजेंस, प्रोडक्ट सिग्नल, इंटेंट, संपर्क एनरिचमेंट",
+  "mcpIntegrations.catalog.commonRoom.setupNote":
+    "Common Room MCP हर यूज़र के लिए OAuth इस्तेमाल करता है और ऑथराइज़ किए गए यूज़र की वर्कस्पेस भूमिका का पालन करता है। इंस्टेंस के लिए MCP कनेक्शन चालू करने के लिए एडमिन की ज़रूरत पड़ सकती है।",
+  "mcpIntegrations.catalog.exa.description": "Exa से वेब खोजें और पेज पाएँ।",
+  "mcpIntegrations.catalog.exa.useCase": "वेब खोज, रिसर्च, कोड खोज, पेज पाना",
+  "mcpIntegrations.catalog.exa.setupNote":
+    "Exa का रिमोट MCP एंडपॉइंट बिना कुंजी के बुनियादी मुफ़्त उपयोग सपोर्ट करता है। ज़्यादा सीमाओं या अतिरिक्त टूल के लिए प्रदाता के हेडर कॉन्फ़िगरेशन में Exa API कुंजी जोड़ें।",
+  "mcpIntegrations.catalog.supabase.description":
+    "डेटा, ऑथ और बैकएंड सेवाएँ प्रबंधित करें।",
+  "mcpIntegrations.catalog.supabase.useCase": "डेटाबेस, ऑथेंटिकेशन, स्टोरेज, एज फ़ंक्शन",
+  "mcpIntegrations.catalog.neon.description":
+    "सर्वरलेस Postgres प्रोजेक्ट पर काम करें।",
+  "mcpIntegrations.catalog.neon.useCase":
+    "डेटाबेस मैनेजमेंट, सर्वरलेस Postgres, डेटा स्टोरेज",
+  "mcpIntegrations.catalog.stripe.description":
+    "भुगतान, सब्सक्रिप्शन और ग्राहक प्रबंधित करें।",
+  "mcpIntegrations.catalog.stripe.useCase":
+    "भुगतान, सब्सक्रिप्शन, इनवॉइसिंग, ग्राहक प्रबंधन",
+  "mcpIntegrations.catalog.atlassian.description":
+    "Jira इश्यू और Confluence कंटेंट पढ़ें और लिखें।",
+  "mcpIntegrations.catalog.atlassian.useCase":
+    "प्रोजेक्ट मैनेजमेंट, इश्यू ट्रैकिंग, दस्तावेज़ीकरण, टीम सहयोग",
+  "mcpIntegrations.catalog.atlassian.setupNote":
+    "अपने Atlassian एडमिन से Clips ऐप डोमेन को अनुमति देने और अपनी Jira साइट के लिए Read, Write और Search अनुमतियों के साथ Rovo/MCP चालू करने को कहें।",
+  "mcpIntegrations.catalog.cloudflare.description":
+    "Cloudflare के इंटीग्रेशन से उसकी सेवाएँ खोजें और चलाएँ।",
+  "mcpIntegrations.catalog.cloudflare.useCase":
+    "DNS, Workers, डोमेन, सुरक्षा, ऑब्ज़र्वेबिलिटी, प्लेटफ़ॉर्म API",
+  "mcpIntegrations.catalog.cloudflare.setupNote":
+    "Cloudflare की मैनेज्ड इंटीग्रेशन डायरेक्टरी में प्रोडक्ट-विशिष्ट इंटीग्रेशन के साथ व्यापक API इंटीग्रेशन भी है। स्कोप की समीक्षा करें और वह सबसे सीमित एंडपॉइंट चुनें जो आपके वर्कफ़्लो के लिए सही हो।",
+  "mcpIntegrations.catalog.grafana.description":
+    "Grafana Cloud के मेट्रिक्स, लॉग और ऑब्ज़र्वेबिलिटी डेटा पर क्वेरी करें।",
+  "mcpIntegrations.catalog.grafana.useCase":
+    "ऑब्ज़र्वेबिलिटी, मेट्रिक्स, लॉग, ट्रेस, डैशबोर्ड",
+  "mcpIntegrations.catalog.grafana.setupNote":
+    "Grafana Cloud MCP पब्लिक प्रीव्यू में है और इसके लिए Grafana Cloud Assistant MCP एक्सेस ज़रूरी है। यह केवल होस्ट किए गए Grafana Cloud के लिए है। सेल्फ़-होस्टेड Grafana के लिए लोकल MCP सर्वर चाहिए।",
+  "mcpIntegrations.catalog.gitlab.description":
+    "GitLab प्रोजेक्ट, इश्यू और मर्ज रिक्वेस्ट पढ़ें और प्रबंधित करें।",
+  "mcpIntegrations.catalog.gitlab.useCase":
+    "रिपॉज़िटरी, इश्यू, मर्ज रिक्वेस्ट, CI/CD, कोड एनालिटिक्स",
+  "mcpIntegrations.catalog.gitlab.setupNote":
+    "GitLab इंटीग्रेशन अभी बीटा में है। GitLab.com पर OAuth पूरा होने से पहले टॉप-लेवल ग्रुप के एडमिन को इंटीग्रेशन एक्सेस की अनुमति देनी होगी। सेल्फ़-मैनेज्ड इंस्टेंस में इसके बराबर एक इंस्टेंस सेटिंग होती है।",
+  "mcpIntegrations.catalog.figma.description":
+    "Figma का डिज़ाइन संदर्भ और कैनवस एक्शन एजेंट में लाएँ।",
+  "mcpIntegrations.catalog.figma.useCase":
+    "डिज़ाइन फ़ाइलें, कंपोनेंट, वेरिएबल, डिज़ाइन सिस्टम, कैनवस",
+  "mcpIntegrations.catalog.figma.setupNote":
+    "Figma इंटीग्रेशन केवल उन्हीं क्लाइंट को अनुमति देता है जो Figma के इंटीग्रेशन कैटलॉग में सूचीबद्ध हैं, इसलिए यह रिमोट एंडपॉइंट अभी Agent-Native से कनेक्ट नहीं हो सकता। फ़ाइल और नोड का संदर्भ पढ़ने के लिए व्यक्तिगत एक्सेस टोकन के साथ Figma REST API विकल्प इस्तेमाल करें। Figma के Agent-Native को मंज़ूरी देने तक कैनवस एक्शन उपलब्ध नहीं रहेंगे।",
+  "mcpIntegrations.catalog.canva.description":
+    "Canva डिज़ाइन और एसेट खोजें, बनाएँ और अपडेट करें।",
+  "mcpIntegrations.catalog.canva.useCase":
+    "डिज़ाइन, टेम्पलेट, एसेट, ब्रांड किट, एक्सपोर्ट, सहयोग",
+  "mcpIntegrations.catalog.canva.setupNote":
+    "Canva इंटीग्रेशन हर यूज़र के लिए OAuth इस्तेमाल करता है और क्लाइंट के लिए Canva के canva.com और canva.ai डोमेन को अनुमति देना ज़रूरी है। कनेक्ट करने से पहले Canva के इंटीग्रेशन दस्तावेज़ में मौजूदा रीडायरेक्ट और क्लाइंट सेटअप की पुष्टि करें।",
+  "mcpIntegrations.catalog.vercel.description":
+    "Vercel डॉक्स खोजें और प्रोजेक्ट, डिप्लॉयमेंट और लॉग देखें।",
+  "mcpIntegrations.catalog.vercel.useCase":
+    "डिप्लॉयमेंट, प्रोजेक्ट, लॉग, डोमेन, होस्टिंग, दस्तावेज़ीकरण",
+  "mcpIntegrations.catalog.vercel.setupNote":
+    "Vercel इंटीग्रेशन केवल समीक्षा किए गए और स्वीकृत AI क्लाइंट स्वीकार करता है। सामान्य फ़्रेमवर्क कनेक्शन काम करे, इसके लिए Agent-Native को Vercel की समर्थित क्लाइंट सूची में जोड़ा जाना ज़रूरी है।",
+  "mcpIntegrations.catalog.github.description":
+    "रिपॉज़िटरी, इश्यू, पुल रिक्वेस्ट और कोड संदर्भ पढ़ें।",
+  "mcpIntegrations.catalog.github.useCase":
+    "रिपॉज़िटरी, इश्यू, पुल रिक्वेस्ट, कोड, इंजीनियरिंग एनालिटिक्स",
+  "mcpIntegrations.catalog.github.setupNote":
+    "GitHub का साइन-इन प्रदाता ऐप को खुद रजिस्टर करने नहीं देता, इसलिए कनेक्ट बटन OAuth पूरा नहीं कर सकता। इसके बजाय GitHub व्यक्तिगत एक्सेस टोकन से कनेक्ट करें। ध्यान दें कि संगठन OAuth App Access Policies लागू कर सकते हैं।",
+  "mcpIntegrations.catalog.slack.description":
+    "Slack बातचीत खोजें और उसके इंटीग्रेशन से वर्कस्पेस एक्शन करें।",
+  "mcpIntegrations.catalog.slack.useCase":
+    "मैसेज, चैनल, लोग, कंपनी की जानकारी, वर्कफ़्लो",
+  "mcpIntegrations.catalog.slack.setupNote":
+    "Slack इंटीग्रेशन के लिए तय ऐप ID वाला रजिस्टर्ड Slack ऐप ज़रूरी है। डायनैमिक क्लाइंट रजिस्ट्रेशन समर्थित नहीं है, और केवल Slack Marketplace या आंतरिक ऐप ही कनेक्ट हो सकते हैं। Agent-Native वर्कफ़्लो के लिए Slack का मैनेज्ड मैसेजिंग OAuth फ़्लो इस्तेमाल करें।",
+  "mcpIntegrations.catalog.asana.description":
+    "Asana टास्क, प्रोजेक्ट और वर्क ग्राफ़ डेटा खोजें और प्रबंधित करें।",
+  "mcpIntegrations.catalog.asana.useCase":
+    "टास्क, प्रोजेक्ट, पोर्टफ़ोलियो, प्लानिंग, वर्कलोड",
+  "mcpIntegrations.catalog.asana.setupNote":
+    "Asana के एजेंट इंटीग्रेशन के लिए पहले से रजिस्टर्ड OAuth ऐप ज़रूरी है और यह डायनैमिक क्लाइंट रजिस्ट्रेशन सपोर्ट नहीं करता। कनेक्ट करने से पहले Asana ऐप क्लाइंट कॉन्फ़िगर करें।",
+  "mcpIntegrations.catalog.hubspot.description":
+    "HubSpot के इंटीग्रेशन से उसके CRM रिकॉर्ड खोजें और अपडेट करें।",
+  "mcpIntegrations.catalog.hubspot.useCase":
+    "CRM, संपर्क, कंपनियाँ, डील, टिकट, ग्राहक एनालिटिक्स",
+  "mcpIntegrations.catalog.hubspot.setupNote":
+    "जब वर्कस्पेस द्वारा प्रबंधित HubSpot MCP Auth App कॉन्फ़िगर होता है, तो कोई भी सदस्य OAuth और PKCE के साथ अपना व्यक्तिगत HubSpot खाता कनेक्ट कर सकता है। नहीं तो, कनेक्ट करने से पहले HubSpot Developer Platform में ऐप बनाएँ। मौजूदा HubSpot OAuth कनेक्टर ऐप एक्शन के लिए उपलब्ध रहता है।",
+  "mcpIntegrations.catalog.pylon.description":
+    "Pylon सपोर्ट डेटा खोजें और अपडेट करें।",
+  "mcpIntegrations.catalog.pylon.useCase":
+    "ग्राहक सहायता, इश्यू, खाते, संपर्क, बातचीत",
+  "mcpIntegrations.catalog.pylon.setupNote":
+    "कनेक्ट करने से पहले संबंधित यूज़र के लिए Pylon MCP एक्सेस चालू करें और Pylon में MCP सर्वर चालू करें। Pylon के लिए Member या Admin सीट ज़रूरी है और यह केवल यूज़र OAuth इस्तेमाल करता है।",
+  "mcpIntegrations.catalog.intercom.description":
+    "बातचीत और ग्राहक सहायता की जानकारी खोजें।",
+  "mcpIntegrations.catalog.intercom.useCase":
+    "ग्राहक सहायता, बातचीत, संपर्क, हेल्प सेंटर कंटेंट",
+  "mcpIntegrations.catalog.intercom.setupNote":
+    "Intercom इंटीग्रेशन OAuth इस्तेमाल करता है और US में होस्ट किए गए वर्कस्पेस के लिए उपलब्ध है। ऑथराइज़ेशन के दौरान वर्कस्पेस का क्षेत्र और मांगे गए स्कोप की पुष्टि करें।",
+  "mcpIntegrations.catalog.monday.description":
+    "बोर्ड, आइटम और टीम वर्कफ़्लो पर काम करें।",
+  "mcpIntegrations.catalog.monday.useCase":
+    "वर्क मैनेजमेंट, बोर्ड, प्रोजेक्ट, टास्क, टीम ऑपरेशन",
+  "mcpIntegrations.catalog.monday.setupNote":
+    "monday.com इंटीग्रेशन Streamable HTTP पर OAuth इस्तेमाल करता है। ऑथराइज़ेशन के दौरान साझा करने के लिए वर्कस्पेस और अनुमतियाँ चुनें।",
+  "mcpIntegrations.catalog.webflow.description":
+    "Webflow साइट और कंटेंट पढ़ें और अपडेट करें।",
+  "mcpIntegrations.catalog.webflow.useCase":
+    "वेबसाइट, CMS, साइट कंटेंट, पब्लिशिंग, डिज़ाइन वर्कफ़्लो",
+  "mcpIntegrations.catalog.webflow.setupNote":
+    "Webflow इंटीग्रेशन OAuth इस्तेमाल करता है। ऑथराइज़ेशन के दौरान Designer सुविधाएँ Webflow का Bridge App इंस्टॉल कर सकती हैं। Data API एक्सेस अलग से उपलब्ध है।",
+  "mcpIntegrations.catalog.paypal.description":
+    "PayPal भुगतान, इनवॉइस और कॉमर्स डेटा पर काम करें।",
+  "mcpIntegrations.catalog.paypal.useCase": "भुगतान, इनवॉइस, लेन-देन, मर्चेंट ऑपरेशन",
+  "mcpIntegrations.catalog.paypal.setupNote":
+    "PayPal अपने रिमोट एजेंट इंटीग्रेशन के लिए OAuth डिस्कवरी और लॉगिन देता है। Agent-Native अभी लाइव /sse एंडपॉइंट इस्तेमाल करता है। ऑथराइज़ करने से पहले मर्चेंट अनुमतियों की समीक्षा करें।",
+  "mcpIntegrations.catalog.box.description":
+    "Box में फ़ाइलें और फ़ोल्डर खोजें और प्रबंधित करें।",
+  "mcpIntegrations.catalog.box.useCase":
+    "फ़ाइलें, फ़ोल्डर, एंटरप्राइज़ कंटेंट, खोज, सहयोग",
+  "mcpIntegrations.catalog.box.setupNote":
+    "Box इंटीग्रेशन बीटा में है और इसे चालू करने के लिए एडमिन की ज़रूरत है। कस्टम क्लाइंट के लिए Box Integration Credentials, एक रीडायरेक्ट URI और स्वीकृत स्कोप भी ज़रूरी हैं।",
+  "mcpIntegrations.catalog.builder.description":
+    "Builder Publish और Hybrid Space कंटेंट खोजें।",
+  "mcpIntegrations.catalog.builder.useCase":
+    "कंटेंट मॉडल, पेज, एंट्री, Publish और Hybrid Spaces",
+  "mcpIntegrations.catalog.builder.setupNote":
+    "Builder CMS MCP डायनैमिक क्लाइंट रजिस्ट्रेशन के साथ OAuth इस्तेमाल करता है। यह केवल Publish या Hybrid Spaces से कनेक्ट होता है, और ऑथराइज़ेशन फ़्लो आपसे Space चुनने को कहता है।",
+  "mcpIntegrations.catalog.netlify.description":
+    "Netlify साइट और डिप्लॉयमेंट देखें और चलाएँ।",
+  "mcpIntegrations.catalog.netlify.useCase":
+    "साइट, डिप्लॉयमेंट, बिल्ड, डोमेन, होस्टिंग ऑपरेशन",
+  "mcpIntegrations.catalog.netlify.setupNote":
+    "Netlify समर्थित क्लाइंट के लिए रिमोट इंटीग्रेशन सेटअप का दस्तावेज़ देता है। OAuth पूरा करने से पहले साइट और टीम की अनुमतियों की समीक्षा करें।",
+  "mcpIntegrations.catalog.zapier.description":
+    "टूल को हज़ारों ऐप एक्शन से कनेक्ट करें।",
+  "mcpIntegrations.catalog.zapier.useCase":
+    "ऑटोमेशन, वर्कफ़्लो, ऐप एक्शन, क्रॉस-सर्विस ऑपरेशन",
+  "mcpIntegrations.catalog.zapier.setupNote":
+    "Zapier का एजेंट इंटीग्रेशन असूचीबद्ध क्लाइंट के लिए यूज़र द्वारा बनाया गया कनेक्शन और टोकन इस्तेमाल करता है। Zapier में कनेक्शन बनाएँ, फिर उसका जनरेट किया गया bearer टोकन हेडर फ़ील्ड में पेस्ट करें।",
+  "mcpIntegrations.auth.none": "कोई ऑथ नहीं",
+  "mcpIntegrations.auth.headers": "हेडर",
+  "mcpIntegrations.auth.oauth": "OAuth",
+  "mcpIntegrations.status.beta": "बीटा",
+  "mcpIntegrations.status.setupRequired": "प्रदाता सेटअप",
+  "mcpIntegrations.status.clientRestricted": "केवल स्वीकृत क्लाइंट",
+  "mcpIntegrations.status.verified": "सत्यापित",
+  "mcpIntegrations.status.preflightOnly": "केवल प्रीफ़्लाइट",
+  "mcpIntegrations.status.restricted": "प्रतिबंधित",
   "limit.account": "आपके खाते",
   "limit.descriptionAll":
     "एजेंट ने सभी उपलब्ध चरणों का उपयोग कर लिया। नए टर्न में जारी रखें या पहले {{scope}} की सीमा बढ़ाएँ।",
@@ -686,6 +1012,11 @@ const messages: AgentChatTranslation = {
   "secrets.managedInVault":
     "वर्कस्पेस के Vault में प्रबंधित किया जाता है। इस वर्कस्पेस का हर ऐप यह वैल्यू उपयोग करता है।",
   "secrets.openVault": "Vault खोलें",
+  "secrets.managedByOwner": "{{owner}} में प्रबंधित",
+  "secrets.removeCredentials": "क्रेडेंशियल हटाएँ",
+  "secrets.confirmRemove": "हटाएँ",
+  "secrets.sharedKeysKept":
+    "कुछ साझा कुंजियाँ नहीं हटाई गईं। केवल वर्कस्पेस एडमिन ही उन्हें हटा सकते हैं।",
   "secrets.newKey": "नया",
   "secrets.noKeysFound": "कोई कुंजी नहीं मिली।",
   "secrets.overridesVault":
@@ -866,6 +1197,1322 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendDetail": "Builder बिलिंग से बाहर प्रदाता या पुराने कॉल",
   "usage.providerSpendToday": "आज का अन्य या अवर्गीकृत उपयोग: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder क्रेडिट / USD",
+  "settings.usage.tabsLabel": "उपयोग दृश्य",
+  "settings.usage.tabOverview": "अवलोकन",
+  "settings.usage.tabActivity": "गतिविधि",
+  "settings.usage.rangeLabel": "समय सीमा",
+  "settings.usage.range7": "पिछले 7 दिन",
+  "settings.usage.range30": "पिछले 30 दिन",
+  "settings.usage.range90": "पिछले 90 दिन",
+  "settings.usage.appFilterLabel": "ऐप",
+  "settings.usage.allApps": "सभी ऐप",
+  "settings.usage.unattributedApp": "अनिर्दिष्ट",
+  "settings.usage.peopleFilterLabel": "लोग",
+  "settings.usage.everyone": "सभी",
+  "settings.usage.justYou": "केवल आप",
+  "settings.usage.estimatedSpend": "अनुमानित खर्च",
+  "settings.usage.creditSpend": "Builder.io क्रेडिट खर्च",
+  "settings.usage.yourEstimatedSpend": "आपका अनुमानित खर्च",
+  "settings.usage.yourCreditSpend": "आपका Builder.io क्रेडिट खर्च",
+  "settings.usage.calls": "कॉल",
+  "settings.usage.tokens": "टोकन",
+  "settings.usage.activePeople": "सक्रिय लोग",
+  "settings.usage.history": "उपयोग इतिहास",
+  "settings.usage.historyDimensionLabel": "उपयोग इतिहास समूहित करें",
+  "settings.usage.byFeature": "सुविधा के अनुसार",
+  "settings.usage.byApp": "ऐप के अनुसार",
+  "settings.usage.byModel": "मॉडल के अनुसार",
+  "settings.usage.bySurface": "सतह के अनुसार",
+  "settings.usage.historyChartLabel": "दैनिक उपयोग",
+  "settings.usage.noUsage": "इस अवधि में कोई उपयोग नहीं।",
+  "settings.usage.total": "कुल",
+  "settings.usage.featureChat": "चैट",
+  "settings.usage.featureSubAgents": "सब-एजेंट",
+  "settings.usage.featureAutomations": "ऑटोमेशन",
+  "settings.usage.other": "अन्य",
+  "settings.usage.unknownModel": "अज्ञात मॉडल",
+  "settings.usage.surfaceApp": "ऐप में",
+  "settings.usage.topChats": "शीर्ष चैट",
+  "settings.usage.untitledChat": "बिना शीर्षक वाली चैट",
+  "settings.usage.titleUnavailable": "शीर्षक लोड नहीं हो सका",
+  "settings.usage.showAll": "सभी दिखाएँ",
+  "settings.usage.showLess": "कम दिखाएँ",
+  "settings.usage.topPeople": "शीर्ष लोग",
+  "settings.usage.you": "आप",
+  "settings.usage.toolCalls": "टूल कॉल",
+  "settings.usage.toolCallsChartLabel": "प्रति दिन टूल कॉल",
+  "settings.usage.noToolCalls": "इस अवधि में कोई टूल कॉल नहीं।",
+  "settings.usage.toolCallsUnavailable": "टूल कॉल लोड नहीं हो सके।",
+  "settings.usage.modelCalls": "मॉडल कॉल",
+  "settings.usage.modelCallsDimensionLabel": "मॉडल कॉल समूहित करें",
+  "settings.usage.modelCallsChartLabel": "प्रति दिन मॉडल कॉल",
+  "settings.usage.noModelCalls": "इस अवधि में कोई मॉडल कॉल नहीं।",
+  "settings.usage.recentPrompts": "हाल के प्रॉम्प्ट",
+  "settings.usage.promptNotCaptured": "प्रॉम्प्ट दर्ज नहीं हुआ",
+  "settings.usage.promptUnavailable": "प्रॉम्प्ट लोड नहीं हो सका",
+  "settings.usage.loadError": "उपयोग लोड नहीं हो सका।",
+  "settings.usage.yourAlerts": "आपके अलर्ट",
+  "settings.usage.alertsLoadError": "अलर्ट लोड नहीं हो सके।",
+  "settings.usage.alertDailySpend": "दैनिक खर्च",
+  "settings.usage.alertMonthlySpend": "मासिक खर्च",
+  "settings.usage.alertDailyTokens": "दैनिक टोकन",
+  "settings.usage.alertMonthlyTokens": "मासिक टोकन",
+  "settings.usage.alertOnTrack": "सीमा में",
+  "settings.usage.alertOverLimit": "सीमा से अधिक",
+  "settings.usage.alertDismissed": "खारिज",
+  "settings.usage.alertOff": "बंद",
+  "settings.usage.alertProgressDay": "आज {{limit}} में से {{current}}",
+  "settings.usage.alertProgressMonth": "इस महीने {{limit}} में से {{current}}",
+  "settings.usage.alertChannelsBoth": "ऐप में और ईमेल से",
+  "settings.usage.alertChannelInApp": "ऐप में",
+  "settings.usage.alertChannelEmail": "ईमेल",
+  "settings.usage.alertDefault": "डिफ़ॉल्ट",
+  "settings.usage.alertEdit": "संपादित करें",
+  "settings.usage.alertDialogTitle": "{{name}} अलर्ट",
+  "settings.usage.alertThreshold": "मुझे इस पर अलर्ट करें",
+  "settings.usage.alertHintDayAll": "प्रति दिन, सभी ऐप में।",
+  "settings.usage.alertHintMonthAll": "प्रति महीना, सभी ऐप में।",
+  "settings.usage.alertHintDayApp": "प्रति दिन, {{app}} में।",
+  "settings.usage.alertHintMonthApp": "प्रति महीना, {{app}} में।",
+  "settings.usage.alertNotify": "सूचित करें",
+  "settings.usage.alertEnabled": "अलर्ट चालू",
+  "settings.usage.alertReset": "डिफ़ॉल्ट पर रीसेट करें",
+  "settings.usage.alertInvalidLimit": "शून्य से अधिक राशि दर्ज करें।",
+  "settings.usage.alertNoChannel": "सूचना पाने का कम से कम एक तरीका चुनें।",
+  "settings.usage.alertSaveError": "अलर्ट सहेजा नहीं जा सका।",
+  "settings.usage.unitUsd": "USD",
+  "settings.usage.unitCredits": "क्रेडिट",
+  "settings.usage.unitTokens": "टोकन",
+  "settings.usage.creditAmount_one": "{{amount}} क्रेडिट",
+  "settings.usage.creditAmount_other": "{{amount}} क्रेडिट",
+  "settings.usage.tokenAmount_one": "{{amount}} टोकन",
+  "settings.usage.tokenAmount_other": "{{amount}} टोकन",
+  "settings.storage.provider": "प्रदाता",
+  "settings.storage.providerOther": "अन्य S3-संगत सेवा",
+  "settings.storage.endpoint": "एंडपॉइंट URL",
+  "settings.storage.bucket": "बकेट",
+  "settings.storage.accessKeyId": "एक्सेस की ID",
+  "settings.storage.secretAccessKey": "सीक्रेट एक्सेस की",
+  "settings.storage.region": "क्षेत्र",
+  "settings.storage.publicUrl": "सार्वजनिक URL",
+  "settings.storage.optional": "वैकल्पिक",
+  "settings.storage.saved": "सेव है",
+  "settings.storage.hintAws": "अपने बकेट के क्षेत्र का एंडपॉइंट इस्तेमाल करें।",
+  "settings.storage.hintR2": "यह आपके R2 बकेट की सेटिंग में मिलेगा।",
+  "settings.storage.hintSupabase": "यह आपके प्रोजेक्ट की Storage सेटिंग में मिलेगा।",
+  "settings.storage.hintOther":
+    "MinIO, Backblaze B2, Wasabi और DigitalOcean Spaces भी काम करते हैं।",
+  "settings.storage.save": "सेव करें",
+  "settings.storage.saving": "सेव हो रहा है…",
+  "settings.storage.cancel": "रद्द करें",
+  "settings.storage.clear": "क्रेडेंशियल साफ़ करें",
+  "settings.storage.clearing": "साफ़ हो रहा है…",
+  "settings.storage.clearTitle": "स्टोरेज क्रेडेंशियल साफ़ करें?",
+  "settings.storage.clearBuilder": "नए अपलोड Builder.io स्टोरेज में जाएंगे।",
+  "settings.storage.clearNoFallback":
+    "जब तक आप स्टोरेज फिर से सेट नहीं करते, अपलोड विफल होंगे।",
+  "settings.storage.clearExisting": "मौजूदा फ़ाइलें {{bucket}} में रहेंगी।",
+  "settings.storage.clearExistingGeneric": "मौजूदा फ़ाइलें आपके बकेट में रहेंगी।",
+  "settings.storage.invalidUrl":
+    "ऐसा URL इस्तेमाल करें जो https:// या http:// से शुरू हो।",
+  "settings.storage.invalidBucket":
+    "बकेट के नाम में अक्षर, संख्याएं, बिंदु, डैश और अंडरस्कोर होते हैं।",
+  "settings.storage.savedNotice":
+    "फ़ाइल स्टोरेज सेव हो गया। नए अपलोड {{bucket}} में जाएंगे।",
+  "settings.storage.cleared": "स्टोरेज क्रेडेंशियल साफ़ हो गए।",
+  "settings.storage.clearedBuilder":
+    "स्टोरेज क्रेडेंशियल साफ़ हो गए। नए अपलोड Builder.io में जाएंगे।",
+  "settings.storage.saveFailed": "फ़ाइल स्टोरेज सेव नहीं हो सका।",
+  "settings.storage.clearFailed": "स्टोरेज क्रेडेंशियल साफ़ नहीं हो सके।",
+  "settings.storage.loadFailed": "फ़ाइल स्टोरेज सेटिंग लोड नहीं हो सकीं।",
+  "settings.storage.retry": "फिर से कोशिश करें",
+  "settings.storage.adminOnly":
+    "सिर्फ़ संगठन के मालिक और एडमिन फ़ाइल स्टोरेज बदल सकते हैं।",
+  "settings.audit.action": "कार्रवाई",
+  "settings.audit.allApps": "सभी ऐप",
+  "settings.audit.app": "ऐप",
+  "settings.audit.changedBy": "बदलने वाला",
+  "settings.audit.close": "बंद करें",
+  "settings.audit.empty": "इस अवधि में कोई बदलाव नहीं।",
+  "settings.audit.emptyDescription": "लोगों और एजेंट के किए बदलाव यहां दिखते हैं।",
+  "settings.audit.failed": "विफल",
+  "settings.audit.input": "इनपुट",
+  "settings.audit.inputLoadFailed": "इनपुट लोड नहीं हो सका।",
+  "settings.audit.last30Days": "पिछले 30 दिन",
+  "settings.audit.last7Days": "पिछले 7 दिन",
+  "settings.audit.last90Days": "पिछले 90 दिन",
+  "settings.audit.loadFailed": "ऑडिट लॉग लोड नहीं हो सका।",
+  "settings.audit.loading": "ऑडिट लॉग लोड हो रहा है",
+  "settings.audit.onBehalfOf": "की ओर से",
+  "settings.audit.range": "समय सीमा",
+  "settings.audit.refused": "अस्वीकृत",
+  "settings.audit.result": "परिणाम",
+  "settings.audit.showMore": "{{count}} और दिखाएं",
+  "settings.audit.succeeded": "सफल",
+  "settings.audit.system": "सिस्टम",
+  "settings.audit.target": "लक्ष्य",
+  "settings.audit.when": "समय",
+  "accountMenu.label": "खाता",
+  "accountMenu.loading": "खाता लोड हो रहा है",
+  "accountMenu.triggerLabel": "{{name}}, {{organization}}",
+  "accountMenu.triggerLabelDemo": "{{name}}, {{organization}}, डेमो मोड",
+  "accountMenu.personal": "व्यक्तिगत",
+  "accountMenu.demoMode": "डेमो मोड",
+  "accountMenu.demoModeOn": "डेमो मोड चालू है",
+  "accountMenu.demoModeDescription":
+    "दिखाए गए ईमेल और समर्थित चार्ट प्रस्तुतियों के लिए समायोजित किए जाते हैं। आपका खाता और अनुमतियाँ नहीं बदलतीं।",
+  "accountMenu.turnOffDemoMode": "डेमो मोड बंद करें",
+  "accountMenu.invitations": "आमंत्रण",
+  "accountMenu.joinYourTeam": "अपनी टीम से जुड़ें",
+  "accountMenu.join": "जुड़ें",
+  "accountMenu.yourWorkspace": "आपका वर्कस्पेस",
+  "accountMenu.createOrganization": "संगठन बनाएँ",
+  "accountMenu.organizationName": "संगठन का नाम",
+  "accountMenu.create": "बनाएँ",
+  "accountMenu.usage": "उपयोग",
+  "accountMenu.getApps": "ऐप्स और एक्सटेंशन पाएँ",
+  "accountMenu.back": "वापस",
+  "settingsOrg.general.organization": "संगठन",
+  "settingsOrg.general.name": "नाम",
+  "settingsOrg.general.nameLocked": "मालिक और एडमिन नाम बदल सकते हैं।",
+  "settingsOrg.general.membership": "सदस्यता",
+  "settingsOrg.general.yourRole": "आपकी भूमिका",
+  "settingsOrg.general.deleteDescription":
+    "{{name}}, इसके सदस्यों और इसके डेटा को हमेशा के लिए हटा देता है।",
+  "settingsOrg.members.removeTitle": "{{name}} को हटाएं?",
+  "settingsOrg.members.removeDescription":
+    "उनकी {{org}} तक पहुंच खत्म हो जाएगी। उनकी चीज़ें आपके चुने हुए व्यक्ति को मिल जाएंगी।",
+  "settingsOrg.members.roleFor": "{{name}} की भूमिका",
+  "settingsOrg.members.moreActions": "{{name}} के लिए और कार्रवाइयां",
+  "settingsOrg.members.removing": "हटाया जा रहा है…",
+  "settingsOrg.members.groupsEmpty":
+    "ऐप एक्सेस को साथ में मैनेज करने के लिए सदस्यों का ग्रुप बनाएं।",
+  "settingsOrg.auth.signIn": "साइन-इन",
+  "settingsOrg.auth.joining": "जुड़ना",
+  "settingsOrg.auth.betweenApps": "ऐप्स के बीच",
+  "settingsOrg.auth.methodsEmailOnly": "ईमेल और पासवर्ड।",
+  "settingsOrg.auth.methodsEmailAndOne": "ईमेल और पासवर्ड, और {{method}}।",
+  "settingsOrg.auth.methodsEmailAndTwo":
+    "ईमेल और पासवर्ड, {{first}}, और {{second}}।",
+  "settingsOrg.auth.emailPassword": "ईमेल और पासवर्ड",
+  "settingsOrg.auth.emailPasswordNote": "हर डिप्लॉयमेंट के लिए चालू।",
+  "settingsOrg.auth.methodConfigured": "आपके होस्ट पर इन वेरिएबल से सेट है।",
+  "settingsOrg.auth.methodNotConfigured":
+    "सेट अप नहीं है। अपने होस्ट पर ये वेरिएबल जोड़ें, फिर दोबारा डिप्लॉय करें।",
+  "settingsOrg.auth.methodOn": "चालू",
+  "settingsOrg.auth.methodOff": "बंद",
+  "settingsOrg.auth.requireHint":
+    "{{org}} में सभी के लिए इनमें से किसी एक को ज़रूरी बनाने के लिए, संगठन साइन-इन का इस्तेमाल करें।",
+  "settingsOrg.auth.view": "देखें",
+  "settingsOrg.auth.close": "बंद करें",
+  "settingsOrg.apps.access": "एक्सेस",
+  "settingsOrg.apps.browse": "ऐप्स ब्राउज़ करें",
+  "settingsOrg.apps.defaults": "डिफ़ॉल्ट",
+  "settingsOrg.search.domainAutoJoin": "ईमेल डोमेन से अपने-आप जुड़ना",
+  "settingsOrg.search.roles": "सदस्यों की भूमिकाएं",
+  "settingsOrg.learnMore": "और जानें",
+  "settingsOrg.moreInformation": "अधिक जानकारी",
+  "settingsOrg.general.workspaceUrl": "वर्कस्पेस URL",
+  "settingsOrg.general.workspaceUrlDescription":
+    "किसी दूसरे डिप्लॉयमेंट से सदस्यों को इस वर्कस्पेस पर भेजें।",
+  "settingsOrg.general.workspaceUrlHelp":
+    "जो सदस्य किसी दूसरे डिप्लॉयमेंट पर पहुंचते हैं, वे खाली ऐप के बजाय इस वर्कस्पेस पर जाते हैं।",
+  "settingsOrg.general.editWorkspaceUrl": "वर्कस्पेस URL संपादित करें",
+  "settingsOrg.general.removeWorkspaceUrl": "वर्कस्पेस URL हटाएं",
+  "settingsOrg.general.setWorkspaceUrl": "URL सेट करें",
+  "settingsOrg.auth.domainDescription":
+    "@{{domain}} ईमेल वाले लोगों को अपने-आप जोड़ें।",
+  "settingsOrg.auth.domainDescriptionNoDomain":
+    "आपके काम के ईमेल डोमेन वाले लोगों को अपने-आप जोड़ें।",
+  "settingsOrg.auth.domainHelp":
+    "इस डोमेन के ईमेल से साइन अप करने वाला हर व्यक्ति संगठन से जुड़ जाता है। सिर्फ़ आपका अपना ईमेल डोमेन इस्तेमाल हो सकता है, और मुफ़्त ईमेल प्रदाताओं की अनुमति नहीं है।",
+  "settingsOrg.auth.editDomain": "डोमेन संपादित करें",
+  "settingsOrg.auth.removeDomain": "डोमेन हटाएं",
+  "settingsOrg.auth.sharedSecret": "साझा सीक्रेट",
+  "settingsOrg.auth.sharedSecretSet":
+    "सेट है। इससे इस वर्कस्पेस के ऐप्स एक-दूसरे की पुष्टि कर पाते हैं।",
+  "settingsOrg.auth.sharedSecretNotSet":
+    "सेट नहीं है। इससे इस वर्कस्पेस के ऐप्स एक-दूसरे की पुष्टि कर पाते हैं।",
+  "settingsOrg.auth.secretNotSetValue": "सेट नहीं है",
+  "settingsOrg.auth.manage": "प्रबंधित करें",
+  "settingsOrg.auth.reveal": "दिखाएं",
+  "settingsOrg.auth.hide": "छिपाएं",
+  "settingsOrg.auth.regenerate": "फिर से बनाएं",
+  "settingsOrg.auth.syncToApps": "ऐप्स के साथ सिंक करें",
+  "settingsOrg.auth.pasteSecret": "सीक्रेट पेस्ट करें",
+  "settingsOrg.auth.pasteSecretLabel": "साझा सीक्रेट पेस्ट करें",
+  "settingsOrg.auth.syncing": "ऐप्स के साथ सिंक हो रहा है…",
+  "settingsOrg.auth.syncErrorStatus": "HTTP {{status}}",
+  "settingsOrg.invite.emails": "ईमेल पते",
+  "settingsOrg.invite.emailPlaceholder": "name@company.com",
+  "settingsOrg.invite.note":
+    "स्वीकार करने के लिए हर व्यक्ति इसी ईमेल से साइन इन करता है।",
+  "settingsOrg.invite.noteNoEmail":
+    "आमंत्रण ईमेल से नहीं भेजे जाएंगे, इसलिए हर व्यक्ति से इसी ईमेल से साइन इन करने को कहें।",
+  "settingsOrg.invite.role": "भूमिका",
+  "settingsOrg.invite.member": "सदस्य",
+  "settingsOrg.invite.admin": "एडमिन",
+  "settingsOrg.invite.ownerOnlyAdmin":
+    "सिर्फ़ संगठन का मालिक एडमिन को आमंत्रित कर सकता है।",
+  "settingsOrg.invite.removeRow": "हटाएं",
+  "settingsOrg.invite.addAnother": "एक और जोड़ें",
+  "settingsOrg.invite.pasteMany": "कई पेस्ट करें",
+  "settingsOrg.invite.importCsv": "CSV इंपोर्ट करें",
+  "settingsOrg.invite.pasteLabel":
+    "कॉमा, स्पेस या नई लाइन से अलग किए गए ईमेल पेस्ट करें।",
+  "settingsOrg.invite.addAsMembers": "सदस्यों के रूप में जोड़ें",
+  "settingsOrg.invite.addAsAdmins": "एडमिन के रूप में जोड़ें",
+  "settingsOrg.invite.add": "जोड़ें",
+  "settingsOrg.invite.send": "आमंत्रण भेजें",
+  "settingsOrg.invite.sending": "भेजा जा रहा है…",
+  "settingsOrg.invite.invalidEmail": "पूरा ईमेल पता दर्ज करें।",
+  "settingsOrg.invite.csvNoEmails": "इस CSV में कोई मान्य ईमेल नहीं मिला।",
+  "settingsOrg.auth.synced_one": "{{count}} ऐप के साथ सिंक किया गया।",
+  "settingsOrg.auth.synced_other": "{{count}} ऐप्स के साथ सिंक किया गया।",
+  "settingsOrg.auth.syncedPartial_one":
+    "{{count}} में से {{succeeded}} ऐप के साथ सिंक किया गया। {{failed}} विफल।",
+  "settingsOrg.auth.syncedPartial_other":
+    "{{count}} में से {{succeeded}} ऐप्स के साथ सिंक किया गया। {{failed}} विफल।",
+  "settingsOrg.invite.sent_one": "{{count}} आमंत्रण भेजा गया।",
+  "settingsOrg.invite.sent_other": "{{count}} आमंत्रण भेजे गए।",
+  "settingsOrg.invite.saved_one":
+    "{{count}} आमंत्रण सहेजा गया। साइन इन करने पर वे इसे देखेंगे।",
+  "settingsOrg.invite.saved_other":
+    "{{count}} आमंत्रण सहेजे गए। साइन इन करने पर वे इन्हें देखेंगे।",
+  "settingsShell.account.addPassword": "पासवर्ड जोड़ें",
+  "settingsShell.account.authenticatorCode": "ऑथेंटिकेटर कोड",
+  "settingsShell.account.change": "बदलें",
+  "settingsShell.account.changeEmail": "ईमेल बदलें",
+  "settingsShell.account.changePassword": "पासवर्ड बदलें",
+  "settingsShell.account.confirmPassword": "नए पासवर्ड की पुष्टि करें",
+  "settingsShell.account.currentPassword": "मौजूदा पासवर्ड",
+  "settingsShell.account.deletionDialogDescription":
+    "इससे किसी व्यवस्थापक को डेटा हटाने का अनुरोध भेजा जाता है। उनके समीक्षा करने तक आपका डेटा बना रहता है।",
+  "settingsShell.account.done": "हो गया",
+  "settingsShell.account.email": "ईमेल",
+  "settingsShell.account.emailChangeError": "पुष्टि नहीं भेजी जा सकी।",
+  "settingsShell.account.emailChangeSent":
+    "इस बदलाव की पुष्टि करने के निर्देशों के लिए अपना ईमेल देखें।",
+  "settingsShell.account.languageAndRegion": "भाषा और क्षेत्र",
+  "settingsShell.account.languageDescription": "आपके सभी डिवाइस पर लागू होता है।",
+  "settingsShell.account.manage": "प्रबंधित करें",
+  "settingsShell.account.name": "नाम",
+  "settingsShell.account.nameDescription":
+    "Agent-Native ऐप्स में आपका उल्लेख करते समय इसका उपयोग होता है।",
+  "settingsShell.account.namePlaceholder": "आपका नाम",
+  "settingsShell.account.nameSaveError": "आपका नाम अपडेट नहीं किया जा सका।",
+  "settingsShell.account.nameSaved": "नाम अपडेट किया गया",
+  "settingsShell.account.newEmail": "नया ईमेल",
+  "settingsShell.account.newPassword": "नया पासवर्ड",
+  "settingsShell.account.password": "पासवर्ड",
+  "settingsShell.account.passwordDescription":
+    "अपने खाते में साइन इन करने के दूसरे तरीके के लिए पासवर्ड जोड़ें।",
+  "settingsShell.account.passwordLoadError":
+    "आपके साइन-इन तरीके लोड नहीं किए जा सके।",
+  "settingsShell.account.passwordMinLength":
+    "कम से कम {{count}} वर्णों वाला पासवर्ड चुनें।",
+  "settingsShell.account.passwordMismatch": "पासवर्ड मेल नहीं खाते।",
+  "settingsShell.account.passwordSaveError": "पासवर्ड अपडेट नहीं किया जा सका।",
+  "settingsShell.account.passwordSaved": "पासवर्ड अपडेट किया गया",
+  "settingsShell.account.photoError": "फ़ोटो अपडेट नहीं की जा सकी।",
+  "settingsShell.account.photoUpdated": "फ़ोटो अपडेट की गई",
+  "settingsShell.account.profilePhoto": "प्रोफ़ाइल फ़ोटो",
+  "settingsShell.account.requestCopyDescription":
+    "कोई व्यवस्थापक आपकी पहचान सत्यापित करके आगे की कार्रवाई करता है।",
+  "settingsShell.account.requestCopyLabel": "अपने डेटा की कॉपी का अनुरोध करें",
+  "settingsShell.account.requestDeletionDescription":
+    "व्यवस्थापक के अनुरोध पूरा करने तक आपका डेटा बना रहता है।",
+  "settingsShell.account.requestDeletionLabel": "डेटा हटाने का अनुरोध करें",
+  "settingsShell.account.savePassword": "पासवर्ड सहेजें",
+  "settingsShell.account.sendConfirmation": "पुष्टि भेजें",
+  "settingsShell.account.sending": "भेजा जा रहा है...",
+  "settingsShell.account.setUpTwoFactor": "टू-फ़ैक्टर सेट अप करें",
+  "settingsShell.account.settingUp": "सेट अप किया जा रहा है...",
+  "settingsShell.account.signIn": "साइन-इन",
+  "settingsShell.account.timezone": "समय क्षेत्र",
+  "settingsShell.account.timezoneDescription":
+    "टाइमस्टैम्प और शेड्यूल किए गए ऑटोमेशन के लिए उपयोग होता है।",
+  "settingsShell.account.turnOffTwoFactor": "टू-फ़ैक्टर बंद करें",
+  "settingsShell.account.turningOff": "बंद किया जा रहा है...",
+  "settingsShell.account.twoFactor": "टू-फ़ैक्टर ऑथेंटिकेशन",
+  "settingsShell.account.twoFactorBackupCodes":
+    "इन बैकअप कोड को किसी सुरक्षित जगह पर सहेजें। अगर आप अपने ऑथेंटिकेटर तक पहुंच खो देते हैं, तो हर कोड एक बार इस्तेमाल किया जा सकता है।",
+  "settingsShell.account.twoFactorCodeError":
+    "अपने ऑथेंटिकेटर ऐप से छह अंकों का कोड दर्ज करें।",
+  "settingsShell.account.twoFactorDescription":
+    "अपने खाते में दूसरा साइन-इन चरण जोड़ने के लिए ऑथेंटिकेटर ऐप का उपयोग करें।",
+  "settingsShell.account.twoFactorDisableError":
+    "टू-फ़ैक्टर ऑथेंटिकेशन बंद नहीं किया जा सका।",
+  "settingsShell.account.twoFactorEnabled": "टू-फ़ैक्टर ऑथेंटिकेशन चालू है।",
+  "settingsShell.account.twoFactorLoadError": "टू-फ़ैक्टर सेटिंग लोड नहीं की जा सकीं।",
+  "settingsShell.account.twoFactorQrLabel": "टू-फ़ैक्टर सेटअप QR कोड",
+  "settingsShell.account.twoFactorSaved": "टू-फ़ैक्टर ऑथेंटिकेशन चालू किया गया",
+  "settingsShell.account.twoFactorScan":
+    "इस QR कोड को अपने ऑथेंटिकेटर ऐप से स्कैन करें, फिर उसका दिया गया कोड दर्ज करें।",
+  "settingsShell.account.twoFactorSetupError":
+    "टू-फ़ैक्टर सेटिंग अपडेट नहीं की जा सकीं।",
+  "settingsShell.account.twoFactorSetupTitle": "टू-फ़ैक्टर ऑथेंटिकेशन सेट अप करें",
+  "settingsShell.account.uploading": "अपलोड हो रहा है...",
+  "settingsShell.account.verifyAndEnable": "सत्यापित करें और चालू करें",
+  "settingsShell.account.verifying": "सत्यापित किया जा रहा है...",
+  "settingsShell.account.voiceBatch": "बैच",
+  "settingsShell.account.voiceDescription":
+    "चुनें कि वॉइस इनपुट को कैसे ट्रांसक्राइब किया जाए।",
+  "settingsShell.account.voiceGoogleRealtime": "Google रियलटाइम",
+  "settingsShell.account.voiceInput": "वॉइस इनपुट",
+  "settingsShell.account.voiceLoadError":
+    "आपकी वॉइस ट्रांसक्रिप्शन सेटिंग लोड नहीं की जा सकी।",
+  "settingsShell.account.voiceMacNative": "Mac नेटिव",
+  "settingsShell.account.voiceSaveError":
+    "आपकी वॉइस ट्रांसक्रिप्शन सेटिंग सहेजी नहीं जा सकी।",
+  "settingsShell.account.yourData": "आपका डेटा",
+  "settingsShell.appFallbackName": "ऐप",
+  "settingsShell.appGroup.adminOnly": "केवल स्वामी और एडमिन इसे बदल सकते हैं",
+  "settingsShell.appGroup.automationsCreateTitle": "क्या होना चाहिए, और कब?",
+  "settingsShell.appGroup.defaultModel": "डिफ़ॉल्ट मॉडल",
+  "settingsShell.appGroup.defaultModelDescription":
+    "{{app}} में नई एजेंट चैट के लिए उपयोग होता है। डिफ़ॉल्ट {{model}} है।",
+  "settingsShell.appGroup.defaultModelDescriptionUnset":
+    "{{app}} में नई एजेंट चैट के लिए उपयोग होता है।",
+  "settingsShell.appGroup.defaultModelLoadError": "डिफ़ॉल्ट मॉडल लोड नहीं हो सका।",
+  "settingsShell.appGroup.defaultModelSaveError":
+    "डिफ़ॉल्ट मॉडल सहेजा नहीं जा सका। फिर से कोशिश करें।",
+  "settingsShell.appGroup.demoMode": "डेमो मोड",
+  "settingsShell.appGroup.demoModeDescription":
+    "प्रस्तुतियों के लिए इस ब्राउज़र में नमूना डेटा का उपयोग करें।",
+  "settingsShell.appGroup.labsFootnote": "इन नई, अस्थिर सुविधाओं में बग हो सकते हैं।",
+  "settingsShell.appGroup.labsLoadError": "आपकी लैब्स लोड नहीं हो सकीं।",
+  "settingsShell.appGroup.labsSaveError":
+    "{{lab}} बदला नहीं जा सका। फिर से कोशिश करें।",
+  "settingsShell.appGroup.mcpAbout":
+    "{{app}} को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए {{app}} में काम कर सकता है। वह केवल वही देखता है जो आप देख सकते हैं।",
+  "settingsShell.appGroup.mcpFootnote":
+    "एजेंट जिन टूल्स का खुद उपयोग करता है, उनके लिए {{integrations}} देखें।",
+  "settingsShell.appGroup.newAutomation": "नया ऑटोमेशन",
+  "settingsShell.appGroup.retry": "फिर से कोशिश करें",
+  "settingsShell.appGroup.thisBrowser": "यह ब्राउज़र",
+  "settingsShell.appGroup.useDefault": "डिफ़ॉल्ट का उपयोग करें",
+  "settingsShell.appGroup.whatsNewChip":
+    "{{app}} के अपडेट। हर ऐप का अपना चेंजलॉग होता है।",
+  "settingsShell.appGroup.whatsNewEmpty": "अभी तक कोई अपडेट नहीं।",
+  "settingsShell.appGroup.whatsNewShowFewer": "कम अपडेट दिखाएं",
+  "settingsShell.appGroup.whatsNewViewAll": "सभी अपडेट देखें",
+  "settingsShell.backToApp": "{{app}} पर वापस जाएँ",
+  "settingsShell.breadcrumbLabel": "ब्रेडक्रंब",
+  "settingsShell.builder.connect": "कनेक्ट करें",
+  "settingsShell.builder.connected": "कनेक्ट है",
+  "settingsShell.builder.connectedTo": "कनेक्ट है · {{space}}",
+  "settingsShell.builder.connection": "कनेक्शन",
+  "settingsShell.builder.disconnect": "डिस्कनेक्ट करें",
+  "settingsShell.builder.disconnecting": "डिस्कनेक्ट हो रहा है…",
+  "settingsShell.builder.disconnectBody":
+    "इसका असर {{org}} के उन सभी लोगों पर पड़ेगा जिन्होंने अपना खाता कनेक्ट नहीं किया है।",
+  "settingsShell.builder.disconnectFailed":
+    "Builder.io को डिस्कनेक्ट नहीं किया जा सका।",
+  "settingsShell.builder.disconnectTitle": "Builder.io डिस्कनेक्ट करें?",
+  "settingsShell.builder.grantsFailed": "Builder.io कनेक्शन पढ़े नहीं जा सके।",
+  "settingsShell.builder.loss.defaultStops":
+    "जब तक आप संगठन प्रदाता नहीं जोड़ते, चैट रुकी रहती हैं।",
+  "settingsShell.builder.loss.defaultSwitches":
+    "डिफ़ॉल्ट मॉडल {{next}} पर बदल जाता है।",
+  "settingsShell.builder.loss.modelPicker":
+    "Builder.io मॉडल, मॉडल पिकर से हट जाते हैं।",
+  "settingsShell.builder.loss.serviceStops":
+    "जब तक कोई दूसरा प्रोवाइडर सेट अप न हो, तब तक बंद रहता है।",
+  "settingsShell.builder.loss.stops": "काम करना बंद कर देता है।",
+  "settingsShell.builder.loss.uploadsFail":
+    "स्टोरेज सेट अप करने तक अपलोड विफल होते हैं।",
+  "settingsShell.builder.manage": "प्रबंधित करें",
+  "settingsShell.builder.needsReconnect": "फिर से कनेक्ट करना होगा।",
+  "settingsShell.builder.orgFallback": "आपका संगठन",
+  "settingsShell.builder.orgNotConnectedAdmin":
+    "कनेक्ट नहीं है। कनेक्ट करने पर {{org}} में सभी इसका इस्तेमाल कर सकते हैं।",
+  "settingsShell.builder.orgNotConnectedMember":
+    "कनेक्ट नहीं है। कोई ओनर या एडमिन इसे कनेक्ट कर सकता है।",
+  "settingsShell.builder.organization": "संगठन",
+  "settingsShell.builder.personal": "व्यक्तिगत",
+  "settingsShell.builder.personalConnected":
+    "कनेक्ट है। सिर्फ़ आप इसका इस्तेमाल करते हैं।",
+  "settingsShell.builder.personalConnectedOverOrg":
+    "कनेक्ट है। संगठन के कनेक्शन की जगह सिर्फ़ आप इसका इस्तेमाल करते हैं।",
+  "settingsShell.builder.personalConnectedTo":
+    "कनेक्ट है · {{space}}। सिर्फ़ आप इसका इस्तेमाल करते हैं।",
+  "settingsShell.builder.personalConnectedToOverOrg":
+    "कनेक्ट है · {{space}}। संगठन के कनेक्शन की जगह सिर्फ़ आप इसका इस्तेमाल करते हैं।",
+  "settingsShell.builder.personalNotConnected":
+    "अपना खाता कनेक्ट करें। सिर्फ़ आप इसका इस्तेमाल करते हैं।",
+  "settingsShell.builder.personalRestricted":
+    "ओनर और एडमिन ने व्यक्तिगत API कुंजियों को सीमित किया है।",
+  "settingsShell.builder.personalRestrictedUnused":
+    "व्यक्तिगत API कुंजियाँ सीमित रहने तक इस्तेमाल नहीं होता।",
+  "settingsShell.builder.reconnect": "फिर से कनेक्ट करें",
+  "settingsShell.builder.retry": "फिर से कोशिश करें",
+  "settingsShell.builder.use.aiModel": "AI मॉडल",
+  "settingsShell.builder.use.aiModelDefaultNote": "डिफ़ॉल्ट मॉडल, {{model}}।",
+  "settingsShell.builder.use.aiModelNote": "Builder.io मॉडल, मॉडल पिकर में हैं।",
+  "settingsShell.builder.use.backgroundAgentsNote":
+    "प्रोडक्शन से कोड में बदलाव करता है।",
+  "settingsShell.builder.use.browserAutomationNote":
+    "एजेंट को प्रोडक्शन में ब्राउज़र इस्तेमाल करने देता है।",
+  "settingsShell.builder.use.designSystem": "डिज़ाइन सिस्टम इंटेलिजेंस",
+  "settingsShell.builder.use.designSystemNote":
+    "जनरेट की गई स्लाइड और डिज़ाइन को ब्रांड के अनुरूप रखता है।",
+  "settingsShell.builder.use.embeddings": "एम्बेडिंग",
+  "settingsShell.builder.use.embeddingsNote": "Brain में खोज।",
+  "settingsShell.builder.use.fileStorageNote":
+    "नए अपलोड Builder.io पर स्टोर होते हैं।",
+  "settingsShell.builder.use.images": "इमेज जनरेशन",
+  "settingsShell.builder.use.imagesNote": "Slides और Design।",
+  "settingsShell.builder.use.voice": "वॉइस इनपुट",
+  "settingsShell.builder.use.voiceNote": "हर ऐप में डिक्टेशन।",
+  "settingsShell.builder.usedFor": "इसके लिए इस्तेमाल होता है",
+  "settingsShell.builder.usedForFootnote":
+    "{{link}} में चुनें कि Builder.io पर क्या चलेगा।",
+  "settingsShell.builder.usedForLoadFailed":
+    "यह जाँचा नहीं जा सका कि कौन-सी सेवाएँ Builder.io पर चलती हैं।",
+  "settingsShell.builder.whatHappens": "क्या होगा",
+  "settingsShell.channels.about.discord": "Discord स्लैश कमांड से एजेंट चलाएं।",
+  "settingsShell.channels.about.email":
+    "एजेंट को ईमेल करें, और वह उसी थ्रेड में जवाब देगा।",
+  "settingsShell.channels.about.googleDocs":
+    "जवाब पाने के लिए Google Docs टिप्पणियों में एजेंट को टैग करें।",
+  "settingsShell.channels.about.microsoftTeams":
+    "Microsoft Teams में एजेंट का उल्लेख करें, और वह उसी बातचीत में जवाब देगा।",
+  "settingsShell.channels.about.page":
+    "जहां लोग {{app}} एजेंट को संदेश भेज सकते हैं। हर ऐप का एजेंट अलग से सेट अप होता है।",
+  "settingsShell.channels.about.slack":
+    "किसी थ्रेड में एजेंट को @mention करें या उसे DM करें, और वह उसी थ्रेड में जवाब देगा।",
+  "settingsShell.channels.about.telegram":
+    "Telegram बॉट के ज़रिए अपने एजेंट से चैट करें।",
+  "settingsShell.channels.about.whatsapp":
+    "अपने एजेंट को WhatsApp Business से कनेक्ट करें।",
+  "settingsShell.channels.action.manage": "प्रबंधित करें",
+  "settingsShell.channels.action.manageAria": "{{platform}} प्रबंधित करें",
+  "settingsShell.channels.action.setUp": "सेट अप करें",
+  "settingsShell.channels.action.setUpAria": "{{platform}} सेट अप करें",
+  "settingsShell.channels.action.view": "देखें",
+  "settingsShell.channels.action.viewAria": "{{platform}} देखें",
+  "settingsShell.channels.agentIn": "{{platform}} में एजेंट",
+  "settingsShell.channels.connection": "कनेक्शन",
+  "settingsShell.channels.copyServiceAccountEmail": "सर्विस अकाउंट ईमेल कॉपी करें",
+  "settingsShell.channels.copyWebhookUrl": "वेबहुक URL कॉपी करें",
+  "settingsShell.channels.credentials": "क्रेडेंशियल",
+  "settingsShell.channels.developerSite": "डेवलपर साइट",
+  "settingsShell.channels.documentation": "दस्तावेज़",
+  "settingsShell.channels.empty": "{{app}} में कोई चैनल उपलब्ध नहीं है।",
+  "settingsShell.channels.information": "जानकारी",
+  "settingsShell.channels.loadFailed": "चैनल लोड नहीं हो सके।",
+  "settingsShell.channels.membersFootnote":
+    "केवल मालिक और एडमिन चैनल सेट अप कर सकते हैं।",
+  "settingsShell.channels.notFound": "यह चैनल {{app}} में उपलब्ध नहीं है।",
+  "settingsShell.channels.open": "खोलें",
+  "settingsShell.channels.openDocs": "दस्तावेज़ खोलें",
+  "settingsShell.channels.registerWebhook": "रजिस्टर करें",
+  "settingsShell.channels.removeCredentials.action": "हटाएं",
+  "settingsShell.channels.removeCredentials.aria": "{{platform}} क्रेडेंशियल हटाएं",
+  "settingsShell.channels.removeCredentials.body":
+    "जब तक डिप्लॉयमेंट एनवायरनमेंट भी ये कुंजियां सेट नहीं करता, एजेंट सभी के लिए {{platform}} में जवाब देना बंद कर देगा।",
+  "settingsShell.channels.removeCredentials.confirm": "हटाएं",
+  "settingsShell.channels.removeCredentials.failed": "क्रेडेंशियल हटाए नहीं जा सके।",
+  "settingsShell.channels.removeCredentials.removing": "हटाया जा रहा है…",
+  "settingsShell.channels.removeCredentials.title":
+    "{{platform}} क्रेडेंशियल हटाएं?",
+  "settingsShell.channels.retry": "फिर से कोशिश करें",
+  "settingsShell.channels.setup.addToEnvironment":
+    "इसे डिप्लॉयमेंट एनवायरनमेंट में जोड़ें",
+  "settingsShell.channels.setup.body": "इन्हें इस डिप्लॉयमेंट में जोड़ें, फिर इसे चालू करें।",
+  "settingsShell.channels.setup.close": "बंद करें",
+  "settingsShell.channels.setup.failed": "वैरिएबल सहेजे नहीं जा सके।",
+  "settingsShell.channels.setup.optional": "वैकल्पिक",
+  "settingsShell.channels.setup.replace": "बदलें",
+  "settingsShell.channels.setup.replaceAria": "{{key}} बदलें",
+  "settingsShell.channels.setup.save": "सहेजें",
+  "settingsShell.channels.setup.saveAndTurnOn": "सहेजें और चालू करें",
+  "settingsShell.channels.setup.saving": "सेव हो रहा है…",
+  "settingsShell.channels.setup.saved": "सहेजा गया",
+  "settingsShell.channels.setup.savedElsewhere": "चैनल के बाहर सहेजा गया",
+  "settingsShell.channels.setup.setInEnvironment": "डिप्लॉयमेंट एनवायरनमेंट में सेट करें",
+  "settingsShell.channels.setup.stillMissing": "कुछ ज़रूरी वैरिएबल अभी भी नहीं हैं।",
+  "settingsShell.channels.setup.title": "{{platform}} सेट अप करें",
+  "settingsShell.channels.shareDocumentsWith": "दस्तावेज़ इनके साथ शेयर करें",
+  "settingsShell.channels.state.notSetUp": "सेट अप नहीं है",
+  "settingsShell.channels.state.off": "बंद",
+  "settingsShell.channels.state.on": "चालू",
+  "settingsShell.channels.status": "स्थिति",
+  "settingsShell.channels.toggleFailed": "{{platform}} अपडेट नहीं हो सका।",
+  "settingsShell.channels.turnOnAria": "{{platform}} चालू करें",
+  "settingsShell.channels.unavailable": "{{platform}} {{app}} में उपलब्ध नहीं है।",
+  "settingsShell.channels.webhookLocalOnly":
+    "{{platform}} इस पते तक नहीं पहुंच सकता। वेबहुक URL पाने के लिए ऐप के सार्वजनिक HTTPS पते से यह पेज खोलें।",
+  "settingsShell.channels.webhookRegistered": "रजिस्टर हो गया",
+  "settingsShell.channels.webhookRegistration": "वेबहुक",
+  "settingsShell.channels.webhookUrl": "वेबहुक URL",
+  "settingsShell.channels.category": "श्रेणी",
+  "settingsShell.channels.developer": "डेवलपर",
+  "settingsShell.channels.mentionAgent": "एजेंट को मेंशन करें",
+  "settingsShell.channels.rowDescription": "{{about}} {{state}}।",
+  "settingsShell.channels.separately": "हर ऐप का एजेंट अलग से सेट अप होता है।",
+  "settingsShell.channels.setUpLocked": "केवल मालिक और एडमिन इसे सेट अप कर सकते हैं",
+  "settingsShell.integrationDetail.access.none":
+    "यह एक सार्वजनिक सर्वर है, इसलिए साइन इन करने की ज़रूरत नहीं है।",
+  "settingsShell.integrationDetail.access.oauth":
+    "एजेंट आपकी {{name}} अनुमतियों के साथ काम करता है, इसलिए वह केवल वही देखता है जो आप देख सकते हैं।",
+  "settingsShell.integrationDetail.access.token":
+    "एजेंट आपके जोड़े गए एक्सेस टोकन का इस्तेमाल करता है, इसलिए वह वही देखता है जो वह टोकन देख सकता है।",
+  "settingsShell.integrationDetail.accessToken": "एक्सेस टोकन",
+  "settingsShell.integrationDetail.addAccessToken": "एक्सेस टोकन जोड़ें",
+  "settingsShell.integrationDetail.callout.adminNeeded":
+    "इसे किसी एडमिन को सेट अप करना होगा",
+  "settingsShell.integrationDetail.callout.adminNeededBody":
+    "{{org}} के किसी मालिक या एडमिन से {{name}} का क्लाइंट ID और सीक्रेट जोड़ने के लिए कहें। फिर आप अपना खुद का अकाउंट कनेक्ट कर सकते हैं।",
+  "settingsShell.integrationDetail.callout.beforeAnyone":
+    "किसी के कनेक्ट करने से पहले",
+  "settingsShell.integrationDetail.callout.beforeYouConnect": "कनेक्ट करने से पहले",
+  "settingsShell.integrationDetail.callout.token": "एक्सेस टोकन से कनेक्ट होता है",
+  "settingsShell.integrationDetail.callout.unavailable": "अभी उपलब्ध नहीं है",
+  "settingsShell.integrationDetail.category": "श्रेणी",
+  "settingsShell.integrationDetail.connected": "{{name}} कनेक्ट हो गया",
+  "settingsShell.integrationDetail.copyServerUrl": "सर्वर URL कॉपी करें",
+  "settingsShell.integrationDetail.developer": "डेवलपर",
+  "settingsShell.integrationDetail.howToCreateToken": "टोकन कैसे बनाएँ",
+  "settingsShell.integrationDetail.justMe": "केवल मैं",
+  "settingsShell.integrationDetail.notFound": "यह इंटीग्रेशन कैटलॉग में नहीं है।",
+  "settingsShell.integrationDetail.notFoundTitle": "नहीं मिला",
+  "settingsShell.integrationDetail.prompt.amplitude.1":
+    "इस महीने साप्ताहिक एक्टिव यूज़र का रुझान कैसा रहा?",
+  "settingsShell.integrationDetail.prompt.amplitude.2":
+    "साइनअप से पहली रिकॉर्डिंग तक का फ़नल बनाओ",
+  "settingsShell.integrationDetail.prompt.amplitude.3":
+    "किन कोहोर्ट का रिटेंशन सबसे अच्छा है?",
+  "settingsShell.integrationDetail.prompt.apollo.1":
+    "Series B स्टार्टअप में डिज़ाइन हेड ढूँढो",
+  "settingsShell.integrationDetail.prompt.apollo.2":
+    "ईमेल की इस सूची को एनरिच करो",
+  "settingsShell.integrationDetail.prompt.apollo.3":
+    "इन कॉन्टैक्ट को Q4 सीक्वेंस में जोड़ो",
+  "settingsShell.integrationDetail.prompt.asana.1": "इस हफ़्ते मेरे कौन-से काम ड्यू हैं?",
+  "settingsShell.integrationDetail.prompt.asana.2":
+    "इस रिकॉर्डिंग के एक्शन आइटम से टास्क बनाओ",
+  "settingsShell.integrationDetail.prompt.asana.3":
+    "कौन-से प्रोजेक्ट शेड्यूल से पीछे हैं?",
+  "settingsShell.integrationDetail.prompt.atlassian.1":
+    "इस रिकॉर्डिंग के एक्शन आइटम से Jira टिकट बनाओ",
+  "settingsShell.integrationDetail.prompt.atlassian.2":
+    "Q4 रिलीज़ को क्या रोक रहा है?",
+  "settingsShell.integrationDetail.prompt.atlassian.3":
+    "ऑनबोर्डिंग वाला Confluence पेज ढूँढो",
+  "settingsShell.integrationDetail.prompt.box.1":
+    "Acme का साइन किया हुआ कॉन्ट्रैक्ट ढूँढो",
+  "settingsShell.integrationDetail.prompt.box.2":
+    "Q3 रिपोर्ट फ़ोल्डर फ़ाइनेंस के साथ शेयर करो",
+  "settingsShell.integrationDetail.prompt.box.3":
+    "इस हफ़्ते लीगल फ़ोल्डर में क्या बदला?",
+  "settingsShell.integrationDetail.prompt.canva.1":
+    "इस रिकॉर्डिंग की हाइलाइट से एक सोशल पोस्ट बनाओ",
+  "settingsShell.integrationDetail.prompt.canva.2": "हमारे ब्रांड किट के रंग ढूँढो",
+  "settingsShell.integrationDetail.prompt.canva.3":
+    "नवीनतम डेक को PDF के रूप में एक्सपोर्ट करो",
+  "settingsShell.integrationDetail.prompt.cloudflare.1":
+    "कौन-से DNS रिकॉर्ड {{host}} की ओर पॉइंट करते हैं?",
+  "settingsShell.integrationDetail.prompt.cloudflare.2":
+    "पिछले एक घंटे की Worker एरर दिखाओ",
+  "settingsShell.integrationDetail.prompt.cloudflare.3": "इस URL का कैश साफ़ करो",
+  "settingsShell.integrationDetail.prompt.commonRoom.1":
+    "कौन-सी कंपनियाँ खरीदारी के संकेत दिखा रही हैं?",
+  "settingsShell.integrationDetail.prompt.commonRoom.2":
+    "Acme में हमारी कम्युनिटी में कौन सक्रिय है?",
+  "settingsShell.integrationDetail.prompt.commonRoom.3":
+    "हमारे टॉप अकाउंट की गतिविधि का सारांश दो",
+  "settingsShell.integrationDetail.prompt.context7.1":
+    "लोडर पर React Router के मौजूदा डॉक्स दिखाओ",
+  "settingsShell.integrationDetail.prompt.context7.2":
+    "मैं Drizzle माइग्रेशन कैसे कॉन्फ़िगर करूँ?",
+  "settingsShell.integrationDetail.prompt.context7.3":
+    "नवीनतम Tailwind रिलीज़ में नया क्या है?",
+  "settingsShell.integrationDetail.prompt.exa.1":
+    "agent-native ऐप के बारे में हाल के लेख ढूँढो",
+  "settingsShell.integrationDetail.prompt.exa.2":
+    "{{app}} के प्रतिस्पर्धियों पर रिसर्च करो",
+  "settingsShell.integrationDetail.prompt.exa.3": "यह पेज लाओ और उसका सारांश दो",
+  "settingsShell.integrationDetail.prompt.figma.1":
+    "इस Figma फ़ाइल के कंपोनेंट का सारांश दो",
+  "settingsShell.integrationDetail.prompt.figma.2":
+    "हमारे डिज़ाइन सिस्टम के कलर वेरिएबल की सूची बनाओ",
+  "settingsShell.integrationDetail.prompt.figma.3": "इस फ़्रेम के लेआउट का वर्णन करो",
+  "settingsShell.integrationDetail.prompt.fullstory.1":
+    "वे सेशन दिखाओ जिनमें लोगों ने शेयर पर गुस्से में क्लिक किया",
+  "settingsShell.integrationDetail.prompt.fullstory.2":
+    "प्राइसिंग पेज पर आने वाली दिक्कतों का सारांश दो",
+  "settingsShell.integrationDetail.prompt.fullstory.3":
+    "ऑनबोर्डिंग में लोग कहाँ छोड़कर चले जाते हैं?",
+  "settingsShell.integrationDetail.prompt.github.1":
+    "मेरे रिव्यू का इंतज़ार कर रहे पुल रिक्वेस्ट का सारांश दो",
+  "settingsShell.integrationDetail.prompt.github.2":
+    "agent-native में Slack लिंक प्रीव्यू से जुड़े issue ढूँढो",
+  "settingsShell.integrationDetail.prompt.github.3":
+    "इस हफ़्ते packages/core में क्या बदला?",
+  "settingsShell.integrationDetail.prompt.gitlab.1":
+    "आज CI में कौन-से मर्ज रिक्वेस्ट फ़ेल हुए?",
+  "settingsShell.integrationDetail.prompt.gitlab.2":
+    "bug लेबल वाले खुले issue का सारांश दो",
+  "settingsShell.integrationDetail.prompt.gitlab.3":
+    "इस हफ़्ते कौन-सी पाइपलाइन सबसे धीमी रहीं?",
+  "settingsShell.integrationDetail.prompt.gong.1":
+    "Acme के साथ मेरी पिछली कॉल का सारांश दो",
+  "settingsShell.integrationDetail.prompt.gong.2": "इस महीने कौन-सी आपत्तियाँ आईं?",
+  "settingsShell.integrationDetail.prompt.gong.3":
+    "किन डील में कीमत को लेकर चिंता का ज़िक्र है?",
+  "settingsShell.integrationDetail.prompt.googleDocs.1":
+    "@agent इस डॉक की टिप्पणियों का सारांश दो",
+  "settingsShell.integrationDetail.prompt.googleDocs.2":
+    "@agent इस टिप्पणी का जवाब ड्राफ़्ट करो",
+  "settingsShell.integrationDetail.prompt.googleDocs.3":
+    "@agent इन नोट्स को चेकलिस्ट में बदलो",
+  "settingsShell.integrationDetail.prompt.grafana.1":
+    "पिछले एक दिन की API p95 लेटेंसी का चार्ट बनाओ",
+  "settingsShell.integrationDetail.prompt.grafana.2":
+    "दोपहर 2 बजे के आसपास के एरर लॉग ढूँढो",
+  "settingsShell.integrationDetail.prompt.grafana.3":
+    "इस हफ़्ते कौन-से अलर्ट ट्रिगर हुए?",
+  "settingsShell.integrationDetail.prompt.granola.1":
+    "कल के डिज़ाइन रिव्यू में हमने क्या तय किया?",
+  "settingsShell.integrationDetail.prompt.granola.2":
+    "मीटिंग से मेरे खुले एक्शन आइटम की सूची बनाओ",
+  "settingsShell.integrationDetail.prompt.granola.3":
+    "Acme के साथ मेरी कॉल का सारांश दो",
+  "settingsShell.integrationDetail.prompt.hubspot.1":
+    "Acme डील को Closed won में ले जाओ",
+  "settingsShell.integrationDetail.prompt.hubspot.2":
+    "कौन-सी डील नेगोशिएशन में अटकी हैं?",
+  "settingsShell.integrationDetail.prompt.hubspot.3":
+    "इस कॉल को कॉन्टैक्ट पर नोट के रूप में दर्ज करो",
+  "settingsShell.integrationDetail.prompt.intercom.1":
+    "आज की खुली बातचीत का सारांश दो",
+  "settingsShell.integrationDetail.prompt.intercom.2": "SSO पर हेल्प आर्टिकल ढूँढो",
+  "settingsShell.integrationDetail.prompt.intercom.3":
+    "इस हफ़्ते ग्राहक सबसे ज़्यादा क्या पूछ रहे हैं?",
+  "settingsShell.integrationDetail.prompt.linear.1":
+    "टूटे हुए Slack प्रीव्यू के लिए issue बनाओ और मुझे असाइन करो",
+  "settingsShell.integrationDetail.prompt.linear.2":
+    "मौजूदा साइकिल में क्या बाकी है?",
+  "settingsShell.integrationDetail.prompt.linear.3":
+    "इस हफ़्ते रिपोर्ट हुए बग का सारांश दो",
+  "settingsShell.integrationDetail.prompt.monday.1":
+    "इस स्प्रिंट में डिज़ाइन बोर्ड पर क्या है?",
+  "settingsShell.integrationDetail.prompt.monday.2": "इस आइटम को Done में ले जाओ",
+  "settingsShell.integrationDetail.prompt.monday.3": "कौन-से आइटम ओवरड्यू हैं?",
+  "settingsShell.integrationDetail.prompt.neon.1":
+    "टेस्टिंग के लिए प्रोडक्शन की एक ब्रांच बनाओ",
+  "settingsShell.integrationDetail.prompt.neon.2":
+    "इस हफ़्ते की सबसे धीमी क्वेरी दिखाओ",
+  "settingsShell.integrationDetail.prompt.neon.3": "मुख्य डेटाबेस कितना बड़ा है?",
+  "settingsShell.integrationDetail.prompt.netlify.1": "पिछला डिप्लॉय क्यों फ़ेल हुआ?",
+  "settingsShell.integrationDetail.prompt.netlify.2":
+    "इस हफ़्ते किन साइट के बिल्ड फ़ेल हुए?",
+  "settingsShell.integrationDetail.prompt.netlify.3":
+    "पिछले प्रोडक्शन डिप्लॉय पर वापस जाओ",
+  "settingsShell.integrationDetail.prompt.notion.1":
+    "हमारी ऑनबोर्डिंग चेकलिस्ट ढूँढो",
+  "settingsShell.integrationDetail.prompt.notion.2":
+    "इस हफ़्ते के मीटिंग नोट्स का सारांश दो",
+  "settingsShell.integrationDetail.prompt.notion.3":
+    "ये एक्शन आइटम टीम विकी में जोड़ो",
+  "settingsShell.integrationDetail.prompt.paypal.1": "ओवरड्यू इनवॉइस की सूची बनाओ",
+  "settingsShell.integrationDetail.prompt.paypal.2":
+    "इस महीने के ट्रांज़ैक्शन का सारांश दो",
+  "settingsShell.integrationDetail.prompt.paypal.3":
+    "Acme के लिए एक इनवॉइस बनाओ",
+  "settingsShell.integrationDetail.prompt.pylon.1":
+    "किन अकाउंट में ज़रूरी खुले issue हैं?",
+  "settingsShell.integrationDetail.prompt.pylon.2":
+    "Acme के नवीनतम टिकट का सारांश दो",
+  "settingsShell.integrationDetail.prompt.pylon.3":
+    "इस issue का जवाब ड्राफ़्ट करो",
+  "settingsShell.integrationDetail.prompt.semgrep.1":
+    "packages/core में सुरक्षा से जुड़ी समस्याएँ स्कैन करो",
+  "settingsShell.integrationDetail.prompt.semgrep.2":
+    "इस फ़ाइंडिंग को और इसे ठीक करने का तरीका समझाओ",
+  "settingsShell.integrationDetail.prompt.semgrep.3":
+    "क्या इस रिपो में हार्डकोड किए गए सीक्रेट हैं?",
+  "settingsShell.integrationDetail.prompt.sentry.1":
+    "कल की डिप्लॉय के बाद से सबसे ज़्यादा नई एरर कौन-सी हैं?",
+  "settingsShell.integrationDetail.prompt.sentry.2":
+    "सबसे आम क्रैश का स्टैक ट्रेस दिखाओ",
+  "settingsShell.integrationDetail.prompt.sentry.3": "यह एरर किस रिलीज़ में आई?",
+  "settingsShell.integrationDetail.prompt.sigma.1": "रेवेन्यू डैशबोर्ड ढूँढो",
+  "settingsShell.integrationDetail.prompt.sigma.2":
+    "पिछले महीने MRR में बदलाव की वजह क्या थी?",
+  "settingsShell.integrationDetail.prompt.sigma.3":
+    "इस वर्कबुक के मुख्य मेट्रिक समझाओ",
+  "settingsShell.integrationDetail.prompt.slack.1":
+    "इस हफ़्ते के #design का सारांश दो",
+  "settingsShell.integrationDetail.prompt.slack.2": "कीमत में बदलाव वाला थ्रेड ढूँढो",
+  "settingsShell.integrationDetail.prompt.slack.3":
+    "लॉन्च के बारे में Camila ने क्या कहा?",
+  "settingsShell.integrationDetail.prompt.stripe.1":
+    "पिछले महीने हमारा रेवेन्यू कितना रहा?",
+  "settingsShell.integrationDetail.prompt.stripe.2": "इस इनवॉइस का ग्राहक ढूँढो",
+  "settingsShell.integrationDetail.prompt.stripe.3":
+    "कौन-से सब्सक्रिप्शन रिन्यू नहीं हो सके?",
+  "settingsShell.integrationDetail.prompt.supabase.1":
+    "इस हफ़्ते कितने लोगों ने साइन अप किया?",
+  "settingsShell.integrationDetail.prompt.supabase.2":
+    "recordings टेबल का स्कीमा दिखाओ",
+  "settingsShell.integrationDetail.prompt.supabase.3":
+    "आज कौन-से Edge Functions में एरर आई?",
+  "settingsShell.integrationDetail.prompt.telegram.1":
+    "आज की रिकॉर्डिंग का सारांश दो",
+  "settingsShell.integrationDetail.prompt.telegram.2":
+    "मुझे दोपहर 3 बजे के रिव्यू की याद दिलाओ",
+  "settingsShell.integrationDetail.prompt.telegram.3":
+    "कल के डेमो का लिंक शेयर करो",
+  "settingsShell.integrationDetail.prompt.vercel.1":
+    "पिछला प्रीव्यू डिप्लॉय क्यों फ़ेल हुआ?",
+  "settingsShell.integrationDetail.prompt.vercel.2":
+    "प्रोडक्शन डिप्लॉयमेंट के लॉग दिखाओ",
+  "settingsShell.integrationDetail.prompt.vercel.3":
+    "कौन-से डोमेन इस प्रोजेक्ट की ओर पॉइंट करते हैं?",
+  "settingsShell.integrationDetail.prompt.webflow.1":
+    "प्राइसिंग पेज की हेडलाइन अपडेट करो",
+  "settingsShell.integrationDetail.prompt.webflow.2":
+    "इस हफ़्ते पब्लिश हुए CMS आइटम की सूची बनाओ",
+  "settingsShell.integrationDetail.prompt.webflow.3":
+    "किन पेजों में मेटा डिस्क्रिप्शन नहीं है?",
+  "settingsShell.integrationDetail.prompt.whatsapp.1": "आज मेरे कैलेंडर में क्या है?",
+  "settingsShell.integrationDetail.prompt.whatsapp.2":
+    "नवीनतम रिकॉर्डिंग का सारांश दो",
+  "settingsShell.integrationDetail.prompt.whatsapp.3":
+    "डिज़ाइन रिव्यू के नोट्स मुझे भेजो",
+  "settingsShell.integrationDetail.prompt.zapier.1":
+    "नई रिकॉर्डिंग Slack में #design पर पोस्ट करो",
+  "settingsShell.integrationDetail.prompt.zapier.2":
+    "नए साइनअप हमारे CRM में जोड़ो",
+  "settingsShell.integrationDetail.prompt.zapier.3": "तुम कौन-से Zap चला सकते हो?",
+  "settingsShell.integrationDetail.serverUrl": "सर्वर URL",
+  "settingsShell.integrationDetail.setUp": "सेट अप करें",
+  "settingsShell.integrationDetail.signIn": "साइन-इन",
+  "settingsShell.integrationDetail.signInNone": "कोई नहीं",
+  "settingsShell.integrationDetail.tokenHint.figma":
+    "Figma में एक पर्सनल एक्सेस टोकन बनाएँ, फिर उसे यहाँ पेस्ट करें।",
+  "settingsShell.integrationDetail.tokenHint.github":
+    "GitHub में एक पर्सनल एक्सेस टोकन बनाएँ, फिर उसे यहाँ पेस्ट करें।",
+  "settingsShell.integrationDetail.tokenHint.sentry":
+    "Sentry में एक यूज़र ऑथ टोकन बनाएँ, फिर उसे यहाँ पेस्ट करें।",
+  "settingsShell.integrationDetail.tokenHint.zapier":
+    "Zapier में एक कनेक्शन बनाएँ, फिर उसका बियरर टोकन यहाँ पेस्ट करें।",
+  "settingsShell.integrationDetail.tokenPlaceholder":
+    "अपना {{name}} टोकन पेस्ट करें",
+  "settingsShell.integrationDetail.who": "कौन इस्तेमाल कर सकता है",
+  "settingsShell.integrationDetail.whoMember":
+    "केवल मालिक और एडमिन इसे {{org}} के साथ शेयर कर सकते हैं।",
+  "settingsShell.integrationDetail.whoOrgOnly":
+    "{{org}} में सभी के लिए एक बार कनेक्ट होता है।",
+  "settingsShell.integrationDetail.whoPersonal":
+    "हर व्यक्ति अपना खुद का अकाउंट कनेक्ट करता है।",
+  "settingsShell.integrationDetail.whoShared":
+    "शेयर किए गए कनेक्शन से {{org}} में सभी आपके एक्सेस का इस्तेमाल कर सकते हैं।",
+  "settingsShell.clearSearch": "खोज साफ़ करें",
+  "settingsShell.group.account": "खाता",
+  "settingsShell.group.agent": "एजेंट",
+  "settingsShell.group.connections": "कनेक्शन",
+  "settingsShell.group.organization": "संगठन",
+  "settingsShell.interfaceLanguage": "इंटरफ़ेस की भाषा",
+  "settingsShell.integrations.addCustom": "कस्टम इंटीग्रेशन जोड़ें",
+  "settingsShell.integrations.builderDescription":
+    "मॉडल एक्सेस, ब्राउज़र ऑटोमेशन, फ़ाइल स्टोरेज और वर्कस्पेस पहचान। फ़्री टियर उपलब्ध है।",
+  "settingsShell.integrations.builderStatusFailed":
+    "Builder.io कनेक्शन जाँचा नहीं जा सका।",
+  "settingsShell.integrations.category.analytics": "एनालिटिक्स",
+  "settingsShell.integrations.category.design": "डिज़ाइन",
+  "settingsShell.integrations.category.engineering": "इंजीनियरिंग",
+  "settingsShell.integrations.category.finance": "फ़ाइनेंस",
+  "settingsShell.integrations.category.other": "अन्य",
+  "settingsShell.integrations.category.productivity": "प्रोडक्टिविटी",
+  "settingsShell.integrations.category.sales": "सेल्स",
+  "settingsShell.integrations.category.support": "सपोर्ट",
+  "settingsShell.integrations.connectName": "{{name}} कनेक्ट करें",
+  "settingsShell.integrations.connectedEmptyDescription":
+    "नीचे कोई टूल कनेक्ट करें, ताकि एजेंट उसे चैट में इस्तेमाल कर सके।",
+  "settingsShell.integrations.connectedEmptyTitle": "अभी कुछ भी कनेक्ट नहीं है",
+  "settingsShell.integrations.footnote":
+    "ये वे टूल हैं जिनका एजेंट इस्तेमाल करता है। Claude, ChatGPT या Cursor से {{app}} इस्तेमाल करने के लिए {{link}} देखें।",
+  "settingsShell.integrations.moreActions": "{{name}} के लिए और कार्रवाइयाँ",
+  "settingsShell.integrations.noResults":
+    "कोई इंटीग्रेशन मेल नहीं खाता। कोई दूसरा नाम आज़माएँ।",
+  "settingsShell.integrations.remove": "हटाएं",
+  "settingsShell.integrations.removeFailed": "{{name}} हटाया नहीं जा सका।",
+  "settingsShell.integrations.removePersonal":
+    "एजेंट आपके लिए {{name}} का इस्तेमाल बंद कर देगा।",
+  "settingsShell.integrations.removeTitle": "{{name}} हटाएं?",
+  "settingsShell.integrations.removeWorkspace":
+    "एजेंट वर्कस्पेस में सभी के लिए {{name}} का इस्तेमाल बंद कर देगा।",
+  "settingsShell.integrations.removing": "हटाया जा रहा है…",
+  "settingsShell.integrations.retry": "फिर से कोशिश करें",
+  "settingsShell.integrations.seeMoreMany": "{{first}}, {{second}} और अन्य देखें",
+  "settingsShell.integrations.seeMoreOne": "{{first}} देखें",
+  "settingsShell.integrations.seeMoreTwo": "{{first}} और {{second}} देखें",
+  "settingsShell.integrations.serversLoadFailed":
+    "आपके कनेक्ट किए गए इंटीग्रेशन लोड नहीं हो सके।",
+  "settingsShell.learnings": "सीख",
+  "settingsShell.loading": "सेटिंग्स लोड हो रही हैं",
+  "settingsShell.navLabel": "सेटिंग्स",
+  "settingsShell.noResults": "कोई मेल खाती सेटिंग नहीं",
+  "settingsShell.openNav": "सेटिंग्स मेनू खोलें",
+  "settingsShell.page.apiKeys": "API कुंजियाँ",
+  "settingsShell.page.appGeneral": "सामान्य",
+  "settingsShell.page.apps": "ऐप्स",
+  "settingsShell.page.audit": "ऑडिट लॉग",
+  "settingsShell.page.auth": "प्रमाणीकरण",
+  "settingsShell.page.automations": "ऑटोमेशन",
+  "settingsShell.page.channels": "चैनल",
+  "settingsShell.page.creativeContext": "क्रिएटिव संदर्भ",
+  "settingsShell.page.files": "फ़ाइलें",
+  "settingsShell.page.infra": "इन्फ्रास्ट्रक्चर",
+  "settingsShell.page.instructions": "निर्देश",
+  "settingsShell.page.integrations": "इंटीग्रेशन",
+  "settingsShell.page.labs": "लैब्स",
+  "settingsShell.page.mcp": "MCP सर्वर",
+  "settingsShell.page.members": "सदस्य",
+  "settingsShell.page.memory": "मेमोरी",
+  "settingsShell.page.model": "मॉडल",
+  "settingsShell.page.notifications": "सूचनाएँ",
+  "settingsShell.page.orgGeneral": "सामान्य",
+  "settingsShell.page.preferences": "प्राथमिकताएँ",
+  "settingsShell.page.profile": "प्रोफ़ाइल",
+  "settingsShell.page.security": "सुरक्षा",
+  "settingsShell.page.skills": "स्किल",
+  "settingsShell.page.subAgents": "सब-एजेंट",
+  "settingsShell.page.usage": "उपयोग",
+  "settingsShell.page.whatsNew": "नया क्या है",
+  "settingsShell.pagePending": "अभी उपलब्ध नहीं है",
+  "settingsShell.resultsLabel": "सेटिंग्स खोज परिणाम",
+  "settingsShell.search.appDefaultModel": "ऐप का डिफ़ॉल्ट मॉडल",
+  "settingsShell.search.backgroundAgents": "बैकग्राउंड एजेंट",
+  "settingsShell.search.browserAutomation": "ब्राउज़र ऑटोमेशन",
+  "settingsShell.search.connectedAgents": "कनेक्ट किए गए एजेंट",
+  "settingsShell.search.database": "डेटाबेस",
+  "settingsShell.search.defaultModel": "डिफ़ॉल्ट मॉडल",
+  "settingsShell.search.demoMode": "डेमो मोड",
+  "settingsShell.search.email": "ईमेल",
+  "settingsShell.search.fileUploads": "फ़ाइल अपलोड और स्टोरेज",
+  "settingsShell.search.hosting": "होस्टिंग",
+  "settingsShell.search.maxIterations": "अधिकतम पुनरावृत्तियाँ",
+  "settingsShell.search.signInMethods": "साइन-इन के तरीके",
+  "settingsShell.search.voiceTranscription": "वॉइस ट्रांसक्रिप्शन",
+  "settingsShell.searchPlaceholder": "सेटिंग्स खोजें",
+  "settingsShell.unread": "नया",
+  "settingsResources.personal": "व्यक्तिगत",
+  "settingsResources.organization": "संगठन",
+  "settingsResources.fromDispatch": "Dispatch से",
+  "settingsResources.readOnly": "केवल पढ़ने के लिए",
+  "settingsResources.readOnlyHint": "केवल मालिक और एडमिन इसे बदल सकते हैं",
+  "settingsResources.editInDispatch": "इसे Dispatch में संपादित करें",
+  "settingsResources.openDispatch": "Dispatch खोलें",
+  "settingsResources.allApps": "सभी ऐप्स",
+  "settingsResources.allAppsHint": "Dispatch इसे हर ऐप के साथ साझा करता है",
+  "settingsResources.dispatchEmpty": "Dispatch से कुछ भी साझा नहीं किया गया है",
+  "settingsResources.loadFailed": "ये संसाधन लोड नहीं हो सके।",
+  "settingsResources.moreActions": "और कार्रवाइयां",
+  "settingsResources.open": "खोलें",
+  "settingsResources.download": "डाउनलोड करें",
+  "settingsResources.remove": "हटाएं",
+  "settingsResources.removeTitle": "{{name}} हटाएं?",
+  "settingsResources.removeFailed": "{{name}} हटाया नहीं जा सका।",
+  "settingsResources.saveFailed": "{{name}} सहेजा नहीं जा सका।",
+  "settingsResources.uploadFailed": "{{name}} अपलोड नहीं हो सका।",
+  "settingsResources.cancel": "रद्द करें",
+  "settingsResources.save": "सहेजें",
+  "settingsResources.create": "बनाएं",
+  "settingsResources.saving": "सहेजा जा रहा है",
+  "settingsResources.creating": "बनाया जा रहा है",
+  "settingsResources.removing": "हटाया जा रहा है",
+  "settingsResources.instructions.empty":
+    "एजेंट को बताएं कि उसे आपके साथ कैसे काम करना है।",
+  "settingsResources.instructions.emptyTitle": "अभी तक कोई निर्देश नहीं",
+  "settingsResources.instructions.orgEmpty":
+    "{{org}} के लिए अभी कोई निर्देश नहीं हैं",
+  "settingsResources.instructions.add": "निर्देश जोड़ें",
+  "settingsResources.instructions.fieldLabel":
+    "एजेंट को आपके साथ कैसे काम करना चाहिए?",
+  "settingsResources.instructions.placeholder":
+    "जवाब छोटे रखें। मीट्रिक इकाइयों का उपयोग करें।",
+  "settingsResources.instructions.savedAs":
+    "आपके व्यक्तिगत संसाधनों में AGENTS.md के रूप में सहेजा जाता है।",
+  "settingsResources.memory.empty": "एजेंट आपके बारे में जो सीखता है, उसे यहां सहेजता है।",
+  "settingsResources.memory.emptyTitle": "अभी तक कोई मेमोरी नहीं",
+  "settingsResources.memory.orgEmpty": "अभी कोई साझा मेमोरी नहीं है",
+  "settingsResources.memory.add": "मेमोरी जोड़ें",
+  "settingsResources.learnings.empty":
+    "आप एजेंट को जो सुधार देते हैं, वे सीख के रूप में सहेजे जाते हैं।",
+  "settingsResources.learnings.emptyTitle": "अभी तक कोई सीख नहीं",
+  "settingsResources.learnings.add": "सीख जोड़ें",
+  "settingsResources.skills.empty":
+    "किसी वर्कफ़्लो को एक बार सहेजें और एजेंट उसे दोबारा इस्तेमाल कर सकता है।",
+  "settingsResources.skills.emptyTitle": "अभी तक कोई स्किल नहीं",
+  "settingsResources.skills.orgEmpty": "अभी कोई साझा स्किल नहीं है",
+  "settingsResources.skills.add": "स्किल जोड़ें",
+  "settingsResources.skills.describe": "एजेंट को बताएं",
+  "settingsResources.skills.upload": "स्किल फ़ाइल अपलोड करें",
+  "settingsResources.skills.describePlaceholder":
+    "एक स्किल जो पुल रिक्वेस्ट में सुरक्षा समस्याओं की समीक्षा करती है",
+  "settingsResources.files.empty": "अपने एजेंट को अधिक संदर्भ देने के लिए एक फ़ाइल जोड़ें।",
+  "settingsResources.files.emptyTitle": "अभी तक कोई फ़ाइल नहीं",
+  "settingsResources.files.orgEmpty": "अभी कोई साझा फ़ाइल नहीं है",
+  "settingsResources.files.add": "फ़ाइल जोड़ें",
+  "settingsResources.files.upload": "फ़ाइल अपलोड करें",
+  "settingsResources.files.create": "फ़ाइल बनाएं",
+  "settingsInfra.setup": "सेटअप",
+  "settingsInfra.services": "सेवाएँ",
+  "settingsInfra.environment": "एनवायरनमेंट",
+  "settingsInfra.builderConnected":
+    "कनेक्ट है। Builder.io वाली हर सेवा आपके खाते के क्रेडिट से चलती है।",
+  "settingsInfra.builderNotConnected":
+    "कनेक्ट नहीं है। हर सेवा खुद सेट अप करें, या अपने खाते के क्रेडिट इस्तेमाल करने के लिए Builder.io कनेक्ट करें।",
+  "settingsInfra.builderUnknown": "Builder.io कनेक्शन जाँचा नहीं जा सका।",
+  "settingsInfra.manage": "प्रबंधित करें",
+  "settingsInfra.connect": "कनेक्ट करें",
+  "settingsInfra.connecting": "कनेक्ट हो रहा है…",
+  "settingsInfra.setUp": "सेट अप करें",
+  "settingsInfra.view": "देखें",
+  "settingsInfra.retry": "फिर कोशिश करें",
+  "settingsInfra.close": "बंद करें",
+  "settingsInfra.cancel": "रद्द करें",
+  "settingsInfra.save": "सहेजें",
+  "settingsInfra.saving": "सेव हो रहा है…",
+  "settingsInfra.required": "ज़रूरी",
+  "settingsInfra.recommended": "सुझाया गया",
+  "settingsInfra.optional": "वैकल्पिक",
+  "settingsInfra.builderRecommended":
+    "नीचे दी गई हर सेवा को अपने Builder.io खाते के क्रेडिट से चलाएँ। फ़्री टियर उपलब्ध है।",
+  "settingsInfra.builderOnly": "सिर्फ़ Builder.io",
+  "settingsInfra.rowDescription": "{{source}} · {{use}}",
+  "settingsInfra.notSetUp": "सेट अप नहीं है",
+  "settingsInfra.availableWithBuilder": "Builder.io के साथ उपलब्ध",
+  "settingsInfra.loadFailed": "यह लोड नहीं हो सका।",
+  "settingsInfra.aiModel": "AI मॉडल",
+  "settingsInfra.useEveryApp": "हर ऐप",
+  "settingsInfra.storageBucket": "{{provider}}, बकेट {{bucket}}",
+  "settingsInfra.useUploads": "हर ऐप में अपलोड",
+  "settingsInfra.storageTitle": "फ़ाइल स्टोरेज",
+  "settingsInfra.storageIntro":
+    "नए अपलोड आपके बकेट में जाते हैं। मौजूदा फ़ाइलें जहाँ हैं वहीं रहती हैं।",
+  "settingsInfra.voice": "वॉइस इनपुट",
+  "settingsInfra.images": "इमेज जनरेशन",
+  "settingsInfra.embeddings": "एम्बेडिंग",
+  "settingsInfra.useVoice": "हर ऐप में डिक्टेशन",
+  "settingsInfra.useImages": "Slides और Design",
+  "settingsInfra.useEmbeddings": "Brain में खोज",
+  "settingsInfra.whyVoice":
+    "बोली को टेक्स्ट में बदलता है। इसके बिना भी टाइप करना हमेशा काम करता है।",
+  "settingsInfra.whyImages": "स्लाइड और डिज़ाइन के लिए इमेज बनाता है।",
+  "settingsInfra.whyEmbeddings":
+    "सिमेंटिक खोज को बेहतर बनाता है। कीवर्ड खोज इसके बिना भी काम करती है।",
+  "settingsInfra.designSystem": "डिज़ाइन सिस्टम इंटेलिजेंस",
+  "settingsInfra.whyDesignSystem":
+    "बनाई गई स्लाइड और डिज़ाइन को ब्रांड के अनुरूप रखता है।",
+  "settingsInfra.whyBackground": "प्रोडक्शन से कोड में बदलाव करता है।",
+  "settingsInfra.whyBrowser": "एजेंट को प्रोडक्शन में ब्राउज़र इस्तेमाल करने देता है।",
+  "settingsInfra.provider": "प्रदाता",
+  "settingsInfra.keyOrg": "संगठन की {{provider}} कुंजी इस्तेमाल करता है।",
+  "settingsInfra.manageKey": "कुंजी प्रबंधित करें",
+  "settingsInfra.keyPersonal":
+    "आपकी {{provider}} कुंजी निजी है। सेवाओं को संगठन की कुंजी चाहिए।",
+  "settingsInfra.keyNone":
+    "सेवाएँ संगठन की कुंजियाँ इस्तेमाल करती हैं, और अभी {{provider}} कुंजी नहीं है।",
+  "settingsInfra.keyUnavailable": "संगठन की {{provider}} कुंजी जाँची नहीं जा सकी।",
+  "settingsInfra.useBuilder": "Builder.io इस्तेमाल करें",
+  "settingsInfra.addNamed": "{{provider}} जोड़ें",
+  "settingsInfra.serviceSaved": "{{service}} अब {{provider}} इस्तेमाल करता है।",
+  "settingsInfra.serviceSaveFailed": "{{service}} बदला नहीं जा सका।",
+  "settingsInfra.reindex":
+    "Brain को फिर से इंडेक्स करें ताकि सिमेंटिक खोज में मौजूदा आइटम भी आएँ।",
+  "settingsInfra.variables": "ज़रूरी वेरिएबल",
+  "settingsInfra.databaseHosted":
+    "{{name}}, आपके होस्ट पर सेट। हर ऐप इसे साझा करता है।",
+  "settingsInfra.databaseHostedSingle": "{{name}}, आपके होस्ट पर सेट।",
+  "settingsInfra.databaseLocal":
+    "इस कंप्यूटर पर {{name}}। डिप्लॉय करने से पहले अपने होस्ट पर DATABASE_URL सेट करें।",
+  "settingsInfra.databaseMissing": "सेट नहीं है। अपने होस्ट पर DATABASE_URL सेट करें।",
+  "settingsInfra.hostingWorkspace":
+    "{{host}}। वर्कस्पेस हर ऐप को उसके अपने पते पर डिप्लॉय करता है।",
+  "settingsInfra.hostingSingle": "{{host}}, {{address}} पर।",
+  "settingsInfra.hostingPlain": "{{host}}।",
+  "settingsInfra.hostOwnServer": "आपका अपना सर्वर",
+  "settingsInfra.hostThisComputer": "यह कंप्यूटर",
+  "settingsInfra.variablesSet": "{{keys}} आपके होस्ट पर सेट हैं।",
+  "settingsInfra.variablesMissing": "अपने होस्ट पर {{keys}} सेट करें।",
+  "settingsInfra.dbConnected": "कनेक्ट है",
+  "settingsInfra.dbLocal": "इस कंप्यूटर पर",
+  "settingsInfra.notSet": "सेट नहीं है",
+  "settingsInfra.set": "सेट है",
+  "settingsInfra.dbIntro":
+    "हर ऐप शुरू होने से पहले डेटाबेस पढ़ता है, इसलिए इसे आपके होस्ट पर एक बार सेट किया जाता है। किसी दूसरे डेटाबेस पर जाने के लिए:",
+  "settingsInfra.dbStep1":
+    "Neon, Supabase या किसी भी Postgres होस्ट में Postgres डेटाबेस बनाएँ।",
+  "settingsInfra.dbStep2":
+    "अपने होस्ट के एनवायरनमेंट में {{key}} को उसकी कनेक्शन स्ट्रिंग पर सेट करें।",
+  "settingsInfra.dbStep3": "फिर से डिप्लॉय करें। माइग्रेशन डिप्लॉय के दौरान चलते हैं।",
+  "settingsInfra.dbOwn":
+    "किसी एक ऐप को उसका अपना डेटाबेस देने के लिए, उसका अपना वेरिएबल सेट करें, जैसे {{key}}।",
+  "settingsInfra.hostIntroWorkspace":
+    "वर्कस्पेस हर ऐप को डिप्लॉय करता है, हर एक अपने पते पर। Vercel, Cloudflare या अपने सर्वर पर होस्ट करने के लिए:",
+  "settingsInfra.hostIntro":
+    "Vercel, Cloudflare या अपने सर्वर पर होस्ट करने के लिए:",
+  "settingsInfra.hostStep1":
+    "{{key}} से लक्ष्य चुनें, जैसे vercel, cloudflare_module या node।",
+  "settingsInfra.hostStep2":
+    "नए होस्ट को वही एनवायरनमेंट दें, जिसमें {{keys}} शामिल हों।",
+  "settingsInfra.hostStep3":
+    "डिप्लॉय करें। वर्कस्पेस में यह हर ऐप बिल्ड करता है और पब्लिश कमांड दिखाता है:",
+  "settingsInfra.envIntro":
+    "हर ऐप शुरू होने से पहले इन्हें पढ़ता है। इन्हें अपने होस्ट पर एक बार सेट करें, फिर दोबारा डिप्लॉय करें।",
+  "settingsInfra.varDatabaseUrl": "आपकी Postgres कनेक्शन स्ट्रिंग।",
+  "settingsInfra.varA2a":
+    "इस वर्कस्पेस के ऐप्स को एक-दूसरे को कॉल करने देता है। वर्कस्पेस में, BETTER_AUTH_SECRET सेट न होने पर यह साइन-इन सेशन पर भी हस्ताक्षर करता है।",
+  "settingsInfra.varBetterAuth":
+    "साइन-इन सेशन पर हस्ताक्षर करता है। कम से कम 32 रैंडम अक्षर इस्तेमाल करें।",
+  "settingsInfra.varAppUrl":
+    "सिर्फ़ तब ज़रूरी है जब होस्ट ऐप को उसका सार्वजनिक URL नहीं बता सकता।",
+  "settingsInfra.varEncryption":
+    "सेटिंग में सहेजी गई कुंजियों को एन्क्रिप्ट करता है। इसके बिना, वर्कस्पेस A2A_SECRET से एक कुंजी बनाता है।",
+  "settingsInfra.varEncryptionSingle":
+    "सेटिंग में सहेजी गई कुंजियों को एन्क्रिप्ट करता है। इसके बिना, ऐप BETTER_AUTH_SECRET से एक कुंजी बनाता है।",
+  "settingsInfra.varWeak": "बहुत छोटा है। कम से कम 32 रैंडम अक्षर इस्तेमाल करें।",
+  "settingsInfra.varWeakLabel": "बहुत छोटा",
+  "settingsInfra.generateSecret": "सीक्रेट बनाने के लिए:",
+  "settingsInfra.copy": "कॉपी करें",
+  "settingsInfra.copied": "कॉपी हो गया",
+  "settingsInfra.copyFailed": "कॉपी नहीं हो सका।",
+  "settingsApiKeys.addKey": "कुंजी जोड़ें",
+  "settingsApiKeys.adding": "जोड़ा जा रहा है…",
+  "settingsApiKeys.availableTo": "किसके लिए उपलब्ध",
+  "settingsApiKeys.deleteKey": "कुंजी हटाएँ",
+  "settingsApiKeys.deleting": "हटाया जा रहा है…",
+  "settingsApiKeys.deleteTitle": "{{name}} हटाएँ?",
+  "settingsApiKeys.everyoneIn": "{{org}} में सभी",
+  "settingsApiKeys.getKey": "कुंजी पाएँ",
+  "settingsApiKeys.hideKeys": "कुंजियाँ छिपाएँ",
+  "settingsApiKeys.justMe": "केवल मैं",
+  "settingsApiKeys.keyAdded": "कुंजी जोड़ी गई",
+  "settingsApiKeys.keyDeleted": "कुंजी हटाई गई",
+  "settingsApiKeys.loadFailed": "आपकी कुंजियाँ लोड नहीं हो सकीं।",
+  "settingsApiKeys.manageKey": "{{name}} प्रबंधित करें",
+  "settingsApiKeys.managedKeys": "इंटीग्रेशन द्वारा प्रबंधित",
+  "settingsApiKeys.managedName": "{{owner}} इस कुंजी को प्रबंधित करता है।",
+  "settingsApiKeys.managedTooltip":
+    "{{owner}} ने बनाई और रोटेट की। इसे वहीं डिस्कनेक्ट करें।",
+  "settingsApiKeys.membersLocked":
+    "केवल मालिक और एडमिन ही {{org}} के साथ कुंजियाँ साझा कर सकते हैं।",
+  "settingsApiKeys.modelFootnote":
+    "अपने मॉडल प्रदाता का उपयोग करने के लिए, {{link}}।",
+  "settingsApiKeys.modelFootnoteLink": "इसे मॉडल में जोड़ें",
+  "settingsApiKeys.name": "नाम",
+  "settingsApiKeys.noKeys": "अभी कोई कुंजी नहीं है",
+  "settingsApiKeys.noKeysDescription":
+    "एक कुंजी जोड़ें, ताकि आपके ऐप और एजेंट किसी सेवा तक पहुँच सकें।",
+  "settingsApiKeys.orgKeys": "संगठन की कुंजियाँ",
+  "settingsApiKeys.providerInModel": "{{provider}} को {{link}} में जोड़ें।",
+  "settingsApiKeys.replaceTitle": "{{name}} बदलें",
+  "settingsApiKeys.replaceValue": "मान बदलें",
+  "settingsApiKeys.saving": "सेव हो रहा है…",
+  "settingsApiKeys.showKeys_one": "{{count}} कुंजी दिखाएँ",
+  "settingsApiKeys.showKeys_other": "{{count}} कुंजियाँ दिखाएँ",
+  "settingsApiKeys.test": "जाँचें",
+  "settingsApiKeys.testPassed": "सहेजा गया मान काम करता है।",
+  "settingsApiKeys.usedBy": "{{link}} द्वारा उपयोग की जाती है",
+  "settingsApiKeys.value": "मान",
+  "settingsApiKeys.valueReplaced": "मान बदला गया",
+  "settingsApiKeys.yourKeys": "आपकी कुंजियाँ",
+  "settingsModel.addEndpoint": "एंडपॉइंट URL जोड़ें",
+  "settingsModel.addNamed": "{{provider}} जोड़ें",
+  "settingsModel.addProvider": "प्रदाता जोड़ें",
+  "settingsModel.adding": "जोड़ा जा रहा है",
+  "settingsModel.affectsOrg": "इसका असर {{org}} के सभी लोगों पर पड़ता है।",
+  "settingsModel.affectsYou": "इसका असर सिर्फ़ आप पर पड़ता है।",
+  "settingsModel.allApps": "सभी ऐप",
+  "settingsModel.apiKey": "API कुंजी",
+  "settingsModel.builderConnected": "कनेक्टेड · {{space}}",
+  "settingsModel.builderConnectedPlain": "कनेक्टेड",
+  "settingsModel.builderOrgNotConnectedAdmin":
+    "कनेक्ट नहीं है। कनेक्ट करने पर {{org}} के सभी लोग इसका इस्तेमाल कर सकते हैं।",
+  "settingsModel.builderOrgNotConnectedMember":
+    "कनेक्ट नहीं है। कोई मालिक या एडमिन इसे कनेक्ट कर सकता है।",
+  "settingsModel.builderPersonalConnect":
+    "अपने Builder.io क्रेडिट इस्तेमाल करने के लिए अपना खाता कनेक्ट करें।",
+  "settingsModel.builderPersonalInsteadOfOrg":
+    "संगठन के कनेक्शन की जगह इस्तेमाल करने के लिए अपना खाता कनेक्ट करें।",
+  "settingsModel.builderPersonalOverOrg":
+    "कनेक्टेड · {{space}}। संगठन के कनेक्शन की जगह इस्तेमाल होता है।",
+  "settingsModel.builderPersonalOverOrgPlain":
+    "कनेक्टेड। संगठन के कनेक्शन की जगह इस्तेमाल होता है।",
+  "settingsModel.builderUnknown": "Builder.io कनेक्शन की जाँच नहीं हो सकी।",
+  "settingsModel.cancel": "रद्द करें",
+  "settingsModel.change": "बदलें",
+  "settingsModel.chatgptConnected": "कनेक्टेड",
+  "settingsModel.chatgptDescription": "अपने ChatGPT प्लान से Codex इंजन इस्तेमाल करें।",
+  "settingsModel.chatgptPopupBlocked":
+    "इस साइट के लिए पॉप-अप की अनुमति दें, फिर दोबारा कोशिश करें।",
+  "settingsModel.chatgptTitle": "ChatGPT सदस्यता",
+  "settingsModel.checkAgain": "फिर से जाँचें",
+  "settingsModel.checkedJustNow": "अभी जाँचा गया।",
+  "settingsModel.checkedOn": "{{date}} को जाँचा गया।",
+  "settingsModel.checking": "{{provider}} से आपकी कुंजी जाँची जा रही है",
+  "settingsModel.checkingEndpoint": "एंडपॉइंट जाँचा जा रहा है",
+  "settingsModel.checkingOllama": "इंस्टॉल किए गए मॉडल जाँचे जा रहे हैं…",
+  "settingsModel.checkingSaved": "सहेजी गई कुंजी जाँची जा रही है",
+  "settingsModel.chooseModel": "मॉडल चुनें",
+  "settingsModel.clear": "साफ़ करें",
+  "settingsModel.connect": "कनेक्ट करें",
+  "settingsModel.connecting": "कनेक्ट हो रहा है…",
+  "settingsModel.defaultModelDescription":
+    "हर ऐप में इस्तेमाल होता है, जब तक ऐप अपना मॉडल सेट न करे।",
+  "settingsModel.defaultModelNeedsProvider":
+    "डिफ़ॉल्ट मॉडल चुनने के लिए कोई प्रदाता जोड़ें।",
+  "settingsModel.disconnect": "डिस्कनेक्ट करें",
+  "settingsModel.effectDefaultStops": "कोई दूसरा प्रदाता सेट होने तक चैट रुक जाती हैं।",
+  "settingsModel.effectDefaultSwitches": "डिफ़ॉल्ट मॉडल {{next}} पर बदल जाता है।",
+  "settingsModel.effectKeepsOrg": "संगठन की कुंजी से काम करता रहता है।",
+  "settingsModel.effectKeepsVault": "Vault की कुंजी से काम करता रहता है।",
+  "settingsModel.effectKeepsWorkspace": "वर्कस्पेस की कुंजी से काम करता रहता है।",
+  "settingsModel.effectModelsLeave": "{{provider}} मॉडल, मॉडल पिकर से हट जाते हैं।",
+  "settingsModel.emptyAskAdmin": "किसी मालिक या एडमिन से एक प्रदाता जोड़ने को कहें।",
+  "settingsModel.emptyDescription": "जवाब देने के लिए एजेंट को एक प्रदाता चाहिए।",
+  "settingsModel.emptyDescriptionBuilder":
+    "जवाब देने के लिए एजेंट को एक प्रदाता चाहिए। मॉडल एक्सेस, ब्राउज़र ऑटोमेशन, फ़ाइल स्टोरेज और वर्कस्पेस पहचान के लिए हम Builder.io की सलाह देते हैं। फ़्री टियर उपलब्ध है।",
+  "settingsModel.emptyTitle": "मॉडल प्रदाता जोड़ें",
+  "settingsModel.endpointFirst": "पहले एंडपॉइंट URL डालें।",
+  "settingsModel.endpointHint":
+    "वैकल्पिक। LiteLLM या किसी दूसरे OpenAI-संगत गेटवे के लिए इसका इस्तेमाल करें।",
+  "settingsModel.endpointUrl": "एंडपॉइंट URL",
+  "settingsModel.keyHint":
+    "{{host}} पर एक बनाएँ। {{provider}} इसका बिल सीधे भेजता है।",
+  "settingsModel.keyPlaceholder": "अपनी {{provider}} कुंजी पेस्ट करें",
+  "settingsModel.labs": "Labs",
+  "settingsModel.loadFailed": "प्रदाता लोड नहीं हो सके।",
+  "settingsModel.lockedTip": "सिर्फ़ मालिक और एडमिन इसे बदल सकते हैं।",
+  "settingsModel.manage": "प्रबंधित करें",
+  "settingsModel.maxIterationsDescription":
+    "कोई जवाब रुकने से पहले कितनी देर तक काम कर सकता है।",
+  "settingsModel.maxIterationsInvalid":
+    "{{min}} से {{max}} तक की कोई पूर्ण संख्या डालें।",
+  "settingsModel.modelCount_one": "{{count}} मॉडल",
+  "settingsModel.modelCount_other": "{{count}} मॉडल",
+  "settingsModel.modelOption": "{{model}} · {{provider}}",
+  "settingsModel.models": "मॉडल",
+  "settingsModel.modelsHint": "चुने गए मॉडल, मॉडल पिकर में दिखते हैं।",
+  "settingsModel.modelsHintService":
+    "चैट मॉडल वैकल्पिक हैं। इस कुंजी को सिर्फ़ {{service}} के लिए इस्तेमाल करने के लिए इन्हें अनचेक छोड़ दें।",
+  "settingsModel.modelsIdle":
+    "यह कुंजी कौन-से मॉडल इस्तेमाल कर सकती है, यह देखने के लिए कुंजी पेस्ट करें।",
+  "settingsModel.modelsIdleOllama":
+    "इंस्टॉल किए गए मॉडल देखने के लिए एंडपॉइंट URL डालें।",
+  "settingsModel.modelsSaveFailed":
+    "कुंजी सहेज ली गई, लेकिन मॉडल सूची नहीं सहेजी गई। {{message}}",
+  "settingsModel.noChatModels": "कोई चैट मॉडल नहीं",
+  "settingsModel.noModelsFound": "कोई मॉडल नहीं मिला।",
+  "settingsModel.notSet": "सेट नहीं है",
+  "settingsModel.nothingElse": "यह कुंजी और कहीं इस्तेमाल नहीं होती।",
+  "settingsModel.ollamaHint": "API कुंजी की ज़रूरत नहीं है।",
+  "settingsModel.orgProviders": "संगठन के प्रदाता",
+  "settingsModel.orgSettings": "संगठन की सेटिंग",
+  "settingsModel.organization": "संगठन",
+  "settingsModel.pasteFirst": "पहले कोई कुंजी पेस्ट करें।",
+  "settingsModel.personal": "व्यक्तिगत",
+  "settingsModel.personalProviders": "व्यक्तिगत प्रदाता",
+  "settingsModel.previewFailed": "इसका असर किस पर पड़ेगा, यह जाँचा नहीं जा सका।",
+  "settingsModel.provider": "प्रदाता",
+  "settingsModel.providerErrorHeadline":
+    "{{provider}} इस कुंजी की जाँच नहीं कर सका",
+  "settingsModel.reasonEndpoint": "एंडपॉइंट URL जाँचें।",
+  "settingsModel.reasonOllamaUnreachable": "URL जाँचें, और देखें कि Ollama चल रहा है।",
+  "settingsModel.reasonPrefix": "{{provider}} कुंजियाँ {{prefix}} से शुरू होती हैं।",
+  "settingsModel.reasonRejected":
+    "जाँचें कि आपने पूरी कुंजी कॉपी की है, या नई कुंजी बनाएँ।",
+  "settingsModel.reasonTryAgain": "थोड़ी देर में फिर कोशिश करें।",
+  "settingsModel.reasonWrongProvider": "यह {{provider}} कुंजी लगती है।",
+  "settingsModel.reasonWrongProviderVowel": "यह {{provider}} कुंजी लगती है।",
+  "settingsModel.reconnect": "फिर से कनेक्ट करें",
+  "settingsModel.rejected":
+    "{{provider}} ने {{date}} को यह कुंजी अस्वीकार कर दी। इसे बदलने तक इसका इस्तेमाल करने वाली चैट रुकी रहेंगी।",
+  "settingsModel.rejectedAskAdmin":
+    "{{provider}} ने {{date}} को यह कुंजी अस्वीकार कर दी। किसी मालिक या एडमिन से इसे बदलने को कहें।",
+  "settingsModel.rejectedHeadline": "{{provider}} ने यह कुंजी अस्वीकार कर दी",
+  "settingsModel.remove": "हटाएँ",
+  "settingsModel.removeProvider": "प्रदाता हटाएँ",
+  "settingsModel.removeTitle": "{{provider}} हटाएँ?",
+  "settingsModel.removing": "हटाया जा रहा है",
+  "settingsModel.replace": "बदलें",
+  "settingsModel.replaceKey": "कुंजी बदलें",
+  "settingsModel.restrictBody": "सदस्य सिर्फ़ संगठन के प्रदाता इस्तेमाल कर सकते हैं।",
+  "settingsModel.restrictConfirm": "कुंजियाँ प्रतिबंधित करें",
+  "settingsModel.restrictDescription":
+    "सदस्य सिर्फ़ संगठन के प्रदाता इस्तेमाल कर सकते हैं, और उनकी जोड़ी गई कुंजियाँ काम करना बंद कर देती हैं।",
+  "settingsModel.restrictLabel": "व्यक्तिगत API कुंजियाँ प्रतिबंधित करें",
+  "settingsModel.restrictMemberBuilder":
+    "उनका व्यक्तिगत Builder.io कनेक्शन काम करना बंद कर देता है।",
+  "settingsModel.restrictMemberChats": "उनकी चैट संगठन के प्रदाताओं पर चली जाती हैं।",
+  "settingsModel.restrictMemberKeys_one":
+    "उनकी {{providers}} कुंजी काम करना बंद कर देती है।",
+  "settingsModel.restrictMemberKeys_other":
+    "उनकी {{providers}} कुंजियाँ काम करना बंद कर देती हैं।",
+  "settingsModel.restrictNewKeysBody":
+    "सदस्य इन्हें नहीं जोड़ सकते। मालिक और एडमिन अब भी जोड़ सकते हैं।",
+  "settingsModel.restrictNewKeysTitle": "नई व्यक्तिगत कुंजियाँ",
+  "settingsModel.restrictTitle": "व्यक्तिगत API कुंजियाँ प्रतिबंधित करें?",
+  "settingsModel.restricted":
+    "मालिकों और एडमिन ने व्यक्तिगत API कुंजियाँ प्रतिबंधित की हैं।",
+  "settingsModel.restrictedRow":
+    "व्यक्तिगत API कुंजियाँ प्रतिबंधित रहने तक इस्तेमाल नहीं होती।",
+  "settingsModel.restricting": "प्रतिबंधित किया जा रहा है",
+  "settingsModel.retry": "फिर कोशिश करें",
+  "settingsModel.save": "सहेजें",
+  "settingsModel.savedRejected":
+    "{{provider}} ने सहेजी गई कुंजी अस्वीकार कर दी। नई कुंजी पेस्ट करें।",
+  "settingsModel.saving": "सहेजा जा रहा है",
+  "settingsModel.selectAll": "सभी चुनें",
+  "settingsModel.settingLoadFailed": "यह सेटिंग लोड नहीं हो सकी।",
+  "settingsModel.unreachableHeadline": "{{provider}} तक नहीं पहुँचा जा सका",
+  "settingsModel.view": "देखें",
+  "settingsModel.whatHappens": "क्या होगा",
+  "settingsModel.who": "कौन इस्तेमाल कर सकता है",
+  "settingsModel.whoHintAdmin":
+    "व्यक्तिगत प्रदाता सिर्फ़ आपके हैं। संगठन के प्रदाता {{org}} के सभी लोगों के लिए काम करते हैं।",
+  "settingsModel.whoHintMember": "सिर्फ़ मालिक और एडमिन संगठन के प्रदाता जोड़ सकते हैं।",
+  "settingsModel.whoHintService": "सेवाएँ संगठन की कुंजियाँ इस्तेमाल करती हैं।",
+  "settingsSubAgents.connect": "एजेंट कनेक्ट करें",
+  "settingsSubAgents.orgApps": "{{org}} ऐप्स",
+  "settingsSubAgents.workspaceApps": "वर्कस्पेस ऐप्स",
+  "settingsSubAgents.external": "बाहरी एजेंट",
+  "settingsSubAgents.custom": "कस्टम एजेंट",
+  "settingsSubAgents.managedByAdmins": "एडमिन द्वारा प्रबंधित",
+  "settingsSubAgents.appsEmpty": "अभी तक कोई ऐप कनेक्ट नहीं है",
+  "settingsSubAgents.externalEmpty":
+    "Foundry, Gemini Enterprise, Anthropic या कोई भी A2A एजेंट कनेक्ट करें।",
+  "settingsSubAgents.externalEmptyTitle": "अभी तक कोई बाहरी एजेंट नहीं",
+  "settingsSubAgents.customEmpty": "एक केंद्रित एजेंट बनाएं जिसे मुख्य एजेंट काम सौंप सके।",
+  "settingsSubAgents.customEmptyTitle": "अभी तक कोई कस्टम एजेंट नहीं",
+  "settingsSubAgents.addAgent": "एजेंट जोड़ें",
+  "settingsSubAgents.describe": "एजेंट को बताएं",
+  "settingsSubAgents.describePlaceholder":
+    "एक डिज़ाइन एजेंट जो लेआउट की समीक्षा करता है और UI दिशा सुझाता है",
+  "settingsSubAgents.write": "खुद लिखें",
+  "settingsSubAgents.name": "नाम",
+  "settingsSubAgents.description": "विवरण",
+  "settingsSubAgents.instructions": "निर्देश",
+  "settingsSubAgents.loadFailed": "कनेक्ट किए गए एजेंट लोड नहीं हो सके।",
+  "settingsSubAgents.statusUnreachable": "पहुंच से बाहर",
+  "settingsSubAgents.edit": "संपादित करें",
+  "settingsSubAgents.editTitle": "{{name}} संपादित करें",
+  "settingsSubAgents.removeDescription":
+    "{{org}} में सभी के लिए एजेंट {{name}} को काम सौंपना बंद कर देता है।",
+  "settingsSubAgents.removeDescriptionSolo":
+    "एजेंट {{name}} को काम सौंपना बंद कर देता है।",
+  "settingsSubAgents.directoryTitle": "एक एजेंट कनेक्ट करें",
+  "settingsSubAgents.anyAgent": "कोई भी A2A एजेंट",
+  "settingsSubAgents.anyAgentHint": "एजेंट कार्ड URL पेस्ट करें।",
+  "settingsSubAgents.registryLink": "Global A2A Registry देखें",
+  "settingsSubAgents.connectTitle": "{{name}} कनेक्ट करें",
+  "settingsSubAgents.close": "बंद करें",
 };
 
 export default messages;

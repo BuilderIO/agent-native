@@ -85,6 +85,40 @@ export function resolveDeployEnvironment(): string {
   );
 }
 
+export type DeployPlatform =
+  | "netlify"
+  | "vercel"
+  | "cloudflare"
+  | "render"
+  | "fly"
+  | "cloud-run"
+  | "aws-lambda"
+  | "node"
+  | "local";
+
+/**
+ * The host this process runs on, from the markers each platform sets. A
+ * production process with no marker is a server someone runs themselves
+ * (`node`); anything else without one is a local dev server.
+ */
+export function resolveDeployPlatform(): DeployPlatform {
+  const env = process.env;
+  if (env.NETLIFY === "true" || firstNonEmpty(env.NETLIFY_CONTEXT)) {
+    return "netlify";
+  }
+  if (env.VERCEL === "1" || firstNonEmpty(env.VERCEL_ENV)) return "vercel";
+  if (env.CF_PAGES === "1" || firstNonEmpty(env.CF_PAGES_URL)) {
+    return "cloudflare";
+  }
+  if (env.RENDER === "true" || firstNonEmpty(env.RENDER_SERVICE_ID)) {
+    return "render";
+  }
+  if (firstNonEmpty(env.FLY_APP_NAME)) return "fly";
+  if (firstNonEmpty(env.K_SERVICE)) return "cloud-run";
+  if (firstNonEmpty(env.AWS_LAMBDA_FUNCTION_NAME)) return "aws-lambda";
+  return env.NODE_ENV === "production" ? "node" : "local";
+}
+
 /** Whether the dedicated deployment identity explicitly opts into local mode. */
 export function isExplicitLocalDeployEnvironment(): boolean {
   return (

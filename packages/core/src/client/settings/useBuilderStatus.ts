@@ -9,8 +9,55 @@ import { oauthPopupWaitingUrl } from "../oauth-popup.js";
 import { scheduleAfterPaint } from "../use-after-paint.js";
 import { usePollLoop } from "../use-poll-loop.js";
 
+/**
+ * A Builder.io connection: the organization's shared one, or the caller's
+ * personal one. A member's personal connection wins over the org's for that
+ * member only.
+ */
+export type BuilderConnectionScope = "org" | "personal";
+
+export interface BuilderGrantStatus {
+  /** When the grant was saved; null for grants saved before that was recorded. */
+  connectedAt: number | null;
+  /** Stored but unusable until someone reconnects it. */
+  needsReconnect: boolean;
+  /**
+   * An OAuth grant, or a key pair from account activation or an older connect
+   * flow. Absent from servers that reported OAuth grants only.
+   */
+  kind?: "oauth" | "keys";
+}
+
+export interface BuilderGrantsStatus {
+  org?: BuilderGrantStatus;
+  personal?: BuilderGrantStatus & {
+    /** Stored, but the org's personal-key restriction keeps it unused. */
+    restricted: boolean;
+  };
+}
+
+/** Which connection powers this caller's Builder.io requests. */
+export type BuilderEffectiveConnection =
+  | "personal"
+  | "org"
+  | "workspace"
+  | "env";
+
 export interface BuilderStatus {
   configured: boolean;
+  /**
+   * The caller's stored Builder.io connections, org and personal each read on
+   * its own. `{}` means none exist; `null` means the server could not read
+   * them. Absent from servers older than this field.
+   */
+  grants?: BuilderGrantsStatus | null;
+  /** The connection in effect for this caller, or null when none is. */
+  effective?: BuilderEffectiveConnection | null;
+  /**
+   * Which connection this caller may connect or reconnect. Disconnecting the
+   * org connection needs `org`; anyone may disconnect their own personal one.
+   */
+  canConnect?: Record<BuilderConnectionScope, boolean>;
   builderEnabled: boolean;
   /** True when the deploy can create or reuse a Builder account via SSO. */
   agentNativeProvisioningEnabled?: boolean;
@@ -22,8 +69,12 @@ export interface BuilderStatus {
    * and take precedence for that request.
    */
   envManaged?: boolean;
+  /** @deprecated Read `effective` and `grants`; kept for one release. */
   credentialSource?: "user" | "org" | "workspace" | "env";
-  /** Server-authorized ability to revoke the effective Builder grant. */
+  /**
+   * Server-authorized ability to revoke the effective Builder grant.
+   * @deprecated Read `grants` and `canConnect`; kept for one release.
+   */
   canDisconnect?: boolean;
   connectUrl: string;
   appHost: string;
@@ -216,6 +267,12 @@ export interface BuilderConnectStartOptions {
   trackingFlow?: string;
   /** Override whether this click should use the optional account provisioning flow. */
   provisionAccount?: boolean;
+  /**
+   * Connect or reconnect exactly this connection. The attempt then finishes
+   * only when that grant is saved, not when any connection is configured.
+   * Omit to let the server pick by role (owner/admin: org; member: personal).
+   */
+  scope?: BuilderConnectionScope;
 }
 
 export interface BuilderConnectFlow {
@@ -236,8 +293,19 @@ export interface BuilderConnectFlow {
    * Builder account.
    */
   envManaged: boolean;
+  /** @deprecated Read `effective` and `grants`; kept for one release. */
   credentialSource?: BuilderStatus["credentialSource"] | null;
+  /** @deprecated Read `grants` and `canConnect`; kept for one release. */
   canDisconnect?: boolean;
+  /**
+   * The caller's org and personal Builder.io grants. Null until a status read
+   * returns them, or when the server could not read them.
+   */
+  grants: BuilderGrantsStatus | null;
+  /** The connection in effect for this caller, or null when none is known. */
+  effective: BuilderEffectiveConnection | null;
+  /** Which connection this caller may connect or reconnect. */
+  canConnect: Record<BuilderConnectionScope, boolean>;
   /** True only when the server has enabled the one-click account flow. */
   agentNativeProvisioningEnabled: boolean;
   /**
@@ -701,6 +769,58 @@ export function openBuilderConnectPopup({
   }
 }
 
+const BUILDER_CONNECTION_SCOPE_PARAM = "scope";
+
+interface BuilderConnectionsState {
+  grants: BuilderGrantsStatus | null;
+  effective: BuilderEffectiveConnection | null;
+  canConnect: Record<BuilderConnectionScope, boolean>;
+}
+
+const NO_BUILDER_CONNECTIONS: BuilderConnectionsState = {
+  grants: null,
+  effective: null,
+  canConnect: { org: false, personal: false },
+};
+
+function builderConnectionsFromStatus(
+  s: Pick<BuilderStatus, "grants" | "effective" | "canConnect">,
+): BuilderConnectionsState {
+  return {
+    grants: s.grants ?? null,
+    effective: s.effective ?? null,
+    canConnect: {
+      org: s.canConnect?.org === true,
+      personal: s.canConnect?.personal === true,
+    },
+  };
+}
+
+/** The grant a scoped connect attempt is waiting for, as it was at start. */
+export interface BuilderConnectTarget {
+  scope: BuilderConnectionScope;
+  hadGrant: boolean;
+  connectedAtAtStart: number | null;
+}
+
+/**
+ * Whether a status read finishes the running connect attempt. An unscoped
+ * attempt finishes once an OAuth credential is configured. A scoped one waits
+ * for its own grant to be newly saved: a member already riding the org grant
+ * is "configured" before their personal connect has even begun.
+ */
+export function isBuilderConnectComplete(
+  s: Pick<BuilderStatus, "configured" | "envManaged" | "grants"> & {
+    credentialSource?: BuilderStatus["credentialSource"] | null;
+  },
+  target: BuilderConnectTarget | null,
+): boolean {
+  if (!target) return hasBuilderOAuthCredential(s);
+  const grant = s.grants?.[target.scope];
+  if (!grant || grant.needsReconnect) return false;
+  return !target.hadGrant || grant.connectedAt !== target.connectedAtAtStart;
+}
+
 export function useBuilderConnectFlow(
   opts: BuilderConnectFlowOptions = {},
 ): BuilderConnectFlow {
@@ -719,6 +839,19 @@ export function useBuilderConnectFlow(
     BuilderStatus["credentialSource"] | null
   >(null);
   const [canDisconnect, setCanDisconnect] = useState(false);
+  const [connections, setConnectionsState] = useState<BuilderConnectionsState>(
+    NO_BUILDER_CONNECTIONS,
+  );
+  // Mirrors `connections` so start() can record the target grant as it was at
+  // click time without re-creating the callback on every status read.
+  const connectionsRef = useRef<BuilderConnectionsState>(
+    NO_BUILDER_CONNECTIONS,
+  );
+  const setConnections = useCallback((next: BuilderConnectionsState) => {
+    connectionsRef.current = next;
+    setConnectionsState(next);
+  }, []);
+  const connectTargetRef = useRef<BuilderConnectTarget | null>(null);
   const [agentNativeProvisioningEnabled, setAgentNativeProvisioningEnabled] =
     useState(false);
   const [agentNativeProvisioningToken, setAgentNativeProvisioningToken] =
@@ -861,6 +994,9 @@ export function useBuilderConnectFlow(
           | "orgName"
           | "connectUrl"
           | "credentialSource"
+          | "grants"
+          | "effective"
+          | "canConnect"
           | "connectError"
           | "authError"
           | "privateKeyConfigured"
@@ -888,6 +1024,8 @@ export function useBuilderConnectFlow(
       setCodeChangeConfigured(false);
       setEnvManaged(false);
       setCredentialSource(null);
+      setConnections(NO_BUILDER_CONNECTIONS);
+      connectTargetRef.current = null;
       setCanDisconnect(false);
       setAgentNativeProvisioningEnabled(false);
       setAgentNativeProvisioningToken(null);
@@ -938,6 +1076,7 @@ export function useBuilderConnectFlow(
       setCodeChangeConfigured(isCodeChangeConfigured(s));
       setEnvManaged(!!s.envManaged);
       setCredentialSource(s.credentialSource ?? null);
+      setConnections(builderConnectionsFromStatus(s));
       setCanDisconnect(!!s.canDisconnect);
       setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
       setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
@@ -948,12 +1087,15 @@ export function useBuilderConnectFlow(
       statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
       const org = s.orgName ?? null;
       setOrgName(org);
-      const hasOAuthCredential = hasBuilderOAuthCredential(s);
-      if (hasOAuthCredential) {
+      const connectComplete = isBuilderConnectComplete(
+        s,
+        connectTargetRef.current,
+      );
+      if (connectComplete) {
         connectStartedAtRef.current = null;
         setConnecting(false);
       }
-      if (hasOAuthCredential && !notifiedConnectedRef.current) {
+      if (connectComplete && !notifiedConnectedRef.current) {
         notifiedConnectedRef.current = true;
         notifyAgentEngineConfiguredChanged("builder-status");
         try {
@@ -961,7 +1103,7 @@ export function useBuilderConnectFlow(
         } catch {
           // The caller's callback is a UI convenience; status is already set.
         }
-      } else if (!hasOAuthCredential) {
+      } else if (!connectComplete) {
         notifiedConnectedRef.current = false;
       }
       // Surface persisted auth-failure messages on idle refreshes, but don't
@@ -1056,8 +1198,22 @@ export function useBuilderConnectFlow(
       const clickTrackingSource =
         startOptions?.trackingSource ?? trackingSource;
       const clickTrackingFlow = startOptions?.trackingFlow ?? trackingFlow;
+      const scopeForStart = startOptions?.scope ?? null;
+      // Account activation creates a personal Builder account, so it never
+      // runs for the organization's connection.
       const provisionAccountForStart =
-        startOptions?.provisionAccount ?? provisionAccount;
+        scopeForStart !== "org" &&
+        (startOptions?.provisionAccount ?? provisionAccount);
+      const targetGrantAtStart = scopeForStart
+        ? connectionsRef.current.grants?.[scopeForStart]
+        : undefined;
+      connectTargetRef.current = scopeForStart
+        ? {
+            scope: scopeForStart,
+            hadGrant: targetGrantAtStart !== undefined,
+            connectedAtAtStart: targetGrantAtStart?.connectedAt ?? null,
+          }
+        : null;
       callbackSuccessCancelRef.current?.cancel();
       callbackSuccessRequestControllerRef.current?.controller.abort();
       connectStartedAtRef.current = started;
@@ -1107,6 +1263,12 @@ export function useBuilderConnectFlow(
           BUILDER_CONNECT_ATTEMPT_PARAM,
           connectAttemptId,
         );
+        if (scopeForStart) {
+          connectUrl.searchParams.set(
+            BUILDER_CONNECTION_SCOPE_PARAM,
+            scopeForStart,
+          );
+        }
         if (
           !provisionAccountForStart ||
           !provisioningEnabled ||
@@ -1172,6 +1334,7 @@ export function useBuilderConnectFlow(
               setCodeChangeConfigured(isCodeChangeConfigured(s));
               setEnvManaged(!!s.envManaged);
               setCredentialSource(s.credentialSource ?? null);
+              setConnections(builderConnectionsFromStatus(s));
               setCanDisconnect(!!s.canDisconnect);
               setAgentNativeProvisioningEnabled(
                 !!s.agentNativeProvisioningEnabled,
@@ -1238,6 +1401,7 @@ export function useBuilderConnectFlow(
               setCodeChangeConfigured(isCodeChangeConfigured(s));
               setEnvManaged(!!s.envManaged);
               setCredentialSource(s.credentialSource ?? null);
+              setConnections(builderConnectionsFromStatus(s));
               setCanDisconnect(!!s.canDisconnect);
               setAgentNativeProvisioningEnabled(
                 !!s.agentNativeProvisioningEnabled,
@@ -1356,6 +1520,7 @@ export function useBuilderConnectFlow(
         setCodeChangeConfigured(isCodeChangeConfigured(s));
         setEnvManaged(!!s.envManaged);
         setCredentialSource(s.credentialSource ?? null);
+        setConnections(builderConnectionsFromStatus(s));
         setCanDisconnect(!!s.canDisconnect);
         setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
         setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
@@ -1366,7 +1531,7 @@ export function useBuilderConnectFlow(
         statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
         setOrgName(orgName);
       }
-      if (s && hasBuilderOAuthCredential(s)) {
+      if (s && isBuilderConnectComplete(s, connectTargetRef.current)) {
         setAccountExists(false);
         setConnecting(false);
         connectStartedAtRef.current = null;
@@ -1540,7 +1705,7 @@ export function useBuilderConnectFlow(
             return;
           }
           if (
-            (s && hasBuilderOAuthCredential(s)) ||
+            (s && isBuilderConnectComplete(s, connectTargetRef.current)) ||
             isCurrentConnectError(s?.connectError, started)
           ) {
             break;
@@ -1565,7 +1730,7 @@ export function useBuilderConnectFlow(
           callbackSuccessInFlightAtRef.current = null;
           if (
             popupClosedAtRef.current !== null &&
-            (!s || !hasBuilderOAuthCredential(s))
+            !(s && isBuilderConnectComplete(s, connectTargetRef.current))
           ) {
             popupClosedAtRef.current = Date.now();
           }
@@ -1575,17 +1740,22 @@ export function useBuilderConnectFlow(
         return;
       }
       if (!s) return;
-      if (!hasBuilderOAuthCredential(s)) {
+      if (!isBuilderConnectComplete(s, connectTargetRef.current)) {
         const connectError = isCurrentConnectError(s?.connectError, started)
           ? s?.connectError
           : null;
         setHasFetchedStatus(true);
         if (s) {
           setStatusResolved(true);
+          // A scoped attempt can still be waiting while another connection
+          // keeps the caller configured.
           setConfigured(!!s.configured);
-          setCodeChangeConfigured(isCodeChangeConfigured(s));
+          setCodeChangeConfigured(
+            s.configured ? isCodeChangeConfigured(s) : false,
+          );
           setEnvManaged(!!s.envManaged);
           setCredentialSource(s.credentialSource ?? null);
+          setConnections(builderConnectionsFromStatus(s));
           setCanDisconnect(!!s.canDisconnect);
           setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
           setAgentNativeProvisioningToken(
@@ -1616,6 +1786,7 @@ export function useBuilderConnectFlow(
       setCodeChangeConfigured(isCodeChangeConfigured(s));
       setEnvManaged(!!s.envManaged);
       setCredentialSource(s.credentialSource ?? null);
+      setConnections(builderConnectionsFromStatus(s));
       setCanDisconnect(!!s.canDisconnect);
       setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
       setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
@@ -1696,6 +1867,9 @@ export function useBuilderConnectFlow(
     envManaged,
     credentialSource,
     canDisconnect,
+    grants: connections.grants,
+    effective: connections.effective,
+    canConnect: connections.canConnect,
     agentNativeProvisioningEnabled,
     builderEnabled,
     orgName,

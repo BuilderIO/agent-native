@@ -14,7 +14,7 @@
  *
  * Provider routing:
  *   1. Builder.io Connect credentials → Builder engine with GPT-5.6 Luna.
- *   2. Fallback: user GEMINI_API_KEY direct to Google's generativelanguage
+ *   2. Fallback: the user's Gemini key direct to Google's generativelanguage
  *      API with Gemini Flash-Lite.
  *   3. Otherwise → throw FeatureNotConfiguredError.
  *
@@ -25,9 +25,9 @@
 import { defineAction } from "@agent-native/core/action";
 import { createBuilderEngine } from "@agent-native/core/agent/engine";
 import {
-  resolveHasBuilderGatewayCredential,
-  resolveSecret,
   FeatureNotConfiguredError,
+  resolveGeminiApiKey,
+  resolveHasBuilderGatewayCredential,
 } from "@agent-native/core/server";
 import {
   applyVoiceContextReplacements,
@@ -195,7 +195,7 @@ export default defineAction({
 });
 
 async function resolveUserGeminiKey(): Promise<string | null> {
-  return await resolveSecret("GEMINI_API_KEY");
+  return await resolveGeminiApiKey();
 }
 
 async function callBuilderGateway({
@@ -281,7 +281,7 @@ function buildCleanupConfigurationError({
 
   return new FeatureNotConfiguredError({
     requiredCredential:
-      "BUILDER_PRIVATE_KEY and BUILDER_PUBLIC_KEY, or GEMINI_API_KEY",
+      "BUILDER_PRIVATE_KEY and BUILDER_PUBLIC_KEY, or GOOGLE_GENERATIVE_AI_API_KEY",
     message,
   });
 }

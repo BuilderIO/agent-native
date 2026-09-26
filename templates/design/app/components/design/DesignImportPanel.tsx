@@ -677,13 +677,14 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
                   {t("designEditor.import.figmaUrlLabel")}
                 </Label>
                 <Input
+                  size="sm"
                   id="figma-frame-url"
                   type="url"
                   value={figmaUrl}
                   onChange={(event) => setFigmaUrl(event.target.value)}
                   placeholder={t("designEditor.import.figmaUrlPlaceholder")}
                   autoComplete="url"
-                  className="h-8 text-xs"
+                  className="text-xs"
                 />
               </div>
 
@@ -723,6 +724,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
                     ) : null}
                   </div>
                   <Input
+                    size="sm"
                     id="figma-access-token"
                     type="password"
                     value={figmaAccessToken}
@@ -732,7 +734,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
                     placeholder={t("designEditor.import.figmaTokenPlaceholder")}
                     autoComplete="new-password"
                     aria-invalid={figmaConnectionError ? true : undefined}
-                    className="h-8 text-xs"
+                    className="text-xs"
                   />
                   <p className="text-[10px] leading-snug text-muted-foreground">
                     {figmaConnectionError ??
@@ -751,7 +753,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
               <Button
                 type="submit"
                 size="sm"
-                className="h-8 w-full px-2"
+                className="w-full px-2"
                 disabled={
                   busy ||
                   !figmaUrl.trim() ||
@@ -927,7 +929,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 w-full px-2"
+                className="w-full px-2"
                 disabled={busy}
                 onClick={() => figFileInputRef.current?.click()}
               >
@@ -1002,7 +1004,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
               <div className="flex gap-1.5">
                 <Button
                   size="sm"
-                  className="h-8 flex-1 px-2"
+                  className="flex-1 px-2"
                   disabled={busy || !htmlText.trim()}
                   onClick={() => importHtmlString(htmlText, "html-import.html")}
                 >
@@ -1020,7 +1022,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-8 px-2"
+                  className="px-2"
                   disabled={busy}
                   onClick={() => htmlFileInputRef.current?.click()}
                 >

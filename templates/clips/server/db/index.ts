@@ -1,5 +1,5 @@
 import { createGetDb, getDbExec } from "@agent-native/core/db";
-import { organizations } from "@agent-native/core/org";
+import { organizations, registerIdentityColumns } from "@agent-native/core/org";
 import { registerShareableResource } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
@@ -117,3 +117,129 @@ registerShareableResource({
   titleColumn: "id",
   getDb,
 });
+
+// Share tables are recognized from their shape; these are the rest.
+registerIdentityColumns([
+  {
+    table: "space_members",
+    column: "email",
+    emailChange: "rekey",
+    offboard: "delete",
+    orgScope: {
+      column: "space_id",
+      references: { table: "spaces", column: "id", orgColumn: "workspace_id" },
+    },
+    reason: "Space membership grants access, so it ends with the membership.",
+  },
+  {
+    table: "workspace_members",
+    column: "email",
+    emailChange: "rekey",
+    offboard: "delete",
+    orgScope: { column: "workspace_id" },
+    reason:
+      "Legacy workspace membership that the org migration copies into org_members.",
+  },
+  {
+    table: "invites",
+    column: "email",
+    emailChange: "rekey",
+    offboard: "delete",
+    orgScope: { column: "workspace_id" },
+    reason:
+      "Legacy workspace invitation that the org migration copies into org_invitations.",
+  },
+  {
+    table: "invites",
+    column: "invited_by",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason: "Inviter attribution, rekeyed like org_invitations.invited_by.",
+  },
+  {
+    table: "slack_installations",
+    column: "secret_scope_id",
+    mode: "secret-scope",
+    emailChange: "rekey",
+    offboard: "delete",
+    reason:
+      "User-scoped Slack install whose bot token is a user-scoped app secret.",
+  },
+  {
+    table: "recording_comments",
+    column: "author_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason: "Authorizes resolving your own comments; comments stay as history.",
+  },
+  {
+    table: "recording_reactions",
+    column: "viewer_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason: "Reaction attribution; reactions stay as history.",
+  },
+  {
+    table: "recording_viewers",
+    column: "viewer_email",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "View analytics history keyed by viewer_key.",
+  },
+  {
+    table: "recording_views",
+    column: "viewer_email",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "Append-only view log keyed by viewer_key.",
+  },
+  {
+    table: "recording_playback_positions",
+    column: "viewer_email",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "Resume position keyed by viewer_key; grants no access.",
+  },
+  {
+    table: "recording_bug_reports",
+    column: "reporter_email",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "Reporter contact supplied by the capture client, not a principal.",
+  },
+  {
+    table: "recording_browser_diagnostics",
+    column: "session_id",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "Browser capture session id, not an identity.",
+  },
+  {
+    table: "meeting_participants",
+    column: "email",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "Attendee address copied from the calendar provider.",
+  },
+  {
+    table: "meeting_action_items",
+    column: "assignee_email",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "Attendee address inside meeting notes; grants no access.",
+  },
+  {
+    table: "calendar_accounts",
+    column: "email",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "Address of the connected provider account, not the member.",
+  },
+  {
+    table: "calendar_events",
+    column: "organizer_email",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "Organizer address copied from the calendar provider.",
+  },
+]);

@@ -8,6 +8,7 @@ import {
 } from "../secrets/register.js";
 import { writeAppSecret } from "../secrets/storage.js";
 import { getSession } from "./auth.js";
+import { resolvePersonalProviderKeySaveDenial } from "./personal-provider-key-policy.js";
 
 const KEY_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -209,6 +210,14 @@ export async function saveKeyValuesToScopedSecrets(
     const scope = resolveTargetScope(secret, requestedScope);
     const { scopeId, orgRole } = await resolveScopeId(event, scope);
     assertCanMutateScope(scope, scopeId, orgRole);
+    if (scope === "user") {
+      const denial = await resolvePersonalProviderKeySaveDenial(
+        event,
+        scopeId,
+        entry.key,
+      );
+      if (denial) throw new ScopedKeyStorageError(403, denial);
+    }
     await validateRegisteredSecret(secret, entry.value);
     await writeAppSecret({
       key: entry.key,

@@ -68,9 +68,12 @@ export function useOnboardingPreviewMode(): boolean {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onChange = () => setVal(readPreview());
+    // Leaving the preview URL (the first-run Settings handoff) ends preview.
+    window.addEventListener("popstate", onChange);
     window.addEventListener("storage", onChange);
     window.addEventListener("agent-native-dev-overlay:changed", onChange);
     return () => {
+      window.removeEventListener("popstate", onChange);
       window.removeEventListener("storage", onChange);
       window.removeEventListener("agent-native-dev-overlay:changed", onChange);
     };

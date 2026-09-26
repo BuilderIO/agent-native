@@ -35,7 +35,8 @@ interface BrandingEditorProps {
 
 const DEFAULT_VISIBILITY: RecordingVisibility = "public";
 
-const PRESETS = [
+/** Brand colors offered as swatches; these are data, not theme colors. */
+export const BRAND_COLOR_PRESETS = [
   "#18181B",
   "#22C55E",
   "#F97316",
@@ -45,7 +46,10 @@ const PRESETS = [
   "#111827",
 ];
 
-async function uploadLogo(file: File, organizationId: string): Promise<string> {
+export async function uploadLogo(
+  file: File,
+  organizationId: string,
+): Promise<string> {
   const body = await file.arrayBuffer();
   const query = new URLSearchParams({
     organizationId,
@@ -242,7 +246,7 @@ export function BrandingEditor({
                 className="max-w-[120px] tabular-nums uppercase"
               />
               <div className="flex items-center gap-1 ms-2">
-                {PRESETS.map((c) => (
+                {BRAND_COLOR_PRESETS.map((c) => (
                   <button
                     key={c}
                     type="button"

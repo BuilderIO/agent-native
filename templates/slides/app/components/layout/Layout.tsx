@@ -22,6 +22,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { useDecks } from "@/context/DeckContext";
+import { useSettingsRedesign } from "@/hooks/use-settings-redesign";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import {
   buildSlidesAgentContext,
@@ -39,6 +40,7 @@ import { Header } from "./Header";
 import {
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
+  isSlidesFullWidthSettingsRoute,
   shouldShowSlidesAppSidebar,
 } from "./layout-route-policy";
 import { Sidebar } from "./Sidebar";
@@ -70,6 +72,7 @@ export function Layout({ children }: LayoutProps) {
   const t = useT();
   const { flushDeckSave } = useDecks();
   const creativeContextEnabled = useCreativeContextLab();
+  const settingsRedesign = useSettingsRedesign();
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
@@ -205,8 +208,13 @@ export function Layout({ children }: LayoutProps) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const ownToolbar = pageHasOwnToolbar(location.pathname);
-  const showAppSidebar = shouldShowSlidesAppSidebar(location.pathname);
+  const fullWidthSettings = isSlidesFullWidthSettingsRoute(
+    location.pathname,
+    settingsRedesign,
+  );
+  const ownToolbar = pageHasOwnToolbar(location.pathname) || fullWidthSettings;
+  const showAppSidebar =
+    shouldShowSlidesAppSidebar(location.pathname) && !fullWidthSettings;
   const editorSidebarOverrideForLocation =
     editorSidebarOverride?.locationKey === location.key
       ? editorSidebarOverride.collapsed

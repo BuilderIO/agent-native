@@ -10,7 +10,6 @@ import type { GuardFinding, GuardResult } from "./types.js";
 
 const IDENTITY_COLUMN =
   /^(?:email|[a-z0-9]+_email|[a-z0-9_]*scope_id|updated_by|invited_by|created_by|owner|principal_id|session_id|user_id)$/i;
-const OPT_OUT = /(?:\/\/|--)\s*guard:allow-identity-column\b([^\r\n]*)/;
 
 interface ColumnUse {
   table: string;
@@ -47,22 +46,10 @@ export function scanIdentityColumnsRegistered({
       )
         continue;
       const line = contents.slice(0, use.offset).split("\n").length;
-      const lineStart = contents.lastIndexOf("\n", use.offset - 1) + 1;
-      const previousStart =
-        contents.lastIndexOf("\n", Math.max(0, lineStart - 2)) + 1;
-      const declaration = contents.slice(
-        lineStart,
-        contents.indexOf("\n", use.offset) < 0
-          ? contents.length
-          : contents.indexOf("\n", use.offset),
-      );
-      const previous = contents.slice(previousStart, lineStart).trimEnd();
-      const marker = `${previous}\n${declaration}`.match(OPT_OUT);
-      if (marker && marker[1].trim().length > 0) continue;
       findings.push({
         file: relPosix(root, file),
         line,
-        message: `${use.table}.${use.column} looks identity-bearing but is not in identity/rekey.ts. Add a safe handler or a reasoned // guard:allow-identity-column pragma.`,
+        message: `${use.table}.${use.column} looks identity-bearing but is not in identity/rekey.ts. Register it in IDENTITY_REKEY_COLUMNS with a safe mode, or add it to IDENTITY_REKEY_IGNORED_COLUMNS with a reason. A source pragma is not enough: offboarding and email change check the same registry at runtime.`,
       });
     }
   }

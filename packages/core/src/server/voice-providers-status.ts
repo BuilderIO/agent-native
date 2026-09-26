@@ -24,10 +24,18 @@ import { getSession } from "./auth.js";
 import {
   prefetchSecrets,
   resolveHasCompleteBuilderConnection,
-  resolveSecret,
 } from "./credential-provider.js";
 import { resolveGoogleRealtimeCredentials } from "./google-realtime-session.js";
 import { runWithRequestContext } from "./request-context.js";
+import {
+  GEMINI_API_KEY,
+  resolveSecretWithAliases,
+  secretKeyNames,
+} from "./secret-key-aliases.js";
+import {
+  readServiceProviderChoice,
+  type ServiceProviderId,
+} from "./service-providers.js";
 
 export interface VoiceProvidersStatus {
   builder: boolean;
@@ -50,6 +58,14 @@ export interface VoiceProvidersStatus {
    * non-macOS hosts return a clear error instead of attempting to use it.
    */
   native: true;
+  /**
+   * The organization's Voice input choice (Settings › Infrastructure), tried
+   * first by batch transcription when the user's own provider is auto. Null
+   * when unset or outside an organization.
+   */
+  orgProvider: ServiceProviderId<"voice"> | null;
+  /** The organization choice could not be read; `orgProvider` is unknown, not unset. */
+  orgProviderLookupFailed?: true;
 }
 
 export function createVoiceProvidersStatusHandler() {
@@ -85,7 +101,9 @@ export function createVoiceProvidersStatusHandler() {
           );
           return typeof resolved === "string" && resolved.length > 0;
         }
-        const resolved = await withRequestContext(() => resolveSecret(key));
+        const resolved = await withRequestContext(() =>
+          resolveSecretWithAliases(key),
+        );
         return typeof resolved === "string" && resolved.length > 0;
       } catch {
         return false;
@@ -95,7 +113,7 @@ export function createVoiceProvidersStatusHandler() {
     // One read per scope for every key below, instead of one per key per scope.
     await withRequestContext(() =>
       prefetchSecrets([
-        "GEMINI_API_KEY",
+        ...secretKeyNames(GEMINI_API_KEY),
         "OPENAI_API_KEY",
         "GROQ_API_KEY",
         "GOOGLE_APPLICATION_CREDENTIALS",
@@ -113,11 +131,21 @@ export function createVoiceProvidersStatusHandler() {
     }
 
     const [gemini, openai, groq, googleRealtime] = await Promise.all([
-      hasKey("GEMINI_API_KEY"),
+      hasKey(GEMINI_API_KEY),
       hasKey("OPENAI_API_KEY"),
       hasKey("GROQ_API_KEY"),
       hasKey("GOOGLE_APPLICATION_CREDENTIALS"),
     ]);
+
+    let orgProvider: ServiceProviderId<"voice"> | null = null;
+    let orgProviderLookupFailed = false;
+    try {
+      orgProvider = await readServiceProviderChoice("voice", {
+        orgId: orgCtx?.orgId ?? null,
+      });
+    } catch {
+      orgProviderLookupFailed = true;
+    }
 
     const status: VoiceProvidersStatus = {
       builder,
@@ -127,6 +155,8 @@ export function createVoiceProvidersStatusHandler() {
       googleRealtime,
       browser: true,
       native: true,
+      orgProvider,
+      ...(orgProviderLookupFailed ? { orgProviderLookupFailed: true } : {}),
     };
     return status;
   });

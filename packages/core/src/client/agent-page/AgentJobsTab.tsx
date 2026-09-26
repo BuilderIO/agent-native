@@ -1,14 +1,26 @@
+import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
+import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@agent-native/toolkit/ui/empty";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { Switch } from "@agent-native/toolkit/ui/switch";
 import {
   IconBolt,
   IconCalendarEvent,
   IconClock,
+  IconClockPlay,
   IconAlertTriangle,
-  IconChevronDown,
+  IconDots,
   IconEye,
-  IconLoader2,
   IconPencil,
-  IconPlayerPause,
   IconPlayerPlay,
   IconTrash,
 } from "@tabler/icons-react";
@@ -24,13 +36,15 @@ import {
   DialogTitle,
 } from "../components/ui/dialog.js";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu.js";
 import { useFormatters, useT } from "../i18n.js";
 import { automationCreationContext } from "../settings/AutomationsSection.js";
-import { AgentEmptyState } from "./AgentEmptyState.js";
+import { SettingsRow } from "../settings/SettingsRow.js";
 import { AgentTabFrame } from "./AgentTabFrame.js";
 import {
   AutomationDetailsDialog,
@@ -233,10 +247,21 @@ export function AgentJobsTab({
   canManageOrg = false,
   hideHeader = false,
   organizationId,
+  organizationName,
+  variant = "page",
 }: AgentPageTabProps & {
   hideHeader?: boolean;
   organizationId?: string | null;
+  /** Titles the organization group in the `"settings"` variant. */
+  organizationName?: string | null;
+  /**
+   * `"settings"` is the Settings page's shape: group titles without
+   * descriptions, the member note as the organization group's footnote, and
+   * no create button in the body, because the page header carries it.
+   */
+  variant?: "page" | "settings";
 }) {
+  const settingsVariant = variant === "settings";
   const t = useT();
   const formatters = useFormatters();
   const personalJobsQuery = useRecurringJobs("user");
@@ -318,12 +343,206 @@ export function AgentJobsTab({
     }
   };
 
+  const organizationCreateAction = (
+    <AgentAskPopover
+      context={organizationAutomationCreationContext()}
+      draftScope={organizationDraftScope}
+      prompt={t("jobs.organizationPrompt", {
+        defaultValue:
+          "Create a shared organization automation that does this: ",
+      })}
+      title={t("jobs.automationsCreateTitle", {
+        defaultValue: "Create an automation",
+      })}
+      label={t("jobs.newAutomation", {
+        defaultValue: "New automation",
+      })}
+      variant="outline"
+      size={settingsVariant ? "xs" : "sm"}
+    />
+  );
+
+  const renderRow = (entry: ListedAutomation) => {
+    const resource = entry.resource;
+    const name = resource.name.replace(/-/g, " ");
+    const lastRun = formatDateTime(resource.lastRun);
+    const lastCheck = formatDateTime(resource.lastCheck);
+    const nextRun = formatDateTime(resource.nextRun);
+    const triggerDescription =
+      entry.kind === "automation" && entry.triggerType === "event"
+        ? t("jobs.automationEventTrigger", {
+            defaultValue: "On {{event}}",
+            event: entry.resource.event ?? "event",
+          })
+        : entry.kind === "automation" && entry.triggerType === "webhook"
+          ? t("jobs.automationWebhookTrigger", {
+              defaultValue: "On webhook",
+            })
+          : resource.scheduleDescription ||
+            resource.schedule ||
+            t("jobs.scheduledTrigger", {
+              defaultValue: "Scheduled",
+            });
+    const instructions =
+      entry.kind === "automation"
+        ? entry.resource.body
+        : entry.resource.instructions;
+
+    return (
+      <article
+        key={`${entry.kind}:${resource.id}`}
+        className="flex items-start gap-3 px-5 py-4 sm:px-6"
+      >
+        <div className="mt-0.5 text-muted-foreground">
+          {entry.triggerType === "event" ? (
+            <IconCalendarEvent className="size-4" />
+          ) : entry.triggerType === "webhook" ? (
+            <IconBolt className="size-4" />
+          ) : (
+            <IconClock className="size-4" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="truncate text-sm font-medium">{name}</h3>
+            <Badge variant="outline">
+              {entry.triggerType === "event"
+                ? t("jobs.eventTrigger", {
+                    defaultValue: "Event-triggered",
+                  })
+                : entry.triggerType === "webhook"
+                  ? t("jobs.webhookTrigger", {
+                      defaultValue: "Webhook-triggered",
+                    })
+                  : t("jobs.scheduledTrigger", {
+                      defaultValue: "Scheduled",
+                    })}
+            </Badge>
+            {resource.canUpdate ? null : (
+              <Badge variant="outline">
+                {resource.enabled
+                  ? t("jobs.enabled", { defaultValue: "Enabled" })
+                  : t("jobs.paused", { defaultValue: "Paused" })}
+              </Badge>
+            )}
+            {resource.lastStatus ? (
+              <Badge variant="outline">{resource.lastStatus}</Badge>
+            ) : null}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {triggerDescription}
+          </p>
+          <p className="hidden">{instructions}</p>
+          {lastRun || nextRun || lastCheck ? (
+            <div className="hidden">
+              {nextRun ? (
+                <span>
+                  {t("jobs.nextRun", { defaultValue: "Next run" })}: {nextRun}
+                </span>
+              ) : null}
+              <span>
+                {t("jobs.lastRun", { defaultValue: "Last run" })}:{" "}
+                {lastRun ?? t("jobs.neverRan", { defaultValue: "Never" })}
+              </span>
+              {!lastRun && lastCheck ? (
+                <span>
+                  {t("jobs.lastChecked", {
+                    defaultValue: "Last checked",
+                  })}
+                  : {lastCheck}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          {resource.lastError ? (
+            <div className="mt-2 flex flex-wrap items-center gap-x-1 text-xs text-destructive">
+              <IconAlertTriangle
+                className="size-3 shrink-0"
+                aria-hidden="true"
+              />
+              <span className="min-w-0 break-words">{resource.lastError}</span>
+              <Button
+                type="button"
+                variant="link"
+                size="xs"
+                onClick={() => setDetailsTarget(entry)}
+              >
+                {t("jobs.viewDetails", {
+                  defaultValue: "View details",
+                })}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {resource.canUpdate ? (
+            <Switch
+              checked={resource.enabled}
+              aria-label={name}
+              disabled={mutationPending}
+              onCheckedChange={(enabled) =>
+                mutateEntry(entry, "update", { enabled })
+              }
+            />
+          ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t("agentChat.settingsResources.moreActions")}
+              >
+                <IconDots aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuGroup>
+                <DropdownMenuItem onSelect={() => setDetailsTarget(entry)}>
+                  <IconEye aria-hidden="true" />
+                  {t("jobs.details", { defaultValue: "Details" })}
+                </DropdownMenuItem>
+                {resource.canUpdate ? (
+                  <>
+                    <DropdownMenuItem
+                      disabled={runAutomationMutation.isPending}
+                      onSelect={() => setRunTarget(entry)}
+                    >
+                      <IconPlayerPlay aria-hidden="true" />
+                      {t("jobs.runNow", { defaultValue: "Run now" })}
+                    </DropdownMenuItem>
+                    {entry.triggerType === "schedule" ? (
+                      <DropdownMenuItem
+                        onSelect={() => setScheduleTarget(entry)}
+                      >
+                        <IconPencil aria-hidden="true" />
+                        {t("jobs.edit", { defaultValue: "Edit" })}
+                      </DropdownMenuItem>
+                    ) : null}
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onSelect={() => setDeleteTarget(entry)}
+                    >
+                      <IconTrash aria-hidden="true" />
+                      {t("jobs.delete", { defaultValue: "Delete" })}
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </article>
+    );
+  };
+
   const renderSection = ({
     title,
     description,
     entries,
     loading,
     errors,
+    retry,
     organization = false,
   }: {
     title: string;
@@ -331,382 +550,149 @@ export function AgentJobsTab({
     entries: ListedAutomation[];
     loading: boolean;
     errors: unknown[];
+    retry: () => void;
     organization?: boolean;
-  }) => (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
-            {title}
-          </h2>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            {description}
-          </p>
-        </div>
-        {organization ? (
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {!canManageOrg ? (
-              <span className="text-xs text-muted-foreground">
-                {t("jobs.organizationMemberNote", {
-                  defaultValue: "You can manage automations you created.",
-                })}
-              </span>
-            ) : null}
-            <AgentAskPopover
-              context={organizationAutomationCreationContext()}
-              draftScope={organizationDraftScope}
-              prompt={t("jobs.organizationPrompt", {
-                defaultValue:
-                  "Create a shared organization automation that does this: ",
-              })}
-              title={t("jobs.automationsCreateTitle", {
-                defaultValue: "Create an automation",
-              })}
-              label={t("jobs.newAutomation", {
-                defaultValue: "New automation",
-              })}
-            />
+  }) => {
+    const empty = !loading && entries.length === 0 && errors.length === 0;
+    return (
+      <section className={settingsVariant ? "space-y-2.5" : "space-y-4"}>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            {settingsVariant ? (
+              <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+            ) : (
+              <>
+                <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+                  {title}
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+                  {description}
+                </p>
+              </>
+            )}
           </div>
-        ) : null}
-      </div>
-
-      {errors.length > 0 ? (
-        <p className="text-sm text-destructive">
-          {t("jobs.loadError", {
-            defaultValue: "Could not load all automations.",
-          })}
-        </p>
-      ) : null}
-
-      {loading && entries.length === 0 ? (
-        <div
-          className="flex items-center gap-2 text-sm text-muted-foreground"
-          aria-busy="true"
-        >
-          <IconLoader2 className="size-4 animate-spin" />
-          {t("jobs.loading", { defaultValue: "Loading…" })}
+          {/* An empty group offers creation in its empty state instead. */}
+          {organization && !empty ? (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {!canManageOrg && !settingsVariant ? (
+                <span className="text-xs text-muted-foreground">
+                  {t("jobs.organizationMemberNote", {
+                    defaultValue: "You can manage automations you created.",
+                  })}
+                </span>
+              ) : null}
+              {organizationCreateAction}
+            </div>
+          ) : null}
         </div>
-      ) : entries.length === 0 && errors.length === 0 ? (
-        <AgentEmptyState
-          icon={IconCalendarEvent}
-          title={
-            organization
-              ? t("jobs.organizationEmptyTitle", {
-                  defaultValue: "No organization automations yet",
-                })
-              : t("jobs.automationsEmptyTitle", {
-                  defaultValue: "No automations yet",
-                })
-          }
-          description={
-            organization
-              ? t("jobs.organizationEmptyDescription", {
-                  defaultValue:
-                    "Describe a scheduled, event-triggered, or webhook-triggered automation for this organization.",
-                })
-              : t("jobs.automationsEmptyDescription", {
-                  defaultValue: "Describe what should happen and when.",
-                })
-          }
-          action={
-            organization ? null : (
-              <AgentAskPopover
-                context={automationCreationContext()}
-                draftScope="agent-jobs:personal-empty-create"
-                prompt={t("jobs.automationPrompt", {
-                  defaultValue: "Create an automation that does this: ",
-                })}
-                title={t("jobs.automationsCreateTitle", {
-                  defaultValue: "Create an automation",
-                })}
-              />
-            )
-          }
-          variant="card"
-        />
-      ) : (
-        <div className="overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
-          <div className="divide-y divide-border/60 px-4">
-            {entries.map((entry) => {
-              const resource = entry.resource;
-              const lastRun = formatDateTime(resource.lastRun);
-              const lastCheck = formatDateTime(resource.lastCheck);
-              const nextRun = formatDateTime(resource.nextRun);
-              const triggerDescription =
-                entry.kind === "automation" && entry.triggerType === "event"
-                  ? t("jobs.automationEventTrigger", {
-                      defaultValue: "On {{event}}",
-                      event: entry.resource.event ?? "event",
-                    })
-                  : entry.kind === "automation" &&
-                      entry.triggerType === "webhook"
-                    ? t("jobs.automationWebhookTrigger", {
-                        defaultValue: "On webhook",
-                      })
-                    : resource.scheduleDescription ||
-                      resource.schedule ||
-                      t("jobs.scheduledTrigger", {
-                        defaultValue: "Scheduled",
-                      });
-              const instructions =
-                entry.kind === "automation"
-                  ? entry.resource.body
-                  : entry.resource.instructions;
 
-              return (
-                <article
-                  key={`${entry.kind}:${resource.id}`}
-                  className="py-4 first:pt-5 last:pb-5"
+        <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
+          {errors.length > 0 ? (
+            <SettingsRow
+              label={t("jobs.loadError", {
+                defaultValue: "Could not load all automations.",
+              })}
+              control={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={retry}
                 >
-                  <div className="flex items-start gap-3">
-                    <div className="mt-0.5 text-muted-foreground">
-                      {entry.triggerType === "event" ? (
-                        <IconCalendarEvent className="size-4" />
-                      ) : entry.triggerType === "webhook" ? (
-                        <IconBolt className="size-4" />
-                      ) : (
-                        <IconClock className="size-4" />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="truncate text-sm font-medium">
-                          {resource.name.replace(/-/g, " ")}
-                        </h3>
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                          {entry.triggerType === "event"
-                            ? t("jobs.eventTrigger", {
-                                defaultValue: "Event-triggered",
-                              })
-                            : entry.triggerType === "webhook"
-                              ? t("jobs.webhookTrigger", {
-                                  defaultValue: "Webhook-triggered",
-                                })
-                              : t("jobs.scheduledTrigger", {
-                                  defaultValue: "Scheduled",
-                                })}
-                        </span>
-                        <span
-                          className={
-                            resource.enabled
-                              ? "rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
-                              : "rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-                          }
-                        >
-                          {resource.enabled
-                            ? t("jobs.enabled", { defaultValue: "Enabled" })
-                            : t("jobs.paused", { defaultValue: "Paused" })}
-                        </span>
-                        {resource.lastStatus ? (
-                          <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                            {resource.lastStatus}
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {triggerDescription}
-                      </p>
-                      <p className="hidden">{instructions}</p>
-                      {lastRun || nextRun || lastCheck ? (
-                        <div className="hidden">
-                          {nextRun ? (
-                            <span>
-                              {t("jobs.nextRun", { defaultValue: "Next run" })}:{" "}
-                              {nextRun}
-                            </span>
-                          ) : null}
-                          <span>
-                            {t("jobs.lastRun", { defaultValue: "Last run" })}:{" "}
-                            {lastRun ??
-                              t("jobs.neverRan", { defaultValue: "Never" })}
-                          </span>
-                          {!lastRun && lastCheck ? (
-                            <span>
-                              {t("jobs.lastChecked", {
-                                defaultValue: "Last checked",
-                              })}
-                              : {lastCheck}
-                            </span>
-                          ) : null}
-                        </div>
-                      ) : null}
-                      {resource.lastError ? (
-                        <div className="mt-2 flex items-start gap-1.5 text-[11px] text-destructive">
-                          <IconAlertTriangle className="mt-px size-3 shrink-0" />
-                          <span className="min-w-0 break-words">
-                            {resource.lastError}
-                          </span>
-                          <button
-                            type="button"
-                            className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline"
-                            onClick={() => setDetailsTarget(entry)}
-                          >
-                            {t("jobs.viewDetails", {
-                              defaultValue: "View details",
-                            })}
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {resource.canUpdate ? (
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={resource.enabled}
-                          aria-label={
-                            resource.enabled
-                              ? "Pause automation"
-                              : "Resume automation"
-                          }
-                          disabled={mutationPending}
-                          onClick={() =>
-                            mutateEntry(entry, "update", {
-                              enabled: !resource.enabled,
-                            })
-                          }
-                          className={`relative h-5 w-9 rounded-full transition-colors disabled:opacity-50 ${resource.enabled ? "bg-primary" : "bg-muted"}`}
-                        >
-                          <span
-                            className={`absolute top-0.5 size-4 rounded-full bg-background shadow-sm transition-transform ${resource.enabled ? "start-[18px]" : "start-0.5"}`}
-                          />
-                        </button>
-                      ) : null}
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="cursor-pointer gap-1 px-2.5 text-xs"
-                          >
-                            Manage
-                            <IconChevronDown className="size-3.5" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent align="end" className="w-40 p-1">
-                          <button
-                            type="button"
-                            onClick={() => setDetailsTarget(entry)}
-                            className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent"
-                          >
-                            <IconEye className="size-3.5" /> Details
-                          </button>
-                          {resource.canUpdate ? (
-                            <>
-                              <button
-                                type="button"
-                                disabled={runAutomationMutation.isPending}
-                                onClick={() => setRunTarget(entry)}
-                                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent disabled:opacity-50"
-                              >
-                                <IconPlayerPlay className="size-3.5" /> Run now
-                              </button>
-                              {entry.triggerType === "schedule" ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setScheduleTarget(entry)}
-                                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent"
-                                >
-                                  <IconPencil className="size-3.5" /> Edit
-                                </button>
-                              ) : null}
-                              <button
-                                type="button"
-                                onClick={() => setDeleteTarget(entry)}
-                                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs text-destructive hover:bg-destructive/10"
-                              >
-                                <IconTrash className="size-3.5" /> Delete
-                              </button>
-                            </>
-                          ) : null}
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                    <div className="hidden">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="cursor-pointer px-2 text-xs"
-                        onClick={() => setDetailsTarget(entry)}
-                      >
-                        <IconEye className="size-3.5" />
-                        {t("jobs.details", { defaultValue: "Details" })}
-                      </Button>
-                      {resource.canUpdate ? (
-                        <>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="cursor-pointer px-2 text-xs"
-                            disabled={
-                              mutationPending || runAutomationMutation.isPending
-                            }
-                            onClick={() => setRunTarget(entry)}
-                          >
-                            <IconPlayerPlay className="size-3.5" />
-                            {t("jobs.runNow", { defaultValue: "Run now" })}
-                          </Button>
-                          {entry.triggerType === "schedule" ? (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="cursor-pointer px-2 text-xs"
-                              disabled={mutationPending}
-                              onClick={() => setScheduleTarget(entry)}
-                            >
-                              <IconPencil className="size-3.5" />
-                              {t("jobs.edit", { defaultValue: "Edit" })}
-                            </Button>
-                          ) : null}
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="cursor-pointer px-2 text-xs"
-                            disabled={mutationPending}
-                            onClick={() =>
-                              mutateEntry(entry, "update", {
-                                enabled: !resource.enabled,
-                              })
-                            }
-                          >
-                            {resource.enabled ? (
-                              <IconPlayerPause className="size-3.5" />
-                            ) : (
-                              <IconPlayerPlay className="size-3.5" />
-                            )}
-                            {resource.enabled
-                              ? t("jobs.pause", { defaultValue: "Pause" })
-                              : t("jobs.resume", { defaultValue: "Resume" })}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="size-8 cursor-pointer text-muted-foreground hover:text-destructive"
-                            aria-label={t("jobs.delete", {
-                              defaultValue: "Delete",
-                            })}
-                            onClick={() => setDeleteTarget(entry)}
-                          >
-                            <IconTrash className="size-3.5" />
-                          </Button>
-                        </>
-                      ) : null}
-                    </div>
+                  {t("agentChat.common.retry")}
+                </Button>
+              }
+            />
+          ) : null}
+          {loading && entries.length === 0 ? (
+            <div
+              aria-busy="true"
+              aria-label={t("jobs.loading", { defaultValue: "Loading…" })}
+              className="divide-y divide-border/60"
+            >
+              {[0, 1].map((index) => (
+                <div
+                  key={index}
+                  className="flex items-start gap-3 px-5 py-4 sm:px-6"
+                >
+                  <Skeleton className="mt-0.5 size-4" />
+                  <div className="flex min-w-0 flex-1 flex-col gap-2">
+                    <Skeleton className="h-4 w-40 max-w-full" />
+                    <Skeleton className="h-4 w-64 max-w-full" />
                   </div>
-                </article>
-              );
-            })}
-          </div>
+                  <Skeleton className="h-[1.15rem] w-8 rounded-full" />
+                </div>
+              ))}
+            </div>
+          ) : empty ? (
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <IconClockPlay aria-hidden="true" />
+                </EmptyMedia>
+                <EmptyTitle>
+                  {organization
+                    ? t("jobs.organizationEmptyTitle", {
+                        defaultValue: "No organization automations yet",
+                      })
+                    : t("jobs.automationsEmptyTitle", {
+                        defaultValue: "No automations yet",
+                      })}
+                </EmptyTitle>
+                <EmptyDescription>
+                  {organization
+                    ? t("jobs.organizationEmptyDescription", {
+                        defaultValue:
+                          "Describe a scheduled, event-triggered, or webhook-triggered automation for this organization.",
+                      })
+                    : t("jobs.automationsEmptyDescription", {
+                        defaultValue: "Describe what should happen and when.",
+                      })}
+                </EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <AgentAskPopover
+                  context={
+                    organization
+                      ? organizationAutomationCreationContext()
+                      : automationCreationContext()
+                  }
+                  draftScope={
+                    organization
+                      ? organizationDraftScope
+                      : "agent-jobs:personal-empty-create"
+                  }
+                  prompt={
+                    organization
+                      ? t("jobs.organizationPrompt", {
+                          defaultValue:
+                            "Create a shared organization automation that does this: ",
+                        })
+                      : t("jobs.automationPrompt", {
+                          defaultValue: "Create an automation that does this: ",
+                        })
+                  }
+                  title={t("jobs.automationsCreateTitle", {
+                    defaultValue: "Create an automation",
+                  })}
+                  variant="outline"
+                />
+              </EmptyContent>
+            </Empty>
+          ) : (
+            entries.map(renderRow)
+          )}
         </div>
-      )}
-    </section>
-  );
+        {settingsVariant && organization && !canManageOrg ? (
+          <p className="px-0.5 text-xs text-muted-foreground">
+            {t("jobs.organizationMemberNote", {
+              defaultValue: "You can manage automations you created.",
+            })}
+          </p>
+        ) : null}
+      </section>
+    );
+  };
 
   const mutationError =
     personalJobsMutation.error ||
@@ -714,10 +700,15 @@ export function AgentJobsTab({
     organizationJobsMutation.error ||
     organizationAutomationsMutation.error ||
     runAutomationMutation.error;
+  const mutationErrorText =
+    mutationError?.message ||
+    t("jobs.updateError", {
+      defaultValue: "Could not update automation.",
+    });
 
   return (
     <AgentTabFrame
-      compact={hideHeader}
+      compact={hideHeader || settingsVariant}
       title={t("jobs.pageTitle", { defaultValue: "Automations" })}
       description={t("jobs.pageDescription", {
         defaultValue:
@@ -739,9 +730,9 @@ export function AgentJobsTab({
         />
       }
     >
-      <div className="space-y-7">
+      <div className={settingsVariant ? "space-y-8" : "space-y-7"}>
         <ScheduledTriggerNotice state={scheduledTriggerState} />
-        {hideHeader ? (
+        {hideHeader && !settingsVariant ? (
           <div className="flex justify-end">
             <AgentAskPopover
               context={automationCreationContext()}
@@ -771,10 +762,16 @@ export function AgentJobsTab({
             personalJobsQuery.error,
             personalAutomationsQuery.error,
           ].filter(Boolean),
+          retry: () => {
+            void personalJobsQuery.refetch();
+            void personalAutomationsQuery.refetch();
+          },
         })}
-        <div className="pt-2">
+        <div className={settingsVariant ? undefined : "pt-2"}>
           {renderSection({
-            title: t("jobs.organization", { defaultValue: "Organization" }),
+            title:
+              (settingsVariant && organizationName?.trim()) ||
+              t("jobs.organization", { defaultValue: "Organization" }),
             description: t("jobs.organizationDescription", {
               defaultValue:
                 "Scheduled, event-triggered, and webhook-triggered automations shared with this organization.",
@@ -787,16 +784,17 @@ export function AgentJobsTab({
               organizationJobsQuery.error,
               organizationAutomationsQuery.error,
             ].filter(Boolean),
+            retry: () => {
+              void organizationJobsQuery.refetch();
+              void organizationAutomationsQuery.refetch();
+            },
             organization: true,
           })}
         </div>
-        {mutationError ? (
-          <p className="text-sm text-destructive">
-            {mutationError.message ||
-              t("jobs.updateError", {
-                defaultValue: "Could not update automation.",
-              })}
-          </p>
+        {mutationError && !deleteTarget && !scheduleTarget && !runTarget ? (
+          <Alert variant="destructive">
+            <AlertDescription>{mutationErrorText}</AlertDescription>
+          </Alert>
         ) : null}
       </div>
 
@@ -820,11 +818,15 @@ export function AgentJobsTab({
               })}
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
+          {mutationError ? (
+            <Alert variant="destructive">
+              <AlertDescription>{mutationErrorText}</AlertDescription>
+            </Alert>
+          ) : null}
+          <DialogFooter className="gap-2 sm:space-x-0">
             <Button
               type="button"
-              variant="outline"
-              className="cursor-pointer"
+              variant="secondary"
               disabled={mutationPending}
               onClick={() => setDeleteTarget(null)}
             >
@@ -833,7 +835,6 @@ export function AgentJobsTab({
             <Button
               type="button"
               variant="destructive"
-              className="cursor-pointer"
               disabled={mutationPending}
               onClick={() => {
                 if (!deleteTarget) return;
@@ -842,10 +843,10 @@ export function AgentJobsTab({
                 );
               }}
             >
-              {mutationPending ? (
-                <IconLoader2 className="size-4 animate-spin" />
-              ) : null}
-              {t("jobs.delete", { defaultValue: "Delete" })}
+              {mutationPending ? <Spinner aria-hidden="true" /> : null}
+              {mutationPending
+                ? t("jobs.deleting", { defaultValue: "Deleting…" })
+                : t("jobs.delete", { defaultValue: "Delete" })}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -870,15 +871,16 @@ export function AgentJobsTab({
             </DialogDescription>
           </DialogHeader>
           {runAutomationMutation.error ? (
-            <p className="text-sm text-destructive">
-              {runAutomationMutation.error.message}
-            </p>
+            <Alert variant="destructive">
+              <AlertDescription>
+                {runAutomationMutation.error.message}
+              </AlertDescription>
+            </Alert>
           ) : null}
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:space-x-0">
             <Button
               type="button"
-              variant="outline"
-              className="cursor-pointer"
+              variant="secondary"
               disabled={runAutomationMutation.isPending}
               onClick={() => setRunTarget(null)}
             >
@@ -886,7 +888,6 @@ export function AgentJobsTab({
             </Button>
             <Button
               type="button"
-              className="cursor-pointer"
               disabled={runAutomationMutation.isPending}
               onClick={() => {
                 if (!runTarget) return;
@@ -900,11 +901,13 @@ export function AgentJobsTab({
               }}
             >
               {runAutomationMutation.isPending ? (
-                <IconLoader2 className="size-4 animate-spin" />
+                <Spinner aria-hidden="true" />
               ) : (
-                <IconPlayerPlay className="size-4" />
+                <IconPlayerPlay aria-hidden="true" />
               )}
-              {t("jobs.runNow", { defaultValue: "Run now" })}
+              {runAutomationMutation.isPending
+                ? t("jobs.running", { defaultValue: "Running…" })
+                : t("jobs.runNow", { defaultValue: "Run now" })}
             </Button>
           </DialogFooter>
         </DialogContent>

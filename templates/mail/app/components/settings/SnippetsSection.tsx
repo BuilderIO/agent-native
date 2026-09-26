@@ -215,7 +215,7 @@ function SnippetRow({
   );
 }
 
-export function SnippetsSection() {
+export function SnippetsSection({ embedded = false }: { embedded?: boolean }) {
   const t = useT();
   const { data, isLoading } = useSnippets();
   const snippets = data?.snippets ?? [];
@@ -230,30 +230,38 @@ export function SnippetsSection() {
     );
   };
 
+  const newSnippetButton = (
+    <Button
+      size="sm"
+      onClick={() => {
+        setShowNewForm(true);
+        setEditingId(null);
+      }}
+    >
+      <IconPlus className="h-3.5 w-3.5" />
+      {t("settings.newSnippet")}
+    </Button>
+  );
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-[16px] font-semibold text-foreground">
-            {t("settings.snippets")}
-          </h2>
-          <p className="text-[13px] text-muted-foreground mt-0.5">
-            {t("settings.snippetsDescription")}
-          </p>
+      {embedded ? (
+        <div className="mb-4 flex justify-end">{newSnippetButton}</div>
+      ) : (
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-[16px] font-semibold text-foreground">
+              {t("settings.snippets")}
+            </h2>
+            <p className="text-[13px] text-muted-foreground mt-0.5">
+              {t("settings.snippetsDescription")}
+            </p>
+          </div>
+          {newSnippetButton}
         </div>
-        <Button
-          size="sm"
-          onClick={() => {
-            setShowNewForm(true);
-            setEditingId(null);
-          }}
-        >
-          <IconPlus className="h-3.5 w-3.5" />
-          {t("settings.newSnippet")}
-        </Button>
-      </div>
+      )}
 
-      <div className="max-w-2xl space-y-2">
+      <div className={embedded ? "space-y-2" : "max-w-2xl space-y-2"}>
         {showNewForm && (
           <SnippetEditRow
             onSave={handleCreate}

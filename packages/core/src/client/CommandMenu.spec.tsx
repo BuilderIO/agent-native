@@ -12,6 +12,7 @@ import {
   type CommandMenuDoc,
 } from "./CommandMenu.js";
 import { SIGN_OUT_SEARCH_TERMS } from "./sign-out.js";
+import { OPEN_SETTINGS_PAGE_EVENT } from "./use-settings-shortcut.js";
 
 const DOCS: CommandMenuDoc[] = [
   {
@@ -179,6 +180,69 @@ describe("CommandMenu docs group", () => {
     search("version");
     expect(document.body.textContent).toContain("About Agent-Native");
     expect(document.body.textContent).not.toContain("Create a project");
+  });
+
+  it("offers Settings with its shortcut hint in every menu", () => {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Create a project
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    const settingsItem = [
+      ...document.querySelectorAll<HTMLElement>("[cmdk-item]"),
+    ].find((item) => item.textContent?.startsWith("Settings"));
+    expect(settingsItem?.textContent).toMatch(/Settings(⌘,|Ctrl\+,)$/);
+    search("preferences");
+    expect(document.body.textContent).toContain("Settings");
+    expect(document.body.textContent).not.toContain("Create a project");
+  });
+
+  it("closes the menu and opens Settings from the Settings row", () => {
+    const onOpenChange = vi.fn();
+    const requests: Array<{ page?: string }> = [];
+    const claim = (event: Event) => {
+      event.preventDefault();
+      requests.push((event as CustomEvent<{ page?: string }>).detail);
+    };
+    window.addEventListener(OPEN_SETTINGS_PAGE_EVENT, claim);
+    try {
+      act(() => {
+        root.render(
+          <CommandMenu
+            open
+            onOpenChange={onOpenChange}
+            showAgentFallback={false}
+          >
+            <CommandMenu.Group heading="Actions">
+              <CommandMenu.Item onSelect={() => undefined}>
+                Create a project
+              </CommandMenu.Item>
+            </CommandMenu.Group>
+          </CommandMenu>,
+        );
+      });
+
+      const settingsItem = [
+        ...document.querySelectorAll<HTMLElement>("[cmdk-item]"),
+      ].find((item) => item.textContent?.startsWith("Settings"));
+      act(() => settingsItem?.click());
+
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(requests).toEqual([{}]);
+    } finally {
+      window.removeEventListener(OPEN_SETTINGS_PAGE_EVENT, claim);
+    }
   });
 
   it("opens About Agent-Native after closing the command menu", () => {

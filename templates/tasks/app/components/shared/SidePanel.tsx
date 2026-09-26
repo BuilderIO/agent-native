@@ -86,10 +86,9 @@ export function SidePanel({
             <Button
               type="button"
               variant="ghost"
-              size="icon"
+              size="icon-sm"
               onClick={onClose}
               aria-label={resolvedCloseLabel}
-              className="size-8"
             >
               <IconX className="size-4" />
             </Button>

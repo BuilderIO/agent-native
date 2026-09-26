@@ -233,7 +233,10 @@ MCP アプリ埋め込み内からこれを実行する場合や、サイドバ�
 
 ## openAgentSettings(section?) {#openagentsettings}
 
-アプリの設定ページやセットアップ カードが正規の `/settings` ページを開く必要があるときは、`openAgentSettings()` を使用します。特定のセクションを開くには、`"llm"`、`"secrets"`、`"automations"`、`"voice"`、`"limits"` などのセクション id を渡します。
+セットアップ カードやチャット画面から Settings を開くときは `openAgentSettings()` を使います。
+`"llm"`、`"secrets"`、`"automations"`、`"voice"`、`"limits"` などのセクション id を渡すと、
+Settings のリダイレクト表がそのセクションを持つページ (Model、API keys、Automations、
+Preferences、または Model の上限の行) を開きます。
 
 ```ts
 import { openAgentSettings } from "@agent-native/core/client/navigation";
@@ -242,6 +245,8 @@ openAgentSettings("secrets");
 ```
 
 `agent-panel:open-settings` を直接ディスパッチするより、このヘルパーを優先してください。
+ページを id で開くには `openSettingsPage("integrations")` を呼ぶか、
+`buildSettingsRoute(page, sub?)` でリンクします。[Settings Kit](/docs/toolkit-settings#links) を参照してください。
 
 ## Agent チャット コンテキスト状態 {#agent-chat-context-state}
 
