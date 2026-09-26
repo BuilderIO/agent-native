@@ -75,7 +75,6 @@ export async function createWorkspaceAppEmbedSession({
   return result;
 }
 
-
 const SSO_FLAG_TTL_MS = 10 * 60 * 1000;
 let ssoFlagCache: {
   owner: string;
@@ -91,13 +90,6 @@ const ssoFlagInFlight = new Map<string, Promise<boolean>>();
  */
 const EMBED_SESSION_REUSE_MS = 55 * 60 * 1000;
 const LIVE_EMBED_SESSIONS_KEY = "agent-native:live-workspace-app-sessions-v2";
-/**
- * Keyed by app, NOT by app+owner. The React Native cookie jar is shared per
- * origin, so only one account can hold a live session for an app at a time —
- * signing in as B overwrites A's child cookie in place. A per-owner map let
- * A → B → A reuse A's stale marker against B's cookie and show one account the
- * other's data, so the map has to mirror what the jar can actually hold.
- */
 const liveEmbedSessions = new Map<
   string,
   { establishedAt: number; owner: string }
@@ -117,13 +109,6 @@ function persistLiveEmbedSessions(): void {
   });
 }
 
-/**
- * WebView cookies outlive the JS process, so a relaunch inside the embed
- * cookie's hour can still open at the CDN-cached shell. React Native gives no
- * way to read those cookies back, so the marker is persisted alongside them —
- * and `handleLoadEnd` re-mints if the app answers with its sign-in document,
- * which is what keeps a wrong marker self-correcting rather than silent.
- */
 export function ensureLiveWorkspaceAppSessionsHydrated(): Promise<void> {
   if (hydration) return hydration;
   hydration = AsyncStorage.getItem(LIVE_EMBED_SESSIONS_KEY)

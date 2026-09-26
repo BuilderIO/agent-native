@@ -545,10 +545,6 @@ export interface AgentKitMutation<TArgs extends unknown[], TResult> {
   reset(): void;
 }
 
-/**
- * Gives custom AgentKit controls the same race-safe pending and error contract
- * as the reference components. Only the latest invocation owns visible state.
- */
 export function useAgentKitMutation<TArgs extends unknown[], TResult>(
   mutation: (...args: TArgs) => Promise<TResult>,
   scopeKey?: unknown,

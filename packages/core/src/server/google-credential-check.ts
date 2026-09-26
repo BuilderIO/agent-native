@@ -120,6 +120,8 @@ function decodeGoogleAuthErrorParam(location: string): string | null {
     return Buffer.from(authError, "base64url").toString("utf-8");
   } catch {
     // coercion-ok: the decoded text only decorates `detail`; the mismatch
+    // verdict comes from the Location path, so an undecodable blob is "no
+    // detail", not a hidden failure.
     return null;
   }
 }
@@ -199,6 +201,8 @@ export async function checkGoogleSignInCredential(options?: {
   const now = options?.now ?? Date.now;
   const ttlMs = options?.ttlMs ?? DEFAULT_TTL_MS;
   const at = now();
+  // Prefer what Better Auth actually wired up. A template requesting broader
+  // scopes runs on GOOGLE_CLIENT_*, so re-deriving the preferred pair here
   // would test a credential the callback never touches.
   const active = getActiveGoogleSignInCredentials();
   if (

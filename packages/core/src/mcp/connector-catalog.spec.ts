@@ -1,19 +1,5 @@
-/**
- * Connector-catalog tier tests.
- *
- * Verifies that when a template declares a `connectorCatalog`, the MCP server:
- *
- *   1. Only advertises the declared tools (+ builtin cross-app tools) in tools/list.
- *   2. Rejects tools/call for any tool NOT in the catalog.
- *   3. Serves the full surface when the caller opted up with catalog_scope: "full"
- *      (both A2A JWT and OAuth token paths).
- *   4. Applies the connector catalog without requiring an env flag.
- *   5. ask-agent is excluded from the connector tier.
- */
-
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 
 vi.mock("./builtin-tools.js", () => ({
   getBuiltinCrossAppTools: () => ({
@@ -115,7 +101,6 @@ vi.mock("./oauth-store.js", () => ({
 const { handleMcpRequest } = await import("./server.js");
 const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
 
-
 const A2A_SECRET = "connector-catalog-a2a-secret";
 const OAUTH_SECRET = "connector-catalog-oauth-secret";
 
@@ -197,7 +182,6 @@ async function call(
   }
   return JSON.parse(text);
 }
-
 
 const CONNECTOR_CATALOG = ["create-plan", "get-plan", "navigate"];
 
@@ -316,7 +300,6 @@ vi.mock("../mcp/oauth-route.js", () => ({
     "https://plan.agent-native.com/.well-known/oauth-protected-resource",
   buildMcpOAuthChallenge: () => 'Bearer realm="plan"',
 }));
-
 
 describe("connector-catalog tier", () => {
   beforeEach(() => {

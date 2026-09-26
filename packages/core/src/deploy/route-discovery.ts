@@ -53,7 +53,7 @@ export async function discoverFiles(
     }
     return files;
   } catch {
-    return []; // coercion-ok: Edge runtimes have no filesystem, so an empty result is expected.
+    return []; // Edge runtime — no filesystem
   }
 }
 
@@ -99,7 +99,7 @@ export async function discoverPlugins(cwd: string): Promise<string[]> {
       .sort()
       .map((f) => path.join(pluginsDir, f));
   } catch {
-    return []; // coercion-ok: Edge runtimes have no filesystem, so an empty result is expected.
+    return []; // Edge runtime — no filesystem
   }
 }
 
@@ -400,7 +400,7 @@ export async function getMissingDefaultPlugins(cwd: string): Promise<string[]> {
         : [],
     );
   } catch {
-    existingStems = new Set();
+    existingStems = new Set(); // Edge runtime — all defaults will be auto-mounted
   }
   return Object.keys(DEFAULT_PLUGIN_REGISTRY).filter(
     (stem) => !existingStems.has(stem),

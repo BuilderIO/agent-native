@@ -1,4 +1,3 @@
-
 import {
   deleteCookie,
   defineEventHandler,
@@ -142,6 +141,10 @@ function allRequiredComplete(statuses: OnboardingStepStatus[]): boolean {
 }
 
 async function readDismissedFlag(sessionId: string): Promise<boolean> {
+  // The dismissed flag is optional UX state; a transient DB failure reading it
+  // must not take down a read whose steps and profile are still usable (the
+  // pre-summary client already assumed "not dismissed" when this read
+  // failed). A credential-store outage is not transient, so it still throws.
   try {
     const value = await appStateGet(sessionId, DISMISSED_KEY);
     return !!(value && (value as { dismissed?: boolean }).dismissed);
@@ -151,11 +154,6 @@ async function readDismissedFlag(sessionId: string): Promise<boolean> {
   }
 }
 
-/**
- * Without a parent cookie domain the shared cookie would be host-only, so no
- * sibling app could read it. Warn and stay off rather than write a cookie that
- * silently does nothing.
- */
 async function resolveSharedCompletionEnabled(): Promise<boolean> {
   if (!getAppConfig().onboarding.sharedCompletion.enabled) return false;
   const { sharedFirstPartyCookieDomainAttrs } =
@@ -355,7 +353,10 @@ export function createOnboardingPlugin(
             return { firstRun: false };
           }
 
+          // Signup alone is not enough to qualify. Resolve the real org path
           // first so invite/domain members cannot race this check before their
+          // existing membership is visible, while a true first user causes the
+          // default org to be created and marked eligible.
           const orgContext = await getOrgContext(event);
           const eligible = await appStateGet(
             context.sessionId,
@@ -511,6 +512,8 @@ export function createOnboardingPlugin(
           const role = await getUserProfile(context.userEmail).then(
             (profile) => profile.onboardingRole ?? null,
             // coercion-ok: the shared cookie is best-effort. A failed profile
+            // read still shares the completion and only drops the role; the
+            // sibling app then leaves its own role unset.
             () => null,
           );
           setCookie(

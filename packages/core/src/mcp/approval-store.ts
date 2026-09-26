@@ -61,12 +61,6 @@ export async function createMcpApprovalGrant(
   }
 }
 
-/**
- * Atomically consume an exact grant. The UPDATE predicate is the security
- * boundary: only one hosted instance can move a matching, unexpired row from
- * pending to consumed, so an accepted response is at-most-once even when the
- * same signed requestState is replayed concurrently.
- */
 export async function consumeMcpApprovalGrant(
   grant: McpApprovalGrant,
 ): Promise<boolean> {

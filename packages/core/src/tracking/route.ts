@@ -19,6 +19,7 @@
  * a client-supplied identity.
  */
 
+/** Max length of an event name. Mirrors typical provider limits. */
 export const MAX_TRACK_EVENT_NAME_LENGTH = 200;
 
 export const MAX_TRACK_PROPERTIES_BYTES = 16 * 1024;

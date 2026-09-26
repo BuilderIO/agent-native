@@ -1435,6 +1435,8 @@ async function enqueueIntegrationContinuationIfPossible(
       agentUrl: agent.url,
       dedupeKey: getIntegrationContinuationDedupeKey(message),
       a2aTaskId: taskId,
+      // Do not persist the short-lived JWT used for the initial send. The
+      // continuation processor can mint a fresh token for each poll.
       a2aAuthToken: null,
     });
     await dispatchA2AContinuation(continuation.id).catch((err) => {

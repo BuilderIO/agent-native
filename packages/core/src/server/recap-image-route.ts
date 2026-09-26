@@ -1,24 +1,3 @@
-/**
- * Routes for signed, content-only recap PNG images.
- *
- *   POST /_agent-native/recap-image
- *     Auth: `Authorization: Bearer <token>` — accepts the SAME tokens the MCP /
- *     action surface accepts: a legacy `sessions` bearer (desktop/native) OR a
- *     connect-minted MCP OAuth access token (the `agent-native connect` token,
- *     audience-bound to this app's `{origin}/mcp` resource). A
- *     normal browser session cookie is also accepted. Rejects unauthenticated
- *     callers with 401.
- *     Body: raw `image/png` bytes, or JSON `{ "pngBase64": "..." }`. Capped at
- *     ~5 MB. Stores the PNG and returns `{ imageUrl: "<origin>/_agent-native/
- *     recap-image/<token>.png" }`.
- *
- *   GET /_agent-native/recap-image/<token>.png
- *     ANONYMOUS (no auth) so GitHub's camo image proxy can fetch it into a
- *     private-repo PR comment. Returns the stored PNG with a strict
- *     `Content-Type: image/png` and a long immutable cache header. 404 on an
- *     unknown/malformed token. Only ever serves opaque image bytes — no plan
- *     data leaks through this route.
- */
 import {
   defineEventHandler,
   getHeader,
@@ -128,7 +107,6 @@ async function handleUpload(event: H3Event): Promise<unknown> {
   }
 }
 
-/** GET/HEAD /_agent-native/recap-image/<token>.png — anonymous, content-only. */
 async function handleServe(event: H3Event, segment: string): Promise<unknown> {
   const match = /^([0-9a-f]+)\.png$/i.exec(segment);
   const token = match?.[1]?.toLowerCase() ?? "";

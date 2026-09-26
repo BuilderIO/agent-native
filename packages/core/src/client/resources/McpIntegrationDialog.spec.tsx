@@ -759,7 +759,6 @@ describe("McpIntegrationDialog", () => {
       (button) => button.textContent?.includes("Set up for workspace") ?? false,
     );
     expect(workspace).toBeTruthy();
-    // The form would expose a URL field and a personal scope toggle instead.
     expect(
       document.body.querySelector(
         'input[placeholder="https://example.com/agent-integration"]',
@@ -810,7 +809,6 @@ describe("McpIntegrationDialog", () => {
     renderCustomForm();
     openCustomFormWithBuilderUrl();
 
-    // would create a workspace credential the admin did not consent to.
     const personalToggle = [...document.body.querySelectorAll("button")].find(
       (button) => button.textContent === "Personal",
     );
@@ -830,7 +828,6 @@ describe("McpIntegrationDialog", () => {
         ?.click();
     });
 
-    // The org-only rule covers the shared OAuth grant, not a token the user
     const personalToggle = [...document.body.querySelectorAll("button")].find(
       (button) => button.textContent === "Personal",
     );
@@ -1053,6 +1050,7 @@ describe("McpIntegrationDialog", () => {
   });
 
   // GitHub's authorization server cannot register a client, so an OAuth entry
+  // here rendered a Connect button whose only outcome was a raw JSON error page.
   it("asks GitHub for a token instead of starting OAuth", () => {
     const github = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "github",

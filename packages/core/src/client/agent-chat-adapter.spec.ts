@@ -8534,6 +8534,9 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("keeps following a re-observed chunk-boundary run whose terminal_reason is rate_limited", async () => {
+    // Same re-observed-old-chunk race as above, but for the "rate_limited"
+    // continuation reason: it must be treated as a non-terminal chunk
+    // boundary like the others, not dropped as if the turn were done.
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -9061,7 +9064,10 @@ describe("createAgentChatAdapter", () => {
     expect(last.metadata?.custom?.runError?.details).toContain(serverDetails);
   });
 
+  // The other direction: an earlier auto-recoverable blip in the SAME run is
+  // not this failure's message. A background run that died for want of a
   // credential must report that, not the stale transient error, or the only
+  // party who can fix it is told to retry a timeout that already passed.
   it("prefers the terminal reason over a stale in-run recoverable error", async () => {
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
@@ -9607,6 +9613,12 @@ describe("createAgentChatAdapter", () => {
 
     await vi.advanceTimersByTimeAsync(BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS * 1.5);
 
+    // The turn must still be RUNNING — not settled with a fatal outcome —
+    // even though real (non-deferred-aware) idle accounting would have fired
+    // well before now. Race against an already-resolved value: if `promise`
+    // had already settled, awaiting the race resolves to "settled"; fake
+    // timers guarantee it cannot spontaneously settle without a further
+    // timer tick, so this reliably observes "still pending" here.
     const raceResult = await Promise.race([
       promise.then(() => "settled" as const),
       Promise.resolve("pending" as const),

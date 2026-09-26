@@ -1467,6 +1467,7 @@ describe("AgentEngine registry", () => {
     it("requires every var in a set that also carries the legacy Builder pair", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-legacy"; // guard:allow-env-credential — fixture: the legacy pair is the credential under test
       process.env.BUILDER_PUBLIC_KEY = "space-legacy"; // guard:allow-env-credential — fixture: the legacy pair is the credential under test
+      // CUSTOM_LEGACY_REGION is deliberately left unset.
 
       const {
         registerAgentEngine,
@@ -1509,6 +1510,11 @@ describe("AgentEngine registry", () => {
       expect((await detectEngineFromEnvForRequest())?.name).toBe("anthropic");
     });
 
+    // The defer rule is about the *injected* gateway token. A customer who set
+    // the legacy Builder pair themselves chose Builder deliberately and must
+    // keep getting it — deferring here would silently move an existing app's
+    // provider and billing on a `pnpm up`, and would make
+    // AGENT_ENGINE_PREFER_BYO_KEY (asserted below) a no-op.
     it("keeps builder when the explicitly configured legacy pair sits alongside a BYO key", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-legacy"; // guard:allow-env-credential — fixture: an explicitly configured legacy pair must keep winning
       process.env.BUILDER_PUBLIC_KEY = "space-legacy"; // guard:allow-env-credential — fixture: an explicitly configured legacy pair must keep winning
@@ -1542,7 +1548,11 @@ describe("AgentEngine registry", () => {
       expect((await detectEngineFromEnvForRequest())?.name).toBe("anthropic");
     });
 
+    // Both shapes present: the customer-configured one decides, so builder wins
     // and the injected token never gets a chance to matter. Not under
+    // NODE_ENV=production — there the legacy deploy pair is deliberately
+    // unreadable for a request that carries a user email, so only the injected
+    // set would qualify and the assertion would be about a different rule.
     it("keeps builder when the legacy pair and the injected pair are both set", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-legacy"; // guard:allow-env-credential — fixture: an explicitly configured legacy pair must keep winning
       process.env.BUILDER_PUBLIC_KEY = "space-legacy"; // guard:allow-env-credential — fixture: an explicitly configured legacy pair must keep winning
@@ -1866,7 +1876,6 @@ describe("AgentEngine registry", () => {
       });
 
       expect(await detectEngineFromUserSecrets()).toBeNull();
-      // set, instead of a point read per (key, scope).
       expect(readAppSecrets).toHaveBeenCalledWith(
         expect.objectContaining({
           keys: ["ANTHROPIC_API_KEY"],
@@ -2798,6 +2807,9 @@ describe("AgentEngine registry", () => {
 
       await detectEngineFromUserSecrets();
 
+      // The prefetch must cover both engines' keys up front. Probing per engine
+      // instead costs a read per (scope, key), which is what made the status
+      // endpoint issue ~50 serial reads per poll.
       const batched = readAppSecrets.mock.calls.find(
         ([args]: any) =>
           args.keys.includes("OPENAI_API_KEY") &&
@@ -2875,6 +2887,9 @@ describe("AgentEngine registry", () => {
 
       const detected = await detectEngineFromUserSecrets();
 
+      // Builder resolves from the first registry entry without touching a
+      // provider key, so the batched prefetch must not run ahead of it and put
+      // extra scope reads on this continuously polled path.
       expect(detected?.name).toBe("builder");
       const providerRead = readAppSecrets.mock.calls.find(([args]: any) =>
         args.keys.includes("OPENAI_API_KEY"),
@@ -2902,7 +2917,10 @@ describe("AgentEngine registry", () => {
       const { registerAgentEngine, detectEngineFromUserSecrets } =
         await import("./registry.js");
 
+      // Registration order is priority order (see registerBuiltinEngines), so a
+      // custom engine ahead of Builder is legitimately probed first. The
       // invariant that matters is that the prefetch stays memoized: it must not
+      // re-run per engine as the loop walks the rest of the registry.
       registerAgentEngine({
         name: "custom-first",
         label: "Custom",

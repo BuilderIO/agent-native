@@ -1,10 +1,8 @@
-
 export interface RedactOptions {
   salt?: string;
   redactNumbers?: boolean;
   redactProtectedEmails?: boolean;
 }
-
 
 function xmur3(str: string): () => number {
   let h = 1779033703 ^ str.length;
@@ -35,7 +33,6 @@ function seededRng(value: string, salt: string): () => number {
   const seedFn = xmur3(`${value}${salt}`);
   return mulberry32(seedFn());
 }
-
 
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const CACHE_MAX = 5000;
@@ -100,7 +97,6 @@ function memoFake(
   return value;
 }
 
-
 export const DEMO_ANONYMOUS_EMAIL = "anonymous@builder.io";
 
 function fakeEmail(original: string, salt: string): string {
@@ -144,7 +140,6 @@ function fakeNumberBody(
     false,
   );
 }
-
 
 const PROTECT_PATTERNS: RegExp[] = [
   /\b[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s]+/g,
@@ -246,7 +241,6 @@ function unprotect(text: string, restore: Map<string, string>): string {
   return out;
 }
 
-
 const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 
 const NUMBER_RE =
@@ -293,7 +287,6 @@ function transformNumbers(text: string, salt: string): string {
   );
 }
 
-
 function redactDemoStringInternal(
   text: string,
   salt: string,
@@ -319,7 +312,6 @@ export function redactDemoString(text: string, opts?: RedactOptions): string {
   );
 }
 
-
 const PROTECTED_KEY_RE =
   /^id$|(^|_)id$|Id$|Ids$|uuid|guid|slug|token|secret|password|passwd|apikey|api_key|hash|sha\d*|etag|cursor|nonce|sessionid|messageid|threadid|nodeid|(^|_)key$|keyid|(^|_)ref$|url$|uri$|href$|src$|path$|filename$|mimetype|mime|^sql$|sql$|query|expression|formula|^code$|createdat|updatedat|deletedat|expiresat|timestamp|.+at$|.+_at$/i;
 
@@ -336,6 +328,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function redactNumberLeaf(value: number, salt: string): number {
   if (!Number.isFinite(value)) return value;
   const repr = String(value);
+  // Re-use the string number transform but only if the representation is a
+  // clean numeric token we can round-trip back to a JS number.
   const redacted = transformNumbers(repr, salt);
   if (redacted === repr) return value;
   const n = Number(redacted);

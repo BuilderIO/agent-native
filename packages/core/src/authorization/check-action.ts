@@ -80,11 +80,6 @@ async function isOrgMember(target: ActionAccessTarget): Promise<boolean> {
   return rows.length > 0;
 }
 
-/**
- * Shared authorization decision used by declarative actions and explain-access.
- * List/search paths still use accessFilter; this facade only composes the
- * action-level app, organization, permission, and resource checks.
- */
 export async function checkAction(
   config: ActionAccessConfig | undefined,
   args: unknown,

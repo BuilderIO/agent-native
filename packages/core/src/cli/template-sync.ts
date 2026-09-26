@@ -104,11 +104,6 @@ export interface TemplateMergeResult {
   keptLocal: string[];
 }
 
-
-/**
- * Reproduce, in a temp directory, the exact bytes `create` would have written
- * for this (template, ref, app name, shape, workspace scope).
- */
 export async function materializeTemplate(
   opts: MaterializeOptions,
 ): Promise<MaterializeResult> {
@@ -182,7 +177,6 @@ export async function materializeTemplate(
 
   return { dir: dest, ref: usedRef, source };
 }
-
 
 export function isMergeExcluded(rel: string): boolean {
   const segments = rel.split("/");
@@ -333,7 +327,6 @@ function gitMergeFile(
   }
 }
 
-
 export function readProvenance(appDir: string): TemplateProvenance {
   const pkg = readJson(path.join(appDir, "package.json"));
   const scaffold = (
@@ -429,7 +422,6 @@ function findAppDir(cwd: string): string | null {
   }
   return null;
 }
-
 
 export async function runTemplate(
   args: string[],
@@ -786,7 +778,6 @@ function acceptCommand(target: AppTarget, io: TemplateIO): number {
   );
   return 0;
 }
-
 
 function useLocalTemplate(target: AppTarget, ref: string | null): boolean {
   if (!ref) return true;

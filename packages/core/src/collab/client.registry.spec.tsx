@@ -1,5 +1,18 @@
 // @vitest-environment happy-dom
 
+/**
+ * Hook-level tests for the ref-counted per-docId connection registry in
+ * useCollaborativeDoc (client.ts):
+ *
+ * 1. Two components mounting the hook for the same docId share ONE Y.Doc /
+ *    Awareness and trigger ONE initial state fetch (no doubled traffic).
+ * 2. Different docIds get independent connections.
+ * 3. Last unmount tears the connection down after the dispose linger
+ *    (Y.Doc destroyed, registry entry evicted); a fresh mount then gets a
+ *    NEW connection and refetches state.
+ * 4. StrictMode-style unmount→remount within the linger window keeps the
+ *    connection alive (same Y.Doc, no refetch).
+ */
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";

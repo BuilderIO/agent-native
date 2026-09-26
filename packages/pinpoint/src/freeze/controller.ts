@@ -1,4 +1,7 @@
+// @agent-native/pinpoint — Unified freeze controller
 // MIT License
+//
+// Lazy initialization — nothing is patched until first freeze() call.
 
 import { freezeCSS } from "./css-freeze.js";
 import { freezeJSTimers } from "./js-freeze.js";
@@ -35,6 +38,7 @@ export function unfreeze(): void {
     try {
       cleanup();
     } catch {
+      // Best-effort cleanup
     }
   }
   cleanups = [];

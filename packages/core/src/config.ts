@@ -1,12 +1,3 @@
-/**
- * Public, non-secret configuration for an Agent-Native app.
- *
- * This module is intentionally free of Node and framework imports so it can be
- * used from a typed `agent-native.config.ts` file and from browser code after Vite
- * serializes the resolved config into the client bundle. The one shared module
- * it pulls in is pure for the same reason.
- */
-
 import { normalizeFrameworkRoutePrefix } from "./shared/framework-route-prefix.js";
 
 export const AGENT_NATIVE_CONFIG_VERSION = 1 as const;

@@ -1,6 +1,3 @@
-
-
-
 struct PresentUniforms {
   fgColor: vec4f,
   bgColor: vec4f,

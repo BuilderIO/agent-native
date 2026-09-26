@@ -8,7 +8,6 @@ function stringifyValue(value: unknown): string {
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
 
-
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -221,6 +220,8 @@ export async function getBetterAuthUserIdForEmail(
     return existing?.user?.id || undefined;
   } catch (error) {
     // coercion-ok: this is analytics enrichment on the sign-in path. Failing
+    // the sign-in over it would be worse, and the only consequence is one
+    // event missing `auth_user_id` — never a wrong id. Logged, not swallowed.
     console.error(
       "[auth] failed to resolve the canonical user id for a signup event",
       error,
@@ -261,7 +262,6 @@ export async function emitSignupEventForCreatedUser(
   let anonymousId: string | undefined;
   try {
     const browser =
-      // The signed magic-link token is the only source that survives the link
       (context?.request?.url?.includes("newUserCallbackURL")
         ? readMagicLinkSignupAttribution(context.request.url, getAuthSecret())
         : undefined) ??
@@ -359,7 +359,6 @@ export async function trackSignupEvent({
   );
   await flushSignupTracking();
 }
-
 
 export const DEV_AUTH_SECRET_PATH = path.join(
   ".agent-native",
@@ -549,7 +548,12 @@ function resolveAuthSecret(appRoot = process.cwd()): string {
   const deployEnvironment = resolveDeployEnvironment();
   const explicitlyLocal = isExplicitLocalDeployEnvironment();
 
+  // In production, beyond the workspace A2A-derived fallback above, never
   // auto-generate or use legacy fallbacks. A generated secret invalidates every
+  // signed session cookie on the next cold start (serverless filesystems
+  // aren't persistent), and the legacy hardcoded fallback is identical across
+  // every deploy that hits it — both are serious enough to fail the boot loudly
+  // so the deployer notices.
   if (
     deployEnvironment !== "local" ||
     (process.env.NODE_ENV === "production" && !explicitlyLocal)
@@ -566,7 +570,6 @@ function resolveAuthSecret(appRoot = process.cwd()): string {
     throw new Error(formatRuntimeConfigReport(report));
   }
 
-  // secret rather than reusing a Google client secret or a known string.
   const existing = readEnvLocalSecret(path.resolve(appRoot, ".env.local"));
   if (existing) return existing;
 
@@ -723,7 +726,6 @@ export function resolveEmailPasswordAuthPolicy(
   if (declared !== undefined) {
     return {
       requireEmailVerification: declared && emailConfigured,
-      // explicitly absent provider is the documented password-only mode.
       disableSignUp: emailProviderMissing ? declared : !emailConfigured,
     };
   }
@@ -731,16 +733,13 @@ export function resolveEmailPasswordAuthPolicy(
   return {
     requireEmailVerification:
       emailConfigured && (hosted || !shouldSkipEmailVerification()),
-    // Only an explicitly absent provider enables unverified password signup.
     disableSignUp: !emailConfigured && !emailProviderMissing,
   };
 }
 
-/** Read-only accessor for the resolved auth secret. */
 export function getAuthSecret(): string {
   return resolveAuthSecret();
 }
-
 
 export interface BetterAuthInstance {
   handler: (request: Request) => Promise<Response>;
@@ -823,7 +822,6 @@ export interface BetterAuthConfig {
   plugins?: BetterAuthOptions["plugins"];
   googleScopes?: string[];
 }
-
 
 let _auth: BetterAuthInstance | undefined;
 let _initPromise: Promise<BetterAuthInstance> | undefined;
@@ -1237,14 +1235,6 @@ const DESKTOP_MAGIC_LINK_CALLBACK_MARKER =
 const DESKTOP_MAGIC_LINK_LANDING_MARKER =
   "/_agent-native/auth/magic-link/desktop-landing";
 
-/**
- * Email security scanners commonly prefetch ordinary GET links. Better Auth
- * intentionally consumes a magic-link token on that first GET, so a scanner
- * can otherwise spend a desktop flow before the user ever clicks it. Keep the
- * normal web link unchanged and put only desktop flows behind an explicit
- * confirmation page that hands the original verification URL back after the
- * user acts.
- */
 export function desktopMagicLinkLandingUrl(value: string): string | undefined {
   try {
     const verificationUrl = new URL(value);
@@ -1537,10 +1527,6 @@ export async function getBetterAuthInternalAdapter(
   return undefined;
 }
 
-/**
- * Run a password action with a Better Auth session for the framework's legacy
- * session boundary, deleting a session created only for this operation.
- */
 type BetterAuthActionSessionOverrides = {
   auth?: BetterAuthInstance;
   createSession?: typeof createBetterAuthSessionForEmail;
@@ -1660,7 +1646,9 @@ export async function createBetterAuthSessionForEmail(
   config?: BetterAuthConfig,
   options?: { expiresAt?: Date },
 ): Promise<{ email: string; token: string; userId: string } | null> {
+  // This helper is used by framework action bridges, but it still creates a
   // real Better Auth session. Do not let it mint a password-shaped session for
+  // an organization that requires a provider-specific sign-in.
   if (await getRequiredAuthProviderForEmail(email)) return null;
   const adapter = await getBetterAuthInternalAdapter(config);
   if (!adapter) return null;
@@ -1845,9 +1833,14 @@ export async function ensureGoogleAuthIdentityWithAdapter(
         return true;
       } catch (error) {
         // A concurrent first sign-in may have won the unique-email race. Only
+        // continue if the canonical row now exists; otherwise preserve the
+        // real adapter error and do not issue a legacy session.
         existing = await findExisting();
         if (!existing) throw error;
 
+        // The account may have been linked by the concurrent sign-in that won
+        // the create race. Re-read it before falling through to the legacy
+        // link path, which must never create a duplicate association.
         linkedAccount = await adapter.findAccountByProviderId(
           accountId,
           "google",
@@ -1884,7 +1877,13 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     return false;
   }
 
+  // A password signup reserves the email before verification. If that row is
   // credential-only, remove the unverified credential and promote the same
+  // canonical user to the verified Google identity. A third-party account makes
+  // the claimant ambiguous, so keep the account-claim protection. The
+  // framework's own identity-SSO link is not a third party: cross-app JIT
+  // provisioning writes it alongside an unusable password credential, so
+  // counting it as a claim left federated users permanently unable to sign in
   // with Google against a password account they never knowingly created.
   if (existing.user.emailVerified !== true) {
     const credentialAccounts = existing.accounts.filter(
@@ -1943,10 +1942,13 @@ function resetAuthOnPoolClose(driver?: string, url?: string): void {
   }
 }
 
-
 async function createBetterAuthInstance(
   config?: BetterAuthConfig,
 ): Promise<BetterAuthInstance> {
+  // Better Auth derives every URL it hands out — social-provider callbacks,
+  // magic-link verification, password reset — from this base path, so it
+  // must be the PUBLIC one. The framework still mounts the handler on the
+  // internal path and passes Better Auth a request in public form.
   const basePath = publicFrameworkPath(
     `${getConfiguredAppBasePath()}${config?.basePath ?? "/_agent-native/auth/ba"}`,
   );
@@ -1981,7 +1983,12 @@ async function createBetterAuthInstance(
       : (resolveGoogleSignInCredentials() ?? configuredGoogleCredentials);
   recordActiveGoogleSignInCredentials(googleCredentials);
   if (googleCredentials) {
+    // When the template requests broader scopes (Gmail, Calendar, etc.)
+    // ask for them on the primary sign-in flow so a separate "Connect
+    // Google" round-trip isn't needed. `accessType: "offline"` plus
+    // `prompt: "consent"` ensures we always receive a refresh token back —
     // Google only re-issues a refresh token on consent, so re-signing in
+    // (e.g. after switching machines) would otherwise leave us with an
     // access token that can't be refreshed.
     const baseScopes = ["openid", "email", "profile"];
     const mergedScopes = Array.from(new Set([...baseScopes, ...extraScopes]));
@@ -2066,6 +2073,9 @@ async function createBetterAuthInstance(
   if (enterpriseAuthAdaptersBuilt && access.scim.enabled) {
     const { scim } = await import("@better-auth/scim");
     // Better Auth intentionally requires a separate 32-character HMAC secret
+    // for managed SCIM credentials. Falling back to the deployment auth secret
+    // keeps the opt-in feature usable for existing deployments while allowing
+    // operators to rotate the SCIM boundary independently via app-config.
     const credentialHashSecret = access.scim.credentialHashSecret ?? secret;
     if (credentialHashSecret.length < 32) {
       throw new Error(
@@ -2152,6 +2162,8 @@ async function createBetterAuthInstance(
       disableSignUp,
       minPasswordLength: PASSWORD_MIN_LENGTH,
       maxPasswordLength: PASSWORD_MAX_LENGTH,
+      // Email verification is enabled only when a provider is ready. Without
+      // one, hosted deployments keep password signup available.
       requireEmailVerification,
       sendResetPassword: async ({ user, token }) => {
         const appBasePath = (
@@ -2269,6 +2281,12 @@ async function createBetterAuthInstance(
     },
     socialProviders,
     account: {
+      // Merge accounts when a user signs in with a social provider using an
+      // email that already has a local email/password account (or vice versa).
+      // Only providers listed in `trustedProviders` auto-link — these are the
+      // ones that verify emails at the identity layer. Never add a provider
+      // here that lets users claim an unverified email; that would be an
+      // account-takeover vector.
       accountLinking: {
         enabled: true,
         trustedProviders: ["google", "github"],
@@ -2414,6 +2432,15 @@ async function createBetterAuthInstance(
         },
       },
       account: {
+        // Mirror Google account tokens into `oauth_tokens` so existing
+        // template code (mail's Gmail client, calendar's events fetcher)
+        // can pick up Gmail/Calendar credentials from the primary sign-in
+        // flow — no separate "Set up Google" page required.
+        //
+        // Better Auth fires `create` for first-time social sign-in and
+        // `update` whenever a session re-issues tokens (e.g., the user
+        // re-signs in to refresh the token). Both branches do the same
+        // mirroring work; failures never block sign-in.
         create: {
           after: async (account: any) => {
             if (!shouldMirrorGoogleAccountTokens) return;
@@ -2460,6 +2487,10 @@ async function createBetterAuthInstance(
             },
           }
         : {}),
+      // When an effective shared cookie domain is set, share Better Auth's
+      // session cookie across that domain. First-party `*.agent-native.com`
+      // apps intentionally do not use this path because their auth DBs are
+      // separate; Dispatch identity federation handles cross-app sign-in.
       ...(cookieNamespace.betterAuthCookieDomain
         ? {
             crossSubDomainCookies: {
@@ -2471,6 +2502,9 @@ async function createBetterAuthInstance(
     },
     plugins: [
       magicLinkPlugin,
+      // JWT: issue tokens for A2A calls, JWKS endpoint for verification. The
+      // optional response header signs on every session check; it must not
+      // turn a valid cookie session into a 500 when a key is stale.
       withJwksRotationRecovery(
         jwt({
           jwt: {

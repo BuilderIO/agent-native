@@ -1,4 +1,3 @@
-
 import { ssrfSafeFetch } from "../../extensions/url-safety.js";
 import {
   clearProviderCredentialAuthFailure,
@@ -49,7 +48,6 @@ import type {
 } from "./types.js";
 
 export type { AISDKProvider } from "../model-config.js";
-
 
 const PROVIDER_CAPABILITIES: Record<AISDKProvider, EngineCapabilities> = {
   anthropic: {
@@ -175,7 +173,6 @@ function gemini3ThinkingLevel(effort: string): string {
   if (effort === "medium") return "medium";
   return "high";
 }
-
 
 export interface AISDKEngineConfig {
   name?: string;
@@ -309,6 +306,20 @@ class AISDKEngine implements AgentEngine {
   }
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+    // An absent key is not an anonymous request. Without this the provider
+    // factory is constructed with no `apiKey`, the SDK omits the Authorization
+    // header entirely, and the gateway's 401 comes back as
+    // "Missing Authentication header" — which `classifyProviderError` codes
+    // `http_401`, a transport failure naming the wrong cause. A scheduled job
+    // then repeats that doomed unauthenticated request on every tick forever.
+    // `builder-engine` and `anthropic-engine` already fail closed here; this
+    // engine was the only one that did not.
+    //
+    // A LOCAL `baseUrl` is exempt: a self-hosted gateway on the same machine or
+    // private network may legitimately accept unauthenticated requests. A public
+    // one may not — every hosted provider requires a key, so exempting any
+    // baseUrl at all reopened the same doomed unauthenticated request this
+    // guard exists to stop, just for anyone pointing at a remote gateway.
     if (
       !this.apiKey &&
       !isLocalBaseUrl(this.baseUrl) &&
@@ -435,6 +446,8 @@ class AISDKEngine implements AgentEngine {
           reasoning: { effort: reasoningEffort },
         };
       } else if (this.provider === "google") {
+        // Gemini 3.x models reject thinkingBudget — they require thinkingLevel.
+        // Gemini 2.5.x models use thinkingBudget (integer token count or -1).
         const isGemini3 = /^gemini-3/.test(opts.model);
         const thinkingBudget = googleThinkingBudget(reasoningEffort);
         providerOpts.google = {
@@ -630,14 +643,12 @@ class AISDKEngine implements AgentEngine {
   }
 }
 
-
 export function createAISDKEngine(
   provider: AISDKProvider,
   config: Record<string, unknown> = {},
 ): AgentEngine {
   return new AISDKEngine(provider, config as AISDKEngineConfig);
 }
-
 
 async function importProviderPackage(provider: AISDKProvider): Promise<any> {
   switch (provider) {
@@ -702,7 +713,6 @@ function getProviderApiKey(provider: AISDKProvider): string | undefined {
   }
   return undefined;
 }
-
 
 export {
   PROVIDER_CAPABILITIES,

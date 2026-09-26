@@ -11,7 +11,6 @@ import * as Y from "yjs";
 import { createRichMarkdownExtensions } from "./RichMarkdownEditor.js";
 import { useCollabReconcile, getEditorMarkdown } from "./useCollabReconcile.js";
 
-
 let container: HTMLDivElement;
 let root: Root;
 
@@ -501,6 +500,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
           `Accepted ${baseline}${localTail ? " local tail" : ""}`,
         );
         expect(harness.writes).toEqual([]);
+        // A partial cache update can retain the old marker; a different body
         // token must still take the ordinary SQL reconciliation path.
         act(() =>
           root.render(

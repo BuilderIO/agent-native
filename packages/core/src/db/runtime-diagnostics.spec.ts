@@ -254,6 +254,8 @@ describe("runtime diagnostics", () => {
   it("memoizes a healthy default probe but never an unhealthy one", async () => {
     vi.stubEnv("AUTH_DISABLED", "1");
 
+    // Unhealthy first: a probe that reports a problem must be re-run, or the
+    // migration that fixes it stays invisible for the memo window.
     mockExecute.mockReset();
     mockExecute.mockResolvedValue({ rows: [], rowsAffected: 0 });
     expect((await runDatabaseSchemaHealthCheck()).ok).toBe(false);

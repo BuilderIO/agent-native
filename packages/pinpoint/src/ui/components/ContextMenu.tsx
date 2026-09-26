@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — Right-click context menu
 // MIT License
 
 import { onMount, onCleanup, type Component } from "solid-js";

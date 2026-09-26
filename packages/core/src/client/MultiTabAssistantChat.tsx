@@ -228,7 +228,6 @@ function resolveModelSelection(
   return resolved;
 }
 
-
 function ChatSkeleton({
   header,
   headerOnly = false,
@@ -264,7 +263,6 @@ function ChatSkeleton({
   );
 }
 
-
 function formatScopeType(type: string) {
   return type.replace(/[-_]+/g, " ");
 }
@@ -294,7 +292,6 @@ function buildResourceContextItem(
       .join("\n"),
   };
 }
-
 
 function formatThreadTime(
   ts: number,
@@ -495,7 +492,6 @@ function HistoryPopover({
   );
 }
 
-
 function HelpPopover({ onClose }: { onClose: () => void }) {
   const t = useT();
   useEffect(() => {
@@ -551,7 +547,6 @@ function HelpPopover({ onClose }: { onClose: () => void }) {
     </>
   );
 }
-
 
 export interface ChatTab {
   id: string;
@@ -763,7 +758,6 @@ export interface MultiTabAssistantChatHeaderProps {
   toggleHistory?: () => void;
   tabCount: number;
 }
-
 
 export type MultiTabAssistantChatProps = Omit<
   AssistantChatProps,
@@ -1354,7 +1348,10 @@ export function MultiTabAssistantChat({
     } catch {}
   }, [subAgentNames, SUB_AGENT_NAMES_KEY]);
 
+  // Open tabs — persisted to localStorage so they survive refresh.
   // Per-scope, for the same reason the active thread is: the tab list must
+  // follow the resource in view, so one resource's tabs never stay mounted
+  // (and rebroadcasting their run state) while another resource is open.
   const scopeKeyPart = scope ? `:scope:${scope.type}:${scope.id}` : "";
   const OPEN_TABS_KEY = `agent-chat-open-tabs${keyPrefix}${scopeKeyPart}`;
   const LEGACY_OPEN_TABS_KEY = `agent-chat-open-tabs${legacyKeyPrefix}${scopeKeyPart}`;
@@ -1539,6 +1536,12 @@ export function MultiTabAssistantChat({
     writeThreadUrl,
   ]);
 
+  // Ensure active thread is always in open tabs.
+  // Use functional update to check inside the setter — avoids race with the
+  // initialization effect that may have already added the ID in the same batch.
+  //
+  // Re-check after tab-list resets so the sidebar cannot end up with a live
+  // active thread but no mounted chat.
   useEffect(() => {
     if (!activeThreadId || openTabIds.includes(activeThreadId)) return;
     if (parentMap[activeThreadId]) return;

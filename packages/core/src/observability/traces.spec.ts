@@ -24,7 +24,6 @@ const DEFAULT_OBSERVABILITY_CONFIG: ObservabilityConfig = {
   inferredSentimentSampleRate: 0,
 };
 
-
 describe("redactSensitiveFields", () => {
   it("redacts top-level sensitive keys", () => {
     const out = redactSensitiveFields({
@@ -181,7 +180,6 @@ describe("redactSensitiveFields", () => {
     expect(out.self).toBe("[Circular]");
   });
 });
-
 
 interface RecordedSpan {
   name: string;
@@ -1476,7 +1474,10 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         },
       ],
     });
+    // The engine never reported a usage figure for this run (it threw before
     // any provider response). An unreported token/cost/TTFT figure must be
+    // absent from the payload, never coerced to a literal 0 that is
+    // indistinguishable from a real empty-input run.
     expect(events[0]?.properties?.input_tokens).toBeUndefined();
     expect(events[0]?.properties?.output_tokens).toBeUndefined();
     expect(events[0]?.properties?.total_tokens).toBeUndefined();

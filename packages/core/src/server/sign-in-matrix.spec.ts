@@ -113,6 +113,9 @@ const SURFACES: Surface[] = [
     basePath: "",
     protectedPath: "/decks/42?edit=1",
     siblingPath: "/login",
+    // Browser-driven for WHERE THE FRAME LANDS only. Whether a partitioned
+    // third-party cookie is delivered is a different, still-open problem; the
+    // smoke cannot prove it and does not claim to.
     driver: "browser",
   },
   {
@@ -315,6 +318,7 @@ describe("sign-in matrix", () => {
           ).toBe(home);
         }
         // Decoding never yields another token, so the grammar is not
+        // recursive: one hop is all there is.
         const once = journey.encodeContinuation(protectedPath);
         expect(journey.decodeContinuation(once)).toBe(protectedPath);
         expect(

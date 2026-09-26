@@ -649,7 +649,6 @@ export function McpIntegrationDialog({
     }
   };
 
-  // connection modes only. A header connection carries the user's own token and
   const formRequiresOrganizationScope = selected
     ? selected.authMode === "oauth" &&
       requiresMcpIntegrationOrganizationScope(selected)

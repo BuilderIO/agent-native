@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — Server exports
 // MIT License
 
 export { pagePinRoutes, type PinRoutesOptions } from "./middleware.js";

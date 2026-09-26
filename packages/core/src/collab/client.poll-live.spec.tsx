@@ -1,5 +1,14 @@
 // @vitest-environment happy-dom
 
+/**
+ * Poll-cadence contract when the shared SSE transport reports poll-live (see
+ * use-db-sync.local-sse-refused.spec.ts for the transport half): the local
+ * endpoint refused before ever opening — on that deploy target /poll is the
+ * live channel already — so collab/client.ts must relax to the same cadence
+ * it uses for an SSE stream that genuinely carries awareness (12s), not the
+ * fast "live channel down" fallback (2s) that would only add load with no
+ * freshness gain.
+ */
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

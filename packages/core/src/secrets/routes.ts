@@ -17,20 +17,6 @@ import type { ResolvedSecretDetail } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
-/**
- * Workspace-scoped secret writes/deletes are deployment-wide for every
- * org member who shares the resolved scopeId — a curious or malicious
- * member could otherwise overwrite `OPENAI_API_KEY` (or any unregistered
- * key) with their own value, redirecting every other member's automations
- * through their key for skimming, billing abuse, or DoS by deletion.
- *
- * Allow workspace-scope writes only for org owners/admins. The "solo"
- * fallback scopeId (`solo:<email>`) is single-user, so it bypasses the
- * check. A normal session with no active org also passes — there's no
- * privilege gradient to enforce in that case.
- *
- * Returns true if the request is allowed to write/delete this scope.
- */
 async function canMutateWorkspaceScope(
   event: H3Event,
   scopeId: string,
@@ -117,11 +103,6 @@ export interface SecretStatusPayload {
   status: "set" | "unset" | "invalid" | "unknown";
   effectiveScope?: SecretScope;
   source?: SecretSource;
-  /**
-   * True when the effective value is the row this UI writes for the
-   * registered scope, so it can be rotated or removed here. False when a
-   * Vault, workspace, or env value is in use instead.
-   */
   managedHere?: boolean;
   overrides?: Exclude<SecretSource, "personal">;
   overriddenScope?: Exclude<SecretScope, "user">;
@@ -553,7 +534,6 @@ export function createTestSecretHandler() {
   });
 }
 
-
 export interface AdHocSecretPayload {
   name: string;
   scope: SecretScope;
@@ -730,6 +710,9 @@ async function handleAdHocDelete(event: H3Event, name: string) {
   }
   const removed = await deleteAppSecret({ key: name, scope, scopeId });
   if (!removed) {
+    // Fall back to workspace scope so the agent / UI can clean up shared keys.
+    // Gate the fallback behind the org-admin check so a regular member can't
+    // DoS every other member's automations by deleting shared workspace keys.
     const workspaceContext = await resolveScopeId(event, "workspace");
     if (workspaceContext.scopeId) {
       if (!(await canMutateWorkspaceScope(event, workspaceContext.scopeId))) {

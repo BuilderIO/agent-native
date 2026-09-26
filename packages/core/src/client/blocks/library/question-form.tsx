@@ -30,7 +30,6 @@ import {
   type VisualQuestionsData,
 } from "./question-form.config.js";
 
-
 type QuestionFormSubmitCtx = BlockRenderContext & {
   onQuestionFormSubmit?: (summary: string) => void;
 };
@@ -241,6 +240,11 @@ function QuestionView({
                   </div>
                   {hasVisualOptions &&
                     !!(option.wireframe || option.diagram) && (
+                      // Stop click/keyboard propagation so interactions inside the
+                      // preview (expand button, lightbox close) don't toggle the
+                      // option. Nested interactive elements inside a <button> are
+                      // invalid HTML, so this also keeps the outer button's
+                      // keyboard behaviour clean.
                       // eslint-disable-next-line jsx-a11y/no-static-element-interactions
                       <div
                         className="ml-8 grid min-w-0 max-w-full gap-4"

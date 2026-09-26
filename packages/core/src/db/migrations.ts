@@ -9,6 +9,8 @@ import {
 } from "./client.js";
 import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
 
+// Core plugins must serialize boot-time DDL for each database. The same
+// database can be reached through multiple Vite module runners, so keep this
 // registry on globalThis rather than in module scope.
 type MigrationLockRegistry = Map<string, Promise<void>>;
 
@@ -20,7 +22,10 @@ const migrationLocks = (migrationGlobal.__agentNativeMigrationLocks ??= new Map<
   Promise<void>
 >());
 
+// A PGlite process lock owns the persistent directory before this in-process
+// mutex serializes the shared client's boot-time DDL. Postgres needs the same
 // in-process mutex because Vite can start multiple migration runners against
+// one database before any bookkeeping table exists.
 async function withMigrationLock<T>(
   url: string,
   run: () => Promise<T>,

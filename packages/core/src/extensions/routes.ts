@@ -258,6 +258,7 @@ async function dispatch(
       },
     );
     // Security headers per render. `frame-ancestors` in the CSP must be set as
+    // an HTTP header to be enforced; meta-CSP can't set it per spec.
     setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
     setResponseHeader(event, "Content-Security-Policy", EXTENSION_IFRAME_CSP);
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
@@ -712,7 +713,6 @@ async function handleProxy(
   const rawBody = body.body;
 
   let resolvedUrl = rawUrl;
-  // Resolve secret references per header value rather than over a single
   const parsedHeaders: Record<string, string> = {};
   let resolvedBody = rawBody;
   const allSecretValues: string[] = [];

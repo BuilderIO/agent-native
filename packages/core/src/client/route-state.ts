@@ -272,6 +272,7 @@ export function useSemanticNavigationState<
   onCommandRef.current = options.onCommand;
   onErrorRef.current = options.onError;
 
+  // `null` is safe as "never written": a null state serializes to a string, so
   // the token itself is never null.
   const lastNavigationWriteRef = useRef<unknown>(null);
 

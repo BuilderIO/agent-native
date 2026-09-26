@@ -1,5 +1,7 @@
+// @agent-native/pinpoint — Browser entry point (includes SolidJS UI)
 // MIT License
 
+// Re-export everything from main entry
 export * from "./index.js";
 
 export { mountPinpoint, unmountPinpoint } from "./ui/mount.js";

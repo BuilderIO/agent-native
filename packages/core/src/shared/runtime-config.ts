@@ -1,11 +1,3 @@
-/**
- * Production configuration diagnostics.
- *
- * This module deliberately accepts an env-like record instead of reading
- * process.env so the same rules can run during a Vite build, on the server,
- * and in focused tests without ever exposing secret values to the browser.
- */
-
 export type RuntimeConfigEnvironment = "development" | "production";
 export type RuntimeConfigPhase = "build" | "runtime";
 export type RuntimeConfigIssueSeverity = "warning" | "error";

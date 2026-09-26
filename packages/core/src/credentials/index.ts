@@ -249,6 +249,10 @@ export async function resolveCredentialDetailed(
     }
   }
 
+  // Solo-workspace fallback: always checked, even when an org id was found
+  // above. A credential written before the user joined/created an org lives
+  // here, and must not become unreachable once that org exists. Last on
+  // purpose — a current org-scoped value always wins over a pre-org one.
   const soloWorkspaceSecret = await readScopedAppSecret(
     key,
     "workspace",

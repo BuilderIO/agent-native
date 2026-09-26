@@ -1,5 +1,7 @@
+// @agent-native/pinpoint — Main entry point (Node/universal)
 // MIT License
 
+// Types
 export type {
   Pin,
   PinStatus,
@@ -69,7 +71,6 @@ export { agentNativePlugin } from "./plugins/agent-native-plugin.js";
 
 export { freeze, unfreeze, isFreezeActive } from "./freeze/controller.js";
 
-// Security (browser-safe — path-validation is server-only)
 export { escapeHtml, sanitizeString } from "./security/input-sanitization.js";
 export { isAllowedOrigin } from "./security/origin-validation.js";
 

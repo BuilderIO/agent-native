@@ -194,7 +194,6 @@ function resolveSseUrl(sseUrl: string | false | undefined): string | false {
   return `${path}${path.includes("?") ? "&" : "?"}${REALTIME_POLL_LIVE_QUERY_PARAM}=1`;
 }
 
-
 const REALTIME_GATEWAY_SSE_PATH = "/stream";
 const REALTIME_GATEWAY_POLL_PATH = "/poll";
 const REALTIME_TOKEN_MINT_PATH = "/_agent-native/realtime-token";
@@ -323,7 +322,6 @@ async function fetchPollJson<T>(
   }
 }
 
-
 interface TransportSubscription {
   onEvents: EventSubscriber;
   pauseWhenHidden: boolean;
@@ -353,7 +351,10 @@ class SyncTransport {
   private authFailureUntil = 0;
   private consecutiveFailures = 0;
   private activeChatIds = new Map<string, number>();
+  // Hosted-gateway state. `mode` starts "hosted" when a binding is present and
+  // flips to "local" on health-gate revert; `token` is the current subscribe
   // token (minted from the app, rotated over the stream), never part of any
+  // registry key.
   private mode: "hosted" | "local";
   private token: string | null = null;
   private tokenMintInFlight: Promise<boolean> | null = null;
@@ -393,16 +394,6 @@ class SyncTransport {
       : this.pollUrl;
   }
 
-  /**
-   * Mint a subscribe token from the app's same-origin endpoint.
-   *
-   * Only TERMINAL outcomes health-gate to local: 404 (gateway not provisioned)
-   * and 401/403 (not authorized) — retrying those for this tab is pointless.
-   * TRANSIENT failures (5xx/429 from a cold Netlify function, network errors)
-   * keep the hosted intent and ride the jittered reconnect + unhealthy-threshold
-   * path, so a deploy / scale-to-zero blip doesn't permanently abandon the
-   * gateway for the tab.
-   */
   private mintToken(): Promise<boolean> {
     if (!this.gateway || this.mode !== "hosted") return Promise.resolve(false);
     if (this.tokenMintInFlight) return this.tokenMintInFlight;
@@ -476,7 +467,6 @@ class SyncTransport {
     }, applyReconnectJitter(1000));
   }
 
-
   add(id: symbol, sub: TransportSubscription): void {
     const wasEmpty = this.subscribers.size === 0;
     const wasActive = this.isActive;
@@ -500,7 +490,6 @@ class SyncTransport {
       this.reschedule();
     }
   }
-
 
   private shouldStayIdle(): boolean {
     if (isHostSurfaceHidden()) return true;
@@ -548,7 +537,6 @@ class SyncTransport {
     return isFinite(min) ? min : SSE_FALLBACK_INTERVAL_MS;
   }
 
-
   private fan(
     events: SyncEvent[],
     version: number | undefined,
@@ -575,7 +563,6 @@ class SyncTransport {
       sub.onSseStateChange?.(this.sseConnected, this.capabilities);
     }
   }
-
 
   private authFailureDelayMs(): number {
     return Math.max(0, this.authFailureUntil - Date.now());
@@ -630,7 +617,6 @@ class SyncTransport {
     this.eventSource = null;
     this.setSseConnected(false);
   }
-
 
   private get leaderKey(): string {
     return `${SSE_LEADER_LOCK_PREFIX}${this.pollUrl}`;
@@ -788,7 +774,9 @@ class SyncTransport {
       return;
     }
 
+    // Hosted gateway needs a subscribe token before the stream can open.
     // EventSource can't set headers, so the token rides the connect query
+    // string (see activeSseUrl). Mint first, then connect.
     if (this.mode === "hosted" && this.gateway && !this.token) {
       void this.mintToken().then((ok) => {
         if (this.stopped) return;
@@ -892,6 +880,9 @@ class SyncTransport {
         const frame = parseTokenFrame((e as MessageEvent).data);
         if (!frame?.token) return;
         this.token = frame.token;
+        // EventSource can't change a live stream's URL, and its auto-reconnect
+        // reuses the original (old-token) URL. Close and reconnect (jittered) so
+        // the rotated token is actually used on the next connect.
         this.closeEvents();
         this.scheduleGatewayReconnect();
       });
@@ -1098,6 +1089,7 @@ function getOrCreateTransport(
   sseUrl: string | false,
   gateway: RealtimeGatewayBinding | null = null,
 ): SyncTransport {
+  // Key on the LOCAL urls only — a transport may flip hosted→local at runtime,
   // and the token must never fragment the registry, so neither is in the key.
   const key = `${pollUrl}\0${String(sseUrl)}`;
   let transport = transportRegistry.get(key);
@@ -1113,6 +1105,9 @@ function releaseTransport(pollUrl: string, sseUrl: string | false): void {
   transportRegistry.delete(key);
 }
 
+// ---------------------------------------------------------------------------
+// Internal test helper — reset transport registry between tests.
+// ---------------------------------------------------------------------------
 /** @internal */
 export function _resetSyncTransportRegistryForTests(): void {
   for (const transport of transportRegistry.values()) {

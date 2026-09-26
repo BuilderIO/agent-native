@@ -232,7 +232,6 @@ export async function setVaultAccessSettings(input: {
   return getVaultAccessSettings();
 }
 
-
 export async function recordVaultAudit(input: {
   action: string;
   secretId?: string | null;
@@ -266,7 +265,6 @@ export async function listVaultAudit(limit = 50) {
     .orderBy(desc(schema.vaultAuditLog.createdAt))
     .limit(limit);
 }
-
 
 export async function listSecrets() {
   await assertCanManageVault();
@@ -579,7 +577,6 @@ export async function deleteSecret(
   return existing;
 }
 
-
 export async function listGrants(filter?: {
   secretId?: string;
   appId?: string;
@@ -794,7 +791,6 @@ export async function revokeGrant(
   return getGrant(grantId, ctx);
 }
 
-
 type VaultSecretRow = typeof schema.vaultSecrets.$inferSelect;
 
 export interface VaultSecretMetadata {
@@ -965,7 +961,6 @@ export async function cleanupSyncedCredentialKeysIfUnused(
   }
 }
 
-
 export async function syncGrantsToApp(
   appId: string,
   ctx: VaultCtx = requireVaultCtx(),
@@ -1103,7 +1098,6 @@ export async function syncGrantsToApp(
   };
 }
 
-
 export async function listRequests(filter?: { status?: string }) {
   const db = getDb();
   const ctx = requireVaultCtx();
@@ -1208,6 +1202,13 @@ export async function approveRequest(
   const reviewer = ctx.ownerEmail;
   const staleApplyingBefore = timestamp - 5 * 60 * 1000;
 
+  // Fence the transition on the current status — scoped to caller's tenant —
+  // so a concurrent approve can't both win: only the caller that flips
+  // pending -> applying proceeds to create the secret/grant. A crashed worker
+  // leaves an applying row behind, so a later reviewer may reclaim a lease
+  // that has been idle for five minutes. See
+  // claimAgentTeamRun in packages/core/src/server/agent-teams-run-queue.ts
+  // for the same pattern.
   const claimed = await db
     .update(schema.vaultRequests)
     .set({
@@ -1240,6 +1241,7 @@ export async function approveRequest(
   const claimedRequest = claimed[0];
 
   // Secret + grant must land in the REQUEST's tenant, not the approver's
+  // (the approver may be acting on behalf of another user in the same org).
   const requestCtx = ctxForRow(claimedRequest);
 
   try {
@@ -1354,7 +1356,6 @@ export async function denyRequest(
   return getRequestForTenant(requestId, ctx);
 }
 
-
 export interface IntegrationEntry {
   key: string;
   label: string;
@@ -1461,7 +1462,6 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
   return results;
 }
 
-
 export async function listVaultOverview() {
   const isAdmin = await canManageVault();
   const [secrets, grants, requests, access] = await Promise.all([
@@ -1485,7 +1485,6 @@ export async function listVaultOverview() {
     pendingRequestCount: requests.filter((r) => r.status === "pending").length,
   };
 }
-
 
 async function notifyAdminsOfRequest(
   requestId: string,

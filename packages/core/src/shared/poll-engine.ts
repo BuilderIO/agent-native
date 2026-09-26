@@ -1,4 +1,3 @@
-
 export interface PollEngineOptions {
   intervalMs: number | (() => number);
   timeoutMs?: number | (() => number);
@@ -86,6 +85,14 @@ export function createPollEngine(
       onError(err);
     };
 
+    // The attempt is retained separately from the timeout race below. The
+    // timeout reports a slow attempt immediately, but the in-flight slot is
+    // only released once the attempt itself settles: releasing on the
+    // timeout would let the next tick start while an attempt that ignores
+    // `signal` is still doing work, which is the overlap (duplicate external
+    // requests, racing writes) this engine exists to prevent. An attempt that
+    // never settles blocks further attempts by design — `onError` has already
+    // fired, so it is loud rather than silent.
     const settled = Promise.resolve()
       .then(() => attempt(controller.signal))
       .then(

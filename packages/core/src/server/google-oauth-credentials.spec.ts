@@ -160,6 +160,9 @@ describe("describeGoogleSignInCredentialPairs", () => {
   });
 
   // `mismatched` must be a plain fact about the two credential pairs — it has
+  // no notion of "managed" vs "user" credential mode, and callers (the
+  // /_agent-native/health/google route) are the ones that decide what a
+  // mismatch means for their specific mode. Env shape alone must drive it.
   it("is true when the sign-in and provider pairs name different clients", () => {
     process.env.GOOGLE_SIGN_IN_CLIENT_ID = "sign-in-client";
     process.env.GOOGLE_SIGN_IN_CLIENT_SECRET = "sign-in-secret";

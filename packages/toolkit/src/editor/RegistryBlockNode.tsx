@@ -39,7 +39,6 @@ export {
   type RegistryBlockSideMapBlock,
 } from "./RegistryBlockContext.js";
 
-
 function clickedInteractiveChild(target: HTMLElement) {
   if (target.closest("button,input,textarea,select,a,[role='textbox']")) {
     return true;
@@ -98,11 +97,13 @@ export function selectRegistryBlockNode({
     view.focus();
     return true;
   } catch (error) {
+    // A node can disappear between the mousedown and selection dispatch during
+    // reconciliation. Keep that expected stale-position race recoverable, but
+    // do not hide unrelated editor failures.
     if (error instanceof RangeError) return false;
     throw error;
   }
 }
-
 
 export function RegistryBlockNodeView(props: NodeViewProps) {
   const blockType = String(props.node.attrs.blockType ?? "");
@@ -401,7 +402,6 @@ export function LegacyJsonEditSurface({
     children: editor,
   });
 }
-
 
 export interface CreateRegistryBlockNodeOptions {
   nodeName: string;

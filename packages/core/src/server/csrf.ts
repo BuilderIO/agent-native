@@ -55,6 +55,12 @@ import { isAutomationWebhookToken } from "../triggers/webhook.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 
 /**
+ * Path prefixes (relative to the framework prefix `/_agent-native`) that are
+ * allowed to receive cross-origin state-changing POSTs without first-party
+ * markers. These are signed/authenticated through other mechanisms (HMAC,
+ * JWT, internal token) so they don't need cookie-based CSRF protection.
+ */
+/**
  * Sub-prefixes that must stay CSRF-protected even though a broader entry in
  * `CSRF_ALLOWLIST_PREFIXES` covers them. Checked first, and they win.
  *
@@ -67,7 +73,11 @@ import { getConfiguredAppBasePath } from "./app-base-path.js";
  * and cookie-authenticated control routes share one subtree.
  */
 const CSRF_PROTECTED_PREFIXES = [
+  // Remote-device relay. The device's own routes (poll/result/heartbeat)
   // authenticate with a bearer token and send no cookies, so they never reach
+  // the check; the sibling routes (register, enqueue, computer/approvals,
+  // computer/commands) are session-authenticated and must not be exempt —
+  // approving a browser-control operation is a state change an attacker page
   // must never be able to make ride the victim's cookie.
   "/integrations/remote/",
 ];
@@ -80,37 +90,19 @@ const CSRF_ALLOWLIST_PREFIXES = [
   "/auth/",
   "/billing/webhook",
   // Public share endpoints — read-only and never cookie-driven, but kept
+  // here so a templated POST (e.g. comment-on-public-recording) doesn't 403.
   "/share/",
+  // OAuth callbacks (Builder, Google, Slack, Notion, Zoom). These get a
+  // `code` query param via top-level navigation — they DO ride the session
   // cookie and they SHOULD validate state, but the framework can't see the
+  // state token. Each callback handler is responsible for its own CSRF
+  // check (signed state tokens).
   "/oauth/",
   "/builder/callback",
 ];
 
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-/**
- * Decide whether a request is "first-party enough" to trust as not-CSRF.
- * Any of the following make a request non-CSRF:
- *
- *   - `Sec-Fetch-Site: same-origin` (or `none` for top-level navigations
- *     to our own pages — but state-changing methods don't ship `none`).
- *   - `X-Agent-Native-CSRF` header (any value, even "1"). This is a custom
- *     header so the browser forces a preflight cross-origin, which our
- *     CORS layer rejects for disallowed origins.
- *   - `Content-Type: application/json` (case-insensitive). JSON content
- *     type is a non-simple request that triggers preflight.
- *
- * We accept ANY of these — the goal is "did the request come through a
- * channel the browser would have preflighted", not a strict-mode token.
- *
- * NOTE: `Sec-Fetch-Site: same-site` is deliberately NOT trusted. Under a
- * shared cookie domain (COOKIE_DOMAIN / crossSubDomainCookies), the browser
- * labels a request from a SIBLING subdomain (evil.example.com → app.example.com)
- * as `same-site` even though it is cross-origin and would ride the shared
- * session cookie — a CSRF vector. Legitimate first-party clients all also send
- * `X-Agent-Native-CSRF` or `application/json`, so they still pass via those
- * paths and iframe/embed flows are unaffected.
- */
 function looksFirstParty(event: any): boolean {
   const sfs = getRequestHeader(event, "sec-fetch-site");
   if (sfs === "same-origin" || sfs === "none") {

@@ -178,11 +178,6 @@ async function resolveBuilderPublishAuthorization(
   return null;
 }
 
-/**
- * Resolve the one effective authorization for an authenticated Builder
- * request. OAuth custody wins even when the grant needs reconnecting or lacks
- * a required scope; only a request with no OAuth custody may use a legacy key.
- */
 export async function resolveBuilderRequestAuthorization(
   input: {
     requiredScope?: BuilderOAuthPermissionScope;
@@ -279,6 +274,12 @@ export async function resolveBuilderLegacyRequestAuthorization(
 ): Promise<BuilderRequestAuthorization | null> {
   for (const key of legacyCredentialKeys) {
     if (key === "BUILDER_PRIVATE_KEY") {
+      // Resolve the private key on its own, same as any other legacy key
+      // below: a private-key-only tenant (no public key ever stored) still
+      // authenticates every plain Bearer-token caller. resolveBuilderCredentials()
+      // only returns a bundle when the private+public pair is complete, so it
+      // is queried separately and purely to populate the public key/user id
+      // that scope-gated callers (Fusion, design systems, browser) require.
       const privateKey = await resolveBuilderCredential(key);
       if (!privateKey) continue;
       const { publicKey, userId } = await resolveBuilderCredentials();

@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — Security exports
 // MIT License
 
 export { isAllowedOrigin, createSecureChannel } from "./origin-validation.js";

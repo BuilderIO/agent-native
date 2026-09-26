@@ -2639,6 +2639,7 @@ const enUS = {
     automationConnectors: "Workflow Connectors",
     workspaceConnections: "Workspace Connections",
     // i18n-copy-ignore: existing locale translations already name templates;
+    // this fixes the English nav label to match the page.
     creatingTemplates: "Creating Templates",
     syncingTemplateChanges: "Syncing Template Changes",
     writingAgentInstructions: "Writing Agent Instructions",

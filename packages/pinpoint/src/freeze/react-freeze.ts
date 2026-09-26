@@ -1,4 +1,11 @@
+// @agent-native/pinpoint — React update freezing
 // MIT License
+//
+// Patches React's dispatcher to queue state updates instead of applying them.
+// On unfreeze, flush queued updates. This prevents the host app from
+// re-rendering while the user is selecting an element.
+//
+// Based on react-grab pattern (MIT).
 
 interface QueuedUpdate {
   fiber: any;
@@ -67,6 +74,7 @@ export function freezeReact(): () => void {
       try {
         update.setter(update.action);
       } catch {
+        // Update may no longer be valid
       }
     }
 

@@ -28,6 +28,9 @@ const _cache = createTtlCache<boolean>({
 });
 
 function cacheKey(condition: string, payload: unknown): string {
+  // Salt the cache key with the prompt version + a separate hash of the
+  // payload so two callers can't cross-pollute each other's cache via
+  // colliding JSON encodings, and a prompt change wipes the cache.
   let payloadHash: string;
   try {
     payloadHash = createHash("sha256")

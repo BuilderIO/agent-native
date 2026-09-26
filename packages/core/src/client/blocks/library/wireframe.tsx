@@ -86,7 +86,6 @@ function isHtmlData(data: WireframeData): boolean {
   return typeof data.html === "string" && data.html.trim().length > 0;
 }
 
-
 function ArtboardFrame({
   surface,
   compact,
@@ -281,7 +280,6 @@ function WireframeStyleToggleButton() {
   );
 }
 
-
 function HtmlArtboard({
   data,
   ctx: _ctx,
@@ -307,6 +305,8 @@ function HtmlArtboard({
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const scopedCss = useMemo(() => {
     const safeCss = sanitizeWireframeCss(data.css);
+    // Scope every author selector under this instance's artboard so global
+    // selectors (body, *, .app-shell, :root) can't restyle/hide the host app.
     return safeCss
       ? scopeDesignCss(safeCss, `[data-plan-design-scope="${scopeId}"]`)
       : "";
@@ -341,7 +341,6 @@ function HtmlArtboard({
     />
   );
 }
-
 
 function KitArtboard({
   data,
@@ -421,7 +420,6 @@ function resolveVisualFrame(
     frame && frame !== "auto" ? frame : (ctx.visualFrame ?? "show");
   return resolved !== "hide";
 }
-
 
 export function WireframeBlock({
   data,

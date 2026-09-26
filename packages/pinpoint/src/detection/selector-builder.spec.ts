@@ -1,4 +1,19 @@
+// @agent-native/pinpoint — selector-builder tests
 // MIT License
+//
+// This suite runs under vitest's plain "node" environment (no jsdom/happy-dom
+// dependency is available to this package). There is no global `document` or
+// `Node`, so @medv/finder's `finder()` call inside buildSelector() always
+// throws synchronously (it references the bare `Node`/`document` identifiers
+// on its very first lines) and buildSelector() always falls through to its
+// own `buildFallbackSelector()` implementation. That's convenient: it's
+// exactly the fallback logic (id / data-testid / class / nth-child /
+// escaping) this suite is meant to cover, exercised through the public
+// `buildSelector()` API rather than by reaching into an unexported helper.
+//
+// `CSS.escape` is a browser global that Node doesn't provide either, so we
+// polyfill it once for the whole file (a runtime-environment stand-in, not a
+// stub of the module under test) using the standard CSSOM algorithm.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -161,14 +176,14 @@ describe("buildSelector (fallback path — no finder() in this environment)", ()
     const el = makeElement({
       tagName: "DIV",
       classNames: [
-        "card",
-        "css-8f7g2",
-        "_hash123",
-        "sc-abcxyz",
-        "go1234",
-        "tw-flex",
-        "chakra-button",
-        "highlight",
+        "card", // kept
+        "css-8f7g2", // Emotion hash — skipped
+        "_hash123", // CSS Modules hash — skipped
+        "sc-abcxyz", // styled-components — skipped
+        "go1234", // Goober — skipped
+        "tw-flex", // Tailwind hashed util — skipped
+        "chakra-button", // Chakra internal — skipped
+        "highlight", // kept
       ],
     });
 

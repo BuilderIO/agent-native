@@ -64,6 +64,8 @@ describe("task-store lifecycle (real pglite)", () => {
 
     it("coerces an empty-string owner_email to null (no matchable owner)", async () => {
       // Security: an empty owner must never read back as the empty string,
+      // which an empty/spoofed caller email could otherwise match in the
+      // handleGet/handleCancel IDOR check. ensureTable has run via createTask.
       const { createTask, getTaskOwner } = await loadStore();
       const task = await createTask(makeMessage("hi"));
       await dbExec.execute({

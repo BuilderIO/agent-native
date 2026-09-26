@@ -1,37 +1,3 @@
-/**
- * MCP-server registration + authentication for `@agent-native/skills`.
- *
- * This is a dependency-free port of the MCP-config-writing + device-code/OAuth
- * flow that lives in `@agent-native/core`'s `cli/connect.ts`. The skills package
- * ships standalone (no `@agent-native/core` dependency), so this module
- * re-implements just the registration surface against the shared on-disk
- * writers in `./mcp-config-writers.js`. It writes the SAME config and speaks the
- * SAME device-code/OAuth protocol as core.
- *
- * Two client families, exactly as in core:
- *   - OAuth-capable (Claude Code, Cursor, OpenCode, GitHub Copilot / VS Code):
- *     get a URL-only HTTP MCP entry (no bearer headers). The user authenticates
- *     in-host via standard remote MCP OAuth.
- *   - Device-code (codex, cowork): run the browser device-code flow against the
- *     descriptor's hosted URL, then write the entry WITH the minted bearer token
- *     + headers. Non-interactive (or no TTY) skips writing device-code configs,
- *     surfacing the exact `agent-native connect <url>` fallback command.
- *
- * Server contract (identical paths + JSON field names to core):
- *   POST <hostedUrl>/mcp/connect/device/start  (no auth)
- *     body { client?, app? }
- *     → { device_code, user_code, verification_uri,
- *         verification_uri_complete, interval, expires_in }
- *   POST <hostedUrl>/mcp/connect/device/poll   (no auth)
- *     body { device_code }
- *     → { status: "pending" }
- *     | { status: "approved", token, mcpUrl, serverName, mcpServerEntry }
- *     | { status: "expired" } | { status: "consumed" }
- *     | { status: "error" | "not_found", message? }
- *
- * Node-only. Node built-ins + global fetch only; no npm deps.
- */
-
 import { ClientId, writeHttpEntryForClient } from "./mcp-config-writers.js";
 
 const DEVICE_START_PATH = "/mcp/connect/device/start";
@@ -56,7 +22,6 @@ const CLIENT_LABELS: Record<ClientId, string> = {
   opencode: "OpenCode",
   "github-copilot": "GitHub Copilot / VS Code",
 };
-
 
 export interface McpDescriptor {
   serverName: string;
@@ -86,7 +51,6 @@ export interface RegisterMcpResult {
   authenticated: boolean;
   guidance: string[];
 }
-
 
 interface DeviceStartResponse {
   device_code: string;
@@ -119,7 +83,6 @@ interface DeviceGrant {
   serverName: string;
   headers?: Record<string, string>;
 }
-
 
 export function supportsRemoteMcpOAuth(client: ClientId): boolean {
   return REMOTE_MCP_OAUTH_CLIENTS.has(client);
@@ -333,7 +296,6 @@ function writeAuthedEntries(
   }
 }
 
-
 async function runDeviceFlow(
   baseUrl: string,
   appSlug: string,
@@ -476,7 +438,6 @@ function isTerminalPollBody(json: any): boolean {
   );
 }
 
-
 export async function registerMcpServer(
   opts: RegisterMcpOptions,
 ): Promise<RegisterMcpResult> {
@@ -538,7 +499,12 @@ export async function registerMcpServer(
   if (deviceClients.length > 0) {
     const baseUrl = resolveBaseUrl(descriptor);
 
+    // We only reach here for authMode "oauth"/"device" (authMode "none" returned
+    // earlier). Run the flow only when interactive AND we have a hosted URL to
+    // authenticate against. Device-code clients such as Codex cannot use a
     // URL-only hosted entry: writing one would overwrite a working bearer token
+    // and leave new sessions unauthenticated. If auth cannot complete, keep the
+    // existing config untouched and surface the explicit connect command.
     const canRunFlow = interactive && !!baseUrl;
 
     if (!canRunFlow) {
@@ -580,6 +546,7 @@ export async function registerMcpServer(
         authenticated = true;
       } else {
         // Flow failed (or approved with no token). Do not downgrade device-code
+        // clients to a URL-only hosted entry; keep any existing bearer config.
         guidance.push(
           `${describeClients(deviceClients)}: authentication did not complete; existing MCP config was left unchanged.`,
           manualConnectGuidance(baseUrl!, deviceClients, scope),

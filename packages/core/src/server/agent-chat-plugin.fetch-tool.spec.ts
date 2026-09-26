@@ -5,6 +5,8 @@ import { resolveFetchToolKeyAllowlist } from "./agent-chat-plugin.js";
 describe("resolveFetchToolKeyAllowlist", () => {
   it("looks up the allowlist at the resolved scope when resolvedKeys reports one (org scope)", async () => {
     // A key stored at org scope (e.g. synced in by the Dispatch vault) must
+    // have its allowlist checked at that same org scope — not user scope —
+    // per the audit 05 H2 alignment note in secrets/substitution.ts.
     const getKeyAllowlist = vi.fn();
     const getResolvedKeyAllowlist = vi
       .fn()

@@ -58,6 +58,7 @@ function appSessionMintRetryDelayMs(
     );
   }
   // ponytail: fixed exponential backoff with jitter, upgrade to a shared
+  // retry util if another caller needs the same shape.
   return 500 * 2 ** (attempt - 1) + Math.random() * 250;
 }
 
@@ -897,7 +898,10 @@ export class DesktopIdentityBroker {
     const app = this.options.resolveApp(appId);
     if (!app) return false;
 
+    // Broker-owned cookie copies also emit Session cookie-change events. Once
     // the parent identity is verified, do not treat a matching child cookie
+    // as a new user login or start adoption again; that feedback loop resets
+    // the broker status and reloads the child on every cookie rotation.
     if (options.fromCookieChange && this.status === "signed-in") {
       try {
         if (await this.hasMatchingIdentitySession(app)) return true;
@@ -941,7 +945,6 @@ export class DesktopIdentityBroker {
     this.unsupportedAppIds.delete(appId);
     const generation = this.ceremonyGeneration;
     const adoption = this.sessionAdoptionOperation;
-    // opening the authorization URL in the system browser would lose the
     const operation = this.options.openExternal
       ? this.runSecureGoogleSignIn(appId, generation)
       : adoption
@@ -1201,6 +1204,9 @@ export class DesktopIdentityBroker {
         return false;
       }
 
+      // The close grace only protects exchange redemption. Once the one-time
+      // credential is stored, finish the app fan-out before returning so a
+      // slow child session cannot outlive a failed sign-in result.
       const succeeded = await this.runSignInFanout(appId, generation, {
         interactive: false,
       });
@@ -1728,6 +1734,9 @@ export class DesktopIdentityBroker {
 
     if (await this.hasMatchingIdentitySession(app, identityEmail)) {
       await this.syncAlternateSessionCookies(app);
+      // The OAuth callback can install the child cookie before its WebView is
+      // mounted. Reload once when the broker first adopts that session so the
+      // WebView cannot remain on the pre-auth document.
       this.reloadModernAppOnce(app, generation);
       return true;
     }
@@ -1764,6 +1773,9 @@ export class DesktopIdentityBroker {
           app.cookieNames.includes(cookie.name),
       );
       const sessionCookieNames = sessionCookies.map((cookie) => cookie.name);
+      // The embed redirect can leave a Partitioned cookie in the main-process
+      // fetch context. Mirror the allow-listed child cookies through the same
+      // app partition without a partition key so the WebView's page requests
       // send the session too. Never copy the parent identity cookie here.
       for (const cookie of sessionCookies) {
         await app.session.cookies.set({
@@ -3100,7 +3112,9 @@ export class DesktopIdentityBroker {
     const app = this.options.resolveApp(appId);
     if (!app) return false;
     const markUnsupported = () => {
+      // A background synchronization can fail because a deploy is warming or
       // a redirect is temporarily unavailable. Only an interactive ceremony
+      // may permanently remove an app from the current fan-out snapshot.
       if (options.interactive !== false) this.unsupportedAppIds.add(app.id);
     };
     const setCeremonyStatus = (status: DesktopIdentityStatus) => {

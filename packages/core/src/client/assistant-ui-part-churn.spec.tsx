@@ -1,5 +1,25 @@
 // @vitest-environment happy-dom
 
+/**
+ * Guards the removal of `ThreadPrimitive.Messages`'s structural remount key.
+ *
+ * `AssistantChat.tsx` used to key that list on a digest of every message's part
+ * structure, so the whole transcript unmounted and remounted each time a tool
+ * call started or a placeholder tool id was rewritten — a flash and a lost
+ * scroll position in the middle of an answer. The key was defending against
+ * assistant-ui's stale `tapClientLookup` / duplicate-resource-key render
+ * errors, which the error boundary around the list already catches and retries.
+ *
+ * These drive the real assistant-ui components — reading parts through its own
+ * hooks, so the tap-resource lookups are actually exercised — across the part
+ * transitions a streamed turn produces, through BOTH the repository-import path
+ * and the streaming-adapter path, and assert no such error occurs.
+ *
+ * Evidence for the assistant-ui version in this repo, not a promise about every
+ * version: if an upgrade reintroduces those errors these fail first, and the fix
+ * is to make the boundary handle it rather than to remount the whole transcript
+ * on every tool call again.
+ */
 
 import {
   AssistantRuntimeProvider,

@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — CSS selector generation using @medv/finder
 // MIT License
 
 import { finder } from "@medv/finder";
@@ -8,18 +9,18 @@ export interface SelectorOptions {
 }
 
 const DEFAULT_SKIP_CLASSES = [
-  /^css-/,
-  /^_/,
-  /^sc-/,
-  /^go\d/,
-  /^tw-/,
-  /^chakra-/,
+  /^css-/, // CSS-in-JS (Emotion, etc.)
+  /^_/, // CSS Modules hashes
+  /^sc-/, // styled-components
+  /^go\d/, // Goober
+  /^tw-/, // Tailwind utilities (sometimes hashed)
+  /^chakra-/, // Chakra UI internals
 ];
 
 const DEFAULT_SKIP_IDS = [
   /^:r[0-9]/, // React auto-generated IDs
-  /^radix-/,
-  /^headlessui-/,
+  /^radix-/, // Radix UI auto IDs
+  /^headlessui-/, // HeadlessUI auto IDs
 ];
 
 export function buildSelector(

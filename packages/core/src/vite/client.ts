@@ -2728,6 +2728,10 @@ function devActionBridgePlugin(): Plugin {
       server.httpServer?.once("listening", () => {
         const addr = server.httpServer?.address();
         if (!addr || typeof addr !== "object" || !addr.port) return;
+        // The recorded origin must be the URL Vite prints (`resolvedUrls`), not
+        // a second derivation of the bind address: the browser cookie jar keys
+        // on the exact host label, so the origin a CLI/agent flow opens and
+        // the printed origin have to be one value.
         const printedOrigin = devActionBridgeOrigin(server.resolvedUrls);
         if (!printedOrigin) {
           server.config.logger.warn(
@@ -2756,6 +2760,7 @@ function devAppDisplayName(appRoot: string): string {
     return pkg.displayName || pkg.name || path.basename(appRoot);
   } catch {
     // coercion-ok: the banner is cosmetic; an unreadable package.json falls
+    // back to the directory name instead of failing the dev server.
     return path.basename(appRoot);
   }
 }
@@ -2812,6 +2817,7 @@ function devActionBridgeOrigin(
     return new URL(printed).origin;
   } catch {
     // coercion-ok: undefined is the typed "nothing printed" result the caller
+    // already handles with a loud warning, not a swallowed success.
     return undefined;
   }
 }
@@ -4047,6 +4053,7 @@ function createAgentNativeConfig(
       outDir: options.outDir ?? userConfig.build?.outDir ?? "dist/spa",
       cssMinify: userConfig.build?.cssMinify ?? "esbuild",
       cssTarget: userConfig.build?.cssTarget ?? ["es2020", "safari18"],
+      // "hidden" writes .map files for upload without a public
       // sourceMappingURL comment, so production never serves them directly.
       sourcemap:
         userConfig.build?.sourcemap ??

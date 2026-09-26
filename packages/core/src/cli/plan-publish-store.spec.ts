@@ -49,6 +49,9 @@ describe("isFirstPartyPlanHost", () => {
   });
 
   it("rejects other first-party subdomains to prevent last-write-wins token clobber", () => {
+    // connect --all iterates every first-party app; only the Plans app should
+    // update plan-publish.json — other apps (assets, mail, …) must not overwrite
+    // the canonical Plans token.
     expect(isFirstPartyPlanHost("https://mail.agent-native.com")).toBe(false);
     expect(isFirstPartyPlanHost("https://assets.agent-native.com")).toBe(false);
     expect(isFirstPartyPlanHost("https://agent-native.com")).toBe(false);

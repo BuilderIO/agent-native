@@ -123,14 +123,6 @@ export interface FetchToolOptions {
     resolved: string;
     usedKeys: string[];
     secretValues?: string[];
-    /**
-     * Optional: which scope (user/org/workspace) each used key actually
-     * resolved at. Populated by resolvers like
-     * `resolveKeyReferencesWithRequestScopes` so `validateUrl` can look up
-     * the allowlist at the scope the value came from rather than assuming
-     * user scope. Backwards compatible — callers that omit this (or a
-     * resolver that doesn't report it) are unaffected.
-     */
     resolvedKeys?: ResolvedKeyReference[];
   }>;
   validateUrl?: (

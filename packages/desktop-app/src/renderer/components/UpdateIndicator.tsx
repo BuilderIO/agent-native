@@ -17,6 +17,8 @@ export function useUpdateStatus(): UpdateStatus | null {
       .getStatus()
       .then((nextStatus) => {
         // The IPC read and the event subscription race during startup. Do not
+        // let a stale read put the rail back into an earlier state after the
+        // main process has already broadcast a newer one.
         if (!disposed && !receivedStatusChange) setStatus(nextStatus);
       })
       .catch(() => {});

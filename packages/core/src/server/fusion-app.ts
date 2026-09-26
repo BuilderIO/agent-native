@@ -1,3 +1,28 @@
+/**
+ * fusion-app — server helpers for driving the Builder Fusion app-building
+ * backend (ai-services) from agent-native apps.
+ *
+ * Fusion projects/branches are full running apps: a cloud container runs the
+ * dev server (preview URL) and an in-container coding agent applies edits.
+ * These helpers cover the lifecycle an app template needs:
+ *
+ * - `ensureFusionContainer`     — boot/attach the branch container, resolve the
+ *                                 iframe-able dev-server preview URL.
+ * - `sendFusionBranchMessage`   — send a prompt to the branch's coding agent
+ *                                 (fire-and-forget by default so callers stay
+ *                                 within hosted action budgets).
+ * - `pushFusionBranch`          — push the branch's code to its git remote.
+ * - `reserveFusionHostingSlug`  — reserve a `<slug>.builder.cloud` hosting slug.
+ * - `deployFusionProject`       — trigger a hosted deploy of the project.
+ * - `getFusionDeploys`          — list deploys (poll deploy status).
+ *
+ * All calls use the shared Builder authorization resolver. OAuth tokens use
+ * bearer authentication alone; legacy private keys also require the
+ * space/public key as the `apiKey` query param.
+ *
+ * Endpoints match ai-services `packages/service/main.ts`; streaming endpoints
+ * respond with newline-delimited JSON over chunked HTTP.
+ */
 
 import { z } from "zod";
 

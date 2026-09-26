@@ -254,7 +254,16 @@ export async function ensureUsageTable(): Promise<void> {
           "idx_token_usage_owner_created",
           `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
         );
+        // `owner_email` is written as the caller supplied it, so the metrics
         // queries scope with `LOWER(owner_email) IN (…)`. A plain btree cannot
+        // serve a function-wrapped predicate: without this expression index the
+        // usage panel scans the whole table, which is the highest-row-count one
+        // in the system (a row per LLM call, every app and org).
+        // NOT built CONCURRENTLY. This runs at release over the pooled Neon
+        // endpoint, and a transaction-pooled connection cannot carry
+        // `CREATE INDEX CONCURRENTLY` to completion — it returns without
+        // creating the index, which then fails the verifying probe and blocks
+        // the whole release. The SHARE lock is the cost of a build that lands.
         await ensureIndexExists(
           "idx_token_usage_lower_owner_created",
           `CREATE INDEX IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`,
@@ -438,7 +447,6 @@ export async function getUserUsageCents(ownerEmail: string): Promise<number> {
   const total = Number((rows[0] as { total?: number })?.total ?? 0);
   return total / 100;
 }
-
 
 export interface UsageSummaryOptions {
   ownerEmail: string;

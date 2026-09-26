@@ -110,15 +110,6 @@ function shortId(): string {
   return rand.slice(0, 16);
 }
 
-/**
- * Validate a candidate MCP server name — used as a key in the merged config
- * and as part of the prefixed tool name (`mcp__<merged-key>__<tool>`).
- *
- * Allowed: letters, digits, hyphen; 1–40 chars. Lowercased. Underscores are
- * excluded on purpose — the merged-key format uses `_` as a separator between
- * `<scope>`, `<owner>`, and `<name>`, so allowing `_` in names would make the
- * parse ambiguous.
- */
 export function normalizeServerName(input: string): string {
   return input
     .trim()
@@ -419,6 +410,7 @@ async function addRemoteServerInternal(
   const id = `mcps_${shortId()}`;
   const { cleartext, secret } = partitionHeaders(input.headers);
 
+  // Persist secret-class headers in the encrypted secrets table; the
   // settings row only references the secret key, never the cleartext.
   let headerSecretKey: string | undefined;
   if (secret) {
@@ -605,6 +597,8 @@ export async function removeRemoteServer(
       );
     }
   }
+  // Best-effort: drop the encrypted-headers secret too. Errors are logged
+  // but don't fail the deletion — the settings row is already gone, so a
   // dangling secret is harmless (it just can't be read back).
   if (removed?.headerSecretKey) {
     try {
@@ -735,17 +729,6 @@ export function mergedConfigKey(
   return `${scope}_${owner}_${stored.name}`;
 }
 
-/**
- * Parse a merged key (or a full prefixed tool name like
- * `mcp__user_abcd1234ef_zapier__run-task`) back into its scope + owner + name
- * components. Returns null for non-merged keys (e.g. stdio file-config servers
- * like `claude-in-chrome`) so callers can treat them as always-visible.
- *
- * `hub_<orgId>_<name>` entries (pulled from a remote hub via
- * `hub-client.ts`) project to `scope: "org"` so they pass through the same
- * per-request visibility gate as locally-stored org servers — the tool is
- * only visible to requests whose active org matches the hub entry's org.
- */
 export function parseMergedKey(
   keyOrToolName: string,
 ): { scope: RemoteMcpScope; owner: string; name: string } | null {

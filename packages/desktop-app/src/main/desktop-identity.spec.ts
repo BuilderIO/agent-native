@@ -1935,6 +1935,7 @@ describe("DesktopIdentityBroker", () => {
     expect(mailCookies.set).toHaveBeenCalledTimes(cookieSetCount);
 
     // A broker-owned child cookie change must not feed back into adoption and
+    // start another fan-out cycle once the parent and child identities match.
     await expect(
       broker.adoptAppSession(mail.id, { fromCookieChange: true }),
     ).resolves.toBe(true);

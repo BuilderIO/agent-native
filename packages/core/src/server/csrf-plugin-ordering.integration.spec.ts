@@ -149,6 +149,9 @@ describe("CSRF vs. independently-initialized action-route plugin (registration-o
       }),
     ).resolves.toMatchObject({ status: 200, body: { ok: true } });
 
+    // The regression check: a cookie-carrying "simple request" (no preflight,
+    // no first-party marker) must be rejected by CSRF before it ever reaches
+    // the action handler.
     await expect(
       dispatch(nitroApp, "/_agent-native/actions/host-echo", {
         method: "POST",

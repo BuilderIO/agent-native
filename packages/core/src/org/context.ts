@@ -34,20 +34,6 @@ const EMPTY_CONTEXT: OrgContext = {
   role: null,
 };
 
-/**
- * The single way to read `org_members`, so no two call sites can pick opposite
- * defaults for the same failure. A transient database failure is NOT an answer
- * and propagates: a caller that turns it into "no memberships" silently drops
- * org scope, which hides every org-scoped credential behind a
- * permanent-sounding "not configured".
- *
- * `null` is every non-transient failure, not only the intended one (org tables
- * absent on a fresh install before migrations). A permanently unreadable table
- * — a role without SELECT, say — still reports as "no rows" here. Narrowing
- * that further means classifying "no database configured" as readable-absent,
- * which is load-bearing for CLI/script/test contexts that legitimately run
- * without a store; see `assertCredentialStoreReadable`.
- */
 export async function queryOrgMembers(query: {
   sql: string;
   args: unknown[];
@@ -284,6 +270,8 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   try {
     memberships = await loadMembershipsForEvent(event, email);
   } catch (err) {
+    // A transient membership read must not downgrade an authenticated request
+    // to a private/solo scope when the session already carries its org.
     if (sessionOrgId && isTransientDatabaseError(err)) {
       return {
         email,
@@ -697,15 +685,6 @@ export async function bootstrapAdminOrganization(
   return true;
 }
 
-/**
- * A second organization is the single most expensive accident in this codebase:
- * vault credentials are scoped per organization, so creating one and activating
- * it orphans every key synced under the previous org, and the only symptom is a
- * missing-env-var error somewhere else entirely. The UI warns humans before
- * they click (`org.createOrgVaultNotice`); this covers the path that actually
- * did the damage — app code or a migration action calling `createOrganization`
- * directly, where no notice is ever rendered.
- */
 async function warnOnAdditionalOrganization(
   exec: ReturnType<typeof getDbExec>,
   email: string,
@@ -801,26 +780,6 @@ async function hasDomainMatch(
 
 const CLAIM_TTL_MS = 5 * 60 * 1000;
 
-/**
- * Attempt to provision a default org + owner membership for a user with
- * zero memberships.
- *
- * Race protection: claims the user's auto-create slot via an atomic
- * INSERT into the framework `settings` table (PRIMARY KEY (key) — so
- * concurrent inserts for the same key throw a Postgres uniqueness violation.
- * Only the request that wins the claim
- * proceeds to create the org; losers bail. By the time a losing
- * request retries on a subsequent navigation, the winner's org is in
- * `org_members` and the auto-create branch is skipped entirely.
- *
- * Stuck-state recovery: a stale claim (held longer than CLAIM_TTL_MS)
- * is reclaimed automatically. So even if the DELETE on the failure
- * path fails (network blip, DB error), the user isn't stranded — the
- * next request after the TTL elapses retries cleanly.
- *
- * Returns null on any failure so the caller can fall back to the
- * empty-context / client-guard path.
- */
 async function tryCreateDefaultOrg(
   exec: ReturnType<typeof getDbExec>,
   email: string,
@@ -832,6 +791,10 @@ async function tryCreateDefaultOrg(
 
   if (!(await acquireClaim(exec, claimKey))) return null;
 
+  // Pending-invite check happens INSIDE the claim so the window where a
+  // newly-arrived invitation can be missed is narrowed to a single SQL
+  // round-trip. (A still-narrower window would require a transaction
+  // spanning org_invitations and settings — out of scope.)
   if (await hasPendingInvitation(exec, email)) {
     await releaseClaim(exec, claimKey);
     return null;
@@ -929,11 +892,6 @@ export async function getOrgDomain(orgId: string): Promise<string | null> {
   }
 }
 
-/**
- * Look up the org's A2A secret by org ID.
- * Used when making outbound A2A calls so the JWT is signed with the
- * org-specific secret rather than the global A2A_SECRET env var.
- */
 export async function getOrgA2ASecret(orgId: string): Promise<string | null> {
   try {
     const exec = getDbExec();
@@ -985,11 +943,6 @@ export async function resolveOrgByDomain(
   }
 }
 
-/**
- * Whether the requested domain is the only organization in this deployment.
- * Legacy workspace-wide A2A credentials may use this to preserve access
- * without allowing one credential to select among multiple local tenants.
- */
 export async function isSoleOrgDomain(domain: string): Promise<boolean> {
   try {
     const exec = getDbExec();

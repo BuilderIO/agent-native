@@ -65,14 +65,7 @@ export interface DesignConnectArgs {
   root: string;
   routeManifest?: string;
   appUrl?: string;
-  /** Server-minted bridge token to adopt instead of minting one, so the bridge
-   *  matches the token already stored on the user's connection row (no
-   *  self-registration). Also read from AGENT_NATIVE_BRIDGE_TOKEN. */
   bridgeToken?: string;
-  /** Read-only token used by Design browser previews. This is deliberately
-   *  distinct from `bridgeToken`, which unlocks local filesystem reads/writes.
-   *  When omitted it is derived one-way from bridgeToken for compatibility
-   *  with existing /visual-edit launch commands. */
   previewToken?: string;
   json: boolean;
   once: boolean;
@@ -188,6 +181,7 @@ async function resolveBridgeToken(
     );
   }
 
+  // The daemon path persists only after it proves the running or newly-started
   // bridge accepted this token. A rejected token must not replace recovery data.
   if (persist && (configuredToken || !persistedToken)) {
     await persistBridgeToken(rootPath, bridgeToken);
@@ -794,8 +788,7 @@ export async function prepareDesignConnectManifest(
       status: "available" as const,
       reason:
         operation === "resolveNodeToFile"
-          ?
-            "React development builds resolve jsxDEV call sites automatically; other runtimes can emit data-source-file / data-source-line / data-component-name attributes."
+          ? "React development builds resolve jsxDEV call sites automatically; other runtimes can emit data-source-file / data-source-line / data-component-name attributes."
           : undefined,
     })),
   };
@@ -821,6 +814,7 @@ function isApprovedDesignOrigin(
   configuredOrigins: ReadonlySet<string>,
   opaquePreviewAuthorized = false,
 ): boolean {
+  // Sandboxed loopback preview documents have an opaque `null` origin. It is
   // only approved when this request carries the non-cookie preview token;
   // sibling opaque frames must not be able to spend this bridge's cookie.
   if (rawOrigin === "null") return opaquePreviewAuthorized;
@@ -983,7 +977,6 @@ function readRequestCookie(req: IncomingMessage, name: string): string {
 }
 
 function previewSessionSetCookie(previewToken: string): string {
-  // Partitioned SameSite=None keeps the read-only bridge credential available
   return `${PREVIEW_SESSION_COOKIE_NAME}=${previewToken}; HttpOnly; Path=/; SameSite=None; Secure; Partitioned`;
 }
 
@@ -1021,6 +1014,10 @@ function previewProxyRequestHeaders(
   const browserCookie = browserSameOrigin ? readHeader(req, "cookie") : "";
   const mergedCookie = mergePreviewCookieHeaders(cookieHeader, browserCookie);
   if (mergedCookie) headers["cookie"] = mergedCookie;
+  // Same-origin app code may use localStorage-backed bearer auth. Forward it
+  // only from a browser request already classified as same-origin; cross-site
+  // callers still authenticate to the bridge with the separate preview token,
+  // which is never copied upstream.
   if (browserSameOrigin) {
     const authorization = readHeader(req, "authorization");
     if (authorization && authorization.length <= 16 * 1024) {
@@ -2390,7 +2387,6 @@ function countOccurrences(haystack: string, needle: string): number {
   return count;
 }
 
-
 const ALWAYS_IGNORED_DIR_NAMES = new Set([
   ".git",
   "node_modules",
@@ -2643,6 +2639,10 @@ export async function startDesignConnectBridge(
   manifest: DesignConnectManifest,
   seedOrOptions?: string | DesignConnectBridgeOptions,
 ): Promise<DesignConnectBridge> {
+  // Shared secret the browser sends (x-bridge-token) to unlock live-edit/read/
+  // write. Bridge and the user's connection row must agree on it. Adopt a
+  // server-minted seed when given (MCP flow); otherwise mint one and rely on
+  // --app-url self-registration to push it up. Kept in-process, never served.
   const options: DesignConnectBridgeOptions =
     typeof seedOrOptions === "string"
       ? { bridgeToken: seedOrOptions }
@@ -2785,6 +2785,15 @@ export async function startDesignConnectBridge(
 
       // ── Read-only preview routes (preview token required) ────────────────
 
+      // The injected <base href> re-points the proxied app's own
+      // <link rel="manifest" href="/manifest.json"> at the bridge, which
+      // would otherwise collide with the bridge's own control-plane manifest
+      // below. Browsers tag that fetch with Sec-Fetch-Dest: manifest (a
+      // request-metadata header Node's fetch never sends), so existing
+      // control-plane callers — the Design app and `fetchRunningBridgeManifest`
+      // (used by `design connect --json` / daemon self-detection) — keep
+      // hitting the bridge manifest unchanged, while the app's own manifest
+      // request falls through to the ordinary authenticated proxy below.
       const isProxiedAppManifestRequest =
         (req.method === "GET" || req.method === "HEAD") &&
         pathname === "/manifest.json" &&
@@ -2986,7 +2995,10 @@ export async function startDesignConnectBridge(
           sendJson(res, 405, { ok: false, error: "method not allowed" });
           return;
         }
+        // Publishing is a browser state mutation. The read-only preview
         // credential must come from the custom header, not a query string or
+        // cookie, and the JSON content type forces a browser preflight before
+        // a cross-site page can reach this endpoint.
         if (!explicitPreviewTokenValid) {
           sendJson(res, 401, {
             ok: false,
@@ -3286,8 +3298,6 @@ export async function startDesignConnectBridge(
         return;
       }
 
-      // ── Token-gated write endpoints (POST only) ───────────────────────────
-
       if (
         pathname === "/read-file" ||
         pathname === "/write-file" ||
@@ -3524,6 +3534,12 @@ export async function startDesignConnectBridge(
         req.method &&
         ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"].includes(req.method)
       ) {
+        // The browser's own manifest-link fetch algorithm omits credentials
+        // and custom headers by spec default, so it structurally cannot carry
+        // a previewToken. That is consistent with the proxied dev server,
+        // which already serves this exact path with no auth of its own — so
+        // this narrow, unspoofable (Sec-Fetch-Dest is a forbidden header,
+        // unsettable from page JS) case is exempted from the token gate.
         if (!previewTokenValid && !isProxiedAppManifestRequest) {
           sendJson(res, 401, {
             ok: false,
@@ -3711,6 +3727,11 @@ export async function startDesignConnectBridge(
     },
   );
 
+  // Vite's proxied /@vite/client derives its HMR socket from the document's
+  // bridge origin. Tunnel WebSocket upgrades to the one connected dev-server
+  // origin so Fast Refresh remains live inside URL-backed screens. The target
+  // is never caller-controlled, bridge credentials are stripped, and only a
+  // same-origin iframe (or an explicit preview-token caller) can open it.
   server.on("upgrade", (req, clientSocket, clientHead) => {
     clientSocket.on("error", () => clientSocket.destroy());
     const requestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
@@ -3894,7 +3915,6 @@ export async function registerConnectionWithServer(
       routes: manifest.routes,
       generatedAt: manifest.generatedAt,
     },
-    // minting its own unrelated token, which would always produce a 401.
     bridgeToken,
     previewToken,
     status: "connected" as const,
@@ -4254,7 +4274,6 @@ export async function runDesign(argv: string[]) {
   if (appUrl) {
     await registerConnectionWithServer(appUrl, bridge, resolveAuthToken());
   } else if (!seedBridgeToken) {
-    // No token source at all — warn rather than 401 silently at edit time.
     console.error(
       "[design connect] No bridge token or app URL resolved (pass --bridge-token, or --app-url / AGENT_NATIVE_URL); skipping self-registration — browser preview and live-edit will fail to authorize.",
     );

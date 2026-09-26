@@ -20,20 +20,6 @@ import {
 } from "./error-detail.js";
 import { EngineError, type EngineStreamOptions } from "./types.js";
 
-/**
- * A 403 with an empty body is the provider shedding load, not a revoked key.
- * That verdict was fixed twice already — once in `classifyProviderError` for
- * the AI SDK lane and once in `builder-engine` for the gateway lane — and both
- * times the Anthropic engine was left tagging it `http_403`, which routes a
- * working credential onto the "reconnect your provider" lane and ends the turn
- * on its first occurrence instead of retrying.
- *
- * So this file asserts the property rather than the third fix: every engine
- * reaches the same verdict on a reasonless 403, and an engine that does not is
- * a test failure instead of a production report. The static check at the bottom
- * is what catches engine number four, which no behavioral test here can see.
- */
-
 const BARE_403_MESSAGES = ["403 status code (no body)", "Forbidden", ""];
 
 function anthropicApiError(status: number, message: string): Error {

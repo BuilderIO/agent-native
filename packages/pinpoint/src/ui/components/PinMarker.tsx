@@ -1,4 +1,12 @@
+// @agent-native/pinpoint — Pin markers: outline + numbered badge per element
 // MIT License
+//
+// Each pin gets a wrapper div containing:
+//   1. An outline border div (positioned over the element)
+//   2. A numbered badge circle (at the top-right corner)
+//   3. An optional selection checkbox (at the top-left corner)
+//   4. A resolved checkmark overlay when status is resolved
+// Rendered outside Shadow DOM on document.body.
 
 import type { Pin, PinStatus } from "../../types/index.js";
 

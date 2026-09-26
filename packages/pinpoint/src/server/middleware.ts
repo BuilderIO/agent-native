@@ -1,4 +1,8 @@
+// @agent-native/pinpoint — Express middleware for pin CRUD
 // MIT License
+//
+// REST routes: GET (list), GET/:id, POST, PATCH/:id, DELETE/:id
+// Path traversal validation on all IDs.
 
 import { Router, type Request, type Response } from "express";
 

@@ -279,6 +279,9 @@ describe("resolveDispatchOwner", () => {
   });
 
   it("does NOT impersonate an org member from an unverified (spoofed) email From", async () => {
+    // Attacker spoofs From: victim@member.test, which IS a real org member —
+    // but the message is unverified (no DKIM/SPF pass). Must fall through to
+    // the synthetic, credential-less owner, NOT the victim's identity.
     mocks.resolveOrgIdForEmail.mockResolvedValue("org_123");
 
     const owner = await resolveDispatchOwner(

@@ -1,19 +1,3 @@
-/**
- * Drizzle schema for the data-programs primitive.
- *
- * A "data program" is a named, stored, agent-authored JS script executed
- * server-side through the existing run-code sandbox (`executeSandboxCode`).
- * Its result (rows + schema) is cached in `data_program_runs` and rendered by
- * the analytics dashboard panel components via a `"program"` panel source.
- *
- * `dataPrograms` follows the standard ownable-resource shape (see
- * `../extensions/schema.ts`) so it can be registered with the framework
- * sharing registry. `data_program_runs` is a run-result CACHE, not a
- * shareable/ownable resource — it is created via raw portable DDL exactly
- * like `../provider-api/staged-datasets-store.ts` (JSON-as-TEXT with
- * Postgres column types).
- */
-
 import { table, text, integer, now } from "../db/schema.js";
 import { ownableColumns, createSharesTable } from "../sharing/schema.js";
 
@@ -73,8 +57,6 @@ export const DATA_PROGRAM_SHARES_CREATE_SQL = `CREATE TABLE IF NOT EXISTS data_p
 export const DATA_PROGRAMS_APP_OWNER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS data_programs_app_owner_idx ON data_programs (app_id, owner_email)`;
 export const DATA_PROGRAMS_APP_NAME_INDEX_SQL = `CREATE INDEX IF NOT EXISTS data_programs_app_name_idx ON data_programs (app_id, name)`;
 export const DATA_PROGRAM_SHARES_RESOURCE_INDEX_SQL = `CREATE INDEX IF NOT EXISTS data_program_shares_resource_idx ON data_program_shares (resource_id)`;
-
-// data_program_runs — run-result cache. Not shareable/ownable; scoped only by
 
 export function dataProgramRunsCreateSql(integerType: string): string {
   return `CREATE TABLE IF NOT EXISTS data_program_runs (

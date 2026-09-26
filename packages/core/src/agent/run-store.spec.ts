@@ -1075,7 +1075,6 @@ describe("run store", () => {
     expect(status).toBeNull();
   });
 
-
   it("writeLedgerEntry persists result via INSERT with UPSERT semantics", async () => {
     await writeLedgerEntry("thread-abc", "my-tool:{}", "the result");
 
@@ -1248,7 +1247,6 @@ describe("run store", () => {
     await expect(clearLedgerForThread("thread-err")).resolves.toBeUndefined();
   });
 
-
   it("insertRun persists dispatchPayload into the dispatch_payload column", async () => {
     await insertRun("run-payload", "thread-1", "turn-1", {
       dispatchMode: "background",
@@ -1355,7 +1353,6 @@ describe("run store", () => {
     ]);
   });
 
-
   it("countRunsForTurn returns the SQL count, scoped by thread_id AND turn_id", async () => {
     runCountRows = [{ run_count: 7 }];
     const count = await countRunsForTurn("thread-x", "turn-y");
@@ -1376,7 +1373,6 @@ describe("run store", () => {
     runCountRows = [{ run_count: Number.NaN }];
     expect(await countRunsForTurn("thread-x", "turn-nan")).toBe(0);
   });
-
 
   it("listUnclaimedBackgroundRunIds filters running+background rows past the grace window", async () => {
     unclaimedBackgroundRunRows = [{ id: "run-lost-1" }, { id: "run-lost-2" }];
@@ -1436,7 +1432,6 @@ describe("run store", () => {
     const ids = await listUnclaimedBackgroundRunIds();
     expect(ids).toEqual(["run-ok"]);
   });
-
 
   it("listUnclaimedBackgroundRunRows returns each row's original started_at alongside its id", async () => {
     unclaimedBackgroundRunRowsWithStartedAt = [
@@ -1503,7 +1498,6 @@ describe("run store", () => {
     ]);
   });
 
-
   it("an idle fast-sweep tick costs one query, not one per sweep", async () => {
     await reapAllStaleRuns();
     await listUnclaimedBackgroundRunRows();
@@ -1547,7 +1541,6 @@ describe("run store", () => {
     );
   });
 
-
   it("shouldRedispatchUnclaimedBackgroundRun allows redispatch while inside the bound", () => {
     const now = 1_000_000;
     const row = {
@@ -1578,7 +1571,6 @@ describe("run store", () => {
     );
   });
 
-
   it("the fast sweep is a real, finite, short interval — strictly tighter than the redispatch bound", () => {
     expect(UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS).toBeGreaterThan(0);
     expect(Number.isFinite(UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS)).toBe(true);
@@ -1586,7 +1578,6 @@ describe("run store", () => {
       UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
     );
   });
-
 
   it("claimBackgroundRun's CAS rejects a second claimer racing the same row (fast sweep vs slow sweep vs a real worker)", async () => {
     const first = await claimBackgroundRun("run-race");
@@ -1720,6 +1711,10 @@ describe("terminal status is `completed` iff the terminal reason is `done`", () 
     }
   });
 
+  // Three writers in three isolates race on terminal_reason with no ordering.
+  // Last-writer-wins let a late mid-run checkpoint relabel a row another
+  // isolate had already finalized, producing rows whose reason names a failure
+  // the run never hit.
   it("setRunTerminalReason will not relabel a row that already recorded one", async () => {
     for (const reason of ["done", "no_progress", "dispatch_payload_missing"]) {
       execCalls.length = 0;

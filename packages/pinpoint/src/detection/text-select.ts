@@ -1,4 +1,8 @@
+// @agent-native/pinpoint — Text range selection
 // MIT License
+//
+// Listens for selectionchange, captures Selection.getRangeAt(0),
+// extracts container element and surrounding context.
 
 export interface TextSelection {
   text: string;

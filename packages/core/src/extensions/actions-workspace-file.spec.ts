@@ -61,6 +61,8 @@ describe("extensions/actions contentFromWorkspaceFile bridge parity", () => {
 
   it("create-extension fails closed (no Resources fallback) when the bridge read throws", async () => {
     // A transient store error / invalid path from the bridge scope must NOT
+    // silently fall through to a same-path Resources body - that could host a
+    // different file than workspaceRead inspected. Fail closed instead.
     const createExtension = vi.fn();
     mockExtensionModules({ createExtension });
     vi.doMock("../workspace-files/store.js", () => ({

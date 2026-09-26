@@ -272,7 +272,6 @@ describe("fireInternalDispatch", () => {
     ).resolves.toBeUndefined();
   });
 
-
   describe("awaitResponse", () => {
     it("resolves once the target confirms receipt with a 2xx", async () => {
       globalThis.fetch = vi.fn(async () => ({
@@ -356,6 +355,9 @@ describe("fireInternalDispatch", () => {
 
     it("regression: WITHOUT awaitResponse, a slow non-2xx response after the settle window does not throw or reject the call", async () => {
       // Old behavior must be preserved for every other caller: the settle race
+      // resolves once the dispatch has had time to leave the process, and a
+      // late-arriving error response (after settleMs) must not surface as a
+      // rejection — the caller has already moved on.
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       let rejectUnhandled: (() => void) | undefined;
       const unhandledGuard = new Promise<void>((_resolve, reject) => {

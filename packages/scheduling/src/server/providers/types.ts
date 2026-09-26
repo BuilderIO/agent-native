@@ -58,6 +58,12 @@ export interface VideoProvider {
   kind: string;
   label: string;
 
+  /**
+   * Start the OAuth flow — optional. Present on providers like Zoom /
+   * Microsoft Teams that require a user's OAuth grant to create meetings on
+   * their behalf. Zero-OAuth providers (the built-in video provider, or
+   * Google Meet which piggy-backs on the Google Calendar scope) omit this.
+   */
   startOAuth?(opts: {
     redirectUri: string;
     state: string;

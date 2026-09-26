@@ -254,7 +254,6 @@ async function resourceToAutomationItem(
     canUpdate,
     triggerType: meta.triggerType,
     event: meta.event,
-    // The path is a bearer credential; read-only organization members can see
     webhookPath:
       canUpdate && meta.triggerType === "webhook"
         ? await readAutomationWebhookPath(resource, meta)

@@ -473,7 +473,6 @@ describe("useSession", () => {
   });
 
   it("reports signing-out instead of the last authenticated answer", async () => {
-    // The reported logout race: a cache invalidation only schedules a re-read,
     const { beginSignOut: begin, useSession: useFreshSession } =
       await freshSessionModule();
     const statuses: string[] = [];

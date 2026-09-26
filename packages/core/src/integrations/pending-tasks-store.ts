@@ -133,15 +133,6 @@ function rowToTask(row: Record<string, unknown>): PendingTask {
   };
 }
 
-/**
- * Insert a new pending task. Returns the generated task id.
- *
- * If `externalEventKey` is supplied, the unique index on
- * `(platform, external_event_key)` will reject duplicates — callers should
- * catch the resulting constraint-violation error and treat it as
- * "already enqueued" instead of a hard failure (H3 in the webhook security
- * audit). This is the SQL-backed replacement for the in-memory dedup map.
- */
 export async function insertPendingTask(input: {
   id: string;
   platform: string;

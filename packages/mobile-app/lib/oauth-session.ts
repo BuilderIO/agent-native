@@ -21,6 +21,10 @@ export async function rememberOAuthState(url: string): Promise<void> {
   await AsyncStorage.setItem(OAUTH_STATE_KEY, state);
 }
 
+// Validate a callback `state` against the one stored before the browser opened,
+// consuming it so it can't be replayed. A custom URL scheme is not
+// origin-authenticated, so without this a mismatched or forged callback could
+// replace the active session. Both the iOS inline path and the deep-link
 // handler must gate token acceptance on this.
 export async function consumeOAuthStateMatches(
   state: string | null,
@@ -31,7 +35,9 @@ export async function consumeOAuthStateMatches(
   return matches;
 }
 
+// Clips needs an owner key (derived from email/orgId) alongside the token
 // before its session counts as connected. The token alone can't produce it, so
+// resolve the owner from the app's session endpoint using the saved token.
 export async function resolveAndStoreOwnerKey(
   token: string,
   ownerKeyName: string | null,

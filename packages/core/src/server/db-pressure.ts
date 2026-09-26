@@ -1,4 +1,27 @@
+// Database pressure — the three signals that precede an outage, measured from
+// inside the app that owns the database.
+//
+// The analytics app degraded for hours on 2026-08-06 before it fell over, and
+// every check we had said UP until the moment it said DOWN. What was actually
+// true, and visible in `pg_stat_activity` the whole time:
+//
+//   - 11-20 connections stuck `idle in transaction` up to 283s, left behind by
+//     serverless workers killed mid-transaction. They hold locks; nothing
+//     reaped them.
+//   - `SELECT 1` drifting from ~0.2s to 6s as those locks accumulated.
+//   - 47-56 concurrent copies of one unprojected query, each dragging a JSON
+//     blob per row.
+//
+// None of that is "down". All of it is the hour before down. A monitor that
+// only distinguishes 200 from 500 cannot see any of it.
+//
+// This lives in core rather than in a workstation script because the numbers
+// require a database credential, and the app already has its own. Reading them
+// here means the scheduled fleet audit needs no production credentials at all.
+// `scripts/chat-health.mjs` measures the same three signals locally against
+// every app at once; `db-pressure.spec.ts` pins the two threshold sets equal.
 
+/** Counters taken in one shot from `pg_stat_activity`. */
 export interface DbPressureCounters {
   connections: number;
   idleInTxn: number;

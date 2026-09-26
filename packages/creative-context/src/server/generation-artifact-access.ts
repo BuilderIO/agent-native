@@ -130,6 +130,12 @@ export async function verifyGenerationArtifactAccessCapability(
     throw new Error("Invalid generation artifact access capability");
   }
   const actor = requireCapabilityActor();
+  // The recorded role is read back from the claims rather than re-derived,
+  // because only the mint side saw the target that decided it. That is safe
+  // because these claims are HMAC-signed by this deployment and the real
+  // `assertAccess` ran before signing. The checks below are what keep a token
+  // from being replayed for another artifact, operation, caller, org, or
+  // moment.
   if (
     claims.version !== 1 ||
     claims.operation !== operation ||

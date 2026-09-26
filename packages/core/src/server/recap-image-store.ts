@@ -25,12 +25,6 @@ export const RECAP_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 export const RECAP_IMAGE_CONTENT_TYPE = "image/png";
 
-/**
- * Stored recap images older than this are pruned on the next write (30 days).
- * Each PR push uploads a fresh screenshot under a new token; without expiry the
- * table — and the set of anonymously-fetchable image URLs — would grow without
- * bound. 30 days comfortably outlives any PR's review window.
- */
 export const RECAP_IMAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**

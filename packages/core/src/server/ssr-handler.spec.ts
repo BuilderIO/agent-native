@@ -816,6 +816,8 @@ describe("createH3SSRHandler", () => {
       createEvent("/", "GET", { headers: { cookie: "an_session=1" } }),
     );
 
+    // SSR never reads the request session: getSession is not called and a loader
+    // that reads getRequestUserEmail() sees undefined despite the auth cookie.
     expect(mocks.getSession).not.toHaveBeenCalled();
     expect(await response.text()).toContain("anonymous");
   });

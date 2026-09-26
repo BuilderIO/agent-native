@@ -1,4 +1,3 @@
-
 import {
   notifyActivity,
   runActivityNotification,
@@ -49,7 +48,9 @@ function resourceLabel(comment: ReviewComment): string {
 }
 
 async function threadParticipants(comment: ReviewComment): Promise<string[]> {
+  // Scope is already established by the action that inserted the comment;
   // participants are read unscoped so a viewer's narrower scope cannot hide a
+  // person who is genuinely in the thread.
   const comments = await queryReviewComments({
     resourceType: comment.resourceType,
     resourceId: comment.resourceId,

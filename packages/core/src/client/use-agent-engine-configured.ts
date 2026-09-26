@@ -47,6 +47,7 @@ async function waitForStatus<T>(
   const timeout = new Promise<ClientStatusResult<T>>((resolve) => {
     timeoutId = setTimeout(() => {
       // A request that loses this race may never settle. Evict and abort the
+      // shared probe so the scheduled retry starts a genuinely new request.
       invalidateClientStatusRequest(path);
       resolve({ state: "unavailable" });
     }, timeoutMs);

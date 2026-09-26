@@ -1,4 +1,3 @@
-
 import { table, text, bigint } from "../db/schema.js";
 
 export const emailLog = table("email_log", {
@@ -19,11 +18,6 @@ export const emailLog = table("email_log", {
    */
   error: text("error"),
   provider: text("provider").notNull(),
-  /**
-   * Exact outbound JSON body sent to the provider, minus the Authorization
-   * header (the only secret in the request) and any attachment `content`
-   * bytes (large, no diagnostic value for "who did this go to").
-   */
   requestPayload: text("request_payload"),
   responseStatus: bigint("response_status", { mode: "number" }),
   responseBody: text("response_body"),

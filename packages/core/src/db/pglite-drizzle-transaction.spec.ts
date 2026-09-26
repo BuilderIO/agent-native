@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 
+// Drizzle's PGlite session opens a transaction by calling `client.transaction`
+// on the raw PGlite engine directly — it never goes through this module's own
+// `createDbExecInternal` transaction() path. Without `pgliteDrizzleClient`
+// wiring that call into the shared AsyncLocalStorage registry, any
+// `getDbExec().execute()` inside a `getDb().transaction(...)` callback falls
+// through to the main PGlite client and queues behind the open transaction on
+// PGlite's single connection — a permanent deadlock.
 
 describe("Drizzle-opened PGlite transactions register with the shared exec", () => {
   afterEach(async () => {

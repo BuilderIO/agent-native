@@ -965,7 +965,6 @@ export function createAgentChatPlugin(
       const { awaitBootstrap } = await import("./framework-request-handler.js");
       await awaitBootstrap(nitroApp);
 
-
       const env = process.env.NODE_ENV;
       const hostedHarnessConfig = await loadHostedHarnessConfig();
       const canToggle =
@@ -1013,6 +1012,10 @@ export function createAgentChatPlugin(
         disabledFrameworkGroups,
       });
 
+      // Route readiness must not wait on settings scans, remote hub fetches, or
+      // third-party MCP handshakes. Build the action surface against an empty
+      // manager, then hydrate it after every live action registry has subscribed
+      // to manager changes.
       const mcpManager = new McpClientManager(null);
       const mcpActionEntries: Record<string, ActionEntry> = {};
       let mcpInitializationPromise: Promise<void> | null = null;
@@ -1097,6 +1100,10 @@ export function createAgentChatPlugin(
         process.once("SIGINT", stop);
       }
 
+      // Resolve actions — prefer explicit `actions`, fall back to deprecated
+      // `scripts`. When neither is provided, auto-discover from the filesystem
+      // so templates that forget to pass `actions` still work in non-serverless
+      // deployments (serverless bundles need explicit imports).
       const rawActions = options?.actions ?? options?.scripts;
       let templateScriptsAll: Record<string, ActionEntry> =
         typeof rawActions === "function"
@@ -1400,8 +1407,28 @@ export function createAgentChatPlugin(
         }),
         disabledFrameworkGroups,
       );
+      // Per-request owner is read from the AsyncLocalStorage run context
       // (populated by prepareRun). Module-scope `let` would race across
+      // concurrent requests on a long-lived Node process — overlapping
+      // tool calls would observe whichever request wrote last. ALS gives
+      // each async call-chain its own view of the owner.
+      //
+      // Falls back to `getRequestUserEmail()` so callers that wrap work
+      // in `runWithRequestContext({ userEmail }, …)` without going through
+      // `prepareRun` (recurring jobs, trigger dispatcher) still see the
+      // correct owner.
+      //
       // SECURITY: returns `null` when neither the run context nor the
+      // request user-email is populated. Consumers MUST short-circuit
+      // with an explicit error rather than fall back to a sentinel
+      // identity (e.g. DEV_MODE_USER_EMAIL). The previous fallback to
+      // `local@localhost` slipped past `guard-no-localhost-fallback`
+      // because the literal was hidden behind a symbolic alias —
+      // any agent loop that reached this code without a populated
+      // session would resolve `${keys.NAME}` against the dev-shim's
+      // `app_secrets WHERE scope_id='local@localhost'` rows. See
+      // audit 02 (HIGH: getCurrentRunOwner) and the
+      // 2026-04-29 credentials-leak incident for the prior shape.
       const getCurrentRunOwner = (): string | null =>
         getRequestRunContext()?.owner ?? getRequestUserEmail() ?? null;
       const requireCurrentRunOwner = (operation: string): string => {
@@ -1471,7 +1498,19 @@ export function createAgentChatPlugin(
         if (webGroupEnabled) {
           const { createFetchToolEntry } =
             await import("../extensions/fetch-tool.js");
+          // Resolve `${keys.NAME}` through the same request-scope cascade
+          // already used by extension fetches (extensions/routes.ts) and
+          // automation connector headers (automation/index.ts): user scope
+          // first (personal overrides win), then the active org scope (the
+          // Dispatch vault syncs workspace secrets here), then workspace
+          // scope. Org/workspace vault rows are write-gated (org-admin +
+          // Dispatch vault UI), so this is safe to read by default — unlike
+          // the opt-in-only user→workspace fallback in resolveKeyReferences
+          // (see audit 05 H2 in secrets/substitution.ts), which stays off.
           // Previously this tool only looked at scope "user", so a
+          // ${keys.NAME} reference to a key synced into the org/workspace
+          // vault could never resolve here even though the same key already
+          // worked for extension fetches and automations.
           const {
             resolveKeyReferencesWithRequestScopes,
             validateUrlAllowlist,
@@ -1566,6 +1605,10 @@ export function createAgentChatPlugin(
         });
       } catch {}
 
+      // Core send-email tool. Keyed "core-send-email" to avoid colliding
+      // with the mail template's richer "send-email" action (template wins
+      // when both surfaces spread into the same object, but distinct keys
+      // keep both visible and avoid silent shadowing).
       let coreEmailTools: Record<string, ActionEntry> = {};
       let backgroundCoreEmailTools: Record<string, ActionEntry> = {};
       try {
@@ -1781,7 +1824,16 @@ export function createAgentChatPlugin(
             },
       );
 
+      // Full ("production") MCP surface served to an authenticated *real
+      // caller* — a connect-minted token, an `agent-native mcp install` stdio
+      // proxy, or a deployed / AGENT_MODE=production app — even in local dev.
+      // `allScripts` above is intentionally the sparse, dev-toggled surface
+      // (builtins + read-only public-agent actions) used by the local agent
+      // chat and unauthenticated dev probes; per the external-agents contract
       // a caller that connected with a token MUST get the full surface (so
+      // `create-document` etc. are callable over MCP). Only needed when
+      // `canToggle` (dev/test): in production `allScripts` already IS this
+      // composition, so leave it undefined and `mountMCP` skips the swap.
       const mcpFullActions = canToggle
         ? attachToolSearch({
             ...discoveredActions,
@@ -1888,7 +1940,23 @@ export function createAgentChatPlugin(
           return { status: result.status, output: result.output };
         },
         handler: async function* (message, context) {
+          // Resolve the caller's identity for user-scoped data access.
+          // Priority: A2A-JWT verified email (set by the A2A handler in
+          // request-context) > dev session DB (dev only) > Google OAuth
+          // tokeninfo (prod only). Without the JWT-verified-email path,
+          // cross-app A2A calls landed owned by `local@localhost` (dev) or
+          // `dispatch@shared`, which made resources invisible to the actual
+          // signed-in user.
+          //
           // SECURITY: we deliberately do NOT trust `context.metadata.userEmail`
+          // as a fallback. The A2A endpoint runs in three modes — JWT-signed
+          // (verified email lands in request context), API-key (caller is
+          // app-authenticated but NOT user-authenticated), and unsigned
+          // (no auth at all). Trusting caller-supplied metadata on the latter
+          // two paths would let any reachable caller forge `metadata.userEmail`
+          // and impersonate an arbitrary user. The JWT path already populates
+          // the request context, so the metadata fallback was only ever used
+          // on the unauthenticated paths — exactly where it's unsafe.
           const isDev = process.env.NODE_ENV !== "production";
           let userEmail: string | undefined;
 
@@ -1898,7 +1966,22 @@ export function createAgentChatPlugin(
             userEmail = getRequestUserEmail();
           } catch {}
 
+          // Dev-mode-only: when no JWT-verified email is present, fall back
+          // to the most recently logged-in session. This is convenient for a
+          // single-developer dev box but is a silent-impersonation hole if
+          // it ever fires in production or on an exposed dev environment
+          // (preview deploys, ngrok tunnels, etc.).
+          //
           // SECURITY: gate this fallback narrowly:
+          //   - NODE_ENV strictly === "development" (not "test", not unset).
+          //   - AUTH_MODE === "local" (the dev-only auth shim).
+          //   - Request host is localhost / 127.0.0.1 (best-effort: when the
+          //     A2A handler doesn't have direct H3 event access, we rely on
+          //     env-based shape checks).
+          //
+          // In production this MUST never fire — the runtime assertion
+          // below crashes loud if NODE_ENV === "production" somehow reaches
+          // this block.
           if (!userEmail && isDev) {
             if (process.env.NODE_ENV === "production") {
               throw new Error(
@@ -2082,6 +2165,10 @@ export function createAgentChatPlugin(
             receiverOwnsObjective && options?.appId
               ? buildSelectedA2AReceiverContext(options.appId)
               : "";
+          // Delegated turns use native template actions in every environment,
+          // so they must also receive the native-tool prompt. The interactive
+          // dev prompt teaches `pnpm action` and would send this receiver back
+          // into the shell loop the native action surface exists to prevent.
           const systemPrompt =
             basePrompt +
             SYSTEM_PROMPT_CACHE_SPLIT +
@@ -2093,6 +2180,19 @@ export function createAgentChatPlugin(
             runtimeContext;
           if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
 
+          // Build tools — same as interactive handler. Cross-app delegation is
+          // enabled by default; call-agent carries a bounded visited-app path
+          // and rejects cycles/excessive hops before dispatch.
+          // Delegated turns keep template actions as NATIVE tools even in dev,
+          // unlike the interactive surface (see the allScripts comment). Dev
+          // routes template actions through bash there to dodge the degenerate
+          // empty-object tool call some models emit for complex schemas — a
+          // person can just retry. A delegated caller cannot: with no native
+          // action the sibling agent shells out, and an A2A turn that misfires
+          // has no one to correct it, so it retries the same command until the
+          // repetition guard kills the run minutes later. A rejected `{}` call
+          // returns a schema error the model can fix on the next step, which is
+          // strictly better than a shell loop nobody can see.
           const a2aActions = attachToolSearch(
             devActive
               ? {
@@ -2221,6 +2321,10 @@ export function createAgentChatPlugin(
               availableTools: a2aToolSurface.availableTools,
               messages: a2aMessages,
               actions: a2aActions,
+              // A2A already establishes these values in request context. Pass
+              // them explicitly too so delegated tool execution and template
+              // final-response guards cannot lose the authenticated caller's
+              // scope when a processor hop or alternate runner is involved.
               ownerEmail: userEmail,
               orgId: getRequestOrgId() ?? null,
               approvedToolCalls: context.approvedActions?.map((approved) =>
@@ -2615,6 +2719,12 @@ export function createAgentChatPlugin(
               ownerEmail,
               anthropicFallback: options?.apiKey,
             });
+            // `ask_app` runs outside the interactive handler, so nothing seeds
+            // the run context for it — and `onEngineResolved` never fires on
+            // this path either. Without the resolved key and its provenance
+            // here, an agent-team sub-agent spawned from an MCP run falls back
+            // to the plugin host key while the parent bills the owner's BYO
+            // credential. Same reason the A2A branch above seeds it.
             const mcpRunContext = ensureRequestRunContext();
             if (mcpRunContext) {
               mcpRunContext.userApiKey = ownerApiKey.apiKey;
@@ -2689,6 +2799,12 @@ export function createAgentChatPlugin(
             const schemaBlock = lazyContext
               ? ""
               : await buildSchemaBlock(SHARED_OWNER, databaseToolsMode);
+            // Stable-first ordering: runtime-context (which changes daily)
+            // goes last so the cached prompt prefix survives as long as
+            // possible — same pattern as the other prompt-assembly sites in
+            // this plugin (A2A above, prod/anonymous/dev handlers below).
+            // ask_app receives native template actions even in dev, so the
+            // native-tool prompt is required here for the same reason as A2A.
             const systemPrompt =
               basePrompt +
               SYSTEM_PROMPT_CACHE_SPLIT +
@@ -2976,7 +3092,16 @@ export function createAgentChatPlugin(
         );
 
         void (async () => {
+          // Emit agent.turn.completed for automation triggers.
+          //
           // SECURITY: include `owner` so the trigger dispatcher's tenant-scope
+          // check engages (see triggers/dispatcher.ts:212-218). Without an
+          // owner, every user's matching `agent.turn.completed` trigger
+          // would fire when ANY user's chat turn completes — cross-tenant
+          // fan-out (audit 12 #9). Owner comes from the thread row when
+          // available (most reliable; persisted at thread create time),
+          // falling back to the current run context's owner. If neither
+          // resolves we skip emission entirely rather than emit unowned.
           try {
             let ownerEmail: string | undefined;
             try {
@@ -3228,6 +3353,12 @@ export function createAgentChatPlugin(
         getActions: () => filterRuntimeActionsToSurface(buildSubAgentActions()),
         getEngine: () => {
           const runCtx = getRequestRunContext();
+          // Sub-agents must inherit the parent run's resolved key so
+          // delegations spawned by agent-teams don't silently fall back to
+          // the platform key while the parent uses BYO credentials. This
+          // fallback engine is Anthropic, so a key the parent resolved for
+          // another provider is not inheritable — passing it anyway sends a
+          // live OpenAI/Gemini secret to Anthropic's endpoint.
           const inheritableKey =
             runCtx?.userApiKeyEnvVar === undefined ||
             runCtx.userApiKeyEnvVar === "ANTHROPIC_API_KEY"
@@ -4139,7 +4270,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           ? await rawProviders()
           : (rawProviders ?? {});
 
-
       getH3App(nitroApp).use(
         `${routePath}/mode`,
         defineEventHandler(async (event) => {
@@ -4186,6 +4316,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         ),
       );
 
+      // ─── Agent Teams: durable sub-agent run processor ─────────────────
+      // Self-fire target for `spawnTask`. Executes one chunk of a queued
+      // sub-agent in this fresh function invocation (its own timeout budget)
+      // so background sub-agents survive serverless instead of dying as a
+      // detached promise. Mounted here so it closes over the sub-agent action
+      // set / base prompt / engine (per-deployment closures that can't be
+      // serialized into the queue). HMAC-authed with the same internal-token
+      // scheme as the A2A/webhook processors.
       getH3App(nitroApp).use(
         AGENT_TEAM_PROCESS_RUN_PATH,
         defineEventHandler(async (event) => {
@@ -4474,6 +4612,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
+      // Mount save-key BEFORE the prefix handler so it isn't shadowed.
+      // Persists the user's API key in `app_secrets` (encrypted, scope=user,
+      // scopeId=email). Hard rule: never mutates process.env, never writes
+      // .env. User-pasted secrets must not become deploy-level identity —
+      // that's the cross-tenant leak class (KVesta Space, 2026-04).
+      // Consumers read these values per-request via `resolveSecret(key)`.
       getH3App(nitroApp).use(
         `${routePath}/save-key`,
         defineEventHandler(async (event) => {
@@ -5149,7 +5293,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
+      // ─── Run management endpoints (for hot-reload resilience) ─────────────
 
+      // GET /runs/active?threadId=X — check if there's an active run for a thread
       getH3App(nitroApp).use(
         `${routePath}/runs`,
         withTransientDatabaseFallback(`${routePath}/runs`, async (event) => {
@@ -5159,6 +5305,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const url = event.node?.req?.url || event.path || "";
           const orgId = await getOrgIdFromEvent(event);
 
+          // Authorization: a run's events and a thread's active-run status are
+          // visible to anyone with viewer+ access to the thread. Mutating run
+          // controls require editor+ access.
+          // agent_runs carries no owner column — ownership lives on the
+          // chat_threads row via thread_id.
           const canViewThread = (threadId: string | null | undefined) =>
             callerHasThreadAccess(owner, threadId, "viewer", { orgId });
           const canViewRun = (runId: string) =>
@@ -5451,10 +5602,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lastProgressAt: run.lastProgressAt,
               dispatchMode: run.dispatchMode ?? null,
               terminalReason: run.terminalReason ?? null,
+              // Who is paying for AI here, which is also who is reading a
+              // failure. `terminalReason` is a bare error CODE, and the client
+              // owns the copy for the handoff failures that never produce an
+              // error event — so without this it has to author credential copy
+              // for a reader it cannot identify, and picks the owner's.
               deploymentPaysForAi: isBuilderGatewayDeployConfigured(),
               diagStage: run.diagStage ?? null,
               workerStage: workerClaim?.workerStage ?? null,
               serverNow: Date.now(),
+              // True exactly when this run is a `chainServerDrivenContinuation`
+              // deferral still inside `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS`
+              // — silently recovering server-side via the unclaimed-background-run
+              // sweep(s), never a dead run. See `getActiveRunForThreadAsync`'s doc
+              // comment (run-manager.ts) and the THREE-SITE INVARIANT comments in
+              // agent-chat-plugin.ts / production-agent.ts / agent-chat-adapter.ts.
               awaitingRedispatch: run.awaitingRedispatch === true,
               hasInFlightWork: run.hasInFlightWork === true,
             };
@@ -5788,6 +5950,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   nextPreview,
                   newMessageCount,
                 );
+                // Scope updates piggyback on the PUT — the client uses this
+                // path for detach and for claiming a legacy unscoped thread.
+                // A scoped thread cannot be retagged across resources here.
                 if (Object.prototype.hasOwnProperty.call(body, "scope")) {
                   const incomingScope = parseScopeFromBody(body.scope);
                   await setThreadScope(threadId, incomingScope);
@@ -6131,6 +6296,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         );
       };
 
+      // A Function URL is a separate origin, so the browser cannot send the
+      // Amplify session cookie with the stream request. Mint a short-lived,
+      // audience-bound handoff on the authenticated foreground origin.
       getH3App(nitroApp).use(
         streamTokenPath,
         defineEventHandler(async (event) => {
@@ -6197,6 +6365,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         );
       }
 
+      // ─── Durable background agent-chat run processor ──────────────────────
+      // Self-fire target for a long chat turn. The foreground POST claims the
+      // run slot, inserts the run row, and `fireInternalDispatch`es here; this
+      // route runs INSIDE the Netlify background function (15-min budget). It
+      // HMAC-verifies the dispatch (same internal-token scheme as the agent-
+      // teams / A2A / webhook processors), injects the background-run marker,
+      // and re-enters the SAME agent-chat handler as the background worker,
+      // which runs the full multi-step turn inline with the ~13min soft
+      // timeout. With AGENT_CHAT_DURABLE_BACKGROUND off, the foreground never
+      // dispatches here, so this route is never exercised.
       getH3App(nitroApp).use(
         AGENT_CHAT_PROCESS_RUN_PATH,
         defineEventHandler(async (event) => {
@@ -6397,6 +6575,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 persistedClientPlatform;
             }
 
+            // Durable owner context: this self-dispatch is cookieless (HMAC-only).
+            // Resolve the owner from the persisted run row, never the request
+            // body, then invoke the normal handler. The shared agent-run context
+            // helper expands that owner into the same user/org AsyncLocalStorage
+            // context the foreground request uses, so credential and data scoping
+            // stay aligned.
             const persistedSurface = readPersistedActionSurface(
               workerBody,
               "__resolvedActionSurface",
@@ -6731,9 +6915,54 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }, 15_000);
       })();
 
+      // ─── Unclaimed background-run sweep ────────────────────────────────
+      // Backstop for LOST background handoffs. The foreground circuit-breaker
+      // covers the initial dispatch (a connected client is polling the claim),
+      // but a server-chained CONTINUATION handoff has no foreground watching
+      // it: if the dispatch is lost after the successor row was inserted, the
+      // row would otherwise sit at dispatch_mode='background' forever and the
+      // turn hangs silently. `chainServerDrivenContinuation` (production-agent.ts)
+      // leaves exactly such a row behind — status='running', dispatch_mode=
+      // 'background', `dispatch_payload` intact — when it exhausts its own
+      // dispatch retry budget, instead of erroring it immediately. Two timers
+      // cooperate to recover it, both reading `listUnclaimedBackgroundRunRows`
+      // fresh each tick and gated by `shouldRedispatchUnclaimedBackgroundRun`
+      // (so they always agree on which rows are still eligible):
+      //   - the FAST sweep (`UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS`, 20s)
+      //     below ONLY attempts redispatch — never reaps — so it puts the
+      //     first recovery attempt well inside the client's
+      //     `BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS` (see the derived budget on
+      //     `UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS` in run-store.ts).
+      //   - the SLOW sweep (2 minutes, immediately below the fast one) is the
+      //     one that falls back to the loud reap once
+      //     `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS` is exceeded; it
+      //     also still attempts redispatch itself so a fast-sweep outage
+      //     (e.g. a restart between ticks) is not the only path to recovery.
+      // A redispatch is always safe to attempt — even a duplicate, concurrent,
+      // or late-arriving one, including the fast and slow sweeps racing each
+      // other on the SAME row — because the worker's `claimBackgroundRun`
+      // atomic CAS (status='running' AND dispatch_mode='background' ->
+      // 'background-processing') is the sole gate on actual execution; a row
+      // that was already claimed or already reaped by a concurrent path just
+      // loses the CAS and no-ops. Cheap: one indexed-ish query per tick.
+      //
       // THREE-SITE INVARIANT (keep in lockstep): this sweep only ever sees the
+      // deferred successor because the ~1s client poll in
+      // `getActiveRunForThreadAsync` (run-manager.ts) skips its own
+      // `reapUnclaimedBackgroundRun` while the row is within the redispatch
+      // bound (`shouldRedispatchUnclaimedBackgroundRun`). That same client
+      // poll also surfaces `awaitingRedispatch: true` on `/runs/active` for
+      // exactly this state, which `agent-chat-adapter.ts`'s follow loop uses
+      // to stop counting the quiet gap against its own idle timeout. If a
+      // future change makes the client poll reap deferred successors at the
+      // 25s grace again, or stops surfacing `awaitingRedispatch`, both sweeps
       // here will almost never win the race for connected clients. Do not
+      // edit one site without the others (producer: chainServerDrivenContinuation
+      // in production-agent.ts; guard + wire signal: run-manager.ts; recovery
+      // actors: here).
       // FAST sweep — redispatch-only, tight cadence. See the invariant
+      // comment above for why this exists and the timing budget in
+      // run-store.ts's `UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS` doc comment.
       (() => {
         if (isBackgroundRuntime || sweepsDisabled) return;
         lifecycle.startTimeout(() => {
@@ -6812,6 +7041,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         );
       });
 
+      // ─── Trigger Dispatcher (event-based automations) ─────────────────
+      // Event and webhook automations remain live when the recurring scheduler
+      // is disabled; only the cron driver is gated above.
       const { initTriggerDispatcher } =
         await import("../triggers/dispatcher.js");
       await initTriggerDispatcher({

@@ -301,12 +301,6 @@ export function decryptSharedSecretValueDetailed(
     : new Error("Unable to decrypt workspace secret");
 }
 
-/**
- * Strict check for a value produced by `encryptSecretValue`: `v1:` followed by
- * three hex segments. Intentionally strict so a legacy plaintext credential
- * that merely happens to start with `v1:` is treated as plaintext (and read via
- * the legacy fallback) rather than mis-decrypted.
- */
 const ENCRYPTED_VALUE_RE = /^v1:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/;
 
 export function isEncryptedSecretValue(value: unknown): value is string {

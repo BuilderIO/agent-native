@@ -1641,6 +1641,7 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     // An auth cookie must make no difference: the framework hard-caches SSR
+    // HTML publicly for every visitor.
     const response = await worker.fetch(
       new Request("https://app.test/docs/inbox", {
         method: "GET",
@@ -4455,6 +4456,8 @@ describe("durable-background Netlify function emit (single-template, default-on)
     );
     expect(entry).toContain("function processorPathFromBody(body)");
     expect(entry).toContain('route.includes("/api/_agent-native-background/")');
+    // It preserves the body (read once) and ALL headers (the HMAC Authorization
+    // Bearer MUST survive — the plugin verifies it).
     expect(entry).toContain("await request.text()");
     expect(entry).toContain("headers: request.headers");
     expect(entry).toContain(

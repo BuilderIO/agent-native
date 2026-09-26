@@ -42,6 +42,10 @@ describe("isOAuthConnected", () => {
   });
 
   it("ignores records whose token bundle parsed to an empty object", async () => {
+    // parseStoredTokens returns {} when the stored row cannot be decrypted
+    // (e.g. after a SECRETS_ENCRYPTION_KEY rotation). Such a record must not
+    // count as "connected" — otherwise the reconnect banner never shows while
+    // every provider call fails with an undefined bearer token.
     listOAuthAccountsByOwnerMock.mockResolvedValue([
       { accountId: "steve@example.com", displayName: null, tokens: {} },
     ]);

@@ -1,32 +1,3 @@
-/**
- * `/mcp/connect` — frictionless external-agent connection. The legacy
- * `/_agent-native/mcp/connect` alias is mounted by the core route plugin.
- *
- * A logged-in user on a deployed agent-native app (e.g. mail.agent-native.com)
- * mints a per-user, scoped, revocable MCP bearer token WITHOUT ever copying a
- * shared deployment secret. Two surfaces:
- *
- *   1. Browser  — `GET /mcp/connect` renders a minimal in-app page (same inline
- *      HTML approach as the auth pages). The Authorize button POSTs to
- *      `/connect/token`, then shows the ready-to-paste `.mcp.json` entry, the
- *      `agent-native connect <origin>` one-liner, and the user's existing
- *      tokens with Revoke buttons.
- *   2. CLI      — an OAuth-2.0-device-authorization-style flow:
- *        POST /mcp/connect/device/start      (unauth)  → device_code + user_code
- *        GET  /mcp/connect?user_code=…       (browser) → user signs in & approves
- *        POST /mcp/connect/device/authorize  (session) → binds user to the code
- *        POST /mcp/connect/device/poll       (unauth)  → mints + returns the token
- *
- * When A2A_SECRET exists, the minted token reuses the existing A2A signer
- * (`signA2AToken`) and adds a random `jti` + `scope: "mcp-connect"` claim so
- * it can be revoked. Deployments without A2A_SECRET mint the same standard MCP
- * OAuth access-token format used by remote MCP OAuth, signed with the auth
- * secret fallback and bound to the exact MCP resource URL.
- *
- * Node-only (crypto + the A2A signer), bundled alongside the other framework
- * PostgreSQL SQL lives in `connect-store.ts`.
- */
-
 import { randomUUID } from "node:crypto";
 
 import type { H3Event } from "h3";
@@ -171,7 +142,11 @@ function serverName(origin: string, options: McpConnectRouteOptions): string {
 }
 
 function canUseDevOpenConnect(event: H3Event): boolean {
+  // Loopback determined from the real socket peer (isLoopbackRequest →
+  // getRequestIP without xForwardedFor), NOT a parsed `Host` header — the
+  // header is client-controlled, and it also handles IPv6 `::1`. A
   // misconfigured public deploy with no secret thus can't unlock dev-open
+  // by spoofing `Host: localhost`.
   return (
     isLoopbackRequest(event) &&
     isLoopbackOrigin(deriveOrigin(event)) &&
@@ -373,7 +348,6 @@ function mcpResultPayload(
 function mcpResourceUrl(appUrl: string): string {
   return `${appUrl}${MCP_PUBLIC_ROUTE_PREFIX}`;
 }
-
 
 function agentNativeMarkSvg(className: string, gradientId: string): string {
   return `<svg class="${className}" width="114" height="66" viewBox="0 0 114 66" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
@@ -1199,14 +1173,6 @@ function renderConnectPage(params: {
 </html>`;
 }
 
-
-/**
- * Handle a `/mcp/connect[...]` request. The legacy
- * `/_agent-native/mcp/connect` alias is mounted too. `subpath` is the part
- * after `/connect` (empty string = the page itself, otherwise e.g. `/token`,
- * `/device/start`). The core-routes-plugin computes it from the stripped event
- * path so this module stays mount-agnostic.
- */
 export async function handleMcpConnect(
   event: H3Event,
   subpath: string,

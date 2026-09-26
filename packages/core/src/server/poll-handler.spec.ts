@@ -1193,6 +1193,12 @@ describe("poll handler", () => {
 
     const result = await handler({ query: { since: "1000" } });
 
+    // The resource-scoped event is the highest version and still owned by a
+    // different user, so it's a cache-miss on the access-aware branch: it
+    // triggers a "pending" stop rather than being delivered. The two events
+    // below it (global + the caller's own) must still come back in this same
+    // poll — proving the SQL scope filter kept them off the noise-crowded
+    // page instead of deferring them behind 1500 irrelevant rows.
     expect(result.events).toEqual([
       expect.objectContaining({ key: "*" }),
       expect.objectContaining({ key: "own-event", owner: "test@example.com" }),
@@ -1310,7 +1316,6 @@ describe("poll handler", () => {
     expect(syncQuery.args).toEqual([1_000, "test@example.com", "org-1", 1_001]);
   });
 
-
   function mockLegacyScan(appStateMax: () => number): void {
     mockExecute.mockImplementation(async (query: any) => {
       const sql: string = typeof query === "string" ? query : query.sql;
@@ -1373,17 +1378,6 @@ describe("poll handler", () => {
   });
 });
 
-/**
- * Simulates the SQL-level scope filter the durable `sync_events` query now
- * applies (see poll.ts `getDurableChangesSinceForUser`): a row surfaces only
- * when it is deployment-global (no owner, no org), owned by the caller,
- * scoped to the caller's org, or resource-scoped (any `resourceType`,
- * regardless of owner — the in-memory access-aware check downstream decides
- * those). Filtering here — instead of returning the whole `store` and relying
- * on `getChangeVisibilityForUser` alone — is what proves the SQL scoping
- * itself keeps unrelated-tenant rows out of the page, not just out of the
- * final `events` array.
- */
 function scopedSyncEventsRows(
   store: Array<{
     version: number;

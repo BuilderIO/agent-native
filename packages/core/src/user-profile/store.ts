@@ -190,6 +190,8 @@ export async function getUserProfiles(
     } else if (!didWarnUserProfilesListUsersFailed) {
       didWarnUserProfilesListUsersFailed = true;
       // coercion-ok: older or custom adapters use the established per-user
+      // fallback below. Loud so the degrade shows up in logs instead of only
+      // as an unexplained per-request query-count spike.
       console.warn(
         "[user-profile] batched listUsers failed; falling back to per-email lookups",
         usersResult.reason,

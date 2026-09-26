@@ -271,6 +271,7 @@ function applyDefaultSsrCacheHeader(
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
   // A public shell must never set a viewer cookie or vary by credentials.
+  // Preserve harmless content-negotiation dimensions such as Accept-Encoding.
   headers.delete("set-cookie");
   const vary = headers.get("vary");
   if (vary) {

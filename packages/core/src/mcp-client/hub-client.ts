@@ -1,4 +1,3 @@
-
 import type { McpHttpServerConfig, McpServerConfig } from "./config.js";
 import type { HubServersResponse } from "./hub-routes.js";
 import { isHubConsumeEnabled } from "./hub-routes.js";
@@ -59,6 +58,12 @@ export async function fetchHubServersDetailed(): Promise<HubFetchResult> {
 
   if (!res.ok) {
     const msg = `hub returned ${res.status}`;
+    // Auth / config errors (401 unauthorized, 403 forbidden, 404 misconfig)
+    // must NOT fall back to the cached set — if the hub is deliberately
+    // revoking access (e.g. a rotated token), keeping servers in the
+    // manager would leave revoked tools callable until process restart.
+    // Transient errors (408 timeout, 429 rate limit, 5xx) are retryable,
+    // so for those we keep serving the last-known-good set.
     const isAuthOrConfigError =
       res.status === 401 ||
       res.status === 403 ||

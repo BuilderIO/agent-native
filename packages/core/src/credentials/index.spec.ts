@@ -375,6 +375,9 @@ describe("credentials encryption at rest", () => {
     };
     const { resolveCredential } = await import("./index.js");
 
+    // "The store didn't answer" must not collapse into the same undefined a
+    // truly-unset credential returns — the caller needs to retry, not be told
+    // to go configure something that is already saved.
     await expect(
       resolveCredential("BIGQUERY_SERVICE_ACCOUNT", {
         userEmail: "owner@example.test",

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-
 vi.mock("./client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./client.js")>();
   return {
@@ -17,7 +16,6 @@ import {
   runMigrations,
   withMigrationRuntime,
 } from "./migrations.js";
-
 
 function makeExec(rows: Array<{ v: number | null }> = [{ v: null }]) {
   return {
@@ -68,7 +66,6 @@ function makeNamedExec(options: {
   };
   return exec;
 }
-
 
 describe("runMigrations – serverless request runtime", () => {
   const ENV_KEYS = [
@@ -158,7 +155,12 @@ describe("runMigrations – serverless request runtime", () => {
   });
 
   it("still migrates through withMigrationRuntime, which is how release builds run", async () => {
+    // The Netlify BUILD environment sets NETLIFY=true, so the release
+    // migration step looks exactly like a serverless request to the guard
     // above — it succeeds only because the entrypoint claims migration duty.
+    // Exercise the real API, not the global: an entrypoint that forgets the
+    // wrapper silently no-ops at build time and the tables never appear, which
+    // is invisible until the first read fails in production.
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NETLIFY", "true");
     const exec = makeExec([{ v: 5 }]);
@@ -581,7 +583,9 @@ describe("runMigrations – name-based tracking", () => {
   });
 
   it("applies a named migration despite version <= recorded MAX (the collision fix)", async () => {
+    // Regression case: analytics_migrations reports MAX=83 (a colliding
     // branch's versions), but the named row for this migration was never
+    // recorded — it must still apply.
     const exec = makeNamedExec({ version: 83, appliedNames: [] });
     vi.mocked(getDbExec).mockReturnValue(exec);
     const directExec = makeNamedExec({ version: 83, appliedNames: [] });
@@ -654,6 +658,7 @@ describe("runMigrations – name-based tracking", () => {
     await plugin(null);
     expect(firstExec.insertedNames).toContain("second-run-guard");
 
+    // Second run: simulate the name now being recorded (as the first run
     // would have left it) — the migration must be skipped this time.
     const secondExec = makeNamedExec({
       version: 6,

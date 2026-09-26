@@ -1,26 +1,3 @@
-/**
- * Agents bundle — loads AGENTS.md and .agents/skills/ from the template.
- * The legacy singular .agent/skills/ directory is also accepted as an alias.
- *
- * This is the single source of truth the framework's agent uses to mirror what
- * Claude Code / Codex / any other agent would see when running locally in the
- * repo. The filesystem is the canonical source; this module is just a loader
- * that works both in dev (direct fs read) and production (content bundled at
- * build time via the `virtual:agents-bundle` Vite plugin).
- *
- * Resolution order inside `loadAgentsBundle()`:
- *   1. Virtual module (`virtual:agents-bundle`) — inlined at build time by the
- *      framework's Vite plugin. This is the ONLY path that works on edge
- *      runtimes (Cloudflare Workers) where `readFileSync` doesn't exist.
- *   2. Filesystem fallback — `process.cwd()/AGENTS.md` +
- *      `process.cwd()/.agents/skills/` (or legacy `.agent/skills/`). Only reliable in local dev and Node
- *      production (`agent-native start`); not on Netlify/Vercel/CF at runtime.
- *   3. Configuration and filesystem failures propagate so a broken bundle is
- *      visible instead of being mistaken for an app with no instructions.
- *
- * Result is cached in module scope so it's only computed once per cold start.
- */
-
 import {
   DEFAULT_SKILL_SCOPE,
   isRuntimeVisibleScope,
@@ -80,18 +57,6 @@ export function resolveAgentInstructionPaths(
 
 let cached: AgentsBundle | null = null;
 
-/**
- * Parse the YAML frontmatter at the top of a skill file.
- * Only pulls out `name`, `description`, and `scope` — deliberately simple, no
- * YAML lib.
- * Handles:
- *   - Inline: `description: Some text`
- *   - Folded scalar: `description: >-\n  multi\n  line` → "multi line"
- *   - Literal scalar: `description: |\n  multi\n  line` → "multi\nline"
- *
- * `sourceLabel` only names the file in the invalid-scope log; pass it wherever
- * a path is known so a typo is traceable to the SKILL.md that carries it.
- */
 export function parseSkillFrontmatter(
   content: string,
   sourceLabel?: string,
@@ -348,6 +313,7 @@ export async function loadAgentsBundle(): Promise<AgentsBundle> {
 
   try {
     // @ts-expect-error — virtual module is resolved at build time by our
+    // Vite plugin; nothing exists at this path on disk.
     const mod = await import("virtual:agents-bundle");
     if (mod && mod.default) {
       cached = mod.default as AgentsBundle;
@@ -389,25 +355,12 @@ export async function loadAgentsBundle(): Promise<AgentsBundle> {
   return cached;
 }
 
-/**
- * Skills visible to the agent-native RUNTIME agent. Excludes `scope: dev`
- * skills (those are for the human's coding agent only) and skills whose scope
- * could not be read. Skills with no scope, `scope: runtime`, or `scope: both`
- * are all included. Use this anywhere the runtime agent's view of skills is
- * built (prompt block + docs-search) so a dev-scoped skill is invisible to the
- * runtime agent everywhere.
- */
 export function getRuntimeSkills(bundle: AgentsBundle): Skill[] {
   return Object.values(bundle.skills).filter((skill) =>
     isRuntimeVisibleScope(skill.meta.scope),
   );
 }
 
-/**
- * Skills visible to development/coding agents. Excludes `scope: runtime`
- * skills that are intended only for the deployed in-app agent. An `invalid`
- * scope stays visible here on purpose — this is the audience that can fix it.
- */
 export function getDevelopmentSkills(bundle: AgentsBundle): Skill[] {
   return Object.values(bundle.skills).filter(
     (skill) => skill.meta.scope !== "runtime",

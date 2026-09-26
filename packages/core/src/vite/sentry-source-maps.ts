@@ -35,6 +35,7 @@ export interface SentrySourceMapUploadConfig extends SentrySourceMapUploadCreden
 }
 
 // A token alone can't safely guess org/project, and a half-configured plugin
+// would fail every build rather than cleanly no-op.
 function resolveSentrySourceMapUploadCredentials(
   env: Record<string, string | undefined>,
 ): SentrySourceMapUploadCredentials | null {
@@ -132,7 +133,9 @@ export function createSentrySourceMapUploadPlugin(
           name: uploadConfig.release,
           inject: false,
         },
+        // A source-map upload is optional observability work. The cleanup plugin
         // still removes maps when this handler returns, so a bad token cannot
+        // block the deploy or publish source contents.
         errorHandler: (error) => {
           const message = (
             error instanceof Error ? error.message : String(error)

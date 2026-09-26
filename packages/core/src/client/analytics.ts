@@ -584,6 +584,9 @@ function captureFirstTouchAttribution(): void {
   try {
     const existing = safeStorageGet(FIRST_TOUCH_STORAGE_KEY);
     if (existing) {
+      // Already captured in a prior visit. Backfill the cookie if it expired
+      // or was cleared so the signup boundary still sees first-touch data, but
+      // never overwrite the stored value itself (first-write-wins).
       if (!readFirstTouchCookie()) {
         try {
           writeFirstTouchCookie(encodeURIComponent(existing));

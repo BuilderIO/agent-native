@@ -17,14 +17,6 @@ import {
 } from "node:crypto";
 
 const MAX_AGE_MS = 5 * 60 * 1000;
-/**
- * Allow tokens stamped slightly in the future (clock-skew between dispatcher
- * and verifier) — but no more. Without this small tolerance the verifier
- * would reject tokens issued on the very same instant due to floating-point
- * timestamp drift. With Math.abs() (the previous bug) any future-stamped
- * token of any age was accepted, which combined with rotation lag turned
- * into a replay window.
- */
 const FUTURE_SKEW_TOLERANCE_MS = 60 * 1000;
 
 function getSecret(): string {
@@ -51,12 +43,6 @@ function safeEqual(a: string, b: string): boolean {
   }
 }
 
-/**
- * Sign an internal token for a given task id. Format: `<timestamp>.<sig>`,
- * where sig = HMAC_SHA256(A2A_SECRET, taskId + ":" + timestamp). Tokens are
- * short-lived (5 minutes) and bound to a specific task id, so even if a
- * token leaks it can only re-trigger that one task's processor.
- */
 export function signInternalToken(taskId: string): string {
   const secret = getSecret();
   const ts = Date.now();

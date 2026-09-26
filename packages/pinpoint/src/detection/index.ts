@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — Detection layer exports
 // MIT License
 
 export { ElementPicker, type ElementPickerOptions } from "./element-picker.js";

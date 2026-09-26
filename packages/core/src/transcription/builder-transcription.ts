@@ -110,6 +110,11 @@ export async function transcribeWithBuilder(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    // The chat path records this so a rejected credential is not retried for
+    // BUILDER_AUTH_FAILURE_TTL_MS; transcription never did, so one bad
+    // credential re-sent the same doomed request on every attempt -- prod
+    // logged 24 identical `Missing Authentication header` 401s in a day off a
+    // single unusable credential, with nothing to stop the next one.
     if (res.status === 401 || res.status === 403) {
       await recordBuilderGatewayAuthFailure({
         status: res.status,

@@ -1,4 +1,9 @@
+// @agent-native/pinpoint — Canvas-based selection overlay + draw mode
 // MIT License
+//
+// Uses <canvas> for hover highlight, drag rectangle, pin outlines,
+// and freehand/shape drawing.
+// LERP interpolation for smooth hover animation.
 
 import { onMount, onCleanup, type Component } from "solid-js";
 

@@ -146,7 +146,6 @@ export async function loadDesktopWorkspaceApps(options: {
       apps,
     };
   } catch (error) {
-    // temporarily unavailable. An empty list would look like the feature was
     console.warn("[desktop workspace apps] failed to load inventory", {
       reason: error instanceof Error ? error.message : "unknown error",
     });

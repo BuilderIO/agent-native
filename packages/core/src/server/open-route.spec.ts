@@ -17,7 +17,6 @@ const getConfiguredLoginHtml = vi.hoisted(() => vi.fn());
 vi.mock("./auth.js", () => ({
   getSession: (...a: any[]) => getSession(...a),
   getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtml(...a),
-  // query token) instead of dropping it, which a bare 302 Response would.
   redirectWithStagedCookies: (event: any, location: string, status = 302) => {
     const headers = new Headers({ Location: location });
     const staged = event.res?.headers?.getSetCookie?.() ?? [];

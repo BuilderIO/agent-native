@@ -73,6 +73,10 @@ export function createSentryPlugin(): NitroPluginDef {
 
     registerErrorCaptureProvider("sentry", captureRouteError);
 
+    // Per-request: resolve session and attach to Sentry isolation scope so
+    // any exception captured later in the request carries the user. Wrapped
+    // in try/catch so a session-DB hiccup or auth-broken state never turns
+    // into a 500 — the worst case is we lose user context on the event.
     nitroApp.hooks?.hook?.("request", async (event: H3Event) => {
       if (!shouldResolveSession(readRoute(event))) return;
       try {
@@ -83,7 +87,12 @@ export function createSentryPlugin(): NitroPluginDef {
       }
     });
 
+    // Wrap-time: every `runWithRequestContext({ userEmail, orgId, ... })`
+    // call also pins user/org onto Sentry's per-async-context isolation
     // scope. Covers paths the cookie-based `request` hook can't see —
+    // integration webhook processors, A2A calls, agent-chat tool
+    // re-entries, and any internal call chain that opens a request scope
+    // without an HTTP cookie.
     addRequestContextObserver((ctx) => {
       setSentryRequestContext({ userEmail: ctx.userEmail, orgId: ctx.orgId });
     });

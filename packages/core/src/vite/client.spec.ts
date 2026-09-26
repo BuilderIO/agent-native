@@ -340,6 +340,8 @@ describe("dev action bridge origin", () => {
   });
 
   // The recorded origin must BE the URL Vite prints: the browser cookie jar
+  // keys on the exact host label, so a second derivation of the bind address
+  // is how localhost vs 127.0.0.1 split-brain bugs happen.
   it("derives the origin from the printed Local URL, not from the bind address", () => {
     expect(
       _devActionBridgeOrigin({

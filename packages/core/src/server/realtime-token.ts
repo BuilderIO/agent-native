@@ -86,6 +86,7 @@ export async function resolveActiveRealtimeChannel(): Promise<{
 export function createRealtimeTokenHandler() {
   return defineEventHandler(async (event: H3Event) => {
     // Identity-bearing token, valid ~10 min — never cacheable by the browser or
+    // any intermediary. Set once up front so every return path carries it.
     setResponseHeader(event, "Cache-Control", "private, no-store");
 
     if (getMethod(event) !== "GET") {
@@ -110,7 +111,14 @@ export function createRealtimeTokenHandler() {
     };
 
     return runWithRequestContext(requestContext, async () => {
+      // Async resolver so hosted apps whose project id lives in a
+      // request-scoped app/org/workspace secret (not an env var) also work —
+      // the sync env-only lookup would 404 them and silently drop the gateway.
       // coercion-ok: "not provisioned" and "could not resolve" are the same
+      // 404 to this client — one it reads as "stay local" and handles, unlike
+      // a 500 it would classify as transient and retry into more cold starts.
+      // `/_agent-native/health` is where the two are told apart, and it calls
+      // the same resolver without this catch.
       const channel = await resolveActiveRealtimeChannel().catch(() => null);
       if (!channel) {
         setResponseStatus(event, 404);

@@ -76,6 +76,8 @@ export async function uploadFile(
   input: FileUploadInput,
 ): Promise<FileUploadResult | null> {
   const provider = await getActiveFileUploadProviderForRequest();
+  // User-registered providers (S3, etc.) may be configured by sync runtime
+  // state or request-scoped DB secrets. Builder still gets an explicit async
   // credential check below because its sync isConfigured() only checks env.
   if (provider && provider !== builderFileUploadProvider) {
     return provider.upload(input);
@@ -94,6 +96,7 @@ export async function uploadFile(
   } catch (err) {
     // DB unavailable or credential store not ready — can't resolve a
     // credential. Return an unavailable-provider state below; never fall back
+    // to SQL.
     console.warn(
       "[agent-native] Builder credential check failed:",
       err instanceof Error ? err.message : String(err),

@@ -251,6 +251,8 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
     if (!Array.isArray(list)) continue;
     for (const stored of list) {
       if (!stored || typeof stored.url !== "string" || !stored.name) continue;
+      // Async resolve: decrypts `headerSecretKey` from app_secrets so the
+      // running MCP client gets the cleartext bearer at request time.
       // Stored row contains only the secret-key reference, never the value.
       servers[mergedConfigKey(scope, stored, ownerId)] =
         await toHttpServerConfigAsync(scope, ownerId, stored);
@@ -298,6 +300,10 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
     );
   }
 
+  // Hub-consume: if this app is configured to consume from a remote hub
+  // (AGENT_NATIVE_MCP_HUB_URL + AGENT_NATIVE_MCP_HUB_TOKEN), pull its
+  // org-scope servers and merge. Hub entries use `hub_<orgId>_<name>` so
+  // they never collide with local `org_<orgId>_<name>` rows.
   try {
     const hubServers = await fetchHubServers();
     for (const [mergedKey, cfg] of Object.entries(hubServers)) {
@@ -404,7 +410,9 @@ async function resolveContextForRequest(event: H3Event): Promise<{
   } catch {
     // ignore — no org context
   }
+  // No silent `local@localhost` fallback — if `getSession` returns nothing in
   // production (misconfigured deploy, expired token), the caller must reject
+  // rather than silently pool every unauthenticated request under one identity.
   return { email, orgId, role };
 }
 
@@ -1104,7 +1112,6 @@ async function handleTestExisting(
     setResponseStatus(event, 404);
     return { error: "Server not found" };
   }
-  // `server.headers` holds only the cleartext (non-secret) subset; auth headers
   const config = await toHttpServerConfigAsync(parsedScope, scopeId, server);
   const result = await tryConnect(server.url, config.headers);
   if (result.ok !== true) {

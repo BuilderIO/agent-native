@@ -851,6 +851,8 @@ function sanitizeLegacyEgressLog(storeDir: string): void {
           typeof event.packetBytes === "number" ? event.packetBytes : 0;
         return [JSON.stringify(event)];
       } catch {
+        // A malformed audit row cannot provide reliable provenance. Dropping it
+        // also prevents arbitrary stale text from surviving this migration.
         return [];
       }
     });
@@ -1236,20 +1238,18 @@ export async function runScreenMemoryMCPStdio(
             "recent-context",
             packet.evidence,
           );
-          return textResult(
-            {
-              events: sanitizedItems,
-              ...result,
-              items: sanitizedItems,
-              evidence: sanitizedEvidence,
-              contextFiles: [],
-              egress: {
-                requestId,
-                packet,
-                note: "A content-free local activity receipt was recorded before this bounded text packet was returned.",
-              },
+          return textResult({
+            events: sanitizedItems,
+            ...result,
+            items: sanitizedItems,
+            evidence: sanitizedEvidence,
+            contextFiles: [],
+            egress: {
+              requestId,
+              packet,
+              note: "A content-free local activity receipt was recorded before this bounded text packet was returned.",
             },
-          );
+          });
         }
         if (name === "screen_memory_recent_segments") {
           const minutes = typeof args.minutes === "number" ? args.minutes : 30;

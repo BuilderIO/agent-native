@@ -1,4 +1,9 @@
+// @agent-native/pinpoint — delete-pin script tests
 // MIT License
+//
+// Same temp-dir-via-chdir approach as create-pin.spec.ts / update-pin.spec.ts,
+// since deletePin() always constructs `new FileStore()` with the default
+// `data/pins` path resolved against `process.cwd()`.
 
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";

@@ -1,4 +1,3 @@
-
 import { countTextTokens } from "../context-xray/tokenize.js";
 import type { EngineMessage } from "../engine/types.js";
 import {
@@ -34,10 +33,6 @@ export interface RunObserverResult {
   unobservedTokens: number;
 }
 
-/**
- * Compact a thread's unobserved tail into an observation IF it exceeds the
- * token threshold; otherwise no-op.
- */
 export async function runObserver(
   options: RunObserverOptions,
 ): Promise<RunObserverResult> {

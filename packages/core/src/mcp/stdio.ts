@@ -1,4 +1,3 @@
-
 import {
   MCP_LEGACY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
@@ -23,13 +22,6 @@ function log(msg: string): void {
   process.stderr.write(`[mcp] ${msg}\n`);
 }
 
-/**
- * Owner identity the installer wrote into the client config's env. Passed
- * through to the HTTP MCP endpoint as a JWT/identity bearer (when present)
- * so tool runs stay tenant-scoped. For local dev with a static ACCESS_TOKEN
- * the email is informational; for hosted JWT auth the token already carries
- * `sub`, so we only add an `X-Agent-Native-Owner-Email` hint header.
- */
 function authHeaders(env: NodeJS.ProcessEnv): Record<string, string> {
   const headers: Record<string, string> = {
     "X-Agent-Native-MCP-Client": "agent-native-mcp-proxy",

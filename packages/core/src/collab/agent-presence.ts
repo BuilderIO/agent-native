@@ -1,4 +1,3 @@
-
 import { AGENT_CLIENT_ID, DEFAULT_AGENT_IDENTITY } from "./agent-identity.js";
 import { deleteAwarenessRow, upsertAwarenessRow } from "./awareness-store.js";
 import {
@@ -230,6 +229,8 @@ export async function agentApplyPatchesIncrementally(
   agentEnterDocument(docId);
 
   try {
+    // Resolve applyPatchOps dynamically so a build that strips it (or a partial
+    // upgrade) fails loudly here rather than at module load time.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let applyPatchOps: any;
     try {

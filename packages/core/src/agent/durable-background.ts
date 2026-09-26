@@ -76,6 +76,8 @@ function isNetlifyHostedRuntimeForDispatch(): boolean {
   if (process.env.NETLIFY === "false") return false;
   if (process.env.NETLIFY && process.env.NETLIFY !== "false") return true;
   if (process.env.SITE_ID) return true; // guard:allow-env-credential - Netlify's read-only public site identifier is a runtime host marker, not a user credential.
+  // Non-Netlify AWS falls back inline if the /.netlify/functions dispatch
+  // fast-fails.
   return Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
 }
 

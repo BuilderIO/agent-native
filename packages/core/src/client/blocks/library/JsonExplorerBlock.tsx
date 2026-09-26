@@ -38,7 +38,9 @@ import {
  * modes (no hardcoded dark-only palette).
  */
 
+/* ── Theme-aware value-type color tokens ───────────────────────────────────── */
 
+/** String leaves: green in both modes. */
 const STRING_CLASS = "text-emerald-700 dark:text-emerald-300";
 const NUMBER_CLASS = "text-blue-700 dark:text-blue-300";
 const BOOLEAN_CLASS = "text-violet-700 dark:text-violet-300";
@@ -288,6 +290,7 @@ function JsonNode({
   );
 }
 
+/* ── Read (collapsible devtools tree) ──────────────────────────────────────── */
 
 /**
  * Read-only renderer for a `json-explorer` block. Parses `data.json` defensively
@@ -438,7 +441,6 @@ export function JsonExplorerSurface({
     </div>
   );
 }
-
 
 export function JsonExplorerEdit({
   data,

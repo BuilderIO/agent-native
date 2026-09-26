@@ -1,4 +1,3 @@
-
 import {
   dedupeCollabUsersByEmail,
   type CollabUser,
@@ -158,7 +157,6 @@ function calcBackoff(consecutiveErrors: number): number {
   return Math.min(delay + jitter, BACKOFF_MAX_MS);
 }
 
-
 const _awarenessThrottleTimers = new Map<
   string,
   ReturnType<typeof setTimeout>
@@ -209,7 +207,6 @@ function scheduleAwarenessPush(
 
   _awarenessThrottleTimers.set(key, timer);
 }
-
 
 interface CollabDocSnapshot {
   isLoading: boolean;
@@ -311,7 +308,6 @@ class CollabDocConnection {
       : null;
   }
 
-
   add(id: symbol, sub: CollabDocSubscription): void {
     this.subscribers.set(id, sub);
     if (this.disposeTimer) {
@@ -387,7 +383,6 @@ class CollabDocConnection {
     }
   }
 
-
   private get effectivePollInterval(): number {
     let min = Infinity;
     for (const sub of this.subscribers.values()) {
@@ -411,7 +406,6 @@ class CollabDocConnection {
     return true;
   }
 
-
   private setSnapshot(patch: Partial<CollabDocSnapshot>): void {
     this.snapshot = { ...this.snapshot, ...patch };
     for (const sub of this.subscribers.values()) {
@@ -427,7 +421,6 @@ class CollabDocConnection {
       this.setSnapshot({ agentActive: false });
     }, 3000);
   }
-
 
   setUser(user: CollabUser): void {
     if (this.disposed) return;
@@ -526,7 +519,6 @@ class CollabDocConnection {
       );
     }
   };
-
 
   private start(): void {
     this.fetchInitialState();
@@ -646,7 +638,6 @@ class CollabDocConnection {
     return this.performStateVectorFetch();
   };
 
-
   private handleDocUpdate = (update: Uint8Array, origin: unknown): void => {
     if (origin === "remote") return;
     this.pendingUpdates.push(update);
@@ -659,7 +650,7 @@ class CollabDocConnection {
   };
 
   private handlePageHide = (): void => {
-    this.flushPendingUpdates(true );
+    this.flushPendingUpdates(true);
   };
 
   private attachUpdateHandler(): void {
@@ -758,7 +749,6 @@ class CollabDocConnection {
       }
     }
   }
-
 
   private startSync(): void {
     if (this.syncActive || this.docMissing || this.disposed) return;
@@ -1111,7 +1101,6 @@ class CollabDocConnection {
     this.pollNow();
   };
 
-
   private applyAwarenessEvent(data: SyncEvent): void {
     if (
       data.source !== "awareness" ||
@@ -1151,6 +1140,7 @@ class CollabDocConnection {
 
 const collabConnectionRegistry = new Map<string, CollabDocConnection>();
 // ponytail: in-memory retention survives component remounts; use a durable
+// outbox if offline reload recovery becomes supported. No retired retry loop.
 const retiredCollabUpdates = new Map<string, Uint8Array[]>();
 
 function collabRegistryKey(docId: string, baseUrl: string): string {
@@ -1170,6 +1160,9 @@ function getOrCreateCollabConnection(
   return conn;
 }
 
+// ---------------------------------------------------------------------------
+// Internal test helpers — reset/inspect the connection registry between tests.
+// ---------------------------------------------------------------------------
 /** @internal */
 export function _resetCollabDocRegistryForTests(): void {
   for (const conn of Array.from(collabConnectionRegistry.values())) {

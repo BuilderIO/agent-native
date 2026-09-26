@@ -3656,9 +3656,6 @@ body {
   border-color: var(--separator);
 }
 
-/* Full-page settings uses the shared core surface. Keep the few Electron-owned
-   controls on that same token and radius contract instead of introducing a
-   second high-contrast control language. */
 .settings-page-tabs-content .settings-btn {
   border: 1px solid hsl(var(--border));
   border-radius: calc(var(--radius) - 2px);

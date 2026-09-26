@@ -16,24 +16,12 @@ export const DEFAULT_SSR_CACHE_HEADERS = {
 
 export const SSR_HTML_CONTENT_TYPE = "text/html; charset=utf-8";
 
-/**
- * Internal marker for public SSR HTML or data whose body varies by request
- * query. The SSR adapters consume it and emit a provider-specific full-query
- * cache key only where the provider supports it.
- */
 export const SSR_QUERY_CACHE_KEY_HEADER = "x-agent-native-ssr-key";
 
 export type SsrHtmlContentTypeOptions = {
   varyByQuery?: boolean;
 };
 
-/**
- * Mark an already-built HTML response as HTML without changing its redirect
- * status, location, or other headers. Only use this for redirects whose
- * target is independent of the viewer and request credentials. Set
- * `varyByQuery` when the target preserves request query parameters so the SSR
- * adapter can request a full-query cache key on providers that support it.
- */
 export function withSsrHtmlContentType<T extends Response>(
   response: T,
   options: SsrHtmlContentTypeOptions = {},
@@ -156,6 +144,8 @@ export function resolveSsrCacheKeyHeaders(
   const none: Readonly<Record<string, string>> = Object.freeze({});
   if (!onNetlify) return none;
   // This NARROWS the cache key rather than splitting it per user: it removes
+  // utm/fbclid/gclid so one entry serves everyone. The shapes the guard exists
+  // to stop are `private`, `no-store` and `Vary: Cookie`, none of which this is.
   // guard:allow-ssr-shell-exception — narrows the shared key, never splits it
   return Object.freeze({ "netlify-vary": "query=_routes|index" });
 }

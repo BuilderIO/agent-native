@@ -1,4 +1,7 @@
+// @agent-native/pinpoint — A2A agent registration
 // MIT License
+//
+// Exposes annotations via the Agent-to-Agent (A2A) protocol.
 
 import type { Application } from "express";
 

@@ -1,4 +1,3 @@
-
 import {
   getSetting,
   getSettings,
@@ -105,7 +104,9 @@ export async function mutateUserSetting(
   );
   if (!migratedLegacy) return result;
 
+  // If the legacy row disappeared after the updater read it, a concurrent
   // delete won the race. Remove only our exact canonical write; never delete
+  // a newer canonical value from another writer.
   if (
     !migratedLegacyValue ||
     !(await deleteSettingIfValue(legacy, migratedLegacyValue, options))

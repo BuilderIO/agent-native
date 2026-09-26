@@ -462,7 +462,11 @@ describe("syncGrantsToApp", () => {
     mocks.writeAppSecret.mockReset();
   });
 
+  // The regression: `all-apps` mode lists secrets across orgs, and syncing them
+  // under the caller's ctx upserts copies of another org's credentials into
+  // whichever org the person clicking Sync happened to be in. Because
   // writeAppSecret upserts, that copies rather than moves, so credential
+  // material accumulates permanently in the wrong org.
   it("writes each secret under its own org, not the caller's active org", async () => {
     const store = fakeCredentialStore();
     mockWorkspace({ ownerEmail: "clicker@example.test", orgId: "org_caller" }, [
@@ -530,6 +534,7 @@ describe("syncGrantsToApp", () => {
     ]);
   });
 
+  // A row with no ownerEmail cannot name its own tenant, so the caller's ctx is
   // the only scope available — the pre-existing ctxForSecretRow fallback.
   it("falls back to the caller ctx for a secret row with no owner", async () => {
     const store = fakeCredentialStore();

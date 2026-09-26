@@ -15,12 +15,6 @@ beforeAll(async () => {
   process.env.SECRETS_ENCRYPTION_KEY = "storage-spec-encryption-key";
 });
 
-/**
- * Wrap a real in-memory PGlite connection in the `DbExec` interface
- * that `storage.ts` expects (`execute(string | { sql, args })`). Using a real
- * DB lets us assert genuine behavior — encryption at rest, upsert id-stability,
- * scope isolation, not-found/delete semantics — rather than captured SQL.
- */
 async function createPgliteExec() {
   const pglite = await createTestPglite();
   return {
@@ -387,6 +381,8 @@ describe("secrets storage CRUD (real pglite)", () => {
       );
       expect(after.updated_at).toBe(before.updated_at);
 
+      // A sibling with a different auth secret can now decrypt the migrated
+      // shared column because the workspace A2A-derived key owns it.
       process.env.APP_NAME = "slides"; // guard:allow-env-credential — test switches deploy-level app scope.
       process.env.BETTER_AUTH_SECRET = "slides-auth-secret";
       await expect(
@@ -632,6 +628,12 @@ describe("secrets storage CRUD (real pglite)", () => {
   });
 
   it("handles concurrent writes to the same key without throwing (atomic upsert)", async () => {
+    // Regression test for the SELECT-then-branch race: two writers for the
+    // same (scope, scope_id, key) used to both see "no row" and both
+    // attempt INSERT, and the loser threw a raw UNIQUE constraint
+    // violation. The atomic `INSERT ... ON CONFLICT DO UPDATE` closes that
+    // window — both calls must resolve without throwing and settle to a
+    // single row that keeps a stable id.
     const [firstId, secondId] = await Promise.all([
       mod.writeAppSecret({ ...userRef, value: "concurrent-value-aaaa" }),
       mod.writeAppSecret({ ...userRef, value: "concurrent-value-bbbb" }),

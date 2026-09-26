@@ -1,25 +1,3 @@
-/**
- * `agent-native doctor` — scan an app's source tree for the security-
- * critical code-safety invariants this monorepo already enforces on
- * itself via `scripts/guard-*.mjs` (see
- * `advisor-plans/reports/005-doctor-design.md` for the full design and
- * `advisor-plans/015-doctor-v1-implementation.md` for the implementation
- * plan). v1 ships 9 of those guards, ported to work against a single
- * generated app root instead of this monorepo's multi-template layout —
- * see `../guards/index.ts`.
- *
- * This is a NEW top-level command, deliberately kept separate from the two
- * existing "doctor" precedents in this CLI:
- *   - `agent-native upgrade check` (`upgrade.ts`) — dependency-pin health.
- *   - `agent-native recap doctor` (`recap.ts`) — PR Visual Recap config health.
- * Each diagnoses a different domain; none are folded into a shared
- * mega-doctor (see report 005, "Relationship to upgrade doctor and recap
- * doctor").
- *
- * `--fix` is reserved, not implemented in v1 — it prints a message and
- * exits 2 rather than silently no-op, so a future implementation doesn't
- * collide with a script already passing the flag.
- */
 import fs from "node:fs";
 import path from "node:path";
 

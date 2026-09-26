@@ -549,6 +549,7 @@ export function verifyBuilderRelayRequest(input: {
     payload,
     body: {
       relayState: body.relayState,
+      // Explicitly rebuild the credential payload. Extra fields such as an
       // attacker-supplied ownerEmail/orgId never reach the credential writer.
       credentials: {
         privateKey: body.credentials.privateKey,
@@ -923,17 +924,6 @@ export function verifyBuilderProvisioningToken(
   );
 }
 
-/**
- * Mint a signed CSRF state token bound to the current session's email
- * and a fresh nonce. Round-trips through Builder's cli-auth flow inside
- * the redirect_url query string and is verified on the callback before
- * any keys are written.
- *
- * Why bind to email: it's the only stable, universally-available
- * identity field across all auth modes (Better Auth, BYOA, AUTH_MODE=local).
- * Binding to the session token instead would put the cookie value in a
- * URL that may end up in server logs / browser history.
- */
 export function signBuilderCallbackState(sessionEmail: string): string {
   return signEmailBoundBuilderToken(sessionEmail, "callback");
 }
@@ -2415,13 +2405,6 @@ export async function provisionBuilderAccount(input: {
   return parseBuilderAccountProvisioningResponse(parsed);
 }
 
-/**
- * A 401 from Builder means the stored credential was rejected upstream, which
- * no amount of retrying fixes - the user has to reconnect. Callers classify on
- * `errorCode`, so it is raised with the same code the local authorization check
- * uses. 403 is deliberately excluded: Builder also returns it for a Space
- * membership problem, where telling the user to reconnect would be wrong.
- */
 function builderApiFailure(status: number, message: string): Error {
   return status === 401
     ? new ActionContractError(message, {
@@ -2592,6 +2575,12 @@ export async function runBuilderAgent(
       "Builder project ID is not configured. Set DISPATCH_BUILDER_PROJECT_ID, BUILDER_BRANCH_PROJECT_ID, or BUILDER_PROJECT_ID.",
     );
   }
+  // The requesting user's email must win over any stored BUILDER_USER_ID.
+  // The connect flow always persists BUILDER_USER_ID, so preferring it here
+  // attributed every branch to whoever connected the credential — at org scope
+  // that is the admin, not the person who asked. Builder resolves userEmail
+  // against Space membership, so fall back to the credential's user id when
+  // there is no session email or the email is not a member.
   const requestedEmail = args.userEmail?.trim() || undefined;
   const fallbackUserId = args.userId || authorization.userId || undefined;
   const builderUserEmail = requestedEmail;

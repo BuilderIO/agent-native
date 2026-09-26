@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — Delete annotation script
 // MIT License
 
 import { parseArgs, fail } from "@agent-native/core/scripts";

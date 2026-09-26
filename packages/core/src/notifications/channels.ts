@@ -106,6 +106,8 @@ function createWebhookChannel(
 
 export function isSlackWebhookConfigured(): boolean {
   // config-ok: must match the sibling NOTIFICATIONS_* reads in
+  // registerBuiltinNotificationChannels above; moving that env family into
+  // app-config is one change for all five keys, not a split for this one.
   return Boolean(process.env.NOTIFICATIONS_SLACK_WEBHOOK_URL?.trim());
 }
 
@@ -224,7 +226,6 @@ async function resolveWebhookRequest(
   headers: Record<string, string>;
   assertUrlAllowed: (url: string) => void;
 }> {
-  // strict superset of the previous user-scope-only behavior.
   const urlResult = await resolveKeyReferencesWithRequestScopes(
     urlTemplate,
     owner,
@@ -244,8 +245,12 @@ async function resolveWebhookRequest(
     headers.Authorization = authResult.resolved;
   }
 
+  // If the user set an allowlist on a referenced key, enforce it here —
+  // origin-level check, same rule the automations fetch-tool applies.
+  // Validate URL and Authorization keys independently so an allowlisted auth
   // token cannot be sent to a metadata-provided destination. Keep scope in the
   // dedupe key because the same key name can resolve at a different scope if a
+  // credential changes between the two substitutions.
   type ResolvedKey = NonNullable<typeof urlResult.resolvedKeys>[number];
   const keyUsages = new Map<
     string,

@@ -781,11 +781,6 @@ function summarizeTool(
   };
 }
 
-/**
- * Race a promise against a wall-clock bound. Timers are the only part of this
- * file that a hidden browser pane can throttle, and they sit only on the
- * pending path: a settled call wins the race without one.
- */
 function settleWithin<T>(
   promise: Promise<T>,
   waitMs: number,

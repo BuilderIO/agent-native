@@ -1410,7 +1410,9 @@ describe("createBuilderEngine", () => {
   });
 
   it("treats a bare streamed 'Unauthorized' as a model rejection, not a broken connection", async () => {
+    // The gateway authenticated the request before streaming, so this means
     // the account cannot use this model. Recording a credential failure here
+    // disconnected Builder for every model, including working ones.
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(

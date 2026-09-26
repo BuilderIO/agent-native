@@ -1,20 +1,3 @@
-/**
- * Cross-app SSO ("Sign in with Agent-Native") — the CLIENT side.
- *
- * Each hosted app has its own Better Auth store. Dispatch is the identity
- * authority, but the browser only ever carries a short-lived, one-time
- * authorization code. The client keeps the PKCE verifier in an HttpOnly,
- * callback-scoped cookie and redeems the code server-to-server. Only that
- * server-to-server response may contain the signed identity assertion.
- *
- * Direct browser federation uses the canonical Dispatch authority for exact
- * first-party hosted app origins and remains opt-in through
- * `AGENT_NATIVE_IDENTITY_HUB_URL` for self-hosted deployments. Canonical auth
- * pages may also use a silent, flag-gated probe to reuse an existing Dispatch
- * session. The packaged Desktop Canary follows the same canonical-origin
- * boundary.
- */
-
 import { createHash, randomBytes } from "node:crypto";
 
 import type { H3Event } from "h3";
@@ -459,7 +442,6 @@ interface VerifiedIdentity {
   jti: string;
 }
 
-/** Verify only the server-to-server assertion returned by Dispatch /token. */
 async function verifyIdentityAssertion(
   assertion: string,
   binding: SsoClientBinding,

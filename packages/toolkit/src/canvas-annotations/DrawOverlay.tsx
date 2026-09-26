@@ -391,7 +391,6 @@ export function DrawOverlay({
     if (!visible) commitTextAnnotation();
   }, [visible, commitTextAnnotation]);
 
-  // confirmed delivered. A scope change below is the only other reset path,
   const lastClearSignalRef = useRef(clearSignal);
   useLayoutEffect(() => {
     if (clearSignal === lastClearSignalRef.current) return;

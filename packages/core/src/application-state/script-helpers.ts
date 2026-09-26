@@ -1,4 +1,3 @@
-
 import {
   getAmbientUserEmail,
   getRequestAuthCapability,
@@ -110,22 +109,12 @@ const TAB_SCOPED_AMBIENT_KEYS = new Set([
   "__set_url__",
 ]);
 
-/**
- * Exported so server code that reads a browser-tab id off a request header
- * (e.g. action-routes.ts) shares this exact validation instead of a copy —
- * only a tab-id-shaped value is ever trusted to scope app state.
- */
 export function normalizeBrowserTabId(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return SAFE_TAB_ID_RE.test(trimmed) ? trimmed : null;
 }
 
-/**
- * Browser tab id for the current request, if the client sent one. Used to
- * scope ambient navigation state so a chat from one tab
- * reads that tab's state instead of whichever tab wrote the global key last.
- */
 export function getCurrentRequestBrowserTabId(): string | null {
   try {
     return normalizeBrowserTabId(getRequestRunContext()?.browserTabId);

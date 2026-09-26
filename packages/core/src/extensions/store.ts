@@ -943,21 +943,6 @@ export async function createExtension(
   return row;
 }
 
-/**
- * Returns an extension with the exact same name and content created by the
- * current user — in the current org/workspace scope — in the last 5 minutes,
- * or null if none exists. Used to make create-extension idempotent when a
- * connection drop causes the agent to retry the same tool call.
- *
- * Scoped by `orgId` the same way `createExtension` stamps it, so the same
- * `ownerEmail` working in two different orgs can create identically-named,
- * identical-content extensions without this lookup cross-matching and skipping
- * the second insert. Keyed on the FULL create inputs (name + content +
- * description + icon, normalized exactly as `createExtension` stores them), so
- * two creates that differ in any of them are treated as distinct — only a
- * byte-identical re-create (the connection-retry case) recovers the prior row,
- * and no intentional second create silently loses its metadata.
- */
 export async function findRecentDuplicateExtension(data: {
   name: string;
   content: string;

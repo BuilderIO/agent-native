@@ -17,6 +17,13 @@ vi.mock("../extensions/url-safety.js", () => ({
   ssrfSafeFetch: (...args: unknown[]) => mockSsrfSafeFetch(...args),
 }));
 
+// Deliberately real `request-context.js` (not mocked) — this test exists to
+// prove the route establishes ambient request identity via
+// `runWithRequestContext` *before* reading the saved secret, so `resolveSecret`
+// here answers only when `getRequestUserEmail()` sees it, exactly like the
+// production implementation. Mocking request-context.js away would hide the
+// regression this test was written to catch (a route that reads secrets
+// without ever setting up whose secrets to read).
 vi.mock("./credential-provider.js", async () => {
   const requestContext = await vi.importActual<
     typeof import("./request-context.js")

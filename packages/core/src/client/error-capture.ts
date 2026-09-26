@@ -85,6 +85,7 @@ const MAX_EXTRA_STRING_LENGTH = 2000;
 
 const ERROR_CAPTURE_STATE_KEY = Symbol.for("agent-native.client.errorCapture");
 
+// Reuse the same credential-looking redaction the replay capture uses so a
 // stack/message that echoes a token never leaves the browser in the clear.
 const SECRET_KEY_FRAGMENT =
   "(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|session|credential)";

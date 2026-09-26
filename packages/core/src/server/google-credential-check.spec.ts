@@ -170,7 +170,9 @@ describe("checkGoogleSignInCredential", () => {
     expect(result.clientId).toBe("client-b");
   });
   it("probes the pair Better Auth actually wired, not the preferred one", async () => {
+    // A scoped template (mail/calendar) runs on GOOGLE_CLIENT_*, so probing the
     // preferred GOOGLE_SIGN_IN_* pair would verify a credential the callback
+    // never uses and report healthy while sign-in is broken.
     process.env.GOOGLE_SIGN_IN_CLIENT_ID = "preferred-client";
     process.env.GOOGLE_SIGN_IN_CLIENT_SECRET = "preferred-secret";
     process.env.GOOGLE_CLIENT_ID = "scoped-client";

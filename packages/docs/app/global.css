@@ -79,11 +79,6 @@
   --font-poppins: var(--font-sans);
 }
 
-/* The Clips landing artwork recreates the real player chrome, themed by the
-   player-control tokens declared in templates/clips/app/global.css. The
-   "inline" keyword matters: it leaves the var() unsubstituted so the artwork
-   can pin the triplets in its own scope rather than inheriting the docs
-   theme. */
 @theme inline {
   --color-player-control: hsl(var(--player-control));
   --color-player-control-foreground: hsl(var(--player-control-foreground));
@@ -532,7 +527,6 @@ hr {
   font-size: 13px;
 }
 
-
 .docs-kbd {
   display: inline-block;
   padding: 1px 5px;
@@ -908,10 +902,6 @@ hr {
   margin: 0 0 12px;
 }
 
-/* Accent keys match Badge's color naming. Each routes through a real,
-   theme-aware token already declared above (--docs-accent is the site's
-   brand blue; --approaches-good/warn/bad are the existing semantic
-   red/yellow/green used elsewhere) instead of a new raw hex. */
 .docs-comparison-col[data-accent-color="blue"] .docs-comparison-label {
   color: color-mix(in srgb, var(--docs-accent) 70%, var(--fg-secondary));
 }
@@ -2576,10 +2566,6 @@ html.dark .shiki span {
   }
 }
 
-/* Transitions. Excluded from the redesign scope for the same reason as the
-   `code` and heading rules above: unlayered, so it would override the
-   components' own `transition-*` utilities — including the primary button's
-   box-shadow glow, which this shorthand does not carry. */
 :is(button, a):where(:not(.builder-brand-tokens *)) {
   transition:
     color 150ms ease,

@@ -8,18 +8,6 @@ function stringifyValue(value: unknown): string {
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
 
-/**
- * `workspace-files` bridge tool.
- *
- * A single tool with an `action` discriminator covering write, append, read,
- * list, delete, and grep. It is kept for `run-code` workspaceRead/workspaceWrite
- * compatibility and delegates storage to the Resources table.
- *
- * Scope is automatically resolved from the active request context:
- *  - org scope when a request orgId is present (shared across users in the org)
- *  - user scope otherwise (personal to the requesting user's email)
- */
-
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   getRequestOrgId,

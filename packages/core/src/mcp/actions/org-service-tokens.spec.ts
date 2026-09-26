@@ -1,13 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * Org service-token actions: gating (owner/admin for mint/revoke, member for
- * list), no-org / non-member rejection, and that the secret only appears in
- * the mint response. The store/signing layers are covered by
- * connect-store.spec.ts and build-server.verify-auth.spec.ts — here they are
- * mocked so the spec exercises only the action layer.
- */
-
 const mintOrgServiceTokenMock = vi.fn();
 vi.mock("../connect-route.js", () => ({
   mintOrgServiceToken: (...a: any[]) => mintOrgServiceTokenMock(...a),

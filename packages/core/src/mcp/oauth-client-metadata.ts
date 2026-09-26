@@ -224,7 +224,6 @@ function validateClientMetadataDocument(
       "Client metadata document token_endpoint_auth_method is invalid",
     );
   }
-  // document — this server's token endpoint only ever operates as a public
   const supportedTokenEndpointAuthMethods = parseStringArray(
     document.token_endpoint_auth_methods_supported,
   );
@@ -235,9 +234,12 @@ function validateClientMetadataDocument(
     throw new Error("Only public Client ID Metadata clients are supported");
   }
 
+  // A grant type we do not support is not a reason to reject the document —
+  // clients advertise grants they use elsewhere (Claude.ai's CIMD document
+  // lists "urn:ietf:params:oauth:grant-type:jwt-bearer" next to the two we
   // support). The token endpoint independently honors only
+  // "authorization_code"/"refresh_token" no matter what this list says.
   const grantTypes = parseStringArray(document.grant_types);
-  // authorization-code flow, so rejecting an extra grant here only prevents
   if (
     (document.grant_types !== undefined &&
       (!Array.isArray(document.grant_types) ||

@@ -515,7 +515,6 @@ describe("registerMcpServer", () => {
 
   it("collects errors instead of throwing when a single key write fails", async () => {
     const { home } = isolateHome();
-    // Point baseDir at a file so project-scope writes would fail — but user
     const baseDir = tmpDir();
     const blocker = path.join(home, "blocker");
     fs.writeFileSync(blocker, "x", "utf-8");

@@ -1,4 +1,3 @@
-
 type RecurringJobsRuntimeEnvKey =
   | "AGENT_NATIVE_BUILD_RECURRING_JOBS"
   | "AGENT_NATIVE_DISABLE_RECURRING_JOBS"
@@ -126,6 +125,12 @@ function readRecurringJobsBuildMarker(
   const raw =
     env.AGENT_NATIVE_BUILD_RECURRING_JOBS ??
     // config-ok: this value is INLINED at build time by Vite's `define` /
+    // Nitro's `replace`, which rewrite the literal `process.env.<NAME>` member
+    // expression and nothing else. A declared app-config field is read at
+    // runtime from the deployed environment, which is precisely the scope that
+    // cannot see the build's decision — the bug this marker exists to fix.
+    // Reading through the aliased `env` parameter would also survive the build
+    // unreplaced, so the literal form is load-bearing.
     process.env.AGENT_NATIVE_BUILD_RECURRING_JOBS;
   const value = raw?.trim();
   return value === "enabled" || value === "disabled" ? value : undefined;
@@ -138,20 +143,6 @@ export type ScheduledTriggerAvailability =
       reason: "disabled-by-env" | "no-platform-scheduler" | "local-development";
     };
 
-/**
- * Whether ANY driver will actually fire a schedule-triggered automation in this
- * deploy. Distinct from `shouldDisableRecurringJobsRuntime`, which answers the
- * narrower "should THIS process run an in-process timer" and is therefore `true`
- * on hosted Netlify even though schedules do fire there via the emitted
- * scheduled function — reporting that value to a user would call the one
- * working production runtime broken.
- *
- * Each branch reads the scope that actually decides its driver. The Netlify
- * driver is a BUILD artifact, so it is answered by the build marker; every other
- * driver is an in-process timer started from the RUNTIME env, so it is answered
- * by the runtime flag. Reading runtime-only platform markers for the Netlify
- * branch would report `available` off a build that emitted no trigger at all.
- */
 export function scheduledTriggerAvailability(
   env: RecurringJobsRuntimeEnv = process.env,
 ): ScheduledTriggerAvailability {

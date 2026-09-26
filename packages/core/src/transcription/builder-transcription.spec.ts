@@ -124,6 +124,11 @@ describe("transcribeWithBuilder", () => {
     expect(headers["x-builder-user-id"]).toBe("builder-user-1");
   });
 
+  // A legacy deployment that set only BUILDER_PRIVATE_KEY authenticates on the
+  // bearer token alone, and ai-services derives the ownerId from the key. It
+  // must NOT gain an x-builder-api-key here: the bpk- branch 403s
+  // "Private key does not match spaceId" whenever a supplied space id is not
+  // the key's own ownerId (ai-services auth.ts).
   it("omits x-builder-api-key for a single-key legacy deployment", async () => {
     authState.auth = {
       authorization: "Bearer bpk-legacy-only",

@@ -14,6 +14,7 @@
  * React-free, import from `@agent-native/core/blocks/server`.
  */
 
+// Types + authoring
 export {
   defineBlock,
   type BlockSpec,

@@ -31,7 +31,6 @@ export interface JobFrontmatter {
   mcpTools?: string[];
   triggerType?: JobTriggerType;
   event?: string;
-  /** Legacy only. New webhook tokens live in the encrypted secret store. */
   webhookToken?: string;
   condition?: string;
   mode?: JobExecutionMode;

@@ -1,4 +1,3 @@
-
 import { getAgentAppModelDefaultForCurrentRequest } from "../../agent/app-model-defaults.js";
 import {
   listAgentEngines,
@@ -104,6 +103,15 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       : undefined;
   const engineEntries = await Promise.all(
     engines.map(async (e) => {
+      // Resolved per engine, not across the set: one provider whose credential
+      // store is momentarily unreadable must not reject the whole listing. The
+      // chat refresh catches that rejection and renders an empty catalog, so a
+      // single unrelated provider would make every engine unselectable — the
+      // exact symptom this readiness plumbing exists to fix.
+      //
+      // A read error is its own state, left as `configured: undefined` so the
+      // client falls back to its env heuristic. Folding it into `false` would
+      // claim the engine needs an API key when nobody actually knows.
       let configured: boolean | undefined;
       let configuredError: string | undefined;
       try {

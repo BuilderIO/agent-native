@@ -1,4 +1,9 @@
+// @agent-native/pinpoint — update-pin script tests
 // MIT License
+//
+// Same temp-dir-via-chdir approach as create-pin.spec.ts, since updatePin()
+// always constructs `new FileStore()` with the default `data/pins` path
+// resolved against `process.cwd()`.
 
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";

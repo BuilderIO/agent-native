@@ -1,4 +1,8 @@
+// @agent-native/pinpoint — Primitives API
 // MIT License
+//
+// Standalone exports for agent-initiated element inspection.
+// These functions work independently of the UI workflow.
 
 export { buildElementContext as getElementContext } from "../detection/element-info.js";
 export { extractElementInfo } from "../detection/element-info.js";

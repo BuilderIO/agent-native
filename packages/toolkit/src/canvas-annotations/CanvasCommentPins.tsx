@@ -262,6 +262,9 @@ export function CanvasCommentPins({
       const yPct = ((clientY - rect.top) / rect.height) * 100;
       if (xPct < 0 || xPct > 100 || yPct < 0 || yPct > 100) return; // i18n-ignore geometry bounds check, not UI copy
 
+      // Build a best-effort selector for parent-DOM canvases. For iframe
+      // canvases the transparent overlay captures the click, so target details
+      // are intentionally omitted but the precise position is preserved.
       const { targetSelector, targetAnchorId } = getTargetAnchor(target);
       const targetText = target?.textContent?.trim().slice(0, 80) || undefined;
 

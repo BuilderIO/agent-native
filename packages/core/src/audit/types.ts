@@ -1,4 +1,3 @@
-
 export type AuditStatus = "success" | "error" | "denied";
 
 export type AuditActorKind = "agent" | "human" | "system";
@@ -22,11 +21,6 @@ export interface AuditCallMeta {
 
 export interface ActionAuditConfig {
   enabled?: boolean;
-  /**
-   * Audit this action even though it is read-only (GET). Use for sensitive
-   * reads worth recording — secret access, bulk export. Ignored when
-   * `enabled` is set explicitly.
-   */
   onRead?: boolean;
   recordInputs?: boolean;
   target?: (

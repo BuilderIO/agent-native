@@ -1,4 +1,3 @@
-
 import type { ActionRunContext } from "../action.js";
 import { getDbExec } from "../db/client.js";
 import {
@@ -13,12 +12,6 @@ export interface AppRolesDescriptor<
   P extends string = string,
 > {
   appId: string;
-  /**
-   * The complete role vocabulary, as an unordered SET. Declaration order
-   * carries no meaning — `["ae", "se", "csm"]` are classifications, and ranking
-   * them would silently grant the last one everything the first one has.
-   * Authorization is always an explicit list of accepted roles.
-   */
   roles: readonly R[];
   defaultRole?: R;
   roleLabels?: Partial<Record<R, string>>;

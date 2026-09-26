@@ -81,7 +81,6 @@ export function HeroOceanBackground({
       window.removeEventListener("blur", fadePointer);
     });
 
-    // Imported here rather than at module scope: the homepage is prerendered,
     void import("./renderer")
       .then(({ createRenderer }) => {
         if (cancelled) return;
@@ -136,6 +135,9 @@ export function HeroOceanBackground({
     <div
       ref={containerRef}
       aria-hidden="true"
+      // Opacity is inline rather than a class because it animates between 0
+      // and a token value; the halftone underneath is still painting until
+      // this reaches full, so the hero never shows a bare background.
       className="absolute inset-0 z-[-1]"
       style={{
         opacity: ready ? "var(--b-hero-ocean-opacity)" : 0,

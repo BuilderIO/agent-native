@@ -1,4 +1,3 @@
-
 import crypto from "node:crypto";
 
 import {
@@ -312,13 +311,6 @@ async function finishGoogleMcpOAuthAuthorization(
   };
 }
 
-/**
- * RFC 8707 resource identifiers are exact strings. WHATWG `URL` origin-only
- * values stringify with a trailing slash (`https://api.builder.io/` vs
- * `https://api.builder.io`), and the MCP SDK puts `resource.href` on authorize
- * and token requests. Servers that registered the unsuffixed identifier reject
- * the canonical form as unregistered.
- */
 class Rfc8707ResourceUrl extends URL {
   readonly identifier: string;
 
@@ -604,11 +596,6 @@ function brandedOAuthClientMetadata(): Pick<
   return metadata;
 }
 
-/**
- * A small adapter around the MCP SDK's OAuth provider interface. The route
- * stores the adapter's state in an encrypted, short-lived browser cookie; the
- * durable credential bundle is written only after the callback succeeds.
- */
 export class McpOAuthClientProvider implements OAuthClientProvider {
   private readonly redirectUrlValue: string;
   private readonly stateValue: string;
@@ -638,6 +625,9 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
       recordedIssuer &&
       this.savedCodeVerifier
     ) {
+      // A callback flow persists registration, discovery, PKCE, and state in
+      // one encrypted cookie. Binding that pre-v2 in-flight registration to
+      // its recorded issuer is safe; durable credentials are never inferred.
       this.clientInfo = { ...this.clientInfo, issuer: recordedIssuer };
     }
     this.metadata = {

@@ -2330,7 +2330,15 @@ function parseColor(
 const MIN_LINE_SPACING_RATIO = 0.8;
 const MAX_LINE_SPACING_RATIO = 3;
 
+// `a:spcPct` is a percentage of *single* line spacing, and single spacing in
+// PowerPoint and Google Slides is the font's own line height (ascent +
+// descent + line gap), not its em size — the same quantity CSS calls
+// `line-height: normal`. Treating `100%` as CSS `line-height: 1` therefore
+// shipped every body paragraph ~17% tighter than the source, which is what
+// five unrelated decks were independently reported for. CSS cannot scale
+// `normal`, so a constant stands in for it.
 // ponytail: one constant for every font; per-font ascent/descent metrics if a
+// specific deck's leading still reads off.
 const SINGLE_LINE_SPACING_RATIO = 1.2;
 
 const DEFAULT_FONT_SIZE_PT = 18;

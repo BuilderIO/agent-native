@@ -1,4 +1,3 @@
-
 import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
 import type { McpConfig, McpServerConfig } from "./config.js";
 import { formatMcpConnectError, httpStatusFromError } from "./errors.js";
@@ -171,8 +170,6 @@ export class McpClientManager {
   private config: McpConfig | null;
   private sdk: SdkModules | null = null;
   private readonly listeners: Set<() => void> = new Set();
-  /** Serialises reconfigure()/start() — two concurrent callers would
-   * otherwise race on `this.config` and on connect/disconnect ordering. */
   private reconfigureQueue: Promise<unknown> = Promise.resolve();
 
   constructor(config: McpConfig | null, options: McpClientManagerOptions = {}) {
@@ -373,6 +370,14 @@ export class McpClientManager {
       }
       const { command, args = [], env, cwd } = cfg;
       // SECURITY: stdio MCP servers run as child processes that inherit
+      // their environment from us. We previously merged the entire
+      // `process.env` into the child, which exposed every deployment
+      // secret (A2A_SECRET, ANTHROPIC_API_KEY, BUILDER_PRIVATE_KEY, all
+      // database URLs, all platform tokens) to any MCP server in
+      // `mcp.config.json` — a malicious npx-fetched server could exfil
+      // them by reading its own env. Instead, only forward a minimal
+      // baseline plus the keys explicitly listed in `cfg.env`. See
+      // finding #10 in /tmp/security-audit/12-mcp-a2a-agent.md.
       const ENV_ALLOWLIST = [
         "PATH",
         "HOME",

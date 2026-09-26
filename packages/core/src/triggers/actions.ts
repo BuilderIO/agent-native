@@ -1,4 +1,3 @@
-
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
@@ -24,7 +23,6 @@ import {
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import { refreshEventSubscriptions } from "./dispatcher.js";
-
 
 async function handleListEvents(): Promise<string> {
   const events = listEvents();
@@ -372,7 +370,6 @@ async function handleFireTest(
     }
   }
 
-  // Scope the test event to the current user so only their automations fire,
   const owner = getCurrentUser();
   emit("test.event.fired", { data }, { owner });
   return `Test event fired with payload: ${JSON.stringify({ data })}. Any automations subscribed to "test.event.fired" will be evaluated.`;
@@ -403,7 +400,6 @@ async function handleRunNow(
     return `Error: ${(error as Error).message}`;
   }
 }
-
 
 const VALID_ACTIONS = [
   "list-events",

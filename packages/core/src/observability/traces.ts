@@ -313,7 +313,6 @@ function emitLlmGenerationTrackingEvent(args: {
   }
 }
 
-
 function buildGenerationContent(args: {
   config: ObservabilityConfig;
   messages: unknown;
@@ -1050,6 +1049,11 @@ export async function instrumentAgentLoop(opts: {
         // without a cost rather than failing the trace.
       } catch {} // coercion-ok: see above
 
+      // A cut-off run never reaches the loop's outcome classification, so stand in
+      // for it here rather than reporting no terminal state at all. `failed` +
+      // `retryable` is the honest encoding available in `AgentLoopOutcome`: the
+      // turn did not finish, and the continuation machinery is expected to
+      // recover it. A real reported outcome always wins.
       const effectiveTerminalOutcome: AgentLoopOutcome | undefined =
         terminalOutcome ??
         (cutOffReason && !EXPECTED_CONTINUATION_REASONS.has(cutOffReason)
@@ -1094,6 +1098,11 @@ export async function instrumentAgentLoop(opts: {
           cacheWriteTokens: 0,
           model: loopOpts.model,
         };
+        // The engine never reported a `usage` event for this run (killed for
+        // silence before any provider response, or the loop threw before
+        // returning). `runUsage`'s token fields are placeholder zeros in that
+        // case, not measured values — the tracking events below must omit them
+        // rather than report a fabricated 0.
         const usageReported = usage?.usageReported === true;
         const engineName =
           typeof loopOpts.engine?.name === "string"

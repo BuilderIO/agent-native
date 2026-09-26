@@ -1,4 +1,3 @@
-
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   IconLoader2,
@@ -62,7 +61,6 @@ interface AgentLoopSettingsResponse {
   orgName?: string | null;
   role?: string | null;
 }
-
 
 export function getLoopLimitMetadata(message: unknown): LoopLimitInfo | null {
   const meta = (message as { metadata?: unknown })?.metadata as
@@ -154,7 +152,6 @@ export function getRequestModeMetadata(
   return requestMode === "act" || requestMode === "plan" ? requestMode : null;
 }
 
-
 export function isBuilderReconnectRunError(info: RunErrorInfo): boolean {
   const code = (info.errorCode ?? "").toLowerCase();
   const message = info.message.toLowerCase();
@@ -219,7 +216,6 @@ function isDesktopChatRelayRunError(info: RunErrorInfo): boolean {
       typeof value === "string" && /desktop app chat relay failed/i.test(value),
   );
 }
-
 
 export function BuilderConnectCta({
   variant = "primary",
@@ -335,7 +331,6 @@ export function BuilderConnectCta({
     </div>
   );
 }
-
 
 export type BuilderSetupCardLayout = "default" | "sidebar";
 
@@ -494,7 +489,6 @@ export function BuilderSetupCard({
   );
 }
 
-
 export function RunErrorRecoveryCard({
   info,
   onContinue,
@@ -536,7 +530,16 @@ export function RunErrorRecoveryCard({
     (isProviderAuthError && !shouldShowBuilderReconnect);
   const isUnblockableExternally =
     info.errorCode === "email_verification_required";
+  // Rejected provider keys keep their setup path below — update/connect the
+  // credential and the setup callback re-runs the turn. They ALSO get a retry
+  // now, which the old comment here ruled out because "retry replays the same
+  // rejected credential and turns a permanent auth failure into a loop". That
+  // is no longer true: a 401 fingerprints the credential and skips it for a
+  // backing-off window (`recordProviderCredentialAuthFailure`), so the next
+  // attempt reaches for a different one, or fails closed as missing
+  // credentials. Without this the common case — a rejected workspace or
   // deployment credential the reader cannot see, let alone edit — rendered a
+  // "Connected ✓" panel with no action at all.
   const canRetry = canRecover || isUnblockableExternally || isProviderAuthError;
   const builderReconnectResolved =
     shouldShowBuilderReconnect &&
@@ -866,7 +869,6 @@ export function RunErrorRecoveryCard({
   );
 }
 
-
 export function LoopLimitContinueCard({
   info,
   onContinue,
@@ -1058,7 +1060,6 @@ export function LoopLimitContinueCard({
     </div>
   );
 }
-
 
 export function PlanModeCallout({
   canImplementPlan,

@@ -1,4 +1,3 @@
-
 import { createRequire } from "node:module";
 
 import { getAppConfig } from "../../app-config/index.js";
@@ -130,6 +129,12 @@ function isBundledServerlessRuntime(): boolean {
   if (isLocalNetlifyRuntime()) return false;
   if (env.VERCEL || env.NETLIFY || env.NETLIFY_FUNCTION_NAME) return true;
   if (env.SITE_ID) return true; // guard:allow-env-credential - Netlify runtime host marker, not a credential.
+  // Otherwise require direct evidence that this module is running from inside a
+  // bundle output directory (Vercel's `/var/task`, Nitro's `.output/server`,
+  // inlined `_libs`). This is the real signal that `require.resolve` cannot be
+  // trusted; it stays false for normal `node_modules` layouts (dev, tests, and
+  // container/Lambda/Cloud Run deploys that ship their dependencies), so a
+  // genuine "package not installed" miss still surfaces there.
   try {
     return /[\\/](?:_libs|\.vercel|\.netlify|\.output)[\\/]|\/var\/task\//.test(
       import.meta.url ?? "",
@@ -403,15 +408,9 @@ function envCredentialSetsForEntry(
 
 interface DetectedEngineEnvMatch {
   entry: AgentEngineEntry;
-  /** True when the only credential that qualified it is deploy-injected. */
   deployInjected: boolean;
 }
 
-/**
- * Registration order decides, except that an injected set loses to any
- * owner-configured credential. Builder is registered first, so without that
- * exception an injected token would move a BYO customer onto Builder credits.
- */
 function selectDetectedEngine(
   matches: readonly DetectedEngineEnvMatch[],
 ): AgentEngineEntry | null {
@@ -602,7 +601,6 @@ export async function detectEngineFromUserSecrets(
     return firstEntry;
   }
 
-  // would put four scope reads in front of the fast path on a continuously
   let secretsPrefetched = false;
   const prefetchCandidateSecrets = async (): Promise<void> => {
     if (secretsPrefetched) return;
@@ -776,6 +774,7 @@ async function builderOAuthLaneUsable(
     );
   } catch {
     // coercion-ok: custody present but unusable is "not usable", not absent;
+    // reconnect UX is owned by /builder/status, not this boolean probe.
     return false;
   }
 }
@@ -916,7 +915,10 @@ async function engineCreateConfigForEntry(
     matchingApiKey = safeExtra.apiKey;
     matchingApiKeyProvenance = undefined;
   }
+  // A declared provenance settles the question without inspecting values: a
   // credential issued for another provider's env var is never this entry's
+  // key, so drop it on explicit branches too. Value comparison below cannot
+  // cover this — a host-supplied key (plugin `options.apiKey`) matches no
   // stored secret, so it would otherwise reach whichever provider was picked.
   if (
     apiKeyEnvVar !== undefined &&
@@ -926,6 +928,12 @@ async function engineCreateConfigForEntry(
     matchingApiKeyProvenance = undefined;
   }
   // Engine selection must also select that engine's credential. Callers
+  // historically passed one untagged "active" key before the registry chose
+  // an engine, which could hand an Anthropic key to an OpenAI engine (or vice
+  // versa). Explicit engine options can also arrive without a key when the
+  // owner resolver missed a shared vault row, so resolve those missing keys at
+  // this construction boundary too. Opaque caller-supplied keys remain intact
+  // unless they are proven to belong to another configured provider.
   if (
     (credentialResolution === "automatic" || matchingApiKey === undefined) &&
     entry.name !== "builder" &&
@@ -988,8 +996,9 @@ async function engineCreateConfigForEntry(
 
     if (typeof safeExtra.baseUrl === "string") {
       const baseUrl = safeExtra.baseUrl;
-      const endpointOwner =
-        resolvedEndpoint?.endpointOwner ?? { scope: "deployment" };
+      const endpointOwner = resolvedEndpoint?.endpointOwner ?? {
+        scope: "deployment",
+      };
       const validatedBaseUrl =
         resolvedEndpoint?.baseUrl ??
         (await validateProviderBaseUrl(baseUrl, {
@@ -1034,6 +1043,10 @@ async function engineCreateConfigForEntry(
     entry.name === "builder" &&
     (credentialIdentity !== undefined || safeExtra.credentials == null)
   ) {
+    // Builder authentication is a token plus space id, not the single provider
+    // key carried by ResolveEngineConfig. Capture the gateway-lane pair while
+    // the verified request identity is available so a later stream or detached
+    // run cannot resolve credentials from the wrong ambient context.
     const creds =
       await resolveBuilderGatewayCredentialsDetailed(credentialIdentity);
     assertCredentialStoreReadable(creds);
@@ -1061,7 +1074,6 @@ export function isStoredEngineUsable(
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
-  // Every credential set, not just `requiredEnvVars`. Reading only the latter
   const sets = envCredentialSetsForEntry(entry);
   if (sets.length === 0) return true;
   return sets.some((set) =>
@@ -1101,6 +1113,8 @@ export async function isResolvedEngineUsableForRequest(
   } = {},
 ): Promise<boolean> {
   const entry = _registry.get(engine.name);
+  // Custom engines may have their own credential contract outside the core
+  // registry metadata, so do not block them speculatively.
   if (!entry) return true;
   if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
     return chatGPTSubscriptionUsableForRequest(options.credentialIdentity);
@@ -1140,14 +1154,6 @@ export interface ResolveEngineConfig {
   credentialIdentity?: BuilderCredentialLookupIdentity;
 }
 
-/**
- * Engine name a caller explicitly selected, when {@link resolveEngine} will
- * honor it as a name. Callers resolve the API key before they call
- * `resolveEngine`, so they need the same answer the registry will reach:
- * an untagged "active" key resolved against a different provider's setting
- * would otherwise ride along to whichever engine this names. Returns
- * `undefined` for an engine instance, which carries its own credential.
- */
 export function explicitEngineName(
   engineOption: ResolveEngineConfig["engineOption"],
 ): string | undefined {
@@ -1267,6 +1273,8 @@ export async function resolveEngine(
     const entry = _registry.get(envEngine);
     if (entry) {
       assertAgentEnginePackageInstalled(entry);
+      // Synthetic checks cannot use deploy-wide credentials, but may validate
+      // the dedicated user-scoped credential they install for the request.
       const canUseConfiguredEngine =
         getRequestContext()?.isSyntheticTraffic !== true ||
         (await isStoredEngineUsableForRequest({ engine: entry.name }, entry, {

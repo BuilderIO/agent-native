@@ -2,15 +2,6 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
-/**
- * `ensureGoogleAuthIdentityWithAdapter`'s account-set read is only a fast path;
- * `replaceUnverifiedCredentialWithGoogle` revalidates it inside the transaction
- * that owns the user row. Both gates therefore have to agree on which accounts
- * count as a competing claim, and only this test exercises the SQL one: a
- * cross-app SSO user (unusable credential plus the inert `agent-native` link)
- * was refused here even after the fast path let them through.
- */
-
 type Pglite = Awaited<ReturnType<typeof createTestPglite>>;
 
 function createPgliteExec(pglite: Pglite) {

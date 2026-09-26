@@ -123,6 +123,9 @@ export function AppKeysPanel({
     return map;
   }, [grants]);
 
+  // Track per-secret pending state so a fast double-click on the same row
+  // can't queue two `create-vault-grant` requests (which would silently
+  // create duplicate active grants — a later revoke only clears one).
   const [pendingSecretIds, setPendingSecretIds] = useState<Set<string>>(
     () => new Set(),
   );

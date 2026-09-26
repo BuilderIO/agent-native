@@ -198,7 +198,6 @@ export function filterResourceTree(
   });
 }
 
-
 type CreateMenuView =
   | "menu"
   | "file"
@@ -1115,7 +1114,6 @@ The result should be a reusable agent profile, not a one-off task response.`,
   );
 }
 
-
 function PathBreadcrumb({ path }: { path: string }) {
   const parts = path.split("/").filter(Boolean);
   return (
@@ -1136,7 +1134,6 @@ function PathBreadcrumb({ path }: { path: string }) {
     </div>
   );
 }
-
 
 const DEFAULT_AGENTS_MD_CLIENT = `# Agent Instructions
 
@@ -1175,7 +1172,6 @@ function isWorkspaceResourceOwner(owner: string): boolean {
 export interface ResourcesPanelProps {
   showMcpServers?: boolean;
   scope?: ResourceScope;
-  /** When set, show only the requested scope instead of both scope sections. */
   showOnlyRequestedScope?: boolean;
   resourceFilter?: ResourceView;
   resourceTreeVariant?: ResourceTreeVariant;

@@ -125,6 +125,9 @@ describe("runFrameworkReleaseMigrations", () => {
   });
 
   // Most framework tables have no migration list at all — their only definition
+  // is the owning store's `ensureTable()`, which production serverless never
+  // runs. Without this call the release step creates a fraction of the schema
+  // and reports success.
   it("creates the stores' own schema, before the versioned migrations", async () => {
     await runFrameworkReleaseMigrations(null);
 

@@ -358,17 +358,6 @@ function ensureGlobalMiddlewareDispatch(nitroApp: any): void {
   h3[MIDDLEWARE_DISPATCHER_PATCHED_KEY] = wrappedGetMiddleware;
 }
 
-/**
- * Wait for the framework's default-plugin bootstrap to complete.
- *
- * Called by user-facing plugin factories (`createAgentChatPlugin`, etc.) at
- * the top of their plugin function, so that by the time the function returns
- * — and Nitro starts accepting requests — all default plugins have finished
- * registering their middleware.
- *
- * No-op when called from inside the bootstrap itself (avoids deadlock when a
- * default plugin happens to be running as part of bootstrap).
- */
 export async function awaitBootstrap(nitroApp: any): Promise<void> {
   if (!nitroApp || IN_BOOTSTRAP.has(nitroApp)) return;
   getH3App(nitroApp);
@@ -608,7 +597,15 @@ function registerMiddleware(
     let originalPathname: string | undefined;
     let originalEventPath: string | undefined;
     let hadEventPath = false;
+    // Only true once this specific middleware invocation has actually
+    // stripped a mount prefix (i.e. `path` was non-empty and matched).
+    // Global (`path === ""`) middleware never mutates event.path/pathname,
+    // so `restoreOriginalPath` must be a no-op for it — otherwise it would
+    // unconditionally `delete event.path` on every pass-through (hadEventPath
+    // defaults to false), corrupting the event for any middleware that runs
+    // later in the chain (a real bug: two or more global middlewares in
     // sequence, e.g. security-headers + CORS + CSRF, would wipe event.path
+    // for everything downstream, including the final route handler).
     let didStripPath = false;
     const restoreOriginalPath = () => {
       if (!didStripPath) return;

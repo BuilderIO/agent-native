@@ -25,6 +25,10 @@ export function createFirstEventAbortController(
 
   const fireTimeout = (message: string) => {
     // Record a timeout ONLY when this controller wins the abort race. Setting
+    // the message first and checking `aborted` after made a deadline that
+    // merely fired into an already-aborted controller indistinguishable from
+    // one that caused the abort — and `didTimeout()` is what the engines read
+    // to decide a failure was the transport's fault and worth retrying.
     if (controller.signal.aborted) return;
     timeoutMessage = message;
     controller.abort(new Error(message));

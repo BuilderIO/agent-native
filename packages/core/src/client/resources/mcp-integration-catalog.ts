@@ -50,11 +50,6 @@ export interface DefaultMcpIntegration {
   verification: McpIntegrationVerification;
   logoUrl: string;
   managedOAuth?: boolean;
-  /**
-   * The provider supports a workspace connection whose access can be shared
-   * with permitted workspace members. Keep this opt-in until provider scope
-   * semantics are verified.
-   */
   supportsOrganizationScope?: boolean;
   organizationScopeOnly?: boolean;
   docsUrl?: string;
@@ -599,7 +594,10 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     useCase: "repositories, issues, pull requests, code, engineering analytics",
     useCaseKey: "mcpIntegrations.catalog.github.useCase",
     url: "https://api.githubcopilot.com/mcp/",
+    // GitHub's authorization server (https://github.com/login/oauth) advertises
+    // no registration_endpoint and no Client ID Metadata Documents, so the
     // Connect button could never mint a client. A personal access token on the
+    // Authorization header is the connection GitHub actually accepts.
     authMode: "headers",
     connectionMode: "headers",
     availability: "ready",
@@ -982,7 +980,6 @@ export function buildMcpOAuthStartUrl({
     name,
     url,
     description,
-    // keep a personal scope off a server that only accepts a workspace one.
     scope: mcpUrlRequiresOrganizationScope(url) ? "org" : scope,
     return: returnUrl,
   });
@@ -1036,11 +1033,6 @@ export function supportsMcpIntegrationOrganizationScope(
   );
 }
 
-/**
- * Mirrors the server's org-only rule in `resolveMcpOAuthScope`. Offering a
- * personal connection the server will reject is what produced the misleading
- * scope error users hit on Builder.io.
- */
 export function requiresMcpIntegrationOrganizationScope(
   integration: DefaultMcpIntegration,
 ): boolean {

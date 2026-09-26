@@ -1,4 +1,8 @@
+// @agent-native/pinpoint — Shadow DOM mounting with singleton guard
 // MIT License
+//
+// Mounts the SolidJS overlay app inside Shadow DOM for perfect CSS isolation.
+// Singleton guard prevents multiple toolbar instances (HMR-safe).
 
 import { render } from "solid-js/web";
 

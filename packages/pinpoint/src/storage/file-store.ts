@@ -1,4 +1,8 @@
+// @agent-native/pinpoint — Server-side file storage adapter
 // MIT License
+//
+// Writes to data/pins/{uuid}.json — one file per annotation.
+// Atomic writes (temp + rename). Path traversal validation on all IDs.
 
 import { randomUUID } from "crypto";
 import {
@@ -91,6 +95,7 @@ export class FileStore implements PinStorage {
     try {
       await unlink(this.pinPath(id));
     } catch {
+      // File already deleted or doesn't exist
     }
   }
 

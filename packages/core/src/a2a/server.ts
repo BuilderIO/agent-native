@@ -167,7 +167,11 @@ export async function verifyA2AToken(
     verificationSecret?: string;
   },
 ): Promise<A2ATokenPayload> {
+  // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
   // This is safe because we only use org_domain to look up the secret,
+  // then verify the full JWT with that secret. If someone forges a JWT
+  // with a fake org_domain, verification will fail because they don't
+  // have the real secret.
   let orgDomainHint: string | undefined;
   let unverifiedPayload: jose.JWTPayload | undefined;
   try {
@@ -177,6 +181,10 @@ export async function verifyA2AToken(
     // Malformed token — fall through to global secret attempt
   }
 
+  // Step 2: Build a small, ordered set of candidate secrets. An explicit
+  // verification credential is isolated from the deployment-wide and
+  // org-level credentials so a caller cannot use one app's trust grant as
+  // another app's identity.
   const candidateSecrets: string[] = [];
   const hasExplicitVerificationSecret =
     audienceOptions?.verificationSecret !== undefined;
@@ -201,14 +209,30 @@ export async function verifyA2AToken(
   }
   if (candidateSecrets.length === 0) return { email: null, orgDomain: null };
 
+  // Step 3: Verify JWT with the candidate secrets.
+  //
   // - `audience`: passed only when the token carries an `aud` claim
+  //   (backward-compat: tokens minted by older `signA2AToken` versions
+  //   don't include one).
+  // - `issuer`: enforced when the token carries an `iss` claim. The
+  //   sender's `signA2AToken` (`a2a/client.ts:42`) sets the issuer to its
   //   own app URL, so a verified token must self-identify a non-empty
+  //   string issuer. We accept any string the token claims (we don't pin
+  //   a specific expected issuer because dispatchers may legitimately
+  //   mint tokens from many sender URLs — dev tunnels, multi-deploy
   //   setups). The pin is "issuer must match the value the token says
+  //   it was minted from", which `jose.jwtVerify` validates exactly when
+  //   `issuer` is supplied as a string. Backward-compat: when the token
+  //   has no `iss`, we skip the check.
   try {
     const verifyOptions: jose.JWTVerifyOptions = {};
     if (unverifiedPayload && typeof unverifiedPayload.aud !== "undefined") {
+      // Fail closed: the token was minted for a specific audience, but this
+      // receiver can't derive its own expected audience (no APP_URL/URL and no
       // usable request host). Accepting here would let a correctly-signed token
+      // whose `aud` targets ANOTHER service verify against a shared secret. A
       // token that self-declares an audience must be checked against ours, so
+      // when we have nothing to check it against we reject rather than skip.
       const aud = expectedJwtAudience(event, audienceOptions);
       if (!aud) return { email: null, orgDomain: null };
       verifyOptions.audience = aud;
@@ -252,7 +276,15 @@ export function mountA2A(
   config: A2AConfig,
   routePrefix = "/_agent-native",
 ): void {
+  // Public agent card endpoint (no auth required).
+  //
   // SECURITY: per-user / per-org MCP tools are filtered out of the public
+  // skills list. Their merged-key prefix (`mcp__user_<emailhash>_…` or
+  // `mcp__org_<orgid>_…`) discloses (a) which users have integrations
+  // attached, and (b) what those integrations are — fingerprinting the
+  // tenant. Template- and framework-defined skills stay; only the dynamic
+  // per-tenant MCP entries are dropped. See finding #7 in
+  // /tmp/security-audit/12-mcp-a2a-agent.md.
   getH3App(nitroApp).use(
     "/.well-known/agent-card.json",
     defineEventHandler(async (event) => {
@@ -294,6 +326,10 @@ export function mountA2A(
     }),
   );
 
+  // Human-only continuation for consequential A2A tool calls. The opaque id
+  // is a lookup handle, not authorization: every read and mutation also
+  // requires the task owner's live browser session. Ordinary A2A bearer
+  // tokens never reach this control plane and cannot approve themselves.
   getH3App(nitroApp).use(
     `${routePrefix}/a2a/approvals`,
     defineEventHandler(async (event) => {
@@ -406,6 +442,17 @@ export function mountA2A(
     }),
   );
 
+  // Async-mode processor route. MUST be mounted BEFORE the `/a2a` catch-all
+  // below, since h3's `.use()` matches by prefix and `/a2a` would otherwise
+  // swallow `/a2a/_process-task` and return a JSON-RPC "Invalid token" error
+  // (the JSON-RPC handler doesn't know about taskId-only bodies).
+  //
+  // When `message/send` is called with `async: true`, the JSON-RPC handler
+  // enqueues the task and self-fires a POST to this route on the same
+  // deployment so the actual handler runs in a fresh function execution (its
+  // own full timeout). Authenticated with an HMAC token bound to the task id
+  // (5-minute lifetime, signed with A2A_SECRET — same scheme as the
+  // integration webhook queue).
   getH3App(nitroApp).use(
     `${routePrefix}/a2a/_process-task`,
     defineEventHandler(async (event) => {
@@ -421,6 +468,12 @@ export function mountA2A(
         return { error: "taskId required" };
       }
 
+      // When A2A_SECRET is set, require a valid HMAC token bound to this
+      // taskId. In production, we REQUIRE A2A_SECRET to be set so unsigned
+      // dispatches are never accepted (an attacker who fishes a taskId out
+      // of logs / a share link could otherwise force-replay it). In
+      // development, a missing secret is permitted so local templates work
+      // out of the box, but we log a one-time warning so operators notice.
       if (hasConfiguredA2ASecret()) {
         const auth = getRequestHeader(event, "authorization");
         const tok = extractBearerToken(auth);
@@ -469,6 +522,10 @@ export function mountA2A(
       let bearerTokenRejectedByJwt = false;
 
       // SECURITY: when neither A2A_SECRET nor an apiKeyEnv is configured,
+      // there's no way to authenticate the caller. Default to "auth required"
+      // in production — return 503 with a clear message instead of running
+      // the agent loop unauthenticated. In development, log a one-time
+      // warning but allow so local templates work out of the box.
       const hasA2ASecret = hasConfiguredA2ASecret();
       const hasApiKey = !!(config.apiKeyEnv && process.env[config.apiKeyEnv]);
 
@@ -508,6 +565,10 @@ export function mountA2A(
       }
 
       if (!verifiedCallerEmail && !legacyApiKeyAuthenticated) {
+        // Any supplied bearer token that failed JWT verification is an auth
+        // failure after the legacy exact-match apiKeyEnv path has had a
+        // chance to succeed. Do not let bad tokens fall through to tasks/get
+        // and get reported as lookup misses.
         if (bearerTokenRejectedByJwt) {
           setResponseStatus(event, 401);
           return {

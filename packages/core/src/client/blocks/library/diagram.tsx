@@ -69,7 +69,11 @@ import {
  * the theme-token treatment.
  */
 
+/* -------------------------------------------------------------------------- */
+/* HTML/SVG diagram path                                                       */
+/* -------------------------------------------------------------------------- */
 
+/** The rough-overlay selector for diagram bordered boxes (mirrors the plan). */
 const DIAGRAM_ROUGH_SELECTOR =
   "[data-rough],.diagram-panel,.diagram-node,.diagram-box,.diagram-pill,.diagram-card,.diagram-arrow[data-arrow],[class*='card'],[class*='box'],[class*='panel'],[class*='pill'],[class*='chip'],[class*='badge'],hr";
 
@@ -92,6 +96,8 @@ function HtmlDiagram({
   const safeHtml = useMemo(() => sanitizeDiagramHtml(data.html), [data.html]);
   const scopedCss = useMemo(() => {
     const safeCss = sanitizeWireframeCss(data.css);
+    // Scope every author selector under this diagram instance so global
+    // selectors (body, *, .app-shell, :root) can't escape and restyle the page.
     return safeCss
       ? scopeDesignCss(safeCss, `[data-plan-diagram-scope="${scopeId}"]`)
       : "";
@@ -141,7 +147,6 @@ function resolveVisualFrame(
     frame && frame !== "auto" ? frame : (ctx.visualFrame ?? "show");
   return resolved !== "hide";
 }
-
 
 function clampDiagramPercent(value: number) {
   if (!Number.isFinite(value)) return 50;
@@ -553,7 +558,6 @@ function DiagramBody({
   );
 }
 
-
 export function DiagramLightbox({
   children,
   onClose,
@@ -671,7 +675,6 @@ function ExpandableDiagramBody({
     </div>
   );
 }
-
 
 export function DiagramRead({
   data,

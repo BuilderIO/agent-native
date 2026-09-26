@@ -35,7 +35,9 @@ describe("desktop chat-first shell", () => {
     expect(handlerEnd).toBeGreaterThan(handlerStart);
     const handlerSource = appSource.slice(handlerStart, handlerEnd);
 
+    // api.update/api.remove IPC-invoke the main process and can reject
     // (disk full, permission denied); that rejection must be caught and
+    // surfaced, not left as an unhandled promise rejection.
     expect(handlerSource).toContain("try {");
     expect(handlerSource).toContain("catch");
     expect(handlerSource).toContain("toast.error(");

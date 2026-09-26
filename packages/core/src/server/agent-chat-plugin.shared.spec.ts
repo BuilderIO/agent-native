@@ -392,6 +392,10 @@ describe("scheduled trigger availability", () => {
     ).toEqual({ available: true, driver: "netlify-scheduled-function" });
   });
 
+  // The mirror image, and the reason the Netlify branch reads the build scope
+  // ALONE: the emitted scheduled function fires on the platform's clock and
+  // never consults the deployed env, so a runtime-only kill switch does not stop
+  // it. Reporting "won't run" there would be a false alarm about work that runs.
   it("does not let a runtime-only switch deny a trigger the build emitted", () => {
     expect(
       scheduledTriggerAvailability({

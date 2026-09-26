@@ -1,4 +1,3 @@
-
 import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
@@ -58,11 +57,6 @@ export interface AppProvidersProps {
 
   clientOnlyFallback?: React.ReactNode;
 
-  /**
-   * Skip the default client-side session gate on a private path. Use only for
-   * surfaces that authenticate by another mechanism, such as an MCP embed with
-   * its own scoped token. Public/SEO routes should use `isPublicPath` instead.
-   */
   sessionBypass?: boolean;
 
   documentTitleFallback?: string;
@@ -137,7 +131,11 @@ function AgentNativeWebMcpRegistration({
   const excludeActionNamesKey = JSON.stringify(excludeActionNames ?? []);
 
   useEffect(() => {
+    // sessionBypass surfaces are token-authenticated MCP embeds; their host
+    // may call tools immediately, so registration must not wait out the
     // paint-aligned window — only the cookie-session-gated variant defers.
+    // Ownership is local to this effect: two coexisting surfaces each stop
+    // only the registration they created.
     let disposed = false;
     let registration: WebMcpRegistration | null = null;
     void loadWebMcpModule()
@@ -173,6 +171,13 @@ function SessionGatedAgentNativeWebMcpRegistration({
   const registrationExcludeActionNamesKeyRef = useRef<string | null>(null);
   const excludeActionNamesKey = JSON.stringify(excludeActionNames ?? []);
   useEffect(() => {
+    // The manifest route requires a session, so registration starts only on
+    // a confirmed session: a signed-out visitor (first visit, expired cookie)
+    // never logs the manifest 401, and a still-loading or unreadable session
+    // waits for the next status change (focus invalidation, session retry,
+    // auth arrival) instead of firing a request that is expected to fail.
+    // Previously an unavailable session registered anyway ("best-effort");
+    // that traded a known-bad manifest fetch for zero benefit.
     if (status === "unauthenticated" || status === "signing-out") {
       registrationRef.current?.stop();
       registrationRef.current = null;

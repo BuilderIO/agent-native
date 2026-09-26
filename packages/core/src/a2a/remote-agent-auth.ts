@@ -147,7 +147,9 @@ async function resolveClientCredentialsToken(
     });
   }
   const clientSecret = await resolveVaultCredential(clientSecretRef, context);
+  // Vault references are stable across rotations. Include a one-way
   // fingerprint of the resolved secret so replacing a value invalidates the
+  // old access token without retaining the secret itself.
   const secretFingerprint = createHash("sha256")
     .update(clientSecret)
     .digest("hex");

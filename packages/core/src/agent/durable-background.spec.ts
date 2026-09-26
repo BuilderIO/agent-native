@@ -29,6 +29,7 @@ import {
  * tests pin the host, secret, and opt-out legs of that gate.
  */
 
+// Env keys the gate reads, snapshotted/cleared so each case is isolated.
 const ENV_KEYS = [
   "AGENT_CHAT_DURABLE_BACKGROUND",
   "AGENT_CHAT_FOREGROUND_SELF_CHAIN",

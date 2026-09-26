@@ -64,6 +64,7 @@ describe("scanEnvCredentials", () => {
   });
 
   it("still flags an app secret that merely starts with a platform name", () => {
+    // FUSION_BRANCH_KIND is allowlisted exactly, never as a FUSION_ prefix, so a
     // credential cannot smuggle itself through by borrowing the platform's name.
     const root = makeTempAppRoot({
       "actions/charge.ts": [

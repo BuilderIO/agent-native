@@ -2,16 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
-/**
- * oauth-store persists OAuth clients, short-lived authorization codes, and
- * hashed refresh tokens for the standard remote MCP OAuth flow. We back it with
- * a REAL in-memory PGlite engine (wrapped to the framework's `DbExec` shape, the
- * same wrapper production uses for pglite) so expiry filtering, consume-once
- * atomicity, UNIQUE constraints, and refresh rotation are exercised for real —
- * not pattern-matched. The SQL targets PostgreSQL; the test asserts behavior
- * rather than local engine details.
- */
-
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let connectionErrorNext = false;
 let genericErrorNext = false;

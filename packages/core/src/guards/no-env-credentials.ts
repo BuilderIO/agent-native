@@ -43,7 +43,6 @@ import type { GuardFinding, GuardResult, GuardScanOptions } from "./types.js";
 const ALLOWLIST_EXACT = new Set([
   "DATABASE_URL",
   "DATABASE_URL_UNPOOLED",
-  // Exact, not a FUSION_ prefix — a prefix would let an app secret named
   "FUSION_BRANCH_KIND",
   "NODE_ENV",
   "CI",

@@ -851,7 +851,6 @@ function isBackgroundStatus(
   );
 }
 
-// dark: variants only where there's no semantic token for the colour
 const STATUS_GLYPHS: Record<
   ProgressStatus,
   { Icon: typeof IconLoader2; className: string }

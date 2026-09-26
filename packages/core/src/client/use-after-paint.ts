@@ -33,6 +33,8 @@ export function scheduleAfterPaint(
   };
 
   // Hidden tabs never fire requestAnimationFrame and a busy main thread can
+  // starve idle callbacks, so this timer bounds the wait: the read always
+  // lands, just later than the paint-aligned fast path.
   const fallbackId = setTimeout(settle, AFTER_PAINT_FALLBACK_MS);
   cancels.push(() => clearTimeout(fallbackId));
 

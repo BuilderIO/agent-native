@@ -60,13 +60,6 @@ export interface ResolvedKeyReference {
   scopeId: string;
 }
 
-/**
- * Resolve `${keys.NAME}` references in `text`. For each reference, looks up
- * the named secret at the given scope, falling back to workspace-scope when
- * the user-scope row doesn't exist. Throws when a referenced key is missing
- * so the agent receives a clear error rather than dispatching with the
- * literal placeholder.
- */
 export async function resolveKeyReferences(
   text: string,
   scope: SecretScope,

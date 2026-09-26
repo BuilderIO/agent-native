@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — Plugin registration and hook dispatch
 // MIT License
 
 import type {

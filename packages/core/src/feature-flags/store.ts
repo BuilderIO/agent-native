@@ -185,13 +185,6 @@ export async function getFeatureFlagRules(
   return normalizeFeatureFlagRules(orgStored ?? globalStored);
 }
 
-/**
- * Batched rules read for many flags at once: every requested (registered)
- * flag's global key, plus its org-override key when an org is in scope, in
- * one settings round trip instead of up to 2 per flag. Built for callers like
- * get-feature-flags that evaluate the whole registry on every call; single-flag
- * reads should keep using {@link getFeatureFlagRules}.
- */
 export async function getFeatureFlagRulesForKeys(
   keys: readonly string[],
   scope: Pick<FeatureFlagScope, "orgId" | "transaction">,

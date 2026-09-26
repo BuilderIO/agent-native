@@ -1077,11 +1077,6 @@ function isAgentNativeHostedHost(host: string | undefined): boolean {
 }
 
 export interface OnboardingHtmlOptions {
-  /**
-   * Hide email/password forms and show ONLY the Google sign-in button.
-   * Useful for templates (mail, calendar) where Google is required anyway.
-   * If Google OAuth env vars are not configured, an error message is shown.
-   */
   googleOnly?: boolean;
   googleScopes?: string[];
   authMode?: "magic-link" | "password";

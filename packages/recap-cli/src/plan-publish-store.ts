@@ -34,16 +34,6 @@ export function planPublishConfigPath(): string {
   );
 }
 
-/**
- * Whether `url`'s host is the first-party Agent-Native Plans app whose token
- * we should mirror to the canonical publish file. Only the hosted Plans app
- * (`plan.agent-native.com`) qualifies — mirroring tokens for other
- * agent-native subdomains (assets, mail, …) would silently overwrite the
- * canonical Plans endpoint with the wrong URL+token each time `connect --all`
- * runs last-write-wins. A custom self-hosted origin (ngrok, localhost, a
- * private deployment) is intentionally excluded: the user can still point the
- * server at it via `PLAN_PUBLISH_URL` / `PLAN_PUBLISH_TOKEN` env vars.
- */
 export function isFirstPartyPlanHost(url: string): boolean {
   try {
     const host = new URL(url).hostname.toLowerCase();

@@ -1,4 +1,3 @@
-
 export interface BrandKitColors {
   primary: string;
   secondary: string;
@@ -27,11 +26,6 @@ export type BrandKitTokenType =
   | "motion"
   | "other";
 
-/**
- * One token under the name its source design system uses. The seven
- * {@link BrandKitColors} roles are a summary view, not a substitute: collapsing
- * `interactive-01` into `secondary` discards the only name the design team has.
- */
 export interface BrandKitToken {
   name: string;
   cssVar: string;

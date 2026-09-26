@@ -279,6 +279,8 @@ describe("Builder callback CSRF state", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
+    // Pin the secret so signed tokens are stable across calls and the
+    // .env.local autogeneration in resolveAuthSecret never fires.
     delete process.env.OAUTH_STATE_SECRET;
     process.env.BETTER_AUTH_SECRET = "test-secret-9f2a7c";
   });
@@ -1512,6 +1514,9 @@ describe("Builder callback CSRF state", () => {
       });
     });
 
+    // A rejected credential is not a transient outage. Without a typed code,
+    // callers see a plain Error and tell the user to retry something that
+    // cannot succeed until they reconnect.
     it("raises a reconnectable error when Builder rejects the credential", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";
       process.env.BUILDER_PUBLIC_KEY = "pub-test";
@@ -1541,6 +1546,8 @@ describe("Builder callback CSRF state", () => {
       });
     });
 
+    // 403 is Space membership, not a bad credential. Reconnect is the wrong
+    // advice, so it must stay an ordinary error.
     it("keeps a membership rejection as an ordinary error", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";
       process.env.BUILDER_PUBLIC_KEY = "pub-test";

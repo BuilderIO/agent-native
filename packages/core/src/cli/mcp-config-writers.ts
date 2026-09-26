@@ -1,4 +1,3 @@
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -123,7 +122,6 @@ export function buildLocalMcpEntryForClient(
   };
 }
 
-
 export function coworkConfigPath(): string {
   return path.join(os.homedir(), ".cowork", "mcp.json");
 }
@@ -185,13 +183,6 @@ export function githubCopilotUserConfig(): string {
   return path.join(configRoot, "Code", "User", "mcp.json");
 }
 
-/**
- * Resolve the on-disk config path for a client.
- *
- * `scope` only affects Claude Code / Claude Code CLI: `"user"` → the global
- * `~/.claude.json`, anything else → the project-local `.mcp.json` rooted at
- * `baseDir`.
- */
 export function configPathFor(
   client: ClientId,
   baseDir: string,
@@ -221,7 +212,6 @@ export function configPathFor(
         : githubCopilotProjectConfig(baseDir);
   }
 }
-
 
 function readExistingConfigFile(file: string): string | undefined {
   try {
@@ -254,7 +244,6 @@ function readJsonFile(file: string): Record<string, any> {
 export function writeFileAtomic(file: string, data: string): void {
   const dir = path.dirname(file);
   fs.mkdirSync(dir, { recursive: true });
-  // Preserve the target's existing permission bits. A fresh temp file would
   let mode: number | undefined;
   try {
     mode = fs.statSync(file).mode & 0o777;
@@ -330,7 +319,6 @@ export function hasJsonMcpEntryForClient(
   const servers = config?.[jsonMcpConfigKeyForClient(client)];
   return !!servers && typeof servers === "object" && name in servers;
 }
-
 
 function tomlQuote(s: string): string {
   return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
@@ -524,7 +512,6 @@ export function codexHasBlock(file: string, name: string): boolean {
   );
 }
 
-
 export function writeHttpEntryForClient(
   client: ClientId,
   serverName: string,
@@ -551,7 +538,6 @@ export function writeHttpEntryForClient(
   }
   return file;
 }
-
 
 export function canonicalUrl(value: string | undefined): string | undefined {
   if (!value) return undefined;

@@ -1,20 +1,3 @@
-/**
- * Redact credential-bearing content from a rendered email body before it is
- * persisted to `email_log`. `email_log` is org-admin readable
- * (`authorizeTransactionalEmailRead`), and transactional email routinely
- * embeds a one-time magic-link, password-reset link, or verification/OTP
- * code — each bearer-token-equivalent for the recipient. Storing (or
- * rendering) those verbatim would let anyone with read access to the send
- * log sign in as, or reset the credentials of, the recipient.
- *
- * This is a regex-based scrub, not an HTML parser: it runs over the raw
- * HTML/text body so it catches an `href` attribute value and matching
- * visible link text in one pass. Only content that looks like a credential
- * is replaced — subject-relevant copy, branding, and ordinary links are left
- * intact so the send log stays useful for deliverability/rendering
- * debugging.
- */
-
 const URL_PATTERN = /https?:\/\/[^\s"'<>)]+|(?<=["'\s]|^)\/\/[^\s"'<>)]+/gi;
 
 const SENSITIVE_URL_PATH_PATTERN =

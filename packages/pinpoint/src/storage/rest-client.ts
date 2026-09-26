@@ -1,4 +1,8 @@
+// @agent-native/pinpoint — Browser-side REST client storage adapter
 // MIT License
+//
+// The browser never writes files directly — it always goes through the server.
+// This is the default adapter when a server endpoint is available.
 
 import type { Pin, PinStatus, PinStorage } from "../types/index.js";
 import { PinSchema } from "./schemas.js";

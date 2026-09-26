@@ -84,7 +84,12 @@ export function whatsappAdapter(): PlatformAdapter {
     ): Promise<{ handled: boolean; response?: unknown }> {
       const method = getMethod(event);
 
+      // For POST flows, pre-cache the raw body so verifyWebhook (HMAC) and
+      // parseIncomingMessage don't both try to consume the request body
+      // stream — h3 v2's body stream is consume-once, so a second read
       // hangs (M3 in the webhook security audit). Reads raw bytes; never
+      // re-stringifies a parsed body, since Meta computes HMAC over the
+      // exact bytes it sent (M2 in the audit).
       if (method === "POST") {
         try {
           await readRawBody(event);
@@ -101,6 +106,8 @@ export function whatsappAdapter(): PlatformAdapter {
       const expected = await resolveSecret("WHATSAPP_VERIFY_TOKEN");
 
       if (mode === "subscribe" && expected && typeof token === "string") {
+        // Timing-safe compare so an attacker can't measure character-wise
+        // mismatch latency (H6 in the webhook security audit).
         const a = Buffer.from(String(token));
         const b = Buffer.from(String(expected));
         if (a.length === b.length) {
@@ -137,6 +144,7 @@ export function whatsappAdapter(): PlatformAdapter {
             "[whatsapp] WHATSAPP_APP_SECRET not set — accepting webhook without verification (dev mode)",
           );
         }
+        // Dev mode: still require the access token to be configured at all.
         return !!(await resolveSecret("WHATSAPP_ACCESS_TOKEN"));
       }
 

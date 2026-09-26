@@ -152,6 +152,10 @@ export function devActionHandoffUrl(result: unknown): string | undefined {
   return undefined;
 }
 
+// Module-level state must survive independent instances of this module: the
+// Vite plugin that writes the token and the Nitro dev route that checks it
+// run inside the same process but can load through different module
+// realms (same reasoning as `_pgliteProcessLocks` in db/client.ts).
 const devBridgeProcess = process as NodeJS.Process & {
   __agentNativeDevActionToken?: string;
 };
@@ -160,13 +164,6 @@ export function getDevActionToken(): string | undefined {
   return devBridgeProcess.__agentNativeDevActionToken;
 }
 
-/**
- * Token the route compares against. The Vite plugin that mints it and the
- * Nitro dev server that serves the route are separate processes under
- * `agent-native dev`, so process memory only covers the single-process case;
- * otherwise the token comes back off the discovery file this process's app
- * root was published with (mode 0600, same user).
- */
 function resolveExpectedDevActionToken(): string | undefined {
   return (
     getDevActionToken() ?? readDevActionDiscoveryFile(process.cwd())?.token
@@ -239,6 +236,9 @@ export function mountDevActionForwardRoute(
     DEV_ACTION_ROUTE,
     defineEventHandler(async (event: H3Event) => {
       const { isLoopbackRequest } = await import("./auth.js");
+      // No discovery token is ever generated outside a local dev server, so
+      // this also fails closed in practice without the explicit check —
+      // it's kept explicit so a production deploy never even compares tokens.
       if (resolveDeployEnvironment() === "production") {
         setResponseStatus(event, 401);
         return { ok: false, error: "Not available outside local development." };
@@ -262,6 +262,10 @@ export function mountDevActionForwardRoute(
       }
 
       // coercion-ok: an unparseable body isn't distinguished from a
+      // well-formed one missing `name` — both fail the same explicit
+      // "must include an action name" check right below with a 500, so
+      // collapsing to `null` here loses no information the caller could
+      // otherwise act on.
       const body = (await readBody(event).catch(() => null)) as {
         name?: unknown;
         input?: unknown;
@@ -320,18 +324,6 @@ export function mountDevActionForwardRoute(
   );
 }
 
-/**
- * Mount `POST /_agent-native/dev/db-query`, the loopback-only endpoint
- * `pnpm action db-query` forwards to instead of opening PGlite a second time
- * while this server already holds it open. Same auth model as
- * `mountDevActionForwardRoute`: dev-only, loopback-only, per-process token —
- * see the module comment at the top of this file for the full protocol.
- *
- * Runs the query through `runDbQuery` (`scripts/db/query.ts`), the exact
- * same validation and row-scoping the CLI applies running in-process, so a
- * forwarded read returns the same rows the CLI would have returned locally —
- * not the unscoped, full-database access the `/db-admin/*` routes expose.
- */
 export function mountDevDbQueryForwardRoute(nitroApp: any): void {
   getH3App(nitroApp).use(
     DEV_DB_QUERY_ROUTE,
@@ -360,6 +352,8 @@ export function mountDevDbQueryForwardRoute(nitroApp: any): void {
       }
 
       // coercion-ok: an unparseable body isn't distinguished from a
+      // well-formed one missing `sql` — both fail the same explicit
+      // "must include SQL" check right below with a 500.
       const body = (await readBody(event).catch(() => null)) as {
         sql?: unknown;
         params?: unknown;

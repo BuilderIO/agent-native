@@ -247,6 +247,8 @@ describe("buildExtensionHtml", () => {
 
 describe("extension iframe sandbox attribute (CI guard)", () => {
   // SECURITY: the host-side iframe MUST be rendered with a sandbox attribute
+  // that does NOT include `allow-same-origin`. Adding it would let the
+  // attacker-authored content reach the parent's DOM. See audit C1/H3.
   const HOST_FILES = [
     "ExtensionViewer.tsx",
     "EmbeddedExtension.tsx",

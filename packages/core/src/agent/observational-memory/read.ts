@@ -1,16 +1,3 @@
-/**
- * Read API for Observational Memory.
- *
- * `buildObservationalContext` assembles the three tiers — reflections (highest
- * level) + observations (dense) + the recent raw message tail — into a single
- * structure ready to fold into a prompt. It is intentionally NOT wired into
- * production-agent.ts here; see the exported seam note below and the package
- * barrel export so the wire-up is one call later.
- *
- * Token-cheap by construction: a long thread is represented by its compacted
- * tiers plus only the last N raw turns, instead of the entire transcript.
- */
-
 import type { EngineMessage } from "../engine/types.js";
 import {
   resolveObservationalMemoryConfig,

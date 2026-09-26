@@ -405,6 +405,8 @@ describe("createAgentKitProtocolAdapter", () => {
       protocol: createAgentKitProtocolVersionOffer(),
       requested: ["resumableRuns"],
     });
+    // The boolean projection and the descriptor must agree. Reporting
+    // "degraded" here while the projection says false is what made replay read
     // as unfinished rather than deliberately out of scope.
     expect(discovery?.capabilities).toEqual([
       expect.objectContaining({

@@ -123,7 +123,6 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
     expect(result.resolvedKeys).toEqual([
       { name: "GITHUB_TOKEN", scope: "user", scopeId: "alice@example.test" },
     ]);
-    // Only the user scope was queried — org/workspace candidates short-circuit.
     expect(mockReadAppSecret).toHaveBeenCalledTimes(1);
     expect(mockReadAppSecret).toHaveBeenCalledWith({
       key: "GITHUB_TOKEN",
@@ -308,6 +307,8 @@ describe("resolveKeyReferences", () => {
 
   it("does NOT fall back to workspace scope by default (audit 05 H2)", async () => {
     // user-scope miss; a workspace row exists but must be ignored unless the
+    // opt-in flag is set — this prevents one org member's workspace key from
+    // poisoning every other member's ${keys.NAME} resolution.
     mockReadAppSecret.mockImplementation(async ({ scope }) =>
       scope === "workspace" ? { value: "poisoned-workspace-value" } : null,
     );
@@ -446,6 +447,7 @@ describe("getKeyAllowlist", () => {
       getKeyAllowlist("OPENAI_API_KEY", "user", "alice@example.test"),
     ).resolves.toBeNull();
     // Only the user scope was consulted — the allowlist check stays aligned
+    // with resolveKeyReferences so we never allow a URL the resolver refuses.
     expect(mockReadAppSecretMeta).toHaveBeenCalledTimes(1);
   });
 

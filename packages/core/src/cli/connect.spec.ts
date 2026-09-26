@@ -52,7 +52,6 @@ function fakeJwt(sub: string): string {
   return `${encode({ alg: "HS256" })}.${encode({ sub })}.sig`;
 }
 
-
 describe("parseConnectArgs", () => {
   it("parses the positional url and defaults", () => {
     const p = parseConnectArgs(["https://mail.agent-native.com"]);
@@ -152,7 +151,6 @@ describe("parseConnectArgs", () => {
   });
 });
 
-
 describe("normalizeUrl", () => {
   it("strips trailing slashes and keeps the origin", () => {
     expect(normalizeUrl("https://mail.agent-native.com/")).toBe(
@@ -230,7 +228,6 @@ describe("supportsRemoteMcpOAuth", () => {
     expect(supportsRemoteMcpOAuth("cowork")).toBe(false);
   });
 });
-
 
 function makeFetch(
   pollResponses: any[],
@@ -523,7 +520,6 @@ describe("runDeviceFlow", () => {
   });
 });
 
-
 describe("writeConfigs", () => {
   it("writes a JSON HTTP entry for claude-code (project scope)", () => {
     const root = tmpDir();
@@ -724,7 +720,6 @@ describe("writeConfigs", () => {
   });
 });
 
-
 describe("hostedApps", () => {
   it("returns only visible (non-hidden) templates that have a prodUrl", () => {
     const apps = hostedApps();
@@ -739,7 +734,6 @@ describe("hostedApps", () => {
   });
 });
 
-
 describe("runConnect", () => {
   const originalExitCode = process.exitCode;
   const originalCwd = process.cwd();
@@ -748,6 +742,8 @@ describe("runConnect", () => {
 
   beforeEach(() => {
     // Isolate the canonical publish-token write to a temp file so tests never
+    // touch the real ~/.agent-native/plan-publish.json. This is also the env
+    // override the local Plans server reads.
     planPublishPath = path.join(tmpDir(), "plan-publish.json");
     process.env.PLAN_PUBLISH_CONFIG_PATH = planPublishPath;
   });
@@ -1175,6 +1171,10 @@ describe("runConnect", () => {
     const root = tmpDir();
     process.chdir(root);
 
+    // Connecting a non-Plans first-party app (e.g. mail) must NOT overwrite
+    // ~/.agent-native/plan-publish.json. If it did, `connect --all` (which
+    // iterates apps in arbitrary order) could silently replace the canonical
+    // Plans token with the wrong URL+token, breaking publish-visual-plan.
     await runConnect([
       "https://mail.agent-native.com",
       "--client",
@@ -1977,7 +1977,6 @@ describe("runConnect", () => {
   });
 });
 
-
 describe("runConnect --service-token", () => {
   const originalExitCode = process.exitCode;
   const originalCwd = process.cwd();
@@ -2116,7 +2115,6 @@ describe("runConnect --service-token", () => {
     expect(process.exitCode).toBe(1);
   });
 });
-
 
 describe("reconnect — URL-based discovery", () => {
   const originalExitCode = process.exitCode;

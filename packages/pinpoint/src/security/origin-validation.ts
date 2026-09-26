@@ -1,5 +1,10 @@
+// @agent-native/pinpoint — Origin validation for cross-frame communication
 // MIT License
 
+/**
+ * Validate that a message origin is allowed.
+ * Used for postMessage security when communicating with frames.
+ */
 export function isAllowedOrigin(
   origin: string,
   allowedOrigins?: string[],

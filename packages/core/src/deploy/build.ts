@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-
 import { execFileSync } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
@@ -427,26 +426,6 @@ function cloudflareModuleTimerShimPrefix(): string {
   );
 }
 
-/**
- * Shims one already-read Cloudflare Pages output file's module-scope
- * `setInterval` calls, sharing the Module preset's globalThis-keyed capture
- * (`cloudflareModuleTimerShimPrefix` / `CF_MODULE_ORIG_SET_INTERVAL_KEY`)
- * instead of a disconnected per-file mechanism.
- *
- * Pages used to prepend its own shim keyed on a per-file `var
- * __origSetInterval`, captured independently by every chunk. Since the
- * generated entry statically imports routes, actions, and plugins (they
- * evaluate before the entry's own top-level code runs, same as any ES
- * module's imports), a dependency chunk's shim neutered
- * `globalThis.setInterval` before the entry's own `var` ever captured
- * it — so the entry's "original" was already the neutered stub, and its
- * restore call restored nothing. Sharing this capture with the Module
- * preset's `__cfRestoreModuleTimers()` (already emitted into the generated
- * entry by `cloudflareModuleTimerRestoreScript` — see `generateWorkerEntry`)
- * fixes both: whichever chunk evaluates first captures the one true
- * original, and every later chunk (including the entry) sees it's already
- * captured and skips straight to neutering.
- */
 export function shimCloudflarePagesModuleTimers(code: string): string {
   if (
     code.includes("setInterval") &&
@@ -4193,6 +4172,13 @@ export function patchCloudflareModuleServerOutput(serverDir: string): void {
       changed = true;
     }
 
+    // 3. Patch setInterval/setTimeout at global scope.
+    // CF Workers disallows timers in global scope. Shim every matching
+    // chunk; only worker.mjs restores the real function, from inside its
+    // own handlers (baked into generateCloudflareModuleWorkerEntry), never
+    // via an immediate per-chunk restore — a chunk loaded ahead of
+    // worker.mjs's handlers running would otherwise leave setInterval
+    // neutered for the rest of the request.
     if (
       code.includes("setInterval") &&
       !code.includes(CF_MODULE_TIMER_SHIM_MARKER)

@@ -1,4 +1,3 @@
-
 import {
   defineEventHandler,
   getMethod,
@@ -373,7 +372,21 @@ export function createCollabPlugin(
     await awaitBootstrap(nitroApp);
     const P = FRAMEWORK_ROUTE_PREFIX;
 
+    // Wire collab emitter → poll ring buffer so clients receive Yjs updates.
     // Security: when resourceType is configured, resolve the resource's
+    // owner/org so getChangesSinceForUser can scope delivery. We use
+    // resolveAccess to obtain the resource row — it already handles ownership,
+    // visibility, and share rows. In addition to the owner/org tags we also
+    // tag the event with `resourceType` + `resourceId` so the per-user
+    // delivery filter (canSeeChangeForUser) can evaluate resource access
+    // directly for non-owner sharees:
+    //   • tag the event with the resource owner's email and org (owner-scoped)
+    //     for backward compatibility with the conservative owner/org fast path.
+    //   • ALSO tag with resourceType/resourceId so canSeeChangeForUser can run
+    //     an access-aware (cached) check and push to explicit viewer+ sharees
+    //     who don't match owner/org — instead of only degrading them to the
+    //     poll fallback.
+    // See also: SECURITY comment in poll.ts on canSeeChangeForUser.
     const collabEmitter = getCollabEmitter();
     collabEmitter.on("collab", async (event) => {
       if (!resourceType) {

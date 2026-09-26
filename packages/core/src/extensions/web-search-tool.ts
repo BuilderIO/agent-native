@@ -1,4 +1,3 @@
-
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { CredentialContext } from "../credentials/index.js";
 
@@ -9,10 +8,6 @@ export interface WebSearchResult {
 }
 
 export interface WebSearchToolOptions {
-  /**
-   * Resolve a request-scoped secret by key. When not provided the tool falls
-   * back to env-var lookup only.
-   */
   resolveSecret?: (key: string) => Promise<string | null>;
   resolveCredential?: (
     key: string,
@@ -73,10 +68,10 @@ async function resolveBuilderSearchCredentials(
     return await opts.resolveBuilderCredentials();
   } catch {
     // coercion-ok: Builder credential lookup failures are non-fatal; BYOK
+    // backends or the setup hint below can still handle the tool call.
     return null;
   }
 }
-
 
 async function searchBrave(
   query: string,
@@ -266,7 +261,6 @@ async function searchBuilderManaged(
   }
   return text;
 }
-
 
 export function createWebSearchToolEntry(
   opts: WebSearchToolOptions = {},

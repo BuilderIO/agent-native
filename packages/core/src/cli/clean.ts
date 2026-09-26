@@ -817,6 +817,8 @@ function checkProjectRoot(
     };
   }
   if (marker.kind === "agent-native") return { ok: true };
+  // Same list the scan selects from, so the permission and the blast radius
+  // cannot drift apart.
   if (splitAppDirs(root, []).agentNative.length > 0) return { ok: true };
   return {
     ok: false,

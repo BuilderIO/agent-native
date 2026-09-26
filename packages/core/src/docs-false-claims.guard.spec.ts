@@ -21,6 +21,7 @@ import { describe, it, expect } from "vitest";
  * tree and only matches the false form — do NOT edit docs to satisfy the test.
  */
 
+// The test file lives at packages/core/src, so the repo root is three levels up.
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(TEST_DIR, "..", "..", "..");
 
@@ -245,7 +246,6 @@ interface Violation {
 
 function filesInScope(rule: Rule): string[] {
   if (rule.scope === "all") return ALL_DOC_FILES;
-  // Single-file scope: only include it if it was actually collected
   const scope =
     ALL_DOC_FILES.find((file) => file === rule.scope) ??
     (rule.scope.endsWith(".md")

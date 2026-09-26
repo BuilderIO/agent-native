@@ -27,6 +27,9 @@ export function generateAgentCard(
   const securitySchemes: NonNullable<AgentCard["securitySchemes"]> = {};
   const security: NonNullable<AgentCard["security"]> = [];
 
+  // Hosted production deployments require JWT-capable A2A even before card
+  // generation can prove whether auth will use the shared A2A_SECRET or an
+  // org-scoped secret from SQL.
   if (shouldAdvertiseJwtA2AAuth()) {
     securitySchemes.jwtBearer = {
       type: "http",

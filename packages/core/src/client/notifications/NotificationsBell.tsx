@@ -43,7 +43,6 @@ export function NotificationsBell({
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationDto[] | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  // HTML — reading Notification.permission at init would diverge between SSR
   const [permission, setPermission] =
     useState<NotificationPermission>("default");
 

@@ -208,13 +208,6 @@ export async function validateNativeSession(
   return null;
 }
 
-/**
- * Validate the Keychain-backed parent once when the native shell starts. The
- * AsyncStorage marker detects an install whose app data was deleted while its
- * Keychain item survived. A stale parent is cleared only after Dispatch
- * returns an authentication failure; transport failures keep it available for
- * the next retry.
- */
 export async function bootstrapNativeSession({
   baseUrl = NATIVE_AUTH_BASE_URL,
 }: {

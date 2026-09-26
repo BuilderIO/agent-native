@@ -35,14 +35,6 @@ export interface EnvKeyConfig {
   label: string;
   required?: boolean;
   helpText?: string;
-  /**
-   * Whether this key is a credential (API key, token, secret) rather than a
-   * plain config flag/address/URL. Default: true (unspecified keys are
-   * treated as secrets, so existing app-declared keys keep working). Set to
-   * `false` for non-credential settings like feature flags or a sender
-   * address — they should not be offered as Vault "keys" to store as shared
-   * secrets.
-   */
   secret?: boolean;
 }
 

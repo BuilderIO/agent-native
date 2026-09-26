@@ -240,7 +240,10 @@ describe("RequireSession", () => {
   });
 
   it("unmounts the app shell while signing out without redirecting", () => {
+    // Sign-out owns the navigation: it must finish revoking the server session
     // before the browser leaves, so a redirect from here would race it. But the
+    // shell has to come down immediately — this is the window where its queries
+    // had no cookie and painted "Couldn't load data" over the app.
     useSessionMock.mockReturnValue({
       session: null,
       isLoading: true,

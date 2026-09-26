@@ -1602,7 +1602,16 @@ describe("server/auth", () => {
     });
 
     it("clears the HttpOnly session cookie in the same partition it was set in", async () => {
+      // CHIPS keeps a `Partitioned` cookie and an unpartitioned cookie of the
+      // same name in separate jars. `setFrameworkSessionCookie` writes
+      // `an_session` with `Partitioned` on HTTPS, so a delete without it
+      // targets the wrong jar: the browser keeps sending the session token
+      // after logout, and any instance whose session-email cache still holds
+      // that token answers "authenticated" as the previous account.
+      //
+      // The looser `toContain("Partitioned")` assertion above passes on the
       // non-HttpOnly hint cookie alone, so it never inspected the cookie that
+      // actually carries the session.
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("COOKIE_DOMAIN", ".example.com");
       delete process.env.ACCESS_TOKEN;
@@ -1652,6 +1661,11 @@ describe("server/auth", () => {
           cookie.startsWith(`${COOKIE_NAME}=; Max-Age=0`),
         );
 
+      // Both jars, in both domain scopes. The partitioned delete is what
+      // logout was missing; the unpartitioned one still has to go out for a
+      // cookie stored before CHIPS or over plain HTTP on a host later served
+      // over HTTPS. h3's set-cookie dedupe ignores `Partitioned`, so these two
+      // only coexist because the helper works around it.
       expect(new Set(clears)).toEqual(
         new Set([
           `${COOKIE_NAME}=; Max-Age=0; Path=/; Secure; Partitioned; SameSite=None`,
@@ -1663,7 +1677,13 @@ describe("server/auth", () => {
     });
 
     it("leaves the new token as the last word when a session replaces an old one", async () => {
+      // setFrameworkSessionCookie clears before it sets, and clearing now
+      // emits a delete per CHIPS jar. h3 already lets a domain-scoped delete
+      // survive alongside the set (it does on `main` too), which is harmless
       // only because a browser applies Set-Cookie in order. So the invariant
+      // is not "one header" — it is that nothing after the set takes the
+      // session back off. A stray trailing delete would log the user out on
+      // the very request that signed them in.
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("COOKIE_DOMAIN", ".example.com");
 
@@ -1737,7 +1757,16 @@ describe("server/auth", () => {
     });
 
     it("revokes the Better Auth session row directly so logout can't be resurrected by the legacy-cookie fallback", async () => {
+      // Reproduces the reported bug: a token whose legacy `sessions` row was
+      // never written (the magic-link `addSession` mirror is best-effort —
+      // see `persistMagicLinkLegacySession`) resolves through Better Auth's
+      // own `"session"` table via `emailFromBetterAuthSessionToken`.
+      // `auth.api.signOut()` can't revoke it because it looks for Better
       // Auth's own session cookie, which the browser never held — only the
+      // framework's `an_session` cookie carrying the same token value. If
+      // logout relies solely on `signOut()`, this session survives logout
+      // and `getSession()` resurrects the "logged out" user on the very next
+      // request.
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("COOKIE_DOMAIN", ".example.com");
       delete process.env.ACCESS_TOKEN;
@@ -1761,6 +1790,7 @@ describe("server/auth", () => {
             : { rows: [] };
         }
         // The legacy `sessions` table never has this token — modeling the
+        // best-effort `addSession()` mirror having failed to persist.
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
@@ -3615,7 +3645,6 @@ describe("server/auth", () => {
     });
 
     it("lets the durable _process-run processor routes bypass the global auth guard", async () => {
-      // agent-chat processor are self-fired with ONLY an HMAC Bearer token (no
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       const { autoMountAuth } = await import("./auth.js");
@@ -7945,6 +7974,10 @@ describe("server/auth", () => {
     });
 
     it("resolves a connect-minted MCP OAuth bearer token to a scoped session", async () => {
+      // The `agent-native connect` publish flow presents an MCP-audience OAuth
+      // access token to the HTTP action surface (e.g. import-visual-plan-source).
+      // It is not in the legacy `sessions` table, so getSession must honor it via
+      // the shared MCP verifier and resolve the same { email, orgId } identity.
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-for-mcp-oauth-bearer");
       delete process.env.ACCESS_TOKEN;
@@ -7957,6 +7990,8 @@ describe("server/auth", () => {
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
+      // Keep the real auth secret resolver; just take Better Auth out of the
+      // chain so the negative path can't depend on its DB adapter.
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
         getBetterAuth: async () => undefined,
@@ -8153,7 +8188,6 @@ describe("server/auth", () => {
         .map(([query]) => {
           if (typeof query === "string") return undefined;
           const sql = String(query?.sql ?? "");
-          // Only count the legacy `sessions` token lookups; the org-backfill
           if (!/FROM\s+sessions\b/i.test(sql)) return undefined;
           return query.args?.[0];
         })
@@ -9499,7 +9533,9 @@ describe("server/auth", () => {
 
       expect(response).toBeInstanceOf(Response);
       expect((response as Response).status).toBe(302);
+      // h3 hands a non-2xx web Response back without merging the staged
       // Set-Cookie, so the redirect itself must carry it — otherwise the
+      // sign-in succeeds but the browser arrives back logged out.
       const setCookie = (response as Response).headers.getSetCookie?.() ?? [
         (response as Response).headers.get("set-cookie") ?? "",
       ];
@@ -10309,7 +10345,6 @@ describe("server/auth", () => {
     });
   });
 });
-
 
 function createMockApp(): any {
   return {

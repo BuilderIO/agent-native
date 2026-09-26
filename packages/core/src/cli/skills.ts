@@ -1,4 +1,3 @@
-
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -4460,6 +4459,7 @@ export async function runSkills(
     });
 
     // Ask where to install (project vs user) unless an explicit --scope was
+    // passed or we are running non-interactively.
     if (!parsed.scopeExplicit && shouldPrompt(parsed, options)) {
       const promptScope = options.promptScope ?? promptForScope;
       const scope = await promptScope({ initialScope: "project" });

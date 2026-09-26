@@ -40,7 +40,6 @@ function isHttpsRequest(event: H3Event): boolean {
 }
 
 function capabilityCookiePath(appBasePath?: string): string {
-  // The browser only replays this cookie on the URL it actually requests,
   return publicFrameworkPath(
     `${normalizeAppBasePath(appBasePath ?? getConfiguredAppBasePath())}/_agent-native/actions`,
   );

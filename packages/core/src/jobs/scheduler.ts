@@ -46,7 +46,6 @@ import {
   AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS,
 } from "./scheduler-health.js";
 
-
 export {
   classifyJobFrontmatter,
   classifyJobResource,
@@ -67,7 +66,6 @@ export function parseJobFrontmatter(content: string): {
 export function buildJobContent(meta: JobFrontmatter, body: string): string {
   return buildJobResourceContent(meta, body);
 }
-
 
 export type RecurringJobContext = BackgroundAutomationContext;
 
@@ -576,6 +574,11 @@ async function executeJob(
   };
   const identity = await resolveBackgroundAutomationIdentity(jobContext);
 
+  // SECURITY (audit 12 #10): re-validate the run-as user/membership on
+  // every tick. Sharing revocation, user deletion, and org-member removal
+  // must take effect for already-scheduled jobs. Skip the tick on
+  // failure; leave the cron entry alone so an admin can purge after
+  // investigation.
   if (!identity.ok) {
     return recordIdentityFailure(
       resource,

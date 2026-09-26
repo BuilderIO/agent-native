@@ -290,7 +290,6 @@ export async function ensureRunTables(): Promise<void> {
   return _initPromise;
 }
 
-
 const LEDGER_RESULT_MAX_CHARS = 8_000;
 
 /**
@@ -917,6 +916,15 @@ export async function setRunTerminalReason(
     await ensureRunTables();
     const client = getDbExec();
     const reason = terminalReason.slice(0, 200);
+    // Write-once for a row that is already terminal. Three writers in three
+    // isolates race on this column — the mid-run checkpoint, the run-manager's
+    // finalization, and the background worker's failure path — with no ordering
+    // between them, and last-writer-wins let a late checkpoint relabel a row
+    // another isolate had already finalized. That produced impossible rows
+    // (status='errored' carrying a continuation reason, no error_code, no
+    // terminal event) and misattributed 130 production runs to a failure mode
+    // they never hit. A row still `running` has no honest reason yet, so it
+    // stays writable; once one is recorded on a terminal row, it stands.
     const guard = `AND (status = 'running' OR terminal_reason IS NULL OR terminal_reason = '')`;
     await client.execute({
       sql: isContinuationTerminalReason(reason)
@@ -1436,8 +1444,7 @@ async function reapSingleStaleRun(
   const staleArgs =
     typeof maxStaleMs === "number"
       ? [completedAt - maxStaleMs]
-      :
-        [completedAt, completedAt, completedAt];
+      : [completedAt, completedAt, completedAt];
   const updateSql = `UPDATE agent_runs
           SET status = 'errored',
               completed_at = COALESCE(completed_at, ${livenessBasisSql()}),

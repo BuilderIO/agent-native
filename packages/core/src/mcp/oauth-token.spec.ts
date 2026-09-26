@@ -1,14 +1,6 @@
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * oauth-token mints and verifies the signed JWT access tokens for the standard
- * remote MCP OAuth flow. Tokens are HS256 JWTs keyed on `A2A_SECRET` (falling
- * back to the better-auth secret). We mock only the secret provider and use the
- * REAL jose sign/verify so the audience binding, typ guard, scope guard, and
- * expiry are exercised as in production.
- */
-
 vi.mock("../server/better-auth-instance.js", () => ({
   getAuthSecret: () => "fallback-auth-secret",
 }));
@@ -244,6 +236,7 @@ describe("verifyMcpOAuthAccessToken — audience array (host-drift tolerance)", 
       resource: ALT_RESOURCE,
       issuer: "https://plan.agent-native.com",
     });
+    // Token was minted for ALT_RESOURCE; request now arrives via RESOURCE.
     // Passing both as an array must accept the token.
     const result = await verifyMcpOAuthAccessToken(token, [
       RESOURCE,
@@ -289,6 +282,8 @@ describe("verifyMcpOAuthAccessToken — secret rotation tolerance", () => {
   it("verifies a token signed with fallback-auth-secret after A2A_SECRET is later added", async () => {
     delete process.env.A2A_SECRET;
     const token = await signMcpOAuthAccessToken(baseSign);
+    // Now A2A_SECRET is added to the deploy — the old token (signed with
+    // fallback) must still be accepted because we try both secrets.
     process.env.A2A_SECRET = "newly-added-a2a-secret";
     const result = await verifyMcpOAuthAccessToken(token, RESOURCE);
     expect(result).not.toBeNull();

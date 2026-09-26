@@ -316,10 +316,7 @@ describe("live workspace app session reuse cache", () => {
     ).toBe(false);
   });
 
-  // exposes no getter that returns a stored token — reuse only ever answers
-
   it("does not let one account reuse a marker after another signed in", async () => {
-    // overwrote A's child cookie in place. If A's marker survived, A would be
     rememberLiveWorkspaceAppSession("mail", "token-a", 1_000);
     expect(hasLiveWorkspaceAppSession("mail", "token-a", 2_000)).toBe(true);
 

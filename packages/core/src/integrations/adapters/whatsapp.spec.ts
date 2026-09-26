@@ -249,6 +249,7 @@ describe("whatsappAdapter handleVerification (GET challenge handshake)", () => {
 
   it("pre-caches the raw body once on POST so the consume-once stream is not double-read", async () => {
     // POST must NOT take the GET challenge path even when verify-token query
+    // params are present — it pre-reads the raw body and returns handled:false.
     process.env.WHATSAPP_VERIFY_TOKEN = "my-verify-token";
     hoisted.query = {
       "hub.mode": "subscribe",

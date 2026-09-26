@@ -995,7 +995,10 @@ export function createIntegrationsPlugin(
     }
 
     async function requireRemoteDevice(event: any) {
+      // Some managed proxies omit Authorization before a serverless function
       // sees the request. Keep the device secret in a dedicated TLS-only
+      // header as a transport fallback; the value is still hashed and looked
+      // up by authenticateRemoteDeviceToken, never persisted raw.
       const candidates = [
         getRequestHeader(event, "x-agent-native-device-token")?.trim() || null,
         extractBearerToken(getRequestHeader(event, "authorization")),
@@ -1883,6 +1886,16 @@ export function createIntegrationsPlugin(
           return { error: "taskId required" };
         }
 
+        // Auth: HMAC token bound to the task id.
+        //
+        // In production we MUST require A2A_SECRET — a publicly-callable
+        // process-task endpoint lets attackers re-trigger any queued task
+        // by guessing or sniffing its id (C3 in the webhook security audit).
+        // The atomic SQL claim only prevents *double*-processing, not the
+        // first attacker-driven processing.
+        //
+        // In dev we keep the loose posture so contributors don't have to
+        // configure A2A_SECRET to play with the integration locally.
         if (!process.env.A2A_SECRET) {
           if (process.env.NODE_ENV === "production") {
             setResponseStatus(event, 503);
@@ -2449,6 +2462,10 @@ export function createIntegrationsPlugin(
           } else {
             await markTaskRetryable(taskId, errorMessage);
           }
+          // Log the detail server-side; never return the raw error message
+          // to the caller. Raw messages have leaked DB error codes, schema
+          // names, and stack hints in the past (L3 in the webhook security
+          // audit). Sentry / log providers still see the full error.
           console.error("[integrations] process-task failure:", err);
           setResponseStatus(event, 500);
           return { error: "Internal task failed" };

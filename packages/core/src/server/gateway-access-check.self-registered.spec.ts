@@ -1,14 +1,3 @@
-/**
- * `/_agent-native/can-see` for a self-registered app.
- *
- * This endpoint is how the gateway asks the app whether a sharee may see a
- * resource-scoped event, and it fails closed. It originally read the signing
- * secret from the env var only, so on a self-registered deployment — which has
- * no such env var — it 404'd every check and shared-resource events were
- * silently dropped for exactly the apps self-registration exists to serve.
- * These tests pin the resolution order that fixed it.
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveAccess = vi.hoisted(() => vi.fn());
@@ -70,6 +59,8 @@ describe("can-see on a self-registered app", () => {
   });
 
   it("binds the registered channel, rejecting a token for another one", async () => {
+    // The app knows its own channel id, so an access token minted against a
+    // different channel must not verify here even with a valid signature.
     const token = signGatewayAccessToken(
       { ...QUERY, projectId: "rt_someone_else" },
       REGISTERED.hmacSecret,

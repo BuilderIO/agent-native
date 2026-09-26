@@ -65,19 +65,6 @@ export interface RealtimeChannel {
 
 interface StoredRegistration {
   channelId: string;
-  /**
-   * AES-256-GCM ciphertext (`v1:…`), not the secret.
-   *
-   * This row lives in the app's OWN database, and the standard way to make a
-   * preview or a dev branch is to copy that database — Neon's branches are
-   * copy-on-write clones of production. A plaintext secret here would ride
-   * along, and channel id + secret is the entire subscribe-token auth story:
-   * read access to any branch would mint valid tokens for arbitrary
-   * owner/orgId against the PRODUCTION channel. The key material is env-only
-   * (`*_SECRETS_ENCRYPTION_KEY` / `SECRETS_ENCRYPTION_KEY` /
-   * `BETTER_AUTH_SECRET`), so a copied database carries ciphertext and nothing
-   * that opens it.
-   */
   hmacSecretEncrypted: string;
   /**
    * Digest of the inputs the channel was registered with. A rotated database
@@ -135,6 +122,10 @@ export function realtimeRegistrationUnavailable(): boolean {
 
 export function isHostedRealtimeTransport(): boolean {
   // config-ok: this exact predicate also ships as generated worker source in
+  // `deploy/build.ts`, which has no app-config at runtime, and as a copy in
+  // import-cycle-sensitive `poll.ts`. All three must agree byte-for-byte
+  // (`realtime-transport-gate.spec.ts`), so none of them can route through
+  // getAppConfig().
   return process.env.AGENT_NATIVE_REALTIME_TRANSPORT?.trim() === "hosted";
 }
 
@@ -205,7 +196,11 @@ function collectInputs(): RegistrationInputs | null {
   const databaseUrl = getDatabaseUrl().trim();
   if (!databaseUrl || !isRegisterableDatabase(databaseUrl)) return null;
 
+  // Production deploys only. A deploy preview has its own self URL, so it would
+  // register its OWN channel — correct for isolation, but a busy repo mints one
+  // per pull request and burns the per-org cap on branches that are gone a day
   // later. It also means a preview's throwaway database credential never leaves
+  // the machine. Previews keep local sync, which is what they had before.
   if (resolveDeployEnvironment() !== "production") return null;
 
   if (isHostedWorkspaceRuntime()) {
@@ -219,8 +214,43 @@ function collectInputs(): RegistrationInputs | null {
   const privateKey = readDeployCredentialEnv("BUILDER_PRIVATE_KEY")?.trim();
   if (!privateKey) return null;
 
+  // This deployment's OWN address, not the app's canonical URL. They differ on
+  // a deploy preview, and the gateway upserts a registration on (org, appUrl):
+  // a preview posting the production origin with its own branch database would
+  // repoint production's channel at the preview database.
+  //
+  // Which origin this deployment may claim, and whether it may claim one at
+  // all.
+  //
+  // `resolveDeploymentBaseUrl` prefers the platform's per-deploy vars but
+  // falls back to `app.url`, the CANONICAL origin, which every environment
+  // built from the production env file shares. Registering that from a process
+  // that is NOT the production deployment is the failure the preview check
+  // above exists to prevent, arriving by a different door: a built server run
+  // on a laptop against a branch database resolves "production" (the default
+  // when no platform context vars are set) and repoints production's channel
+  // at that branch. Production never heals — its own stored fingerprint still
+  // matches, so it never re-registers — and tails the wrong database
+  // indefinitely.
+  //
+  // So claiming an origin needs positive evidence, and only two things count.
+  //
+  // A marker the PLATFORM wrote: `hasPlatformRuntimeMarker`, plus Netlify's
+  // per-deploy `DEPLOY_PRIME_URL`/`DEPLOY_URL`. Deliberately NOT
+  // `NODE_ENV=production`, and deliberately not the bare `URL` either. Both of
+  // those live in the app's own env file, so both travel to a laptop with a
+  // copied `.env` — and `URL` is not even per-deploy on Netlify, where it is
+  // the site's canonical address.
+  //
+  // Or this app saying so itself, via `AGENT_NATIVE_REALTIME_APP_URL`. A bare
+  // container or VM has no platform marker to offer and no way to prove it is
+  // the deployment, so it has to assert it. The point of a dedicated name is
+  // that asserting it is deliberate: nobody has this in a `.env` by accident,
+  // and copying one that does is a statement that this process serves that
+  // origin.
   // config-ok: read raw, like the other realtime env vars in this module —
   // it gates whether a credential leaves the machine, so it must not depend on
+  // app-config resolution order.
   const declaredAppUrl = process.env.AGENT_NATIVE_REALTIME_APP_URL?.trim();
   const fromPlatform = Boolean(
     process.env.DEPLOY_PRIME_URL || process.env.DEPLOY_URL,
@@ -290,6 +320,11 @@ async function readStored(
       };
     }
   } catch (err) {
+    // Settings table not ready (first boot, migration in flight). Registering
+    // again is idempotent, so falling through is safe — but an unreadable store
+    // is not the same as "never registered", and a persistent read failure that
+    // re-POSTs on every cold start should be visible rather than inferred from
+    // gateway traffic.
     console.warn(
       `[realtime] could not read the stored registration (${(err as Error)?.message ?? err}); re-registering`,
     );
@@ -306,6 +341,8 @@ async function readStored(
  */
 function registrationEndpoint(): string {
   // config-ok: must read the same raw env var as the client-config emitters in
+  // `sentry-config.ts` and the generated worker source, or the app registers on
+  // one gateway and the browser connects to another.
   const explicit = process.env.AGENT_NATIVE_REALTIME_GATEWAY_URL?.trim();
   if (explicit) return `${explicit.replace(/\/+$/, "")}/register`;
   return `${getBuilderGatewayBaseUrl().replace(/\/+$/, "")}/realtime/register`;
@@ -317,6 +354,7 @@ async function readRejectionCode(res: Response): Promise<string | undefined> {
     return typeof body?.code === "string" ? body.code : undefined;
   } catch {
     // coercion-ok: "sent no code" and "sent an unparseable body" are the same
+    // answer to the caller, which logs the status either way.
     return undefined;
   }
 }

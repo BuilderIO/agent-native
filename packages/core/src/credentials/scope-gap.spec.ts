@@ -37,6 +37,7 @@ vi.mock("../secrets/storage.js", () => ({
 const { describeCredentialScopeGap } = await import("./index.js");
 
 // Never a real token shape — the assertions below prove it stays out of the
+// message, so it must not look like anything a scanner would flag.
 const SECRET_VALUE = "example-not-a-real-token";
 
 describe("describeCredentialScopeGap", () => {

@@ -1415,11 +1415,6 @@ class ReplayUploadHttpError extends Error {
   }
 }
 
-/**
- * The timeout won before the transport settled, so retrying the batch would
- * race the original request. The caller fences this request and waits for its
- * late outcome before allowing another upload for the replay sequence.
- */
 class ReplayUploadInFlightTimeoutError extends Error {
   readonly request: Promise<void>;
   constructor(request: Promise<void>) {

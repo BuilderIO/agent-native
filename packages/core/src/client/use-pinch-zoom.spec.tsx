@@ -1,5 +1,13 @@
 // @vitest-environment happy-dom
 
+/**
+ * Regression coverage for the rAF-coalesced wheel/pinch path in
+ * usePinchZoom: multiple wheel events landing in the same animation frame
+ * must accumulate the same net zoom + cursor-anchored scroll compensation as
+ * applying each event sequentially (the pre-coalescing, one-setZoom-per-event
+ * behavior) — not just apply the last event's zoom while computing every
+ * event's cursor anchor off the stale, pre-burst scroll position.
+ */
 
 import React, { act, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";

@@ -81,12 +81,6 @@ export interface AgentChatPluginOptions {
         | Promise<Record<string, MentionProvider>>);
   appId?: string;
   connectApps?: boolean;
-  /**
-   * Controls connected MCP tools available to unattended recurring and trigger
-   * runs. "requested" only loads tools named by a job; "all" loads every
-   * tool visible to this app's current workspace context and still enforces
-   * the per-request scope gate when a tool is called.
-   */
   backgroundMcpTools?: "requested" | "all";
   resolveMcpActionEntry?: McpActionEntryOptions["resolveActionEntry"];
   mcp?: AgentChatMcpOptions;
@@ -98,16 +92,6 @@ export interface AgentChatPluginOptions {
     websiteUrl?: string;
     icons?: AgentChatMcpIcon[];
   };
-  /**
-   * Optional callback to resolve the org ID for the current request.
-   * When provided, the resolved value is set as AGENT_ORG_ID env var so
-   * that db-query/db-exec automatically scope by org_id in addition to
-   * owner_email.
-   *
-   * If not provided, the framework automatically uses `session.orgId` from
-   * Better Auth's active organization. Only provide this callback when you
-   * need custom org resolution logic (e.g., Atlassian org mapping).
-   */
   resolveOrgId?: (event: any) => string | null | Promise<string | null>;
   anonymousOwner?: (event: any) => string | null | Promise<string | null>;
   anonymousReadOnly?: boolean;
@@ -127,10 +111,6 @@ export interface AgentChatPluginOptions {
    * See {@link import("../action-routes.js").ActionRouteAuthAdapter}.
    */
   actionRouteAuth?: import("../action-routes.js").ActionRouteAuthAdapter;
-  /**
-   * Framework action paths that use `actionRouteAuth` instead of the browser
-   * session guard. The route handler still owns credential verification.
-   */
   actionRoutePublicPaths?: string[];
   extraContext?: (
     event: any,
@@ -143,20 +123,6 @@ export interface AgentChatPluginOptions {
   skipFilesContext?: boolean;
   initialToolNames?: string[];
   corpusTools?: "initial" | "lazy";
-  /**
-   * Use a compact system prompt with on-demand context loading. The system
-   * prompt includes essential behavioral rules and action signatures, but
-   * defers verbose framework details, SQL schema, skills, learnings, and
-   * memory behind tools (`get-framework-context`, `db-schema`,
-   * `resources` (action: read)). The agent fetches these on-demand when needed.
-   *
-   * This reduces the system prompt by ~60-70%, significantly improving
-   * time-to-first-token and reducing "thinking" time. The agent retains
-   * all capabilities — it just loads context lazily instead of upfront.
-   *
-   * Defaults to `true`. Set to `false` to use the original full prompt.
-   * Ignored when `leanPrompt` is set (lean mode is even more minimal).
-   */
   lazyContext?: boolean;
   nativeActionsInDev?: boolean;
   frameworkTools?: FrameworkToolsConfig;

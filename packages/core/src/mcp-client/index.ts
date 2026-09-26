@@ -1,4 +1,3 @@
-
 export {
   loadMcpConfig,
   autoDetectMcpConfig,
@@ -228,6 +227,9 @@ function mcpToolToActionEntry(
     ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}),
     ...resolvedEntry,
     run: async (args: Record<string, unknown>) => {
+      // Defense-in-depth: even if a cross-scope MCP tool somehow makes it
+      // into the LLM's visible tool list, reject invocation here so we never
+      // execute a user's credentials on behalf of another user.
       if (!isMcpToolAllowedForRequest(tool.name)) {
         return buildMcpErrorActionResult(
           tool,

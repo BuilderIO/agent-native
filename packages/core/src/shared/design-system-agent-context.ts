@@ -31,14 +31,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-/**
- * Keep the resource read useful when a linked system is unavailable, while
- * making unreadable context distinct from a resource with no linked system.
- * Reads default to the bounded "summary" scope so every deck/design read
- * does not pay for the full, uncached Builder docs fetch; pass
- * `{ full: true }` only at the one call site that needs the complete tokens,
- * assets, docs, and custom instructions before authoring.
- */
 export async function loadAgentDesignSystemContext(
   designSystemId: string | null | undefined,
   getDesignSystem: AgentDesignSystemReader,

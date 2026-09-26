@@ -603,7 +603,6 @@ describe("Builder hosted user OAuth", () => {
     expect(getAccessTokenMock).not.toHaveBeenCalled();
   });
 
-  // Crediting it with the upload scope would trade a clear local error for an
   it("keeps a scope-less legacy credential AI-only", async () => {
     getRawTokensMock.mockResolvedValue({});
     getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");

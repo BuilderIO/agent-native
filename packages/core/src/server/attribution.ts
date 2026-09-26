@@ -18,6 +18,12 @@ import {
  * parsing untrusted cookie input must NEVER throw — every accessor is defensive.
  */
 
+/**
+ * The decoded first-touch attribution object. Mirrors the compact JSON the
+ * client writes into the `an_ft` cookie / `an_attribution` localStorage key.
+ * Every field is optional — the client omits empty fields to keep the cookie
+ * small, and a malformed/absent cookie yields `null`.
+ */
 export interface FirstTouchAttribution {
   ref?: string;
   via?: string;
@@ -31,14 +37,6 @@ export interface FirstTouchAttribution {
   landed_at?: string;
 }
 
-/**
- * Which flow created the account, as opposed to which credential it uses.
- *
- * Better Auth fires its `user.create.after` hook on every `user` row insert,
- * but only some inserts are a person signing up in a browser. Every emitted
- * `signup` event names its origin so a campaign report can select the ones
- * that are acquisitions instead of counting row inserts.
- */
 export type SignupOrigin =
   | "browser_signup"
   /** The framework's Google OAuth callback owns this event. */
@@ -92,12 +90,6 @@ export function parseCookieHeader(
   return out;
 }
 
-/**
- * Decode a single cookie value into a `FirstTouchAttribution`. The value is the
- * URL-encoded compact JSON written by the client. Returns `null` for empty,
- * malformed, or non-object input. Only known string fields are copied through,
- * each clamped to a sane max length as a defense against an oversized cookie.
- */
 export function decodeFirstTouchValue(
   value: string | null | undefined,
 ): FirstTouchAttribution | null {

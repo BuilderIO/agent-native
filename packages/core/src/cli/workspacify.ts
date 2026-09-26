@@ -1,25 +1,3 @@
-/**
- * Transform a standalone template directory into a workspace app in place.
- *
- * Called after copying any template under `apps/<name>/` inside an enterprise
- * workspace. The transform:
- *
- *   1. Rewrites package.json:
- *      - Published framework packages stay as regular npm deps
- *      - Adds @<workspace-scope>/shared as a workspace:* dep so the app
- *        inherits shared plugins/skills/AGENTS.md via the three-layer model.
- *   2. Removes files that only make sense in standalone apps
- *      (`learnings.defaults.md`, etc.).
- *   3. Replaces chat's stock auth/chat wrappers with inherited wrappers so
- *      the workspace core can own those plugin slots while framework defaults
- *      still mount when the workspace core is empty.
- *   4. Leaves app source code untouched. The three-layer framework
- *      auto-discovers workspace-core via `agent-native.workspaceCore` in the
- *      workspace root package.json — no per-app wiring needed.
- *
- * This means any first-party template under templates/* is usable as a
- * workspace app without maintaining a parallel copy.
- */
 import fs from "fs";
 import path from "path";
 
@@ -180,10 +158,7 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
   }
   if (hasNodePty) ensureNodePtyBuildDependency(opts.workspaceRoot);
 
-  for (const f of [
-    "learnings.defaults.md",
-    "pnpm-workspace.yaml",
-  ]) {
+  for (const f of ["learnings.defaults.md", "pnpm-workspace.yaml"]) {
     const p = path.join(appDir, f);
     try {
       if (fs.existsSync(p)) fs.unlinkSync(p);

@@ -1204,6 +1204,8 @@ async function createTargetMcpTokenAttempts(input: {
       secret: input.orgSecret,
       preferGlobalSecret: false,
     });
+    // A target app may not have the org secret synced yet. The shared secret
+    // is a bounded compatibility fallback, used only after the target rejects
     // the org-signed request and never after a non-authentication failure.
     if (process.env.A2A_SECRET?.trim()) {
       await addAttempt({

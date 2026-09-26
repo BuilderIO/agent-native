@@ -1990,9 +1990,6 @@
   opacity: 0.64;
 }
 
-/* Radix Select portals its content to `document.body`, so — like the
-   tooltip/composer-popover block above — it needs its own light/dark
-   token copy instead of inheriting from `.code-agents-surface`. */
 .code-agents-select-content {
   --background: 0 0% 100%;
   --foreground: 0 0% 10%;

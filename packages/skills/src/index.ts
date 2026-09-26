@@ -548,6 +548,7 @@ export async function runSkillsCli(
       skillNames: parsed.skillNames,
       clients: parsed.clients,
       // Leave scope undefined unless the user passed --scope/-g/--project so the
+      // installer can prompt for it interactively.
       scope: parsed.scopeExplicit ? parsed.scope : undefined,
       baseDir: parsed.baseDir ?? options.baseDir,
       yes: parsed.yes,

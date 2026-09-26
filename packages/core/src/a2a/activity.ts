@@ -395,13 +395,6 @@ function isSafeToolCall(value: unknown): value is A2AAgentActivityToolCall {
   );
 }
 
-/**
- * Captured input/result are producer-side redacted strings. Unlike reasoning
- * text they are NOT re-sanitized on read: `sanitizeToolErrorText` rewrites
- * `"token":"…"` into unparseable JSON, so a round-trip equality check would
- * reject every legitimate capture. Bound the length and reject raw control
- * characters instead.
- */
 function isSafeCapturedText(value: unknown, maxChars: number): value is string {
   return (
     typeof value === "string" &&

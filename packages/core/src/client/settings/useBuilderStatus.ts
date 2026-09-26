@@ -142,7 +142,6 @@ export function useBuilderStatus({
   return { status, loading, error, stale, refetch: fetchStatus };
 }
 
-
 export interface BuilderConnectFlowOptions {
   enabled?: boolean;
   popupUrl?: string;
@@ -464,6 +463,8 @@ export function isPopupClosed(popup: Window | null): boolean {
     return popup.closed === true;
   } catch {
     // coercion-ok: `.closed` is readable cross-origin in every supported
+    // browser; a throw here means the reference itself is unusable, which is
+    // indistinguishable from "still open" for this check's purpose.
     return false;
   }
 }
@@ -734,6 +735,7 @@ export function useBuilderConnectFlow(
         >;
       } catch {
         // coercion-ok: null means "status unknown this tick" and callers hold
+        // their previous state rather than rendering a disconnected Builder.
         return null;
       } finally {
         if (timeoutId) clearTimeout(timeoutId);
@@ -926,7 +928,11 @@ export function useBuilderConnectFlow(
       )
         ? statusConnectUrl
         : null;
+      // popupUrl props and statusConnectUrl are signed URLs minted before the
+      // click. Top-level browsers use about:blank so the waiting document
       // cannot race the refreshed signed URL navigation. Embedded hosts use
+      // the inert HTTP page because their popup policy can reject about:blank.
+      // Desktop keeps the direct path because the Electron shell owns the popup.
       const signedPropUrl = hasSignedConnectToken(popupUrl) ? popupUrl : null;
       const fallbackUrl = new URL(
         agentNativePath("/_agent-native/builder/connect"),

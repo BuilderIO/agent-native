@@ -8,6 +8,7 @@ import {
 describe("isFreeEmailProvider", () => {
   it("flags well-known free/public mailbox providers", () => {
     // Security invariant: these must never be usable as an org auto-join
+    // domain — anyone in the world can mint a matching address.
     for (const domain of [
       "gmail.com",
       "outlook.com",

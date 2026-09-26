@@ -245,10 +245,6 @@ export interface AgentNativeHostBridgeOptions {
   session?: string | Partial<AgentNativeHostSession>;
   getContext?: AgentNativeHostContextGetter;
   commands?: AgentNativeHostCommandHandlers;
-  /**
-   * Optional bearer token or headers for the iframe sidecar. Only sent via
-   * postMessage to the trusted `agentOrigin`.
-   */
   auth?: AgentNativeHostAuth;
   actions?: AgentNativeClientActions;
   webmcp?: AgentNativeWebMcpClient;

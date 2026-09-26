@@ -312,6 +312,9 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     requiredAuthProvider,
     workspaceAppDefaultVisibility,
     // Never serialize the A2A secret here. This route runs on every page load,
+    // so the value would sit in JSON any script on the page can read, and it
+    // signs the JWTs peers accept as first-party callers. Reveal is an explicit
+    // owner/admin GET on /_agent-native/org/a2a-secret.
     a2aSecretSet: isOwnerOrAdmin ? a2aSecretSet : undefined,
   };
 });
@@ -1750,11 +1753,6 @@ export const setRequiredAuthProviderHandler = defineEventHandler(
   },
 );
 
-/**
- * GET /_agent-native/org/a2a-secret — reveal the org's A2A secret
- * (owner/admin only). Separate from `/org/me` so the secret is only ever sent
- * to the browser when an operator explicitly asks to see or copy it.
- */
 export const revealA2ASecretHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -1783,7 +1781,6 @@ export const revealA2ASecretHandler = defineEventHandler(
   },
 );
 
-/** PUT /_agent-native/org/a2a-secret — regenerate or set the org's A2A secret (owner/admin only) */
 export const setA2ASecretHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -2047,6 +2044,7 @@ export const receiveA2ASecretHandler = defineEventHandler(
 
     if (!existingSecret) {
       // Bootstrap requires an existing shared secret to verify the caller.
+      // If we have nothing on file, we can't verify trust — refuse.
       throw createError({
         statusCode: 401,
         message:

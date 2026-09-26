@@ -12,13 +12,6 @@ export function currentUserEmailOrNull(): string | null {
   return getSchedulingContext().getCurrentUserEmail() ?? null;
 }
 
-/**
- * Verify the current user is the host of a booking. Throws "Not authorized to
- * <action>" if not. Mirrors the `isHost` half of the `isHost || hasToken`
- * guard used by cancel-booking/reschedule-booking, for booking actions that
- * don't accept a public capability token (attendee/note/status mutations —
- * host identity is the only legitimate caller for these).
- */
 export function assertBookingHost(
   booking: { hostEmail: string },
   action: string,

@@ -1,4 +1,3 @@
-
 import fs from "node:fs";
 import path from "node:path";
 
@@ -161,6 +160,8 @@ async function loadAgentBundleDocs(): Promise<DocFull[]> {
       });
     }
     // Only runtime-visible skills are searchable/readable here — `scope: dev`
+    // skills are meant for the human's coding agent (Claude Code), not the
+    // in-app runtime agent, so they must not appear in docs-search results.
     for (const skill of getRuntimeSkills(bundle)) {
       const slug = `skill-${slugifyDocId(skill.meta.name)}`;
       docs.push({

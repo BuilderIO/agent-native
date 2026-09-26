@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — Text annotation input popup for draw mode
 // MIT License
 
 import { createSignal, onMount, type Component } from "solid-js";

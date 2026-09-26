@@ -160,7 +160,11 @@ describe("CSRF middleware", () => {
     ).toBe(403);
   });
 
+  // The remote-device relay lives under the HMAC-justified `/integrations/`
   // exemption but authenticates on the session cookie, so it must not inherit
+  // it. Approving a browser-control operation is the state change at stake:
+  // without this, an attacker page can self-approve a click/type/navigate on
+  // the victim's paired Chrome using nothing but their ambient cookie.
   for (const path of [
     "/_agent-native/integrations/remote/computer/approvals",
     "/_agent-native/integrations/remote/computer/commands",

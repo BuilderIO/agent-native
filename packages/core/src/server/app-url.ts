@@ -59,6 +59,7 @@ function normalizePlatformUrl(value: string | undefined): string | undefined {
     return stripTrailingSlash(url.toString());
   } catch {
     // coercion-ok: malformed optional platform metadata is absent, so callers
+    // retain their existing configured-URL fallback.
     return undefined;
   }
 }

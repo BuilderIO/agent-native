@@ -1,4 +1,8 @@
+// @agent-native/pinpoint — Vue 3 adapter
 // MIT License
+//
+// Detects Vue 3 apps via window.__VUE__ or [data-v-] attributes.
+// Walks component tree via __vueParentComponent DOM properties.
 
 import type {
   FrameworkAdapter,
@@ -26,7 +30,7 @@ export const vueAdapter: FrameworkAdapter = {
       name: name || "Unknown",
       displayName: name || undefined,
       filePath: instance.$options?.__file || instance.type?.__file,
-      lineNumber: undefined,
+      lineNumber: undefined, // Vue doesn't expose line numbers like React
     };
   },
 

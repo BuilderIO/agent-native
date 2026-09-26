@@ -55,7 +55,10 @@ describe("embed auth client", () => {
   });
 
   it("keeps the URL token in opaque-origin frames so document reloads stay authenticated", async () => {
+    // MCP App embeds always load in a sandboxed iframe without
+    // allow-same-origin, so window.location.origin is "null". The embed session
     // cookie cannot be delivered to an opaque context, so stripping the token
+    // would make any full document reload land on the sign-in page.
     window.history.replaceState(
       null,
       "",
@@ -202,6 +205,9 @@ describe("embed auth client", () => {
     first.ensureEmbedAuthFetchInterceptor();
     expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
 
+    // A different embed token (e.g. a different user session reusing the same
+    // page context) MUST drop the bridge — this is the real de-enrollment
+    // signal we still need to honor.
     window.history.replaceState(
       null,
       "",

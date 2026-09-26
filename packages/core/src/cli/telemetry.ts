@@ -21,6 +21,9 @@ import path from "node:path";
 
 import { canonicalTrackingEvent } from "@agent-native/core/shared";
 
+// Public, write-only analytics key. Safe to embed (revocable from the Analytics
+// settings UI). Override with AGENT_NATIVE_ANALYTICS_PUBLIC_KEY for testing or
+// to point telemetry at a different first-party analytics instance.
 // guard:allow-public-key -- first-party analytics write key is public by design.
 const EMBEDDED_PUBLIC_KEY =
   "anpk_dc523e34b99bc34d76e82d94c46593544e4a8509a4bfc93c";

@@ -20,12 +20,6 @@ export interface VoiceProvidersStatus {
   gemini: boolean;
   openai: boolean;
   groq: boolean;
-  /**
-   * Google Speech-to-Text realtime streaming is BYOK-only for v1. This reports
-   * whether a service-account credential is configured; the actual stream runs
-   * through the dedicated WebSocket -> StreamingRecognize path, not the batch
-   * transcribe route.
-   */
   googleRealtime: boolean;
   browser: true;
   native: true;
@@ -69,7 +63,6 @@ export function createVoiceProvidersStatusHandler() {
       }
     }
 
-    // One read per scope for every key below, instead of one per key per scope.
     await withRequestContext(() =>
       prefetchSecrets([
         "GEMINI_API_KEY",

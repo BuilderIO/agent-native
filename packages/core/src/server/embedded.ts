@@ -123,6 +123,10 @@ export function configureAgentNativeEmbeddedEnvironment(
   }
   if (options.databaseUrl) {
     process.env.DATABASE_URL = options.databaseUrl; // guard:allow-env-mutation — embedded plugin boot-time configuration, not request-scoped state
+    // A packaged/desktop host can legitimately run this with NODE_ENV=production
+    // and a pglite: URL — exempt it from assertHostedRuntimeDatabase()'s guard,
+    // which otherwise can't tell that apart from a deploy silently falling back
+    // to PGlite because nobody configured DATABASE_URL.
     markEmbeddedRuntimeAuthorized();
   }
 }

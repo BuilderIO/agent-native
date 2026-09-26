@@ -46,7 +46,6 @@ export interface ActionRunContext {
   orgId?: string | null;
   appId?: string;
   appRoles?: string[];
-  /** Server-resolved app permission grants for this turn, for model context only. */
   appPermissions?: string[];
   caller: ActionCaller;
   automation?: ActionAutomationContext;
@@ -64,14 +63,6 @@ export interface ActionRunContext {
   approvedToolCallKey?: string;
 }
 
-/**
- * Pre-run authorization gate. Throw to deny with a specific message (the
- * framework's `ForbiddenError` carries a 403), or return `false` for a generic
- * denial. Returning `undefined` allows the call — a guard that forgets to
- * return is therefore permissive, which is why `false` is honoured at all:
- * `(args) => someCheck(args)` written against a boolean helper would otherwise
- * pass silently on every denial.
- */
 export type ActionAuthorize<TArgs> = (
   args: TArgs,
   ctx?: ActionRunContext,
@@ -311,7 +302,6 @@ type InferParams<T extends Record<string, ParameterSchema> | undefined> =
 
 export type ActionOutputErrorStrategy = "strict" | "warn" | "fallback";
 
-
 interface DefineActionWithSchema<
   TSchema extends StandardSchemaV1,
   TReturn = any,
@@ -371,17 +361,6 @@ interface DefineActionWithSchema<
   parallelSafe?: boolean;
   endsTurn?: boolean;
   dedupe?: boolean;
-  /** Whether this action may be invoked from the tools (Alpine iframe) bridge
-   *  via `appAction(name, params)` — see `packages/core/docs/content/actions.mdx`
-   *  ("Tools Callability"). **Default-allow opt-out**: undefined / `true` both
-   *  allow tool-iframe calls; only an explicit `false` returns 403. Set to
-   *  `false` for high-blast-radius admin operations (account deletion, org
-   *  membership changes, anything that modifies auth state) — used by the
-   *  framework's `share-resource`, `unshare-resource`, and
-   *  `set-resource-visibility` for defense-in-depth. Regular UI/agent/CLI/MCP/A2A
-   *  calls are unaffected. Enforced by the action HTTP route layer — see
-   *  `packages/core/src/server/action-routes.ts`. Audit reference: H5 in
-   *  `security-audit/05-tools-sandbox.md`. */
   toolCallable?: boolean;
   capabilityScopes?: readonly string[];
   publicAgent?: PublicAgentActionConfig;
@@ -424,7 +403,6 @@ interface DefineActionWithSchema<
   access?: ActionAccessConfig;
   audit?: ActionAuditConfig;
 }
-
 
 interface DefineActionWithParams<
   TParams extends Record<string, ParameterSchema> | undefined =
@@ -478,7 +456,6 @@ interface DefineActionWithParams<
   audit?: ActionAuditConfig;
 }
 
-
 export interface ActionDefinition<TInput, TReturn> {
   readonly run: (
     args: TInput,
@@ -518,7 +495,6 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly audit?: ActionAuditConfig;
   readonly access?: ActionAccessConfig;
 }
-
 
 export function defineAction<
   TSchema extends StandardSchemaV1,
@@ -827,7 +803,6 @@ function wrapRunWithAudit(
   };
 }
 
-
 const SUBSCHEMA_VALUE_KEYS = [
   "items",
   "additionalItems",
@@ -876,6 +851,20 @@ const SUBSCHEMA_MAP_KEYS = [
  * `default`, `const`, `enum`, or `examples`, whose objects may legitimately
  * contain a `propertyNames` data key that must be preserved.
  */
+/**
+ * A schema position with no `type` — what Zod emits for `z.unknown()` /
+ * `z.any()` — is rejected by OpenAI with "schema must have a 'type' key",
+ * 400ing the whole request exactly like `oneOf` did. There are 137 such sites
+ * across the templates, so this has to be answered at the boundary rather than
+ * by retyping every action.
+ *
+ * Expressed as a union of concrete JSON types because that shape is already
+ * proven against the live validator: `setFilterDefault.value`, a
+ * `z.union([string, number, boolean, null])` sitting in the same tool schema,
+ * was never flagged while the typeless sibling next to it was. `true` for
+ * `additionalProperties` is a boolean, not a subschema, so it needs no type of
+ * its own; array items get one bounded level rather than recursing forever.
+ */
 const JSON_VALUE_BRANCHES: ReadonlyArray<Record<string, unknown>> = [
   { type: "string" },
   { type: "number" },
@@ -919,21 +908,6 @@ const PROVIDER_SUPPORTED_FORMATS = new Set([
   "uuid",
 ]);
 
-/**
- * Anthropic's function-schema validator rejects regex lookaround -- `(?=`,
- * `(?!`, `(?<=`, `(?<!` -- inside a `pattern`, with "Invalid JSON schema: regex
- * lookaround is not supported", and it rejects the WHOLE request, before a
- * token is generated. Interactive chat surfaces that as an error; a background
- * run just dies with `http_400` in `agent_runs.error_detail` while the UI says
- * nothing, which is how a scout can be down for days looking merely idle.
- *
- * Zod 4's `z.string().email()` compiles to two negative lookaheads, and it is
- * written in ~35 action schemas across core, the templates, and the apps -- so
- * this is answered here rather than by retyping every one of them, the same way
- * typeless schemas and unsupported `format` values are. `pattern` is a hint for
- * the model; the action's own zod schema still validates the value server-side,
- * so dropping it widens nothing that was actually enforced.
- */
 const LOOKAROUND_IN_PATTERN = /\(\?<?[=!]/;
 
 const PROVIDER_REJECTED_KEYWORDS = [
@@ -1162,7 +1136,6 @@ function zodDefToJsonSchema(def: any): any {
 
   return { type: "string" };
 }
-
 
 const NO_COERCE = Symbol("no-coerce");
 

@@ -27,20 +27,6 @@ import {
 
 let _initPromise: Promise<void> | undefined;
 
-/**
- * Per-thread async mutex. Read-modify-write on the `thread_data` JSON blob
- * is not atomic at the DB level — two concurrent callers (e.g. the UI
- * persisting queued messages while `onRunComplete` appends agent output)
- * would both read the same row, each mutate it independently, and the
- * second write clobbers the first. Serializing on thread id inside this
- * process eliminates the race for the usual single-process deployment
- * while leaving straight reads and other thread-data-unrelated updates
- * untouched.
- *
- * Cross-process races are handled by `updateThreadData`, which performs a
- * compare-and-swap on `updated_at`, rereads the latest row on conflict, and
- * remerges message history before retrying.
- */
 const _threadDataLocks = new Map<string, Promise<unknown>>();
 const DEFAULT_THREAD_DATA_UPDATE_ATTEMPTS = 12;
 const THREAD_DATA_CONFLICT_BACKOFF_MS = 25;
@@ -649,7 +635,6 @@ export interface ListThreadsOptions {
   limit?: number;
   offset?: number;
   scope?: { type: string; id: string };
-  /** When true, returns only threads with no scope (general chats). */
   unscopedOnly?: boolean;
   orgId?: string | null;
   includeArchived?: boolean;
@@ -789,12 +774,6 @@ export function resolveRunThreadScope(
   return incoming ?? null;
 }
 
-/**
- * Claim an unscoped thread for `scope`, returning the scope it actually ends up
- * with. `withThreadDataLock` only serializes one process, so two workers can
- * both read the same unscoped row; the `scope_type IS NULL` guard makes the
- * first writer win and the loser reports the winner instead of retagging.
- */
 export async function adoptThreadScopeIfUnscoped(
   id: string,
   scope: ChatThreadScope,

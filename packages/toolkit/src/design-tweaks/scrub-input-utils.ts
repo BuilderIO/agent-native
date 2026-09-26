@@ -13,7 +13,6 @@ export interface ScrubRelativeExpression {
   precision?: number;
 }
 
-
 export const SCRUB_DRAG_THRESHOLD_PX = 3;
 
 export interface ScrubDragState {
@@ -62,7 +61,6 @@ type Token =
   | { type: "parenthesis"; value: "open" | "close" };
 
 const NUMBER_CHAR_PATTERN = /[0-9.]/;
-// Comma is only treated as a digit character while scanning a number token
 const NUMBER_OR_COMMA_CHAR_PATTERN = /[0-9.,]/;
 
 export function parseScrubExpression(

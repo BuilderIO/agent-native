@@ -23,7 +23,6 @@ export const BUILDER_OAUTH_ISSUER = "https://mcp.builder.io";
 export const BUILDER_OAUTH_RESOURCE = "https://api.builder.io";
 export const BUILDER_OAUTH_SCOPE = "builder:ai:invoke";
 export const BUILDER_ASSETS_WRITE_SCOPE = "builder:assets:write";
-// rather than incrementally per feature: a missing scope on an existing
 export const BUILDER_OAUTH_SCOPES = [
   BUILDER_OAUTH_SCOPE,
   "builder:agents:run",
@@ -61,6 +60,9 @@ export type BuilderOAuthRequestAccess = BuilderOAuthSession & {
   ownerEmail: string;
 };
 
+// Builder connections follow the same scope policy as legacy Builder keys:
+// owner/admin writes are shared with the org, while a member's connection is
+// personal and cannot replace the org grant.
 function normalizeOwnerEmail(ownerEmail: string): string {
   const email = ownerEmail.trim().toLowerCase();
   if (!email) throw new Error("Builder OAuth owner email is required");
@@ -155,6 +157,9 @@ function withRecordedScopes(
   };
 }
 
+// Builder's token endpoint always sets `scope`, and `withRecordedScopes` backs
+// that up for anything this flow stores, so an absent claim can only be a grant
+// predating both. Those were AI-only and must not be credited with an upload
 // scope the user never consented to.
 function scopesFrom(credentials: McpOAuthCredentialBundle): string[] {
   const declared = credentials.tokens.scope;

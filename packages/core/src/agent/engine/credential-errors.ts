@@ -3,11 +3,6 @@ import { PROVIDER_ENV_VARS } from "./provider-env-vars.js";
 
 export const LLM_MISSING_CREDENTIALS_ERROR_CODE = "missing_credentials";
 
-/**
- * Set by {@link ../../server/credential-provider.js CredentialStoreUnavailableError}
- * when the credential store could not be read. Lives here so the classifier can
- * recognize it without importing server-only code into the browser bundle.
- */
 export const CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE =
   "credential_store_unavailable";
 

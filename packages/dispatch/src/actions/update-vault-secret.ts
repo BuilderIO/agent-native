@@ -50,6 +50,7 @@ export default defineAction({
       "At least one secret field must be updated",
     ),
   // Carries a secret `value`. Record THAT the secret changed, never the value —
+  // keep the audit trail from becoming a second credential store.
   audit: { recordInputs: false },
   run: async (args) => toVaultSecretMetadata(await updateSecret(args.id, args)),
 });

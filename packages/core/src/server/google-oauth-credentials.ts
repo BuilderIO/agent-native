@@ -77,11 +77,6 @@ export async function resolveGoogleProviderCredentialCandidatesWithReader(option
   return candidates;
 }
 
-/**
- * Credentials for identity-only Google sign-in. Deploys that also use Google
- * product APIs can set these separately from GOOGLE_CLIENT_ID/SECRET, which
- * remain the backwards-compatible provider OAuth credentials.
- */
 export function resolveGoogleSignInCredentials(): GoogleOAuthCredentials | null {
   const signIn = readCredentialPair(
     "GOOGLE_SIGN_IN_CLIENT_ID",

@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — MCP server for pin tools
 // MIT License
 
 import { FileStore } from "../storage/file-store.js";

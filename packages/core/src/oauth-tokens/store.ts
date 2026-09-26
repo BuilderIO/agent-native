@@ -200,7 +200,6 @@ export async function replaceOAuthTokensIfRevision(
   return replaced;
 }
 
-/** Delete only the exact credential revision the caller inspected. */
 export async function deleteOAuthTokensIfRevision(
   provider: string,
   accountId: string,

@@ -42,6 +42,9 @@ import {
 import { __resetProcessMemberOrgCacheForTests } from "./request-org-cache.js";
 
 // File-scope, so a describe block added later cannot forget it. The membership
+// and domain-match caches are process state: without this, one test's rows
+// answer the next test's query and the mock's call count is never what the
+// assertion expects.
 beforeEach(() => {
   __resetProcessMemberOrgCacheForTests();
   __resetDomainMatchCacheForTests();
@@ -791,6 +794,7 @@ describe("getOrgContext", () => {
     });
 
     it("does NOT auto-create when the invitation lookup ERRORS (fail closed)", async () => {
+      // hasPendingInvitation swallows DB errors and returns true so we never
       // race ahead of an invite we couldn't read. Auto-create must be skipped.
       process.env.AUTO_CREATE_DEFAULT_ORG = "1";
       mockGetSession.mockResolvedValue({

@@ -89,11 +89,6 @@ function isBuilderPublishMcpServer(serverUrl: URL): boolean {
   return resolveTrustedMcpOAuthAuthorizationScope(serverUrl) !== undefined;
 }
 
-/**
- * Which side of the scope contract the request broke. Builder Publish shares one
- * workspace grant with Content database sources, so it is org-only; managed
- * OAuth clients authorize one human at a time, so they are personal-only.
- */
 export type McpOAuthScopeViolation =
   | "organization-scope-required"
   | "personal-scope-required";

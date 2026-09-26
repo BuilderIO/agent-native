@@ -599,6 +599,10 @@ describe("chat thread store", () => {
     expect(listCall).toBeTruthy();
     const request = listCall![0] as { sql: string; args: unknown[] };
     expect(request.sql).toContain("source_platform IS NULL");
+    // Never match against thread_data here. It is the full message-history blob,
+    // so any predicate on it detoasts every scanned row before LIMIT applies —
+    // measured at ~10x on the production sidebar list. Migration 3 backfilled
+    // `source_platform` for the legacy integration rows this used to catch.
     expect(request.sql).not.toContain("thread_data");
     expect(request.sql).toContain(
       "(source_app_id IS NULL OR source_app_id = ?)",

@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — FileStore tests
 // MIT License
 
 import { randomUUID } from "node:crypto";

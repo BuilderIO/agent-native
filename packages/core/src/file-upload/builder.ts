@@ -87,7 +87,6 @@ async function uploadLargeFileViaSignedUrl(
   );
   console.log(`[builder-upload] step 1 ok: assetId=${assetId}`);
 
-  // Step 2 — PUT bytes directly to GCS. Only requiredHeaders; no Authorization
   console.log(`[builder-upload] step 2 [${assetId}]: PUT ${mb}MB to GCS`);
   const step2Res = await fetchWithTimeout(uploadUrl, {
     method: "PUT",

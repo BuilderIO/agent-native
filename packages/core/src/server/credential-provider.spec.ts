@@ -332,7 +332,6 @@ describe("writeBuilderCredentials", () => {
   });
 
   it("clears the writer's user-scope override when writing at org scope so the new connection wins resolution", async () => {
-    // org scope) would still see their stale personal credentials win on
     await writeBuilderCredentials(
       "owner@b.com",
       { privateKey: "bpk-new-private", publicKey: "pub-new" },
@@ -535,6 +534,10 @@ describe("Builder credential auth failure markers", () => {
     ).toBeNull();
   });
 
+  // The back-off is exponential, so without a ceiling a credential that failed
+  // enough times would be pinned for weeks and a server-side recovery (plan
+  // upgrade, gateway re-enabled) would never be noticed. A corrupt strike count
+  // must not be a way to pin one forever either.
   it("never pins a credential beyond the 24h ceiling", async () => {
     const dayAndAHalfAgo = Date.now() - 36 * 60 * 60 * 1000;
 
@@ -577,6 +580,7 @@ describe("Builder credential auth failure markers", () => {
     expect(mockPutSetting.mock.calls.at(-1)?.[1]).toMatchObject({ strikes: 3 });
 
     // First failure for a credential we have never rejected before starts at 1,
+    // so a one-off transient 401 still releases on the base TTL.
     mockGetSetting.mockResolvedValue(null);
     await recordProviderCredentialAuthFailure({
       key: "OPENAI_API_KEY",
@@ -997,13 +1001,11 @@ describe("resolveBuilderCredential", () => {
   it("checks solo workspace scope when caller has no active org", async () => {
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue(undefined);
-    mockReadAppSecret
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        value: "solo-workspace-key",
-        last4: "-key",
-        updatedAt: 1,
-      });
+    mockReadAppSecret.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      value: "solo-workspace-key",
+      last4: "-key",
+      updatedAt: 1,
+    });
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBe(
       "solo-workspace-key",
     );
@@ -1227,6 +1229,8 @@ describe("resolveBuilderCredentialsDetailed", () => {
   });
 
   it("skips a user-scoped credential the gateway already rejected and falls through to a working org-scoped one", async () => {
+    // Root-cause regression: once a Builder credential is marked bad, every
+    // subsequent resolution must skip it instead of resending it forever.
     mockGetRequestUserEmail.mockReturnValue("member@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
     mockReadAppSecret.mockImplementation(async ({ key, scope }) => {
@@ -1406,13 +1410,11 @@ describe("resolveSecret (generic)", () => {
   it("checks solo workspace scope when an authenticated user has no org", async () => {
     mockGetRequestUserEmail.mockReturnValue("solo@b.com");
     mockGetRequestOrgId.mockReturnValue(undefined);
-    mockReadAppSecret
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        value: "solo-workspace-secret",
-        last4: "cret",
-        updatedAt: 1,
-      });
+    mockReadAppSecret.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      value: "solo-workspace-secret",
+      last4: "cret",
+      updatedAt: 1,
+    });
     expect(await resolveSecret("GOOGLE_CLIENT_SECRET")).toBe(
       "solo-workspace-secret",
     );
@@ -2416,7 +2418,10 @@ describe("Builder gateway credential lane", () => {
     );
   });
 
+  // A LEGACY env deployment now gets an x-builder-api-key it did not send
   // before. That is only safe because the token and the space id always come
+  // from ONE scope, so the space id is the key's own ownerId: ai-services' bpk-
+  // branch 403s "Private key does not match spaceId" for any other combination.
   it("pairs a legacy env deployment's key with its own space id", async () => {
     process.env.BUILDER_PRIVATE_KEY = "bpk-legacy";
     process.env.BUILDER_PUBLIC_KEY = "space-legacy";
@@ -2472,7 +2477,9 @@ describe("Builder gateway credential lane", () => {
     );
   });
 
+  // The dev-preview pod is injected with the SAME gateway token as the published
   // site, so a token-only test cannot tell the two apart — and the reader there
+  // is the project owner in the Fusion editor, who needs the real reason.
   it("keeps owner-facing copy in the dev-preview runtime", () => {
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
     process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";

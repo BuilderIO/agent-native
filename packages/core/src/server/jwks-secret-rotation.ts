@@ -72,6 +72,10 @@ async function attemptHeal(): Promise<boolean> {
   }
   if (typeof ciphertext !== "string") return false;
 
+  // Multi-version secrets (`BETTER_AUTH_SECRETS`, honored by Better Auth
+  // itself) wrap ciphertexts in a versioned envelope this single-secret heal
+  // cannot validate; leave those deployments to Better Auth's own rotation
+  // machinery instead of expiring keys we cannot assess.
   if (parseEnvelope(ciphertext)) return false;
 
   try {

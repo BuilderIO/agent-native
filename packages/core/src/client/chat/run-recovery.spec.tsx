@@ -704,7 +704,15 @@ describe("run recovery surfaces", () => {
     });
   });
 
+  // Prod, 2026-08-26 (slides): this exact shape — a 401 whose body is the
+  // gateway's absent-credential sentence — reached users whose own key was
   // fine, because the rejected credential belonged to the workspace. They got
+  // a setup panel for a connection already marked good and no way forward. The
+  // retry premise ("replays the same rejected credential") stopped being true
+  // once a 401 started fingerprinting and skipping that credential, so the
+  // setup flow and a retry now ship together.
+  //
+  // The setup state keeps the retry action available below the card.
   it("shows the AI setup flow AND a retry button for a rejected provider key", async () => {
     const onRetry = vi.fn();
     await act(async () => {

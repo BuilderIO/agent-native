@@ -130,7 +130,14 @@ describe("swapCorpusDirIntoPlace", () => {
 
   it("accepts a concurrent run's equivalent corpus instead of crashing when the rename loses", () => {
     const root = makeScratchDir();
+    // Simulates the losing side of a real race: a concurrent run has already
+    // produced a valid, fully-materialized corpus at targetDir. Making
     // targetDir read-only stands in for the real race window (another
+    // process's write landing between our rmSync and renameSync) by making
+    // our own rmSync unable to clear it, so renameSync fails with a tolerated
+    // code (EPERM/EACCES surface through renameSync here since the directory
+    // entry itself can't be unlinked) instead of the swap silently destroying
+    // the winner's output first.
     const missingTempDir = join(root, "corpus.tmp-3-ccc-already-gone");
     const targetDir = join(root, "corpus");
     mkdirSync(targetDir, { recursive: true });

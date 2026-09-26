@@ -18,10 +18,6 @@
 import { MCP_OAUTH_FLOW_TTL_MS } from "../../shared/mcp-oauth-flow-ttl.js";
 
 const PENDING_STORAGE_KEY = "agent-native:mcp-connection-pending";
-/** Exactly as long as the server will still accept the authorization. Anything
- *  shorter leaves a stretch where a consent succeeds but this window has
- *  stopped revalidating; anything longer only refetches for a flow the server
- *  has already rejected. */
 const PENDING_TTL_MS = MCP_OAUTH_FLOW_TTL_MS;
 
 let memoryPendingStartedAt: number | null = null;

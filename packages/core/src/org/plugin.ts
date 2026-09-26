@@ -288,6 +288,7 @@ export function createOrgPlugin(): NitroPluginDef {
     );
 
     // POST /a2a-secret/sync — must mount BEFORE /a2a-secret since h3
+    // matches by prefix. Pushes the org's A2A secret to every connected app.
     app.use(
       `${ORG_PREFIX}/a2a-secret/sync`,
       defineEventHandler(async (event: H3Event) => {
@@ -300,6 +301,7 @@ export function createOrgPlugin(): NitroPluginDef {
     );
 
     // POST /a2a-secret/receive — must mount BEFORE /a2a-secret. Accepts a
+    // peer's secret push; auth is JWT-based (see auth guard exemption).
     app.use(
       `${ORG_PREFIX}/a2a-secret/receive`,
       defineEventHandler(async (event: H3Event) => {
@@ -312,7 +314,9 @@ export function createOrgPlugin(): NitroPluginDef {
     );
 
     // PUT /a2a-secret — must mount AFTER /a2a-secret/sync and /receive.
+    // Dispatches by tail to keep PUT semantics on the parent path while
     // letting POST /a2a-secret return 405 (rather than silently routing
+    // to the more-specific handlers above).
     app.use(
       `${ORG_PREFIX}/a2a-secret`,
       defineEventHandler(async (event: H3Event) => {

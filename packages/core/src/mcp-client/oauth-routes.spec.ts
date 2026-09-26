@@ -586,7 +586,6 @@ describe("managed MCP OAuth clients", () => {
       expect(mcpUrlRequiresOrganizationScope(raw)).toBe(true);
       expect(resolveMcpOAuthScope(new URL(raw), "user").ok).toBe(false);
     }
-    // scope. Forcing org here would fail requests the server would allow.
     for (const raw of [
       "https://mcp.builder.io/mcp/fusion",
       "https://mcp.builder.io/mcp/publish?x=1",
@@ -728,6 +727,8 @@ describe("MCP OAuth start failures", () => {
     });
   });
 
+  // GitHub's authorization server advertises no registration_endpoint, so the
+  // generic message told users to retry a flow that can never succeed.
   it("names the authorization server that cannot register a client", () => {
     const failure = resolveMcpOAuthStartError(
       new McpOAuthRegistrationUnsupportedError({

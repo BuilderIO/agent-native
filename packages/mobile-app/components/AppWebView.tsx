@@ -492,6 +492,10 @@ function AppWebView(
     setNativeSignInOpen(true);
   }, [effectiveCaptureSessionToken, parentSessionToken, sessionLoaded]);
 
+  // When the app returns to foreground, check if the session token was updated
+  // (e.g. by the oauth-complete deep link handler storing a new token in
+  // SecureStore). If it changed, update state. Workspace apps exchange the
+  // parent token for a one-time embed URL; other apps keep their own login
   // surface and never receive the parent token in a URL.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
@@ -691,6 +695,9 @@ function AppWebView(
         }
         if (msg.type === "openUrl" && typeof msg.url === "string") {
           const parsed = new URL(msg.url);
+          // Only open external hosts in Safari — anything else is ignored.
+          // These are Google OAuth hosts, so persist the completion context
+          // (like the intercepted-navigation path) before handing off, or the
           // deep-link callback can't restore the return route / Clips token key.
           if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
             void openGoogleSession(msg.url);
@@ -728,7 +735,10 @@ function AppWebView(
           return;
         }
         workspaceEmbedAutoRetryRef.current = 0;
+        // Landing off /embed/start means the target host accepted the ticket
         // and set its session cookie. Only a freshly minted session may start
+        // the reuse window; a reused load must not extend its own deadline
+        // past the embed cookie's real lifetime.
         if (workspaceEmbedState === "ready") {
           rememberLiveWorkspaceAppSession(workspaceAppId, parentSessionToken);
         }
@@ -767,6 +777,7 @@ function AppWebView(
     ],
   );
 
+  // Workspace apps load only through their one-time embed URL. Other WebViews
   // stay on their ordinary app-owned URL and never receive a reusable token.
   const requestedWebviewUrl = useMemo(() => {
     return buildMobileWebViewAuthUrl({

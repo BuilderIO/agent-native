@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — Storage exports
 // MIT License
 
 export { MemoryStore } from "./memory-store.js";

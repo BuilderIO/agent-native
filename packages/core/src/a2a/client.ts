@@ -512,12 +512,6 @@ export class A2AClient {
 
   async getAgentCard(options?: {
     timeoutMs?: number;
-    /**
-     * Identity token for the card fetch. The anonymous card can only advertise
-     * publicly-safe actions, which is a disjoint set from what `actions/invoke`
-     * runs — so a sibling that discovers anonymously is told there is nothing
-     * callable. Pass a token to see the invocable set.
-     */
     token?: string;
     cardUrl?: string;
   }): Promise<AgentCard> {
@@ -769,6 +763,8 @@ export class A2AClient {
         safelyNotifyA2AUpdate(opts?.onUpdate, current);
       } catch (error) {
         // Retry only transport/gateway interruptions. Authentication,
+        // task-not-found, invalid params, and other protocol failures are
+        // permanent for this poll and must surface immediately.
         if (isRetryableA2APollError(error)) continue;
         throw error;
       }

@@ -58,7 +58,6 @@ function liveEditRegistrationAuth(
   };
 }
 
-
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = http.createServer();
@@ -3039,6 +3038,10 @@ describe("design connect bridge endpoints", () => {
     try {
       const base = `http://127.0.0.1:${port}`;
 
+      // Existing control-plane callers (the Design app, and
+      // fetchRunningBridgeManifest used by `design connect --json` / daemon
+      // self-detection) never send Sec-Fetch-Dest, so /manifest.json keeps
+      // returning the bridge's own manifest, still gated by the token.
       const unauthenticated = await getJson(`${base}/manifest.json`);
       expect(unauthenticated.status).toBe(401);
 
@@ -3048,6 +3051,12 @@ describe("design connect bridge endpoints", () => {
       expect(controlPlane.status).toBe(200);
       expect(controlPlane.body["source"]).toBe("agent-native-design-connect");
 
+      // A real browser's <link rel="manifest"> fetch (re-pointed at the
+      // bridge origin by the injected <base href>) tags its request with
+      // Sec-Fetch-Dest: manifest, a header page JS cannot set. That request
+      // must reach the PROXIED APP's manifest, and — matching the target
+      // dev server, which serves this path unauthenticated — must not be
+      // blocked by a missing preview token.
       const proxied = await getJson(`${base}/manifest.json`, {
         "sec-fetch-dest": "manifest",
       });

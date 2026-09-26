@@ -24,18 +24,8 @@ import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
 
-/**
- * Scope claim that marks a connect-minted token (vs. an ordinary A2A
- * delegation JWT). Only tokens carrying this scope go through the revoke
- * lookup in `verifyAuth` — defined here so both `connect-route.ts` and
- * `build-server.ts` import it from the leaf store without a cycle.
- */
 export const MCP_CONNECT_SCOPE = "mcp-connect";
 
-/**
- * Client id used when connect/device flows have to mint a standard MCP OAuth
- * access token instead of an A2A JWT (for deployments without A2A_SECRET).
- */
 export const MCP_CONNECT_OAUTH_CLIENT_ID = "agent-native-connect";
 
 export const DEVICE_CODE_TTL_MS = 10 * 60_000;
@@ -110,7 +100,6 @@ export async function ensureTable(): Promise<void> {
   return _initPromise;
 }
 
-
 export interface MintedTokenRow {
   id: string;
   jti: string;
@@ -122,7 +111,6 @@ export interface MintedTokenRow {
   revokedAt: number | null;
   kind: "personal" | "service";
   serviceName: string | null;
-  /** Email of the human who minted a service token. Only set when `kind === 'service'`. */
   createdBy: string | null;
 }
 
@@ -205,6 +193,7 @@ export async function isJtiRevoked(jti: string): Promise<boolean> {
     return revokedAt != null;
   } catch (err) {
     // Fail open: a DB blip must not turn every minted token into a 401.
+    // (Signature checks already passed; this only gates explicit revokes.)
     if (isConnectionError(err)) return false;
     return false;
   }
@@ -344,7 +333,6 @@ export async function touchTokenUsed(jti: string): Promise<void> {
     // last_used_at is informational only — never throw from the hot path.
   }
 }
-
 
 export interface DeviceCodeRow {
   deviceCode: string;
@@ -499,13 +487,6 @@ export async function approveDeviceCode(
   };
 }
 
-/**
- * Atomically transition an approved device code to consumed and stamp the
- * minted token's jti. Single-use: only succeeds when the row is currently
- * `approved` (not already consumed). Returns the pre-consume row on success,
- * or null when it could not be consumed (already consumed / not approved /
- * gone). The caller mints the token only after this returns a row.
- */
 export async function consumeDeviceCode(
   deviceCode: string,
   tokenJti: string,
@@ -523,11 +504,6 @@ export async function consumeDeviceCode(
   return row;
 }
 
-/**
- * Claim an approved device code for token minting without making it terminal.
- * If signing or token recording fails, callers release this back to approved
- * so the CLI can retry the poll instead of being stuck at "consumed".
- */
 export async function claimDeviceCodeForMint(
   deviceCode: string,
   tokenJti: string,

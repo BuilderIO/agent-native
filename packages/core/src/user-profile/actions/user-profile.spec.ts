@@ -317,6 +317,9 @@ describe("user profile actions", () => {
   });
 
   it("throws instead of reporting no password when the internal adapter is unavailable", async () => {
+    // getBetterAuthInternalAdapter returns undefined when $context resolution
+    // fails or has an unexpected shape — an unreadable auth backend, not
+    // confirmation that the user has no credential account. An existing
     // credential user must not see the "set password" state for this.
     getBetterAuthInternalAdapterMock.mockResolvedValue(undefined);
 

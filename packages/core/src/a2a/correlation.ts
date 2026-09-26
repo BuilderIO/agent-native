@@ -27,14 +27,6 @@ export function sanitizeA2ACorrelationId(value: unknown): string | undefined {
   return boundedIdentifier(value, CORRELATION_ID_PATTERN);
 }
 
-/**
- * Keep only bounded, opaque ASCII correlation and routing identifiers.
- * Authentication continues to come exclusively from the verified A2A
- * token/request context. A receiver may use `selectedReceiverApp` only to
- * prioritize its matching local tool surface, and `callerModel` only to choose
- * a model its own engine already offers. Neither reaches identity, data
- * ownership, org, access, or approval resolution.
- */
 export function sanitizeA2ACorrelationMetadata(
   value: unknown,
 ): A2ACorrelationMetadata {

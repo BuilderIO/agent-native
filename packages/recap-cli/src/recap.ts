@@ -1,39 +1,3 @@
-/**
- * `agent-native recap` — the helper surface used by the PR Visual Recap GitHub
- * Action. Run `agent-native recap help` for the full subcommand list.
- *
- * The action no longer generates the recap deterministically. Instead a coding
- * agent (Claude Code or Codex) RUNS THE REPO'S visual-recap skill against the
- * diff and publishes the plan via the plan MCP tools. These subcommands are the
- * thin, deterministic glue around that:
- *
- *   gate          The security boundary: decide whether the recap runs at all
- *                 (skipping drafts, forks without secret access, bots, missing
- *                 secrets, an invalid agent/model, and untrusted PRs that touch
- *                 recap-control files) and which normalized backend agent to use.
- *   collect-diff  Collect the bounded base...head diff (excluding lockfiles,
- *                 build output, snapshots), cap it at ~600KB, and classify the
- *                 huge/tiny flags.
- *   scan          Refuse to hand a secret-leaking diff to the agent.
- *   block-reference
- *                 Fetch the live get-plan-blocks reference for the target app.
- *   build-prompt  Assemble the agent prompt = latest visual-recap skill bundle
- *                 + a task wrapper (or repo-pinned skill with --skill-source).
- *   publish       Publish the agent-authored recap-source.json over HTTP.
- *   shot          Screenshot the published plan and upload it to the plan app's
- *                 signed public image route (for an inline PR-comment image).
- *   usage         Parse and emit agent token-usage/cost from stdout.
- *   comment       Find the previous plan id / upsert the sticky PR comment.
- *   check         Evaluate the recap result and set a GitHub commit status.
- *   setup         Install the PR Visual Recap GitHub Action workflow.
- *   doctor        Diagnose missing secrets / misconfigured workflow.
- *
- * Promoting these to the published CLI means an installed repo's workflow calls
- * `agent-native recap …` instead of copying helper scripts into the repo.
- *
- * Node built-ins only (plus an optional dynamic `playwright` import for `shot`).
- */
-
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -52,7 +16,6 @@ import {
   RECAP_REFERENCE_FILES,
   VISUAL_RECAP_SKILL_MD,
 } from "./skill-content.js";
-
 
 function parseArgs(argv: string[]): Record<string, string | boolean> {
   const out: Record<string, string | boolean> = {};
@@ -88,7 +51,6 @@ function optionalArg(
   const value = args[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
-
 
 export const PR_VISUAL_RECAP_SETUP: string[] = [
   "Required secrets:",
@@ -138,7 +100,6 @@ export function writePrVisualRecapWorkflow(
   fs.writeFileSync(file, PR_VISUAL_RECAP_WORKFLOW_YML);
   return { status: "written", path: rel, existed: false };
 }
-
 
 export function buildReusableCallerWorkflow(
   options: {
@@ -1181,6 +1142,9 @@ function runDoctor(args: Record<string, string | boolean>): void {
   if (!ok) process.exitCode = 1;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Secret scan — defense-in-depth before any LLM sees the diff                */
+/* -------------------------------------------------------------------------- */
 
 /**
  * If the diff contains a high-confidence secret shape, we refuse to build a
@@ -1205,7 +1169,6 @@ const HIGH_CONFIDENCE_SECRET_PATTERNS: RegExp[] = [
 
 const STRICT_SECRET_PATTERNS: RegExp[] = [
   ...HIGH_CONFIDENCE_SECRET_PATTERNS,
-  // Strict mode only: `KEY=...`, `TOKEN=...`, `SECRET=...`, `PASSWORD=...`
   /\b[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|API_KEY|PRIVATE_KEY|ACCESS_KEY)[A-Z0-9_]*\s*[:=]\s*['"]?(?!.*(?:your|example|placeholder|changeme|xxxx|\*\*\*|<|\$\{|process\.env|env\.|REDACTED))[A-Za-z0-9/_+=.-]{16,}/i,
 ];
 
@@ -1547,7 +1510,6 @@ export function summarizeLocalAgentFailure(
   return "";
 }
 
-
 export const RECAP_DIFF_BYTE_CAP = 614400;
 
 export const RECAP_DIFF_TRUNCATED_FOOTER =
@@ -1715,7 +1677,6 @@ function runCollectDiff(args: Record<string, string | boolean>): void {
   }
   process.stdout.write(`${JSON.stringify({ bytes, changed, huge, tiny })}\n`);
 }
-
 
 export function readRepoSkillMd(cwd: string = process.cwd()): {
   text: string;
@@ -1956,7 +1917,6 @@ export function buildRecapPrompt(input: {
   lines.push("");
   return lines.join("\n");
 }
-
 
 const MARKER = "<!-- pr-visual-recap -->";
 const RECAP_IMAGE_URL_PATH_PATTERN =
@@ -2357,6 +2317,9 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     return lines.join("\n");
   }
 
+  // Image URLs are produced by our own recap-image route, but validate each is
+  // same-origin and matches the canonical hex-token path before embedding it, so
+  // they likewise cannot inject markdown or HTML.
   const lightImageUrl = trustedRecapImageUrl(
     env.RECAP_LIGHT_IMAGE_URL || env.RECAP_IMAGE_URL,
     base,
@@ -2416,7 +2379,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
   if (headMarker) lines.push("", headMarker);
   return lines.join("\n");
 }
-
 
 function runScan(args: Record<string, string | boolean>): void {
   const diffPath = stringArg(args, "diff");
@@ -3384,7 +3346,10 @@ export async function runShot(
     process.stdout.write(`${JSON.stringify(obj)}\n`);
   };
 
+  // recap-url.txt is produced by the (LLM) agent, so the URL is untrusted. Only
   // forward the reusable publish token to the trusted plan-app origin — never to
+  // an arbitrary URL — so a poisoned recap-url.txt can't exfiltrate the bearer
+  // to an attacker-controlled domain.
   let attachToken = false;
   if (token) {
     try {
@@ -3713,7 +3678,6 @@ function recoverRecapFailureEnv(
   return recovered;
 }
 
-
 export interface RecapGatePullRequest {
   number?: number;
   draft?: boolean;
@@ -3785,13 +3749,6 @@ export function isRecapSensitivePath(
   return false;
 }
 
-/**
- * The pure gate decision: given the PR payload, secret-presence flags, the
- * configured backend/model, and the PR's changed files, decide whether the
- * visual recap should run, which (normalized) agent to use, and — when skipped —
- * the human-readable reasons. This is the security boundary; it replicates the
- * inline github-script gate bit-for-bit. No I/O so it can be unit-tested.
- */
 export function evaluateRecapGate(input: RecapGateInput): {
   run: boolean;
   agent: string;
@@ -3812,6 +3769,13 @@ export function evaluateRecapGate(input: RecapGateInput): {
     }
   }
 
+  // Fork PRs only receive repo secrets when the org/repo opts into GitHub's
+  // "Send secrets to workflows from pull requests" setting (common in private
+  // orgs that use forks heavily). The real gate is therefore secret
+  // availability, not fork-ness: run on forks that have the publish token, and
+  // skip — with an actionable hint — those that don't. The recap never executes
+  // PR-head code and adds a prompt-injection note for fork diffs, so a trusted
+  // same-org fork is no riskier than a same-org branch PR.
   const headRepo = pr && pr.head && pr.head.repo && pr.head.repo.full_name;
   const isFork = Boolean(pr && headRepo && headRepo !== input.repository);
   const isPrivate = Boolean(input.repositoryPrivate);
@@ -3836,6 +3800,8 @@ export function evaluateRecapGate(input: RecapGateInput): {
     reasons.push("bot author (type=Bot)");
 
   // Publish secret must be configured — otherwise this is a no-op so the
+  // workflow can be merged before secrets exist. Forks get the fork-specific
+  // hint above instead of this generic one.
   if (!isFork && !input.hasPlan)
     reasons.push("PLAN_RECAP_TOKEN not configured");
 
@@ -4017,7 +3983,6 @@ async function runGate(): Promise<void> {
       : `Visual recap skipped: ${reasons.join("; ")}`,
   );
 }
-
 
 export function canonicalRecapUrl(rawUrl: string, appUrl: string): string {
   try {
@@ -4326,7 +4291,6 @@ async function runCheck(
   );
 }
 
-
 interface ParsedUsage {
   inputTokens: number;
   outputTokens: number;
@@ -4403,17 +4367,6 @@ function lastCodexUsage(jsonl: string): Record<string, any> | undefined {
   return last;
 }
 
-/**
- * Codex `exec --json` reports `input_tokens` INCLUSIVE of `cached_input_tokens`
- * (OpenAI counts cached as a subset of prompt tokens), which is already the
- * convention `calculateCost` and the engine `usage` event share — so input
- * passes through untouched and `calculateCost` subtracts to price each token
- * once. This used to strip the cached tokens out here instead, back when
- * pricing added the cache counts on top; doing both now bills them twice.
- *
- * `reasoning_output_tokens` is still folded into output — it is billed at the
- * output rate and would otherwise be dropped.
- */
 export function parseCodexUsage(jsonl: string): ParsedUsage | null {
   const u = lastCodexUsage(jsonl);
   if (!u) return null;

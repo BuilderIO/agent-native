@@ -108,6 +108,8 @@ describe("resolveOwnerEngineApiKey", () => {
   });
 
   it("preserves the active engine key's provenance when no engine is named", async () => {
+    // The registry may select another engine, so the key must stay tagged for
+    // provider matching while retaining the scope that owns its value.
     getSettingMock.mockResolvedValue({ engine: "anthropic" });
     ownerSecrets({ ANTHROPIC_API_KEY: "sk-ant-owner" });
 

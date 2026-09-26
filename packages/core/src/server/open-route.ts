@@ -1,26 +1,3 @@
-/**
- * `/_agent-native/open` — the stable deep-link route.
- *
- * An external coding agent (Claude Code / Cowork / Codex) surfaces an
- * "Open in <app> →" link (built by an action's `link` builder, see
- * `deep-link.ts`). When the user clicks it in any browser / inline webview,
- * this route:
- *   1. Resolves the *browser* session (NOT the agent token) — so the record
- *      always lands where the human is logged in.
- *   2. When unauthenticated, serves the same sign-in form the auth guard
- *      would, *at this same URL*. The login form's success handler reloads
- *      `window.location.href`, so the now-authenticated request re-enters
- *      this route and proceeds. No `?next=` plumbing needed.
- *   3. Writes the existing one-shot `navigate` application-state command (the
- *      exact key the UI already drains every 2s — we don't invent a new
- *      navigation mechanism, we bridge to it), plus an optional `compose-<id>`
- *      draft.
- *   4. 302-redirects to the rendered SPA view so the page loads immediately;
- *      the polled `navigate` command then applies record-level focus.
- *
- * The link itself is a pure pointer (view + record ids + filters) and carries
- * no privileged state.
- */
 import type { H3Event } from "h3";
 import { defineEventHandler, getHeader, getMethod } from "h3";
 
@@ -52,6 +29,10 @@ const RESERVED = new Set([
   "view",
   "to",
   "compose",
+  // Mobile/caller-session bridge token (see `promoteQuerySession` in
+  // auth.ts). `getSession()` below reads and promotes it into a cookie; it
+  // must never also land in `navParams`, or it would be persisted into the
+  // `navigate` application-state row that the client polls and reads.
   "_session",
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
@@ -119,8 +100,6 @@ function redirect(
   location: string,
   embedRedirect: boolean,
 ): Response {
-  // would silently drop the Set-Cookie `getSession()` just staged below (e.g.
-  // `promoteQuerySession` promoting a `_session` query token) — h3 v2 only
   const response = redirectWithStagedCookies(event, location);
   if (!embedRedirect) return response;
   const headers = new Headers(response.headers);

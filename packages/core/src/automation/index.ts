@@ -284,6 +284,7 @@ async function resolveStaticHeaders(
   }
 
   // A small app adapter may use named secret refs rather than the app vault
+  // syntax. Resolve those only from static header values, never from agent args.
   if (resolveSecret) {
     for (const [name, value] of Object.entries(output)) {
       const match = value.match(/^\$\{automationSecret\.([A-Za-z0-9_-]+)\}$/);

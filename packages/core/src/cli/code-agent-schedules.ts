@@ -240,7 +240,6 @@ function readScheduleFile(): CodeAgentScheduleRecord[] {
   try {
     contents = fs.readFileSync(filePath, "utf8");
   } catch (error) {
-    // Only a genuinely absent file is an empty schedule list. A permission
     if ((error as NodeJS.ErrnoException | null)?.code === "ENOENT") return [];
     throw new CodeAgentSchedulesUnreadableError(filePath, "read failed", {
       cause: error,
@@ -265,6 +264,8 @@ function readScheduleFile(): CodeAgentScheduleRecord[] {
 
   const records = parsed.filter(isScheduleRecord);
   if (records.length !== parsed.length) {
+    // Dropping the entries we cannot parse and writing the rest back is the
+    // same data loss by a quieter route — a newer schemaVersion included.
     throw new CodeAgentSchedulesUnreadableError(
       filePath,
       `${parsed.length - records.length} of ${parsed.length} entries are not valid schedule records`,

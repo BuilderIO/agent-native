@@ -74,7 +74,6 @@ import {
 } from "./useIntegrationStatus.js";
 import { isNonPublicWebhookUrl } from "./webhook-url.js";
 
-
 interface PlatformInfo {
   id: string;
   label: string;
@@ -186,7 +185,6 @@ function useAgentEngineConfigured() {
 
   return configured;
 }
-
 
 function IntegrationDetail({
   platform,
@@ -467,7 +465,6 @@ function IntegrationDetail({
     </div>
   );
 }
-
 
 function startMcpOAuthReconnect(server: McpServer): void {
   const returnUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
@@ -1069,6 +1066,8 @@ function mcpDisplayName(integration: DefaultMcpIntegration): string {
 }
 
 // ponytail: polls /env-status directly rather than a shared status endpoint —
+// callers refresh() after anything that could change it (e.g. leaving the
+// Email detail view) instead of subscribing to a shared invalidation bus.
 function useEmailProviderConfigured(): {
   configured: boolean;
   refresh: () => void;

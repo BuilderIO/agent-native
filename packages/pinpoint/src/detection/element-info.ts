@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — Element metadata extraction
 // MIT License
 
 import type {

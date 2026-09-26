@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 
+// Regression coverage for the Mail app surfacing a raw provider JSON error
+// bubble when a chat attachment is a password-protected PDF. Split into its
+// own file because error-format.spec.ts is being edited concurrently by a
+// related investigation (topaz-terminal-ro4r6chn) into the same shared
+// normalizeChatError boundary.
 describe("normalizeChatError for password-protected PDF attachments", () => {
   const CLEAN_MESSAGE =
     "This PDF is password-protected, so it can't be read. Remove the password protection or paste the relevant text, then retry.";

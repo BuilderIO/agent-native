@@ -227,6 +227,9 @@ describe("browser analytics pageviews", () => {
         return new Response("{}");
       }),
     );
+    // Simulate a hidden tab: requestAnimationFrame never fires, so the
+    // deferred boot refresh starts via the 250ms fallback timer — after the
+    // fixed budget the old race used, which emitted a contextless pageview.
     vi.stubGlobal("requestAnimationFrame", () => 0);
     vi.stubGlobal("cancelAnimationFrame", () => {});
     const { configureTracking } = await freshAnalytics();

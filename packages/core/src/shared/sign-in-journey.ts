@@ -149,7 +149,11 @@ function createSignInJourneyRuntime(
     var pathname = parsed.pathname || "/";
     if (pathname.startsWith("//")) return null;
     if (isAuthEntryPath(pathname)) return null;
+    // Containment in this app's own base path. On a multi-app workspace host
+    // `/otherapp/admin` is same-origin but is NOT this app, so this is the
     // only control that makes an unsigned path-only token safe there. `base`
+    // is resolved from configured env / `appBasePath()` and NEVER from the
+    // continuation itself.
     if (
       base &&
       pathname !== base &&

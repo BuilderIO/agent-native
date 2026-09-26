@@ -368,6 +368,8 @@ export function useAgentDynamicSuggestionsResult(
   );
   const [isLoading, setIsLoading] = useState(false);
   // Invalidates in-flight loads from a stale scope/browserTabId/enabled
+  // generation — shared between the leading load below and the safety-net
+  // poll so a slow response from an old generation can't clobber a newer one.
   const loadGenerationRef = useRef(0);
 
   const load = useCallback(

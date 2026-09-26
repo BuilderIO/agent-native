@@ -1,4 +1,9 @@
+// @agent-native/pinpoint — Element selection via document.elementFromPoint()
 // MIT License
+//
+// rAF-gated throttling (60fps). Target-identity short-circuit.
+// Two-tier hover: fast path (highlight rect) + deferred path (component info after 100ms).
+// Stash hovered element ref to prevent ghost-element race on click.
 
 export interface ElementPickerOptions {
   onHover?: (element: Element | null, rect: DOMRect | null) => void;

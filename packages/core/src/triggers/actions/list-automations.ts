@@ -93,7 +93,6 @@ export default defineAction({
         scope: scope as AutomationScope,
         triggerType: meta.triggerType,
         event: meta.event ?? null,
-        // The path is a bearer credential, so only people who can update the
         webhookPath: canUpdate ? (webhookPath ?? null) : null,
         schedule: meta.schedule || null,
         timezone: meta.schedule ? effectiveTimezone(meta.timezone) : null,

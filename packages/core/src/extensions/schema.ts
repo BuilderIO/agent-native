@@ -168,7 +168,17 @@ export const EXTENSION_HISTORY_VERSION_INDEX_SQL = `CREATE UNIQUE INDEX IF NOT E
 export const EXTENSION_HISTORY_CREATED_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tool_history_tool_created_idx
   ON tool_history (tool_id, created_at)`;
 
+// ---------------------------------------------------------------------------
+// extension_consents — vestigial, kept for additive-schema compliance
+// ---------------------------------------------------------------------------
+//
+// Originally added for an audit-C1 per-(viewer, extension, content_hash)
+// consent gate that prompted viewers to "Run anyway" before non-author
+// extensions could execute. We removed the runtime gate after settling on
+// intra-org trust (extensions are shared between trusted teammates; the
+// org-level access controls are sufficient). The table is kept here so
 // deploys that already ran the migration stay healthy — additive-only schema
+// policy means we never drop. Physical name stays `tool_consents`.
 
 export const extensionConsents = table("tool_consents", {
   viewerEmail: text("viewer_email").notNull(),

@@ -1,4 +1,8 @@
+// @agent-native/pinpoint — Click-and-drag multi-element selection
 // MIT License
+//
+// Inspired by react-grab pattern: 75% coverage threshold.
+// Collect elements within selection rectangle via bounding rect comparison.
 
 export interface DragSelectOptions {
   coverageThreshold?: number;

@@ -45,7 +45,6 @@ describe("redactArgsToJson", () => {
   });
 
   it("truncates very long (non-secret) strings", () => {
-    // rather than redacted as a secret.
     const long = "lorem ipsum ".repeat(500);
     const json = redactArgsToJson({ body: long });
     const parsed = JSON.parse(json!);

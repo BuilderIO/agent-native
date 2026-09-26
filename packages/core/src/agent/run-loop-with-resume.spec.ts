@@ -61,6 +61,8 @@ function makeOpts(
   outcomes?: AgentLoopOutcome[],
 ): Parameters<typeof runAgentLoopDirectWithSoftTimeout>[0] {
   return {
+    // The wrapper only inspects messages, signal, model, and threadId. Cast the
+    // rest — the mocked runAgentLoop ignores them.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     engine: {} as any,
     model: "test-model",
@@ -1462,7 +1464,6 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(attempts).toBe(2);
     expect(sentEvents.filter((e) => e.type === "clear")).toHaveLength(0);
   });
-
 
   it("injects a structured journal note on resume listing completed and interrupted tool calls", async () => {
     mockGetCurrentTurnEventsForThread.mockResolvedValue([

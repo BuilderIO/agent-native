@@ -1,4 +1,3 @@
-
 import { countTextTokens } from "../context-xray/tokenize.js";
 import {
   resolveObservationalMemoryConfig,
@@ -31,10 +30,6 @@ export interface RunReflectorResult {
   observationLogTokens: number;
 }
 
-/**
- * Condense the observation log into a reflection IF it exceeds the token
- * threshold; otherwise no-op.
- */
 export async function runReflector(
   options: RunReflectorOptions,
 ): Promise<RunReflectorResult> {

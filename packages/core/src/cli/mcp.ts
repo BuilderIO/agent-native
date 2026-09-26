@@ -1,18 +1,3 @@
-/**
- * `agent-native mcp <subcommand>` — connect external coding agents (Claude
- * Code desktop & CLI, Claude Cowork, Codex, Cursor, OpenCode, GitHub Copilot /
- * VS Code) to this agent-native app/workspace over MCP.
- *
- *   serve      Run the MCP stdio transport (this is what client configs spawn).
- *   install    Provision a token + write the client's MCP config idempotently.
- *   uninstall  Remove the named entry from a client's MCP config.
- *   status     Print resolved MCP URL/port, token state, and per-client entries.
- *   token      Print or rotate the local ACCESS_TOKEN in the workspace .env.
- *
- * Node-only CLI module. Hand-rolled `.env` upsert + minimal TOML block merge
- * keep this dependency-free (no new npm deps).
- */
-
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -142,7 +127,6 @@ export function resolveScreenMemoryStoreDir(
     )[0]?.candidate;
 }
 
-
 function envBaseDir(cwd = process.cwd()): string {
   return findWorkspaceRoot(cwd) ?? path.resolve(cwd);
 }
@@ -221,7 +205,6 @@ function ensureLocalToken(
   return { token, file, created: true };
 }
 
-
 function detectHostedUrl(cwd: string): string | undefined {
   const baseDir = envBaseDir(cwd);
   const content =
@@ -278,7 +261,6 @@ async function mintHostedJwt(cwd: string): Promise<string | undefined> {
   }
 }
 
-
 interface ServerEntryInputs {
   serverName: string;
   appId: string;
@@ -318,7 +300,6 @@ function buildCodexBlock(name: string, i: ServerEntryInputs): string {
   }
   return buildCodexLocalBlock(name, mcpServeArgs(i), mcpServeEnv(i));
 }
-
 
 function configPathFor(
   client: ClientId,
@@ -442,7 +423,6 @@ function clientHasEntry(client: ClientId, appId: string, cwd: string): boolean {
     hasJsonMcpEntryForClient(client, configPathFor(client, cwd, "user"), name)
   );
 }
-
 
 async function cmdServe(p: ParsedArgs): Promise<void> {
   await runMCPStdio({

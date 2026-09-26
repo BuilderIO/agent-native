@@ -166,7 +166,9 @@ describe("dispatch approval request status fencing", () => {
       };
       expect(await approvedAuditCount()).toBe(1);
 
+      // A concurrent second approve landing after the first already won the
       // race must find the row no longer 'pending': the fenced UPDATE
+      // affects zero rows, so it must not re-apply the change.
       const second = await dispatchStore.approveRequest(requestId);
       expect(second.status).toBe("approved");
       expect(second.reviewedAt).toBe(first.reviewedAt);
@@ -473,6 +475,7 @@ describe("vault request status fencing", () => {
       expect(grantsAfterFirst).toHaveLength(1);
 
       // Loser of the race: the row is already 'approved', so this must not
+      // create a second grant for the same request.
       const second = await vaultStore.approveRequest(
         requestId,
         "secret-value-2",

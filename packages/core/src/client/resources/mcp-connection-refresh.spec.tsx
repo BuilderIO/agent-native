@@ -45,6 +45,7 @@ describe("MCP connection pending window", () => {
     markMcpConnectionPending(startedAt);
 
     expect(hasPendingMcpConnection(startedAt + 60_000)).toBe(true);
+    // Still pending right up to the last moment the server would accept the
     // authorization, so a slow consent is never stranded.
     expect(
       hasPendingMcpConnection(startedAt + MCP_OAUTH_FLOW_TTL_MS - 1_000),

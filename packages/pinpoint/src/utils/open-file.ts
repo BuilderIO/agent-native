@@ -1,5 +1,10 @@
+// @agent-native/pinpoint — Open file in editor
 // MIT License
 
+/**
+ * Open a file in the user's editor. Tries vscode:// protocol first,
+ * falls back to a fetch to /api/open-file.
+ */
 export async function openFile(
   filePath: string,
   lineNumber?: number,
@@ -12,6 +17,7 @@ export async function openFile(
     window.open(vsCodeUrl, "_blank");
     return;
   } catch {
+    // VS Code not available
   }
 
   try {

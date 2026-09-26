@@ -1,4 +1,12 @@
+// @agent-native/pinpoint — freezeWAAPI tests
 // MIT License
+//
+// freezeWAAPI() only touches `document.getAnimations()` plus the Animation
+// objects it returns, so it's testable without jsdom/happy-dom by installing
+// a minimal fake `document.getAnimations` (this package has no DOM test
+// environment available — see selector-builder.spec.ts for details). The
+// fake Animation objects are plain, real state machines (pause()/play()
+// actually flip `playState`), not mocks that fake the assertions themselves.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

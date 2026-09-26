@@ -1,3 +1,12 @@
+// Pure decision logic for the agent-native CLI launcher shim, kept dependency
+// free so it can be unit tested without touching the filesystem.
+//
+// The tsx source fallback and mtime freshness check exist for local monorepo
+// development only. Published installs ship both src and dist, and tarball
+// extraction can leave .ts files newer than .js — that must never route to tsx
+// (not a runtime dependency), or `npx @agent-native/core ...` fails with
+// `spawn tsx ENOENT`. The `isSourceCheckout` gate is what keeps installed
+// packages on the shipped dist build.
 
 /**
  * @param {object} input

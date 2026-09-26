@@ -57,7 +57,6 @@ export const SANDBOX_EXECUTION_LEASE_MS = 90_000;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 export const SANDBOX_EXECUTION_REDRIVE_AFTER_MS = 15_000;
 
-
 export interface SandboxExecutionRunInput {
   code: string;
   timeoutMs: number;
@@ -96,7 +95,6 @@ export function resetSandboxBackgroundForTests(): void {
   registeredRunner = undefined;
 }
 
-
 export class BackgroundQueueAdapter implements SandboxAdapter {
   readonly id = "background-queue";
   readonly queued = true as const;
@@ -115,7 +113,6 @@ export function isQueuedSandboxAdapter(
 ): boolean {
   return Boolean(adapter && (adapter as { queued?: boolean }).queued === true);
 }
-
 
 export interface EnqueueSandboxExecutionInput {
   code: string;
@@ -181,7 +178,6 @@ export async function driveSandboxExecution(
   });
 }
 
-
 export interface ProcessSandboxExecutionResult {
   status:
     | "completed"
@@ -222,6 +218,8 @@ export async function processQueuedSandboxExecution(
     now,
   );
   if (!claimed) {
+    // Either another executor won the race, or attempts ran out. Reap the
+    // exhausted-expired case so the row cannot stay "running" forever.
     if (leaseExpired && row.attemptCount >= row.maxAttempts) {
       const reapedNow = await failExpiredSandboxExecution(
         executionId,
@@ -300,7 +298,6 @@ export async function processQueuedSandboxExecution(
     clearInterval(heartbeat);
   }
 }
-
 
 export async function drainDueSandboxExecutions(
   options: { limit?: number; event?: unknown } = {},

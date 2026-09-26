@@ -1252,6 +1252,10 @@ async function injectSessionAndReload(
   token: string,
   target: OAuthInjectionTarget,
 ) {
+  // Production apps have separate auth databases. A token minted by Mail does
+  // not resolve in Calendar, so the desktop handoff must only update the app
+  // that initiated OAuth. The app-specific cookie name still matters on
+  // localhost because cookies are scoped by host, not host+port.
   const targets: {
     session: Electron.Session;
     origin: string;
@@ -1347,7 +1351,6 @@ app.on("open-url", (event, url) => {
   }
   queueOrHandleDeepLink(url);
 });
-
 
 function isWindowUnfocused(): boolean {
   const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
@@ -1549,6 +1552,7 @@ async function warmDesktopAppOrigin(
     warmedOriginAt.set(origin, Date.now());
   } catch (error) {
     // coercion-ok: a failed warmup leaves the origin unmarked, so the next
+    // pass retries it. The tab still loads; it just pays the cold start.
     console.debug("[desktop-warmup] origin warmup failed", {
       origin,
       reason: error instanceof Error ? error.message : "unknown error",
@@ -1906,7 +1910,6 @@ function createWindow(): BrowserWindow {
 
   return win;
 }
-
 
 let activeAppId = "";
 let chatFirstPreviewAppId: string | null = null;
@@ -7015,6 +7018,9 @@ async function createCodeAgentRun(
     }
   }
 
+  // App creation must still produce a visible chat when setup is incomplete.
+  // The runner records the credential gap on this queued run, which lets the
+  // chat render the shared Builder/custom-key recovery actions and retry it.
 
   const goal =
     getCodeAgentGoal(firstStringValue(payload.goalId)) ?? CODE_AGENT_GOALS[0];
@@ -7836,6 +7842,9 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
   const permissionMode = requestedPermissionMode
     ? getCodeAgentPermissionMode(requestedPermissionMode)
     : undefined;
+  // A mode/title/metadata update is allowed to omit model selection. Do not
+  // turn that omission into the default local engine: a Claude run must stay
+  // a Claude run when the transcript syncs its permission mode.
   const requestedEngine = firstStringValue(payload.engine);
   const engine = requestedEngine
     ? normalizeCodeAgentRequestedEngine(requestedEngine)
@@ -12551,7 +12560,6 @@ registerQuickPromptIpc({
   sendOpenRequestToRenderer,
 });
 
-
 const contextMenuContents = new WeakSet<Electron.WebContents>();
 
 function openExternalUrl(url: string) {
@@ -12865,6 +12873,22 @@ ipcMain.on(
   },
 );
 
+// OAuth providers we recognize and keep out of app webviews. Depending on the
+// provider and flow, the URL is opened in an Electron BrowserWindow or the
+// system browser. Signed Builder app-webview connects can use the system
+// browser because the callback carries email-bound state; older unsigned
+// connect URLs still use the Electron popup so the callback shares the app
+// session. The desktop Code provider has its own loopback browser flow. Each
+// provider specifies:
+//   - a `matches` predicate on the initial URL (from window.open)
+//   - a `callbackPathFragment` used to detect when the OAuth callback has
+//     been reached so we can auto-close the popup
+//
+// Builder is matched on two URL shapes: (1) the localhost 302 starter at
+// `/_agent-native/builder/connect`, which is what the in-app button opens,
+// and (2) the resolved `builder.io/cli-auth` URL, so both shapes can be
+// routed out of the app webview. Private keys delivered by the callback are
+// written server-side (template `.env` + SQL `persisted-env-vars`) — they
 // never touch the webview/renderer. See credential-provider.ts.
 interface OAuthProvider {
   name: string;
@@ -13224,6 +13248,10 @@ function shouldOpenOAuthInSystemBrowser(provider: OAuthProvider, url: URL) {
       builderConnectUsesSignedBrowserProvider(url)
     );
   }
+  // Desktop Google OAuth carries a browser-binding cookie created by the
+  // bootstrap request. It must complete in the source session, not in the
+  // system browser's unrelated cookie jar. Non-desktop Google OAuth already
+  // uses the same in-app popup path.
   return false;
 }
 
@@ -13514,6 +13542,8 @@ async function navigateMcpOAuthInDispatchWebview(
     throw new Error("MCP OAuth return path is invalid.");
   }
   await new Promise<void>((resolve, reject) => {
+    // MCP OAuth must follow the provider and hosted callback inside this
+    // partition. The normal handler externalizes cross-origin redirects,
     // which would drop the partition cookie needed to validate MCP state.
     const releaseMcpOAuthNavigation = mcpOAuthNavigationGate.begin(target.id);
     let settled = false;
@@ -13749,7 +13779,6 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
   installWebviewNavigationListeners(contents, handleNavigation);
 }
 
-
 app.on("web-contents-created", (_event, contents) => {
   installContextMenu(contents);
   installSentryWebContentsInstrumentation(contents, {
@@ -13859,7 +13888,6 @@ app.on("web-contents-created", (_event, contents) => {
     }
   });
 });
-
 
 function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
   const currentUpdateStatus = getCurrentUpdateStatus();
@@ -14429,7 +14457,10 @@ void app.whenReady().then(async () => {
           };
         }
       }
+      // Ordinary navigation only synchronizes an app after the identity
+      // authority is already signed in. Adoption is reserved for an explicit
       // cookie transition so a persisted stale app session cannot switch the
+      // workspace account merely by being opened.
       const broker = desktopIdentityBroker;
       if (
         broker &&

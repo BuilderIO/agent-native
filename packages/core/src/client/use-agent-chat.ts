@@ -10,17 +10,6 @@ import {
 
 const MAX_PENDING_SCOPED_TAB_STATES = 100;
 
-/**
- * Hook that wraps sendToAgentChat with a loading state.
- *
- * Returns [isGenerating, send, stopReason] where:
- * - isGenerating: true after send() is called, false when the
- *   agentNative.chatRunning event reports that the run has stopped
- * - send: wrapper around sendToAgentChat that sets isGenerating to true
- * - stopReason: "stopped" when the user explicitly stopped the run
- * - observedRun: true once the scoped tab reports a run; resets when its ID changes
- * - tabId scope: observe only that tab; null waits until its identity is known
- */
 export function useAgentChatGenerating(options?: {
   tabId?: string | null;
 }): [boolean, (opts: AgentChatMessage) => string, "stopped" | null, boolean] {

@@ -21,6 +21,7 @@
  * code and the loopback bridge URL embedded in that code by the parent.
  */
 
+/** Environment variables an adapter may expose to the sandbox process. */
 export type SandboxEnv = Record<string, string>;
 
 export interface SandboxRunRequest {

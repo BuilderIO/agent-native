@@ -205,6 +205,8 @@ export function assertIdentityColumnRows(
     const column = String(row.column_name ?? "");
     if (!IDENTITY_COLUMN_PATTERN.test(column)) continue;
     const key = `${table}.${column}`;
+    // owner_email is intentionally swept at runtime because extensions and
+    // app-owned stores may add it without a core migration release.
     if (registered.has(key) || column === "owner_email") continue;
     if (IDENTITY_REKEY_IGNORED_COLUMNS.has(key)) continue;
     throw new Error(

@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — Freeze exports
 // MIT License
 
 export {

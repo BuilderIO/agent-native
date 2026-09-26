@@ -1,25 +1,3 @@
-/**
- * Server-side agent-chat proxy for an app opened inside Dispatch.
- *
- * The Desktop app already solves this by pointing the rail's `apiUrl` at a
- * loopback relay onto the target app's `/_agent-native/agent-chat`, so parity
- * with the app's native chat holds structurally instead of by copying tools and
- * instructions into Dispatch's agent. This is the web equivalent: Dispatch
- * forwards the whole agent-chat subtree to the app's own server.
- *
- * Credential: the app's OWN embed session, minted through the existing paths in
- * `mcp-gateway.ts` — the same credential the app pane's iframe already runs on.
- * Dispatch consumes the one-time ticket server-side and reuses the resulting
- * short-lived embed token as a bearer, which is an authentication path the
- * framework already accepts (`resolveEmbedSessionFromRequest`). No new auth
- * scheme, and no token gains scope it did not already have.
- *
- * A dedicated Nitro route rather than an action: agent-chat streams (SSE for
- * `/runs/:id/events`, a token stream for the turn itself) and returns non-JSON
- * bodies, which is the documented exception in CLAUDE.md to the
- * actions-over-routes rule.
- */
-
 import { getOrgContext } from "@agent-native/core/org";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import {
@@ -68,10 +46,6 @@ const DROPPED_REQUEST_HEADERS = new Set([
   EMBED_TARGET_HEADER,
 ]);
 
-/**
- * `set-cookie` would land on Dispatch's origin, and the encoding/length headers
- * describe the upstream wire body, which `fetch` has already decoded.
- */
 const DROPPED_RESPONSE_HEADERS = new Set([
   "content-encoding",
   "content-length",
@@ -237,7 +211,6 @@ function upstreamRequestHeaders(
   }
   headers.set("authorization", `Bearer ${session.token}`);
   headers.set(EMBED_TARGET_HEADER, session.embedTarget);
-  // explicit rather than relying on the no-cookie shortcut.
   headers.set(CSRF_MARKER_HEADER, "1");
   return headers;
 }
@@ -341,7 +314,6 @@ export function createWorkspaceAppChatProxyHandler(
       );
     }
 
-    // credential so the next request re-mints instead of looping on a token the
     if (upstream.status === 401 || upstream.status === 403) {
       sessionCache.delete(
         sessionCacheKey({
@@ -363,6 +335,8 @@ export function createWorkspaceAppChatProxyHandler(
       }
       headers.set(name, value);
     }
+    // `upstream.body` is the live stream: SSE run events and the turn's token
+    // stream reach the browser as the app emits them, never buffered here.
     return new Response(upstream.body, {
       status: upstream.status,
       statusText: upstream.statusText,

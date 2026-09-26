@@ -118,8 +118,12 @@ export function isEmbedMcpChatBridgeActive(): boolean {
     return true;
   }
   const scope = currentMcpChatBridgeScope(win);
+  // Once we've enrolled in MCP bridge mode in this page, trust the in-memory
   // flag. A null scope (because the URL token was stripped after enroll AND
+  // sessionStorage is denied — Safari private mode, third-party-cookie-blocked
+  // iframes, strict ChatGPT/Claude sandboxes) is NOT evidence of de-enrollment.
   // Only an actual auth-scope CHANGE (a different non-null embed token) means
+  // we should clear the bridge.
   if (mcpChatBridgeActive) {
     if (scope == null) return true;
     if (mcpChatBridgeScope == null || mcpChatBridgeScope === scope) {
@@ -318,7 +322,12 @@ function isOpaqueOriginFrame(win: Window): boolean {
 }
 
 function stripTokenFromUrl(win: Window): void {
+  // Keep the token in the URL for opaque-origin frames — see
+  // isOpaqueOriginFrame. Stripping it there breaks re-auth on any document
+  // reload. Embed responses now use Referrer-Policy: same-origin, but that
   // never leaks the retained token here: an opaque origin never equals any
+  // other origin (including its own), so "same-origin" requests from this
+  // document never qualify and no Referer is sent at all.
   if (isOpaqueOriginFrame(win)) return;
   try {
     const url = currentUrl(win);

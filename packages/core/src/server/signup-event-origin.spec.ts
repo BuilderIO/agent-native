@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 import { encodeMagicLinkSignupAttribution } from "./magic-link-attribution.js";
 
-
 const tracked: Array<{
   name: string;
   properties: Record<string, unknown>;
@@ -154,6 +153,8 @@ describe("emitSignupEventForCreatedUser", () => {
     expect(tracked[0].properties).toMatchObject({ utm_source: "newsletter" });
   });
 
+  // The handoff header is unsigned and outranks the cookie, so a request that
+  // arrives carrying one must not be able to author somebody's attribution.
   it("prefers the request-scoped context over an inbound handoff header", async () => {
     requestContext = {
       signupAttribution: {

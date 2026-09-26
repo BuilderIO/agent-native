@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 import type { Experiment, ExperimentVariant } from "./types.js";
 
-
 const store = vi.hoisted(() => ({
   insertExperiment: vi.fn(),
   updateExperiment: vi.fn(),
@@ -334,7 +333,10 @@ describe("computeExperimentResults stats", () => {
     expect(traceCall.sql).toMatch(/s\.created_at >= \?/);
     expect(traceCall.args).toEqual(["alice", "bob", 5000]);
 
+    // Because no traces matched, runIds is empty and the eval query is
+    // skipped — so the satisfaction read is the very next (3rd) call. It
     // must likewise scope to the variant's users via the feedback subquery
+    // (f.user_id IN (?, ?)), never leaking another variant's frustration.
     expect(dbExecute.mock.calls).toHaveLength(3);
     const satCall = dbExecute.mock.calls[2][0];
     expect(satCall.sql).toMatch(/f\.user_id IN \(\?, \?\)/);

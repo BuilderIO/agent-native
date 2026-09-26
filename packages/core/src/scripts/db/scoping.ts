@@ -1,4 +1,3 @@
-
 const CORE_TABLE_SCOPING: Record<
   string,
   { column: string; mode: "prefix" | "exact" }
@@ -46,7 +45,6 @@ function getOrgId(): string | null {
   return getRequestOrgId() || null;
 }
 
-
 interface TableColumn {
   table: string;
   column: string;
@@ -66,7 +64,6 @@ async function discoverColumns(client: {
     column: row.column_name,
   }));
 }
-
 
 function escapeSqlString(value: string): string {
   return value.replace(/'/g, "''");
@@ -114,6 +111,16 @@ function buildScopedTables(
           .replace(/%/g, "\\%")
           .replace(/_/g, "\\_");
         const prefix = `u:${likeEmail}:`;
+        // Hide per-user credential rows (u:<email>:credential:<KEY>) from the
+        // raw db-query/db-exec tools. saveCredential() now encrypts API keys
+        // and third-party tokens at rest (AES-256-GCM), but the agent never
+        // needs to read them via SQL — it uses them implicitly server-side.
+        // Excluding them from the view is defense-in-depth: it removes a
+        // prompt-injection exfiltration channel (read own secret → send to
+        // attacker URL) and also hides any legacy plaintext rows that predate
+        // encryption plus the recoverable last4/preview. Schema-qualified attempts
+        // to reach the base table (public.settings) are
+        // rejected separately by assertNoSchemaQualifiedTables in safety.ts.
         whereSql =
           `"${coreScoping.column}" LIKE '${prefix}%' ESCAPE '\\'` +
           ` AND "${coreScoping.column}" NOT LIKE '${prefix}credential:%' ESCAPE '\\'`;
@@ -171,7 +178,6 @@ function buildScopedTables(
 
   return scoped;
 }
-
 
 export interface ScopingContext {
   setup: string[];

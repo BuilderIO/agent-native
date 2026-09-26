@@ -63,6 +63,10 @@ import { runFrameworkSchemaEnsures } from "./release-schema.js";
 function assertReleaseMigrationTargetsRemoteDatabase(): void {
   if (getAppConfig().migration.deployContext !== "production") return;
   const url = getDatabaseUrl();
+  // `isLocalDatabase()` alone is not enough. Netlify hands the CLI a MASKED
+  // secret ("****************uire") outside its own build infra, and that is
+  // neither empty nor a local URL — so it reads as "not local" while being
+  // unconnectable. Require a real remote scheme too.
   if (url.includes("://")) return;
   throw new Error(
     `Release migrations resolved to an unusable database (${describeReleaseMigrationUrl(url)}). ` +
@@ -88,6 +92,8 @@ export async function runFrameworkReleaseMigrations(
 ): Promise<void> {
   assertReleaseMigrationTargetsRemoteDatabase();
   // First: the versioned migration lists below only cover the tables that have
+  // one. Most framework tables are defined by their store's `ensureTable()`,
+  // which production serverless can never run — see `./release-schema.ts`.
   await runFrameworkSchemaEnsures();
   await recordDatabaseIdentity();
   await runBetterAuthMigrations(nitroApp);

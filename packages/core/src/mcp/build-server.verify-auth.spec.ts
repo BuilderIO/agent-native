@@ -474,6 +474,12 @@ describe("verifyAuth — connect-token revoke check", () => {
   });
 });
 
+// Bug #3: a connected real caller (connect-minted token / `mcp install` /
+// ACCESS_TOKEN / production) must get the FULL MCP tool surface even in local
+// dev — the documented external-agents contract. `verifyAuth` reports this via
+// `fullSurface`, which `createMCPServerForRequest` uses to swap in
+// `config.productionActions`. The pure unauthenticated dev-open path stays
+// sparse (`fullSurface: false`).
 describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => {
   beforeEach(() => {
     vi.clearAllMocks();

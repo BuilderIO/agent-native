@@ -438,11 +438,7 @@ export function useChatThreads(
   );
 
   const addOptimisticThread = useCallback(
-    (
-      id: string,
-      threadScope: ChatThreadScope | null,
-      seedAt?: number,
-    ) => {
+    (id: string, threadScope: ChatThreadScope | null, seedAt?: number) => {
       const stamp =
         typeof seedAt === "number" && Number.isFinite(seedAt)
           ? seedAt
@@ -509,6 +505,10 @@ export function useChatThreads(
     [activeThreadKey, browserTabId, readKnownThreadScope, storageKey],
   );
 
+  // Persist active thread ID — and rehydrate on scope flips. When the user
+  // navigates from deck A to deck B, `activeThreadKey` changes; we re-read B's
+  // scoped thread only if the currently visible chat is itself scoped to a
+  // different resource. Unscoped chats are global and stay visible.
   const persistedKeyRef = useRef(activeThreadKey);
   useEffect(() => {
     if (persistedKeyRef.current !== activeThreadKey) {
@@ -543,6 +543,7 @@ export function useChatThreads(
         nextActiveThreadId = null;
       }
       // Only a known mismatch disqualifies the pointer — an unresolved scope
+      // must not be read as "belongs here".
       if (nextActiveThreadId) {
         const savedScope = readKnownThreadScope(nextActiveThreadId);
         if (
@@ -928,7 +929,6 @@ export function useChatThreads(
           },
         );
         if (!res.ok) {
-          // server instead of applying a scope change that didn't happen.
           await fetchThreads();
           return;
         }
@@ -1217,6 +1217,9 @@ export function useChatThreads(
     [apiUrl, clearUserRenamedThread, createThread, historyScope],
   );
 
+  // Reads scope through refs so this callback survives every setThreads. Scope
+  // rides only on creation: a periodic save must never move an existing thread
+  // between resources, however stale this client's guess is.
   const saveThreadData = useCallback(
     async (
       id: string,

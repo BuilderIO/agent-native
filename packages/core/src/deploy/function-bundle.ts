@@ -231,6 +231,10 @@ function removeScopeIfEmpty(nodeModulesDir: string, packageDir: string): void {
  * the list that is pruned out cannot drift apart.
  */
 export const SERVERLESS_BROWSER_RUNTIME_PACKAGES = [
+  // chromium-min, not chromium: the full package embeds a 66MB browser in every
+  // emitted function, paid on every cold start to serve a fallback most requests
+  // never take. The min package is 46KB and fetches the same pinned pack on
+  // first launch. See chromiumPackUrl() in creative-context's rendered-page.
   // guard:allow-serverless-function-payload — -66.4MB per function, replaces "@sparticuz/chromium"
   "@sparticuz/chromium-min",
   "playwright-core",
@@ -320,6 +324,7 @@ export function pruneBrowserRuntimeFromNonAgentClone(
   }
 
   // Delete the roots themselves by package name, never by scope directory: an
+  // unrelated @sparticuz/* package that some other dependency still needs would
   // otherwise go with the scope, and `stillNeeded` has no way to protect it.
   // The scope is removed afterwards only once nothing is left in it.
   for (const name of browserRoots) {

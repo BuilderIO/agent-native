@@ -1,4 +1,3 @@
-
 import {
   defineEventHandler,
   getHeader,
@@ -116,7 +115,6 @@ export function createObservabilityHandler() {
     const parts = pathname ? pathname.split("/") : [];
 
     const owner = await resolveOwner(event);
-
 
     if (method === "GET" && parts.length === 0) {
       const q = getQuery(event);
@@ -348,8 +346,6 @@ export function createObservabilityHandler() {
       });
       return { id };
     }
-
-    // are gated by authentication above (only authenticated users or
 
     if (method === "GET" && parts.length === 1 && parts[0] === "experiments") {
       return listExperiments();

@@ -1,5 +1,24 @@
 // @vitest-environment happy-dom
 
+/**
+ * On a serverless host, `/_agent-native/events` answers a bare 204 instead of
+ * holding the invocation (see `core-routes-plugin.sse-serverless.spec.ts`).
+ * Under the EventSource spec, a non-200 response is a terminal failure: the
+ * browser closes the connection and does NOT auto-reconnect. This transport
+ * owns local reconnects itself: a refusal before the stream ever opened
+ * reports REALTIME_CAP_POLL_LIVE so subscribers (DeckContext, collab/
+ * client.ts) keep their normal cadence instead of mistaking "no push" for
+ * "live channel down" — on that deploy target /poll is the live channel
+ * already — and retries on a two-tier backoff. It starts on the same short
+ * schedule as an ordinary network blip (base 1s, doubling, capped at 30s),
+ * since a never-opened stream is as likely to be a transient 401/502/proxy
+ * hiccup as a permanent serverless refusal; only once that schedule's cap has
+ * fired three times (~2 minutes in) does it fall back to a long backoff
+ * (5 min, doubling to a 60 min cap) so a serverless deploy isn't billed a
+ * fresh cold container every 30 seconds forever. A stream that DID open and
+ * later drops keeps the short schedule throughout, and polling keeps running
+ * across every tier.
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {

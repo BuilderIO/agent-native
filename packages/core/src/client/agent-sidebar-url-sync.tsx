@@ -54,6 +54,15 @@ export function URLSync({ browserTabId }: { browserTabId?: string }) {
     normalizedBrowserTabId,
   ]);
 
+  // Inbound: poll for URL-update commands from the agent. `useDbSync`
+  // invalidates this key on every relevant app-state event, so default
+  // `structuralSharing: true` is critical — without it, repeated reads of the
+  // same stale command (when the consume-DELETE below races against the next
+  // invalidation) churned the useEffect and re-applied the navigation in a
+  // tight loop. With structural sharing on, the previous reference is reused
+  // when the JSON is unchanged so the useEffect only fires when the command
+  // actually changes; the `lastProcessedDedupKeyRef` below covers the residual
+  // race window after the cache is cleared to `null`.
   const { data: command } = useQuery<{
     key: string;
     command: {

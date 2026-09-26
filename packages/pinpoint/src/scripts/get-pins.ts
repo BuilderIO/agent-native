@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — List/filter annotations script
 // MIT License
 
 import { parseArgs } from "@agent-native/core/scripts";

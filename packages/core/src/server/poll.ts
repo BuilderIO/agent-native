@@ -1,4 +1,3 @@
-
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 
@@ -1143,6 +1142,15 @@ export class AppSyncState {
       const compositeCursorSql = cursor
         ? "(version > ? OR (version = ? AND id > ?))"
         : "version > ?";
+      // Scope the fetch to rows that could ever be visible to this caller
+      // before paying to JSON.parse and visibility-check every deployment-wide
+      // event: deployment-global rows (no owner, no org), the caller's own
+      // rows, the caller's org's rows, and resource-scoped rows (access is
+      // decided below by the access-aware branch, which can grant a non-owner
+      // sharee, so resource-scoped rows must still flow through that check
+      // regardless of who owns them). A caller with no org passes a null
+      // `orgId` bind param, which makes `org_id = ?` match no row in both
+      // mirroring the `event.orgId && orgId` truthy check.
       const result = await this.getDb().execute({
         sql: `SELECT id, version, event_json FROM sync_events WHERE ${compositeCursorSql}
               AND (
@@ -1674,6 +1682,8 @@ let _defaultState: AppSyncState | undefined;
 
 function hostedRealtimeTransportEnabled(): boolean {
   // config-ok: one of three copies that must agree byte-for-byte; the other
+  // two are in `sentry-config.ts` and in generated worker source, and this
+  // file cannot import either way without a cycle.
   return process.env.AGENT_NATIVE_REALTIME_TRANSPORT?.trim() === "hosted";
 }
 

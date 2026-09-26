@@ -456,12 +456,6 @@ async function markReconnectRequired<T extends OAuthCredential>(
   );
 }
 
-/**
- * Force a stored credential into `reconnect_required` without a refresh attempt.
- * For a token the provider rejected server-side (e.g. a 401/403) while it still
- * looks valid locally, so the credential itself carries the reconnect signal
- * instead of a side channel. Returns false when there is nothing to mark.
- */
 export async function markOAuthReconnectRequired<
   T extends OAuthCredential = OAuthCredential,
 >(

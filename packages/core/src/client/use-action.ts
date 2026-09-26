@@ -99,6 +99,10 @@ export function actionErrorMessage(error: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+// ---------------------------------------------------------------------------
+// Action type registry — augmented by generated code
+// ---------------------------------------------------------------------------
+
 /**
  * Action type registry. This interface is empty by default and gets augmented
  * by the auto-generated `.generated/action-types.d.ts` file. When augmented,
@@ -851,6 +855,10 @@ export function tryCallActionKeepalive<
 
   return { accepted: true, bodyBytes, completion };
 }
+
+// ---------------------------------------------------------------------------
+// Query hook
+// ---------------------------------------------------------------------------
 
 /**
  * Wraps a caller-supplied `refetchInterval` so polling stops once the query's

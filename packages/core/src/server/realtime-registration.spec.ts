@@ -207,6 +207,7 @@ describe("resolveRegisteredRealtimeChannel", () => {
       () => mockHostedWorkspace.mockReturnValue(true),
     ],
     [
+      // One channel per pull request would burn the per-org cap, and a
       // throwaway preview credential should never leave the machine.
       "it is a deploy preview rather than production",
       () => mockDeployEnv.mockReturnValue("preview"),
@@ -284,6 +285,10 @@ describe("resolveRegisteredRealtimeChannel", () => {
   });
 
   it("re-registers when the gateway endpoint changes", async () => {
+    // A channel only exists on the gateway it was registered with. Repointing
+    // staging to production leaves the database, origin and credential
+    // unchanged, so without the endpoint in the fingerprint the app reuses a
+    // channel the new gateway has never heard of.
     await resolveRegisteredRealtimeChannel();
     const stored = mockPutSetting.mock.calls[0][1];
     fetchMock.mockClear();
@@ -304,6 +309,10 @@ describe("resolveRegisteredRealtimeChannel", () => {
   });
 
   it("re-registers when the Builder credential moves to another org", async () => {
+    // The gateway scopes a channel to the org the key resolves to. Without the
+    // credential in the fingerprint the app kept minting against the OLD org's
+    // channel forever — the new org's rollout flag, suspension and cap
+    // accounting never applying to it.
     await resolveRegisteredRealtimeChannel();
     const stored = mockPutSetting.mock.calls[0][1];
     fetchMock.mockClear();

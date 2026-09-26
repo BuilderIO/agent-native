@@ -494,7 +494,11 @@ function applyWorkspaceAppMetadataOverride(
   };
 }
 
+// Workspace apps are mounted beneath the Dispatch gateway origin. That makes
+// them same-origin with Dispatch, so a mounted pane runs with the signed-in
 // user's session cookie (`path: "/"`). Only trusted, workspace-owner-authored
+// code belongs here; changes to authorship, content trust, or sharing require
+// an explicit auth, origin, or sandbox boundary before this invariant changes.
 function workspaceAppUrl(appPath: string): string | null {
   const base = resolveAppRuntimeUrl();
   if (!base) return null;
@@ -1296,7 +1300,6 @@ async function ensureWorkspaceAppRecords(
   const readyApps = apps.filter(
     (app) => app.status !== "pending" && !app.isDispatch,
   );
-  // only. Minting a row here would create the very authorization the access
   const shouldPersist = options.persist !== false;
   if (readyApps.length === 0) {
     return apps;
@@ -1353,6 +1356,9 @@ async function ensureWorkspaceAppRecords(
           continue;
         }
         const override = metadata.apps[app.id];
+        // Never infer ownership from the person who happened to list apps.
+        // Legacy manifests without trusted creation metadata remain
+        // ownerless until an admin-controlled migration/claim flow exists.
         const ownerEmail = cleanOptionalText(override?.createdBy) ?? "";
         const visibility: WorkspaceAppVisibility =
           override?.visibility === "private"
@@ -1487,6 +1493,8 @@ async function filterWorkspaceAppsByAccess(
     userEmail = currentOwnerEmail();
   } catch {
     // coercion-ok: anonymous requests fail closed by receiving no app metadata.
+    // App metadata is access-controlled. An anonymous request must not receive
+    // the full registry simply because there is no caller to resolve.
     return [];
   }
   const orgId = currentOrgId() ?? undefined;
@@ -1660,6 +1668,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
     baseUrl = new URL(base);
   } catch {
     // coercion-ok: malformed gateway configuration is an unavailable registry
+    // and falls back to local sources.
     return null;
   }
   if (baseUrl.protocol !== "http:" && baseUrl.protocol !== "https:") {
@@ -1695,6 +1704,9 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         {
           expiresIn: "1m",
           preferGlobalSecret: true,
+          // Keep the exact request scope even when the org-domain lookup is
+          // unavailable. The receiver must never infer a different org from
+          // the caller's email in that case.
           ...(requestContext.orgId
             ? { extraClaims: { org_id: requestContext.orgId } }
             : {}),
@@ -1746,6 +1758,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       if (localResponse.ok) {
         const apps = parseWorkspaceAppsManifest(
           // coercion-ok: malformed gateway JSON is an unavailable registry and
+          // must fall through to the local manifest sources.
           await localResponse.json().catch(() => null),
         );
         return apps ? { apps } : null;
@@ -1778,6 +1791,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
     if (!actionResponse.ok) return null;
     const apps = parseWorkspaceAppsManifest(
       // coercion-ok: malformed gateway JSON is an unavailable registry and
+      // must fall through to the local manifest sources.
       await actionResponse.json().catch(() => null),
     );
     return apps ? { apps } : null;

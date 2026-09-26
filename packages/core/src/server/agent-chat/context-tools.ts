@@ -8,7 +8,6 @@ import {
 } from "../../data-widgets/index.js";
 import { getRequestRunContext } from "../request-context.js";
 
-
 export const FRAMEWORK_CONTEXT_SECTIONS: Record<string, string> = {
   embeds: `### Inline Embeds
 
@@ -321,6 +320,11 @@ export function createUrlTools(): Record<string, ActionEntry> {
           {
             searchParams: params,
             mergeSearchParams: merge,
+            // Unique-per-write token. The client's URLSync hook dedups by this
+            // so a fire-and-forget DELETE that loses its race against the next
+            // polling refetch can't cause the same URL command to be applied
+            // repeatedly (which caused the editor to bounce between slides
+            // when an agent turn errored partway through).
             _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           },
         );
@@ -376,7 +380,9 @@ export function createUrlTools(): Record<string, ActionEntry> {
             pathname,
             searchParams: params,
             mergeSearchParams: merge,
+            // See note in set-search-params: unique-per-write dedup token so a
             // race between GET and consume-DELETE in URLSync can't re-apply
+            // this command.
             _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           },
         );

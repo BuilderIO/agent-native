@@ -72,6 +72,9 @@ function trustedApprovedActions(
   value: unknown,
   event: any,
 ): A2AApprovedAction[] | undefined {
+  // Static API keys and unsigned requests do not prove which user authorized
+  // a consequential action. Only a verified identity-bearing JWT may carry
+  // chat authorization across the A2A boundary.
   if (!event?.context?.__a2aVerifiedEmail || !Array.isArray(value)) {
     return undefined;
   }
@@ -704,12 +707,27 @@ async function handleSend(
     }
   }
 
+  // Async mode: return the task immediately in `working` state, run the
+  // handler in the background, and let the caller poll `tasks/get`. This is
+  // the workaround for synchronous serverless request timeouts when the handler
+  // runs LLM + tool loops that can exceed a single HTTP invocation budget.
   // SECURITY: only honor the explicit top-level `params.async`. The
+  // metadata.async fallback was caller-controlled and could force async
+  // dispatch (which has weaker auth than the sync path) on otherwise sync
+  // requests. Async is also refused entirely when no auth is configured in
+  // production — see the additional gate below.
   const asyncMode =
     params.async === true || (event && event.context?.__a2aForceAsync === true);
   if (!asyncMode) idempotencyKey = undefined;
 
   if (asyncMode) {
+    // Refuse async mode entirely without the shared secret in production.
+    // The async dispatch path self-fires the `_process-task` route, which is
+    // authenticated with an internal HMAC signed by A2A_SECRET. A legacy
+    // apiKeyEnv can authenticate the JSON-RPC request, but it cannot
+    // authenticate that internal handoff. Accepting it here would create a
+    // working task that can never start and leaves the caller polling until
+    // its timeout.
     if (isA2AProductionRuntime() && !hasConfiguredA2ASecret()) {
       return {
         ...jsonRpcError(

@@ -1,3 +1,13 @@
+/**
+ * Tests for the org-scope authorization added to provider-api-register.
+ *
+ * Plan 014 (advisor-plans/014-custom-registry-scope-authorization.md): this
+ * action previously let ANY authenticated org member upsert/delete an
+ * ORG-scoped custom API provider with no owner/admin check. These tests
+ * assert that org-scope upsert/delete now require the caller to be an org
+ * owner or admin, while user-scope calls and org-scope reads remain
+ * unaffected.
+ */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -130,6 +140,9 @@ describe("provider-api-register org-scope authorization", () => {
   });
 
   it("allows an org-scope upsert/delete when the caller has no active org", async () => {
+    // No org at all — `resolveOrgId` never wired, or a genuinely org-less
+    // solo user. `scopeId` collapses to the caller's own email (same as
+    // scope: "user"), so there's no other org member to protect against;
     // this must not hard-reject the action's own default scope.
     mocks.getCredentialContext.mockReturnValue({
       userEmail: "solo@example.com",

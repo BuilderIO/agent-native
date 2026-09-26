@@ -99,7 +99,6 @@ describe("scanReleaseSchemaCoverage", () => {
     expect(findings[0].file).toBe("src/widgets/store.ts");
   });
 
-  // Reached through the migration half of the release path rather than the
   it("treats a module imported by release-migrations.ts as covered", () => {
     const root = makeCore({
       "src/server/release-schema.ts": listWith([]),

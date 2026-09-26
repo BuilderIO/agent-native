@@ -31,7 +31,6 @@ import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import { withConfiguredAppBasePath } from "../app-base-path.js";
 import type { AgentChatPluginOptions } from "./plugin-options.js";
 
-
 export function filterReadOnlyActions(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
@@ -446,6 +445,11 @@ async function runDelegatedAgentLoop(
         pluginOptions.runSoftTimeoutMs,
         timeoutOptions?.backgroundFunction === true,
       ),
+    // Delegated runs resolve their own model and do not pass through the
+    // interactive request handler's output-token setup. Use the same
+    // model-aware headroom here so reasoning models (notably GPT-5.x) do
+    // not spend the small internal default entirely on reasoning before
+    // emitting a tool call or answer. Preserve explicit test/caller values.
     maxOutputTokens:
       runOptions.maxOutputTokens ??
       resolveMainChatMaxOutputTokens(runOptions.model),

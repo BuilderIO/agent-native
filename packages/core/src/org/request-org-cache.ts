@@ -54,20 +54,6 @@ export function requestMemberOrgIds(
   return pending;
 }
 
-/**
- * Cross-request cache for the full membership rows behind `getOrgContext`.
- *
- * The per-request memo above only collapses repeated reads inside ONE request.
- * Every authenticated request still paid its own `org_members` round trip, and
- * production showed 494,785 of them — one per request, 1:1 with the session
- * lookup, for memberships that change on the order of days.
- *
- * Only a SUCCESSFUL read is stored. `loadMemberships` returns `null` for an
- * unreadable `org_members` (missing relation on a template that skips the org
- * module, a role without SELECT); caching that would turn a permissions blip
- * into a minute of silently org-less requests, which drops org scope and hides
- * every org-scoped credential behind a permanent-sounding "not configured".
- */
 const MEMBER_ORGS_TTL_MS = 15_000;
 
 const processMemberships = createTtlCache<unknown[]>({

@@ -114,7 +114,37 @@ function isAllowedHeader(name: string): boolean {
   return HEADER_NAME_RE.test(name) && !BLOCKED_HEADERS.has(lower);
 }
 
+// ---------------------------------------------------------------------------
+// Role-aware bridge gating (audit H4)
+// ---------------------------------------------------------------------------
+//
+// The host bridge dispatches every iframe postMessage request with the
 // viewer's session cookie. That means a non-author viewer's session can be
+// used to call mutating actions, write SQL, and resolve secret references —
+// the very capabilities that motivate the C1 consent step. After consent has
+// been granted, we still want defense-in-depth: a viewer whose role is
+// "viewer" should not be able to (e.g.) chain `appAction('share-resource')`
+// or run `dbExec` writes against their own data through someone else's extension.
+//
+// Role table (lowest tier first):
+//
+//   role     | appFetch        | extensionFetch       | extensionData       | dbQuery | dbExec | appAction
+//   ---------|-----------------|-----------------|----------------|---------|--------|----------
+//   viewer   | GET only        | GET only        | get/list only  |  deny   |  deny  | allow*
+//   editor   | all methods     | all methods     | get/list/set/  |  allow  | allow* |  allow
+//            |                 |                 | remove         |         |        |
+//   admin    | all methods     | all methods     | all            |  allow  | allow* |  allow
+//   owner    | all methods     | all methods     | all            |  allow  | allow* |  allow
+//
+//   * dbExec destructive operations are independently blocked by the SQL
+//     blocklist on the server (DROP / TRUNCATE / DELETE without WHERE etc).
+//     The role gate sits in front of that — viewers can't reach the SQL
+//     surface at all; editors and above hit the SQL gate as well.
+//
+// The SQL helpers are denied entirely for viewers (not just dbExec) because
+// the dbQuery surface in dev mode bypasses the production scoping shim and
+// can leak other users' rows in template tables that aren't in
+// SENSITIVE_SQL_RE.
 
 export type ExtensionBridgeRole =
   | "owner"

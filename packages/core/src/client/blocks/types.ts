@@ -16,6 +16,7 @@ import type { ZodType } from "zod";
  * parse byte-compatibly.
  */
 
+/** Where a block can be placed in a document. */
 export type BlockPlacement = "block" | "inline";
 
 export type BlockVisualFrame = "auto" | "show" | "hide";

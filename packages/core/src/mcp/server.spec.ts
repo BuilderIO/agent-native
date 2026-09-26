@@ -196,7 +196,6 @@ vi.mock("./oauth-store.js", () => ({
 
 const { handleMcpRequest } = await import("./server.js");
 
-
 interface MakeEventOpts {
   method?: string;
   path?: string;
@@ -212,8 +211,10 @@ function makeWebEvent(opts: MakeEventOpts): any {
     "x-forwarded-proto": "https",
     accept: "application/json, text/event-stream",
     "content-type": "application/json",
+    // A deployed app (non-loopback host) is authenticated — header-only
     // dev-open is loopback-only now (security: a public deploy with no
     // secret must not be impersonable via X-Agent-Native-Owner-Email).
+    // Tests that exercise the unauthenticated path override this.
     authorization: "Bearer test-access-token",
     ...(opts.headers ?? {}),
   };
@@ -293,7 +294,6 @@ vi.mock("../server/h3-helpers.js", () => ({
 vi.mock("../server/framework-request-handler.js", () => ({
   getH3App: () => ({ use: () => {} }),
 }));
-
 
 const config = {
   name: "agent-native-mail",
@@ -591,7 +591,6 @@ async function mcpAppsFullCatalogHeaders(
 
 describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)", () => {
   beforeEach(() => {
-    // caller (header-only dev-open is loopback-only — see security note).
     process.env.ACCESS_TOKEN = "test-access-token";
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;

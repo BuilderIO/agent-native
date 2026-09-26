@@ -1,4 +1,3 @@
-
 import { EventEmitter } from "node:events";
 
 import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
@@ -22,7 +21,6 @@ export interface AwarenessEntry {
   state: string;
   lastSeen: number;
 }
-
 
 export const AWARENESS_CHANGE_EVENT = "awareness-change" as const;
 
@@ -80,6 +78,7 @@ export function rememberAwarenessScope(
   pruneAwarenessScopes(now);
   const existing = _awarenessScopes.get(docId);
   if (!scope) {
+    // Agent-presence heartbeats emit scope-less awareness changes. They still
     // prove the document is active and must keep the access scope alive.
     if (existing) {
       _awarenessScopes.delete(docId);

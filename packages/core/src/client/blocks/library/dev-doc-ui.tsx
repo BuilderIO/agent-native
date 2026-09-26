@@ -27,6 +27,7 @@ import { cn } from "../../utils.js";
  * param location, diff mode).
  */
 
+/* ── Input ─────────────────────────────────────────────────────────────────── */
 
 export const DevInput = forwardRef<
   HTMLInputElement,
@@ -44,7 +45,6 @@ export const DevInput = forwardRef<
 ));
 DevInput.displayName = "DevInput";
 
-
 export const DevLabel = forwardRef<
   HTMLLabelElement,
   LabelHTMLAttributes<HTMLLabelElement>
@@ -59,7 +59,6 @@ export const DevLabel = forwardRef<
   />
 ));
 DevLabel.displayName = "DevLabel";
-
 
 export const DevTextarea = forwardRef<
   HTMLTextAreaElement,
@@ -76,7 +75,6 @@ export const DevTextarea = forwardRef<
 ));
 DevTextarea.displayName = "DevTextarea";
 
-
 export function DevBadge({ className, ...props }: ComponentProps<"span">) {
   return (
     <span
@@ -88,7 +86,6 @@ export function DevBadge({ className, ...props }: ComponentProps<"span">) {
     />
   );
 }
-
 
 export function DevSwitch({
   checked,
@@ -129,7 +126,6 @@ export function DevSwitch({
     </button>
   );
 }
-
 
 export interface DevSelectOption {
   value: string;

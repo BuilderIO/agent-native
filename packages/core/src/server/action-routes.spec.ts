@@ -1896,7 +1896,6 @@ describe("mountActionRoutes", () => {
     });
   });
 
-
   it("refuses extension tools-bridge calls to provider-api-request", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
@@ -1983,7 +1982,6 @@ describe("mountActionRoutes", () => {
     expect(actions["legacy-action"].run).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ ok: true });
   });
-
 
   it("rejects oversize POST bodies with 413 before parsing when maxBodyBytes is set", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
@@ -2102,7 +2100,6 @@ describe("mountActionRoutes", () => {
     expect(result).toEqual({ ok: true });
     expect(actions["share-resource"].run).toHaveBeenCalledTimes(1);
   });
-
 
   it("accepts built-in feature flag delegation without template adapter", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
@@ -2586,6 +2583,7 @@ describe("mountActionRoutes", () => {
 
   it("hard-rejects with 401 when resolveCaller throws (session chain not consulted)", async () => {
     // Contract: a throw means "the credential is mine but invalid". It must NOT
+    // fall through to getOwnerFromEvent/getSession — otherwise a forged A2A
     // bearer plus a live same-origin cookie would run as the session user.
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
@@ -2839,8 +2837,11 @@ describe("mountActionRoutes", () => {
   });
 
   it("never lets the ambient session org override the adapter caller's org", async () => {
+    // A request can carry BOTH a valid A2A bearer and an unrelated same-origin
     // browser cookie. The identity comes from the token, so the org must too:
+    // the session-backed resolveOrgId (and getSession/getOrgContext) must not
     // be consulted, or the token caller would execute under the cookie user's
+    // org — a cross-org confusion.
     const { mountActionRoutes } = await import("./action-routes.js");
     const { getRequestOrgId } = await import("./request-context.js");
     mockResolveOrgIdForEmail.mockResolvedValue("org-of-a2a-caller");

@@ -1,6 +1,13 @@
-
 const DEV_FALLBACK_EMAIL = "local@localhost"; // guard:allow-localhost-fallback — sentinel intentionally rejected so the resolver doesn't return it
 
+/**
+ * Resolve the local dev user's email for the current CLI invocation.
+ *
+ * Returns the resolved email, or `undefined` when no real identity is
+ * available. Callers should let the downstream "no authenticated user"
+ * error propagate — its message points the user at the two fixes
+ * (sign in via the running app, or set `AGENT_USER_EMAIL`).
+ */
 export async function resolveDevUserEmail(): Promise<string | undefined> {
   const explicit = process.env.AGENT_USER_EMAIL;
   if (explicit) return explicit;

@@ -114,6 +114,8 @@ export default function App() {
       }
     } catch (error) {
       // coercion-ok: the lane keeps its last known value, which is the same
+      // origin every webview is already pointed at. A failed read must not
+      // move a signed-in user between lanes.
       console.debug("[desktop-environment] lane read failed", {
         reason: error instanceof Error ? error.message : "unknown error",
       });

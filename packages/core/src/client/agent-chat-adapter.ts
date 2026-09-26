@@ -119,7 +119,15 @@ const MAX_STARTUP_RECOVERY_ATTEMPTS = 8;
 const MAX_QUEUED_CONFLICT_RETRIES = 120;
 const MAX_NON_ADVANCING_CONTINUATIONS = 3;
 const MAX_TOTAL_TRANSIENT_CONTINUATIONS = 12;
+// Ceiling across the whole turn for WORK-boundary continuations. A `loop_limit`
+// round is not a failure — the server spent a full iteration budget on real
+// tool work and handed the turn back — so counting it against the transient
+// ceiling killed progressing turns at round 13 that had never failed once.
+// Sized against the server's own limits: at its default budget of 400
+// iterations per run this is ~10,000 tool calls, two orders past the deepest
+// legitimate production turn (117 tool calls) that sized that budget. It still
 // has to exist, because the server's per-turn token backstop rides the request
+// body between server-chained chunks and resets on every client re-POST.
 const MAX_LOOP_LIMIT_CONTINUATIONS = 25;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
@@ -263,6 +271,34 @@ function isTerminalChatModelRunResult(result: ChatModelRunResult): boolean {
 
 const BACKGROUND_FOLLOW_POLL_INTERVAL_MS = 1_000;
 export const BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS = 90_000;
+// How long the follow loop tolerates seeing NO active run for this turn before
+// treating the turn as ended. The server pre-inserts the successor row before
+// the old chunk completes, so a healthy chain never shows an idle gap; allow a
+// wider window here because the server's unclaimed-handoff recovery can span
+// the 25s grace plus sweep/DB latency. This stays below the background
+// reconnect stuck threshold, but gives the server-owned recovery brain time to
+// surface the successor or terminal errored run before the client reports idle.
+//
+// THREE-SITE INVARIANT (keep in lockstep with run-store.ts and
+// agent-chat-plugin.ts — see `UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS`'s doc
+// comment in run-store.ts for the full derivation): a `chainServerDrivenContinuation`
+// deferral (server/production-agent.ts) leaves a successor row `running` with
+// no live worker until a sweep redispatches it. The budget is a derived
+// chain, each bound comfortably inside the next:
+//   UNCLAIMED_BACKGROUND_RUN_GRACE_MS            (25s)
+// + UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS       (20s)
+// = ~45-65s worst-case time-to-first-redispatch-attempt
+// < RUN_NO_PROGRESS_HARD_TIMEOUT_MS              (150s, run-manager.ts)
+// < BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS            (210s, this constant)
+// < UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS (300s, run-store.ts)
+// On top of that margin, the follow loop below never counts a tick against
+// this timeout at all while `/runs/active` reports `awaitingRedispatch:
+// true` — a server-authoritative "known deferred, recovery in progress"
+// signal, not a guess — so this timeout is a backstop for a genuinely lost
+// run, not the primary mechanism racing the sweep. Do NOT raise this value to
+// paper over a slow sweep; fix the sweep timing (run-store.ts /
+// agent-chat-plugin.ts) instead, and keep this comment's inequality chain
+// accurate if any of the four numbers change.
 export const BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS = 210_000;
 
 import {
@@ -271,6 +307,14 @@ import {
 } from "../app-config/run-lifecycle-invariants.js";
 const MAX_REPEATED_BACKGROUND_TERMINAL_REASONS = 3;
 
+// A re-observed terminal run whose outcome would be an ERROR (never a
+// genuine "done" success) gets a short extra grace window before the follow
+// loop surfaces it: the server's dead-run recovery can reap a lost
+// background run and insert a claimable successor a beat after the client
+// first sees the stale terminal row. Deliberately much shorter than
+// BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS — this exists to absorb that narrow
+// insert-latency race, not to mask a genuinely lost run behind a long hang
+// before the user sees an error.
 const BACKGROUND_TERMINAL_ERROR_GRACE_POLLS = 5;
 
 const BACKGROUND_TERMINAL_REASON_MESSAGES: Record<string, string> = {
@@ -4225,6 +4269,13 @@ export function createAgentChatAdapter(
             }
 
             if (err instanceof AgentAutoContinueSignal) {
+              // Background-dispatched runs: the server chains continuations
+              // itself (successor row pre-inserted before the old chunk
+              // completes). Never POST a synthetic continuation and never
+              // abort the live server-side run — switch to read-only
+              // following of server state instead. This is the fix for the
+              // client/server recovery race: client watchdog signals here are
+              // just "reattach", not "recover".
               if (shouldFollowServerContinuation(err) && threadId) {
                 const followOutcome = yield* followBackgroundTurn(err);
                 if (followOutcome === "client_continue") {

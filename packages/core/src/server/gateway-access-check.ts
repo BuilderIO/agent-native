@@ -1,4 +1,3 @@
-
 import {
   defineEventHandler,
   getMethod,
@@ -25,7 +24,6 @@ export function createGatewayAccessCheckHandler() {
     }
 
     let secret = getRealtimeSigningSecret();
-    // Sync, env-only: binds the token's channel when this app's project id is
     let expectedProjectId = getBuilderBranchProjectId() || undefined;
 
     if (!secret && !expectedProjectId) {
@@ -34,6 +32,7 @@ export function createGatewayAccessCheckHandler() {
       );
       if (registered) {
         secret = registered.hmacSecret;
+        // Bind the channel: a self-registered app knows its own id, so an
         // access token minted for a different channel must not verify here.
         expectedProjectId = registered.channelId;
       }

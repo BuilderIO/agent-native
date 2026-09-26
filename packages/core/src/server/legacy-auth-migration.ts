@@ -43,7 +43,6 @@ async function ensureCanonicalUser(
       created: true,
     };
   } catch (error) {
-    // that race as success only after the adapter can read the winner.
     const winner = await findExisting();
     if (winner) return { user: winner, created: false };
     throw error;

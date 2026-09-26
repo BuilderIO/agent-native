@@ -1,7 +1,5 @@
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
-
 
 export interface UndoKeyboardOptions {
   enableKeyboardShortcuts?: boolean;
@@ -50,7 +48,6 @@ function useUndoKeyboard(
   }, [enabled, ignoreInputs, undo, redo]);
 }
 
-
 export type CollabUndoScope =
   | Y.AbstractType<any>
   | Y.AbstractType<any>[]
@@ -87,7 +84,6 @@ export function useCollabUndo(
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
-  // Keep latest scope/origins in refs so the effect only re-runs on doc change.
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
   const trackedRef = useRef(trackedOrigins);
@@ -172,7 +168,6 @@ export function useCollabUndo(
     undoManager: managerRef.current,
   };
 }
-
 
 export interface LocalOpUndoEntry<TOp> {
   undo: TOp[];

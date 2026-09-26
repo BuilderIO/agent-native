@@ -1,4 +1,18 @@
+// @agent-native/pinpoint — freezeReact tests
 // MIT License
+//
+// freezeReact() reads `window.__REACT_DEVTOOLS_GLOBAL_HOOK__` and patches the
+// dispatcher it finds there. There's no jsdom/happy-dom available to this
+// package (see selector-builder.spec.ts), so we install a minimal fake
+// `window` carrying just the DevTools hook shape getInternals() reads
+// (`renderers` — a Map whose first value exposes `currentDispatcherRef`).
+// The proxy/dispatcher-patching logic itself is exercised for real: we don't
+// stub freezeReact's own behavior, only the browser global it looks for.
+//
+// `frozen` / `originalDispatcher` / `queuedUpdates` are module-level state
+// shared across every test in this file, so each test that gets a *real*
+// (non-no-op) cleanup back from freezeReact() must call it before the test
+// ends — otherwise later tests would see `isReactFrozen() === true` already.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

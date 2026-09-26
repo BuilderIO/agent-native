@@ -207,6 +207,8 @@ vi.mock("./task-store.js", () => {
   };
 });
 
+// Mock the integrations/internal-token import so the a2a handler tests don't
+// require A2A_SECRET to be set in the test environment for sign().
 vi.mock("../integrations/internal-token.js", () => ({
   signInternalToken: () => "test-token",
   verifyInternalToken: () => true,

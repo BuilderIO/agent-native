@@ -81,6 +81,10 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   const resourceBackground = "#0a0a0c"; // guard:allow-raw-color — email markup must inline colors for clients.
   const resourceText = "#fafafa"; // guard:allow-raw-color — email markup must inline colors for clients.
 
+  // Trusted markup supplied by the caller (template code, not user input),
+  // injected as-is so a template can own app-specific previews (e.g. a video
+  // thumbnail with a play badge). Callers are responsible for escaping any
+  // dynamic values they interpolate.
   const heroHtml = args.heroHtml ?? "";
 
   const renderParagraphs = (paragraphs: string[] | undefined): string =>

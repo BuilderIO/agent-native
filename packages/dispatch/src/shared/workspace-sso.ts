@@ -151,6 +151,7 @@ function isCanonicalWorkspaceSsoOrigin(
     return targets ? origin === `https://${targets.betaHost}` : false;
   } catch {
     // coercion-ok: canonical origins are static metadata, so malformed values
+    // are rejected as non-canonical.
     return false;
   }
 }

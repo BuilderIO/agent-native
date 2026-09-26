@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
-
 interface Row {
   yjs_state: string;
   text_snapshot: string;
@@ -183,6 +182,8 @@ describe("ydoc-manager multi-client merge", () => {
       d.getText("content").insert(0, `X${i}`);
       updates.push(Y.encodeStateAsUpdate(d));
     }
+    // Fire them all "at once" — withDocWriteLock must serialize so every insert
+    // survives (no read-modify-write race that drops one).
     await Promise.all(
       updates.map((u, i) => manager.applyUpdate(docId, u, `tab${i}`)),
     );

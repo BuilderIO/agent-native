@@ -787,6 +787,7 @@ export async function waitForThreadRunToClear(
   return true;
 }
 
+// ─── Composer Attachment Preview ─────────────────────────────────────────────
 
 function getImageAttachmentSrc(attachment: Attachment): string | null {
   if (attachment.type !== "image") return null;
@@ -1983,7 +1984,6 @@ function AssistantChatScrollerControls({
 
   return null;
 }
-
 
 export interface AssistantChatHandle {
   sendMessage(
@@ -3299,6 +3299,12 @@ const AssistantChatInner = forwardRef<
 
   const importThreadData = useCallback(
     (threadData: unknown, options?: { markTitleGenerated?: boolean }): any => {
+      // Cheap-signal short-circuit: if the raw payload is identical to the
+      // last one we imported, there is nothing new to parse, normalize, or
+      // re-import into the runtime. Reuse the already-imported repo so callers
+      // still get back a stable result without the CPU + re-render cost. We
+      // still honor `markTitleGenerated` because a re-fetch carrying the same
+      // content can legitimately confirm a title is settled.
       const signature =
         typeof threadData === "string"
           ? threadData
@@ -3381,6 +3387,7 @@ const AssistantChatInner = forwardRef<
           return importThreadData(repo);
         } catch {
           // coercion-ok: callers treat null as "keep the thread already
+          // rendered", the same handling an absent repo needs.
           return null;
         }
       }
@@ -3403,6 +3410,7 @@ const AssistantChatInner = forwardRef<
         return importThreadData(refreshData.threadData);
       } catch {
         // coercion-ok: an aborted or failed refresh keeps the thread already
+        // rendered; the next poll tick retries.
         return null;
       } finally {
         if (ownAbortTimer) clearTimeout(ownAbortTimer);
@@ -3729,7 +3737,6 @@ const AssistantChatInner = forwardRef<
                 async (signal) => {
                   if (document.hidden) return;
                   if (reconnectRunIdRef.current !== runId) return;
-                  // Adapter took over mid-poll — skip imports that would race
                   if (
                     isRuntimeRunningRef.current ||
                     isAutoResumingRef.current
@@ -4161,6 +4168,10 @@ const AssistantChatInner = forwardRef<
     setIsRestoring(false);
   }, [isNewThread, threadId]);
 
+  // Restore messages from server on mount (when threadId is set). The
+  // server is the single source of truth — we don't hydrate from localStorage
+  // first, so what the user sees in the chat panel always matches what the
+  // history list (and the agent) sees on disk.
   useEffect(() => {
     if (isThreadStateLoading) return;
     if (hasRestoredRef.current) return;
@@ -4185,6 +4196,8 @@ const AssistantChatInner = forwardRef<
       })();
       return () => {
         cancelled = true;
+        // React StrictMode replays effects without resetting refs. Let the
+        // replay start the restore again after cancelling this attempt.
         hasRestoredRef.current = false;
       };
     } else if (threadId && isNewThread) {
@@ -4255,6 +4268,7 @@ const AssistantChatInner = forwardRef<
                 });
               }
             }
+            // Also skip title generation if thread already has a title
             if (data.title) {
               titleGeneratedRef.current = true;
             }
@@ -4738,6 +4752,10 @@ const AssistantChatInner = forwardRef<
     }
   }, [isAutoResuming, isRunning, resetRunningActivity]);
 
+  // Auto-dequeue: when the agent is idle, send the next queued message. This
+  // intentionally does not depend on observing the running -> idle transition:
+  // restored queues can exist after a reload where this component never saw the
+  // previous run as active.
   useEffect(() => {
     if (
       isRestoring ||
@@ -4913,6 +4931,11 @@ const AssistantChatInner = forwardRef<
     threadId,
   ]);
 
+  // Clear frozen reconnect content + forceStopped only on the false→true
+  // transition of isRuntimeRunning (i.e. a NEW run is actually starting).
+  // Reacting to "isRuntimeRunning is currently true" would clear the
+  // nuclear-stop flag immediately after the user clicks stop, since
+  // cancellation is async and isRuntimeRunning is still true at that moment.
   const prevIsRuntimeRunningRef = useRef(isRuntimeRunning);
   useEffect(() => {
     const wasRunning = prevIsRuntimeRunningRef.current;
@@ -5130,6 +5153,10 @@ const AssistantChatInner = forwardRef<
     [tabId, threadId, threadRuntime],
   );
 
+  // Abort the active server run (identical to what the Stop button does) so
+  // an immediate-while-running send can proceed cleanly without a 409 race.
+  // Captured in a stable ref so addToQueue can call it without listing
+  // all the stop-related state in its own dep array.
   const stopActiveRun = useCallback(
     (options?: { preserveQueuedMessages?: boolean }) => {
       setForceStopped(true);
@@ -5218,6 +5245,7 @@ const AssistantChatInner = forwardRef<
       trackStoppedRun,
     ],
   );
+  // Keep the ref current so addToQueue can call it without a stale closure.
   stopActiveRunRef.current = stopActiveRun;
 
   const handleComposerStop = useCallback(async () => {
@@ -5496,6 +5524,9 @@ const AssistantChatInner = forwardRef<
           resetRetainedTextStreamingState(effectiveContinuationTurnId);
         }
         if (interruptActiveRun) {
+          // Explicit interrupt path: abort the active server run, then let the
+          // auto-dequeue path append this message once the run is clear. Normal
+          // composer sends while running resolve to "queued" before reaching here.
           applyLocalQueuedMessages((prev) => [
             ...prev,
             {
@@ -5753,6 +5784,7 @@ const AssistantChatInner = forwardRef<
     onExecModeChange?.("build");
   }, [onExecModeChange]);
 
+  // Expose imperative handle
   useImperativeHandle(
     ref,
     () => ({
@@ -5872,6 +5904,9 @@ const AssistantChatInner = forwardRef<
     ],
   );
 
+  // Do not memoize this on `messages` identity. assistant-ui can update the
+  // live assistant message content in place while streaming, and the reconnect
+  // overlay must hide as soon as that live message has caught up.
   const visibleReconnectContent = dedupeReconnectContentAgainstMessages(
     reconnectContent,
     messages,
@@ -7102,47 +7137,44 @@ export const AssistantChat = forwardRef<
   const runtimeRef = useRef(props.runtime);
   runtimeRef.current = props.runtime;
 
-  const adapter = useMemo(
-    () => {
-      const context: AssistantChatAdapterContext = {
-        apiUrl,
-        streamingUrl: props.streamingUrl,
-        tabId,
-        threadId,
-        modelRef,
-        engineRef,
-        effortRef,
-        harnessRef,
-        hostedHarnessRef,
-        execModeRef,
-        browserTabId: resolvedBrowserTabId,
-        scopeRef,
-        surface,
-      };
-      const createAdapter = createAdapterRef.current;
-      if (createAdapter) return createAdapter(context);
-      const runtime = runtimeRef.current;
-      if (runtime) {
-        return createAgentChatRuntimeAdapter(runtime, {
-          sessionId: threadId ?? tabId,
-          threadId,
-          modelRef,
-          effortRef,
-        });
-      }
-      return createAgentChatAdapter(context);
-    },
-    [
+  const adapter = useMemo(() => {
+    const context: AssistantChatAdapterContext = {
       apiUrl,
+      streamingUrl: props.streamingUrl,
       tabId,
       threadId,
-      resolvedBrowserTabId,
+      modelRef,
+      engineRef,
+      effortRef,
+      harnessRef,
+      hostedHarnessRef,
+      execModeRef,
+      browserTabId: resolvedBrowserTabId,
+      scopeRef,
       surface,
-      props.streamingUrl,
-      props.runtime,
-      props.adapterReloadKey,
-    ],
-  );
+    };
+    const createAdapter = createAdapterRef.current;
+    if (createAdapter) return createAdapter(context);
+    const runtime = runtimeRef.current;
+    if (runtime) {
+      return createAgentChatRuntimeAdapter(runtime, {
+        sessionId: threadId ?? tabId,
+        threadId,
+        modelRef,
+        effortRef,
+      });
+    }
+    return createAgentChatAdapter(context);
+  }, [
+    apiUrl,
+    tabId,
+    threadId,
+    resolvedBrowserTabId,
+    surface,
+    props.streamingUrl,
+    props.runtime,
+    props.adapterReloadKey,
+  ]);
   const attachmentAdapter = useMemo(
     () =>
       new CompositeAttachmentAdapter([

@@ -1014,6 +1014,8 @@ function scheduleExpiredAgentScratchCleanup(client: DbExec): void {
       args: ["agent_scratch", now],
     })
     .catch((err) => {
+      // Say so rather than swallowing: scratch rows accumulating forever is a
+      // slow leak nobody would otherwise notice.
       // coercion-ok: failed GC degrades storage over time, never read correctness
       console.warn(
         "[resources] expired agent-scratch cleanup failed; will retry on a later read:",
@@ -1084,6 +1086,10 @@ async function _doEnsureTable(): Promise<void> {
     "resources_visibility_expires_idx",
     `CREATE INDEX IF NOT EXISTS resources_visibility_expires_idx ON resources (visibility, expires_at)`,
   ).catch((err) => {
+    // An index is an optimization, not a correctness requirement: a
+    // concurrent creator or a permissions edge must not fail table init and
+    // take the app down with it. The scan it avoids is slow, not wrong — but
+    // say so, because "silently slow forever" is the outcome nobody notices.
     // coercion-ok: absence of an index degrades latency, never correctness
     console.warn(
       "[resources] could not ensure resources_visibility_expires_idx; scratch cleanup will full-scan:",
@@ -1091,6 +1097,18 @@ async function _doEnsureTable(): Promise<void> {
     );
   });
 
+  // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid
+  // race conditions).
+  //
+  // Guarded by a durable marker: `_doEnsureTable` runs once per PROCESS, which on
+  // serverless is once per cold start, so this block was issuing ~10 writes and
+  // 2 migration scans per container to insert rows that had existed since day
+  // one (53,785 of them in one production sample). The marker makes it once per
+  // database, matching what the comments here already assumed.
+  //
+  // Consequence worth knowing: a default resource the user DELETES is no longer
+  // recreated on the next cold start. That silent resurrection was never
+  // intended — see `RESOURCE_SEED_VERSION` to force a re-seed.
   if (await alreadySeeded(SHARED_SEED_KEY)) return;
 
   const now = Date.now();

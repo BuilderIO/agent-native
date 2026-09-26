@@ -1,21 +1,3 @@
-/**
- * Framework-table store for the cross-app SSO client.
- *
- * The current protocol uses a fresh flow-state table instead of extending the
- * original `identity_sso_state` table. That keeps the migration additive for
- * deployments that already have the merged PR's schema:
- *
- *   - `identity_sso_flow_state` binds state to the exact app, client,
- *     authority, callback, and PKCE challenge. State is single-use.
- *   - `identity_sso_jti` is the legacy-named shared replay guard for short-lived
- *     server-to-server assertions, including identity SSO and privileged A2A
- *     mutations.
- *
- * Uses the same portable raw-SQL pattern as the other framework stores. Local
- * development may initialize these tables lazily; production release
- * migrations own their creation before serverless requests are served.
- */
-
 import { randomBytes } from "node:crypto";
 
 import {
@@ -79,7 +61,6 @@ const NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES = new Set(
     (siteName) => siteName !== "agent-native-dispatch",
   ),
 );
-
 
 function configuredAppOrigin(): string | undefined {
   for (const raw of [
@@ -364,6 +345,7 @@ function buildIdentitySsoJtiCreateSql(): string {
 }
 
 export async function ensureTable(): Promise<void> {
+  // Release migrations own schema in production serverless functions. A
   // request must not turn a missing migration into request-time DDL.
   if (isProductionServerlessFunctionRuntime()) return;
   if (!_initPromise) {

@@ -1,4 +1,3 @@
-
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -30,11 +29,6 @@ function sandboxWriteAllowPaths(tmpDir: string): string[] {
   return [...paths];
 }
 
-/**
- * Resolve the Node permission-model flag supported by the current runtime,
- * probing once and caching. Returns null when the permission model is
- * unavailable (the sandbox then falls back to env-scrub isolation only).
- */
 let cachedPermissionFlag: string | null | undefined;
 function resolvePermissionFlag(): string | null {
   if (cachedPermissionFlag !== undefined) return cachedPermissionFlag;

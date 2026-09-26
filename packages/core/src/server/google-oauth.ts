@@ -1,4 +1,3 @@
-
 import crypto from "node:crypto";
 
 import {
@@ -49,7 +48,6 @@ import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 function safeReturnPath(raw: string | null | undefined): string {
   return normalizeAppPath(raw) ?? "/";
 }
-
 
 function htmlResponse(html: string, status = 200): Response {
   return new Response(html, {
@@ -427,6 +425,7 @@ function getDefaultOAuthRedirectUrl(
   return `${getOrigin(event)}${basePath}${publicFrameworkPath(cleanPath)}`;
 }
 
+// ─── redirect_uri Allowlist ──────────────────────────────────────────────────
 
 /**
  * Validate a user-supplied `redirect_uri` for OAuth flows.
@@ -527,7 +526,6 @@ export function resolveOAuthRedirectUri(
   }
   return getDefaultOAuthRedirectUrl(event, defaultPath, options);
 }
-
 
 export interface OAuthStatePayload {
   redirectUri: string;
@@ -772,7 +770,6 @@ export function logOAuthStateDecodeFailure(
   });
 }
 
-
 export interface OAuthOwnerResult {
   owner: string | undefined;
   hasProductionSession: boolean;
@@ -870,7 +867,13 @@ export async function createOAuthSession(
         anonymousId,
       });
     }
+    // Desktop SSO: record this session in the home-dir broker file so
+    // sibling templates (each with its own database) can resolve the
     // same token without a DB row of their own. Only the PRIMARY
+    // sign-in writes the broker — if a production session already
+    // exists, this is an add-account flow (connecting a secondary
+    // Google account for scraping) and must never switch the active
+    // user across sibling templates.
     if (opts.desktop && !opts.hasProductionSession) {
       await writeDesktopSso({
         email,
@@ -882,7 +885,6 @@ export async function createOAuthSession(
 
   return { sessionToken };
 }
-
 
 export function oauthCallbackResponse(
   event: H3Event,
@@ -944,6 +946,10 @@ export function oauthCallbackResponse(
     return desktopSuccessPage(event, email, opts.sessionToken, callbackState);
   }
 
+  // A Tauri WebView cannot share cookies with the system browser or another
+  // Tauri WebviewWindow. When the callback stays in the initiating WebView,
+  // createOAuthSession has already staged its session cookie on this event;
+  // carry that cookie onto the HTML response before returning to the app.
   if (opts.desktop && opts.flowId && opts.desktopWebview) {
     const returnPath = safeReturnPath(opts.returnUrl);
     const headers = new Headers({
@@ -1022,7 +1028,6 @@ export function oauthDesktopExchangePage(
   const page = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Returning</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p style="font-size:14px">${safe}</p></body></html>`;
   return htmlResponse(page.replace("</body>", `${closeScript}</body>`));
 }
-
 
 function resolveOAuthAppName(explicit?: string): string {
   const raw = explicit || getAppConfig().app.name || "Agent-Native";

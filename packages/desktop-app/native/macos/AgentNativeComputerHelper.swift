@@ -158,8 +158,6 @@ private final class PhantomCursorOverlay {
                 max(desiredOriginX, placement.screen.frame.minX),
                 placement.screen.frame.maxX - PhantomCursorView.panelWidth
             )
-            // Keep the arrow tip on the action point. The display clips only
-            // the artwork that naturally extends past a physical edge.
             view.pointerOriginX = max(placement.appKitPoint.x - originX, 1)
 
             let desiredOriginY = view.labelAbove
@@ -226,8 +224,6 @@ private final class PhantomCursorOverlay {
         let screens = NSScreen.screens
         guard !screens.isEmpty else { return nil }
 
-        // Accessibility and NSScreen frames are both logical points. Derive a
-        // shared top-left space instead of mixing them with display pixels.
         let referenceScreen = screens.first(where: {
             $0.frame.minX == 0 && $0.frame.minY == 0
         }) ?? screens[0]
@@ -476,8 +472,6 @@ private final class ComputerHelper {
 
     private func focusedContext() throws -> (application: AXUIElement, bundleId: String, applicationName: String?, origin: String?) {
         let system = AXUIElementCreateSystemWide()
-        // The system-wide focused-app attribute can be temporarily unavailable
-        // during WindowServer transitions even when the frontmost app is AX-readable.
         let application = copyElement(system, kAXFocusedApplicationAttribute as CFString)
             ?? NSWorkspace.shared.frontmostApplication.map {
                 AXUIElementCreateApplication($0.processIdentifier)

@@ -85,7 +85,6 @@ export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 40_000;
 
 export const HOSTED_SOFT_TIMEOUT_CEILING_MS = 40_000;
 
-
 export const DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS =
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS;
 
@@ -162,16 +161,6 @@ export const SQL_SUBSCRIPTION_ACTIVE_GRACE_MS = 2_000;
 
 export const SQL_SUBSCRIPTION_STATUS_POLL_MS = 500;
 
-/**
- * Consecutive empty polls before the IDLE cadence starts decaying toward
- * `SQL_SUBSCRIPTION_IDLE_MAX_POLL_MS`.
- *
- * The active grace already covers a streaming producer, so decay only ever
- * applies to a subscriber watching a run that is producing nothing: a long tool
- * call, a slow first token, or a wedged producer. Those cost one poll per
- * 500ms each, forever, per subscriber — the single largest source of idle
- * `agent_run_events` reads.
- */
 export const SQL_SUBSCRIPTION_IDLE_DECAY_AFTER_POLLS = 4;
 
 export const SQL_SUBSCRIPTION_IDLE_MAX_POLL_MS = 2_000;
@@ -399,17 +388,6 @@ export function resolveBackgroundRunHardTimeoutMs(): number {
   return getAppConfig().agent.backgroundRunHardTimeoutMs;
 }
 
-/**
- * Chunk budget for a background automation, derived from the runner's OWN hard
- * abort rather than from the durable-chat background ceiling.
- *
- * The shipped build took the 13-minute chat ceiling for a path whose process is
- * killed at 10 minutes, which made the recoverable soft-timeout boundary dead
- * code and left the terminal no-progress backstop as the only boundary an
- * automation could ever reach. Deriving from the hard abort keeps
- * `soft timeout < hard abort` true by construction; the invariant check asserts
- * the headroom still fits.
- */
 export function resolveBackgroundAutomationSoftTimeoutMs(
   overrideMs?: number,
 ): number {
@@ -802,7 +780,9 @@ export function startRun(
     });
   };
 
+  // Persist run to SQL without blocking the response. Keep the promise so
   // final status cannot race ahead of a slow initial INSERT and then get
+  // overwritten by a late row stuck at status='running'.
   const insertOptions = options?.dispatchMode
     ? { dispatchMode: options.dispatchMode }
     : undefined;
@@ -1445,7 +1425,6 @@ export function startRun(
       });
     })
     .finally(async () => {
-
       let completionError: unknown = null;
       let terminalPersistenceError: unknown = null;
       let eventPersistenceError: unknown = null;
@@ -1566,8 +1545,7 @@ export function startRun(
               ? terminalEventForCompletion.event
               : terminalEventForCompletion?.event.type === "auto_continue" &&
                   run.continuationTerminalEvent
-                ?
-                  terminalEventForCompletion.event
+                ? terminalEventForCompletion.event
                 : {
                     type: "error",
                     error: completionError
@@ -1688,6 +1666,14 @@ export function startRun(
         terminalPersistenceEstablished = true;
       }
 
+      // 5c. Emit a terminal-outcome analytics event, reusing the same
+      // best-effort tracking seam as $ai_generation (dynamic import + a
+      // swallowed catch so a broken/absent provider can never affect the
+      // run). Fired AFTER the atomic-complete SQL writes above so it never
+      // races the thread_data-before-status invariant those steps exist to
+      // protect. `persistedStatus` (not `finalStatus`) is used so a
+      // continuation boundary reports as "truncated" rather than a false
+      // "completed" — that distinction is the whole point of this event.
       if (terminalPersistenceEstablished) {
         emitRunTerminalTrackingEvent({
           runId,
@@ -2373,6 +2359,40 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
     const sqlRun = await getRunByThread(threadId, { includeTerminal: true });
     if (!sqlRun) return null;
     if (sqlRun.status === "running") {
+      // FALLBACK HARDENING: a background-dispatched run that is still UNCLAIMED
+      // (dispatch_mode === 'background', never flipped to 'background-processing')
+      // past the tight grace means the bg-fn worker never started — a silent
+      // async-worker death that the 202-ack inline fallback can't catch. Reap it
+      // early and recoverably (background_worker_never_started) so the run no
+      // longer hangs for the full 90s window. Only fires when there is provably
+      // no live worker; a claimed/heartbeating run is left alone by the
+      // conditional SQL.
+      //
+      // REDISPATCH-BOUND GUARD (must be kept in lockstep with the "Unclaimed
+      // background-run sweep" in agent-chat-plugin.ts and with
+      // chainServerDrivenContinuation's deferral in production-agent.ts — do NOT
+      // remove this guard without reading those two sites):
+      // `chainServerDrivenContinuation` now DEFERS a dispatch-failed successor
+      // instead of erroring it — it leaves the row status='running',
+      // dispatch_mode='background' with its dispatch_payload intact so the sweep
+      // can silently redispatch it. This client poll runs every ~1s while a
+      // client is connected, so without this guard it would reap that deferred
+      // successor at the 25s unclaimed grace — long before the ~2-min sweep —
+      // converting the intended SILENT server-side recovery into a user-visible
+      // `background_worker_never_started` manual-retry error (that terminal
+      // reason does NOT auto-continue in the client follow loop; only `stale_run`
+      // does). While the successor is still inside its redispatch bound we skip
+      // this reap and leave it for the sweep. The outer backstops still bound it:
+      // `reapIfStale` below reaps a heartbeat-stale background row at 90s
+      // (BACKGROUND_RUN_STALE_MS) to the recoverable `stale_run` — which the
+      // follow loop AUTO-continues — and once the redispatch bound is exceeded
+      // this reap fires loudly as before. So recovery stays automatic in the
+      // common case and loud failure is only moved later, never removed.
+      //
+      // `isUnclaimedBackgroundDispatch` also becomes the `awaitingRedispatch`
+      // wire field below once the still-inside-the-bound check passes — see
+      // this function's doc comment and the THREE-SITE INVARIANT comment in
+      // agent-chat-plugin.ts / production-agent.ts.
       const isUnclaimedBackgroundDispatch =
         sqlRun.dispatchMode === "background";
       const stillInsideRedispatchBound = shouldRedispatchUnclaimedBackgroundRun(

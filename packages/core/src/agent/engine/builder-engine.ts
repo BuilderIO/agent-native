@@ -1,4 +1,3 @@
-
 import {
   BUILDER_OAUTH_SCOPE,
   hasBuilderOAuthSession,
@@ -915,6 +914,10 @@ async function* parseJsonlStream(
               event.errorCode ?? event.code,
               String(errMsg),
             );
+            // The gateway already authenticated this request before streaming,
+            // so a bare "Unauthorized" here means the account cannot use this
+            // model — not that the connection is broken. Only a message that
+            // names the credential may tear down the Builder connection.
             const isCredentialAuthError =
               Boolean(explicitErrMsg) &&
               isBuilderCredentialAuthErrorInStream(String(errMsg));
@@ -940,8 +943,7 @@ async function* parseJsonlStream(
                     : (gatewayErrCode ??
                       (!explicitErrMsg
                         ? "builder_gateway_error"
-                        :
-                          classifyTerminalErrorCode(String(errMsg))));
+                        : classifyTerminalErrorCode(String(errMsg))));
             console.error(
               `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} error=${errMsg}`,
             );

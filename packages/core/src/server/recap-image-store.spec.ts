@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// a Map keyed by token so the store's save → token → get round-trip can be
 const rows = new Map<string, Record<string, unknown>>();
 
 function createMemoryDb() {

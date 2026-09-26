@@ -1,24 +1,3 @@
-/**
- * Short-lived HMAC-signed access tokens for media URLs.
- *
- * Used by clips and calls to mint a single-use bearer token after a password
- * gate passes, then bake `?t=<token>` into the video/blob URL handed to the
- * `<video>` element — instead of `?password=<plaintext>` (which ends up in
- * browser history, CDN logs, and Referer headers).
- *
- * Token shape: `<payloadB64Url>.<sigB64Url>`
- *   payload = base64url(JSON.stringify({ resourceId, viewerEmail?, exp }))
- *   sig     = base64url(HMAC-SHA256(payload, key))
- *
- * Key resolution mirrors `google-oauth.ts:getOAuthStateSigningKey`:
- *   1. OAUTH_STATE_SECRET (preferred — dedicated to short-lived signing)
- *   2. BETTER_AUTH_SECRET (already used as a server secret)
- *   3. Hosted workspace deploys derive a per-purpose key from A2A_SECRET
- *   4. In dev only, an ephemeral random key (per-process)
- *
- * In production, throws if no usable server secret is set.
- */
-
 import crypto from "node:crypto";
 
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
@@ -160,7 +139,24 @@ export function verifyShortLivedToken(
   };
 }
 
+// ── Realtime subscribe tokens ────────────────────────────────────────────────
+//
+// An identity-bearing extension of the same HMAC discipline, used by the hosted
+// Realtime Gateway. Differs from the media token above in three ways the gateway
+// depends on:
+//   1. It is signed with a caller-supplied PER-PROJECT key (the app's HMAC
+//      secret), not the single deployment-wide `getSigningKey()`. The app server
+//      mints with it; the gateway (a second issuer for stream rotation) verifies
+//      and re-mints with the same per-project key. A token minted for project A
+//      fails signature verification against project B's key.
+//   2. It carries authorization-bearing identity (`owner`/`orgId`) that the
+//      gateway feeds to `canSeeChangeForUser` — the media token's `viewerEmail`
+//      is audit-only by contract, so a new field is required, not repurposed.
+//   3. It binds `projectId` as the channel and stamps a `typ` discriminator, so
+//      it is verified against the connect channel and cannot be replayed as a
+//      media token (or vice-versa) even if keys ever overlapped.
 
+/** Payload `typ` discriminator for realtime subscribe tokens. */
 export const REALTIME_SUBSCRIBE_TOKEN_TYPE = "rt-subscribe";
 const DEFAULT_REALTIME_TTL_SECONDS = 600;
 
@@ -219,6 +215,10 @@ export function signRealtimeSubscribeToken(
   key: string,
 ): string {
   if (!key) throw new Error("signRealtimeSubscribeToken requires a key");
+  // Fail closed: a token with neither owner nor orgId carries no authorization
+  // identity, so canSeeChangeForUser would only ever match global/unowned
+  // events. Every issuer (mint endpoint + the gateway's rotation re-mint) must
+  // supply at least one identity claim.
   if (!claims.owner && !claims.orgId) {
     throw new Error(
       "signRealtimeSubscribeToken requires an owner or orgId claim",
@@ -295,7 +295,6 @@ export function verifyRealtimeSubscribeToken(
     absExp: claims.absExp,
   };
 }
-
 
 export const REALTIME_VOICE_CAPABILITY_TOKEN_TYPE = "rt-voice-capability";
 
@@ -406,7 +405,15 @@ export function verifyRealtimeVoiceCapability(
   };
 }
 
+// ── Gateway access-check tokens ──────────────────────────────────────────────
+//
+// The hosted gateway has no access to an app's shareable-resource registry, so
+// it cannot resolve sharee visibility itself. It signs one of these with the
+// app's per-project key and calls the app's `/_agent-native/can-see`, which runs
+// `resolveAccess` and answers. The full access query is bound into the token so
+// the app authenticates the params, not merely the caller.
 
+/** Payload `typ` discriminator for gateway access-check tokens. */
 export const GATEWAY_ACCESS_TOKEN_TYPE = "rt-access-check";
 const DEFAULT_GATEWAY_ACCESS_TTL_SECONDS = 60;
 
@@ -496,6 +503,9 @@ export function verifyGatewayAccessToken(
   ) {
     return { ok: false, reason: "bad_payload" };
   }
+  // Optional channel binding, mirroring verifyRealtimeSubscribeToken. The
+  // per-project key already scopes verification to one app; this is belt-and-
+  // suspenders for a future multi-tenant secret store. Skipped when the caller
   // can't cheaply resolve its own project id (scoped-secret apps).
   if (expectedProjectId && claims.projectId !== expectedProjectId) {
     return { ok: false, reason: "wrong_project" };

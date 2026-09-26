@@ -421,6 +421,9 @@ describe("action discovery", () => {
     "preserves toolCallable:false on merged core sharing actions (audit-H5)",
     async () => {
       // Regression guard: mergeCoreSharingActions must carry the security-relevant
+      // toolCallable:false flag from the action defs into the registry, otherwise
+      // the tools-iframe bridge 403 in action-routes.ts never fires and a
+      // sandboxed extension could change resource visibility / revoke shares.
       const registry: Record<string, any> = {};
       await mergeCoreSharingActions(registry);
 

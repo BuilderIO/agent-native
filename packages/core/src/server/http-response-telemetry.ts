@@ -48,7 +48,12 @@ type GlobalWithProcessTelemetry = typeof globalThis & {
   [PROCESS_STATE_KEY]?: ProcessTelemetryState;
 };
 const globalRef = globalThis as GlobalWithProcessTelemetry;
+// Process start → this module being evaluated. On a serverless cold start that
+// span is the platform's container boot plus server-bundle evaluation, which
+// happens entirely before any request handler runs and is therefore invisible
 // to every in-handler measurement. Recorded here because module scope is the
+// earliest point our own code can observe. Stored on globalThis so the
+// earliest-evaluated copy wins if the bundle loads this module twice.
 const processState =
   globalRef[PROCESS_STATE_KEY] ??
   (globalRef[PROCESS_STATE_KEY] = {

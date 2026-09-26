@@ -17,22 +17,6 @@ import type {
   WireframeTone,
 } from "./wireframe.config.js";
 
-/**
- * Shared wireframe "kit" — hand-drawn low-fi primitives, the el → component node
- * registry, the rough.js sketch overlay, and the viewer-level sketchy/clean
- * style preference. Ported verbatim (geometry-wise) from the plan template's
- * `app/components/plan/wireframe/kit/*` so any app can render wireframe blocks.
- *
- * DECOUPLING: the only behavioral change from the plan copy is theme detection —
- * core blocks read `document.documentElement.classList.contains("dark")` (the
- * MermaidBlock precedent) instead of importing `next-themes`. Everything else
- * (the `.plan-wf` / `.wf-*` / `[data-rough]` class contract the rough overlay
- * measures, the `--wf-*` / `--ink` / `--paper` token names every primitive
- * reads) is preserved exactly, so the kit looks identical in plan and renders
- * correctly in any app once the matching tokens exist in `core/styles/blocks.css`.
- */
-
-
 export type WireframeStyle = "sketchy" | "clean";
 
 const STYLE_STORAGE_KEY = "plan-wireframe-style";
@@ -106,7 +90,6 @@ export function useIsDark(): boolean {
   }, []);
   return isDark;
 }
-
 
 export const KitConfigContext = createContext<{
   skeleton?: boolean;
@@ -1232,7 +1215,6 @@ export function Text({
   );
 }
 
-
 type NodeRenderer = (node: WireframeNode, children: ReactNode) => ReactNode;
 
 const REGISTRY: Record<WireframeElName, NodeRenderer> = {
@@ -1391,7 +1373,6 @@ export function hasRenderer(el: string): el is WireframeElName {
 }
 
 export { REGISTRY as NODE_REGISTRY, V as WFV, toneColors, toneInk, fontWeight };
-
 
 const gen = rough.generator();
 

@@ -907,6 +907,7 @@ describe("session replay", () => {
         recordOptions = options;
         if (recordMock.mock.calls.length > 1) {
           // A late settlement may race the pageshow recovery, but it must not
+          // resolve flush callers before the fresh recorder is active.
           expect(waiterResolved).toBe(false);
         }
         return vi.fn();

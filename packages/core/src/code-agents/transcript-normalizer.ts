@@ -79,17 +79,6 @@ export const CREDENTIAL_GAP_SIGNAL: NonNullable<
   CodeAgentTranscriptEvent["signal"]
 > = "credential-gap";
 
-/**
- * Shared "credential gap" detection for code-agent transcript events and the
- * normalized status items built from them. Prefers the structured `signal`
- * field the executor stamps on the event (see `code-agent-executor.ts`); only
- * falls back to matching the legacy hint text for transcripts persisted
- * before the structured signal existed. Accepts either a raw
- * `CodeAgentTranscriptEvent` (`message`) or a `NormalizedCodeAgentStatusEvent`
- * (`text`), and any of the other UI-facing transcript event shapes that carry
- * the same field names, so every consumer can share one implementation
- * instead of re-implementing the regex.
- */
 export function isCredentialGapCodeAgentEvent(event: {
   signal?: string;
   text?: string;

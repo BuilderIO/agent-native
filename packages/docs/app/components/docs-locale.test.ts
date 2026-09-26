@@ -225,6 +225,8 @@ describe("docsMarkdownPathForSlug", () => {
 });
 
 describe("comparableDocsPath", () => {
+  // This is an equality key, not a URL — every inbound form of one doc must
+  // collapse to the same token or every comparison against it silently fails.
   it("collapses every inbound form of one doc to a single key", () => {
     const forms = [
       "/docs/actions-overview",

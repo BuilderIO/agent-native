@@ -67,11 +67,6 @@ import {
 } from "../shared/mcp-embed-headers.js";
 import { requestHasEmbedAuthMarker } from "./embed-session.js";
 
-/**
- * Compute the sha256-<base64> hash token for an inline script's text content.
- * Pass the raw script body (no surrounding <script> tags). The resulting token
- * can be listed directly in a `script-src` CSP directive.
- */
 export function computeInlineScriptHash(scriptContent: string): string {
   const hash = createHash("sha256").update(scriptContent).digest("base64");
   return `'sha256-${hash}'`;

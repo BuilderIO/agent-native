@@ -33,6 +33,7 @@ import type { OpenApiSpecData } from "./openapi-spec.config.js";
  * from props (no window/document access at module or render time).
  */
 
+/* ── Theme-aware color tokens (mirrors ApiEndpointBlock) ────────────────────── */
 
 const METHOD_PILL: Record<string, string> = {
   GET: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
@@ -67,7 +68,6 @@ function statusPillClass(status: string): string {
     return "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300";
   return "bg-slate-200 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300";
 }
-
 
 type Json = unknown;
 type JsonObject = Record<string, Json>;
@@ -434,7 +434,9 @@ function normalizeSpec(doc: JsonObject): NormalizedSpec {
 
   const info = isObject(doc.info) ? doc.info : undefined;
 
+  // Global security requirement → every operation without its own override is
   // secured. Operation-level `security: []` opts out; we treat presence here as
+  // the default-secured signal.
   const globalSecured =
     Array.isArray(doc.security) &&
     doc.security.some((req) => isObject(req) && Object.keys(req).length > 0);
@@ -515,7 +517,6 @@ function normalizeSpec(doc: JsonObject): NormalizedSpec {
     operationCount,
   };
 }
-
 
 function OperationRow({
   operation,
@@ -721,7 +722,6 @@ function OperationRow({
   );
 }
 
-
 function TagGroup({
   group,
   defaultOpen,
@@ -772,6 +772,7 @@ function TagGroup({
   );
 }
 
+/* ── Read (Redoc / Swagger-UI-style reference) ─────────────────────────────── */
 
 /**
  * Read-only renderer for an `openapi-spec` block. Parses `data.spec` defensively
@@ -871,7 +872,6 @@ export function OpenApiSpecRead({
     </section>
   );
 }
-
 
 export function OpenApiSpecEdit({
   data,

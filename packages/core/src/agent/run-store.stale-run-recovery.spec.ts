@@ -2,7 +2,6 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
-
 const pglite = await createTestPglite();
 
 afterAll(async () => {
@@ -296,7 +295,9 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     const oldRow = await readRow(runId);
     expect(oldRow?.status).toBe("errored");
     expect(oldRow?.terminal_reason).toBe(STALE_RUN_TERMINAL_REASON);
+    // Terminal writes elsewhere NULL dispatch_payload, but reapIfStale's own
     // UPDATE never touches it directly — the important invariant is that the
+    // payload was captured into the successor before the row went terminal.
     expect(oldRow?.diag_stage).toContain("stale_run_recovery_attempted");
     expect(oldRow?.diag_stage).toContain("recovered");
 
@@ -587,7 +588,28 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
   });
 
   it("serializes two concurrent reapers for the same turn so the cap is never exceeded", async () => {
+    // Two stale rows of the SAME turn reaped at the same moment — e.g. a
+    // client's `reapIfStale` poll racing the startup `reapAllStaleRuns`
+    // sweep. Before the per-turn `pg_advisory_xact_lock`, both transactions
+    // could read the stale-successor count before either had inserted, and
+    // both would pass the cap check and create a successor.
+    //
+    // NOTE ON THIS HARNESS: production's real `DbExec.transaction()` (see
+    // `db/client.ts`) checks out a DEDICATED connection from a pool per
+    // call, so two concurrent `.transaction()` calls get real, isolated
+    // Postgres sessions — exactly what `pg_advisory_xact_lock` is built to
+    // serialize. This spec file's mock instead runs every "transaction"
+    // through ONE shared PGlite instance with hand-rolled `BEGIN`/`COMMIT`
+    // text, so a second concurrent `BEGIN` here never opens a real nested
+    // transaction — Postgres just keeps using the first one, merging both
+    // reaps' statements into a single visibility scope. Confirmed with
+    // tracing: both reaps' own terminal UPDATEs land before EITHER reads
+    // the stale-successor count, so both counts come out identical (each
+    // sees the other as already-stale), and the two reaps always reach the
+    // SAME pass/fail verdict — this harness cannot reproduce "one wins, one
     // loses". What it CAN still assert is the invariant that must never
+    // break regardless: the turn never ends up with MORE successors than
+    // the cap allows, even when two reaps are launched concurrently.
     currentClient = makeRawClient(true);
     const { thread, turn } = ids();
     const longAgo = Date.now() - STALE_PAST_MS;
@@ -637,6 +659,9 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     const rows = await rowsForTurn(turn);
     const knownIds = new Set([p1, p2, runA, runB]);
     const successors = rows.filter((r) => !knownIds.has(r.id));
+    // Never more than 1 successor for the turn, however the two concurrent
+    // reaps interleave — this is the invariant `pg_advisory_xact_lock`
+    // exists to guarantee once each reaper has its own real connection.
     expect(successors.length).toBeLessThanOrEqual(1);
   });
 });

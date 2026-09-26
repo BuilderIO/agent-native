@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — Framework adapter interface and auto-detection
 // MIT License
 
 import type {
@@ -28,6 +29,7 @@ export function detectFramework(): FrameworkAdapter {
         return adapter;
       }
     } catch {
+      // Adapter detection failed, try next
     }
   }
 
@@ -65,7 +67,7 @@ export function getAdapters(): FrameworkAdapter[] {
 
 const genericAdapter: FrameworkAdapter = {
   name: "generic",
-  detect: () => true,
+  detect: () => true, // Always matches as fallback
   getComponentInfo: () => null,
   getSourceLocation: () => null,
 };

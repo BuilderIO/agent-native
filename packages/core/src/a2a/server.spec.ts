@@ -732,6 +732,9 @@ describe("verifyA2AToken (exported)", () => {
   });
 
   it("rejects a correctly-signed token whose aud targets another service (no derivable audience)", async () => {
+    // The signature is valid, but the token was minted for a different
+    // receiver. With no APP_URL/URL and no request event, this receiver can't
+    // derive its own audience — it must fail closed rather than accept a
     // foreign-audience token just because the shared secret matches.
     process.env.A2A_SECRET = "shared-global-secret";
     delete process.env.APP_URL;

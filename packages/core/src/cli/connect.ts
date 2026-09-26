@@ -1,35 +1,3 @@
-/**
- * `agent-native connect <url>` — wire your local MCP-capable coding agent
- * to a DEPLOYED agent-native app. OAuth-capable clients receive a standard
- * remote MCP URL entry and authenticate in the host. Fallback clients use the
- * browser device-code flow: open the verification URL, approve in the browser,
- * and the minted HTTP MCP server entry is written idempotently.
- *
- *   agent-native connect <url> [--client all|claude-code|
- *                               codex|cowork|cursor|opencode|github-copilot]
- *                               [--scope user|project]
- *                               [--name <serverName>]
- *   agent-native reconnect [<url>] [--client ...] [--name <serverName>]
- *   agent-native connect <url> --token <token>   (no-browser fallback)
- *   agent-native connect        [--client ...]   (pick first-party apps)
- *   agent-native connect --all  [--client ...]   (separate first-party app MCP resources)
- *
- * Server contract (implemented by another agent on `<url>`):
- *   POST <url>/mcp/connect/device/start  (no auth)
- *     body { client?, app? }
- *     → { device_code, user_code, verification_uri,
- *         verification_uri_complete, interval, expires_in }
- *   POST <url>/mcp/connect/device/poll   (no auth)
- *     body { device_code }
- *     → { status: "pending" }
- *     | { status: "approved", token, mcpUrl, serverName, mcpServerEntry }
- *     | { status: "expired" }
- *     | { status: "consumed" }
- *     | { status: "error" | "not_found", message? }
- *
- * Node-only CLI module. Uses Node built-ins, @clack/prompts, and global fetch.
- */
-
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -119,7 +87,6 @@ function logErr(msg: string): void {
   logErrImpl(msg);
 }
 
-
 export interface ParsedConnectArgs {
   mode?: "dev" | "prod" | "reauth" | "reconnect";
   url?: string;
@@ -128,12 +95,6 @@ export interface ParsedConnectArgs {
   scope: string;
   name?: string;
   token?: string;
-  /**
-   * Mint an ORG SERVICE token with this service name (e.g. "ci") instead of
-   * writing local MCP configs. Authenticates the human via the device flow,
-   * then calls the app's `create-org-service-token` action and prints the
-   * token once — for CI secrets like PLAN_RECAP_TOKEN.
-   */
   serviceToken?: string;
   ttlDays?: number;
   all: boolean;
@@ -593,7 +554,6 @@ function reconnectServerNameForMcpUrl(
   return legacyNames.includes(serverName) ? canonical : serverName;
 }
 
-
 function openInBrowser(url: string): void {
   if (process.env.AGENT_NATIVE_NO_OPEN === "1") return;
   try {
@@ -614,7 +574,6 @@ function openInBrowser(url: string): void {
     // Non-fatal: the user can open the URL manually (we already printed it).
   }
 }
-
 
 interface DeviceStartResponse {
   device_code: string;
@@ -977,7 +936,6 @@ function isTerminalPollBody(json: any): boolean {
   );
 }
 
-
 function projectBaseDir(): string {
   const cwd = process.cwd();
   return findWorkspaceRoot(cwd) ?? path.resolve(cwd);
@@ -1007,7 +965,6 @@ export function writeConfigs(
   }
   return written;
 }
-
 
 type SavedMcpEntry =
   | {
@@ -1751,7 +1708,6 @@ async function connectProdProfile(
   return missing.length === 0;
 }
 
-
 interface ReconnectTarget {
   rawUrl: string;
   serverName?: string;
@@ -2152,6 +2108,18 @@ async function connectOne(
     );
   }
 
+  // Canonical publish-token write: when we have a real minted bearer token for
+  // a first-party Plans app, also persist `{ url, token }` to
+  // `~/.agent-native/plan-publish.json` so the local Plans server can read the
+  // same token for a server-to-server publish (publish-on-share). This is an
+  // ADDITIONAL write alongside the per-client MCP config; Best-effort and
+  // merge-not-clobber — never fails the connect.
+  //
+  // OAuth clients authenticate in-host via standard MCP OAuth, so they never
+  // mint a local bearer token. To still populate the publish store for them, we
+  // run a supplemental device-flow mint using a non-OAuth client arg so the
+  // Plans server gets a usable token and `publish-visual-plan` doesn't send the
+  // user back to `agent-native connect` right after they just ran it.
   let publishToken = token;
   if (
     !publishToken &&
@@ -2163,12 +2131,7 @@ async function connectOne(
       logOut(
         `  Minting a publish token for the local Plans server (device flow)…`,
       );
-      const grant = await runDeviceFlow(
-        baseUrl,
-        appSlug,
-        "codex",
-        deps,
-      );
+      const grant = await runDeviceFlow(baseUrl, appSlug, "codex", deps);
       if (grant?.token) {
         publishToken = grant.token;
       } else {
@@ -2235,7 +2198,6 @@ async function connectOne(
   return { ok: true, serverName, files: allWritten.map((w) => w.file) };
 }
 
-
 export function hostedApps(): HostedApp[] {
   return visibleTemplates()
     .filter((t) => typeof t.prodUrl === "string" && t.prodUrl.length > 0)
@@ -2292,7 +2254,6 @@ async function connectAll(
 ): Promise<boolean> {
   return connectApps(hostedApps(), parsed, clients, deps);
 }
-
 
 async function postJsonAuthed(
   fetchImpl: typeof fetch,
@@ -2417,6 +2378,7 @@ export async function runServiceTokenMint(
   }
   logOut("");
   // The ONLY place the secret is ever printed. Never logged elsewhere,
+  // never written to disk.
   logOut(`  ${json.token}`);
   logOut("");
   logOut("  Shown once — store it now as your CI secret, e.g.:");
@@ -2428,7 +2390,6 @@ export async function runServiceTokenMint(
   );
   return true;
 }
-
 
 const HELP = `npx @agent-native/core@latest connect — wire your coding agent to a deployed app
 

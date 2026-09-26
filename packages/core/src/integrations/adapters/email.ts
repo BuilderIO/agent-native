@@ -172,6 +172,13 @@ export function emailAdapter(): PlatformAdapter {
         !toAddresses.includes(agentAddress) &&
         ccAddresses.includes(agentAddress);
 
+      // Build thread ID from References chain (Gmail-style: oldest Message-ID is thread root).
+      // Scope the thread root by sender so an attacker who can forge a `References:`
+      // header pointing at someone else's thread root can't graft into that thread.
+      // Without this scoping, a third party could craft an inbound email whose
+      // References chain matches a known victim's Message-ID and inject messages into
+      // the victim's existing conversation — leaking prior content via the agent's
+      // reply (M1 in the webhooks security audit).
       const threadRootId = scopeThreadIdToSender(
         getThreadRootId(parsed.messageId, parsed.references),
         senderEmail,
@@ -200,6 +207,10 @@ export function emailAdapter(): PlatformAdapter {
         text: bodyText,
         senderName: parsed.from.name,
         senderId: senderEmail,
+        // Carry the message-authentication verdict downstream. Owner
+        // resolution (dispatch) must NOT grant a real user's identity /
+        // credentials unless the sender is verified — an unverified or
+        // spoofed `From:` falls back to a synthetic, credential-less owner.
         senderVerified: parsed.senderVerified,
         platformContext: {
           messageId: parsed.messageId,
@@ -323,7 +334,6 @@ export function emailAdapter(): PlatformAdapter {
   };
 }
 
-
 interface ParsedEmail {
   messageId: string;
   subject: string;
@@ -345,7 +355,6 @@ interface ParsedEmail {
    */
   senderVerified: boolean;
 }
-
 
 async function verifyResendWebhook(
   event: H3Event,
@@ -466,7 +475,6 @@ async function verifySendGridWebhook(
   return false;
 }
 
-
 async function parseResendWebhook(event: H3Event): Promise<ParsedEmail | null> {
   const raw = await readRawBody(event);
   const body = JSON.parse(raw);
@@ -552,7 +560,6 @@ async function parseSendGridWebhook(
   };
 }
 
-
 function emailDomain(email: string): string {
   const at = email.lastIndexOf("@");
   return at >= 0
@@ -621,6 +628,9 @@ function computeSenderVerified(input: {
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// Rate limiting
+// ---------------------------------------------------------------------------
 
 /**
  * Rate-limit heuristic backed by the `integration_pending_tasks` queue.
@@ -667,7 +677,6 @@ async function isRateLimited(senderEmail: string): Promise<boolean> {
   }
 }
 
-
 function parseEmailAddress(raw: string): { name?: string; email: string } {
   const match = raw.match(/^\s*(.*?)\s*<([^>]+)>\s*$/);
   if (match && match[2]) {
@@ -684,7 +693,6 @@ function normalizeAddressList(raw: string | string[] | undefined): string[] {
   if (Array.isArray(raw)) return raw.map((a) => a.trim());
   return raw.split(",").map((a) => a.trim());
 }
-
 
 function parseHeadersObject(headers: unknown): Record<string, string> {
   const result: Record<string, string> = {};
@@ -745,7 +753,6 @@ function parseReferencesHeader(
   return ids && ids.length > 0 ? ids : undefined;
 }
 
-
 function getThreadRootId(messageId: string, references?: string[]): string {
   if (references && references.length > 0) {
     return references[0];
@@ -759,7 +766,6 @@ function scopeThreadIdToSender(
 ): string {
   return `${senderEmail.toLowerCase()}::${rawThreadId}`;
 }
-
 
 function buildReferencesHeader(ctx: Record<string, unknown>): string {
   const parts: string[] = [];
@@ -798,7 +804,6 @@ function buildReplyAllCc(
 
   return allRecipients.size > 0 ? Array.from(allRecipients) : undefined;
 }
-
 
 function stripHtmlForPlainText(html: string): string {
   return html
@@ -987,6 +992,9 @@ ${bodyHtml}
 </html>`;
 }
 
+// ---------------------------------------------------------------------------
+// Raw body reader (matches Slack adapter pattern)
+// ---------------------------------------------------------------------------
 
 /**
  * Read the raw request body as a string and cache on the event context.

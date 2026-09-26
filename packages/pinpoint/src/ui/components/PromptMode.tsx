@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — Prompt mode for quick agent instructions
 // MIT License
 
 import { createSignal, onMount, type Component } from "solid-js";

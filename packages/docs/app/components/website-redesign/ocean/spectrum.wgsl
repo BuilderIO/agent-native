@@ -1,9 +1,3 @@
-
-
-
-
-
-
 import { PI, G, cmul } from "./ocean-common.wgsl";
 
 struct SpectrumUniforms {

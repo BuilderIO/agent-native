@@ -96,20 +96,6 @@ export interface EffectiveResourceContext {
   layers: EffectiveResourceLayer[];
 }
 
-/**
- * Inject a virtual `mcp-servers/` folder into a scope's resource tree.
- *
- * MCP servers aren't stored as resource rows — they live in the settings
- * store — but we surface them in the Workspace tree alongside `memory/`,
- * `skills/`, etc. Each server becomes a synthetic `TreeNode` whose
- * `resource.id` is an `mcp:<scope>:<id>` virtual id the panel recognizes
- * on click/delete and routes to the MCP endpoints instead of the
- * resource endpoints.
- *
- * Returns a new tree; the input is not mutated. If `servers` is empty
- * and `alwaysShow` is false, the folder is not added — same behavior as
- * any other optional folder.
- */
 export function withMcpServersFolder(
   tree: TreeNode[],
   servers: McpServer[],

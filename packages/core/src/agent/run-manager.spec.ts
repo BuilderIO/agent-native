@@ -664,7 +664,6 @@ describe("run manager soft timeout", () => {
     );
   });
 
-
   it("FOREGROUND hosted run still clamps to the 40s interactive ceiling (guardrail)", () => {
     process.env.NETLIFY = "true";
     expect(resolveRunSoftTimeoutMs(240_000)).toBe(
@@ -2615,6 +2614,11 @@ describe("run manager soft timeout", () => {
   });
 
   it("auto-continues when a precondition failure is the last tool result", async () => {
+    // Analytics /ask: the first turn stopped silently after a
+    // `provider-api-request` precondition failure, and the missing credential
+    // only surfaced when the user typed "continue" by hand. The successful
+    // lookups before it must not make the failing tail look like a finished
+    // answer.
     const events: AgentChatEvent[] = [];
     const run = startRun(
       "run-precondition-tool-error",
@@ -2665,6 +2669,10 @@ describe("run manager soft timeout", () => {
   });
 
   it("does not continue a failed tool the agent already stopped on", async () => {
+    // The bound on failed-tool continuations. A precondition the turn cannot
+    // satisfy (missing credential, missing role) is classified on the first
+    // attempt and emits a terminal error, so the chain must end on that real
+    // message rather than retrying a failure whose outcome cannot change.
     const events: AgentChatEvent[] = [];
     const run = startRun(
       "run-permanent-precondition",
@@ -3380,6 +3388,8 @@ describe("run manager soft timeout", () => {
   });
 
   it("keeps polling a not-yet-visible run row instead of ending the stream", async () => {
+    // The run id is minted in the request handler and the events endpoint often
+    // runs in another isolate, so the first status probe can precede the
     // producer's INSERT. That ordinary race must not end the turn.
     runStoreTestState.runRecordMissingGraceMs = 60_000;
     vi.mocked(getRunById).mockResolvedValue(null);
@@ -4322,6 +4332,12 @@ describe("run manager soft timeout", () => {
       );
     });
 
+    // ORDERING INVARIANT. The hosted foreground path rides a synchronous
+    // serverless function whose real wall is ~57-59s. Any watchdog at or above
+    // the soft timeout is unreachable dead code — the flat 150s backstop, the
+    // 90s in-loop watchdogs and the 12-minute tool timeout all were. These
+    // assertions exist so the next constant change cannot silently reintroduce
+    // the inversion.
     it("keeps every foreground watchdog strictly inside the chunk budget", () => {
       const softTimeoutMs = DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS;
       const noProgress = resolveRunNoProgressTimeoutMs({ softTimeoutMs });

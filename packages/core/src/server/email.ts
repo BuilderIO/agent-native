@@ -1,4 +1,3 @@
-
 import { getAppConfig } from "../app-config/index.js";
 import { FAVICON_PNG_BASE64 } from "../assets/branding/favicon-base64.js";
 import {
@@ -282,18 +281,6 @@ class EmailProviderError extends Error {
   }
 }
 
-/**
- * Serialize a provider payload for the audit log, stripping attachment bytes
- * and the duplicated HTML/text body. Attachment `content` is base64 file data
- * with no diagnostic value for "who did this go to". The body itself is
- * logged separately via `htmlBody`/`textBody` on `recordEmailSend` (below)
- * rather than inline here, so it is stored once instead of once per provider
- * shape. Before it is stored, `redactSensitiveEmailBodyContent` scrubs magic
- * links, reset links, and OTP/verification codes, since `email_log` is
- * readable by every org admin via `authorizeTransactionalEmailRead` and a
- * live credential in the body would let any of them impersonate or reset the
- * recipient.
- */
 const MAX_LOGGED_TEXT_LENGTH = 8_000;
 
 function truncateForLog(value: string): string {
@@ -523,6 +510,10 @@ async function sendEmailWithSignal(
   try {
     outcome = await deliverEmail(args, signal);
   } catch (error) {
+    // A response was received but the provider rejected it: the error carries
+    // the raw request/response so "provider said no" stays distinguishable
+    // from "we never reached the provider" (network failure, timeout,
+    // credential resolution failure), which sets none of these three fields.
     const providerError =
       error instanceof EmailProviderError ? error : undefined;
     await recordEmailSend({

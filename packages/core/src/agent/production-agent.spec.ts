@@ -3826,9 +3826,11 @@ describe("runAgentLoop", () => {
     });
   });
 
-
   function snapshotAndClearRuntimePredicateEnv(): () => void {
+    // Keep each deployment flag explicit. Dynamic process.env indexing is
     // forbidden in credential-adjacent agent code, including tests, because it
+    // can conceal an unscoped credential read. Vitest restores the original
+    // host values when the test finishes.
     vi.stubEnv("NETLIFY", "");
     vi.stubEnv("NETLIFY_LOCAL", "");
     vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
@@ -8784,7 +8786,16 @@ describe("runAgentLoop", () => {
   });
 
   it("does not trip the delegated ask_app budget on an ordinary multi-step, cache-heavy turn", async () => {
+    // 2026-09-24 incident: `runMCPAgentLoop` (the same-app `ask_app` path,
+    // `routedVia: "local"`) defaults `maxRunInputTokens` to
+    // `DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS`. At the old 750_000 value, the
+    // Analytics app's own per-step baseline (~50k-70k tokens of tool schemas,
+    // re-sent whole every iteration including cache reads, per the
+    // whole-prompt-per-call convention) meant EVERY multi-step turn — even a
     // trivial read-only one — tripped `run-input-token-budget` at 762k-767k,
+    // regardless of task size. Before the fix this test's loop tripped after
+    // 11 iterations (11 * 70_000 = 770_000 > 750_000); it must now run all 12
+    // ordinary iterations to a normal `end_turn` instead.
     const PER_STEP_BASELINE_TOKENS = 70_000;
     const ORDINARY_ITERATIONS = 12;
     let streamCalls = 0;
@@ -11787,7 +11798,6 @@ describe("runAgentLoop", () => {
   });
 });
 
-
 describe("runAgentLoop model fallback", () => {
   it("switches to the fallback model once retries are exhausted, with an activity event", async () => {
     vi.useFakeTimers({ now: 1_000_000 });
@@ -12002,7 +12012,6 @@ describe("runAgentLoop model fallback", () => {
   });
 });
 
-
 describe("runAgentLoop endsTurn", () => {
   const yieldEngine = (): {
     engine: AgentEngine;
@@ -12153,7 +12162,6 @@ describe("runAgentLoop endsTurn", () => {
   });
 });
 
-
 describe("isContextTooLongError", () => {
   it("returns false for non-Error values", () => {
     expect(isContextTooLongError("string")).toBe(false);
@@ -12194,7 +12202,6 @@ describe("isContextTooLongError", () => {
     expect(isContextTooLongError(new Error("overloaded"))).toBe(false);
   });
 });
-
 
 describe("continuationReasonForResumableError", () => {
   it("labels http_429 as rate_limited, not network_interrupted", () => {
@@ -12307,7 +12314,6 @@ describe("isTransientProviderRateLimitError", () => {
     ).toBe(false);
   });
 });
-
 
 describe("isRetryableError", () => {
   it("returns false for non-Error values", () => {
@@ -12464,7 +12470,6 @@ describe("isRetryableError", () => {
     );
   });
 });
-
 
 describe("trimOldToolResults", () => {
   type Msg = Parameters<typeof trimOldToolResults>[0][number];
@@ -12957,7 +12962,6 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       }),
     ).toBe(false);
   });
-
 
   it("does NOT chain a foreground run when the resolved self-chain gate is false", () => {
     expect(

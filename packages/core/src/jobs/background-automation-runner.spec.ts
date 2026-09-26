@@ -2,7 +2,6 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
-
 const pglite = await createTestPglite();
 
 afterAll(async () => {
@@ -633,6 +632,12 @@ describe("runBackgroundAutomation — thread transcript", () => {
   });
 });
 
+// Every test above supplies `deps.engine`, which is what let the credential
+// capture below stay broken: production never sets it (agent-chat-plugin builds
+// SchedulerDeps without one) and both jobs/scheduler.ts and
+// triggers/dispatcher.ts reach this path. On a Builder-credits site the engine
+// must resolve through the gateway lane; resolving the identity lane by hand
+// here left every scheduled and event automation dead while chat still worked.
 describe("runBackgroundAutomation — engine credentials with no deps.engine", () => {
   const GATEWAY_TOKEN = "btk-site-token";
   const GATEWAY_SPACE_ID = "space-abc";

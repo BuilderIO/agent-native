@@ -831,7 +831,6 @@ describe("agent teams prompt guidance", () => {
   });
 });
 
-
 describe("prompt token-budget regressions", () => {
   const full = buildFrameworkCore();
   const compact = buildFrameworkCoreCompact();
@@ -855,7 +854,6 @@ describe("prompt token-budget regressions", () => {
     }
   });
 });
-
 
 describe("prompt content invariants", () => {
   const full = buildFrameworkCore();
@@ -902,6 +900,9 @@ describe("prompt content invariants", () => {
   });
 
   it("stops naming a group's tools once that group is switched off", () => {
+    // The invariant this whole gate exists for: prompt text and tool schemas
+    // must agree. A prompt that names an absent tool makes the model call it,
+    // fail, and often tell the user the capability does not exist.
     const cases: Array<[FrameworkToolGroup, string[]]> = [
       ["resources", ["`resources`", "agent_scratch"]],
       ["chat", ["`chat-history`"]],
@@ -1271,7 +1272,6 @@ describe("corpusToolNamesTaughtByPrompt / generateCorpusToolsPrompt consistency"
     ]);
   });
 });
-
 
 describe("assembled prompt snapshots", () => {
   it("full prompt (default examples) matches snapshot", () => {

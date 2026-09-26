@@ -98,6 +98,9 @@ export async function listHubServers(): Promise<HubServerRecord[]> {
   }
 
   // SECURITY: refuse to serve when multiple orgs share this hub in
+  // production, unless the operator has explicitly opted in to multi-org
+  // mode. The bearer is workspace-wide, so any consumer in possession of
+  // it would otherwise see EVERY org's MCP config — a cross-tenant leak.
   if (
     process.env.NODE_ENV === "production" &&
     seenOrgs.size > 1 &&

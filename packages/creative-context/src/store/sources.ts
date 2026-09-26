@@ -258,6 +258,7 @@ export async function listContextSourcesDueForMaintenance(input: {
 > {
   const { getDb, schema } = getCreativeContext();
   // guard:allow-unscoped — the daily system scheduler returns only owner
+  // dispatch coordinates, then re-enters that owner's request context.
   const rows = await getDb()
     .select({
       sourceId: schema.contextSources.id,

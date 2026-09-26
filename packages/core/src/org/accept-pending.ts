@@ -122,7 +122,6 @@ export async function acceptPendingInvitationsForEmail(
     if ((existing.rows[0] as any)?.federation_removal_pending_at) continue;
     if (existing.rows.length === 0) {
       const role = inv.role === "admin" ? "admin" : "member";
-      // race's loser is a silent no-op instead of a thrown unique
       await db.execute({
         sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)
               ON CONFLICT (org_id, LOWER(email)) DO NOTHING`,

@@ -1,4 +1,11 @@
 // @vitest-environment happy-dom
+//
+// Exercises the real `document.visibilitychange` listener and module-level
+// epoch counter that `computePageHidden`'s pure-function tests in
+// use-action.spec.ts stub out. That file runs in the default Node (no DOM)
+// environment, so it can only prove `page_hidden` is `undefined` there — the
+// wiring itself (the listener firing, the epoch bumping, `actionFetch`
+// reading it) is only provable with a real document.
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const analyticsMocks = vi.hoisted(() => ({

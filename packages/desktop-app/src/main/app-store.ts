@@ -751,6 +751,9 @@ export function loadApps(): AppConfig[] {
       preferences.appModeDefaultsVersion !== DESKTOP_APP_MODE_DEFAULTS_VERSION
     ) {
       // Record the migration only after legacy useCliHarness values have been
+      // normalized. An explicit persisted mode cannot be distinguished from
+      // the old implicit default, so changing every legacy dev app to prod
+      // would silently overwrite a user's local-development choice.
       saveDesktopAppPreferences({
         appModeDefaultsVersion: DESKTOP_APP_MODE_DEFAULTS_VERSION,
       });

@@ -271,7 +271,11 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   let _db: any;
   let _dbReady: Promise<any> | undefined;
 
+  // The Drizzle instance is bound to a shared pool, so a `closeDbExec()` (test
+  // teardown, script cleanup) must invalidate it rather than leave this store
+  // issuing queries on a closed pool. Registered lazily from the pooled
   // branches only — `createGetDb` is called at module scope by every store, and
+  // core's specs widely mock `db/client.js`.
   let _closeHookRegistered = false;
   function resetOnPoolClose(driver?: string, url?: string): void {
     if (_closeHookRegistered) return;

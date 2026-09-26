@@ -58,8 +58,6 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
       throw new Error("Invalid workspace registry authorization");
     }
 
-    // read-only action. Let the framework resolve that credential before
-    // treating an otherwise opaque bearer as an A2A token.
     const hasRequestUrl =
       typeof event?.node?.req?.url === "string" ||
       typeof event?.req?.url === "string" ||
@@ -85,7 +83,6 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
     const claimedOrgId = identity.orgId?.trim();
     let orgId: string | null;
     if (claimedOrgId) {
-      // a mismatch rather than allowing either claim to widen scope.
       if (orgDomain) {
         const org = await resolveOrgByDomain(orgDomain);
         if (org && org.orgId !== claimedOrgId) {

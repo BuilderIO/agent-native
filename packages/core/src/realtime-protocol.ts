@@ -1,18 +1,3 @@
-/**
- * Realtime SSE wire protocol — shared by the server SSE handlers (framework
- * in-process path + the hosted Realtime Gateway) and the client transport.
- *
- * Pure constants, types, and parsers only — NO h3/node/browser deps — so both
- * the Node server and the browser client import it.
- *
- * Frame taxonomy:
- *   - CHANGE / batch frames ride the default (unnamed) SSE `message` event and
- *     are parsed by the client's existing `normalizeEventPayload`. Unchanged.
- *   - CONTROL frames (handshake, token rotation) ride NAMED SSE events, so
- *     `EventSource.addEventListener(name)` routes them separately and an older
- *     client that only reads `onmessage` silently ignores them (backward safe).
- */
-
 export const REALTIME_PROTOCOL_VERSION = 1;
 
 export const REALTIME_SSE_HANDSHAKE_EVENT = "handshake";

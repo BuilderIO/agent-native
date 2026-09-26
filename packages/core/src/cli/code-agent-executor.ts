@@ -2309,6 +2309,24 @@ function buildCodeAgentMessages(
   return [{ role: "user", content: promptContent }];
 }
 
+/**
+ * Reconstruct a sequence of EngineMessage objects from transcript events,
+ * preserving the native tool-call / tool-result pair structure that models
+ * expect when replaying multi-turn conversations.
+ *
+ * Event mapping:
+ *   kind=user                          → user message with text content
+ *   kind=system, role=assistant        → assistant message with text content
+ *   kind=status, type=tool_start       → assistant message with a tool-call part
+ *                                        (grouped with any preceding assistant text)
+ *   kind=status, type=tool_done        → user message with a tool-result part
+ *   kind=status, type=thinking         → excluded (ephemeral reasoning)
+ *   everything else                    → excluded from model history
+ *
+ * Each tool_start generates a synthetic toolCallId derived from the event id so
+ * that the matching tool_done can reference it.  Old events that lack tool/input
+ * metadata fall back gracefully to text content.
+ */
 /** @internal exported for unit tests */
 export function buildStructuredMessagesFromEvents(
   events: readonly import("./code-agent-runs.js").CodeAgentTranscriptEvent[],
@@ -2467,6 +2485,16 @@ function safeJsonStringify(value: unknown): string {
 
 const AGENTS_MD_INLINE_CAP = 16_000;
 
+/**
+ * Build the coding agent system prompt, inlining AGENTS.md (or CLAUDE.md as
+ * fallback) and a skills index from .agents/skills/ into the prompt so the
+ * coding agent has the same repo-context awareness that Claude Code / Codex
+ * provide when running locally.
+ *
+ * The bundle is read synchronously from the filesystem via `readAgentsBundleFromFs`
+ * (same function used by the Vite build-time plugin) so there is no async I/O
+ * on the hot path — the call is cheap and the result is used once per run leg.
+ */
 /** @internal exported for unit tests */
 export async function buildCodeAgentSystemPrompt(
   cwd: string,
@@ -2738,6 +2766,10 @@ export function classifyCodeAgentCommandPermission(
     }
   }
 
+  // A command whose real text this pass cannot recover is not a command we can
+  // clear. `$(printf git) $(printf checkout) main` runs the forbidden operation
+  // while containing neither token, so a rule that did not match proves nothing.
+  // Ask rather than fall through to `write` on a guess.
   if (unanalyzable) {
     return {
       kind: "approval-required",
@@ -2874,7 +2906,6 @@ export function writeCodeAgentUsageSnapshot(
     // into a failed recap when the optional sidecar cannot be written.
   }
 }
-
 
 interface StoredTokenUsage {
   inputTokens: number;

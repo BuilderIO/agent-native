@@ -95,6 +95,7 @@ export function telegramAdapter(): PlatformAdapter {
             "[telegram] TELEGRAM_WEBHOOK_SECRET not set — accepting webhook without verification (dev mode)",
           );
         }
+        // Dev mode: still require the bot token to be configured at all.
         return !!(await resolveSecret("TELEGRAM_BOT_TOKEN"));
       }
 

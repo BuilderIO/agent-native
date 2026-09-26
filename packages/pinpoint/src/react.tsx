@@ -1,4 +1,9 @@
+// @agent-native/pinpoint — React component wrapper
 // MIT License
+//
+// Thin lifecycle wrapper around mountPinpoint(). Renders nothing —
+// the SolidJS overlay is mounted imperatively in Shadow DOM.
+// Props are read on mount only ([] dependency).
 
 import { useEffect } from "react";
 

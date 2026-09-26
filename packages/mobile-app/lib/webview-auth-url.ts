@@ -36,15 +36,6 @@ export function canCaptureMobileWebViewSession(options: {
   );
 }
 
-/**
- * Build a WebView URL without putting any reusable session token in a URL.
- * Workspace apps receive only their one-time embed URL; non-workspace apps
- * remain on their ordinary app-owned login path.
- *
- * `"reused"` deliberately resolves to the plain app URL: the embed session is
- * already in the shared cookie store, so the app opens at its CDN-cached shell
- * instead of redeeming another one-time ticket.
- */
 export function buildMobileWebViewAuthUrl(
   options: MobileWebViewAuthUrlOptions,
 ): string {

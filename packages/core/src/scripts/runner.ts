@@ -1,4 +1,3 @@
-
 import fs from "fs";
 import { spawnSync } from "node:child_process";
 import path from "path";
@@ -276,7 +275,6 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
 
   await tryForwardToDevServer(actionName, args);
 
-
   await loadCliBootstrap();
 
   const userEmail = await resolveDevUserEmail();
@@ -293,7 +291,6 @@ export async function tryForwardToDevServer(
 ): Promise<void> {
   const discovery = readDevActionDiscoveryFile(process.cwd());
   if (!discovery || !isProcessAlive(discovery.pid)) return;
-  // dev token plus the caller's identity headers: only ever send those to the
   if (!isLoopbackDevActionOrigin(discovery.origin)) return;
   const ourDatabaseKey = hashDatabaseKey(
     getRuntimeDatabaseUrl("pglite:./data/pglite"),
@@ -312,6 +309,8 @@ export async function tryForwardToDevServer(
   }
 
   let response: Response;
+  // Vite's local HTTPS mode commonly uses a self-signed certificate. This
+  // dispatcher is created only after the strict loopback-origin check above,
   // so certificate bypass cannot send the dev token to a remote host.
   const tlsDispatcher = discovery.origin.startsWith("https:")
     ? new Agent({ connect: { rejectUnauthorized: false } })

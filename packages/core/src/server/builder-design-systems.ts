@@ -233,6 +233,7 @@ function parseTierLimitErrorBody(text: string): TierLimitResponseBody {
     parsed = JSON.parse(text) as Record<string, unknown>;
   } catch (parseError) {
     // coercion-ok: 402 body isn't guaranteed to be JSON; every field this
+    // feeds into is optional and null-safe downstream.
     return {};
   }
   const nested = parsed.error;
@@ -852,7 +853,6 @@ async function requestBuilderDesignSystem(
   const rejection = await builderDesignSystemOAuthRejection(response);
   if (!rejection) return response;
 
-  // fallback either. Accepting one here would make the identical credential
   const legacy = await resolveBuilderLegacyRequestAuthorization();
   if (!legacy?.legacyPublicKey) {
     if (response.body) await response.body.cancel();
@@ -923,6 +923,7 @@ async function assertBuilderDesignSystemIndexOk(
 
   if (response.status === 402) {
     // coercion-ok: still report the 402 as a tier-limit failure with a
+    // generic message if the body cannot be read, instead of masking it.
     const text = await response.text().catch(() => "");
     const body = parseTierLimitErrorBody(text);
     const limit = designSystemTierLimitFromBody(body);

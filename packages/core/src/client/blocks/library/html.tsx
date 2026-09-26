@@ -23,6 +23,7 @@ import { useIsDark } from "./wireframe-kit.js";
  * just the plan app.
  */
 
+/** Build the iframe document for a fragment, applying app sanitization if given. */
 function buildSrcDoc(
   data: HtmlBlockData,
   theme: "light" | "dark",

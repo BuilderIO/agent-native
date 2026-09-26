@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — React adapter using bippy + element-source
 // MIT License
 
 import type {
@@ -134,9 +135,11 @@ export const reactAdapter: FrameworkAdapter = {
   },
 
   freeze(): void {
+    // React update freezing handled by freeze/react-freeze.ts
   },
 
   unfreeze(): void {
+    // Restore handled by freeze/react-freeze.ts
   },
 };
 
@@ -150,7 +153,6 @@ function getSourceFromFiber(fiber: any): SourceLocation | null {
       column: fiber._debugSource.columnNumber,
     };
   }
-
 
   return null;
 }

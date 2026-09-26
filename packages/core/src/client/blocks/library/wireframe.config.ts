@@ -22,6 +22,9 @@ import type { BlockMdxConfig, BlockVisualFrame } from "../types.js";
  * than `toAttrs`/`childrenField`.
  */
 
+/* -------------------------------------------------------------------------- */
+/* Vocabulary (decoupled copy of the plan-content wireframe types)            */
+/* -------------------------------------------------------------------------- */
 
 export type WireframeSurface =
   | "desktop"
@@ -160,7 +163,6 @@ export const WIREFRAME_EL_NAMES: WireframeElName[] = [
   "divider",
 ];
 
-
 const toneSchema = z.enum(["default", "accent", "warn", "ok", "muted"]);
 const elNameSchema = z.enum(
   WIREFRAME_EL_NAMES as [WireframeElName, ...WireframeElName[]],
@@ -259,7 +261,6 @@ export const wireframeSchema = z
   })
   .passthrough() as unknown as z.ZodType<WireframeData>;
 
-
 export function createStableWireframeNodeId(
   el: WireframeElName,
   path: string,
@@ -270,7 +271,6 @@ export function createStableWireframeNodeId(
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
 }
-
 
 const NODE_TO_COMPONENT: Record<WireframeElName, string> = {
   screen: "FrameScreen",
@@ -308,7 +308,6 @@ const COMPONENT_TO_NODE = Object.fromEntries(
   Object.entries(NODE_TO_COMPONENT).map(([el, component]) => [component, el]),
 ) as Record<string, WireframeElName>;
 
-
 function serializeNode(node: WireframeNode, indent = ""): string {
   const name = NODE_TO_COMPONENT[node.el] ?? "Box";
   const attrs = Object.entries(node)
@@ -338,7 +337,6 @@ function serializeScreen(data: WireframeData): string {
   if (!children) return `<Screen${attrs} />`;
   return `<Screen${attrs}>\n${children}\n</Screen>`;
 }
-
 
 type WireframeMdxNode = {
   type: string;
@@ -431,7 +429,6 @@ function parseScreen(node: WireframeMdxNode, idContext: string): WireframeData {
       .filter(Boolean) as WireframeNode[],
   };
 }
-
 
 export const wireframeMdx: BlockMdxConfig<WireframeData> = {
   tag: "WireframeBlock",

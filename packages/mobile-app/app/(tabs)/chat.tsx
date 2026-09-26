@@ -280,7 +280,6 @@ export default function ChatTab() {
     }
     const token = await getSessionToken().catch(() => null);
     if (!token) {
-      // Keep the shared parent credential intact. A validation failure can be
       setAuthState("signed-out");
       return;
     }
@@ -290,6 +289,10 @@ export default function ChatTab() {
     } else if (result.status === "invalid") {
       setAuthState("signed-out");
     } else {
+      // "Cannot read the session" is not "signed out" and not "still loading".
+      // Reporting it as either lies: one throws away a good token, the other
+      // spins forever with nothing the user can act on. Stay put once we have
+      // a confirmed session, so a dropped network never kicks anyone out.
       setAuthState((current) =>
         current === "connected" ? current : "unreachable",
       );

@@ -18,6 +18,7 @@
  * wrapper under a `role="img"` with a localized label.
  */
 
+/** Board zoom. Matches the `40%` readout in the inspector. */
 export const BOARD_SCALE = 0.4;
 
 export const DESKTOP_ARTBOARD_WIDTH = 1280;

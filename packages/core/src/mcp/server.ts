@@ -134,7 +134,6 @@ function buildWebRequest(event: H3Event, method: string): Request {
     }
   }
 
-
   const host =
     headers.get("x-forwarded-host") || headers.get("host") || "localhost";
   const forwardedProto = headers.get("x-forwarded-proto");
@@ -196,6 +195,9 @@ function buildUnauthorizedBody(
   };
 }
 
+// ---------------------------------------------------------------------------
+// handleMcpRequest — runtime-agnostic MCP request handler
+// ---------------------------------------------------------------------------
 
 /**
  * Handle a single `{routePrefix}/mcp` request on either runtime.
@@ -332,21 +334,6 @@ export async function handleMcpRequest(
   );
 }
 
-
-/**
- * Mount an MCP remote server on an H3/Nitro app.
- *
- * Endpoints: `/mcp` (public) and `/_agent-native/mcp` (compatibility).
- * A custom route prefix only mounts that custom endpoint.
- *
- * Uses the v2 Web Standard per-request handler with native 2026-07-28 serving
- * and stateless 2025-era fallback. It carries no in-memory protocol session
- * across invocations and works unchanged on Node, Nitro/Netlify web runtimes,
- * Cloudflare, Deno, and Bun.
- *
- * Auth: Bearer token matching ACCESS_TOKEN/ACCESS_TOKENS or JWT via A2A_SECRET.
- * No auth required when neither is configured (dev mode).
- */
 export function mountMCP(
   nitroApp: any,
   config: MCPConfig,

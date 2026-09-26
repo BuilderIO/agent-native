@@ -89,6 +89,7 @@ describe("ScheduledTriggerNotice", () => {
   });
 
   // Only the build re-emits the scheduled trigger, so naming the runtime scope
+  // would send the reader somewhere that cannot fix it.
   it("tells the reader how to turn schedules back on, accurately", () => {
     const notice = render({ available: false, reason: "disabled-by-env" });
 

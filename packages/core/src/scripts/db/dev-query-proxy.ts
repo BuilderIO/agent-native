@@ -1,4 +1,3 @@
-
 import { Agent } from "undici";
 
 import {
@@ -43,7 +42,10 @@ export async function tryForwardDbQueryToDevServer(
   if (discovery.databaseKey !== databaseKey) return false;
 
   let response: Response;
+  // Vite's local HTTPS mode commonly uses a self-signed certificate. This
+  // dispatcher is created only after the strict loopback-origin check above,
   // so certificate bypass cannot send the dev token to a remote host. Same
+  // pattern as `tryForwardToDevServer` (runner.ts).
   const tlsDispatcher = discovery.origin.startsWith("https:")
     ? new Agent({ connect: { rejectUnauthorized: false } })
     : undefined;
@@ -69,6 +71,9 @@ export async function tryForwardDbQueryToDevServer(
   } catch {
     await tlsDispatcher?.destroy();
     // coercion-ok: a network failure here isn't hidden — it routes to the
+    // in-process path below, which has its own explicit success/failure
+    // signaling (including PGlite's own loud lock error). Same reasoning as
+    // the identical catch in `tryForwardToDevServer` (runner.ts).
     return false;
   }
 
@@ -88,6 +93,9 @@ export async function tryForwardDbQueryToDevServer(
   }
 
   // coercion-ok: an unparseable body isn't distinguished from a well-formed
+  // one missing `ok` — both fail the explicit `!body?.ok` check right below
+  // with a thrown, loud error, so collapsing to `null` here loses no
+  // information the caller could otherwise act on.
   const body = (await response.json().catch(() => null)) as {
     ok?: boolean;
     error?: string;

@@ -1,4 +1,3 @@
-
 import path from "node:path";
 
 import {
@@ -83,12 +82,6 @@ export interface RunDbQueryResult {
   sql: string;
 }
 
-/**
- * Validate, scope, and execute a read-only query. Shared by the CLI's
- * in-process path and the dev-server forward route (`dev-action-bridge.ts`)
- * so a forwarded read goes through the exact same checks and row scoping as
- * running `pnpm action db-query` locally, not a separate, unscoped path.
- */
 export async function runDbQuery(
   options: RunDbQueryOptions,
 ): Promise<RunDbQueryResult> {

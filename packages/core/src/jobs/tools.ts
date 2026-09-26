@@ -98,6 +98,8 @@ export async function authorizeJobMutation(
   }
   const resourceOrgId = organizationIdFromResourceOwner(resourceOwner);
   if (resourceOwner !== SHARED_OWNER && !resourceOrgId) {
+    // Personal-scope job — owner is the request's user. resourceGetByPath is
+    // already scoped to the caller, so we know meta.createdBy must match.
     return null;
   }
   const caller = getOwner();

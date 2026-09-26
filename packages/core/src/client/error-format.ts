@@ -40,15 +40,6 @@ const GATEWAY_INTERNAL_ERROR_MESSAGE =
 const PROVIDER_TRANSIENT_REJECTION_MESSAGE =
   "The AI provider temporarily refused this request. This usually clears within a minute — retry.";
 const CREDITS_LIMIT_REACHED_MESSAGE = "You've reached your AI credits limit.";
-/**
- * A password-protected PDF still has a valid PDF signature, so it survives
- * upload and any byte-format sniffing — the provider only discovers it's
- * unreadable once it tries to decrypt the content. The raw rejection names
- * the wire field (`pdf.source.base64.data`), which means nothing to a reader
- * who just attached a bank statement; say what actually broke instead. This
- * is checked ahead of the generic malformed-request classification below so
- * the more specific, more actionable copy wins.
- */
 const ATTACHMENT_PASSWORD_PROTECTED_MESSAGE =
   "This PDF is password-protected, so it can't be read. Remove the password protection or paste the relevant text, then retry.";
 const MALFORMED_REQUEST_ATTACHMENT_MESSAGE =

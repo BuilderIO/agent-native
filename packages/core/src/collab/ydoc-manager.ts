@@ -1,4 +1,3 @@
-
 import * as Y from "yjs";
 
 import type { DbExec } from "../db/client.js";
@@ -499,10 +498,6 @@ export async function getIncUpdate(
   return Y.encodeStateAsUpdate(doc, clientStateVector);
 }
 
-/**
- * Seed a document from existing text content (for migration).
- * Only seeds if no collab state exists yet.
- */
 export async function seedFromText(
   docId: string,
   text: string,
@@ -552,7 +547,6 @@ export async function seedFromText(
     });
   });
 }
-
 
 export async function applyJson(
   docId: string,
@@ -610,10 +604,6 @@ export async function getJson(
   return yDocToJson(doc, fieldName);
 }
 
-/**
- * Seed a document from existing JSON content (for migration).
- * Only seeds if no collab state exists yet.
- */
 export async function seedFromJson(
   docId: string,
   json: any,

@@ -490,16 +490,6 @@ async function readAppStateForBrowserTab<T>(
   return (await readAppState(tabKey)) as T | null;
 }
 
-/**
- * Look up a user's persisted API key for the given provider. Returns
- * `undefined` for unauthenticated callers.
- *
- * Read order:
- *   1. `app_secrets` — encrypted user override, then active org/workspace.
- *   2. Legacy `user-api-key:<provider>:<email>` settings row — pre-migration
- *      data that hasn't been backfilled yet. Surfaced for compat only;
- *      writes always go to app_secrets now.
- */
 async function getOwnerApiKeyDetailed(
   provider: string,
   ownerEmail: string | null | undefined,
@@ -886,12 +876,6 @@ export interface ActionEntry {
   planMode?: import("../action.js").ActionPlanModeConfig<any>;
   parallelSafe?: boolean;
   dedupe?: boolean;
-  /** Whether this action may be invoked from the tools-iframe bridge.
-   *  **Default-allow opt-out**: only an explicit `false` returns 403.
-   *  - `true` / `undefined` — allow.
-   *  - `false` — explicit deny; the tools bridge returns 403.
-   *  See `defineAction` (`packages/core/src/action.ts`) and audit H5 in
-   *  `security-audit/05-tools-sandbox.md`. */
   toolCallable?: boolean;
   capabilityScopes?: readonly string[];
   cliWrapper?: boolean;
@@ -1669,7 +1653,6 @@ export function isRetryableError(err: unknown): boolean {
     msg.includes("too much time has passed without sending any data")
   );
 }
-
 
 const CONTEXT_TRIM_KEEP_TAIL = 10;
 const CONTEXT_TRIM_STUB =
@@ -2704,6 +2687,11 @@ export function continuationReasonForResumableError(
   ) {
     return "gateway_timeout";
   }
+  // Provider throttling, named so the chain-cap below (`shouldChainBackgroundContinuation`)
+  // can see it — this used to fall through to `network_interrupted`, which
+  // carries no budget of its own and let a sustained 429 chain for as long as
+  // the turn's run ledger allowed. A bare 403 counts only when the gateway
+  // marked it retryable (`PROVIDER_TRANSIENT_REJECTION_ERROR_CODE` or a raw
   // `providerRetryable` 403) — a real credential rejection must stay terminal.
   if (
     code === "http_429" ||
@@ -4011,11 +3999,6 @@ function toolInputSchemaErrorResult(
   input: unknown,
   error: string,
   parameters?: ActionTool["parameters"],
-  /**
-   * The model response carrying this call stopped at the output-token cap, so
-   * the arguments are truncated rather than wrong. Telling the model to match
-   * the schema here is what makes it re-send the same oversized payload.
-   */
   outputCapTruncated = false,
 ): string {
   const signature = describeToolParameterSignature(
@@ -5099,7 +5082,11 @@ export async function runAgentLoop(opts: {
             model,
             engine.supportedModels,
           );
+          // A sibling with a smaller window (sonnet → haiku) must not inherit
+          // a context that only fit the primary: that fails deterministically
+          // as a context-length error instead of recovering from throttling.
           // ponytail: chars/4 is a coarse token estimate; swap in the engine's
+          // count when one is exposed.
           const fallbackFits =
             fallbackModel !== undefined &&
             JSON.stringify(contextMessages).length / 4 <=
@@ -5637,6 +5624,7 @@ export async function runAgentLoop(opts: {
           try {
             mustApprove = !(await opts.isToolAlwaysAllowed(approvalBinding));
           } catch {
+            // Fail closed: an unreadable policy must leave the approval gate in
             // place instead of turning a storage outage into authorization.
             mustApprove = true;
           }
@@ -6056,6 +6044,13 @@ export async function runAgentLoop(opts: {
         let toolArtifacts: ArtifactReceipt[] = [];
         let fileMutation: AgentFileMutationProof | undefined;
         try {
+          // The run may have been aborted while we waited above for an
+          // interrupted tool's ledger result (the wait can poll for minutes).
+          // Re-check before invoking the action: starting it now would spawn a
+          // fresh zombie execution — a duplicate side effect / double charge —
+          // which the ledger-recovery path exists to prevent. The Promise.race
+          // "Run aborted" leg below only rejects AFTER the action is invoked, so
+          // it cannot guard this. Throw here instead, handled like any abort.
           if (signal.aborted) {
             throw new Error("Run aborted");
           }
@@ -6116,6 +6111,13 @@ export async function runAgentLoop(opts: {
             ),
           );
 
+          // When the run is aborted (soft-timeout / user cancel) while this tool
+          // call is in flight, Promise.race below will throw "Run aborted" and the
+          // action's promise becomes a zombie — it keeps running but its result is
+          // never returned to the loop. If the zombie eventually resolves, write
+          // the result to the durable ledger keyed by (threadId, toolKey) so the
+          // next continuation chunk can recover it instead of re-executing the
+          // side effect.
           if (opts.threadId && !actionEntry.readOnly) {
             const ledgerThreadId = opts.threadId;
             const ledgerToolKey = toolCallCacheKey(
@@ -6504,6 +6506,12 @@ export async function runAgentLoop(opts: {
     if (opts.threadId) {
       void clearLedgerForThread(opts.threadId).catch(() => {});
 
+      // Observational Memory (producer): after a clean turn, run a best-effort
+      // compaction pass so long threads accrue observations/reflections that the
+      // consumer above will surface on later turns. Both the Observer and the
+      // Reflector no-op below their token thresholds, so this is cheap for short
+      // threads. Fire-and-forget; any failure is swallowed so OM never affects
+      // the user-visible turn.
       if (opts.ownerEmail) {
         const compactThreadId = opts.threadId;
         const compaction = maybeCompactThread({
@@ -6811,6 +6819,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       usage.llmCalls = (usage.llmCalls ?? 0) + next.llmCalls;
     }
     if (next.usageReported) usage.usageReported = true;
+    // Keep the earliest attempt's first event — a later continuation
     // attempt starting fresh must not overwrite genuine first-token timing.
     usage.firstEngineEventAtMs ??= next.firstEngineEventAtMs;
   };
@@ -7425,11 +7434,6 @@ export async function chainServerDrivenContinuation(opts: {
   requestBody: Record<string, unknown>;
   backgroundContinuationCount: number;
   noProgressRepeat?: BackgroundNoProgressRepeat;
-  /**
-   * Input tokens this logical turn has consumed across every chunk so far,
-   * carried on the successor's body so the per-turn token ceiling is a real
-   * turn budget instead of a fresh allowance per chunk.
-   */
   turnInputTokens?: number;
   chainViaDurableBackground: boolean;
   workerProvenInBackgroundFunction?: boolean;
@@ -7648,7 +7652,39 @@ export async function chainServerDrivenContinuation(opts: {
           : isLoopProtectionDispatchError(lastDispatchErr)
             ? "netlify_loop_protection"
             : "dispatch_budget_exhausted";
+        // RECOVERABLE: the successor row already exists in SQL with its
+        // rehydration payload (`dispatch_payload`) intact and is still
+        // `status='running', dispatch_mode='background'` — exactly the state
+        // the unclaimed-background-run sweep (`agent-chat-plugin.ts`) already
+        // scans for. Do NOT error it here: leave it alone so the sweep can
+        // redispatch it once `UNCLAIMED_BACKGROUND_RUN_GRACE_MS` has passed,
+        // bounded by `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS` before it
+        // falls back to the existing loud reap
+        // (`background_worker_never_started`) — so this is deferred, never a
+        // silent hang. This chunk still goes terminal (its own soft-timeout
+        // budget is genuinely spent), but with an honest reason: the TURN is
+        // not dead, only this handoff attempt was.
+        //
         // THREE-SITE INVARIANT (keep in lockstep — a future reader must not
+        // "fix" one without the others): this deferral only survives because
+        // the ~1s client poll in `getActiveRunForThreadAsync`
+        // (run-manager.ts) ALSO skips `reapUnclaimedBackgroundRun` while the
+        // successor is within `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS`
+        // (via `shouldRedispatchUnclaimedBackgroundRun`). Without that guard a
+        // connected client would reap this row at the 25s grace, before the
+        // sweep(s) get a chance, defeating the deferral. That same client
+        // poll also surfaces `awaitingRedispatch: true` on `/runs/active`
+        // for exactly this state so the client's background follow loop
+        // (`agent-chat-adapter.ts`) does not count the quiet gap against its
+        // own `BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS` and report a fatal error
+        // for a turn the server is silently recovering. agent-chat-plugin.ts
+        // runs the actual recovery actors: a FAST redispatch-only sweep
+        // (`UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS`, ~20s ticks) that puts the
+        // first redispatch attempt well inside the client's idle timeout, and
+        // the original SLOW sweep (2 min) that also falls back to the loud
+        // reap once `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS` is
+        // exceeded. run-manager.ts is the guard + wire-signal source; this is
+        // the producer.
         await d
           .recordRunDiagnostic(
             nextRunId,
@@ -7831,6 +7867,11 @@ export function createProductionAgentHandler(
 
   const resolvedActions = options.actions ?? options.scripts ?? {};
 
+  // Engine tools are derived from the action registry at request time so that
+  // registries which mutate after handler creation (e.g. MCP servers added via
+  // the settings UI) show up to the LLM without a process restart. MCP tools
+  // are also scope-filtered per request — a user-scope server added by Alice
+  // must not appear in Bob's tool list in a shared-process deployment.
   const getRequestActions = (
     actions: Record<string, ActionEntry> = resolvedActions,
   ) => {
@@ -8262,7 +8303,6 @@ export function createProductionAgentHandler(
     });
     workerStep("apikey_done");
 
-    // DIAGNOSTIC-ONLY: bracket engine resolution (Builder credential / app-default
     workerStep("engine_start");
     const credentialIdentity = {
       userEmail: ownerEmail,
@@ -8685,6 +8725,9 @@ export function createProductionAgentHandler(
       jevContextCredentials,
     ] = await Promise.all([
       presendCap("systemPrompt", systemPromptThunk, "", 13000, () => {
+        // An empty configured prompt is valid, but an empty timeout fallback
+        // is not: required app instructions must either finish or fail before
+        // the model is called. Set the error synchronously with the cap so a
         // late rejection/success cannot race the check below.
         systemPromptError ??= systemPromptTimeoutError;
       }),
@@ -8854,6 +8897,10 @@ export function createProductionAgentHandler(
             .slice(0, 200)
         : undefined;
     // The durable approval row is the authorization boundary. Do not require
+    // the client to reproduce the original structured history exactly: the UI
+    // may truncate tool arguments and intentionally assigns fresh replay ids.
+    // The loop still consumes only a matching server-created grant for the
+    // current owner/org/thread/turn/tool/input tuple.
     const exactApprovedToolCall = findApprovedStructuredToolCall(
       structuredHistory,
       requestedApprovedToolCalls,
@@ -8995,7 +9042,6 @@ export function createProductionAgentHandler(
       requestDisplayMessage.trim().length > 0
         ? requestDisplayMessage
         : requestMessage;
-    // the token ceiling bounds the TURN rather than resetting every chunk.
     const priorTurnInputTokensFromBody = Number(
       (body as unknown as Record<string, unknown>)[
         AGENT_CHAT_TURN_INPUT_TOKENS_FIELD
@@ -9114,6 +9160,16 @@ export function createProductionAgentHandler(
       try {
         await fireInternalDispatch({
           event,
+          // On hosted Netlify this resolves to the background function's DEFAULT
+          // url (/.netlify/functions/<name>, or per-app <app>-agent-background for
+          // workspaces) — the function declares NO custom config.path, so it keeps
+          // its default url, and `background: true` makes that url async (202,
+          // 15-min budget). The `server` /* catch-all already excludes /.netlify/*
+          // so it never shadows it. Off-Netlify this resolves to the framework
+          // `_process-run` route and the same in-process catch-all handles it
+          // inline. `fireInternalDispatch` strips the app base path for
+          // /.netlify/* targets so the request reaches the host-root function url;
+          // the Authorization Bearer HMAC is preserved either way.
           path: backgroundDispatchPath,
           taskId: runId,
           ...(expectsNetlifyBackgroundFunction
@@ -9907,6 +9963,9 @@ export function createProductionAgentHandler(
             ? "foreground-self-chain"
             : "foreground",
         runRowAlreadyInserted: foregroundRunRowInserted,
+        // Resolved AFTER stored-model/experiment overrides — the same value
+        // actually sent to the engine, not the raw client-requested model.
+        // No userId here: `ownerEmail` is the only identity known at this
         // scope and is PII (email), which the terminal event must not carry.
         model: effectiveModel,
         engineName: engine.name,

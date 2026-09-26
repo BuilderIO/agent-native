@@ -1,4 +1,3 @@
-
 import "../authorization/check-action.js";
 import type {
   CallToolResult,
@@ -129,14 +128,6 @@ export interface MCPConfig {
   externalAgents?: ExternalAgentPolicy;
 }
 
-/**
- * Identity extracted from a verified MCP bearer token / JWT. Used to wrap
- * `entry.run()` and `config.askAgent()` calls in `runWithRequestContext`
- * so downstream tools (db-query, accessFilter, resolveCredential) honour
- * per-user / per-org scoping. Without this wrap the MCP endpoint would
- * silently bypass tenant isolation. See finding #6 in
- * /tmp/security-audit/12-mcp-a2a-agent.md.
- */
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
   orgId?: string | null;
@@ -229,14 +220,6 @@ export interface MCPRequestMeta {
   clientHint?: string;
   mcpRetryToken?: string;
   fullCatalog?: boolean;
-  /**
-   * The caller authenticated with a real credential (verified A2A/connect
-   * JWT, matching ACCESS_TOKEN, or a forwarded owner-email header from
-   * `agent-native mcp install`) — not the unauthenticated local dev-open
-   * path. When true, `createMCPServerForRequest` serves
-   * `config.productionActions` (the full surface) instead of the sparse dev
-   * `config.actions`. Set by `mountMCP` from `verifyAuth`.
-   */
   fullSurface?: boolean;
   inlineMcpApps?: boolean;
   transport?: "http" | "stdio";
@@ -355,6 +338,10 @@ const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
   "ask_app",
   "ask_app_status",
   "create_embed_session",
+  // `tool-search` MUST stay in every compact/connector surface: it is how a
+  // compacted client discovers any action on demand, which is what makes
+  // "small catalog by default" non-opaque. Discovery is not permission — a
+  // searched name still has to be in the advertised set to be callable.
   TOOL_SEARCH_TOOL_NAME,
 ]);
 
@@ -379,6 +366,15 @@ function isActionAdvertisedInCompactMcpAppCatalog(
 function explicitlyRequestsFullMcpCatalog(
   requestMeta: MCPRequestMeta | undefined,
 ): boolean {
+  // Full catalog is a deliberate, rare opt-in — NEVER a default, and NEVER
+  // inferred from the client name / user-agent. It is reached only by an
+  // explicit deployment env or a token minted with
+  // `agent-native connect --full-catalog` (which embeds `catalog_scope: "full"`,
+  // surfaced here as requestMeta.fullCatalog). Dumping ~105 tool schemas
+  // (100k+ tokens) into a context window just because a client called itself
+  // "code"/"cursor"/"codex" was a recurring footgun. Everything else gets the
+  // connector/compact catalog plus `tool-search`, which keeps every tool
+  // discoverable; only permitted actions are callable without full opt-in.
   if (process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1") return true;
   return requestMeta?.fullCatalog === true;
 }
@@ -628,7 +624,9 @@ function purgeEmbedStartUrls(
   if (Array.isArray(value)) {
     if (seen.has(value)) return "[circular result]";
     seen.add(value);
+    // An embed marker in one array item puts the whole result in the embed
     // routing context. Credential fields in sibling items must not survive
+    // just because the marker lives elsewhere in the array.
     const arrayEmbedContext = embedContext || containsEmbedRoutingSignal(value);
     const out = value.map((item) =>
       purgeEmbedStartUrls(item, seen, arrayEmbedContext),
@@ -1393,7 +1391,6 @@ export function conciseToolResultText(
   return text === undefined ? `${name} completed.` : truncateToolText(text);
 }
 
-
 export async function createMCPServerForRequest(
   config: MCPConfig,
   identity: MCPCallerIdentity | undefined,
@@ -1465,6 +1462,12 @@ export async function createMCPServerForRequest(
       isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes),
     ),
   );
+  // Compact/connector is the DEFAULT for every caller — hosted connectors,
+  // code clients (Claude Code / Cursor / Codex), and the local CLI alike. The
+  // full ~105-tool catalog is served only on the explicit opt-in above, so a
+  // host can never dump every action schema into one giant tool card. The
+  // `mcp:apps` scope still lands on this compact MCP-Apps surface; with no
+  // opt-in, everyone else does too.
   const compactMcpAppCatalog = !appCatalog && !fullCatalogRequested;
   const advertisedActionsBeforeConnector = compactMcpAppCatalog
     ? Object.fromEntries(
@@ -1831,6 +1834,10 @@ export async function createMCPServerForRequest(
         (typeof ctx.mcpReq.id === "number" && Number.isFinite(ctx.mcpReq.id))
           ? String(ctx.mcpReq.id)
           : undefined;
+      // Stateless HTTP has no connection identity. JSON-RPC ids are commonly
+      // reused after a client reconnects, so they cannot identify a replay on
+      // their own. A caller that needs stateless retry safety supplies a
+      // per-logical-request token through the transport header.
       const mcpRequestId =
         jsonRpcRequestId === undefined
           ? undefined
@@ -2226,7 +2233,6 @@ export async function createMCPServerForRequest(
   return server;
 }
 
-
 export function getAccessTokens(): string[] {
   const single = process.env.ACCESS_TOKEN;
   const multi = process.env.ACCESS_TOKENS;
@@ -2502,6 +2508,12 @@ export async function verifyAuth(
       return { authed: false };
     }
 
+    // Connect-minted tokens (scope === "mcp-connect") carry a random `jti`
+    // and are individually revocable. Only these tokens hit the revoke
+    // store — ordinary A2A delegation JWTs skip the DB lookup entirely so
+    // the hot path is unchanged. The signature was already
+    // cryptographically verified, so failing open here only widens the
+    // explicit-revoke gate, never the trust boundary.
     if (tokenScope === MCP_CONNECT_SCOPE) {
       if (!(await isConnectTokenAllowed(payload.jti as string | undefined))) {
         return { authed: false };
@@ -2550,6 +2562,12 @@ export async function verifyAuth(
     };
   }
 
+  // Try ACCESS_TOKEN / ACCESS_TOKENS exact match. Static tokens carry no
+  // per-caller claims, so derive identity from the forwarded owner-email
+  // hint (install flow) — otherwise tools would run unscoped. Compare in
+  // constant time (matching the rest of this subsystem's secret-comparison
+  // discipline); node:crypto is imported dynamically because this module is
+  // bundled into the serverless function and avoids static Node-only imports.
   if (accessTokens.length > 0) {
     const { timingSafeEqual } = await import("node:crypto");
     const candidate = Buffer.from(token, "utf8");

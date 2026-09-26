@@ -14,7 +14,6 @@ import { isServerRuntimeStarted } from "./server-runtime.js";
 const recyclingPostgresPools = new WeakSet<object>();
 const loggedNeonPools = new WeakSet<object>();
 
-
 export interface DbExecQuery {
   sql: string;
   args?: unknown[];
@@ -33,12 +32,6 @@ export interface DbExec {
   atomicBatch?(
     statements: readonly DbExecStatement[],
   ): Promise<Array<{ rows: any[]; rowsAffected: number }>>;
-  /**
-   * Release the underlying connection/pool held by this exec.
-   * Only non-singleton execs created via `createDbExec()` (e.g. the migration
-   * direct-endpoint exec) should call this. The global singleton exec (`getDbExec`)
-   * is managed by `closeDbExec()` instead.
-   */
   close?(): Promise<void>;
 }
 
@@ -86,7 +79,6 @@ function hasCloudflareRuntime(): boolean {
   };
   return runtime.__cf_env !== undefined || runtime.__env__ !== undefined;
 }
-
 
 export function getDatabaseUrl(fallback = ""): string {
   const testUrl = getIsolatedTestDatabaseUrl();
@@ -568,6 +560,9 @@ export async function closePgliteClients(): Promise<void> {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Safe JSON column parsing
+// ---------------------------------------------------------------------------
 
 /**
  * Parse a JSON-serialized column value defensively. A malformed row — from a
@@ -622,12 +617,9 @@ export function isUniqueViolation(e: any): boolean {
   );
 }
 
-
 export function isLocalDatabase(): boolean {
   return isPgliteUrl(getRuntimeDatabaseUrl("pglite:./data/pglite"));
 }
-
-
 
 export function toPostgresParams(sql: string): string {
   let out = "";
@@ -818,7 +810,6 @@ function explicitTransaction(
   };
 }
 
-
 const CONNECTION_ERROR_CODES = new Set([
   "ECONNRESET",
   "ETIMEDOUT",
@@ -921,7 +912,6 @@ export async function retryOnConnectionError<T>(
   throw last;
 }
 
-
 export function dbOpTimeoutMs(): number {
   const raw = Number(process.env.DB_OP_TIMEOUT_MS);
   if (Number.isFinite(raw) && raw > 0) return raw;
@@ -999,7 +989,6 @@ export async function withDbTimeout<T>(
     promise.then((value) => finish(resolve, value), fail);
   });
 }
-
 
 export function isServerlessRuntime(): boolean {
   return (
@@ -1304,7 +1293,6 @@ export function guardNeonPool(
   });
 }
 
-
 interface ClosablePool {
   end(): Promise<unknown>;
 }
@@ -1408,7 +1396,6 @@ function disposePostgresPoolEventually(
     );
   });
 }
-
 
 let _exec: DbExec | undefined;
 let _initPromise: Promise<void> | undefined;
@@ -1945,17 +1932,6 @@ async function initClient(): Promise<void> {
   _exec = await createDbExecInternal({ url }, true);
 }
 
-/**
- * Point a missing-table failure at the cause instead of the symptom.
- *
- * PostgreSQL reports `relation "x" does not exist` from whichever query
- * happened to touch it first, so the stack lands in an action and reads as a
- * bug in that action. The actual cause is almost always that no migration ever
- * created the table — a template with no `server/plugins/db.ts` creates none,
- * and core's own tables self-heal, so app tables are the only ones that fail
- * this way. Appends rather than replaces: `isDuplicateColumnError` and friends
- * match substrings of the driver's original text.
- */
 export function annotateMissingTable(err: unknown, sql: unknown): unknown {
   if (!(err instanceof Error)) return err;
   const match = /relation\s+["'`]?([\w.]+)["'`]?\s+does not exist/i.exec(

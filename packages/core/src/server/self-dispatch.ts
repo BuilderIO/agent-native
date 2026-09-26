@@ -29,7 +29,14 @@ function readHeader(event: any, name: string): string | undefined {
 }
 
 export function resolveSelfDispatchBaseUrl(event?: any): string {
+  // A deployment that names where its own processor lives wins outright.
+  // Reaching itself through its public hostname means a round trip through the
+  // provider's edge, which was measured answering 404 to that hairpin for a
+  // deployment's whole life while serving every external request. Loopback
+  // (`http://127.0.0.1:${PORT}`) needs no edge.
   // config-ok: read raw, like the platform deploy URLs below — it names where
+  // this process answers, which a checked-in app config cannot know (see the
+  // `app.url` docblock).
   const declared = process.env.AGENT_NATIVE_SELF_DISPATCH_URL?.trim();
   if (declared) {
     const parsed = URL.canParse(declared) ? new URL(declared) : null;
@@ -132,6 +139,13 @@ async function dispatchResponseError(
  *
  * Dispatches require an HMAC signature before sending an unauthenticated request.
  * Local PGlite development may use the trusted loopback path when no secret is set.
+ */
+/**
+ * For host-root dispatch targets (`/.netlify/functions/*`), strip the configured
+ * app base path suffix from the resolved base url so the request reaches the
+ * function at the host root rather than under the workspace app base path. For
+ * every other (framework-route) path the base-path-prefixed base url is returned
+ * unchanged, preserving the existing self-dispatch behavior.
  */
 function rootBaseUrlForPath(baseUrl: string, path: string): string {
   if (!path.startsWith("/.netlify/")) return baseUrl;

@@ -1039,11 +1039,6 @@ function CapabilityList({
 
 const NO_MANUAL_PATH_CAPABILITY_IDS = new Set(["design-system-intelligence"]);
 
-/** The setup cards are a scannable comparison, not a capability inventory:
- *  they carry what the app needs (required), what we recommend (suggested),
- *  and the Builder-only rows that make the manual column honest. Per-app
- *  extras like an optional Figma token belong in Settings, where the user is
- *  actually choosing them. */
 function isHeadlineCapability(capability: OnboardingCapability): boolean {
   return (
     capability.required ||

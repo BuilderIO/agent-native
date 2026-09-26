@@ -125,6 +125,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
 
       process.env.AGENT_TERMINAL_PORT = String(result.port); // guard:allow-env-mutation — terminal subprocess port published once at boot, not per-request
 
+      // Mount discovery endpoint
       getH3App(nitroApp).use(
         "/_agent-native/agent-terminal-info",
         defineEventHandler(() => ({
@@ -146,6 +147,10 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
     } catch (err) {
       delete process.env.__AGENT_TERMINAL_RUNNING; // guard:allow-env-mutation — terminal subprocess boot failed, clearing boot-time sentinel so a later plugin retry can start cleanly
 
+      // Distinguish "node-pty not installed" (expected when the user opts
+      // out of the terminal feature) from real failures (port conflict,
+      // native binding mismatch). Native deps are optional, so keep the
+      // default dev console quiet unless terminal debugging is enabled.
       const code = (err as NodeJS.ErrnoException)?.code;
       const missingPty =
         code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND";

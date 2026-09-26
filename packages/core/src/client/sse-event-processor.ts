@@ -131,18 +131,6 @@ export const INTERRUPTED_TOOL_RESULT =
   "Interrupted before this tool returned a result.";
 const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
 
-/**
- * Maximum number of assistant-ui repository updates we deliver in one browser
- * event-loop turn. Durable-run replay can put hundreds of SSE frames into the
- * stream queue before the client attaches; allowing even a small burst through
- * assistant-ui can synchronously nest React external-store notifications until
- * React throws "Maximum update depth exceeded."
- *
- * A task scheduled on the first result resets the count when the stream is
- * naturally idle between network chunks. We only await it when results are
- * arriving densely enough to hit this bound, so normal live token streaming
- * keeps its existing latency while replay bursts yield cooperatively.
- */
 const SSE_RENDER_UPDATES_PER_EVENT_LOOP_TURN = 1;
 
 function waitForNextEventLoopTurn(): Promise<void> {
@@ -683,7 +671,6 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
 
   if (ev.recoverable === false) return false;
 
-  // repeating the request would retry the same rejected credential or a run
   if (
     msg.includes(
       "the provider rejected the credential used for this request",
@@ -1190,10 +1177,6 @@ export function appendMissingFinalResponseWarning(
 
 interface ProcessEventState {
   completedToolsAfterLastAssistantText: Set<string>;
-  /** Set once `agent-chat:stream-progress` has been dispatched for the
-   *  current chunk, so a burst of per-token text/reasoning deltas only fires
-   *  it once. Cleared by `resetProcessEventState` on a server `clear` retry
-   *  so the next batch of real output re-arms it. */
   streamProgressDispatched: boolean;
 }
 

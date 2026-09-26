@@ -77,14 +77,6 @@ export function isCreditsLimitErrorCode(errorCode?: string): boolean {
   return code === "http_402" || code?.startsWith("credits-limit") === true;
 }
 
-/**
- * A 403 whose "reason" is only an SDK/proxy status echo — an empty body, a
- * bare "Forbidden", or the AI SDK's "403 status code (no body)" — carries no
- * signal to act on, unlike a structured gateway code or a message that names
- * a credential. Shared by `classifyProviderError` below and the Builder
- * engine's own 403 handling so both engines classify the identical wording as
- * transient rather than disagreeing on which "Forbidden" means what.
- */
 export function isBareProviderRejectionMessage(message: string): boolean {
   const trimmed = message.trim();
   return (
@@ -204,6 +196,10 @@ export function classifyProviderError(
   const retryAfterMs = extractRetryAfterMs(err);
 
   return {
+    // Tag every known status as `http_<status>` (not just 401) so a rate limit
+    // surfaces as `http_429`: the structured statusCode drives turn-level
+    // retries, but run-level continuation keys off the errorCode. A bare 403
+    // is the one status that gets a different code instead of `http_403`,
     // because that code is the client's credential-rejected signal.
     ...(statusCode !== undefined
       ? isBareRejection
@@ -214,8 +210,7 @@ export function classifyProviderError(
         : { errorCode: `http_${statusCode}`, statusCode }
       : isConnectionError || timedOut
         ? { errorCode: "provider_network_error" }
-        :
-          (() => {
+        : (() => {
             const code = classifyTerminalErrorCode(described);
             return code ? { errorCode: code } : {};
           })()),

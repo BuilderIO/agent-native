@@ -544,7 +544,19 @@ function mountActionRoutesInternal(
         let userName: string | undefined;
         let authUserId: string | undefined;
         const authCapability = await resolveRequestAuthCapability(event);
+        // An app-supplied auth adapter runs first: it can accept caller
+        // identities the framework's getSession chain doesn't understand (e.g.
+        // an A2A JWT). A resolved caller is seeded onto the event context so any
+        // downstream resolveAgentRunOwnerContext (nested agent runs) sees the
+        // same identity. The adapter is only consulted for the action route, so
+        // it can't affect other surfaces.
+        //
+        // Contract: `resolveCaller` returning `null` means "this credential
+        // isn't mine — defer to the cookie/session chain below". THROWING means
+        // "the credential is mine but invalid" (e.g. an expired/forged A2A
+        // bearer) and is a hard rejection: we surface a 401 instead of falling
         // through, so a live same-origin session cookie can't silently execute
+        // the request as the logged-in user.
         let resolvedCaller: ActionRouteResolvedCaller | null = null;
         const capabilityAllowed =
           (options?.caller === "webmcp" || isFrontendActionRequest(event)) &&
@@ -646,7 +658,16 @@ function mountActionRoutesInternal(
             );
           }
         }
+        // Org scoping. For adapter-resolved callers the org must come
+        // exclusively from the verified credential: the adapter-asserted
+        // orgId when present, explicit null when the caller has no org,
+        // otherwise the owner-email membership lookup.
+        // The request's ambient session/org state (`resolveOrgId`, usually
+        // getSession-backed) is deliberately NOT consulted — a request can
+        // carry both a valid A2A bearer and an unrelated same-origin browser
         // cookie, and the cookie user's org must not become the org the
+        // token caller's actions execute under. Non-adapter callers keep the
+        // original resolveOrgId-only behavior.
         let orgId: string | undefined;
         if (resolvedCaller) {
           orgId = normalizeOrgId(resolvedCaller.orgId);

@@ -1,6 +1,7 @@
 import { HERO_FALLBACK_COLORS } from "./hero-layout.js";
 import type { OceanColors } from "./ocean-colors.js";
 
+/** Auth shells without docs tokens still use these values as the fallback. */
 // guard:allow-raw-color - These fixed values calibrate the standalone GPU shader to the docs brand.
 const DARK_COLORS = { fg: "#aeadac", bg: "#0a0a0a" };
 // guard:allow-raw-color - These fixed values calibrate the standalone GPU shader to the docs brand.

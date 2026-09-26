@@ -461,6 +461,7 @@ async function resolveAgentEngineStatusIdentity(
     const orgCtx = await getOrgContext(event);
     return { userEmail, orgId: orgCtx.orgId ?? undefined };
   } catch {
+    /* org module not present in this template */
     return { userEmail, orgId: undefined };
   }
 }
@@ -577,6 +578,16 @@ export interface DbHealthProbeResult {
   pressure?: DbPressure;
 }
 
+/**
+ * Run a trivial `SELECT 1` to confirm the database is reachable and, as a side
+ * effect, keep a scale-to-zero serverless database (e.g. Neon) warm. Touching
+ * the DB on a schedule prevents the multi-second cold-start that otherwise
+ * stalls the next real user request.
+ *
+ * Always resolves: an app with no database (or a momentarily unreachable one)
+ * is still live, so the probe reports `db: false` rather than throwing. The
+ * `exec` parameter is injectable purely for tests.
+ */
 /**
  * Never throws and never blocks the probe: a gateway that is slow or refusing
  * must not make an app look unhealthy.
@@ -1076,7 +1087,6 @@ async function detectUsageEngineName(
     const status = await runWithRequestContext({ userEmail, orgId }, () =>
       resolveAgentEngineStatus({
         ...requestAgentEngineStatusDeps(),
-        // Tracking only needs the engine name; skip the base-URL secret read.
         readOpenAiBaseUrlConfigured: () => false,
       }),
     );
@@ -1139,6 +1149,7 @@ export async function consumeBuilderConnectPendingState(
     return pending;
   } catch {
     // coercion-ok: missing, consumed, or unreadable pending rows all deny the
+    // callback the same way so attackers cannot probe storage errors.
     return null;
   }
 }
@@ -1154,6 +1165,7 @@ export async function readBuilderConnectPendingState(
     return pending;
   } catch {
     // coercion-ok: missing, consumed, or unreadable pending rows all deny the
+    // callback the same way so attackers cannot probe storage errors.
     return null;
   }
 }
@@ -1836,6 +1848,9 @@ export function createCoreRoutesPlugin(
     });
     trackPluginInit(nitroApp, initPromise, {
       paths: [FRAMEWORK_ROUTE_PREFIX, "/mcp", "/.well-known"],
+      // Liveness and BYOA auth routes are mounted before the DB-dependent
+      // bootstrap below. The broad core entry must not hold those routes while
+      // an unrelated migration or connection pool is unavailable.
       excludedPaths: [
         `${FRAMEWORK_ROUTE_PREFIX}/ping`,
         `${FRAMEWORK_ROUTE_PREFIX}/health`,
@@ -1980,6 +1995,20 @@ export function createCoreRoutesPlugin(
               : await checkGoogleSignInCredential({
                   redirectUri: googleRedirectUri,
                 });
+            // `invalid` is the fleet-wide outage shape: the deploy is up and
+            // healthy while nobody can sign in. Page on it. A registered
+            // client/secret with a mismatched redirect URI is the same
+            // outage from the browser's side — Google rejects the callback
+            // before this app ever sees a code — so page on that too. Gate
+            // the managed pair's mismatch on managedConnection === "required":
+            // an app that only declares managed OAuth as optional/unknown may
+            // legitimately have no redirect URI registered for it yet.
+            //
+            // NOTE: mismatchedPairs:true together with
+            // redirectUriStatus:"registered" is the EXPECTED shape for
+            // managedConnection:"required" apps that intentionally run
+            // sign-in and managed workspace OAuth as two different Google
+            // clients — never page on mismatchedPairs alone.
             const shouldPage =
               result.status === "invalid" ||
               (result.redirectUriStatus === "mismatched" &&
@@ -1993,6 +2022,10 @@ export function createCoreRoutesPlugin(
             };
           }),
         );
+        // Resolved once per process, not per request — this is the
+        // deployment's own CONFIGURED canonical host (env var / first-party
+        // template prodUrl / platform-injected URL), never the current
+        // request's origin, or a mismatch could never be observed.
         const healthBaseUrlHost = await (async () => {
           try {
             const { getAppProductionUrl } = await import("./app-url.js");
@@ -2047,12 +2080,30 @@ export function createCoreRoutesPlugin(
         );
       }
 
+      // Security headers, CORS, and the workspace-app handshake routes
+      // (`/identity`, `/embed/start`) are registered here, before
+      // `awaitBootstrap`, on the same precedent as `/ping` and `/health`
+      // above: a cold function makes the desktop/mobile shell's embed
+      // handshake wait on the whole DB-dependent bootstrap chain below for
+      // no reason, when nothing here needs it — only lazy singletons
+      // (getDbExec, getBetterAuth, getAppConfig, readCorsAllowedOrigins)
+      // that initialize on first use. h3 dispatches middleware in
       // registration order, so security headers and CORS must be mounted
+      // before these routes, not after.
 
+      // Security response headers — emitted on every framework response.
+      // Mounted before route handlers so 4xx/5xx error pages also carry the
+      // headers. Routes that need to tighten a specific header override via
+      // setResponseHeader.
       const { createSecurityHeadersMiddleware } =
         await import("./security-headers.js");
       getH3App(nitroApp).use(createSecurityHeadersMiddleware());
 
+      // CORS for framework routes. Desktop tray apps (Tauri/Electron) run on
+      // their own dev origin (e.g. localhost:1420) and make credentialed
+      // requests against the template's server at a different port. We echo
+      // the exact origin + Allow-Credentials so same-site localhost ports
+      // can cross-send cookies.
       const allowlist = readCorsAllowedOrigins();
       getH3App(nitroApp).use(
         defineEventHandler((event) => {
@@ -2290,8 +2341,31 @@ export function createCoreRoutesPlugin(
         );
       }
 
+      // Defense-in-depth CSRF check for state-changing /_agent-native/* routes
+      // (see `csrf.ts` for the threat model and allowlist) is registered by
+      // `getH3App()` itself (framework-request-handler.ts), synchronously, on
+      // the very first call to `getH3App(nitroApp)` for this process — NOT
+      // here. Registering it inside this plugin's own async init chain would
+      // race against agent-chat-plugin's action-route registration (a
+      // SEPARATE, independently-async-initialized Nitro plugin file in real
+      // deployments): whichever plugin's `getH3App(nitroApp).use(...)` call
+      // happened to resolve first would win the position in the middleware
       // array, and CSRF losing that race would let an action route match and
+      // run before the CSRF check ever saw the request. Centralizing the
+      // registration in `getH3App()`'s one-time bootstrap makes it the first
+      // middleware any plugin's route can possibly land behind, regardless of
+      // plugin init ordering.
 
+      // Peer reachability + auth probe for the settings UI. Deliberately
+      // separate from `${P}/agents` (discovery) — this route makes live
+      // network calls to the peer, so it is session-gated and answers one
+      // peer (`?url=`) or every registered peer (no query) via `discoverAgents`.
+      //
+      // MUST be mounted BEFORE `${P}/agents` below: h3's `.use()` matches by
+      // path prefix, and that handler always returns a value (never calls
+      // `next()`), so it would swallow `/agents/probe` requests before they
+      // ever reached this route if registered second (same hazard as the A2A
+      // `_process-task` route vs. its `/a2a` catch-all — see a2a/server.ts).
       getH3App(nitroApp).use(
         `${P}/agents/probe`,
         defineEventHandler(async (event) => {
@@ -2915,8 +2989,27 @@ export function createCoreRoutesPlugin(
         return true;
       }
 
+      // Lightweight 302 to Builder's authorization endpoint. Lets clients do
+      // `window.open('/_agent-native/builder/connect', '_blank')` synchronously
+      // inside a click handler, avoiding the popup-blocker downgrade that
+      // happens when an await sits before window.open.
+      //
+      // CSRF protection here is layered because session cookies are
+      // SameSite=None;Secure (so the editor iframe can ride along) — that
+      // means a session cookie alone does NOT prevent cross-origin
+      // window.open from initiating a connect flow on the victim's behalf:
+      //   1. Signed connect token from /builder/status — proves the opener
+      //      could read same-origin JSON, which cross-site attackers cannot.
+      //      This covers local/embedded browsers that conservatively label a
+      //      legitimate popup navigation as same-site/cross-site.
+      //   2. Sec-Fetch-Site header fallback — modern browsers stamp every
+      //      request with the navigation context. We allow `same-origin` or
+      //      `none` (typed/bookmark/extension); cross-site / same-site without
+      //      a valid connect token are rejected.
       //   3. Pending row keyed by signed OAuth state plus a host-only cookie —
+      //      Builder can omit the callback query, but it cannot read or forge
       //      the cookie. The callback still requires the matching session,
+      //      pending row, and a successful PKCE exchange before persistence.
       getH3App(nitroApp).use(
         `${P}/builder/connect`,
         defineEventHandler(async (event) => {
@@ -2963,6 +3056,9 @@ export function createCoreRoutesPlugin(
             requestUrl.searchParams,
           );
           // The token must both be well-formed AND minted for the current
+          // session owner. Without the owner check, an attacker holding any
+          // valid signed token could trick a victim into hitting this route
+          // with that token to bypass the cross-origin gate.
           const hasValidConnectToken =
             Boolean(connectTokenOwner) && connectTokenOwner === ownerEmail;
 
@@ -3633,6 +3729,8 @@ export function createCoreRoutesPlugin(
                 err instanceof Error
                   ? err.message
                   : "Builder preview relay failed.";
+              // Never log the first-hop URL or relay body: both contain
+              // credentials. The popup gets a bounded, credential-free error.
               return sendBuilderPopupErrorPage(
                 event,
                 BUILDER_UPSTREAM_FAILURE_STATUS,
@@ -3662,10 +3760,13 @@ export function createCoreRoutesPlugin(
             );
           }
 
-          // from the host-only cookie set by /builder/connect; the pending row
           const queryState = requestUrl.searchParams.get("state");
           const rawStateCookie = getCookie(event, BUILDER_CONNECT_STATE_COOKIE);
           const cookieStates = parseBuilderConnectStateCookie(rawStateCookie);
+          // A consumed, expired, or already-failed state must not make a
+          // recoverable callback look ambiguous. A null selection means the
+          // pending store could not be read, so keep the cookie as-is and let
+          // the resolver fail closed on it.
           const liveStates = cookieStates?.length
             ? await selectLiveBuilderConnectStates(cookieStates)
             : cookieStates;
@@ -3676,6 +3777,9 @@ export function createCoreRoutesPlugin(
             );
           const parentOrigin = getBuilderBrowserOriginForEvent(event);
           let callbackAttemptId = requestConnectAttemptId;
+          // A finished attempt — succeeded or failed — must not leave its
+          // state in the cookie, or the next restart resolves against two
+          // states and fails for a reason the user cannot clear.
           const dropConnectStateCookie = (finishedState: string) => {
             const cookie = getCookie(event, BUILDER_CONNECT_STATE_COOKIE);
             if (!cookie) return;
@@ -3683,7 +3787,6 @@ export function createCoreRoutesPlugin(
               cookie,
               finishedState,
             );
-            // Rewriting a cookie this attempt does not own would resurrect
             if (remaining === cookie) return;
             if (!remaining) {
               deleteCookie(event, BUILDER_CONNECT_STATE_COOKIE, { path: "/" });
@@ -3933,7 +4036,11 @@ export function createCoreRoutesPlugin(
         }),
       );
 
+      // POST /_agent-native/builder/disconnect — remove this user's OAuth
+      // custody. Legacy BUILDER_* secrets are cleared only at their resolved
       // scope, so an admin disconnect cannot accidentally delete org-wide keys
+      // for a user-scoped connection. Workspace and env-managed connections
+      // are not disconnectable from this endpoint.
       getH3App(nitroApp).use(
         `${P}/builder/disconnect`,
         defineEventHandler(async (event: H3Event) => {
@@ -4451,6 +4558,10 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/file-upload/status`,
         defineEventHandler(async (event) => {
+          // resolveBuilderPrivateKey() reads per-user credentials from app_secrets
+          // (DB), which requires request context (AsyncLocalStorage) to know which
+          // user to scope by. Without runWithRequestContext() the ALS store is empty
+          // and it falls back to process.env only — missing OAuth-connected users.
           const session = await getSession(event).catch(() => null);
           const userEmail = session?.email;
           const resolveStatus = async () => {
@@ -4682,7 +4793,6 @@ export function createCoreRoutesPlugin(
 
       getH3App(nitroApp).use(`${P}/automations`, createAutomationsHandler());
 
-
       getH3App(nitroApp).use(
         `${P}/settings`,
         defineEventHandler(async (event: H3Event) => {
@@ -4828,7 +4938,15 @@ export function createCoreRoutesPlugin(
           );
         }
 
+        // Frictionless external-agent connection. A logged-in user mints a
+        // per-user, scoped, revocable MCP bearer token here — via the browser
+        // Connect page or the OAuth-style device-code flow a CLI drives — so
         // they never copy a shared deployment secret. The handler resolves the
+        // browser session itself and serves its own login form (like /open)
+        // for the page + unauth device endpoints; the /token, /device/authorize,
+        // /tokens, /tokens/revoke subpaths require a session and 401 without it.
+        // The auth guard bypasses ONLY the page + device/start + device/poll
+        // (see createAuthGuardFn in auth.ts).
         const mcpConnectOpts = {
           appId: mcpConnect.appId,
           appName: mcpConnect.appName,
@@ -4856,6 +4974,15 @@ export function createCoreRoutesPlugin(
       }
 
       if (!options.disableEmbedRoute) {
+        // POST /_agent-native/mcp/embed-error — telemetry sink for MCP App
+        // embed shells. The shell runs in a sandboxed, opaque-origin iframe
+        // (Codex, Cursor, ChatGPT, Claude) with no session cookie or CSRF
+        // token, so this endpoint is intentionally unauthenticated and
+        // CORS-open to the SAME sandbox origins as /embed/start. It forwards a
+        // small, bounded diagnostic payload to Sentry via captureError so we
+        // can see *why* an inline embed failed (handshake timeout, transplant
+        // fetch status/CORS, auth, CSP) per host. Best-effort: always 204,
+        // never throws, body capped, no client-trusted identity.
         getH3App(nitroApp).use(
           `${P}/mcp/embed-error`,
           defineEventHandler(async (event: H3Event) => {

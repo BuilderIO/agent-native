@@ -154,7 +154,6 @@ export async function verifyMcpOAuthAccessToken(
   const audiences = buildAudienceList(resource);
   if (!audiences) return null;
 
-  // Try each candidate secret in priority order.  We only fall through to the
   const secrets = verifySecrets();
   let payload: jose.JWTPayload | null = null;
 

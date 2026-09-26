@@ -38,7 +38,6 @@ function tmpDir(): string {
   return root;
 }
 
-
 describe("writeJsonMcpEntry", () => {
   it("creates a fresh file when the target does not exist", () => {
     const dir = tmpDir();
@@ -187,7 +186,6 @@ describe("writeJsonMcpEntry", () => {
   });
 });
 
-
 describe("hasJsonMcpEntry", () => {
   it("returns false for a missing file", () => {
     expect(hasJsonMcpEntry("/nonexistent/path.json", "srv")).toBe(false);
@@ -197,6 +195,10 @@ describe("hasJsonMcpEntry", () => {
     const dir = tmpDir();
     const file = path.join(dir, "corrupt.json");
     fs.writeFileSync(file, "{bad}", "utf-8");
+    // hasJsonMcpEntry uses the same readJsonFile — it should throw, not silently
+    // return false, so callers can't be misled into thinking the entry is absent.
+    // We accept either: throw OR return false (both safer than returning true).
+    // The important invariant: the file is not modified.
     let result: boolean | null = null;
     try {
       result = hasJsonMcpEntry(file, "srv");
@@ -207,7 +209,6 @@ describe("hasJsonMcpEntry", () => {
     if (result !== null) expect(result).toBe(false);
   });
 });
-
 
 describe("writeHttpEntryForClient", () => {
   it("writes a project-scope claude-code entry to .mcp.json", () => {
@@ -384,7 +385,6 @@ describe("buildLocalMcpEntryForClient", () => {
   });
 });
 
-
 describe("buildHttpMcpEntry", () => {
   it("includes Authorization header when a token is supplied", () => {
     const entry = buildHttpMcpEntry("https://x.com", "tok_123");
@@ -411,7 +411,6 @@ describe("buildHttpMcpEntry", () => {
   });
 });
 
-
 describe("canonicalUrl", () => {
   it("strips trailing slash", () => {
     expect(canonicalUrl("https://x.com/mcp/")).toBe("https://x.com/mcp");
@@ -437,7 +436,6 @@ describe("canonicalUrl", () => {
     expect(canonicalUrl(undefined)).toBeUndefined();
   });
 });
-
 
 describe("removeJsonSameUrlDuplicates", () => {
   it("removes entries whose URL matches the canonical URL, preserving keepName", () => {
@@ -557,7 +555,6 @@ describe("removeJsonSameUrlDuplicates", () => {
   });
 });
 
-
 describe("removeCodexSameUrlDuplicates", () => {
   it("removes Codex TOML blocks whose url matches, preserving keepName", () => {
     const dir = tmpDir();
@@ -655,7 +652,6 @@ describe("removeCodexSameUrlDuplicates", () => {
     expect(content).toContain("[mcp_servers.other]");
   });
 });
-
 
 describe("writeCodexBlock", () => {
   const PLAN_URL = "https://plan.agent-native.com/_agent-native/mcp";

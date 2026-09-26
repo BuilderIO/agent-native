@@ -28,7 +28,6 @@ import { invalidateOptionalKeyCache } from "./optional-key-cache.js";
 import type { SecretScope } from "./register.js";
 import { APP_SECRETS_CREATE_SQL } from "./schema.js";
 
-
 let _initPromise: Promise<void> | undefined;
 
 export async function ensureTable(): Promise<void> {
@@ -63,7 +62,6 @@ export async function ensureTable(): Promise<void> {
   return _initPromise;
 }
 
-
 export const VAULT_SYNC_DESCRIPTION_PREFIX = "Synced from Dispatch vault:";
 
 export function last4(value: string): string {
@@ -71,7 +69,6 @@ export function last4(value: string): string {
   if (value.length <= 4) return "••••";
   return "••••" + value.slice(-4);
 }
-
 
 export interface SecretRef {
   key: string;
@@ -106,6 +103,30 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
     : null;
   const id = randomUUID();
 
+  // Atomic upsert by (scope, scope_id, key). Previously this was a
+  // SELECT-then-branch (UPDATE if found, else INSERT): under concurrent
+  // writers for the same key both could see "no row" and both attempt
+  // INSERT, and the loser threw a raw UNIQUE(scope, scope_id, key)
+  // constraint violation (a user-facing 500) instead of updating. A single
+  // `INSERT ... ON CONFLICT DO UPDATE` closes that window — it's one
+  // statement, so there's no gap between "check" and "act". `id` is
+  // deliberately left out of the `DO UPDATE SET` list so an existing row
+  // keeps its original id (any stored references stay stable); only a
+  // genuinely new row gets the freshly generated `id`. This syntax is
+  // Uses Postgres' atomic UPSERT to avoid a check-then-write race.
+  //
+  // shared_encrypted_value is overwritten with `excluded.shared_encrypted_value`
+  // (NULL when this writer lacks shared key material) rather than preserved
+  // via COALESCE. Preserving an existing shared ciphertext across a value
+  // update would let a sibling app silently decrypt a STALE value after the
+  // owner rotates it — a material-less writer has no way to produce the new
+  // shared ciphertext, so it must clear the old one instead of leaving it
+  // pointing at data that's no longer current. Siblings then get an honest
+  // cache miss (falling back to the legacy column or reporting missing) until
+  // the owning app's next read repopulates shared_encrypted_value via
+  // `populateSharedAppSecret`, which fills a NULL column or compare-and-swap
+  // replaces the exact legacy ciphertext it just decrypted. A temporary miss
+  // is safer than serving rotated-away plaintext.
   const upsertSql = `INSERT INTO app_secrets (id, scope, scope_id, key, encrypted_value, shared_encrypted_value, description, url_allowlist, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (scope, scope_id, key) DO UPDATE SET
@@ -222,6 +243,9 @@ async function populateSharedAppSecret(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Per-request read memo
+// ---------------------------------------------------------------------------
 
 /**
  * Per-request memo of secret reads, keyed on the active AsyncLocalStorage

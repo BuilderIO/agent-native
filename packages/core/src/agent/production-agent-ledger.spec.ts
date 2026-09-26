@@ -9,7 +9,6 @@ import {
   type ActionEntry,
 } from "./production-agent.js";
 
-
 const writeLedgerMock = vi.hoisted(() =>
   vi.fn<
     (
@@ -62,7 +61,6 @@ vi.mock("./run-store.js", () => ({
     details: "",
   },
 }));
-
 
 function makeWriteAction(): ActionEntry {
   return {
@@ -124,7 +122,6 @@ function singleToolEngine(
   };
 }
 
-
 describe("tool-call result ledger", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -135,6 +132,9 @@ describe("tool-call result ledger", () => {
   });
 
   it("writes a ledger entry when a zombie write-tool call completes", async () => {
+    // Simulate the zombie path: the action promise resolves normally (no race),
+    // meaning the zombie .then() fires. With threadId set, writeLedgerEntry
+    // must be called with the thread + tool key.
     const action = makeWriteAction();
     (action.run as ReturnType<typeof vi.fn>).mockResolvedValue("zombie-result");
 

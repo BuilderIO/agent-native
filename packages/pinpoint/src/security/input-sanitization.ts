@@ -1,3 +1,4 @@
+// @agent-native/pinpoint — Input sanitization for DOM-derived strings
 // MIT License
 
 const HTML_ENTITIES: Record<string, string> = {

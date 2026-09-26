@@ -1,4 +1,3 @@
-
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
@@ -1570,6 +1569,10 @@ export async function processAgentTeamRun(
       await saveTask(task);
       if (ownerEmail) await updateTaskProgressRun(task, ownerEmail);
 
+      // The attempts value at claim-time is the fencing token. All queue
+      // writes (heartbeat, bump, complete) include AND attempts = claimedAttempts
+      // so a superseded invocation that was re-claimed by a stuck-refire cannot
+      // accidentally touch the new invocation's row.
       const claimedAttempts = claimed.attempts;
 
       const heartbeat = setInterval(() => {
@@ -1825,7 +1828,9 @@ export async function processAgentTeamRun(
           {
             useHostedSoftTimeoutDefault: true,
             turnId,
+            // No userId here: `ownerEmail` is the only identity known at
             // this scope and is PII (email), which the terminal event must
+            // not carry.
             model: config.model,
             engineName: config.engine.name,
             attemptCount: claimedAttempts,
@@ -2090,7 +2095,6 @@ function resolveOwnerScope(
   if (ownerEmail === undefined) return undefined;
   return {
     ownerEmail,
-    // A few non-HTTP test/CLI hosts only provide the user scope. Keep that
     orgId:
       typeof getRequestOrgId === "function" ? getRequestOrgId() : undefined,
   };
