@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   editorScreenshotEditsJson,
+  hasDeleteClaim,
   isClaimedForDelete,
   screenshotLeftoverUrls,
   viewerScreenshotEditsJson,
@@ -72,6 +73,13 @@ describe("screenshot-edits", () => {
       isClaimedForDelete(claimed, Date.parse("2026-09-26T00:20:00Z")),
     ).toBe(false);
     expect(withoutDeleteClaim(claimed)).toBe("{}");
+  });
+
+  it("still sees an expired claim, so restore can refuse a part-deleted row", () => {
+    const claimed = withDeleteClaim("{}", "2020-01-01T00:00:00Z")!;
+    expect(isClaimedForDelete(claimed)).toBe(false);
+    expect(hasDeleteClaim(claimed)).toBe(true);
+    expect(hasDeleteClaim("{}")).toBe(false);
   });
 
   it("gives a viewer nothing from edits it cannot read", () => {

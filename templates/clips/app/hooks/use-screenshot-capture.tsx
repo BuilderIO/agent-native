@@ -26,8 +26,6 @@ export interface ScreenshotCaptureScope {
 
 interface PendingCapture {
   canvas: HTMLCanvasElement;
-  /** One per capture, so saving it again cannot make a second screenshot. */
-  requestId: string;
   title: string;
   sourceAppName: string | null;
   sourceWindowTitle: string | null;
@@ -54,9 +52,14 @@ export function useScreenshotCapture({
   const createScreenshot = useCreateScreenshot();
   const [isCapturing, setIsCapturing] = useState(false);
   const [pending, setPending] = useState<PendingCapture | null>(null);
+  /**
+   * A save in flight. No new capture starts meanwhile: if the save fails,
+   * its capture reopens, and there is only room for one.
+   */
+  const [saving, setSaving] = useState(false);
 
   const captureScreenshot = useCallback(() => {
-    if (isCapturing || pending) return;
+    if (isCapturing || pending || saving) return;
 
     const unsupported = screenshotCaptureUnsupportedReason();
     if (unsupported) {
@@ -93,7 +96,6 @@ export function useScreenshotCapture({
 
         setPending({
           canvas: frame.canvas,
-          requestId: crypto.randomUUID(),
           title: captureTitle.title,
           sourceAppName: captureTitle.sourceAppName,
           sourceWindowTitle: captureTitle.sourceWindowTitle,
@@ -112,11 +114,12 @@ export function useScreenshotCapture({
         setIsCapturing(false);
       }
     })();
-  }, [isCapturing, pending, t]);
+  }, [isCapturing, pending, saving, t]);
 
   const saveCapture = useCallback(
     (capture: PendingCapture, canvas: HTMLCanvasElement) => {
       setPending(null);
+      setSaving(true);
       const pendingToastId = toast.loading(t("screenshot.saving"));
 
       void (async () => {
@@ -128,7 +131,6 @@ export function useScreenshotCapture({
             title: capture.title,
             sourceAppName: capture.sourceAppName,
             sourceWindowTitle: capture.sourceWindowTitle,
-            requestId: capture.requestId,
             folderId: folderId ?? null,
             ...(spaceId ? { spaceIds: [spaceId] } : {}),
           });
@@ -136,10 +138,13 @@ export function useScreenshotCapture({
         } catch (err) {
           toast.dismiss(pendingToastId);
           toast.error(errorMessage(err) || t("screenshot.failed"));
-          // The capture exists nowhere else; a failed upload must not cost
-          // the user a screen they may not be able to get back. The crop
-          // step reopens on it, to save again or cancel.
-          setPending((current) => current ?? capture);
+          // The capture exists nowhere else, and the screen may not be
+          // there to take again: the crop step reopens on it, to save again
+          // or cancel. A lost response on a save that did land makes this a
+          // second, visible copy — better than losing the only one.
+          setPending(capture);
+        } finally {
+          setSaving(false);
         }
       })();
     },
@@ -156,7 +161,7 @@ export function useScreenshotCapture({
 
   return {
     captureScreenshot,
-    isCapturing: isCapturing || pending !== null,
+    isCapturing: isCapturing || pending !== null || saving,
     overlay,
   };
 }

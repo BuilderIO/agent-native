@@ -32,6 +32,11 @@ export const DELETE_CLAIM_KEY = "permanentDeleteClaim";
  */
 const DELETE_CLAIM_TTL_MS = 15 * 60 * 1000;
 
+/** Any claim, live or expired: the row may already have lost files. */
+export function hasDeleteClaim(editsJson: string | null | undefined): boolean {
+  return Boolean(readEditsRecord(editsJson)?.[DELETE_CLAIM_KEY]);
+}
+
 export function isClaimedForDelete(
   editsJson: string | null | undefined,
   nowMs = Date.now(),

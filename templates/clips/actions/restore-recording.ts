@@ -8,14 +8,11 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  isClaimedForDelete,
-  withoutDeleteClaim,
-} from "../server/lib/screenshot-edits.js";
+import { hasDeleteClaim } from "../server/lib/screenshot-edits.js";
 
 export default defineAction({
   description: "Restore a recording from archive or trash back to the library.",
@@ -35,31 +32,20 @@ export default defineAction({
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.id));
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
+    // A permanent delete has claimed this screenshot: it is running, or it
+    // stopped part-way and some files — possibly the base still under
+    // pending boxes — are gone. Either way it cannot come back whole.
+    if (hasDeleteClaim(existing.editsJson)) {
+      throw new Error(
+        "This screenshot was partly deleted and cannot be restored. Delete it again to finish.",
+      );
+    }
 
     const now = new Date().toISOString();
     await db
       .update(schema.recordings)
       .set({ archivedAt: null, trashedAt: null, updatedAt: now })
       .where(eq(schema.recordings.id, args.id));
-    // A permanent delete that died after claiming a screenshot leaves its
-    // claim behind. Once it has expired it no longer blocks saves, and is
-    // tidied away here. A live one is left alone: that delete is still
-    // running, and lifting its claim would let a save land mid-delete.
-    // Pinned to the edits read, so a change made meanwhile is kept.
-    const editsJson = isClaimedForDelete(existing.editsJson)
-      ? existing.editsJson
-      : withoutDeleteClaim(existing.editsJson);
-    if (editsJson !== existing.editsJson) {
-      await db
-        .update(schema.recordings)
-        .set({ editsJson })
-        .where(
-          and(
-            eq(schema.recordings.id, args.id),
-            eq(schema.recordings.editsJson, existing.editsJson),
-          ),
-        );
-    }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     console.log(`Restored recording ${args.id}`);
