@@ -237,7 +237,8 @@ export async function createZoomMeeting(opts: {
     if (
       error instanceof ZoomProviderError &&
       error.statusCode >= 400 &&
-      error.statusCode < 500
+      error.statusCode < 500 &&
+      error.statusCode !== 408
     ) {
       return { status: "rejected" };
     }

@@ -115,4 +115,32 @@ describe("createZoomMeeting", () => {
     ).resolves.toEqual({ status: "rejected" });
     expect(mocks.providerCreateMeeting).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps Zoom request timeouts on the ambiguous outcome path", async () => {
+    vi.stubEnv("ZOOM_CLIENT_ID", "client-id");
+    vi.stubEnv("ZOOM_CLIENT_SECRET", "client-secret");
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      { accountId: "zoom-account", displayName: "Host" },
+    ] as never);
+    vi.mocked(getOAuthTokens).mockResolvedValue({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      expiresAt: Date.now() + 10 * 60_000,
+    } as never);
+    const { ZoomProviderError } =
+      await import("@agent-native/scheduling/server/providers");
+    const timeout = new ZoomProviderError(408, "Request Timeout");
+    mocks.providerError = timeout;
+
+    await expect(
+      createZoomMeeting({
+        hostEmail: "host@example.com",
+        title: "Booking",
+        startTime: "2026-09-25T23:30:00.000Z",
+        endTime: "2026-09-26T00:00:00.000Z",
+        timezone: "America/Los_Angeles",
+      }),
+    ).rejects.toBe(timeout);
+    expect(mocks.providerCreateMeeting).toHaveBeenCalledTimes(1);
+  });
 });
