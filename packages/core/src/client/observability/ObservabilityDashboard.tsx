@@ -1372,12 +1372,21 @@ function ReviewTab({
   };
 
   const unsummarizedReviews =
-    visibleReviews?.filter(
-      (review) =>
+    visibleReviews?.filter((review) => {
+      const runIds = [
+        review.runId,
+        ...(review.runs?.map((run) => run.runId) ?? []),
+      ];
+      return (
         !review.summary &&
         !review.readOnly &&
-        summaryRequests[review.runId] !== "sending",
-    ) ?? [];
+        !runIds.some(
+          (runId) =>
+            summaryRequests[runId] === "sending" ||
+            summaryRequests[runId] === "sent",
+        )
+      );
+    }) ?? [];
   const feedbackToImprove = (visibleReviews ?? []).flatMap((review) => {
     if (review.readOnly) return [];
     const runIds = new Set([

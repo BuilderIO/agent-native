@@ -38,6 +38,7 @@ export function ObservabilityReviewSummaryButton({
   refresh = false,
 }: ObservabilityReviewSummaryButtonProps) {
   const t = useT();
+  const disabled = status === "sending" || (status === "sent" && !refresh);
   const label = t(
     refresh
       ? "observability.regenerateSummary"
@@ -56,7 +57,7 @@ export function ObservabilityReviewSummaryButton({
 
   const summarize = async () => {
     const requestRunId = runId;
-    if (status === "sending") return;
+    if (disabled) return;
 
     onStatusChange("sending");
     try {
@@ -95,10 +96,14 @@ export function ObservabilityReviewSummaryButton({
               size={compact ? "icon" : "sm"}
               variant={compact ? "ghost" : "default"}
               aria-label={label}
-              aria-disabled={status === "sending"}
+              disabled={disabled}
               aria-busy={status === "sending"}
               className={
-                status === "sending" ? "cursor-wait opacity-60" : undefined
+                status === "sending"
+                  ? "cursor-wait opacity-60"
+                  : status === "sent"
+                    ? "opacity-60"
+                    : undefined
               }
               onClick={summarize}
             >
