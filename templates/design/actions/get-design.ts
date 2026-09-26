@@ -86,24 +86,22 @@ export default defineAction({
           eq(schema.designFiles.id, fileId),
         )
       : eq(schema.designFiles.designId, id);
+    const fileOrder = [
+      asc(schema.designFiles.createdAt),
+      asc(schema.designFiles.id),
+    ] as const;
     const files =
       includeFileContent === false
         ? await db
             .select(baseFileFields)
             .from(schema.designFiles)
             .where(fileFilter)
-            .orderBy(
-              asc(schema.designFiles.createdAt),
-              asc(schema.designFiles.id),
-            )
+            .orderBy(...fileOrder)
         : await db
             .select({ ...baseFileFields, content: schema.designFiles.content })
             .from(schema.designFiles)
             .where(fileFilter)
-            .orderBy(
-              asc(schema.designFiles.createdAt),
-              asc(schema.designFiles.id),
-            );
+            .orderBy(...fileOrder);
     const designSystem = await loadAgentDesignSystemContext(
       typeof row.designSystemId === "string" ? row.designSystemId : null,
       getDesignSystem,
@@ -140,7 +138,9 @@ export default defineAction({
         id: f.id,
         filename: f.filename,
         fileType: f.fileType,
-        ...("content" in f ? { content: f.content } : {}),
+        ...(includeFileContent === false || !("content" in f)
+          ? {}
+          : { content: f.content }),
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
       })),
