@@ -1661,6 +1661,16 @@ const messages = {
     redo: "Refazer",
     redactSaving: "Salvando...",
     redactFailed: "Não foi possível salvar a captura",
+    captureInsecure:
+      "A captura de tela exige HTTPS ou localhost. Abra o Clips em uma URL segura e tente novamente.",
+    captureUnavailable:
+      "A captura de tela não está disponível neste navegador.",
+    captureUnsupported:
+      "Seu navegador não oferece suporte à captura de tela. Experimente uma versão recente do Brave, Chrome, Edge, Safari ou Firefox.",
+    captureNoScreen: "Nenhuma tela foi compartilhada.",
+    captureNoCanvas: "Este navegador não conseguiu preparar a imagem.",
+    captureNoPicture:
+      "A tela compartilhada nunca enviou uma imagem. Tente novamente ou compartilhe a tela inteira.",
     redactLoadFailed: "Não foi possível abrir a captura para edição",
     saveSelection: "Salvar seleção",
     saveWholeScreen: "Salvar a tela inteira",

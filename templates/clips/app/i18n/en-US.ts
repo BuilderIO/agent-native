@@ -1639,6 +1639,15 @@ const messages = {
     redo: "Redo",
     redactSaving: "Saving...",
     redactFailed: "Could not save the screenshot",
+    captureInsecure:
+      "Screen capture requires HTTPS or localhost. Open Clips on a secure URL, then try again.",
+    captureUnavailable: "Screen capture isn't available in this browser.",
+    captureUnsupported:
+      "Your browser doesn't support screen capture. Try a recent Brave, Chrome, Edge, Safari, or Firefox.",
+    captureNoScreen: "No screen was shared.",
+    captureNoCanvas: "This browser could not prepare the image.",
+    captureNoPicture:
+      "The shared screen never sent a picture. Try again, or share the whole screen instead.",
     redactLoadFailed: "Could not open the screenshot for editing",
     saveSelection: "Save selection",
     saveWholeScreen: "Save whole screen",

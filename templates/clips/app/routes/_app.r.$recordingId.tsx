@@ -39,7 +39,10 @@ import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "@shared/loom";
-import { isImageRecording } from "@shared/recording-kind";
+import {
+  isImageRecording,
+  screenshotFileExtension,
+} from "@shared/recording-kind";
 import {
   buildShareContinuationQuery,
   CLIP_SHARE_REF,
@@ -643,7 +646,13 @@ export default function RecordingPage() {
   const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
-  const [redacting, setRedacting] = useState(false);
+  // Keyed to the recording: the page stays mounted across a move to another
+  // one, and the editor keeps the picture it opened on, so an editor left
+  // open would show one screenshot on another's page.
+  const [redactingId, setRedactingId] = useState<string | null>(null);
+  const redacting = redactingId !== null && redactingId === recordingId;
+  const setRedacting = (open: boolean) =>
+    setRedactingId(open ? (recordingId ?? null) : null);
   /** Redaction boxes open in the screenshot editor, saved or not. */
   const [editorRedactions, setEditorRedactions] = useState(0);
   const isCompactLayout = useIsCompactRecordingLayout();
@@ -1443,9 +1452,7 @@ export default function RecordingPage() {
       const a = document.createElement("a");
       a.href = url;
       const extension = isImage
-        ? blob.type.includes("png")
-          ? "png"
-          : "jpg"
+        ? screenshotFileExtension(blob.type)
         : blob.type.includes("webm") || recording?.videoFormat === "webm"
           ? "webm"
           : "mp4";
@@ -2673,6 +2680,7 @@ export default function RecordingPage() {
                     <div className="flex w-full flex-col gap-3">
                       {redacting ? (
                         <ScreenshotEditor
+                          key={recording.id}
                           recordingId={recording.id}
                           mediaRevision={recording.mediaUpdatedAt ?? ""}
                           // Edit from the un-marked base so existing boxes,

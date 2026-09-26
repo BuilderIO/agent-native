@@ -7,7 +7,6 @@ import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
   getSession,
   signScopedAgentAccessToken,
-  signShortLivedToken,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import { isImageRecording } from "@shared/recording-kind";
@@ -42,7 +41,6 @@ import {
 import { resolveTranscriptPresentation } from "../../shared/transcript-status.js";
 import { getDb, schema } from "../db/index.js";
 import { recordAgentView } from "./agent-views.js";
-import { resolvePlayerThumbnailUrl } from "./player-thumbnail-url.js";
 import { verifySharePassword } from "./share-password.js";
 
 export type PublicAgentRecording = typeof schema.recordings._.inferSelect;
@@ -265,25 +263,6 @@ async function writeResponseBodyToFileWithLimit(
   } finally {
     await file.close();
   }
-}
-
-/**
- * The gated route for a screenshot's picture, absolute for an agent. This
- * caller was already let in, by password or token, but the route asks again
- * and knows neither, so a password-protected one carries a short-lived token.
- */
-function screenshotContextUrl(
-  recording: Parameters<typeof resolvePlayerThumbnailUrl>[0] & {
-    password?: string | null;
-  },
-  origin: string,
-): string | null {
-  const route = resolvePlayerThumbnailUrl(recording, {
-    accessToken: recording.password
-      ? signShortLivedToken({ resourceId: recording.id })
-      : null,
-  });
-  return route ? `${origin}${getServerAppBasePath()}${route}` : null;
 }
 
 export async function loadPublicAgentAccess(
@@ -706,10 +685,21 @@ export function buildPublicAgentContext({
   const publicPageUrl = `${requestUrl.origin}${getServerAppBasePath()}/share/${encodeURIComponent(recording.id)}`;
   const isLoomSource = isLoomRecordingSource(recording);
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
+  const isScreenshot = isImageRecording(recording);
   const agentReadiness = getAgentClipReadiness(recording.status);
   const clipIsReady = agentReadiness.state === "ready";
-  const suggestedFrames =
-    !clipIsReady || isLoomEmbedBacked
+  const suggestedFrames = isScreenshot
+    ? clipIsReady
+      ? [
+          {
+            atMs: 0,
+            timestamp: "0:00",
+            reason: "the screenshot",
+            url: api.frameUrl(0),
+          },
+        ]
+      : []
+    : !clipIsReady || isLoomEmbedBacked
       ? []
       : buildRecommendedFrames({
           durationMs: recording.durationMs,
@@ -742,15 +732,20 @@ export function buildPublicAgentContext({
       : []),
     ...(!clipIsReady
       ? []
-      : isLoomEmbedBacked
+      : isScreenshot
         ? [
-            "This clip is a legacy Loom embed import; frame extraction is not available through Clips until it is reimported as a Clips-hosted video.",
+            "This clip is a screenshot: one still image, with no audio, transcript or timeline.",
+            "To SEE it, GET apis.frame.urlTemplate with atMs=0 (returns the picture). Any atMs returns the same image.",
           ]
-        : [
-            "This clip is readable as both text (transcript) and images (JPEG frames) — you can hear AND see it.",
-            "To SEE the screen, GET apis.frame.urlTemplate with atMs (returns image/jpeg). Start with recommendedFrames, then fetch additional frames around transcript timestamps that matter for the task.",
-            "If you cannot load an image from a URL, you will only have the transcript — tell the user to open the clip in an image-capable agent (ChatGPT, Claude Code, Cursor, Codex) or to upload a frame image directly so you can see it.",
-          ]),
+        : isLoomEmbedBacked
+          ? [
+              "This clip is a legacy Loom embed import; frame extraction is not available through Clips until it is reimported as a Clips-hosted video.",
+            ]
+          : [
+              "This clip is readable as both text (transcript) and images (JPEG frames) — you can hear AND see it.",
+              "To SEE the screen, GET apis.frame.urlTemplate with atMs (returns image/jpeg). Start with recommendedFrames, then fetch additional frames around transcript timestamps that matter for the task.",
+              "If you cannot load an image from a URL, you will only have the transcript — tell the user to open the clip in an image-capable agent (ChatGPT, Claude Code, Cursor, Codex) or to upload a frame image directly so you can see it.",
+            ]),
   ];
 
   return {
@@ -772,10 +767,13 @@ export function buildPublicAgentContext({
       description: recording.description,
       publicPageUrl,
       sourceProvider: isLoomSource ? "loom" : null,
-      // A screenshot's thumbnail is the whole picture: hand out the route
-      // that applies password, expiry and the redaction hold, not storage.
-      thumbnailUrl: isImageRecording(recording)
-        ? screenshotContextUrl(recording, requestUrl.origin)
+      // A screenshot's thumbnail is the whole picture: hand out the frame
+      // route, which takes this caller's own access and checks the
+      // redaction hold, never the storage URL.
+      thumbnailUrl: isScreenshot
+        ? clipIsReady
+          ? api.frameUrl(0)
+          : null
         : recording.thumbnailUrl,
       animatedThumbnailUrl: recording.animatedThumbnailUrl,
       durationMs: recording.durationMs,
@@ -926,6 +924,40 @@ async function fetchRecordingMediaResponse(
     );
   }
   return response;
+}
+
+const SCREENSHOT_FRAME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+]);
+
+/**
+ * A screenshot's picture, for the frame API: a still image has one frame,
+ * and it is the picture itself.
+ */
+export async function loadScreenshotImage(
+  recording: PublicAgentRecording,
+): Promise<{ bytes: Uint8Array; mimeType: string }> {
+  const url = recording.imageUrl ?? recording.thumbnailUrl ?? "";
+  if (!url || url.startsWith("data:")) {
+    throw new Error("Screenshot has no stored image");
+  }
+  const response = await fetchRecordingMediaResponse(url);
+  const mimeType =
+    response.headers.get("content-type")?.split(";", 1)[0]?.trim() ?? "";
+  if (!SCREENSHOT_FRAME_TYPES.has(mimeType)) {
+    await response.body?.cancel().catch(() => {});
+    throw new RecordingMediaFetchError(
+      `Screenshot storage returned ${mimeType || "no content type"}`,
+      502,
+    );
+  }
+  return {
+    bytes: new Uint8Array(await response.arrayBuffer()),
+    mimeType,
+  };
 }
 
 export async function loadRecordingMediaBytes(

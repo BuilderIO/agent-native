@@ -1633,6 +1633,15 @@ const messages = {
     redo: "다시 실행",
     redactSaving: "저장 중...",
     redactFailed: "스크린샷을 저장하지 못했습니다",
+    captureInsecure:
+      "화면 캡처에는 HTTPS 또는 localhost가 필요합니다. 보안 URL에서 Clips를 연 다음 다시 시도하세요.",
+    captureUnavailable: "이 브라우저에서는 화면 캡처를 사용할 수 없습니다.",
+    captureUnsupported:
+      "브라우저가 화면 캡처를 지원하지 않습니다. 최신 Brave, Chrome, Edge, Safari 또는 Firefox를 사용해 보세요.",
+    captureNoScreen: "공유된 화면이 없습니다.",
+    captureNoCanvas: "이 브라우저에서 이미지를 준비하지 못했습니다.",
+    captureNoPicture:
+      "공유된 화면에서 이미지가 전송되지 않았습니다. 다시 시도하거나 전체 화면을 공유하세요.",
     redactLoadFailed: "스크린샷을 편집용으로 열지 못했습니다",
     saveSelection: "선택 영역 저장",
     saveWholeScreen: "전체 화면 저장",

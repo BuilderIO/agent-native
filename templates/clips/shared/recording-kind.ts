@@ -40,3 +40,12 @@ export function isImageRecording(
 ): boolean {
   return resolveRecordingKind(recording?.kind) === "image";
 }
+
+/** The file extension for a downloaded screenshot, from its bytes' type. */
+export function screenshotFileExtension(mimeType: string): string {
+  const type = mimeType.split(";", 1)[0].trim().toLowerCase();
+  if (type === "image/png") return "png";
+  if (type === "image/gif") return "gif";
+  if (type === "image/webp") return "webp";
+  return "jpg";
+}

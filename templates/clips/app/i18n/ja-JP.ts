@@ -1651,6 +1651,15 @@ const messages = {
     redo: "やり直す",
     redactSaving: "保存中...",
     redactFailed: "スクリーンショットを保存できませんでした",
+    captureInsecure:
+      "画面キャプチャには HTTPS または localhost が必要です。安全な URL で Clips を開いてから、もう一度お試しください。",
+    captureUnavailable: "このブラウザでは画面キャプチャを利用できません。",
+    captureUnsupported:
+      "お使いのブラウザは画面キャプチャに対応していません。最新の Brave、Chrome、Edge、Safari、Firefox をお試しください。",
+    captureNoScreen: "画面が共有されませんでした。",
+    captureNoCanvas: "このブラウザでは画像を準備できませんでした。",
+    captureNoPicture:
+      "共有された画面から画像が届きませんでした。もう一度お試しいただくか、画面全体を共有してください。",
     redactLoadFailed: "スクリーンショットを編集用に開けませんでした",
     saveSelection: "選択範囲を保存",
     saveWholeScreen: "画面全体を保存",

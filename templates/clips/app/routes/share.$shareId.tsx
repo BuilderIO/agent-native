@@ -18,7 +18,10 @@ import {
   EnvironmentBadge,
 } from "@agent-native/core/client/ui";
 import { usePersistentSidebarCollapsed } from "@agent-native/toolkit/app-shell";
-import { isImageRecording } from "@shared/recording-kind";
+import {
+  isImageRecording,
+  screenshotFileExtension,
+} from "@shared/recording-kind";
 import {
   IconAlertTriangle,
   IconDeviceDesktop,
@@ -1141,9 +1144,7 @@ export default function ShareRoute() {
       const a = document.createElement("a");
       a.href = url;
       const extension = isImageRecording(recording)
-        ? blob.type.includes("png")
-          ? "png"
-          : "jpg"
+        ? screenshotFileExtension(blob.type)
         : blob.type.includes("webm") || recording?.videoFormat === "webm"
           ? "webm"
           : "mp4";

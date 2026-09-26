@@ -1612,6 +1612,15 @@ const messages = {
     redo: "फिर से करें",
     redactSaving: "सहेजा जा रहा है...",
     redactFailed: "स्क्रीनशॉट सहेजा नहीं जा सका",
+    captureInsecure:
+      "स्क्रीन कैप्चर के लिए HTTPS या localhost ज़रूरी है। Clips को किसी सुरक्षित URL पर खोलें, फिर दोबारा कोशिश करें।",
+    captureUnavailable: "इस ब्राउज़र में स्क्रीन कैप्चर उपलब्ध नहीं है।",
+    captureUnsupported:
+      "आपका ब्राउज़र स्क्रीन कैप्चर का समर्थन नहीं करता। Brave, Chrome, Edge, Safari या Firefox का नया संस्करण आज़माएँ।",
+    captureNoScreen: "कोई स्क्रीन शेयर नहीं की गई।",
+    captureNoCanvas: "यह ब्राउज़र इमेज तैयार नहीं कर सका।",
+    captureNoPicture:
+      "शेयर की गई स्क्रीन ने कोई तस्वीर नहीं भेजी। दोबारा कोशिश करें, या इसके बजाय पूरी स्क्रीन शेयर करें।",
     redactLoadFailed: "स्क्रीनशॉट को संपादन के लिए खोला नहीं जा सका",
     saveSelection: "चयन सहेजें",
     saveWholeScreen: "पूरी स्क्रीन सहेजें",

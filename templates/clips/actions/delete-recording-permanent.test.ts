@@ -212,15 +212,30 @@ describe("delete-recording-permanent", () => {
       }),
     };
 
-    beforeEach(() => {
+    beforeEach(async () => {
       mockSelectWhere.mockReset();
       mockSelectWhere.mockResolvedValueOnce([shot]).mockResolvedValueOnce([]);
+      // What the real list adds for a screenshot: its leftovers, and a
+      // refusal when the edits cannot be read.
+      const { screenshotLeftoverUrls } =
+        await import("../server/lib/screenshot-edits");
+      mockRecordingMediaUrls.mockImplementation(((recording: {
+        thumbnailUrl?: string | null;
+        editsJson?: string | null;
+      }) => {
+        const leftovers = screenshotLeftoverUrls(recording.editsJson);
+        if (!leftovers) throw new Error("edits could not be read");
+        return [recording.thumbnailUrl, ...leftovers].filter(Boolean);
+      }) as never);
     });
 
-    it("deletes them before the row", async () => {
+    it("deletes every file, leftovers included, before the row", async () => {
       await deleteRecordingPermanent.run({ id: "rec_1" });
       expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
         "https://cdn.example.com/media/clips/copy.png",
+      );
+      expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
+        "https://cdn.example.com/media/clips/rec_1.jpg",
       );
       expect(mockDeleteStoredMediaUrl.mock.invocationCallOrder[0]).toBeLessThan(
         mockDbDelete.mock.invocationCallOrder[0],

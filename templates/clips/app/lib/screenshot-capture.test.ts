@@ -36,14 +36,16 @@ describe("screenshotCaptureUnsupportedReason", () => {
     vi.stubGlobal("window", { isSecureContext: false });
     vi.stubGlobal("navigator", {});
 
-    expect(screenshotCaptureUnsupportedReason()).toMatch(/HTTPS or localhost/);
+    expect(screenshotCaptureUnsupportedReason()?.key).toBe("captureInsecure");
   });
 
   it("still names the browser when a secure page has no capture API", () => {
     vi.stubGlobal("window", { isSecureContext: true });
     vi.stubGlobal("navigator", { mediaDevices: {} });
 
-    expect(screenshotCaptureUnsupportedReason()).toMatch(/doesn't support/);
+    expect(screenshotCaptureUnsupportedReason()?.key).toBe(
+      "captureUnsupported",
+    );
   });
 
   it("says nothing is wrong when capture is available", () => {

@@ -57,7 +57,8 @@ export function readEditsRecord(
   }
 }
 
-function markerUrls(edits: Record<string, unknown>): string[] | null {
+/** The marker's files, or null when there is no burn in progress. */
+export function markerUrls(edits: Record<string, unknown>): string[] | null {
   const marker = edits[BURN_IN_PROGRESS_KEY];
   if (!marker || typeof marker !== "object") return null;
   const urls = (marker as { staleUrls?: unknown }).staleUrls;

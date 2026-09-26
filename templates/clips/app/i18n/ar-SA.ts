@@ -1636,6 +1636,15 @@ const messages = {
     redo: "إعادة",
     redactSaving: "جارٍ الحفظ...",
     redactFailed: "تعذّر حفظ لقطة الشاشة",
+    captureInsecure:
+      "يتطلب التقاط الشاشة HTTPS أو localhost. افتح Clips على عنوان URL آمن، ثم أعد المحاولة.",
+    captureUnavailable: "التقاط الشاشة غير متاح في هذا المتصفح.",
+    captureUnsupported:
+      "لا يدعم متصفحك التقاط الشاشة. جرّب إصدارًا حديثًا من Brave أو Chrome أو Edge أو Safari أو Firefox.",
+    captureNoScreen: "لم تتم مشاركة أي شاشة.",
+    captureNoCanvas: "تعذّر على هذا المتصفح تجهيز الصورة.",
+    captureNoPicture:
+      "لم ترسل الشاشة المشارَكة أي صورة. أعد المحاولة، أو شارك الشاشة بأكملها بدلًا من ذلك.",
     redactLoadFailed: "تعذّر فتح لقطة الشاشة لتعديلها",
     saveSelection: "حفظ التحديد",
     saveWholeScreen: "حفظ الشاشة كاملة",

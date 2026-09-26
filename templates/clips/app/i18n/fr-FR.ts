@@ -1676,6 +1676,16 @@ const messages = {
     redo: "Rétablir",
     redactSaving: "Enregistrement...",
     redactFailed: "Impossible d’enregistrer la capture",
+    captureInsecure:
+      "La capture d’écran nécessite HTTPS ou localhost. Ouvrez Clips sur une URL sécurisée, puis réessayez.",
+    captureUnavailable:
+      "La capture d’écran n’est pas disponible dans ce navigateur.",
+    captureUnsupported:
+      "Votre navigateur ne prend pas en charge la capture d’écran. Essayez une version récente de Brave, Chrome, Edge, Safari ou Firefox.",
+    captureNoScreen: "Aucun écran n’a été partagé.",
+    captureNoCanvas: "Ce navigateur n’a pas pu préparer l’image.",
+    captureNoPicture:
+      "L’écran partagé n’a jamais envoyé d’image. Réessayez, ou partagez plutôt l’écran entier.",
     redactLoadFailed: "Impossible d’ouvrir la capture pour la modifier",
     saveSelection: "Enregistrer la sélection",
     saveWholeScreen: "Enregistrer tout l’écran",

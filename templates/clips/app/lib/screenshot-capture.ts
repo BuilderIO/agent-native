@@ -71,19 +71,51 @@ export function screenshotDisplayOptions(): DisplayMediaStreamOptions {
   } as DisplayMediaStreamOptions;
 }
 
-export function screenshotCaptureUnsupportedReason(): string | null {
+/** The catalog key under `screenshot.` that describes the failure. */
+export type ScreenshotCaptureErrorKey =
+  | "captureInsecure"
+  | "captureUnavailable"
+  | "captureUnsupported"
+  | "captureNoScreen"
+  | "captureNoCanvas"
+  | "captureNoPicture";
+
+/**
+ * A capture failure the user can be told about in their own language. The
+ * message stays English for logs; the UI shows `screenshot.<key>`.
+ */
+export class ScreenshotCaptureError extends Error {
+  constructor(
+    readonly key: ScreenshotCaptureErrorKey,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ScreenshotCaptureError";
+  }
+}
+
+export function screenshotCaptureUnsupportedReason(): ScreenshotCaptureError | null {
   // Secure context FIRST. On an insecure origin browsers do not merely refuse
   // capture, they omit `navigator.mediaDevices` altogether — so testing for
   // the API before the context blames the browser for what is really an
   // http:// URL, which is the one case a user can actually fix.
   if (typeof window !== "undefined" && !window.isSecureContext) {
-    return "Screen capture requires HTTPS or localhost. Open Clips on a secure URL, then try again.";
+    return new ScreenshotCaptureError(
+      "captureInsecure",
+      "Screen capture requires HTTPS or localhost. Open Clips on a secure URL, then try again.",
+    );
   }
   if (typeof navigator === "undefined" || !navigator.mediaDevices) {
-    return "Screen capture isn't available in this browser.";
+    return new ScreenshotCaptureError(
+      "captureUnavailable",
+      "Screen capture isn't available in this browser.",
+    );
   }
   if (!navigator.mediaDevices.getDisplayMedia) {
-    return "Your browser doesn't support screen capture. Try a recent Brave, Chrome, Edge, Safari, or Firefox.";
+    return new ScreenshotCaptureError(
+      "captureUnsupported",
+      "Your browser doesn't support screen capture. Try a recent Brave, Chrome, Edge, Safari, or Firefox.",
+    );
   }
   return null;
 }
@@ -125,7 +157,7 @@ function createFocusController(): FocusController | null {
  */
 export function requestScreenshotStream(): Promise<MediaStream> {
   const unsupported = screenshotCaptureUnsupportedReason();
-  if (unsupported) return Promise.reject(new Error(unsupported));
+  if (unsupported) return Promise.reject(unsupported);
 
   const controller = createFocusController();
   const options = screenshotDisplayOptions();
@@ -298,12 +330,22 @@ export async function grabScreenshotFrame(
   stream: MediaStream,
 ): Promise<CapturedScreenshot> {
   const track = stream.getVideoTracks()[0];
-  if (!track) throw new Error("No screen was shared.");
+  if (!track) {
+    throw new ScreenshotCaptureError(
+      "captureNoScreen",
+      "No screen was shared.",
+    );
+  }
 
   const settings = track.getSettings();
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("This browser could not prepare the image.");
+  if (!ctx) {
+    throw new ScreenshotCaptureError(
+      "captureNoCanvas",
+      "This browser could not prepare the image.",
+    );
+  }
 
   let haveFrame = false;
 
@@ -373,7 +415,8 @@ export async function grabScreenshotFrame(
   }
 
   if (!haveFrame) {
-    throw new Error(
+    throw new ScreenshotCaptureError(
+      "captureNoPicture",
       "The shared screen never sent a picture. Try again, or share the whole screen instead.",
     );
   }

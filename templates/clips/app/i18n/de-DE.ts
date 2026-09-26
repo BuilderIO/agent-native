@@ -1679,6 +1679,16 @@ const messages = {
     redo: "Wiederholen",
     redactSaving: "Wird gespeichert …",
     redactFailed: "Der Screenshot konnte nicht gespeichert werden",
+    captureInsecure:
+      "Bildschirmaufnahme erfordert HTTPS oder localhost. Öffne Clips über eine sichere URL und versuche es erneut.",
+    captureUnavailable:
+      "Bildschirmaufnahme ist in diesem Browser nicht verfügbar.",
+    captureUnsupported:
+      "Dein Browser unterstützt keine Bildschirmaufnahme. Versuche eine aktuelle Version von Brave, Chrome, Edge, Safari oder Firefox.",
+    captureNoScreen: "Es wurde kein Bildschirm freigegeben.",
+    captureNoCanvas: "Dieser Browser konnte das Bild nicht vorbereiten.",
+    captureNoPicture:
+      "Der freigegebene Bildschirm hat nie ein Bild gesendet. Versuche es erneut oder gib stattdessen den ganzen Bildschirm frei.",
     redactLoadFailed:
       "Der Screenshot konnte nicht zum Bearbeiten geöffnet werden",
     saveSelection: "Auswahl speichern",

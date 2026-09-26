@@ -14,6 +14,7 @@ import {
   grabScreenshotFrame,
   isScreenshotCancelled,
   requestScreenshotStream,
+  ScreenshotCaptureError,
   screenshotCaptureUnsupportedReason,
   stopScreenshotStream,
 } from "@/lib/screenshot-capture";
@@ -57,7 +58,7 @@ export function useScreenshotCapture({
 
     const unsupported = screenshotCaptureUnsupportedReason();
     if (unsupported) {
-      toast.error(unsupported);
+      toast.error(t(`screenshot.${unsupported.key}`));
       return;
     }
 
@@ -96,7 +97,11 @@ export function useScreenshotCapture({
         });
       } catch (err) {
         if (!isScreenshotCancelled(err)) {
-          toast.error(errorMessage(err) || t("screenshot.failed"));
+          toast.error(
+            err instanceof ScreenshotCaptureError
+              ? t(`screenshot.${err.key}`)
+              : errorMessage(err) || t("screenshot.failed"),
+          );
         }
       } finally {
         if (capturingToastId !== undefined) toast.dismiss(capturingToastId);

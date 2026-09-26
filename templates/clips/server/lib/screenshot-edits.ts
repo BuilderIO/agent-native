@@ -10,16 +10,18 @@
  */
 
 import { parseEdits } from "../../app/lib/timestamp-mapping.js";
-import { BURN_IN_PROGRESS_KEY, readEditsRecord } from "./pending-redactions.js";
+import {
+  BURN_IN_PROGRESS_KEY,
+  markerUrls,
+  readEditsRecord,
+} from "./pending-redactions.js";
 
 export const UNRECLAIMED_URLS_KEY = "unreclaimedUrls";
-
-const readEdits = readEditsRecord;
 
 export function isReadableEditsJson(
   editsJson: string | null | undefined,
 ): boolean {
-  return readEdits(editsJson) !== null;
+  return readEditsRecord(editsJson) !== null;
 }
 
 function urlList(value: unknown): string[] {
@@ -29,7 +31,7 @@ function urlList(value: unknown): string[] {
 }
 
 export function unreclaimedUrls(editsJson: string | null | undefined) {
-  return urlList(readEdits(editsJson)?.[UNRECLAIMED_URLS_KEY]);
+  return urlList(readEditsRecord(editsJson)?.[UNRECLAIMED_URLS_KEY]);
 }
 
 /**
@@ -39,14 +41,11 @@ export function unreclaimedUrls(editsJson: string | null | undefined) {
 export function screenshotLeftoverUrls(
   editsJson: string | null | undefined,
 ): string[] | null {
-  const edits = readEdits(editsJson);
+  const edits = readEditsRecord(editsJson);
   if (!edits) return null;
-  const marker = edits[BURN_IN_PROGRESS_KEY] as
-    | { staleUrls?: unknown }
-    | undefined;
   return [
     ...new Set([
-      ...urlList(marker?.staleUrls),
+      ...(markerUrls(edits) ?? []),
       ...urlList(edits[UNRECLAIMED_URLS_KEY]),
     ]),
   ];
@@ -61,14 +60,14 @@ export function screenshotLeftoverUrls(
 export function editorScreenshotEditsJson(
   editsJson: string | null | undefined,
 ): string {
-  const edits = readEdits(editsJson);
+  const edits = readEditsRecord(editsJson);
   if (!edits) return editsJson ?? "{}";
   const marker = edits[BURN_IN_PROGRESS_KEY] as
     | { editsJson?: unknown }
     | undefined;
   const effective =
     typeof marker?.editsJson === "string"
-      ? (readEdits(marker.editsJson) ?? {})
+      ? (readEditsRecord(marker.editsJson) ?? {})
       : { ...edits };
   delete effective[BURN_IN_PROGRESS_KEY];
   delete effective[UNRECLAIMED_URLS_KEY];
@@ -84,7 +83,7 @@ export function editorScreenshotEditsJson(
 export function viewerScreenshotEditsJson(
   editsJson: string | null | undefined,
 ): string {
-  const edits = readEdits(editorScreenshotEditsJson(editsJson));
+  const edits = readEditsRecord(editorScreenshotEditsJson(editsJson));
   if (!edits) return "{}";
   delete edits.redactions;
   delete edits.annotations;

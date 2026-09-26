@@ -1567,6 +1567,15 @@ const messages = {
     redo: "重做",
     redactSaving: "正在保存...",
     redactFailed: "无法保存截图",
+    captureInsecure:
+      "屏幕截图需要 HTTPS 或 localhost。请通过安全的 URL 打开 Clips，然后重试。",
+    captureUnavailable: "此浏览器无法使用屏幕截图。",
+    captureUnsupported:
+      "你的浏览器不支持屏幕截图。请尝试最新版本的 Brave、Chrome、Edge、Safari 或 Firefox。",
+    captureNoScreen: "没有共享任何屏幕。",
+    captureNoCanvas: "此浏览器无法准备图像。",
+    captureNoPicture:
+      "共享的屏幕始终没有发送画面。请重试，或改为共享整个屏幕。",
     redactLoadFailed: "无法打开截图进行编辑",
     saveSelection: "保存所选区域",
     saveWholeScreen: "保存整个屏幕",
