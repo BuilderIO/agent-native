@@ -366,11 +366,14 @@ export function InboxPage() {
     {},
     {
       enabled: view === "inbox" || navState.command.data?.sort === "priority",
-      staleTime: 60_000,
+      staleTime: 0,
+      // request-storm-allow: the shared status query revalidates API-key setup when its settings tab returns.
+      refetchOnWindowFocus: true,
       retry: 2,
     },
   );
-  const jevConfigured = jevAvailability.data?.configured === true;
+  const jevConfigured =
+    !jevAvailability.isError && jevAvailability.data?.configured === true;
   const showPrioritySort =
     jevConfigured || (jevAvailability.isError && sortMode === "priority");
   const changeSortMode = useCallback((mode: MailSortMode) => {
@@ -1199,6 +1202,13 @@ export function InboxPage() {
             isFetchNextPageError={isFetchNextPageError}
             sortMode={sortMode}
             showPrioritySort={showPrioritySort}
+            jevConfigured={jevConfigured}
+            jevAvailabilityLoading={
+              jevAvailability.isLoading || jevAvailability.isFetching
+            }
+            jevAvailabilityError={jevAvailability.isError}
+            onJevConnected={() => void jevAvailability.refetch()}
+            onJevRetry={() => void jevAvailability.refetch()}
             onSortModeChange={changeSortMode}
           />
         )}
