@@ -3008,6 +3008,9 @@ function DesignEditor() {
   // filename/content/fileType via createFileMutation.
   const fileCreationUndoStackRef = useRef<FileCreationHistoryEntry[]>([]);
   const fileCreationRedoStackRef = useRef<FileCreationHistoryEntry[]>([]);
+  const pendingFileCreationHistoryEntriesRef = useRef<
+    Array<{ designId: string | undefined; entry: FileCreationHistoryEntry }>
+  >([]);
   const pendingDuplicateGeometriesRef = useRef<Map<string, FrameGeometry>>(
     new Map(),
   );
@@ -3018,9 +3021,9 @@ function DesignEditor() {
   >(new Map());
   const fileDeletionUndoStackRef = useRef<FileDeletionHistoryEntry[]>([]);
   const fileDeletionRedoStackRef = useRef<FileDeletionHistoryEntry[]>([]);
-  // File deletion undo/redo recreates or removes SQL rows asynchronously.
-  // Disable every history command while one of those mutations is in flight
-  // so a rapid second Cmd+Z cannot race a create against the pending delete.
+  // Screen creation and deletion history recreate or remove SQL rows asynchronously.
+  // Disable history replay while one is in flight so a rapid second Cmd+Z
+  // cannot race a create against the pending delete.
   const fileHistoryMutationPendingRef = useRef(false);
   const pendingHistoryDirectionsRef = useRef<Array<"undo" | "redo">>([]);
   const pendingHistoryDrainScheduledRef = useRef(false);
@@ -3649,6 +3652,7 @@ function DesignEditor() {
     geometryRedoStackRef.current = [];
     fileCreationUndoStackRef.current = [];
     fileCreationRedoStackRef.current = [];
+    pendingFileCreationHistoryEntriesRef.current = [];
     pendingDuplicateGeometriesRef.current.clear();
     pendingDuplicateFilenamesRef.current.clear();
     duplicateInFlightRef.current.clear();
@@ -3669,7 +3673,7 @@ function DesignEditor() {
   // to the undo stack (screen creation is only meaningful in overview mode's
   // shared chronological history) and clears the redo stack like any other
   // new action.
-  const recordFileCreationHistoryEntry = useCallback(
+  const commitFileCreationHistoryEntry = useCallback(
     (entry: FileCreationHistoryEntry) => {
       const inserted = insertFileCreationHistoryEntry(
         fileCreationUndoStackRef.current,
@@ -3687,6 +3691,31 @@ function DesignEditor() {
     },
     [clearRedoStacks, syncUndoRedoState],
   );
+  const recordFileCreationHistoryEntry = useCallback(
+    (entry: FileCreationHistoryEntry) => {
+      if (fileHistoryMutationPendingRef.current) {
+        pendingFileCreationHistoryEntriesRef.current.push({
+          designId: id,
+          entry,
+        });
+        return;
+      }
+      commitFileCreationHistoryEntry(entry);
+    },
+    [commitFileCreationHistoryEntry, id],
+  );
+  const flushPendingFileCreationHistoryEntries = useCallback(() => {
+    const matching = pendingFileCreationHistoryEntriesRef.current.filter(
+      (item) => item.designId === id,
+    );
+    pendingFileCreationHistoryEntriesRef.current =
+      pendingFileCreationHistoryEntriesRef.current.filter(
+        (item) => item.designId !== id,
+      );
+    for (const item of matching) {
+      commitFileCreationHistoryEntry(item.entry);
+    }
+  }, [commitFileCreationHistoryEntry, id]);
   // ── Save refs: selection, frame geometry, tweaks, annotations ──────────────
   const persistedSelectionStateRef = useRef<string | null>(null);
   const persistedSelectionContextRef = useRef<string | null>(null);
@@ -18739,6 +18768,7 @@ function DesignEditor() {
         localContentRedoStackRef,
         localContentUndoStackRef,
         markPendingLocalFileContent,
+        onFileCreationUndoSettled: flushPendingFileCreationHistoryEntries,
         optimisticallyInsertCreatedFile,
         pendingLiveNonStyleEditsRef,
         pendingLiveNonStyleRedoStackRef,
@@ -18795,6 +18825,7 @@ function DesignEditor() {
       isSynced,
       liveScreenSnapshotsById,
       markPendingLocalFileContent,
+      flushPendingFileCreationHistoryEntries,
       optimisticallyInsertCreatedFile,
       performDeleteFiles,
       publishAuthoritativeClipboardMutation,

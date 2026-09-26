@@ -428,6 +428,7 @@ export interface UndoArgs {
   designDataJsonRef: RefObject<Record<string, unknown>>;
   fileCreationRedoStackRef: RefObject<FileCreationHistoryEntry[]>;
   fileCreationUndoStackRef: RefObject<FileCreationHistoryEntry[]>;
+  onFileCreationUndoSettled?: () => void;
   fileDeletionRedoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileHistoryMutationPendingRef: RefObject<boolean>;
@@ -588,6 +589,7 @@ export function runUndo({
   localContentRedoStackRef,
   localContentUndoStackRef,
   markPendingLocalFileContent,
+  onFileCreationUndoSettled,
   pendingLiveNonStyleEditsRef,
   pendingLiveNonStyleRedoStackRef,
   pendingLiveNonStyleUndoStackRef,
@@ -1387,6 +1389,8 @@ export function runUndo({
       files.find((file) => file.filename === item.filename),
     );
     if (createdFiles.some((file) => !file)) return false;
+    fileHistoryMutationPendingRef.current = true;
+    syncUndoRedoState();
     stack.splice(batchStart, entries.length);
     fileCreationRedoStackRef.current = [
       ...fileCreationRedoStackRef.current.slice(
@@ -1533,7 +1537,9 @@ export function runUndo({
               ...currentUndoStack.slice(insertionIndex),
             ].slice(-MAX_DESIGN_UNDO_STACK);
             fileCreationUndoStackRef.current = restoredUndoStack;
-            if (failedEntries.some((item) => restoredUndoStack.includes(item))) {
+            if (
+              failedEntries.some((item) => restoredUndoStack.includes(item))
+            ) {
               historyOrderRef.current.splice(
                 Math.min(historyOrderIndex, historyOrderRef.current.length),
                 0,
@@ -1542,12 +1548,10 @@ export function runUndo({
             }
             if (deletedFiles.length === 0 && failedBatchStart >= 0) {
               let fileCreationGroupIndex = 0;
-              const markerIndex = redoOrderRef.current.findIndex(
-                (kind) => {
-                  if (kind !== "file-created") return false;
-                  return fileCreationGroupIndex++ === precedingBatchKeys.size;
-                },
-              );
+              const markerIndex = redoOrderRef.current.findIndex((kind) => {
+                if (kind !== "file-created") return false;
+                return fileCreationGroupIndex++ === precedingBatchKeys.size;
+              });
               if (markerIndex >= 0) redoOrderRef.current.splice(markerIndex, 1);
             }
             if (deletedFiles.length > 0)
@@ -1556,10 +1560,15 @@ export function runUndo({
                 deletedFiles,
                 true,
               );
+            fileHistoryMutationPendingRef.current = false;
+            onFileCreationUndoSettled?.();
             syncUndoRedoState();
             return;
           }
           reconcileDuplicateStackUndo(entries, deletedFiles);
+          fileHistoryMutationPendingRef.current = false;
+          onFileCreationUndoSettled?.();
+          syncUndoRedoState();
         },
       },
     );

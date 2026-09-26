@@ -9,6 +9,8 @@ import type { FrameGeometry } from "@/components/design/multi-screen/types";
 
 import {
   applyDuplicateStackHistoryChange,
+  insertFileCreationHistoryEntry,
+  type FileCreationHistoryEntry,
   remapFileCreationHistoryEntryIds,
 } from "../history";
 import {
@@ -1730,8 +1732,10 @@ describe("duplicate stack history", () => {
     const historyOrderRef = {
       current: ["file-created", "file-created"],
     };
-    const designDataJsonRef = { current: { canvasFrames: geometry } };
-    const liveFrameGeometryRef = {
+    const designDataJsonRef: { current: Record<string, unknown> } = {
+      current: { canvasFrames: geometry },
+    };
+    const liveFrameGeometryRef: { current: Record<string, FrameGeometry> } = {
       current: {
         ...geometry,
         copy1: { x: 696, y: 0, width: 320, height: 240, z: 2 },
@@ -1770,7 +1774,7 @@ describe("duplicate stack history", () => {
 
     runUndo(args as any);
     runUndo(args as any);
-    expect(deletedFiles).toHaveLength(2);
+    expect(deletedFiles).toHaveLength(1);
     const movedOther = { ...geometry.other, x: 1600, y: 360 };
     designDataJsonRef.current = {
       canvasFrames: { ...geometry, other: movedOther },
@@ -1780,47 +1784,36 @@ describe("duplicate stack history", () => {
       other: movedOther,
     };
 
-    // The first undo (copy2) is still pending when the older copy1 delete
-    // settles. Its callback must wait rather than write the older snapshot.
-    deletedFiles[1]!.onMutationSettled(deletedFiles[1]!.files, []);
-    expect(writeFrameGeometrySnapshot).not.toHaveBeenCalled();
-
     deletedFiles[0]!.onMutationSettled(deletedFiles[0]!.files, []);
     expect(writeFrameGeometrySnapshot).toHaveBeenCalledTimes(1);
     expect(writeFrameGeometrySnapshot).toHaveBeenLastCalledWith(
-      expect.objectContaining({ other: { ...movedOther, z: 1 } }),
-    );
-    expect(writeFrameGeometrySnapshot.mock.lastCall?.[0]).not.toHaveProperty(
-      "copy1",
+      expect.objectContaining({ other: { ...movedOther, z: 2 } }),
     );
     expect(writeFrameGeometrySnapshot.mock.lastCall?.[0]).not.toHaveProperty(
       "copy2",
     );
-    expect(writeFrameGeometrySnapshot.mock.lastCall?.[0]).toMatchObject({
-      other: { ...movedOther, z: 1 },
-    });
 
     designDataJsonRef.current = {
       canvasFrames: {
-        ...geometry,
-        other: { ...movedOther, z: 9 },
+        source: geometry.source,
+        other: { ...movedOther, z: 2 },
+        copy1: { x: 696, y: 0, width: 320, height: 240, z: 1 },
       },
     };
     liveFrameGeometryRef.current = {
-      ...liveFrameGeometryRef.current,
-      other: { ...movedOther, z: 3 },
+      source: geometry.source,
+      other: { ...movedOther, z: 2 },
+      copy1: { x: 696, y: 0, width: 320, height: 240, z: 1 },
     };
-    fileCreationUndoStackRef.current = [entry1];
-    fileCreationRedoStackRef.current = [];
-    historyOrderRef.current = ["file-created"];
 
     runUndo(args as any);
-    deletedFiles[2]!.onMutationSettled(deletedFiles[2]!.files, []);
+    expect(deletedFiles).toHaveLength(2);
+    deletedFiles[1]!.onMutationSettled(deletedFiles[1]!.files, []);
 
-    expect(writeFrameGeometrySnapshot).toHaveBeenCalledTimes(1);
-    expect(
-      (designDataJsonRef.current.canvasFrames as typeof geometry).other.z,
-    ).toBe(9);
+    expect(writeFrameGeometrySnapshot).toHaveBeenCalledTimes(2);
+    expect(writeFrameGeometrySnapshot.mock.lastCall?.[0]).toMatchObject({
+      other: { ...movedOther, z: 1 },
+    });
   });
 
   it("restores a screen-creation undo when its async delete fails", () => {
@@ -1871,7 +1864,7 @@ describe("duplicate stack history", () => {
     runUndo(args as any);
     expect(fileCreationUndoStackRef.current).toEqual([]);
     expect(fileCreationRedoStackRef.current).toEqual([entry]);
-    expect(fileHistoryMutationPendingRef.current).toBe(false);
+    expect(fileHistoryMutationPendingRef.current).toBe(true);
 
     deleteSettlements[0]!([], [file]);
 
@@ -1885,38 +1878,34 @@ describe("duplicate stack history", () => {
     expect(args.performDeleteFiles).toHaveBeenCalledTimes(2);
   });
 
-  it("removes the matching redo marker when async undo failures settle in order", () => {
-    const first = {
-      id: "first",
-      filename: "first.html",
+  it("serializes async creation undo before recording and undoing a newer create", () => {
+    const files = ["a1", "a2", "b", "c"].map((id) => ({
+      id,
+      filename: `${id}.html`,
       fileType: "html",
       content: "",
+    }));
+    const [a1, a2, b, c] = files;
+    const entries: FileCreationHistoryEntry[] = files.map((file) => ({
+      filename: file!.filename,
+      content: file!.content,
+      fileType: file!.fileType,
+      createdFileId: file!.id,
+      ...(file!.id.startsWith("a") ? { historyBatchId: "batch-a" } : {}),
+    }));
+    const [a1Entry, a2Entry, bEntry, cEntry] = entries;
+    const fileCreationUndoStackRef = {
+      current: [a1Entry!, a2Entry!, bEntry!],
     };
-    const second = {
-      id: "second",
-      filename: "second.html",
-      fileType: "html",
-      content: "",
+    const fileCreationRedoStackRef = {
+      current: [] as FileCreationHistoryEntry[],
     };
-    const firstEntry = {
-      filename: first.filename,
-      content: first.content,
-      fileType: first.fileType,
-      createdFileId: first.id,
-    };
-    const secondEntry = {
-      filename: second.filename,
-      content: second.content,
-      fileType: second.fileType,
-      createdFileId: second.id,
-    };
-    const fileCreationUndoStackRef = { current: [firstEntry, secondEntry] };
-    const fileCreationRedoStackRef = { current: [] as (typeof firstEntry)[] };
-    const historyOrderRef = {
-      current: ["file-created", "file-created"],
-    };
+    const historyOrderRef = { current: ["file-created", "file-created"] };
     const redoOrderRef = { current: [] as string[] };
+    const fileHistoryMutationPendingRef = { current: false };
     const settlements: Array<(deleted: any[], failed: any[]) => void> = [];
+    const deleteCalls: any[][] = [];
+    const pendingNewEntries = [cEntry!];
     const args = {
       activeEditorDragRef: ref(false),
       activeFile: null,
@@ -1924,14 +1913,32 @@ describe("duplicate stack history", () => {
       designDataJsonRef: ref({}),
       fileCreationRedoStackRef,
       fileCreationUndoStackRef,
-      fileHistoryMutationPendingRef: ref(false),
-      files: [first, second],
+      fileHistoryMutationPendingRef,
+      files,
       historyOrderRef,
       id: "design-1",
       liveFrameGeometryRef: ref({}),
+      onFileCreationUndoSettled: () => {
+        for (const entry of pendingNewEntries.splice(0)) {
+          const inserted = insertFileCreationHistoryEntry(
+            fileCreationUndoStackRef.current,
+            entry,
+          );
+          fileCreationUndoStackRef.current = inserted.stack;
+          if (!inserted.continuesBatch) {
+            fileCreationRedoStackRef.current = [];
+            redoOrderRef.current = [];
+            historyOrderRef.current = [
+              ...historyOrderRef.current,
+              "file-created",
+            ];
+          }
+        }
+      },
       pendingLiveNonStyleUndoStackRef: ref([]),
       pendingVisualStyleUndoStackRef: ref([]),
-      performDeleteFiles: vi.fn((_files: any[], options: any) => {
+      performDeleteFiles: vi.fn((deleted: any[], options: any) => {
+        deleteCalls.push(deleted);
         settlements.push(options.onMutationSettled);
       }),
       redoOrderRef,
@@ -1943,14 +1950,43 @@ describe("duplicate stack history", () => {
     };
 
     runUndo(args as any);
+    expect(fileHistoryMutationPendingRef.current).toBe(true);
+    expect(fileCreationUndoStackRef.current).toEqual([a1Entry, a2Entry]);
     runUndo(args as any);
-    settlements[0]!([], [second]);
-    settlements[1]!([], [first]);
+    expect(args.performDeleteFiles).toHaveBeenCalledTimes(1);
 
-    expect(fileCreationUndoStackRef.current).toEqual([firstEntry, secondEntry]);
-    expect(fileCreationRedoStackRef.current).toEqual([]);
-    expect(historyOrderRef.current).toEqual(["file-created", "file-created"]);
-    expect(redoOrderRef.current).toEqual([]);
+    settlements[0]!([], [b]);
+    expect(fileCreationUndoStackRef.current).toEqual([
+      a1Entry,
+      a2Entry,
+      bEntry,
+      cEntry,
+    ]);
+    expect(historyOrderRef.current).toEqual([
+      "file-created",
+      "file-created",
+      "file-created",
+    ]);
+    expect(fileHistoryMutationPendingRef.current).toBe(false);
+
+    runUndo(args as any);
+    expect(args.performDeleteFiles).toHaveBeenLastCalledWith(
+      [c],
+      expect.any(Object),
+    );
+    settlements[1]!([c], []);
+    runUndo(args as any);
+    expect(args.performDeleteFiles).toHaveBeenLastCalledWith(
+      [b],
+      expect.any(Object),
+    );
+    settlements[2]!([b], []);
+    runUndo(args as any);
+    expect(args.performDeleteFiles).toHaveBeenLastCalledWith(
+      [a1, a2],
+      expect.any(Object),
+    );
+    settlements[3]!([a1, a2], []);
   });
 
   it("keeps only failed members undoable after a partial batch delete", () => {
