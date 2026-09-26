@@ -81,11 +81,19 @@ In a task-owned worktree, do not require a checkpoint or `ship:push` just to
 create a fresh branch; preserve and carry the current task's changes. For
 post-merge rotation, follow `new-branch`'s dedicated safety checks.
 
+For an explicitly authorized branch-wide checkpoint, publish one complete
+snapshot with `corepack pnpm ship:push -m "<specific change>"`. Do not publish
+separate checkpoints for delegates or intermediate edits.
+
 ## Before you ship
 
 Before you commit, push, or merge, check `git log --oneline -5`, `git status`,
 and `gh pr list --head <branch>` for the current PR. If the work you were
 about to do just landed, continue from the latest branch snapshot.
+
+Do not rebase or merge `origin/main` just to clear behind status or restart
+checks. Rebase or merge it only when GitHub reports an actual conflict; for a
+shared branch, prefer a normal merge.
 
 ## Reading a Codex peer's intent
 

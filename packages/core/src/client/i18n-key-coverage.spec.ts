@@ -66,6 +66,15 @@ function hasCatalogKey(key: string) {
 }
 
 describe("core i18n key coverage", () => {
+  it("keeps the observability expand label in the Agent Chat catalog", () => {
+    const source = fs.readFileSync(
+      path.join(clientDir, "observability/ObservabilityDashboard.tsx"),
+      "utf8",
+    );
+    expect(source).toContain('t("agentChat.common.expand")');
+    expect(hasCatalogKey("agentChat.common.expand")).toBe(true);
+  });
+
   it("keeps Context X-Ray and Snapshots as distinct labels", () => {
     expect(defaultEnglishMessages.contextXray.panelTitle).toBe("Context X-Ray");
     expect(defaultEnglishMessages.contextXray.snapshotsTitle).toBe("Snapshots");

@@ -1,18 +1,4 @@
 const messages = {
-  agentChat: {
-    auth: {
-      logIn: "Se connecter",
-    },
-    onboarding: {
-      builderAccountExistsDescription: "Connectez-vous pour l’associer.",
-      builderCreateAndActivate: "Créer et activer",
-      builderConsentPrefix: "En créant un compte Builder.io, vous acceptez nos",
-      builderTerms: "Conditions d’utilisation",
-      builderPrivacy: "Politique de confidentialité",
-      builderConsentAnd: "et",
-      builderExistingAccount: "J’ai un compte Builder.io",
-    },
-  },
   timelineTrack: {
     helpOtherSide:
       "Cliquez d'abord sur cette section, puis faites glisser la ligne rouge vers la droite.",
@@ -855,6 +841,10 @@ const messages = {
     uploadWorkspaceSaveFailed: "Impossible de mettre à jour l’espace actif",
     whatsNew: "Nouveautés",
     changelogEmpty: "Aucune mise à jour pour le moment.",
+    changelogCommentSignup:
+      "Le panneau de commentaires vide explique brièvement pourquoi essayer Clips et propose un moyen simple de s’inscrire.",
+    changelogShareLink:
+      "Les utilisateurs connectés qui ouvrent un lien de partage indisponible, expiré ou privé accèdent désormais à leur bibliothèque en choisissant « Retour à l’accueil », au lieu de la page marketing publique.",
     viewAllUpdates: "Voir toutes les mises à jour",
     expand: "Développer",
     collapse: "Replier",
@@ -1478,6 +1468,12 @@ const messages = {
     builderConnected: "Builder.io connecté",
     waitingForBuilder: "En attente de Builder...",
     connectBuilder: "Utiliser Builder.io",
+    createBuilderAccount: "Créer un compte Builder.io",
+    signInWithBuilderAccount: "Se connecter avec un compte Builder.io",
+    builderConsentPrefix: "En créant un compte Builder.io, vous acceptez nos",
+    builderTerms: "Conditions d’utilisation",
+    builderConsentAnd: "et",
+    builderPrivacy: "Politique de confidentialité",
     free: "Gratuit",
     configureS3: "configurer un stockage compatible S3",
     whyPrompt: "Pourquoi vois-je ceci ?",

@@ -182,6 +182,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/usage/actions/get-builder-credit-usage",
   },
   {
+    name: "get-builder-referral-info",
+    specifier: "@agent-native/core/usage/actions/get-builder-referral-info",
+  },
+  {
     name: "create-resource-version",
     specifier: "@agent-native/core/history/actions/create-resource-version",
   },

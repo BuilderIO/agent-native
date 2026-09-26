@@ -3067,7 +3067,6 @@ export default function RecordRoute() {
                   onConfigured={() => markStorageConfigured()}
                   connectSource="clips_record_storage_setup_card"
                   connectFlow="record"
-                  inlineConnect
                 />
               )}
             </div>
@@ -3319,7 +3318,6 @@ export default function RecordRoute() {
           {error.includes("No video storage configured") ? (
             <div className="w-full max-w-md">
               <StorageSetupCard
-                inlineConnect
                 onConfigured={() => {
                   markStorageConfigured();
                   setError(null);

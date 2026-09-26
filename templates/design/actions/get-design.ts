@@ -3,12 +3,12 @@ import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { and, asc, eq } from "drizzle-orm";
-import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import getDesignSystem from "./get-design-system.js";
+import { getDesignSchema } from "./get-design.schema.js";
 
 // The editor re-reads get-design after saves, on sync events, and every second
 // while a generation runs. Count a signed-in viewer's view once per window,
@@ -40,14 +40,7 @@ function shouldTrackDesignView(
 export default defineAction({
   description:
     "Get a design project by ID. Returns the full design data and linked `designSystem.agentContext` when readable. By default, returns all associated files; pass `includeFileContent=false` for file metadata only, then pass a `fileId` to read just one file. Treat design-system context as authoritative before authoring or restyling.",
-  schema: z.object({
-    id: z.string().describe("Design ID"),
-    fileId: z.string().min(1).optional().describe("Read one design file by ID"),
-    includeFileContent: z
-      .boolean()
-      .optional()
-      .describe("Set false to return file metadata without HTML contents"),
-  }),
+  schema: getDesignSchema,
   readOnly: true,
   requiresAuth: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: false },
@@ -86,24 +79,22 @@ export default defineAction({
           eq(schema.designFiles.id, fileId),
         )
       : eq(schema.designFiles.designId, id);
+    const fileOrder = [
+      asc(schema.designFiles.createdAt),
+      asc(schema.designFiles.id),
+    ] as const;
     const files =
       includeFileContent === false
         ? await db
             .select(baseFileFields)
             .from(schema.designFiles)
             .where(fileFilter)
-            .orderBy(
-              asc(schema.designFiles.createdAt),
-              asc(schema.designFiles.id),
-            )
+            .orderBy(...fileOrder)
         : await db
             .select({ ...baseFileFields, content: schema.designFiles.content })
             .from(schema.designFiles)
             .where(fileFilter)
-            .orderBy(
-              asc(schema.designFiles.createdAt),
-              asc(schema.designFiles.id),
-            );
+            .orderBy(...fileOrder);
     const designSystem = await loadAgentDesignSystemContext(
       typeof row.designSystemId === "string" ? row.designSystemId : null,
       getDesignSystem,
@@ -136,14 +127,20 @@ export default defineAction({
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       accessRole: access.role,
-      files: files.map((f) => ({
-        id: f.id,
-        filename: f.filename,
-        fileType: f.fileType,
-        ...("content" in f ? { content: f.content } : {}),
-        createdAt: f.createdAt,
-        updatedAt: f.updatedAt,
-      })),
+      files: files.map((f) => {
+        const metadata = {
+          id: f.id,
+          filename: f.filename,
+          fileType: f.fileType,
+          createdAt: f.createdAt,
+          updatedAt: f.updatedAt,
+        };
+        if (includeFileContent === false) return metadata;
+        if (!("content" in f)) {
+          throw new Error("File content was requested but not selected");
+        }
+        return { ...metadata, content: f.content };
+      }),
     };
   },
 });

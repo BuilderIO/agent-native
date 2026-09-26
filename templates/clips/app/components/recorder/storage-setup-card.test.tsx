@@ -6,17 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   start: vi.fn(),
+  cancel: vi.fn(),
+  retry: vi.fn(() => true),
   useBuilderConnectFlow: vi.fn(),
-  flow: {
-    statusResolved: false,
-    statusReadSettledCount: 0,
-    agentNativeProvisioningEnabled: false,
-    accountExists: false,
-    connecting: false,
-    error: null,
-    cancel: vi.fn(),
-    retry: vi.fn(() => true),
-  },
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -29,24 +21,14 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/core/client/settings", () => ({
-  BuilderConnectPopover: ({
-    children,
-    onConnect,
-  }: {
-    children: React.ReactNode;
-    onConnect: (provisionAccount: boolean) => void;
-  }) => (
-    <>
-      <button
-        type="button"
-        data-testid="mock-builder-trigger"
-        onClick={() => onConnect(true)}
-      >
-        Connect Builder
-      </button>
-      {children}
-    </>
-  ),
+  hasBuilderOAuthCredential: (status: {
+    configured: boolean;
+    envManaged?: boolean | null;
+    credentialSource?: string | null;
+  }) =>
+    status.configured &&
+    status.credentialSource !== "env" &&
+    (!status.envManaged || status.credentialSource != null),
   useBuilderConnectFlow: mocks.useBuilderConnectFlow,
 }));
 
@@ -82,11 +64,21 @@ describe("StorageSetupCard", () => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.start.mockReset();
-    mocks.flow.cancel.mockReset();
-    mocks.flow.retry.mockReset().mockReturnValue(true);
+    mocks.cancel.mockReset();
+    mocks.retry.mockReset().mockReturnValue(true);
     mocks.useBuilderConnectFlow.mockReset().mockReturnValue({
-      ...mocks.flow,
       start: mocks.start,
+      cancel: mocks.cancel,
+      retry: mocks.retry,
+      configured: false,
+      envManaged: false,
+      accountExists: false,
+      connecting: false,
+      agentNativeProvisioningEnabled: true,
+      statusResolved: true,
+      statusReadSettledCount: 0,
+      hasFetchedStatus: true,
+      error: null,
     });
     vi.stubGlobal(
       "fetch",
@@ -104,6 +96,291 @@ describe("StorageSetupCard", () => {
     vi.useRealTimers();
   });
 
+  it("starts provisioning directly and keeps a one-click sign-in path", () => {
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="storage-setup-builder-primary"]',
+        )
+        ?.click();
+    });
+    expect(mocks.start).toHaveBeenNthCalledWith(1, {
+      provisionAccount: true,
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="storage-setup-builder-sign-in"]',
+        )
+        ?.click();
+    });
+    expect(mocks.start).toHaveBeenNthCalledWith(2, {
+      provisionAccount: false,
+    });
+  });
+
+  it("does not offer account provisioning before its capability is known", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      start: mocks.start,
+      configured: false,
+      accountExists: false,
+      connecting: false,
+      agentNativeProvisioningEnabled: false,
+      statusResolved: false,
+    });
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    expect(container.textContent).toContain("storageSetup.connectBuilder");
+    expect(container.textContent).not.toContain(
+      "storageSetup.createBuilderAccount",
+    );
+    expect(
+      container.querySelector('[data-testid="storage-setup-builder-sign-in"]'),
+    ).toBeNull();
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="storage-setup-builder-primary"]',
+        )
+        ?.click();
+    });
+    expect(mocks.start).toHaveBeenCalledWith({ provisionAccount: false });
+  });
+
+  it("uses sign-in as the primary action when account provisioning found an existing account", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      start: mocks.start,
+      configured: false,
+      accountExists: true,
+      agentNativeProvisioningEnabled: true,
+      statusResolved: true,
+    });
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="storage-setup-builder-sign-in"]'),
+    ).toBeNull();
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="storage-setup-builder-primary"]',
+        )
+        ?.click();
+    });
+    expect(mocks.start).toHaveBeenCalledWith({ provisionAccount: false });
+  });
+
+  it("offers provisioning when only deployment-managed Builder credentials are configured", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      start: mocks.start,
+      configured: true,
+      envManaged: true,
+      credentialSource: "env",
+      accountExists: false,
+      connecting: false,
+      agentNativeProvisioningEnabled: true,
+      statusResolved: true,
+    });
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="storage-setup-builder-sign-in"]'),
+    ).not.toBeNull();
+    expect(container.textContent).toContain(
+      "storageSetup.builderConsentPrefix",
+    );
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="storage-setup-builder-primary"]',
+        )
+        ?.click();
+    });
+    expect(mocks.start).toHaveBeenCalledWith({ provisionAccount: true });
+  });
+
+  it("disables both Builder actions while OAuth is connecting", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      start: mocks.start,
+      cancel: mocks.cancel,
+      configured: false,
+      envManaged: false,
+      accountExists: false,
+      connecting: true,
+      agentNativeProvisioningEnabled: true,
+      statusResolved: true,
+    });
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    const buttons = container.querySelectorAll<HTMLButtonElement>(
+      '[data-testid="storage-setup-builder-primary"], [data-testid="storage-setup-builder-sign-in"]',
+    );
+    expect(buttons).toHaveLength(2);
+    expect([...buttons].every((button) => button.disabled)).toBe(true);
+    expect(mocks.start).not.toHaveBeenCalled();
+
+    const cancelButton = container.querySelector<HTMLButtonElement>(
+      '[data-testid="storage-setup-builder-cancel"]',
+    );
+    expect(cancelButton).not.toBeNull();
+    expect(cancelButton?.disabled).toBe(false);
+    act(() => cancelButton?.click());
+    expect(mocks.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("does not start storage polling if Builder connects after cancellation", async () => {
+    const onConfigured = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ configured: true }), {
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={onConfigured} />);
+    });
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="storage-setup-builder-primary"]',
+        )
+        ?.click();
+    });
+
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      start: mocks.start,
+      cancel: mocks.cancel,
+      configured: false,
+      envManaged: false,
+      accountExists: false,
+      connecting: true,
+      agentNativeProvisioningEnabled: true,
+      statusResolved: true,
+    });
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={onConfigured} />);
+    });
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="storage-setup-builder-cancel"]',
+        )
+        ?.click();
+    });
+
+    const connectOptions = mocks.useBuilderConnectFlow.mock.calls[
+      mocks.useBuilderConnectFlow.mock.calls.length - 1
+    ]?.[0] as {
+      onConnected: () => void;
+    };
+    act(() => connectOptions.onConnected());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onConfigured).not.toHaveBeenCalled();
+  });
+
+  it("shows localized recovery and pending feedback while retrying Builder status", async () => {
+    const flow = {
+      start: mocks.start,
+      cancel: mocks.cancel,
+      retry: mocks.retry,
+      configured: false,
+      envManaged: false,
+      accountExists: false,
+      connecting: false,
+      agentNativeProvisioningEnabled: false,
+      statusResolved: false,
+      statusReadSettledCount: 1,
+      hasFetchedStatus: true,
+      error: "Couldn't read Builder connection status.",
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    expect(container.textContent).toContain("storageSetup.builderConnectError");
+    const retryButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "meetingDetail.retry",
+    );
+    expect(retryButton).toBeDefined();
+
+    act(() => retryButton?.click());
+
+    expect(mocks.retry).toHaveBeenCalledOnce();
+    expect(retryButton?.disabled).toBe(true);
+    expect(retryButton?.getAttribute("aria-busy")).toBe("true");
+    expect(retryButton?.textContent).toContain(
+      "storageSetup.checkingBuilderConnection",
+    );
+
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      ...flow,
+      statusReadSettledCount: 2,
+    });
+    await act(async () => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    const settledRetryButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "meetingDetail.retry",
+    );
+    expect(settledRetryButton?.disabled).toBe(false);
+  });
+
+  it("shows localized browser-tab recovery for embedded Builder connection errors", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      start: mocks.start,
+      cancel: mocks.cancel,
+      retry: mocks.retry,
+      configured: false,
+      envManaged: false,
+      accountExists: false,
+      connecting: false,
+      agentNativeProvisioningEnabled: true,
+      statusResolved: true,
+      statusReadSettledCount: 1,
+      hasFetchedStatus: true,
+      error:
+        "Couldn't open Builder from this chat host. Open this app in a browser tab and try Connect Builder again.",
+    });
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    expect(container.textContent).toContain(
+      "storageSetup.builderConnectPopupError",
+    );
+    expect(container.textContent).not.toContain(
+      "storageSetup.builderConnectError",
+    );
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+  });
+
   it("surfaces the timeout after repeated failed status responses", async () => {
     act(() => {
       root.render(<StorageSetupCard onConfigured={vi.fn()} />);
@@ -112,7 +389,7 @@ describe("StorageSetupCard", () => {
     act(() => {
       container
         .querySelector<HTMLButtonElement>(
-          '[data-testid="mock-builder-trigger"]',
+          '[data-testid="storage-setup-builder-primary"]',
         )
         ?.click();
     });
@@ -128,200 +405,5 @@ describe("StorageSetupCard", () => {
 
     expect(container.textContent).toContain("storageSetup.builderTimeout");
     expect(container.querySelector("button[disabled]")).toBeNull();
-  });
-
-  it("starts the selected account path from the inline Record setup", () => {
-    mocks.useBuilderConnectFlow.mockReturnValue({
-      ...mocks.flow,
-      statusResolved: true,
-      agentNativeProvisioningEnabled: true,
-      start: mocks.start,
-    });
-
-    act(() => {
-      root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
-    });
-
-    expect(
-      container.querySelector('[data-testid="mock-builder-trigger"]'),
-    ).toBeNull();
-    expect(container.textContent).toContain(
-      "agentChat.onboarding.builderCreateAndActivate",
-    );
-    expect(container.textContent).toContain(
-      "agentChat.onboarding.builderConsentPrefix",
-    );
-
-    const buttons = container.querySelectorAll("button");
-    act(() => buttons[0]?.click());
-    act(() => buttons[1]?.click());
-
-    expect(mocks.start).toHaveBeenNthCalledWith(1, {
-      provisionAccount: true,
-    });
-    expect(mocks.start).toHaveBeenNthCalledWith(2, {
-      provisionAccount: false,
-    });
-  });
-
-  it("keeps the Record CTA in the card while status is loading", () => {
-    act(() => {
-      root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
-    });
-
-    expect(
-      container.querySelector('[data-testid="mock-builder-trigger"]'),
-    ).toBeNull();
-    expect(container.querySelector("button[disabled]")).not.toBeNull();
-  });
-
-  it("shows pending feedback while retrying a failed status lookup", async () => {
-    const flow = {
-      ...mocks.flow,
-      hasFetchedStatus: true,
-      error: "Couldn't read Builder connection status.",
-      statusReadSettledCount: 1,
-      start: mocks.start,
-    };
-    mocks.useBuilderConnectFlow.mockReturnValue(flow);
-
-    act(() => {
-      root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
-    });
-
-    const retryButton = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "meetingDetail.retry",
-    );
-    expect(retryButton).toBeDefined();
-
-    act(() => retryButton?.click());
-
-    expect(mocks.flow.retry).toHaveBeenCalledOnce();
-    expect(retryButton?.disabled).toBe(true);
-    expect(retryButton?.getAttribute("aria-busy")).toBe("true");
-    expect(retryButton?.textContent).toContain(
-      "storageSetup.checkingBuilderConnection",
-    );
-
-    mocks.useBuilderConnectFlow.mockReturnValue({
-      ...flow,
-      statusReadSettledCount: 2,
-    });
-    await act(async () => {
-      root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
-    });
-
-    const settledRetryButton = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "meetingDetail.retry",
-    );
-    expect(settledRetryButton?.disabled).toBe(false);
-  });
-
-  it("preserves browser-tab recovery guidance for embedded connect failures", () => {
-    mocks.useBuilderConnectFlow.mockReturnValue({
-      ...mocks.flow,
-      error:
-        "Couldn't open Builder from this chat host. Open this app in a browser tab and try Connect Builder again.",
-      hasFetchedStatus: true,
-      start: mocks.start,
-    });
-
-    act(() => {
-      root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
-    });
-
-    expect(container.textContent).toContain(
-      "storageSetup.builderConnectPopupError",
-    );
-    expect(container.textContent).not.toContain(
-      "storageSetup.builderConnectError",
-    );
-  });
-
-  it("shows a localized error after the status-resolved fallback flow fails", () => {
-    mocks.useBuilderConnectFlow.mockReturnValue({
-      ...mocks.flow,
-      statusResolved: true,
-      agentNativeProvisioningEnabled: false,
-      error: "Couldn't save Builder credentials: test error.",
-      start: mocks.start,
-    });
-
-    act(() => {
-      root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
-    });
-
-    expect(container.textContent).toContain("storageSetup.builderConnectError");
-    expect(container.textContent).not.toContain("Allow popups");
-    expect(container.querySelector('[role="alert"]')).not.toBeNull();
-  });
-
-  it.each([true, false])(
-    "shows localized popup recovery guidance when provisioning is %s",
-    (agentNativeProvisioningEnabled) => {
-      mocks.useBuilderConnectFlow.mockReturnValue({
-        ...mocks.flow,
-        statusResolved: true,
-        agentNativeProvisioningEnabled,
-        error: "Couldn't open Builder. Allow popups and try again.",
-        start: mocks.start,
-      });
-
-      act(() => {
-        root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
-      });
-
-      expect(container.textContent).toContain(
-        "storageSetup.builderConnectPopupError",
-      );
-      expect(container.textContent).not.toContain(
-        "storageSetup.builderConnectError",
-      );
-      expect(container.querySelector('[role="alert"]')).not.toBeNull();
-    },
-  );
-
-  it("uses neutral progress copy while an existing account connects", () => {
-    mocks.useBuilderConnectFlow.mockReturnValue({
-      ...mocks.flow,
-      statusResolved: true,
-      agentNativeProvisioningEnabled: true,
-      accountExists: true,
-      connecting: true,
-      start: mocks.start,
-    });
-
-    act(() => {
-      root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
-    });
-
-    expect(container.textContent).toContain("storageSetup.waitingForBuilder");
-    expect(container.querySelector('button[aria-busy="true"]')).not.toBeNull();
-    expect(container.textContent).not.toContain(
-      "agentChat.onboarding.builderCreateAndActivate",
-    );
-  });
-
-  it("lets users cancel a fallback connection while it is connecting", () => {
-    mocks.useBuilderConnectFlow.mockReturnValue({
-      ...mocks.flow,
-      statusResolved: true,
-      agentNativeProvisioningEnabled: false,
-      connecting: true,
-      start: mocks.start,
-    });
-
-    act(() => {
-      root.render(<StorageSetupCard onConfigured={vi.fn()} inlineConnect />);
-    });
-
-    const cancelButton = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "common.cancel",
-    );
-    expect(cancelButton).toBeDefined();
-
-    act(() => cancelButton?.click());
-
-    expect(mocks.flow.cancel).toHaveBeenCalledOnce();
   });
 });

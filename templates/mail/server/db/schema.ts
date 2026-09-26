@@ -65,6 +65,23 @@ export const automationRules = table("automation_rules", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+export const aiFilterRuleUndo = table(
+  "mail_ai_filter_rule_undo",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    rulesJson: text("rules_json").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (t) => [
+    index("mail_ai_filter_rule_undo_owner_expiry_idx").on(
+      t.ownerEmail,
+      t.expiresAt,
+    ),
+    index("mail_ai_filter_rule_undo_expires_idx").on(t.expiresAt),
+  ],
+);
+
 export const emailTracking = table("email_tracking", {
   pixelToken: text("pixel_token").primaryKey(),
   messageId: text("message_id").notNull(),

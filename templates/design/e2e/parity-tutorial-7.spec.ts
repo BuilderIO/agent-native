@@ -10,8 +10,11 @@ import { e2eBaseURL } from "./base-url";
 import {
   childNodeIds,
   elementInner,
+  enterDirectMode,
   expandAllLayers,
   gotoEditor,
+  installBridge,
+  waitForBridge,
 } from "./helpers";
 
 /**
@@ -904,22 +907,47 @@ test.describe("tutorial 7 — card and container system", () => {
   }) => {
     designId = await newDesign(request);
     await openEditorAndExpandLayers(page, designId);
-    await layerRowButton(page, "Project title").click({
-      force: true,
-      button: "right",
+    await enterDirectMode(page);
+    await installBridge(page);
+
+    // Figma's canvas right-click menu carries "Create component"; the
+    // LAYERS-PANEL row's own right-click menu deliberately never does (see
+    // LayersPanel.tsx's "LIVE-VERIFIED Figma layer-row menu order" comment,
+    // and parity-context-menu.spec.ts's canvas-menu order, which lists it).
+    // Right-click the canvas element itself -- the layers row is the wrong
+    // surface for this assertion and can never show the item.
+    const frame = previewFrame(page);
+    const titleNode = frame.locator('[data-agent-native-node-id="title"]');
+    const point = await titleNode.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     });
-    await page.waitForTimeout(500);
-    const menu = page.getByRole("menu").first();
-    if (await menu.count()) {
-      const items = await menu.getByRole("menuitem").allTextContents();
-      expect(
-        items.some((i) => /create\s+component/i.test(i)),
-        `context menu items: ${JSON.stringify(items)}`,
-      ).toBe(true);
-      expect(
-        items.some((i) => /move to page/i.test(i)),
-        `context menu items: ${JSON.stringify(items)}`,
-      ).toBe(false);
-    }
+    // Dispatched on the real document inside the iframe so it goes through
+    // the actual bridge contextmenu listener (parity-context-menu.spec.ts's
+    // rightClickNode pattern).
+    await titleNode.evaluate((_element, pt) => {
+      document.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          button: 2,
+          buttons: 2,
+          clientX: pt.x,
+          clientY: pt.y,
+        }),
+      );
+    }, point);
+    await waitForBridge(page, "element-contextmenu");
+    const menu = page.getByRole("menu").last();
+    await expect(menu).toBeVisible();
+    const items = await menu.getByRole("menuitem").allTextContents();
+    expect(
+      items.some((i) => /create\s+component/i.test(i)),
+      `context menu items: ${JSON.stringify(items)}`,
+    ).toBe(true);
+    expect(
+      items.some((i) => /move to page/i.test(i)),
+      `context menu items: ${JSON.stringify(items)}`,
+    ).toBe(false);
   });
 });

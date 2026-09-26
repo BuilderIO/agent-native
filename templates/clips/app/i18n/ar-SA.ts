@@ -1,18 +1,4 @@
 const messages = {
-  agentChat: {
-    auth: {
-      logIn: "تسجيل الدخول",
-    },
-    onboarding: {
-      builderAccountExistsDescription: "سجّل الدخول لربطه.",
-      builderCreateAndActivate: "إنشاء وتفعيل",
-      builderConsentPrefix: "بإنشاء حساب Builder.io، فإنك توافق على",
-      builderTerms: "شروط الخدمة",
-      builderPrivacy: "سياسة الخصوصية",
-      builderConsentAnd: "و",
-      builderExistingAccount: "لدي حساب Builder.io",
-    },
-  },
   timelineTrack: {
     helpOtherSide: "انقر على ذلك المقطع أولًا، ثم اسحب الخط الأحمر إلى اليمين.",
     helpOtherSideTerm: "اقتطاع اللقطات من المقطع الأيمن بدلًا من ذلك",
@@ -832,6 +818,10 @@ const messages = {
     uploadWorkspaceSaveFailed: "تعذر تحديث مساحة العمل النشطة",
     whatsNew: "ما الجديد",
     changelogEmpty: "لا توجد تحديثات بعد.",
+    changelogCommentSignup:
+      "توضح لوحة التعليقات الفارغة بإيجاز سبب تجربة Clips وتوفر مسارًا واضحًا للتسجيل.",
+    changelogShareLink:
+      "يصل المستخدمون المسجّلون الذين يفتحون رابط مشاركة غير متاح أو منتهي الصلاحية أو خاص إلى مكتبتهم عند اختيار «العودة إلى الصفحة الرئيسية» بدلًا من صفحة التسويق العامة.",
     viewAllUpdates: "عرض كل التحديثات",
     expand: "توسيع",
     collapse: "طي",
@@ -1442,6 +1432,12 @@ const messages = {
     builderConnected: "Builder.io متصل",
     waitingForBuilder: "بانتظار Builder...",
     connectBuilder: "استخدام Builder.io",
+    createBuilderAccount: "إنشاء حساب Builder.io",
+    signInWithBuilderAccount: "تسجيل الدخول بحساب Builder.io",
+    builderConsentPrefix: "بإنشاء حساب Builder.io، فإنك توافق على",
+    builderTerms: "شروط الخدمة",
+    builderConsentAnd: "و",
+    builderPrivacy: "سياسة الخصوصية",
     free: "مجاني",
     configureS3: "تكوين تخزين متوافق مع S3",
     whyPrompt: "لماذا أرى هذا؟",

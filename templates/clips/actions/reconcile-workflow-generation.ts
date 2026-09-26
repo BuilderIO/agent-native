@@ -7,7 +7,10 @@ import {
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import { WorkflowKindSchema } from "../shared/workflow.js";
+import {
+  matchesWorkflowRequest,
+  WorkflowKindSchema,
+} from "../shared/workflow.js";
 
 const WorkflowStateSchema = z
   .object({
@@ -16,6 +19,7 @@ const WorkflowStateSchema = z
     content: z.string().optional(),
     recordingId: z.string().optional(),
     requestedAt: z.string().optional(),
+    requestId: z.string().min(1).optional(),
     tabId: z.string().optional(),
     claimedAt: z.string().optional(),
   })
@@ -24,6 +28,7 @@ const WorkflowStateSchema = z
 const WorkflowRequestSchema = z
   .object({
     requestedAt: z.string(),
+    requestId: z.string().min(1).optional(),
     deliveredAt: z.string().optional(),
     deliveredTabId: z.string().optional(),
   })
@@ -45,9 +50,10 @@ export default defineAction({
     ]),
     recordingId: z.string().min(1),
     requestedAt: z.string().min(1),
+    requestId: z.string().min(1).optional(),
     tabId: z.string().min(1),
   }),
-  run: async ({ operation, recordingId, requestedAt, tabId }) => {
+  run: async ({ operation, recordingId, requestedAt, requestId, tabId }) => {
     await assertAccess("recording", recordingId, "viewer");
 
     const requestKey = `clips-ai-request-${recordingId}`;
@@ -62,7 +68,9 @@ export default defineAction({
       if (!parsedRequest.success) {
         throw new Error(`Invalid workflow request state for ${recordingId}`);
       }
-      if (parsedRequest.data.requestedAt !== requestedAt) {
+      if (
+        !matchesWorkflowRequest(parsedRequest.data, { requestedAt, requestId })
+      ) {
         return operation === "consume"
           ? {
               reconciled: false,
@@ -119,7 +127,10 @@ export default defineAction({
               };
         }
         if (
-          parsedState.data.requestedAt !== requestedAt ||
+          !matchesWorkflowRequest(parsedState.data, {
+            requestedAt,
+            requestId,
+          }) ||
           parsedState.data.tabId !== tabId
         ) {
           return {
@@ -178,7 +189,7 @@ export default defineAction({
     if (state.status !== "generating") {
       return { reconciled: false, reason: "terminal" as const };
     }
-    if (state.requestedAt !== requestedAt) {
+    if (!matchesWorkflowRequest(state, { requestedAt, requestId })) {
       return { reconciled: false, reason: "newer-request" as const };
     }
 
@@ -209,7 +220,9 @@ export default defineAction({
       if (!parsedRequest.success) {
         throw new Error(`Invalid workflow request state for ${recordingId}`);
       }
-      if (parsedRequest.data.requestedAt !== requestedAt) {
+      if (
+        !matchesWorkflowRequest(parsedRequest.data, { requestedAt, requestId })
+      ) {
         return { reconciled: false, reason: "newer-request" as const };
       }
 
