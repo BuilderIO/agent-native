@@ -93,6 +93,7 @@ import {
   processHtmlImages,
 } from "@/lib/email-image-policy";
 import { getLabelStyle } from "@/lib/label-colors";
+import { mailLabelDisplayName } from "@/lib/label-display";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import {
   buildForwardDraft,
@@ -106,7 +107,6 @@ import {
   formatEmailDate,
   formatFileSize,
   formatShortcut,
-  truncate,
 } from "@/lib/utils";
 
 import { buildEmailIframeDocument } from "./email-iframe-document";
@@ -1411,13 +1411,6 @@ export function EmailThread({
               </h1>
               {displayLabels.map((labelId) => {
                 const style = getLabelStyle(labelId);
-                const labelName =
-                  labelNames.get(labelId) ??
-                  labelId.replace(/^label:/, "").replace(/^CATEGORY_/, "");
-                const displayName = labelName
-                  .slice(labelName.lastIndexOf("/") + 1)
-                  .replace(/_/g, " ")
-                  .toLowerCase();
                 return (
                   <span
                     key={labelId}
@@ -1427,7 +1420,12 @@ export function EmailThread({
                       style.text,
                     )}
                   >
-                    {truncate(displayName, 16)}
+                    {mailLabelDisplayName(
+                      labelNames.get(labelId) ??
+                        labelId
+                          .replace(/^label:/, "")
+                          .replace(/^CATEGORY_/, ""),
+                    )}
                   </span>
                 );
               })}

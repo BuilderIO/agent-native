@@ -41,7 +41,7 @@ const messages = {
       aiSetupTitle: "Configura tu bandeja con IA",
       aiSetupTagLabel: "Crear una etiqueta de IA",
       aiSetupImportanceLabel: "Correo importante",
-      aiSetupSpamLabel: "Spam y correo no deseado",
+      aiSetupSpamLabel: "Spam",
       aiSetupArchiveLabel: "Omitir bandeja de entrada",
       aiSetupSave: "Guardar configuración",
       aiSetupSkip: "Omitir por ahora",
@@ -580,6 +580,8 @@ const messages = {
       keptToast: "Se conservaron {{count}} conversación(es) en Recibidos.",
       actionFailed: "No se pudo actualizar el filtro de IA.",
       settingsFailed: "No se pudieron guardar los ajustes del filtro de IA.",
+      automationRulesLoadFailed:
+        "No se pudieron cargar las reglas de clasificación.",
       instructionFailed: "No se pudo guardar la instrucción del filtro de IA.",
       skipInboxMode: "Omitir bandeja de entrada",
       spamMode: "Spam",

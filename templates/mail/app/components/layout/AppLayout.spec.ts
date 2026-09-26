@@ -20,6 +20,20 @@ function commandPaletteFocusSource(): string {
 }
 
 describe("AppLayout inbox tab bar", () => {
+  it("keeps the tab scrollport within the space before its settings cog", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'className="hidden sm:flex flex-1 min-w-0 items-center gap-2 overflow-x-auto hide-scrollbar"',
+    );
+    expect(source).toContain(
+      'className="hidden sm:flex flex-1 min-w-0 flex-nowrap items-center gap-1 overflow-x-auto hide-scrollbar"',
+    );
+    expect(source).toContain(
+      'cn("relative shrink-0", tabsLoading && "invisible")',
+    );
+  });
+
   it("distinguishes the active top-bar tab with a padded, accessible treatment", () => {
     const source = appLayoutSource();
 

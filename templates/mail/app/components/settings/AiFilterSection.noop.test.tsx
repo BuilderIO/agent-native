@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   decisions: [] as Array<Record<string, any>>,
   jevAvailabilityError: false,
   jevConfigured: true,
+  automationsError: false,
+  automationsHasData: true,
   triageEnabled: true,
   updateAiFilterSettings: vi.fn(),
   createRule: vi.fn(),
@@ -29,6 +31,8 @@ const mocks = vi.hoisted(() => ({
   accounts: [] as Array<Record<string, any>>,
   sendToAgentChat: vi.fn(),
   toast: vi.fn(),
+  refetchJevAvailability: vi.fn(),
+  refetchAutomations: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -45,7 +49,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     isLoading: false,
     isError: mocks.jevAvailabilityError,
     isFetching: false,
-    refetch: vi.fn(),
+    refetch: mocks.refetchJevAvailability,
   }),
 }));
 
@@ -62,7 +66,9 @@ vi.mock("@/components/onboarding/AiInboxSetup", () => ({
 }));
 
 vi.mock("@/components/settings/JevConnectionPrompt", () => ({
-  JevAvailabilityError: () => <div>mail.aiFilter.jevAvailabilityFailed</div>,
+  JevAvailabilityError: ({ onRetry }: { onRetry: () => void }) => (
+    <button onClick={onRetry}>mail.error.tryAgain</button>
+  ),
   JevConnectionPrompt: () => <div>mail.aiFilter.connectJev</div>,
 }));
 
@@ -94,7 +100,13 @@ vi.mock("@/hooks/use-ai-filter", () => ({
 }));
 
 vi.mock("@/hooks/use-automations", () => ({
-  useAutomations: () => ({ data: mocks.rules, isLoading: false }),
+  useAutomations: () => ({
+    data: mocks.automationsHasData ? mocks.rules : undefined,
+    isLoading: false,
+    isError: mocks.automationsError,
+    isFetching: false,
+    refetch: mocks.refetchAutomations,
+  }),
   useCreateAutomation: () => ({ mutateAsync: mocks.createRule }),
   useUpdateAutomation: () => ({
     mutate: mocks.updateRule,
@@ -145,6 +157,8 @@ describe("AiFilterSection", () => {
     mocks.decisions = [];
     mocks.jevAvailabilityError = false;
     mocks.jevConfigured = true;
+    mocks.automationsError = false;
+    mocks.automationsHasData = true;
     mocks.triageEnabled = true;
     mocks.accounts = [];
     mocks.createRule.mockReset().mockResolvedValue({ id: "created-rule" });
@@ -161,6 +175,8 @@ describe("AiFilterSection", () => {
     mocks.updatePreferences.mockReset().mockResolvedValue(undefined);
     mocks.updateAiFilterSettings.mockReset();
     mocks.sendToAgentChat.mockReset();
+    mocks.refetchJevAvailability.mockReset();
+    mocks.refetchAutomations.mockReset();
   });
 
   it("shares rule classification and stable label normalization", () => {
@@ -592,5 +608,33 @@ describe("AiFilterSection", () => {
       { mode: "settings", settings: { enabled: false } },
       expect.objectContaining({ onError: expect.any(Function) }),
     );
+  });
+
+  it("shows retry when inbox rules fail to load without cached data", () => {
+    mocks.automationsError = true;
+    mocks.automationsHasData = false;
+    renderSection();
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "mail.aiFilter.automationRulesLoadFailed",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
+    expect(mocks.refetchAutomations).toHaveBeenCalledOnce();
+  });
+
+  it("offers retry instead of a Jev connect prompt when availability lookup fails", () => {
+    mocks.jevAvailabilityError = true;
+    renderSection();
+
+    expect(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    ).not.toBeNull();
+    expect(screen.queryByText("mail.aiFilter.connectJev")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
+    expect(mocks.refetchJevAvailability).toHaveBeenCalledOnce();
   });
 });

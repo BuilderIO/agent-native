@@ -42,7 +42,7 @@ describe("EmailThread labels", () => {
   it("resolves label ids through the account-scoped label map", () => {
     expect(source).toContain("const { data: labels = [] } = useLabels(");
     expect(source).toContain("labelNames.get(labelId)");
-    expect(source).toContain("{truncate(displayName, 16)}");
+    expect(source).toContain("mailLabelDisplayName(");
   });
 });
 

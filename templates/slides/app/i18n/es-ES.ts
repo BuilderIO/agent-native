@@ -969,6 +969,8 @@ const messages = {
     chooseReferences: "Elegir referencias",
     addDesignSystem: "+ Sistema de diseño",
     importFrom: "Importar desde",
+    referenceFileStorageUnavailable:
+      "El almacenamiento de archivos no está configurado. Conecta Builder.io u otro proveedor de archivos para importar referencias.",
     attachedFiles: "Adjuntos",
     imported: "Importado",
     importedReferenceDeck: "Deck de referencia importado",

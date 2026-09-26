@@ -958,6 +958,8 @@ const messages = {
     chooseReferences: "اختر المراجع",
     addDesignSystem: "+ نظام تصميم",
     importFrom: "استيراد من",
+    referenceFileStorageUnavailable:
+      "لم يتم إعداد تخزين الملفات. اربط Builder.io أو موفر ملفات آخر لاستيراد الملفات المرجعية.",
     attachedFiles: "المرفقات",
     imported: "تم الاستيراد",
     importedReferenceDeck: "عرض مرجعي مستورد",
