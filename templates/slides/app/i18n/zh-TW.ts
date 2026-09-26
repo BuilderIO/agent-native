@@ -786,6 +786,11 @@ const messages = {
     chooseAnotherFile: "選取其他檔案",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "製作產品提案簡報",
+      roadmap: "製作產品路線圖",
+      explainer: "在簡報中說明一個主題",
+    },
     suggestedPrompts: "建議提示",
     importMenu: {
       import: "匯入",

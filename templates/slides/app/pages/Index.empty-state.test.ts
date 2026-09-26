@@ -9,8 +9,8 @@ const source = readFileSync(
   "utf8",
 );
 
-describe("Slides empty deck list", () => {
-  it("hides search and filtering only when the settled deck list is empty", () => {
+describe("Slides home header", () => {
+  it("keeps search and import available without create or filter controls", () => {
     const header = source.slice(
       source.indexOf("useSetHeaderActions("),
       source.indexOf(
@@ -19,10 +19,15 @@ describe("Slides empty deck list", () => {
       ),
     );
 
-    expect(header).toMatch(
-      /viewState !== "empty" \? \([\s\S]*?<DeckSearchInput[\s\S]*?<DeckFilterMenu[\s\S]*?: null/,
-    );
+    expect(header).toContain("<DeckSearchInput");
+    expect(header).toContain("<ImportDeckButton");
+    expect(header).not.toContain("<DeckFilterMenu");
+    expect(header).not.toContain("newDeck");
     expect(header).not.toContain('{t("home.newDeck")}');
+    expect(source).toContain('data-home-search="true"');
+    expect(source).not.toContain("searchShortcutLabel");
+    expect(source).not.toContain("<kbd");
+    expect(source).toContain("slides-home-mobile-toolbar");
     expect(source).toContain('presentation="inline"');
     expect(source).toContain("deckListViewState({");
   });

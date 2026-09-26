@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   listLoading: false,
   empty: false,
   invalidDetail: false,
+  previewMode: "none" as "none" | "first" | "all",
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   actionErrorMessage: (error: unknown) =>
@@ -66,7 +67,7 @@ function Location() {
     </output>
   );
 }
-function mount({ home = false, entry = "/templates", page = false } = {}) {
+function mount({ entry = "/templates", page = false } = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -87,7 +88,7 @@ function mount({ home = false, entry = "/templates", page = false } = {}) {
                   aria-label="Home prompt"
                   defaultValue="Keep my draft"
                 />
-                <DeckTemplateLibrary home={home} />
+                <DeckTemplateLibrary />
               </>
             }
           />
@@ -105,6 +106,7 @@ beforeEach(() => {
   mocks.listLoading = false;
   mocks.empty = false;
   mocks.invalidDetail = false;
+  mocks.previewMode = "none";
   mocks.engine.mockImplementation(() => {
     throw new Error("Template copies must not require an AI provider");
   });
@@ -125,7 +127,14 @@ beforeEach(() => {
               : {
                   templates: mocks.empty
                     ? []
-                    : filtered.slice(0, Number(args.pageSize)),
+                    : filtered
+                        .slice(0, Number(args.pageSize))
+                        .map((template, index) =>
+                          mocks.previewMode === "all" ||
+                          (mocks.previewMode === "first" && index === 0)
+                            ? template
+                            : { ...template, previewHtml: undefined },
+                        ),
                   total: filtered.length,
                 },
           isLoading: mocks.listLoading,
@@ -159,30 +168,36 @@ afterEach(() => {
 });
 
 describe("real starter template library", () => {
-  it("shows four real home previews, without fetching six details", () => {
-    const view = mount({ home: true, entry: "/home" });
-    expect(view.container.querySelectorAll("iframe")).toHaveLength(4);
+  it("shows every home template, without fetching template details", () => {
+    const view = mount({ entry: "/home" });
+    expect(
+      view.container.querySelectorAll(".agent-template-library-card"),
+    ).toHaveLength(catalog.length);
     expect(
       mocks.query.mock.calls.every(([name]) => name === "list-deck-templates"),
     ).toBe(true);
     expect(mocks.query).toHaveBeenCalledWith(
       "list-deck-templates",
-      expect.objectContaining({ pageSize: 4, includePreview: "true" }),
+      expect.objectContaining({ pageSize: 24, includePreview: "true" }),
     );
     expect(mocks.create).not.toHaveBeenCalled();
   });
-  it("lists all six gallery templates and sandboxes the 960 by 540 artwork with no default body margin", () => {
+  it("lists every gallery template and sandboxes the 960 by 540 artwork with no default body margin", () => {
+    mocks.previewMode = "first";
     const view = mount();
     const frames = view.container.querySelectorAll("iframe");
-    expect(frames).toHaveLength(6);
+    expect(frames).toHaveLength(1);
     expect(frames[0].getAttribute("sandbox")).toBe("");
     expect(frames[0].srcdoc).toContain("margin:0");
     expect(frames[0].srcdoc).toContain(first.previewHtml);
     expect(frames[0].className).toBe("deck-template-preview-frame");
     expect(frames[0].srcdoc).toContain("width:960px;height:540px");
+    expect(frames[0].srcdoc).toContain(
+      "fonts.googleapis.com/css2?family=Archivo",
+    );
   });
   it("opens the shared inset modal preview from the caption menu without copying or losing the home draft", async () => {
-    mount({ home: true, entry: "/home" });
+    mount({ entry: "/home" });
     const draft = screen.getByRole("textbox", { name: "Home prompt" });
     const trigger = screen.getByRole("button", {
       name: `Actions ${first.title}`,
@@ -226,7 +241,7 @@ describe("real starter template library", () => {
     await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
   it("copies and opens the deck from the preview header action", async () => {
-    mount({ home: true, entry: "/home" });
+    mount({ entry: "/home" });
     const trigger = screen.getByRole("button", {
       name: `Actions ${first.title}`,
     });
@@ -256,7 +271,7 @@ describe("real starter template library", () => {
   });
   it("opens a successfully created deck even when the list refresh fails", async () => {
     mocks.reloadDecksWithStatus.mockResolvedValue("failed");
-    mount({ home: true, entry: "/home" });
+    mount({ entry: "/home" });
 
     fireEvent.click(screen.getByRole("button", { name: first.title }));
 
@@ -268,7 +283,7 @@ describe("real starter template library", () => {
   it.each(["/templates", "/home"])(
     "clicking a thumbnail on %s directly copies and opens without a dialog or AI gate",
     async (entry) => {
-      mount({ entry, home: entry === "/home" });
+      mount({ entry });
       fireEvent.click(screen.getByRole("button", { name: first.title }));
       expect(mocks.create).toHaveBeenCalledWith({
         templateId: first.id,
@@ -310,7 +325,7 @@ describe("real starter template library", () => {
           reject = rejectPromise;
         }),
     );
-    mount({ home: true, entry: "/home" });
+    mount({ entry: "/home" });
     const draft = screen.getByRole("textbox", { name: "Home prompt" });
     const card = screen.getByRole("button", { name: first.title });
     fireEvent.click(card);
@@ -383,7 +398,7 @@ describe("real starter template library", () => {
     );
     expect(mocks.query).toHaveBeenCalledWith(
       "list-deck-templates",
-      expect.objectContaining({ search: "pitch", pageSize: 6 }),
+      expect.objectContaining({ search: "pitch", pageSize: 24 }),
     );
     expect(document.querySelector("main")).toBeNull();
   });

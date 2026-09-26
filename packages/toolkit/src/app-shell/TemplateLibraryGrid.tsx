@@ -1,6 +1,7 @@
 import {
   ActionButton,
   Skeleton,
+  Spinner,
   Surface,
 } from "@agent-native/toolkit/design-system";
 import { useId, useRef, type ReactElement, type ReactNode } from "react";
@@ -30,6 +31,7 @@ export type TemplateLibraryCardProps<T extends TemplateLibraryItem> = {
   actionsVisible?: boolean;
   selected?: boolean;
   pending?: boolean;
+  pendingLabel?: string;
   disabled?: boolean;
 } & TemplateLibraryActivation<T>;
 
@@ -41,6 +43,7 @@ export function TemplateLibraryCard<T extends TemplateLibraryItem>({
   actionsVisible = false,
   selected = false,
   pending = false,
+  pendingLabel,
   disabled = false,
   onSelect,
   renderLink,
@@ -67,7 +70,7 @@ export function TemplateLibraryCard<T extends TemplateLibraryItem>({
       <Surface padding="none">
         <div className="agent-template-library-preview">{preview}</div>
       </Surface>
-      <div className="agent-template-library-caption grid content-start gap-1 pt-3">
+      <div className="agent-template-library-caption grid content-start gap-1">
         <h3 id={titleId} className="truncate text-sm font-medium">
           {item.title}
         </h3>
@@ -87,7 +90,7 @@ export function TemplateLibraryCard<T extends TemplateLibraryItem>({
   return (
     <div
       ref={container}
-      className="agent-template-library-card min-w-0"
+      className="agent-template-library-card relative min-w-0"
       data-selected={selected || undefined}
       aria-busy={pending || undefined}
     >
@@ -98,6 +101,15 @@ export function TemplateLibraryCard<T extends TemplateLibraryItem>({
         aria-disabled={unavailable || undefined}
       >
         {renderLink && !unavailable ? renderLink(item, card) : card}
+        {pending && pendingLabel ? (
+          <div
+            role="status"
+            className="absolute inset-0 z-20 flex items-center justify-center gap-2 rounded-xl bg-background/80 p-4 text-sm font-medium text-foreground backdrop-blur-sm"
+          >
+            <Spinner className="size-4" />
+            {pendingLabel}
+          </div>
+        ) : null}
       </div>
       {actions ? (
         <div
@@ -121,6 +133,7 @@ export type TemplateLibraryGridProps<T extends TemplateLibraryItem> = {
   isSelected?: (item: T) => boolean;
   selectedId?: string | null;
   pendingId?: string | null;
+  pendingLabel?: string;
   disabled?: boolean;
   loading?: boolean;
   error?: string | null;
@@ -138,6 +151,7 @@ export function TemplateLibraryGrid<T extends TemplateLibraryItem>({
   isSelected,
   selectedId,
   pendingId,
+  pendingLabel,
   disabled,
   loading = false,
   error,
@@ -175,6 +189,7 @@ export function TemplateLibraryGrid<T extends TemplateLibraryItem>({
               actionsVisible={actionsVisible?.(item)}
               selected={isSelected?.(item) ?? item.id === selectedId}
               pending={item.id === pendingId}
+              pendingLabel={pendingLabel}
               disabled={disabled}
               {...(renderLink ? { renderLink } : { onSelect: onSelect! })}
             />

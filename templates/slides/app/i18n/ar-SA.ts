@@ -829,6 +829,11 @@ const messages = {
     chooseAnotherFile: "اختيار ملف آخر",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "أنشئ عرضًا تقديميًا لمنتج",
+      roadmap: "أنشئ خارطة طريق لمنتج",
+      explainer: "اشرح موضوعًا في عرض تقديمي",
+    },
     suggestedPrompts: "الاقتراحات المقترحة",
     importMenu: {
       import: "استيراد",

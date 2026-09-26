@@ -126,7 +126,7 @@ export default function DeckCard({
         </div>
 
         {/* Info */}
-        <div className="agent-template-library-caption p-4">
+        <div className="agent-template-library-caption">
           <div className="flex items-center gap-2 min-w-0">
             {isRenaming ? (
               <input

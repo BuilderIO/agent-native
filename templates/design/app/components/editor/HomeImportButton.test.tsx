@@ -74,11 +74,11 @@ async function typeUrl() {
 }
 async function openMenu() {
   const trigger = document.querySelector<HTMLButtonElement>(
-    '[aria-label="home.importOptions"]',
+    '[aria-label="home.import"]',
   )!;
   await act(async () =>
     trigger.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
     ),
   );
 }
@@ -130,11 +130,14 @@ afterEach(async () => {
 });
 
 describe("home Figma import", () => {
-  it("opens the OS picker directly with only .fig accepted and no intermediary dialog", async () => {
+  it("opens import options from the whole button before launching the .fig picker", async () => {
     const input =
       document.querySelector<HTMLInputElement>('input[type="file"]')!;
     const picker = vi.spyOn(input, "click");
-    await click("home.import");
+    await openMenu();
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    expect(picker).not.toHaveBeenCalled();
+    await click("home.figmaFile");
     expect(picker).toHaveBeenCalledOnce();
     expect(input.accept).toBe(".fig");
     expect(document.querySelector('[role="dialog"]')).toBeNull();

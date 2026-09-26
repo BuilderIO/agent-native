@@ -791,6 +791,11 @@ const messages = {
     chooseAnotherFile: "选择其他文件",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "制作产品推介演示文稿",
+      roadmap: "制作产品路线图",
+      explainer: "在演示文稿中讲解一个主题",
+    },
     suggestedPrompts: "推荐提示",
     importMenu: {
       import: "导入",
