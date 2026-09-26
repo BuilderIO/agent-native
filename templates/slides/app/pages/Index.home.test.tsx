@@ -8,15 +8,42 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { type ComponentProps, type ReactElement, type ReactNode } from "react";
-import { Link, MemoryRouter } from "react-router";
+import { createPortal } from "react-dom";
+import { Link, MemoryRouter, useMatch } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type PromptPopover from "@/components/editor/PromptDialog";
 
 const systemFlag = vi.hoisted(() => ({ enabled: true, query: vi.fn() }));
+const toastError = vi.hoisted(() => vi.fn());
+const promptUploads = vi.hoisted(() => ({
+  uploadPromptFiles: vi.fn(),
+  isPromptUploadNetworkError: vi.fn(
+    (error: unknown) =>
+      error instanceof TypeError ||
+      (error instanceof Error &&
+        "code" in error &&
+        error.code === "reference_upload_network_failed"),
+  ),
+  isPromptUploadAuthRequiredError: vi.fn(
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "reference_storage_auth_required",
+  ),
+  isPromptUploadStorageStatusError: vi.fn(
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "reference_storage_http_failed" ||
+        error.code === "reference_storage_contract_failed"),
+  ),
+}));
 vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => systemFlag.enabled,
 }));
+vi.mock("@/lib/prompt-file-uploads", () => promptUploads);
+vi.mock("sonner", () => ({ toast: { error: toastError } }));
 
 const {
   useDecks,
@@ -63,6 +90,11 @@ const translate = (key: string) =>
     "home.noDecksMatchSearch": "No decks match your search.",
     "home.loadFailed": "Couldn't load your content",
     "home.retry": "Retry",
+    "home.importMenu.networkFailed": "Network upload failed.",
+    "home.importMenu.notStarted": "Complete sign-in, then retry.",
+    "editorToolbar.uploadFailed": "Upload failed",
+    "editorToolbar.importFailedDescription":
+      "Something went wrong importing this file.",
     "root.searchDecks": "Search decks",
     "templatesPage.title": "Templates",
     "templatesPage.browseAll": "Browse all",
@@ -173,12 +205,14 @@ vi.mock("@/components/design-system/DesignSystemSetup", () => ({
   }: {
     onClose: () => void;
     onComplete: () => void;
-  }) => (
-    <div role="dialog" aria-label="Existing system setup">
-      <button onClick={onClose}>Cancel setup</button>
-      <button onClick={onComplete}>Complete setup</button>
-    </div>
-  ),
+  }) =>
+    createPortal(
+      <div role="dialog" aria-label="Existing system setup">
+        <button onClick={onClose}>Cancel setup</button>
+        <button onClick={onComplete}>Complete setup</button>
+      </div>,
+      document.body,
+    ),
 }));
 vi.mock("@/components/deck/DeckCard", () => ({
   default: ({ deck }: { deck: { title: string } }) => (
@@ -212,6 +246,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import Index from "./Index";
 
+function ActiveIndex() {
+  return <Index active={useMatch("/home") !== null} />;
+}
+
 const ownDeck = {
   id: "own",
   title: "My presentation",
@@ -243,9 +281,10 @@ function renderHome(
     <MemoryRouter initialEntries={[{ pathname, state }]}>
       <nav>
         <Link to="/templates">Open templates</Link>
+        <Link to="/home">Back home</Link>
       </nav>
       <TooltipProvider>
-        <Index />
+        <ActiveIndex />
       </TooltipProvider>
     </MemoryRouter>
   );
@@ -264,6 +303,7 @@ beforeEach(() => {
   builderConnect.error = null;
   headerActions.current = null;
   pageTitle.current = null;
+  promptUploads.uploadPromptFiles.mockReset();
   useBuilderConnectFlow.mockReturnValue(builderConnect);
   for (const name of ["localStorage", "sessionStorage"]) {
     const values = new Map<string, string>();
@@ -341,6 +381,35 @@ describe("Slides prompt-led home", () => {
       await screen.findByRole("button", { name: "Complete setup" }),
     );
     expect(refetchSystems).toHaveBeenCalledOnce();
+    expect(screen.getByRole("textbox", { name: "Presentation prompt" })).toBe(
+      composer,
+    );
+  });
+  it("closes Home dialogs when the route becomes inactive and keeps the composer mounted", async () => {
+    renderHome();
+    const composer = await screen.findByRole("textbox", {
+      name: "Presentation prompt",
+    });
+    await act(async () =>
+      contextOptions.mock.lastCall![0].onCreateDesignSystem(),
+    );
+    await screen.findByRole("dialog", { name: "Existing system setup" });
+
+    fireEvent.click(screen.getByRole("link", { name: "Open templates" }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Existing system setup" }),
+      ).toBeNull(),
+    );
+    expect(screen.getByRole("textbox", { name: "Presentation prompt" })).toBe(
+      composer,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "Back home" }));
+    expect(
+      screen.queryByRole("dialog", { name: "Existing system setup" }),
+    ).toBeNull();
     expect(screen.getByRole("textbox", { name: "Presentation prompt" })).toBe(
       composer,
     );
@@ -650,6 +719,42 @@ describe("Slides prompt-led home", () => {
     ).toBe("My outline");
     expect(attachments.discard).toHaveBeenCalledOnce();
     expect(createDeck).not.toHaveBeenCalled();
+  });
+
+  it("uses generic copy for a storage status failure during reference import", async () => {
+    renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const attachments = { commit: vi.fn(), discard: vi.fn(), attachments: [] };
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        "My outline",
+        [],
+        attachments,
+        {
+          model: "test-model",
+          engine: "builder",
+          effort: "high",
+        },
+      );
+    });
+    promptUploads.uploadPromptFiles.mockRejectedValue(
+      Object.assign(
+        new Error("Reference file storage status could not be verified"),
+        {
+          code: "reference_storage_http_failed",
+        },
+      ),
+    );
+
+    await act(async () => {
+      await referenceProps.mock.lastCall![0].onImport([
+        new File(["pdf"], "reference.pdf", { type: "application/pdf" }),
+      ]);
+    });
+
+    expect(toastError).toHaveBeenCalledWith("Upload failed", {
+      description: "Something went wrong importing this file.",
+    });
   });
 
   it("reopens after sign-in cancellation and preserves the auth draft and model", async () => {

@@ -21,7 +21,7 @@ export default function HomeLayout() {
     <>
       {homeVisited || isHome ? (
         <div hidden={!isHome}>
-          <Index />
+          <Index active={isHome} />
         </div>
       ) : null}
       <Outlet />

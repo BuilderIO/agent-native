@@ -42,7 +42,11 @@ import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import type { SlidesComposerContext } from "@/lib/composer-context";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
-import { isReferenceStorageReady } from "@/lib/prompt-file-uploads";
+import {
+  isPromptUploadAuthRequiredError,
+  isPromptUploadNetworkError,
+  isReferenceStorageReady,
+} from "@/lib/prompt-file-uploads";
 import { cn } from "@/lib/utils";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
@@ -155,7 +159,12 @@ export function NewDeckReferenceStep({
   const [importingSource, setImportingSource] =
     useState<FileImportSource | null>(null);
   const [fileStorageStatus, setFileStorageStatus] = useState<
-    "checking" | "available" | "unavailable" | "unknown"
+    | "checking"
+    | "available"
+    | "unavailable"
+    | "network-error"
+    | "auth-required"
+    | "failed"
   >("checking");
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
@@ -201,8 +210,15 @@ export function NewDeckReferenceStep({
           setFileStorageStatus(configured ? "available" : "unavailable");
         }
       })
-      .catch(() => {
-        if (!cancelled) setFileStorageStatus("unknown");
+      .catch((error) => {
+        if (cancelled) return;
+        setFileStorageStatus(
+          isPromptUploadAuthRequiredError(error)
+            ? "auth-required"
+            : isPromptUploadNetworkError(error)
+              ? "network-error"
+              : "failed",
+        );
       });
     return () => {
       cancelled = true;
@@ -577,9 +593,19 @@ export function NewDeckReferenceStep({
                   {t("home.referenceFileStorageUnavailable")}
                 </p>
               )}
-              {fileStorageStatus === "unknown" && (
+              {fileStorageStatus === "network-error" && (
                 <p className="mt-3 text-sm text-destructive" role="alert">
                   {t("home.importMenu.networkFailed")}
+                </p>
+              )}
+              {fileStorageStatus === "auth-required" && (
+                <p className="mt-3 text-sm text-destructive" role="alert">
+                  {t("home.importMenu.notStarted")}
+                </p>
+              )}
+              {fileStorageStatus === "failed" && (
+                <p className="mt-3 text-sm text-destructive" role="alert">
+                  {t("editorToolbar.importFailedDescription")}
                 </p>
               )}
               {selectedSource && (

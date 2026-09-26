@@ -45,6 +45,7 @@ function figmaPickerId(reference: ComposerSource) {
 }
 
 export function useSlidesComposerContext({
+  active = true,
   defaultDesignSystemId,
   defaultReferenceDeck,
   systems,
@@ -53,6 +54,7 @@ export function useSlidesComposerContext({
   retrySystems,
   onCreateDesignSystem,
 }: {
+  active?: boolean;
   defaultDesignSystemId: string | null;
   defaultReferenceDeck?: { id: string; title: string };
   systems: Array<{ id: string; title: string }>;
@@ -100,6 +102,9 @@ export function useSlidesComposerContext({
     setError(undefined);
     version.current++;
   }, [identity]);
+  useEffect(() => {
+    if (!active) setInspectedKey(undefined);
+  }, [active]);
   useEffect(() => {
     if (edited.current) return;
     try {
@@ -472,7 +477,7 @@ export function useSlidesComposerContext({
     },
     dialogs: (
       <Dialog
-        open={Boolean(inspectedKey)}
+        open={active && Boolean(inspectedKey)}
         onOpenChange={(open) => !open && setInspectedKey(undefined)}
       >
         <DialogContent>

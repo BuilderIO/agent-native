@@ -213,6 +213,9 @@ vi.mock("./GoogleDriveConnectionCta", () => ({
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   addInlineImageFallbacks,
+  isPromptUploadAuthRequiredError,
+  isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
   isReferenceStorageReady,
   uploadPromptFiles as uploadPromptFilesImpl,
 } from "@/lib/prompt-file-uploads";
@@ -406,16 +409,59 @@ describe("uploadPromptFiles", () => {
     expect(ensureEmbedAuthFetchInterceptor).toHaveBeenCalledOnce();
   });
 
-  it("redacts storage status request details while preserving its error code", async () => {
+  it.each([
+    [401, "reference_storage_auth_required", false],
+    [503, "reference_storage_http_failed", false],
+  ])(
+    "classifies storage status HTTP %s separately from transport errors",
+    async (status, code, isNetworkError) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(new Response(null, { status })),
+      );
+
+      const error = await isReferenceStorageReady().catch((cause) => cause);
+      expect(error).toMatchObject({
+        code,
+        message: "Reference file storage status could not be verified",
+      });
+      expect(isPromptUploadNetworkError(error)).toBe(isNetworkError);
+      expect(isPromptUploadAuthRequiredError(error)).toBe(status === 401);
+      expect(isPromptUploadStorageStatusError(error)).toBe(status === 503);
+    },
+  );
+
+  it.each([
+    [new Response("not-json", { status: 200 })],
+    [new Response(JSON.stringify({ ready: true }), { status: 200 })],
+  ])(
+    "classifies malformed storage status responses as contract errors",
+    async (response) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+      const error = await isReferenceStorageReady().catch((cause) => cause);
+      expect(error).toMatchObject({
+        code: "reference_storage_contract_failed",
+        message: "Reference file storage status could not be verified",
+      });
+      expect(isPromptUploadNetworkError(error)).toBe(false);
+      expect(isPromptUploadAuthRequiredError(error)).toBe(false);
+      expect(isPromptUploadStorageStatusError(error)).toBe(true);
+    },
+  );
+
+  it("classifies a rejected status fetch as a network error", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(new Response(null, { status: 503 })),
+      vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
     );
 
-    await expect(isReferenceStorageReady()).rejects.toMatchObject({
-      code: "reference_storage_status_failed",
+    const error = await isReferenceStorageReady().catch((cause) => cause);
+    expect(error).toMatchObject({
+      code: "reference_storage_network_failed",
       message: "Reference file storage status could not be verified",
     });
+    expect(isPromptUploadNetworkError(error)).toBe(true);
   });
 
   it("rejects more than 20 files before starting uploads", async () => {

@@ -20,7 +20,9 @@ import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/create-deck-generation"
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   deleteUploadedPromptFile,
+  isPromptUploadAuthRequiredError,
   isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
   uploadPromptFiles,
   type UploadedFile,
 } from "@/lib/prompt-file-uploads";
@@ -191,9 +193,13 @@ export function AddSlidePopover({
             toast.error(t("editorSidebar.uploadFailed"), {
               description: isPromptUploadNetworkError(error)
                 ? t("home.importMenu.networkFailed")
-                : error instanceof Error
-                  ? error.message
-                  : t("editorSidebar.uploadAttachedFileFailed"),
+                : isPromptUploadAuthRequiredError(error)
+                  ? t("home.importMenu.notStarted")
+                  : isPromptUploadStorageStatusError(error)
+                    ? t("editorToolbar.importFailedDescription")
+                    : error instanceof Error
+                      ? error.message
+                      : t("editorSidebar.uploadAttachedFileFailed"),
             });
             return;
           }
@@ -285,9 +291,13 @@ export function AddSlidePopover({
         toast.error(t("editorSidebar.uploadFailed"), {
           description: isPromptUploadNetworkError(error)
             ? t("home.importMenu.networkFailed")
-            : error instanceof Error
-              ? error.message
-              : t("editorSidebar.uploadAttachedFileFailed"),
+            : isPromptUploadAuthRequiredError(error)
+              ? t("home.importMenu.notStarted")
+              : isPromptUploadStorageStatusError(error)
+                ? t("editorToolbar.importFailedDescription")
+                : error instanceof Error
+                  ? error.message
+                  : t("editorSidebar.uploadAttachedFileFailed"),
         });
       });
     },

@@ -297,6 +297,7 @@ export default function EditorToolbar({
   // That row rides on SlideEditor, which only mounts for a real slide, so an
   // empty deck must keep this fallback or it has no way to add one.
   const contextToolbarVisible = canEdit && Boolean(currentSlide);
+  const hasSlides = deck.slides.length > 0;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const exportMenuRef = useRef<ExportMenuHandle>(null);
   const [exportStatus, setExportStatus] = useState<ExportStatus>({
@@ -562,41 +563,43 @@ export default function EditorToolbar({
       });
     }
 
-    commands.push(
-      {
-        id: "download-html",
-        group: "deck",
-        label: t("editorExport.downloadHtml"),
-        keywords: ["export", "html", "download"],
-        icon: IconCode,
-        run: () => void exportMenuRef.current?.exportHtml(),
-      },
-      {
-        id: "export-pdf",
-        group: "deck",
-        label: t("editorExport.exportPdf"),
-        keywords: ["export", "pdf", "download"],
-        icon: IconFileTypePdf,
-        run: () => void exportMenuRef.current?.exportPdf(),
-      },
-      {
-        id: "export-pptx",
-        group: "deck",
-        label: t("editorExport.exportPptx"),
-        keywords: ["export", "powerpoint", "pptx", "download"],
-        icon: IconDownload,
-        run: () => void exportMenuRef.current?.exportPptx(),
-      },
-    );
-    if (onExportGoogleSlides) {
-      commands.push({
-        id: "export-to-google-slides",
-        group: "deck",
-        label: t("editorExport.openInGoogleSlides"),
-        keywords: ["google", "slides", "export"],
-        icon: IconBrandGoogle,
-        run: () => void exportMenuRef.current?.exportGoogleSlides(),
-      });
+    if (hasSlides) {
+      commands.push(
+        {
+          id: "download-html",
+          group: "deck",
+          label: t("editorExport.downloadHtml"),
+          keywords: ["export", "html", "download"],
+          icon: IconCode,
+          run: () => void exportMenuRef.current?.exportHtml(),
+        },
+        {
+          id: "export-pdf",
+          group: "deck",
+          label: t("editorExport.exportPdf"),
+          keywords: ["export", "pdf", "download"],
+          icon: IconFileTypePdf,
+          run: () => void exportMenuRef.current?.exportPdf(),
+        },
+        {
+          id: "export-pptx",
+          group: "deck",
+          label: t("editorExport.exportPptx"),
+          keywords: ["export", "powerpoint", "pptx", "download"],
+          icon: IconDownload,
+          run: () => void exportMenuRef.current?.exportPptx(),
+        },
+      );
+      if (onExportGoogleSlides) {
+        commands.push({
+          id: "export-to-google-slides",
+          group: "deck",
+          label: t("editorExport.openInGoogleSlides"),
+          keywords: ["google", "slides", "export"],
+          icon: IconBrandGoogle,
+          run: () => void exportMenuRef.current?.exportGoogleSlides(),
+        });
+      }
     }
     if (onDuplicateDeck) {
       commands.push({
@@ -649,6 +652,7 @@ export default function EditorToolbar({
     commentsOpen,
     currentSlide,
     drawMode,
+    hasSlides,
     importing,
     isDark,
     onAddEmptySlide,
@@ -947,6 +951,7 @@ export default function EditorToolbar({
               onExportStatusChange={setExportStatus}
               deckId={deckId}
               deckTitle={deckTitle}
+              disabled={!hasSlides}
               onDuplicate={onDuplicateDeck ?? (() => {})}
               onExportPdf={onExportPdf ?? (() => {})}
               onExportPptx={onExportPptx ?? (() => {})}
@@ -1020,15 +1025,26 @@ export default function EditorToolbar({
         />
       </div>
       {/* Present button — matches Share trigger height (h-9) */}
-      <Link
-        to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
-        onClick={onPresent ? handlePresentClick : undefined}
-        onAuxClick={onPresent ? handlePresentClick : undefined}
-        className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-      >
-        <IconPlayerPlay className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
-      </Link>
+      {hasSlides ? (
+        <Link
+          to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
+          onClick={onPresent ? handlePresentClick : undefined}
+          onAuxClick={onPresent ? handlePresentClick : undefined}
+          className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        >
+          <IconPlayerPlay className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
+        </Link>
+      ) : (
+        <Button
+          type="button"
+          disabled
+          className="h-9 flex-shrink-0 gap-1.5 border border-border px-3 text-sm font-medium"
+        >
+          <IconPlayerPlay className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
+        </Button>
+      )}
 
       {/* Hidden file input for "Import" overflow menu item */}
       <input

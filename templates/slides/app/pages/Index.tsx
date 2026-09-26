@@ -416,7 +416,7 @@ async function loadReferenceDeckGenerationContext(
   ].join("\n");
 }
 
-export default function Index() {
+export default function Index({ active = true }: { active?: boolean }) {
   const t = useT();
   const {
     decks,
@@ -567,6 +567,7 @@ export default function Index() {
     : null;
   const initialReferenceDeckId = lastUsedReferenceDeckId;
   const composerContext = useSlidesComposerContext({
+    active,
     defaultDesignSystemId: initialDesignSystemId,
     defaultReferenceDeck: decks.find(
       (deck) => deck.id === initialReferenceDeckId,
@@ -784,6 +785,15 @@ export default function Index() {
       setShowNewDeckPrompt(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (active) return;
+    setDeckToDelete(null);
+    setWorkspaceDefaultCandidate(null);
+    setShowNewDeckReferenceStep(false);
+    setShowDesignSystemSetup(false);
+    setSignInDialogOpen(false);
+  }, [active, setSignInDialogOpen]);
 
   // Re-syncs the design-system picker whenever the resolved default changes
   // while the dialog is open, not just on the first render after it opens.
@@ -1498,11 +1508,18 @@ export default function Index() {
         return true;
       }
 
-      const uploaded = await uploadPromptFiles(
-        selection.files,
-        t("home.referenceFileStorageUnavailable"),
-        t("home.importMenu.networkFailed"),
-      );
+      let uploaded: UploadedFile[];
+      try {
+        uploaded = await uploadPromptFiles(
+          selection.files,
+          t("home.referenceFileStorageUnavailable"),
+          t("home.importMenu.networkFailed"),
+        );
+      } catch (cause) {
+        const module = await import("@/lib/prompt-file-uploads");
+        if (module.isPromptUploadAuthRequiredError(cause)) return false;
+        throw cause;
+      }
       const file = uploaded[0];
       if (!file) throw new Error("The selected file could not be uploaded.");
 
@@ -1802,11 +1819,23 @@ export default function Index() {
         }
         return importedReference;
       } catch (error) {
+        const uploadModule = await import("@/lib/prompt-file-uploads");
+        const isStorageUnavailable =
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "reference_storage_unavailable";
         toast.error(t("editorToolbar.uploadFailed"), {
-          description:
-            error instanceof Error
-              ? error.message
-              : t("editorToolbar.importFailedDescription"),
+          description: uploadModule.isPromptUploadAuthRequiredError(error)
+            ? t("home.importMenu.notStarted")
+            : uploadModule.isPromptUploadNetworkError(error)
+              ? t("home.importMenu.networkFailed")
+              : uploadModule.isPromptUploadStorageStatusError(error)
+                ? t("editorToolbar.importFailedDescription")
+                : isStorageUnavailable && error instanceof Error
+                  ? error.message
+                  : error instanceof Error
+                    ? error.message
+                    : t("editorToolbar.importFailedDescription"),
         });
         return null;
       } finally {
@@ -2024,7 +2053,8 @@ export default function Index() {
     [duplicateDeck, navigate, t],
   );
 
-  const isHome = useMatch("/home") !== null;
+  const routeIsHome = useMatch("/home") !== null;
+  const isHome = active && routeIsHome;
   const homeTitle = t("home.decksTitle");
   const deckImport = usePromptImport({ onImport: handleDirectImport });
   const viewState = deckListViewState({
@@ -2076,17 +2106,19 @@ export default function Index() {
     <PromptHome
       title={t("home.firstDeckPromptTitle")}
       mobileToolbar={
-        <>
-          <DeckSearchInput
-            value={deckSearch}
-            onChange={setDeckSearch}
-            className="w-full"
-          />
-          <ImportDeckButton controller={deckImport} />
-        </>
+        isHome ? (
+          <>
+            <DeckSearchInput
+              value={deckSearch}
+              onChange={setDeckSearch}
+              className="w-full"
+            />
+            <ImportDeckButton controller={deckImport} />
+          </>
+        ) : null
       }
       connection={
-        agentEngine.missing ? (
+        isHome && agentEngine.missing ? (
           <>
             <BuilderConnectPopover flow={builderConnect}>
               <Button variant="outline" disabled={builderConnect.connecting}>
@@ -2186,7 +2218,9 @@ export default function Index() {
         </div>
       }
       quickActions={
-        quickActionsEnabled && homeSuggestionsQuery.data?.suggestions.length ? (
+        isHome &&
+        quickActionsEnabled &&
+        homeSuggestionsQuery.data?.suggestions.length ? (
           <AgentSuggestionBar
             suggestions={homeSuggestionsQuery.data.suggestions.map(
               (suggestion, index) => ({
@@ -2274,7 +2308,7 @@ export default function Index() {
       />
 
       <AlertDialog
-        open={!!workspaceDefaultCandidate}
+        open={isHome && !!workspaceDefaultCandidate}
         onOpenChange={(open) => !open && setWorkspaceDefaultCandidate(null)}
       >
         <AlertDialogContent>
@@ -2299,7 +2333,7 @@ export default function Index() {
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog
-        open={!!deckToDelete}
+        open={isHome && !!deckToDelete}
         onOpenChange={(open) => !open && setDeckToDelete(null)}
       >
         <AlertDialogContent>
@@ -2322,7 +2356,7 @@ export default function Index() {
       </AlertDialog>
 
       <NewDeckReferenceStep
-        open={showNewDeckReferenceStep}
+        open={isHome && showNewDeckReferenceStep}
         onOpenChange={(open) => {
           if (!open && !pendingDeckGenerationRef.current) {
             const pending = pendingDeck;
@@ -2358,7 +2392,7 @@ export default function Index() {
         promptSummary={pendingDeck?.prompt}
       />
 
-      {systemsEnabled && showDesignSystemSetup && (
+      {isHome && systemsEnabled && showDesignSystemSetup && (
         <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
           <Suspense fallback={<Skeleton className="h-8 w-48" />}>
             <LazyDesignSystemSetup
@@ -2376,7 +2410,10 @@ export default function Index() {
       {/* Sign-in required to create a deck. Shown when an unauthenticated
           user submits a prompt - the typed prompt is preserved in
           sessionStorage and replayed into the composer after sign-in. */}
-      <AlertDialog open={showSignInDialog} onOpenChange={setSignInDialogOpen}>
+      <AlertDialog
+        open={isHome && showSignInDialog}
+        onOpenChange={setSignInDialogOpen}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("home.signInTitle")}</AlertDialogTitle>

@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   shareButton: vi.fn(() => null),
+  exportMenu: vi.fn(),
   registerEditorCommands: vi.fn(),
   creativeContextLabEnabled: { value: true },
 }));
@@ -62,7 +63,10 @@ vi.mock("@/lib/utils", () => ({
 }));
 
 vi.mock("./ExportMenu", () => ({
-  ExportMenu: () => null,
+  ExportMenu: (props: { disabled?: boolean }) => {
+    mocks.exportMenu(props);
+    return null;
+  },
   ExportStatusDialog: () => null,
 }));
 
@@ -121,6 +125,18 @@ const deck: Deck = {
   updatedAt: "2026-08-11T00:00:00.000Z",
   slides: [],
 };
+const deckWithSlide: Deck = {
+  ...deck,
+  slides: [
+    {
+      id: "slide-1",
+      content: "",
+      notes: "",
+      layout: "blank",
+      transition: "instant",
+    },
+  ],
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -151,7 +167,7 @@ describe("<EditorToolbar>", () => {
     render(
       <TooltipProvider>
         <EditorToolbar
-          deck={deck}
+          deck={{ ...deck, slides: [slide] }}
           deckId="deck-1"
           deckTitle="Test deck"
           onTitleChange={vi.fn()}
@@ -249,6 +265,57 @@ describe("<EditorToolbar>", () => {
       expect.arrayContaining(["shape-rectangle", "shape-circle"]),
     );
     expect(onSelectShape).not.toHaveBeenCalled();
+  });
+
+  it("disables export and Present actions when the deck has no slides", async () => {
+    const onPresent = vi.fn();
+
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          onPresent={onPresent}
+          onExportGoogleSlides={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    const presentButton = screen.getByRole("button", {
+      name: "editorToolbar.present",
+    });
+    expect((presentButton as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(presentButton);
+    expect(onPresent).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "editorToolbar.more" }),
+      { button: 0, ctrlKey: false },
+    );
+    await screen.findByRole("menu");
+    expect(mocks.exportMenu.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ disabled: true }),
+    );
+    const source = mocks.registerEditorCommands.mock.calls.at(-1)?.[0] as
+      | (() => ReadonlyArray<{ id: string }>)
+      | undefined;
+    expect((source?.() ?? []).map((command) => command.id)).not.toEqual(
+      expect.arrayContaining([
+        "download-html",
+        "export-pdf",
+        "export-pptx",
+        "export-to-google-slides",
+      ]),
+    );
   });
 
   it("surfaces history from the top-right overflow menu", async () => {
@@ -399,7 +466,7 @@ describe("<EditorToolbar>", () => {
     render(
       <TooltipProvider>
         <EditorToolbar
-          deck={deck}
+          deck={deckWithSlide}
           deckId="deck-1"
           deckTitle="Test deck"
           onTitleChange={vi.fn()}
@@ -428,7 +495,7 @@ describe("<EditorToolbar>", () => {
     render(
       <TooltipProvider>
         <EditorToolbar
-          deck={deck}
+          deck={deckWithSlide}
           deckId="deck-1"
           deckTitle="Test deck"
           onTitleChange={vi.fn()}
@@ -473,7 +540,7 @@ describe("<EditorToolbar>", () => {
     render(
       <TooltipProvider>
         <EditorToolbar
-          deck={deck}
+          deck={deckWithSlide}
           deckId="deck-1"
           deckTitle="Test deck"
           onTitleChange={vi.fn()}

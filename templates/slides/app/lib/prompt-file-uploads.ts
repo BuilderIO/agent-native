@@ -26,8 +26,35 @@ export function isPromptUploadNetworkError(error: unknown): boolean {
     (error instanceof Error &&
       (error.name === "AbortError" ||
         ("code" in error &&
-          (error.code === "reference_storage_status_failed" ||
+          (error.code === "reference_storage_network_failed" ||
             error.code === "reference_upload_network_failed"))))
+  );
+}
+
+export function isPromptUploadAuthRequiredError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    error.code === "reference_storage_auth_required"
+  );
+}
+
+export function isPromptUploadStorageStatusError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    (error.code === "reference_storage_http_failed" ||
+      error.code === "reference_storage_contract_failed")
+  );
+}
+
+function referenceStorageStatusError(code: string, cause?: unknown): Error {
+  return Object.assign(
+    new Error(
+      "Reference file storage status could not be verified",
+      cause === undefined ? undefined : { cause },
+    ),
+    { code },
   );
 }
 
@@ -81,30 +108,52 @@ const CHUNK_UPLOAD_THRESHOLD_BYTES = 4 * 1024 * 1024;
 const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
 
 export async function isReferenceStorageReady(): Promise<boolean> {
+  ensureEmbedAuthFetchInterceptor();
+  let response: Response;
   try {
-    ensureEmbedAuthFetchInterceptor();
-    const response = await fetch(`${appBasePath()}/api/uploads/status`, {
+    response = await fetch(`${appBasePath()}/api/uploads/status`, {
       credentials: "include",
     });
-    if (!response.ok) throw new Error("Storage status request failed");
-    const status: unknown = await response.json();
-    if (
-      !status ||
-      typeof status !== "object" ||
-      typeof (status as { referenceStorageReady?: unknown })
-        .referenceStorageReady !== "boolean"
-    ) {
-      throw new Error("Storage status response is invalid");
-    }
-    return (status as { referenceStorageReady: boolean }).referenceStorageReady;
   } catch (cause) {
-    throw Object.assign(
-      new Error("Reference file storage status could not be verified", {
-        cause,
-      }),
-      { code: "reference_storage_status_failed" },
+    throw referenceStorageStatusError(
+      "reference_storage_network_failed",
+      cause,
     );
   }
+  if (response.status === 401) {
+    throw referenceStorageStatusError("reference_storage_auth_required");
+  }
+  if (!response.ok) {
+    throw referenceStorageStatusError("reference_storage_http_failed");
+  }
+
+  let status: unknown;
+  try {
+    status = await response.json();
+  } catch (cause) {
+    if (
+      cause instanceof TypeError ||
+      (cause instanceof Error && cause.name === "AbortError")
+    ) {
+      throw referenceStorageStatusError(
+        "reference_storage_network_failed",
+        cause,
+      );
+    }
+    throw referenceStorageStatusError(
+      "reference_storage_contract_failed",
+      cause,
+    );
+  }
+  if (
+    !status ||
+    typeof status !== "object" ||
+    typeof (status as { referenceStorageReady?: unknown })
+      .referenceStorageReady !== "boolean"
+  ) {
+    throw referenceStorageStatusError("reference_storage_contract_failed");
+  }
+  return (status as { referenceStorageReady: boolean }).referenceStorageReady;
 }
 
 async function readUploadJson(response: Response): Promise<unknown> {

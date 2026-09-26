@@ -7,6 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { createPortal } from "react-dom";
 import { Link, MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,22 +20,37 @@ vi.mock("@/pages/Index", async () => {
     await import("@agent-native/toolkit/app-shell");
 
   return {
-    default: function MockHome() {
+    default: function MockHome({ active }: { active: boolean }) {
       const [draft, setDraft] = React.useState("");
-      useSetHeaderActions(<span>home actions</span>);
+      const [portalOpen, setPortalOpen] = React.useState(false);
+      useSetHeaderActions(active ? <span>home actions</span> : null);
       React.useEffect(() => {
         mocks.mounts += 1;
         return () => {
           mocks.unmounts += 1;
         };
       }, []);
+      React.useEffect(() => {
+        if (!active) setPortalOpen(false);
+      }, [active]);
 
       return (
-        <input
-          aria-label="Home draft"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-        />
+        <>
+          <input
+            aria-label="Home draft"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+          <button type="button" onClick={() => setPortalOpen(true)}>
+            Open Home portal
+          </button>
+          {active && portalOpen
+            ? createPortal(
+                <div role="dialog" aria-label="Home-owned portal" />,
+                document.body,
+              )
+            : null}
+        </>
       );
     },
   };
@@ -83,13 +99,20 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("persistent home route layout", () => {
-  it("keeps the home draft mounted while templates is active", async () => {
+  it("preserves home state and closes home portals while templates is active", async () => {
     render(<App initialEntry="/home" />);
     const draft = screen.getByLabelText("Home draft");
     fireEvent.change(draft, { target: { value: "reference attached" } });
+    fireEvent.click(screen.getByRole("button", { name: "Open Home portal" }));
+    expect(
+      screen.getByRole("dialog", { name: "Home-owned portal" }),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("link", { name: "Open templates" }));
 
     expect(screen.getByRole("heading", { name: "Templates" })).toBeTruthy();
+    expect(
+      screen.queryByRole("dialog", { name: "Home-owned portal" }),
+    ).toBeNull();
     expect((draft as HTMLInputElement).value).toBe("reference attached");
     expect(draft.parentElement?.hasAttribute("hidden")).toBe(true);
     expect(mocks.mounts).toBe(1);
@@ -105,6 +128,9 @@ describe("persistent home route layout", () => {
     expect(
       (screen.getByLabelText("Home draft") as HTMLInputElement).value,
     ).toBe("reference attached");
+    expect(
+      screen.queryByRole("dialog", { name: "Home-owned portal" }),
+    ).toBeNull();
     expect(mocks.mounts).toBe(1);
     expect(mocks.unmounts).toBe(0);
     await waitFor(() =>

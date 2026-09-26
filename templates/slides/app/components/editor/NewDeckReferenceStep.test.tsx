@@ -4,6 +4,13 @@ vi.mock("@/hooks/use-design-system-workflows", () => ({
 }));
 const isReferenceStorageReadyMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/prompt-file-uploads", () => ({
+  isPromptUploadAuthRequiredError: (error: unknown) =>
+    error instanceof Error &&
+    "code" in error &&
+    error.code === "reference_storage_auth_required",
+  isPromptUploadNetworkError: (error: unknown) =>
+    error instanceof TypeError ||
+    (error instanceof Error && error.name === "AbortError"),
   isReferenceStorageReady: isReferenceStorageReadyMock,
 }));
 import {
@@ -34,6 +41,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
           "File storage is not configured. Connect Builder.io or another file provider to import reference files.",
         "home.importMenu.networkFailed":
           "The import request timed out or lost its network connection. Check your connection and retry.",
+        "home.importMenu.notStarted":
+          "Complete any required sign-in, then retry the import.",
+        "editorToolbar.importFailedDescription":
+          "Something went wrong importing this file.",
         "home.none": "None",
         "home.continue": "Continue",
         "home.continueToGenerate": "Continue to generate",
@@ -191,6 +202,35 @@ describe("<NewDeckReferenceStep>", () => {
     expect((await screen.findByRole("alert")).textContent).toBe(
       "The import request timed out or lost its network connection. Check your connection and retry.",
     );
+  });
+
+  it.each([
+    [
+      Object.assign(new Error("private storage response"), {
+        code: "reference_storage_auth_required",
+      }),
+      "Complete any required sign-in, then retry the import.",
+    ],
+    [
+      Object.assign(new Error("Storage status request failed (503)"), {
+        code: "reference_storage_http_failed",
+      }),
+      "Something went wrong importing this file.",
+    ],
+    [
+      Object.assign(new Error("Storage status response is invalid"), {
+        code: "reference_storage_contract_failed",
+      }),
+      "Something went wrong importing this file.",
+    ],
+  ])("maps storage check failures to safe guidance", async (error, message) => {
+    isReferenceStorageReadyMock.mockRejectedValue(error);
+    await renderStep();
+
+    expect((await screen.findByRole("alert")).textContent).toBe(message);
+    expect(
+      screen.queryByText(/private storage|503|response is invalid/i),
+    ).toBeNull();
   });
 
   it("confirms a PDF import as the selected reference deck", async () => {

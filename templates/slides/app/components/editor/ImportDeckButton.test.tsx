@@ -233,14 +233,11 @@ describe("toolbar deck import", () => {
   it.each([
     new TypeError("Failed to fetch"),
     Object.assign(new Error("The request was aborted"), { name: "AbortError" }),
-    Object.assign(new Error("Storage status unavailable (503)"), {
-      code: "reference_storage_status_failed",
-    }),
     Object.assign(new Error('File "large.pptx": Failed to fetch'), {
       code: "reference_upload_network_failed",
     }),
   ])(
-    "explains network and storage status failures without exposing transport details",
+    "explains network failures without exposing transport details",
     async (error) => {
       render(<Harness onImport={() => Promise.reject(error)} />);
       selectFile(new File(["source"], "source.pdf"));
@@ -249,6 +246,24 @@ describe("toolbar deck import", () => {
       );
     },
   );
+  it("uses generic import guidance for storage HTTP failures", async () => {
+    render(
+      <Harness
+        onImport={() =>
+          Promise.reject(
+            Object.assign(new Error("Reference file storage status failed"), {
+              code: "reference_storage_http_failed",
+            }),
+          )
+        }
+      />,
+    );
+    selectFile(new File(["source"], "source.pdf"));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      translate("editorToolbar.importFailedDescription"),
+    );
+  });
   it("opens an anchored Google Slides form, retains URL on failure, and submits through the same pipeline", async () => {
     const onImport = vi
       .fn()

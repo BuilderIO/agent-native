@@ -28,7 +28,9 @@ import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import { createSlidesPromptAttachmentAdapter } from "@/lib/prompt-attachment-adapter";
 import {
   deleteUploadedPromptFile,
+  isPromptUploadAuthRequiredError,
   isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
   uploadPromptFiles,
   type UploadedFile,
 } from "@/lib/prompt-file-uploads";
@@ -383,9 +385,13 @@ export default function PromptPopover({
         toast.error(t("raw.uploadFailed"), {
           description: isPromptUploadNetworkError(error)
             ? t("home.importMenu.networkFailed")
-            : error instanceof Error
-              ? error.message
-              : t("raw.uploadAttachedFailed"),
+            : isPromptUploadAuthRequiredError(error)
+              ? t("home.importMenu.notStarted")
+              : isPromptUploadStorageStatusError(error)
+                ? t("editorToolbar.importFailedDescription")
+                : error instanceof Error
+                  ? error.message
+                  : t("raw.uploadAttachedFailed"),
         });
       });
     },
@@ -495,9 +501,13 @@ export default function PromptPopover({
         toast.error(t("raw.uploadFailed"), {
           description: isPromptUploadNetworkError(error)
             ? t("home.importMenu.networkFailed")
-            : error instanceof Error
-              ? error.message
-              : t("raw.uploadAttachedFailed"),
+            : isPromptUploadAuthRequiredError(error)
+              ? t("home.importMenu.notStarted")
+              : isPromptUploadStorageStatusError(error)
+                ? t("editorToolbar.importFailedDescription")
+                : error instanceof Error
+                  ? error.message
+                  : t("raw.uploadAttachedFailed"),
         });
         throw error;
       }
