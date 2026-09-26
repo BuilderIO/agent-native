@@ -31,8 +31,9 @@ const CATEGORY_LABELS = {
   recaps: "settings.monthlyRecap",
 } as const;
 
-export function NotificationSettings() {
+export function NotificationSettings({ title }: { title?: string } = {}) {
   const t = useT();
+  const groupTitle = title ?? t("settings.notifications");
   const query = useActionQuery<ClipsNotificationPreferences>(
     "get-clips-notification-prefs",
     undefined,
@@ -74,7 +75,7 @@ export function NotificationSettings() {
 
   if (query.isError) {
     return (
-      <SettingsGroup title={t("settings.notifications")}>
+      <SettingsGroup title={groupTitle}>
         <SettingsRow
           label={t("settings.emailNotifications")}
           control={
@@ -93,7 +94,7 @@ export function NotificationSettings() {
 
   if (query.isLoading && !query.data) {
     return (
-      <SettingsGroup title={t("settings.notifications")}>
+      <SettingsGroup title={groupTitle}>
         <SettingsLoadingRow />
         <SettingsLoadingRow />
         <SettingsLoadingRow />
@@ -104,7 +105,7 @@ export function NotificationSettings() {
   }
 
   return (
-    <SettingsGroup title={t("settings.notifications")}>
+    <SettingsGroup title={groupTitle}>
       <SettingsRow
         id="all-email-notifications"
         label={t("settings.emailNotifications")}

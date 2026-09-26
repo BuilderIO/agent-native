@@ -117,8 +117,17 @@ async function requestDisconnectSlack(id: string): Promise<void> {
   }
 }
 
-export function SlackSection() {
+export interface SlackSectionProps {
+  /**
+   * `channel` is Settings › Channels › Slack, where these rows are the Link
+   * previews group beside the agent's own Slack connection.
+   */
+  variant?: "general" | "channel";
+}
+
+export function SlackSection({ variant = "general" }: SlackSectionProps) {
   const t = useT();
+  const onChannelPage = variant === "channel";
   const slackStatus = useActionQuery<SlackInstallationsResponse>(
     "list-slack-installations",
     undefined,
@@ -178,9 +187,13 @@ export function SlackSection() {
   return (
     <>
       <SettingsGroup
-        id="slack"
-        title={t("settings.slackTitle")}
-        description={t("settings.slackDescription")}
+        id={onChannelPage ? "link-previews" : "slack"}
+        title={
+          onChannelPage
+            ? t("clipsSettings.linkPreviews")
+            : t("settings.slackTitle")
+        }
+        description={onChannelPage ? undefined : t("settings.slackDescription")}
       >
         <SettingsRow
           label={
@@ -211,7 +224,9 @@ export function SlackSection() {
               disabled={connecting || slackStatus.isLoading || !oauthConfigured}
             >
               {connecting ? <IconLoader2 className="animate-spin" /> : null}
-              {t("settings.connectSlack")}
+              {onChannelPage
+                ? t("clipsSettings.addWorkspace")
+                : t("settings.connectSlack")}
             </Button>
           }
         />
@@ -228,17 +243,31 @@ export function SlackSection() {
               .filter(Boolean)
               .join(" · ")}
             control={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={t("settings.disconnectSlackLabel", {
-                  team: installation.teamName || installation.teamId,
-                })}
-                onClick={() => setDisconnectTarget(installation)}
-              >
-                <IconTrash />
-              </Button>
+              onChannelPage ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label={t("settings.disconnectSlackLabel", {
+                    team: installation.teamName || installation.teamId,
+                  })}
+                  onClick={() => setDisconnectTarget(installation)}
+                >
+                  {t("common.disconnect")}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("settings.disconnectSlackLabel", {
+                    team: installation.teamName || installation.teamId,
+                  })}
+                  onClick={() => setDisconnectTarget(installation)}
+                >
+                  <IconTrash />
+                </Button>
+              )
             }
           />
         ))}

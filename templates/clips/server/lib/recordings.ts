@@ -91,20 +91,40 @@ export function resolveRecordingVisibility(
     : DEFAULT_RECORDING_VISIBILITY;
 }
 
+/** The organization's saved default, or null when it never set one. */
+export async function readOrganizationDefaultVisibility(
+  organizationId: string,
+): Promise<RecordingVisibility | null> {
+  const [row] = await getDb()
+    .select({
+      defaultVisibility: schema.organizationSettings.defaultVisibility,
+    })
+    .from(schema.organizationSettings)
+    .where(eq(schema.organizationSettings.organizationId, organizationId))
+    .limit(1);
+  return isRecordingVisibility(row?.defaultVisibility)
+    ? row.defaultVisibility
+    : null;
+}
+
+/** The active organization's saved default; null with no org or none set. */
+export async function readActiveOrganizationDefaultVisibility(): Promise<RecordingVisibility | null> {
+  const organizationId = await getActiveOrganizationId();
+  return organizationId
+    ? readOrganizationDefaultVisibility(organizationId)
+    : null;
+}
+
 export async function getOrganizationDefaultVisibility(
   organizationId: string | null | undefined,
 ): Promise<RecordingVisibility> {
   if (!organizationId) return DEFAULT_RECORDING_VISIBILITY;
 
   try {
-    const [row] = await getDb()
-      .select({
-        defaultVisibility: schema.organizationSettings.defaultVisibility,
-      })
-      .from(schema.organizationSettings)
-      .where(eq(schema.organizationSettings.organizationId, organizationId))
-      .limit(1);
-    return resolveRecordingVisibility(undefined, row?.defaultVisibility);
+    return (
+      (await readOrganizationDefaultVisibility(organizationId)) ??
+      DEFAULT_RECORDING_VISIBILITY
+    );
   } catch {
     return DEFAULT_RECORDING_VISIBILITY;
   }

@@ -9,8 +9,8 @@ import { useTransactionalEmailBridge } from "@/hooks/use-transactional-email-bri
 
 function useGlobalSequenceShortcuts() {
   const navigate = useNavigate();
-  const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
-  const wisprFlowLabEnabled = useLab(CLIPS_WISPRFLOW.key);
+  const meetingsLabEnabled = useLab(CLIPS_MEETINGS);
+  const wisprFlowLabEnabled = useLab(CLIPS_WISPRFLOW);
   const bufferRef = useRef<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 

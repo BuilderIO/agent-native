@@ -1,4 +1,3 @@
-import { appPath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -22,6 +21,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { useAiSetupHref } from "@/components/settings/settings-links";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
@@ -528,6 +528,7 @@ function BuilderCreditsPausedNotice({
   className?: string;
 }) {
   const t = useT();
+  const aiSetupHref = useAiSetupHref();
   return (
     <div
       className={cn(
@@ -581,9 +582,7 @@ function BuilderCreditsPausedNotice({
               </Button>
             ) : null}
             <Button asChild variant="ghost" size="sm" className="h-8">
-              <a href={appPath("/settings/general#ai-providers")}>
-                {t("builderCredits.openAiSetup")}
-              </a>
+              <a href={aiSetupHref}>{t("builderCredits.openAiSetup")}</a>
             </Button>
           </div>
         </div>
