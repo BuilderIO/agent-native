@@ -76,7 +76,10 @@ describe("Design editor mobile layout", () => {
       "!embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p))",
     );
     expect(layoutSource).toContain("input.embedChromeRequested");
-    expect(layoutSource).toContain("{!standaloneEditor && (\n");
+    expect(layoutSource).toContain(
+      "const showAppNav = !standaloneEditor && !isRedesignedSettingsRoute;",
+    );
+    expect(layoutSource).toContain("{showAppNav && (\n");
   });
 
   it("keeps the standard rails in the visual-edit embed", () => {

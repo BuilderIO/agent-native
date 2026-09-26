@@ -399,7 +399,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       "const isAgentSidebarToggleShortcut = isDesktopChatToggleShortcut(input);",
     );
     expect(mainSource).toContain(
-      "if (forwardDesktopNavigationShortcut(event, input)) return;",
+      'if (forwardDesktopNavigationShortcut(event, input, "app-webview")) return;',
     );
     expect(mainSource).toContain("if (isDesktopChatToggleShortcut(input)) {");
   });

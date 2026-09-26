@@ -3570,6 +3570,9 @@ describe("AgentEngine registry", () => {
     it("disables deploy env fallback for explicitly selected LLM engines in hosted requests", async () => {
       vi.stubEnv("NODE_ENV", "production");
       process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — verifies explicit hosted selection ignores this key
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn().mockResolvedValue(null),
+      }));
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "new@example.com",
