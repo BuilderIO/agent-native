@@ -223,6 +223,7 @@ describe("DesignCanvas Pen path completion", () => {
     await pressKey("Enter");
 
     expect(onCreatePrimitive).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("[data-pen-path-overlay]")).not.toBeNull();
     expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(2);
 
     await pressKey("Enter");

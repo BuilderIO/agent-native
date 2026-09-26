@@ -293,7 +293,10 @@ export interface MultiScreenCanvasProps {
   onPrimitiveCreated?: (
     screenId: string,
     nodeId: string,
-    options?: { nextTool?: "move" | "pen"; preserveActiveTool?: boolean },
+    options?: {
+      nextTool?: "move" | "pen";
+      preserveActiveTool?: boolean;
+    },
   ) => void;
   onUpdatePenPath?: (
     screenId: string,

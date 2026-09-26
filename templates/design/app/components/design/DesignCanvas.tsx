@@ -8815,16 +8815,28 @@ function SingleScreenCreationOverlay({
           return;
         }
         clearPenPath();
-        const nodeId = onCreatePrimitive({
-          tool: "pen",
-          points: committed.nodes.map((node) => node.point),
-          penPath: committed,
-          fromClick: false,
-          preserveActiveTool: options?.preserveActiveTool,
-          nextTool: options?.nextTool,
-        });
-        if (nodeId === false) {
+        const restoreDraft = () => {
           updatePenPath(committed);
+          setPenGesturePreview(null);
+          setPenPointer(null);
+          setPenCloseHover(false);
+        };
+        let nodeId: string | false | void;
+        try {
+          nodeId = onCreatePrimitive({
+            tool: "pen",
+            points: committed.nodes.map((node) => node.point),
+            penPath: committed,
+            fromClick: false,
+            preserveActiveTool: options?.preserveActiveTool,
+            nextTool: options?.nextTool,
+          });
+        } catch (error) {
+          restoreDraft();
+          throw error;
+        }
+        if (nodeId === false) {
+          restoreDraft();
           return;
         }
         continuationPenPathRef.current =
