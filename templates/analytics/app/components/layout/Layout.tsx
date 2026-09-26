@@ -17,7 +17,7 @@ import {
   CreativeContextComposerChip,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { useNavigationState } from "@/hooks/use-navigation-state";
@@ -168,6 +168,7 @@ function InteractiveLayout({ children }: LayoutProps) {
     location.pathname.startsWith("/monitoring/");
   const isAskRoute = location.pathname === "/ask";
   const isSettingsRoute = isAnalyticsSettingsPath(location.pathname);
+  const runningTabs = useRef(new Set<string>());
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: ANALYTICS_CHAT_STORAGE_KEY,
     activePath: location.pathname,
@@ -190,12 +191,11 @@ function InteractiveLayout({ children }: LayoutProps) {
     discardAnalyticsChatHandoffOnSettings(location.pathname);
   }, [location.pathname]);
   useEffect(() => {
-    const runningTabs = new Set<string>();
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
       if (isAskRoute && typeof detail?.isRunning === "boolean") {
         markAnalyticsChatActivity();
-        updateAnalyticsChatHandoffForRun(runningTabs, detail);
+        updateAnalyticsChatHandoffForRun(runningTabs.current, detail);
       }
     }
 

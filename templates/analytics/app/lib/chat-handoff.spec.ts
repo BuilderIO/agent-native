@@ -72,7 +72,7 @@ describe("analytics chat handoff destinations", () => {
     ).toBe(true);
   });
 
-  it("refreshes a long-running chat handoff when the run completes", () => {
+  it("refreshes a long-running chat handoff after returning to Ask", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
     const runningTabs = new Set<string>();
