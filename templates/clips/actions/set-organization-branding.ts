@@ -33,11 +33,11 @@ export default defineAction({
       .max(120)
       .optional()
       .describe("Organization display name"),
-  brandColor: z
-    .string()
-    .regex(/^#[0-9a-fA-F]{3,8}$/)
-    .optional()
-    .describe("Hex color"),
+    brandColor: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{3,8}$/)
+      .optional()
+      .describe("Hex color"),
     brandLogoUrl: z
       .string()
       .nullish()
