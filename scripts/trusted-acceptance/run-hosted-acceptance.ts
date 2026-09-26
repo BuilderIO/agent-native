@@ -73,7 +73,6 @@ export type TrustedDeployManifest = {
   members: Array<{
     id: string;
     siteId: string;
-    /** `artifact` is the existing workflow manifest form after provenance verification. */
     artifact?: string;
     artifactDirectory?: string;
     publishDirectory?: string;
@@ -518,10 +517,6 @@ async function createCallbackWithAbort(
   }
 }
 
-/**
- * Runs entirely in process once callers have supplied verified files and injected
- * provider/browser seams. It never executes candidate-authored commands.
- */
 export async function runHostedAcceptance(
   files: HostedAcceptanceFiles,
   deps: TrustedHostedAcceptanceDependencies,
@@ -821,11 +816,6 @@ export async function runHostedAcceptance(
                       deps.now,
                       new JsonLeaseJournalStore(files.journalFile),
                     );
-                    // This is a cleanup barrier, not an abort race. Once a
-                    // provider has accepted a deploy, killing the local CLI
-                    // cannot prove that deploy will not become active later.
-                    // Settle both bounded CLI operations before allowing the
-                    // controller to place and verify its final tombstones.
                     await settleBeforeCleanup(
                       [deployDirectory(), deployMember(current.member.id)],
                       signal,
@@ -1022,7 +1012,6 @@ export function parseHostedAcceptanceCliArgs(
 /** The CLI has no secret flags: protected management values are process-only. */
 async function main(): Promise<void> {
   const files = parseHostedAcceptanceCliArgs(process.argv.slice(2));
-  // Launch before reading protected provider credentials; browser setup can fail without any runtime authority.
   const playwright = await import("@playwright/test");
   const browser = await playwright.chromium.launch({ headless: true });
   const browserFactory: HostedQaBrowserFactory = {

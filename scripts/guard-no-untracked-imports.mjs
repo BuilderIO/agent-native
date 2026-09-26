@@ -1,20 +1,4 @@
 #!/usr/bin/env node
-/**
- * A tracked source file must not import a relative module that Git does not
- * track.
- *
- * `packages/docs/.gitignore` ignores `server/*` and re-admits directories one
- * at a time (`!server/routes/`, `!server/plugins/`). A new `server/lib/`
- * module was therefore silently left out of a commit while the two route files
- * importing it were committed, so `main` carried an unresolvable import and the
- * docs build would have failed on the next deploy. Nothing caught it: the file
- * was present and working on every developer's disk, and `git status` never
- * listed it because it was ignored, not untracked-and-pending.
- *
- * Ignore rules are the failure mode this guard exists for, so it deliberately
- * inspects the whole repository rather than the branch diff — a stale ignore
- * pattern can strand a file that an older commit added.
- */
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
@@ -23,16 +7,11 @@ import { execGuardCommand } from "./lib/changed-lines.mjs";
 const SOURCE_RE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const SKIP_RE = /(^|\/)(?:node_modules|dist|build|\.output|\.nitro|corpus)\//;
 
-// Written by the build, deliberately untracked, and regenerated before any
-// consumer compiles. Only hand-authored modules are this guard's business.
 const GENERATED_RE = /(^|\/)\.generated\//;
 
-// `import x from "./y"`, `export * from "../y"`, `await import("./y")`.
 const IMPORT_RE =
   /(?:^|[\s;}])(?:import|export)\s[^'"]*?from\s*["'](\.[^"']+)["']|(?:^|[^\w.])import\s*\(\s*["'](\.[^"']+)["']/g;
 
-// TypeScript source is imported with the compiled specifier, so `./x.js` on
-// disk is `./x.ts`. Try the written path first, then the source twins.
 const CANDIDATE_SUFFIXES = [
   "",
   ".ts",
@@ -70,9 +49,6 @@ function resolveImport(fromFile, specifier) {
       if (existsSync(absolute) && statSync(absolute).isFile()) return candidate;
     }
   }
-  // Unresolvable here means a type-only path, a virtual module, or an alias —
-  // not this guard's business. Resolution failure is never reported as a
-  // violation, so a miss stays silent rather than becoming a false alarm.
   return undefined;
 }
 

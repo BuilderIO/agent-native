@@ -149,8 +149,6 @@ export function resolveNetlifyPrebuiltTarget(
     clientDirectory: project.clientDirectory,
     functionsDirectory: project.functionsDirectory,
     host: site.host,
-    // Beta sites own independent databases. Migrate the database that the
-    // published beta functions actually use, not the production twin.
     migrationSiteId: site.siteId,
     publishDirectory: project.publishDirectory,
     siteId: site.siteId,

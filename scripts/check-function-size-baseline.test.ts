@@ -25,7 +25,6 @@ function build(root: string, name: string): string {
   return dir;
 }
 
-/** An emitted function directory holding app code and optional runtimes. */
 function emitFunction(
   root: string,
   name: string,
@@ -82,12 +81,6 @@ after(() => {
 });
 
 describe("serverless function size baseline", () => {
-  /**
-   * The historical ffmpeg measurement stays raw on purpose. Subtracting it
-   * while the committed baselines hold a mix of payload-inclusive and
-   * payload-free numbers would let a real regression smaller than the payload
-   * pass silently — the opposite of what this guard exists for.
-   */
   it("counts a deploy-gated payload in the size it compares", () => {
     const root = workspace();
     const baselineFile = path.join(root, "baseline.json");
@@ -99,7 +92,6 @@ describe("serverless function size baseline", () => {
       0,
     );
 
-    // Same app code, plus the production-only runtime payload.
     const withPayload = build(root, "production");
     emitFunction(withPayload, "server", 4 * MB, 76 * MB);
 
@@ -129,10 +121,6 @@ describe("serverless function size baseline", () => {
     assert.doesNotMatch(checked.output, /function payload grew/);
   });
 
-  /**
-   * The part that cost two days: a 76MB swing with no visible cause. The
-   * payload and its size have to be named at the moment the guard reports.
-   */
   it("names the deploy-gated payload so the swing is not a mystery", () => {
     const root = workspace();
     const baselineFile = path.join(root, "baseline.json");

@@ -69,7 +69,6 @@ const REPO_ROOT = path.resolve(
 
 const PRAGMA = /(?:\/\/|\/\*)\s*guard:allow-boot-data-work\b/;
 
-/** Server startup code. A route handler is per-request and not this guard's business. */
 const IN_SCOPE =
   /^(templates\/[^/]+\/server\/|packages\/[^/]+\/(?:src\/)?server\/|apps\/[^/]+\/server\/)/;
 /**
@@ -86,36 +85,10 @@ const PLUGIN_FILE =
   /^(packages|templates|apps)\/.*(^|\/)[\w.-]*plugin\.[jt]sx?$/;
 const SKIPPED = /(\.spec\.|\.test\.|\/__tests__\/|\/dist\/|\/node_modules\/)/;
 
-/**
- * SCHEMA DDL IS NO LONGER EXEMPT. This guard originally waved through
- * `migrations`, `ensureTable`, `ensureAdditiveColumns` and friends on the
- * reasoning that they short-circuit cheaply once applied. Measured on the
- * Analytics production database, which has 180 tables and 1920 columns:
- *
- *   SELECT 1                                  1.96s
- *   SELECT MAX(version) FROM …_migrations      5.47s   <- the "fast path"
- *   information_schema probe (ensureAdditive)  8.26s
- *
- * Every cold start paid that before it could serve, health checks timed out at
- * 25s, and the app was effectively down. "Bounded and fast" was an assumption,
- * not a measurement, and the exemption is exactly how the pattern survived a
- * cleanup that was supposed to remove it.
- *
- * So: ANY awaited call in a server plugin body is flagged. Schema setup that
- * genuinely must run before serving is still allowed — it just has to say so
- * on the line, where a reviewer sees it, instead of inheriting a blanket
- * exemption written by someone who never measured it.
- */
 const DATA_WORK = new RegExp(
   String.raw`\bawait\s+(?:[$\w]+\.)*(` +
     [
-      // Schema/migration work. Bounded in principle, 5-8s in practice on a
-      // large database — and paid on every cold start, forever.
       "\\w*[Mm]igrations?\\w*",
-      // `migrate(...)` is not matched by the pattern above — it has no
-      // "igration" substring — and that is exactly the name the default
-      // plugins call at bootstrap (`org/plugin.ts`, `context-xray/plugin.ts`,
-      // `observational-memory/plugin.ts`).
       "\\w*[Mm]igrate\\w*",
       "ensureTable\\w*",
       "ensureColumn\\w*",
@@ -140,8 +113,6 @@ const DATA_WORK = new RegExp(
       "warmCache\\w*",
       "preload\\w*",
       "seed\\w*",
-      // Data seeding wearing an `ensure*` name: INSERTs per owner or per org,
-      // whose cost grows with the workspace.
       "ensureDefault\\w*",
       "ensure\\w*Configs?",
       "ensure\\w*Automations?",
@@ -163,9 +134,6 @@ function isStartupContext(line, file) {
   const indent = line.length - line.trimStart().length;
   if (indent > MAX_STARTUP_INDENT) return false;
   // Plugin files are startup by definition; elsewhere only module scope counts.
-  // Match the implementations too, not just `server/plugins/` wrappers — a
-  // default plugin's `await migrate(...)` sits at indent 4 inside its exported
-  // plugin function, so requiring module scope hid every one of them.
   if (/\/server\/plugins\//.test(file) || PLUGIN_FILE.test(file)) return true;
   return indent === 0;
 }
@@ -183,7 +151,7 @@ for (const [absPath, lineNumbers] of added) {
   try {
     lines = readFileSync(absPath, "utf8").split("\n");
   } catch {
-    continue; // deleted or renamed since the diff was computed
+    continue;
   }
 
   for (const lineNumber of lineNumbers) {

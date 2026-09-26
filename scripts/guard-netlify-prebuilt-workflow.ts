@@ -13,10 +13,7 @@ const docsProductionPath = ".github/workflows/deploy-docs-production.yml";
 const manageProductionPath = ".github/workflows/manage-production-sites.yml";
 const promotePath = ".github/workflows/promote-netlify-deploy.yml";
 
-// promote /restore locks the site, and prebuilt unlock/upload is not atomic;
-// the reusable production, manager, and promote jobs must share one queue.
 // The fleet caller keeps a distinct wrapper queue so it cannot deadlock on its
-// reusable child while that child waits for the canonical production queue.
 export const PRODUCTION_SITE_GROUP =
   "agent-native-production-site-${{ matrix.site }}";
 export const PRODUCTION_MAPPED_SITE_GROUP =
@@ -1545,11 +1542,6 @@ const betaPostFreshnessStep =
     ? reusableBetaFreshness.slice(betaPostFreshnessStart, betaPostFreshnessEnd)
     : "";
 
-// Monotonic, not exact-equality: both post-publish freshness checks must use
-// the same ancestor-of-main compare as beta_pre_migration_freshness/
-// beta_freshness (check 1), not a hard SHA match — otherwise a run that
-// legitimately passed the pre-publish gate gets reverted the moment main
-// advances during migration/upload, and the livelock just moves here.
 if (
   !betaFirstPublishFreshnessStep.includes("['ahead', 'identical'].includes") ||
   !betaFirstPublishFreshnessStep.includes("compareCommits(") ||
@@ -1602,8 +1594,6 @@ if (
   !firstBetaPublish.includes(
     "did not become ready and published within 30 minutes",
   ) ||
-  // Monotonic, not exact-equality: the immediate pre-publish recheck inside
-  // this step must use the same ancestor-of-main compare, not a hard match.
   !firstBetaPublish.includes("compare_status") ||
   firstBetaPublish.includes('"${main_sha,,}" != "${SOURCE_REF,,}"') ||
   !reusableBetaFreshness.includes("id: beta_first_publish_reconcile") ||
@@ -1644,8 +1634,6 @@ if (
   !reusableBetaFreshness.includes(
     "Verify beta source is current immediately before upload",
   ) ||
-  // Monotonic, not exact-equality: the source must be an ancestor of (or
-  // equal to) main, and must not regress the already-published deploy.
   !reusableBetaFreshness.includes("published_deploy_source_ref") ||
   !reusableBetaFreshness.includes("not on main") ||
   !reusableBetaFreshness.includes("is already newer") ||

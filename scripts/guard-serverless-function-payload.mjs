@@ -59,10 +59,6 @@ const BUILD_FILE = "packages/core/src/deploy/build.ts";
 const SKILL_REF = ".agents/skills/performance/SKILL.md section 9";
 const PRAGMA = /(?:\/\/|\/\*)\s*guard:allow-serverless-function-payload\b/;
 
-/**
- * What the serverless output is allowed to carry today. Small, pre-existing,
- * and each already pruned to linux-x64/arm64 or gated on the consuming app.
- */
 const ALLOWED_COPY_CALLS = new Set([
   "copyInstalledResvgPackages",
   "copyInstalledFfmpegStaticPackage",
@@ -70,7 +66,6 @@ const ALLOWED_COPY_CALLS = new Set([
   "copyInstalledExternalSsrPackages",
 ]);
 
-/** The browser runtime, ~78MB, gated on findServerlessBrowserRuntimeConsumer. */
 const ALLOWED_BROWSER_PACKAGES = new Set([
   "@sparticuz/chromium",
   "playwright-core",
@@ -87,8 +82,6 @@ let lines;
 try {
   lines = readFileSync(absoluteBuildFile, "utf8").split("\n");
 } catch (error) {
-  // Not a pass. The one file this guard exists to watch is gone or moved, so
-  // nothing was checked and saying "OK" here would be a lie.
   console.error(
     `guard-serverless-function-payload: cannot read ${BUILD_FILE} (${error.code ?? error.message}).`,
   );
@@ -103,7 +96,6 @@ const allowed = (index) =>
 
 const violations = [];
 
-// 1. Copy calls. Declarations are not call sites.
 const CALL_SITE = /(?<!function\s)\bcopy(Installed\w+)\s*\(/;
 for (const [index, line] of lines.entries()) {
   const match = CALL_SITE.exec(line);
@@ -116,7 +108,6 @@ for (const [index, line] of lines.entries()) {
   });
 }
 
-// 2. Contents of the browser runtime package list.
 const listStart = lines.findIndex((line) =>
   new RegExp(`\\bconst\\s+${BROWSER_PACKAGE_LIST}\\s*=\\s*\\[`).test(line),
 );
@@ -133,7 +124,6 @@ if (listStart !== -1) {
   }
 }
 
-// 3. The per-app gate on the browser copy. Its absence IS the original bug.
 const callsGatedHelper = lines.some((line) =>
   new RegExp(`(?<!function\\s)\\b${GATED_COPY_CALL}\\s*\\(`).test(line),
 );

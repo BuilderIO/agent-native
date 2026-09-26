@@ -9,17 +9,6 @@ const DOCS_PATH_PREFIXES = [
   "packages/docs/",
 ] as const;
 
-/**
- * Prose and static assets under a docs directory are documentation; the source
- * and config files beside them are code.
- *
- * A docs-only PR runs zero checks — guards included — so anything classified
- * here as documentation ships unverified. `packages/docs/` is a full Nitro +
- * React Router app: 248 `.ts`/`.tsx` files, a server route directory, and the
- * `netlify.toml` that owns the site's static cache headers. Those headers went
- * missing for 13 days (2026-08-07 a882a536af → 2026-08-20 4ec27fb575) inside
- * this blind spot.
- */
 const DOCS_CONTENT_EXTENSIONS = new Set([
   ".md",
   ".mdx",
@@ -143,9 +132,6 @@ export function workspaceFiltersForPaths(paths: readonly string[]): string[] {
     if (root) roots.add(root);
   }
 
-  // Include the changed workspace and both its dependency/dependent closure.
-  // Explicit path selectors work in detached PR checkouts and do not rely on
-  // pnpm discovering a Git base revision.
   return [...roots].sort().map((root) => `...{${root}}...`);
 }
 
@@ -158,8 +144,6 @@ function isFullPath(path: string): boolean {
     return true;
   }
 
-  // Unknown repository-level files are dependencies of the whole CI graph.
-  // Run everything when they change so a new root tool cannot bypass checks.
   return !isWorkspacePath(normalized) && !isDocsPath(normalized);
 }
 
@@ -265,10 +249,7 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
     full,
     nonDocsPaths,
     checks: docsOnly
-      ? // `fmt:check` formats the whole tree, docs included, so it is the one
-        // check a docs-only change can still fail. Skipping it here let
-        // unformatted .md/.mdx land on main and turn Lint red on every
-        // unrelated PR afterwards.
+      ?
         (Object.fromEntries(
           CHECK_NAMES.map((name) => [name, name === "lint"]),
         ) as CheckSelection)

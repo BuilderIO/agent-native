@@ -15,9 +15,6 @@ const SKIPPED_DIRECTORIES = new Set([
 ]);
 
 // An `agent_access` URL is fetched with no session cookie, so its endpoint must
-// be in the template's auth `publicPaths` or the session gate answers 401 before
-// the handler can verify the scoped token. Matching by name makes a new endpoint
-// constant opt in here instead of shipping unreachable.
 const AGENT_ENDPOINT_CONSTANT = /^[A-Z0-9_]*AGENT[A-Z0-9_]*_ENDPOINT$/;
 
 export type RequiredEndpoint = {
@@ -82,8 +79,6 @@ export function collectRequiredEndpoints(
     }
   }
 
-  // The framework mints the share-dialog link from this registration, so an
-  // endpoint named outside the constant convention above still has to be public.
   const registrations = files.get(SHAREABLE_REGISTRATIONS);
   if (registrations) {
     const pattern =
@@ -113,7 +108,6 @@ export function collectRequiredEndpoints(
   };
 }
 
-/** Comments carry commas, so they have to go before the array is split. */
 export function stripComments(source: string): string {
   let output = "";
   let cursor = 0;
@@ -202,7 +196,6 @@ export function resolvePublicPaths(
   return { paths, unresolvedMembers };
 }
 
-/** Mirrors the auth guard's own prefix matching (`matchesPathList`). */
 export function isCoveredByPublicPaths(
   endpoint: string,
   publicPaths: string[],

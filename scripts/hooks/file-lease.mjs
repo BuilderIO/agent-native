@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-/**
- * file-lease.mjs — PreToolUse(Edit|Write|MultiEdit|NotebookEdit)
- *
- * Many agents share one checkout by design. Today they discover collisions
- * only after a diff quietly vanishes: "another agent landed its OWN complete
- * fix for the exact same bug in the exact same file, overwriting my in-progress
- * edits on disk". The inverse is just as costly — a false "you reverted my
- * work" accusation burns a whole investigation round.
- *
- * Two checks, both cheap:
- *   1. Another live session (lease newer than LEASE_TTL_MS) holds this file →
- *      deny and name the holder, so the agents coordinate instead of racing.
- *   2. The file changed on disk since THIS session last wrote it → deny, so a
- *      peer's landed edit is never silently overwritten by a stale buffer.
- *
- * Leases live in .claude/leases/ (gitignored) and are just a timestamp plus
- * the session id; a crashed session's lease expires on its own.
- */
 
 import { createHash } from "node:crypto";
 import {

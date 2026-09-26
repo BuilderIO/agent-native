@@ -58,10 +58,6 @@ const pnpmArgs = [
   "--no-bail",
   `--workspace-concurrency=${formatConcurrency(concurrency)}`,
   ...profile.pnpmArgs,
-  // Use the explicit `run` form so script arguments are passed directly to
-  // the package script. The shorthand `pnpm -r test -- --exclude ...` leaves
-  // a literal `--` in front of the arguments, which makes Vitest stop parsing
-  // the exclusions and silently run the slow suites too.
   "run",
   profile.script,
 ];

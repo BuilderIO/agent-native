@@ -60,63 +60,32 @@ const SKIP_DIRS = new Set([
   "coverage",
 ]);
 
-/**
- * Allowlist of env var names that are deployment-level config, NOT user
- * credentials. These may continue to be read via process.env in any
- * credential code path.
- *
- * Patterns: an entry is either an exact name or a prefix string ending in
- * `_` (treated as `STARTSWITH`).
- */
 const ALLOWLIST_EXACT = new Set([
-  // Database
   "DATABASE_URL",
-  // Node / CI runtime
   "NODE_ENV",
   "CI",
   "DEBUG",
-  // Hosting/runtime detection flags. These are deployment metadata, not user
-  // credentials.
   "NETLIFY",
   "VERCEL",
   "RENDER",
   "FLY_APP_NAME",
   "K_SERVICE",
   "AWS_LAMBDA_FUNCTION_NAME",
-  // Better-auth
   "BETTER_AUTH_SECRET",
   "BETTER_AUTH_URL",
-  // Public deployment identity/configuration. These select the app origin and
-  // explicitly registered SSO clients; they are not user credentials.
   "APP_URL",
   "IDENTITY_SSO_APP_REGISTRY_JSON",
-  // Notion OAuth app configuration. These identify the app itself; unlike
-  // NOTION_API_KEY, they do not grant access to a user's workspace content.
   "NOTION_CLIENT_ID",
   "NOTION_CLIENT_SECRET",
   "NOTION_STATE_SECRET",
-  // Google OAuth app configuration. Sign-in credentials should be low-scope
-  // identity-only clients; provider integrations use separate app clients.
   "GOOGLE_SIGN_IN_CLIENT_ID",
   "GOOGLE_SIGN_IN_CLIENT_SECRET",
   "AUTH_SECRET",
-  // Inter-agent (A2A) HMAC handoff secret. Deploy-level framework secret used
-  // to sign/verify internal self-dispatch tokens (durable background runs,
-  // agent-teams). NOT a user credential — it lives at deployment scope.
   "A2A_SECRET",
-  // Framework auth gate
   "ACCESS_TOKEN",
-  // Server bind
   "PORT",
   "HOST",
-  // Deploy-level master key for the per-user secrets vault.
-  // NOT a user credential — it's the symmetric key the vault uses to
-  // encrypt user secrets at rest. Rotating it invalidates the entire
-  // vault, so it lives at deployment scope.
   "SECRETS_ENCRYPTION_KEY",
-  // Dedicated workspace-vault key and its rotation overlap key. These are
-  // deploy-level encryption material, separate from user credentials and
-  // app-local OAuth ciphertext.
   "WORKSPACE_SECRETS_ENCRYPTION_KEY",
   "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS",
 ]);
@@ -144,12 +113,6 @@ const DEV_ONLY_PATH_PATTERNS = [
 
 const DEV_ONLY_KEYS = new Set(["ANTHROPIC_API_KEY"]);
 
-/**
- * Credentials that grant access to third-party customer/workspace data. These
- * must not be introduced as deploy-level template env vars or read from
- * process.env in user-triggered template runtime code. Store them as scoped
- * secrets/credentials/workspace connections instead.
- */
 const HIGH_RISK_DATA_CREDENTIAL_KEYS = new Set([
   "AMPLITUDE_SECRET_KEY",
   "APOLLO_API_KEY",
@@ -214,35 +177,18 @@ const HIGH_RISK_ENV_VARS_WRITE_ALLOWLIST = new Map([
   ],
 ]);
 
-/**
- * Globs of files / directories the guard scans. A path matches if any
- * predicate returns true.
- */
 const FORBIDDEN_PATH_PREDICATES = [
-  // packages/core credentials/secrets/vault subtrees
   (rel) => /^packages\/core\/src\/credentials\//.test(rel),
   (rel) => /^packages\/core\/src\/secrets\//.test(rel),
   (rel) => /^packages\/core\/src\/vault\//.test(rel),
-  // packages/core agent subtree — `getOwnerActiveApiKey` resolves the
-  // current user's provider API key and historically fell back to
-  // `process.env[envVar]` (dynamic key). On a multi-tenant deploy that
-  // silently substituted the deploy-level key for every user, exactly
-  // the prior-incident pattern. The fix in production-agent.ts gates
-  // the env-fallback on `isMultiTenantDeploy()`, but the guard catches
-  // any future regression at CI time.
   (rel) => /^packages\/core\/src\/agent\//.test(rel),
-  // template credential libs
   (rel) => /^templates\/[^/]+\/server\/lib\/credential[^/]*\.ts$/.test(rel),
-  // Content's Notion helper is a credential-bearing integration boundary.
-  // A prior implementation read NOTION_API_KEY from process.env here and
-  // exposed that deploy-global workspace token to every signed-in user.
   (rel) => rel === "templates/content/server/lib/notion.ts",
   (rel) => /^templates\/content\/server\/routes\/api\/notion\//.test(rel),
   (rel) =>
     /^templates\/content\/server\/routes\/api\/documents\/[^/]+\/notion/.test(
       rel,
     ),
-  // template credential routes (single + plural)
   (rel) =>
     /^templates\/[^/]+\/server\/routes\/api\/credential[^/]*$/.test(rel) ||
     /^templates\/[^/]+\/server\/routes\/api\/credential[^/]*\.[tj]sx?$/.test(
@@ -258,17 +204,9 @@ const FORBIDDEN_PATH_PREDICATES = [
 const OPT_OUT_MARKER = /\/\/\s*guard:allow-env-credential\b[^\n]*/;
 const OPT_OUT_REQUIRES_REASON = /\/\/\s*guard:allow-env-credential\s*[—-]\s*\S/;
 
-// process.env.FOO  or  process.env["FOO"]  or  process.env['FOO']
-// Captures the upper-cased key. We deliberately ignore lowercase / mixed
-// case names — env vars are conventionally upper case and the credential
-// keys we care about (BIGQUERY_*, AMPLITUDE_*, ANTHROPIC_API_KEY, etc.)
-// are all upper case.
 const ENV_READ_REGEX =
   /process\.env(?:\.([A-Z][A-Z0-9_]*)|\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\])/g;
 
-// process.env[key] or process.env?.[key]
-// Dynamic keys were the original leak shape (`process.env[key]` inside
-// resolveCredential), and literal-only regexes miss them entirely.
 const ENV_DYNAMIC_READ_REGEX =
   /process\.env(?:\?\.)?\s*\[\s*(?!["'])([^\]\n]+?)\s*\]/g;
 
@@ -354,8 +292,6 @@ function hasOptOutOnLine(lines, lineIdx) {
   const cur = lines[lineIdx] ?? "";
   if (OPT_OUT_MARKER.test(cur)) return true;
   const prev = lines[lineIdx - 1] ?? "";
-  // Opt-out is only valid on the same line OR the line immediately above
-  // (and the line above must be a comment).
   if (/^\s*\/\//.test(prev) && OPT_OUT_MARKER.test(prev)) return true;
   return false;
 }
@@ -370,7 +306,6 @@ function optOutOnLineIsValid(lines, lineIdx, key, rel) {
       : null;
   if (!candidate) return { ok: false, why: "missing or empty reason" };
 
-  // Dev-only opt-out: only valid in DEV_ONLY_PATH_PATTERNS for DEV_ONLY_KEYS.
   if (/dev-only\b/i.test(candidate)) {
     if (!DEV_ONLY_KEYS.has(key)) {
       return {
@@ -492,9 +427,6 @@ async function scan() {
       if (!key) continue;
       const { line, col } = lineColForOffset(contents, m.index);
       const lineIdx = line - 1;
-      // Skip matches inside comment lines so docstrings explaining a
-      // dangerous pattern (e.g. "do NOT do `process.env.X`") don't
-      // trip the guard. Same posture the dynamic-regex pass below uses.
       const lineText = lines[lineIdx] ?? "";
       const trimmedLine = lineText.trimStart();
       if (

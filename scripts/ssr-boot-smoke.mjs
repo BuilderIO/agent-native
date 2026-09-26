@@ -59,9 +59,6 @@ import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-// How long to wait for the synchronous crash to surface. Module evaluation (and
-// thus any `window is not defined`-style throw) happens almost immediately; if
-// we get this far without a rejection, the dangerous code did not run.
 const EVAL_WINDOW_MS = 30_000;
 const HANDLER_REL_BY_PRESET = {
   netlify: ".netlify/functions-internal/server/main.mjs",
@@ -69,35 +66,13 @@ const HANDLER_REL_BY_PRESET = {
   "aws-lambda": ".output/server/index.mjs",
 };
 
-// Measured 206-1035ms across the 16 built templates. 3x the worst observed
-// import: loose enough that a slow CI runner is not a false positive, tight
-// enough that a dependency which does real work at module scope fails here.
 const IMPORT_BUDGET_MS = 3_000;
 
-// Function-directory byte budgets, in MB. Derived rather than hand-maintained:
-// the one thing that moves a page function between size classes is whether the
-// app declares the serverless browser runtime (~78MB of @sparticuz/chromium +
-// playwright-core), so that question picks the budget and a template nobody has
-// thought about is still budgeted.
-//
-// 80MB — a page function that does not ship the browser runtime. The one real
-// post-fix artifact, packages/docs, measures 59.8MB; 80 absorbs normal
-// dependency drift and still fails the moment a browser/binary payload lands.
-// 180MB — an app that legitimately ships it, i.e. ~100MB of headroom on top.
 const PAGE_FUNCTION_BUDGET_MB = 80;
 const BROWSER_RUNTIME_FUNCTION_BUDGET_MB = 180;
 
-// Escape hatch for a genuine outlier, keyed `<preset>/<target>`. An entry here
-// is a permanent exemption from the derived budget, so prefer shrinking the
-// bundle. Empty is the correct steady state.
 const SIZE_BUDGET_OVERRIDES_MB = {};
 
-// Mirrors `findServerlessBrowserRuntimeConsumer` in
-// packages/core/src/deploy/build.ts, which decides whether the deploy build
-// copies the browser runtime into the emitted function — same question, same
-// two signals: the app's OWN manifest and its OWN node_modules. Deliberately
-// not the ancestor/pnpm-store walk that used to answer "yes" for every app in
-// the workspace; that walk is the regression these budgets exist to catch.
 const BROWSER_RUNTIME_MARKERS = [
   "@sparticuz/chromium",
   "playwright-core",
@@ -134,11 +109,6 @@ if (!handlerRel || targets.length === 0) {
   process.exit(2);
 }
 
-/**
- * Throws when the manifest cannot be read or parsed. "This app has no browser
- * runtime" and "we could not tell" choose different budgets, so they must not
- * collapse into the same answer.
- */
 function declaresBrowserRuntime(appDir) {
   const manifest = JSON.parse(
     readFileSync(path.join(appDir, "package.json"), "utf8"),
@@ -151,8 +121,6 @@ function declaresBrowserRuntime(appDir) {
   );
 }
 
-// A GitHub annotation puts an uncovered or failing template in the PR checks UI
-// instead of 400 lines down a job log.
 function annotate(level, message) {
   if (!process.env.GITHUB_ACTIONS) return;
   console.log(`::${level}::${message.replaceAll("\n", "%0A")}`);
@@ -171,8 +139,6 @@ function measureDir(dir) {
   const byPackage = new Map();
   let total = 0;
 
-  // `place` says what the *children* of `current` are: "packages" under a
-  // node_modules, "scoped" under an `@scope` dir, "owned" anywhere else.
   const walk = (current, owner, place) => {
     for (const dirent of readdirSync(current, { withFileTypes: true })) {
       const child = path.join(current, dirent.name);
@@ -212,9 +178,6 @@ function formatBreakdown(byPackage) {
     .join(", ");
 }
 
-// One row per target. `status` is exactly one of "passed" | "failed" |
-// "not-measured"; the summary prints all three so a target we never measured
-// can never be read as a target that passed.
 const results = [];
 
 for (const target of targets) {
@@ -284,9 +247,6 @@ for (const target of targets) {
   }
 
   if (outcome.kind === "still-pending") {
-    // Import duration is the measurement; a pending import has no duration, so
-    // this is unmeasured rather than slow. (It is also not a crash — do not
-    // report it as one.)
     results.push({
       target,
       status: "not-measured",
@@ -316,8 +276,6 @@ for (const target of targets) {
     target,
     status: overBudget.length > 0 ? "failed" : "passed",
     reason: overBudget.length > 0 ? overBudget.join("; ") : measurement,
-    // Only on a failure — the breakdown exists to name the offender, and on a
-    // healthy bundle it is eight lines of noise per template.
     breakdown: overBudget.length > 0 ? formatBreakdown(byPackage) : undefined,
   });
 }
@@ -397,7 +355,6 @@ if (failedCount > 0) {
       "pay on every cache miss: look for browser-only code (window/document) or a\n" +
       "browser/binary payload reaching the server bundle.",
   );
-  // Force-exit non-zero, killing any lingering async runtime init.
   process.exit(1);
 }
 
@@ -419,6 +376,4 @@ if (uncoveredCount > 0) {
 console.log(
   "[ssr-smoke] All SSR handlers evaluated cleanly and within budget.",
 );
-// Force-exit so lingering DB connections / background services don't keep the
-// process (and the CI step) alive.
 process.exit(0);

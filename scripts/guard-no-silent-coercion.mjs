@@ -52,16 +52,9 @@ const PRAGMA_RE = /\/\/\s*coercion-ok:/i;
 const DOT_CATCH_RE =
   /\.catch\(\s*\(\)\s*=>\s*(?:\[\]|null|\(\{\}\)|false|0|""|'')\s*\)/;
 
-// Lazily consume everything up to the operator as long as no `;` is crossed,
-// so two unrelated statements on one line (`await x(); y() ?? []`) don't
-// pair an await from one statement with a coercion from the next.
-// \b after `\]`/`\}` would never match (both are non-word chars, and the
-// token after them — `;`, `,`, `)` — is non-word too, so no boundary exists
-// there); only `null`/`0` need the trailing boundary.
 const AWAIT_NULLISH_RE = /\bawait\b(?:(?!;).)*?\?\?\s*(?:\[\]|\{\}|null\b)/;
 const AWAIT_OR_RE = /\bawait\b(?:(?!;).)*?\|\|\s*(?:\[\]|\{\}|0\b)/;
 
-/** Falsy/empty literal a bare `return` can hide a swallowed failure behind. */
 const BARE_RETURN_RE =
   /^return\s+(?:\[\]|\{\}|null|undefined|false|0|""|''|``)\s*;?$/;
 
@@ -73,12 +66,6 @@ function isRelevantFile(file) {
   );
 }
 
-/**
- * Walk up through a contiguous run of `//` comment lines rather than checking
- * only the line above. A rationale worth writing is usually longer than one
- * line, and requiring the keyword on the last of them would push authors to
- * cram the reason onto one line or reshape the expression around the guard.
- */
 function hasPragma(lines, lineNo) {
   if (PRAGMA_RE.test(lines[lineNo - 1] ?? "")) return true;
   for (let index = lineNo - 2; index >= 0; index -= 1) {
@@ -112,11 +99,6 @@ function isSilentEmptyCatchBody(body) {
   return stripped === "" || BARE_RETURN_RE.test(stripped);
 }
 
-/**
- * Scan forward from just inside an opening `{` to find its match, skipping
- * over string/template literals and comments so a `}` inside a log message
- * (or a nested block) can't be mistaken for the catch's own close.
- */
 function findMatchingBrace(src, start) {
   let depth = 1;
   let i = start;
@@ -153,7 +135,6 @@ function findMatchingBrace(src, start) {
   return -1;
 }
 
-/** try/catch blocks only — `.catch(cb)` calls never have a bare `{` here. */
 function findCatchBlocks(src) {
   const headerRe = /\bcatch\b\s*(\([^)]*\))?\s*\{/g;
   const blocks = [];
@@ -161,7 +142,7 @@ function findCatchBlocks(src) {
   while ((m = headerRe.exec(src))) {
     const bodyStart = m.index + m[0].length;
     const bodyEnd = findMatchingBrace(src, bodyStart);
-    if (bodyEnd === -1) continue; // unbalanced (shouldn't happen); skip rather than guess
+    if (bodyEnd === -1) continue;
     blocks.push({ headerIndex: m.index, bodyStart, bodyEnd });
     headerRe.lastIndex = bodyEnd;
   }
@@ -199,7 +180,7 @@ function checkFile(file, addedSet) {
         break;
       }
     }
-    if (reportLine === null) continue; // block predates this branch
+    if (reportLine === null) continue;
     if (hasPragmaInRange(lines, headerLine, bodyEndLine)) continue;
     violations.push({
       file,

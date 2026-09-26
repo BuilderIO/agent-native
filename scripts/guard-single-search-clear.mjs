@@ -37,31 +37,18 @@ const EXCLUDED_PATH =
   /(^|\/)(node_modules|dist|build|\.next|\.nuxt|\.output|\.cache|\.turbo|\.netlify|\.vercel|\.wrangler|\.react-router|\.generated|coverage|corpus|\.tmp[^/]*)(\/|$)/;
 
 const OPT_IN_CLASS = "agent-native-search-input";
-// Some fields suppress the widget with an inline Tailwind arbitrary variant
 // instead of the shared class. Either one satisfies the invariant.
 const INLINE_SUPPRESSION_RE =
   /\[&::-webkit-search-cancel-button\]:appearance-none/;
-// `oxfmt` rewrites `type='search'` to `type="search"` but keeps the braces on
-// `type={"search"}`, so both bare and braced literals reach the repo.
 const SEARCH_TYPE_RE = /type=(?:["']search["']|\{\s*["']search["']\s*\})/;
-// A clear control belonging to this field: a button (native or the shared
-// `Button` component) whose accessible name says "clear". Matching the
-// attribute alone, without confirming it sits on a button element, would
-// treat an unrelated "Clear filters" div elsewhere on the page as this
-// field's clear button — and named via `title` is as valid as `aria-label`.
 const BUTTON_OPEN_RE = /<(button|Button)\b/;
 const BUTTON_CLOSE_RE = /\/>|<\/(button|Button)>/;
 const ACCESSIBLE_CLEAR_RE =
   /(?:aria-label|title)=(?:"[^"]*clear[^"]*"|\{[^}]*[Cc]lear[^}]*\})/i;
 const ALLOW_PRAGMA = /guard:allow-duplicate-search-clear\b/;
-// The wrapper that positions an absolute clear button. Scanning past it would
-// pick up unrelated "clear filters" controls elsewhere on the page.
 const WRAPPER_LOOKAHEAD_LINES = 18;
 
 function walk(directory, files = []) {
-  // A directory this guard cannot read is not a directory with no violations.
-  // Swallowing the error here would report OK after inspecting nothing, which
-  // is the exact failure this guard exists to prevent.
   let entries;
   try {
     entries = readdirSync(directory, { withFileTypes: true });
@@ -83,7 +70,6 @@ function walk(directory, files = []) {
   return files;
 }
 
-/** The JSX attributes of the element containing `type="search"` at `index`. */
 function elementAround(lines, index) {
   let start = index;
   while (start > 0 && !/<(input|Input)\b/.test(lines[start])) start -= 1;
@@ -94,12 +80,6 @@ function elementAround(lines, index) {
   return { start, end, text: lines.slice(start, end + 1).join("\n") };
 }
 
-/**
- * Whether any button element within `lines` has an accessible name saying
- * "clear". Walking each button's own span (rather than testing the whole
- * block as one string) is what keeps an unrelated "Clear filters" control
- * from being mistaken for this field's clear button.
- */
 function hasOwnClearButton(lines) {
   for (let index = 0; index < lines.length; index += 1) {
     if (!BUTTON_OPEN_RE.test(lines[index])) continue;
@@ -127,9 +107,6 @@ function main() {
       process.exit(GUARD_EXIT_COULD_NOT_RUN);
     }
     for (const absolutePath of walk(absoluteRoot)) {
-      // Same reasoning as `walk`: a file this guard enumerated but cannot read
-      // is a failure to inspect, not a clean file. Letting `readFileSync`
-      // throw would surface as exit 1, which the runner reports as a violated
       // invariant rather than a scan that never happened.
       let source;
       try {

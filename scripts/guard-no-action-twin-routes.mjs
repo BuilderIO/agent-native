@@ -81,15 +81,9 @@ const SKIP_DIRS = new Set([
   "coverage",
 ]);
 
-// Opt-out pragma must appear in the first 10 lines of the route file.
 const OPT_OUT_PRAGMA = /\/\/\s*guard:allow-action-twin\b/;
 
-// ─── Verb normalization ────────────────────────────────────────────────────
 
-/**
- * Groups of interchangeable verbs.  Two verbs are "equivalent" if they share
- * a group.  The first entry is the canonical form used for display.
- */
 const VERB_GROUPS = [
   ["list", new Set(["list", "get", "fetch", "read"])],
   ["create", new Set(["create", "add", "post", "make"])],
@@ -109,10 +103,6 @@ const VERB_GROUPS = [
   ["apply", new Set(["apply"])],
 ];
 
-/**
- * Additional single-word verbs that appear as route leaf names and indicate
- * an action-like operation (not just a noun modifier).
- */
 const OPERATION_VERBS = new Set([
   "send",
   "export",
@@ -151,9 +141,7 @@ function verbsEquivalent(a, b) {
   return false;
 }
 
-// ─── Noun normalization ───────────────────────────────────────────────────
 
-/** Very small singularizer sufficient for the token vocabulary here. */
 function singularize(word) {
   if (word.endsWith("ies") && word.length > 4) return word.slice(0, -3) + "y";
   if (word.endsWith("ses") && word.length > 4) return word.slice(0, -2);
@@ -168,15 +156,7 @@ function nounsMatch(aTokens, bTokens) {
   );
 }
 
-// ─── Action name parsing ──────────────────────────────────────────────────
 
-/**
- * Parse a kebab-case action filename into { verb, nouns }.
- * e.g. "list-decks" -> { verb:"list", nouns:["deck"] }
- *      "create-deck" -> { verb:"create", nouns:["deck"] }
- *      "send-email"  -> { verb:"send", nouns:["email"] }
- *      "get-hubspot-contact" -> { verb:"get", nouns:["hubspot","contact"] }
- */
 function parseActionName(name) {
   const tokens = name
     .toLowerCase()
@@ -185,28 +165,11 @@ function parseActionName(name) {
     .filter(Boolean);
   if (tokens.length === 0) return null;
   const [verb, ...nouns] = tokens;
-  // Confirm the first token is actually a verb-like word; if not, the action
-  // name doesn't follow the convention and we skip it.
   if (!verbsEquivalent(verb, verb) && !OPERATION_VERBS.has(verb)) return null;
   return { verb, nouns: nouns.map(singularize) };
 }
 
-// ─── Route path parsing ───────────────────────────────────────────────────
 
-/**
- * Parse a route path (relative to server/routes/api/) into { verb, nouns }.
- *
- * Examples:
- *   decks/index.post.ts          -> { verb:"create",  nouns:["deck"] }
- *   decks/index.get.ts           -> { verb:"list",    nouns:["deck"] }
- *   decks/[id].get.ts            -> { verb:"list",    nouns:["deck"] }
- *   decks/[id].delete.ts         -> { verb:"delete",  nouns:["deck"] }
- *   emails/send.post.ts          -> { verb:"send",    nouns:["email"] }
- *   emails/[id].delete.ts        -> { verb:"delete",  nouns:["email"] }
- *   hubspot/contact.get.ts       -> { verb:"get",     nouns:["hubspot","contact"] }
- *   automations/trigger.post.ts  -> { verb:"trigger", nouns:["automation"] }
- *   twitter/tweets.get.ts        -> { verb:"list",    nouns:["twitter","tweet"] }
- */
 function parseRoutePath(relPath) {
   const parts = relPath.replace(/\\/g, "/").split("/");
   const filename = parts[parts.length - 1];
@@ -215,7 +178,6 @@ function parseRoutePath(relPath) {
   const methodMatch = filename.match(/\.(get|post|put|patch|delete)\.ts$/i);
   const httpMethod = methodMatch ? methodMatch[1].toLowerCase() : null;
 
-  // Method → canonical verb
   const METHOD_VERB = {
     get: "list",
     post: "create",
@@ -224,13 +186,11 @@ function parseRoutePath(relPath) {
     delete: "delete",
   };
 
-  // Static dir segments (no dynamic params)
   const staticDirs = dirParts
     .filter((p) => !p.startsWith("["))
     .map((p) => p.replace(/\[.*?\]/g, ""))
     .filter(Boolean);
 
-  // Leaf operation name (strip method + .ts)
   const leafRaw = filename
     .replace(/\.(get|post|put|patch|delete)\.ts$/i, "")
     .replace(/\[.*?\]/g, "");
@@ -238,7 +198,6 @@ function parseRoutePath(relPath) {
   const leafIsIndexOrDynamic =
     leafRaw === "index" || leafRaw === "" || leafRaw.startsWith("[");
 
-  // Resource nouns from directory segments
   const resourceNouns = staticDirs
     .flatMap((p) => p.split("-"))
     .map((t) => t.toLowerCase())
@@ -246,28 +205,20 @@ function parseRoutePath(relPath) {
     .filter(Boolean);
 
   if (leafIsIndexOrDynamic) {
-    // index.get.ts = list resource, index.post.ts = create resource, etc.
     const verb = METHOD_VERB[httpMethod ?? "get"] ?? "list";
     return { verb, nouns: resourceNouns, httpMethod };
   }
 
-  // Leaf has a semantic name
   const leafTokens = leafRaw.toLowerCase().split("-").filter(Boolean);
 
   const leafFirst = leafTokens[0];
 
-  // Case 1: leaf first token is an operation verb  (send, export, trigger…)
   if (OPERATION_VERBS.has(leafFirst)) {
-    // e.g. emails/send.post.ts -> verb=send, nouns=[email]
-    //      automations/trigger.post.ts -> verb=trigger, nouns=[automation]
     const extraNouns = leafTokens.slice(1).map(singularize).filter(Boolean);
     const nouns = extraNouns.length > 0 ? extraNouns : resourceNouns;
     return { verb: leafFirst, nouns, httpMethod };
   }
 
-  // Case 2: leaf is purely a noun modifier appended to the resource
-  // e.g. hubspot/contact.get.ts -> verb=get (from method), nouns=[hubspot, contact]
-  //      twitter/tweets.get.ts  -> verb=list (from method), nouns=[twitter, tweet]
   const verb = METHOD_VERB[httpMethod ?? "get"] ?? "list";
   const combinedNouns = [
     ...resourceNouns,
@@ -276,9 +227,7 @@ function parseRoutePath(relPath) {
   return { verb, nouns: combinedNouns, httpMethod };
 }
 
-// ─── Overlap check ────────────────────────────────────────────────────────
 
-/** Returns true when the route operation appears to twin an action. */
 function isOverlap(actionName, routeParsed) {
   const ap = parseActionName(actionName);
   if (!ap) return false;
@@ -286,18 +235,8 @@ function isOverlap(actionName, routeParsed) {
   return nounsMatch(ap.nouns, routeParsed.nouns);
 }
 
-// ─── Allowlist (grandfathered overlaps) ──────────────────────────────────
-//
-// These are the overlaps that existed when this guard was introduced.
-// Each entry is "template/route:action-name".
-// The goal is a ratchet: shrink this list as migrations are completed;
-// never add new entries here for new code — use the pragma instead.
-//
-// Format: "template:server/routes/api/ROUTE_PATH:action-name"
 
 const ALLOWLIST = new Set([
-  // analytics — provider-proxy routes that mirror action names; kept until
-  // migrated to the provider-api-catalog pattern.
   "analytics:ga4/report.post.ts:ga4-report",
   "analytics:jira/analytics.get.ts:jira-analytics",
   "analytics:jira/search.get.ts:jira-search",
@@ -305,21 +244,6 @@ const ALLOWLIST = new Set([
   "analytics:pylon/issues.get.ts:pylon-issues",
   "analytics:twitter/tweets.get.ts:twitter-tweets",
 
-  // mail — routes whose same-named action is NOT an equivalent replacement.
-  // Each was reviewed during the templates/* CRUD migration and kept for a
-  // specific behavioral reason; these are not "not yet migrated".
-  //
-  //   send.post          the route strips CRLF and validates the recipient
-  //                      list (header-injection guard); send-email does not.
-  //   emails/[id].delete the route hard-deletes locally; trash-email performs
-  //                      a soft Gmail trash — different operations.
-  //   emails/[id].get    get-email returns a JSON string, not a structured
-  //                      body, and the route maps per-account 404/502.
-  //   emails/index.get   list-emails speaks a different response contract
-  //                      (format: legacy | inventory, coverage envelope).
-  //   automations/trigger  trigger-automations is http:false and returns prose.
-  //   hubspot/contact    the route keys the credential by session id, the
-  //                      action by owner email — a real scoping difference.
   "mail:automations/trigger.post.ts:trigger-automations",
   "mail:emails/[id].delete.ts:trash-email",
   "mail:emails/[id].get.ts:get-email",
@@ -330,22 +254,6 @@ const ALLOWLIST = new Set([
   "mail:hubspot/contact.get.ts:get-hubspot-contact",
 ]);
 
-// ─── App-data CRUD detection (routes with no action twin) ────────────────
-//
-// The twin check above only fires when a route overlaps an action that already
-// exists.  That lets an author who writes routes *instead of* actions from the
-// start pass CI clean — the exact failure this guard exists to prevent.  So we
-// also flag routes that are plainly app-data CRUD even when no twin exists.
-//
-// The positive signal is deliberately narrow: the route reaches the app's own
-// database directly.  That is what "should have been an action" looks like.
-// Provider proxies (fetch to an external API, no DB) do not fire, because
-// migrating those is the separate provider-api-catalog effort.
-//
-// Every exception category is detected structurally — by the API the handler
-// actually calls or by a declaration elsewhere in the template — never by
-// filename convention, because a guard that misfires on legitimate webhook and
-// upload routes gets disabled or allowlisted into uselessness.
 
 const APP_DATA_SIGNALS = [
   /\bgetDb\s*\(/,
@@ -356,7 +264,6 @@ const APP_DATA_SIGNALS = [
   /\bschema\.[a-zA-Z]/,
 ];
 
-/** [regex, category] — a match means the route is a legitimate exception. */
 const EXCEPTION_SIGNALS = [
   [/readMultipartFormData|readFormData|busboy|formidable/, "file upload"],
   [
@@ -388,44 +295,22 @@ const EXCEPTION_SIGNALS = [
   ],
 ];
 
-// General opt-out, covering both checks in this guard.
 const OPT_OUT_API_ROUTE = /\/\/\s*guard:allow-api-route\b/;
 
-/**
- * Grandfathered app-data CRUD routes that have no action twin.
- *
- * Same ratchet contract as ALLOWLIST: this list may shrink, never grow.  New
- * code uses an action, or the pragma when it is a genuine exception the
- * structural detectors cannot see.
- *
- * Format: "template:server/routes/api/ROUTE_PATH"
- */
 const CRUD_ROUTE_BASELINE = new Set([
-  // Infrastructure health probes. Hit by external monitoring rather than by
-  // the app's own UI or agent, so an action is not a drop-in replacement.
   "calendar:db-health.get.ts",
   "content:db-health.get.ts",
   "forms:db-health.get.ts",
 
-  // Control endpoints of the chunked recording-upload protocol. Siblings of
-  // uploads/[recordingId]/chunk.post.ts, which streams a binary body; they
-  // are part of that transfer protocol, not app-data CRUD.
   "clips:uploads/[recordingId]/abort.post.ts",
   "clips:uploads/[recordingId]/reset-chunks.post.ts",
   "clips:uploads/[recordingId]/status.get.ts",
 
-  // Genuine CRUD still awaiting migration to the action surface. These are
-  // the next entries to remove, not a pattern to copy.
   "calendar:booking-links/[id].delete.ts",
   "content:documents/[id]/move.patch.ts",
   "content:documents/[id]/versions/[versionId].post.ts",
 ]);
 
-/**
- * Public paths a template declares on its auth plugin. Routes underneath them
- * are reachable without a session, so they cannot become actions without
- * changing the access model.
- */
 function readDeclaredPublicApiPaths(templateDir) {
   const authPlugin = path.join(templateDir, "server", "plugins", "auth.ts");
   if (!existsSync(authPlugin)) return [];
@@ -442,7 +327,6 @@ function readDeclaredPublicApiPaths(templateDir) {
     .filter((p) => p.startsWith("/api"));
 }
 
-/** Map a route file path to the URL it serves. */
 function routeUrlPath(relPath) {
   const withoutMethod = relPath
     .replace(/\.(get|post|put|patch|delete|options|head)\.ts$/i, "")
@@ -452,10 +336,6 @@ function routeUrlPath(relPath) {
   return "/api" + (withoutMethod ? `/${withoutMethod}` : "");
 }
 
-/**
- * Route files are frequently one-line re-exports of a server/handlers/* module.
- * Detection has to read the handler, or every such route looks inert.
- */
 function readRouteSource(routeFile) {
   let src = "";
   try {
@@ -480,9 +360,6 @@ function readRouteSource(routeFile) {
   return src;
 }
 
-/**
- * Returns null when the route is fine, otherwise a short reason string.
- */
 function classifyCrudRoute(effectiveSrc, relPath, publicApiPaths) {
   if (!APP_DATA_SIGNALS.some((re) => re.test(effectiveSrc))) return null;
 
@@ -490,7 +367,7 @@ function classifyCrudRoute(effectiveSrc, relPath, publicApiPaths) {
     if (re.test(effectiveSrc)) return null;
   }
 
-  if (/\.options\.ts$/.test(relPath)) return null; // CORS preflight
+  if (/\.options\.ts$/.test(relPath)) return null;
 
   const url = routeUrlPath(relPath);
   const isPublic = publicApiPaths.some(
@@ -501,7 +378,6 @@ function classifyCrudRoute(effectiveSrc, relPath, publicApiPaths) {
   return "reads or writes the app database and returns JSON";
 }
 
-// ─── File collection ──────────────────────────────────────────────────────
 
 async function collectTs(dir) {
   let entries;
@@ -523,7 +399,6 @@ async function collectTs(dir) {
   return files;
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────
 
 async function main() {
   const templatesDir = path.join(REPO_ROOT, "templates");
@@ -547,7 +422,7 @@ async function main() {
 
   for (const entry of templateEntries) {
     if (!entry.isDirectory()) continue;
-    if (entry.name === "plan") continue; // fenced — separate team ownership
+    if (entry.name === "plan") continue;
 
     const templateName = entry.name;
     const templateDir = path.join(templatesDir, templateName);
@@ -558,7 +433,6 @@ async function main() {
 
     const publicApiPaths = readDeclaredPublicApiPaths(templateDir);
 
-    // Collect action basenames
     let actionFiles;
     try {
       actionFiles = await collectTs(actionsDir);
@@ -578,7 +452,6 @@ async function main() {
       // Only top-level actions (no subdirectory nesting)
       .filter((f) => !f.includes("/"));
 
-    // Collect route files
     let routeFiles;
     try {
       routeFiles = await collectTs(apiRoutesDir);
@@ -589,7 +462,6 @@ async function main() {
     for (const routeFile of routeFiles) {
       const rel = path.relative(apiRoutesDir, routeFile).replace(/\\/g, "/");
 
-      // Per-file pragma opt-out
       let src = "";
       try {
         src = readFileSync(routeFile, "utf8");
@@ -622,8 +494,6 @@ async function main() {
         }
       }
 
-      // A route with a twin is already reported above; only routes with no
-      // action counterpart at all fall through to the CRUD check.
       if (twinned) continue;
       if (/\.(spec|test)\.ts$/.test(rel)) continue;
 

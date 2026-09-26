@@ -575,8 +575,6 @@ describe("production Netlify site concurrency guard", () => {
       ".github/workflows/deploy-beta-sites-prebuilt.yml",
       "utf8",
     );
-    // build is a fail-fast:false matrix over ~18 sites; one site's failed
-    // build must not skip confirm-current-source/deploy for every other site.
     assert.doesNotMatch(betaSource, /needs\.build\.result == 'success'/);
     assert.match(
       betaSource,
@@ -667,9 +665,6 @@ describe("production Netlify site concurrency guard", () => {
       String(betaFreshness?.if),
       /steps\.beta_pre_migration_freshness\.outputs\.current == 'true'/,
     );
-    // Both freshness checks must be monotonic (ancestor-of-main and
-    // not-a-regression-of-the-published-deploy), not exact equality — an
-    // exact match livelocks the fleet against a merge every few minutes.
     for (const freshnessStep of [betaPreMigrationFreshness, betaFreshness]) {
       const script = String(freshnessStep?.with?.script ?? "");
       assert.match(script, /compareCommits/);
@@ -765,14 +760,6 @@ describe("production Netlify site concurrency guard", () => {
       /steps\.beta_freshness\.outputs\.current == 'true'/,
     );
     assert.doesNotMatch(reusableSource, /allowPinnedRecovery/);
-    // The post-publish freshness checks must also be monotonic
-    // (ancestor-of-main), not exact equality — otherwise a source that
-    // legitimately cleared the pre-publish gate gets reverted the moment
-    // main advances during migration/upload, and the livelock just moves
-    // here. Unlike the pre-publish checks, these apply check 1 only: there
-    // is either no previous published deploy yet (first publish) or the
-    // published deploy IS this source (post-publish), so there is nothing
-    // to regress against.
     for (const freshnessStep of [
       betaFirstPublishFreshness,
       betaPostFreshness,
@@ -907,8 +894,6 @@ describe("production Netlify site concurrency guard", () => {
     const confirmCurrentSourceScript = String(
       confirmCurrentSourceStep?.with?.script,
     );
-    // The top-level fleet gate only needs check 1 (ancestor-of-main); it runs
-    // before anything is built, so it no longer requires an exact match.
     assert.match(confirmCurrentSourceScript, /compareCommits/);
     assert.match(
       confirmCurrentSourceScript,
@@ -956,9 +941,6 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /did not become ready and published within 30 minutes/,
     );
-    // Monotonic, not exact-equality: the immediate pre-publish recheck
-    // inside this step must use the same ancestor-of-main compare as
-    // beta_first_publish_freshness above, not a hard SHA match.
     assert.match(reusableSource, /compare_status/);
     assert.doesNotMatch(
       reusableSource,
@@ -1526,8 +1508,6 @@ describe("production Netlify site concurrency guard", () => {
       appSmoke.if,
       "inputs.target != 'preview' && inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs' && (inputs.target != 'beta' || steps.beta_first_publish.outputs.deploy_id != '' || steps.beta_first_publish_reconcile.outputs.deploy_id != '' || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_id != ''))",
     );
-    // The smoke step asserts the health BODY (ready, db, schema,
-    // jwks, identity), not just the status code — see scripts/smoke-check-health.ts.
     assert.match(String(appSmoke.run), /scripts\/smoke-check-health\.ts/);
     assert.match(String(appSmoke.run), /--auth-routes/);
     assert.match(String(appSmoke.run), /--check-assets/);

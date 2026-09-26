@@ -43,9 +43,6 @@ const SKIP_DIRS = new Set([
   "coverage",
 ]);
 
-// Existing template tables intentionally hidden from raw DB tools because
-// access is mediated through a scoped parent, custom action, public token, or
-// cache pathway. Key format: "<template>:<sql_table_name>".
 const INTENTIONAL_RAW_DB_DENYLIST = {
   "content:content_database_setup_receipts":
     "actor-scoped retry receipts; access is rechecked through database setup actions",
@@ -210,11 +207,6 @@ function hasRawDbScope(tableBody) {
   );
 }
 
-/**
- * Resolve an `export * from "@agent-native/<pkg>/schema[/<sub>]"` (or relative)
- * specifier in the given source file to one or more on-disk schema files.
- * Returns an empty array when the import doesn't point at an in-repo package.
- */
 async function resolveSchemaReExports(sourceFile) {
   const contents = readFileSync(sourceFile, "utf8");
   const re = /export\s+\*\s+from\s+["']([^"']+)["']/g;
@@ -227,8 +219,6 @@ async function resolveSchemaReExports(sourceFile) {
       const pkg = pkgMatch[1];
       const sub = pkgMatch[2] ?? "schema";
       const pkgRoot = path.join(REPO_ROOT, "packages", pkg, "src", sub);
-      // sub may be "schema" (a directory with index.ts + siblings) or
-      // "schema/<file>"; both resolve to in-repo TS sources.
       try {
         const stat = await readdir(pkgRoot, { withFileTypes: true });
         for (const e of stat) {
@@ -257,10 +247,6 @@ for await (const file of walk(path.join(REPO_ROOT, "templates"))) {
   const template = templateNameFromSchemaPath(file);
   if (!template) continue;
 
-  // Scan the template's own schema.ts plus any package schemas it
-  // re-exports. Without the re-export resolution, templates like
-  // scheduling that ship their tables from @agent-native/scheduling/schema
-  // bypass the guard entirely (the file looks empty of `table(...)` calls).
   const filesToScan = [file, ...(await resolveSchemaReExports(file))];
   for (const scanFile of filesToScan) {
     let contents;

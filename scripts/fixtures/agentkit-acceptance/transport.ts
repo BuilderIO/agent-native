@@ -41,11 +41,6 @@ function isTerminal(event: AgentEvent): boolean {
   );
 }
 
-/**
- * Deterministic fault and event injection for the generated-app acceptance
- * harness. It wraps the production transport in place so queue rollback,
- * persistence, HTTP calls, and thread lifecycle still run through Core.
- */
 export function instrumentAgentKitAcceptanceTransport<T extends AgentTransport>(
   transport: T,
 ): T {

@@ -93,11 +93,8 @@ const SKIP_DIRS = new Set([
   ".wrangler",
   ".react-router",
   ".generated",
-  // Generated package corpus built from source files.
   "corpus",
   ".claude",
-  // Gitignored scratch. Agents copy whole checkouts here, so scanning it
-  // reports another session's files — including this guard's own regex.
   ".tmp",
   ".video-bakeoff",
   ".video-bakeoff-recording",
@@ -106,36 +103,19 @@ const SKIP_DIRS = new Set([
   "coverage",
 ]);
 
-/**
- * Path patterns where the literal "local@localhost" is allowed.
- * Each predicate takes a repo-relative posix path.
- */
 const ALLOWED_PATH_PREDICATES = [
-  // The dev-mode auth shim — source of truth for the literal.
   (rel) => rel === "packages/core/src/server/auth.ts",
-  // Dev-only framework code.
   (rel) => /^packages\/core\/src\/dev/.test(rel),
-  // The reusable implementation needs the literal to detect it.
   (rel) => rel === "packages/core/src/guards/no-localhost-fallback.ts",
-  // Generated package corpus mirrors framework source for agent retrieval.
   (rel) => /^packages\/core\/corpus\//.test(rel),
-  // Tests.
   (rel) => /\.spec\.[tj]sx?$/.test(rel),
   (rel) => /\.test\.[tj]sx?$/.test(rel),
-  // Build / dev / CI scripts.
   (rel) => /^scripts\//.test(rel),
-  // Seed scripts.
   (rel) => /\/seed\//.test(rel),
   (rel) => /\/seeds\//.test(rel),
-  // Framework's own dev-mode-aware helpers — they read/write the literal
   // intentionally because that IS the dev-mode identity, and the migration
-  // helpers explicitly need to find rows owned by it.
   (rel) => rel === "packages/core/src/org/context.ts",
   (rel) => rel === "packages/core/src/server/local-migration.ts",
-  // These two files contain *protective* checks (refusing to use the
-  // literal as a token owner / sanitizing incoming owners). Keeping them
-  // out of the guard lets the protections live alongside the values they
-  // protect against.
   (rel) => rel === "packages/core/src/server/google-oauth.ts",
   (rel) => rel === "packages/core/src/oauth-tokens/store.ts",
 ];
@@ -144,62 +124,29 @@ const OPT_OUT_MARKER = /\/\/\s*guard:allow-localhost-fallback\b[^\n]*/;
 const OPT_OUT_REQUIRES_REASON =
   /\/\/\s*guard:allow-localhost-fallback\s*[—-]\s*\S/;
 
-// Match any of the three quoted forms. The flag `g` so we can iterate;
-// the offset gives us the line.
 const LITERAL_RE = /(?:"local@localhost"|'local@localhost'|`local@localhost`)/g;
 
-// Catch the symbolic-alias fallback shape:
-//   foo ?? DEV_MODE_USER_EMAIL
-//   foo || DEV_MODE_USER_EMAIL
-// Plain reads / imports of the constant are fine — only the fallback
-// chain is the dangerous pattern audit 02 found.
 const SYMBOLIC_FALLBACK_RE = /(?:\?\?|\|\|)\s*DEV_MODE_USER_EMAIL\b/g;
 
-// Catch the ambient-identity fallback shape:
-//   const email = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
-//   const owner = session?.email || process.env.WORKSPACE_OWNER_EMAIL;
-//   const email = getRequestUserEmail() ?? getAmbientUserEmail();
-//
-// These answer "who is the caller" with a process-wide deploy identity, so a
-// request handler reading one authorizes whoever the env names rather than
-// whoever signed in — it fails open toward more privilege. Only the `??` / `||`
-// fallback position is dangerous: reading the env var to build an admin
-// allowlist (`envEmails("WORKSPACE_OWNER_EMAIL").includes(email)`) asks a
-// different, safe question and is deliberately not matched.
 const AMBIENT_ENV_FALLBACK_RE =
   /(?:\?\?|\|\|)\s*process\.env\.(?:AGENT_USER_EMAIL|AGENT_ORG_ID|AGENT_USER_NAME|WORKSPACE_OWNER_EMAIL)\b/g;
 const AMBIENT_HELPER_FALLBACK_RE =
   /(?:\?\?|\|\|)\s*getAmbient(?:UserEmail|OrgId)\s*\(\s*\)/g;
 
-/**
- * Paths where an ambient/process identity IS the right answer because there is
- * no request behind the call by construction: CLI entrypoints, cron and
- * scheduled jobs, seed and QA scripts, tests.
- */
 const AMBIENT_ALLOWED_PATH_PREDICATES = [
-  // Repo-root and per-template script directories (CLI, seeds, QA, migrations).
   (rel) => /(?:^|\/)scripts\//.test(rel),
-  // Framework CLI + script entrypoints. `script-helpers.ts` / `script-entries.ts`
-  // exist specifically to serve `pnpm action`-style invocations.
   (rel) => /(?:^|\/)src\/cli\//.test(rel),
   (rel) => /(?:^|\/)src\/scripts\//.test(rel),
   (rel) => /(?:^|\/)script-(?:helpers|entries)\.ts$/.test(rel),
-  // The accessors' own definitions and this guard's ported implementation.
   (rel) => rel === "packages/core/src/server/request-context.ts",
   (rel) => rel === "packages/core/src/guards/no-localhost-fallback.ts",
   (rel) => /^packages\/core\/corpus\//.test(rel),
-  // Tests and seeds.
   (rel) => /\.spec\.[tj]sx?$/.test(rel),
   (rel) => /\.test\.[tj]sx?$/.test(rel),
   (rel) => /\/seed\//.test(rel),
   (rel) => /\/seeds\//.test(rel),
 ];
 
-// SQL DDL `DEFAULT 'local@localhost'` (case-insensitive, any whitespace) is
-// a legitimate schema column default. Drizzle's helper form
-// `.default('local@localhost')` / `.default("local@localhost")` is the same
-// idea expressed in TypeScript — both are intentional dev fixtures, not
-// the dangerous "fallback identity for missing sessions" pattern.
 const SQL_DEFAULT_RE = /\bDEFAULT\s+['"`]local@localhost['"`]/i;
 const DRIZZLE_DEFAULT_RE = /\.default\s*\(\s*['"`]local@localhost['"`]\s*\)/;
 
@@ -306,9 +253,6 @@ async function scan() {
 
     if (literalAllowed) continue;
 
-    // Catch symbolic-alias fallbacks (audit 02 — getCurrentRunOwner). Scanned
-    // before the literal bail-out below, because aliasing is exactly how this
-    // shape hides in a file that never spells out the literal itself.
     SYMBOLIC_FALLBACK_RE.lastIndex = 0;
     let s;
     while ((s = SYMBOLIC_FALLBACK_RE.exec(contents)) !== null) {
@@ -331,12 +275,7 @@ async function scan() {
     while ((m = LITERAL_RE.exec(contents)) !== null) {
       const { line, col } = lineColForOffset(contents, m.index);
       const lineText = lines[line - 1] ?? "";
-      // Skip matches inside comments.
       if (isCommentLine(lineText)) continue;
-      // Skip SQL DDL `DEFAULT 'local@localhost'` and the Drizzle
-      // `.default('local@localhost')` helper — schema column defaults are
-      // intentional dev fixtures, not the fallback pattern this guard
-      // targets.
       if (SQL_DEFAULT_RE.test(lineText)) continue;
       if (DRIZZLE_DEFAULT_RE.test(lineText)) continue;
       if (hasValidOptOut(lines, line - 1)) continue;

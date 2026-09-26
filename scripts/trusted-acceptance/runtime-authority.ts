@@ -1,10 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
 
-/**
- * Provider-neutral, disposable runtime authority for the disabled acceptance
- * pilot. This module has no ambient environment access and never calls a
- * provider until its injected FetchLike is invoked by acquire or revoke.
- */
 
 export type FetchLike = (
   input: string,
@@ -24,7 +19,6 @@ export type RuntimeMember = {
   needsInference: boolean;
 };
 
-/** A controller-owned directory is intentionally not a candidate runtime member. */
 export type DirectoryFixtureRuntime = {
   origin: string;
   netlifyAccountId: string;
@@ -55,7 +49,6 @@ export type LeaseJournal = {
   outcome: "pending" | "ok" | "failed";
 };
 
-/** Production callers persist this redacted record after every state/event. */
 export type LeaseJournalStore = { save(lease: RuntimeLease): Promise<void> };
 const unitNoopJournalStore: LeaseJournalStore = { async save() {} };
 
@@ -96,7 +89,6 @@ export type RuntimeLease = {
   };
 };
 
-/** Returned only to the trusted invoker; never persist or JSON serialize it. */
 export type TransientLeaseSecrets = {
   memberSecrets: Record<
     string,
@@ -728,10 +720,6 @@ function parsedExpiry(expiresAt: string, source: string): number {
   return timestamp;
 }
 
-/**
- * Reconstruct only expired leases from provider inventories. The config, not
- * Netlify variables or provider metadata, defines the allowed runtime members.
- */
 export async function discoverExpiredLeases(
   config: TrustedRuntimeConfig,
   providers: Pick<RuntimeProviders, "neon" | "netlify" | "openrouter">,

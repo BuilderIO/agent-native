@@ -30,9 +30,6 @@ export interface Classification {
   reason?: string;
 }
 
-// Mirrors `shouldSkipScaffoldEntry` in packages/core/src/cli/create.ts: these
-// entries are never copied into a generated app, so they can never carry an
-// app-side change worth contributing back.
 const IGNORED_SEGMENTS = new Set([
   ".git",
   "node_modules",
@@ -98,13 +95,6 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/**
- * Inverse of `replacePlaceholders` in packages/core/src/cli/create.ts.
- *
- * Longest value first, because the forward pass writes independent tokens but
- * the reverse pass does not: a short app name that is a substring of the
- * workspace name would otherwise swallow the longer match.
- */
 export function inversePlaceholders(
   content: string,
   replacements: Replacement[],
@@ -137,11 +127,6 @@ export function inversePlaceholders(
   return { content: next, counts, ambiguous };
 }
 
-/**
- * Which placeholders the template file at the same path actually uses. A
- * modified file inherits exactly that set, so contributing back a change to
- * `templates/slides` does not rewrite every literal "slides" in the file.
- */
 export function placeholderAllowances(
   templateContent: string | undefined,
 ): Set<string> {
@@ -155,7 +140,6 @@ export function placeholderAllowances(
   return allowed;
 }
 
-/** App `.gitignore` came from the template's `_gitignore`. */
 export function toTemplateRelPath(rel: string): string {
   return rel === ".gitignore" ? "_gitignore" : rel;
 }
@@ -288,9 +272,6 @@ export function diffTrees(baselineDir: string, appDir: string): Candidate[] {
   return out.sort((a, b) => a.rel.localeCompare(b.rel));
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * CLI
- * ───────────────────────────────────────────────────────────────────────── */
 
 interface Options {
   app: string;

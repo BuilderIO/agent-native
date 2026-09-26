@@ -30,8 +30,6 @@ import { readSSEStreamRaw } from "./sse-event-processor.js";
 });
 
 test("allows a type-only AgentKit import beside the SSE reader", () => {
-  // packages/core/src/client/chat/runtime.ts is exactly this shape: it shares
-  // AgentKit's types but creates no second reader.
   assert.deepEqual(
     violations(`
 import type { AgentSuggestion } from "@agent-native/agentkit/protocol";

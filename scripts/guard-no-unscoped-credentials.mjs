@@ -61,12 +61,6 @@ const FUNCTIONS = [
   "deleteCredential",
 ];
 
-// Match a call to one of the functions where the parens contain ONLY a
-// single argument (no comma at the top level). Allow optional whitespace
-// and newlines inside the parens.
-//
-// We balance parens / braces / brackets / quotes manually below to handle
-// arguments like template strings, object literals, nested calls.
 const FUNC_NAME_RE = new RegExp(
   `(?<![\\w$.])(${FUNCTIONS.join("|")})\\s*\\(`,
   "g",
@@ -75,11 +69,8 @@ const FUNC_NAME_RE = new RegExp(
 const OPT_OUT_MARKER =
   /\/\/\s*guard:allow-unscoped-credential\b[^\n]*[—-]\s*\S/;
 
-// Files that legitimately use the one-arg form because they ARE the
-// implementation under guard. These are never call-site offenders.
 const FILE_ALLOWLIST = new Set([
   "packages/core/src/credentials/index.ts",
-  // This spec embeds intentionally unsafe fixture snippets for the scanner.
   "packages/core/src/guards/no-unscoped-credentials.spec.ts",
   "scripts/guard-no-unscoped-credentials.mjs",
 ]);
@@ -114,27 +105,17 @@ function lineColForOffset(contents, offset) {
   return { line, col: offset - lineStart + 1 };
 }
 
-/**
- * Starting at openParenIdx (the index of the `(` after the function name),
- * walk forward, balancing nested parens / braces / brackets / strings, and
- * return:
- *   { topLevelCommaCount, endIdx }
- *
- * If the parens never close (truncated file), returns null.
- */
 function analyzeArgs(contents, openParenIdx) {
   let depth = 0;
   let topLevelCommas = 0;
   let i = openParenIdx;
-  // Track string / template / regex / comment state minimally.
   let mode = "code";
-  let templateDepth = 0; // ${ ... } depth inside a template literal
+  let templateDepth = 0;
   while (i < contents.length) {
     const ch = contents[i];
     const next = contents[i + 1];
     if (mode === "code") {
       if (ch === "/" && next === "/") {
-        // line comment
         while (i < contents.length && contents[i] !== "\n") i++;
         continue;
       }
@@ -204,9 +185,6 @@ function analyzeArgs(contents, openParenIdx) {
       }
       if (ch === "$" && next === "{") {
         templateDepth++;
-        // Treat the inside of ${} as code by re-entering the main loop
-        // tracking. Simplest: bump i past `${` and stay in "tmpl"; we
-        // approximate by counting matching braces in tmpl mode.
         i += 2;
         continue;
       }
@@ -231,8 +209,6 @@ async function scan() {
     const rel = path.relative(REPO_ROOT, file).replaceAll("\\", "/");
     if (FILE_ALLOWLIST.has(rel)) continue;
     if (/\.(spec|test)\.[tj]sx?$/.test(rel)) continue;
-    // Only scan source code: packages, templates, app, server, actions,
-    // scripts. Skip generated and build outputs (handled by SKIP_DIRS).
     if (
       !/^packages\//.test(rel) &&
       !/^templates\//.test(rel) &&
@@ -246,7 +222,6 @@ async function scan() {
     } catch {
       continue;
     }
-    // Cheap pre-filter
     let anyHit = false;
     for (const fn of FUNCTIONS) {
       if (contents.includes(fn + "(") || contents.includes(fn + " (")) {
@@ -262,22 +237,15 @@ async function scan() {
     let m;
     while ((m = FUNC_NAME_RE.exec(contents)) !== null) {
       const fnName = m[1];
-      // m.index points to the start of the function name; the `(` is at
-      // m.index + match length - 1.
       const openParenIdx = m.index + m[0].length - 1;
-      // Skip if this is the function declaration itself (e.g. `export
-      // async function resolveCredential(`) — those have `function ` or
-      // `async function ` immediately before the name.
       const before = contents.slice(Math.max(0, m.index - 30), m.index);
       if (
         /\bfunction\s+$/.test(before) ||
         /\bexport\s+(default\s+)?(async\s+)?function\s+$/.test(before) ||
-        /\b(const|let|var)\s+$/.test(before) // assignment to a local
+        /\b(const|let|var)\s+$/.test(before)
       ) {
         continue;
       }
-      // Skip if the call appears inside a comment (line or block).
-      // Cheap check: if the line begins with `*` or `//`, it's a comment.
       const { line } = lineColForOffset(contents, m.index);
       const lineText = lines[line - 1] ?? "";
       const trimmed = lineText.trimStart();
@@ -290,9 +258,6 @@ async function scan() {
       }
       const analysis = analyzeArgs(contents, openParenIdx);
       if (!analysis) continue;
-      // One-arg call has zero top-level commas. Zero args also has zero
-      // commas — but zero args is also broken (no key), so we count it as a
-      // violation too.
       if (analysis.topLevelCommas >= 1) continue;
       const { col } = lineColForOffset(contents, m.index);
       if (OPT_OUT_MARKER.test(lineText)) continue;

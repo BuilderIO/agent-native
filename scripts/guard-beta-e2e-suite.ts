@@ -2,20 +2,6 @@ import { readFileSync } from "node:fs";
 
 import { parse } from "yaml";
 
-/**
- * Keep the beta E2E suite honest about the two things it cannot check itself.
- *
- * 1. It must only ever point at beta hosts. Pointed at production it would
- *    sign in as a real identity, spend tokens, and write to live data — and the
- *    run would still report green, which is the worst possible outcome.
- * 2. It must stay budgeted on luna. The model id lives in one helper; a change
- *    there silently multiplies the cost of every run, and nothing else in CI
- *    would notice.
- *
- * Also checks the fleet list is not duplicated: the suite reads
- * `scripts/netlify-beta-sites.json`, so a newly deployed beta site is covered
- * automatically. A second hardcoded host list would quietly stop being updated.
- */
 
 const workflowPath = ".github/workflows/beta-e2e.yml";
 const scheduledWorkflowPath = ".github/workflows/beta-e2e-scheduled.yml";
@@ -46,21 +32,18 @@ const config = read(configPath);
 const globalSetup = read(globalSetupPath);
 const sitesRaw = read(sitesPath);
 
-// 1. The fleet is derived, not duplicated.
 if (fleet && !fleet.includes("netlify-beta-sites.json")) {
   issues.push(
     `${fleetPath} no longer reads ${sitesPath}. The suite must derive its host list from the deploy list so a new beta site is covered without a second edit.`,
   );
 }
 
-// 2. Non-beta hosts are refused at the boundary.
 if (fleet && !fleet.includes('startsWith("beta.")')) {
   issues.push(
     `${fleetPath} dropped its beta-host check. Without it this suite can be pointed at production, where it would sign in as a real user and write to live data.`,
   );
 }
 
-// 3. Every host in the deploy list really is a beta host.
 if (sitesRaw) {
   try {
     const sites = JSON.parse(sitesRaw) as { id?: string; host?: string }[];
@@ -77,7 +60,6 @@ if (sitesRaw) {
   }
 }
 
-// 4. The budget model stays luna.
 if (chat) {
   const lunaIds = [...chat.matchAll(/gpt-5[.-]6-luna/g)];
   if (lunaIds.length === 0) {
@@ -92,7 +74,6 @@ if (chat) {
   }
 }
 
-// 5. The shared OpenAI key stays opt-in.
 if (workflow && !workflow.includes("inputs.key_source == 'shared'")) {
   issues.push(
     `${workflowPath} no longer gates BETA_E2E_ALLOW_SHARED_KEY on an explicit dispatch choice. Billing the repository's shared OPENAI_API_KEY implicitly is precisely what a dedicated, separately-limited key exists to prevent.`,
@@ -125,28 +106,22 @@ if (
   );
 }
 
-// 6. Missing credentials must fail, never skip.
 if (globalSetup && !/throw new Error/.test(globalSetup)) {
   issues.push(
     `${globalSetupPath} no longer throws. An authenticated run that degrades to an anonymous one reports green while testing nothing.`,
   );
 }
 
-/** Drop comments so prose explaining a rule cannot trip the rule. */
 function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 }
 
-// 7. Certificate errors stay observable.
 if (config && /ignoreHTTPSErrors/.test(stripComments(config))) {
   issues.push(
     `${configPath} sets ignoreHTTPSErrors. "The connection isn't private" was a real beta report; only a browser that still validates certificates can catch it.`,
   );
 }
 
-// 8. The promotion workflow stays a manual gate and keeps the lanes
-// separated. workflow_call is the narrow reusable entrypoint used by the
-// scheduled wrapper; it is not a push or pull-request trigger.
 if (workflow) {
   try {
     const parsed = parse(workflow) as Record<string, unknown>;
@@ -156,8 +131,6 @@ if (workflow) {
         `${workflowPath} must offer workflow_dispatch — it is the manual promotion gate.`,
       );
     }
-    // `workflow_call` is allowed: a caller still has to be started by a
-    // person. What must never appear is a trigger that fires on its own.
     const automaticTriggers = Object.keys(on ?? {}).filter(
       (key) => key !== "workflow_dispatch" && key !== "workflow_call",
     );
@@ -230,8 +203,6 @@ if (workflow) {
       `${workflowPath} no longer marks the advisory lane non-gating. Gating on advisory findings trains people to ignore a red run.`,
     );
   }
-  // The preamble lives in a composite action shared by every lane, so look
-  // there as well as in the workflow itself.
   const setupPath = ".github/actions/beta-e2e-setup/action.yml";
   const setup = read(setupPath);
   if (
@@ -243,8 +214,6 @@ if (workflow) {
     );
   }
 
-  // Sharding is what makes this gate usable; losing it silently returns the
-  // sweep to ~28 minutes on one runner.
   if (!workflow.includes("fromJSON(needs.discover.outputs.matrix)")) {
     issues.push(
       `${workflowPath} no longer shards the public lane across runners. A page load against a beta host costs 20-40s from a GitHub runner, so one runner for the whole fleet is a ~28 minute gate nobody waits for.`,
@@ -270,9 +239,6 @@ if (workflow) {
   }
 }
 
-// The lanes share a database in production. Keep them ordered so a full
-// promotion run cannot turn its own anonymous and authenticated checks into a
-// connection-pool burst.
 if (workflow) {
   try {
     type WorkflowJob = {
@@ -405,7 +371,6 @@ if (workflow) {
   }
 }
 
-// 9. An unrequested pre-flight must never hold up a deploy.
 const prodDeployPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const prodDeploy = read(prodDeployPath);
 if (prodDeploy && prodDeploy.includes("beta-e2e")) {
@@ -422,8 +387,6 @@ if (prodDeploy && prodDeploy.includes("beta-e2e")) {
   try {
     parsedDeploy = parse(prodDeploy) as ProdDeploy;
   } catch (error) {
-    // Not skipped quietly: a workflow this guard cannot read is one it cannot
-    // vouch for, and "unreadable" must not look like "fine".
     issues.push(
       `${prodDeployPath} is not valid YAML, so the deploy gate could not be checked: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -448,8 +411,6 @@ if (prodDeploy && prodDeploy.includes("beta-e2e")) {
   }
 }
 
-// 8. The scheduled wrapper runs the same reusable job every six hours and
-// deduplicates failures into one open issue.
 if (scheduledWorkflow) {
   try {
     const parsed = parse(scheduledWorkflow) as Record<string, unknown>;

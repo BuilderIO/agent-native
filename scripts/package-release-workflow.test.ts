@@ -319,8 +319,6 @@ describe("npm package release workflow", () => {
 
     it("is not gated to main and does not depend on verify-stable-merge", () => {
       assert.equal(workflow.on, trigger);
-      // The job itself carries no branch restriction — it runs from
-      // whatever branch dispatched the workflow.
       assert.doesNotMatch(JSON.stringify(devSnapshot), /branches/);
     });
 

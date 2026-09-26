@@ -41,9 +41,7 @@ export type HostedQaBrowserAdapter = {
     body: { email: string; password: string; callbackURL?: string },
   ) => Promise<{ status: number }>;
   getJson: (path: "/_agent-native/auth/session") => Promise<unknown>;
-  /** Opens the authorization URL in the already authenticated browser and approves consent. */
   authorize?: (authorizationUrl: string) => Promise<void>;
-  /** Uses that same authenticated browser to prove a resource is rejected. */
   authorizeExpectRejected?: (
     authorizationUrl: string,
   ) => Promise<{ status: number }>;
@@ -63,7 +61,6 @@ export type LoopbackCallback = {
 };
 
 export type OAuthCodeFlowResult = {
-  /** Transient runtime value: callers must not serialize it. */
   accessToken: string;
   evidence: HostedHarnessEvidence[];
 };
@@ -203,7 +200,6 @@ function sessionEmail(session: unknown): string | undefined {
       : undefined;
 }
 
-/** Establish and verify a real browser session through the existing hosted-QA routes. */
 export async function bootstrapHostedQaSession(input: {
   browser: HostedQaBrowserAdapter;
   appOrigin: string;
@@ -336,7 +332,6 @@ export async function discoverOAuth(
   return { ...metadata, resource };
 }
 
-/** Read only public OAuth identity metadata for a distinct HTTPS resource. */
 export async function discoverPublicOAuthIdentity(
   fetchFn: InjectedFetch,
   appOrigin: string,
@@ -588,7 +583,6 @@ export function authorizationCodeFromCallback(input: {
   return code;
 }
 
-/** Complete discovery, dynamic registration, consent, exact callback validation, and S256 exchange. */
 export async function runHostedOAuthCodeFlow(input: {
   fetchFn: InjectedFetch;
   appOrigin: string;
@@ -675,10 +669,6 @@ export async function runHostedOAuthCodeFlow(input: {
   };
 }
 
-/**
- * Real negative OAuth probes. Inputs stay transient: evidence records only the
- * fact that the authority rejected a replay and non-allowlisted audience.
- */
 export async function runRequiredOAuthNegativeProbes(input: {
   fetchFn: InjectedFetch;
   browser: HostedQaBrowserAdapter;
@@ -895,7 +885,6 @@ function containsExpectedResult(value: unknown, expected: string): boolean {
   return false;
 }
 
-/** A trusted controller callback changes fixture state; it is never an HTTP input. */
 export async function runWithdrawalScenario(input: {
   client: HostedMcpClient;
   targetApp: string;
@@ -943,7 +932,6 @@ export async function runWithdrawalScenario(input: {
   ];
 }
 
-/** Assert a failed trust probe without reading or retaining its response body. */
 export async function expectUnauthorized(
   fetchFn: InjectedFetch,
   url: string,
@@ -959,7 +947,6 @@ export async function expectUnauthorized(
   return { status: 401 };
 }
 
-/** Assert a fail-closed 4xx after runtime teardown without reading its body. */
 export async function expectRejected4xx(
   fetchFn: InjectedFetch,
   url: string,

@@ -1,11 +1,3 @@
-/**
- * Phase 1 checks for the TEMPLATE STANDARD manifest (see manifest.ts).
- *
- * Every function here is read-only: it inspects templates/* and returns
- * Violation[] describing gaps. Nothing here writes to a template. Writing
- * (for the byte-synced surfaces only) lives in sync.ts and is never called
- * from the `--check` path.
- */
 import { existsSync, lstatSync, readFileSync, readlinkSync } from "node:fs";
 
 import {
@@ -37,7 +29,6 @@ function readIfExists(path: string): string | undefined {
   return existsSync(path) ? readFileSync(path, "utf-8") : undefined;
 }
 
-// --- (a) BYTE-SYNCED --------------------------------------------------------
 
 export function checkByteSyncedFiles(templates: string[]): Violation[] {
   const violations: Violation[] = [];
@@ -68,7 +59,6 @@ export function checkByteSyncedFiles(templates: string[]): Violation[] {
   return violations;
 }
 
-// --- (b) STRUCTURALLY CHECKED ----------------------------------------------
 
 export function packageScriptViolationMessage(
   template: string,
@@ -120,12 +110,6 @@ export function checkPackageScripts(templates: string[]): Violation[] {
   return violations;
 }
 
-/**
- * tsconfig.json files are JSONC (TypeScript tolerates `//` comments in them,
- * and templates/plan/tsconfig.json uses one), so this extracts "extends" with
- * a regex instead of JSON.parse rather than writing a comment-stripping JSON
- * parser for a single field.
- */
 export function extractTsconfigExtends(raw: string): string | undefined {
   return raw.match(/"extends"\s*:\s*"([^"]*)"/)?.[1];
 }
@@ -300,9 +284,7 @@ export function checkVitePortMatch(
   return violations;
 }
 
-// --- Dependency version bands (WARN-level only) ----------------------------
 
-/** Returns the most common value in `values`, or undefined if the list is empty. */
 export function computeMajorityValue(values: string[]): string | undefined {
   if (values.length === 0) return undefined;
   const counts = new Map<string, number>();
@@ -373,7 +355,6 @@ export function checkDependencyBands(templates: string[]): Violation[] {
   return violations;
 }
 
-// --- Aggregation -------------------------------------------------------------
 
 export function runAllChecks(
   templates: string[],

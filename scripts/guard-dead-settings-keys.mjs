@@ -44,10 +44,6 @@ const REPO_ROOT = path.resolve(
   "..",
 );
 
-/**
- * Dead keys we are knowingly carrying. Each entry is a decision to revisit:
- * wire it up or delete it, but not silently.
- */
 const KNOWN_DEAD_KEYS = [
   {
     template: "brain",
@@ -72,7 +68,6 @@ function templates() {
   );
 }
 
-/** Top-level `key: z....` entries in the set-settings zod schema. */
 function zodSchemaKeys(source) {
   const start = source.indexOf("schema: z.object({");
   if (start === -1) return [];
@@ -88,7 +83,6 @@ function zodSchemaKeys(source) {
       baseline = depth;
       continue;
     }
-    // A key is top-level only when the line starts at the schema's own depth.
     if (before === baseline) {
       const match = line.match(/^ {4}([A-Za-z_]\w*)\s*:/);
       if (match) keys.push({ key: match[1], line });
@@ -98,7 +92,6 @@ function zodSchemaKeys(source) {
   return keys;
 }
 
-/** Field names inside an exported preferences type alias. */
 function prefsTypeKeys(source) {
   const block = source.match(
     /export type \w*Prefs\w* = [^;]*?\{([\s\S]*?)\n\};/,
@@ -159,7 +152,6 @@ function hasReader(template, key, declaringFile) {
       { encoding: "utf8" },
     );
   } catch {
-    // grep exits 1 when nothing matches at all.
     return false;
   }
 

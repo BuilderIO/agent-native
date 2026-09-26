@@ -265,8 +265,6 @@ export async function mirrorProductionDatabaseVariables({
         );
       }
 
-      // Another PR can create the key after the metadata lookup. Re-read the
-      // metadata and update that key so concurrent previews converge.
       const refreshedResponse = await request(
         netlifyEnvUrl(accountId, siteId),
         {
@@ -321,9 +319,6 @@ export async function mirrorProductionDatabaseVariables({
     }
   }
 
-  // Keep an already-live preview usable if a later cleanup request fails. All
-  // desired values are written before stale preview-only database keys are
-  // removed.
   for (const variable of existing) {
     if (desiredKeys.has(variable.key)) continue;
     for (const value of variable.values.filter(

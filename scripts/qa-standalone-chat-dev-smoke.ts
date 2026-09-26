@@ -1,27 +1,4 @@
 #!/usr/bin/env node
-/**
- * Dev-server smoke for the public standalone Chat create flow:
- *
- *   npx @agent-native/core@latest create <name> --standalone --template chat
- *   cd <name> && pnpm install && pnpm dev
- *
- * Starts a real Vite dev server, hits the same auto-login redirect path local
- * developers use, and fails on SSR/runtime errors such as:
- *
- *   "You must render this element inside a <HydratedRouter> element"
- *   → browser shows "Unexpected Server Error"
- *
- * Production `pnpm build` does not catch this class of bug because it exercises
- * a different SSR pipeline than Vite dev + React Router's environment API.
- *
- * CI flake strategy (do not fight Vite first-load dep optimization):
- * 1. Poll the unauthenticated JSON API from process launch until it returns 401.
- * 2. One page.goto to `/home` so local auto-login runs before the Chat handoff.
- * 3. Verify the authenticated `/home` handoff to a durable Chat thread.
- * 4. waitForViteDepsQuiet(server logs) before strict assertions.
- * 5. Retry goto/evaluate only for known Vite startup responses and transient
- *    Playwright navigation errors.
- */
 import assert from "node:assert/strict";
 import {
   execFileSync,
@@ -116,7 +93,6 @@ function apiResponseStatus(response: APIResponse): number {
 }
 
 interface ViteReloadTracker {
-  /** Wall-clock ms when the latest Vite full-page reload log chunk arrived. */
   lastReloadAt: number;
 }
 
@@ -473,10 +449,6 @@ function hasRecentDatabaseLock(logs: string[]): boolean {
   return tail.includes("database is locked") || tail.includes("SQLITE_BUSY");
 }
 
-/**
- * Wait until no Vite full-page reload log chunk has arrived for `quietMs`.
- * Uses chunk timestamps — old "reloading" text in the log buffer never clears.
- */
 async function waitForViteDepsQuiet(
   viteReload: ViteReloadTracker,
   logs: string[],
@@ -565,8 +537,6 @@ async function waitForDevStable(
       continue;
     }
 
-    // Do not fetch `/` here — Node fetch would consume the one-time auto-login
-    // cookie before Playwright opens. Let the browser be the first client.
     await sleep(2_000);
     return;
   }
@@ -714,9 +684,6 @@ async function startDev(providerBaseUrl: string): Promise<RunningDev> {
     } catch (err) {
       lastError = err;
       const message = err instanceof Error ? err.message : String(err);
-      // autoMountAuth installs a permanent fallback guard after this failure;
-      // restarting here makes the smoke pass even though a real `pnpm dev`
-      // session remains locked until the developer restarts it manually.
       const authLocked = message.includes("app locked");
       const retryable =
         !authLocked &&
@@ -889,11 +856,6 @@ async function gotoCommitted(
       const message = err instanceof Error ? err.message : String(err);
       if (!isRetryableGotoError(message) || attempt === attempts - 1) throw err;
 
-      // `/home` and `/` intentionally hand off to a durable `/chat/:threadId`
-      // route after the client shell hydrates. Playwright reports the original
-      // document navigation as aborted when that handoff wins the race; retrying
-      // the source URL would reset ClientOnly back to its SSR fallback and can
-      // keep the app stuck on "Churning" on a cold Vite graph.
       try {
         const current = new URL(page.url());
         const requested = new URL(url);
@@ -905,11 +867,6 @@ async function gotoCommitted(
           ) ||
             /^\/chat\/chat-[^/]+$/.test(current.pathname))
         ) {
-          // The authenticated home route intentionally replaces itself with a
-          // durable Chat URL during hydration. Playwright can reject the
-          // original document navigation after that response committed but
-          // before the replacement URL is observable. Retrying /home starts a
-          // second handoff and can leave the dev server in a reload loop.
           return;
         }
       } catch {
@@ -927,12 +884,6 @@ async function gotoCommitted(
   throw lastError;
 }
 
-/**
- * Console/HTTP noise that is expected during dev warmup and therefore never
- * fails the smoke. It is still the most common explanation for a page that
- * renders blank (an outdated optimized dep 504s, so the app never mounts), so
- * keep the tail around to attach to readiness timeouts.
- */
 const suppressedBrowserNoise: string[] = [];
 
 function recordSuppressedNoise(entry: string): void {
@@ -962,14 +913,11 @@ function discardSettledNavigationAborts(httpErrors: string[]): void {
 
 function isBenignConsoleError(text: string): boolean {
   if (text.includes("favicon")) return true;
-  // React 19 dev warns when agent-readable JSON discovery uses <script> tags.
   if (
     text.includes("Encountered a script tag while rendering React component")
   ) {
     return true;
   }
-  // The response listener classifies these with the request URL and status;
-  // Chromium's duplicate console message omits both pieces of evidence.
   if (
     text.startsWith(
       "Failed to load resource: the server responded with a status of",
@@ -981,7 +929,6 @@ function isBenignConsoleError(text: string): boolean {
 }
 
 interface BrowserNetworkState {
-  /** Allow only the initial /home warmup response to fail while Vite starts. */
   allowInitialHomeWarmupErrors: boolean;
   allowInitialEphemeralThread404: boolean;
   allowExpectedIncompleteStreamFailure: boolean;
@@ -993,9 +940,6 @@ function isBenignHttpError(
   url: string,
   state: BrowserNetworkState,
 ): boolean {
-  // The first auto-login navigation can hit the server before Nitro/Vite has
-  // finished booting. Once the client reaches its durable Chat route, a home
-  // error is no longer startup noise and must fail the smoke.
   if (
     state.allowInitialHomeWarmupErrors &&
     (status === 503 || status === 504) &&
@@ -1017,8 +961,6 @@ function isBenignHttpError(
   ) {
     return true;
   }
-  // Chat can request checkpoints for a client-created thread before its first
-  // message persists that thread on the server.
   if (
     state.allowInitialEphemeralThread404 &&
     status === 404 &&
@@ -1026,12 +968,9 @@ function isBenignHttpError(
   ) {
     return true;
   }
-  // Nitro can briefly remount framework routes while Vite optimizes the first
-  // browser dependency graph; waitForDevStable verifies this route is ready.
   if (status === 404 && url.includes("/_agent-native/speculation-rules.json")) {
     return true;
   }
-  // First dev load optimizes deps and may 504/503 while Vite/Nitro warm up.
   if (
     (status === 504 || status === 503) &&
     (url.includes("/node_modules/.vite/") || url.includes("/@fs/"))
@@ -1121,10 +1060,6 @@ async function readAuthenticatedSessionEmail(
   throw lastError;
 }
 
-/**
- * An empty preview is ambiguous: it means both "app rendered nothing" and "the
- * read raced a reload". Distinguish them so timeouts point at the right cause.
- */
 async function readBodyPreview(page: Page): Promise<string> {
   try {
     return await page.locator("body").innerText({ timeout: 2_000 });
@@ -1180,12 +1115,6 @@ async function waitForChatPage(
         );
       }
 
-      // The `/home` route hands off to a durable chat route with client-side
-      // navigation. A matching durable URL can be committed before its lazy
-      // route graph mounts, and a different durable URL can be the final
-      // result when the handoff is replayed during dev hydration. Starting a
-      // second page navigation here aborts the graph that would render Chat;
-      // keep observing the browser's in-flight handoff instead.
       await sleep(2_000);
     }
   }
@@ -1855,7 +1784,6 @@ async function setDarkMode(page: Page, enabled: boolean): Promise<void> {
       document.documentElement.dataset.theme === nextTheme,
     theme,
   );
-  // The theme class changes before the composer's color transition finishes.
   await page.waitForFunction(
     () => {
       const composer = document.querySelector(".agentkit-composer");
@@ -2516,7 +2444,6 @@ async function runBrowserSmoke(
   httpErrors: string[],
 ): Promise<void> {
   const baseUrl = running.baseUrl;
-  // Warmup covers `/home` auto-login and the authenticated Chat handoff.
   log("warmup: auto-login, Vite dep quiet, authenticated /home");
   const durableThreadPath = await waitForAuthenticatedShell(
     page,
