@@ -4,6 +4,7 @@ const mockResolveSecret = vi.fn();
 const mockReadAppSecret = vi.fn();
 const mockGetRequestOrgId = vi.fn();
 const mockSsrfSafeFetch = vi.fn();
+const mockIsBlockedExtensionUrlWithDns = vi.fn();
 
 vi.mock("@agent-native/core/server", () => ({
   getRequestOrgId: (...args: any[]) => mockGetRequestOrgId(...args),
@@ -13,6 +14,8 @@ vi.mock("@agent-native/core/secrets", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
 }));
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
+  isBlockedExtensionUrlWithDns: (...args: any[]) =>
+    mockIsBlockedExtensionUrlWithDns(...args),
   ssrfSafeFetch: (...args: any[]) => mockSsrfSafeFetch(...args),
 }));
 
@@ -31,6 +34,7 @@ describe("s3FileUploadProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockReadAppSecret.mockReset().mockResolvedValue(null);
+    mockIsBlockedExtensionUrlWithDns.mockReset().mockResolvedValue(false);
     mockGetRequestOrgId.mockReset().mockReturnValue("org-1");
     mockSsrfSafeFetch.mockImplementation((url: string, init: RequestInit) =>
       fetch(url, init),
@@ -212,8 +216,8 @@ describe("s3FileUploadProvider", () => {
       expect.objectContaining({ method: "GET" }),
       {
         followRedirects: false,
-        requireDispatcher: true,
-        allowedPrivateOrigins: ["https://s3.example.com"],
+        requireDispatcher: false,
+        allowedPrivateOrigins: [],
       },
     );
 
@@ -228,6 +232,7 @@ describe("s3FileUploadProvider", () => {
   });
 
   it("uses current S3 credentials for a legacy logo key and preserves missing-object status", async () => {
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
     const values: Record<string, string> = {
       S3_BUCKET: "current-bucket",
       S3_ACCESS_KEY_ID: "access",
@@ -365,6 +370,15 @@ describe("s3FileUploadProvider", () => {
       ),
     ).resolves.toEqual(expect.objectContaining({ status: 206 }));
 
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      "https://s3.example.com/clips-bucket/clips/recording.webm",
+      expect.objectContaining({ method: "GET" }),
+      {
+        followRedirects: false,
+        requireDispatcher: false,
+        allowedPrivateOrigins: [],
+      },
+    );
     expect(fetchMock).toHaveBeenCalledWith(
       "https://s3.example.com/clips-bucket/clips/recording.webm",
       expect.objectContaining({
