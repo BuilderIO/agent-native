@@ -1,9 +1,13 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, asc, eq, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  crmScopeResolver,
+  recordsInCurrentScope,
+} from "../server/lib/crm-query.js";
 import {
   attributeSummary,
   buildEntryFilter,
@@ -70,7 +74,7 @@ export default defineAction({
   http: { method: "POST" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
-  run: async (args) => {
+  run: async (args, ctx?: ActionRunContext) => {
     const db = getDb();
     const list = await requireCrmList(db, args.listId, "viewer");
     const attributes = await loadCrmListAttributes(db, list.id);
@@ -108,11 +112,19 @@ export default defineAction({
         currencyCode: schema.crmRecords.currencyCode,
         closeDate: schema.crmRecords.closeDate,
         recordUpdatedAt: schema.crmRecords.updatedAt,
+        connectionId: schema.crmRecords.connectionId,
+        provider: schema.crmRecords.provider,
+        accessScopeJson: schema.crmRecords.accessScopeJson,
+        workspaceConnectionId: schema.crmConnections.workspaceConnectionId,
       })
       .from(schema.crmListEntries)
       .innerJoin(
         schema.crmRecords,
         eq(schema.crmRecords.id, schema.crmListEntries.recordId),
+      )
+      .innerJoin(
+        schema.crmConnections,
+        eq(schema.crmRecords.connectionId, schema.crmConnections.id),
       )
       .$dynamic();
 
@@ -138,7 +150,12 @@ export default defineAction({
       .limit(limit + 1)
       .offset(offset);
 
-    const page = rows.slice(0, limit);
+    // Pagination is cut in SQL first; an entry whose record's provider scope
+    // no longer matches is then withheld, like list-crm-records does.
+    const page = await recordsInCurrentScope(
+      rows.slice(0, limit),
+      crmScopeResolver(ctx),
+    );
     const values = await loadCrmEntryValues(
       db,
       page.map((row) => row.entryId),

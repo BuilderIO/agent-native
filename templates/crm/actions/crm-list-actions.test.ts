@@ -50,6 +50,18 @@ const ownership = {
   visibility: "private" as const,
 };
 
+/** What the native connection below grants its owner right now. */
+const NATIVE_SCOPE = {
+  key: "native",
+  actorId: OWNER,
+  mode: "native",
+  objectReadable: true,
+  objectCreateable: true,
+  objectUpdateable: true,
+  objectDeleteable: true,
+  recordVisibility: "actor",
+} as const;
+
 const asOwner = <T>(fn: () => Promise<T>): Promise<T> =>
   runWithRequestContext({ userEmail: OWNER }, fn) as Promise<T>;
 const asOther = <T>(fn: () => Promise<T>): Promise<T> =>
@@ -63,6 +75,7 @@ let counter = 0;
 async function createRecord(
   objectType: string,
   displayName: string,
+  scope: object = NATIVE_SCOPE,
 ): Promise<string> {
   const id = `rec_${++counter}`;
   const now = new Date().toISOString();
@@ -77,7 +90,7 @@ async function createRecord(
       remoteId: id,
       displayName,
       accessScopeKey: "native",
-      accessScopeJson: "{}",
+      accessScopeJson: JSON.stringify(scope),
       ...ownership,
       createdAt: now,
       updatedAt: now,
@@ -134,6 +147,26 @@ beforeAll(async () => {
       createdAt: now,
       updatedAt: now,
     });
+  for (const [objectType, kind] of [
+    ["companies", "account"],
+    ["people", "person"],
+    ["opportunities", "opportunity"],
+  ] as const) {
+    await getDb()
+      .insert(schema.crmObjects)
+      .values({
+        id: `obj_lists_${objectType}`,
+        connectionId: CONNECTION_ID,
+        provider: "native",
+        objectType,
+        kind,
+        label: objectType,
+        pluralLabel: objectType,
+        ...ownership,
+        createdAt: now,
+        updatedAt: now,
+      });
+  }
 }, 60_000);
 
 afterAll(() => {
@@ -1075,6 +1108,25 @@ describe("access scoping", () => {
       .from(schema.crmListEntries)
       .where(eq(schema.crmListEntries.id, entry.entryId));
     expect(stillThere).toBeTruthy();
+  });
+
+  it("withholds entries whose record scope the connection no longer grants", async () => {
+    const list = await newList("Scope Check");
+    const kept = await createRecord("companies", "Still Granted");
+    const revoked = await createRecord("companies", "Revoked Grant", {
+      ...NATIVE_SCOPE,
+      key: "native:previous-grant",
+    });
+    for (const recordId of [kept, revoked]) {
+      await asOwner(() =>
+        addCrmRecordToList.run({ listId: list.id, recordId }, ownerCtx),
+      );
+    }
+
+    const page = await asOwner(() =>
+      listCrmListEntries.run({ listId: list.id }, ownerCtx),
+    );
+    expect(page.entries.map((entry: any) => entry.recordId)).toEqual([kept]);
   });
 });
 

@@ -3,12 +3,8 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
 import {
-  createConnectedCrmAdapter,
-  isConnectedCrmProvider,
-} from "../server/crm/adapter.js";
-import { resolveNativeCrmAccessScope } from "../server/crm/native-adapter.js";
-import {
   crmFilterSchema,
+  crmScopeResolver,
   crmSortSchema,
   queryCrmRecords,
 } from "../server/lib/crm-query.js";
@@ -79,26 +75,6 @@ export default defineAction({
   run: (input, ctx?: ActionRunContext) =>
     queryCrmRecords(input, {
       actorEmail: ctx?.userEmail ?? getRequestUserEmail() ?? null,
-      resolveScope: async (target) => {
-        if (target.provider === "native") {
-          return resolveNativeCrmAccessScope({
-            connectionId: target.connectionId,
-            objectType: target.objectType,
-          });
-        }
-        if (
-          !isConnectedCrmProvider(target.provider) ||
-          !target.workspaceConnectionId
-        ) {
-          return null;
-        }
-        const adapter = await createConnectedCrmAdapter({
-          provider: target.provider,
-          connectionId: target.workspaceConnectionId,
-          ...(ctx?.userEmail ? { userEmail: ctx.userEmail } : {}),
-          ...(ctx?.orgId !== undefined ? { orgId: ctx.orgId } : {}),
-        });
-        return adapter.getAccessScope(target.objectType);
-      },
+      resolveScope: crmScopeResolver(ctx),
     }),
 });

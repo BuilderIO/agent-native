@@ -14,6 +14,7 @@
  *    scalar subquery over the current row.
  */
 
+import type { ActionRunContext } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
@@ -1204,26 +1205,76 @@ export type CrmScopeResolver = (
   target: ScopeValidationTarget,
 ) => Promise<CrmAccessScope | null>;
 
-async function defaultScopeResolver(
-  target: ScopeValidationTarget,
-): Promise<CrmAccessScope | null> {
-  if (target.provider === "native") {
-    return resolveNativeCrmAccessScope({
-      connectionId: target.connectionId,
-      objectType: target.objectType,
+/**
+ * Resolves the scope the provider (or the native ownership model) grants the
+ * caller right now. Connected providers are asked as the calling user when the
+ * action context names one.
+ */
+export function crmScopeResolver(
+  ctx?: Pick<ActionRunContext, "userEmail" | "orgId">,
+): CrmScopeResolver {
+  return async (target) => {
+    if (target.provider === "native") {
+      return resolveNativeCrmAccessScope({
+        connectionId: target.connectionId,
+        objectType: target.objectType,
+      });
+    }
+    if (
+      !isConnectedCrmProvider(target.provider) ||
+      !target.workspaceConnectionId
+    ) {
+      return null;
+    }
+    const adapter = await createConnectedCrmAdapter({
+      provider: target.provider,
+      connectionId: target.workspaceConnectionId,
+      ...(ctx?.userEmail ? { userEmail: ctx.userEmail } : {}),
+      ...(ctx?.orgId !== undefined ? { orgId: ctx.orgId } : {}),
     });
-  }
-  if (
-    !isConnectedCrmProvider(target.provider) ||
-    !target.workspaceConnectionId
-  ) {
-    return null;
-  }
-  const adapter = await createConnectedCrmAdapter({
-    provider: target.provider,
-    connectionId: target.workspaceConnectionId,
+    return adapter.getAccessScope(target.objectType);
+  };
+}
+
+/**
+ * Keeps only the mirrored rows whose stored access scope still matches the
+ * scope granted now, so a narrowed or revoked upstream grant withholds the
+ * local copy even while its rows and shares remain.
+ */
+export async function recordsInCurrentScope<
+  T extends ScopeValidationTarget & { accessScopeJson: string },
+>(rows: T[], resolveScope: CrmScopeResolver): Promise<T[]> {
+  const targets = Array.from(
+    new Map(
+      rows.map((row) => [
+        `${row.connectionId}:${row.objectType}`,
+        {
+          connectionId: row.connectionId,
+          workspaceConnectionId: row.workspaceConnectionId,
+          provider: row.provider,
+          objectType: row.objectType,
+        },
+      ]),
+    ).values(),
+  ).slice(0, MAX_SCOPE_VALIDATIONS);
+  const currentScopes = new Map(
+    await Promise.all(
+      targets.map(
+        async (target) =>
+          [
+            `${target.connectionId}:${target.objectType}`,
+            await resolveScope(target).catch(() => null),
+          ] as const,
+      ),
+    ),
+  );
+  return rows.filter((row) => {
+    const current = currentScopes.get(`${row.connectionId}:${row.objectType}`);
+    return Boolean(
+      current &&
+      scopesAreCompatible(parseCrmAccessScope(row.accessScopeJson), current),
+    );
   });
-  return adapter.getAccessScope(target.objectType);
 }
 
 const SUMMARY_COLUMNS = new Set([
@@ -1426,44 +1477,13 @@ export async function queryCrmRecords(
         } satisfies CursorPayload)
       : undefined;
 
-  const resolveScope = options.resolveScope ?? defaultScopeResolver;
-  const scopeTargets = Array.from(
-    new Map(
-      pageRows.map((row) => [
-        `${row.connectionId}:${row.objectType}`,
-        {
-          connectionId: row.connectionId,
-          workspaceConnectionId: row.workspaceConnectionId,
-          provider: row.provider,
-          objectType: row.objectType,
-        },
-      ]),
-    ).values(),
-  ).slice(0, MAX_SCOPE_VALIDATIONS);
-  const currentScopes = new Map(
-    await Promise.all(
-      scopeTargets.map(
-        async (target) =>
-          [
-            `${target.connectionId}:${target.objectType}`,
-            await resolveScope(target).catch(() => null),
-          ] as const,
-      ),
-    ),
-  );
-
   const columnNames = view?.columns.map((column) => column.attributeId);
-  const records = pageRows
-    .filter((row) => {
-      const current = currentScopes.get(
-        `${row.connectionId}:${row.objectType}`,
-      );
-      return Boolean(
-        current &&
-        scopesAreCompatible(parseCrmAccessScope(row.accessScopeJson), current),
-      );
-    })
-    .map((row) => toRecordSummary(row, columnNames));
+  const records = (
+    await recordsInCurrentScope(
+      pageRows,
+      options.resolveScope ?? crmScopeResolver(),
+    )
+  ).map((row) => toRecordSummary(row, columnNames));
 
   let totalEstimate: number | undefined;
   if (input.includeTotal) {
