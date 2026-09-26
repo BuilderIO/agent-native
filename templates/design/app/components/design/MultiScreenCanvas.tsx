@@ -97,6 +97,7 @@ import {
   useLayoutEffect,
   useMemo,
   type CSSProperties,
+  type FocusEvent as ReactFocusEvent,
   type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -145,10 +146,7 @@ import {
   parseGradientCss,
   type GradientStopValue,
 } from "./inspector/GradientEditor";
-import {
-  sendLinkedScreenPreviewCancelPendingDelete,
-  sendLinkedScreenPreviewPendingDelete,
-} from "./multi-screen/linked-screen-preview";
+import { sendLinkedScreenPreviewCancelPendingDelete } from "./multi-screen/linked-screen-preview";
 import type {
   AltHoverMeasurement,
   AltHoverMeasurementLine,
@@ -739,6 +737,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const { resolvedTheme } = useTheme();
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const initialCanvasFocusPendingRef = useRef(true);
+  const initialCanvasFocusAttemptedRef = useRef(false);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const panRef = useRef(pan);
   const [canvasZoom, setCanvasZoom] = useState(zoom);
@@ -1782,6 +1782,62 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     }
     surface.focus({ preventScroll: true });
   }, []);
+
+  useEffect(() => {
+    const markCanvasUsed = () => {
+      initialCanvasFocusPendingRef.current = false;
+    };
+    document.addEventListener("pointerdown", markCanvasUsed, true);
+    document.addEventListener("keydown", markCanvasUsed, true);
+    return () => {
+      document.removeEventListener("pointerdown", markCanvasUsed, true);
+      document.removeEventListener("keydown", markCanvasUsed, true);
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (
+      initialCanvasFocusAttemptedRef.current ||
+      !editableScreenIds?.size ||
+      interactMode ||
+      interactScreenId
+    ) {
+      return;
+    }
+    initialCanvasFocusAttemptedRef.current = true;
+    if (!initialCanvasFocusPendingRef.current) return;
+    const surface = surfaceRef.current;
+    const active = document.activeElement;
+    if (
+      !surface ||
+      (active !== document.body && isEditableHotkeyTarget(active))
+    ) {
+      return;
+    }
+    surface.focus({ preventScroll: true });
+  }, [editableScreenIds?.size, interactMode, interactScreenId]);
+
+  const restoreInitialCanvasFocus = useCallback(
+    (event: ReactFocusEvent<HTMLDivElement>) => {
+      if (
+        !initialCanvasFocusPendingRef.current ||
+        interactMode ||
+        interactScreenId
+      ) {
+        return;
+      }
+      const target = event.target;
+      if (
+        !(target instanceof HTMLIFrameElement) ||
+        !surfaceRef.current?.contains(target) ||
+        target.closest('[data-screen-interact-mode="true"]')
+      ) {
+        return;
+      }
+      surfaceRef.current.focus({ preventScroll: true });
+    },
+    [interactMode, interactScreenId],
+  );
 
   // Per-screen memoization of resolveScreenMetadata (PF20). resolveScreenMetadata
   // string-scans up to 4000 chars of content (deriveSource/derivePreviewState)
@@ -3603,23 +3659,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         clearCrossScreenDrag();
         return;
       }
-      const shouldPreviewSourceDelete =
-        !payload.duplicate &&
-        Boolean(payload.sourceDeleteRequestId) &&
-        editableScreenIds?.has(sourceScreenId) === true &&
-        (targetCandidate.id === boardFileId ||
-          editableScreenIds?.has(targetCandidate.id) === true);
-      if (payload.sourceDeleteRequestId) {
-        if (shouldPreviewSourceDelete) {
-          sendLinkedScreenPreviewPendingDelete(sourceScreenId, {
-            selector: payload.selector,
-            selectorCandidates: sourceDeleteCandidates,
-            requestId: payload.sourceDeleteRequestId,
-          });
-        } else {
-          cancelPendingSourceDelete();
-        }
-      }
+      // The source stays visible until the destination insert is acknowledged.
+      // DesignCanvas starts its delete preview only after that acknowledgement.
       crossScreenHostCommittedRef.current = true;
       if (targetCandidate.id === boardFileId) {
         // A successful prior handoff retains its identity until the paired
@@ -11617,6 +11658,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       tabIndex={-1}
       className="relative h-full w-full select-none overflow-clip outline-none"
       onMouseDownCapture={handleMouseDown}
+      onFocusCapture={restoreInitialCanvasFocus}
       onMouseMove={handleMouseMove}
       onMouseLeave={() => setAltHoverMeasurement(null)}
       onDragEnter={handleCanvasDragEnter}

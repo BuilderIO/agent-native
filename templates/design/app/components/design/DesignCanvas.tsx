@@ -782,6 +782,7 @@ interface DesignCanvasProps {
     transactionId?: string;
     routePath?: string;
     reason: string;
+    sourcePresent?: boolean;
   }) => void;
   onRuntimeStructureRollbackResult?: (details: {
     requestId: string;
@@ -1922,9 +1923,10 @@ export function DesignCanvas({
     awaitingTransaction: boolean;
   } | null>(null);
   const lastRuntimeStructureDeleteRequestIdRef = useRef<string | null>(null);
-  const lastRuntimeStructureDeleteCancelRequestIdRef = useRef<string | null>(
-    null,
-  );
+  const lastRuntimeStructureDeleteCancelRequestRef = useRef<{
+    requestId: string;
+    retryCount: number;
+  } | null>(null);
   const lastRuntimeStructureTargetReloadTransactionIdRef = useRef<
     string | null
   >(null);
@@ -4852,6 +4854,25 @@ export function DesignCanvas({
         });
         return;
       }
+      if (e.data.type === "runtime-structure-delete-cancelled") {
+        const requestId = String(e.data.requestId || "");
+        if (!requestId) return;
+        onRuntimeStructureDeleteRejected?.({
+          screenId,
+          requestId,
+          transactionId:
+            typeof e.data.transactionId === "string"
+              ? e.data.transactionId
+              : undefined,
+          routePath:
+            typeof e.data.routePath === "string"
+              ? e.data.routePath
+              : (liveRoutePathRef.current ?? undefined),
+          reason: "cancelled",
+          sourcePresent: e.data.sourcePresent === true,
+        });
+        return;
+      }
       if (e.data.type === "runtime-structure-rollback-result") {
         const requestId = String(e.data.requestId || "");
         if (!requestId) return;
@@ -6876,7 +6897,9 @@ export function DesignCanvas({
       currentPreview.transactionId = request?.transactionId;
       currentPreview.awaitingTransaction = false;
     }
-    if (!request?.waitForInsertTransaction) return;
+    // Keep the source visible until the destination has acknowledged its
+    // insert. A refused or disconnected target must leave the move untouched.
+    if (!request || request.waitForInsertTransaction) return;
     if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
       if (currentPreview?.requestId === request.requestId) {
         currentPreview.documentIdentity = null;
@@ -6915,19 +6938,26 @@ export function DesignCanvas({
   useEffect(() => {
     const request = runtimeStructureDeleteRequest;
     if (!request?.cancelRequested) {
-      lastRuntimeStructureDeleteCancelRequestIdRef.current = null;
+      lastRuntimeStructureDeleteCancelRequestRef.current = null;
       return;
     }
     if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
-      lastRuntimeStructureDeleteCancelRequestIdRef.current = null;
+      lastRuntimeStructureDeleteCancelRequestRef.current = null;
       return;
     }
+    const retryCount = request.cancellationRetryCount ?? 0;
     if (
-      lastRuntimeStructureDeleteCancelRequestIdRef.current === request.requestId
+      lastRuntimeStructureDeleteCancelRequestRef.current?.requestId ===
+        request.requestId &&
+      lastRuntimeStructureDeleteCancelRequestRef.current.retryCount ===
+        retryCount
     ) {
       return;
     }
-    lastRuntimeStructureDeleteCancelRequestIdRef.current = request.requestId;
+    lastRuntimeStructureDeleteCancelRequestRef.current = {
+      requestId: request.requestId,
+      retryCount,
+    };
     postOneShotBridgeMessage({
       type: "cancel-pending-delete-element",
       selector: request.selector,
@@ -6939,12 +6969,11 @@ export function DesignCanvas({
       type: "visual-structure-ack",
       requestId: request.requestId,
       applied: false,
-    });
-    onRuntimeStructureDeleteRejected?.({
-      screenId,
-      requestId: request.requestId,
-      transactionId: request.transactionId,
-      reason: "cancelled",
+      cancelRuntimeStructureDelete: {
+        transactionId: request.transactionId,
+        selector: request.selector,
+        selectorCandidates: request.selectorCandidates ?? [],
+      },
     });
   }, [
     iframeDocumentIdentity,
@@ -7663,38 +7692,67 @@ export function DesignCanvas({
       : deviceFrame === "none"
         ? "100%"
         : (iframeHeight ?? undefined);
-  const focusScrollSurface = useCallback(() => {
-    const surface = scrollContainerRef.current;
-    if (!surface || document.activeElement === surface) return;
-    // A picker drag ending over the canvas must not take focus from the open
-    // picker: losing it ends the inspector gesture and drops a styled text range.
-    if (
-      textEditingStateRef.current.active ||
-      document.activeElement?.closest("[data-radix-popper-content-wrapper]")
-    ) {
-      return;
-    }
-    const focusedElement = document.activeElement;
-    if (focusedElement instanceof HTMLIFrameElement) {
-      try {
-        const frameDocument = focusedElement.contentDocument;
-        if (
-          !frameDocument ||
-          frameDocument.activeElement?.closest(EDITABLE_FOCUS_SELECTOR)
-        ) {
-          return;
-        }
-      } catch {
-        // Keep focus inside a frame we cannot inspect; it may own an editor.
+  const focusScrollSurface = useCallback(
+    (fromIframeLoad = false) => {
+      const surface = scrollContainerRef.current;
+      if (
+        !surface ||
+        document.activeElement === surface ||
+        !editMode ||
+        interactMode
+      )
+        return;
+      // A picker drag ending over the canvas must not take focus from the open
+      // picker: losing it ends the inspector gesture and drops a styled text range.
+      if (
+        textEditingStateRef.current.active ||
+        document.activeElement?.closest("[data-radix-popper-content-wrapper]")
+      ) {
         return;
       }
-    }
-    // Taking focus for keyboard panning must never outrank a field the user
-    // was just handed: a composer that opens under the cursor would otherwise
-    // be focused on mount and silently unfocused by the same pointer motion.
-    if (focusedElement?.closest(EDITABLE_FOCUS_SELECTOR)) return;
-    surface.focus({ preventScroll: true });
-  }, []);
+      const focusedElement = document.activeElement;
+      if (
+        fromIframeLoad &&
+        focusedElement !== document.body &&
+        focusedElement !== iframeRef.current
+      ) {
+        return;
+      }
+      if (focusedElement instanceof HTMLIFrameElement) {
+        try {
+          const frameDocument = focusedElement.contentDocument;
+          if (!frameDocument) {
+            if (!fromIframeLoad) return;
+          } else if (
+            frameDocument.activeElement?.closest(EDITABLE_FOCUS_SELECTOR)
+          ) {
+            return;
+          }
+        } catch (error) {
+          if (
+            !(error instanceof DOMException) ||
+            error.name !== "SecurityError"
+          ) {
+            throw error;
+          }
+          // A cross-origin frame may have an app-owned focused input; preserve
+          // its focus when the parent cannot inspect it.
+          return;
+        }
+      }
+      // Taking focus for keyboard panning must never outrank a field the user
+      // was just handed: a composer that opens under the cursor would otherwise
+      // be focused on mount and silently unfocused by the same pointer motion.
+      if (focusedElement?.closest(EDITABLE_FOCUS_SELECTOR)) return;
+      surface.focus({ preventScroll: true });
+    },
+    [editMode, interactMode],
+  );
+  const handleCanvasPointerEnter = useCallback(
+    () => focusScrollSurface(),
+    [focusScrollSurface],
+  );
+  useLayoutEffect(() => focusScrollSurface(), [focusScrollSurface]);
 
   // Single-screen pan (Figma parity §3): middle-mouse-button drag always
   // pans (mirrors MultiScreenCanvas's unconditional `e.button === 1` branch
@@ -7963,6 +8021,7 @@ export function DesignCanvas({
           onLoad={(event) => {
             if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
             sendBridgeToContainer();
+            focusScrollSurface(true);
             event.currentTarget.contentWindow?.postMessage(
               { type: "agent-native:editor-chrome-ready-probe" },
               "*",
@@ -8414,8 +8473,8 @@ export function DesignCanvas({
         <div
           ref={scrollContainerRef}
           tabIndex={-1}
-          onPointerEnter={focusScrollSurface}
-          onMouseEnter={focusScrollSurface}
+          onPointerEnter={handleCanvasPointerEnter}
+          onMouseEnter={handleCanvasPointerEnter}
           className="relative h-full w-full overflow-clip"
         >
           {iframeElement}
@@ -8432,8 +8491,8 @@ export function DesignCanvas({
       <div
         ref={scrollContainerRef}
         tabIndex={-1}
-        onPointerEnter={focusScrollSurface}
-        onMouseEnter={focusScrollSurface}
+        onPointerEnter={handleCanvasPointerEnter}
+        onMouseEnter={handleCanvasPointerEnter}
         className="relative h-full w-full overflow-clip"
         style={{
           width: embeddedFrame.displayWidth,
@@ -8466,8 +8525,8 @@ export function DesignCanvas({
     <div
       ref={scrollContainerRef}
       tabIndex={-1}
-      onPointerEnter={focusScrollSurface}
-      onMouseEnter={focusScrollSurface}
+      onPointerEnter={handleCanvasPointerEnter}
+      onMouseEnter={handleCanvasPointerEnter}
       onMouseDown={handleScrollSurfaceMouseDown}
       onClick={handleScrollSurfaceBackgroundClick}
       className="relative flex-1 h-full overflow-auto"

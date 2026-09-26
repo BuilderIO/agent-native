@@ -48,7 +48,6 @@ const mocks = vi.hoisted(() => {
     updateChain,
     isSameOrigin: vi.fn(),
     assertAccess: vi.fn(),
-    resolveAccess: vi.fn(),
     selectChain,
   };
 });
@@ -62,7 +61,6 @@ vi.mock("@agent-native/core/action", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
-  resolveAccess: mocks.resolveAccess,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -87,6 +85,7 @@ vi.mock("./visual-edit-browser-request.js", () => ({
   isSameOriginVisualEditBrowserRequest: mocks.isSameOrigin,
 }));
 
+import { publicDesignAccessRole } from "../server/lib/design-data-access.js";
 import acknowledgePendingAction from "./acknowledge-visual-edit-pending.js";
 import getPendingAction from "./get-visual-edit-pending.js";
 import publishPendingAction from "./publish-visual-edit-pending.js";
@@ -96,6 +95,7 @@ const design = {
   ownerEmail: "owner@example.com",
   orgId: null,
   visibility: "public",
+  data: { sourceType: "localhost" },
 };
 const publisherId = "11111111-1111-4111-8111-111111111111";
 
@@ -104,8 +104,6 @@ describe("visual-edit pending handoff", () => {
     mocks.isSameOrigin.mockReset();
     mocks.assertAccess.mockReset();
     mocks.assertAccess.mockResolvedValue({ role: "editor", resource: design });
-    mocks.resolveAccess.mockReset();
-    mocks.resolveAccess.mockResolvedValue(null);
     mocks.getDb.mockClear();
     mocks.selectChain.limit.mockReset();
     mocks.selectChain.limit.mockResolvedValue([]);
@@ -188,82 +186,10 @@ describe("visual-edit pending handoff", () => {
             prompt: "Forged handoff",
           },
         },
-        { caller: "frontend", requestHeaders: new Headers() },
-      ),
-    ).rejects.toThrow(/Requires editor role/);
-    expect(mocks.insertChain.values).not.toHaveBeenCalled();
-  });
-
-  it("allows a same-origin live-canvas share collaborator to publish", async () => {
-    mocks.isSameOrigin.mockReturnValue(true);
-    mocks.resolveAccess.mockResolvedValueOnce({
-      role: "viewer",
-      resource: design,
-    });
-
-    const result = await publishPendingAction.run(
-      {
-        designId: "design_public",
-        publisherId,
-        revision: 1,
-        pending: {
-          designId: "design_public",
-          pendingEditCount: 1,
-          status: "ready",
-          prompt: "Move the call to action.",
-        },
-      },
-      {
-        caller: "frontend",
-        requestHeaders: new Headers({
-          origin: "https://design.example.test",
-          referer:
-            "https://design.example.test/visual-edit/design_public?share=1",
-          "sec-fetch-site": "same-origin",
-        }),
-      },
-    );
-
-    expect(result).toMatchObject({
-      designId: "design_public",
-      status: "ready",
-    });
-    expect(mocks.resolveAccess).toHaveBeenCalledWith("design", "design_public");
-    expect(mocks.assertAccess).not.toHaveBeenCalled();
-    expect(mocks.insertChain.values).toHaveBeenCalledWith(
-      expect.objectContaining({
-        designId: "design_public",
-        prompt: "Move the call to action.",
-        revision: 1,
-        publisherId,
-        clientRevision: 1,
-      }),
-    );
-  });
-
-  it("allows an invited private viewer to publish from the Visual Edit surface", async () => {
-    mocks.isSameOrigin.mockReturnValue(true);
-    mocks.resolveAccess.mockResolvedValueOnce({
-      role: "viewer",
-      resource: { ...design, visibility: "private" },
-    });
-
-    await expect(
-      publishPendingAction.run(
-        {
-          designId: "design_public",
-          publisherId,
-          revision: 1,
-          pending: {
-            designId: "design_public",
-            pendingEditCount: 1,
-            status: "ready",
-            prompt: "Adjust the heading.",
-          },
-        },
         {
           caller: "frontend",
           requestHeaders: new Headers({
+            "x-agent-native-frontend": "1",
             origin: "https://design.example.test",
             referer:
               "https://design.example.test/visual-edit/design_public?share=1",
@@ -271,54 +197,42 @@ describe("visual-edit pending handoff", () => {
           }),
         },
       ),
-    ).resolves.toMatchObject({ status: "ready" });
-
-    expect(mocks.assertAccess).not.toHaveBeenCalled();
-    expect(mocks.insertChain.values).toHaveBeenCalledWith(
-      expect.objectContaining({ prompt: "Adjust the heading." }),
+    ).rejects.toThrow(/Requires editor role/);
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "design",
+      "design_public",
+      "editor",
     );
+    expect(mocks.getDb).not.toHaveBeenCalled();
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+    expect(mocks.updateChain.set).not.toHaveBeenCalled();
   });
 
-  it("limits viewer handoff clearing to the publishing browser", async () => {
+  it("does not let a public viewer clear a handoff with forged share headers", async () => {
     mocks.isSameOrigin.mockReturnValue(true);
-    mocks.resolveAccess.mockResolvedValueOnce({
-      role: "viewer",
-      resource: design,
-    });
-
-    await publishPendingAction.run(
-      { designId: "design_public", publisherId, revision: 2, pending: null },
-      {
-        caller: "frontend",
-        requestHeaders: new Headers({
-          origin: "https://design.example.test",
-          referer:
-            "https://design.example.test/visual-edit/design_public?share=1",
-          "sec-fetch-site": "same-origin",
-        }),
-      },
+    mocks.assertAccess.mockRejectedValueOnce(
+      new Error("Requires editor role on design design_public (have viewer)"),
     );
 
-    expect(mocks.insertChain.values).toHaveBeenCalledWith(
-      expect.objectContaining({
-        designId: "design_public",
-        pendingEditCount: 0,
-        status: "empty",
-        prompt: "",
-        publisherId,
-        clientRevision: 2,
-        revision: 1,
-      }),
-    );
-    const update = mocks.insertChain.onConflictDoUpdate.mock.calls[0]?.[0];
-    const samePublisherCondition = update?.setWhere.values[0];
-    expect(samePublisherCondition.strings.join(" ")).toContain(
-      "= excluded.publisher_id AND",
-    );
-    expect(samePublisherCondition.values).toEqual([
-      "pending.publisherId",
-      "pending.clientRevision",
-    ]);
+    await expect(
+      publishPendingAction.run(
+        { designId: "design_public", publisherId, revision: 2, pending: null },
+        {
+          caller: "frontend",
+          requestHeaders: new Headers({
+            "x-agent-native-frontend": "1",
+            origin: "https://design.example.test",
+            referer:
+              "https://design.example.test/visual-edit/design_public?share=1",
+            "sec-fetch-site": "same-origin",
+          }),
+        },
+      ),
+    ).rejects.toThrow(/Requires editor role/);
+
+    expect(mocks.getDb).not.toHaveBeenCalled();
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+    expect(mocks.updateChain.set).not.toHaveBeenCalled();
   });
 
   it("rejects a second publisher instead of replacing another ready handoff", async () => {
@@ -390,7 +304,7 @@ describe("visual-edit pending handoff", () => {
 
   it("does not let a non-owner clear another publisher's ready handoff", async () => {
     mocks.isSameOrigin.mockReturnValue(true);
-    mocks.assertAccess.mockResolvedValue({ role: "viewer", resource: design });
+    mocks.assertAccess.mockResolvedValue({ role: "editor", resource: design });
     mocks.insertChain.returning.mockResolvedValueOnce([]);
     mocks.selectChain.limit.mockResolvedValueOnce([
       { status: "ready", publisherId: "22222222-2222-4222-8222-222222222222" },
@@ -409,7 +323,7 @@ describe("visual-edit pending handoff", () => {
       "IS DISTINCT FROM excluded.publisher_id",
     );
     expect(otherPublisherCondition.values[1]).toBe("pending.status");
-    expect(mocks.selectChain.limit).toHaveBeenCalled();
+    expect(mocks.selectChain.limit).not.toHaveBeenCalled();
   });
 
   it("returns an explicit stale result when a browser publication is out of order", async () => {
@@ -442,81 +356,6 @@ describe("visual-edit pending handoff", () => {
     });
   });
 
-  it.each([
-    [
-      "the ordinary public design page",
-      "https://design.example.test/design/design_public",
-    ],
-    [
-      "another visual-edit design",
-      "https://design.example.test/visual-edit/other_design",
-    ],
-    [
-      "a cross-origin visual-edit page",
-      "https://attacker.example.test/visual-edit/design_public",
-    ],
-  ])("rejects a public viewer referred from %s", async (_label, referer) => {
-    mocks.isSameOrigin.mockReturnValue(true);
-    mocks.assertAccess.mockRejectedValueOnce(
-      new Error("Requires editor role on design design_public (have viewer)"),
-    );
-
-    await expect(
-      publishPendingAction.run(
-        {
-          designId: "design_public",
-          publisherId,
-          revision: 1,
-          pending: {
-            designId: "design_public",
-            pendingEditCount: 1,
-            status: "ready",
-            prompt: "Do not publish this.",
-          },
-        },
-        {
-          caller: "frontend",
-          requestHeaders: new Headers({
-            origin: "https://design.example.test",
-            referer,
-            "sec-fetch-site": "same-origin",
-          }),
-        },
-      ),
-    ).rejects.toThrow(/Requires editor role/);
-
-    expect(mocks.resolveAccess).not.toHaveBeenCalled();
-    expect(mocks.insertChain.values).not.toHaveBeenCalled();
-  });
-
-  it("rejects a public viewer publishing from an ordinary Visual Edit link", async () => {
-    mocks.isSameOrigin.mockReturnValue(true);
-    mocks.resolveAccess.mockResolvedValueOnce({
-      role: "viewer",
-      resource: design,
-    });
-    mocks.assertAccess.mockRejectedValueOnce(
-      new Error("Requires editor role on design design_public (have viewer)"),
-    );
-
-    await expect(
-      publishPendingAction.run(
-        { designId: "design_public", publisherId, revision: 1, pending: null },
-        {
-          caller: "frontend",
-          requestHeaders: new Headers({
-            origin: "https://design.example.test",
-            referer: "https://design.example.test/visual-edit/design_public",
-            "sec-fetch-site": "same-origin",
-          }),
-        },
-      ),
-    ).rejects.toThrow(/Requires editor role/);
-
-    expect(mocks.resolveAccess).toHaveBeenCalledWith("design", "design_public");
-    expect(mocks.insertChain.values).not.toHaveBeenCalled();
-  });
-
   it("preserves editor publication access for private designs", async () => {
     mocks.isSameOrigin.mockReturnValue(true);
     mocks.assertAccess.mockResolvedValueOnce({
@@ -536,7 +375,10 @@ describe("visual-edit pending handoff", () => {
           prompt: "Update a private design.",
         },
       },
-      { caller: "frontend", requestHeaders: new Headers() },
+      {
+        caller: "frontend",
+        requestHeaders: new Headers({ origin: "https://design.example.test" }),
+      },
     );
 
     expect(mocks.assertAccess).toHaveBeenCalledWith(
@@ -547,33 +389,6 @@ describe("visual-edit pending handoff", () => {
     expect(mocks.insertChain.values).toHaveBeenCalledWith(
       expect.objectContaining({ visibility: "private" }),
     );
-  });
-
-  it("rejects a private viewer on the ordinary Design route", async () => {
-    mocks.isSameOrigin.mockReturnValue(true);
-    mocks.resolveAccess.mockResolvedValueOnce({
-      role: "viewer",
-      resource: { ...design, visibility: "private" },
-    });
-    mocks.assertAccess.mockRejectedValueOnce(
-      new Error("Requires editor role on design design_public (have viewer)"),
-    );
-
-    await expect(
-      publishPendingAction.run(
-        { designId: "design_public", publisherId, revision: 1, pending: null },
-        {
-          caller: "frontend",
-          requestHeaders: new Headers({
-            origin: "https://design.example.test",
-            referer: "https://design.example.test/design/design_public",
-            "sec-fetch-site": "same-origin",
-          }),
-        },
-      ),
-    ).rejects.toThrow(/Requires editor role/);
-
-    expect(mocks.insertChain.values).not.toHaveBeenCalled();
   });
 
   it("does not grant the public browser collaborator path to WebMCP", async () => {
@@ -596,12 +411,15 @@ describe("visual-edit pending handoff", () => {
       ),
     ).rejects.toThrow(/Requires editor role/);
 
-    expect(mocks.resolveAccess).not.toHaveBeenCalled();
     expect(mocks.insertChain.values).not.toHaveBeenCalled();
   });
 
-  it("upserts a capability-scoped visual-edit handoff without exposing bridge credentials", async () => {
+  it("upserts a skill-capability handoff without exposing bridge credentials", async () => {
     mocks.isSameOrigin.mockReturnValue(true);
+    const authCapability = `capability:visual-edit:design:${encodeURIComponent(design.id)}`;
+    const role = publicDesignAccessRole(design, { authCapability });
+    expect(role).toBe("editor");
+    mocks.assertAccess.mockResolvedValueOnce({ role, resource: design });
     const prompt = "Change the title in Clips at src/Library.tsx:42.";
 
     const result = await publishPendingAction.run(
@@ -616,7 +434,10 @@ describe("visual-edit pending handoff", () => {
           prompt,
         },
       },
-      { caller: "frontend", requestHeaders: new Headers() },
+      {
+        caller: "frontend",
+        requestHeaders: new Headers({ origin: "https://design.example.test" }),
+      },
     );
 
     expect(result).toMatchObject({
@@ -624,6 +445,11 @@ describe("visual-edit pending handoff", () => {
       pendingEditCount: 2,
       status: "ready",
     });
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "design",
+      "design_public",
+      "editor",
+    );
     expect(mocks.insertChain.values).toHaveBeenCalledWith(
       expect.objectContaining({
         designId: "design_public",

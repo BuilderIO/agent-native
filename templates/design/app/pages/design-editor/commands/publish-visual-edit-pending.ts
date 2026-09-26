@@ -12,6 +12,13 @@ export interface PendingVisualEditHandoff {
   } | null;
 }
 
+interface PublishedVisualEditHandoff {
+  designId: string;
+  pendingEditCount: number | null;
+  revision: number | null;
+  status: "empty" | "ready" | "stale";
+}
+
 export interface PublishVisualEditPendingArgs {
   activeScreenBridgeUrl: string | null | undefined;
   activeScreenPreviewToken: string | null | undefined;
@@ -20,8 +27,7 @@ export interface PublishVisualEditPendingArgs {
     name: "publish-visual-edit-pending",
     payload: PendingVisualEditHandoff,
   ) => Promise<unknown>;
-  /** The durable action verifies editor access or the same-origin live-share
-   *  URL; this only decides whether to attempt that action from the browser. */
+  /** Only account/editor-capability sessions can publish the durable handoff. */
   canPublishDurableHandoff: boolean;
   designId: string;
   fetchImpl: typeof fetch;
@@ -62,7 +68,19 @@ export async function runPublishVisualEditPending(
   const clearRequested = pending.pending === null;
   if (canPublishDurableHandoff) {
     try {
-      await callAction("publish-visual-edit-pending", pending);
+      const result = (await callAction(
+        "publish-visual-edit-pending",
+        pending,
+      )) as PublishedVisualEditHandoff | null;
+      const expectedStatus = clearRequested ? "empty" : "ready";
+      if (
+        result?.designId !== designId ||
+        result.status !== expectedStatus ||
+        !Number.isInteger(result.revision) ||
+        (result.revision ?? 0) < 1
+      ) {
+        throw { errorCode: "visual_edit_handoff_unconfirmed" };
+      }
       setPendingVisualEditPublicationFailed(false);
       if (
         clearRequested &&
