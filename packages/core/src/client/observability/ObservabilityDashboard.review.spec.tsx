@@ -1341,7 +1341,7 @@ describe("ObservabilityDashboard human review", () => {
     );
   });
 
-  it("does not queue a delivered summary again before it is saved", async () => {
+  it("keeps a delivered summary retryable without adding it to bulk", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -1364,15 +1364,17 @@ describe("ObservabilityDashboard human review", () => {
     )!;
     await act(async () => summarizeButton.click());
 
-    expect(summarizeButton.disabled).toBe(true);
+    expect(summarizeButton.disabled).toBe(false);
     expect(mockConfirmAgentChat).toHaveBeenCalledTimes(1);
+    await act(async () => summarizeButton.click());
+    expect(mockConfirmAgentChat).toHaveBeenCalledTimes(2);
     const bulkSummary = container.querySelector<HTMLButtonElement>(
       "[data-review-bulk-summary]",
     );
     expect(bulkSummary?.textContent).toContain("2");
     await act(async () => bulkSummary?.click());
-    expect(mockConfirmAgentChat).toHaveBeenCalledTimes(2);
-    expect(mockConfirmAgentChat.mock.calls[1]?.[0].actionScope).toEqual({
+    expect(mockConfirmAgentChat).toHaveBeenCalledTimes(3);
+    expect(mockConfirmAgentChat.mock.calls[2]?.[0].actionScope).toEqual({
       kind: "observability-review-summary-batch",
       runIds: ["run-2", "run-no-preview"],
     });

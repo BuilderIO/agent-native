@@ -38,7 +38,7 @@ export function ObservabilityReviewSummaryButton({
   refresh = false,
 }: ObservabilityReviewSummaryButtonProps) {
   const t = useT();
-  const disabled = status === "sending" || (status === "sent" && !refresh);
+  const disabled = status === "sending";
   const label = t(
     refresh
       ? "observability.regenerateSummary"
@@ -99,11 +99,7 @@ export function ObservabilityReviewSummaryButton({
               disabled={disabled}
               aria-busy={status === "sending"}
               className={
-                status === "sending"
-                  ? "cursor-wait opacity-60"
-                  : status === "sent"
-                    ? "opacity-60"
-                    : undefined
+                status === "sending" ? "cursor-wait opacity-60" : undefined
               }
               onClick={summarize}
             >
