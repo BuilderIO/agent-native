@@ -106,6 +106,7 @@ import {
   SLIDES_GENERATION_STARTED_EVENT,
   useAgentGenerating,
 } from "@/hooks/use-agent-generating";
+import { useContrastAuditBridge } from "@/hooks/use-contrast-audit-bridge";
 import {
   useDeckAccessStatus,
   useRequestDeckAccess,
@@ -1729,9 +1730,12 @@ export default function DeckEditor() {
     flushPendingSaves();
     await flushDeckSave(id);
   }, [flushDeckSave, id]);
-  const { designSystem, imageStyleReferenceUrls } = useDeckDesignSystem(
-    deck?.designSystemId,
-  );
+  const {
+    designSystem,
+    imageStyleReferenceUrls,
+    rawData: designSystemRawData,
+  } = useDeckDesignSystem(deck?.designSystemId);
+  useContrastAuditBridge(deck, designSystemRawData);
   const commentsOpen = sidePanel === "comments";
 
   const {
