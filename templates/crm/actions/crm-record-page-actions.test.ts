@@ -306,6 +306,56 @@ describe("get-crm-record-page", () => {
     ).rejects.toThrow(/not found/i);
   });
 
+  it("does not expose a record shared to the caller when its connection is not", async () => {
+    // Explicit user shares on this resource only apply within a matching org
+    // (see requireOrgMemberForUserShares in the sharing package), so this
+    // record — unlike the rest of the file — is org-scoped.
+    const SHARE_ORG = "org_record_page_share";
+    const recordId = `rec_page_${++counter}`;
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.crmRecords)
+      .values({
+        id: recordId,
+        connectionId: CONNECTION_ID,
+        provider: "native",
+        objectType: OBJECT_TYPE,
+        kind: "account",
+        remoteId: recordId,
+        displayName: "Connection-Gated Co",
+        remoteRevision: "1",
+        accessScopeKey: "native",
+        accessScopeJson: JSON.stringify(NATIVE_SCOPE),
+        ownerEmail: OWNER,
+        orgId: SHARE_ORG,
+        visibility: "private",
+        createdAt: now,
+        updatedAt: now,
+      });
+    await getDb()
+      .insert(schema.crmRecordShares)
+      .values({
+        id: `share_${++counter}`,
+        resourceId: recordId,
+        principalType: "user",
+        principalId: OTHER,
+        role: "viewer",
+        createdBy: OWNER,
+        createdAt: now,
+      });
+    // The record itself is shared, but CONNECTION_ID (owned solely by OWNER,
+    // never shared) is not: the caller must not read the record page through
+    // that gap.
+    await expect(
+      runWithRequestContext({ userEmail: OTHER, orgId: SHARE_ORG }, () =>
+        getRecordPage.run(
+          { recordId },
+          { caller: "frontend", userEmail: OTHER, orgId: SHARE_ORG },
+        ),
+      ),
+    ).rejects.toThrow(/not found/i);
+  });
+
   it("withholds a record whose stored scope the connection no longer grants", async () => {
     const recordId = await createRecord("Revoked Co", {
       ...NATIVE_SCOPE,

@@ -8,7 +8,6 @@ import { CRM_CONNECTOR_CATALOG } from "./crm-connector-catalog";
 describe("CRM MCP connector catalog", () => {
   it("exposes access-scoped reads of records, lists, and tasks", () => {
     expect(CRM_CONNECTOR_CATALOG).toEqual([
-      "get-crm-overview",
       "list-crm-records",
       "get-crm-record",
       "get-crm-record-page",
@@ -16,6 +15,9 @@ describe("CRM MCP connector catalog", () => {
       "list-crm-list-entries",
       "list-crm-tasks",
     ]);
+    // Excluded on purpose: its overview resolves provider scope without the
+    // caller's identity. See the doc comment on CRM_CONNECTOR_CATALOG.
+    expect(CRM_CONNECTOR_CATALOG).not.toContain("get-crm-overview");
     for (const write of [
       "create-crm-record",
       "update-crm-record",

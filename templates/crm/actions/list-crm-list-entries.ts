@@ -142,6 +142,7 @@ export default defineAction({
             ...conditions,
             accessFilter(schema.crmListEntries, schema.crmListEntryShares),
             accessFilter(schema.crmRecords, schema.crmRecordShares),
+            accessFilter(schema.crmConnections, schema.crmConnectionShares),
           ),
         )
         .orderBy(

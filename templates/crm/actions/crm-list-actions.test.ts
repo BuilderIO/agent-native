@@ -278,6 +278,72 @@ describe("list membership", () => {
     ]);
   });
 
+  it("does not expose list entries whose connection the caller cannot see", async () => {
+    // Org visibility, not an explicit share row, is what makes the list,
+    // record, and entry visible to OTHER here (requireCrmScope stamps
+    // visibility "org" for anything created with an orgId). CONNECTION_ID —
+    // created in beforeAll, owned solely by OWNER, never org-scoped — must
+    // still gate the page even though everything else in it is visible.
+    const SHARE_ORG = "org_list_entries_share";
+    const asOwnerInOrg = <T>(fn: () => Promise<T>): Promise<T> =>
+      runWithRequestContext(
+        { userEmail: OWNER, orgId: SHARE_ORG },
+        fn,
+      ) as Promise<T>;
+    const ownerInOrgCtx = {
+      caller: "frontend" as const,
+      userEmail: OWNER,
+      orgId: SHARE_ORG,
+    };
+    const otherInOrgCtx = {
+      caller: "frontend" as const,
+      userEmail: OTHER,
+      orgId: SHARE_ORG,
+    };
+
+    const list = await asOwnerInOrg(() =>
+      createCrmList.run(
+        {
+          connectionId: CONNECTION_ID,
+          name: "Org Visible List",
+          parentObjectType: "companies",
+        },
+        ownerInOrgCtx,
+      ),
+    );
+
+    const recordId = `rec_${++counter}`;
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.crmRecords)
+      .values({
+        id: recordId,
+        connectionId: CONNECTION_ID,
+        provider: "native",
+        objectType: "companies",
+        kind: "account",
+        remoteId: recordId,
+        displayName: "Org Visible Co",
+        accessScopeKey: "native",
+        accessScopeJson: JSON.stringify(NATIVE_SCOPE),
+        ownerEmail: OWNER,
+        orgId: SHARE_ORG,
+        visibility: "org",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    await asOwnerInOrg(() =>
+      addCrmRecordToList.run({ listId: list.id, recordId }, ownerInOrgCtx),
+    );
+
+    const page = await runWithRequestContext(
+      { userEmail: OTHER, orgId: SHARE_ORG },
+      () => listCrmListEntries.run({ listId: list.id }, otherInOrgCtx),
+    );
+    expect(page.entries).toHaveLength(0);
+  });
+
   it("rejects a record whose objectType is not the list's parentObjectType", async () => {
     const list = await newList("Target Accounts", "companies");
     const personId = await createRecord("people", "Ada Lovelace");

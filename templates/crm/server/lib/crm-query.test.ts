@@ -844,6 +844,35 @@ describe("cursor pagination", () => {
     const withoutTotal = await run({ limit: 2 });
     expect(withoutTotal).not.toHaveProperty("totalEstimate");
   });
+
+  it("omits totalEstimate when a row on the page is withheld from the current scope", async () => {
+    await createRecord("Zzz Stale Scope Co", {
+      accessScopeJson: JSON.stringify({ ...SCOPE, key: "stale-total-key" }),
+    });
+    const result = await run({
+      limit: 10,
+      includeTotal: true,
+      query: "Zzz Stale Scope Co",
+    });
+    // The row is withheld (its stored scope key no longer matches), so a count
+    // taken before that check would disclose a record the caller cannot see.
+    expect(result.records).toHaveLength(0);
+    expect(result).not.toHaveProperty("totalEstimate");
+  });
+
+  it("fills the page past a withheld row instead of returning it short", async () => {
+    await createRecord("Zfill A Withheld", {
+      accessScopeJson: JSON.stringify({ ...SCOPE, key: "stale-fill-key" }),
+    });
+    const visible = await createRecord("Zfill B Visible");
+    const result = await run({
+      limit: 1,
+      query: "Zfill",
+      sort: [{ field: "displayName", direction: "asc" }],
+    });
+    expect(result.records.map((record) => record.id)).toEqual([visible]);
+    expect(result.complete).toBe(true);
+  });
 });
 
 describe("relative date tokens", () => {

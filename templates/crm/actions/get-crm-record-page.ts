@@ -116,6 +116,7 @@ export default defineAction({
           eq(schema.crmRecords.id, args.recordId),
           eq(schema.crmRecords.tombstone, false),
           accessFilter(schema.crmRecords, schema.crmRecordShares),
+          accessFilter(schema.crmConnections, schema.crmConnectionShares),
         ),
       )
       .limit(1);
