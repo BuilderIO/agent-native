@@ -28,6 +28,7 @@ import { isCreditsLimitErrorCode } from "../../agent/engine/error-detail.js";
 import { buildSettingsRoute } from "../../navigation/index.js";
 import { withBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import { agentNativePath } from "../api-path.js";
+import { BuilderReferralInviteRow } from "../BuilderReferralInviteRow.js";
 import { writeClipboardText } from "../clipboard.js";
 import {
   isProviderAuthenticationError,
@@ -719,6 +720,7 @@ export function RunErrorRecoveryCard({
             <IconX size={14} />
           </button>
         </div>
+        <BuilderReferralInviteRow className="mt-3 border-t border-border/70 pt-3" />
       </div>
     );
   }
