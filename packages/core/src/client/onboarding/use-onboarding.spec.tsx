@@ -246,6 +246,46 @@ describe("useOnboarding — summary timeout", () => {
     expect(latest?.error).toBe("onboarding summary timed out");
     expect(summarySignal?.aborted).toBe(true);
   });
+
+  it("ignores an older timeout after a newer refresh succeeds", async () => {
+    let summaryCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        summaryCalls += 1;
+        if (summaryCalls === 1) {
+          return {
+            ok: true,
+            status: 200,
+            json: () => new Promise(() => {}),
+          } as Response;
+        }
+        return jsonResponse({
+          steps: [],
+          dismissed: false,
+          profile: { appId: "app", appName: "App", capabilities: [] },
+        });
+      }),
+    );
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    await act(async () => {
+      await latest!.refresh();
+    });
+    expect(latest?.loading).toBe(false);
+    expect(latest?.error).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(latest?.loading).toBe(false);
+    expect(latest?.error).toBeNull();
+  });
 });
 
 describe("trackOnboardingEvent", () => {

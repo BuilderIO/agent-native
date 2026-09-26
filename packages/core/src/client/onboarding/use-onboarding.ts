@@ -106,12 +106,14 @@ export function useOnboarding(
   >(null);
   const stepsRef = useRef<OnboardingStepStatus[]>([]);
   const mountedRef = useRef(true);
+  const fetchGenerationRef = useRef(0);
 
   useEffect(() => {
     setFirstRun(preview || initialFirstRun);
   }, [initialFirstRun, preview]);
 
   const fetchAll = useCallback(async () => {
+    const fetchGeneration = ++fetchGenerationRef.current;
     try {
       // One composed read replaces the three per-mount calls (steps,
       // dismissed, profile); first-run status keeps its own endpoint because
@@ -155,7 +157,12 @@ export function useOnboarding(
         if (summaryTimeoutId !== undefined) clearTimeout(summaryTimeoutId);
         summaryController?.abort();
       });
-      if (!mountedRef.current) return;
+      if (
+        !mountedRef.current ||
+        fetchGeneration !== fetchGenerationRef.current
+      ) {
+        return;
+      }
       const previousSteps = stepsRef.current;
       if (previousSteps.length > 0) {
         for (const [stepIndex, step] of summary.steps.entries()) {
@@ -185,10 +192,20 @@ export function useOnboarding(
       setDismissed(!!summary.dismissed);
       setError(null);
     } catch (e) {
-      if (!mountedRef.current) return;
+      if (
+        !mountedRef.current ||
+        fetchGeneration !== fetchGenerationRef.current
+      ) {
+        return;
+      }
       setError(e instanceof Error ? e.message : "Failed to load onboarding");
     } finally {
-      if (mountedRef.current) setLoading(false);
+      if (
+        mountedRef.current &&
+        fetchGeneration === fetchGenerationRef.current
+      ) {
+        setLoading(false);
+      }
     }
   }, [preview]);
 
@@ -222,6 +239,7 @@ export function useOnboarding(
     window.addEventListener("focus", onFocus);
     return () => {
       mountedRef.current = false;
+      fetchGenerationRef.current += 1;
       cancelInitialFetch();
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
