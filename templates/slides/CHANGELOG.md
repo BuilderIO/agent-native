@@ -12,10 +12,18 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Keep empty deck lists clear of search and filter controls
+- Selected design-system source forms open directly beneath their row and Figma indexing shows upload and decode progress.
 - Improve Slides design system setup feedback
 
 ### Fixed
 
+- The agent recognizes blank slides and its slide prompts avoid duplicate wording.
+- Compact deck reads handle imported slides with invalid selectors.
+- Empty decks show a structured slide preview, and choices before generation are easier to read.
+- Google Slides reference imports explain missing connections clearly, website URLs are validated, DOCX files load reliably, and PDF imports keep readable titles when text extraction is corrupted.
+- Slides stay centered on screen during presentations.
+- Selected presentation options keep their highlight during setup
 - Empty decks keep their retry option when a retry cannot be sent.
 - Prevent setup generation while Figma indexing is in progress
 - Text on a slide is now edited in place: clicking into it changes nothing on the slide, Enter adds the new line immediately, and what you see while typing is what gets saved. The slash menu is no longer available inside slide text.

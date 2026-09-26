@@ -38,6 +38,44 @@ function MarkdownTableProbe() {
   );
 }
 
+describe("markdown links", () => {
+  it("opens external links in a new tab without granting opener access", () => {
+    const link = markdownComponents.a({
+      href: "https://example.com",
+      children: "Open link",
+    });
+
+    expect(link).toMatchObject({
+      type: "a",
+      props: {
+        href: "https://example.com",
+        target: "_blank",
+        rel: "noopener noreferrer",
+      },
+    });
+  });
+
+  it("keeps relative and same-origin links in the current tab", () => {
+    const relative = markdownComponents.a({
+      href: "/brain/sources",
+      children: "Brain sources",
+    });
+    const sameOrigin = markdownComponents.a({
+      href: `${window.location.origin}/brain/sources`,
+      children: "Brain sources",
+    });
+
+    expect(relative).toMatchObject({
+      type: "a",
+      props: { href: "/brain/sources", target: undefined },
+    });
+    expect(sameOrigin).toMatchObject({
+      type: "a",
+      props: { target: undefined, rel: undefined },
+    });
+  });
+});
+
 describe("shouldAnimateMarkdownText", () => {
   it("does not replay a completed last response when chat starts another run", () => {
     expect(

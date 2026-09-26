@@ -12,6 +12,12 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Clips clears a stale recording overlay after an interrupted save
+- Concurrent workflow requests no longer replace an active generation.
+- Generated workflows stay tied to the request that created them.
+- Organization logos can be stored privately and load in settings, shared clips, and email.
+- Private MinIO and S3-compatible endpoints now work with Clips.
+- Workflow drafts are saved before the agent reports them complete
 - Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."
 
 ## 2026-09-24

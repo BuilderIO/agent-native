@@ -32,13 +32,22 @@ const GENERATED_TITLE_PLACEHOLDERS = new Set([
  * deliberately narrow so normal titles with spaces and punctuation remain
  * valid, while catching opaque mixed-case tokens such as H3sVsnns-TEVUOpz9w.
  */
-const OPAQUE_DECK_TITLE_PATTERN =
-  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[A-Za-z0-9_-]{12,64}$/;
+const OPAQUE_DECK_TITLE_PATTERN = /^[A-Za-z0-9_-]{12,64}$/;
 
 export function isOpaqueDeckTitle(value: unknown): value is string {
-  return (
-    typeof value === "string" && OPAQUE_DECK_TITLE_PATTERN.test(value.trim())
-  );
+  if (typeof value !== "string") return false;
+  const title = value.trim();
+  if (!OPAQUE_DECK_TITLE_PATTERN.test(title)) return false;
+
+  return title
+    .split(/[-_]/)
+    .some(
+      (part) =>
+        part.length >= 8 &&
+        /[a-z]/.test(part) &&
+        /[A-Z]/.test(part) &&
+        /\d/.test(part),
+    );
 }
 
 export function isGeneratedDeckTitle(value: unknown): value is string {

@@ -311,7 +311,7 @@ export interface AgentChatPluginOptions {
    * Which of the framework's OWN agent tools this app exposes — raw SQL,
    * extensions, sharing, review comments, version history, feature flags,
    * localization, audit, context X-Ray, profile, automations, docs, resources,
-   * web, cross-app delegation, chat, email.
+   * browser-session controls, web, cross-app delegation, chat, email.
    *
    * Every group defaults to today's behavior, so omitting this leaves the tool
    * surface unchanged. `"minimal"` (or `{ preset: "minimal" }`) turns them all

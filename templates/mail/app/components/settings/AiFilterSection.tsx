@@ -1,4 +1,7 @@
-import { actionErrorMessage } from "@agent-native/core/client/hooks";
+import {
+  actionErrorMessage,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_FILTER_LABEL, AI_FILTER_RULE_NAME } from "@shared/ai-filter";
 import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
@@ -18,6 +21,10 @@ import {
   TAG_SUGGESTIONS,
 } from "@/components/onboarding/AiInboxSetup";
 import { AiRulePromptField } from "@/components/settings/AiRulePromptField";
+import {
+  JevAvailabilityError,
+  JevConnectionPrompt,
+} from "@/components/settings/JevConnectionPrompt";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,9 +37,11 @@ import {
 import { useManageAiFilter, useAiFilter } from "@/hooks/use-ai-filter";
 import {
   useAutomations,
+  useClearAiFilterRules,
   useConsolidateAiFilterRules,
   useCreateAutomation,
   useDeleteAutomation,
+  useRestoreAiFilterRules,
   useUpdateAutomation,
 } from "@/hooks/use-automations";
 import { useLabels, useSettings, useUpdateSettings } from "@/hooks/use-emails";
@@ -40,12 +49,6 @@ import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 
 type RuleMode = "tag" | "important" | "archive" | "spam";
 type PromptMode = Exclude<RuleMode, "tag">;
-
-function makeAggregateError(errors: unknown[], message: string) {
-  const error = new Error(message);
-  error.name = "AggregateError";
-  return Object.assign(error, { errors });
-}
 
 const PROMPT_MODES: PromptMode[] = ["important", "archive", "spam"];
 
@@ -97,6 +100,7 @@ function promptForRules(rules: AutomationRule[]) {
 function AiTagRow({
   rule,
   expanded,
+  disabled,
   onToggle,
   onSave,
   onDelete,
@@ -104,6 +108,7 @@ function AiTagRow({
 }: {
   rule: AutomationRule;
   expanded: boolean;
+  disabled: boolean;
   onToggle: () => void;
   onSave: (rule: AutomationRule, name: string, condition: string) => void;
   onDelete: (rule: AutomationRule) => void;
@@ -122,8 +127,10 @@ function AiTagRow({
 
   return (
     <div
-      draggable={!expanded}
-      onDragStart={(event) => event.dataTransfer.setData("text/plain", rule.id)}
+      draggable={!expanded && !disabled}
+      onDragStart={(event) => {
+        if (!disabled) event.dataTransfer.setData("text/plain", rule.id);
+      }}
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => onDrop(event, rule.id)}
       className="group border-b border-border/40 last:border-0"
@@ -134,6 +141,7 @@ function AiTagRow({
           type="button"
           className="grid min-w-0 flex-1 grid-cols-[110px_minmax(0,1fr)] items-center gap-3 text-left"
           aria-expanded={expanded}
+          disabled={disabled}
           onClick={onToggle}
         >
           <span className="truncate text-sm font-medium text-foreground">
@@ -146,7 +154,7 @@ function AiTagRow({
         <Button
           variant="ghost"
           size="icon"
-          className="size-7 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100"
+          className={`size-7 text-muted-foreground hover:text-destructive ${disabled ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
           aria-label={t("mail.aiFilter.deleteInstruction")}
           onClick={() => onDelete(rule)}
         >
@@ -159,6 +167,7 @@ function AiTagRow({
             value={name}
             onChange={(event) => setName(event.target.value)}
             onBlur={save}
+            disabled={disabled}
             aria-label={t("mail.aiFilter.tagNamePlaceholder")}
             placeholder={t("mail.aiFilter.tagNamePlaceholder")}
           />
@@ -166,6 +175,7 @@ function AiTagRow({
             value={condition}
             onChange={setCondition}
             onBlur={save}
+            disabled={disabled}
             label={t("mail.aiFilter.tagPlaceholder")}
             placeholder={t("mail.aiFilter.tagPlaceholder")}
           />
@@ -182,9 +192,26 @@ export function AiFilterSection() {
   const { data: settings } = useSettings();
   const { data: labels = [] } = useLabels();
   const googleStatus = useGoogleAuthStatus();
+  const jevAvailability = useActionQuery(
+    "get-jev-availability",
+    {},
+    {
+      staleTime: 0,
+      // request-storm-allow: the shared status query revalidates API-key setup when its settings tab returns.
+      refetchOnWindowFocus: true,
+    },
+  );
+  const jevConfigured =
+    !jevAvailability.isError && jevAvailability.data?.configured === true;
+  const jevUnavailable =
+    !jevAvailability.isLoading &&
+    !jevAvailability.isError &&
+    jevAvailability.data?.configured === false;
   const updateSettings = useManageAiFilter();
   const updatePreferences = useUpdateSettings();
+  const clearAiFilterRules = useClearAiFilterRules();
   const consolidateAiFilterRules = useConsolidateAiFilterRules();
+  const restoreAiFilterRules = useRestoreAiFilterRules();
   const createRule = useCreateAutomation();
   const updateRule = useUpdateAutomation();
   const deleteRule = useDeleteAutomation();
@@ -256,6 +283,7 @@ export function AiFilterSection() {
   }, [promptRules]);
 
   const updateAiSettings = (enabled: boolean) => {
+    if (enabled && !jevConfigured) return;
     updateSettings.mutate(
       { mode: "settings", settings: { enabled } },
       {
@@ -269,64 +297,37 @@ export function AiFilterSection() {
     );
   };
 
-  const savePrompt = async (mode: PromptMode) => {
-    const condition = promptDrafts[mode].trim();
+  const savePrompt = async (mode: PromptMode, clear = false) => {
+    const condition = clear ? "" : promptDrafts[mode].trim();
     const existing = promptRules[mode];
-    const actions = actionsForMode(mode);
     if (condition === promptForRules(existing)) return;
+    if (!jevConfigured && condition) {
+      setPromptDrafts((drafts) => ({
+        ...drafts,
+        [mode]: promptForRules(existing),
+      }));
+      return;
+    }
+    const actions = actionsForMode(mode);
 
-    const restoreRules = async (rulesToRestore: AutomationRule[]) => {
-      const errors: unknown[] = [];
-      for (const rule of rulesToRestore) {
-        try {
-          const restored = await createRule.mutateAsync({
-            name: rule.name,
-            condition: rule.condition,
-            actions: rule.actions,
-            kind: rule.kind,
-            domain: rule.domain,
-          });
-          if (!rule.enabled) {
-            await updateRule.mutateAsync({ id: restored.id, enabled: false });
-          }
-        } catch (error) {
-          errors.push(error);
-        }
-      }
-      if (errors.length) {
-        throw makeAggregateError(
-          errors,
-          errors[0] instanceof Error
-            ? errors[0].message
-            : t("mail.aiFilter.instructionFailed"),
-        );
-      }
-    };
     try {
       if (!condition) {
-        const removed: AutomationRule[] = [];
-        try {
-          for (const rule of existing) {
-            await deleteRule.mutateAsync(rule.id);
-            removed.push(rule);
-          }
-        } catch (error) {
-          try {
-            await restoreRules(removed);
-          } catch (restoreError) {
-            throw makeAggregateError(
-              [error, restoreError],
-              error instanceof Error
-                ? error.message
-                : t("mail.aiFilter.instructionFailed"),
-            );
-          }
-          throw error;
-        }
+        const { undoId } = await clearAiFilterRules.mutateAsync(
+          existing.map((rule) => rule.id),
+        );
         toast(t("mail.aiFilter.promptRulesCleared"), {
           action: {
             label: t("mail.actions.undo"),
-            onClick: () => void restoreRules(existing),
+            onClick: () => {
+              void restoreAiFilterRules
+                .mutateAsync(undoId)
+                .catch((error) =>
+                  toast.error(
+                    actionErrorMessage(error) ??
+                      t("mail.aiFilter.instructionFailed"),
+                  ),
+                );
+            },
           },
         });
         return;
@@ -384,6 +385,7 @@ export function AiFilterSection() {
   };
 
   const saveNewTag = async () => {
+    if (!jevConfigured) return;
     const name = newTagName.trim();
     const condition = newTagPrompt.trim();
     if (!name || !condition || savingNewTag) return;
@@ -412,7 +414,7 @@ export function AiFilterSection() {
   };
 
   const saveSuggestedTag = async (nameKey: string, promptKey: string) => {
-    if (savingSuggestedTag) return;
+    if (!jevConfigured || savingSuggestedTag) return;
     const name = t(nameKey);
     const condition = t(promptKey);
     setSavingSuggestedTag(nameKey);
@@ -441,6 +443,7 @@ export function AiFilterSection() {
     nameDraft: string,
     conditionDraft: string,
   ) => {
+    if (!jevConfigured) return;
     const name = nameDraft.trim() || labelForRule(rule);
     const condition = conditionDraft.trim() || rule.condition;
     if (!name || !condition) return;
@@ -499,7 +502,7 @@ export function AiFilterSection() {
   };
 
   const reorderTags = async (draggedId: string, targetId: string) => {
-    if (draggedId === targetId) return;
+    if (!jevConfigured || draggedId === targetId) return;
     const orderedNames = tagRules.map((rule) => labelForRule(rule));
     const from = tagRules.findIndex((rule) => rule.id === draggedId);
     const to = tagRules.findIndex((rule) => rule.id === targetId);
@@ -543,8 +546,22 @@ export function AiFilterSection() {
             checked={state.enabled}
             onCheckedChange={updateAiSettings}
             aria-label={t("mail.aiFilter.toggle")}
+            disabled={!jevConfigured && !state.enabled}
           />
         </div>
+
+        {jevAvailability.isLoading ? (
+          <Skeleton className="h-16 w-full" />
+        ) : jevAvailability.isError ? (
+          <JevAvailabilityError
+            onRetry={() => void jevAvailability.refetch()}
+            retrying={jevAvailability.isFetching}
+          />
+        ) : !jevConfigured ? (
+          <JevConnectionPrompt
+            onConnected={() => void jevAvailability.refetch()}
+          />
+        ) : null}
 
         <section id="tags" className="space-y-2">
           <div className="flex items-center justify-between">
@@ -571,6 +588,7 @@ export function AiFilterSection() {
               variant="ghost"
               size="sm"
               className="h-7 px-2 text-xs"
+              disabled={!jevConfigured}
               onClick={() => {
                 setNewTagOpen(true);
                 setExpandedTagId("new");
@@ -588,6 +606,7 @@ export function AiFilterSection() {
                   key={rule.id}
                   rule={rule}
                   expanded={expandedTagId === rule.id}
+                  disabled={!jevConfigured}
                   onToggle={() =>
                     setExpandedTagId((current) =>
                       current === rule.id ? null : rule.id,
@@ -599,6 +618,7 @@ export function AiFilterSection() {
                   onDelete={removeTag}
                   onDrop={(event, targetId) => {
                     event.preventDefault();
+                    if (!jevConfigured) return;
                     void reorderTags(
                       event.dataTransfer.getData("text/plain"),
                       targetId,
@@ -613,6 +633,7 @@ export function AiFilterSection() {
                     value={newTagName}
                     onChange={(event) => setNewTagName(event.target.value)}
                     onBlur={() => void saveNewTag()}
+                    disabled={!jevConfigured}
                     aria-label={t("mail.aiFilter.tagNamePlaceholder")}
                     placeholder={t("mail.aiFilter.tagNamePlaceholder")}
                   />
@@ -620,6 +641,7 @@ export function AiFilterSection() {
                     value={newTagPrompt}
                     onChange={setNewTagPrompt}
                     onBlur={() => void saveNewTag()}
+                    disabled={!jevConfigured}
                     label={t("mail.aiFilter.tagPlaceholder")}
                     placeholder={t("mail.aiFilter.tagPlaceholder")}
                   />
@@ -633,6 +655,7 @@ export function AiFilterSection() {
                 value={newTagName}
                 onChange={(event) => setNewTagName(event.target.value)}
                 onBlur={() => void saveNewTag()}
+                disabled={!jevConfigured}
                 aria-label={t("mail.aiFilter.tagNamePlaceholder")}
                 placeholder={t("mail.aiFilter.tagNamePlaceholder")}
               />
@@ -640,6 +663,7 @@ export function AiFilterSection() {
                 value={newTagPrompt}
                 onChange={setNewTagPrompt}
                 onBlur={() => void saveNewTag()}
+                disabled={!jevConfigured}
                 label={t("mail.aiFilter.tagPlaceholder")}
                 placeholder={t("mail.aiFilter.tagPlaceholder")}
               />
@@ -651,7 +675,7 @@ export function AiFilterSection() {
                   key={nameKey}
                   variant="outline"
                   size="sm"
-                  disabled={savingSuggestedTag !== null}
+                  disabled={!jevConfigured || savingSuggestedTag !== null}
                   onClick={() => void saveSuggestedTag(nameKey, promptKey)}
                 >
                   <IconPlus className="size-3.5" />
@@ -668,15 +692,29 @@ export function AiFilterSection() {
             id={mode === "important" ? "importance-rules" : `${mode}-rules`}
             className="space-y-2 scroll-mt-6"
           >
-            <h3 className="text-[13px] font-semibold text-foreground">
-              {mode === "important"
-                ? t("mail.aiFilter.importantMode")
-                : mode === "archive"
-                  ? t("mail.aiFilter.skipInboxMode")
-                  : t("mail.aiFilter.spamMode")}
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-[13px] font-semibold text-foreground">
+                {mode === "important"
+                  ? t("mail.aiFilter.importantMode")
+                  : mode === "archive"
+                    ? t("mail.aiFilter.skipInboxMode")
+                    : t("mail.aiFilter.spamMode")}
+              </h3>
+              {jevUnavailable && promptRules[mode].length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground hover:text-destructive"
+                  aria-label={t("mail.aiFilter.deleteInstruction")}
+                  onClick={() => void savePrompt(mode, true)}
+                >
+                  <IconTrash className="size-3.5" />
+                </Button>
+              )}
+            </div>
             <AiRulePromptField
               value={promptDrafts[mode]}
+              disabled={!jevConfigured}
               onChange={(value) =>
                 setPromptDrafts((drafts) => ({ ...drafts, [mode]: value }))
               }

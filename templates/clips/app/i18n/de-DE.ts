@@ -1467,6 +1467,13 @@ const messages = {
     builderConnected: "Builder.io verbunden",
     waitingForBuilder: "Warten auf Builder...",
     connectBuilder: "Builder.io nutzen",
+    createBuilderAccount: "Builder.io-Konto erstellen",
+    signInWithBuilderAccount: "Mit Builder.io-Konto anmelden",
+    builderConsentPrefix:
+      "Mit der Erstellung eines Builder.io-Kontos stimmst du unseren",
+    builderTerms: "Nutzungsbedingungen",
+    builderConsentAnd: "und",
+    builderPrivacy: "Datenschutzrichtlinien",
     free: "Kostenlos",
     configureS3: "S3-kompatiblen Speicher konfigurieren",
     whyPrompt: "Warum sehe ich das?",

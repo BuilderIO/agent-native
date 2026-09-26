@@ -27,7 +27,9 @@ import {
   isClipsNotificationEnabled,
   type ClipsNotificationCategory,
 } from "../../shared/clips-notification-prefs.js";
+import { usesOrganizationLogoRoute } from "../../shared/organization-logo.js";
 import { getDb, schema } from "../db/index.js";
+import { organizationLogoAbsoluteUrl } from "../lib/organization-logo.js";
 import {
   computeMonthlyRecap,
   listOwnersWithMonthlyAudience,
@@ -608,7 +610,12 @@ function defaultRepository(): TransactionalEmailRepository {
         .from(schema.organizationSettings)
         .where(eq(schema.organizationSettings.organizationId, organizationId))
         .limit(1);
-      return settings?.brandLogoUrl?.trim() || null;
+      const stored = settings?.brandLogoUrl?.trim();
+      if (!stored) return null;
+      if (usesOrganizationLogoRoute(stored)) {
+        return organizationLogoAbsoluteUrl(organizationId);
+      }
+      return stored;
     },
     async recipientOwnsRecording(recipient) {
       const [recording] = await db

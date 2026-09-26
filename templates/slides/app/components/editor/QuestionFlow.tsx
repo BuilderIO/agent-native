@@ -83,7 +83,7 @@ export function QuestionFlow({
   );
 
   return (
-    <div className="absolute inset-0 z-50 bg-background">
+    <div className="slides-question-flow absolute inset-0 z-50 bg-background">
       <GuidedQuestionFlow
         questions={visibleQuestions as GuidedQuestion[]}
         onSubmit={onSubmit}
