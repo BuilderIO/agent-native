@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   useOnboarding: vi.fn(),
   useOnboardingPreviewMode: vi.fn(),
   useOnboardingPreviewStep: vi.fn(),
+  firstRunMode: "off" as "off" | "connect" | "connect-and-integrations",
 }));
 
 vi.mock("react-router", async (importOriginal) => {
@@ -40,6 +41,10 @@ vi.mock("./use-preview-mode.js", () => ({
   useOnboardingPreviewStep: mocks.useOnboardingPreviewStep,
 }));
 
+vi.mock("./first-run-enabled.js", () => ({
+  resolveFirstRunOnboardingMode: () => mocks.firstRunMode,
+}));
+
 vi.mock("../settings/useBuilderStatus.js", () => ({
   useBuilderConnectFlow: mocks.useBuilderConnectFlow,
 }));
@@ -60,6 +65,7 @@ describe("FirstRunOnboarding", () => {
     mocks.useOnboardingPreviewStep.mockReset();
     mocks.useOnboardingPreviewMode.mockReturnValue(false);
     mocks.useOnboardingPreviewStep.mockReturnValue(null);
+    mocks.firstRunMode = "off";
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: false,
       statusResolved: true,
@@ -612,6 +618,374 @@ describe("FirstRunOnboarding", () => {
         outcome: "connected",
       }),
     );
+  });
+
+  it("uses one Builder continue action for connect-mode setup", () => {
+    mocks.firstRunMode = "connect";
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+
+    const continueButton = document.body.querySelector<HTMLButtonElement>(
+      "[data-testid='first-run-builder-continue']",
+    );
+    expect(continueButton?.textContent).toContain("Continue");
+    expect(
+      document.body.querySelector("[data-testid='first-run-builder-sign-in']"),
+    ).toBeNull();
+    expect(document.body.textContent).toContain("Use my own API keys");
+    expect(document.body.textContent).not.toContain("What's included");
+    expect(
+      document.body.querySelector(
+        "a[href='https://www.builder.io/legal/terms']",
+      ),
+    ).toBeTruthy();
+
+    act(() => continueButton?.click());
+
+    expect(flow.start).toHaveBeenCalledWith(
+      expect.objectContaining({ provisionAccount: true }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_clicked",
+      expect.objectContaining({ method_id: "builder_create_account" }),
+    );
+  });
+
+  it("falls back to Builder sign-in when account provisioning is disabled", () => {
+    mocks.firstRunMode = "connect";
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-builder-continue']")
+        ?.click();
+    });
+
+    expect(flow.start).toHaveBeenCalledWith(
+      expect.objectContaining({ provisionAccount: false }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_clicked",
+      expect.objectContaining({ method_id: "builder_sign_in" }),
+    );
+  });
+
+  it("waits for Builder status before choosing a setup path", () => {
+    mocks.firstRunMode = "connect";
+    const flow = {
+      hasFetchedStatus: false,
+      statusResolved: false,
+      configured: false,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      retry: vi.fn(() => true),
+      start: vi.fn(),
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+
+    const continueButton = document.body.querySelector<HTMLButtonElement>(
+      "[data-testid='first-run-builder-continue']",
+    );
+    expect(continueButton?.disabled).toBe(true);
+    act(() => continueButton?.click());
+    expect(flow.start).not.toHaveBeenCalled();
+
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      ...flow,
+      hasFetchedStatus: true,
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+    });
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => continueButton?.click());
+
+    expect(flow.start).toHaveBeenCalledWith(
+      expect.objectContaining({ provisionAccount: true }),
+    );
+  });
+
+  it("lets users retry a failed Builder status check", () => {
+    mocks.firstRunMode = "connect";
+    const retry = vi.fn(() => true);
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: false,
+      configured: false,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: "Couldn't reach Builder to check your account. Retrying.",
+      retry,
+      start: vi.fn(),
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    expect(
+      document.body.querySelector(
+        "[data-testid='first-run-builder-status-error']",
+      )?.textContent,
+    ).toBe("Couldn't check AI connection.");
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-builder-status-error']")
+        ?.parentElement?.querySelector("button")
+        ?.click();
+    });
+
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it("opens API key settings only after choosing the manual option", async () => {
+    mocks.firstRunMode = "connect";
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe("/settings/keys");
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_clicked",
+      expect.objectContaining({ method_id: "custom_keys" }),
+    );
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("lets connect-mode users skip into the app without opening key settings", async () => {
+    mocks.firstRunMode = "connect";
+    window.history.replaceState(null, "", "/home");
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-skip-to-app']")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+    expect(window.location.pathname).toBe("/home");
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_clicked",
+      expect.objectContaining({
+        method_id: "skip_to_app",
+        method_kind: "skip",
+      }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_step_skipped",
+      expect.objectContaining({
+        step_id: "choice",
+        reason: "skip_to_app",
+      }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "skip_to_app",
+        outcome: "skipped_to_app",
+      }),
+    );
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("records the skipped choice after completion succeeds on retry", async () => {
+    mocks.firstRunMode = "connect";
+    mocks.completeFirstRun
+      .mockRejectedValueOnce(new Error("first-run completion failed: 500"))
+      .mockResolvedValueOnce(undefined);
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "builder-app",
+        appName: "Builder App",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: "first-run completion failed: 500",
+    });
+    window.history.replaceState(null, "", "/home");
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-skip-to-app']")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    const choiceSkipped = () =>
+      mocks.trackOnboardingEvent.mock.calls.filter(
+        ([event, properties]) =>
+          event === "onboarding_step_skipped" &&
+          (properties as Record<string, unknown>).step_id === "choice",
+      );
+    expect(choiceSkipped()).toHaveLength(0);
+    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "skip_to_app",
+        outcome: "handoff_failed",
+      }),
+    );
+
+    await act(async () => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Try again")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
+    expect(choiceSkipped()).toHaveLength(1);
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "skip_to_app",
+        outcome: "skipped_to_app",
+      }),
+    );
+    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({ outcome: "handoff_failed" }),
+    );
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("keeps the existing setup chooser for connect-and-integrations mode", () => {
+    mocks.firstRunMode = "connect-and-integrations";
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector(
+        "[data-testid='first-run-builder-create-account']",
+      ),
+    ).not.toBeNull();
+    expect(
+      document.body.querySelector("[data-testid='first-run-builder-continue']"),
+    ).toBeNull();
   });
 
   it("records Builder account-exists as a sanitized failed outcome", () => {
@@ -1399,7 +1773,7 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector(
         '[data-testid="first-run-builder-status-error"]',
       )?.textContent,
-    ).toContain("Couldn't reach Builder");
+    ).toBe("No se pudo comprobar la conexión de IA.");
 
     const cta = document.body.querySelector(
       '[data-testid="first-run-builder-create-account"]',
@@ -1471,10 +1845,10 @@ describe("FirstRunOnboarding", () => {
     expect(window.location.pathname).toBe("/dispatch/settings/keys");
   });
 
-  it("keeps the choice screen visible when completion fails", async () => {
-    mocks.completeFirstRun.mockRejectedValue(
-      new Error("first-run completion failed: 500"),
-    );
+  it("preserves the manual settings handoff when completion is retried", async () => {
+    mocks.completeFirstRun
+      .mockRejectedValueOnce(new Error("first-run completion failed: 500"))
+      .mockResolvedValueOnce(undefined);
     mocks.useOnboarding.mockReturnValue({
       firstRun: true,
       loading: false,
@@ -1512,6 +1886,86 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).toContain(
       "first-run completion failed: 500",
     );
+    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "custom_keys",
+        outcome: "handoff_failed",
+      }),
+    );
+
+    await act(async () => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Try again")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
+    expect(window.location.pathname).toBe("/settings/keys");
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "custom_keys",
+        outcome: "settings_opened",
+      }),
+    );
+    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({ outcome: "handoff_failed" }),
+    );
+  });
+
+  it("records a failed handoff only when the user leaves before retry succeeds", async () => {
+    mocks.completeFirstRun.mockRejectedValueOnce(
+      new Error("first-run completion failed: 500"),
+    );
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "builder-app",
+        appName: "Builder App",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: "first-run completion failed: 500",
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    const outcomes = () =>
+      mocks.trackOnboardingEvent.mock.calls.filter(
+        ([event]) => event === "onboarding_method_outcome",
+      );
+    expect(outcomes()).toHaveLength(0);
+
+    act(() => window.dispatchEvent(new Event("pagehide")));
+
+    expect(outcomes()).toHaveLength(1);
+    expect(outcomes()[0]?.[1]).toMatchObject({
+      method_id: "custom_keys",
+      outcome: "handoff_failed",
+      error_type: "onboarding_completion_error",
+    });
   });
 
   it("shows no status error while the first Builder status read is in flight", () => {

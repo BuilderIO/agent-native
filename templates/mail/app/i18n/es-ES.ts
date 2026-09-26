@@ -72,6 +72,27 @@ const messages = {
       aiSetupPromptTravel: "Confirmaciones y reservas de viaje que necesito",
       aiSetupTagFinance: "Finanzas",
       aiSetupPromptFinance: "Facturas y extractos que necesito",
+      aiSetupArchiveExample:
+        "Notificaciones de bots y CI de GitHub, Vercel y Dependabot",
+      aiSetupFilteredExample:
+        "Mensajes de ventas no solicitados y reclutadores a quienes no he respondido",
+      aiSetupSortingHeadline: "Organizando tu bandeja de entrada",
+      aiSetupSortingProgress:
+        "Ordenando correo reciente: {{processed}} de {{total}}",
+      aiSetupUndoing: "Deshaciendo los cambios de la bandeja…",
+      aiSetupSortingFailed:
+        "No se pudo ordenar tu bandeja. Tus reglas están guardadas; inténtalo de nuevo.",
+      aiSetupUndoComplete: "{{count}} mensajes volvieron a su estado anterior.",
+      aiSetupRuleCount: "{{count}} coincidencias",
+      aiSetupNoMatches:
+        "Ningún mensaje de los últimos 14 días coincide con estas reglas.",
+      aiSetupChatTip:
+        "Puedes ajustar o añadir reglas en cualquier momento desde el chat.",
+      aiSetupChatPrompt: "Prioriza los correos de mi jefe…",
+      aiSetupNoRules: "No seleccionaste ninguna regla.",
+      aiSetupPartialFailure: "No se pudieron actualizar {{count}} mensajes.",
+      aiSetupSortInbox: "Ordenar mi bandeja",
+      aiSetupImportantExample: "Todo lo de mi gerente, Priya…",
       priorityFeedbackLabel: "Comentarios sobre importancia",
       priorityScoreHigh: "Importancia alta",
       priorityScoreMedium: "Importancia media",
@@ -545,6 +566,8 @@ const messages = {
         "Añade la etiqueta agent-native-filtered y archiva la conversación. Puedes deshacerlo cuando quieras.",
       learningNote:
         "Conserva el mensaje en Recibidos y enseña al filtro a no repetir el error.",
+      learningProgress:
+        "Has confirmado {{count}} de {{required}} ejemplos. Revisaremos el correo reciente cuando se confirmen los {{required}}.",
       rememberLabel: "Recordar para futuros mensajes (opcional)",
       correctLabel: "¿Qué debería aprender? (opcional)",
       rememberPlaceholder:
@@ -566,6 +589,24 @@ const messages = {
       spamMode: "Spam",
       tagMode: "Etiqueta",
       aiTagsTitle: "Etiquetas de IA",
+      filteredMode: "Filtrado",
+      autoArchiveMode: "Archivar automáticamente",
+      manageSettings: "Administrar",
+      askJev: "Preguntar a Jev",
+      askJevPrompt:
+        "Ayúdame a ajustar esta regla de Mail: {{condition}}. Pregúntame qué quiero cambiar y luego actualízala.",
+      composerPlaceholder: "Pídele a Jev que organice tu bandeja…",
+      ruleBackfillStarting: "Aplicando esta regla al correo reciente…",
+      ruleBackfillProgress:
+        "Aplicando al correo reciente: {{processed}} de {{total}}",
+      ruleBackfillMatches: "{{count}} mensajes recientes coinciden",
+      ruleBackfillNoMatches: "Ningún mensaje reciente coincide con esta regla.",
+      ruleBackfillFailed: "No se pudo aplicar esta regla al correo reciente.",
+      ruleBackfillPartialFailure:
+        "No se pudieron actualizar {{count}} mensajes.",
+      ruleBackfillUndoing: "Restaurando el correo reciente…",
+      ruleBackfillUndoComplete: "{{count}} mensajes restaurados",
+      ruleBackfillReview: "Revisar coincidencias",
       importantMode: "Importante",
       notImportantMode: "No importante",
       importantLabel: "Importante con IA",

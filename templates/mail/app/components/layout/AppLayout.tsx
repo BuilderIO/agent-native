@@ -18,6 +18,11 @@ import {
   FeedbackButton,
 } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import {
+  aiFilterRuleLabelName,
+  aiFilterRuleMode,
+  normalizedAiFilterLabelId,
+} from "@shared/ai-filter-rules";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels";
 import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
 import type { Label, SavedMailFilter } from "@shared/types";
@@ -75,6 +80,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { AccountFilterContext } from "@/hooks/use-account-filter";
+import { useAutomations } from "@/hooks/use-automations";
 import {
   applyDraftSaveResult,
   DRAFT_DELETE_FAILED_EVENT,
@@ -355,6 +361,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       defaultOpen={typeof window !== "undefined" && wasMailChatOpen()}
       openStorageKey={mailChatOpenStorageKey()}
       agentPageHref="/settings/agent"
+      composerPlaceholder={t("mail.aiFilter.composerPlaceholder")}
       emptyStateText={t("agent.emptyState")}
       suggestions={[
         t("agent.suggestionSummarize"),
@@ -578,6 +585,29 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
   const labelAliases = settings?.labelAliases ?? {};
   const savedFilters = settings?.savedFilters ?? EMPTY_SAVED_FILTERS;
+  const { data: automations = [] } = useAutomations();
+  const aiTags = useMemo(() => {
+    const tags = new Map<string, { id: string; name: string }>();
+    for (const rule of automations) {
+      if (
+        rule.domain !== "mail" ||
+        rule.kind !== "ai-filter" ||
+        aiFilterRuleMode(rule) !== "tag"
+      ) {
+        continue;
+      }
+      const name = aiFilterRuleLabelName(rule).trim();
+      const normalizedName = normalizedAiFilterLabelId(name);
+      const id =
+        labels.find(
+          (label) => normalizedAiFilterLabelId(label.name) === normalizedName,
+        )?.id ?? normalizedName;
+      if (name && id && !tags.has(normalizedName)) {
+        tags.set(normalizedName, { id, name });
+      }
+    }
+    return [...tags.values()];
+  }, [automations, labels]);
 
   // The top bar's tabs, their counts, and the account/sync status all come
   // from one server call — see shared/inbox-threads.ts. InboxPage requests
@@ -813,11 +843,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   // User labels available for pinning
   const userLabels = useMemo(() => {
+    const aiTagIds = new Set(aiTags.map((tag) => tag.id));
     const filtered = labels.filter(
-      (l) => !["inbox", ...collapsibleViews.map((v) => v.id)].includes(l.id),
+      (l) =>
+        !["inbox", ...collapsibleViews.map((v) => v.id)].includes(l.id) &&
+        !aiTagIds.has(l.id) &&
+        !aiTagIds.has(normalizedAiFilterLabelId(l.name)),
     );
     return filtered;
-  }, [labels]);
+  }, [aiTags, labels]);
 
   const handleCompose = useCallback(() => {
     trackEvent("compose_opened", {
@@ -1545,6 +1579,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   </Link>
                   <TabSettingsPopover
                     systemViews={collapsibleViews}
+                    aiTags={aiTags}
+                    labels={labels}
                     userLabels={userLabels}
                     labelDisplayNames={labelDisplayNames}
                     pinnedLabels={pinnedLabels}
@@ -2668,6 +2704,8 @@ function CheckboxRow({
 
 function TabSettingsPopover({
   systemViews,
+  aiTags,
+  labels,
   userLabels,
   labelDisplayNames,
   pinnedLabels,
@@ -2685,6 +2723,8 @@ function TabSettingsPopover({
   onRename,
 }: {
   systemViews: { id: string; labelKey: string }[];
+  aiTags: { id: string; name: string }[];
+  labels: Label[];
   userLabels: Label[];
   labelDisplayNames: ReadonlyMap<string, string>;
   pinnedLabels: string[];
@@ -2705,12 +2745,19 @@ function TabSettingsPopover({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const searchEnabled =
-    systemViews.length + userLabels.length + savedFilters.length > 10;
+    systemViews.length +
+      aiTags.length +
+      userLabels.length +
+      savedFilters.length >
+    10;
   const q = searchEnabled ? search.toLowerCase() : "";
 
   const filteredViews = search
     ? systemViews.filter((v) => t(v.labelKey).toLowerCase().includes(q))
     : systemViews;
+  const filteredAiTags = search
+    ? aiTags.filter((tag) => tag.name.toLowerCase().includes(q))
+    : aiTags;
   const filteredSavedFilters = search
     ? savedFilters.filter(
         (filter) =>
@@ -2762,11 +2809,17 @@ function TabSettingsPopover({
   const labelRows = labelTreeRows(filteredLabels);
 
   const showViews = filteredViews.length > 0;
+  const showAiTags = filteredAiTags.length > 0;
   const showSavedFilters = filteredSavedFilters.length > 0;
   const showCategories = filteredCategories.length > 0;
   const showLabels = labelRows.length > 0;
   const noResults =
-    !showViews && !showSavedFilters && !showCategories && !showLabels && search;
+    !showAiTags &&
+    !showViews &&
+    !showSavedFilters &&
+    !showCategories &&
+    !showLabels &&
+    search;
 
   return (
     <>
@@ -2806,6 +2859,24 @@ function TabSettingsPopover({
             <p className="px-3 py-3 text-[12px] text-muted-foreground/50">
               {t("mail.search.noMatches")}
             </p>
+          )}
+
+          {/* AI rule tags stay separate from the Gmail label tree. */}
+          {showAiTags && (
+            <div>
+              <p className="px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">
+                {t("mail.aiFilter.aiTagsTitle")}
+              </p>
+              {filteredAiTags.map((tag) => (
+                <CheckboxRow
+                  key={tag.id}
+                  checked={pinnedLabels.includes(tag.id)}
+                  label={labelAliases[tag.id] || tag.name}
+                  color={labels.find((label) => label.id === tag.id)?.color}
+                  onToggle={() => onToggle(tag.id)}
+                />
+              ))}
+            </div>
           )}
 
           {/* System views */}

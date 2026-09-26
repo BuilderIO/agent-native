@@ -696,12 +696,10 @@ export function shouldStartWithLocalDev(
   const path = pathname.replace(/\/+$/, "") || "/";
   return (
     !params.has("tab") &&
-    !params.has("c") &&
     !params.has("verified") &&
     !isVerificationLinkInvalid(params.get("error")) &&
     !path.endsWith("/login") &&
-    !path.endsWith("/signup") &&
-    !path.endsWith("/sign-in")
+    !path.endsWith("/signup")
   );
 }
 
@@ -2375,6 +2373,7 @@ export function AuthPage(props: AuthPageProps) {
   const keys = headingKeys(view);
   const cardClassName = [
     "card",
+    localDevAvailable ? "local-dev-available" : "",
     view === "verification" ? "verifying" : "",
     view === "magicLinkSent" ? "magic-link-complete" : "",
   ]
@@ -2585,11 +2584,21 @@ export function AuthPage(props: AuthPageProps) {
           type="button"
           className="local-dev-full-options"
           id="local-dev-full-options"
-          hidden={fullAuthOptionsVisible}
-          data-i18n="localDevFullOptions"
-          onClick={() => setFullAuthOptionsVisible(true)}
+          hidden={!localDevAvailable}
+          aria-controls="full-auth-options"
+          aria-expanded={fullAuthOptionsVisible}
+          data-i18n={
+            fullAuthOptionsVisible
+              ? "localDevHideFullOptions"
+              : "localDevFullOptions"
+          }
+          onClick={() => setFullAuthOptionsVisible((visible) => !visible)}
         >
-          {t("localDevFullOptions")}
+          {t(
+            fullAuthOptionsVisible
+              ? "localDevHideFullOptions"
+              : "localDevFullOptions",
+          )}
         </button>
         {notice("local-dev")}
       </div>
