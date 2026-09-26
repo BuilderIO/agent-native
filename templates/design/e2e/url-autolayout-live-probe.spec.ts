@@ -165,9 +165,17 @@ test.describe("URL-backed live auto-layout probe", () => {
         ),
       )
       .toBe(true);
+    await expect
+      .poll(() =>
+        frame
+          .locator("body")
+          .evaluate((body) => body.ownerDocument.activeElement?.tagName),
+      )
+      .toBe("BUTTON");
 
     await frame.locator("body").evaluate(() => {
       const host = document.createElement("e2e-focus-host");
+      host.id = "open-shadow-focus-host";
       const shadow = host.attachShadow({ mode: "open" });
       const input = document.createElement("input");
       input.setAttribute("aria-label", "Shadow input");
@@ -184,9 +192,24 @@ test.describe("URL-backed live auto-layout probe", () => {
         ),
       )
       .toBe(true);
+    await expect
+      .poll(() =>
+        frame.locator("body").evaluate((body) => {
+          const host = body.ownerDocument.querySelector(
+            "#open-shadow-focus-host",
+          );
+          return (
+            body.ownerDocument.activeElement === host &&
+            host?.shadowRoot?.activeElement?.getAttribute("aria-label") ===
+              "Shadow input"
+          );
+        }),
+      )
+      .toBe(true);
 
     await frame.locator("body").evaluate(() => {
       const host = document.createElement("div");
+      host.id = "closed-shadow-focus-host";
       const shadow = host.attachShadow({ mode: "closed" });
       const input = document.createElement("input");
       shadow.append(input);
@@ -202,10 +225,25 @@ test.describe("URL-backed live auto-layout probe", () => {
         ),
       )
       .toBe(true);
+    await expect
+      .poll(() =>
+        frame.locator("body").evaluate((body) => {
+          const host = body.ownerDocument.querySelector(
+            "#closed-shadow-focus-host",
+          );
+          return (
+            body.ownerDocument.activeElement === host &&
+            host instanceof HTMLElement &&
+            host.matches(":focus-within")
+          );
+        }),
+      )
+      .toBe(true);
 
     for (const tagName of ["audio", "video"] as const) {
       await frame.locator("body").evaluate((body, tag) => {
         const media = body.ownerDocument.createElement(tag);
+        media.id = `focus-${tag}`;
         media.controls = true;
         body.append(media);
         media.focus();
@@ -217,6 +255,18 @@ test.describe("URL-backed live auto-layout probe", () => {
               document.activeElement ===
               document.querySelector("iframe[data-design-preview-iframe]"),
           ),
+        )
+        .toBe(true);
+      await expect
+        .poll(() =>
+          frame
+            .locator("body")
+            .evaluate(
+              (body, tag) =>
+                body.ownerDocument.activeElement ===
+                body.ownerDocument.querySelector(`#focus-${tag}`),
+              tagName,
+            ),
         )
         .toBe(true);
     }
@@ -231,6 +281,24 @@ test.describe("URL-backed live auto-layout probe", () => {
       .locator("#nested-focus-frame")
       .contentFrame();
     await nestedFrame.locator("input").focus();
+    await expect
+      .poll(() =>
+        nestedFrame
+          .locator("input")
+          .evaluate((input) => input.ownerDocument.activeElement === input),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        frame
+          .locator("body")
+          .evaluate(
+            (body) =>
+              body.ownerDocument.activeElement ===
+              body.ownerDocument.querySelector("#nested-focus-frame"),
+          ),
+      )
+      .toBe(true);
     await expect
       .poll(() =>
         page.evaluate(
