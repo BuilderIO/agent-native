@@ -3174,7 +3174,7 @@ async function main(): Promise<void> {
         `requestfailed ${request.method()} ${url}: ${request.failure()?.errorText ?? "unknown failure"}`,
       );
     });
-    page.on("response", (response) => {
+    page.on("response", async (response) => {
       const status = response.status();
       if (status < 400) return;
       const url = response.url();
@@ -3183,7 +3183,13 @@ async function main(): Promise<void> {
         recordSuppressedNoise(`${status} ${url}`);
         return;
       }
-      httpErrors.push(`${status} ${url}`);
+      const detail =
+        status >= 500 && new URL(url).pathname === "/_agent-native/poll"
+          ? await response.text().catch(() => "")
+          : "";
+      httpErrors.push(
+        `${status} ${url}${detail ? `: ${detail.slice(0, 500)}` : ""}`,
+      );
     });
 
     await runBrowserSmoke(
