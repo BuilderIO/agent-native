@@ -884,6 +884,52 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("configured connecting resolved");
   });
 
+  it("settles an active connect when a lifecycle refresh confirms OAuth", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const disconnectedStatus = {
+      ...connectedBuilderStatus,
+      configured: false,
+      orgName: null,
+      credentialSource: null,
+    };
+    const onConnected = vi.fn();
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(disconnectedStatus))
+      .mockResolvedValueOnce(jsonResponse(disconnectedStatus))
+      .mockResolvedValueOnce(
+        jsonResponse({ ...connectedBuilderStatus, credentialSource: "user" }),
+      );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe onConnected={onConnected} />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("not-configured connecting");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("configured idle resolved");
+    expect(onConnected).toHaveBeenCalledOnce();
+  });
+
   it("waits for an OAuth credential when only deployment-managed Builder credentials exist", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));

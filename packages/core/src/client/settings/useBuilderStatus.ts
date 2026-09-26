@@ -951,6 +951,7 @@ export function useBuilderConnectFlow(
       const hasOAuthCredential = hasBuilderOAuthCredential(s);
       if (hasOAuthCredential) {
         connectStartedAtRef.current = null;
+        setConnecting(false);
       }
       if (hasOAuthCredential && !notifiedConnectedRef.current) {
         notifiedConnectedRef.current = true;
