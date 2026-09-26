@@ -207,6 +207,20 @@ describe("SuggestionHighlight", () => {
         .getState(setSpecs(state("AlphA Xtail"), [spec]))!
         .decorations.find(),
     ).toHaveLength(0);
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("Beta tail and Alpha Xtail"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+    expect(
+      suggestionHighlightKey
+        .getState(
+          setSpecs(state("Beta tail and Alpha Xtail"), [
+            { ...spec, from: 21, to: 21 },
+          ]),
+        )!
+        .decorations.find(),
+    ).toHaveLength(0);
   });
 
   it("keeps deletions quiet at rest and readable on hover, focus, or selection", () => {

@@ -393,16 +393,10 @@ export function visibleSavedSuggestionsDuringDraftMaterialization(
   saved: ResourceSuggestion[],
   drafts: DraftSuggestion[],
   submitting: boolean,
+  materializedIds: ReadonlySet<string>,
 ) {
   if (!submitting || drafts.length === 0) return saved;
-  const draftKeys = new Set(
-    drafts.map((draft) => suggestionOperationKey(draft.operations[0]!)),
-  );
-  return saved.filter(
-    (suggestion) =>
-      !suggestion.operations[0] ||
-      !draftKeys.has(suggestionOperationKey(suggestion.operations[0])),
-  );
+  return saved.filter((suggestion) => !materializedIds.has(suggestion.id));
 }
 
 export function sameSuggestionAnchorIds(
@@ -1780,12 +1774,14 @@ function PageEditorSessionBody({
     readbackContent: string | null;
   } | null>(null);
   const [decisionRefreshFailed, setDecisionRefreshFailed] = useState(false);
-  const decisionRefreshInFlightRef = useRef(false);
+  const decisionRefreshInFlightRef = useRef<number | null>(null);
   const [decisionReadbackDivergence, setDecisionReadbackDivergence] = useState<{
     suggestionId: string;
     actualContent: string;
   } | null>(null);
   const suggestionDecisionInFlightRef = useRef(false);
+  const suggestionDecisionGenerationRef = useRef(0);
+  const activeSuggestionDecisionIdRef = useRef<string | null>(null);
   const [preserveInlineReviewSpace, setPreserveInlineReviewSpace] =
     useState(false);
   // Registry blocks do not yet produce typed suggestion operations. Keep their
@@ -4152,8 +4148,9 @@ function PageEditorSessionBody({
 
   const refreshSuggestionDecisionDocument = useCallback(
     async (continueSuggesting: boolean, accepted: boolean) => {
-      if (decisionRefreshInFlightRef.current) return;
-      decisionRefreshInFlightRef.current = true;
+      const decisionGeneration = suggestionDecisionGenerationRef.current;
+      if (decisionRefreshInFlightRef.current === decisionGeneration) return;
+      decisionRefreshInFlightRef.current = decisionGeneration;
       setDecisionRefreshFailed(false);
       try {
         const refreshedDocument = await callAction(
@@ -4165,10 +4162,14 @@ function PageEditorSessionBody({
           },
           { method: "GET" },
         );
+        if (decisionGeneration !== suggestionDecisionGenerationRef.current)
+          return;
         patchDocumentCaches(queryClient, documentId, refreshedDocument);
         if (continueSuggesting) continueSuggestionModeFrom(refreshedDocument);
         if (accepted && continueSuggesting) {
           const sync = await requestCollabSync();
+          if (decisionGeneration !== suggestionDecisionGenerationRef.current)
+            return;
           if (sync.status === "failed") throw sync.error;
           if (sync.status === "unavailable")
             throw new Error("Collaborative document is unavailable");
@@ -4179,8 +4180,11 @@ function PageEditorSessionBody({
         });
         if (!accepted) {
           suggestionDecisionInFlightRef.current = false;
+          activeSuggestionDecisionIdRef.current = null;
         }
       } catch (error) {
+        if (decisionGeneration !== suggestionDecisionGenerationRef.current)
+          return;
         setDecisionRefreshFailed(true);
         void queryClient.invalidateQueries(documentQueryFilter(documentId));
         toast.error(t("empty.genericError"), {
@@ -4188,7 +4192,8 @@ function PageEditorSessionBody({
             error instanceof Error ? error.message : t("empty.genericError"),
         });
       } finally {
-        decisionRefreshInFlightRef.current = false;
+        if (decisionRefreshInFlightRef.current === decisionGeneration)
+          decisionRefreshInFlightRef.current = null;
       }
     },
     [
@@ -4203,6 +4208,9 @@ function PageEditorSessionBody({
   );
 
   const handleAcceptedDecisionRendered = useCallback((suggestionId: string) => {
+    if (activeSuggestionDecisionIdRef.current !== suggestionId) return;
+    activeSuggestionDecisionIdRef.current = null;
+    suggestionDecisionGenerationRef.current += 1;
     setDecisionReadbackDivergence((current) =>
       current?.suggestionId === suggestionId ? null : current,
     );
@@ -4466,8 +4474,18 @@ function PageEditorSessionBody({
         presentedSuggestions,
         draftSuggestions,
         isSubmittingSuggestions,
+        new Set(
+          [...createdSuggestionOperationsRef.current.values()]
+            .map((entry) => entry.suggestion?.id)
+            .filter((id): id is string => typeof id === "string"),
+        ),
       ),
-    [presentedSuggestions, draftSuggestions, isSubmittingSuggestions],
+    [
+      presentedSuggestions,
+      draftSuggestions,
+      isSubmittingSuggestions,
+      suggestionPersistenceRevision,
+    ],
   );
 
   const visualSuggestions = useMemo<VisualEditorSuggestion[]>(() => {
@@ -5598,6 +5616,7 @@ function PageEditorSessionBody({
         )
           return;
         suggestionDecisionInFlightRef.current = true;
+        suggestionDecisionGenerationRef.current += 1;
         const continueSuggesting = isSuggesting;
         let observedSuggestion = suggestion;
         if (continueSuggesting) {
@@ -5611,6 +5630,7 @@ function PageEditorSessionBody({
           }
         }
         if (showInlineComments) setPreserveInlineReviewSpace(true);
+        activeSuggestionDecisionIdRef.current = observedSuggestion.id;
         setPendingSuggestionDecision({
           suggestion: observedSuggestion,
           decision,
@@ -5629,6 +5649,7 @@ function PageEditorSessionBody({
             observedRevision: observedSuggestion.revision,
           });
         } catch (error) {
+          activeSuggestionDecisionIdRef.current = null;
           setPendingSuggestionDecision(null);
           setDecisionRefreshFailed(false);
           suggestionDecisionInFlightRef.current = false;

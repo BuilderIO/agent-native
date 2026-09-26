@@ -297,15 +297,25 @@ describe("document editor layout", () => {
     } as never;
     const unrelated = {
       id: "unrelated",
-      operations: [{ ordinal: 0, kind: "insert_text", after: "X" }],
+      operations: [{ ordinal: 1, kind: "insert_text", after: "W" }],
     } as never;
     const saved = [optimistic, unrelated];
 
     expect(
-      visibleSavedSuggestionsDuringDraftMaterialization(saved, [draft], true),
+      visibleSavedSuggestionsDuringDraftMaterialization(
+        saved,
+        [draft],
+        true,
+        new Set(["optimistic"]),
+      ),
     ).toEqual([unrelated]);
     expect(
-      visibleSavedSuggestionsDuringDraftMaterialization(saved, [draft], false),
+      visibleSavedSuggestionsDuringDraftMaterialization(
+        saved,
+        [draft],
+        false,
+        new Set(["optimistic"]),
+      ),
     ).toEqual(saved);
   });
 
@@ -2162,9 +2172,15 @@ describe("document editor layout", () => {
     expect(decision).toContain('result.suggestion.status === "accepted"');
     expect(decision).toContain("if (suggestion.id === editingSuggestionId)");
     expect(source).toContain("setDecisionRefreshFailed(true)");
-    expect(source).toContain("if (decisionRefreshInFlightRef.current) return");
-    expect(source).toContain("decisionRefreshInFlightRef.current = true");
-    expect(source).toContain("decisionRefreshInFlightRef.current = false");
+    expect(source).toContain(
+      "if (decisionRefreshInFlightRef.current === decisionGeneration) return",
+    );
+    expect(source).toContain(
+      "decisionRefreshInFlightRef.current = decisionGeneration",
+    );
+    expect(source).toContain(
+      "if (decisionGeneration !== suggestionDecisionGenerationRef.current)",
+    );
     expect(source).toMatch(
       /decisionRefreshFailed &&\s+pendingSuggestionDecision/,
     );

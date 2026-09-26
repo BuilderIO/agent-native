@@ -231,29 +231,16 @@ function operationRangeUnchanged(
 }
 
 function insertionAtOperationAnchor(
-  presentation: SuggestionPresentationContext,
-  content: string,
+  doc: ProseMirrorNode,
+  from: number,
   inserted: string | undefined,
 ) {
-  if (!inserted) return false;
-  const right = presentation.source.slice(
-    presentation.from,
-    presentation.from + 32,
+  return Boolean(
+    inserted &&
+    from >= 0 &&
+    from + inserted.length <= doc.content.size &&
+    doc.textBetween(from, from + inserted.length) === inserted,
   );
-  if (right) {
-    const at = content.indexOf(right);
-    return (
-      at >= inserted.length &&
-      content.slice(at - inserted.length, at) === inserted
-    );
-  }
-  const left = presentation.source.slice(
-    Math.max(0, presentation.from - 32),
-    presentation.from,
-  );
-  if (!left) return content.startsWith(inserted);
-  const at = content.indexOf(left);
-  return at !== -1 && content.slice(at + left.length).startsWith(inserted);
 }
 
 function settledAtOperation(
@@ -331,14 +318,12 @@ function buildDecorations(
     if (
       spec.settling &&
       settledContent !== null &&
-      ((settledAtOperation(settledContent, spec) &&
-        (spec.kind !== "insert" ||
-          (spec.settlingBeforePresentation !== undefined &&
-            insertionAtOperationAnchor(
-              spec.settlingBeforePresentation,
-              settledContent,
-              spec.insertedText,
-            )))) ||
+      ((spec.kind === "insert"
+        ? (spec.insertedPresentation !== undefined &&
+            canonicalizeNfm(settledContent) ===
+              canonicalizeNfm(spec.insertedPresentation.source)) ||
+          insertionAtOperationAnchor(doc, spec.from, spec.insertedText)
+        : settledAtOperation(settledContent, spec)) ||
         (spec.settlingReadbackContent !== null &&
           spec.settlingReadbackContent !== undefined &&
           canonicalizeNfm(settledContent) ===
