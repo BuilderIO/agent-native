@@ -66,6 +66,8 @@ const messages = {
     languageDescription:
       "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
     languageLabel: "Oberflächensprache",
+    mcpAbout:
+      "Verbinde CRM mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in CRM für dich arbeiten: Datensätze finden, Felder aktualisieren und Aufgaben verwalten. Sie sieht nur, was du sehen kannst.",
   },
   connection: {
     tab: "Verbindung",

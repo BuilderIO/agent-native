@@ -1,17 +1,24 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { IconAlertTriangle, IconPlugConnected } from "@tabler/icons-react";
 import { Link } from "react-router";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 import {
   connectionModeInfo,
   CRM_CONNECTION_MODE_INFO,
   SELECTABLE_CRM_CONNECTION_MODES,
 } from "./settings-admin";
+import {
+  CrmSettingsPanelHeader,
+  crmSettingsPanelClassName,
+  type CrmSettingsPanelProps,
+} from "./SettingsPanelHeader";
 
 interface CrmConnectionSummary {
   id: string;
@@ -25,7 +32,7 @@ interface CrmConnectionSummary {
   lastError: string | null;
 }
 
-export function ConnectionSettings() {
+export function ConnectionSettings({ embedded }: CrmSettingsPanelProps = {}) {
   const t = useT();
   const connectionsQuery = useActionQuery<{
     connections: CrmConnectionSummary[];
@@ -36,15 +43,19 @@ export function ConnectionSettings() {
   );
 
   return (
-    <div className="mx-auto w-full max-w-2xl">
-      <h1 className="text-xl font-semibold tracking-tight">
-        {t("connection.title")}
-      </h1>
-      <p className="mt-1 text-sm leading-6 text-muted-foreground">
-        {t("connection.description")}
-      </p>
+    <div className={crmSettingsPanelClassName(embedded)}>
+      <CrmSettingsPanelHeader
+        embedded={embedded}
+        title={t("connection.title")}
+        description={t("connection.description")}
+      />
 
-      <div className="mt-5 grid gap-3 rounded-lg border border-border/70 bg-card p-4">
+      <div
+        className={cn(
+          "mt-5 grid gap-3 rounded-lg border border-border/70 bg-card p-4",
+          embedded && "mt-0",
+        )}
+      >
         <p className="text-sm font-medium">{t("connection.modesTitle")}</p>
         {SELECTABLE_CRM_CONNECTION_MODES.map((mode) => (
           <div key={mode} className="grid gap-0.5">
@@ -127,7 +138,7 @@ export function ConnectionSettings() {
           <Link to="/setup">{t("connection.openSetup")}</Link>
         </Button>
         <Button asChild variant="outline" size="sm">
-          <Link to="/settings/connections">
+          <Link to={buildSettingsRoute("integrations")}>
             {t("connection.openWorkspaceConnections")}
           </Link>
         </Button>

@@ -11,14 +11,19 @@
 
 import { buildSettingsRoute } from "@agent-native/core/navigation";
 
-export const CRM_SETTINGS_SECTIONS = [
+/** CRM's own areas: tabs on CRM › General, at `/settings/app/<id>`. */
+export const CRM_SETTINGS_AREA_IDS = [
   "connection",
   "fields",
   "lists",
   "intelligence",
-  "mcp",
   "advanced",
 ] as const;
+
+export type CrmSettingsAreaId = (typeof CRM_SETTINGS_AREA_IDS)[number];
+
+/** What the navigate action's `settingsSection` can name. */
+export const CRM_SETTINGS_SECTIONS = [...CRM_SETTINGS_AREA_IDS, "mcp"] as const;
 
 export type CrmSettingsSection = (typeof CRM_SETTINGS_SECTIONS)[number];
 
@@ -111,7 +116,9 @@ export function crmNavigationPath(target: CrmNavigationTarget): string {
     return `/records/${encodeURIComponent(target.recordId)}`;
   }
   if (target.view === "settings" && target.settingsSection) {
-    return buildSettingsRoute(target.settingsSection);
+    return target.settingsSection === "mcp"
+      ? buildSettingsRoute("mcp")
+      : buildSettingsRoute("app", target.settingsSection);
   }
   if (target.view === "board" && !target.viewId && !target.listId) {
     throw new Error(
@@ -171,7 +178,7 @@ export function parseCrmNavigationSelection(
   const params = url.searchParams;
   const kind = params.get("kind");
   const mode = params.get("mode");
-  const section = url.pathname.split("/settings/")[1]?.split("/")[0];
+  const section = settingsSectionFromPath(url.pathname);
   return {
     ...(params.get("view") ? { viewId: params.get("view")! } : {}),
     ...(params.get("list") ? { listId: params.get("list")! } : {}),
@@ -181,6 +188,15 @@ export function parseCrmNavigationSelection(
     ...(params.get("q") ? { query: params.get("q")! } : {}),
     ...(isSettingsSection(section) ? { settingsSection: section } : {}),
   };
+}
+
+/**
+ * `/settings/app/<area>` in either Settings, plus today's `/settings/<section>`
+ * links, which the redesigned shell rewrites to the area.
+ */
+function settingsSectionFromPath(pathname: string): string | undefined {
+  const segments = pathname.split("/settings/")[1]?.split("/") ?? [];
+  return segments[0] === "app" ? segments[1] : segments[0];
 }
 
 function isRecordKind(value: string | null): value is CrmRecordKind {

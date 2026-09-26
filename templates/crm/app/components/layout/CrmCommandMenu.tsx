@@ -1,6 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  buildSettingsRoute,
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
@@ -326,7 +327,7 @@ function CrmCommandResults({
             "preferences",
           ),
           icon: IconSettings,
-          run: () => navigate("/settings/connections"),
+          run: () => navigate(buildSettingsRoute("integrations")),
         },
         {
           id: "shortcuts",

@@ -64,6 +64,8 @@ const messages = {
     languageTitle: "语言",
     languageDescription: "选择界面语言。此偏好会保存到你的账户。",
     languageLabel: "界面语言",
+    mcpAbout:
+      "将 CRM 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 CRM 中工作：查找记录、更新字段并管理任务。它只能看到你有权看到的内容。",
   },
   connection: {
     tab: "连接",

@@ -66,6 +66,8 @@ const messages = {
     languageDescription:
       "Choose the interface language. This preference is saved for your account.",
     languageLabel: "Interface language",
+    mcpAbout:
+      "Connect CRM to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in CRM for you: find records, update fields, and manage tasks. It sees only what you can see.",
   },
   connection: {
     tab: "Connection",

@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import {
   IconBolt,
   IconChecklist,
@@ -706,7 +707,7 @@ function CallEvidenceAutomationDialog({ record }: { record: CrmRecordDetail }) {
         <DialogFooter className="flex-row flex-wrap justify-end gap-2 sm:justify-end">
           <Button asChild variant="ghost" size="sm" className="gap-1.5">
             <Link
-              to="/settings/agent/automations"
+              to={buildSettingsRoute("automations")}
               onClick={() => setOpen(false)}
             >
               <IconExternalLink className="size-4" />{" "}
