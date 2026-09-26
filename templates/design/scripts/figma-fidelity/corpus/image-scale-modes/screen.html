@@ -52,6 +52,16 @@
     </style>
   </head>
   <body>
+    <!--
+      Figma's five image scale modes reach the DOM only through background-size
+      and background-repeat. TILE is the one that needs both: it is a size plus
+      `repeat`, and reading only the size exported a tiled fill as a single
+      stretched copy over the whole box. The two TILE cells differ only in tile
+      size, so a pattern emitted at the wrong scale shows as a mismatch rather
+      than as two identical swatches. Both images are embedded: the export hop
+      fetches remote images with a timeout, which makes any fixture that
+      depends on the network measure the network.
+    -->
     <div class="frame" data-agent-native-node-id="frame">
       <h1>Image scale modes</h1>
       <div class="grid">
