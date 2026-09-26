@@ -28,6 +28,16 @@ import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+const IMAGE_TOKEN_STEP_SECONDS = 5 * 60;
+
+/** Seconds to the end of the next whole step: between one and two steps. */
+function steppedTokenTtlSeconds(nowMs = Date.now()): number {
+  const now = Math.floor(nowMs / 1000);
+  const stepEnd =
+    (Math.floor(now / IMAGE_TOKEN_STEP_SECONDS) + 2) * IMAGE_TOKEN_STEP_SECONDS;
+  return stepEnd - now;
+}
+
 /**
  * The movable marks stored on a screenshot, if any.
  *
@@ -368,9 +378,15 @@ export default defineAction({
 
     // The picture goes through the thumbnail route, which asks everyone but
     // the owner for the share password, the same as the video route does.
+    // The token expires on a fixed step rather than a fixed time from now:
+    // it is part of the <img> URL, and a token minted fresh on every refetch
+    // would make the browser download the whole picture again each time.
     const imageAccessToken =
       isImageRecording(rec) && rec.password && access.role !== "owner"
-        ? signShortLivedToken({ resourceId: rec.id })
+        ? signShortLivedToken({
+            resourceId: rec.id,
+            ttlSeconds: steppedTokenTtlSeconds(),
+          })
         : null;
 
     return {

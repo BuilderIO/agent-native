@@ -3,6 +3,7 @@ import {
   resolveBuilderRequestAuthorization,
 } from "@agent-native/core/server";
 
+import { isImageRecording } from "../../shared/recording-kind.js";
 import { deleteS3ObjectByUrl } from "./s3-upload-provider.js";
 import { screenshotLeftoverUrls } from "./screenshot-edits.js";
 
@@ -17,6 +18,7 @@ interface RecordingMediaUrls {
   baseImageUrl?: string | null;
   /** Lists a screenshot's replaced files that are still to be deleted. */
   editsJson?: string | null;
+  kind?: string | null;
 }
 
 export interface RecordingMediaCleanupResult {
@@ -30,6 +32,22 @@ interface RecordingMediaCleanupOptions {
   protectedUrls?: Iterable<string>;
 }
 
+/**
+ * Nothing else points at these, so if the row goes without them they stay in
+ * storage for good — and they are the unredacted originals. Unreadable edits
+ * are refused rather than read as "none".
+ */
+function screenshotLeftovers(recording: RecordingMediaUrls): string[] {
+  if (!isImageRecording(recording)) return [];
+  const leftovers = screenshotLeftoverUrls(recording.editsJson);
+  if (!leftovers) {
+    throw new Error(
+      "This screenshot's saved edits could not be read, so the files it replaced cannot be found to delete. Nothing was deleted.",
+    );
+  }
+  return leftovers;
+}
+
 export function recordingMediaUrls(recording: RecordingMediaUrls): string[] {
   const urls = [
     recording.videoUrl,
@@ -38,9 +56,7 @@ export function recordingMediaUrls(recording: RecordingMediaUrls): string[] {
     recording.filmstripUrl,
     recording.imageUrl,
     recording.baseImageUrl,
-    // Nothing else points at these, so if the row goes without them they
-    // stay in storage for good — and they are the unredacted originals.
-    ...screenshotLeftoverUrls(recording.editsJson),
+    ...screenshotLeftovers(recording),
   ];
   return [...new Set(urls.filter((url): url is string => Boolean(url)))];
 }
@@ -94,7 +110,16 @@ async function deleteBuilderAssetByUrl(
 
   if (res.ok) return "deleted";
   if (res.status === 404) {
-    const probe = await fetch(assetUrl, { method: "HEAD" });
+    // A throwaway query keeps a CDN edge from answering with the copy it
+    // cached before the delete; the timeout keeps a hung probe from holding
+    // the save open. A probe that fails either way leaves it "not gone".
+    const probeUrl = new URL(assetUrl);
+    probeUrl.searchParams.set("deleted-check", String(Date.now()));
+    const probe = await fetch(probeUrl.toString(), {
+      method: "HEAD",
+      cache: "no-store",
+      signal: AbortSignal.timeout(5_000),
+    });
     return probe.status === 404 || probe.status === 410 ? "absent" : false;
   }
 

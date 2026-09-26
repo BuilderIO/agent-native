@@ -168,6 +168,7 @@ describe("recording-media-cleanup", () => {
     // unredacted original in storage for good.
     expect(
       recordingMediaUrls({
+        kind: "image",
         imageUrl: "https://store.example/burned.png",
         editsJson: JSON.stringify({
           unreclaimedUrls: ["https://store.example/copy.png"],
@@ -179,5 +180,11 @@ describe("recording-media-cleanup", () => {
       "https://store.example/original.png",
       "https://store.example/copy.png",
     ]);
+  });
+
+  it("refuses to list a screenshot's media when its edits cannot be read", () => {
+    expect(() =>
+      recordingMediaUrls({ kind: "image", editsJson: "{not json" }),
+    ).toThrow(/could not be read/);
   });
 });

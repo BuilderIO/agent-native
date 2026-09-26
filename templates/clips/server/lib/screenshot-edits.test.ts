@@ -43,11 +43,12 @@ describe("screenshot-edits", () => {
   });
 
   it("lists every leftover file for deletion", () => {
-    expect(screenshotLeftoverUrls(midBurn).sort()).toEqual([
+    expect(screenshotLeftoverUrls(midBurn)!.sort()).toEqual([
       "https://store.example/copy.png",
       "https://store.example/original.png",
     ]);
-    expect(screenshotLeftoverUrls("{not json")).toEqual([]);
+    // Unknown is not the same as none: a caller must not delete the row.
+    expect(screenshotLeftoverUrls("{not json")).toBeNull();
   });
 
   it("gives a viewer nothing from edits it cannot read", () => {

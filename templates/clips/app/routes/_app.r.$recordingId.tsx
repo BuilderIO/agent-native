@@ -740,7 +740,12 @@ export default function RecordingPage() {
         // Poll while the recording is still being assembled / transcoded so
         // the page auto-upgrades from "Processing" to the real player the
         // moment the server flips status to 'ready' and writes videoUrl.
-        if (rec.status !== "ready" || !rec.videoUrl) {
+        // A screenshot never gets a video file, so waiting for one would
+        // poll forever; it is finished once it has its picture.
+        const recHasMedia = isImageRecording(rec)
+          ? Boolean(rec.imageUrl || rec.thumbnailUrl)
+          : Boolean(rec.videoUrl);
+        if (rec.status !== "ready" || !recHasMedia) {
           readyMediaPollRef.current = null;
           return 1000;
         }

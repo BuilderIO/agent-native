@@ -190,47 +190,6 @@ function burnResultOf(heldEditsJson: string): string {
   return serializeEdits(edits as unknown as ReturnType<typeof parseEdits>);
 }
 
-/**
- * Swap the marker for the burn's edits and mark the title redacted. The
- * title is read here, not taken from when the burn began: a rename during the
- * deletes changes only the title, which the edits predicate cannot see, so it
- * is pinned too and a lost race re-reads it.
- */
-async function releaseBurn(
-  db: ReturnType<typeof getDb>,
-  recordingId: string,
-  heldEditsJson: string,
-): Promise<boolean> {
-  await assertAccess("recording", recordingId, "editor");
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const [row] = await db
-      .select({
-        title: schema.recordings.title,
-        editsJson: schema.recordings.editsJson,
-      })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, recordingId));
-    if (!row || row.editsJson !== heldEditsJson) return false;
-    const released = await db
-      .update(schema.recordings)
-      .set({
-        editsJson: burnResultOf(heldEditsJson),
-        title: redactedTitle(row.title) ?? row.title,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(
-        and(
-          eq(schema.recordings.id, recordingId),
-          eq(schema.recordings.editsJson, heldEditsJson),
-          eq(schema.recordings.title, row.title),
-        ),
-      )
-      .returning({ id: schema.recordings.id });
-    if (released.length) return true;
-  }
-  return false;
-}
-
 /** Deletes each URL; returns the ones that are still in storage. */
 async function deleteAll(recordingId: string, urls: string[]) {
   const left: string[] = [];
@@ -262,8 +221,9 @@ export default defineAction({
     "Permanently burn a screenshot's edits (blur, boxes, arrows, text) into the stored image: uploads the flattened picture, points the recording at it, and deletes the previous file. Cannot be undone.",
   // UI-only: the flattening happens on a canvas in the browser.
   agentTool: false,
-  // Base64 two pictures (the served one and the base), capped before the body is read and parsed rather than
-  // after, plus room for the marks.
+  // Base64 two pictures (the served one and the base), plus room for the marks. The framework checks
+  // this against Content-Length before reading; the decode below still caps
+  // each picture for a body sent without one.
   maxBodyBytes: Math.ceil((2 * 4 * MAX_SCREENSHOT_BYTES) / 3) + 1024 * 1024,
   schema: saveScreenshotEditsSchema,
   run: async (args) => {
@@ -271,6 +231,44 @@ export default defineAction({
 
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
+
+    /**
+     * Swap the marker for the burn's edits and mark the title redacted. The
+     * title is read here, not taken from when the burn began: a rename during
+     * the deletes changes only the title, which the edits predicate cannot
+     * see, so it is pinned too and a lost race re-reads it. Access was
+     * asserted above; asking again after the original is deleted could only
+     * turn a finished burn into a reported failure.
+     */
+    const releaseBurn = async (heldEditsJson: string): Promise<boolean> => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const [row] = await db
+          .select({
+            title: schema.recordings.title,
+            editsJson: schema.recordings.editsJson,
+          })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, args.recordingId));
+        if (!row || row.editsJson !== heldEditsJson) return false;
+        const released = await db
+          .update(schema.recordings)
+          .set({
+            editsJson: burnResultOf(heldEditsJson),
+            title: redactedTitle(row.title) ?? row.title,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(
+            and(
+              eq(schema.recordings.id, args.recordingId),
+              eq(schema.recordings.editsJson, heldEditsJson),
+              eq(schema.recordings.title, row.title),
+            ),
+          )
+          .returning({ id: schema.recordings.id });
+        if (released.length) return true;
+      }
+      return false;
+    };
 
     let [existing] = await db
       .select()
@@ -298,7 +296,7 @@ export default defineAction({
     if (leftover) {
       const left = await deleteAll(args.recordingId, leftover);
       if (left.length) throw new Error(ORIGINAL_NOT_DELETED);
-      if (!(await releaseBurn(db, args.recordingId, existing.editsJson!))) {
+      if (!(await releaseBurn(existing.editsJson!))) {
         throw new Error(
           "This screenshot is still finishing a redaction. Reload it and try again.",
         );
@@ -532,7 +530,7 @@ export default defineAction({
       // Only now: the original is gone, so clearing the marker and the
       // pending list can no longer publish anything they covered. Every other
       // save is refused while the marker is on, so the row is as written.
-      if (!(await releaseBurn(db, args.recordingId, heldEditsJson!))) {
+      if (!(await releaseBurn(heldEditsJson!))) {
         // Something outside the editor rewrote the edits. Nothing is exposed
         // — the pixels are burned and the original deleted — and the next
         // save clears the marker, whose files are already gone.

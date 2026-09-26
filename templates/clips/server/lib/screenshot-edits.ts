@@ -49,10 +49,15 @@ export function unreclaimedUrls(editsJson: string | null | undefined) {
   return urlList(readEdits(editsJson)?.[UNRECLAIMED_URLS_KEY]);
 }
 
-/** Every stored file the edits say is left over and still to be deleted. */
-export function screenshotLeftoverUrls(editsJson: string | null | undefined) {
+/**
+ * Every stored file the edits say is left over and still to be deleted, or
+ * `null` when the edits cannot be read — then the list is unknown, not empty.
+ */
+export function screenshotLeftoverUrls(
+  editsJson: string | null | undefined,
+): string[] | null {
   const edits = readEdits(editsJson);
-  if (!edits) return [];
+  if (!edits) return null;
   const marker = edits[BURN_IN_PROGRESS_KEY] as
     | { staleUrls?: unknown }
     | undefined;

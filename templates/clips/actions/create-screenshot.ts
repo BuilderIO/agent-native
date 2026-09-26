@@ -97,8 +97,9 @@ export default defineAction({
   // UI-only: the pixels come from the browser's screen picker, which an agent
   // has no way to drive. Still callable from the frontend over HTTP.
   agentTool: false,
-  // Base64 one picture, capped before the body is read and parsed rather than
-  // after, plus room for the marks.
+  // Base64 one picture, plus room for the marks. The framework checks
+  // this against Content-Length before reading; the decode below still caps
+  // each picture for a body sent without one.
   maxBodyBytes: Math.ceil((1 * 4 * MAX_SCREENSHOT_BYTES) / 3) + 1024 * 1024,
   schema: createScreenshotSchema,
   run: async (args, actionContext) => {

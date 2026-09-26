@@ -233,6 +233,15 @@ function nextPaint(): Promise<void> {
   );
 }
 
+/** The URL without its `t` access token, which says nothing about the image. */
+export function withoutAccessToken(url: string): string {
+  const [path, query = ""] = url.split("?", 2);
+  const params = new URLSearchParams(query);
+  params.delete("t");
+  const rest = params.toString();
+  return rest ? `${path}?${rest}` : path;
+}
+
 export function ScreenshotEditor({
   recordingId,
   baseImageUrl,
@@ -322,6 +331,13 @@ export function ScreenshotEditor({
   const onCancelRef = useRef(onCancel);
   onCancelRef.current = onCancel;
 
+  // The URL carries a password token that is re-minted every few minutes; a
+  // new token is not a new picture, and reloading for one risks the same
+  // mid-edit failure as above.
+  const pictureKey = withoutAccessToken(baseImageUrl);
+  const baseImageUrlRef = useRef(baseImageUrl);
+  baseImageUrlRef.current = baseImageUrl;
+
   useEffect(() => {
     let cancelled = false;
     const image = new Image();
@@ -336,13 +352,13 @@ export function ScreenshotEditor({
       toast.error(t("screenshot.redactLoadFailed"));
       onCancelRef.current();
     };
-    image.src = baseImageUrl;
+    image.src = baseImageUrlRef.current;
     return () => {
       cancelled = true;
     };
     // `t` is left out for the same reason: only a new picture means a reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseImageUrl]);
+  }, [pictureKey]);
 
   const imageSize = useMemo(
     () =>

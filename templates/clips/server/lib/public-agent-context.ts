@@ -9,6 +9,7 @@ import {
   signScopedAgentAccessToken,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
+import { isImageRecording } from "@shared/recording-kind";
 import { asc, eq } from "drizzle-orm";
 import { getRequestURL, setResponseHeader, type H3Event } from "h3";
 
@@ -40,6 +41,7 @@ import {
 import { resolveTranscriptPresentation } from "../../shared/transcript-status.js";
 import { getDb, schema } from "../db/index.js";
 import { recordAgentView } from "./agent-views.js";
+import { listingThumbnailUrl } from "./player-thumbnail-url.js";
 import { verifySharePassword } from "./share-password.js";
 
 export type PublicAgentRecording = typeof schema.recordings._.inferSelect;
@@ -750,7 +752,11 @@ export function buildPublicAgentContext({
       description: recording.description,
       publicPageUrl,
       sourceProvider: isLoomSource ? "loom" : null,
-      thumbnailUrl: recording.thumbnailUrl,
+      // A screenshot's thumbnail is the whole picture: hand out the route
+      // that applies password, expiry and the redaction hold, not storage.
+      thumbnailUrl: isImageRecording(recording)
+        ? `${requestUrl.origin}${getServerAppBasePath()}${listingThumbnailUrl(recording)}`
+        : recording.thumbnailUrl,
       animatedThumbnailUrl: recording.animatedThumbnailUrl,
       durationMs: recording.durationMs,
       duration: recording.durationMs

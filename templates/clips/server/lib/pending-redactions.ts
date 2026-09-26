@@ -50,12 +50,26 @@ export function burnInProgressUrls(
     : [];
 }
 
+function isReadableJson(editsJson: string | null | undefined): boolean {
+  if (!editsJson) return true;
+  try {
+    JSON.parse(editsJson);
+    return true;
+    // coercion-ok: false is the answer to "is this readable", not a default
+  } catch {
+    return false;
+  }
+}
+
 /** True when this viewer must be held back from this recording's media. */
 export function isHeldForRedaction(
   editsJson: string | null | undefined,
   role: string | null | undefined,
 ): boolean {
   if (canViewWhileRedacting(role)) return false;
+  // Unreadable edits parse as the defaults, which would read as "nothing
+  // pending" and hand out media that may have boxes or a burn waiting.
+  if (!isReadableJson(editsJson)) return true;
   return (
     countPendingRedactions(editsJson) > 0 ||
     burnInProgressUrls(editsJson) !== null
