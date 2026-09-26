@@ -231,7 +231,7 @@ describe("s3FileUploadProvider", () => {
     expect(mockReadAppSecret).toHaveBeenCalledTimes(workspaceReadCount);
   });
 
-  it("uses current S3 credentials for a legacy logo key and preserves missing-object status", async () => {
+  it("rejects workspace S3 endpoints that resolve to private addresses", async () => {
     mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
     const values: Record<string, string> = {
       S3_BUCKET: "current-bucket",
@@ -246,28 +246,20 @@ describe("s3FileUploadProvider", () => {
         return values[key] ? { value: values[key] } : null;
       },
     );
-    const fetchMock = vi.fn(async () => new Response(null, { status: 404 }));
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await fetchS3OrganizationLogoByLegacyUrl(
-      "https://old-storage.example/clips/logo-abc123/1722720000000-abcd1234.png",
-      "org-1",
+    await expect(
+      fetchS3OrganizationLogoByLegacyUrl(
+        "https://old-storage.example/clips/logo-abc123/1722720000000-abcd1234.png",
+        "org-1",
+      ),
+    ).rejects.toThrow(
+      "SSRF blocked: refusing to fetch private/internal S3 endpoint",
     );
 
-    expect(result?.status).toBe(404);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://10.0.0.12:9000/minio/current-bucket/clips/logo-abc123/1722720000000-abcd1234.png",
-      expect.objectContaining({ method: "GET" }),
-    );
-    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
-      expect.stringContaining("http://10.0.0.12:9000/minio/current-bucket/"),
-      expect.objectContaining({ method: "GET" }),
-      {
-        followRedirects: false,
-        requireDispatcher: true,
-        allowedPrivateOrigins: ["http://10.0.0.12:9000"],
-      },
-    );
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("fails loudly when a recognized legacy logo URL has no current storage config", async () => {
@@ -489,6 +481,49 @@ describe("s3FileUploadProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("keeps the request timeout active while consuming the S3 response body", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    let requestSignal: AbortSignal | null = null;
+    mockSsrfSafeFetch.mockImplementation(
+      async (_url: string, init: RequestInit) => {
+        const signal = init.signal as AbortSignal;
+        requestSignal = signal;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(streamController) {
+              signal.addEventListener(
+                "abort",
+                () => streamController.error(signal.reason),
+                { once: true },
+              );
+            },
+          }),
+        );
+      },
+    );
+
+    const response = await fetchS3ObjectByUrl(
+      "https://s3.example.com/clips-bucket/clips/recording/video.webm",
+      { recordingId: "recording", timeoutMs: 25 },
+    );
+
+    expect(response?.status).toBe(200);
+    expect(requestSignal?.aborted).toBe(false);
+    await expect(response!.arrayBuffer()).rejects.toMatchObject({
+      name: "TimeoutError",
+      message: expect.stringContaining("S3 request timed out after 25ms"),
+    });
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
   it("does not expose multipart staging objects through signed reads", async () => {
     const values: Record<string, string> = {
       S3_BUCKET: "clips-bucket",
@@ -524,7 +559,7 @@ describe("s3FileUploadProvider", () => {
     mockResolveSecret.mockImplementation(async (key: string) => {
       return values[key] ?? null;
     });
-    const fetchMock = vi.fn(async () => new Response("media"));
+    const fetchMock = vi.fn(async () => new Response(null));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
@@ -566,7 +601,7 @@ describe("s3FileUploadProvider", () => {
     mockResolveSecret.mockImplementation(async (key: string) => {
       return values[key] ?? null;
     });
-    const fetchMock = vi.fn(async () => new Response("legacy media"));
+    const fetchMock = vi.fn(async () => new Response(null));
     vi.stubGlobal("fetch", fetchMock);
     const legacyUrl =
       "https://clips.example.com/api/storage/clips/1722720000000-abc123xy.webm";

@@ -74,9 +74,17 @@ async function fetchWithTimeout(
 ): Promise<Response> {
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  const clearTimeoutIfRunning = () => {
+    if (timeout) {
+      clearTimeout(timeout);
+      timeout = undefined;
+    }
+  };
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeout = setTimeout(() => {
-      const timeoutError = new Error("S3 request timed out");
+      const timeoutError = new Error(
+        `S3 request timed out after ${timeoutMs}ms: ${init.method ?? "GET"} ${url}`,
+      );
       timeoutError.name = "TimeoutError";
       controller.abort(timeoutError);
       reject(timeoutError);
@@ -85,7 +93,11 @@ async function fetchWithTimeout(
 
   try {
     const request = (async () => {
-      const allowsPrivateOrigin = await isBlockedExtensionUrlWithDns(url);
+      if (await isBlockedExtensionUrlWithDns(url)) {
+        throw new Error(
+          `SSRF blocked: refusing to fetch private/internal S3 endpoint (${url})`,
+        );
+      }
       if (controller.signal.aborted) throw controller.signal.reason;
       return ssrfSafeFetch(
         url,
@@ -96,14 +108,54 @@ async function fetchWithTimeout(
         {
           followRedirects: false,
           requireDispatcher: true,
-          allowedPrivateOrigins: allowsPrivateOrigin
-            ? [new URL(url).origin]
-            : [],
+          allowedPrivateOrigins: [],
         },
       );
     })();
-    return await Promise.race([request, timeoutPromise]);
+    const response = await Promise.race([request, timeoutPromise]);
+    if (!response.body) {
+      clearTimeoutIfRunning();
+      return response;
+    }
+
+    const reader = response.body.getReader();
+    const body = new ReadableStream<Uint8Array>(
+      {
+        async pull(streamController) {
+          try {
+            if (controller.signal.aborted) throw controller.signal.reason;
+            const { done, value } = await reader.read();
+            if (controller.signal.aborted) throw controller.signal.reason;
+            if (done) {
+              clearTimeoutIfRunning();
+              streamController.close();
+            } else {
+              streamController.enqueue(value);
+            }
+          } catch (error) {
+            clearTimeoutIfRunning();
+            streamController.error(
+              controller.signal.aborted ? controller.signal.reason : error,
+            );
+          }
+        },
+        async cancel(reason) {
+          try {
+            await Promise.race([reader.cancel(reason), timeoutPromise]);
+          } finally {
+            clearTimeoutIfRunning();
+          }
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    return new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
   } catch (err) {
+    clearTimeoutIfRunning();
     if (err instanceof Error && err.name === "TimeoutError") {
       const timeoutError = new Error(
         `S3 request timed out after ${timeoutMs}ms: ${init.method ?? "GET"} ${url}`,
@@ -119,8 +171,6 @@ async function fetchWithTimeout(
       throw abortError;
     }
     throw err;
-  } finally {
-    if (timeout) clearTimeout(timeout);
   }
 }
 
