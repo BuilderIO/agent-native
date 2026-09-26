@@ -1522,13 +1522,13 @@ export function runRedo({
         1,
       );
       const retryEntries = entries.map((item) => {
-        if (!retryRecoveryFileIds.has(item)) return item;
-        const recoveryFileId = retryRecoveryFileIds.get(item);
-        return {
-          ...item,
-          recoveryFileId,
-          recoveryKnownFileIds: [...knownFileIds],
-        };
+        const retryEntry = { ...item };
+        delete retryEntry.duplicateStackUndoSettled;
+        if (retryRecoveryFileIds.has(item)) {
+          retryEntry.recoveryFileId = retryRecoveryFileIds.get(item);
+          retryEntry.recoveryKnownFileIds = [...knownFileIds];
+        }
+        return retryEntry;
       });
       fileCreationRedoStackRef.current = [
         ...fileCreationRedoStackRef.current.slice(

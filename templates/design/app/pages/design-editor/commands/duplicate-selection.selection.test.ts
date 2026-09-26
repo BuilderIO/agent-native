@@ -48,7 +48,66 @@ describe("runDuplicateSelection selection tracking", () => {
       viewModeRef: { current: "overview" },
     });
 
-    expect(duplicateScreen).toHaveBeenCalledExactlyOnceWith("source");
+    expect(duplicateScreen).toHaveBeenCalledExactlyOnceWith(
+      "source",
+      expect.objectContaining({
+        historyBatchId: expect.any(String),
+        duplicateStackSourceIds: ["source"],
+      }),
+    );
+  });
+
+  it("duplicates a multi-screen overview selection as one history batch", () => {
+    const duplicateScreen = vi.fn();
+    const first: DesignFile = {
+      id: "first",
+      filename: "first.html",
+      fileType: "html",
+      content: "<main>first</main>",
+      createdAt: "",
+      updatedAt: "",
+    };
+    const second: DesignFile = {
+      id: "second",
+      filename: "second.html",
+      fileType: "html",
+      content: "<main>second</main>",
+      createdAt: "",
+      updatedAt: "",
+    };
+
+    runDuplicateSelection({
+      activeFile: first,
+      designId: "design",
+      applyFileContentUpdate: vi.fn(),
+      applyLocalContentUpdate: vi.fn(),
+      canEditDesign: true,
+      files: [first, second],
+      getFreshActiveContent: () => first.content,
+      getScreenContent: (screenId) =>
+        screenId === second.id ? second.content : first.content,
+      getSelectedLayerSnapshots: () => [],
+      handleDuplicateScreen: duplicateScreen,
+      lastDuplicateTransformRef: { current: null },
+      overviewSelectedScreenIds: [first.id, second.id],
+      remapMotionTracksForClone: vi.fn(),
+      selectedCanvasSelector: "",
+      selectedElement: null,
+      selectedLayerIdsState: [],
+      setOverviewSelectedScreenIds: vi.fn(),
+      setSelectedElement: vi.fn(),
+      setSelectedLayerIdsState: vi.fn(),
+      t: (key) => key,
+      undoManagerRef: { current: null },
+      viewModeRef: { current: "overview" },
+    });
+
+    expect(duplicateScreen).toHaveBeenCalledTimes(2);
+    const requests = duplicateScreen.mock.calls.map(([, request]) => request);
+    expect(requests[0]?.historyBatchId).toEqual(expect.any(String));
+    expect(requests[1]?.historyBatchId).toBe(requests[0]?.historyBatchId);
+    expect(requests[0]?.duplicateStackSourceIds).toEqual(["first", "second"]);
+    expect(requests[1]?.duplicateStackSourceIds).toEqual(["first", "second"]);
   });
 
   // The editor re-derives a single selection from selectedElement a render

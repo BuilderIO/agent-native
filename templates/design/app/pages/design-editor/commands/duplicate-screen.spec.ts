@@ -18,6 +18,8 @@ import {
 } from "./duplicate-screen";
 import { runUndo } from "./undo";
 
+const ref = <T>(current: T) => ({ current });
+
 function duplicateArgs(
   overrides: Partial<DuplicateScreenArgs> = {},
 ): DuplicateScreenArgs {
@@ -1162,11 +1164,16 @@ describe("runDuplicateScreen", () => {
       .fn()
       .mockResolvedValueOnce({ id: "copy-1" })
       .mockResolvedValueOnce({ id: "copy-2" });
+    const geometry = {
+      source: { x: 0, y: 0, width: 640, height: 480, z: 0 },
+    };
     const args = duplicateArgs({
       createFileAsync,
       deleteFileAsync: vi
         .fn()
         .mockRejectedValue(new Error("metadata prune failed")),
+      designDataJsonRef: { current: { canvasFrames: geometry } },
+      liveFrameGeometryRef: { current: geometry },
       updateDesignAsync: vi
         .fn()
         .mockRejectedValueOnce(new Error("metadata failed"))
@@ -1181,9 +1188,21 @@ describe("runDuplicateScreen", () => {
     runDuplicateScreen(args, "source");
     await vi.waitFor(() => expect(createFileAsync).toHaveBeenCalledTimes(1));
     await vi.waitFor(() =>
-      expect(args.duplicateRecoveryRef.current.get("index-copy.html")).toEqual(
-        expect.not.objectContaining({ fileId: "copy-1" }),
+      expect(args.duplicateRecoveryRef.current.has("index-copy.html")).toBe(
+        true,
       ),
+    );
+    expect(
+      args.duplicateRecoveryRef.current.get("index-copy.html"),
+    ).not.toEqual(expect.objectContaining({ fileId: "copy-1" }));
+    expect(
+      args.duplicateRecoveryRef.current.get("index-copy.html"),
+    ).not.toHaveProperty("geometry");
+    expect(
+      args.pendingDuplicateGeometriesRef.current.has("index-copy.html"),
+    ).toBe(false);
+    expect(args.writeFrameGeometrySnapshot).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ "copy-1": expect.anything() }),
     );
 
     runDuplicateScreen(args, "source");
@@ -1195,6 +1214,33 @@ describe("runDuplicateScreen", () => {
       ),
     );
     expect(createFileAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves geometry and reservation when cleanup presence is unknown", async () => {
+    const writeFrameGeometrySnapshot = vi.fn();
+    const args = duplicateArgs({
+      updateDesignAsync: vi
+        .fn()
+        .mockRejectedValue(new Error("metadata failed")),
+      deleteFileAsync: vi.fn().mockRejectedValue(new Error("cleanup failed")),
+      writeFrameGeometrySnapshot,
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    expect(args.duplicateRecoveryRef.current.get("index-copy.html")).toEqual(
+      expect.objectContaining({
+        fileId: "copy",
+        geometry: expect.objectContaining({ x: 696, y: 0 }),
+      }),
+    );
+    expect(
+      args.pendingDuplicateGeometriesRef.current.get("index-copy.html"),
+    ).toEqual(expect.objectContaining({ x: 696, y: 0 }));
+    expect(writeFrameGeometrySnapshot).toHaveBeenCalledTimes(1);
+    expect(writeFrameGeometrySnapshot).toHaveBeenLastCalledWith(
+      expect.objectContaining({ copy: expect.objectContaining({ x: 696 }) }),
+    );
   });
 
   it("coalesces concurrent retries of one recovery entry", async () => {
@@ -1775,5 +1821,220 @@ describe("duplicate stack history", () => {
     expect(
       (designDataJsonRef.current.canvasFrames as typeof geometry).other.z,
     ).toBe(9);
+  });
+
+  it("restores a screen-creation undo when its async delete fails", () => {
+    const file = {
+      id: "copy",
+      filename: "copy.html",
+      fileType: "html",
+      content: "",
+    };
+    const entry = {
+      filename: file.filename,
+      content: file.content,
+      fileType: file.fileType,
+      createdFileId: file.id,
+    };
+    const fileCreationUndoStackRef = { current: [entry] };
+    const fileCreationRedoStackRef = { current: [] as (typeof entry)[] };
+    const historyOrderRef = { current: ["file-created"] };
+    const redoOrderRef = { current: [] as string[] };
+    const fileHistoryMutationPendingRef = { current: false };
+    const deleteSettlements: Array<(deleted: any[], failed: any[]) => void> =
+      [];
+    const args = {
+      activeEditorDragRef: ref(false),
+      activeFile: null,
+      canEditDesign: true,
+      designDataJsonRef: ref({}),
+      fileCreationRedoStackRef,
+      fileCreationUndoStackRef,
+      fileHistoryMutationPendingRef,
+      files: [file],
+      historyOrderRef,
+      id: "design-1",
+      liveFrameGeometryRef: ref({}),
+      pendingLiveNonStyleUndoStackRef: ref([]),
+      pendingVisualStyleUndoStackRef: ref([]),
+      performDeleteFiles: vi.fn((_files: any[], options: any) => {
+        deleteSettlements.push(options.onMutationSettled);
+      }),
+      redoOrderRef,
+      syncUndoRedoState: vi.fn(),
+      t: (key: string) => key,
+      undoManagerRef: ref(null),
+      viewModeRef: ref("overview"),
+      writeFrameGeometrySnapshot: vi.fn(),
+    };
+
+    runUndo(args as any);
+    expect(fileCreationUndoStackRef.current).toEqual([]);
+    expect(fileCreationRedoStackRef.current).toEqual([entry]);
+    expect(fileHistoryMutationPendingRef.current).toBe(false);
+
+    deleteSettlements[0]!([], [file]);
+
+    expect(fileCreationUndoStackRef.current).toEqual([entry]);
+    expect(fileCreationRedoStackRef.current).toEqual([]);
+    expect(historyOrderRef.current).toEqual(["file-created"]);
+    expect(redoOrderRef.current).toEqual([]);
+    expect(fileHistoryMutationPendingRef.current).toBe(false);
+
+    runUndo(args as any);
+    expect(args.performDeleteFiles).toHaveBeenCalledTimes(2);
+  });
+
+  it("removes the matching redo marker when async undo failures settle in order", () => {
+    const first = {
+      id: "first",
+      filename: "first.html",
+      fileType: "html",
+      content: "",
+    };
+    const second = {
+      id: "second",
+      filename: "second.html",
+      fileType: "html",
+      content: "",
+    };
+    const firstEntry = {
+      filename: first.filename,
+      content: first.content,
+      fileType: first.fileType,
+      createdFileId: first.id,
+    };
+    const secondEntry = {
+      filename: second.filename,
+      content: second.content,
+      fileType: second.fileType,
+      createdFileId: second.id,
+    };
+    const fileCreationUndoStackRef = { current: [firstEntry, secondEntry] };
+    const fileCreationRedoStackRef = { current: [] as (typeof firstEntry)[] };
+    const historyOrderRef = {
+      current: ["file-created", "file-created"],
+    };
+    const redoOrderRef = { current: [] as string[] };
+    const settlements: Array<(deleted: any[], failed: any[]) => void> = [];
+    const args = {
+      activeEditorDragRef: ref(false),
+      activeFile: null,
+      canEditDesign: true,
+      designDataJsonRef: ref({}),
+      fileCreationRedoStackRef,
+      fileCreationUndoStackRef,
+      fileHistoryMutationPendingRef: ref(false),
+      files: [first, second],
+      historyOrderRef,
+      id: "design-1",
+      liveFrameGeometryRef: ref({}),
+      pendingLiveNonStyleUndoStackRef: ref([]),
+      pendingVisualStyleUndoStackRef: ref([]),
+      performDeleteFiles: vi.fn((_files: any[], options: any) => {
+        settlements.push(options.onMutationSettled);
+      }),
+      redoOrderRef,
+      syncUndoRedoState: vi.fn(),
+      t: (key: string) => key,
+      undoManagerRef: ref(null),
+      viewModeRef: ref("overview"),
+      writeFrameGeometrySnapshot: vi.fn(),
+    };
+
+    runUndo(args as any);
+    runUndo(args as any);
+    settlements[0]!([], [second]);
+    settlements[1]!([], [first]);
+
+    expect(fileCreationUndoStackRef.current).toEqual([firstEntry, secondEntry]);
+    expect(fileCreationRedoStackRef.current).toEqual([]);
+    expect(historyOrderRef.current).toEqual(["file-created", "file-created"]);
+    expect(redoOrderRef.current).toEqual([]);
+  });
+
+  it("keeps only failed members undoable after a partial batch delete", () => {
+    const first = {
+      id: "copy-1",
+      filename: "copy-1.html",
+      fileType: "html",
+      content: "",
+    };
+    const second = {
+      id: "copy-2",
+      filename: "copy-2.html",
+      fileType: "html",
+      content: "",
+    };
+    const firstEntry = {
+      filename: first.filename,
+      content: first.content,
+      fileType: first.fileType,
+      createdFileId: first.id,
+      historyBatchId: "duplicate-1",
+      duplicateStack: { before: { peer: 0 }, after: { peer: 1 } },
+    };
+    const secondEntry = {
+      filename: second.filename,
+      content: second.content,
+      fileType: second.fileType,
+      createdFileId: second.id,
+      historyBatchId: "duplicate-1",
+      duplicateStack: { before: { peer: 0 }, after: { peer: 1 } },
+    };
+    const geometry = {
+      peer: { x: 752, y: 0, width: 320, height: 240, z: 1 },
+      [first.id]: { x: 0, y: 0, width: 320, height: 240, z: 2 },
+      [second.id]: { x: 376, y: 0, width: 320, height: 240, z: 3 },
+    };
+    const designDataJsonRef = ref({ canvasFrames: geometry });
+    const writeFrameGeometrySnapshot = vi.fn();
+    const fileCreationUndoStackRef = {
+      current: [firstEntry, secondEntry],
+    };
+    const fileCreationRedoStackRef = { current: [] as (typeof firstEntry)[] };
+    const historyOrderRef = { current: ["file-created"] };
+    const redoOrderRef = { current: [] as string[] };
+    const fileHistoryMutationPendingRef = { current: false };
+    let settleDelete: ((deleted: any[], failed: any[]) => void) | undefined;
+    const args = {
+      activeEditorDragRef: ref(false),
+      activeFile: null,
+      canEditDesign: true,
+      designDataJsonRef,
+      fileCreationRedoStackRef,
+      fileCreationUndoStackRef,
+      fileHistoryMutationPendingRef,
+      files: [first, second],
+      historyOrderRef,
+      id: "design-1",
+      liveFrameGeometryRef: ref({}),
+      pendingLiveNonStyleUndoStackRef: ref([]),
+      pendingVisualStyleUndoStackRef: ref([]),
+      performDeleteFiles: vi.fn((_files: any[], options: any) => {
+        settleDelete = options.onMutationSettled;
+      }),
+      redoOrderRef,
+      syncUndoRedoState: vi.fn(),
+      t: (key: string) => key,
+      undoManagerRef: ref(null),
+      viewModeRef: ref("overview"),
+      writeFrameGeometrySnapshot,
+    };
+
+    runUndo(args as any);
+    settleDelete?.([first], [second]);
+
+    expect(fileCreationUndoStackRef.current).toEqual([secondEntry]);
+    expect(fileCreationRedoStackRef.current).toEqual([
+      { ...firstEntry, duplicateStackUndoSettled: true },
+    ]);
+    expect(historyOrderRef.current).toEqual(["file-created"]);
+    expect(redoOrderRef.current).toEqual(["file-created"]);
+    expect(writeFrameGeometrySnapshot).toHaveBeenLastCalledWith({
+      peer: { ...geometry.peer, z: 0 },
+      [second.id]: geometry[second.id],
+    });
+    expect(fileHistoryMutationPendingRef.current).toBe(false);
   });
 });

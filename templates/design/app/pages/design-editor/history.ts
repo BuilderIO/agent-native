@@ -278,6 +278,33 @@ export interface FileCreationHistoryEntry {
   recoveryKnownFileIds?: string[];
 }
 
+export function insertFileCreationHistoryEntry(
+  stack: readonly FileCreationHistoryEntry[],
+  entry: FileCreationHistoryEntry,
+): { stack: FileCreationHistoryEntry[]; continuesBatch: boolean } {
+  const batchId = entry.historyBatchId;
+  const batchStart = batchId
+    ? stack.findIndex((item) => item.historyBatchId === batchId)
+    : -1;
+  if (batchStart < 0) {
+    return {
+      stack: [...stack, entry].slice(-MAX_DESIGN_UNDO_STACK),
+      continuesBatch: false,
+    };
+  }
+
+  const batch = stack.filter((item) => item.historyBatchId === batchId);
+  const unrelated = stack.filter((item) => item.historyBatchId !== batchId);
+  const insertionIndex = stack
+    .slice(0, batchStart)
+    .filter((item) => item.historyBatchId !== batchId).length;
+  unrelated.splice(insertionIndex, 0, ...batch, entry);
+  return {
+    stack: unrelated.slice(-MAX_DESIGN_UNDO_STACK),
+    continuesBatch: true,
+  };
+}
+
 export interface FileDeletionHistorySnapshot {
   id: string;
   filename: string;

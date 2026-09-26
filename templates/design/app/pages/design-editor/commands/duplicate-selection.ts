@@ -38,6 +38,8 @@ import type { DesignFile } from "@/pages/design-editor/types";
 
 import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
 
+let duplicateSelectionBatchSequence = 0;
+
 function planLinkedDuplicateSelection(args: {
   content: string;
   group: SelectedCanvasLayerSnapshot[];
@@ -141,7 +143,11 @@ export interface DuplicateSelectionArgs {
   getSelectedLayerSnapshots: () => SelectedCanvasLayerSnapshot[];
   handleDuplicateScreen: (
     screenId: string,
-    request?: { canvasPosition?: { x: number; y: number } },
+    request?: {
+      canvasPosition?: { x: number; y: number };
+      historyBatchId?: string;
+      duplicateStackSourceIds?: string[];
+    },
   ) => void;
   lastDuplicateTransformRef: RefObject<{
     rootNodeIds: string[];
@@ -585,5 +591,11 @@ export function runDuplicateSelection({
       : activeFile
         ? [activeFile.id]
         : [];
-  screenIdsToDuplicate.forEach((screenId) => handleDuplicateScreen(screenId));
+  const historyBatchId = `duplicate-selection-${++duplicateSelectionBatchSequence}`;
+  screenIdsToDuplicate.forEach((screenId) =>
+    handleDuplicateScreen(screenId, {
+      historyBatchId,
+      duplicateStackSourceIds: screenIdsToDuplicate,
+    }),
+  );
 }

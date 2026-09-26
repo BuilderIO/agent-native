@@ -972,6 +972,7 @@ import {
   getContentHistoryChanges,
   type GeometryHistoryEntry,
   type GeometryHistorySelection,
+  insertFileCreationHistoryEntry,
   type PendingTextCreationHistory,
   type SelectionHistoryEntry,
   MAX_DESIGN_UNDO_STACK,
@@ -3670,18 +3671,12 @@ function DesignEditor() {
   // new action.
   const recordFileCreationHistoryEntry = useCallback(
     (entry: FileCreationHistoryEntry) => {
-      const previous =
-        fileCreationUndoStackRef.current[
-          fileCreationUndoStackRef.current.length - 1
-        ];
-      const continuesBatch =
-        !!entry.historyBatchId &&
-        previous?.historyBatchId === entry.historyBatchId;
-      fileCreationUndoStackRef.current = [
-        ...fileCreationUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      const inserted = insertFileCreationHistoryEntry(
+        fileCreationUndoStackRef.current,
         entry,
-      ];
-      if (!continuesBatch) {
+      );
+      fileCreationUndoStackRef.current = inserted.stack;
+      if (!inserted.continuesBatch) {
         clearRedoStacks();
         historyOrderRef.current = [
           ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),

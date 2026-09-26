@@ -417,6 +417,12 @@ describe("redo file creation metadata persistence", () => {
     const updateDesignAsync = vi.fn().mockRejectedValue(error);
     const performDeleteFiles = vi.fn().mockResolvedValue(undefined);
     const harness = makeRedoHarness(updateDesignAsync, performDeleteFiles);
+    const retryEntry = {
+      ...harness.fileCreationRedoStackRef.current[0]!,
+      duplicateStackUndoSettled: true,
+      duplicateStack: { before: { peer: 1 }, after: { peer: 2 } },
+    };
+    harness.fileCreationRedoStackRef.current = [retryEntry];
 
     runRedo(harness.args);
     await vi.waitFor(() => expect(harness.getOnSuccess()).toBeDefined());
@@ -427,6 +433,7 @@ describe("redo file creation metadata persistence", () => {
       updatedAt: "2026-09-17T00:00:00.000Z",
     });
     expect(completion).toBeDefined();
+    await completion;
     await vi.waitFor(() =>
       expect(harness.deleteFileMutation.mutateAsync).toHaveBeenCalledWith({
         id: "recreated-screen",
@@ -438,6 +445,9 @@ describe("redo file creation metadata persistence", () => {
     expect(harness.focusCreatedScreen).not.toHaveBeenCalled();
     expect(harness.fileCreationUndoStackRef.current).toEqual([]);
     expect(harness.fileCreationRedoStackRef.current).toHaveLength(1);
+    expect(harness.fileCreationRedoStackRef.current[0]).not.toHaveProperty(
+      "duplicateStackUndoSettled",
+    );
     expect(harness.historyOrderRef.current).toEqual([]);
     expect(harness.redoOrderRef.current).toEqual(["file-created"]);
     expect(harness.fileHistoryMutationPendingRef.current).toBe(false);

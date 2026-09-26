@@ -941,6 +941,7 @@ export function runDuplicateScreen(
             id: createdFileId,
             allowLockedLayers: true,
           } as any);
+          survivingFileId = undefined;
           recoveries.delete(filename);
           pendingFilenames.delete(filename);
           pendingDuplicateGeometriesRef.current.delete(filename);
@@ -955,7 +956,7 @@ export function runDuplicateScreen(
             designId: id,
             fileId: createdFileId,
           });
-          if (present === true) {
+          if (present !== false) {
             recoveries.set(filename, {
               sourceScreenId: screenId,
               fileId: createdFileId,
@@ -972,11 +973,12 @@ export function runDuplicateScreen(
               sourceScreenId: screenId,
               content,
               fileType,
-              geometry: createdGeometry,
               screenMetadata,
               localhostScreen,
               knownFileIds: [...knownFileIds],
             });
+            pendingFilenames.delete(filename);
+            pendingDuplicateGeometriesRef.current.delete(filename);
           }
         }
       } else if (recoveredFileId) {
@@ -985,16 +987,25 @@ export function runDuplicateScreen(
           designId: id,
           fileId: recoveredFileId,
         });
-        if (present !== true) {
+        if (present === false) {
           survivingFileId = undefined;
           recoveries.set(filename, {
             sourceScreenId: screenId,
-            ...recoveryState,
-            fileId: undefined,
+            content,
+            fileType,
+            screenMetadata,
+            localhostScreen,
+            knownFileIds: [...knownFileIds],
           });
+          pendingFilenames.delete(filename);
+          pendingDuplicateGeometriesRef.current.delete(filename);
         }
       }
-      if (survivingFileId || appliedDuplicateStackChange) {
+      const duplicateFileId = createdFileId ?? recoveredFileId;
+      if (
+        survivingFileId === undefined &&
+        (duplicateFileId || appliedDuplicateStackChange)
+      ) {
         const persistedGeometry = getCanvasFrameGeometry(
           designDataJsonRef.current,
         );
@@ -1013,7 +1024,7 @@ export function runDuplicateScreen(
             nextGeometry[frameId] = { ...nextGeometry[frameId], z: persistedZ };
           }
         }
-        if (survivingFileId) delete nextGeometry[survivingFileId];
+        if (duplicateFileId) delete nextGeometry[duplicateFileId];
         if (appliedDuplicateStackChange) {
           const freshStackEntries = Object.entries(
             appliedDuplicateStackChange.after,
