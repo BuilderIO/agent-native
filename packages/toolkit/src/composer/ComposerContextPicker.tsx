@@ -151,8 +151,8 @@ export function ComposerContextPicker({
             ) : loading ? (
               <div
                 role="status"
-                aria-label={t("agentChat.common.loading", {
-                  defaultValue: "Loading...",
+                aria-label={t("agentChat.composer.contextPending", {
+                  defaultValue: "Loading context…",
                 })}
                 className="grid gap-1 p-1"
               >

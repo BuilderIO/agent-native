@@ -130,8 +130,8 @@ export function ComposerContextPickerDialog({
                 <div
                   className="grid gap-2"
                   role="status"
-                  aria-label={t("agentChat.common.loading", {
-                    defaultValue: "Loading...",
+                  aria-label={t("agentChat.composer.contextPending", {
+                    defaultValue: "Loading context…",
                   })}
                 >
                   <Skeleton className="h-8 w-full" />
