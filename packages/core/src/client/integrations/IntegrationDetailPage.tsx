@@ -325,7 +325,7 @@ function ConnectedRow({
         canRemove ? (
           <Button
             type="button"
-            variant="secondary-destructive"
+            variant="outline-destructive"
             size="sm"
             onClick={onRemove}
           >

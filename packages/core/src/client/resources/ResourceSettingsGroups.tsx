@@ -221,7 +221,7 @@ export function ResourceSettingsGroups({
               <div className="ms-auto flex items-center gap-2">
                 {showsEmpty && emptyAction ? null : group.action}
                 {isDispatch && dispatchLinks.isWorkspace && (
-                  <Button asChild variant="secondary" size="xs">
+                  <Button asChild variant="outline" size="xs">
                     <a
                       href={dispatchLinks.dispatchResourcesHref}
                       target="_blank"
@@ -555,7 +555,7 @@ export function ErrorRow({
       {onRetry ? (
         <Button
           type="button"
-          variant="secondary"
+          variant="outline"
           size="sm"
           className="shrink-0"
           onClick={onRetry}

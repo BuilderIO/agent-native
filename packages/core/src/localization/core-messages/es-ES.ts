@@ -339,6 +339,308 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "Administrar",
   "integrations.recommended": "Recomendado",
   "integrations.subtitle": "Conecta las herramientas que tu agente puede usar.",
+  "mcpIntegrations.menuLabel": "Integraciones",
+  "mcpIntegrations.menuDescription":
+    "Conectar herramientas y servicios al agente",
+  "mcpIntegrations.title": "Conectar integraciones",
+  "mcpIntegrations.description":
+    "Explora {{count}} integraciones de agente o añade una personalizada.",
+  "mcpIntegrations.searchPlaceholder": "Buscar integraciones",
+  "mcpIntegrations.addYourOwn": "Añadir la tuya",
+  "mcpIntegrations.noMatches": "Ninguna integración coincide con tu búsqueda.",
+  "mcpIntegrations.connected": "Conectada",
+  "mcpIntegrations.connectionError": "Error de conexión",
+  "mcpIntegrations.connectionErrorReason": "Motivo: {{reason}}",
+  "mcpIntegrations.reconnect": "Volver a conectar",
+  "mcpIntegrations.reconnecting": "Volviendo a conectar…",
+  "mcpIntegrations.reconnectFailed": "No se pudo volver a conectar: {{error}}",
+  "mcpIntegrations.configure": "Configurar",
+  "mcpIntegrations.connect": "Conectar",
+  "mcpIntegrations.connectWithOAuth": "Conectar",
+  "mcpIntegrations.connecting": "Conectando…",
+  "mcpIntegrations.useApiToken": "Usar token de API",
+  "mcpIntegrations.customOAuthDefault": "Iniciar sesión con OAuth",
+  "mcpIntegrations.customHeadersMode": "Usar una clave de API",
+  "mcpIntegrations.useApiKeyInstead": "Usar una clave de API en su lugar",
+  "mcpIntegrations.useOAuthInstead": "Usar OAuth en su lugar",
+  "mcpIntegrations.connectSuggestion":
+    "Conecta {{name}} para usarlo en el chat",
+  "mcpIntegrations.connectSuggestionWithApiToken":
+    "Conecta {{name}} con un token de API para usarlo en el chat",
+  "mcpIntegrations.dismissSuggestion": "Descartar sugerencia de integración",
+  "mcpIntegrations.backToIntegrations": "Volver a integraciones",
+  "mcpIntegrations.customTitle": "Añadir integración de agente personalizada",
+  "mcpIntegrations.configureTitle": "Configurar {{name}}",
+  "mcpIntegrations.presetNoAuthDescription":
+    "Los valores predefinidos ya están rellenados. Prueba el endpoint o conéctalo ahora.",
+  "mcpIntegrations.presetAuthDescription":
+    "Los valores predefinidos ya están rellenados. Añade los datos de autorización necesarios antes de conectar.",
+  "mcpIntegrations.customDescription":
+    "Pega un endpoint Streamable HTTP o SSE y, si quieres, encabezados.",
+  "mcpIntegrations.oauthNotice":
+    "Este proveedor suele requerir una configuración de OAuth. Sigue la documentación del proveedor o añade un encabezado Authorization si tu endpoint admite acceso mediante token.",
+  "mcpIntegrations.providerSetupRequired":
+    "Se requiere configurar el proveedor",
+  "mcpIntegrations.providerSetupDescription":
+    "Primero completa la configuración necesaria en {{name}}. Después vuelve aquí para conectar tu cuenta.",
+  "mcpIntegrations.providerSetupFormDescription":
+    "Completa la configuración del proveedor antes de conectar tu cuenta.",
+  "mcpIntegrations.continueToConnect": "Conectar mi cuenta",
+  "mcpIntegrations.setupTitle": "Conectar {{name}}",
+  "mcpIntegrations.personal": "Personal",
+  "mcpIntegrations.personalConnection": "Conexión personal",
+  "mcpIntegrations.organization": "Organización",
+  "mcpIntegrations.scopeQuestion": "¿Quién debería poder usar esta conexión?",
+  "mcpIntegrations.scopeChoiceTitle": "¿Quién debería usarla?",
+  "mcpIntegrations.scopeChoiceDescription":
+    "Elige dónde está disponible esta conexión.",
+  "mcpIntegrations.connectForMe": "Conectar para mí",
+  "mcpIntegrations.setUpForWorkspace": "Configurar para el espacio de trabajo",
+  "mcpIntegrations.workspaceAdminRequired":
+    "Se requiere un propietario o administrador del espacio de trabajo.",
+  "mcpIntegrations.workspaceJoinRequired":
+    "Primero únete a un espacio de trabajo.",
+  "mcpIntegrations.personalOnlyDescription":
+    "Esta integración solo admite conexiones personales.",
+  "mcpIntegrations.workspaceOnlyDescription":
+    "Esta integración se conecta una sola vez para todo el espacio de trabajo, así que no se puede conectar solo a tu cuenta. Un propietario o administrador del espacio de trabajo puede configurarla.",
+  "mcpIntegrations.loadingScopeMetadata": "Cargando el alcance de la conexión…",
+  "mcpIntegrations.retry": "Reintentar",
+  "mcpIntegrations.retrying": "Reintentando…",
+  "mcpIntegrations.personalDescription": "Solo tú puedes usar esta conexión.",
+  "mcpIntegrations.sharedWithWorkspace": "Compartida con el espacio de trabajo",
+  "mcpIntegrations.organizationDescription":
+    "Los miembros del espacio de trabajo con permiso pueden usar esta conexión. Se siguen aplicando los permisos del proveedor.",
+  "mcpIntegrations.serverNameRequired":
+    "Introduce un nombre para la integración antes de conectar con OAuth.",
+  "mcpIntegrations.serverName": "Nombre de la integración",
+  "mcpIntegrations.url": "URL",
+  "mcpIntegrations.fieldDescription": "Descripción",
+  "mcpIntegrations.headers": "Encabezados",
+  "mcpIntegrations.serverNamePlaceholder": "Nombre de la integración",
+  "mcpIntegrations.urlPlaceholder": "https://example.com/agent-integration",
+  "mcpIntegrations.descriptionPlaceholder": "Descripción (opcional)",
+  "mcpIntegrations.headersPlaceholder": "Authorization: Bearer <token>",
+  "mcpIntegrations.openSetupDocs": "Abrir documentación de configuración",
+  "mcpIntegrations.viewSetup": "Abrir guía de configuración",
+  "mcpIntegrations.test": "Probar",
+  "mcpIntegrations.testing": "Probando…",
+  "mcpIntegrations.toolsAvailable_one": "{{count}} herramienta disponible",
+  "mcpIntegrations.toolsAvailable_many": "{{count}} herramientas disponibles",
+  "mcpIntegrations.toolsAvailable_other": "{{count}} herramientas disponibles",
+  "mcpIntegrations.failed": "Error",
+  "mcpIntegrations.docsLabel": "Ver la documentación de {{name}}",
+  "mcpIntegrations.catalog.context7.description":
+    "Obtén documentación actualizada de bibliotecas en los chats del agente.",
+  "mcpIntegrations.catalog.context7.useCase":
+    "Documentación, referencia técnica, documentación de API, guías de frameworks",
+  "mcpIntegrations.catalog.sentry.description":
+    "Inspecciona incidencias, eventos y datos de depuración.",
+  "mcpIntegrations.catalog.sentry.useCase":
+    "Monitorización de errores, depuración, rendimiento, informes de fallos",
+  "mcpIntegrations.catalog.fullstory.description":
+    "Consulta analítica de comportamiento e inspecciona reproducciones de sesiones.",
+  "mcpIntegrations.catalog.fullstory.useCase":
+    "Analítica de producto, reproducción de sesiones, comportamiento cualitativo, investigación de usuarios",
+  "mcpIntegrations.catalog.fullstory.setupNote":
+    "FullStory MCP está en beta y requiere que un administrador de la organización de FullStory active las funciones de StoryAI y la opción Model Context Protocol.",
+  "mcpIntegrations.catalog.amplitude.description":
+    "Consulta y trabaja con la analítica de producto de Amplitude.",
+  "mcpIntegrations.catalog.amplitude.useCase":
+    "Analítica de producto, gráficos, paneles, cohortes, experimentos",
+  "mcpIntegrations.catalog.amplitude.setupNote":
+    "Amplitude MCP usa OAuth sobre HTTP en streaming. El endpoint predeterminado es para la residencia de datos en EE. UU.; usa el endpoint de la UE de Amplitude si la cuenta requiere residencia en la UE.",
+  "mcpIntegrations.catalog.sigma.description":
+    "Busca, explora y analiza libros de trabajo y paneles de Sigma.",
+  "mcpIntegrations.catalog.sigma.useCase":
+    "Analítica, paneles, libros de trabajo, exploración de datos, inteligencia empresarial",
+  "mcpIntegrations.catalog.sigma.setupNote":
+    "La URL de MCP de Sigma es específica de cada organización. En Sigma, abre Profile > Integrations > Connect Sigma to AI tools, copia la URL y pégala aquí. Sigma MCP admite actualmente búsqueda, exploración de metadatos y análisis; esta conexión no permite crear ni importar paneles o libros de trabajo.",
+  "mcpIntegrations.catalog.notion.description":
+    "Busca páginas y conocimiento del equipo.",
+  "mcpIntegrations.catalog.notion.useCase":
+    "Documentación, gestión del conocimiento, notas, creación de contenido",
+  "mcpIntegrations.catalog.notion.setupNote":
+    "La integración de Notion usa OAuth de usuario. Los espacios de trabajo Enterprise pueden auditar el uso de integraciones y permitir o bloquear clientes; vuelve a conectar después de que cambie la política del administrador.",
+  "mcpIntegrations.catalog.granola.description":
+    "Busca notas de reuniones, transcripciones y tareas pendientes.",
+  "mcpIntegrations.catalog.granola.useCase":
+    "Notas de reuniones, grabaciones, transcripciones, tareas pendientes, seguimientos",
+  "mcpIntegrations.catalog.granola.setupNote":
+    "La integración de Granola usa OAuth en el navegador. Autoriza la cuenta de Granola con la que has iniciado sesión y revisa a qué notas de reuniones y transcripciones puede acceder el agente.",
+  "mcpIntegrations.catalog.gong.description":
+    "Busca llamadas de Gong y genera información sobre cuentas y oportunidades.",
+  "mcpIntegrations.catalog.gong.useCase":
+    "Llamadas de ventas, transcripciones, información sobre oportunidades, resúmenes de cuentas",
+  "mcpIntegrations.catalog.gong.setupNote":
+    "Gong requiere que un administrador técnico cree una integración MCP y elija una autorización personal o compartida. El ID de cliente y el secreto generados deben configurarse antes de conectar.",
+  "mcpIntegrations.catalog.semgrep.description":
+    "Analiza el código en busca de problemas de seguridad.",
+  "mcpIntegrations.catalog.semgrep.useCase":
+    "Análisis de seguridad, detección de vulnerabilidades, análisis de código",
+  "mcpIntegrations.catalog.linear.description":
+    "Lee y escribe incidencias de Linear.",
+  "mcpIntegrations.catalog.linear.useCase":
+    "Gestión de proyectos, seguimiento de incidencias, planificación, informes de errores",
+  "mcpIntegrations.catalog.apollo.description":
+    "Busca, enriquece y gestiona datos GTM de Apollo.",
+  "mcpIntegrations.catalog.apollo.useCase":
+    "Prospección, enriquecimiento, contactos, secuencias, investigación de cuentas",
+  "mcpIntegrations.catalog.apollo.setupNote":
+    "Apollo MCP usa OAuth de usuario y no requiere una clave de API de Apollo. Se siguen aplicando los permisos del plan de Apollo, los créditos y las restricciones del proveedor sobre el entrenamiento de modelos.",
+  "mcpIntegrations.catalog.commonRoom.description":
+    "Investiga señales de compradores, contactos y organizaciones.",
+  "mcpIntegrations.catalog.commonRoom.useCase":
+    "Inteligencia de compradores, señales de producto, intención, enriquecimiento de contactos",
+  "mcpIntegrations.catalog.commonRoom.setupNote":
+    "Common Room MCP usa OAuth por usuario y respeta el rol en el espacio de trabajo del usuario autorizado. Puede que un administrador tenga que activar la conexión MCP para la instancia.",
+  "mcpIntegrations.catalog.exa.description":
+    "Busca en la web y obtén páginas con Exa.",
+  "mcpIntegrations.catalog.exa.useCase":
+    "Búsqueda web, investigación, búsqueda de código, obtención de páginas",
+  "mcpIntegrations.catalog.exa.setupNote":
+    "El endpoint MCP remoto de Exa admite un uso básico gratuito sin clave. Añade una clave de API de Exa en la configuración de encabezados del proveedor si necesitas límites más altos o más herramientas.",
+  "mcpIntegrations.catalog.supabase.description":
+    "Gestiona datos, autenticación y servicios de backend.",
+  "mcpIntegrations.catalog.supabase.useCase":
+    "Base de datos, autenticación, almacenamiento, funciones edge",
+  "mcpIntegrations.catalog.neon.description":
+    "Trabaja con proyectos de Postgres serverless.",
+  "mcpIntegrations.catalog.neon.useCase":
+    "Gestión de bases de datos, Postgres serverless, almacenamiento de datos",
+  "mcpIntegrations.catalog.stripe.description":
+    "Gestiona pagos, suscripciones y clientes.",
+  "mcpIntegrations.catalog.stripe.useCase":
+    "Pagos, suscripciones, facturación, gestión de clientes",
+  "mcpIntegrations.catalog.atlassian.description":
+    "Lee y escribe incidencias de Jira y contenido de Confluence.",
+  "mcpIntegrations.catalog.atlassian.useCase":
+    "Gestión de proyectos, seguimiento de incidencias, documentación, colaboración en equipo",
+  "mcpIntegrations.catalog.atlassian.setupNote":
+    "Pide al administrador de Atlassian que permita el dominio de la app Clips y active Rovo/MCP con permisos de lectura, escritura y búsqueda para tu sitio de Jira.",
+  "mcpIntegrations.catalog.cloudflare.description":
+    "Busca y opera servicios de Cloudflare mediante su integración.",
+  "mcpIntegrations.catalog.cloudflare.useCase":
+    "DNS, Workers, dominios, seguridad, observabilidad, API de la plataforma",
+  "mcpIntegrations.catalog.cloudflare.setupNote":
+    "El directorio de integraciones gestionadas de Cloudflare incluye integraciones específicas de cada producto y también la integración general de la API. Revisa los alcances y elige el endpoint más restringido que se ajuste a tu flujo de trabajo.",
+  "mcpIntegrations.catalog.grafana.description":
+    "Consulta métricas, registros y datos de observabilidad de Grafana Cloud.",
+  "mcpIntegrations.catalog.grafana.useCase":
+    "Observabilidad, métricas, registros, trazas, paneles",
+  "mcpIntegrations.catalog.grafana.setupNote":
+    "Grafana Cloud MCP está en versión preliminar pública y requiere acceso MCP de Grafana Cloud Assistant. Solo funciona con Grafana Cloud alojado; Grafana autoalojado necesita el servidor MCP local.",
+  "mcpIntegrations.catalog.gitlab.description":
+    "Lee y gestiona proyectos, incidencias y merge requests de GitLab.",
+  "mcpIntegrations.catalog.gitlab.useCase":
+    "Repositorios, incidencias, merge requests, CI/CD, analítica de código",
+  "mcpIntegrations.catalog.gitlab.setupNote":
+    "La integración de GitLab está en beta. En GitLab.com, un administrador de un grupo de nivel superior debe permitir el acceso a la integración para que OAuth pueda completarse; las instancias autogestionadas tienen un ajuste de instancia equivalente.",
+  "mcpIntegrations.catalog.figma.description":
+    "Lleva el contexto de diseño y las acciones del lienzo de Figma a un agente.",
+  "mcpIntegrations.catalog.figma.useCase":
+    "Archivos de diseño, componentes, variables, sistemas de diseño, lienzo",
+  "mcpIntegrations.catalog.figma.setupNote":
+    "La integración de Figma solo permite los clientes que aparecen en el catálogo de integraciones de Figma, así que este endpoint remoto aún no puede conectarse desde Agent-Native. Usa como alternativa la API REST de Figma con un token de acceso personal para leer el contexto de archivos y nodos; las acciones del lienzo no estarán disponibles hasta que Figma apruebe Agent-Native.",
+  "mcpIntegrations.catalog.canva.description":
+    "Busca, crea y actualiza diseños y recursos de Canva.",
+  "mcpIntegrations.catalog.canva.useCase":
+    "Diseños, plantillas, recursos, kits de marca, exportaciones, colaboración",
+  "mcpIntegrations.catalog.canva.setupNote":
+    "La integración de Canva usa OAuth por usuario y requiere que los clientes permitan los dominios canva.com y canva.ai de Canva. Confirma la configuración actual de redirección y del cliente en la documentación de integración de Canva antes de conectar.",
+  "mcpIntegrations.catalog.vercel.description":
+    "Busca en la documentación de Vercel e inspecciona proyectos, despliegues y registros.",
+  "mcpIntegrations.catalog.vercel.useCase":
+    "Despliegues, proyectos, registros, dominios, alojamiento, documentación",
+  "mcpIntegrations.catalog.vercel.setupNote":
+    "La integración de Vercel solo acepta clientes de IA revisados y aprobados. Agent-Native debe añadirse a la lista de clientes compatibles de Vercel para que funcione una conexión genérica del framework.",
+  "mcpIntegrations.catalog.github.description":
+    "Lee repositorios, incidencias, pull requests y contexto del código.",
+  "mcpIntegrations.catalog.github.useCase":
+    "Repositorios, incidencias, pull requests, código, analítica de ingeniería",
+  "mcpIntegrations.catalog.github.setupNote":
+    "El proveedor de inicio de sesión de GitHub no permite que las apps se registren solas, así que el botón Conectar no puede completar OAuth. Conecta con un token de acceso personal de GitHub y ten en cuenta que las organizaciones pueden aplicar políticas de acceso de apps OAuth.",
+  "mcpIntegrations.catalog.slack.description":
+    "Busca conversaciones de Slack y realiza acciones en el espacio de trabajo mediante su integración.",
+  "mcpIntegrations.catalog.slack.useCase":
+    "Mensajes, canales, personas, memoria de la empresa, flujos de trabajo",
+  "mcpIntegrations.catalog.slack.setupNote":
+    "La integración de Slack requiere una app de Slack registrada con un ID de app fijo. No se admite el registro dinámico de clientes y solo pueden conectarse apps de Slack Marketplace o internas. Usa el flujo de OAuth de mensajería gestionado de Slack para los flujos de trabajo de Agent-Native.",
+  "mcpIntegrations.catalog.asana.description":
+    "Busca y gestiona tareas, proyectos y datos del gráfico de trabajo de Asana.",
+  "mcpIntegrations.catalog.asana.useCase":
+    "Tareas, proyectos, carteras, planificación, carga de trabajo",
+  "mcpIntegrations.catalog.asana.setupNote":
+    "La integración de agente de Asana requiere una app OAuth registrada previamente y no admite el registro dinámico de clientes. Configura un cliente de app de Asana antes de conectar.",
+  "mcpIntegrations.catalog.hubspot.description":
+    "Busca y actualiza registros del CRM de HubSpot mediante su integración.",
+  "mcpIntegrations.catalog.hubspot.useCase":
+    "CRM, contactos, empresas, negocios, tickets, analítica de clientes",
+  "mcpIntegrations.catalog.hubspot.setupNote":
+    "Si hay una HubSpot MCP Auth App gestionada por el espacio de trabajo, cualquier miembro puede conectar una cuenta personal de HubSpot con OAuth y PKCE. Si no, crea la app en HubSpot Developer Platform antes de conectar; el conector OAuth de HubSpot existente sigue disponible para las acciones de la app.",
+  "mcpIntegrations.catalog.pylon.description":
+    "Busca y actualiza datos de soporte de Pylon.",
+  "mcpIntegrations.catalog.pylon.useCase":
+    "Atención al cliente, incidencias, cuentas, contactos, conversaciones",
+  "mcpIntegrations.catalog.pylon.setupNote":
+    "Activa el acceso MCP de Pylon para los usuarios correspondientes y activa el servidor MCP en Pylon antes de conectar. Pylon requiere una licencia de Member o Admin y solo usa OAuth de usuario.",
+  "mcpIntegrations.catalog.intercom.description":
+    "Busca conversaciones y conocimiento de atención al cliente.",
+  "mcpIntegrations.catalog.intercom.useCase":
+    "Atención al cliente, conversaciones, contactos, contenido del centro de ayuda",
+  "mcpIntegrations.catalog.intercom.setupNote":
+    "La integración de Intercom usa OAuth y está disponible para espacios de trabajo alojados en EE. UU. Confirma la región del espacio de trabajo y los alcances solicitados durante la autorización.",
+  "mcpIntegrations.catalog.monday.description":
+    "Trabaja con tableros, elementos y flujos de trabajo del equipo.",
+  "mcpIntegrations.catalog.monday.useCase":
+    "Gestión del trabajo, tableros, proyectos, tareas, operaciones del equipo",
+  "mcpIntegrations.catalog.monday.setupNote":
+    "La integración de monday.com usa OAuth sobre Streamable HTTP. Elige el espacio de trabajo y los permisos que quieres compartir durante la autorización.",
+  "mcpIntegrations.catalog.webflow.description":
+    "Lee y actualiza sitios y contenido de Webflow.",
+  "mcpIntegrations.catalog.webflow.useCase":
+    "Sitios web, CMS, contenido del sitio, publicación, flujos de trabajo de diseño",
+  "mcpIntegrations.catalog.webflow.setupNote":
+    "La integración de Webflow usa OAuth. Las funciones del Designer pueden instalar la Bridge App de Webflow durante la autorización; el acceso a Data API está disponible por separado.",
+  "mcpIntegrations.catalog.paypal.description":
+    "Trabaja con pagos, facturas y datos comerciales de PayPal.",
+  "mcpIntegrations.catalog.paypal.useCase":
+    "Pagos, facturas, transacciones, operaciones de comercios",
+  "mcpIntegrations.catalog.paypal.setupNote":
+    "PayPal ofrece descubrimiento e inicio de sesión de OAuth para su integración de agente remota. Agent-Native usa el endpoint /sse activo actualmente; revisa los permisos del comercio antes de autorizar.",
+  "mcpIntegrations.catalog.box.description":
+    "Busca y gestiona archivos y carpetas en Box.",
+  "mcpIntegrations.catalog.box.useCase":
+    "Archivos, carpetas, contenido empresarial, búsqueda, colaboración",
+  "mcpIntegrations.catalog.box.setupNote":
+    "La integración de Box está en beta y requiere que un administrador la active. Los clientes personalizados también necesitan Box Integration Credentials, un URI de redirección y alcances aprobados.",
+  "mcpIntegrations.catalog.builder.description":
+    "Busca contenido de Builder Publish y Hybrid Space.",
+  "mcpIntegrations.catalog.builder.useCase":
+    "Modelos de contenido, páginas, entradas, Publish y Hybrid Spaces",
+  "mcpIntegrations.catalog.builder.setupNote":
+    "Builder CMS MCP usa OAuth con registro dinámico de clientes. Solo se conecta a Publish o Hybrid Spaces, y el flujo de autorización te pide que selecciones el Space.",
+  "mcpIntegrations.catalog.netlify.description":
+    "Inspecciona y opera sitios y despliegues de Netlify.",
+  "mcpIntegrations.catalog.netlify.useCase":
+    "Sitios, despliegues, compilaciones, dominios, operaciones de alojamiento",
+  "mcpIntegrations.catalog.netlify.setupNote":
+    "Netlify documenta una configuración de integración remota para los clientes compatibles. Revisa los permisos del sitio y del equipo antes de completar OAuth.",
+  "mcpIntegrations.catalog.zapier.description":
+    "Conecta herramientas a miles de acciones de apps.",
+  "mcpIntegrations.catalog.zapier.useCase":
+    "Automatización, flujos de trabajo, acciones de apps, operaciones entre servicios",
+  "mcpIntegrations.catalog.zapier.setupNote":
+    "La integración de agente de Zapier usa una conexión y un token creados por el usuario para los clientes no incluidos en su lista. Crea la conexión en Zapier y pega el token bearer generado en el campo de encabezado.",
+  "mcpIntegrations.auth.none": "Sin autenticación",
+  "mcpIntegrations.auth.headers": "Encabezado",
+  "mcpIntegrations.auth.oauth": "OAuth",
+  "mcpIntegrations.status.beta": "Beta",
+  "mcpIntegrations.status.setupRequired": "Configuración del proveedor",
+  "mcpIntegrations.status.clientRestricted": "Solo clientes aprobados",
+  "mcpIntegrations.status.verified": "Verificada",
+  "mcpIntegrations.status.preflightOnly": "Solo comprobación previa",
+  "mcpIntegrations.status.restricted": "Restringida",
   "limit.account": "tu cuenta",
   "limit.descriptionAll":
     "El agente ha utilizado todos los pasos disponibles. Continúa en una interacción nueva o aumenta primero el límite de {{scope}}.",
@@ -1230,6 +1532,8 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.emailPlaceholder": "nombre@empresa.com",
   "settingsOrg.invite.note":
     "Cada persona inicia sesión con este correo exacto para aceptar.",
+  "settingsOrg.invite.noteNoEmail":
+    "Las invitaciones no se enviarán por correo, así que pide a cada persona que inicie sesión con este correo exacto.",
   "settingsOrg.invite.role": "Rol",
   "settingsOrg.invite.member": "Miembro",
   "settingsOrg.invite.admin": "Administrador",
@@ -1260,6 +1564,12 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.sent_one": "Se envió {{count}} invitación.",
   "settingsOrg.invite.sent_many": "Se enviaron {{count}} invitaciones.",
   "settingsOrg.invite.sent_other": "Se enviaron {{count}} invitaciones.",
+  "settingsOrg.invite.saved_one":
+    "Se guardó {{count}} invitación. La verá al iniciar sesión.",
+  "settingsOrg.invite.saved_many":
+    "Se guardaron {{count}} invitaciones. Las verán al iniciar sesión.",
+  "settingsOrg.invite.saved_other":
+    "Se guardaron {{count}} invitaciones. Las verán al iniciar sesión.",
   "settingsShell.account.addPassword": "Añadir contraseña",
   "settingsShell.account.authenticatorCode": "Código de autenticación",
   "settingsShell.account.change": "Cambiar",

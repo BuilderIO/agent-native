@@ -164,7 +164,7 @@ export function UsageAlertsGroup({
           control={
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
               size="sm"
               onClick={() => void query.refetch()}
               disabled={query.isFetching}
@@ -208,7 +208,7 @@ export function UsageAlertsGroup({
                 {rule.enabled && rule.status === "triggered" ? (
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant="outline"
                     size="sm"
                     disabled={mutation.isPending}
                     onClick={() =>
@@ -224,7 +224,7 @@ export function UsageAlertsGroup({
                 ) : null}
                 <Button
                   type="button"
-                  variant="secondary"
+                  variant="outline"
                   size="sm"
                   onClick={() => setEditing(rule)}
                 >

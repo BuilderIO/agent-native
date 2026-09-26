@@ -185,7 +185,7 @@ function LoadError({ onRetry }: { onRetry: () => void }) {
       id="channels-error"
       label={t(`${K}.loadFailed`)}
       control={
-        <Button type="button" variant="secondary" size="sm" onClick={onRetry}>
+        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
           {t(`${K}.retry`)}
         </Button>
       }
@@ -761,7 +761,7 @@ function RegisterWebhookControl({ platform }: { platform: string }) {
   return (
     <Button
       type="button"
-      variant="secondary"
+      variant="outline"
       size="sm"
       disabled={register.isPending}
       aria-busy={register.isPending}
@@ -862,7 +862,7 @@ function ChannelDetail({
           canManage ? (
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
               size="sm"
               onClick={() => setSetupOpen(true)}
             >
@@ -1029,7 +1029,7 @@ function ChannelDetail({
                     control={
                       <Button
                         type="button"
-                        variant="secondary-destructive"
+                        variant="outline-destructive"
                         size="sm"
                         aria-label={t(`${K}.removeCredentials.aria`, {
                           platform: channel.name,

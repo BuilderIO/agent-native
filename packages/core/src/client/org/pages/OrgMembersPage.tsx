@@ -412,6 +412,7 @@ function InviteMembersAction({
           </DialogHeader>
           <BulkInviteForm
             currentUserRole={org.role}
+            emailConfigured={org.emailConfigured}
             appRoles={appRoles}
             onClose={() => setOpen(false)}
           />
@@ -436,7 +437,7 @@ function OrgMembersContent({
   const membersQuery = useOrgMembers(offset, search);
   const invitations = useOrgInvitations();
   const { data: appRoleData } = useAppRoles(appRoles?.appId);
-  const canInvite = canInviteOrgMembers(org.role, org.emailConfigured);
+  const canInvite = canInviteOrgMembers(org.role);
   const canManageAppRoles = Boolean(appRoles && appRoleData?.canManage);
 
   useEffect(() => {
@@ -512,7 +513,7 @@ function OrgMembersContent({
               </p>
               <Button
                 type="button"
-                variant="secondary"
+                variant="outline"
                 size="sm"
                 disabled={membersQuery.isFetching}
                 onClick={() => void membersQuery.refetch()}

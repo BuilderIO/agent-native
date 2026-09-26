@@ -242,7 +242,7 @@ function AddProviderButton({
   variant = "default",
   onClick,
 }: {
-  variant?: "default" | "secondary";
+  variant?: "default" | "outline";
   onClick: () => void;
 }) {
   const t = useT();
@@ -339,7 +339,7 @@ function NoProviderEmpty({
             {connect}
             {canAdd ? (
               <AddProviderButton
-                variant={connect ? "secondary" : "default"}
+                variant={connect ? "outline" : "default"}
                 onClick={onAdd}
               />
             ) : null}
@@ -527,7 +527,7 @@ function BuilderRow({
         >
           <Button
             type="button"
-            variant="secondary"
+            variant="outline"
             size="sm"
             disabled={flow.connecting}
           >
@@ -845,7 +845,7 @@ function DefaultModelRow({
           <p className="text-destructive">{t(`${K}settingLoadFailed`)}</p>
           <Button
             type="button"
-            variant="secondary"
+            variant="outline"
             size="sm"
             onClick={modelsRead.retry}
           >
@@ -1056,7 +1056,7 @@ function RowButton({
   return (
     <Button
       type="button"
-      variant={destructive ? "secondary-destructive" : "secondary"}
+      variant={destructive ? "outline-destructive" : "outline"}
       size="sm"
       onClick={onClick}
     >

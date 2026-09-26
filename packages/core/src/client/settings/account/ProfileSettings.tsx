@@ -98,7 +98,7 @@ function ProfilePhotoRow({
           />
           <Button
             type="button"
-            variant="secondary"
+            variant="outline"
             size="sm"
             disabled={!email || uploading}
             onClick={() => fileInputRef.current?.click()}
@@ -258,7 +258,7 @@ function EmailRow({ email }: { email: string }) {
         <Dialog open={open} onOpenChange={openDialog}>
           <Button
             type="button"
-            variant="secondary"
+            variant="outline"
             size="sm"
             onClick={() => openDialog(true)}
           >

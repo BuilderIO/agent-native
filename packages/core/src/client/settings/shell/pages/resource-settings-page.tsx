@@ -142,7 +142,7 @@ function AddButton({
   return (
     <Button
       type="button"
-      variant={placement === "group" ? "secondary" : "default"}
+      variant={placement === "group" ? "outline" : "default"}
       size={placement === "group" ? "xs" : "sm"}
       {...props}
     >

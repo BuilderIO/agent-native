@@ -87,7 +87,7 @@ export function FeatureKeysGroup({
             saved && !saved.canReplace ? null : (
               <Button
                 type="button"
-                variant="secondary"
+                variant="outline"
                 size="sm"
                 onClick={() =>
                   setDialog(

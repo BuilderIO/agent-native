@@ -581,6 +581,306 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "إدارة",
   "integrations.recommended": "موصى به",
   "integrations.subtitle": "اربط الأدوات التي يمكن لوكيلك استخدامها.",
+  "mcpIntegrations.menuLabel": "عمليات التكامل",
+  "mcpIntegrations.menuDescription": "ربط الأدوات والخدمات بالوكيل",
+  "mcpIntegrations.title": "ربط عمليات التكامل",
+  "mcpIntegrations.description":
+    "تصفّح {{count}} من عمليات تكامل الوكيل أو أضف تكاملًا مخصصًا.",
+  "mcpIntegrations.searchPlaceholder": "البحث في عمليات التكامل",
+  "mcpIntegrations.addYourOwn": "إضافة تكامل خاص بك",
+  "mcpIntegrations.noMatches": "لا توجد عمليات تكامل تطابق هذا البحث.",
+  "mcpIntegrations.connected": "متصل",
+  "mcpIntegrations.connectionError": "خطأ في الاتصال",
+  "mcpIntegrations.connectionErrorReason": "السبب: {{reason}}",
+  "mcpIntegrations.reconnect": "إعادة الاتصال",
+  "mcpIntegrations.reconnecting": "جارٍ إعادة الاتصال…",
+  "mcpIntegrations.reconnectFailed": "فشلت إعادة الاتصال: {{error}}",
+  "mcpIntegrations.configure": "إعداد",
+  "mcpIntegrations.connect": "ربط",
+  "mcpIntegrations.connectWithOAuth": "ربط",
+  "mcpIntegrations.connecting": "جارٍ الاتصال…",
+  "mcpIntegrations.useApiToken": "استخدام رمز API",
+  "mcpIntegrations.customOAuthDefault": "تسجيل الدخول باستخدام OAuth",
+  "mcpIntegrations.customHeadersMode": "استخدام مفتاح API",
+  "mcpIntegrations.useApiKeyInstead": "استخدام مفتاح API بدلًا من ذلك",
+  "mcpIntegrations.useOAuthInstead": "استخدام OAuth بدلًا من ذلك",
+  "mcpIntegrations.connectSuggestion": "اربط {{name}} لاستخدامه في الدردشة",
+  "mcpIntegrations.connectSuggestionWithApiToken":
+    "اربط {{name}} برمز API لاستخدامه في الدردشة",
+  "mcpIntegrations.dismissSuggestion": "تجاهل اقتراح التكامل",
+  "mcpIntegrations.backToIntegrations": "العودة إلى عمليات التكامل",
+  "mcpIntegrations.customTitle": "إضافة تكامل مخصص للوكيل",
+  "mcpIntegrations.configureTitle": "إعداد {{name}}",
+  "mcpIntegrations.presetNoAuthDescription":
+    "تم ملء القيم المعدّة مسبقًا. اختبر نقطة النهاية أو اربطها الآن.",
+  "mcpIntegrations.presetAuthDescription":
+    "تم ملء القيم المعدّة مسبقًا. أضف أي تفاصيل تفويض مطلوبة قبل الربط.",
+  "mcpIntegrations.customDescription":
+    "الصق نقطة نهاية Streamable HTTP أو SSE وترويسات اختيارية.",
+  "mcpIntegrations.oauthNotice":
+    "يتطلب هذا المزوّد عادةً إعداد OAuth. اتبع وثائق المزوّد، أو أضف ترويسة Authorization إذا كانت نقطة النهاية تدعم الوصول المستند إلى الرموز.",
+  "mcpIntegrations.providerSetupRequired": "يلزم إعداد المزوّد",
+  "mcpIntegrations.providerSetupDescription":
+    "أكمل الإعداد المطلوب في {{name}} أولًا. ثم عد إلى هنا لربط حسابك.",
+  "mcpIntegrations.providerSetupFormDescription":
+    "أكمل إعداد المزوّد قبل ربط حسابك.",
+  "mcpIntegrations.continueToConnect": "ربط حسابي",
+  "mcpIntegrations.setupTitle": "ربط {{name}}",
+  "mcpIntegrations.personal": "شخصي",
+  "mcpIntegrations.personalConnection": "اتصال شخصي",
+  "mcpIntegrations.organization": "المؤسسة",
+  "mcpIntegrations.scopeQuestion":
+    "من الذي يجب أن يتمكن من استخدام هذا الاتصال؟",
+  "mcpIntegrations.scopeChoiceTitle": "من يجب أن يستخدم هذا؟",
+  "mcpIntegrations.scopeChoiceDescription": "اختر أين يكون هذا الاتصال متاحًا.",
+  "mcpIntegrations.connectForMe": "ربط لحسابي",
+  "mcpIntegrations.setUpForWorkspace": "إعداد لمساحة العمل",
+  "mcpIntegrations.workspaceAdminRequired":
+    "يلزم أن تكون مالكًا أو مسؤولًا في مساحة العمل.",
+  "mcpIntegrations.workspaceJoinRequired": "انضم إلى مساحة عمل أولًا.",
+  "mcpIntegrations.personalOnlyDescription":
+    "لا يدعم هذا التكامل إلا الاتصالات الشخصية.",
+  "mcpIntegrations.workspaceOnlyDescription":
+    "يتصل هذا التكامل مرة واحدة لمساحة العمل بأكملها، لذا لا يمكن ربطه بحسابك وحدك. يمكن لمالك أو مسؤول في مساحة العمل إعداده.",
+  "mcpIntegrations.loadingScopeMetadata": "جارٍ تحميل نطاق الاتصال…",
+  "mcpIntegrations.retry": "إعادة المحاولة",
+  "mcpIntegrations.retrying": "جارٍ إعادة المحاولة…",
+  "mcpIntegrations.personalDescription":
+    "أنت وحدك من يمكنه استخدام هذا الاتصال.",
+  "mcpIntegrations.sharedWithWorkspace": "مشترك مع مساحة العمل",
+  "mcpIntegrations.organizationDescription":
+    "يمكن لأعضاء مساحة العمل المصرّح لهم استخدام هذا الاتصال. تظل أذونات المزوّد سارية.",
+  "mcpIntegrations.serverNameRequired": "أدخل اسم التكامل قبل الربط عبر OAuth.",
+  "mcpIntegrations.serverName": "اسم التكامل",
+  "mcpIntegrations.url": "URL",
+  "mcpIntegrations.fieldDescription": "الوصف",
+  "mcpIntegrations.headers": "الترويسات",
+  "mcpIntegrations.serverNamePlaceholder": "اسم التكامل",
+  "mcpIntegrations.urlPlaceholder": "https://example.com/agent-integration",
+  "mcpIntegrations.descriptionPlaceholder": "الوصف (اختياري)",
+  "mcpIntegrations.headersPlaceholder": "Authorization: Bearer <token>",
+  "mcpIntegrations.openSetupDocs": "فتح وثائق الإعداد",
+  "mcpIntegrations.viewSetup": "فتح دليل الإعداد",
+  "mcpIntegrations.test": "اختبار",
+  "mcpIntegrations.testing": "جارٍ الاختبار…",
+  "mcpIntegrations.toolsAvailable_zero": "{{count}} أداة متاحة",
+  "mcpIntegrations.toolsAvailable_one": "{{count}} أداة متاحة",
+  "mcpIntegrations.toolsAvailable_two": "{{count}} أداتان متاحتان",
+  "mcpIntegrations.toolsAvailable_few": "{{count}} أدوات متاحة",
+  "mcpIntegrations.toolsAvailable_many": "{{count}} أداةً متاحة",
+  "mcpIntegrations.toolsAvailable_other": "{{count}} أداة متاحة",
+  "mcpIntegrations.failed": "فشل",
+  "mcpIntegrations.docsLabel": "عرض وثائق {{name}}",
+  "mcpIntegrations.catalog.context7.description":
+    "جلب الوثائق الحالية للمكتبات في دردشات الوكيل.",
+  "mcpIntegrations.catalog.context7.useCase":
+    "الوثائق، والمراجع التقنية، ووثائق API، وأدلة أطر العمل",
+  "mcpIntegrations.catalog.sentry.description":
+    "فحص المشكلات والأحداث وبيانات تصحيح الأخطاء.",
+  "mcpIntegrations.catalog.sentry.useCase":
+    "مراقبة الأخطاء، وتصحيح الأخطاء، والأداء، وتقارير الأعطال",
+  "mcpIntegrations.catalog.fullstory.description":
+    "قراءة التحليلات السلوكية وفحص عمليات إعادة تشغيل الجلسات.",
+  "mcpIntegrations.catalog.fullstory.useCase":
+    "تحليلات المنتج، وإعادة تشغيل الجلسات، والسلوك النوعي، وأبحاث المستخدمين",
+  "mcpIntegrations.catalog.fullstory.setupNote":
+    "FullStory MCP في مرحلة تجريبية حاليًا، ويتطلب أن يفعّل مسؤول المؤسسة في FullStory ميزات StoryAI وخيار Model Context Protocol.",
+  "mcpIntegrations.catalog.amplitude.description":
+    "قراءة تحليلات المنتج في Amplitude والعمل عليها.",
+  "mcpIntegrations.catalog.amplitude.useCase":
+    "تحليلات المنتج، والمخططات، ولوحات المعلومات، والمجموعات، والتجارب",
+  "mcpIntegrations.catalog.amplitude.setupNote":
+    "يستخدم Amplitude MCP بروتوكول OAuth عبر HTTP المتدفق. نقطة النهاية الافتراضية مخصصة لإقامة البيانات في الولايات المتحدة؛ استخدم نقطة نهاية Amplitude الأوروبية عندما يتطلب الحساب إقامة البيانات في الاتحاد الأوروبي.",
+  "mcpIntegrations.catalog.sigma.description":
+    "البحث في مصنفات Sigma ولوحات معلوماتها واستكشافها وتحليلها.",
+  "mcpIntegrations.catalog.sigma.useCase":
+    "التحليلات، ولوحات المعلومات، والمصنفات، واستكشاف البيانات، وذكاء الأعمال",
+  "mcpIntegrations.catalog.sigma.setupNote":
+    "عنوان URL الخاص بـ Sigma MCP خاص بكل مؤسسة. في Sigma، افتح Profile > Integrations > Connect Sigma to AI tools، وانسخ عنوان URL، ثم الصقه هنا. يدعم Sigma MCP حاليًا البحث واستكشاف البيانات الوصفية والتحليل؛ ولا يتيح هذا الاتصال إنشاء لوحات المعلومات أو المصنفات أو استيرادها.",
+  "mcpIntegrations.catalog.notion.description":
+    "البحث في الصفحات ومعارف الفريق.",
+  "mcpIntegrations.catalog.notion.useCase":
+    "الوثائق، وإدارة المعرفة، والملاحظات، وإنشاء المحتوى",
+  "mcpIntegrations.catalog.notion.setupNote":
+    "يستخدم تكامل Notion مصادقة OAuth للمستخدم. يمكن لمساحات عمل المؤسسات تدقيق استخدام التكامل والسماح بالعملاء أو حظرهم؛ أعد الاتصال بعد تغيير سياسات المسؤول.",
+  "mcpIntegrations.catalog.granola.description":
+    "البحث في ملاحظات الاجتماعات والنصوص المفرّغة وبنود العمل.",
+  "mcpIntegrations.catalog.granola.useCase":
+    "ملاحظات الاجتماعات، والتسجيلات، والنصوص المفرّغة، وبنود العمل، والمتابعات",
+  "mcpIntegrations.catalog.granola.setupNote":
+    "يستخدم تكامل Granola مصادقة OAuth عبر المتصفح. امنح الإذن لحساب Granola الذي سجّلت الدخول إليه، وراجع ملاحظات الاجتماعات والنصوص المفرّغة التي يمكن للوكيل الوصول إليها.",
+  "mcpIntegrations.catalog.gong.description":
+    "البحث في مكالمات Gong وإنشاء رؤى حول الحسابات والصفقات.",
+  "mcpIntegrations.catalog.gong.useCase":
+    "مكالمات المبيعات، والنصوص المفرّغة، ورؤى الصفقات، وملخصات الحسابات",
+  "mcpIntegrations.catalog.gong.setupNote":
+    "يتطلب Gong أن ينشئ مسؤول تقني تكامل MCP ويختار تفويضًا شخصيًا أو مشتركًا. يجب إعداد معرّف العميل والسر الناتجين قبل الربط.",
+  "mcpIntegrations.catalog.semgrep.description":
+    "فحص التعليمات البرمجية بحثًا عن مشكلات أمنية.",
+  "mcpIntegrations.catalog.semgrep.useCase":
+    "الفحص الأمني، واكتشاف الثغرات، وتحليل التعليمات البرمجية",
+  "mcpIntegrations.catalog.linear.description": "قراءة مشكلات Linear وكتابتها.",
+  "mcpIntegrations.catalog.linear.useCase":
+    "إدارة المشاريع، وتتبع المشكلات، والتخطيط، وتقارير الأخطاء",
+  "mcpIntegrations.catalog.apollo.description":
+    "البحث في بيانات Apollo للتسويق والمبيعات وإثرائها وإدارتها.",
+  "mcpIntegrations.catalog.apollo.useCase":
+    "التنقيب عن العملاء المحتملين، والإثراء، وجهات الاتصال، والتسلسلات، والبحث عن الحسابات",
+  "mcpIntegrations.catalog.apollo.setupNote":
+    "يستخدم Apollo MCP مصادقة OAuth للمستخدم ولا يتطلب مفتاح API من Apollo. تظل أذونات خطة Apollo وأرصدتها وقيود المزوّد على تدريب النماذج سارية.",
+  "mcpIntegrations.catalog.commonRoom.description":
+    "البحث في إشارات المشترين وجهات الاتصال والمؤسسات.",
+  "mcpIntegrations.catalog.commonRoom.useCase":
+    "معلومات المشترين، وإشارات المنتج، ونية الشراء، وإثراء جهات الاتصال",
+  "mcpIntegrations.catalog.commonRoom.setupNote":
+    "يستخدم Common Room MCP مصادقة OAuth لكل مستخدم ويحترم دور المستخدم المصرّح له في مساحة العمل. قد يحتاج أحد المسؤولين إلى تفعيل اتصال MCP للمثيل.",
+  "mcpIntegrations.catalog.exa.description":
+    "البحث في الويب وجلب الصفحات باستخدام Exa.",
+  "mcpIntegrations.catalog.exa.useCase":
+    "البحث في الويب، والأبحاث، والبحث في التعليمات البرمجية، وجلب الصفحات",
+  "mcpIntegrations.catalog.exa.setupNote":
+    "تدعم نقطة نهاية MCP البعيدة من Exa الاستخدام المجاني الأساسي دون مفتاح. أضف مفتاح Exa API عبر إعداد الترويسات لدى المزوّد عند الحاجة إلى حدود أعلى أو أدوات إضافية.",
+  "mcpIntegrations.catalog.supabase.description":
+    "إدارة البيانات والمصادقة والخدمات الخلفية.",
+  "mcpIntegrations.catalog.supabase.useCase":
+    "قاعدة البيانات، والمصادقة، والتخزين، ووظائف الحافة",
+  "mcpIntegrations.catalog.neon.description":
+    "العمل على مشاريع Postgres بدون خادم.",
+  "mcpIntegrations.catalog.neon.useCase":
+    "إدارة قواعد البيانات، وPostgres بدون خادم، وتخزين البيانات",
+  "mcpIntegrations.catalog.stripe.description":
+    "إدارة المدفوعات والاشتراكات والعملاء.",
+  "mcpIntegrations.catalog.stripe.useCase":
+    "المدفوعات، والاشتراكات، والفوترة، وإدارة العملاء",
+  "mcpIntegrations.catalog.atlassian.description":
+    "قراءة مشكلات Jira ومحتوى Confluence وكتابتها.",
+  "mcpIntegrations.catalog.atlassian.useCase":
+    "إدارة المشاريع، وتتبع المشكلات، والوثائق، وتعاون الفريق",
+  "mcpIntegrations.catalog.atlassian.setupNote":
+    "اطلب من مسؤول Atlassian السماح بنطاق تطبيق Clips وتفعيل Rovo/MCP بأذونات القراءة والكتابة والبحث لموقع Jira الخاص بك.",
+  "mcpIntegrations.catalog.cloudflare.description":
+    "البحث في خدمات Cloudflare وتشغيلها عبر تكاملها.",
+  "mcpIntegrations.catalog.cloudflare.useCase":
+    "DNS، وWorkers، والنطاقات، والأمان، وقابلية المراقبة، وواجهات API للمنصة",
+  "mcpIntegrations.catalog.cloudflare.setupNote":
+    "يحتوي دليل عمليات التكامل المُدارة من Cloudflare على عمليات تكامل خاصة بكل منتج إلى جانب تكامل API الشامل. راجع النطاقات واختر أضيق نقطة نهاية تناسب سير عملك.",
+  "mcpIntegrations.catalog.grafana.description":
+    "الاستعلام عن مقاييس Grafana Cloud وسجلاتها وبيانات قابلية المراقبة.",
+  "mcpIntegrations.catalog.grafana.useCase":
+    "قابلية المراقبة، والمقاييس، والسجلات، والتتبعات، ولوحات المعلومات",
+  "mcpIntegrations.catalog.grafana.setupNote":
+    "Grafana Cloud MCP في مرحلة معاينة عامة ويتطلب وصولًا إلى MCP في Grafana Cloud Assistant. وهو متاح لـ Grafana Cloud المستضاف فقط؛ أما Grafana المستضاف ذاتيًا فيحتاج إلى خادم MCP المحلي.",
+  "mcpIntegrations.catalog.gitlab.description":
+    "قراءة مشاريع GitLab ومشكلاتها وطلبات الدمج وإدارتها.",
+  "mcpIntegrations.catalog.gitlab.useCase":
+    "المستودعات، والمشكلات، وطلبات الدمج، وCI/CD، وتحليلات التعليمات البرمجية",
+  "mcpIntegrations.catalog.gitlab.setupNote":
+    "تكامل GitLab في مرحلة تجريبية حاليًا. على GitLab.com، يجب أن يسمح مسؤول مجموعة المستوى الأعلى بوصول التكامل قبل أن تكتمل مصادقة OAuth؛ وللمثيلات المُدارة ذاتيًا إعداد مكافئ على مستوى المثيل.",
+  "mcpIntegrations.catalog.figma.description":
+    "إحضار سياق تصميمات Figma وإجراءات لوحة الرسم إلى الوكيل.",
+  "mcpIntegrations.catalog.figma.useCase":
+    "ملفات التصميم، والمكونات، والمتغيرات، وأنظمة التصميم، ولوحة الرسم",
+  "mcpIntegrations.catalog.figma.setupNote":
+    "لا يسمح تكامل Figma إلا بالعملاء المدرجين في كتالوج عمليات التكامل لدى Figma، لذا لا يمكن لنقطة النهاية البعيدة هذه الاتصال من Agent-Native بعد. استخدم Figma REST API بديلًا مع رمز وصول شخصي لقراءة سياق الملفات والعقد؛ وتظل إجراءات لوحة الرسم غير متاحة حتى توافق Figma على Agent-Native.",
+  "mcpIntegrations.catalog.canva.description":
+    "البحث في تصميمات Canva وأصولها وإنشاؤها وتحديثها.",
+  "mcpIntegrations.catalog.canva.useCase":
+    "التصميمات، والقوالب، والأصول، ومجموعات العلامة التجارية، والتصدير، والتعاون",
+  "mcpIntegrations.catalog.canva.setupNote":
+    "يستخدم تكامل Canva مصادقة OAuth لكل مستخدم ويتطلب أن تسمح العملاء بنطاقي Canva وهما canva.com وcanva.ai. تأكد من إعداد إعادة التوجيه والعميل الحالي في وثائق تكامل Canva قبل الربط.",
+  "mcpIntegrations.catalog.vercel.description":
+    "البحث في وثائق Vercel وفحص المشاريع وعمليات النشر والسجلات.",
+  "mcpIntegrations.catalog.vercel.useCase":
+    "عمليات النشر، والمشاريع، والسجلات، والنطاقات، والاستضافة، والوثائق",
+  "mcpIntegrations.catalog.vercel.setupNote":
+    "لا يقبل تكامل Vercel إلا عملاء الذكاء الاصطناعي الذين تمت مراجعتهم والموافقة عليهم. يجب إضافة Agent-Native إلى قائمة العملاء المدعومين لدى Vercel قبل أن يعمل اتصال إطار العمل العام.",
+  "mcpIntegrations.catalog.github.description":
+    "قراءة المستودعات والمشكلات وطلبات السحب وسياق التعليمات البرمجية.",
+  "mcpIntegrations.catalog.github.useCase":
+    "المستودعات، والمشكلات، وطلبات السحب، والتعليمات البرمجية، والتحليلات الهندسية",
+  "mcpIntegrations.catalog.github.setupNote":
+    "لا يسمح مزوّد تسجيل الدخول في GitHub للتطبيقات بتسجيل نفسها، لذا لا يمكن لزر الربط إكمال مصادقة OAuth. اربط باستخدام رمز وصول شخصي من GitHub بدلًا من ذلك، ولاحظ أن المؤسسات قد تفرض سياسات OAuth App Access Policies.",
+  "mcpIntegrations.catalog.slack.description":
+    "البحث في محادثات Slack واتخاذ إجراءات في مساحة العمل عبر تكاملها.",
+  "mcpIntegrations.catalog.slack.useCase":
+    "الرسائل، والقنوات، والأشخاص، وذاكرة الشركة، وسير العمل",
+  "mcpIntegrations.catalog.slack.setupNote":
+    "يتطلب تكامل Slack تطبيق Slack مسجّلًا بمعرّف تطبيق ثابت. التسجيل الديناميكي للعملاء غير مدعوم، ولا يمكن الاتصال إلا لتطبيقات Slack Marketplace أو التطبيقات الداخلية. استخدم تدفق OAuth للمراسلة المُدار من Slack لسير عمل Agent-Native.",
+  "mcpIntegrations.catalog.asana.description":
+    "البحث في مهام Asana ومشاريعها وبيانات مخطط العمل وإدارتها.",
+  "mcpIntegrations.catalog.asana.useCase":
+    "المهام، والمشاريع، والمحافظ، والتخطيط، وعبء العمل",
+  "mcpIntegrations.catalog.asana.setupNote":
+    "يتطلب تكامل الوكيل في Asana تطبيق OAuth مسجّلًا مسبقًا ولا يدعم التسجيل الديناميكي للعملاء. أعدّ عميل تطبيق Asana قبل الربط.",
+  "mcpIntegrations.catalog.hubspot.description":
+    "البحث في سجلات HubSpot CRM وتحديثها عبر تكاملها.",
+  "mcpIntegrations.catalog.hubspot.useCase":
+    "CRM، وجهات الاتصال، والشركات، والصفقات، والتذاكر، وتحليلات العملاء",
+  "mcpIntegrations.catalog.hubspot.setupNote":
+    "عند إعداد HubSpot MCP Auth App تديره مساحة العمل، يمكن لأي عضو ربط حساب HubSpot شخصي باستخدام OAuth وPKCE. وإلا، فأنشئ التطبيق في HubSpot Developer Platform قبل الربط؛ ويظل موصل HubSpot OAuth الحالي متاحًا لإجراءات التطبيق.",
+  "mcpIntegrations.catalog.pylon.description":
+    "البحث في بيانات الدعم في Pylon وتحديثها.",
+  "mcpIntegrations.catalog.pylon.useCase":
+    "دعم العملاء، والمشكلات، والحسابات، وجهات الاتصال، والمحادثات",
+  "mcpIntegrations.catalog.pylon.setupNote":
+    "فعّل وصول Pylon MCP للمستخدمين المعنيين وشغّل خادم MCP في Pylon قبل الربط. يتطلب Pylon مقعد عضو أو مسؤول ويستخدم مصادقة OAuth للمستخدم فقط.",
+  "mcpIntegrations.catalog.intercom.description":
+    "البحث في المحادثات ومعارف دعم العملاء.",
+  "mcpIntegrations.catalog.intercom.useCase":
+    "دعم العملاء، والمحادثات، وجهات الاتصال، ومحتوى مركز المساعدة",
+  "mcpIntegrations.catalog.intercom.setupNote":
+    "يستخدم تكامل Intercom مصادقة OAuth وهو متاح لمساحات العمل المستضافة في الولايات المتحدة. تأكد من منطقة مساحة العمل والنطاقات المطلوبة أثناء التفويض.",
+  "mcpIntegrations.catalog.monday.description":
+    "العمل على اللوحات والعناصر وسير عمل الفريق.",
+  "mcpIntegrations.catalog.monday.useCase":
+    "إدارة العمل، واللوحات، والمشاريع، والمهام، وعمليات الفريق",
+  "mcpIntegrations.catalog.monday.setupNote":
+    "يستخدم تكامل monday.com مصادقة OAuth عبر Streamable HTTP. اختر مساحة العمل والأذونات التي تريد مشاركتها أثناء التفويض.",
+  "mcpIntegrations.catalog.webflow.description":
+    "قراءة مواقع Webflow ومحتواها وتحديثها.",
+  "mcpIntegrations.catalog.webflow.useCase":
+    "المواقع الإلكترونية، ونظام إدارة المحتوى، ومحتوى المواقع، والنشر، وسير عمل التصميم",
+  "mcpIntegrations.catalog.webflow.setupNote":
+    "يستخدم تكامل Webflow مصادقة OAuth. قد تثبّت إمكانات المصمم تطبيق Bridge App من Webflow أثناء التفويض؛ ويتوفر الوصول إلى Data API بشكل منفصل.",
+  "mcpIntegrations.catalog.paypal.description":
+    "العمل على مدفوعات PayPal وفواتيرها وبيانات التجارة.",
+  "mcpIntegrations.catalog.paypal.useCase":
+    "المدفوعات، والفواتير، والمعاملات، وعمليات التجار",
+  "mcpIntegrations.catalog.paypal.setupNote":
+    "يوفّر PayPal اكتشاف OAuth وتسجيل الدخول لتكامل الوكيل البعيد الخاص به. يستخدم Agent-Native نقطة النهاية /sse العاملة حاليًا؛ راجع أذونات التاجر قبل التفويض.",
+  "mcpIntegrations.catalog.box.description":
+    "البحث في الملفات والمجلدات في Box وإدارتها.",
+  "mcpIntegrations.catalog.box.useCase":
+    "الملفات، والمجلدات، ومحتوى المؤسسات، والبحث، والتعاون",
+  "mcpIntegrations.catalog.box.setupNote":
+    "تكامل Box في مرحلة تجريبية ويتطلب أن يفعّله أحد المسؤولين. تحتاج العملاء المخصصة أيضًا إلى Box Integration Credentials وURI لإعادة التوجيه ونطاقات معتمدة.",
+  "mcpIntegrations.catalog.builder.description":
+    "البحث في محتوى Builder Publish وHybrid Space.",
+  "mcpIntegrations.catalog.builder.useCase":
+    "نماذج المحتوى، والصفحات، والإدخالات، وPublish وHybrid Spaces",
+  "mcpIntegrations.catalog.builder.setupNote":
+    "يستخدم Builder CMS MCP مصادقة OAuth مع التسجيل الديناميكي للعملاء. ولا يتصل إلا بمساحات Publish أو Hybrid Spaces، ويطلب منك تدفق التفويض تحديد المساحة.",
+  "mcpIntegrations.catalog.netlify.description":
+    "فحص مواقع Netlify وعمليات النشر وتشغيلها.",
+  "mcpIntegrations.catalog.netlify.useCase":
+    "المواقع، وعمليات النشر، وعمليات البناء، والنطاقات، وعمليات الاستضافة",
+  "mcpIntegrations.catalog.netlify.setupNote":
+    "توثّق Netlify إعداد تكامل بعيد للعملاء المدعومين. راجع أذونات الموقع والفريق قبل إكمال مصادقة OAuth.",
+  "mcpIntegrations.catalog.zapier.description":
+    "ربط الأدوات بآلاف إجراءات التطبيقات.",
+  "mcpIntegrations.catalog.zapier.useCase":
+    "الأتمتة، وسير العمل، وإجراءات التطبيقات، والعمليات عبر الخدمات",
+  "mcpIntegrations.catalog.zapier.setupNote":
+    "يستخدم تكامل الوكيل في Zapier اتصالًا ورمزًا ينشئهما المستخدم للعملاء غير المدرجين. أنشئ الاتصال في Zapier، ثم الصق رمز الحامل الذي تم إنشاؤه في حقل الترويسة.",
+  "mcpIntegrations.auth.none": "بدون مصادقة",
+  "mcpIntegrations.auth.headers": "ترويسة",
+  "mcpIntegrations.auth.oauth": "OAuth",
+  "mcpIntegrations.status.beta": "تجريبي",
+  "mcpIntegrations.status.setupRequired": "إعداد المزوّد",
+  "mcpIntegrations.status.clientRestricted": "العملاء المعتمدون فقط",
+  "mcpIntegrations.status.verified": "تم التحقق",
+  "mcpIntegrations.status.preflightOnly": "فحص تمهيدي فقط",
+  "mcpIntegrations.status.restricted": "مقيّد",
   "limit.account": "حسابك",
   "limit.descriptionAll":
     "استخدم الوكيل جميع الخطوات المتاحة. تابع في دورة جديدة، أو ارفع حد {{scope}} أولًا.",
@@ -1199,6 +1499,8 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.emailPlaceholder": "name@company.com",
   "settingsOrg.invite.note":
     "يسجّل كل شخص الدخول بهذا البريد الإلكتروني نفسه لقبول الدعوة.",
+  "settingsOrg.invite.noteNoEmail":
+    "لن تُرسل الدعوات بالبريد الإلكتروني، لذا اطلب من كل شخص تسجيل الدخول بهذا البريد الإلكتروني نفسه.",
   "settingsOrg.invite.role": "الدور",
   "settingsOrg.invite.member": "عضو",
   "settingsOrg.invite.admin": "مسؤول",
@@ -1240,6 +1542,18 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.sent_few": "تم إرسال {{count}} دعوات.",
   "settingsOrg.invite.sent_many": "تم إرسال {{count}} دعوةً.",
   "settingsOrg.invite.sent_other": "تم إرسال {{count}} دعوة.",
+  "settingsOrg.invite.saved_zero":
+    "تم حفظ {{count}} دعوة. ستظهر عند تسجيل الدخول.",
+  "settingsOrg.invite.saved_one":
+    "تم حفظ {{count}} دعوة. ستظهر عند تسجيل الدخول.",
+  "settingsOrg.invite.saved_two":
+    "تم حفظ {{count}} دعوتين. ستظهران عند تسجيل الدخول.",
+  "settingsOrg.invite.saved_few":
+    "تم حفظ {{count}} دعوات. ستظهر عند تسجيل الدخول.",
+  "settingsOrg.invite.saved_many":
+    "تم حفظ {{count}} دعوةً. ستظهر عند تسجيل الدخول.",
+  "settingsOrg.invite.saved_other":
+    "تم حفظ {{count}} دعوة. ستظهر عند تسجيل الدخول.",
   "settingsShell.account.addPassword": "إضافة كلمة مرور",
   "settingsShell.account.authenticatorCode": "رمز المصادقة",
   "settingsShell.account.change": "تغيير",

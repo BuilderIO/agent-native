@@ -10,7 +10,7 @@ export function LoadFailedRow({ onRetry }: { onRetry: () => void }) {
     <SettingsRow
       label={t("clipsSettings.loadFailed")}
       control={
-        <Button type="button" variant="secondary" size="sm" onClick={onRetry}>
+        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
           {t("libraryGrid.retry")}
         </Button>
       }

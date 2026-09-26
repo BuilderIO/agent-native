@@ -50,7 +50,7 @@ export interface NewKeyMenuProps {
   label?: string;
   /**
    * Trigger size and variant, per the Settings control contract: `xs`
-   * secondary beside a group title (the default), `sm` for a row or page
+   * outline beside a group title (the default), `sm` for a row or page
    * action, `default` inside a dialog field.
    */
   size?: "xs" | "sm" | "default";
@@ -77,7 +77,7 @@ export function NewKeyMenu({
   onCustom,
   label,
   size = "xs",
-  variant = "secondary",
+  variant = "outline",
   triggerClassName,
 }: NewKeyMenuProps) {
   const t = useT();

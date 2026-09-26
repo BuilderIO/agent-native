@@ -811,7 +811,7 @@ export function AgentEditForm({
           {onDelete ? (
             <Button
               type="button"
-              variant="secondary-destructive"
+              variant="outline-destructive"
               className="sm:me-auto"
               disabled={saving}
               onClick={() => onDelete(agent.id)}

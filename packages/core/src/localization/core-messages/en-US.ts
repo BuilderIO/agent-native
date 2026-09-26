@@ -581,6 +581,302 @@ const messages = {
   "integrations.manage": "Manage",
   "integrations.recommended": "Recommended",
   "integrations.subtitle": "Connect the tools your agent can use.",
+  "mcpIntegrations.menuLabel": "Integrations",
+  "mcpIntegrations.menuDescription": "Connect tools and services to the agent",
+  "mcpIntegrations.title": "Connect integrations",
+  "mcpIntegrations.description":
+    "Browse {{count}} agent integrations or add a custom one.",
+  "mcpIntegrations.searchPlaceholder": "Search integrations",
+  "mcpIntegrations.addYourOwn": "Add your own",
+  "mcpIntegrations.noMatches": "No integrations match that search.",
+  "mcpIntegrations.connected": "Connected",
+  "mcpIntegrations.connectionError": "Connection error",
+  "mcpIntegrations.connectionErrorReason": "Reason: {{reason}}",
+  "mcpIntegrations.reconnect": "Reconnect",
+  "mcpIntegrations.reconnecting": "Reconnecting…",
+  "mcpIntegrations.reconnectFailed": "Reconnect failed: {{error}}",
+  "mcpIntegrations.configure": "Configure",
+  "mcpIntegrations.connect": "Connect",
+  "mcpIntegrations.connectWithOAuth": "Connect",
+  "mcpIntegrations.connecting": "Connecting…",
+  "mcpIntegrations.useApiToken": "Use API token",
+  "mcpIntegrations.customOAuthDefault": "Sign in with OAuth",
+  "mcpIntegrations.customHeadersMode": "Use an API key",
+  "mcpIntegrations.useApiKeyInstead": "Use an API key instead",
+  "mcpIntegrations.useOAuthInstead": "Use OAuth instead",
+  "mcpIntegrations.connectSuggestion": "Connect {{name}} to use it in chat",
+  "mcpIntegrations.connectSuggestionWithApiToken":
+    "Connect {{name}} with an API token to use it in chat",
+  "mcpIntegrations.dismissSuggestion": "Dismiss integration suggestion",
+  "mcpIntegrations.backToIntegrations": "Back to integrations",
+  "mcpIntegrations.customTitle": "Add custom agent integration",
+  "mcpIntegrations.configureTitle": "Configure {{name}}",
+  "mcpIntegrations.presetNoAuthDescription":
+    "Preset values are filled in. Test the endpoint or connect it now.",
+  "mcpIntegrations.presetAuthDescription":
+    "Preset values are filled in. Add any required authorization details before connecting.",
+  "mcpIntegrations.customDescription":
+    "Paste a Streamable HTTP or SSE endpoint and optional headers.",
+  "mcpIntegrations.oauthNotice":
+    "This provider usually requires an OAuth setup. Follow the provider docs, or add an Authorization header if your endpoint supports token-based access.",
+  "mcpIntegrations.providerSetupRequired": "Provider setup required",
+  "mcpIntegrations.providerSetupDescription":
+    "Complete the required setup in {{name}} first. Then return here to connect your account.",
+  "mcpIntegrations.providerSetupFormDescription":
+    "Complete provider setup before connecting your account.",
+  "mcpIntegrations.continueToConnect": "Connect my account",
+  "mcpIntegrations.setupTitle": "Connect {{name}}",
+  "mcpIntegrations.personal": "Personal",
+  "mcpIntegrations.personalConnection": "Personal connection",
+  "mcpIntegrations.organization": "Organization",
+  "mcpIntegrations.scopeQuestion": "Who should be able to use this connection?",
+  "mcpIntegrations.scopeChoiceTitle": "Who should use this?",
+  "mcpIntegrations.scopeChoiceDescription":
+    "Choose where this connection is available.",
+  "mcpIntegrations.connectForMe": "Connect for me",
+  "mcpIntegrations.setUpForWorkspace": "Set up for workspace",
+  "mcpIntegrations.workspaceAdminRequired":
+    "Workspace owner or admin required.",
+  "mcpIntegrations.workspaceJoinRequired": "Join a workspace first.",
+  "mcpIntegrations.personalOnlyDescription":
+    "Only personal connections are supported for this integration.",
+  "mcpIntegrations.workspaceOnlyDescription":
+    "This integration connects once for the whole workspace, so it cannot be connected to just your account. A workspace owner or admin can set it up.",
+  "mcpIntegrations.loadingScopeMetadata": "Loading connection scope…",
+  "mcpIntegrations.retry": "Retry",
+  "mcpIntegrations.retrying": "Retrying…",
+  "mcpIntegrations.personalDescription": "Only you can use this connection.",
+  "mcpIntegrations.sharedWithWorkspace": "Shared with workspace",
+  "mcpIntegrations.organizationDescription":
+    "Permitted workspace members can use this connection. Provider permissions still apply.",
+  "mcpIntegrations.serverNameRequired":
+    "Enter an integration name before connecting with OAuth.",
+  "mcpIntegrations.serverName": "Integration name",
+  "mcpIntegrations.url": "URL",
+  "mcpIntegrations.fieldDescription": "Description",
+  "mcpIntegrations.headers": "Headers",
+  "mcpIntegrations.serverNamePlaceholder": "Integration name",
+  "mcpIntegrations.urlPlaceholder": "https://example.com/agent-integration",
+  "mcpIntegrations.descriptionPlaceholder": "Description (optional)",
+  "mcpIntegrations.headersPlaceholder": "Authorization: Bearer <token>",
+  "mcpIntegrations.openSetupDocs": "Open setup docs",
+  "mcpIntegrations.viewSetup": "Open setup guide",
+  "mcpIntegrations.test": "Test",
+  "mcpIntegrations.testing": "Testing…",
+  "mcpIntegrations.toolsAvailable_one": "{{count}} tool available",
+  "mcpIntegrations.toolsAvailable_other": "{{count}} tools available",
+  "mcpIntegrations.failed": "Failed",
+  "mcpIntegrations.docsLabel": "View {{name}} docs",
+  "mcpIntegrations.catalog.context7.description":
+    "Fetch current library docs in agent chats.",
+  "mcpIntegrations.catalog.context7.useCase":
+    "Documentation, technical reference, API docs, framework guides",
+  "mcpIntegrations.catalog.sentry.description":
+    "Inspect issues, events, and debugging data.",
+  "mcpIntegrations.catalog.sentry.useCase":
+    "Error monitoring, debugging, performance, crash reports",
+  "mcpIntegrations.catalog.fullstory.description":
+    "Read behavioral analytics and inspect session replays.",
+  "mcpIntegrations.catalog.fullstory.useCase":
+    "Product analytics, session replay, qualitative behavior, user research",
+  "mcpIntegrations.catalog.fullstory.setupNote":
+    "FullStory MCP is currently beta and requires StoryAI features plus the Model Context Protocol toggle to be enabled by a FullStory organization admin.",
+  "mcpIntegrations.catalog.amplitude.description":
+    "Read and work with Amplitude product analytics.",
+  "mcpIntegrations.catalog.amplitude.useCase":
+    "Product analytics, charts, dashboards, cohorts, experiments",
+  "mcpIntegrations.catalog.amplitude.setupNote":
+    "Amplitude MCP uses OAuth over streaming HTTP. The default endpoint is for US data residency; use Amplitude's EU endpoint when the account requires EU residency.",
+  "mcpIntegrations.catalog.sigma.description":
+    "Search, explore, and analyze Sigma workbooks and dashboards.",
+  "mcpIntegrations.catalog.sigma.useCase":
+    "Analytics, dashboards, workbooks, data exploration, business intelligence",
+  "mcpIntegrations.catalog.sigma.setupNote":
+    "Sigma's MCP URL is organization-specific. In Sigma, open Profile > Integrations > Connect Sigma to AI tools, copy the URL, and paste it here. Sigma MCP currently supports search, metadata exploration, and analysis; dashboard or workbook creation and import are not exposed by this connection.",
+  "mcpIntegrations.catalog.notion.description":
+    "Search pages and team knowledge.",
+  "mcpIntegrations.catalog.notion.useCase":
+    "Documentation, knowledge management, notes, content creation",
+  "mcpIntegrations.catalog.notion.setupNote":
+    "The Notion integration uses user OAuth. Enterprise workspaces can audit integration usage and allow or block clients; reconnect after admin policy changes.",
+  "mcpIntegrations.catalog.granola.description":
+    "Search meeting notes, transcripts, and action items.",
+  "mcpIntegrations.catalog.granola.useCase":
+    "Meeting notes, recordings, transcripts, action items, follow-ups",
+  "mcpIntegrations.catalog.granola.setupNote":
+    "The Granola integration uses browser OAuth. Authorize the signed-in Granola account and review which meeting notes and transcripts the agent can access.",
+  "mcpIntegrations.catalog.gong.description":
+    "Search Gong calls and generate account and deal insights.",
+  "mcpIntegrations.catalog.gong.useCase":
+    "Sales calls, transcripts, deal insights, account summaries",
+  "mcpIntegrations.catalog.gong.setupNote":
+    "Gong requires a tech admin to create an MCP integration and choose personal or shared authorization. The generated client ID and secret must be configured before connecting.",
+  "mcpIntegrations.catalog.semgrep.description":
+    "Scan code for security findings.",
+  "mcpIntegrations.catalog.semgrep.useCase":
+    "Security scanning, vulnerability detection, code analysis",
+  "mcpIntegrations.catalog.linear.description": "Read and write Linear issues.",
+  "mcpIntegrations.catalog.linear.useCase":
+    "Project management, issue tracking, planning, bug reports",
+  "mcpIntegrations.catalog.apollo.description":
+    "Search, enrich, and manage Apollo GTM data.",
+  "mcpIntegrations.catalog.apollo.useCase":
+    "Prospecting, enrichment, contacts, sequences, account research",
+  "mcpIntegrations.catalog.apollo.setupNote":
+    "Apollo MCP uses user OAuth and does not require an Apollo API key. Apollo plan permissions, credits, and the provider's model-training restrictions still apply.",
+  "mcpIntegrations.catalog.commonRoom.description":
+    "Research buyer signals, contacts, and organizations.",
+  "mcpIntegrations.catalog.commonRoom.useCase":
+    "Buyer intelligence, product signals, intent, contact enrichment",
+  "mcpIntegrations.catalog.commonRoom.setupNote":
+    "Common Room MCP uses per-user OAuth and respects the authorized user's workspace role. An administrator may need to enable the MCP connection for the instance.",
+  "mcpIntegrations.catalog.exa.description":
+    "Search the web and fetch pages with Exa.",
+  "mcpIntegrations.catalog.exa.useCase":
+    "Web search, research, code search, page fetching",
+  "mcpIntegrations.catalog.exa.setupNote":
+    "Exa's remote MCP endpoint supports basic free usage without a key. Add an Exa API key through the provider's header configuration when higher limits or additional tools are needed.",
+  "mcpIntegrations.catalog.supabase.description":
+    "Manage data, auth, and backend services.",
+  "mcpIntegrations.catalog.supabase.useCase":
+    "Database, authentication, storage, edge functions",
+  "mcpIntegrations.catalog.neon.description":
+    "Work with serverless Postgres projects.",
+  "mcpIntegrations.catalog.neon.useCase":
+    "Database management, serverless Postgres, data storage",
+  "mcpIntegrations.catalog.stripe.description":
+    "Manage payments, subscriptions, and customers.",
+  "mcpIntegrations.catalog.stripe.useCase":
+    "Payments, subscriptions, invoicing, customer management",
+  "mcpIntegrations.catalog.atlassian.description":
+    "Read and write Jira issues and Confluence content.",
+  "mcpIntegrations.catalog.atlassian.useCase":
+    "Project management, issue tracking, documentation, team collaboration",
+  "mcpIntegrations.catalog.atlassian.setupNote":
+    "Ask your Atlassian admin to allow the Clips app domain and enable Rovo/MCP with Read, Write, and Search permissions for your Jira site.",
+  "mcpIntegrations.catalog.cloudflare.description":
+    "Search and operate Cloudflare services through its integration.",
+  "mcpIntegrations.catalog.cloudflare.useCase":
+    "DNS, Workers, domains, security, observability, platform APIs",
+  "mcpIntegrations.catalog.cloudflare.setupNote":
+    "Cloudflare's managed integration directory contains product-specific integrations as well as the broad API integration. Review the scopes and choose the narrowest endpoint that fits your workflow.",
+  "mcpIntegrations.catalog.grafana.description":
+    "Query Grafana Cloud metrics, logs, and observability data.",
+  "mcpIntegrations.catalog.grafana.useCase":
+    "Observability, metrics, logs, traces, dashboards",
+  "mcpIntegrations.catalog.grafana.setupNote":
+    "Grafana Cloud MCP is in public preview and requires Grafana Cloud Assistant MCP access. It is hosted Grafana Cloud only; self-hosted Grafana needs the local MCP server.",
+  "mcpIntegrations.catalog.gitlab.description":
+    "Read and manage GitLab projects, issues, and merge requests.",
+  "mcpIntegrations.catalog.gitlab.useCase":
+    "Repositories, issues, merge requests, CI/CD, code analytics",
+  "mcpIntegrations.catalog.gitlab.setupNote":
+    "The GitLab integration is currently beta. On GitLab.com, a top-level group admin must allow integration access before OAuth can complete; self-managed instances have an equivalent instance setting.",
+  "mcpIntegrations.catalog.figma.description":
+    "Bring Figma design context and canvas actions into an agent.",
+  "mcpIntegrations.catalog.figma.useCase":
+    "Design files, components, variables, design systems, canvas",
+  "mcpIntegrations.catalog.figma.setupNote":
+    "The Figma integration only allows clients listed in Figma's integration catalog, so this remote endpoint cannot connect from Agent-Native yet. Use the Figma REST API fallback with a personal access token for reading file and node context; canvas actions remain unavailable until Figma approves Agent-Native.",
+  "mcpIntegrations.catalog.canva.description":
+    "Search, create, and update Canva designs and assets.",
+  "mcpIntegrations.catalog.canva.useCase":
+    "Designs, templates, assets, brand kits, exports, collaboration",
+  "mcpIntegrations.catalog.canva.setupNote":
+    "The Canva integration uses per-user OAuth and requires clients to allow Canva's canva.com and canva.ai domains. Confirm the current redirect and client setup in Canva's integration documentation before connecting.",
+  "mcpIntegrations.catalog.vercel.description":
+    "Search Vercel docs and inspect projects, deployments, and logs.",
+  "mcpIntegrations.catalog.vercel.useCase":
+    "Deployments, projects, logs, domains, hosting, documentation",
+  "mcpIntegrations.catalog.vercel.setupNote":
+    "The Vercel integration only accepts reviewed and approved AI clients. Agent-Native must be added to Vercel's supported-client list before a generic framework connection will work.",
+  "mcpIntegrations.catalog.github.description":
+    "Read repositories, issues, pull requests, and code context.",
+  "mcpIntegrations.catalog.github.useCase":
+    "Repositories, issues, pull requests, code, engineering analytics",
+  "mcpIntegrations.catalog.github.setupNote":
+    "GitHub's sign-in provider does not let apps register themselves, so the Connect button cannot complete OAuth. Connect with a GitHub personal access token instead, and note that organizations may enforce OAuth App Access Policies.",
+  "mcpIntegrations.catalog.slack.description":
+    "Search Slack conversations and take workspace actions through its integration.",
+  "mcpIntegrations.catalog.slack.useCase":
+    "Messages, channels, people, company memory, workflows",
+  "mcpIntegrations.catalog.slack.setupNote":
+    "The Slack integration requires a registered Slack app with a fixed app ID. Dynamic client registration is not supported, and only Slack Marketplace or internal apps may connect. Use Slack's managed messaging OAuth flow for Agent-Native workflows.",
+  "mcpIntegrations.catalog.asana.description":
+    "Search and manage Asana tasks, projects, and work graph data.",
+  "mcpIntegrations.catalog.asana.useCase":
+    "Tasks, projects, portfolios, planning, workload",
+  "mcpIntegrations.catalog.asana.setupNote":
+    "Asana's agent integration requires a pre-registered OAuth app and does not support dynamic client registration. Configure an Asana app client before connecting.",
+  "mcpIntegrations.catalog.hubspot.description":
+    "Search and update HubSpot CRM records through its integration.",
+  "mcpIntegrations.catalog.hubspot.useCase":
+    "CRM, contacts, companies, deals, tickets, customer analytics",
+  "mcpIntegrations.catalog.hubspot.setupNote":
+    "When a workspace-managed HubSpot MCP Auth App is configured, any member can connect a personal HubSpot account with OAuth and PKCE. Otherwise, create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
+  "mcpIntegrations.catalog.pylon.description":
+    "Search and update Pylon support data.",
+  "mcpIntegrations.catalog.pylon.useCase":
+    "Customer support, issues, accounts, contacts, conversations",
+  "mcpIntegrations.catalog.pylon.setupNote":
+    "Enable Pylon MCP access for the relevant users and turn on the MCP server in Pylon before connecting. Pylon requires a Member or Admin seat and uses user OAuth only.",
+  "mcpIntegrations.catalog.intercom.description":
+    "Search conversations and customer support knowledge.",
+  "mcpIntegrations.catalog.intercom.useCase":
+    "Customer support, conversations, contacts, help center content",
+  "mcpIntegrations.catalog.intercom.setupNote":
+    "The Intercom integration uses OAuth and is available for US-hosted workspaces. Confirm the workspace region and requested scopes during authorization.",
+  "mcpIntegrations.catalog.monday.description":
+    "Work with boards, items, and team workflows.",
+  "mcpIntegrations.catalog.monday.useCase":
+    "Work management, boards, projects, tasks, team operations",
+  "mcpIntegrations.catalog.monday.setupNote":
+    "The monday.com integration uses OAuth over Streamable HTTP. Choose the workspace and permissions to share during authorization.",
+  "mcpIntegrations.catalog.webflow.description":
+    "Read and update Webflow sites and content.",
+  "mcpIntegrations.catalog.webflow.useCase":
+    "Websites, CMS, site content, publishing, design workflows",
+  "mcpIntegrations.catalog.webflow.setupNote":
+    "The Webflow integration uses OAuth. Designer capabilities may install Webflow's Bridge App during authorization; Data API access is available separately.",
+  "mcpIntegrations.catalog.paypal.description":
+    "Work with PayPal payments, invoices, and commerce data.",
+  "mcpIntegrations.catalog.paypal.useCase":
+    "Payments, invoices, transactions, merchant operations",
+  "mcpIntegrations.catalog.paypal.setupNote":
+    "PayPal exposes OAuth discovery and login for its remote agent integration. Agent-Native uses the currently live /sse endpoint; review the merchant permissions before authorizing.",
+  "mcpIntegrations.catalog.box.description":
+    "Search and manage files and folders in Box.",
+  "mcpIntegrations.catalog.box.useCase":
+    "Files, folders, enterprise content, search, collaboration",
+  "mcpIntegrations.catalog.box.setupNote":
+    "The Box integration is beta and requires an administrator to enable it. Custom clients also need Box Integration Credentials, a redirect URI, and approved scopes.",
+  "mcpIntegrations.catalog.builder.description":
+    "Search Builder Publish and Hybrid Space content.",
+  "mcpIntegrations.catalog.builder.useCase":
+    "Content models, pages, entries, Publish and Hybrid Spaces",
+  "mcpIntegrations.catalog.builder.setupNote":
+    "Builder CMS MCP uses OAuth with dynamic client registration. It only connects to Publish or Hybrid Spaces, and the authorization flow asks you to select the Space.",
+  "mcpIntegrations.catalog.netlify.description":
+    "Inspect and operate Netlify sites and deployments.",
+  "mcpIntegrations.catalog.netlify.useCase":
+    "Sites, deployments, builds, domains, hosting operations",
+  "mcpIntegrations.catalog.netlify.setupNote":
+    "Netlify documents a remote integration setup for supported clients. Review the site and team permissions before completing OAuth.",
+  "mcpIntegrations.catalog.zapier.description":
+    "Connect tools to thousands of app actions.",
+  "mcpIntegrations.catalog.zapier.useCase":
+    "Automation, workflows, app actions, cross-service operations",
+  "mcpIntegrations.catalog.zapier.setupNote":
+    "Zapier's agent integration uses a user-created connection and token for unlisted clients. Create the connection in Zapier, then paste its generated bearer token into the header field.",
+  "mcpIntegrations.auth.none": "No auth",
+  "mcpIntegrations.auth.headers": "Header",
+  "mcpIntegrations.auth.oauth": "OAuth",
+  "mcpIntegrations.status.beta": "Beta",
+  "mcpIntegrations.status.setupRequired": "Provider setup",
+  "mcpIntegrations.status.clientRestricted": "Approved clients only",
+  "mcpIntegrations.status.verified": "Verified",
+  "mcpIntegrations.status.preflightOnly": "Preflight only",
+  "mcpIntegrations.status.restricted": "Restricted",
   "limit.account": "your account",
   "limit.descriptionAll":
     "The agent used all available steps. Keep going in a fresh turn, or raise the {{scope}} limit first.",
@@ -1167,6 +1463,8 @@ const messages = {
   "settingsOrg.invite.emailPlaceholder": "name@company.com",
   "settingsOrg.invite.note":
     "Each person signs in with this exact email to accept.",
+  "settingsOrg.invite.noteNoEmail":
+    "Invites won't be emailed, so ask each person to sign in with this exact email.",
   "settingsOrg.invite.role": "Role",
   "settingsOrg.invite.member": "Member",
   "settingsOrg.invite.admin": "Admin",
@@ -1192,6 +1490,10 @@ const messages = {
     "Synced to {{succeeded}} of {{count}} apps. {{failed}} failed.",
   "settingsOrg.invite.sent_one": "Sent {{count}} invite.",
   "settingsOrg.invite.sent_other": "Sent {{count}} invites.",
+  "settingsOrg.invite.saved_one":
+    "Saved {{count}} invite. They'll see it when they sign in.",
+  "settingsOrg.invite.saved_other":
+    "Saved {{count}} invites. They'll see them when they sign in.",
   "settingsShell.account.addPassword": "Add password",
   "settingsShell.account.authenticatorCode": "Authenticator code",
   "settingsShell.account.change": "Change",

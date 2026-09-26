@@ -150,7 +150,7 @@ export function MembersTableCard({
   );
   const [bulkActionKey, setBulkActionKey] = useState(0);
   const [bulkAppRoles, setBulkAppRoles] = useState<string[]>([]);
-  const canInvite = canInviteOrgMembers(currentUserRole, emailConfigured);
+  const canInvite = canInviteOrgMembers(currentUserRole);
   const updateGroupMembers = useActionMutation(
     "bulk-update-workspace-user-groups",
   );
@@ -282,6 +282,7 @@ export function MembersTableCard({
         <div className="rounded-lg bg-card p-4">
           <BulkInviteForm
             currentUserRole={currentUserRole}
+            emailConfigured={emailConfigured}
             appRoles={appRoles}
             onClose={() => setShowInviteForm(false)}
           />

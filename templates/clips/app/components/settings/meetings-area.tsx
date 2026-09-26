@@ -131,7 +131,7 @@ function CalendarGroup() {
   const connectButton = (label: string, expectedAccountId?: string) => (
     <Button
       type="button"
-      variant="secondary"
+      variant="outline"
       size="sm"
       disabled={connecting}
       onClick={() => connect(expectedAccountId)}
@@ -186,7 +186,7 @@ function CalendarGroup() {
                   ) : (
                     <Button
                       type="button"
-                      variant="secondary"
+                      variant="outline"
                       size="sm"
                       onClick={() => setTarget(account)}
                     >
@@ -270,7 +270,7 @@ export function ClipsMeetingsArea({ canManage }: { canManage: boolean }) {
           control={
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
               size="sm"
               onClick={() => attemptOpenDesktopApp()}
             >

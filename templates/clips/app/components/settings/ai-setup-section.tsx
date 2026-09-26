@@ -83,7 +83,7 @@ export function AiSetupSection({ builder, secrets }: AiSetupSectionProps) {
           label={t("builderCredits.pausedTitle")}
           control={
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button asChild variant="secondary" size="sm">
+              <Button asChild variant="outline" size="sm">
                 <a href={upgradeUrl} target="_blank" rel="noopener noreferrer">
                   <IconExternalLink />
                   {t("builderCredits.upgrade")}
@@ -91,7 +91,7 @@ export function AiSetupSection({ builder, secrets }: AiSetupSectionProps) {
               </Button>
               <Button
                 type="button"
-                variant="secondary"
+                variant="outline"
                 size="sm"
                 onClick={openProviderSetup}
               >
@@ -126,7 +126,7 @@ export function AiSetupSection({ builder, secrets }: AiSetupSectionProps) {
                 >
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant="outline"
                     size="sm"
                     disabled={builder.connecting || builder.loading}
                   >
@@ -138,7 +138,7 @@ export function AiSetupSection({ builder, secrets }: AiSetupSectionProps) {
               {redesign ? (
                 <Button
                   type="button"
-                  variant="secondary"
+                  variant="outline"
                   size="sm"
                   onClick={openProviderSetup}
                 >
@@ -148,7 +148,7 @@ export function AiSetupSection({ builder, secrets }: AiSetupSectionProps) {
                 </Button>
               ) : (
                 <CollapsibleTrigger asChild>
-                  <Button type="button" variant="secondary" size="sm">
+                  <Button type="button" variant="outline" size="sm">
                     {configuredCount > 0
                       ? t("settings.providerManage")
                       : t("settings.providerCustomKeys")}

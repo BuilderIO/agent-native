@@ -97,7 +97,7 @@ function LabRows({ state }: { state: LabsSettingsState }) {
           control={
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
               size="sm"
               onClick={state.retry}
             >

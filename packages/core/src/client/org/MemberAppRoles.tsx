@@ -69,7 +69,7 @@ export function AppRoleControl({
           <PopoverTrigger asChild>
             <ToolkitButton
               type="button"
-              variant="secondary"
+              variant="outline"
               size="sm"
               className="max-w-48"
               disabled={setAppRoles.isPending}

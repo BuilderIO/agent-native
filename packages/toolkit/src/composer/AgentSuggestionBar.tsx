@@ -74,7 +74,7 @@ export function AgentSuggestionBar({
             <Button
               key={suggestion.id}
               type="button"
-              variant="outline"
+              variant="secondary"
               size="sm"
               disabled={suggestion.disabled}
               onClick={() => onSelect(suggestion)}

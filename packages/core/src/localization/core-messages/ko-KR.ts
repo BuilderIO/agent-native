@@ -579,6 +579,302 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "관리",
   "integrations.recommended": "추천",
   "integrations.subtitle": "에이전트가 사용할 수 있는 도구를 연결하세요.",
+  "mcpIntegrations.menuLabel": "연동",
+  "mcpIntegrations.menuDescription": "도구와 서비스를 에이전트에 연결",
+  "mcpIntegrations.title": "연동 연결",
+  "mcpIntegrations.description":
+    "에이전트 연동 {{count}}개를 둘러보거나 사용자 지정 연동을 추가하세요.",
+  "mcpIntegrations.searchPlaceholder": "연동 검색",
+  "mcpIntegrations.addYourOwn": "직접 추가",
+  "mcpIntegrations.noMatches": "검색과 일치하는 연동이 없습니다.",
+  "mcpIntegrations.connected": "연결됨",
+  "mcpIntegrations.connectionError": "연결 오류",
+  "mcpIntegrations.connectionErrorReason": "원인: {{reason}}",
+  "mcpIntegrations.reconnect": "다시 연결",
+  "mcpIntegrations.reconnecting": "다시 연결 중…",
+  "mcpIntegrations.reconnectFailed": "다시 연결하지 못했습니다: {{error}}",
+  "mcpIntegrations.configure": "구성",
+  "mcpIntegrations.connect": "연결",
+  "mcpIntegrations.connectWithOAuth": "연결",
+  "mcpIntegrations.connecting": "연결 중…",
+  "mcpIntegrations.useApiToken": "API 토큰 사용",
+  "mcpIntegrations.customOAuthDefault": "OAuth로 로그인",
+  "mcpIntegrations.customHeadersMode": "API 키 사용",
+  "mcpIntegrations.useApiKeyInstead": "대신 API 키 사용",
+  "mcpIntegrations.useOAuthInstead": "대신 OAuth 사용",
+  "mcpIntegrations.connectSuggestion":
+    "채팅에서 사용하려면 {{name}}을(를) 연결하세요",
+  "mcpIntegrations.connectSuggestionWithApiToken":
+    "채팅에서 사용하려면 API 토큰으로 {{name}}을(를) 연결하세요",
+  "mcpIntegrations.dismissSuggestion": "연동 제안 닫기",
+  "mcpIntegrations.backToIntegrations": "연동으로 돌아가기",
+  "mcpIntegrations.customTitle": "사용자 지정 에이전트 연동 추가",
+  "mcpIntegrations.configureTitle": "{{name}} 구성",
+  "mcpIntegrations.presetNoAuthDescription":
+    "미리 설정된 값이 입력되어 있습니다. 엔드포인트를 테스트하거나 지금 연결하세요.",
+  "mcpIntegrations.presetAuthDescription":
+    "미리 설정된 값이 입력되어 있습니다. 연결하기 전에 필요한 인증 정보를 추가하세요.",
+  "mcpIntegrations.customDescription":
+    "Streamable HTTP 또는 SSE 엔드포인트와 선택적 헤더를 붙여 넣으세요.",
+  "mcpIntegrations.oauthNotice":
+    "이 제공업체는 일반적으로 OAuth 설정이 필요합니다. 제공업체 문서를 따르거나, 엔드포인트가 토큰 기반 액세스를 지원하는 경우 Authorization 헤더를 추가하세요.",
+  "mcpIntegrations.providerSetupRequired": "제공업체 설정 필요",
+  "mcpIntegrations.providerSetupDescription":
+    "먼저 {{name}}에서 필요한 설정을 완료하세요. 그런 다음 여기로 돌아와 계정을 연결하세요.",
+  "mcpIntegrations.providerSetupFormDescription":
+    "계정을 연결하기 전에 제공업체 설정을 완료하세요.",
+  "mcpIntegrations.continueToConnect": "내 계정 연결",
+  "mcpIntegrations.setupTitle": "{{name}} 연결",
+  "mcpIntegrations.personal": "개인",
+  "mcpIntegrations.personalConnection": "개인 연결",
+  "mcpIntegrations.organization": "조직",
+  "mcpIntegrations.scopeQuestion": "누가 이 연결을 사용할 수 있어야 하나요?",
+  "mcpIntegrations.scopeChoiceTitle": "누가 사용하나요?",
+  "mcpIntegrations.scopeChoiceDescription":
+    "이 연결을 사용할 수 있는 범위를 선택하세요.",
+  "mcpIntegrations.connectForMe": "나만 연결",
+  "mcpIntegrations.setUpForWorkspace": "워크스페이스용으로 설정",
+  "mcpIntegrations.workspaceAdminRequired":
+    "워크스페이스 소유자 또는 관리자 권한이 필요합니다.",
+  "mcpIntegrations.workspaceJoinRequired": "먼저 워크스페이스에 참여하세요.",
+  "mcpIntegrations.personalOnlyDescription":
+    "이 연동은 개인 연결만 지원합니다.",
+  "mcpIntegrations.workspaceOnlyDescription":
+    "이 연동은 워크스페이스 전체에 한 번만 연결되므로 내 계정에만 연결할 수 없습니다. 워크스페이스 소유자 또는 관리자가 설정할 수 있습니다.",
+  "mcpIntegrations.loadingScopeMetadata": "연결 범위를 불러오는 중…",
+  "mcpIntegrations.retry": "다시 시도",
+  "mcpIntegrations.retrying": "다시 시도하는 중…",
+  "mcpIntegrations.personalDescription": "나만 이 연결을 사용할 수 있습니다.",
+  "mcpIntegrations.sharedWithWorkspace": "워크스페이스와 공유됨",
+  "mcpIntegrations.organizationDescription":
+    "허용된 워크스페이스 멤버가 이 연결을 사용할 수 있습니다. 제공업체 권한은 계속 적용됩니다.",
+  "mcpIntegrations.serverNameRequired":
+    "OAuth로 연결하기 전에 연동 이름을 입력하세요.",
+  "mcpIntegrations.serverName": "연동 이름",
+  "mcpIntegrations.url": "URL",
+  "mcpIntegrations.fieldDescription": "설명",
+  "mcpIntegrations.headers": "헤더",
+  "mcpIntegrations.serverNamePlaceholder": "연동 이름",
+  "mcpIntegrations.urlPlaceholder": "https://example.com/agent-integration",
+  "mcpIntegrations.descriptionPlaceholder": "설명 (선택 사항)",
+  "mcpIntegrations.headersPlaceholder": "Authorization: Bearer <token>",
+  "mcpIntegrations.openSetupDocs": "설정 문서 열기",
+  "mcpIntegrations.viewSetup": "설정 가이드 열기",
+  "mcpIntegrations.test": "테스트",
+  "mcpIntegrations.testing": "테스트 중…",
+  "mcpIntegrations.toolsAvailable_other": "사용 가능한 도구 {{count}}개",
+  "mcpIntegrations.failed": "실패",
+  "mcpIntegrations.docsLabel": "{{name}} 문서 보기",
+  "mcpIntegrations.catalog.context7.description":
+    "에이전트 채팅에서 최신 라이브러리 문서를 가져옵니다.",
+  "mcpIntegrations.catalog.context7.useCase":
+    "문서, 기술 참조, API 문서, 프레임워크 가이드",
+  "mcpIntegrations.catalog.sentry.description":
+    "이슈, 이벤트, 디버깅 데이터를 살펴봅니다.",
+  "mcpIntegrations.catalog.sentry.useCase":
+    "오류 모니터링, 디버깅, 성능, 충돌 보고서",
+  "mcpIntegrations.catalog.fullstory.description":
+    "행동 분석을 읽고 세션 리플레이를 살펴봅니다.",
+  "mcpIntegrations.catalog.fullstory.useCase":
+    "제품 분석, 세션 리플레이, 정성적 행동, 사용자 조사",
+  "mcpIntegrations.catalog.fullstory.setupNote":
+    "FullStory MCP는 현재 베타이며, FullStory 조직 관리자가 StoryAI 기능과 Model Context Protocol 토글을 활성화해야 합니다.",
+  "mcpIntegrations.catalog.amplitude.description":
+    "Amplitude 제품 분석을 읽고 활용합니다.",
+  "mcpIntegrations.catalog.amplitude.useCase":
+    "제품 분석, 차트, 대시보드, 코호트, 실험",
+  "mcpIntegrations.catalog.amplitude.setupNote":
+    "Amplitude MCP는 스트리밍 HTTP를 통한 OAuth를 사용합니다. 기본 엔드포인트는 미국 데이터 레지던시용입니다. 계정에 EU 레지던시가 필요하면 Amplitude의 EU 엔드포인트를 사용하세요.",
+  "mcpIntegrations.catalog.sigma.description":
+    "Sigma 워크북과 대시보드를 검색, 탐색, 분석합니다.",
+  "mcpIntegrations.catalog.sigma.useCase":
+    "분석, 대시보드, 워크북, 데이터 탐색, 비즈니스 인텔리전스",
+  "mcpIntegrations.catalog.sigma.setupNote":
+    "Sigma의 MCP URL은 조직마다 다릅니다. Sigma에서 Profile > Integrations > Connect Sigma to AI tools를 열고 URL을 복사한 다음 여기에 붙여 넣으세요. Sigma MCP는 현재 검색, 메타데이터 탐색, 분석을 지원합니다. 대시보드나 워크북 생성 및 가져오기는 이 연결에서 제공되지 않습니다.",
+  "mcpIntegrations.catalog.notion.description":
+    "페이지와 팀 지식을 검색합니다.",
+  "mcpIntegrations.catalog.notion.useCase":
+    "문서, 지식 관리, 메모, 콘텐츠 작성",
+  "mcpIntegrations.catalog.notion.setupNote":
+    "Notion 연동은 사용자 OAuth를 사용합니다. Enterprise 워크스페이스는 연동 사용을 감사하고 클라이언트를 허용하거나 차단할 수 있습니다. 관리자 정책이 변경되면 다시 연결하세요.",
+  "mcpIntegrations.catalog.granola.description":
+    "회의 메모, 스크립트, 실행 항목을 검색합니다.",
+  "mcpIntegrations.catalog.granola.useCase":
+    "회의 메모, 녹음, 스크립트, 실행 항목, 후속 조치",
+  "mcpIntegrations.catalog.granola.setupNote":
+    "Granola 연동은 브라우저 OAuth를 사용합니다. 로그인된 Granola 계정을 승인하고 에이전트가 액세스할 수 있는 회의 메모와 스크립트를 검토하세요.",
+  "mcpIntegrations.catalog.gong.description":
+    "Gong 통화를 검색하고 계정 및 거래 인사이트를 생성합니다.",
+  "mcpIntegrations.catalog.gong.useCase":
+    "영업 통화, 스크립트, 거래 인사이트, 계정 요약",
+  "mcpIntegrations.catalog.gong.setupNote":
+    "Gong에서는 기술 관리자가 MCP 연동을 만들고 개인 또는 공유 승인 방식을 선택해야 합니다. 연결하기 전에 생성된 클라이언트 ID와 시크릿을 구성해야 합니다.",
+  "mcpIntegrations.catalog.semgrep.description":
+    "코드에서 보안 문제를 스캔합니다.",
+  "mcpIntegrations.catalog.semgrep.useCase":
+    "보안 스캔, 취약점 탐지, 코드 분석",
+  "mcpIntegrations.catalog.linear.description":
+    "Linear 이슈를 읽고 작성합니다.",
+  "mcpIntegrations.catalog.linear.useCase":
+    "프로젝트 관리, 이슈 추적, 계획, 버그 보고",
+  "mcpIntegrations.catalog.apollo.description":
+    "Apollo GTM 데이터를 검색, 보강, 관리합니다.",
+  "mcpIntegrations.catalog.apollo.useCase":
+    "잠재 고객 발굴, 데이터 보강, 연락처, 시퀀스, 계정 조사",
+  "mcpIntegrations.catalog.apollo.setupNote":
+    "Apollo MCP는 사용자 OAuth를 사용하며 Apollo API 키가 필요하지 않습니다. Apollo 요금제 권한, 크레딧, 제공업체의 모델 학습 제한은 계속 적용됩니다.",
+  "mcpIntegrations.catalog.commonRoom.description":
+    "구매자 신호, 연락처, 조직을 조사합니다.",
+  "mcpIntegrations.catalog.commonRoom.useCase":
+    "구매자 인텔리전스, 제품 신호, 구매 의도, 연락처 보강",
+  "mcpIntegrations.catalog.commonRoom.setupNote":
+    "Common Room MCP는 사용자별 OAuth를 사용하며 승인한 사용자의 워크스페이스 역할을 따릅니다. 관리자가 인스턴스에서 MCP 연결을 활성화해야 할 수 있습니다.",
+  "mcpIntegrations.catalog.exa.description":
+    "Exa로 웹을 검색하고 페이지를 가져옵니다.",
+  "mcpIntegrations.catalog.exa.useCase":
+    "웹 검색, 조사, 코드 검색, 페이지 가져오기",
+  "mcpIntegrations.catalog.exa.setupNote":
+    "Exa의 원격 MCP 엔드포인트는 키 없이 기본 무료 사용을 지원합니다. 더 높은 한도나 추가 도구가 필요하면 제공업체의 헤더 구성을 통해 Exa API 키를 추가하세요.",
+  "mcpIntegrations.catalog.supabase.description":
+    "데이터, 인증, 백엔드 서비스를 관리합니다.",
+  "mcpIntegrations.catalog.supabase.useCase":
+    "데이터베이스, 인증, 스토리지, 엣지 함수",
+  "mcpIntegrations.catalog.neon.description":
+    "서버리스 Postgres 프로젝트를 다룹니다.",
+  "mcpIntegrations.catalog.neon.useCase":
+    "데이터베이스 관리, 서버리스 Postgres, 데이터 스토리지",
+  "mcpIntegrations.catalog.stripe.description":
+    "결제, 구독, 고객을 관리합니다.",
+  "mcpIntegrations.catalog.stripe.useCase":
+    "결제, 구독, 청구서 발행, 고객 관리",
+  "mcpIntegrations.catalog.atlassian.description":
+    "Jira 이슈와 Confluence 콘텐츠를 읽고 작성합니다.",
+  "mcpIntegrations.catalog.atlassian.useCase":
+    "프로젝트 관리, 이슈 추적, 문서, 팀 협업",
+  "mcpIntegrations.catalog.atlassian.setupNote":
+    "Atlassian 관리자에게 Clips 앱 도메인을 허용하고 Jira 사이트에 대해 읽기, 쓰기, 검색 권한으로 Rovo/MCP를 활성화해 달라고 요청하세요.",
+  "mcpIntegrations.catalog.cloudflare.description":
+    "Cloudflare 연동을 통해 Cloudflare 서비스를 검색하고 운영합니다.",
+  "mcpIntegrations.catalog.cloudflare.useCase":
+    "DNS, Workers, 도메인, 보안, 관측성, 플랫폼 API",
+  "mcpIntegrations.catalog.cloudflare.setupNote":
+    "Cloudflare의 관리형 연동 디렉터리에는 광범위한 API 연동과 함께 제품별 연동이 있습니다. 범위를 검토하고 워크플로에 맞는 가장 좁은 엔드포인트를 선택하세요.",
+  "mcpIntegrations.catalog.grafana.description":
+    "Grafana Cloud 메트릭, 로그, 관측성 데이터를 쿼리합니다.",
+  "mcpIntegrations.catalog.grafana.useCase":
+    "관측성, 메트릭, 로그, 트레이스, 대시보드",
+  "mcpIntegrations.catalog.grafana.setupNote":
+    "Grafana Cloud MCP는 공개 미리보기 단계이며 Grafana Cloud Assistant MCP 액세스가 필요합니다. 호스팅된 Grafana Cloud 전용이며, 자체 호스팅 Grafana에는 로컬 MCP 서버가 필요합니다.",
+  "mcpIntegrations.catalog.gitlab.description":
+    "GitLab 프로젝트, 이슈, 병합 요청을 읽고 관리합니다.",
+  "mcpIntegrations.catalog.gitlab.useCase":
+    "저장소, 이슈, 병합 요청, CI/CD, 코드 분석",
+  "mcpIntegrations.catalog.gitlab.setupNote":
+    "GitLab 연동은 현재 베타입니다. GitLab.com에서는 최상위 그룹 관리자가 연동 액세스를 허용해야 OAuth를 완료할 수 있습니다. 자체 관리형 인스턴스에는 이에 해당하는 인스턴스 설정이 있습니다.",
+  "mcpIntegrations.catalog.figma.description":
+    "Figma 디자인 컨텍스트와 캔버스 작업을 에이전트로 가져옵니다.",
+  "mcpIntegrations.catalog.figma.useCase":
+    "디자인 파일, 컴포넌트, 변수, 디자인 시스템, 캔버스",
+  "mcpIntegrations.catalog.figma.setupNote":
+    "Figma 연동은 Figma 연동 카탈로그에 등록된 클라이언트만 허용하므로 아직 Agent-Native에서 이 원격 엔드포인트에 연결할 수 없습니다. 파일 및 노드 컨텍스트를 읽으려면 개인 액세스 토큰과 함께 Figma REST API 대체 방식을 사용하세요. Figma가 Agent-Native를 승인할 때까지 캔버스 작업은 사용할 수 없습니다.",
+  "mcpIntegrations.catalog.canva.description":
+    "Canva 디자인과 에셋을 검색, 생성, 업데이트합니다.",
+  "mcpIntegrations.catalog.canva.useCase":
+    "디자인, 템플릿, 에셋, 브랜드 키트, 내보내기, 협업",
+  "mcpIntegrations.catalog.canva.setupNote":
+    "Canva 연동은 사용자별 OAuth를 사용하며 클라이언트가 Canva의 canva.com 및 canva.ai 도메인을 허용해야 합니다. 연결하기 전에 Canva 연동 문서에서 현재 리디렉션 및 클라이언트 설정을 확인하세요.",
+  "mcpIntegrations.catalog.vercel.description":
+    "Vercel 문서를 검색하고 프로젝트, 배포, 로그를 살펴봅니다.",
+  "mcpIntegrations.catalog.vercel.useCase":
+    "배포, 프로젝트, 로그, 도메인, 호스팅, 문서",
+  "mcpIntegrations.catalog.vercel.setupNote":
+    "Vercel 연동은 검토 및 승인된 AI 클라이언트만 허용합니다. 일반 프레임워크 연결이 작동하려면 먼저 Agent-Native가 Vercel의 지원 클라이언트 목록에 추가되어야 합니다.",
+  "mcpIntegrations.catalog.github.description":
+    "저장소, 이슈, 풀 리퀘스트, 코드 컨텍스트를 읽습니다.",
+  "mcpIntegrations.catalog.github.useCase":
+    "저장소, 이슈, 풀 리퀘스트, 코드, 엔지니어링 분석",
+  "mcpIntegrations.catalog.github.setupNote":
+    "GitHub의 로그인 제공업체는 앱이 스스로 등록하도록 허용하지 않으므로 연결 버튼으로는 OAuth를 완료할 수 없습니다. 대신 GitHub 개인 액세스 토큰으로 연결하세요. 조직에서 OAuth App Access Policies를 적용할 수 있다는 점도 참고하세요.",
+  "mcpIntegrations.catalog.slack.description":
+    "Slack 연동을 통해 Slack 대화를 검색하고 워크스페이스 작업을 수행합니다.",
+  "mcpIntegrations.catalog.slack.useCase":
+    "메시지, 채널, 사람, 회사 기억, 워크플로",
+  "mcpIntegrations.catalog.slack.setupNote":
+    "Slack 연동에는 고정된 앱 ID가 있는 등록된 Slack 앱이 필요합니다. 동적 클라이언트 등록은 지원되지 않으며 Slack Marketplace 앱 또는 내부 앱만 연결할 수 있습니다. Agent-Native 워크플로에는 Slack의 관리형 메시징 OAuth 흐름을 사용하세요.",
+  "mcpIntegrations.catalog.asana.description":
+    "Asana 작업, 프로젝트, 작업 그래프 데이터를 검색하고 관리합니다.",
+  "mcpIntegrations.catalog.asana.useCase":
+    "작업, 프로젝트, 포트폴리오, 계획, 작업량",
+  "mcpIntegrations.catalog.asana.setupNote":
+    "Asana의 에이전트 연동에는 미리 등록된 OAuth 앱이 필요하며 동적 클라이언트 등록은 지원되지 않습니다. 연결하기 전에 Asana 앱 클라이언트를 구성하세요.",
+  "mcpIntegrations.catalog.hubspot.description":
+    "HubSpot 연동을 통해 HubSpot CRM 레코드를 검색하고 업데이트합니다.",
+  "mcpIntegrations.catalog.hubspot.useCase":
+    "CRM, 연락처, 회사, 거래, 티켓, 고객 분석",
+  "mcpIntegrations.catalog.hubspot.setupNote":
+    "워크스페이스에서 관리하는 HubSpot MCP Auth App이 구성되어 있으면 모든 멤버가 OAuth와 PKCE로 개인 HubSpot 계정을 연결할 수 있습니다. 그렇지 않으면 연결하기 전에 HubSpot Developer Platform에서 앱을 만드세요. 기존 HubSpot OAuth 커넥터는 앱 작업에서 계속 사용할 수 있습니다.",
+  "mcpIntegrations.catalog.pylon.description":
+    "Pylon 지원 데이터를 검색하고 업데이트합니다.",
+  "mcpIntegrations.catalog.pylon.useCase":
+    "고객 지원, 이슈, 계정, 연락처, 대화",
+  "mcpIntegrations.catalog.pylon.setupNote":
+    "연결하기 전에 해당 사용자에 대해 Pylon MCP 액세스를 활성화하고 Pylon에서 MCP 서버를 켜세요. Pylon에는 Member 또는 Admin 시트가 필요하며 사용자 OAuth만 사용합니다.",
+  "mcpIntegrations.catalog.intercom.description":
+    "대화와 고객 지원 지식을 검색합니다.",
+  "mcpIntegrations.catalog.intercom.useCase":
+    "고객 지원, 대화, 연락처, 도움말 센터 콘텐츠",
+  "mcpIntegrations.catalog.intercom.setupNote":
+    "Intercom 연동은 OAuth를 사용하며 미국에서 호스팅되는 워크스페이스에서 사용할 수 있습니다. 승인 중에 워크스페이스 리전과 요청된 범위를 확인하세요.",
+  "mcpIntegrations.catalog.monday.description":
+    "보드, 항목, 팀 워크플로를 다룹니다.",
+  "mcpIntegrations.catalog.monday.useCase":
+    "업무 관리, 보드, 프로젝트, 작업, 팀 운영",
+  "mcpIntegrations.catalog.monday.setupNote":
+    "monday.com 연동은 Streamable HTTP를 통한 OAuth를 사용합니다. 승인 중에 공유할 워크스페이스와 권한을 선택하세요.",
+  "mcpIntegrations.catalog.webflow.description":
+    "Webflow 사이트와 콘텐츠를 읽고 업데이트합니다.",
+  "mcpIntegrations.catalog.webflow.useCase":
+    "웹사이트, CMS, 사이트 콘텐츠, 게시, 디자인 워크플로",
+  "mcpIntegrations.catalog.webflow.setupNote":
+    "Webflow 연동은 OAuth를 사용합니다. Designer 기능을 사용하면 승인 중에 Webflow의 Bridge App이 설치될 수 있습니다. Data API 액세스는 별도로 제공됩니다.",
+  "mcpIntegrations.catalog.paypal.description":
+    "PayPal 결제, 청구서, 커머스 데이터를 다룹니다.",
+  "mcpIntegrations.catalog.paypal.useCase": "결제, 청구서, 거래, 판매자 운영",
+  "mcpIntegrations.catalog.paypal.setupNote":
+    "PayPal은 원격 에이전트 연동을 위한 OAuth 검색 및 로그인을 제공합니다. Agent-Native는 현재 운영 중인 /sse 엔드포인트를 사용합니다. 승인하기 전에 판매자 권한을 검토하세요.",
+  "mcpIntegrations.catalog.box.description":
+    "Box에서 파일과 폴더를 검색하고 관리합니다.",
+  "mcpIntegrations.catalog.box.useCase":
+    "파일, 폴더, 엔터프라이즈 콘텐츠, 검색, 협업",
+  "mcpIntegrations.catalog.box.setupNote":
+    "Box 연동은 베타이며 관리자가 활성화해야 합니다. 사용자 지정 클라이언트에는 Box Integration Credentials, 리디렉션 URI, 승인된 범위도 필요합니다.",
+  "mcpIntegrations.catalog.builder.description":
+    "Builder Publish 및 Hybrid Space 콘텐츠를 검색합니다.",
+  "mcpIntegrations.catalog.builder.useCase":
+    "콘텐츠 모델, 페이지, 항목, Publish 및 Hybrid Spaces",
+  "mcpIntegrations.catalog.builder.setupNote":
+    "Builder CMS MCP는 동적 클라이언트 등록과 함께 OAuth를 사용합니다. Publish 또는 Hybrid Spaces에만 연결되며, 승인 과정에서 Space를 선택하라는 요청이 표시됩니다.",
+  "mcpIntegrations.catalog.netlify.description":
+    "Netlify 사이트와 배포를 살펴보고 운영합니다.",
+  "mcpIntegrations.catalog.netlify.useCase":
+    "사이트, 배포, 빌드, 도메인, 호스팅 운영",
+  "mcpIntegrations.catalog.netlify.setupNote":
+    "Netlify는 지원되는 클라이언트를 위한 원격 연동 설정을 문서로 제공합니다. OAuth를 완료하기 전에 사이트 및 팀 권한을 검토하세요.",
+  "mcpIntegrations.catalog.zapier.description":
+    "도구를 수천 개의 앱 작업에 연결합니다.",
+  "mcpIntegrations.catalog.zapier.useCase":
+    "자동화, 워크플로, 앱 작업, 서비스 간 작업",
+  "mcpIntegrations.catalog.zapier.setupNote":
+    "Zapier의 에이전트 연동은 목록에 없는 클라이언트에 대해 사용자가 만든 연결과 토큰을 사용합니다. Zapier에서 연결을 만든 다음 생성된 Bearer 토큰을 헤더 필드에 붙여 넣으세요.",
+  "mcpIntegrations.auth.none": "인증 없음",
+  "mcpIntegrations.auth.headers": "헤더",
+  "mcpIntegrations.auth.oauth": "OAuth",
+  "mcpIntegrations.status.beta": "베타",
+  "mcpIntegrations.status.setupRequired": "제공업체 설정",
+  "mcpIntegrations.status.clientRestricted": "승인된 클라이언트 전용",
+  "mcpIntegrations.status.verified": "확인됨",
+  "mcpIntegrations.status.preflightOnly": "사전 점검 전용",
+  "mcpIntegrations.status.restricted": "제한됨",
   "limit.account": "계정",
   "limit.descriptionAll":
     "에이전트가 사용 가능한 모든 단계를 소진했습니다. 새 차례에서 계속하거나 먼저 {{scope}} 한도를 높이세요.",
@@ -1159,6 +1455,8 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.emails": "이메일 주소",
   "settingsOrg.invite.emailPlaceholder": "name@company.com",
   "settingsOrg.invite.note": "초대받은 사람은 이 이메일로 로그인해 수락합니다.",
+  "settingsOrg.invite.noteNoEmail":
+    "초대는 이메일로 발송되지 않으니 각자 이 이메일로 로그인하도록 안내하세요.",
   "settingsOrg.invite.role": "역할",
   "settingsOrg.invite.member": "멤버",
   "settingsOrg.invite.admin": "관리자",
@@ -1181,6 +1479,8 @@ const messages: AgentChatTranslation = {
   "settingsOrg.auth.syncedPartial_other":
     "앱 {{count}}개 중 {{succeeded}}개에 동기화했습니다. {{failed}}개는 실패했습니다.",
   "settingsOrg.invite.sent_other": "초대 {{count}}개를 보냈습니다.",
+  "settingsOrg.invite.saved_other":
+    "초대 {{count}}개를 저장했습니다. 로그인하면 초대가 표시됩니다.",
   "settingsShell.account.addPassword": "비밀번호 추가",
   "settingsShell.account.authenticatorCode": "인증 코드",
   "settingsShell.account.change": "변경",

@@ -1112,16 +1112,8 @@ export function McpIntegrationDialog({
                     <div className="flex items-center justify-between gap-3 text-sm">
                       <span className="text-muted-foreground">
                         {customAuthMode === "oauth"
-                          ? t(
-                              /* i18n-key-ignore */
-                              "mcpIntegrations.customOAuthDefault",
-                              { defaultValue: "Sign in with OAuth" },
-                            )
-                          : t(
-                              /* i18n-key-ignore */
-                              "mcpIntegrations.customHeadersMode",
-                              { defaultValue: "Use an API key" },
-                            )}
+                          ? t("mcpIntegrations.customOAuthDefault")
+                          : t("mcpIntegrations.customHeadersMode")}
                       </span>
                       <Button
                         type="button"
@@ -1135,16 +1127,8 @@ export function McpIntegrationDialog({
                         }}
                       >
                         {customAuthMode === "oauth"
-                          ? t(
-                              /* i18n-key-ignore */
-                              "mcpIntegrations.useApiKeyInstead",
-                              { defaultValue: "Use an API key instead" },
-                            )
-                          : t(
-                              /* i18n-key-ignore */
-                              "mcpIntegrations.useOAuthInstead",
-                              { defaultValue: "Use OAuth instead" },
-                            )}
+                          ? t("mcpIntegrations.useApiKeyInstead")
+                          : t("mcpIntegrations.useOAuthInstead")}
                       </Button>
                     </div>
                   )}

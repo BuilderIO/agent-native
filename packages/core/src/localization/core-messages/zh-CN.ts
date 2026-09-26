@@ -553,6 +553,277 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "管理",
   "integrations.recommended": "推荐",
   "integrations.subtitle": "连接您的智能体可以使用的工具。",
+  "mcpIntegrations.menuLabel": "集成",
+  "mcpIntegrations.menuDescription": "将工具和服务连接到智能体",
+  "mcpIntegrations.title": "连接集成",
+  "mcpIntegrations.description":
+    "浏览 {{count}} 个智能体集成，或添加自定义集成。",
+  "mcpIntegrations.searchPlaceholder": "搜索集成",
+  "mcpIntegrations.addYourOwn": "自行添加",
+  "mcpIntegrations.noMatches": "没有与该搜索匹配的集成。",
+  "mcpIntegrations.connected": "已连接",
+  "mcpIntegrations.connectionError": "连接错误",
+  "mcpIntegrations.connectionErrorReason": "原因：{{reason}}",
+  "mcpIntegrations.reconnect": "重新连接",
+  "mcpIntegrations.reconnecting": "正在重新连接…",
+  "mcpIntegrations.reconnectFailed": "重新连接失败：{{error}}",
+  "mcpIntegrations.configure": "配置",
+  "mcpIntegrations.connect": "连接",
+  "mcpIntegrations.connectWithOAuth": "连接",
+  "mcpIntegrations.connecting": "正在连接…",
+  "mcpIntegrations.useApiToken": "使用 API 令牌",
+  "mcpIntegrations.customOAuthDefault": "使用 OAuth 登录",
+  "mcpIntegrations.customHeadersMode": "使用 API 密钥",
+  "mcpIntegrations.useApiKeyInstead": "改用 API 密钥",
+  "mcpIntegrations.useOAuthInstead": "改用 OAuth",
+  "mcpIntegrations.connectSuggestion": "连接 {{name}} 即可在聊天中使用",
+  "mcpIntegrations.connectSuggestionWithApiToken":
+    "使用 API 令牌连接 {{name}} 即可在聊天中使用",
+  "mcpIntegrations.dismissSuggestion": "关闭集成建议",
+  "mcpIntegrations.backToIntegrations": "返回集成",
+  "mcpIntegrations.customTitle": "添加自定义智能体集成",
+  "mcpIntegrations.configureTitle": "配置 {{name}}",
+  "mcpIntegrations.presetNoAuthDescription":
+    "已填入预设值。你可以测试端点或立即连接。",
+  "mcpIntegrations.presetAuthDescription":
+    "已填入预设值。连接前请添加所需的授权信息。",
+  "mcpIntegrations.customDescription":
+    "粘贴 Streamable HTTP 或 SSE 端点，以及可选的请求头。",
+  "mcpIntegrations.oauthNotice":
+    "此提供商通常需要进行 OAuth 设置。请参照提供商文档操作；如果你的端点支持基于令牌的访问，也可以添加 Authorization 请求头。",
+  "mcpIntegrations.providerSetupRequired": "需要完成提供商设置",
+  "mcpIntegrations.providerSetupDescription":
+    "请先在 {{name}} 中完成所需设置，然后返回此处连接你的账号。",
+  "mcpIntegrations.providerSetupFormDescription":
+    "连接你的账号前，请先完成提供商设置。",
+  "mcpIntegrations.continueToConnect": "连接我的账号",
+  "mcpIntegrations.setupTitle": "连接 {{name}}",
+  "mcpIntegrations.personal": "个人",
+  "mcpIntegrations.personalConnection": "个人连接",
+  "mcpIntegrations.organization": "组织",
+  "mcpIntegrations.scopeQuestion": "谁可以使用此连接？",
+  "mcpIntegrations.scopeChoiceTitle": "谁可以使用？",
+  "mcpIntegrations.scopeChoiceDescription": "选择此连接的可用范围。",
+  "mcpIntegrations.connectForMe": "为我连接",
+  "mcpIntegrations.setUpForWorkspace": "为工作区设置",
+  "mcpIntegrations.workspaceAdminRequired": "需要工作区所有者或管理员。",
+  "mcpIntegrations.workspaceJoinRequired": "请先加入一个工作区。",
+  "mcpIntegrations.personalOnlyDescription": "此集成仅支持个人连接。",
+  "mcpIntegrations.workspaceOnlyDescription":
+    "此集成为整个工作区连接一次，因此无法只连接到你的账号。工作区所有者或管理员可以进行设置。",
+  "mcpIntegrations.loadingScopeMetadata": "正在加载连接范围…",
+  "mcpIntegrations.retry": "重试",
+  "mcpIntegrations.retrying": "正在重试…",
+  "mcpIntegrations.personalDescription": "只有你可以使用此连接。",
+  "mcpIntegrations.sharedWithWorkspace": "已与工作区共享",
+  "mcpIntegrations.organizationDescription":
+    "获准的工作区成员可以使用此连接。提供商的权限规则仍然适用。",
+  "mcpIntegrations.serverNameRequired": "使用 OAuth 连接前，请输入集成名称。",
+  "mcpIntegrations.serverName": "集成名称",
+  "mcpIntegrations.url": "URL",
+  "mcpIntegrations.fieldDescription": "描述",
+  "mcpIntegrations.headers": "请求头",
+  "mcpIntegrations.serverNamePlaceholder": "集成名称",
+  "mcpIntegrations.urlPlaceholder": "https://example.com/agent-integration",
+  "mcpIntegrations.descriptionPlaceholder": "描述（可选）",
+  "mcpIntegrations.headersPlaceholder": "Authorization: Bearer <token>",
+  "mcpIntegrations.openSetupDocs": "打开设置文档",
+  "mcpIntegrations.viewSetup": "打开设置指南",
+  "mcpIntegrations.test": "测试",
+  "mcpIntegrations.testing": "正在测试…",
+  "mcpIntegrations.toolsAvailable_other": "{{count}} 个可用工具",
+  "mcpIntegrations.failed": "失败",
+  "mcpIntegrations.docsLabel": "查看 {{name}} 文档",
+  "mcpIntegrations.catalog.context7.description":
+    "在智能体聊天中获取最新的库文档。",
+  "mcpIntegrations.catalog.context7.useCase":
+    "文档、技术参考、API 文档、框架指南",
+  "mcpIntegrations.catalog.sentry.description": "查看问题、事件和调试数据。",
+  "mcpIntegrations.catalog.sentry.useCase": "错误监控、调试、性能、崩溃报告",
+  "mcpIntegrations.catalog.fullstory.description":
+    "读取行为分析数据并查看会话回放。",
+  "mcpIntegrations.catalog.fullstory.useCase":
+    "产品分析、会话回放、定性行为、用户研究",
+  "mcpIntegrations.catalog.fullstory.setupNote":
+    "FullStory MCP 目前为 Beta 版，需要 FullStory 组织管理员启用 StoryAI 功能和 Model Context Protocol 开关。",
+  "mcpIntegrations.catalog.amplitude.description":
+    "读取和使用 Amplitude 产品分析数据。",
+  "mcpIntegrations.catalog.amplitude.useCase":
+    "产品分析、图表、仪表板、用户群、实验",
+  "mcpIntegrations.catalog.amplitude.setupNote":
+    "Amplitude MCP 通过流式 HTTP 使用 OAuth。默认端点适用于美国数据驻留；如果账号要求欧盟数据驻留，请使用 Amplitude 的欧盟端点。",
+  "mcpIntegrations.catalog.sigma.description":
+    "搜索、探索和分析 Sigma 工作簿与仪表板。",
+  "mcpIntegrations.catalog.sigma.useCase":
+    "分析、仪表板、工作簿、数据探索、商业智能",
+  "mcpIntegrations.catalog.sigma.setupNote":
+    "Sigma 的 MCP URL 因组织而异。在 Sigma 中打开 Profile > Integrations > Connect Sigma to AI tools，复制 URL 并粘贴到此处。Sigma MCP 目前支持搜索、元数据探索和分析；此连接不提供仪表板或工作簿的创建与导入功能。",
+  "mcpIntegrations.catalog.notion.description": "搜索页面和团队知识。",
+  "mcpIntegrations.catalog.notion.useCase": "文档、知识管理、笔记、内容创作",
+  "mcpIntegrations.catalog.notion.setupNote":
+    "Notion 集成使用用户 OAuth。企业版工作区可以审计集成的使用情况，并允许或阻止客户端；管理员策略变更后请重新连接。",
+  "mcpIntegrations.catalog.granola.description":
+    "搜索会议笔记、转录文本和待办事项。",
+  "mcpIntegrations.catalog.granola.useCase":
+    "会议笔记、录制、转录文本、待办事项、后续跟进",
+  "mcpIntegrations.catalog.granola.setupNote":
+    "Granola 集成使用浏览器 OAuth。请授权当前登录的 Granola 账号，并确认智能体可以访问哪些会议笔记和转录文本。",
+  "mcpIntegrations.catalog.gong.description":
+    "搜索 Gong 通话，并生成客户和交易洞察。",
+  "mcpIntegrations.catalog.gong.useCase":
+    "销售通话、转录文本、交易洞察、客户摘要",
+  "mcpIntegrations.catalog.gong.setupNote":
+    "Gong 需要技术管理员创建 MCP 集成，并选择个人授权或共享授权。连接前必须配置生成的客户端 ID 和密钥。",
+  "mcpIntegrations.catalog.semgrep.description": "扫描代码中的安全问题。",
+  "mcpIntegrations.catalog.semgrep.useCase": "安全扫描、漏洞检测、代码分析",
+  "mcpIntegrations.catalog.linear.description": "读取和写入 Linear 议题。",
+  "mcpIntegrations.catalog.linear.useCase":
+    "项目管理、议题跟踪、规划、缺陷报告",
+  "mcpIntegrations.catalog.apollo.description":
+    "搜索、补全和管理 Apollo GTM 数据。",
+  "mcpIntegrations.catalog.apollo.useCase":
+    "潜在客户开发、信息补全、联系人、序列、客户研究",
+  "mcpIntegrations.catalog.apollo.setupNote":
+    "Apollo MCP 使用用户 OAuth，无需 Apollo API 密钥。Apollo 套餐权限、积分以及提供商的模型训练限制仍然适用。",
+  "mcpIntegrations.catalog.commonRoom.description":
+    "研究买家信号、联系人和组织。",
+  "mcpIntegrations.catalog.commonRoom.useCase":
+    "买家洞察、产品信号、购买意向、联系人信息补全",
+  "mcpIntegrations.catalog.commonRoom.setupNote":
+    "Common Room MCP 使用按用户的 OAuth，并遵循已授权用户的工作区角色。管理员可能需要为该实例启用 MCP 连接。",
+  "mcpIntegrations.catalog.exa.description": "使用 Exa 搜索网络并获取网页。",
+  "mcpIntegrations.catalog.exa.useCase": "网络搜索、研究、代码搜索、网页获取",
+  "mcpIntegrations.catalog.exa.setupNote":
+    "Exa 的远程 MCP 端点支持无需密钥的基础免费使用。如需更高限额或更多工具，请通过提供商的请求头配置添加 Exa API 密钥。",
+  "mcpIntegrations.catalog.supabase.description":
+    "管理数据、身份验证和后端服务。",
+  "mcpIntegrations.catalog.supabase.useCase":
+    "数据库、身份验证、存储、边缘函数",
+  "mcpIntegrations.catalog.neon.description": "使用无服务器 Postgres 项目。",
+  "mcpIntegrations.catalog.neon.useCase":
+    "数据库管理、无服务器 Postgres、数据存储",
+  "mcpIntegrations.catalog.stripe.description": "管理付款、订阅和客户。",
+  "mcpIntegrations.catalog.stripe.useCase": "付款、订阅、开票、客户管理",
+  "mcpIntegrations.catalog.atlassian.description":
+    "读取和写入 Jira 议题与 Confluence 内容。",
+  "mcpIntegrations.catalog.atlassian.useCase":
+    "项目管理、议题跟踪、文档、团队协作",
+  "mcpIntegrations.catalog.atlassian.setupNote":
+    "请让你的 Atlassian 管理员允许 Clips 应用域名，并为你的 Jira 站点启用具有读取、写入和搜索权限的 Rovo/MCP。",
+  "mcpIntegrations.catalog.cloudflare.description":
+    "通过 Cloudflare 集成搜索和操作其服务。",
+  "mcpIntegrations.catalog.cloudflare.useCase":
+    "DNS、Workers、域名、安全、可观测性、平台 API",
+  "mcpIntegrations.catalog.cloudflare.setupNote":
+    "Cloudflare 的托管集成目录既包含针对特定产品的集成，也包含通用 API 集成。请检查权限范围，并选择最符合你工作流的最小范围端点。",
+  "mcpIntegrations.catalog.grafana.description":
+    "查询 Grafana Cloud 指标、日志和可观测性数据。",
+  "mcpIntegrations.catalog.grafana.useCase":
+    "可观测性、指标、日志、链路追踪、仪表板",
+  "mcpIntegrations.catalog.grafana.setupNote":
+    "Grafana Cloud MCP 处于公开预览阶段，需要 Grafana Cloud Assistant MCP 访问权限。它仅适用于托管的 Grafana Cloud；自托管的 Grafana 需要使用本地 MCP 服务器。",
+  "mcpIntegrations.catalog.gitlab.description":
+    "读取和管理 GitLab 项目、议题和合并请求。",
+  "mcpIntegrations.catalog.gitlab.useCase":
+    "代码仓库、议题、合并请求、CI/CD、代码分析",
+  "mcpIntegrations.catalog.gitlab.setupNote":
+    "GitLab 集成目前为 Beta 版。在 GitLab.com 上，顶级群组管理员必须先允许集成访问，OAuth 才能完成；自管理实例有对应的实例设置。",
+  "mcpIntegrations.catalog.figma.description":
+    "将 Figma 设计上下文和画布操作引入智能体。",
+  "mcpIntegrations.catalog.figma.useCase":
+    "设计文件、组件、变量、设计系统、画布",
+  "mcpIntegrations.catalog.figma.setupNote":
+    "Figma 集成仅允许 Figma 集成目录中列出的客户端，因此 Agent-Native 暂时无法连接此远程端点。请改用 Figma REST API 备用方式，通过个人访问令牌读取文件和节点上下文；在 Figma 批准 Agent-Native 之前，画布操作仍不可用。",
+  "mcpIntegrations.catalog.canva.description":
+    "搜索、创建和更新 Canva 设计与素材。",
+  "mcpIntegrations.catalog.canva.useCase":
+    "设计、模板、素材、品牌套件、导出、协作",
+  "mcpIntegrations.catalog.canva.setupNote":
+    "Canva 集成使用按用户的 OAuth，并要求客户端允许 Canva 的 canva.com 和 canva.ai 域名。连接前，请在 Canva 的集成文档中确认当前的重定向和客户端设置。",
+  "mcpIntegrations.catalog.vercel.description":
+    "搜索 Vercel 文档，并查看项目、部署和日志。",
+  "mcpIntegrations.catalog.vercel.useCase":
+    "部署、项目、日志、域名、托管、文档",
+  "mcpIntegrations.catalog.vercel.setupNote":
+    "Vercel 集成仅接受经过审核和批准的 AI 客户端。必须先将 Agent-Native 加入 Vercel 的支持客户端列表，通用框架连接才能正常使用。",
+  "mcpIntegrations.catalog.github.description":
+    "读取代码仓库、议题、拉取请求和代码上下文。",
+  "mcpIntegrations.catalog.github.useCase":
+    "代码仓库、议题、拉取请求、代码、工程分析",
+  "mcpIntegrations.catalog.github.setupNote":
+    "GitHub 的登录提供商不允许应用自行注册，因此“连接”按钮无法完成 OAuth。请改用 GitHub 个人访问令牌连接，并注意组织可能会强制执行 OAuth App Access Policies。",
+  "mcpIntegrations.catalog.slack.description":
+    "通过 Slack 集成搜索 Slack 对话并执行工作区操作。",
+  "mcpIntegrations.catalog.slack.useCase": "消息、频道、成员、公司记忆、工作流",
+  "mcpIntegrations.catalog.slack.setupNote":
+    "Slack 集成需要一个具有固定应用 ID 的已注册 Slack 应用。不支持动态客户端注册，并且只有 Slack Marketplace 应用或内部应用可以连接。请为 Agent-Native 工作流使用 Slack 的托管消息 OAuth 流程。",
+  "mcpIntegrations.catalog.asana.description":
+    "搜索和管理 Asana 任务、项目和工作图谱数据。",
+  "mcpIntegrations.catalog.asana.useCase":
+    "任务、项目、项目组合、规划、工作负载",
+  "mcpIntegrations.catalog.asana.setupNote":
+    "Asana 的智能体集成需要预先注册的 OAuth 应用，且不支持动态客户端注册。连接前请先配置 Asana 应用客户端。",
+  "mcpIntegrations.catalog.hubspot.description":
+    "通过 HubSpot 集成搜索和更新 HubSpot CRM 记录。",
+  "mcpIntegrations.catalog.hubspot.useCase":
+    "CRM、联系人、公司、交易、工单、客户分析",
+  "mcpIntegrations.catalog.hubspot.setupNote":
+    "如果已配置由工作区管理的 HubSpot MCP Auth App，任何成员都可以通过 OAuth 和 PKCE 连接个人 HubSpot 账号。否则，请在连接前于 HubSpot Developer Platform 中创建该应用；现有的 HubSpot OAuth 连接器仍可供应用操作使用。",
+  "mcpIntegrations.catalog.pylon.description": "搜索和更新 Pylon 支持数据。",
+  "mcpIntegrations.catalog.pylon.useCase": "客户支持、问题、客户、联系人、对话",
+  "mcpIntegrations.catalog.pylon.setupNote":
+    "连接前，请为相关用户启用 Pylon MCP 访问权限，并在 Pylon 中开启 MCP 服务器。Pylon 需要 Member 或 Admin 席位，且仅支持用户 OAuth。",
+  "mcpIntegrations.catalog.intercom.description": "搜索对话和客户支持知识。",
+  "mcpIntegrations.catalog.intercom.useCase":
+    "客户支持、对话、联系人、帮助中心内容",
+  "mcpIntegrations.catalog.intercom.setupNote":
+    "Intercom 集成使用 OAuth，适用于托管在美国的工作区。请在授权时确认工作区所在区域和所请求的权限范围。",
+  "mcpIntegrations.catalog.monday.description": "使用看板、条目和团队工作流。",
+  "mcpIntegrations.catalog.monday.useCase":
+    "工作管理、看板、项目、任务、团队运营",
+  "mcpIntegrations.catalog.monday.setupNote":
+    "monday.com 集成通过 Streamable HTTP 使用 OAuth。请在授权时选择要共享的工作区和权限。",
+  "mcpIntegrations.catalog.webflow.description":
+    "读取和更新 Webflow 站点与内容。",
+  "mcpIntegrations.catalog.webflow.useCase":
+    "网站、CMS、站点内容、发布、设计工作流",
+  "mcpIntegrations.catalog.webflow.setupNote":
+    "Webflow 集成使用 OAuth。Designer 功能可能会在授权期间安装 Webflow 的 Bridge App；Data API 访问需单独获取。",
+  "mcpIntegrations.catalog.paypal.description":
+    "使用 PayPal 付款、发票和商务数据。",
+  "mcpIntegrations.catalog.paypal.useCase": "付款、发票、交易、商户运营",
+  "mcpIntegrations.catalog.paypal.setupNote":
+    "PayPal 为其远程智能体集成提供 OAuth 发现和登录。Agent-Native 使用当前已上线的 /sse 端点；授权前请检查商户权限。",
+  "mcpIntegrations.catalog.box.description":
+    "在 Box 中搜索和管理文件与文件夹。",
+  "mcpIntegrations.catalog.box.useCase": "文件、文件夹、企业内容、搜索、协作",
+  "mcpIntegrations.catalog.box.setupNote":
+    "Box 集成目前为 Beta 版，需要管理员启用。自定义客户端还需要 Box Integration Credentials、重定向 URI 和已批准的权限范围。",
+  "mcpIntegrations.catalog.builder.description":
+    "搜索 Builder Publish 和 Hybrid Space 内容。",
+  "mcpIntegrations.catalog.builder.useCase":
+    "内容模型、页面、条目、Publish 和 Hybrid Spaces",
+  "mcpIntegrations.catalog.builder.setupNote":
+    "Builder CMS MCP 使用带动态客户端注册的 OAuth。它仅连接到 Publish 或 Hybrid Spaces，授权流程会要求你选择 Space。",
+  "mcpIntegrations.catalog.netlify.description":
+    "查看和操作 Netlify 站点与部署。",
+  "mcpIntegrations.catalog.netlify.useCase": "站点、部署、构建、域名、托管运维",
+  "mcpIntegrations.catalog.netlify.setupNote":
+    "Netlify 为受支持的客户端提供了远程集成设置文档。完成 OAuth 前，请检查站点和团队权限。",
+  "mcpIntegrations.catalog.zapier.description": "将工具连接到数千种应用操作。",
+  "mcpIntegrations.catalog.zapier.useCase":
+    "自动化、工作流、应用操作、跨服务操作",
+  "mcpIntegrations.catalog.zapier.setupNote":
+    "对于未列出的客户端，Zapier 的智能体集成使用用户自行创建的连接和令牌。请在 Zapier 中创建连接，然后将生成的 Bearer 令牌粘贴到请求头字段中。",
+  "mcpIntegrations.auth.none": "无需身份验证",
+  "mcpIntegrations.auth.headers": "请求头",
+  "mcpIntegrations.auth.oauth": "OAuth",
+  "mcpIntegrations.status.beta": "Beta 版",
+  "mcpIntegrations.status.setupRequired": "需提供商设置",
+  "mcpIntegrations.status.clientRestricted": "仅限已批准的客户端",
+  "mcpIntegrations.status.verified": "已验证",
+  "mcpIntegrations.status.preflightOnly": "仅预检",
+  "mcpIntegrations.status.restricted": "受限",
   "limit.account": "您的账户",
   "limit.descriptionAll":
     "智能体已用完所有可用步骤。请在新的轮次中继续，或先提高{{scope}}的限制。",
@@ -1108,6 +1379,8 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.emails": "邮箱地址",
   "settingsOrg.invite.emailPlaceholder": "name@company.com",
   "settingsOrg.invite.note": "每个人都需使用此邮箱登录才能接受邀请。",
+  "settingsOrg.invite.noteNoEmail":
+    "邀请不会通过邮件发送，请让每个人使用此邮箱登录。",
   "settingsOrg.invite.role": "角色",
   "settingsOrg.invite.member": "成员",
   "settingsOrg.invite.admin": "管理员",
@@ -1127,6 +1400,8 @@ const messages: AgentChatTranslation = {
   "settingsOrg.auth.syncedPartial_other":
     "已同步到 {{count}} 个应用中的 {{succeeded}} 个。{{failed}} 个失败。",
   "settingsOrg.invite.sent_other": "已发送 {{count}} 份邀请。",
+  "settingsOrg.invite.saved_other":
+    "已保存 {{count}} 份邀请。对方登录后即可看到。",
   "settingsShell.account.addPassword": "添加密码",
   "settingsShell.account.authenticatorCode": "验证器代码",
   "settingsShell.account.change": "更改",

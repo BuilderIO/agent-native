@@ -405,7 +405,7 @@ export default function AuditLogSettingsPage() {
         </p>
         <Button
           type="button"
-          variant="secondary"
+          variant="outline"
           size="sm"
           disabled={events.isFetching}
           onClick={() => void events.refetch()}
@@ -457,7 +457,7 @@ export default function AuditLogSettingsPage() {
             </p>
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
               size="sm"
               onClick={() => void fetchNextPage()}
             >

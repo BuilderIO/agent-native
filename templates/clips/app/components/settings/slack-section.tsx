@@ -206,7 +206,7 @@ export function SlackSection({ variant = "general" }: SlackSectionProps) {
   const connectButton = (
     <Button
       type="button"
-      variant="secondary"
+      variant="outline"
       size="sm"
       onClick={handleConnect}
       disabled={connecting || !oauthConfigured}
@@ -273,7 +273,7 @@ export function SlackSection({ variant = "general" }: SlackSectionProps) {
                   onChannelPage ? (
                     <Button
                       type="button"
-                      variant="secondary"
+                      variant="outline"
                       size="sm"
                       aria-label={t("settings.disconnectSlackLabel", {
                         team: installation.teamName || installation.teamId,

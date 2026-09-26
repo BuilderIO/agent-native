@@ -263,7 +263,7 @@ function ConnectButton({
     >
       <Button
         type="button"
-        variant="secondary"
+        variant="outline"
         size="sm"
         disabled={flow.connecting}
       >
@@ -292,7 +292,7 @@ function ManageMenu({
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
-          variant="secondary"
+          variant="outline"
           size="sm"
           data-builder-manage={scope ?? "legacy"}
         >
@@ -535,13 +535,13 @@ export function BuilderIntegrationPage({
   const connectingFor = (scope: BuilderConnectionScope | "legacy") =>
     flow.connecting && startedScope === scope;
   const cancelButton = (
-    <Button type="button" variant="secondary" size="sm" onClick={flow.cancel}>
+    <Button type="button" variant="outline" size="sm" onClick={flow.cancel}>
       {t("common.cancel")}
     </Button>
   );
 
   const disconnectingButton = (
-    <Button type="button" variant="secondary" size="sm" disabled>
+    <Button type="button" variant="outline" size="sm" disabled>
       <Spinner aria-hidden="true" />
       {t(`${K}.disconnecting`)}
     </Button>
@@ -664,7 +664,7 @@ export function BuilderIntegrationPage({
             control={
               <Button
                 type="button"
-                variant="secondary"
+                variant="outline"
                 size="sm"
                 onClick={() => flow.retry()}
               >
@@ -734,7 +734,7 @@ export function BuilderIntegrationPage({
                     control={
                       <Button
                         type="button"
-                        variant="secondary"
+                        variant="outline"
                         size="sm"
                         onClick={usage.retry}
                       >

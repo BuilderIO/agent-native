@@ -3668,9 +3668,9 @@ export function LiveCandidatesStage({
     if (!canUseCandidate) {
       return (
         <Button
-          variant="outline"
+          variant="outline-destructive"
           size="sm"
-          className="w-full justify-center px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          className="w-full justify-center px-2 text-xs"
           onClick={onDismiss}
           disabled={busy}
         >
@@ -3757,9 +3757,9 @@ export function LiveCandidatesStage({
     if (!canUseCandidate) {
       return (
         <Button
-          variant="outline"
+          variant="outline-destructive"
           size="sm"
-          className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          className="h-7 px-2 text-xs"
           onClick={onDismiss}
           disabled={busy}
         >

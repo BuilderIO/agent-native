@@ -84,7 +84,7 @@ function CopyField({ label, value, docsHref, docsLabel }: CopyFieldProps) {
       </div>
       <Button
         type="button"
-        variant="secondary"
+        variant="outline"
         size="xs"
         onClick={() => void copy()}
       >
@@ -144,7 +144,7 @@ function McpGuidePanel({
         />
       )}
       {guide.action?.kind === "link" && guide.action.href && (
-        <Button asChild variant="secondary" size="sm">
+        <Button asChild variant="outline" size="sm">
           <a href={guide.action.href} target="_blank" rel="noopener noreferrer">
             {guide.action.label}
             <IconExternalLink aria-hidden="true" />
@@ -348,7 +348,7 @@ export function McpAccessSettings({
                 {staticTokenFallback.state}.{" "}
                 {t("settings.mcpStaticTokenDescription")}
               </p>
-              <Button asChild variant="secondary" size="sm" className="mt-3">
+              <Button asChild variant="outline" size="sm" className="mt-3">
                 <a href={urls.connectUrl} target="_blank" rel="noopener">
                   {t("settings.mcpOpenConnectPage")}
                   <IconExternalLink aria-hidden="true" />

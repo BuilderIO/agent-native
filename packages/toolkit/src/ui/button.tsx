@@ -24,13 +24,14 @@ const buttonVariants = cva(
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        outline: "bg-accent text-accent-foreground hover:bg-accent/80",
+        outline:
+          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+        // A destructive action that sits among ordinary row actions: the
+        // outline keeps the row calm; red text says what it does.
+        "outline-destructive":
+          "border bg-background text-destructive shadow-xs hover:bg-destructive/10 dark:border-input dark:bg-input/30 dark:hover:bg-destructive/20",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        // A destructive action that sits among ordinary row actions: the
-        // secondary fill keeps the row calm; red text says what it does.
-        "secondary-destructive":
-          "bg-secondary text-destructive hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         "ghost-inset":
           "text-muted-foreground hover:bg-accent/40 hover:text-foreground focus-visible:ring-inset focus-visible:ring-offset-0",
@@ -111,7 +112,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     if (DesignSystemActionButton && !asChild && !isRenderingLegacyButton) {
       const semanticIntent =
         intent ??
-        (variant === "destructive" || variant === "secondary-destructive"
+        (variant === "destructive" || variant === "outline-destructive"
           ? "danger"
           : variant === "default"
             ? "primary"
@@ -120,7 +121,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         emphasis === "ghost-inset"
           ? "ghost"
           : (emphasis ??
-            (variant === "outline"
+            (variant === "outline" || variant === "outline-destructive"
               ? "outline"
               : variant === "ghost-inset"
                 ? "ghost"

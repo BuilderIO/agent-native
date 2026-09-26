@@ -144,7 +144,7 @@ export function DomainSettingsSection({
             ) : canEnableOwnDomain ? (
               <ToolkitButton
                 type="button"
-                variant="secondary"
+                variant="outline"
                 size="sm"
                 disabled={setOrgDomain.isPending}
                 onClick={() => setOrgDomain.mutate(ownDomain)}
@@ -183,7 +183,7 @@ export function DomainSettingsSection({
             />
             <ToolkitButton
               type="button"
-              variant="secondary"
+              variant="outline"
               size="sm"
               onClick={() => {
                 setEditing(false);
@@ -311,7 +311,7 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
       control={
         <Popover>
           <PopoverTrigger asChild>
-            <ToolkitButton type="button" variant="secondary" size="sm">
+            <ToolkitButton type="button" variant="outline" size="sm">
               {t("agentChat.settingsOrg.auth.manage")}
             </ToolkitButton>
           </PopoverTrigger>
@@ -365,7 +365,7 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
             <div className="grid gap-2 sm:grid-cols-2">
               <ToolkitButton
                 type="button"
-                variant="secondary-destructive"
+                variant="outline-destructive"
                 size="sm"
                 onClick={regenerate}
                 disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
@@ -380,7 +380,7 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
               {isSet ? (
                 <ToolkitButton
                   type="button"
-                  variant="secondary"
+                  variant="outline"
                   size="sm"
                   onClick={() => syncToApps()}
                   disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
@@ -398,7 +398,7 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
             {!pasteMode ? (
               <ToolkitButton
                 type="button"
-                variant="secondary"
+                variant="outline"
                 size="sm"
                 className="w-full"
                 onClick={() => setPasteMode(true)}

@@ -239,7 +239,7 @@ function LoadFailedRow({
       className="flex items-center justify-between gap-4 py-2.5 text-sm text-destructive"
     >
       {message}
-      <Button type="button" variant="secondary" size="sm" onClick={onRetry}>
+      <Button type="button" variant="outline" size="sm" onClick={onRetry}>
         {retryLabel}
       </Button>
     </div>
@@ -518,7 +518,9 @@ export function IntegrationsPage({ appName }: IntegrationsPageProps) {
     <IntegrationTile
       key={integration.id}
       name={integration.name}
-      description={integration.description || integration.useCase}
+      description={t(integration.descriptionKey, {
+        defaultValue: integration.description || integration.useCase,
+      })}
       logo={catalogLogo(integration)}
       connectable
       href={settingsPageHref("integrations", integration.id)}

@@ -373,7 +373,7 @@ function InfrastructurePageContent({
   const canConnectBuilder = !hasOrg || flow.canConnect.org;
   const recommendBuilder =
     !builderUnknown && !builderConnected && canConnectBuilder;
-  const connectBuilder = (variant: "default" | "secondary", label: string) => (
+  const connectBuilder = (variant: "default" | "outline", label: string) => (
     <DeferredBuilderConnectPopover
       flow={flow}
       onConnect={(provisionAccount) =>
@@ -597,7 +597,7 @@ function InfrastructurePageContent({
                   control={
                     recommendBuilder
                       ? connectBuilder(
-                          "secondary",
+                          "outline",
                           t("agentChat.setup.connectBuilder"),
                         )
                       : undefined
@@ -861,7 +861,7 @@ function RowButton({
   onClick: () => void;
 }) {
   return (
-    <Button type="button" variant="secondary" size="sm" onClick={onClick}>
+    <Button type="button" variant="outline" size="sm" onClick={onClick}>
       {children}
     </Button>
   );

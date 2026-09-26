@@ -38,6 +38,7 @@ const legacyAgentChatAliases = [
   ["agentPanel.toggleAgent", "shell.toggleAgent"],
   ["agentPanel.voiceMode", "voiceMode"],
   ["contextXray", "contextXray"],
+  ["mcpIntegrations", "mcpIntegrations"],
 ] as const;
 
 function getNestedMessage(

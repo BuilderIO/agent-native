@@ -818,7 +818,7 @@ function CompactVoiceTranscriptionRow({
             aria-label={t("agentChat.common.loading")}
           />
         ) : loadFailed ? (
-          <Button type="button" variant="secondary" size="sm" onClick={onRetry}>
+          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
             {t("agentChat.common.retry")}
           </Button>
         ) : (

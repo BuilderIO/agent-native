@@ -152,7 +152,7 @@ export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
         <p className="text-destructive">{t(`${K}loadFailed`)}</p>
         <Button
           type="button"
-          variant="secondary"
+          variant="outline"
           size="sm"
           onClick={() => void listing.refetch()}
         >
@@ -340,7 +340,7 @@ function KeyRow({
     control = (
       <Button
         type="button"
-        variant="secondary"
+        variant="outline"
         size="sm"
         onClick={() => onManageProvider(entry)}
       >

@@ -182,7 +182,7 @@ function PasswordRow({ signedIn }: { signedIn: boolean }) {
         <Dialog open={open} onOpenChange={openDialog}>
           <Button
             type="button"
-            variant="secondary"
+            variant="outline"
             size="sm"
             disabled={!signedIn || form.isLoading || form.loadFailed}
             onClick={() => openDialog(true)}
@@ -483,7 +483,7 @@ function TwoFactorRow() {
         <Dialog open={open} onOpenChange={openDialog}>
           <Button
             type="button"
-            variant="secondary"
+            variant="outline"
             size="sm"
             disabled={!signedIn || isLoading || loadFailed}
             onClick={() => openDialog(true)}
@@ -539,7 +539,7 @@ function YourDataGroup() {
           control={
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
               size="sm"
               disabled={privacy.isPending}
               onClick={() => privacy.submit("access")}
@@ -567,7 +567,7 @@ function YourDataGroup() {
             >
               <Button
                 type="button"
-                variant="secondary-destructive"
+                variant="outline-destructive"
                 size="sm"
                 disabled={privacy.isPending}
                 onClick={() => setDeletionOpen(true)}

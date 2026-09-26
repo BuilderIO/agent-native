@@ -748,7 +748,7 @@ function ProviderDialogForm({
           {mode === "manage" ? (
             <Button
               type="button"
-              variant="secondary-destructive"
+              variant="outline-destructive"
               className="sm:me-auto"
               disabled={saving}
               onClick={() => setRemoveOpen(true)}

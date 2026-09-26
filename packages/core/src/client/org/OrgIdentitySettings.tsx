@@ -198,7 +198,7 @@ export function OrgIdentitySettings({
             showProviderForm ? undefined : (
               <ToolkitButton
                 type="button"
-                variant="secondary"
+                variant="outline"
                 size="sm"
                 onClick={() => setShowProviderForm(true)}
               >
@@ -224,7 +224,7 @@ export function OrgIdentitySettings({
                   <ToolkitButton
                     type="button"
                     size="sm"
-                    variant="secondary"
+                    variant="outline"
                     disabled={verifySso.isPending}
                     onClick={() => verifySso.mutate(provider.providerId)}
                   >
@@ -234,7 +234,7 @@ export function OrgIdentitySettings({
                 <ToolkitButton
                   type="button"
                   size="sm"
-                  variant="secondary-destructive"
+                  variant="outline-destructive"
                   disabled={deleteSso.isPending}
                   onClick={() => deleteSso.mutate(provider.providerId)}
                 >
@@ -418,7 +418,7 @@ export function OrgIdentitySettings({
               <ToolkitButton
                 type="button"
                 size="sm"
-                variant="secondary"
+                variant="outline"
                 disabled={createScim.isPending}
                 onClick={() =>
                   createScim.mutate(undefined, {
@@ -445,7 +445,7 @@ export function OrgIdentitySettings({
               <ToolkitButton
                 type="button"
                 size="sm"
-                variant="secondary-destructive"
+                variant="outline-destructive"
                 disabled={deleteScim.isPending}
                 onClick={() => deleteScim.mutate(connection.connectionId)}
               >
@@ -462,7 +462,7 @@ export function OrgIdentitySettings({
               <ToolkitButton
                 type="button"
                 size="sm"
-                variant="secondary"
+                variant="outline"
                 className="justify-self-start"
                 onClick={() => setOneTimeScimToken(null)}
               >

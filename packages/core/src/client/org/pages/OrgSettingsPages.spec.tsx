@@ -367,6 +367,15 @@ describe("Organization settings pages", () => {
       ).toBeNull();
     });
 
+    it("keeps the invite action when email isn't configured", () => {
+      mocks.org = orgInfo({ emailConfigured: false });
+      render(<OrgMembersPage />);
+
+      expect(mocks.header).toHaveBeenLastCalledWith(
+        expect.objectContaining({ action: expect.anything() }),
+      );
+    });
+
     it("gives a member no controls and no invite action", () => {
       mocks.org = orgInfo({ role: "member", email: "member@example.test" });
       render(<OrgMembersPage />);

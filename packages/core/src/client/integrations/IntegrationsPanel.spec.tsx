@@ -30,6 +30,7 @@ vi.mock("../resources/mcp-integration-catalog.js", () => ({
       name: "Context7",
       provider: "context7",
       description: "Fetch current library docs in agent chats.",
+      descriptionKey: "mcpIntegrations.catalog.context7.description",
       useCase: "documentation",
       url: "https://mcp.context7.com/mcp",
       authMode: "none",
@@ -42,6 +43,7 @@ vi.mock("../resources/mcp-integration-catalog.js", () => ({
       name: "Builder.io",
       provider: "builder",
       description: "Search Builder Publish and Hybrid Space content.",
+      descriptionKey: "mcpIntegrations.catalog.builder.description",
       useCase: "content models",
       url: "https://mcp.builder.io/mcp/publish",
       authMode: "oauth",
@@ -70,7 +72,7 @@ vi.mock("../i18n.js", () => ({
       "integrations.connectedSection": "Connected",
       "integrations.availableSection": "Available integrations",
     };
-    return (messages[key] ?? key).replace(
+    return (messages[key] ?? String(options?.defaultValue ?? key)).replace(
       /\{\{(\w+)\}\}/g,
       (_match, name: string) => String(options?.[name] ?? ""),
     );

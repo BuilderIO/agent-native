@@ -40,7 +40,7 @@ export function PendingInvitationsCard() {
           control={
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
               size="sm"
               onClick={() => {
                 setPendingId(inv.id);
@@ -83,7 +83,7 @@ export function JoinByDomainCard({ matches }: { matches: DomainMatchOrg[] }) {
           control={
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
               size="sm"
               disabled={joinByDomain.isPending}
               onClick={() => {

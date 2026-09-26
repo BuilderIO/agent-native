@@ -161,7 +161,7 @@ function DeleteOrganizationButton({ orgName }: { orgName: string }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
-        <Button type="button" variant="secondary-destructive" size="sm">
+        <Button type="button" variant="outline-destructive" size="sm">
           {t("org.deleteOrg")}
         </Button>
       </DialogTrigger>

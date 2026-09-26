@@ -27740,7 +27740,7 @@ function DesignEditor() {
         <TooltipTrigger asChild>
           <Button
             asChild
-            variant="outline"
+            variant="secondary"
             size="sm"
             className="min-w-0 shrink cursor-pointer gap-1.5 rounded-md bg-[var(--design-editor-panel-raised-bg)] text-sm shadow-none"
             aria-label={t("designEditor.signUpToSave")}

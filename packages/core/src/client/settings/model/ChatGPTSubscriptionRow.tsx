@@ -108,7 +108,7 @@ export function ChatGPTSubscriptionRow() {
   const control = connected ? (
     <Button
       type="button"
-      variant="secondary"
+      variant="outline"
       size="sm"
       disabled={disconnecting}
       onClick={() => void disconnect()}
@@ -118,7 +118,7 @@ export function ChatGPTSubscriptionRow() {
   ) : (
     <Button
       type="button"
-      variant="secondary"
+      variant="outline"
       size="sm"
       disabled={connecting || !status.data}
       onClick={connect}

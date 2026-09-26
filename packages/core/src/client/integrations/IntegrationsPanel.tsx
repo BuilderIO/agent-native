@@ -1085,7 +1085,9 @@ export function McpIntegrationsSection({
               return {
                 id: integration.id,
                 name: integration.name,
-                description: integration.description || integration.useCase,
+                description: t(integration.descriptionKey, {
+                  defaultValue: integration.description || integration.useCase,
+                }),
                 logo: (
                   <McpIntegrationLogo
                     name={integration.name}
@@ -1308,7 +1310,9 @@ export function IntegrationsPanel() {
       .map((integration) => ({
         id: `mcp:${integration.id}`,
         name: mcpDisplayName(integration),
-        description: integration.description || integration.useCase,
+        description: t(integration.descriptionKey, {
+          defaultValue: integration.description || integration.useCase,
+        }),
         logo: (
           <McpIntegrationLogo
             name={integration.name}

@@ -14,7 +14,7 @@ export interface AgentAskPopoverProps {
   className?: string;
   icon?: ReactNode;
   draftScope?: string;
-  /** The trigger's look: `default` as a page action, `secondary` in a row or group. */
+  /** The trigger's look: `default` as a page action, `outline` in a row or group. */
   variant?: "default" | "secondary" | "outline";
   size?: "xs" | "sm";
 }

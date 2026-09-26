@@ -25,6 +25,7 @@ import {
   IconPlus,
 } from "@tabler/icons-react";
 import { useId, useMemo, useRef, useState, type FormEvent } from "react";
+import { toast } from "sonner";
 
 // Type-only: erased at build time, so declaring app roles pulls no server or
 // database code into the browser bundle.
@@ -133,10 +134,12 @@ const PASTE_PLACEHOLDER = "alice@acme.com, bob@acme.com\ncharlie@acme.com";
 
 export function BulkInviteForm({
   currentUserRole,
+  emailConfigured,
   appRoles,
   onClose,
 }: {
   currentUserRole: string | null;
+  emailConfigured?: boolean;
   appRoles?: AppRolesDescriptor;
   onClose: () => void;
 }) {
@@ -153,6 +156,7 @@ export function BulkInviteForm({
   const [csvError, setCsvError] = useState<string | null>(null);
   const [result, setResult] = useState<{
     succeeded: number;
+    allEmailed: boolean;
     failed: Map<string, string>;
   } | null>(null);
 
@@ -162,6 +166,10 @@ export function BulkInviteForm({
     : t("agentChat.settingsOrg.invite.ownerOnlyAdmin");
   const emailId = (index: number) => `${idPrefix}-email-${index}`;
   const noteId = `${idPrefix}-note`;
+  const savedMessage = (count: number, allEmailed: boolean) =>
+    allEmailed
+      ? t("agentChat.settingsOrg.invite.sent", { count })
+      : t("agentChat.settingsOrg.invite.saved", { count });
 
   const validDrafts = useMemo(
     () =>
@@ -233,7 +241,10 @@ export function BulkInviteForm({
       return;
     }
 
+    const succeeded = response.succeeded.length;
+    const allEmailed = response.succeeded.every((invite) => invite.emailSent);
     if (response.failed.length === 0) {
+      toast.success(savedMessage(succeeded, allEmailed));
       onClose();
       return;
     }
@@ -241,7 +252,7 @@ export function BulkInviteForm({
     // Keep only the rows that failed, each with its own error, so they can be
     // fixed and sent again.
     const failed = new Map(response.failed.map((f) => [f.email, f.error]));
-    setResult({ succeeded: response.succeeded.length, failed });
+    setResult({ succeeded, allEmailed, failed });
     setDrafts((prev) => {
       const remaining = prev.filter((d) =>
         failed.has(d.email.trim().toLowerCase()),
@@ -335,7 +346,9 @@ export function BulkInviteForm({
           );
         })}
         <p id={noteId} className="text-sm text-muted-foreground">
-          {t("agentChat.settingsOrg.invite.note")}
+          {emailConfigured === false
+            ? t("agentChat.settingsOrg.invite.noteNoEmail")
+            : t("agentChat.settingsOrg.invite.note")}
         </p>
       </div>
 
@@ -449,7 +462,7 @@ export function BulkInviteForm({
 
       {result && result.succeeded > 0 ? (
         <p role="status" className="text-sm text-muted-foreground">
-          {t("agentChat.settingsOrg.invite.sent", { count: result.succeeded })}
+          {savedMessage(result.succeeded, result.allEmailed)}
         </p>
       ) : null}
       <DialogErrorAlert error={csvError ?? bulkInvite.error} />

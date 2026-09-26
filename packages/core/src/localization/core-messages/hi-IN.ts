@@ -574,6 +574,296 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "प्रबंधित करें",
   "integrations.recommended": "अनुशंसित",
   "integrations.subtitle": "वे टूल कनेक्ट करें जिन्हें आपका एजेंट उपयोग कर सकता है।",
+  "mcpIntegrations.menuLabel": "इंटीग्रेशन",
+  "mcpIntegrations.menuDescription": "टूल और सेवाओं को एजेंट से कनेक्ट करें",
+  "mcpIntegrations.title": "इंटीग्रेशन कनेक्ट करें",
+  "mcpIntegrations.description":
+    "{{count}} एजेंट इंटीग्रेशन ब्राउज़ करें या कोई कस्टम इंटीग्रेशन जोड़ें।",
+  "mcpIntegrations.searchPlaceholder": "इंटीग्रेशन खोजें",
+  "mcpIntegrations.addYourOwn": "अपना जोड़ें",
+  "mcpIntegrations.noMatches": "इस खोज से कोई इंटीग्रेशन मेल नहीं खाता।",
+  "mcpIntegrations.connected": "कनेक्ट हो गया",
+  "mcpIntegrations.connectionError": "कनेक्शन त्रुटि",
+  "mcpIntegrations.connectionErrorReason": "कारण: {{reason}}",
+  "mcpIntegrations.reconnect": "फिर से कनेक्ट करें",
+  "mcpIntegrations.reconnecting": "फिर से कनेक्ट हो रहा है…",
+  "mcpIntegrations.reconnectFailed": "फिर से कनेक्ट नहीं हो सका: {{error}}",
+  "mcpIntegrations.configure": "कॉन्फ़िगर करें",
+  "mcpIntegrations.connect": "कनेक्ट करें",
+  "mcpIntegrations.connectWithOAuth": "कनेक्ट करें",
+  "mcpIntegrations.connecting": "कनेक्ट हो रहा है…",
+  "mcpIntegrations.useApiToken": "API टोकन इस्तेमाल करें",
+  "mcpIntegrations.customOAuthDefault": "OAuth से साइन इन करें",
+  "mcpIntegrations.customHeadersMode": "API कुंजी इस्तेमाल करें",
+  "mcpIntegrations.useApiKeyInstead": "इसके बजाय API कुंजी इस्तेमाल करें",
+  "mcpIntegrations.useOAuthInstead": "इसके बजाय OAuth इस्तेमाल करें",
+  "mcpIntegrations.connectSuggestion": "चैट में इस्तेमाल करने के लिए {{name}} कनेक्ट करें",
+  "mcpIntegrations.connectSuggestionWithApiToken":
+    "चैट में इस्तेमाल करने के लिए API टोकन से {{name}} कनेक्ट करें",
+  "mcpIntegrations.dismissSuggestion": "इंटीग्रेशन सुझाव हटाएँ",
+  "mcpIntegrations.backToIntegrations": "इंटीग्रेशन पर वापस जाएँ",
+  "mcpIntegrations.customTitle": "कस्टम एजेंट इंटीग्रेशन जोड़ें",
+  "mcpIntegrations.configureTitle": "{{name}} कॉन्फ़िगर करें",
+  "mcpIntegrations.presetNoAuthDescription":
+    "प्रीसेट वैल्यू भर दी गई हैं। एंडपॉइंट टेस्ट करें या इसे अभी कनेक्ट करें।",
+  "mcpIntegrations.presetAuthDescription":
+    "प्रीसेट वैल्यू भर दी गई हैं। कनेक्ट करने से पहले ज़रूरी ऑथराइज़ेशन विवरण जोड़ें।",
+  "mcpIntegrations.customDescription":
+    "Streamable HTTP या SSE एंडपॉइंट और वैकल्पिक हेडर पेस्ट करें।",
+  "mcpIntegrations.oauthNotice":
+    "इस प्रदाता के लिए आमतौर पर OAuth सेटअप ज़रूरी होता है। प्रदाता के डॉक्स का पालन करें, या अगर आपका एंडपॉइंट टोकन-आधारित एक्सेस सपोर्ट करता है तो Authorization हेडर जोड़ें।",
+  "mcpIntegrations.providerSetupRequired": "प्रदाता सेटअप ज़रूरी है",
+  "mcpIntegrations.providerSetupDescription":
+    "पहले {{name}} में ज़रूरी सेटअप पूरा करें। फिर अपना खाता कनेक्ट करने के लिए यहाँ लौटें।",
+  "mcpIntegrations.providerSetupFormDescription":
+    "अपना खाता कनेक्ट करने से पहले प्रदाता सेटअप पूरा करें।",
+  "mcpIntegrations.continueToConnect": "मेरा खाता कनेक्ट करें",
+  "mcpIntegrations.setupTitle": "{{name}} कनेक्ट करें",
+  "mcpIntegrations.personal": "व्यक्तिगत",
+  "mcpIntegrations.personalConnection": "व्यक्तिगत कनेक्शन",
+  "mcpIntegrations.organization": "संगठन",
+  "mcpIntegrations.scopeQuestion": "इस कनेक्शन का इस्तेमाल कौन कर सकेगा?",
+  "mcpIntegrations.scopeChoiceTitle": "इसका इस्तेमाल कौन करेगा?",
+  "mcpIntegrations.scopeChoiceDescription": "चुनें कि यह कनेक्शन कहाँ उपलब्ध हो।",
+  "mcpIntegrations.connectForMe": "मेरे लिए कनेक्ट करें",
+  "mcpIntegrations.setUpForWorkspace": "वर्कस्पेस के लिए सेट अप करें",
+  "mcpIntegrations.workspaceAdminRequired":
+    "वर्कस्पेस का मालिक या एडमिन होना ज़रूरी है।",
+  "mcpIntegrations.workspaceJoinRequired": "पहले किसी वर्कस्पेस से जुड़ें।",
+  "mcpIntegrations.personalOnlyDescription":
+    "इस इंटीग्रेशन के लिए केवल व्यक्तिगत कनेक्शन समर्थित हैं।",
+  "mcpIntegrations.workspaceOnlyDescription":
+    "यह इंटीग्रेशन पूरे वर्कस्पेस के लिए एक बार कनेक्ट होता है, इसलिए इसे सिर्फ़ आपके खाते से कनेक्ट नहीं किया जा सकता। वर्कस्पेस का मालिक या एडमिन इसे सेट अप कर सकता है।",
+  "mcpIntegrations.loadingScopeMetadata": "कनेक्शन का दायरा लोड हो रहा है…",
+  "mcpIntegrations.retry": "फिर से प्रयास करें",
+  "mcpIntegrations.retrying": "फिर से प्रयास किया जा रहा है…",
+  "mcpIntegrations.personalDescription": "इस कनेक्शन का इस्तेमाल केवल आप कर सकते हैं।",
+  "mcpIntegrations.sharedWithWorkspace": "वर्कस्पेस के साथ साझा",
+  "mcpIntegrations.organizationDescription":
+    "अनुमति प्राप्त वर्कस्पेस सदस्य इस कनेक्शन का इस्तेमाल कर सकते हैं। प्रदाता की अनुमतियाँ फिर भी लागू रहती हैं।",
+  "mcpIntegrations.serverNameRequired":
+    "OAuth से कनेक्ट करने से पहले इंटीग्रेशन का नाम डालें।",
+  "mcpIntegrations.serverName": "इंटीग्रेशन का नाम",
+  "mcpIntegrations.url": "URL",
+  "mcpIntegrations.fieldDescription": "विवरण",
+  "mcpIntegrations.headers": "हेडर",
+  "mcpIntegrations.serverNamePlaceholder": "इंटीग्रेशन का नाम",
+  "mcpIntegrations.urlPlaceholder": "https://example.com/agent-integration",
+  "mcpIntegrations.descriptionPlaceholder": "विवरण (वैकल्पिक)",
+  "mcpIntegrations.headersPlaceholder": "Authorization: Bearer <token>",
+  "mcpIntegrations.openSetupDocs": "सेटअप डॉक्स खोलें",
+  "mcpIntegrations.viewSetup": "सेटअप गाइड खोलें",
+  "mcpIntegrations.test": "टेस्ट करें",
+  "mcpIntegrations.testing": "टेस्ट हो रहा है…",
+  "mcpIntegrations.toolsAvailable_one": "{{count}} टूल उपलब्ध",
+  "mcpIntegrations.toolsAvailable_other": "{{count}} टूल उपलब्ध",
+  "mcpIntegrations.failed": "विफल",
+  "mcpIntegrations.docsLabel": "{{name}} डॉक्स देखें",
+  "mcpIntegrations.catalog.context7.description":
+    "एजेंट चैट में लाइब्रेरी के नवीनतम डॉक्स पाएँ।",
+  "mcpIntegrations.catalog.context7.useCase":
+    "दस्तावेज़ीकरण, तकनीकी संदर्भ, API डॉक्स, फ़्रेमवर्क गाइड",
+  "mcpIntegrations.catalog.sentry.description":
+    "इश्यू, इवेंट और डीबगिंग डेटा की जाँच करें।",
+  "mcpIntegrations.catalog.sentry.useCase":
+    "त्रुटि मॉनिटरिंग, डीबगिंग, परफ़ॉर्मेंस, क्रैश रिपोर्ट",
+  "mcpIntegrations.catalog.fullstory.description":
+    "बिहेवियरल एनालिटिक्स पढ़ें और सेशन रीप्ले देखें।",
+  "mcpIntegrations.catalog.fullstory.useCase":
+    "प्रोडक्ट एनालिटिक्स, सेशन रीप्ले, गुणात्मक व्यवहार, यूज़र रिसर्च",
+  "mcpIntegrations.catalog.fullstory.setupNote":
+    "FullStory MCP अभी बीटा में है। इसके लिए FullStory संगठन के एडमिन को StoryAI सुविधाएँ और Model Context Protocol टॉगल चालू करना होगा।",
+  "mcpIntegrations.catalog.amplitude.description":
+    "Amplitude प्रोडक्ट एनालिटिक्स पढ़ें और उस पर काम करें।",
+  "mcpIntegrations.catalog.amplitude.useCase":
+    "प्रोडक्ट एनालिटिक्स, चार्ट, डैशबोर्ड, कोहॉर्ट, एक्सपेरिमेंट",
+  "mcpIntegrations.catalog.amplitude.setupNote":
+    "Amplitude MCP स्ट्रीमिंग HTTP पर OAuth इस्तेमाल करता है। डिफ़ॉल्ट एंडपॉइंट US डेटा रेज़िडेंसी के लिए है। अगर खाते के लिए EU रेज़िडेंसी ज़रूरी है, तो Amplitude का EU एंडपॉइंट इस्तेमाल करें।",
+  "mcpIntegrations.catalog.sigma.description":
+    "Sigma वर्कबुक और डैशबोर्ड खोजें, एक्सप्लोर करें और उनका विश्लेषण करें।",
+  "mcpIntegrations.catalog.sigma.useCase":
+    "एनालिटिक्स, डैशबोर्ड, वर्कबुक, डेटा एक्सप्लोरेशन, बिज़नेस इंटेलिजेंस",
+  "mcpIntegrations.catalog.sigma.setupNote":
+    "Sigma का MCP URL हर संगठन के लिए अलग होता है। Sigma में Profile > Integrations > Connect Sigma to AI tools खोलें, URL कॉपी करें और उसे यहाँ पेस्ट करें। Sigma MCP अभी खोज, मेटाडेटा एक्सप्लोरेशन और विश्लेषण सपोर्ट करता है। यह कनेक्शन डैशबोर्ड या वर्कबुक बनाने और इंपोर्ट करने की सुविधा नहीं देता।",
+  "mcpIntegrations.catalog.notion.description": "पेज और टीम की जानकारी खोजें।",
+  "mcpIntegrations.catalog.notion.useCase":
+    "दस्तावेज़ीकरण, नॉलेज मैनेजमेंट, नोट्स, कंटेंट बनाना",
+  "mcpIntegrations.catalog.notion.setupNote":
+    "Notion इंटीग्रेशन यूज़र OAuth इस्तेमाल करता है। Enterprise वर्कस्पेस इंटीग्रेशन के उपयोग का ऑडिट कर सकते हैं और क्लाइंट को अनुमति दे सकते हैं या ब्लॉक कर सकते हैं। एडमिन नीति बदलने के बाद फिर से कनेक्ट करें।",
+  "mcpIntegrations.catalog.granola.description":
+    "मीटिंग नोट्स, ट्रांसक्रिप्ट और एक्शन आइटम खोजें।",
+  "mcpIntegrations.catalog.granola.useCase":
+    "मीटिंग नोट्स, रिकॉर्डिंग, ट्रांसक्रिप्ट, एक्शन आइटम, फ़ॉलो-अप",
+  "mcpIntegrations.catalog.granola.setupNote":
+    "Granola इंटीग्रेशन ब्राउज़र OAuth इस्तेमाल करता है। साइन-इन किए गए Granola खाते को ऑथराइज़ करें और देखें कि एजेंट किन मीटिंग नोट्स और ट्रांसक्रिप्ट तक पहुँच सकता है।",
+  "mcpIntegrations.catalog.gong.description":
+    "Gong कॉल खोजें और खाते व डील की जानकारी तैयार करें।",
+  "mcpIntegrations.catalog.gong.useCase":
+    "सेल्स कॉल, ट्रांसक्रिप्ट, डील इनसाइट, खाते का सारांश",
+  "mcpIntegrations.catalog.gong.setupNote":
+    "Gong में एक टेक एडमिन को MCP इंटीग्रेशन बनाना होगा और व्यक्तिगत या साझा ऑथराइज़ेशन चुनना होगा। कनेक्ट करने से पहले जनरेट किए गए क्लाइंट ID और सीक्रेट को कॉन्फ़िगर करना ज़रूरी है।",
+  "mcpIntegrations.catalog.semgrep.description":
+    "सुरक्षा से जुड़ी समस्याओं के लिए कोड स्कैन करें।",
+  "mcpIntegrations.catalog.semgrep.useCase":
+    "सुरक्षा स्कैनिंग, कमज़ोरियों का पता लगाना, कोड विश्लेषण",
+  "mcpIntegrations.catalog.linear.description": "Linear इश्यू पढ़ें और लिखें।",
+  "mcpIntegrations.catalog.linear.useCase":
+    "प्रोजेक्ट मैनेजमेंट, इश्यू ट्रैकिंग, प्लानिंग, बग रिपोर्ट",
+  "mcpIntegrations.catalog.apollo.description":
+    "Apollo GTM डेटा खोजें, समृद्ध करें और प्रबंधित करें।",
+  "mcpIntegrations.catalog.apollo.useCase":
+    "प्रॉस्पेक्टिंग, एनरिचमेंट, संपर्क, सीक्वेंस, खाता रिसर्च",
+  "mcpIntegrations.catalog.apollo.setupNote":
+    "Apollo MCP यूज़र OAuth इस्तेमाल करता है और इसके लिए Apollo API कुंजी की ज़रूरत नहीं है। Apollo प्लान की अनुमतियाँ, क्रेडिट और प्रदाता के मॉडल-ट्रेनिंग प्रतिबंध फिर भी लागू रहते हैं।",
+  "mcpIntegrations.catalog.commonRoom.description":
+    "खरीदार के सिग्नल, संपर्कों और संगठनों पर रिसर्च करें।",
+  "mcpIntegrations.catalog.commonRoom.useCase":
+    "खरीदार इंटेलिजेंस, प्रोडक्ट सिग्नल, इंटेंट, संपर्क एनरिचमेंट",
+  "mcpIntegrations.catalog.commonRoom.setupNote":
+    "Common Room MCP हर यूज़र के लिए OAuth इस्तेमाल करता है और ऑथराइज़ किए गए यूज़र की वर्कस्पेस भूमिका का पालन करता है। इंस्टेंस के लिए MCP कनेक्शन चालू करने के लिए एडमिन की ज़रूरत पड़ सकती है।",
+  "mcpIntegrations.catalog.exa.description": "Exa से वेब खोजें और पेज पाएँ।",
+  "mcpIntegrations.catalog.exa.useCase": "वेब खोज, रिसर्च, कोड खोज, पेज पाना",
+  "mcpIntegrations.catalog.exa.setupNote":
+    "Exa का रिमोट MCP एंडपॉइंट बिना कुंजी के बुनियादी मुफ़्त उपयोग सपोर्ट करता है। ज़्यादा सीमाओं या अतिरिक्त टूल के लिए प्रदाता के हेडर कॉन्फ़िगरेशन में Exa API कुंजी जोड़ें।",
+  "mcpIntegrations.catalog.supabase.description":
+    "डेटा, ऑथ और बैकएंड सेवाएँ प्रबंधित करें।",
+  "mcpIntegrations.catalog.supabase.useCase": "डेटाबेस, ऑथेंटिकेशन, स्टोरेज, एज फ़ंक्शन",
+  "mcpIntegrations.catalog.neon.description":
+    "सर्वरलेस Postgres प्रोजेक्ट पर काम करें।",
+  "mcpIntegrations.catalog.neon.useCase":
+    "डेटाबेस मैनेजमेंट, सर्वरलेस Postgres, डेटा स्टोरेज",
+  "mcpIntegrations.catalog.stripe.description":
+    "भुगतान, सब्सक्रिप्शन और ग्राहक प्रबंधित करें।",
+  "mcpIntegrations.catalog.stripe.useCase":
+    "भुगतान, सब्सक्रिप्शन, इनवॉइसिंग, ग्राहक प्रबंधन",
+  "mcpIntegrations.catalog.atlassian.description":
+    "Jira इश्यू और Confluence कंटेंट पढ़ें और लिखें।",
+  "mcpIntegrations.catalog.atlassian.useCase":
+    "प्रोजेक्ट मैनेजमेंट, इश्यू ट्रैकिंग, दस्तावेज़ीकरण, टीम सहयोग",
+  "mcpIntegrations.catalog.atlassian.setupNote":
+    "अपने Atlassian एडमिन से Clips ऐप डोमेन को अनुमति देने और अपनी Jira साइट के लिए Read, Write और Search अनुमतियों के साथ Rovo/MCP चालू करने को कहें।",
+  "mcpIntegrations.catalog.cloudflare.description":
+    "Cloudflare के इंटीग्रेशन से उसकी सेवाएँ खोजें और चलाएँ।",
+  "mcpIntegrations.catalog.cloudflare.useCase":
+    "DNS, Workers, डोमेन, सुरक्षा, ऑब्ज़र्वेबिलिटी, प्लेटफ़ॉर्म API",
+  "mcpIntegrations.catalog.cloudflare.setupNote":
+    "Cloudflare की मैनेज्ड इंटीग्रेशन डायरेक्टरी में प्रोडक्ट-विशिष्ट इंटीग्रेशन के साथ व्यापक API इंटीग्रेशन भी है। स्कोप की समीक्षा करें और वह सबसे सीमित एंडपॉइंट चुनें जो आपके वर्कफ़्लो के लिए सही हो।",
+  "mcpIntegrations.catalog.grafana.description":
+    "Grafana Cloud के मेट्रिक्स, लॉग और ऑब्ज़र्वेबिलिटी डेटा पर क्वेरी करें।",
+  "mcpIntegrations.catalog.grafana.useCase":
+    "ऑब्ज़र्वेबिलिटी, मेट्रिक्स, लॉग, ट्रेस, डैशबोर्ड",
+  "mcpIntegrations.catalog.grafana.setupNote":
+    "Grafana Cloud MCP पब्लिक प्रीव्यू में है और इसके लिए Grafana Cloud Assistant MCP एक्सेस ज़रूरी है। यह केवल होस्ट किए गए Grafana Cloud के लिए है। सेल्फ़-होस्टेड Grafana के लिए लोकल MCP सर्वर चाहिए।",
+  "mcpIntegrations.catalog.gitlab.description":
+    "GitLab प्रोजेक्ट, इश्यू और मर्ज रिक्वेस्ट पढ़ें और प्रबंधित करें।",
+  "mcpIntegrations.catalog.gitlab.useCase":
+    "रिपॉज़िटरी, इश्यू, मर्ज रिक्वेस्ट, CI/CD, कोड एनालिटिक्स",
+  "mcpIntegrations.catalog.gitlab.setupNote":
+    "GitLab इंटीग्रेशन अभी बीटा में है। GitLab.com पर OAuth पूरा होने से पहले टॉप-लेवल ग्रुप के एडमिन को इंटीग्रेशन एक्सेस की अनुमति देनी होगी। सेल्फ़-मैनेज्ड इंस्टेंस में इसके बराबर एक इंस्टेंस सेटिंग होती है।",
+  "mcpIntegrations.catalog.figma.description":
+    "Figma का डिज़ाइन संदर्भ और कैनवस एक्शन एजेंट में लाएँ।",
+  "mcpIntegrations.catalog.figma.useCase":
+    "डिज़ाइन फ़ाइलें, कंपोनेंट, वेरिएबल, डिज़ाइन सिस्टम, कैनवस",
+  "mcpIntegrations.catalog.figma.setupNote":
+    "Figma इंटीग्रेशन केवल उन्हीं क्लाइंट को अनुमति देता है जो Figma के इंटीग्रेशन कैटलॉग में सूचीबद्ध हैं, इसलिए यह रिमोट एंडपॉइंट अभी Agent-Native से कनेक्ट नहीं हो सकता। फ़ाइल और नोड का संदर्भ पढ़ने के लिए व्यक्तिगत एक्सेस टोकन के साथ Figma REST API विकल्प इस्तेमाल करें। Figma के Agent-Native को मंज़ूरी देने तक कैनवस एक्शन उपलब्ध नहीं रहेंगे।",
+  "mcpIntegrations.catalog.canva.description":
+    "Canva डिज़ाइन और एसेट खोजें, बनाएँ और अपडेट करें।",
+  "mcpIntegrations.catalog.canva.useCase":
+    "डिज़ाइन, टेम्पलेट, एसेट, ब्रांड किट, एक्सपोर्ट, सहयोग",
+  "mcpIntegrations.catalog.canva.setupNote":
+    "Canva इंटीग्रेशन हर यूज़र के लिए OAuth इस्तेमाल करता है और क्लाइंट के लिए Canva के canva.com और canva.ai डोमेन को अनुमति देना ज़रूरी है। कनेक्ट करने से पहले Canva के इंटीग्रेशन दस्तावेज़ में मौजूदा रीडायरेक्ट और क्लाइंट सेटअप की पुष्टि करें।",
+  "mcpIntegrations.catalog.vercel.description":
+    "Vercel डॉक्स खोजें और प्रोजेक्ट, डिप्लॉयमेंट और लॉग देखें।",
+  "mcpIntegrations.catalog.vercel.useCase":
+    "डिप्लॉयमेंट, प्रोजेक्ट, लॉग, डोमेन, होस्टिंग, दस्तावेज़ीकरण",
+  "mcpIntegrations.catalog.vercel.setupNote":
+    "Vercel इंटीग्रेशन केवल समीक्षा किए गए और स्वीकृत AI क्लाइंट स्वीकार करता है। सामान्य फ़्रेमवर्क कनेक्शन काम करे, इसके लिए Agent-Native को Vercel की समर्थित क्लाइंट सूची में जोड़ा जाना ज़रूरी है।",
+  "mcpIntegrations.catalog.github.description":
+    "रिपॉज़िटरी, इश्यू, पुल रिक्वेस्ट और कोड संदर्भ पढ़ें।",
+  "mcpIntegrations.catalog.github.useCase":
+    "रिपॉज़िटरी, इश्यू, पुल रिक्वेस्ट, कोड, इंजीनियरिंग एनालिटिक्स",
+  "mcpIntegrations.catalog.github.setupNote":
+    "GitHub का साइन-इन प्रदाता ऐप को खुद रजिस्टर करने नहीं देता, इसलिए कनेक्ट बटन OAuth पूरा नहीं कर सकता। इसके बजाय GitHub व्यक्तिगत एक्सेस टोकन से कनेक्ट करें। ध्यान दें कि संगठन OAuth App Access Policies लागू कर सकते हैं।",
+  "mcpIntegrations.catalog.slack.description":
+    "Slack बातचीत खोजें और उसके इंटीग्रेशन से वर्कस्पेस एक्शन करें।",
+  "mcpIntegrations.catalog.slack.useCase":
+    "मैसेज, चैनल, लोग, कंपनी की जानकारी, वर्कफ़्लो",
+  "mcpIntegrations.catalog.slack.setupNote":
+    "Slack इंटीग्रेशन के लिए तय ऐप ID वाला रजिस्टर्ड Slack ऐप ज़रूरी है। डायनैमिक क्लाइंट रजिस्ट्रेशन समर्थित नहीं है, और केवल Slack Marketplace या आंतरिक ऐप ही कनेक्ट हो सकते हैं। Agent-Native वर्कफ़्लो के लिए Slack का मैनेज्ड मैसेजिंग OAuth फ़्लो इस्तेमाल करें।",
+  "mcpIntegrations.catalog.asana.description":
+    "Asana टास्क, प्रोजेक्ट और वर्क ग्राफ़ डेटा खोजें और प्रबंधित करें।",
+  "mcpIntegrations.catalog.asana.useCase":
+    "टास्क, प्रोजेक्ट, पोर्टफ़ोलियो, प्लानिंग, वर्कलोड",
+  "mcpIntegrations.catalog.asana.setupNote":
+    "Asana के एजेंट इंटीग्रेशन के लिए पहले से रजिस्टर्ड OAuth ऐप ज़रूरी है और यह डायनैमिक क्लाइंट रजिस्ट्रेशन सपोर्ट नहीं करता। कनेक्ट करने से पहले Asana ऐप क्लाइंट कॉन्फ़िगर करें।",
+  "mcpIntegrations.catalog.hubspot.description":
+    "HubSpot के इंटीग्रेशन से उसके CRM रिकॉर्ड खोजें और अपडेट करें।",
+  "mcpIntegrations.catalog.hubspot.useCase":
+    "CRM, संपर्क, कंपनियाँ, डील, टिकट, ग्राहक एनालिटिक्स",
+  "mcpIntegrations.catalog.hubspot.setupNote":
+    "जब वर्कस्पेस द्वारा प्रबंधित HubSpot MCP Auth App कॉन्फ़िगर होता है, तो कोई भी सदस्य OAuth और PKCE के साथ अपना व्यक्तिगत HubSpot खाता कनेक्ट कर सकता है। नहीं तो, कनेक्ट करने से पहले HubSpot Developer Platform में ऐप बनाएँ। मौजूदा HubSpot OAuth कनेक्टर ऐप एक्शन के लिए उपलब्ध रहता है।",
+  "mcpIntegrations.catalog.pylon.description":
+    "Pylon सपोर्ट डेटा खोजें और अपडेट करें।",
+  "mcpIntegrations.catalog.pylon.useCase":
+    "ग्राहक सहायता, इश्यू, खाते, संपर्क, बातचीत",
+  "mcpIntegrations.catalog.pylon.setupNote":
+    "कनेक्ट करने से पहले संबंधित यूज़र के लिए Pylon MCP एक्सेस चालू करें और Pylon में MCP सर्वर चालू करें। Pylon के लिए Member या Admin सीट ज़रूरी है और यह केवल यूज़र OAuth इस्तेमाल करता है।",
+  "mcpIntegrations.catalog.intercom.description":
+    "बातचीत और ग्राहक सहायता की जानकारी खोजें।",
+  "mcpIntegrations.catalog.intercom.useCase":
+    "ग्राहक सहायता, बातचीत, संपर्क, हेल्प सेंटर कंटेंट",
+  "mcpIntegrations.catalog.intercom.setupNote":
+    "Intercom इंटीग्रेशन OAuth इस्तेमाल करता है और US में होस्ट किए गए वर्कस्पेस के लिए उपलब्ध है। ऑथराइज़ेशन के दौरान वर्कस्पेस का क्षेत्र और मांगे गए स्कोप की पुष्टि करें।",
+  "mcpIntegrations.catalog.monday.description":
+    "बोर्ड, आइटम और टीम वर्कफ़्लो पर काम करें।",
+  "mcpIntegrations.catalog.monday.useCase":
+    "वर्क मैनेजमेंट, बोर्ड, प्रोजेक्ट, टास्क, टीम ऑपरेशन",
+  "mcpIntegrations.catalog.monday.setupNote":
+    "monday.com इंटीग्रेशन Streamable HTTP पर OAuth इस्तेमाल करता है। ऑथराइज़ेशन के दौरान साझा करने के लिए वर्कस्पेस और अनुमतियाँ चुनें।",
+  "mcpIntegrations.catalog.webflow.description":
+    "Webflow साइट और कंटेंट पढ़ें और अपडेट करें।",
+  "mcpIntegrations.catalog.webflow.useCase":
+    "वेबसाइट, CMS, साइट कंटेंट, पब्लिशिंग, डिज़ाइन वर्कफ़्लो",
+  "mcpIntegrations.catalog.webflow.setupNote":
+    "Webflow इंटीग्रेशन OAuth इस्तेमाल करता है। ऑथराइज़ेशन के दौरान Designer सुविधाएँ Webflow का Bridge App इंस्टॉल कर सकती हैं। Data API एक्सेस अलग से उपलब्ध है।",
+  "mcpIntegrations.catalog.paypal.description":
+    "PayPal भुगतान, इनवॉइस और कॉमर्स डेटा पर काम करें।",
+  "mcpIntegrations.catalog.paypal.useCase": "भुगतान, इनवॉइस, लेन-देन, मर्चेंट ऑपरेशन",
+  "mcpIntegrations.catalog.paypal.setupNote":
+    "PayPal अपने रिमोट एजेंट इंटीग्रेशन के लिए OAuth डिस्कवरी और लॉगिन देता है। Agent-Native अभी लाइव /sse एंडपॉइंट इस्तेमाल करता है। ऑथराइज़ करने से पहले मर्चेंट अनुमतियों की समीक्षा करें।",
+  "mcpIntegrations.catalog.box.description":
+    "Box में फ़ाइलें और फ़ोल्डर खोजें और प्रबंधित करें।",
+  "mcpIntegrations.catalog.box.useCase":
+    "फ़ाइलें, फ़ोल्डर, एंटरप्राइज़ कंटेंट, खोज, सहयोग",
+  "mcpIntegrations.catalog.box.setupNote":
+    "Box इंटीग्रेशन बीटा में है और इसे चालू करने के लिए एडमिन की ज़रूरत है। कस्टम क्लाइंट के लिए Box Integration Credentials, एक रीडायरेक्ट URI और स्वीकृत स्कोप भी ज़रूरी हैं।",
+  "mcpIntegrations.catalog.builder.description":
+    "Builder Publish और Hybrid Space कंटेंट खोजें।",
+  "mcpIntegrations.catalog.builder.useCase":
+    "कंटेंट मॉडल, पेज, एंट्री, Publish और Hybrid Spaces",
+  "mcpIntegrations.catalog.builder.setupNote":
+    "Builder CMS MCP डायनैमिक क्लाइंट रजिस्ट्रेशन के साथ OAuth इस्तेमाल करता है। यह केवल Publish या Hybrid Spaces से कनेक्ट होता है, और ऑथराइज़ेशन फ़्लो आपसे Space चुनने को कहता है।",
+  "mcpIntegrations.catalog.netlify.description":
+    "Netlify साइट और डिप्लॉयमेंट देखें और चलाएँ।",
+  "mcpIntegrations.catalog.netlify.useCase":
+    "साइट, डिप्लॉयमेंट, बिल्ड, डोमेन, होस्टिंग ऑपरेशन",
+  "mcpIntegrations.catalog.netlify.setupNote":
+    "Netlify समर्थित क्लाइंट के लिए रिमोट इंटीग्रेशन सेटअप का दस्तावेज़ देता है। OAuth पूरा करने से पहले साइट और टीम की अनुमतियों की समीक्षा करें।",
+  "mcpIntegrations.catalog.zapier.description":
+    "टूल को हज़ारों ऐप एक्शन से कनेक्ट करें।",
+  "mcpIntegrations.catalog.zapier.useCase":
+    "ऑटोमेशन, वर्कफ़्लो, ऐप एक्शन, क्रॉस-सर्विस ऑपरेशन",
+  "mcpIntegrations.catalog.zapier.setupNote":
+    "Zapier का एजेंट इंटीग्रेशन असूचीबद्ध क्लाइंट के लिए यूज़र द्वारा बनाया गया कनेक्शन और टोकन इस्तेमाल करता है। Zapier में कनेक्शन बनाएँ, फिर उसका जनरेट किया गया bearer टोकन हेडर फ़ील्ड में पेस्ट करें।",
+  "mcpIntegrations.auth.none": "कोई ऑथ नहीं",
+  "mcpIntegrations.auth.headers": "हेडर",
+  "mcpIntegrations.auth.oauth": "OAuth",
+  "mcpIntegrations.status.beta": "बीटा",
+  "mcpIntegrations.status.setupRequired": "प्रदाता सेटअप",
+  "mcpIntegrations.status.clientRestricted": "केवल स्वीकृत क्लाइंट",
+  "mcpIntegrations.status.verified": "सत्यापित",
+  "mcpIntegrations.status.preflightOnly": "केवल प्रीफ़्लाइट",
+  "mcpIntegrations.status.restricted": "प्रतिबंधित",
   "limit.account": "आपके खाते",
   "limit.descriptionAll":
     "एजेंट ने सभी उपलब्ध चरणों का उपयोग कर लिया। नए टर्न में जारी रखें या पहले {{scope}} की सीमा बढ़ाएँ।",
@@ -1150,6 +1440,8 @@ const messages: AgentChatTranslation = {
   "settingsOrg.invite.emailPlaceholder": "name@company.com",
   "settingsOrg.invite.note":
     "स्वीकार करने के लिए हर व्यक्ति इसी ईमेल से साइन इन करता है।",
+  "settingsOrg.invite.noteNoEmail":
+    "आमंत्रण ईमेल से नहीं भेजे जाएंगे, इसलिए हर व्यक्ति से इसी ईमेल से साइन इन करने को कहें।",
   "settingsOrg.invite.role": "भूमिका",
   "settingsOrg.invite.member": "सदस्य",
   "settingsOrg.invite.admin": "एडमिन",
@@ -1175,6 +1467,10 @@ const messages: AgentChatTranslation = {
     "{{count}} में से {{succeeded}} ऐप्स के साथ सिंक किया गया। {{failed}} विफल।",
   "settingsOrg.invite.sent_one": "{{count}} आमंत्रण भेजा गया।",
   "settingsOrg.invite.sent_other": "{{count}} आमंत्रण भेजे गए।",
+  "settingsOrg.invite.saved_one":
+    "{{count}} आमंत्रण सहेजा गया। साइन इन करने पर वे इसे देखेंगे।",
+  "settingsOrg.invite.saved_other":
+    "{{count}} आमंत्रण सहेजे गए। साइन इन करने पर वे इन्हें देखेंगे।",
   "settingsShell.account.addPassword": "पासवर्ड जोड़ें",
   "settingsShell.account.authenticatorCode": "ऑथेंटिकेटर कोड",
   "settingsShell.account.change": "बदलें",

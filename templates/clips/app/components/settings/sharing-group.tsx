@@ -78,7 +78,7 @@ function LogoControl({
       {organization.brandLogoUrl ? (
         <Button
           type="button"
-          variant="secondary-destructive"
+          variant="outline-destructive"
           size="sm"
           disabled={uploading}
           onClick={() => {
@@ -91,7 +91,7 @@ function LogoControl({
       ) : null}
       <Button
         type="button"
-        variant="secondary"
+        variant="outline"
         size="sm"
         disabled={uploading}
         onClick={() => inputRef.current?.click()}
@@ -148,7 +148,7 @@ function BrandColorControl({
       }}
     >
       <PopoverTrigger asChild>
-        <Button type="button" variant="secondary" size="sm">
+        <Button type="button" variant="outline" size="sm">
           {t("clipsSettings.change")}
         </Button>
       </PopoverTrigger>

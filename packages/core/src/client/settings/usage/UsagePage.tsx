@@ -499,7 +499,7 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
         control={
           <Button
             type="button"
-            variant="secondary"
+            variant="outline"
             size="sm"
             onClick={() => void query.refetch()}
             disabled={query.isFetching}
@@ -562,7 +562,7 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
               control={
                 <Button
                   type="button"
-                  variant="secondary"
+                  variant="outline"
                   size="sm"
                   onClick={() => void creditQuery.refetch()}
                   disabled={creditQuery.isFetching}

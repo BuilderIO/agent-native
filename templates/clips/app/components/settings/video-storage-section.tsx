@@ -81,7 +81,7 @@ export function VideoStorageSection({
                 >
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant="outline"
                     size="sm"
                     disabled={builder.connecting || builder.loading}
                   >
@@ -91,7 +91,7 @@ export function VideoStorageSection({
                 </BuilderConnectPopover>
               )}
               <CollapsibleTrigger asChild>
-                <Button type="button" variant="secondary" size="sm">
+                <Button type="button" variant="outline" size="sm">
                   {expanded
                     ? t("settings.hideS3")
                     : s3Configured

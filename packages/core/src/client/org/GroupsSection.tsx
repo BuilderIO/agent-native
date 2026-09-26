@@ -350,7 +350,7 @@ export function WorkspaceGroupsCard({
         {groups.length > 0 ? (
           <ToolkitButton
             type="button"
-            variant="secondary"
+            variant="outline"
             size="xs"
             onClick={onNewGroup}
           >

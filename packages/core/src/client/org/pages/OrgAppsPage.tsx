@@ -61,7 +61,7 @@ function AppAccessRows({ browseHref }: { browseHref: string | null }) {
         </p>
         <Button
           type="button"
-          variant="secondary"
+          variant="outline"
           size="sm"
           disabled={query.isFetching}
           onClick={() => void query.refetch()}

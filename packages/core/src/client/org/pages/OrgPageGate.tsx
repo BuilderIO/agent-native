@@ -65,7 +65,7 @@ export function OrgPageGate({
         </p>
         <Button
           type="button"
-          variant="secondary"
+          variant="outline"
           size="sm"
           disabled={isFetching}
           onClick={() => void refetch()}

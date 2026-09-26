@@ -199,7 +199,7 @@ export function WorkspaceUrlSettingsSection({
             ) : (
               <ToolkitButton
                 type="button"
-                variant="secondary"
+                variant="outline"
                 size="sm"
                 onClick={() => {
                   setDraft("");
@@ -234,7 +234,7 @@ export function WorkspaceUrlSettingsSection({
             />
             <ToolkitButton
               type="button"
-              variant="secondary"
+              variant="outline"
               size="sm"
               onClick={() => {
                 setEditing(false);

@@ -357,7 +357,7 @@ export function AgentJobsTab({
       label={t("jobs.newAutomation", {
         defaultValue: "New automation",
       })}
-      variant={settingsVariant ? "secondary" : "outline"}
+      variant="outline"
       size={settingsVariant ? "xs" : "sm"}
     />
   );
@@ -595,7 +595,7 @@ export function AgentJobsTab({
               control={
                 <Button
                   type="button"
-                  variant="secondary"
+                  variant="outline"
                   size="sm"
                   onClick={retry}
                 >
@@ -675,7 +675,7 @@ export function AgentJobsTab({
                   title={t("jobs.automationsCreateTitle", {
                     defaultValue: "Create an automation",
                   })}
-                  variant="secondary"
+                  variant="outline"
                 />
               </EmptyContent>
             </Empty>

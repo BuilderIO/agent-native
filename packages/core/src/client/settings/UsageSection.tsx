@@ -609,7 +609,7 @@ export function BuilderCreditUsagePanel({
           </div>
         </div>
         {canAddCredits ? (
-          <Button asChild variant="secondary" size="sm">
+          <Button asChild variant="outline" size="sm">
             <a href={builderAddCreditsUrl} target="_blank" rel="noreferrer">
               {t("agentChat.errorMessages.addCreditsInBuilder", {
                 defaultValue: "Add credits in Builder",

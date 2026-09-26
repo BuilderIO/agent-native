@@ -130,7 +130,7 @@ export function AppDefaultModelRow({ appName }: { appName: string }) {
           control={
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
               size="sm"
               onClick={() => void query.refetch()}
             >

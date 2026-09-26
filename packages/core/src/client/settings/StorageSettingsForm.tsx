@@ -174,7 +174,7 @@ export function StorageSettingsForm(props: StorageSettingsFormProps) {
         </span>
         <Button
           type="button"
-          variant="secondary"
+          variant="outline"
           size="sm"
           onClick={() => void statusQuery.refetch()}
         >
@@ -493,7 +493,7 @@ function LoadedStorageSettingsForm({
         {hasSavedValues ? (
           <Button
             type="button"
-            variant="secondary-destructive"
+            variant="outline-destructive"
             className="sm:me-auto"
             disabled={pending !== null}
             onClick={() => {

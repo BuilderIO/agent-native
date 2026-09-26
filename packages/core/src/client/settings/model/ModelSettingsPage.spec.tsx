@@ -231,13 +231,13 @@ function buttons(element: HTMLElement): string[] {
   );
 }
 
-/** Each button's label and whether it is the primary or a secondary one. */
+/** Each button's label and whether it is the primary or an outline one. */
 function prominence(element: HTMLElement): string[] {
   return [...element.querySelectorAll("button")].map((button) => {
     const kind = button.classList.contains("bg-primary")
       ? "primary"
-      : button.classList.contains("bg-secondary")
-        ? "secondary"
+      : button.classList.contains("border")
+        ? "outline"
         : "other";
     return `${button.textContent?.trim() ?? ""}:${kind}`;
   });
@@ -569,7 +569,7 @@ describe("ModelSettingsPage", () => {
     );
     expect(prominence(empty)).toEqual([
       "Connect Builder.io:primary",
-      "Add provider:secondary",
+      "Add provider:outline",
     ]);
     // The empty state holds the page's one primary, so the header is empty.
     expect(state.header?.action).toBeUndefined();
@@ -663,7 +663,7 @@ describe("ModelSettingsPage", () => {
     );
     const builderRow = row("provider-org-builder");
     expect(builderRow.textContent).toContain("Recommended");
-    expect(prominence(builderRow)).toEqual(["Connect:secondary"]);
+    expect(prominence(builderRow)).toEqual(["Connect:outline"]);
   });
 
   it("doesn't recommend a member's own Builder.io over the organization's connection", async () => {

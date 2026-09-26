@@ -2198,7 +2198,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               />
               <Button
                 type="button"
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 data-player-ui
                 aria-label={t("videoPlayer.playClip")}

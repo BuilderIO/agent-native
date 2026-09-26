@@ -427,7 +427,7 @@ describe("InfrastructureSettingsPage", () => {
       expect(row(id).textContent).toContain("Available with Builder.io · ");
       expect(row(id).textContent).not.toContain("Not available");
       const connect = button(row(id), "Connect Builder.io");
-      expect(connect.classList.contains("bg-secondary")).toBe(true);
+      expect(connect.classList.contains("border")).toBe(true);
     }
     act(() => button(row("browser-automation"), "Connect Builder.io").click());
     expect(state.builder.start).toHaveBeenCalledWith({
