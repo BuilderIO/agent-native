@@ -16,6 +16,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
+import { needsZoomCancellationReview } from "../server/lib/zoom.js";
 import {
   getCalendarAttendeeCount,
   getCalendarAttendeeStatusCounts,
@@ -474,6 +475,7 @@ async function listLocalBookingEvents(
       slug: schema.bookingLinks.slug,
       title: schema.bookingLinks.title,
       color: schema.bookingLinks.color,
+      conferencing: schema.bookingLinks.conferencing,
     })
     .from(schema.bookingLinks)
     .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
@@ -498,6 +500,8 @@ async function listLocalBookingEvents(
       meetingLink: schema.bookings.meetingLink,
       googleEventId: schema.bookings.googleEventId,
       zoomNeedsReview: schema.bookings.zoomNeedsReview,
+      zoomMeetingId: schema.bookings.zoomMeetingId,
+      zoomAccountId: schema.bookings.zoomAccountId,
       status: schema.bookings.status,
       createdAt: schema.bookings.createdAt,
     })
@@ -512,7 +516,13 @@ async function listLocalBookingEvents(
     );
 
   return rows
-    .filter((booking) => !booking.zoomNeedsReview)
+    .filter((booking) => {
+      const link = linkBySlug.get(booking.slug);
+      return !needsZoomCancellationReview({
+        ...booking,
+        conferencing: link?.conferencing,
+      });
+    })
     .map((booking) => {
       const link = linkBySlug.get(booking.slug);
       const description = [
