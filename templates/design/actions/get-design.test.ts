@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => {
     where: vi.fn(),
     orderBy: vi.fn(),
   };
+  const select = vi.fn(() => selectChain);
   selectChain.from.mockReturnValue(selectChain);
   selectChain.where.mockReturnValue(selectChain);
 
@@ -13,10 +14,9 @@ const mocks = vi.hoisted(() => {
     asc: vi.fn((column) => ({ asc: column })),
     and: vi.fn((...conditions) => ({ conditions })),
     eq: vi.fn((left, right) => ({ left, right })),
-    getDb: vi.fn(() => ({
-      select: vi.fn(() => selectChain),
-    })),
+    getDb: vi.fn(() => ({ select })),
     resolveAccess: vi.fn(),
+    select,
     selectChain,
     track: vi.fn(),
     getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
@@ -66,6 +66,7 @@ import action from "./get-design.js";
 describe("get-design", () => {
   beforeEach(() => {
     mocks.resolveAccess.mockReset();
+    mocks.select.mockClear();
     mocks.selectChain.orderBy.mockReset();
     mocks.asc.mockClear();
     mocks.resolveAccess.mockResolvedValue({
@@ -181,7 +182,13 @@ describe("get-design", () => {
       includeFileContent: false,
     });
 
-    expect(mocks.selectChain.orderBy).toHaveBeenCalled();
+    expect(mocks.select).toHaveBeenCalledWith({
+      id: "designFiles.id",
+      filename: "designFiles.filename",
+      fileType: "designFiles.fileType",
+      createdAt: "designFiles.createdAt",
+      updatedAt: "designFiles.updatedAt",
+    });
     expect(result.files).toEqual([
       expect.objectContaining({
         id: "file_123",

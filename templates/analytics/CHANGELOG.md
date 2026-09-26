@@ -3,6 +3,18 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-25
+
+### Added
+
+- Org admins can review agent runs from Settings
+
+### Improved
+
+- First-run onboarding records setup choices and Builder connection outcomes
+- Human review previews Analytics dashboards as real charts
+- Relevant metric definitions and saved dashboard examples are available with the first response so Analytics queries can reuse proven definitions and query shapes.
+
 ## 2026-09-24
 
 ### Improved

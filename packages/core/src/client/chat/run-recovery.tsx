@@ -3,6 +3,7 @@
 // PlanModeCallout, and getLoopLimitMetadata / getRunErrorMetadata exports used
 // by AssistantChatInner.
 
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   IconLoader2,
   IconCheck,
@@ -18,11 +19,14 @@ import {
   IconRefresh,
   IconPlus,
   IconClipboardList,
+  IconArrowUpRight,
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router";
 
+import { isCreditsLimitErrorCode } from "../../agent/engine/error-detail.js";
 import { buildSettingsRoute } from "../../navigation/index.js";
+import { withBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
 import {
@@ -34,6 +38,10 @@ import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-conn
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 
+const builderSubscriptionUrl = withBuilderUtmTrackingParams(
+  "https://builder.io/account/subscription?signupSource=agent-native",
+  { content: "chat_credit_limit" },
+);
 // ─── Type definitions ─────────────────────────────────────────────────────────
 
 export type LoopLimitInfo = { maxIterations?: number };
@@ -546,6 +554,7 @@ export function RunErrorRecoveryCard({
     trackingSource: "assistant_chat_reconnect_error",
   });
   const canRecover = info.recoverable === true;
+  const isBuilderCreditsLimit = isCreditsLimitErrorCode(info.errorCode);
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
   const isProviderAuthError = isProviderAuthenticationError(
     [info.message, info.details].filter(Boolean).join("\n"),
@@ -678,6 +687,36 @@ export function RunErrorRecoveryCard({
           >
             <IconRefresh size={13} />
             {t("agentChat.common.retry")}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isBuilderCreditsLimit) {
+    return (
+      <div className="min-w-0 rounded-lg border border-border bg-card p-3 text-sm">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <p className="min-w-0 flex-1 font-medium text-foreground">
+            {t("agentChat.errorMessages.creditsLimitReached", {
+              defaultValue: "You've reached your AI credits limit.",
+            })}
+          </p>
+          <Button asChild size="sm">
+            <a href={builderSubscriptionUrl} target="_blank" rel="noreferrer">
+              {t("agentChat.errorMessages.addCreditsInBuilder", {
+                defaultValue: "Add credits in Builder",
+              })}
+              <IconArrowUpRight />
+            </a>
+          </Button>
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label={t("agentChat.common.dismiss")}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <IconX size={14} />
           </button>
         </div>
       </div>

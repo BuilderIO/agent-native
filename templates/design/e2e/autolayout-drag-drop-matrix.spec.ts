@@ -1036,6 +1036,11 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     page,
     request,
   }) => {
+    // Three full editor round-trips (create, drag, reload) per cell — 66s
+    // measured locally on an idle host, with no assertion failure; CI's
+    // slower runner pushed the same work past the default 90s budget. Give
+    // this and its three siblings below the same generous margin.
+    test.setTimeout(150_000);
     const cells = [
       {
         name: "H-1 first",
@@ -1239,6 +1244,10 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     page,
     request,
   }) => {
+    // Three full editor round-trips per cell (46s measured locally) — see
+    // the timeout note on "horizontal nowrap ... expose a held marker and
+    // persist" above.
+    test.setTimeout(150_000);
     const cells = [
       { source: "free-text", name: "Free text", tag: "P" },
       { source: "free-shape", name: "Free shape", tag: "DIV" },
@@ -1321,6 +1330,10 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     page,
     request,
   }) => {
+    // Three full editor round-trips per cell (47.5s measured locally) — see
+    // the timeout note on "horizontal nowrap ... expose a held marker and
+    // persist" above.
+    test.setTimeout(150_000);
     const cells = [
       {
         source: "fixed-source",
@@ -1882,6 +1895,10 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     page,
     request,
   }) => {
+    // Five full editor round-trips (each with a 12-point held-oracle drag,
+    // 50s measured locally) — see the timeout note on "horizontal nowrap
+    // ... expose a held marker and persist" above.
+    test.setTimeout(150_000);
     const cells: Array<{
       fixture: RootFixture;
       source: string;

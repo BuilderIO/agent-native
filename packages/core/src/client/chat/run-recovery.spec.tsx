@@ -192,6 +192,68 @@ describe("run recovery surfaces", () => {
     window.history.replaceState(null, "", "/");
   });
 
+  it("offers the Builder subscription link for credit limits only", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "You've reached your AI credits limit.",
+              errorCode: "credits-limit-daily",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const upgradeLink = container.querySelector<HTMLAnchorElement>(
+      'a[href^="https://builder.io/account/subscription"]',
+    );
+    expect(container.textContent).toContain(
+      "You've reached your AI credits limit.",
+    );
+    expect(container.textContent).not.toMatch(/error/i);
+    expect(container.firstElementChild?.className).toContain("bg-card");
+    expect(container.firstElementChild?.className).not.toContain("amber");
+    expect(upgradeLink?.textContent).toContain("Add credits in Builder");
+    expect(upgradeLink?.target).toBe("_blank");
+    expect(new URL(upgradeLink!.href).searchParams.get("utm_content")).toBe(
+      "chat_credit_limit",
+    );
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The provider is busy.",
+              errorCode: "provider_rate_limited",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+    expect(
+      container.querySelector(
+        'a[href^="https://builder.io/account/subscription"]',
+      ),
+    ).toBeNull();
+  });
+
   it("loads Builder connect UI only when a setup surface is reached", async () => {
     expect(deferredUiModuleLoads.builderConnectPopover).toBe(false);
 

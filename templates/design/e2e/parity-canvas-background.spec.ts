@@ -365,25 +365,37 @@ test("dark: canvas background stays correct after grouping two shapes", async ({
     const { x, y } = await sampleXY(page);
     await drawFirstRectangle(page);
 
-    // Second rectangle, elsewhere on the board.
+    // Second rectangle, elsewhere on the board. Drawn BELOW the first rather
+    // than to its right: at this viewport width the right inspector panel
+    // (`[data-design-chrome-region="right-panel"]`) opens once the first
+    // rectangle is selected and covers screen-x from ~1020 to the page edge,
+    // so a draw starting at x=1050 lands entirely inside the panel chrome
+    // and never reaches the canvas — the drag is silently swallowed and no
+    // second layer is created. Staying in the already-confirmed-clear
+    // x=800-1000 column sidesteps that without depending on panel geometry.
     await page.locator('button[aria-label="Rectangle"]').first().click();
-    await page.mouse.move(1050, 380);
+    await page.mouse.move(800, 600);
     await page.mouse.down();
-    await page.mouse.move(1200, 500, { steps: 12 });
+    await page.mouse.move(1000, 740, { steps: 12 });
     await page.mouse.up();
     await expect(page.locator('[role="treeitem"]')).toHaveCount(2, {
       timeout: 10_000,
     });
 
-    // Select both via marquee, then group.
+    // Select both via marquee, then group. Vertical span matching the two
+    // rectangles' new stacked layout above.
     await page.mouse.move(760, 340);
     await page.mouse.down();
-    await page.mouse.move(1260, 560, { steps: 15 });
+    await page.mouse.move(1050, 780, { steps: 15 });
     await page.mouse.up();
     await page.keyboard.press("ControlOrMeta+g");
-    await expect(page.locator('[role="treeitem"]')).toContainText("Group", {
-      timeout: 10_000,
-    });
+    // Grouping leaves the two original rows nested under the new Group row;
+    // depending on default expand state the tree can hold 1 (collapsed) or
+    // 3 (expanded) treeitems — scope to the topmost (the group) either way.
+    await expect(page.locator('[role="treeitem"]').first()).toContainText(
+      "Group",
+      { timeout: 10_000 },
+    );
 
     const after = await pixelAt(page, x, y);
     expect(after).toBe("26,26,26");
