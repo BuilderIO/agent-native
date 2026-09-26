@@ -826,6 +826,37 @@ describe("browser analytics pageviews", () => {
     expect(gtagEvent?.[2]).not.toHaveProperty("auth_user_id");
   });
 
+  it("preserves the validated canonical id when the session hook publishes identity", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking, setSentryUser, trackEvent } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      authSessionRefresh: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+    });
+    setSentryUser({
+      id: "provider-subject-1",
+      email: "person@example.test",
+      authUserId: "canonical-user-1",
+    });
+    trackEvent("recording_started");
+    await tick();
+
+    const event = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((entry) => entry.event === "recording_started");
+    expect(event?.properties).toMatchObject({
+      user_id: "person@example.test",
+      auth_user_id: "canonical-user-1",
+    });
+  });
+
   it("sends explicitly anonymous events without resolved user identity", async () => {
     installBrowser("https://app.agent-native.com/plans");
     const { analyticsCalls } = installFetch();

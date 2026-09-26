@@ -200,6 +200,7 @@ export type TrackingIdentityUser = {
   id?: string;
   email?: string;
   username?: string;
+  authUserId?: string;
 };
 
 type TrackingIdentity = {
@@ -1180,13 +1181,20 @@ export function setSentryUser(
   const previousIdentity = _trackingIdentity;
   const suppressTracking = isQaTrackingUser(user);
   let shouldRetryReplay = false;
+  let sentryUser: TrackingIdentityUser | null = null;
   if (user) {
+    sentryUser = {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+    };
     const userId = user.email || user.id;
     if (userId) {
       const authUserId =
-        user.email && user.email === _trackingIdentity?.userEmail
+        readTrackingString(user.authUserId) ??
+        (user.email && user.email === _trackingIdentity?.userEmail
           ? _trackingIdentity.authUserId
-          : undefined;
+          : undefined);
       _trackingIdentity = {
         userId,
         ...(authUserId ? { authUserId } : {}),
@@ -1214,13 +1222,13 @@ export function setSentryUser(
     void startConfiguredSessionReplay(_sessionReplayOptions);
   }
   if (_sentryInitialized && _sentryModule) {
-    _sentryModule.setUser(suppressTracking ? null : user);
+    _sentryModule.setUser(suppressTracking ? null : sentryUser);
     if (orgId !== undefined) {
       _sentryModule.setTag("orgId", orgId ?? null);
     }
     return;
   }
-  _pendingSentryUser = suppressTracking ? null : user;
+  _pendingSentryUser = suppressTracking ? null : sentryUser;
   if (orgId !== undefined) {
     _pendingSentryOrgId = orgId ?? null;
   }
