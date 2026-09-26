@@ -5,11 +5,15 @@ import {
   getRequestUserEmail,
   isJevEnabled,
 } from "@agent-native/core/server";
+import {
+  MAIL_SETTINGS_SECTIONS,
+  mailSettingsRoute,
+} from "@shared/settings-navigation.js";
 import { z } from "zod";
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view, inbox sort, or email thread. Priority sort requires Jev access. Writes a navigate command to application state which the UI reads and auto-deletes.",
+    "Navigate the UI to a specific view, inbox sort, or email thread. Priority sort requires Jev access. Writes a navigate command to application state which the UI reads and auto-deletes; settings opens its URL in the current tab.",
   schema: z.object({
     view: z
       .string()
@@ -46,10 +50,10 @@ export default defineAction({
       .describe("Inbox sort order to use"),
     threadId: z.string().optional().describe("Thread ID to open"),
     settingsSection: z
-      .string()
+      .enum(MAIL_SETTINGS_SECTIONS)
       .optional()
       .describe(
-        "Settings section to open, such as drafting, automations, ai-filter, gmail-filters, aliases, tracking, slack, or team",
+        "Settings to open: general, a Mail › General tab (drafting, snippets, rules for inbox rules, ai-filter, gmail-filters, aliases, tracking), slack for Channels › Slack, or members",
       ),
     queuedDraftId: z
       .string()
@@ -90,6 +94,19 @@ export default defineAction({
         "At least --view, --tab, --sort, --threadId, --queuedDraftId, --composeDraftId, or --settingsSection is required.",
       );
     }
+    if (args.settingsSection || args.view === "settings") {
+      // Settings has its own routes, so this opens the URL directly instead
+      // of a command only the inbox listens for.
+      const pathname = mailSettingsRoute(args.settingsSection ?? "general");
+      await writeAppStateForCurrentTab("__set_url__", {
+        pathname,
+        hash: "",
+        searchParams: {},
+        mergeSearchParams: false,
+        _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      });
+      return `Opening ${pathname}`;
+    }
     const nav: Record<string, string> = {};
     if (args.view) nav.view = args.view;
     if (tab) {
@@ -103,10 +120,6 @@ export default defineAction({
       nav.view = args.view || "inbox";
       nav.sort = args.sort;
     }
-    if (args.settingsSection) {
-      nav.view = args.view || "settings";
-      nav.settingsSection = args.settingsSection;
-    }
     if (args.queuedDraftId) {
       nav.view = args.view || "draft-queue";
       nav.queuedDraftId = args.queuedDraftId;
@@ -116,6 +129,6 @@ export default defineAction({
       nav.composeDraftId = args.composeDraftId;
     }
     await writeAppStateForCurrentTab("navigate", nav);
-    return `Navigating to ${nav.view || ""}${tab ? ` tab:${tab}` : ""}${args.sort ? ` sort:${args.sort}` : ""}${args.threadId ? ` thread:${args.threadId}` : ""}${args.queuedDraftId ? ` queued draft:${args.queuedDraftId}` : ""}${args.composeDraftId ? ` compose draft:${args.composeDraftId}` : ""}${args.settingsSection ? ` settings:${args.settingsSection}` : ""}`;
+    return `Navigating to ${nav.view || ""}${tab ? ` tab:${tab}` : ""}${args.sort ? ` sort:${args.sort}` : ""}${args.threadId ? ` thread:${args.threadId}` : ""}${args.queuedDraftId ? ` queued draft:${args.queuedDraftId}` : ""}${args.composeDraftId ? ` compose draft:${args.composeDraftId}` : ""}`;
   },
 });

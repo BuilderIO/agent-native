@@ -715,8 +715,6 @@ const messages = {
     slackPostEndpoint: "Point de terminaison POST Slack",
     slackPostEndpointHelp:
       "À utiliser dans Slack Event Subscriptions. Un GET navigateur peut afficher Not Found.",
-    teamDescription:
-      "Configurez une équipe pour partager les automatisations et paramètres mail avec vos collègues.",
     title: "Parametres",
     general: "Général",
     generalDescription: "Langue et preferences de compte pour Mail.",
@@ -743,12 +741,19 @@ const messages = {
     deleteSnippetDescription:
       'Supprimer l\'extrait "{{name}}" ? Cette action est irreversible.',
     automations: "Automatisations",
+    rules: "Règles",
+    rulesModel: "Modèle des règles",
+    rulesModelDescription: "Compare les e-mails entrants à vos règles.",
+    slackDraftRequests: "Demandes de brouillons",
+    slackDraftQueue: "Mettre en file des brouillons depuis Slack",
+    slackDraftQueueDescription:
+      "Vos collègues mentionnent l'agent dans Slack pour demander un brouillon d'e-mail. Les brouillons attendent votre relecture dans la file de brouillons.",
+    openDraftQueue: "Ouvrir la file de brouillons",
     aiFilter: "Filtre IA",
     gmailFilters: "Filtres Gmail",
     aliases: "Alias",
     tracking: "Suivi",
     slack: "Slack",
-    team: "Equipe",
     deleteAlias: "Supprimer l’alias",
     editAlias: "Modifier l’alias",
   },

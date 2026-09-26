@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import type {
   AiFilterDecision,
   AiFilterPreviewCorrection,
@@ -326,7 +327,7 @@ function PreviewRow({
   );
 }
 
-export function AiFilterSection() {
+export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
   const t = useT();
   const { data: state, isLoading } = useAiFilter();
   const { data: rules = [] } = useAutomations();
@@ -531,6 +532,13 @@ export function AiFilterSection() {
     );
   }
 
+  const enabledSwitch = (
+    <Switch
+      checked={state.enabled}
+      onCheckedChange={(enabled) => updateSettings({ enabled })}
+      aria-label={t("mail.aiFilter.toggle")}
+    />
+  );
   const decisions = latestAiFilterDecisions(state).slice(0, 8);
   const hasImportantRule = instructions.some(
     (rule) => ruleMode(rule) === "important",
@@ -539,16 +547,23 @@ export function AiFilterSection() {
   return (
     <>
       <div className="max-w-4xl space-y-8 pb-10">
-        <div className="flex items-center justify-between border-b border-border/50 pb-4">
-          <h2 className="truncate text-[16px] font-semibold text-foreground">
-            {t("mail.aiFilter.title")}
-          </h2>
-          <Switch
-            checked={state.enabled}
-            onCheckedChange={(enabled) => updateSettings({ enabled })}
-            aria-label={t("mail.aiFilter.toggle")}
-          />
-        </div>
+        {embedded ? (
+          <SettingsGroup id="ai-filter-settings">
+            <SettingsRow
+              id="ai-filter-enabled"
+              label={t("mail.aiFilter.title")}
+              description={t("mail.aiFilter.subtitle")}
+              control={enabledSwitch}
+            />
+          </SettingsGroup>
+        ) : (
+          <div className="flex items-center justify-between border-b border-border/50 pb-4">
+            <h2 className="truncate text-[16px] font-semibold text-foreground">
+              {t("mail.aiFilter.title")}
+            </h2>
+            {enabledSwitch}
+          </div>
+        )}
 
         <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
           <section className="min-w-0">

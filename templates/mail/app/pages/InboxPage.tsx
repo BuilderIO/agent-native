@@ -8,6 +8,7 @@ import {
   mailLabelsIncludeAny,
 } from "@shared/gmail-labels";
 import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage } from "@shared/types";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
@@ -926,10 +927,7 @@ export function InboxPage() {
         : "/draft-queue";
       void navigate(target);
     } else if (targetView === "settings") {
-      const target = navCommand.settingsSection
-        ? `/settings?section=${encodeURIComponent(navCommand.settingsSection)}`
-        : "/settings";
-      void navigate(target);
+      void navigate(mailSettingsRoute(navCommand.settingsSection ?? "general"));
     } else if (navCommand.tab) {
       void navigate(inboxTabHref(navCommand.tab));
     } else if (targetFilter) {

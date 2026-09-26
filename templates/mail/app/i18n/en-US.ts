@@ -695,8 +695,6 @@ const messages = {
     slackPostEndpoint: "Slack POST endpoint",
     slackPostEndpointHelp:
       "Use in Slack Event Subscriptions. Browser GET may show Not Found.",
-    teamDescription:
-      "Set up a team to share email automations and settings with your colleagues.",
     title: "Settings",
     general: "General",
     generalDescription: "Language and account-level preferences for Mail.",
@@ -721,12 +719,19 @@ const messages = {
     deleteSnippetDescription:
       'Delete snippet "{{name}}"? This cannot be undone.',
     automations: "Automations",
+    rules: "Rules",
+    rulesModel: "Rules model",
+    rulesModelDescription: "Matches incoming mail against your rules.",
+    slackDraftRequests: "Draft requests",
+    slackDraftQueue: "Queue drafts from Slack",
+    slackDraftQueueDescription:
+      "Teammates mention the agent in Slack to request an email draft. Drafts wait in your draft queue for review.",
+    openDraftQueue: "Open draft queue",
     aiFilter: "AI filter",
-    gmailFilters: "Gmail Filters",
+    gmailFilters: "Gmail filters",
     aliases: "Aliases",
     tracking: "Tracking",
     slack: "Slack",
-    team: "Team",
     deleteAlias: "Delete Alias",
     editAlias: "Edit Alias",
   },

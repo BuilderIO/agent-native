@@ -5,6 +5,7 @@ import {
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -17,9 +18,11 @@ import {
   EnvironmentBadge,
   FeedbackButton,
 } from "@agent-native/core/client/ui";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels";
 import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { Label, SavedMailFilter } from "@shared/types";
 import {
   IconArrowUpRight,
@@ -184,6 +187,10 @@ function AccountAvatar({
   return <div className={fallbackClassName}>{email[0]?.toUpperCase()}</div>;
 }
 
+function isSettingsPath(pathname: string): boolean {
+  return pathname === "/settings" || pathname.startsWith("/settings/");
+}
+
 /**
  * Routes that render the slim "standard layout" chrome instead of the full
  * inbox chrome (tabs, search bar, account stack, compose pen, draft queue
@@ -193,8 +200,7 @@ function AccountAvatar({
  */
 function isStandardLayoutPath(pathname: string): boolean {
   return (
-    pathname === "/settings" ||
-    pathname.startsWith("/settings/") ||
+    isSettingsPath(pathname) ||
     pathname === "/agent" ||
     pathname === "/team" ||
     pathname === "/draft-queue" ||
@@ -315,11 +321,22 @@ export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
 
   const t = useT();
+  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
   }
 
-  const content = isStandardLayoutPath(location.pathname) ? (
+  // The redesigned Settings shell brings its own navigation, header, and
+  // agent toggle. While the flag loads, Settings shows the shell's skeleton,
+  // so the app chrome stays out then too instead of appearing and vanishing.
+  const settingsOwnsChrome =
+    isSettingsPath(location.pathname) &&
+    (settingsRedesign.enabled || settingsRedesign.status === "loading");
+  const content = settingsOwnsChrome ? (
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+      {children}
+    </div>
+  ) : isStandardLayoutPath(location.pathname) ? (
     <StandardLayout>{children}</StandardLayout>
   ) : (
     <AppLayoutInner>{children}</AppLayoutInner>
@@ -1486,7 +1503,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   className="w-60 max-w-[calc(100vw-2rem)] p-0"
                 >
                   <Link
-                    to="/settings?section=ai-filter"
+                    to={mailSettingsRoute("ai-filter")}
                     onClick={() => setTabSettingsOpen(false)}
                     className="flex items-center gap-2 border-b border-border/30 px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-accent/50"
                   >

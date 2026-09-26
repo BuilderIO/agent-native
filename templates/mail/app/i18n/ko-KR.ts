@@ -699,7 +699,6 @@ const messages = {
     slackPostEndpoint: "Slack POST 엔드포인트",
     slackPostEndpointHelp:
       "Slack Event Subscriptions에서 사용하세요. 브라우저 GET은 Not Found를 표시할 수 있습니다.",
-    teamDescription: "동료와 이메일 자동화 및 설정을 공유할 팀을 설정하세요.",
     title: "설정",
     general: "일반",
     generalDescription: "Mail의 언어 및 계정 수준 기본 설정입니다.",
@@ -725,12 +724,19 @@ const messages = {
     deleteSnippetDescription:
       '스니펫 "{{name}}"을(를) 삭제하시겠습니까? 되돌릴 수 없습니다.',
     automations: "자동화",
+    rules: "규칙",
+    rulesModel: "규칙 모델",
+    rulesModelDescription: "받은 메일을 규칙과 비교합니다.",
+    slackDraftRequests: "초안 요청",
+    slackDraftQueue: "Slack에서 초안 대기열에 추가",
+    slackDraftQueueDescription:
+      "팀원이 Slack에서 에이전트를 멘션해 이메일 초안을 요청합니다. 초안은 검토를 위해 초안 대기열에서 기다립니다.",
+    openDraftQueue: "초안 대기열 열기",
     aiFilter: "AI 필터",
     gmailFilters: "Gmail 필터",
     aliases: "별칭",
     tracking: "추적",
     slack: "Slack",
-    team: "팀",
     deleteAlias: "별칭 삭제",
     editAlias: "별칭 편집",
   },

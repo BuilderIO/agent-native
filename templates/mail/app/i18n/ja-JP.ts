@@ -699,8 +699,6 @@ const messages = {
     slackPostEndpoint: "Slack POST エンドポイント",
     slackPostEndpointHelp:
       "Slack Event Subscriptions で使用します。ブラウザ GET では Not Found が表示される場合があります。",
-    teamDescription:
-      "同僚とメール自動化や設定を共有するためのチームを設定します。",
     title: "設定",
     general: "一般",
     generalDescription: "Mail の言語とアカウント全体の設定です。",
@@ -726,12 +724,19 @@ const messages = {
     deleteSnippetDescription:
       "スニペット「{{name}}」を削除しますか？元に戻せません。",
     automations: "自動化",
+    rules: "ルール",
+    rulesModel: "ルールのモデル",
+    rulesModelDescription: "受信メールをルールと照合します。",
+    slackDraftRequests: "下書きリクエスト",
+    slackDraftQueue: "Slack から下書きをキューに追加",
+    slackDraftQueueDescription:
+      "チームメンバーが Slack でエージェントにメンションすると、メールの下書きをリクエストできます。下書きは確認のため下書きキューで待機します。",
+    openDraftQueue: "下書きキューを開く",
     aiFilter: "AI フィルター",
     gmailFilters: "Gmail フィルター",
     aliases: "エイリアス",
     tracking: "トラッキング",
     slack: "Slack",
-    team: "チーム",
     deleteAlias: "エイリアスを削除",
     editAlias: "エイリアスを編集",
   },

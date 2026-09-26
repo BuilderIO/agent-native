@@ -537,7 +537,11 @@ function FilterRow({
   );
 }
 
-export function GmailFiltersSection() {
+export function GmailFiltersSection({
+  embedded = false,
+}: {
+  embedded?: boolean;
+}) {
   const t = useT();
   const { data, isLoading, error } = useGmailFilters();
   const createFilter = useCreateGmailFilter();
@@ -553,31 +557,39 @@ export function GmailFiltersSection() {
     [data?.accounts],
   );
 
+  const newFilterButton = (
+    <Button
+      size="sm"
+      disabled={accounts.length === 0}
+      onClick={() => {
+        setShowNewForm(true);
+        setEditingId(null);
+      }}
+    >
+      <IconPlus className="h-3.5 w-3.5" />
+      {t("mail.gmailFilters.newFilter")}
+    </Button>
+  );
+
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h2 className="text-[16px] font-semibold text-foreground">
-            {t("mail.gmailFilters.title")}
-          </h2>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
-            {t("mail.gmailFilters.description")}
-          </p>
+      {embedded ? (
+        <div className="mb-4 flex justify-end">{newFilterButton}</div>
+      ) : (
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h2 className="text-[16px] font-semibold text-foreground">
+              {t("mail.gmailFilters.title")}
+            </h2>
+            <p className="mt-0.5 text-[13px] text-muted-foreground">
+              {t("mail.gmailFilters.description")}
+            </p>
+          </div>
+          {newFilterButton}
         </div>
-        <Button
-          size="sm"
-          disabled={accounts.length === 0}
-          onClick={() => {
-            setShowNewForm(true);
-            setEditingId(null);
-          }}
-        >
-          <IconPlus className="h-3.5 w-3.5" />
-          {t("mail.gmailFilters.newFilter")}
-        </Button>
-      </div>
+      )}
 
-      <div className="max-w-2xl space-y-2">
+      <div className={embedded ? "space-y-2" : "max-w-2xl space-y-2"}>
         {showNewForm && (
           <FilterEditRow
             accounts={accounts}
