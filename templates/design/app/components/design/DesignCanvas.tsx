@@ -7706,7 +7706,11 @@ export function DesignCanvas({
       if (focusedElement instanceof HTMLIFrameElement) {
         try {
           const frameDocument = focusedElement.contentDocument;
-          if (frameDocument?.activeElement?.closest(EDITABLE_FOCUS_SELECTOR)) {
+          if (!frameDocument) {
+            if (!fromIframeLoad) return;
+          } else if (
+            frameDocument.activeElement?.closest(EDITABLE_FOCUS_SELECTOR)
+          ) {
             return;
           }
         } catch (error) {

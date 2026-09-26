@@ -16,69 +16,73 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("DesignCanvas live embedded-frame offset", () => {
-  it("does not steal cross-origin frame focus on canvas pointer entry", async () => {
-    const container = document.createElement("div");
-    const focusedFrame = document.createElement("iframe");
-    document.body.append(container, focusedFrame);
-    const root = createRoot(container);
+  it.each(["null", "security-error"] as const)(
+    "does not steal cross-origin frame focus on canvas pointer entry when contentDocument is %s",
+    async (contentDocumentResult) => {
+      const container = document.createElement("div");
+      const focusedFrame = document.createElement("iframe");
+      document.body.append(container, focusedFrame);
+      const root = createRoot(container);
 
-    Object.defineProperty(focusedFrame, "contentDocument", {
-      configurable: true,
-      get: () => {
-        throw new DOMException(
-          "Blocked a frame with a different origin",
-          "SecurityError",
+      Object.defineProperty(focusedFrame, "contentDocument", {
+        configurable: true,
+        get: () => {
+          if (contentDocumentResult === "null") return null;
+          throw new DOMException(
+            "Blocked a frame with a different origin",
+            "SecurityError",
+          );
+        },
+      });
+      try {
+        await act(async () =>
+          root.render(
+            <DesignCanvas
+              content="<!doctype html><html><body></body></html>"
+              contentKey="cross-origin-frame-initial-focus"
+              screenId="board-file"
+              zoom={100}
+              deviceFrame="none"
+              interactMode={false}
+              editMode
+              boardSurface
+              registerRuntimeBridge={false}
+              embeddedFrame={{
+                viewportWidth: 800,
+                viewportHeight: 600,
+                displayWidth: 800,
+                displayHeight: 600,
+                fluid: true,
+              }}
+              onElementSelect={() => {}}
+              onElementHover={() => {}}
+              tweakValues={{}}
+            />,
+          ),
         );
-      },
-    });
-    try {
-      await act(async () =>
-        root.render(
-          <DesignCanvas
-            content="<!doctype html><html><body></body></html>"
-            contentKey="cross-origin-frame-initial-focus"
-            screenId="board-file"
-            zoom={100}
-            deviceFrame="none"
-            interactMode={false}
-            editMode
-            boardSurface
-            registerRuntimeBridge={false}
-            embeddedFrame={{
-              viewportWidth: 800,
-              viewportHeight: 600,
-              displayWidth: 800,
-              displayHeight: 600,
-              fluid: true,
-            }}
-            onElementSelect={() => {}}
-            onElementHover={() => {}}
-            tweakValues={{}}
-          />,
-        ),
-      );
 
-      const scrollSurface =
-        container.querySelector<HTMLElement>('[tabindex="-1"]');
-      expect(scrollSurface).not.toBeNull();
-      focusedFrame.focus();
-      expect(document.activeElement).toBe(focusedFrame);
+        const scrollSurface =
+          container.querySelector<HTMLElement>('[tabindex="-1"]');
+        expect(scrollSurface).not.toBeNull();
+        focusedFrame.focus();
+        expect(document.activeElement).toBe(focusedFrame);
 
-      await act(async () =>
-        scrollSurface!.dispatchEvent(
-          new MouseEvent("mouseover", {
-            bubbles: true,
-            relatedTarget: document.body,
-          }),
-        ),
-      );
-      expect(document.activeElement).toBe(focusedFrame);
-    } finally {
-      await act(async () => root.unmount());
-      container.remove();
-      focusedFrame.remove();
-    }
-  });
+        await act(async () =>
+          scrollSurface!.dispatchEvent(
+            new MouseEvent("mouseover", {
+              bubbles: true,
+              relatedTarget: document.body,
+            }),
+          ),
+        );
+        expect(document.activeElement).toBe(focusedFrame);
+      } finally {
+        await act(async () => root.unmount());
+        container.remove();
+        focusedFrame.remove();
+      }
+    },
+  );
 
   it("restores canvas focus after a URL-backed live iframe loads", async () => {
     const container = document.createElement("div");
