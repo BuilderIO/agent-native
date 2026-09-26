@@ -73,43 +73,33 @@ export default defineAction({
     // batch share a `createdAt` to the millisecond and fall back to the id
     // tiebreak. Nothing may depend on the index matching the order a generator
     // wrote in — see the order-independence case in variant-lineup.test.ts.
-    const fileWhere = fileId
+    const baseFileFields = {
+      id: schema.designFiles.id,
+      filename: schema.designFiles.filename,
+      fileType: schema.designFiles.fileType,
+      createdAt: schema.designFiles.createdAt,
+      updatedAt: schema.designFiles.updatedAt,
+    };
+    const fileFilter = fileId
       ? and(
           eq(schema.designFiles.designId, id),
           eq(schema.designFiles.id, fileId),
         )
       : eq(schema.designFiles.designId, id);
-    // Two concrete selects instead of one ternary-built field map: a shared
-    // `fileFields` object mixes a `content` column into one branch's rows,
-    // which widens db.select()'s inferred argument type into a shape neither
-    // branch actually returns.
     const files =
       includeFileContent === false
         ? await db
-            .select({
-              id: schema.designFiles.id,
-              filename: schema.designFiles.filename,
-              fileType: schema.designFiles.fileType,
-              createdAt: schema.designFiles.createdAt,
-              updatedAt: schema.designFiles.updatedAt,
-            })
+            .select(baseFileFields)
             .from(schema.designFiles)
-            .where(fileWhere)
+            .where(fileFilter)
             .orderBy(
               asc(schema.designFiles.createdAt),
               asc(schema.designFiles.id),
             )
         : await db
-            .select({
-              id: schema.designFiles.id,
-              filename: schema.designFiles.filename,
-              fileType: schema.designFiles.fileType,
-              content: schema.designFiles.content,
-              createdAt: schema.designFiles.createdAt,
-              updatedAt: schema.designFiles.updatedAt,
-            })
+            .select({ ...baseFileFields, content: schema.designFiles.content })
             .from(schema.designFiles)
-            .where(fileWhere)
+            .where(fileFilter)
             .orderBy(
               asc(schema.designFiles.createdAt),
               asc(schema.designFiles.id),
@@ -150,12 +140,7 @@ export default defineAction({
         id: f.id,
         filename: f.filename,
         fileType: f.fileType,
-        // The `includeFileContent === false` branch above never selects
-        // `content`, so this cast only fires on rows the other branch
-        // fetched with it.
-        ...(includeFileContent === false
-          ? {}
-          : { content: (f as unknown as { content: string }).content }),
+        ...("content" in f ? { content: f.content } : {}),
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
       })),

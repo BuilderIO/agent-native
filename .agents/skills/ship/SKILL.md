@@ -1,10 +1,9 @@
 ---
 name: ship
 description: >-
-  Commit and push the complete current-branch snapshot, open a ready PR,
-  babysit it, and merge when clean unless the user asks to leave it open. Keep
-  the current branch unless the user explicitly requests the exact branch
-  operation. Use when the user asks to ship, publish, or hand off local changes.
+  Commit and push the current snapshot, creating a branch in a detached,
+  task-owned worktree when needed; open a ready PR and merge when clean. Use
+  when the user asks to ship, publish, or hand off local changes.
   Matching beta and docs paths publish automatically after merge; other
   production promotion is manual.
 user-invocable: true
@@ -35,21 +34,23 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   foreground through post-merge disposition. Carry the immutable value through
   verification; never replace it with a live PR head read after merge, because
   the source branch may advance or be deleted.
-- `/ship` ships and merges the current branch; the request alone does not
-  authorize creating or switching branches. After `origin/main` ancestry is
-  verified, retain the source branch unless the user explicitly requested that
-  exact branch operation in this task. If they did, use `/new-branch`'s safety
-  checks in the current user-owned checkout. Preserve platform-assigned
-  branches. If unpublished commits remain on any path, retain the source branch
-  and report them; do not strand commits excluded from `ship:push` on the old
-  branch without naming them.
+- `/ship` uses the current branch when attached. In a dedicated task-owned
+  worktree, create or switch to an available task branch when needed without
+  asking; base new branches on fresh `origin/main` as described below. A name
+  already used by another task belongs to that task, so choose another. Never
+  move or rewrite a branch used by another worktree or a platform-assigned
+  branch. After `origin/main` ancestry is verified, rotate to a fresh task
+  branch in the task-owned worktree without asking when `/ship` safety checks
+  pass. If unpublished commits or dirty publishable paths remain, retain the
+  source branch and report them. In a shared checkout, ask before changing
+  branches unless the user gave the exact operation.
 - In Codex, inspect the task goal with `get_goal` at the start. If none exists,
   create one with `create_goal` whose objective, under normal `/ship`
   authorization, says to continue until the PR is merged, `origin/main` ancestry
-  is verified, and branch disposition is complete: retain the source branch by
-  default; if the user explicitly requested the exact branch operation in this
-  task, rotate only in a user-owned checkout with no unpushed commits. Otherwise
-  retain the source branch and report unpushed hashes. Preserve
+  is verified, and the task-owned worktree is rotated to a fresh branch when
+  the safety checks pass. Retain the source branch and report any unpushed
+  commits or dirty publishable paths. In a shared checkout, keep the source
+  branch unless the user authorized the exact operation. Preserve
   platform-assigned branches while checking and fixing CI/review feedback and
   using the guarded squash-admin merge. If the user explicitly opts out of
   merging, make the goal match that endpoint. Reuse an existing goal only when
@@ -64,11 +65,12 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   a session command, not an agent tool, so the user must submit it as a separate
   message before invoking `/ship`; loading the skill cannot set it. Submit this
   condition in a standalone `/goal` message: `Run /ship through the guarded admin merge, verify
-  origin/main contains the merge commit, then finish branch disposition. Keep
-  the source branch unless I explicitly requested the exact branch operation
-  in this task. If I did, rotate only in a user-owned checkout and only when no
-  unpushed commits remain; otherwise retain the source branch and report their
-  hashes. Keep platform-assigned Builder.io and Fusion branches unchanged. Keep
+  origin/main contains the merge commit, then rotate this task-owned worktree
+  to a fresh branch when no unpushed commits or dirty publishable paths remain.
+  Do this without asking for confirmation. Keep the source branch and report
+  any remaining commits or paths. In a shared checkout, keep the source branch
+  unless I authorized the exact operation. Keep platform-assigned Builder.io
+  and Fusion branches unchanged. Keep
   checking and fixing CI and review feedback until then.` Do not replace an
   unrelated active goal; Claude Code permits one per session. If `/ship` was
   already invoked without one, keep shipping in the
@@ -91,8 +93,9 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   proof, and never say "leaving open until published." Keep it open only while
   accepted scope is still unfixed, the source fix is not merged, or reporter
   information is required.
-- Use the current worktree. For a detached checkout, follow the preflight
-  branch gate below; never create an unused branch or attach or move another
+- Use the current worktree. If it is detached, create a named task branch only
+  when publishing this work requires one, as described in the preflight gate
+  below. Do not create a branch just for tidiness or attach or move another
   worktree.
 - Never add Co-Authored-By, codex, [codex], or agent labels to commits, branch
   names, PR titles, or PR bodies.
@@ -108,9 +111,10 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
    minutes. In `ready-only` mode, stop at the verified ready-PR gate and leave
    the PR open.
 6. After a merge, verify it reached `origin/main`, then finish branch
-   disposition. Keep the source branch unless the user explicitly requested
-   the exact branch operation in this task; if so, follow `/new-branch`'s
-   safety checks. `ready-only` shipments do not rotate.
+   disposition. In a task-owned worktree, rotate to a fresh task branch without
+   asking if `/ship` safety checks pass; in a shared checkout, keep the source
+   branch unless the user authorized that exact operation. `ready-only`
+   shipments do not rotate.
 7. Report source checks, PR, merge or intentional open state, branch
    disposition, and deployment boundaries separately.
 
@@ -180,18 +184,19 @@ The behind count is information, not a reason to merge or rebase. Check
 GitHub's live mergeability before updating from origin/main.
 
 If `git branch --show-current` is empty, inspect `git worktree list
---porcelain` and existing `changes-*` refs. Do not create or switch to a
-shipping branch based only on `/ship`; preserve the detached checkout and get
-explicit authorization for that branch operation before publishing. After
-authorization, fetch `origin/main` and save `detached_head=$(git rev-parse
-HEAD)`. If `origin/main` is an ancestor of `detached_head`, create the named
-branch at that exact saved commit so it retains every detached commit and the
-freshly fetched `origin/main` remains its base. If `detached_head` is an
-ancestor of `origin/main`, create from `origin/main` only when the entire
-worktree is clean. If the histories diverge, or a stale detached checkout is
-dirty, leave it unchanged and report the commits and paths; never create from
-`origin/main` in a way that omits detached work. Use `/new-branch`'s naming
-rules, not its generic checkout/stash command or its post-merge rotation path.
+--porcelain` and existing `changes-*` refs. In a dedicated task-owned worktree,
+do not ask permission to create a shipping branch: fetch `origin/main`, save
+`detached_head=$(git rev-parse HEAD)`, and choose an unused name using
+`/new-branch`'s naming rules. If `origin/main` is an ancestor of
+`detached_head`, create the branch at that saved commit so no detached commits
+are lost. If `detached_head` is an ancestor of `origin/main`, create from the
+fresh `origin/main` and carry or reapply the task's dirty changes; never stash,
+discard, or overwrite them. If histories diverge, create from the saved
+`detached_head` and reconcile fresh `origin/main` on that task branch. A name
+already in use belongs to its existing task; pick another. In a shared
+checkout, ask before creating or switching branches unless the user gave the
+exact operation. Never move or rewrite a branch checked out in another
+worktree.
 
 Before publishing, classify every dirty path and unpushed commit. If any is
 unrelated or incomplete concurrent work, preserve it and stop the publishing
@@ -320,10 +325,12 @@ repo defect; classify it before changing code.
 ## 6. Branch disposition after merge
 
 After the merge, verify that `origin/main` contains the merge commit. In a
-platform-managed Builder.io or Fusion checkout, keep its assigned branch. Keep
-the source branch in every checkout unless the user explicitly requested the
-exact branch operation in this task. If they did, use `/new-branch`'s dedicated
-post-merge path in the current user-owned worktree. Only then mark the ship goal
+task-owned worktree, rotate to a fresh branch using `/new-branch`'s dedicated
+post-merge path without asking when there are no unpushed commits or dirty
+publishable paths. Keep the source branch and report any remaining work when
+those checks fail. In a shared checkout, keep the source branch unless the user
+authorized the exact operation. Platform-managed Builder.io and Fusion
+checkouts stay on their assigned branches. Only then mark the ship goal
 complete.
 
 ## Deployment boundary
