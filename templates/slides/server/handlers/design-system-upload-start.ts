@@ -1,5 +1,6 @@
 import { isActionContractError } from "@agent-native/core/action";
 import {
+  cdnSafeOriginStatus,
   FeatureNotConfiguredError,
   startBuilderDesignSystemUpload,
 } from "@agent-native/core/server";
@@ -97,7 +98,7 @@ export const designSystemUploadStart = defineEventHandler(async (event) => {
           err.builderConnectUrl ?? "/_agent-native/builder/connect",
       };
     }
-    setResponseStatus(event, 502);
+    setResponseStatus(event, cdnSafeOriginStatus(502));
     return {
       error: err instanceof Error ? err.message : "Failed to start upload.",
     };

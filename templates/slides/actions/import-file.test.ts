@@ -426,6 +426,57 @@ describe("import-file PDF source extraction", () => {
     expect(updatedDeck.sourceImport.slides[0].editableText).toBe(true);
   });
 
+  it("uses the uploaded filename when the extracted PDF title is corrupted", async () => {
+    mockPdfText.mockResolvedValue({
+      pages: [{ num: 1, text: "Ùæx :\nQuarterly data" }],
+    });
+    mockParsePdfFidelity.mockResolvedValue([
+      {
+        pageNumber: 1,
+        widthEmu: 9144000,
+        heightEmu: 5143500,
+        backgroundColor: "#ffffff",
+        elements: [{ kind: "text", content: "Ùæx :" }],
+      },
+    ]);
+    const updateWhere = vi.fn().mockResolvedValue({ rowsAffected: 1 });
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "Imported deck",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+                data: JSON.stringify({ slides: [] }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    };
+    mockGetDb.mockReturnValue(db);
+    mockReadUserUploadedFile.mockResolvedValue({
+      data: Buffer.from("%PDF-1.7\n"),
+      filename: "CPC_2425_A1_reference.pdf",
+    });
+
+    const result = (await action.run({
+      filePath: "source.pdf",
+      format: "pdf",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    })) as any;
+
+    expect(result.title).toBe("CPC_2425_A1_reference");
+    const updateCall = db.update.mock.results[0]?.value.set.mock.calls[0][0];
+    expect(JSON.parse(updateCall.data).title).toBe("CPC_2425_A1_reference");
+  });
+
   it("keeps every PDF page when text extraction omits a page", async () => {
     mockPdfText.mockResolvedValue({
       pages: [

@@ -1,13 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveSecret = vi.fn();
+const mockReadAppSecret = vi.fn();
+const mockGetRequestOrgId = vi.fn();
+const mockSsrfSafeFetch = vi.fn();
 
 vi.mock("@agent-native/core/server", () => ({
+  getRequestOrgId: (...args: any[]) => mockGetRequestOrgId(...args),
   resolveSecret: (...args: any[]) => mockResolveSecret(...args),
+}));
+vi.mock("@agent-native/core/secrets", () => ({
+  readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
+}));
+vi.mock("@agent-native/core/extensions/url-safety", () => ({
+  ssrfSafeFetch: (...args: any[]) => mockSsrfSafeFetch(...args),
 }));
 
 import {
+  clipsOrganizationLogoPrivateBlobProvider,
   deleteS3ObjectByUrl,
+  fetchS3OrganizationLogoByLegacyUrl,
   fetchS3ObjectByUrl,
   isS3ObjectUrlBoundToRecording,
   s3FileUploadProvider,
@@ -18,6 +30,11 @@ describe("s3FileUploadProvider", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadAppSecret.mockReset().mockResolvedValue(null);
+    mockGetRequestOrgId.mockReset().mockReturnValue("org-1");
+    mockSsrfSafeFetch.mockImplementation((url: string, init: RequestInit) =>
+      fetch(url, init),
+    );
     vi.unstubAllGlobals();
     process.env = { ...originalEnv };
     for (const key of [
@@ -53,6 +70,210 @@ describe("s3FileUploadProvider", () => {
     await expect(s3FileUploadProvider.isConfiguredForRequest?.()).resolves.toBe(
       true,
     );
+  });
+
+  it("reads a stable private logo handle from the currently configured bucket", async () => {
+    const requestValues: Record<string, string> = {
+      S3_BUCKET: "user-bucket",
+      S3_ACCESS_KEY_ID: "user-access",
+      S3_SECRET_ACCESS_KEY: "user-secret",
+      S3_ENDPOINT: "https://user-s3.example.com",
+      S3_REGION: "us-east-1",
+    };
+    const workspaceValues: Record<string, string> = {
+      S3_BUCKET: "old-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_REGION: "us-east-1",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return requestValues[key] ?? null;
+    });
+    mockReadAppSecret.mockImplementation(
+      async ({ key, scope, scopeId }: Record<string, string>) => {
+        if (scope !== "workspace" || scopeId !== "org-1") return null;
+        return workspaceValues[key] ? { value: workspaceValues[key] } : null;
+      },
+    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(new Response("logo-bytes", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const handle = await clipsOrganizationLogoPrivateBlobProvider.put({
+      data: new TextEncoder().encode("logo-bytes"),
+      mimeType: "image/png",
+      metadata: {
+        organizationId: "org-1",
+        purpose: "organization-brand-logo",
+      },
+    });
+    expect(handle).toMatchObject({
+      provider: "clips-s3-organization-logos",
+      opaque: true,
+      encrypted: false,
+      mimeType: "image/png",
+    });
+    expect(handle.id).toMatch(
+      /^clips\/organization-branding\/b3JnLTE\/[0-9a-f-]{36}\.png$/,
+    );
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      `https://s3.example.com/old-bucket/${handle.id}`,
+    );
+
+    workspaceValues.S3_BUCKET = "new-bucket";
+    await expect(
+      clipsOrganizationLogoPrivateBlobProvider.read(handle),
+    ).resolves.toMatchObject({
+      data: new TextEncoder().encode("logo-bytes"),
+      handle,
+    });
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      `https://s3.example.com/new-bucket/${handle.id}`,
+    );
+    expect(mockResolveSecret).not.toHaveBeenCalled();
+  });
+
+  it("does not configure organization-logo storage from user-only credentials", async () => {
+    const requestValues: Record<string, string> = {
+      S3_BUCKET: "user-bucket",
+      S3_ACCESS_KEY_ID: "user-access",
+      S3_SECRET_ACCESS_KEY: "user-secret",
+      S3_ENDPOINT: "https://user-s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(
+      async (key: string) => requestValues[key] ?? null,
+    );
+
+    await expect(
+      clipsOrganizationLogoPrivateBlobProvider.isConfiguredForRequest?.(),
+    ).resolves.toBe(false);
+    await expect(
+      clipsOrganizationLogoPrivateBlobProvider.put({
+        data: new TextEncoder().encode("logo-bytes"),
+        mimeType: "image/png",
+        metadata: {
+          organizationId: "org-1",
+          purpose: "organization-brand-logo",
+        },
+      }),
+    ).rejects.toMatchObject({ statusCode: 503 });
+    expect(mockResolveSecret).not.toHaveBeenCalled();
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("reads private logos with the owning workspace's S3 credentials anonymously", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "org-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_REGION: "us-east-1",
+    };
+    mockResolveSecret.mockResolvedValue(null);
+    mockReadAppSecret.mockImplementation(
+      async ({ key, scope, scopeId }: Record<string, string>) => {
+        if (scope !== "workspace" || scopeId !== "org-1") return null;
+        return values[key] ? { value: values[key] } : null;
+      },
+    );
+    const fetchMock = vi.fn(async () => new Response("logo-bytes"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const handle = {
+      id: "clips/organization-branding/b3JnLTE/00000000-0000-4000-8000-000000000001.png",
+      provider: "clips-s3-organization-logos",
+      opaque: true,
+      encrypted: false,
+      mimeType: "image/png",
+      metadata: {
+        organizationId: "org-1",
+        purpose: "organization-brand-logo",
+      },
+    } as const;
+
+    await expect(
+      clipsOrganizationLogoPrivateBlobProvider.read(handle),
+    ).resolves.toMatchObject({ data: new TextEncoder().encode("logo-bytes") });
+    expect(mockResolveSecret).not.toHaveBeenCalled();
+    expect(mockReadAppSecret).toHaveBeenCalledWith({
+      key: "S3_BUCKET",
+      scope: "workspace",
+      scopeId: "org-1",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/org-bucket/clips/organization-branding/"),
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      expect.stringContaining("https://s3.example.com/org-bucket/"),
+      expect.objectContaining({ method: "GET" }),
+      {
+        followRedirects: false,
+        requireDispatcher: true,
+        allowedPrivateOrigins: ["https://s3.example.com"],
+      },
+    );
+
+    const workspaceReadCount = mockReadAppSecret.mock.calls.length;
+    await expect(
+      clipsOrganizationLogoPrivateBlobProvider.read({
+        ...handle,
+        metadata: { ...handle.metadata, organizationId: "org-2" },
+      }),
+    ).rejects.toThrow("Clips organization logo handle is invalid");
+    expect(mockReadAppSecret).toHaveBeenCalledTimes(workspaceReadCount);
+  });
+
+  it("uses current S3 credentials for a legacy logo key and preserves missing-object status", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "current-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "http://10.0.0.12:9000/minio/",
+      S3_REGION: "us-east-1",
+    };
+    mockReadAppSecret.mockImplementation(
+      async ({ key, scope, scopeId }: Record<string, string>) => {
+        if (scope !== "workspace" || scopeId !== "org-1") return null;
+        return values[key] ? { value: values[key] } : null;
+      },
+    );
+    const fetchMock = vi.fn(async () => new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchS3OrganizationLogoByLegacyUrl(
+      "https://old-storage.example/clips/logo-abc123/1722720000000-abcd1234.png",
+      "org-1",
+    );
+
+    expect(result?.status).toBe(404);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://10.0.0.12:9000/minio/current-bucket/clips/logo-abc123/1722720000000-abcd1234.png",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      expect.stringContaining("http://10.0.0.12:9000/minio/current-bucket/"),
+      expect.objectContaining({ method: "GET" }),
+      {
+        followRedirects: false,
+        requireDispatcher: true,
+        allowedPrivateOrigins: ["http://10.0.0.12:9000"],
+      },
+    );
+  });
+
+  it("fails loudly when a recognized legacy logo URL has no current storage config", async () => {
+    mockResolveSecret.mockResolvedValue(null);
+
+    await expect(
+      fetchS3OrganizationLogoByLegacyUrl(
+        "https://old-storage.example/clips/logo-abc123/1722720000000-abcd1234.png",
+        "org-1",
+      ),
+    ).rejects.toMatchObject({ statusCode: 503 });
   });
 
   it("keeps sync env configuration as a legacy runtime signal", () => {

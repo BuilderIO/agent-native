@@ -912,6 +912,10 @@ test("Pen continues an open vector from its selected endpoint while editing", as
         async () => pastedPathNodes(await readSource(page, designId)).length,
       )
       .toBe(4);
+    await expect(page.locator("[data-vector-edit-overlay]")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     const nodes = pastedPathNodes(await readSource(page, designId));
     expect(nodes[1]?.slice(0, 2)).toEqual([70, 30]);
     expect(nodes[2]?.slice(0, 2)).toEqual([10, 30]);

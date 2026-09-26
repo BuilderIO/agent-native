@@ -52,8 +52,9 @@ import { aiRequestTabId } from "@shared/ai-request-status";
 import { useAutoTitleBridge } from "./use-auto-title";
 
 const requestedAt = "2026-07-14T12:00:00.000Z";
+const requestId = "workflow-request-123";
 const workflowTabId =
-  "clips-workflow:rec_123:2026-07-14T12%3A00%3A00.000Z:chat-123";
+  "clips-workflow:rec_123:2026-07-14T12%3A00%3A00.000Z:workflow-request-123:chat-123";
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
@@ -73,6 +74,7 @@ beforeEach(async () => {
               kind: "generate-workflow",
               recordingId: "rec_123",
               requestedAt,
+              requestId,
               message: "Generate an email summary",
             },
           ],
@@ -112,6 +114,7 @@ beforeEach(async () => {
       operation: "track",
       recordingId: "rec_123",
       requestedAt,
+      requestId,
       tabId: workflowTabId,
     },
   );
@@ -122,6 +125,7 @@ beforeEach(async () => {
         operation: "mark-delivered",
         recordingId: "rec_123",
         requestedAt,
+        requestId,
         tabId: workflowTabId,
       },
     ),
@@ -133,6 +137,7 @@ beforeEach(async () => {
         operation: "consume",
         recordingId: "rec_123",
         requestedAt,
+        requestId,
         tabId: workflowTabId,
       },
     ),
@@ -157,6 +162,7 @@ describe("workflow generation cancellation", () => {
                 kind: "generate-workflow",
                 recordingId: "rec_123",
                 requestedAt,
+                requestId,
                 message: "Generate an email summary",
               },
             ],
@@ -219,6 +225,7 @@ describe("workflow generation cancellation", () => {
                 kind: "generate-workflow",
                 recordingId: "rec_123",
                 requestedAt,
+                requestId,
                 message: "Generate an email summary",
               },
             ],
@@ -254,6 +261,7 @@ describe("workflow generation cancellation", () => {
                 kind: "generate-workflow",
                 recordingId: "rec_123",
                 requestedAt,
+                requestId,
                 deliveredTabId: workflowTabId,
                 message: "Generate an email summary",
               },
@@ -275,6 +283,7 @@ describe("workflow generation cancellation", () => {
           operation: "consume",
           recordingId: "rec_123",
           requestedAt,
+          requestId,
           tabId: workflowTabId,
         },
       ),
@@ -335,6 +344,16 @@ describe("workflow generation cancellation", () => {
           ),
         ).toHaveLength(2),
       { timeout: 2500 },
+    );
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "reconcile-workflow-generation",
+      {
+        operation: "stop",
+        recordingId: "rec_123",
+        requestedAt,
+        requestId,
+        tabId: workflowTabId,
+      },
     );
 
     window.dispatchEvent(

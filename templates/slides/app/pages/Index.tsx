@@ -1991,26 +1991,6 @@ export default function Index() {
 
   useSetPageTitle(t("home.decksTitle"));
   const deckImport = usePromptImport({ onImport: handleDirectImport });
-
-  useSetHeaderActions(
-    useMemo(
-      () => (
-        <HomeHeaderActions
-          search={
-            <DeckSearchInput
-              value={deckSearch}
-              onChange={setDeckSearch}
-              className="w-full"
-            />
-          }
-        >
-          <ImportDeckButton controller={deckImport} />
-        </HomeHeaderActions>
-      ),
-      [deckSearch, deckImport],
-    ),
-  );
-
   const viewState = deckListViewState({
     loading,
     loadError,
@@ -2019,6 +1999,47 @@ export default function Index() {
   const hasRecentDecks = viewState === "decks" && decks.length > 0;
   const hasDeckSearch = normalizedDeckSearch.length > 0;
 
+  useSetHeaderActions(
+    useMemo(
+      () => (
+        <HomeHeaderActions
+          search={
+            viewState !== "empty" ? (
+              <DeckSearchInput
+                value={deckSearch}
+                onChange={setDeckSearch}
+                className="w-full"
+              />
+            ) : null
+          }
+        >
+          {viewState !== "empty" ? (
+            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
+          ) : null}
+          <Button
+            onClick={openNewDeck}
+            onPointerEnter={preloadPromptPopover}
+            onFocus={preloadPromptPopover}
+            size="sm"
+            className="cursor-pointer"
+          >
+            <IconPlus className="w-3.5 h-3.5" />
+            {t("home.newDeck")}
+          </Button>
+          <ImportDeckButton controller={deckImport} />
+        </HomeHeaderActions>
+      ),
+      [
+        deckFilter,
+        deckImport,
+        deckSearch,
+        openNewDeck,
+        setDeckFilter,
+        t,
+        viewState,
+      ],
+    ),
+  );
   if (isStartingNewDeck) {
     return (
       <div
