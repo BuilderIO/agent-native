@@ -8,24 +8,23 @@ import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import enUSMessages from "@/i18n/en-US";
 import AnalysisDetail from "@/pages/analyses/AnalysisDetail";
 
-import { getAnalysis } from "../../server/lib/dashboards-store";
+import { getPublicAnalysisMetadata } from "../../server/lib/dashboards-store";
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
-  const analysis = params.id
-    ? await getAnalysis(params.id, { email: "", orgId: null })
+  const metadata = params.id
+    ? await getPublicAnalysisMetadata(params.id)
     : null;
 
   return {
-    preview:
-      analysis?.visibility === "public"
-        ? {
-            title: analysis.name,
-            description:
-              analysis.description.trim() ||
-              analysis.question.trim() ||
-              "Analytics analysis.",
-          }
-        : null,
+    preview: metadata
+      ? {
+          title: metadata.name,
+          description:
+            metadata.description.trim() ||
+            metadata.question.trim() ||
+            "Analytics analysis.",
+        }
+      : null,
     origin: new URL(request.url).origin,
     basePath: getConfiguredAppBasePath(),
   };

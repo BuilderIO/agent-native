@@ -496,6 +496,7 @@ async function listLocalBookingEvents(
       eventTitle: schema.bookings.eventTitle,
       notes: schema.bookings.notes,
       meetingLink: schema.bookings.meetingLink,
+      meetingLinkPending: schema.bookings.meetingLinkPending,
       googleEventId: schema.bookings.googleEventId,
       status: schema.bookings.status,
       createdAt: schema.bookings.createdAt,
@@ -531,6 +532,8 @@ async function listLocalBookingEvents(
       source: "local",
       googleEventId: booking.googleEventId ?? undefined,
       meetingLink: booking.meetingLink ?? undefined,
+      meetingLinkPending:
+        booking.meetingLinkPending && !booking.meetingLink ? true : undefined,
       color: link?.color ?? undefined,
       status: booking.status,
       attendees: [{ email: booking.email, displayName: booking.name }],

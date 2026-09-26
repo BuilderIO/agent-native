@@ -2534,6 +2534,21 @@ export async function getAnalysis(
   );
 }
 
+export async function getPublicAnalysisMetadata(id: string) {
+  const [row] = await (getDb() as any)
+    .select({
+      name: schema.analyses.name,
+      description: schema.analyses.description,
+      question: schema.analyses.question,
+    })
+    .from(schema.analyses)
+    .where(
+      and(eq(schema.analyses.id, id), eq(schema.analyses.visibility, "public")),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
 export async function listAnalyses(
   ctx: AccessCtx,
   filter?: { hidden?: DashboardHiddenFilter },

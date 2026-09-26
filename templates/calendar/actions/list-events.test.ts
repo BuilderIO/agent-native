@@ -64,6 +64,7 @@ const schemaMock = vi.hoisted(() => ({
     eventTitle: "bookings.eventTitle",
     notes: "bookings.notes",
     meetingLink: "bookings.meetingLink",
+    meetingLinkPending: "bookings.meetingLinkPending",
     googleEventId: "bookings.googleEventId",
     status: "bookings.status",
     createdAt: "bookings.createdAt",
@@ -116,6 +117,7 @@ function bookingRow(overrides: Record<string, unknown> = {}) {
     eventTitle: "Steve + Nikoline",
     notes: null,
     meetingLink: "https://example.com/meet",
+    meetingLinkPending: false,
     googleEventId: "google-event-1",
     status: "confirmed",
     createdAt: "2026-06-12T10:13:39.746Z",
@@ -173,6 +175,33 @@ describe("listCalendarEvents booking merge", () => {
         title: "Steve + Nikoline",
         source: "local",
         googleEventId: undefined,
+      },
+    ]);
+  });
+
+  it("exposes a persisted pending meeting link on the host calendar event", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        bookings: [
+          bookingRow({
+            googleEventId: null,
+            meetingLink: null,
+            meetingLinkPending: true,
+          }),
+        ],
+      }),
+    );
+
+    const result = await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+    });
+
+    expect(result.events).toMatchObject([
+      {
+        id: "booking:booking-1",
+        meetingLink: undefined,
+        meetingLinkPending: true,
       },
     ]);
   });

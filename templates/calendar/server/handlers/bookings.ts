@@ -1607,12 +1607,14 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
 
     // Persist provider details created after the initial booking insert.
-    if (meetingLink || googleEventId) {
+    meetingLinkPending = meetingLinkPending && !meetingLink;
+    if (meetingLink || googleEventId || meetingLinkPending) {
       const providerUpdates: {
         meetingLink?: string;
         googleEventId?: string;
         calendarAccountId?: string;
-      } = {};
+        meetingLinkPending: boolean;
+      } = { meetingLinkPending };
       if (meetingLink) providerUpdates.meetingLink = meetingLink;
       if (googleEventId) providerUpdates.googleEventId = googleEventId;
       if (googleEventId && calendarAccountId) {
@@ -1965,6 +1967,7 @@ export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
       end: booking.end,
       slug: booking.slug,
       meetingLink: booking.meetingLink,
+      meetingLinkPending: booking.meetingLinkPending,
       status: booking.status,
     };
   } catch (error: any) {
@@ -2050,6 +2053,8 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
     notes: row.notes ?? undefined,
     fieldResponses,
     meetingLink: row.meetingLink ?? undefined,
+    meetingLinkPending:
+      row.meetingLinkPending && !row.meetingLink ? true : undefined,
     googleEventId: row.googleEventId ?? undefined,
     status: row.status,
     createdAt: row.createdAt,

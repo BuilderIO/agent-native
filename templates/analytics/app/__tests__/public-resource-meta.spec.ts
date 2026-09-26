@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getAnalysis: vi.fn(),
+  getPublicAnalysisMetadata: vi.fn(),
   getDashboard: vi.fn(),
 }));
 
@@ -10,7 +10,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("../../server/lib/dashboards-store", () => ({
-  getAnalysis: mocks.getAnalysis,
+  getPublicAnalysisMetadata: mocks.getPublicAnalysisMetadata,
   getDashboard: mocks.getDashboard,
 }));
 
@@ -67,18 +67,12 @@ describe("public Analytics resource metadata", () => {
   });
 
   it("uses analysis title and description only when the analysis is public", async () => {
-    mocks.getAnalysis.mockResolvedValueOnce({
-      visibility: "public",
+    mocks.getPublicAnalysisMetadata.mockResolvedValueOnce({
       name: "Revenue Trends",
       description: "Growth by region",
       question: "",
     });
-    mocks.getAnalysis.mockResolvedValueOnce({
-      visibility: "org",
-      name: "Internal Pipeline",
-      description: "Private forecast",
-      question: "",
-    });
+    mocks.getPublicAnalysisMetadata.mockResolvedValueOnce(null);
 
     const publicData = await loadAnalysis({
       params: { id: "shared" },

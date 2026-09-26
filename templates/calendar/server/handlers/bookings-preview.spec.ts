@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   createZoomMeeting: vi.fn(),
   getDb: vi.fn(),
   getFreeBusy: vi.fn(),
+  getRouterParam: vi.fn(),
   getSession: vi.fn(),
   getSetting: vi.fn(),
   getUserSetting: vi.fn(),
@@ -55,6 +56,7 @@ vi.mock("h3", async () => {
     defineEventHandler: (handler: unknown) => handler,
     getQuery: (event: { query: Record<string, unknown> }) => event.query,
     getRequestURL: () => new URL("https://calendar.example.com/book"),
+    getRouterParam: mocks.getRouterParam,
     setResponseStatus: mocks.setResponseStatus,
   };
 });
@@ -87,7 +89,11 @@ vi.mock("../lib/zoom.js", () => ({
 }));
 
 import { schema } from "../db/index.js";
-import { createBooking, getAvailableSlots } from "./bookings.js";
+import {
+  createBooking,
+  getAvailableSlots,
+  getBookingByToken,
+} from "./bookings.js";
 
 const availability = {
   timezone: "UTC",
@@ -209,6 +215,7 @@ describe("draft booking availability previews", () => {
     });
     mocks.listEvents.mockResolvedValue({ events: [], errors: [] });
     mocks.verifyCaptcha.mockResolvedValue({ success: true });
+    mocks.getRouterParam.mockReturnValue("cancel-token");
   });
 
   afterEach(() => {
@@ -321,6 +328,7 @@ describe("draft booking availability previews", () => {
       expect.objectContaining({
         googleEventId: "google-event-id",
         calendarAccountId: "owner@example.com",
+        meetingLinkPending: true,
       }),
     );
     expect(mocks.sendBookingConfirmationEmails).toHaveBeenCalledWith(
@@ -368,6 +376,12 @@ describe("draft booking availability previews", () => {
         status: "confirmed",
       }),
     );
+    expect(mocks.dbUpdates).toContainEqual(
+      expect.objectContaining({
+        meetingLink: "https://zoom.us/j/meeting-id",
+        meetingLinkPending: false,
+      }),
+    );
     expect(mocks.createZoomMeeting).toHaveBeenCalledTimes(2);
     expect(mocks.insertedBookings).toHaveLength(2);
     expect(mocks.insertedBookings[1]).toEqual(
@@ -404,5 +418,38 @@ describe("draft booking availability previews", () => {
       }),
     );
     expect(mocks.insertedBookings).toHaveLength(2);
+  });
+
+  it("returns the persisted pending meeting state to the guest manage page", async () => {
+    mocks.getDb.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(async () => [
+            {
+              id: "booking-1",
+              name: "Guest",
+              email: "guest@example.com",
+              start: "2026-08-17T09:00:00.000Z",
+              end: "2026-08-17T09:30:00.000Z",
+              slug: "saved-meeting",
+              eventTitle: "Meeting",
+              notes: null,
+              fieldResponses: null,
+              meetingLink: null,
+              meetingLinkPending: true,
+              googleEventId: null,
+              cancelToken: "cancel-token",
+              status: "confirmed",
+              createdAt: "2026-08-10T12:00:00.000Z",
+            },
+          ]),
+        })),
+      })),
+    });
+
+    await expect((getBookingByToken as any)({})).resolves.toMatchObject({
+      meetingLinkPending: true,
+      status: "confirmed",
+    });
   });
 });
