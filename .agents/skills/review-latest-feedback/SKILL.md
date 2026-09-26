@@ -528,9 +528,10 @@ invocation authorizes it; link them in the recap instead.
 
 ## Publishing
 
-A worktree is a valid PR source — commit, push, and open or update the PR from
-this worktree's branch and cwd. Use `corepack pnpm ship:push` for the complete
-snapshot and update the existing PR rather than opening a second one.
+Use this worktree's branch. Batch fixes with one
+`corepack pnpm ship:push -m "<specific fix>"`; each head reruns CI. Sync
+`origin/main` only for GitHub conflicts; prefer normal merges on shared
+branches. Behind/pending never justify syncing.
 
 With shipping authority — an explicit request, or a caller that already
 granted it — continue straight into `ship` in the same worktree without asking

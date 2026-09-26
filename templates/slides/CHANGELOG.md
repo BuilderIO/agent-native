@@ -7,10 +7,18 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- Org admins can review agent runs from Settings
 - Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
+
+### Improved
+
+- Improve Slides design system setup feedback
 
 ### Fixed
 
+- Empty decks keep their retry option when a retry cannot be sent.
+- Prevent setup generation while Figma indexing is in progress
+- Text on a slide is now edited in place: clicking into it changes nothing on the slide, Enter adds the new line immediately, and what you see while typing is what gets saved. The slash menu is no longer available inside slide text.
 - Word document imports now complete successfully.
 
 ## 2026-09-24

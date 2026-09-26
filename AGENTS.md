@@ -156,10 +156,10 @@ could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via
 for a check that inspected nothing; that is the flagship rule above, violated
 inside the thing that enforces it.
 
-Shared checkout edits are visible through Git. Re-read existing changes before
-editing them, and use `corepack pnpm ship:push` when the user authorizes a
-branch-wide checkpoint. Read `concurrent-agents` before working in a shared
-checkout.
+Shared edits are visible in Git; read `concurrent-agents`. Batch fixes; publish
+snapshots with `corepack pnpm ship:push -m "<change>"` to
+avoid CI churn. Update from `origin/main` only for GitHub `CONFLICTING` PRs;
+merge shared branches.
 
 **One hook** (`scripts/hooks/file-lease.mjs`, registered in the tracked
 `.claude/settings.json`): denies a write when another live session holds the
@@ -190,7 +190,7 @@ was supposed to close it.
   the guidance. Rewriting a rule that has already failed twice is how this repo
   grew four copies of "push your work" across two skills while the worktree
   stayed unpushed. Replace it with a mechanism, or with one command the agent
-  runs instead of remembering a procedure — `pnpm ship:push` is what that
+  runs instead of remembering a procedure — `pnpm ship:push -m` is what that
   looks like.
 - Delete the prose the mechanism replaces, in the same change.
 

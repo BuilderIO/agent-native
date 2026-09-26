@@ -1543,6 +1543,8 @@ body {
 
 .error-actions {
   display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: 8px;
   margin-top: 8px;
 }

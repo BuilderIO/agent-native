@@ -364,10 +364,12 @@ function ReviewPreviewFrame({
               aria-hidden="true"
               className={
                 compact
-                  ? "pointer-events-none absolute left-0 top-0 h-[600%] w-[600%] origin-top-left scale-[0.166667] border-0"
+                  ? "pointer-events-none absolute left-0 top-0 h-[1200%] w-[1200%] origin-top-left scale-[0.083333] border-0"
                   : showSlideStrip
-                    ? "absolute inset-x-0 bottom-0 top-10 border-0"
-                    : "absolute inset-0 size-full border-0"
+                    ? "pointer-events-none absolute left-0 top-10 h-[calc(400%_-_10rem)] w-[400%] origin-top-left scale-[0.25] border-0"
+                    : artifactAppId
+                      ? "pointer-events-none absolute left-0 top-0 h-[400%] w-[400%] origin-top-left scale-[0.25] border-0"
+                      : "absolute inset-0 size-full border-0"
               }
               loading="lazy"
               onLoad={() => setLoaded(true)}
