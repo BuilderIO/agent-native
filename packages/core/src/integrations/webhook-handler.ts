@@ -1341,6 +1341,7 @@ async function processIncomingMessage(
                 engineOption: effectiveEngineOption,
                 apiKey: effectiveApiKey.apiKey,
                 apiKeyEnvVar: effectiveApiKey.apiKeyEnvVar,
+                apiKeyProvenance: effectiveApiKey.credentialProvenance,
                 model,
                 appId: options.appId,
               });

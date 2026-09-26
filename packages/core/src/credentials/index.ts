@@ -17,6 +17,95 @@ export interface CredentialContext {
 
 export type CredentialStorageScope = "user" | "org";
 
+export interface ResolvedCredential {
+  value: string;
+  scope: SecretRef["scope"];
+  scopeId: string;
+}
+
+export interface CredentialProvenance {
+  scope: SecretRef["scope"] | "deployment";
+  scopeId?: string;
+  source?: string;
+  connectionId?: string;
+}
+
+export interface CredentialEndpointOwner {
+  scope: string;
+  scopeId?: string;
+  source?: string;
+  connectionId?: string;
+}
+
+export class CredentialEndpointMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CredentialEndpointMismatchError";
+  }
+}
+
+export function assertCredentialCanReachEndpoint(
+  endpoint: CredentialEndpointOwner,
+  credential:
+    | Pick<
+        CredentialProvenance,
+        "scope" | "scopeId" | "source" | "connectionId"
+      >
+    | {
+        scope?: string;
+        scopeId?: string;
+        source?: string;
+        connectionId?: string;
+      }
+    | undefined,
+  key?: string,
+): void {
+  if (
+    endpoint.source === "workspace_connection" &&
+    (!endpoint.connectionId ||
+      credential?.connectionId !== endpoint.connectionId)
+  ) {
+    throw new CredentialEndpointMismatchError(
+      `Refusing to send ${key ? `\"${key}\"` : "a credential"} to a workspace connection unless it is bound to that exact connection.`,
+    );
+  }
+  if (endpoint.scope === "unknown") {
+    throw new CredentialEndpointMismatchError(
+      `Refusing to send ${key ? `\"${key}\"` : "a credential"} to an endpoint with unknown ownership.`,
+    );
+  }
+  const soloWorkspaceEndpoint =
+    endpoint.scope === "workspace" && endpoint.scopeId?.startsWith("solo:");
+  if (endpoint.scope === "user" || soloWorkspaceEndpoint) {
+    const endpointUserEmail = soloWorkspaceEndpoint
+      ? endpoint.scopeId?.slice("solo:".length)
+      : endpoint.scopeId;
+    const credentialBelongsToEndpointUser =
+      Boolean(endpointUserEmail) &&
+      ((credential?.scope === "user" &&
+        credential.scopeId === endpointUserEmail) ||
+        (credential?.scope === "workspace" &&
+          credential.scopeId === `solo:${endpointUserEmail}`));
+    if (credentialBelongsToEndpointUser) return;
+
+    throw new CredentialEndpointMismatchError(
+      `Refusing to send ${key ? `\"${key}\"` : "a credential"} to a user-controlled endpoint unless it is saved by the same user.`,
+    );
+  }
+
+  if (endpoint.scope === "org" || endpoint.scope === "workspace") {
+    const credentialBelongsToEndpointWorkspace =
+      Boolean(endpoint.scopeId) &&
+      (credential?.scope === "org" || credential?.scope === "workspace") &&
+      credential.scopeId === endpoint.scopeId;
+    if (credentialBelongsToEndpointWorkspace) return;
+
+    throw new CredentialEndpointMismatchError(
+      `Refusing to send ${key ? `\"${key}\"` : "a credential"} to a shared endpoint unless it is saved by the same organization or workspace.`,
+    );
+  }
+}
+
 function userCredentialSettingKey(email: string, key: string): string {
   return `u:${email.toLowerCase()}:${SETTING_PREFIX}${key}`;
 }
@@ -127,20 +216,24 @@ async function resolveEffectiveOrgId(
  * credential as unset — "the store didn't answer" and "nothing is saved" are
  * different outcomes callers must not conflate.
  */
-export async function resolveCredential(
+export async function resolveCredentialDetailed(
   key: string,
   ctx: CredentialContext,
-): Promise<string | undefined> {
+): Promise<ResolvedCredential | undefined> {
   if (!ctx?.userEmail) return undefined;
 
   const userSecret = await readScopedAppSecret(key, "user", ctx.userEmail);
-  if (userSecret) return userSecret;
+  if (userSecret) {
+    return { value: userSecret, scope: "user", scopeId: ctx.userEmail };
+  }
 
   const userSetting = await resolveCredentialForScope(key, {
     ...ctx,
     scope: "user",
   });
-  if (userSetting) return userSetting;
+  if (userSetting) {
+    return { value: userSetting, scope: "user", scopeId: ctx.userEmail };
+  }
 
   const orgLookup = await resolveEffectiveOrgId(ctx);
   assertCredentialStoreReadable(orgLookup);
@@ -148,24 +241,46 @@ export async function resolveCredential(
 
   if (orgId) {
     const orgSecret = await readScopedAppSecret(key, "org", orgId);
-    if (orgSecret) return orgSecret;
+    if (orgSecret) return { value: orgSecret, scope: "org", scopeId: orgId };
 
     const workspaceSecret = await readScopedAppSecret(key, "workspace", orgId);
-    if (workspaceSecret) return workspaceSecret;
+    if (workspaceSecret) {
+      return { value: workspaceSecret, scope: "workspace", scopeId: orgId };
+    }
 
     const orgSetting = await resolveCredentialForScope(key, {
       ...ctx,
       orgId,
       scope: "org",
     });
-    if (orgSetting) return orgSetting;
+    if (orgSetting) {
+      return { value: orgSetting, scope: "org", scopeId: orgId };
+    }
   }
 
   // Solo-workspace fallback: always checked, even when an org id was found
   // above. A credential written before the user joined/created an org lives
   // here, and must not become unreachable once that org exists. Last on
   // purpose — a current org-scoped value always wins over a pre-org one.
-  return readScopedAppSecret(key, "workspace", `solo:${ctx.userEmail}`);
+  const soloWorkspaceSecret = await readScopedAppSecret(
+    key,
+    "workspace",
+    `solo:${ctx.userEmail}`,
+  );
+  return soloWorkspaceSecret
+    ? {
+        value: soloWorkspaceSecret,
+        scope: "workspace",
+        scopeId: `solo:${ctx.userEmail}`,
+      }
+    : undefined;
+}
+
+export async function resolveCredential(
+  key: string,
+  ctx: CredentialContext,
+): Promise<string | undefined> {
+  return (await resolveCredentialDetailed(key, ctx))?.value;
 }
 
 /**

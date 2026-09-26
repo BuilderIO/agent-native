@@ -10,7 +10,7 @@ import type { AgentEngine } from "../agent/engine/types.js";
 import {
   actionsToEngineTools,
   filterInitialEngineTools,
-  getOwnerActiveApiKey,
+  resolveOwnerEngineApiKey,
   runAgentLoop,
   type ActionEntry,
 } from "../agent/production-agent.js";
@@ -576,7 +576,13 @@ async function executeBackgroundAutomation(
       const availableTools = actionsToEngineTools(actions);
       const tools = filterInitialEngineTools(availableTools, initialToolNames);
 
-      const userApiKey = await getOwnerActiveApiKey(ownerEmail);
+      const ownerApiKey = await resolveOwnerEngineApiKey({ ownerEmail });
+      const apiKey = ownerApiKey.apiKey ?? deps.apiKey;
+      const apiKeyProvenance = ownerApiKey.apiKey
+        ? ownerApiKey.credentialProvenance
+        : deps.apiKey
+          ? { scope: "deployment" as const }
+          : undefined;
       // The run manager invokes its detached callback after the scheduler's
       // setup stack has yielded, so the engine's credentials must be captured
       // now, while the owner/org identity is explicit. Passing
@@ -587,7 +593,11 @@ async function executeBackgroundAutomation(
       const engine =
         deps.engine ??
         (await resolveEngine({
-          apiKey: userApiKey ?? deps.apiKey,
+          apiKey,
+          apiKeyEnvVar: ownerApiKey.apiKey
+            ? ownerApiKey.apiKeyEnvVar
+            : undefined,
+          apiKeyProvenance,
           appId: deps.appId,
           credentialIdentity: { userEmail: ownerEmail, orgId },
         }));

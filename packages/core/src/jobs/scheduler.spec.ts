@@ -95,6 +95,10 @@ function fakeFilterInitialEngineTools(
 vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: actionsToEngineToolsMock,
   getOwnerActiveApiKey: vi.fn(async () => "test-api-key"),
+  resolveOwnerEngineApiKey: vi.fn(async () => ({
+    apiKey: undefined,
+    apiKeyEnvVar: undefined,
+  })),
   runAgentLoop: runAgentLoopMock,
   filterInitialEngineTools: fakeFilterInitialEngineTools,
 }));

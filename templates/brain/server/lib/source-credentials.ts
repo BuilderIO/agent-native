@@ -1,5 +1,7 @@
-import { resolveCredential } from "@agent-native/core/credentials";
-import type { CredentialContext } from "@agent-native/core/credentials";
+import {
+  resolveCredentialDetailed,
+  type CredentialContext,
+} from "@agent-native/core/credentials";
 import { readAppSecret, type SecretRef } from "@agent-native/core/secrets";
 import {
   listWorkspaceConnections,
@@ -44,6 +46,7 @@ export interface SourceCredentialProvenance {
   key: string;
   provider: string;
   scope?: SecretRef["scope"];
+  scopeId?: string;
   connectionId?: string;
   connectionLabel?: string;
   grantId?: string | null;
@@ -379,6 +382,7 @@ async function resolveWorkspaceConnectionCredential({
             key,
             provider,
             scope: found.ref.scope,
+            scopeId: found.ref.scopeId,
             connectionId: connectionResult.id,
             connectionLabel: connectionResult.label,
             grantId: access.grantId,
@@ -431,6 +435,7 @@ async function resolveRegisteredSecretCredential(
         key: options.key,
         provider: options.provider,
         scope: found.ref.scope,
+        scopeId: found.ref.scopeId,
       },
     };
   }
@@ -484,7 +489,10 @@ async function resolveSourceCredentialDetailed(
     };
   }
 
-  const localCredential = await resolveCredential(options.key, options.ctx);
+  const localCredential = await resolveCredentialDetailed(
+    options.key,
+    options.ctx,
+  );
   if (localCredential) {
     checked.push({
       source: "brain_local",
@@ -496,11 +504,13 @@ async function resolveSourceCredentialDetailed(
       provider: options.provider,
       key: options.key,
       available: true,
-      value: localCredential,
+      value: localCredential.value,
       provenance: {
         source: "brain_local",
         key: options.key,
         provider: options.provider,
+        scope: localCredential.scope,
+        scopeId: localCredential.scopeId,
       },
       checked,
       missingMessage: null,
@@ -544,11 +554,21 @@ async function resolveSourceCredentialDetailed(
   };
 }
 
+export async function resolveSourceCredentialWithProvenance(
+  options: ResolveSourceCredentialOptions,
+): Promise<
+  { value: string; provenance: SourceCredentialProvenance } | undefined
+> {
+  const resolution = await resolveSourceCredentialDetailed(options);
+  return resolution.value && resolution.provenance
+    ? { value: resolution.value, provenance: resolution.provenance }
+    : undefined;
+}
+
 export async function resolveSourceCredential(
   options: ResolveSourceCredentialOptions,
 ): Promise<string | undefined> {
-  const resolution = await resolveSourceCredentialDetailed(options);
-  return resolution.value;
+  return (await resolveSourceCredentialWithProvenance(options))?.value;
 }
 
 export async function inspectSourceCredentialAvailability(

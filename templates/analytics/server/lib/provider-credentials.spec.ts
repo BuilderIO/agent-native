@@ -51,9 +51,10 @@ vi.mock("@agent-native/core/workspace-connections", () => ({
 }));
 
 vi.mock("./credentials", () => ({
-  resolveCredential: vi.fn(async (key: string) =>
-    mocks.localCredentials.get(key),
-  ),
+  resolveCredentialDetailed: vi.fn(async (key: string) => {
+    const value = mocks.localCredentials.get(key);
+    return value ? { value, scope: "org", scopeId: "org-1" } : undefined;
+  }),
 }));
 
 import {

@@ -406,7 +406,7 @@ Prefere cada aplicativo em seu próprio domínio (`mail.company.com`, `calendar.
 
 ### Banco de dados compartilhado, credenciais compartilhadas
 
-Qualquer que seja sua escolha, aponte todos os aplicativos para o mesmo `DATABASE_URL` para obter o estado entre aplicativos pronto para uso: um conjunto de contas de usuário, um conjunto de organizações, um conjunto de configurações compartilhadas. Se cada aplicativo tiver seu próprio banco de dados, o padrão de espaço de trabalho ainda funciona. Você simplesmente perde a história do estado compartilhado.
+Para compartilhar contas de usuário, organizações, configurações e outros dados entre aplicativos, defina o mesmo `DATABASE_URL` para todos eles. No desenvolvimento local, defina-o no `.env` raiz do workspace para que todos os aplicativos usem o mesmo banco de dados PostgreSQL. Se ele não estiver definido, cada aplicativo usará seu próprio banco de dados PGlite local ao processo, e usuários e organizações não serão compartilhados.
 
 A demanda de conexões se soma entre os processos que compartilham um banco de dados. Se cinco processos de apps Node.js de longa duração usarem um pool compartilhado cada um para o mesmo `DATABASE_URL`, eles podem manter até 100 conexões no padrão de 20 por pool (`5 × 1 pool × 20`). Para workspaces serverless, estime as instâncias de função aquecidas por app usando os limites padrão específicos do runtime. Consulte [Banco de dados do servidor](/docs/server-database) para `AGENT_NATIVE_DB_POOL_MAX` e as orientações completas de dimensionamento.
 

@@ -1,6 +1,10 @@
+import { createHmac } from "node:crypto";
+
+import { isLoopbackAddress } from "../a2a/auth-policy.js";
 import { signA2AToken } from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, type DbExec } from "../db/client.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import {
   isHostedWorkspaceRuntime,
   resolveVercelDeploymentProtectionHeaders,
@@ -11,7 +15,36 @@ import { isMissingOrganizationTableError } from "./membership.js";
 const WORKSPACE_APPS_ACTION_PATH = "/_agent-native/actions/list-workspace-apps";
 const WORKSPACE_APP_CLAIM_ACTION_PATH =
   "/_agent-native/actions/claim-workspace-app-organization";
-const WORKSPACE_APP_ACCESS_TIMEOUT_MS = 2_500;
+const WORKSPACE_APP_ACCESS_TIMEOUT_MS = 10_000;
+export const WORKSPACE_APP_ACCESS_UNAVAILABLE = "unavailable" as const;
+export const WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE =
+  "Workspace app access is temporarily unavailable.";
+
+export type WorkspaceAppAccessOutcome =
+  | boolean
+  | typeof WORKSPACE_APP_ACCESS_UNAVAILABLE;
+
+type WorkspaceAppRegistryEntry = {
+  id: string;
+  orgEnabled?: unknown;
+  org_enabled?: unknown;
+};
+
+type WorkspaceAppRegistryResult =
+  | { status: "available"; apps: WorkspaceAppRegistryEntry[] }
+  | { status: "unavailable" };
+
+interface HostedWorkspaceAppAuth {
+  url: URL;
+  headers: Record<string, string>;
+  protectionHeaders: Record<string, string>;
+  requestKey: string;
+}
+
+const inFlightWorkspaceAppRegistryReads = new Map<
+  string,
+  Promise<WorkspaceAppRegistryResult>
+>();
 
 export interface WorkspaceAppAccessContext {
   email: string;
@@ -42,9 +75,27 @@ export function isStandaloneDispatchRuntime(): boolean {
 
 function configuredWorkspaceDirectory(): string | null {
   const workspace = getAppConfig().workspace;
-  return (
-    workspace.orgDirectoryUrl?.trim() || workspace.gatewayUrl?.trim() || null
-  );
+  const orgDirectoryUrl = workspace.orgDirectoryUrl?.trim();
+  if (orgDirectoryUrl) return orgDirectoryUrl;
+
+  const gatewayUrl = workspace.gatewayUrl?.trim();
+  if (!gatewayUrl) return null;
+
+  try {
+    const url = new URL(gatewayUrl);
+    if (!isLoopbackAddress(url.hostname.replace(/^\[|\]$/g, ""))) {
+      return gatewayUrl;
+    }
+    const basePath = url.pathname.replace(/\/+$/, "");
+    url.pathname = basePath.endsWith("/dispatch")
+      ? basePath
+      : `${basePath}/dispatch`;
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return gatewayUrl;
+  }
 }
 
 function workspaceAppsActionUrl(base: string): URL | null {
@@ -68,36 +119,29 @@ function workspaceAppsActionUrl(base: string): URL | null {
 
 function workspaceAppsFromResponse(
   value: unknown,
-): Array<{ id?: unknown; orgEnabled?: unknown; org_enabled?: unknown }> {
-  if (Array.isArray(value)) {
-    return value as Array<{
-      id?: unknown;
-      orgEnabled?: unknown;
-      org_enabled?: unknown;
-    }>;
-  }
+): WorkspaceAppRegistryEntry[] | null {
+  const apps = Array.isArray(value)
+    ? value
+    : value &&
+        typeof value === "object" &&
+        Array.isArray((value as { apps?: unknown }).apps)
+      ? (value as { apps: unknown[] }).apps
+      : null;
   if (
-    value &&
-    typeof value === "object" &&
-    Array.isArray((value as { apps?: unknown }).apps)
+    !apps ||
+    apps.some(
+      (app) =>
+        !app ||
+        typeof app !== "object" ||
+        typeof (app as { id?: unknown }).id !== "string",
+    )
   ) {
-    return (
-      value as {
-        apps: Array<{
-          id?: unknown;
-          orgEnabled?: unknown;
-          org_enabled?: unknown;
-        }>;
-      }
-    ).apps;
+    return null;
   }
-  return [];
+  return apps as WorkspaceAppRegistryEntry[];
 }
 
-function workspaceAppIsDisabled(app: {
-  orgEnabled?: unknown;
-  org_enabled?: unknown;
-}): boolean {
+function workspaceAppIsDisabled(app: WorkspaceAppRegistryEntry): boolean {
   const value = app.orgEnabled ?? app.org_enabled;
   return value === false || value === 0 || value === "false" || value === "0";
 }
@@ -112,39 +156,16 @@ async function hostedWorkspaceAppAccess(
   appId: string,
   context: WorkspaceAppAccessContext,
   email: string,
-): Promise<boolean | null> {
+): Promise<WorkspaceAppAccessOutcome | null> {
   const configuredDirectory = configuredWorkspaceDirectory();
   if (!configuredDirectory) return null;
 
-  const url = workspaceAppsActionUrl(configuredDirectory);
-  if (!url) return false;
-
-  const orgId = context.orgId?.trim() || null;
-  const [orgDomain, orgSecret] = orgId
-    ? await Promise.all([
-        import("./context.js").then(({ getOrgDomain }) => getOrgDomain(orgId)),
-        import("./context.js").then(({ getOrgA2ASecret }) =>
-          getOrgA2ASecret(orgId),
-        ),
-      ])
-    : [null, null];
-
-  let token: string;
-  try {
-    token = await signA2AToken(
-      email,
-      orgDomain?.trim() || undefined,
-      orgSecret?.trim() || undefined,
-      {
-        expiresIn: "1m",
-        preferGlobalSecret: true,
-        ...(orgId ? { extraClaims: { org_id: orgId } } : {}),
-      },
-    );
-  } catch (error) {
-    console.error("[workspace-app-access] registry token unavailable", error);
-    return false;
-  }
+  const auth = await resolveHostedWorkspaceAppAuth(
+    configuredDirectory,
+    context,
+    email,
+  );
+  if (!auth) return WORKSPACE_APP_ACCESS_UNAVAILABLE;
 
   const controller = new AbortController();
   const timeout = setTimeout(
@@ -152,73 +173,208 @@ async function hostedWorkspaceAppAccess(
     WORKSPACE_APP_ACCESS_TIMEOUT_MS,
   );
   try {
+    const registry = await waitForRegistryResult(
+      getHostedWorkspaceAppRegistry(auth),
+      controller.signal,
+    );
+    if (!registry || registry.status === "unavailable") {
+      return WORKSPACE_APP_ACCESS_UNAVAILABLE;
+    }
+
+    const matchingApp = registry.apps.find((app) => app.id === appId);
+    if (matchingApp) return !workspaceAppIsDisabled(matchingApp);
+
+    return await claimHostedWorkspaceApp(auth, appId, controller.signal);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function resolveHostedWorkspaceAppAuth(
+  configuredDirectory: string,
+  context: WorkspaceAppAccessContext,
+  email: string,
+): Promise<HostedWorkspaceAppAuth | null> {
+  const url = workspaceAppsActionUrl(configuredDirectory);
+  if (!url) return null;
+
+  const orgId = context.orgId?.trim() || null;
+  try {
+    const [orgDomain, orgSecret] = orgId
+      ? await Promise.all([
+          import("./context.js").then(({ getOrgDomain }) =>
+            getOrgDomain(orgId),
+          ),
+          import("./context.js").then(({ getOrgA2ASecret }) =>
+            getOrgA2ASecret(orgId),
+          ),
+        ])
+      : [null, null];
+    const normalizedOrgDomain = orgDomain?.trim() || undefined;
+    const normalizedOrgSecret = orgSecret?.trim() || undefined;
+    const signingSecret =
+      readDeployCredentialEnv("A2A_SECRET") || normalizedOrgSecret;
+    const token = await signA2AToken(
+      email,
+      normalizedOrgDomain,
+      normalizedOrgSecret,
+      {
+        expiresIn: "1m",
+        preferGlobalSecret: true,
+        ...(orgId ? { extraClaims: { org_id: orgId } } : {}),
+      },
+    );
+
+    if (!signingSecret) return null;
     const protectionHeaders = resolveVercelDeploymentProtectionHeaders(
       url.toString(),
     );
-    const headers = {
-      accept: "application/json",
-      Authorization: `Bearer ${token}`,
-      ...protectionHeaders,
+    const requestKey = createHmac("sha256", signingSecret)
+      .update(
+        JSON.stringify([
+          configuredDirectory,
+          email,
+          orgId,
+          normalizedOrgDomain ?? null,
+          getAppConfig().app.url ?? "http://localhost:3000",
+          protectionHeaders,
+        ]),
+      )
+      .digest("hex");
+    return {
+      url,
+      requestKey,
+      protectionHeaders,
+      headers: {
+        accept: "application/json",
+        Authorization: `Bearer ${token}`,
+        ...protectionHeaders,
+      },
     };
-    const response = await fetch(url, {
-      headers,
-      ...(protectionHeaders["x-vercel-protection-bypass"]
+  } catch (error) {
+    console.error("[workspace-app-access] registry auth unavailable", error);
+    return null;
+  }
+}
+
+function waitForRegistryResult(
+  request: Promise<WorkspaceAppRegistryResult>,
+  signal: AbortSignal,
+): Promise<WorkspaceAppRegistryResult | null> {
+  if (signal.aborted) return Promise.resolve(null);
+  let removeAbortListener = () => {};
+  const aborted = new Promise<null>((resolve) => {
+    const onAbort = () => resolve(null);
+    signal.addEventListener("abort", onAbort, { once: true });
+    removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+  });
+  return Promise.race([request, aborted]).finally(removeAbortListener);
+}
+
+function getHostedWorkspaceAppRegistry(
+  auth: HostedWorkspaceAppAuth,
+): Promise<WorkspaceAppRegistryResult> {
+  const pending = inFlightWorkspaceAppRegistryReads.get(auth.requestKey);
+  if (pending) return pending;
+
+  const request = fetchHostedWorkspaceAppRegistry(auth);
+  inFlightWorkspaceAppRegistryReads.set(auth.requestKey, request);
+  const removeSettledRequest = () => {
+    if (inFlightWorkspaceAppRegistryReads.get(auth.requestKey) === request) {
+      inFlightWorkspaceAppRegistryReads.delete(auth.requestKey);
+    }
+  };
+  void request.then(removeSettledRequest, removeSettledRequest);
+  return request;
+}
+
+async function fetchHostedWorkspaceAppRegistry(
+  auth: HostedWorkspaceAppAuth,
+): Promise<WorkspaceAppRegistryResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    WORKSPACE_APP_ACCESS_TIMEOUT_MS,
+  );
+  try {
+    const response = await fetch(auth.url, {
+      headers: auth.headers,
+      ...(auth.protectionHeaders["x-vercel-protection-bypass"]
         ? { redirect: "manual" as const }
         : {}),
       signal: controller.signal,
     });
-    if (!response.ok) return false;
+    if (!response.ok) return { status: "unavailable" };
     const apps = workspaceAppsFromResponse(
       // coercion-ok: malformed registry JSON is an authorization failure.
       await response.json().catch(() => null),
     );
-    const matchingApp = apps.find((app) => app.id === appId);
-    if (matchingApp) return !workspaceAppIsDisabled(matchingApp);
+    return apps ? { status: "available", apps } : { status: "unavailable" };
+  } catch (error) {
+    console.error("[workspace-app-access] registry access check failed", error);
+    return { status: "unavailable" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
-    const claimUrl = new URL(url);
-    claimUrl.pathname = claimUrl.pathname.replace(
-      WORKSPACE_APPS_ACTION_PATH,
-      WORKSPACE_APP_CLAIM_ACTION_PATH,
-    );
-    claimUrl.search = "";
+async function claimHostedWorkspaceApp(
+  auth: HostedWorkspaceAppAuth,
+  appId: string,
+  signal: AbortSignal,
+): Promise<WorkspaceAppAccessOutcome> {
+  if (signal.aborted) return WORKSPACE_APP_ACCESS_UNAVAILABLE;
+
+  const claimUrl = new URL(auth.url);
+  claimUrl.pathname = claimUrl.pathname.replace(
+    WORKSPACE_APPS_ACTION_PATH,
+    WORKSPACE_APP_CLAIM_ACTION_PATH,
+  );
+  claimUrl.search = "";
+  try {
     const claimResponse = await fetch(claimUrl, {
       method: "POST",
       headers: {
-        ...headers,
+        ...auth.headers,
         "content-type": "application/json",
       },
-      ...(protectionHeaders["x-vercel-protection-bypass"]
+      ...(auth.protectionHeaders["x-vercel-protection-bypass"]
         ? { redirect: "manual" as const }
         : {}),
       body: JSON.stringify({ appId }),
-      signal: controller.signal,
+      signal,
     });
-    if (!claimResponse.ok) return false;
-    // coercion-ok: malformed registry JSON is an authorization failure.
+    if (!claimResponse.ok || signal.aborted) {
+      return WORKSPACE_APP_ACCESS_UNAVAILABLE;
+    }
     const claim = (await claimResponse.json().catch(() => null)) as {
       allowed?: unknown;
     } | null;
-    if (claim?.allowed !== true) return false;
+    if (!claim || typeof claim.allowed !== "boolean") {
+      return WORKSPACE_APP_ACCESS_UNAVAILABLE;
+    }
+    if (!claim.allowed) return false;
 
-    const refreshedResponse = await fetch(url, {
-      headers,
-      ...(protectionHeaders["x-vercel-protection-bypass"]
+    const refreshedResponse = await fetch(auth.url, {
+      headers: auth.headers,
+      ...(auth.protectionHeaders["x-vercel-protection-bypass"]
         ? { redirect: "manual" as const }
         : {}),
-      signal: controller.signal,
+      signal,
     });
-    if (!refreshedResponse.ok) return false;
+    if (!refreshedResponse.ok || signal.aborted) {
+      return WORKSPACE_APP_ACCESS_UNAVAILABLE;
+    }
     const refreshedApps = workspaceAppsFromResponse(
       // coercion-ok: malformed registry JSON is an authorization failure.
       await refreshedResponse.json().catch(() => null),
     );
+    if (!refreshedApps) return WORKSPACE_APP_ACCESS_UNAVAILABLE;
     const refreshedApp = refreshedApps.find((app) => app.id === appId);
     return refreshedApp ? !workspaceAppIsDisabled(refreshedApp) : false;
   } catch (error) {
     console.error("[workspace-app-access] registry access check failed", error);
-    return false;
-  } finally {
-    clearTimeout(timeout);
+    return WORKSPACE_APP_ACCESS_UNAVAILABLE;
   }
 }
 
@@ -392,7 +548,7 @@ async function isDispatchWorkspaceAppAccessAllowed(
 export async function isWorkspaceAppAccessAllowed(
   appId: string,
   context: WorkspaceAppAccessContext,
-): Promise<boolean> {
+): Promise<WorkspaceAppAccessOutcome> {
   const normalizedAppId = appId.trim();
   const email = normalizedEmail(context.email);
   if (!normalizedAppId || !email) {
@@ -418,6 +574,9 @@ export async function isWorkspaceAppAccessAllowed(
     context,
     email,
   );
+  if (hostedAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
+    return WORKSPACE_APP_ACCESS_UNAVAILABLE;
+  }
   if (hostedAccess !== null) return hostedAccess;
 
   // Standalone/local deployments have no Dispatch registry URL. Keep the
