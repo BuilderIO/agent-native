@@ -349,10 +349,20 @@ describe("shared context URL dialog", () => {
     await choose("First frame");
     await click("Attach");
     expect(dialog()!.textContent).toContain("Cannot attach yet");
+    expect(button("Retry").parentElement).toBe(button("Attach").parentElement);
     await click("Retry");
     expect(dialog()).not.toBeNull();
     expect(config.presentation.onAttach).toHaveBeenCalledTimes(2);
     expect(button("Attach").disabled).toBe(false);
+  });
+  it("dims the parent surface behind the source picker", async () => {
+    await render(multiple());
+    await open();
+
+    const overlay = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-state="open"]'),
+    ).find((element) => element.className.includes("backdrop-blur-sm"));
+    expect(overlay?.className).toContain("bg-background/85");
   });
   it("uses URL-only mode without a list, keeps caret navigation, and restores focus on Escape", async () => {
     const select = vi.fn().mockResolvedValue(false);

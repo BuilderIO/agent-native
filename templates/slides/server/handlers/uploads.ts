@@ -329,7 +329,9 @@ export const uploadFiles = defineEventHandler(async (event) => {
       if (oversized) {
         const limit = maxReferenceFileBytes(oversized.filename);
         setResponseStatus(event, 413);
-        return { error: `File too large (max ${formatMaxFileSize(limit)})` };
+        return {
+          error: `File "${oversized.filename || "upload"}": File too large (max ${formatMaxFileSize(limit)})`,
+        };
       }
 
       const results = await Promise.allSettled(
@@ -347,26 +349,34 @@ export const uploadFiles = defineEventHandler(async (event) => {
         (result): result is PromiseFulfilledResult<UploadedReferenceFile> =>
           result.status === "fulfilled",
       );
-      const failedResult = results.find(
+      const failedResultIndex = results.findIndex(
         (result) => result.status === "rejected",
       );
-      if (failedResult) {
+      if (failedResultIndex !== -1) {
         await Promise.allSettled(
           successfulResults.map((result) =>
             deleteUploadedReferenceBlob(result.value.path, email),
           ),
         );
+        const failedResult = results[failedResultIndex];
+        const failedFile = fileParts[failedResultIndex];
+        const failedReason =
+          failedResult?.status === "rejected" ? failedResult.reason : undefined;
+        const errorMessage =
+          failedReason instanceof Error
+            ? failedReason.message
+            : "Invalid upload";
+        const errorStatusCode =
+          typeof failedReason === "object" &&
+          failedReason !== null &&
+          "statusCode" in failedReason
+            ? failedReason.statusCode
+            : undefined;
         const statusCode =
-          typeof (failedResult.reason as { statusCode?: unknown })
-            ?.statusCode === "number"
-            ? (failedResult.reason as { statusCode: number }).statusCode
-            : 400;
+          typeof errorStatusCode === "number" ? errorStatusCode : 400;
         setResponseStatus(event, statusCode);
         return {
-          error:
-            failedResult.reason instanceof Error
-              ? failedResult.reason.message
-              : "Invalid upload",
+          error: `File "${failedFile?.filename || "upload"}": ${errorMessage}`,
         };
       }
 

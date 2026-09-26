@@ -20,6 +20,17 @@ export interface UploadedFile {
   size: number;
 }
 
+export function isPromptUploadNetworkError(error: unknown): boolean {
+  return (
+    error instanceof TypeError ||
+    (error instanceof Error &&
+      (error.name === "AbortError" ||
+        ("code" in error &&
+          (error.code === "reference_storage_status_failed" ||
+            error.code === "reference_upload_network_failed"))))
+  );
+}
+
 export async function addInlineImageFallbacks(
   files: File[],
   uploaded: UploadedFile[],
@@ -70,23 +81,30 @@ const CHUNK_UPLOAD_THRESHOLD_BYTES = 4 * 1024 * 1024;
 const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
 
 export async function isReferenceStorageReady(): Promise<boolean> {
-  ensureEmbedAuthFetchInterceptor();
-  const response = await fetch(`${appBasePath()}/api/uploads/status`, {
-    credentials: "include",
-  });
-  if (!response.ok) {
-    throw new Error(`Storage status unavailable (${response.status})`);
+  try {
+    ensureEmbedAuthFetchInterceptor();
+    const response = await fetch(`${appBasePath()}/api/uploads/status`, {
+      credentials: "include",
+    });
+    if (!response.ok) throw new Error("Storage status request failed");
+    const status: unknown = await response.json();
+    if (
+      !status ||
+      typeof status !== "object" ||
+      typeof (status as { referenceStorageReady?: unknown })
+        .referenceStorageReady !== "boolean"
+    ) {
+      throw new Error("Storage status response is invalid");
+    }
+    return (status as { referenceStorageReady: boolean }).referenceStorageReady;
+  } catch (cause) {
+    throw Object.assign(
+      new Error("Reference file storage status could not be verified", {
+        cause,
+      }),
+      { code: "reference_storage_status_failed" },
+    );
   }
-  const status: unknown = await response.json();
-  if (
-    !status ||
-    typeof status !== "object" ||
-    typeof (status as { referenceStorageReady?: unknown })
-      .referenceStorageReady !== "boolean"
-  ) {
-    throw new Error("Storage status response is invalid");
-  }
-  return (status as { referenceStorageReady: boolean }).referenceStorageReady;
 }
 
 async function readUploadJson(response: Response): Promise<unknown> {
@@ -231,12 +249,17 @@ async function uploadFileChunked(file: File): Promise<UploadedFile> {
 
 export async function uploadPromptFiles(
   files: File[],
+  storageUnavailableMessage: string,
 ): Promise<UploadedFile[]> {
   if (files.length === 0) return [];
   if (files.length > MAX_REFERENCE_FILES) {
     throw new Error(`Too many files (max ${MAX_REFERENCE_FILES})`);
   }
-  ensureEmbedAuthFetchInterceptor();
+  if (!(await isReferenceStorageReady())) {
+    throw Object.assign(new Error(storageUnavailableMessage), {
+      code: "reference_storage_unavailable",
+    });
+  }
   const smallIndices = files.flatMap((file, index) =>
     file.size <= CHUNK_UPLOAD_THRESHOLD_BYTES ? [index] : [],
   );
@@ -259,19 +282,36 @@ export async function uploadPromptFiles(
   const successfulLargeUploads = largeResults.flatMap((result) =>
     result.status === "fulfilled" ? [result.value] : [],
   );
-  const failedLargeResult = largeResults.find(
+  const failedLargeIndex = largeResults.findIndex(
     (result) => result.status === "rejected",
   );
   if (smallResult.status === "rejected") {
     await cleanupUploadedPromptFiles([...successfulLargeUploads]);
     throw smallResult.reason;
   }
-  if (failedLargeResult) {
+  if (failedLargeIndex !== -1) {
     await cleanupUploadedPromptFiles([
       ...smallResult.value,
       ...successfulLargeUploads,
     ]);
-    throw failedLargeResult.reason;
+    const failedFile = files[largeIndices[failedLargeIndex]]?.name ?? "upload";
+    const failure = largeResults[failedLargeIndex];
+    const message =
+      failure?.status === "rejected" && failure.reason instanceof Error
+        ? failure.reason.message
+        : String(
+            failure?.status === "rejected" ? failure.reason : "Upload failed",
+          );
+    const error = new Error(`File "${failedFile}": ${message}`, {
+      cause: failure?.status === "rejected" ? failure.reason : undefined,
+    });
+    if (
+      failure?.status === "rejected" &&
+      isPromptUploadNetworkError(failure.reason)
+    ) {
+      Object.assign(error, { code: "reference_upload_network_failed" });
+    }
+    throw error;
   }
   const smallUploads = smallResult.value;
   const largeUploads = successfulLargeUploads;

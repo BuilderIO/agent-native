@@ -818,6 +818,8 @@ const messages = {
       invalidPdf: "PDFファイルを選択してください。",
       invalidPptx: "PPTXファイルを選択してください。",
       invalidFile: "PDFまたはPPTXファイルを選択してください。",
+      networkFailed:
+        "インポートがタイムアウトしたか、ネットワーク接続が切断されました。接続を確認して、もう一度お試しください。",
       notStarted:
         "必要なサインインを完了してから、インポートを再試行してください。",
     },
@@ -859,6 +861,8 @@ const messages = {
       notReady:
         "コンテキストを読み込み中、または利用できません。送信前に再試行するか削除してください。",
       emptySource: "このソースには利用可能なコンテキストがありません。",
+      figmaReadFailed:
+        "Figma でこの参照を読み込めませんでした。リンク、接続、ファイルへのアクセスを確認して、もう一度お試しください。",
       tooMany: "参照は20件まで選択できます。",
       search: "参照を検索",
       designCategory: "デザイン",

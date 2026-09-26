@@ -1,5 +1,3 @@
-import Index from "@/pages/Index";
-
 const SEO_TITLE =
   "Slides - Open Source AI presentation builder and Google Slides alternative";
 const SEO_DESCRIPTION =
@@ -22,5 +20,5 @@ export function meta() {
 
 // Private app entry retained at /home; / redirects to shared sign-in/signup.
 export default function IndexRoute() {
-  return <Index />;
+  return null;
 }

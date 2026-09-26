@@ -97,6 +97,31 @@ describe("readPeerComposerSource", () => {
     ).rejects.toMatchObject({ errorCode: "composer_reference_unavailable" });
   });
 
+  it("marks Figma read failures without exposing provider details", async () => {
+    mocks.invoke.mockResolvedValue({
+      result: {
+        status: "failed",
+        output:
+          'Figma files request failed: {"status":403,"err":"provider detail sentinel"} (errorCode: figma_auth_required)',
+      },
+    });
+
+    await expect(
+      readPeerComposerSource(
+        {
+          source: "figma",
+          operation: "read",
+          figmaUrl: "https://www.figma.com/design/exampleFile?node-id=1-2",
+          page: 1,
+        },
+        "slides",
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "composer_reference_unavailable",
+      details: { source: "figma" },
+    });
+  });
+
   it.each([
     "not json",
     JSON.stringify({ ...reference, context: "x".repeat(20001) }),

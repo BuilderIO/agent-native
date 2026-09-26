@@ -32,6 +32,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "home.referenceImportSuccess": "Imported successfully",
         "home.referenceFileStorageUnavailable":
           "File storage is not configured. Connect Builder.io or another file provider to import reference files.",
+        "home.importMenu.networkFailed":
+          "The import request timed out or lost its network connection. Check your connection and retry.",
         "home.none": "None",
         "home.continue": "Continue",
         "home.continueToGenerate": "Continue to generate",
@@ -178,6 +180,17 @@ describe("<NewDeckReferenceStep>", () => {
       referenceSource: null,
       referenceFilePaths: ["/uploads/reference.pptx"],
     });
+  });
+
+  it("explains when it cannot check file storage", async () => {
+    isReferenceStorageReadyMock.mockRejectedValue(
+      new TypeError("Failed to fetch"),
+    );
+    await renderStep();
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "The import request timed out or lost its network connection. Check your connection and retry.",
+    );
   });
 
   it("confirms a PDF import as the selected reference deck", async () => {

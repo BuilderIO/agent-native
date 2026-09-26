@@ -20,6 +20,7 @@ import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/create-deck-generation"
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   deleteUploadedPromptFile,
+  isPromptUploadNetworkError,
   uploadPromptFiles,
   type UploadedFile,
 } from "@/lib/prompt-file-uploads";
@@ -113,6 +114,11 @@ export function AddSlidePopover({
     },
     [],
   );
+  const uploadPromptFilesWithStorageMessage = useCallback(
+    (files: File[]) =>
+      uploadPromptFiles(files, t("home.referenceFileStorageUnavailable")),
+    [t],
+  );
   const {
     commitFiles,
     discardFiles,
@@ -121,7 +127,7 @@ export function AddSlidePopover({
     uploadFiles,
     uploading,
     reset: resetEagerUploads,
-  } = useEagerFileUploads(uploadPromptFiles, {
+  } = useEagerFileUploads(uploadPromptFilesWithStorageMessage, {
     onDiscard: deleteUploadedPromptFile,
     onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
   });
@@ -183,8 +189,9 @@ export function AddSlidePopover({
             uploaded = await uploadFiles(files);
           } catch (error) {
             toast.error(t("editorSidebar.uploadFailed"), {
-              description:
-                error instanceof Error
+              description: isPromptUploadNetworkError(error)
+                ? t("home.importMenu.networkFailed")
+                : error instanceof Error
                   ? error.message
                   : t("editorSidebar.uploadAttachedFileFailed"),
             });
@@ -276,8 +283,9 @@ export function AddSlidePopover({
       syncFiles(files);
       void uploadFiles(files).catch((error) => {
         toast.error(t("editorSidebar.uploadFailed"), {
-          description:
-            error instanceof Error
+          description: isPromptUploadNetworkError(error)
+            ? t("home.importMenu.networkFailed")
+            : error instanceof Error
               ? error.message
               : t("editorSidebar.uploadAttachedFileFailed"),
         });

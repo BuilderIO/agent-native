@@ -4,7 +4,6 @@ import { getOversizedDocumentAttachmentError } from "@agent-native/toolkit/compo
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
-
 export type PromptImportSource = "pdf" | "pptx" | "google-slides";
 export type PromptImportSelection =
   | { kind: "pdf" | "pptx"; files: File[] }
@@ -94,10 +93,36 @@ export function usePromptImport({
         onSuccess?.();
         return true;
       } catch (cause) {
-        return fail(
-          actionErrorMessage(cause) ??
-            t("editorToolbar.importFailedDescription"),
-        );
+        const actionMessage = actionErrorMessage(cause);
+        if (actionMessage) return fail(actionMessage);
+        if (
+          cause instanceof Error &&
+          "code" in cause &&
+          cause.code === "reference_storage_unavailable"
+        ) {
+          return fail(cause.message);
+        }
+        if (
+          cause instanceof Error &&
+          "code" in cause &&
+          cause.code === "reference_upload_network_failed"
+        ) {
+          return fail(t("home.importMenu.networkFailed"));
+        }
+        if (
+          cause instanceof Error &&
+          "code" in cause &&
+          cause.code === "reference_storage_status_failed"
+        ) {
+          return fail(t("home.importMenu.networkFailed"));
+        }
+        if (
+          cause instanceof TypeError ||
+          (cause instanceof Error && cause.name === "AbortError")
+        ) {
+          return fail(t("home.importMenu.networkFailed"));
+        }
+        return fail(t("editorToolbar.importFailedDescription"));
       } finally {
         busy.current = false;
         setImportingSource(null);

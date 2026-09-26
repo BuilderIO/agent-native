@@ -43,6 +43,7 @@ import { nanoid } from "nanoid";
 import {
   lazy,
   Suspense,
+  type ReactNode,
   useState,
   useRef,
   useCallback,
@@ -50,7 +51,13 @@ import {
   useMemo,
 } from "react";
 import { flushSync } from "react-dom";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
+import {
+  Link,
+  useLocation,
+  useMatch,
+  useNavigate,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import DeckCard from "@/components/deck/DeckCard";
@@ -147,15 +154,34 @@ const LazyDesignSystemSetup = lazy(() =>
   ),
 );
 
-async function uploadPromptFiles(files: File[]): Promise<UploadedFile[]> {
+async function uploadPromptFiles(
+  files: File[],
+  storageUnavailableMessage: string,
+  networkFailedMessage: string,
+): Promise<UploadedFile[]> {
   const module = await import("@/lib/prompt-file-uploads");
-  return module.uploadPromptFiles(files);
+  try {
+    return await module.uploadPromptFiles(files, storageUnavailableMessage);
+  } catch (cause) {
+    if (module.isPromptUploadNetworkError(cause)) {
+      throw Object.assign(new Error(networkFailedMessage, { cause }), {
+        code: "reference_upload_network_failed",
+      });
+    }
+    throw cause;
+  }
 }
 
 function preloadPromptPopover() {
   // This is an optional hover/focus optimization; rendering the opened popover
   // is where a failed chunk load is surfaced through its recovery boundary.
   void loadPromptPopover().catch(() => {});
+}
+
+function HomeChrome({ title, actions }: { title: string; actions: ReactNode }) {
+  useSetPageTitle(title);
+  useSetHeaderActions(actions);
+  return null;
 }
 
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
@@ -1472,7 +1498,11 @@ export default function Index() {
         return true;
       }
 
-      const uploaded = await uploadPromptFiles(selection.files);
+      const uploaded = await uploadPromptFiles(
+        selection.files,
+        t("home.referenceFileStorageUnavailable"),
+        t("home.importMenu.networkFailed"),
+      );
       const file = uploaded[0];
       if (!file) throw new Error("The selected file could not be uploaded.");
 
@@ -1554,6 +1584,7 @@ export default function Index() {
       navigate,
       reloadDecks,
       session,
+      t,
     ],
   );
 
@@ -1636,7 +1667,11 @@ export default function Index() {
       if (!pending) return null;
       setReferenceImporting(true);
       try {
-        const uploaded = await uploadPromptFiles(files);
+        const uploaded = await uploadPromptFiles(
+          files,
+          t("home.referenceFileStorageUnavailable"),
+          t("home.importMenu.networkFailed"),
+        );
         const pptxReference = uploaded.find((file) =>
           file.originalName.toLowerCase().endsWith(".pptx"),
         );
@@ -1989,7 +2024,8 @@ export default function Index() {
     [duplicateDeck, navigate, t],
   );
 
-  useSetPageTitle(t("home.decksTitle"));
+  const isHome = useMatch("/home") !== null;
+  const homeTitle = t("home.decksTitle");
   const deckImport = usePromptImport({ onImport: handleDirectImport });
   const viewState = deckListViewState({
     loading,
@@ -1999,37 +2035,40 @@ export default function Index() {
   const hasRecentDecks = viewState === "decks" && decks.length > 0;
   const hasDeckSearch = normalizedDeckSearch.length > 0;
 
-  useSetHeaderActions(
-    useMemo(
-      () => (
-        <HomeHeaderActions
-          search={
-            viewState !== "empty" ? (
-              <DeckSearchInput
-                value={deckSearch}
-                onChange={setDeckSearch}
-                className="w-full"
-              />
-            ) : null
-          }
-        >
-          {viewState !== "empty" ? (
-            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
-          ) : null}
-          <ImportDeckButton controller={deckImport} />
-        </HomeHeaderActions>
-      ),
-      [deckFilter, deckImport, deckSearch, setDeckFilter, t, viewState],
+  const homeHeaderActions = useMemo(
+    () => (
+      <HomeHeaderActions
+        search={
+          viewState !== "empty" ? (
+            <DeckSearchInput
+              value={deckSearch}
+              onChange={setDeckSearch}
+              className="w-full"
+            />
+          ) : null
+        }
+      >
+        {viewState !== "empty" ? (
+          <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
+        ) : null}
+        <ImportDeckButton controller={deckImport} />
+      </HomeHeaderActions>
     ),
+    [deckFilter, deckImport, deckSearch, setDeckFilter, t, viewState],
   );
   if (isStartingNewDeck) {
     return (
-      <div
-        className="fixed inset-0 z-[300] min-h-screen bg-background"
-        data-testid="new-deck-loading"
-      >
-        <DeckEditorSkeleton label={t("deckEditor.lookingForDeck")} />
-      </div>
+      <>
+        {isHome ? (
+          <HomeChrome title={homeTitle} actions={homeHeaderActions} />
+        ) : null}
+        <div
+          className="fixed inset-0 z-[300] min-h-screen bg-background"
+          data-testid="new-deck-loading"
+        >
+          <DeckEditorSkeleton label={t("deckEditor.lookingForDeck")} />
+        </div>
+      </>
     );
   }
 
@@ -2067,6 +2106,9 @@ export default function Index() {
       }
       composer={
         <div data-slides-home-composer>
+          {isHome ? (
+            <HomeChrome title={homeTitle} actions={homeHeaderActions} />
+          ) : null}
           <LazyChunkErrorBoundary
             fallback={
               <div

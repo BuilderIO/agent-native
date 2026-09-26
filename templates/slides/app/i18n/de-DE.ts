@@ -833,6 +833,8 @@ const messages = {
       invalidPdf: "Wähle eine PDF-Datei.",
       invalidPptx: "Wähle eine PPTX-Datei.",
       invalidFile: "Wähle eine PDF- oder PPTX-Datei.",
+      networkFailed:
+        "Der Import ist abgelaufen oder die Netzwerkverbindung wurde unterbrochen. Überprüfe deine Verbindung und versuche es erneut.",
       notStarted: "Melde dich bei Bedarf an und versuche den Import erneut.",
     },
     importDeck: "Präsentation importieren",
@@ -873,6 +875,8 @@ const messages = {
       notReady:
         "Kontext wird geladen oder ist nicht verfügbar. Erneut versuchen oder vor dem Senden entfernen.",
       emptySource: "Diese Quelle lieferte keinen nutzbaren Kontext.",
+      figmaReadFailed:
+        "Figma konnte diese Referenz nicht lesen. Prüfe den Link, die Verbindung und den Dateizugriff und versuche es erneut.",
       tooMany: "Wähle bis zu 20 Referenzen.",
       search: "Referenzen suchen",
       designCategory: "Gestaltung",

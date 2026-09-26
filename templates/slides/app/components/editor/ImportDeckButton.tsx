@@ -130,6 +130,7 @@ export function ImportDeckButton({
       />
       <PopoverContent
         align="end"
+        className="w-[min(28rem,calc(100vw-2rem))]"
         onOpenAutoFocus={(event) => {
           if (popover === "google") {
             event.preventDefault();

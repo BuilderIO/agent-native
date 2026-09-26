@@ -792,6 +792,7 @@ const messages = {
       invalidPdf: "请选择 PDF 文件。",
       invalidPptx: "请选择 PPTX 文件。",
       invalidFile: "请选择 PDF 或 PPTX 文件。",
+      networkFailed: "导入请求超时或网络连接中断。请检查网络连接后重试。",
       notStarted: "完成所需的登录后，请重试导入。",
     },
     importDeck: "导入演示文稿",
@@ -829,6 +830,8 @@ const messages = {
       figma: "Figma 画框",
       notReady: "上下文仍在加载或不可用。请重试或移除后再发送。",
       emptySource: "此来源未返回可用的上下文。",
+      figmaReadFailed:
+        "Figma 无法读取此参考内容。请检查链接、连接和文件访问权限，然后重试。",
       tooMany: "最多选择 20 项参考资料。",
       search: "搜索参考资料",
       designCategory: "设计",

@@ -579,7 +579,7 @@ export function NewDeckReferenceStep({
               )}
               {fileStorageStatus === "unknown" && (
                 <p className="mt-3 text-sm text-destructive" role="alert">
-                  {t("editorToolbar.importFailedDescription")}
+                  {t("home.importMenu.networkFailed")}
                 </p>
               )}
               {selectedSource && (

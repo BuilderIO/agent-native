@@ -522,7 +522,7 @@ function PromptAttachmentStrip() {
 
   if (attachments.length === 0) return null;
   return (
-    <div className="agent-composer-attachment-strip flex flex-wrap gap-2 px-2 pt-2">
+    <div className="agent-composer-attachment-strip max-h-24 overflow-y-auto overscroll-contain flex flex-wrap gap-2 px-2 pt-2">
       {attachments.map((attachment) => (
         <AttachmentChip
           key={attachment.id}

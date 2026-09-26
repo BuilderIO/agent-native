@@ -7,8 +7,8 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import type { ComponentProps, ReactElement, ReactNode } from "react";
-import { MemoryRouter } from "react-router";
+import { type ComponentProps, type ReactElement, type ReactNode } from "react";
+import { Link, MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type PromptPopover from "@/components/editor/PromptDialog";
@@ -33,6 +33,7 @@ const {
   contextOptions,
   refetchSystems,
   headerActions,
+  pageTitle,
 } = vi.hoisted(() => ({
   useDecks: vi.fn(),
   reloadDecks: vi.fn(),
@@ -48,6 +49,7 @@ const {
   contextOptions: vi.fn(),
   refetchSystems: vi.fn(),
   headerActions: { current: null as ReactNode | null },
+  pageTitle: { current: null as ReactNode | null },
 }));
 const translate = (key: string) =>
   ({
@@ -109,13 +111,30 @@ vi.mock("@agent-native/core/client/onboarding", () => ({
 vi.mock("@agent-native/core/client/ui", () => ({
   buildSignInReturnHref: () => "/sign-in",
 }));
-vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
-  useSetHeaderActions: (actions: ReactNode) => {
-    headerActions.current = actions;
-  },
-  useSetPageTitle: vi.fn(),
-}));
+vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => {
+  const { useEffect } = await import("react");
+  return {
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/app-shell")
+    >()),
+    useSetHeaderActions: (actions: ReactNode) => {
+      useEffect(() => {
+        headerActions.current = actions;
+        return () => {
+          headerActions.current = null;
+        };
+      }, [actions]);
+    },
+    useSetPageTitle: (title: ReactNode) => {
+      useEffect(() => {
+        pageTitle.current = title;
+        return () => {
+          pageTitle.current = null;
+        };
+      }, [title]);
+    },
+  };
+});
 vi.mock("@/context/DeckContext", () => ({
   useDecks,
   describeDeckPersistenceFailure: vi.fn(),
@@ -206,7 +225,11 @@ const sharedDeck = {
   updatedAt: "2026-09-24T00:00:00Z",
 };
 
-function renderHome(overrides: Record<string, unknown> = {}, state?: unknown) {
+function renderHome(
+  overrides: Record<string, unknown> = {},
+  state?: unknown,
+  pathname = "/home",
+) {
   useDecks.mockReturnValue({
     decks: [],
     loading: false,
@@ -217,7 +240,10 @@ function renderHome(overrides: Record<string, unknown> = {}, state?: unknown) {
     ...overrides,
   });
   const home = () => (
-    <MemoryRouter initialEntries={[{ pathname: "/home", state }]}>
+    <MemoryRouter initialEntries={[{ pathname, state }]}>
+      <nav>
+        <Link to="/templates">Open templates</Link>
+      </nav>
       <TooltipProvider>
         <Index />
       </TooltipProvider>
@@ -237,6 +263,7 @@ beforeEach(() => {
   builderConnect.connecting = false;
   builderConnect.error = null;
   headerActions.current = null;
+  pageTitle.current = null;
   useBuilderConnectFlow.mockReturnValue(builderConnect);
   for (const name of ["localStorage", "sessionStorage"]) {
     const values = new Map<string, string>();
@@ -254,6 +281,27 @@ afterEach(() => {
 });
 
 describe("Slides prompt-led home", () => {
+  it("does not restore home header state while the mounted page is away from home", () => {
+    const { rerenderHome } = renderHome();
+    expect(headerActions.current).not.toBeNull();
+    expect(pageTitle.current).toBe("home.decksTitle");
+
+    fireEvent.click(screen.getByRole("link", { name: "Open templates" }));
+    expect(headerActions.current).toBeNull();
+    expect(pageTitle.current).toBeNull();
+
+    rerenderHome();
+    expect(headerActions.current).toBeNull();
+    expect(pageTitle.current).toBeNull();
+  });
+
+  it("sets home chrome when the route has a trailing slash", () => {
+    renderHome({}, undefined, "/HOME/");
+
+    expect(headerActions.current).not.toBeNull();
+    expect(pageTitle.current).toBe("home.decksTitle");
+  });
+
   it("does not query or apply a system default or open new setup while disabled", async () => {
     systemFlag.enabled = false;
     renderHome();

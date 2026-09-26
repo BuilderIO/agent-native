@@ -20,8 +20,8 @@ const translate = (key: string) =>
     ) as string) || key;
 vi.mock("@agent-native/core/client/i18n", () => ({ useT: () => translate }));
 vi.mock("@agent-native/core/client/hooks", () => ({
-  actionErrorMessage: (error: Error) =>
-    error.message.replace(/^Action failed: /, ""),
+  actionErrorMessage: (error: { actionMessage?: unknown }) =>
+    typeof error?.actionMessage === "string" ? error.actionMessage : undefined,
 }));
 vi.mock("./GoogleDriveConnectionCta", () => ({
   GoogleDriveConnectionCta: () => (
@@ -182,7 +182,11 @@ describe("toolbar deck import", () => {
     selectFile(file);
     expect(onImport).toHaveBeenCalledOnce();
     await act(async () =>
-      reject(new Error("Action failed: Upload unavailable")),
+      reject(
+        Object.assign(new Error("action failed"), {
+          actionMessage: "Upload unavailable",
+        }),
+      ),
     );
     expect((await screen.findByRole("alert")).textContent).toBe(
       "Upload unavailable",
@@ -208,10 +212,51 @@ describe("toolbar deck import", () => {
       }),
     );
   });
+  it("explains when reference storage is unavailable", async () => {
+    render(
+      <Harness
+        onImport={() =>
+          Promise.reject(
+            Object.assign(
+              new Error(translate("home.referenceFileStorageUnavailable")),
+              { code: "reference_storage_unavailable" },
+            ),
+          )
+        }
+      />,
+    );
+    selectFile(new File(["source"], "source.pdf"));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      translate("home.referenceFileStorageUnavailable"),
+    );
+  });
+  it.each([
+    new TypeError("Failed to fetch"),
+    Object.assign(new Error("The request was aborted"), { name: "AbortError" }),
+    Object.assign(new Error("Storage status unavailable (503)"), {
+      code: "reference_storage_status_failed",
+    }),
+    Object.assign(new Error('File "large.pptx": Failed to fetch'), {
+      code: "reference_upload_network_failed",
+    }),
+  ])(
+    "explains network and storage status failures without exposing transport details",
+    async (error) => {
+      render(<Harness onImport={() => Promise.reject(error)} />);
+      selectFile(new File(["source"], "source.pdf"));
+      expect((await screen.findByRole("alert")).textContent).toBe(
+        translate("home.importMenu.networkFailed"),
+      );
+    },
+  );
   it("opens an anchored Google Slides form, retains URL on failure, and submits through the same pipeline", async () => {
     const onImport = vi
       .fn()
-      .mockRejectedValueOnce(new Error("Reconnect Google Drive"))
+      .mockRejectedValueOnce(
+        Object.assign(new Error("action failed"), {
+          actionMessage: "Reconnect Google Drive",
+        }),
+      )
       .mockResolvedValue(true);
     render(<Harness onImport={onImport} />);
     openMenu();
@@ -245,7 +290,11 @@ describe("toolbar deck import", () => {
     });
   });
   it("clears failed-file state for a new Google source and restores focus on Escape", async () => {
-    const onImport = vi.fn().mockRejectedValue(new Error("PDF upload failed"));
+    const onImport = vi.fn().mockRejectedValue(
+      Object.assign(new Error("action failed"), {
+        actionMessage: "PDF upload failed",
+      }),
+    );
     render(<Harness onImport={onImport} />);
     selectFile(new File(["source"], "source.pdf"));
     expect((await screen.findByRole("alert")).textContent).toBe(

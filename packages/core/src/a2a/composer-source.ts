@@ -52,6 +52,7 @@ export async function readPeerComposerSource(
       {
         statusCode: 409,
         errorCode: "composer_reference_unavailable",
+        ...(request.source === "figma" ? { details: { source: "figma" } } : {}),
       },
     );
   }
