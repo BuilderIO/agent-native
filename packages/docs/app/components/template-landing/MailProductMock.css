@@ -543,13 +543,13 @@
 .mm-thread-row {
   display: flex;
   min-width: 0;
-  height: 38px;
+  height: 32px;
   flex: none;
   align-items: center;
   border-bottom: 1px solid hsl(0 0% 22%);
-  padding: 0 8px;
+  padding: 0 6px;
   color: var(--mm-muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .mm-thread-row.is-focused {
@@ -562,9 +562,9 @@
 
 .mm-row-unread {
   display: grid;
-  width: 18px;
+  width: 16px;
   height: 100%;
-  flex: 0 0 18px;
+  flex: 0 0 16px;
   place-items: center;
 }
 
@@ -576,12 +576,12 @@
 }
 
 .mm-sender {
-  width: clamp(85px, 20%, 160px);
-  flex: 0 0 clamp(85px, 20%, 160px);
+  width: clamp(85px, 18%, 148px);
+  flex: 0 0 clamp(85px, 18%, 148px);
   overflow: hidden;
-  margin-right: 8px;
+  margin-right: 6px;
   color: hsl(0 0% 81%);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 450;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -595,16 +595,16 @@
 
 .mm-label-chip {
   max-width: 120px;
-  height: 18px;
+  height: 16px;
   flex: none;
   overflow: hidden;
   border-radius: 3px;
-  margin-right: 6px;
+  margin-right: 4px;
   background: hsl(0 0% 23%);
   padding: 1px 6px;
   color: hsl(0 0% 77%);
-  font-size: 10px;
-  line-height: 16px;
+  font-size: 9px;
+  line-height: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -644,7 +644,7 @@
   min-width: 0;
   flex: 1 1 auto;
   overflow: hidden;
-  gap: 4px;
+  gap: 3px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -654,7 +654,7 @@
   flex: 0 1 auto;
   overflow: hidden;
   color: hsl(0 0% 85%);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -678,18 +678,18 @@
 .mm-row-action-rail {
   position: relative;
   display: flex;
-  width: clamp(74px, 12%, 128px);
+  width: clamp(78px, 10%, 104px);
   height: 100%;
-  flex: 0 0 clamp(74px, 12%, 128px);
+  flex: 0 0 clamp(78px, 10%, 104px);
   align-items: center;
   justify-content: flex-end;
-  margin-left: 12px;
+  margin-left: 6px;
 }
 
 .mm-thread-row time {
   overflow: hidden;
   color: var(--mm-muted);
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
   text-align: right;
   text-overflow: ellipsis;
@@ -847,8 +847,8 @@
   }
 
   .mm-row-action-rail {
-    width: 64px;
-    flex-basis: 64px;
+    width: 74px;
+    flex-basis: 74px;
     margin-left: 5px;
   }
 

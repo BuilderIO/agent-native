@@ -11683,9 +11683,8 @@ function DesignEditor() {
    * same `handleCreatePrimitive`/`handlePrimitiveCreated` pair overview
    * drawing already uses — `createPrimitiveInsertFromSpec` just translates
    * the overlay's screen-content-space spec into the shared
-   * `CanvasPrimitiveInsert` shape first. Pen commits keep Pen active, matching
-   * overview/Figma, unless the overlay is flushing a path because the user
-   * already selected a different tool.
+   * `CanvasPrimitiveInsert` shape first. Pen commits keep Pen active unless
+   * the overlay supplies explicit tool intent or flushes after a tool change.
    */
   const handleSingleScreenCreatePrimitive = useCallback(
     (spec: CreatePrimitiveSpec) => {
@@ -11697,7 +11696,11 @@ function DesignEditor() {
       if (!result) return;
       const resultNodeId = typeof result === "string" ? result : nodeId;
       handlePrimitiveCreated(activeFile.id, resultNodeId, {
-        nextTool: spec.tool === "pen" ? "pen" : undefined,
+        nextTool:
+          spec.nextTool ??
+          (spec.tool === "pen" && spec.preserveActiveTool !== false
+            ? "pen"
+            : undefined),
         preserveActiveTool: spec.preserveActiveTool,
       });
       return resultNodeId;
@@ -29884,14 +29887,19 @@ function DesignEditor() {
                         onCreatePrimitive={handleSingleScreenCreatePrimitive}
                         onUpdatePenPath={
                           canEditDesign
-                            ? (nodeId, path) =>
-                                activeFile
+                            ? (nodeId, path, nextTool) => {
+                                const updated = activeFile
                                   ? handleUpdatePenPath(
                                       activeFile.id,
                                       nodeId,
                                       path,
                                     )
-                                  : false
+                                  : false;
+                                if (updated && nextTool) {
+                                  setActiveTool(nextTool);
+                                }
+                                return updated;
+                              }
                             : undefined
                         }
                         onDropFiles={

@@ -23,15 +23,29 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-function ToolHarness({ initialTool }: { initialTool: MultiScreenCanvasTool }) {
+function ToolHarness({
+  initialTool,
+  onBoardDrawPrimitive,
+  onToolChange,
+}: {
+  initialTool: MultiScreenCanvasTool;
+  onBoardDrawPrimitive?: MultiScreenCanvasProps["onBoardDrawPrimitive"];
+  onToolChange?: (tool: MultiScreenCanvasTool) => void;
+}) {
   const [tool, setTool] = useState(initialTool);
+  const handleToolChange = (nextTool: MultiScreenCanvasTool) => {
+    setTool(nextTool);
+    onToolChange?.(nextTool);
+  };
   return (
     <MultiScreenCanvas
       screens={[]}
       zoom={100}
       activeTool={tool}
-      onActiveToolChange={setTool}
+      onActiveToolChange={handleToolChange}
       onPick={() => {}}
+      boardFileId={onBoardDrawPrimitive ? "board-file" : undefined}
+      onBoardDrawPrimitive={onBoardDrawPrimitive}
     />
   );
 }
@@ -283,6 +297,50 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       "commit",
     );
     expect(onChange.mock.calls[0]?.[0].nodes).toHaveLength(3);
+  });
+
+  it("Escape finishes a board path open and Enter selects Move", async () => {
+    type BoardDraw = Parameters<
+      NonNullable<MultiScreenCanvasProps["onBoardDrawPrimitive"]>
+    >;
+    const boardDraws: Array<{
+      primitive: BoardDraw[0];
+      options: BoardDraw[1];
+    }> = [];
+    const onBoardDrawPrimitive: NonNullable<
+      MultiScreenCanvasProps["onBoardDrawPrimitive"]
+    > = (primitive, options) => {
+      boardDraws.push({ primitive, options });
+      return `vector-${boardDraws.length}`;
+    };
+    const onToolChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <ToolHarness
+          initialTool="pen"
+          onBoardDrawPrimitive={onBoardDrawPrimitive}
+          onToolChange={onToolChange}
+        />,
+      );
+    });
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
+    expect(surface).not.toBeNull();
+
+    await clickPenAnchor(surface!, 120, 120);
+    await clickPenAnchor(surface!, 180, 180);
+    await pressKey("Escape");
+
+    expect(boardDraws).toHaveLength(1);
+    expect(boardDraws[0]?.primitive.penPath?.closed).toBe(false);
+
+    await clickPenAnchor(surface!, 220, 120);
+    await clickPenAnchor(surface!, 280, 180);
+    await pressKey("Enter");
+
+    expect(boardDraws).toHaveLength(2);
+    expect(boardDraws[1]?.options).toEqual({ nextTool: "move" });
+    expect(onToolChange).toHaveBeenLastCalledWith("move");
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
   });
 
   async function createSelectedDraft(surface: HTMLElement) {

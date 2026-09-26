@@ -841,6 +841,10 @@ const messages = {
     uploadWorkspaceSaveFailed: "Impossible de mettre à jour l’espace actif",
     whatsNew: "Nouveautés",
     changelogEmpty: "Aucune mise à jour pour le moment.",
+    changelogCommentSignup:
+      "Le panneau de commentaires vide explique brièvement pourquoi essayer Clips et propose un moyen simple de s’inscrire.",
+    changelogShareLink:
+      "Les utilisateurs connectés qui ouvrent un lien de partage indisponible, expiré ou privé accèdent désormais à leur bibliothèque en choisissant « Retour à l’accueil », au lieu de la page marketing publique.",
     viewAllUpdates: "Voir toutes les mises à jour",
     expand: "Développer",
     collapse: "Replier",

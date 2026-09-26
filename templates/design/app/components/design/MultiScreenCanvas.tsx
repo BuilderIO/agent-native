@@ -875,6 +875,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   );
   const [penPointer, setPenPointer] = useState<Point | null>(null);
   const [penCloseHover, setPenCloseHover] = useState(false);
+  const clearActivePenPath = useCallback(() => {
+    activePenPathRef.current = null;
+    setActivePenPath(null);
+    setPenGesturePreview(null);
+    setPenPointer(null);
+    setPenCloseHover(false);
+  }, []);
   // Last raw client point the pen ghost/close-hover preview was computed
   // from (P18). A wheel pan/zoom gesture mutates pan/zoom every animation
   // frame via applyViewToDom without the mouse itself moving, so the
@@ -6317,14 +6324,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     retryPersistedDraftPrimitives();
   }, [frameGeometry, retryPersistedDraftPrimitives, screens]);
 
-  const clearActivePenPath = useCallback(() => {
-    activePenPathRef.current = null;
-    setActivePenPath(null);
-    setPenGesturePreview(null);
-    setPenPointer(null);
-    setPenCloseHover(false);
-  }, []);
-
   const finishPenPath = useCallback(
     (
       path = activePenPathRef.current,
@@ -6333,6 +6332,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         nextTool?: "move" | "pen";
       },
     ) => {
+      let nextTool: "move" | "pen" = options?.nextTool ?? "pen";
       // Clear before committing: the commit flushes React synchronously, and
       // an effect it wakes can re-enter here and commit the same path twice.
       clearActivePenPath();
@@ -6367,7 +6367,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             "commit",
           );
         }
-        onActiveToolChange?.("pen");
+        if (nextTool === "move") active?.onExit();
+        onActiveToolChange?.(nextTool);
         return;
       }
 
@@ -6376,7 +6377,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         strokeWidth: toolProps?.strokeWidth,
       });
       const continuation = continuationPenPathRef.current;
-      let nextTool: "move" | "pen" = "pen";
       if (continuation) {
         const persisted = persistDraftPrimitive(draft, continuation.frameId, {
           updateNodeId: continuation.nodeId,
@@ -6393,9 +6393,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             : { ...continuation, path: clonePenPath(path) };
       } else {
         const persisted = commitDraftPrimitive(draft, undefined, {
-          nextTool: options?.nextTool ?? "pen",
+          nextTool,
         });
-        if (persisted) nextTool = options?.nextTool ?? "pen";
+        if (!persisted) nextTool = "pen";
         continuationPenPathRef.current =
           persisted && !path.closed && options?.continueAfterCommit
             ? {
@@ -6405,6 +6405,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               }
             : null;
       }
+      // The parent selection callback receives nextTool, but board primitives
+      // intentionally bypass it, so update the controlled tool here too.
       onActiveToolChange?.(nextTool);
     },
     [
@@ -10460,9 +10462,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        const continuesExistingPath = continuationPenPathRef.current !== null;
+        const continuesExistingPath =
+          continuationPenPathRef.current !== null ||
+          penContinuesVectorEditRef.current;
         finishPenPath(path, {
-          continueAfterCommit: continuesExistingPath,
+          continueAfterCommit: continuationPenPathRef.current !== null,
           nextTool: continuesExistingPath ? "pen" : "move",
         });
         return;
@@ -10472,11 +10476,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        // Figma: Escape ends the path in progress and keeps what's drawn so
-        // far (no data loss), rather than discarding the whole path.
-        // finishPenPath already falls back to a discard for a path with
-        // fewer than 2 nodes (P16), where there's nothing meaningful to
-        // commit.
         finishPenPath(path);
         return;
       }
