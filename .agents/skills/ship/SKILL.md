@@ -193,10 +193,15 @@ authorization, so do not ask again. Fetch `origin/main` and save
 `detached_head`, create the task branch at that commit so detached commits are
 retained. When `detached_head` is an ancestor of `origin/main`, create from
 fresh `origin/main` and carry the classified task-only dirty changes onto it.
-If the histories diverge or any dirty path is unrelated or incomplete work,
-preserve the checkout and report the exact conflict without repeating the
-authorization question. Use a unique task-specific name, verify it is unused,
-and never stash or move another worktree.
+Before any branch creation or switch, record `git status --short
+--untracked-files=all` and classify every staged, unstaged, and untracked path.
+A branch switch carries the entire index and worktree onto the new branch, so
+proceed only when every dirty path belongs to this task. If any path is
+unrelated or incomplete, stop before branch movement, preserve the detached
+checkout, and report the exact paths without repeating the authorization
+question. If the histories diverge, preserve the checkout and report the exact
+conflict. Use a unique task-specific name, verify it is unused, and never stash
+or move another worktree.
 
 Before publishing, classify every dirty path and unpushed commit. If any is
 unrelated or incomplete concurrent work, preserve it and stop the publishing

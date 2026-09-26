@@ -51,11 +51,13 @@ stay on the current branch unless a user decision is genuinely required.
 
 This is a pre-PR setup in the current task-owned worktree, not post-merge
 rotation. Follow the detached-checkout preflight in `ship`: fetch `origin/main`,
-classify the dirty paths and detached commits, choose a unique task-specific
-branch name, and carry only this task's changes. Do not stash or use the generic
-checkout-main flow below. If unrelated changes or divergent history prevent a
-clean carry, preserve the checkout and report the exact conflict without
-repeating the authorization question.
+classify all staged, unstaged, and untracked paths and detached commits before
+branch movement, then choose a unique task-specific branch name and carry only
+this task's changes. A branch switch carries the whole worktree; if any dirty
+path is unrelated or incomplete, leave the detached checkout in place and
+report the exact paths without repeating the authorization question. Do not
+stash or use the generic checkout-main flow below. If histories diverge,
+preserve the checkout and report the exact conflict.
 
 For ordinary explicit `/new-branch` requests, quickly stash any local changes,
 pull latest from `origin/main`, and create a new working branch. The detached
