@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   start: vi.fn(),
   cancel: vi.fn(),
+  retry: vi.fn(() => true),
   useBuilderConnectFlow: vi.fn(),
 }));
 
@@ -64,15 +65,20 @@ describe("StorageSetupCard", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.start.mockReset();
     mocks.cancel.mockReset();
+    mocks.retry.mockReset().mockReturnValue(true);
     mocks.useBuilderConnectFlow.mockReset().mockReturnValue({
       start: mocks.start,
       cancel: mocks.cancel,
+      retry: mocks.retry,
       configured: false,
       envManaged: false,
       accountExists: false,
       connecting: false,
       agentNativeProvisioningEnabled: true,
       statusResolved: true,
+      statusReadSettledCount: 0,
+      hasFetchedStatus: true,
+      error: null,
     });
     vi.stubGlobal(
       "fetch",
@@ -293,6 +299,86 @@ describe("StorageSetupCard", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(onConfigured).not.toHaveBeenCalled();
+  });
+
+  it("shows localized recovery and pending feedback while retrying Builder status", async () => {
+    const flow = {
+      start: mocks.start,
+      cancel: mocks.cancel,
+      retry: mocks.retry,
+      configured: false,
+      envManaged: false,
+      accountExists: false,
+      connecting: false,
+      agentNativeProvisioningEnabled: false,
+      statusResolved: false,
+      statusReadSettledCount: 1,
+      hasFetchedStatus: true,
+      error: "Couldn't read Builder connection status.",
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    expect(container.textContent).toContain("storageSetup.builderConnectError");
+    const retryButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "meetingDetail.retry",
+    );
+    expect(retryButton).toBeDefined();
+
+    act(() => retryButton?.click());
+
+    expect(mocks.retry).toHaveBeenCalledOnce();
+    expect(retryButton?.disabled).toBe(true);
+    expect(retryButton?.getAttribute("aria-busy")).toBe("true");
+    expect(retryButton?.textContent).toContain(
+      "storageSetup.checkingBuilderConnection",
+    );
+
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      ...flow,
+      statusReadSettledCount: 2,
+    });
+    await act(async () => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    const settledRetryButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "meetingDetail.retry",
+    );
+    expect(settledRetryButton?.disabled).toBe(false);
+  });
+
+  it("shows localized browser-tab recovery for embedded Builder connection errors", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      start: mocks.start,
+      cancel: mocks.cancel,
+      retry: mocks.retry,
+      configured: false,
+      envManaged: false,
+      accountExists: false,
+      connecting: false,
+      agentNativeProvisioningEnabled: true,
+      statusResolved: true,
+      statusReadSettledCount: 1,
+      hasFetchedStatus: true,
+      error:
+        "Couldn't open Builder from this chat host. Open this app in a browser tab and try Connect Builder again.",
+    });
+
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    expect(container.textContent).toContain(
+      "storageSetup.builderConnectPopupError",
+    );
+    expect(container.textContent).not.toContain(
+      "storageSetup.builderConnectError",
+    );
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
   });
 
   it("surfaces the timeout after repeated failed status responses", async () => {

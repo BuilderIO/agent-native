@@ -21,6 +21,11 @@ ask before changing branches unless the user gave the exact operation.
 Platform-assigned Builder.io and Fusion branches stay in place; never touch
 another checkout or move a branch used by another worktree.
 
+Steve's standing instruction applies across tasks and sessions: needed, safe
+branch creation or switching inside a task-owned worktree needs no repeated
+permission. It never authorizes moving a branch used by another worktree or
+platform, branch changes in a shared checkout, or destructive branch operations.
+
 If the current branch is already suitable, keep using it. When a detached
 task-owned worktree needs a branch to ship, create one without pausing for
 permission.
@@ -64,6 +69,9 @@ there are no unpushed commits on any path and no dirty publishable paths; only
 `learnings.md`, `bridge/**`, and `data/**` may remain dirty. If any unpushed
 commit remains, keep the source branch checked out and report the commit hashes
 instead of rotating. This preserves commits excluded from `/ship:push`. Use the
+preserved-path exception only for this post-merge rotation; setup-time branch
+creation or switching still requires every dirty path to belong to this task.
+The excluded paths stay unchanged across rotation.
 immutable `ship_merge_head_oid` captured
 before the guarded merge (from the Codex watcher prompt or foreground task
 transcript, or the Claude `/goal` or foreground task transcript); never
@@ -160,13 +168,18 @@ assigned branches and do not use the rotation path.
 ## Steps
 
 In a task-owned worktree, branch creation or switching needed for the task is
-already authorized; do not pause to ask. Fetch `origin/main`, inspect dirty
-paths, commits, and `git worktree list --porcelain`, then create an unused branch
-without stashing or changing another worktree. Carry current commits and local
-changes. Use fresh `origin/main` as the base when that preserves the task's
-work; otherwise create from the current task head and reconcile only when the
-ship workflow requires it. In a shared checkout, ask before changing branches
-unless the user gave the exact operation.
+already authorized; do not pause to ask. Before moving, record
+`git status --short --untracked-files=all` and classify every staged, unstaged,
+and untracked path. A switch carries the whole index and worktree, so proceed
+only when every dirty path belongs to this task. If any path is unrelated or
+incomplete, keep the checkout in place and report the exact paths without
+asking again. Fetch `origin/main`, inspect commits and
+`git worktree list --porcelain`, then create an unused branch without stashing
+or changing another worktree. Carry current commits and local changes. Use fresh
+`origin/main` as the base when that preserves the task's work; otherwise create
+from the current task head and reconcile only when the ship workflow requires
+it. In a shared checkout, ask before changing branches unless the user gave the
+exact operation.
 
 ## Branch naming
 
