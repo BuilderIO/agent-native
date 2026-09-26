@@ -73,7 +73,7 @@ export default defineAction({
     // batch share a `createdAt` to the millisecond and fall back to the id
     // tiebreak. Nothing may depend on the index matching the order a generator
     // wrote in — see the order-independence case in variant-lineup.test.ts.
-    const fileFields = {
+    const baseFileFields = {
       id: schema.designFiles.id,
       filename: schema.designFiles.filename,
       fileType: schema.designFiles.fileType,
@@ -89,7 +89,7 @@ export default defineAction({
     const files =
       includeFileContent === false
         ? await db
-            .select(fileFields)
+            .select(baseFileFields)
             .from(schema.designFiles)
             .where(fileFilter)
             .orderBy(
@@ -97,7 +97,7 @@ export default defineAction({
               asc(schema.designFiles.id),
             )
         : await db
-            .select({ ...fileFields, content: schema.designFiles.content })
+            .select({ ...baseFileFields, content: schema.designFiles.content })
             .from(schema.designFiles)
             .where(fileFilter)
             .orderBy(
