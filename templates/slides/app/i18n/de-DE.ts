@@ -657,6 +657,22 @@ const messages = {
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
   },
+  deckAccessPage: {
+    errorCode: "Fehler 403",
+    noAccessTitle: "Du hast keinen Zugriff",
+    noAccessDescription:
+      "Bitte die Person, der das Deck gehört, um Zugriff, oder wechsle zum richtigen Konto.",
+    noteLabel: "Notiz für die Eigentümerin oder den Eigentümer (optional)",
+    notePlaceholder: "Ich prüfe dieses Deck",
+    requesting: "Wird angefragt",
+    requestFailed:
+      "Deine Anfrage wurde nicht gesendet. Bitte versuche es erneut.",
+    requestSentDescription:
+      "Wir schicken dir eine E-Mail, sobald die Person, der das Deck gehört, deine Anfrage genehmigt.",
+    goHome: "Zur Startseite",
+    signedInAs: "Angemeldet als",
+    switchAccount: "Konto wechseln",
+  },
   deckEditor: {
     lookingForDeck: "Buscando este deck",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
@@ -705,6 +721,10 @@ const messages = {
     accessApprovalTitle: "Zugriff gewährt",
     accessApprovalAlreadyTitle: "Zugriff bereits gewährt",
     accessApprovalMessage: "{{email}} kann dieses Deck jetzt öffnen.",
+    accessApprovalRequesterEmailed:
+      "Wir haben die Person per E-Mail benachrichtigt.",
+    accessApprovalRequesterEmailFailed:
+      "Wir konnten {{email}} keine E-Mail senden. Gib Bescheid, dass das Deck jetzt geöffnet werden kann.",
     accessApprovalAlreadyMessage:
       "{{email}} hat bereits Zugriff auf dieses Deck.",
     accessApprovalErrorTitle: "Zugriff konnte nicht gewährt werden",

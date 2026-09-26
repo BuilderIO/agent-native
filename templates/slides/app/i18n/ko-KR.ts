@@ -641,6 +641,21 @@ const messages = {
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",
   },
+  deckAccessPage: {
+    errorCode: "오류 403",
+    noAccessTitle: "액세스 권한이 없습니다",
+    noAccessDescription:
+      "덱 소유자에게 액세스를 요청하거나 올바른 계정으로 전환하세요.",
+    noteLabel: "소유자에게 보낼 메모 추가(선택 사항)",
+    notePlaceholder: "이 덱을 검토하고 있습니다",
+    requesting: "요청 중",
+    requestFailed: "요청이 전송되지 않았습니다. 다시 시도해 주세요.",
+    requestSentDescription:
+      "소유자가 요청을 승인하면 바로 이메일로 알려 드리겠습니다.",
+    goHome: "홈으로 이동",
+    signedInAs: "로그인한 계정:",
+    switchAccount: "계정 전환",
+  },
   deckEditor: {
     lookingForDeck: "正在查找此幻灯片",
     joinTeamToOpen: "加入团队以打开此幻灯片",
@@ -685,6 +700,9 @@ const messages = {
     accessApprovalTitle: "액세스 권한이 부여되었습니다",
     accessApprovalAlreadyTitle: "이미 액세스 권한이 있습니다",
     accessApprovalMessage: "이제 {{email}} 님이 이 덱을 열 수 있습니다.",
+    accessApprovalRequesterEmailed: "이메일로 알려 드렸습니다.",
+    accessApprovalRequesterEmailFailed:
+      "{{email}}에게 이메일을 보내지 못했습니다. 이제 덱을 열 수 있다고 알려 주세요.",
     accessApprovalAlreadyMessage:
       "{{email}} 님은 이미 이 덱에 액세스할 수 있습니다.",
     accessApprovalErrorTitle: "액세스 권한을 부여하지 못했습니다",

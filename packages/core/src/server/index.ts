@@ -766,6 +766,7 @@ export {
 export {
   renderEmail,
   emailStrong,
+  emailQuote,
   emailLink,
   type RenderEmailArgs,
   type RenderedEmail,

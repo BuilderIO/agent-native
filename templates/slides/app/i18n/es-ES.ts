@@ -661,6 +661,21 @@ const messages = {
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
   },
+  deckAccessPage: {
+    errorCode: "Error 403",
+    noAccessTitle: "No tienes acceso",
+    noAccessDescription:
+      "Pide acceso a la persona propietaria del deck o cambia a la cuenta correcta.",
+    noteLabel: "Añade una nota para la persona propietaria (opcional)",
+    notePlaceholder: "Estoy revisando este deck",
+    requesting: "Solicitando",
+    requestFailed: "No se ha enviado tu solicitud. Inténtalo de nuevo.",
+    requestSentDescription:
+      "Te enviaremos un correo en cuanto la persona propietaria apruebe tu solicitud.",
+    goHome: "Ir al inicio",
+    signedInAs: "Sesión iniciada como",
+    switchAccount: "Cambiar de cuenta",
+  },
   deckEditor: {
     lookingForDeck: "Buscando este deck",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
@@ -707,6 +722,9 @@ const messages = {
     accessApprovalTitle: "Acceso concedido",
     accessApprovalAlreadyTitle: "El acceso ya está concedido",
     accessApprovalMessage: "{{email}} ya puede abrir este deck.",
+    accessApprovalRequesterEmailed: "Le hemos avisado por correo electrónico.",
+    accessApprovalRequesterEmailFailed:
+      "No hemos podido enviar un correo a {{email}}. Avísale de que ya puede abrir el deck.",
     accessApprovalAlreadyMessage: "{{email}} ya tiene acceso a este deck.",
     accessApprovalErrorTitle: "No se pudo conceder el acceso",
     accessApprovalInvalid:

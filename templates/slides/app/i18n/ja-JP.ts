@@ -646,6 +646,21 @@ const messages = {
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",
   },
+  deckAccessPage: {
+    errorCode: "エラー 403",
+    noAccessTitle: "アクセス権がありません",
+    noAccessDescription:
+      "デッキのオーナーにアクセスをリクエストするか、正しいアカウントに切り替えてください。",
+    noteLabel: "オーナーへのメモを追加（任意）",
+    notePlaceholder: "このデッキを確認しています",
+    requesting: "リクエスト中",
+    requestFailed: "リクエストを送信できませんでした。もう一度お試しください。",
+    requestSentDescription:
+      "オーナーがリクエストを承認したら、すぐにメールでお知らせします。",
+    goHome: "ホームへ",
+    signedInAs: "ログイン中のアカウント:",
+    switchAccount: "アカウントを切り替える",
+  },
   deckEditor: {
     lookingForDeck: "正在查找此幻灯片",
     joinTeamToOpen: "加入团队以打开此幻灯片",
@@ -691,6 +706,9 @@ const messages = {
     accessApprovalTitle: "アクセスを許可しました",
     accessApprovalAlreadyTitle: "アクセスはすでに許可されています",
     accessApprovalMessage: "{{email}} はこのデッキを開けるようになりました。",
+    accessApprovalRequesterEmailed: "メールでお知らせしました。",
+    accessApprovalRequesterEmailFailed:
+      "{{email}} にメールを送信できませんでした。デッキを開けるようになったことを伝えてください。",
     accessApprovalAlreadyMessage:
       "{{email}} はすでにこのデッキにアクセスできます。",
     accessApprovalErrorTitle: "アクセスを許可できませんでした",

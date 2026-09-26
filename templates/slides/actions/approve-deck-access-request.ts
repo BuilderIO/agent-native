@@ -1,36 +1,70 @@
 import { createHash } from "node:crypto";
 
 import { defineAction } from "@agent-native/core/action";
-import { verifyScopedAgentAccessToken } from "@agent-native/core/server";
+import {
+  isEmailConfigured,
+  sendEmail,
+  verifyScopedAgentAccessToken,
+} from "@agent-native/core/server";
 import { invalidateCollabAccessCache } from "@agent-native/core/server/poll";
 import {
   getRequestOrgId,
   getRequestUserEmail,
+  getRequestUserName,
 } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  renderDeckAccessGrantedEmail,
+  SLIDES_DECK_ACCESS_GRANTED_EMAIL_ID,
+} from "../server/lib/access-request-email.js";
+import {
+  findDeckAccessRequest,
+  isGrantedAccessRequest,
+  normalizeEmail,
+} from "../server/lib/deck-access-requests.js";
 import { SLIDES_ACCESS_APPROVAL_TOKEN_PREFIX } from "../shared/deck-access.js";
+import { getDeckUrl } from "./_app-url.js";
 
 function httpError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });
-}
-
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
 }
 
 function approvalTokenHash(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-type AccessRequestPayload = {
-  requesterEmail?: string;
-  approvalTokenHash?: string;
-  accessGrantedAt?: string;
-};
+/**
+ * Whether the requester was emailed: `null` when no email provider is
+ * configured, so the caller can tell "not attempted" from "failed".
+ */
+async function notifyRequesterOfAccess(input: {
+  deckId: string;
+  deckTitle: string;
+  requesterEmail: string;
+  approverEmail: string;
+}): Promise<boolean | null> {
+  if (!(await isEmailConfigured())) return null;
+  try {
+    await sendEmail({
+      ...renderDeckAccessGrantedEmail({
+        approverName: getRequestUserName()?.trim() || input.approverEmail,
+        deckTitle: input.deckTitle,
+        url: getDeckUrl(input.deckId),
+      }),
+      to: input.requesterEmail,
+      replyTo: input.approverEmail,
+      templateId: SLIDES_DECK_ACCESS_GRANTED_EMAIL_ID,
+    });
+    return true;
+  } catch (error) {
+    console.warn("[deck-access] access granted email failed:", error);
+    return false;
+  }
+}
 
 function deckViewerShareId(deckId: string, requesterEmail: string): string {
   return (
@@ -93,42 +127,14 @@ export default defineAction({
     }
 
     const requesterEmail = normalizeEmail(token.viewerEmail);
-    const accessRequests = await db
-      .select({
-        id: schema.deckEvents.id,
-        payload: schema.deckEvents.payload,
-      })
-      .from(schema.deckEvents)
-      .where(
-        and(
-          eq(schema.deckEvents.deckId, deckId),
-          eq(schema.deckEvents.type, "deck.access_requested"),
-        ),
-      );
-    const request = accessRequests.find((event) => {
-      try {
-        const payload = JSON.parse(event.payload ?? "") as AccessRequestPayload;
-        return (
-          typeof payload.requesterEmail === "string" &&
-          normalizeEmail(payload.requesterEmail) === requesterEmail &&
-          payload.approvalTokenHash === approvalTokenHash(approvalToken)
-        );
-      } catch {
-        // coercion-ok: malformed historical event payload cannot authorize a share.
-        return false;
-      }
-    });
-    if (!request) {
+    const request = await findDeckAccessRequest(db, deckId, requesterEmail);
+    if (
+      !request ||
+      request.parsed.approvalTokenHash !== approvalTokenHash(approvalToken)
+    ) {
       throw httpError("This access request is invalid or expired.", 404);
     }
-    let requestPayload: AccessRequestPayload;
-    try {
-      requestPayload = JSON.parse(
-        request.payload ?? "",
-      ) as AccessRequestPayload;
-    } catch {
-      throw httpError("This access request is invalid or expired.", 404);
-    }
+    const requestPayload = request.parsed;
 
     const [existingShare] = await db
       .select({ id: schema.deckShares.id })
@@ -154,7 +160,7 @@ export default defineAction({
         message: "Access was already granted to this requester.",
       };
     }
-    if (requestPayload.accessGrantedAt) {
+    if (isGrantedAccessRequest(requestPayload)) {
       throw httpError("This access request is invalid or expired.", 404);
     }
 
@@ -221,6 +227,15 @@ export default defineAction({
     }
     invalidateCollabAccessCache("deck", deckId);
 
+    // Only the approval that created the share emails, so repeat clicks on
+    // the approval link never notify the requester twice.
+    const requesterNotified = await notifyRequesterOfAccess({
+      deckId,
+      deckTitle: deck.title,
+      requesterEmail,
+      approverEmail: normalizedApproverEmail,
+    });
+
     return {
       ok: true as const,
       alreadyAllowed: false,
@@ -228,7 +243,13 @@ export default defineAction({
       deckId,
       deckTitle: deck.title,
       shareId: insertedShare.id,
-      message: "Access granted. This requester can now open the deck.",
+      requesterNotified,
+      message:
+        requesterNotified === true
+          ? "Access granted. We emailed the requester to let them know."
+          : requesterNotified === false
+            ? "Access granted, but the email to the requester could not be sent."
+            : "Access granted. This requester can now open the deck.",
     };
   },
 });

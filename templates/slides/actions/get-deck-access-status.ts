@@ -10,6 +10,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  findDeckAccessRequest,
+  isGrantedAccessRequest,
+} from "../server/lib/deck-access-requests.js";
+import {
   SLIDES_ACCESS_REQUEST_FALLBACK_TOKEN_PREFIX,
   SLIDES_ACCESS_REQUEST_TOKEN_PREFIX,
   SLIDES_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
@@ -24,6 +28,11 @@ export type DeckAccessStatus = {
   role: "owner" | "viewer" | "commenter" | "editor" | "admin" | null;
   visibility: "private" | "org" | "public" | null;
   accessRequestToken?: string;
+  /** The viewer's own access request that the owner has not approved yet. */
+  pendingAccessRequest?: {
+    note: string | null;
+    notifiedOwner: boolean;
+  };
 };
 
 export default defineAction({
@@ -86,6 +95,10 @@ export default defineAction({
             ttlSeconds: SLIDES_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
           })
         : undefined;
+    const pendingAccessRequest =
+      !access && viewerEmail && visibility === "private"
+        ? await findPendingAccessRequest(deckId, viewerEmail)
+        : undefined;
     return {
       exists: true,
       hasAccess: Boolean(access),
@@ -95,6 +108,19 @@ export default defineAction({
       role: access?.role ?? null,
       visibility,
       ...(accessRequestToken ? { accessRequestToken } : {}),
+      ...(pendingAccessRequest ? { pendingAccessRequest } : {}),
     };
   },
 });
+
+async function findPendingAccessRequest(
+  deckId: string,
+  viewerEmail: string,
+): Promise<DeckAccessStatus["pendingAccessRequest"]> {
+  const request = await findDeckAccessRequest(getDb(), deckId, viewerEmail);
+  if (!request || isGrantedAccessRequest(request.parsed)) return undefined;
+  return {
+    note: request.parsed.note ?? null,
+    notifiedOwner: request.parsed.notifiedOwner === true,
+  };
+}

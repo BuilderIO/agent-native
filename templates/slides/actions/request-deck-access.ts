@@ -22,7 +22,16 @@ import {
   SLIDES_DECK_ACCESS_REQUEST_EMAIL_ID,
 } from "../server/lib/access-request-email.js";
 import {
+  accessRequestEventId,
+  DECK_ACCESS_REQUESTED_EVENT,
+  findDeckAccessRequest,
+  isGrantedAccessRequest,
+  normalizeEmail,
+  type AccessRequestPayload,
+} from "../server/lib/deck-access-requests.js";
+import {
   SLIDES_ACCESS_REQUEST_FALLBACK_TOKEN_PREFIX,
+  SLIDES_ACCESS_REQUEST_NOTE_MAX_LENGTH,
   SLIDES_ACCESS_REQUEST_TOKEN_PREFIX,
   deckAccessApprovalPath,
   SLIDES_ACCESS_APPROVAL_TOKEN_PREFIX,
@@ -110,43 +119,12 @@ function displayNameForEmail(email: string): string {
     .join(" ");
 }
 
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
-
 function absoluteDeckAccessApprovalUrl(
   deckId: string,
   approvalToken: string,
 ): string {
   return `${getSlidesAppUrl().replace(/\/+$/, "")}${deckAccessApprovalPath(deckId, approvalToken)}`;
 }
-
-function accessRequestEventId(deckId: string, requesterEmail: string): string {
-  return (
-    "access-request-" +
-    createHash("sha256")
-      .update(deckId)
-      .update("\0")
-      .update(requesterEmail)
-      .digest("hex")
-  );
-}
-
-type AccessRequestPayload = {
-  requestId?: string;
-  requesterEmail?: string;
-  requesterName?: string;
-  requestedAt?: string;
-  approvalTokenHash?: string;
-  accessGrantedAt?: string;
-  accessShareId?: string;
-  notifiedOwner?: boolean;
-  notifiedAt?: string;
-  inAppNotified?: boolean;
-  emailNotified?: boolean;
-  notificationClaimedAt?: string;
-  notificationClaimToken?: string;
-};
 
 type AccessRequestNotificationState = {
   inAppNotified: boolean;
@@ -160,20 +138,6 @@ const NOTIFICATION_CLAIM_TTL_MS = 5 * 60 * 1000;
 const NOTIFICATION_CLAIM_HEARTBEAT_MS = Math.floor(
   NOTIFICATION_CLAIM_TTL_MS / 3,
 );
-
-function parseAccessRequestPayload(
-  payload: string | null | undefined,
-): AccessRequestPayload | null {
-  try {
-    const parsed = JSON.parse(payload ?? "") as unknown;
-    return parsed && typeof parsed === "object"
-      ? (parsed as AccessRequestPayload)
-      : null;
-  } catch {
-    // coercion-ok: malformed historical event payload cannot represent a matching requester.
-    return null;
-  }
-}
 
 function notificationStateFor(
   payload: AccessRequestPayload,
@@ -227,6 +191,7 @@ async function notifyAccessRequestOwner(input: {
   ownerEmail: string | null;
   requesterEmail: string;
   requesterName: string;
+  note?: string;
   state: AccessRequestNotificationState;
 }): Promise<AccessRequestNotificationState> {
   const ownerEmail = input.ownerEmail;
@@ -240,7 +205,9 @@ async function notifyAccessRequestOwner(input: {
         {
           severity: "info",
           title: "Deck access requested",
-          body: `${input.requesterName} requested access to “${input.deckTitle}”.`,
+          body: input.note
+            ? `${input.requesterName} requested access to “${input.deckTitle}”: “${input.note}”`
+            : `${input.requesterName} requested access to “${input.deckTitle}”.`,
           channels: ["inbox"],
           metadata: {
             deckId: input.deckId,
@@ -281,6 +248,7 @@ async function notifyAccessRequestOwner(input: {
             input.deckId,
             approvalToken,
           ),
+          note: input.note,
         }),
         to: ownerEmail,
         replyTo: input.requesterEmail,
@@ -320,6 +288,13 @@ export default defineAction({
       .describe(
         "Email address to request access for when the viewer is not signed in.",
       ),
+    note: z
+      .string()
+      .trim()
+      .max(SLIDES_ACCESS_REQUEST_NOTE_MAX_LENGTH)
+      .optional()
+      .transform((value) => value || undefined)
+      .describe("Optional note for the deck owner explaining the request."),
   }),
   requiresAuth: false,
   agentTool: false,
@@ -327,6 +302,7 @@ export default defineAction({
     deckId,
     accessRequestToken,
     requesterEmail: requesterEmailInput,
+    note,
   }) => {
     const sessionEmail = getRequestUserEmail();
     let requestToken = accessRequestToken
@@ -553,42 +529,20 @@ export default defineAction({
     const requesterName =
       getRequestUserName()?.trim() || displayNameForEmail(requesterEmail);
     const ownerEmail = deck.ownerEmail?.trim() || null;
-    const emailConfigured = await isEmailConfigured();
-    const previousRequests = await db
-      .select({
-        id: schema.deckEvents.id,
-        payload: schema.deckEvents.payload,
-      })
-      .from(schema.deckEvents)
-      .where(
-        and(
-          eq(schema.deckEvents.deckId, deckId),
-          eq(schema.deckEvents.type, "deck.access_requested"),
-        ),
-      );
-    const previousRequest = previousRequests.find((event) => {
-      const payload = parseAccessRequestPayload(event.payload);
-      return (
-        typeof payload?.requesterEmail === "string" &&
-        normalizeEmail(payload.requesterEmail) === requesterEmail
-      );
-    });
+    const [emailConfigured, previousRequest] = await Promise.all([
+      isEmailConfigured(),
+      findDeckAccessRequest(db, deckId, requesterEmail),
+    ]);
+    // The viewer has no access (checked above), so reopen a granted request
+    // as a fresh one instead of reporting it as still with the owner.
+    const reopenedRequest =
+      previousRequest && isGrantedAccessRequest(previousRequest.parsed)
+        ? previousRequest
+        : undefined;
 
-    if (previousRequest) {
-      const previousPayload = parseAccessRequestPayload(
-        previousRequest.payload,
-      );
+    if (previousRequest && !reopenedRequest) {
       const previousRequestId = previousRequest.id;
-      if (!previousPayload) {
-        return {
-          ok: true as const,
-          alreadyHasAccess: false,
-          alreadyRequested: true,
-          notifiedOwner: false,
-          requestId: previousRequestId,
-          message: "Your access request is already with the deck owner.",
-        };
-      }
+      const previousPayload = previousRequest.parsed;
 
       const previousState = notificationStateFor(
         previousPayload,
@@ -644,6 +598,7 @@ export default defineAction({
             requesterEmail,
             requesterName:
               previousPayload?.requesterName?.trim() || requesterName,
+            note: previousPayload.note ?? note,
             state: previousState,
           }),
       );
@@ -671,13 +626,15 @@ export default defineAction({
       ? null
       : await claimAnonymousAccessRequestSlot(db, deckId);
 
-    const requestId = accessRequestEventId(deckId, requesterEmail);
+    const requestId =
+      reopenedRequest?.id ?? accessRequestEventId(deckId, requesterEmail);
     const requestedAt = new Date().toISOString();
     const initialPayload: AccessRequestPayload = {
       requestId,
       requesterEmail,
       requesterName,
       requestedAt,
+      ...(note ? { note } : {}),
       notifiedOwner: false,
       inAppNotified: false,
       emailNotified: false,
@@ -688,19 +645,30 @@ export default defineAction({
 
     let insertedRequest: { id: string } | undefined;
     try {
-      [insertedRequest] = await db
-        .insert(schema.deckEvents)
-        .values({
-          id: requestId,
-          deckId,
-          type: "deck.access_requested",
-          message: `${requesterEmail} requested access to this deck.`,
-          payload: initialPayloadJson,
-          createdBy: "human",
-          createdAt: requestedAt,
-        })
-        .onConflictDoNothing()
-        .returning({ id: schema.deckEvents.id });
+      [insertedRequest] = reopenedRequest
+        ? await db
+            .update(schema.deckEvents)
+            .set({ payload: initialPayloadJson })
+            .where(
+              and(
+                eq(schema.deckEvents.id, reopenedRequest.id),
+                eq(schema.deckEvents.payload, reopenedRequest.payload ?? ""),
+              ),
+            )
+            .returning({ id: schema.deckEvents.id })
+        : await db
+            .insert(schema.deckEvents)
+            .values({
+              id: requestId,
+              deckId,
+              type: DECK_ACCESS_REQUESTED_EVENT,
+              message: `${requesterEmail} requested access to this deck.`,
+              payload: initialPayloadJson,
+              createdBy: "human",
+              createdAt: requestedAt,
+            })
+            .onConflictDoNothing()
+            .returning({ id: schema.deckEvents.id });
     } catch (error) {
       if (anonymousSlot) {
         await refundAnonymousAccessRequestSlot(
@@ -745,6 +713,7 @@ export default defineAction({
           ownerEmail,
           requesterEmail,
           requesterName,
+          note,
           state: initialState,
         }),
     );

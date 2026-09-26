@@ -646,6 +646,21 @@ const messages = {
     enterFullscreen: "Enter fullscreen",
     clickToEnterFullscreen: "Click to enter fullscreen",
   },
+  deckAccessPage: {
+    errorCode: "Error 403",
+    noAccessTitle: "You don't have access",
+    noAccessDescription:
+      "Ask the deck owner for access, or switch to the right account.",
+    noteLabel: "Add a note for the owner (optional)",
+    notePlaceholder: "I'm reviewing this deck",
+    requesting: "Requesting",
+    requestFailed: "Your request wasn't sent. Please try again.",
+    requestSentDescription:
+      "We’ll email you as soon as the owner approves your request.",
+    goHome: "Go home",
+    signedInAs: "Signed in as",
+    switchAccount: "Switch account",
+  },
   deckEditor: {
     lookingForDeck: "Looking for this deck",
     joinTeamToOpen: "Join your team to open this deck",
@@ -691,6 +706,9 @@ const messages = {
     accessApprovalTitle: "Access granted",
     accessApprovalAlreadyTitle: "Access already granted",
     accessApprovalMessage: "{{email}} can now open this deck.",
+    accessApprovalRequesterEmailed: "We emailed them to let them know.",
+    accessApprovalRequesterEmailFailed:
+      "We couldn't email {{email}}. Let them know they can open the deck now.",
     accessApprovalAlreadyMessage: "{{email}} already has access to this deck.",
     accessApprovalErrorTitle: "Couldn't grant access",
     accessApprovalInvalid: "This access request is invalid or expired.",

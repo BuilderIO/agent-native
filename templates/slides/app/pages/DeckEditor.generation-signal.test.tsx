@@ -189,13 +189,18 @@ vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => ({ data: null, isLoading: false, isError: false }),
 }));
 
+const resetDeckAccessRequest = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/use-deck-access", () => ({
   useDeckAccessStatus: () => ({
     data: { exists: true, hasAccess: true, visibility: "private" },
     isError: false,
     isLoading: false,
   }),
-  useRequestDeckAccess: () => ({ isPending: false, mutateAsync: vi.fn() }),
+  useRequestDeckAccess: () => ({
+    isPending: false,
+    mutateAsync: vi.fn(),
+    reset: resetDeckAccessRequest,
+  }),
 }));
 vi.mock("@/hooks/use-deck-design-system", () => ({
   useDeckDesignSystem: () => ({

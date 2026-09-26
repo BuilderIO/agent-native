@@ -629,6 +629,20 @@ const messages = {
     enterFullscreen: "進入全螢幕",
     clickToEnterFullscreen: "點選進入全螢幕",
   },
+  deckAccessPage: {
+    errorCode: "錯誤 403",
+    noAccessTitle: "你沒有存取權限",
+    noAccessDescription: "請向簡報擁有者申請存取權限，或切換到正確的帳號。",
+    noteLabel: "給擁有者新增備註（選填）",
+    notePlaceholder: "我正在審閱這份簡報",
+    requesting: "正在申請",
+    requestFailed: "你的申請未送出，請再試一次。",
+    requestSentDescription:
+      "擁有者核准你的申請後，我們會立即寄送電子郵件通知你。",
+    goHome: "返回首頁",
+    signedInAs: "目前登入帳號",
+    switchAccount: "切換帳號",
+  },
   deckEditor: {
     lookingForDeck: "正在尋找此幻燈片",
     joinTeamToOpen: "加入團隊以開啟此幻燈片",
@@ -671,6 +685,9 @@ const messages = {
     accessApprovalTitle: "已授予存取權限",
     accessApprovalAlreadyTitle: "已授予存取權限",
     accessApprovalMessage: "{{email}} 現在可以開啟此簡報。",
+    accessApprovalRequesterEmailed: "我們已寄送電子郵件通知對方。",
+    accessApprovalRequesterEmailFailed:
+      "無法寄送電子郵件給 {{email}}。請告知對方現在可以開啟簡報了。",
     accessApprovalAlreadyMessage: "{{email}} 已經可以存取此簡報。",
     accessApprovalErrorTitle: "無法授予存取權限",
     accessApprovalInvalid: "此存取請求無效或已過期。",

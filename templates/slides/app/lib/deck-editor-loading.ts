@@ -19,6 +19,24 @@ export async function retryMissingDeck({
   await refetchAccessStatus();
 }
 
+/**
+ * What the metadata-only access probe says about a deck the editor could not
+ * load. Only `allowed` needs the protected deck list to settle; every other
+ * outcome already decides what the viewer sees.
+ */
+type DeckAccessCheck = "loading" | "allowed" | "denied" | "missing" | "failed";
+
+export function deckAccessCheckFor(query: {
+  data?: { exists: boolean; hasAccess: boolean } | null;
+  isError: boolean;
+  isLoading: boolean;
+}): DeckAccessCheck {
+  if (query.isError) return "failed";
+  if (!query.data) return query.isLoading ? "loading" : "failed";
+  if (!query.data.exists) return "missing";
+  return query.data.hasAccess ? "allowed" : "denied";
+}
+
 export function shouldShowDeckEditorSkeleton({
   deckFound,
   decksLoading,
@@ -26,7 +44,7 @@ export function shouldShowDeckEditorSkeleton({
   accessCheckKey,
   checkedAccessKey,
   retrying,
-  deckAccessDeniedConfirmed,
+  accessCheck,
 }: {
   deckFound: boolean;
   decksLoading: boolean;
@@ -34,12 +52,38 @@ export function shouldShowDeckEditorSkeleton({
   accessCheckKey: string | null;
   checkedAccessKey: string | null;
   retrying: boolean;
-  deckAccessDeniedConfirmed: boolean;
+  accessCheck: DeckAccessCheck;
 }): boolean {
-  // The metadata-only access check is authoritative even when loading the
-  // protected deck list fails or stays pending.
-  if (deckAccessDeniedConfirmed) return false;
+  if (deckFound) return false;
+  if (retrying) return true;
+  // The access probe is authoritative even when loading the protected deck
+  // list fails or stays pending, so a denied, missing, or unreadable deck
+  // never waits on the list.
+  if (accessCheck !== "allowed") return accessCheck === "loading";
   if (decksLoading) return true;
-  if (deckFound || !accessCheckKey) return false;
-  return orgLoading || checkedAccessKey !== accessCheckKey || retrying;
+  if (!accessCheckKey) return false;
+  return orgLoading || checkedAccessKey !== accessCheckKey;
+}
+
+export type DeckAccessRequestState =
+  | { status: "idle" | "pending" | "failed" }
+  | { status: "sent"; ownerNotified: boolean };
+
+/**
+ * The viewer's access request as the access denied page shows it: a request
+ * sent from this page, else one already on record from an earlier visit.
+ */
+export function deckAccessRequestStateFor(
+  mutation: {
+    isPending: boolean;
+    isError: boolean;
+    data?: { notifiedOwner: boolean };
+  },
+  recordedRequest: { notifiedOwner: boolean } | null | undefined,
+): DeckAccessRequestState {
+  const sent = mutation.data ?? recordedRequest;
+  if (sent) return { status: "sent", ownerNotified: sent.notifiedOwner };
+  if (mutation.isPending) return { status: "pending" };
+  if (mutation.isError) return { status: "failed" };
+  return { status: "idle" };
 }

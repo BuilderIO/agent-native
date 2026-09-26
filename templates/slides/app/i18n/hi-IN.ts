@@ -641,6 +641,20 @@ const messages = {
     enterFullscreen: "फ़ुलस्क्रीन में जाएं",
     clickToEnterFullscreen: "फ़ुलस्क्रीन में जाने के लिए क्लिक करें",
   },
+  deckAccessPage: {
+    errorCode: "त्रुटि 403",
+    noAccessTitle: "आपके पास एक्सेस नहीं है",
+    noAccessDescription: "डेक के मालिक से एक्सेस मांगें, या सही खाते पर स्विच करें।",
+    noteLabel: "मालिक के लिए एक नोट जोड़ें (वैकल्पिक)",
+    notePlaceholder: "मैं इस डेक की समीक्षा कर रहा/रही हूं",
+    requesting: "अनुरोध भेजा जा रहा है",
+    requestFailed: "आपका अनुरोध नहीं भेजा गया। कृपया फिर से कोशिश करें।",
+    requestSentDescription:
+      "जैसे ही मालिक आपके अनुरोध को मंज़ूरी देगा, हम आपको ईमेल करेंगे।",
+    goHome: "होम पर जाएं",
+    signedInAs: "इस रूप में साइन इन हैं",
+    switchAccount: "खाता बदलें",
+  },
   deckEditor: {
     lookingForDeck: "यह डेक खोजा जा रहा है",
     joinTeamToOpen: "यह डेक खोलने के लिए अपनी टीम से जुड़ें",
@@ -686,6 +700,9 @@ const messages = {
     accessApprovalTitle: "एक्सेस दे दी गई",
     accessApprovalAlreadyTitle: "एक्सेस पहले से दी गई है",
     accessApprovalMessage: "{{email}} अब यह डेक खोल सकते हैं।",
+    accessApprovalRequesterEmailed: "हमने उन्हें ईमेल करके बता दिया है।",
+    accessApprovalRequesterEmailFailed:
+      "हम {{email}} को ईमेल नहीं भेज सके। उन्हें बताएं कि वे अब डेक खोल सकते हैं।",
     accessApprovalAlreadyMessage: "{{email}} के पास इस डेक की एक्सेस पहले से है।",
     accessApprovalErrorTitle: "एक्सेस नहीं दी जा सकी",
     accessApprovalInvalid: "यह एक्सेस अनुरोध अमान्य या समाप्त हो चुका है।",

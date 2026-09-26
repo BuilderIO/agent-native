@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   resolveAccess: vi.fn(),
   verifyScopedAgentAccessToken: vi.fn(),
   getDb: vi.fn(),
+  getRequestUserName: vi.fn(),
+  isEmailConfigured: vi.fn(),
+  sendEmail: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -18,6 +21,15 @@ vi.mock("@agent-native/core", () => ({
 vi.mock("@agent-native/core/server", () => ({
   verifyScopedAgentAccessToken: (...args: unknown[]) =>
     mocks.verifyScopedAgentAccessToken(...args),
+  isEmailConfigured: () => mocks.isEmailConfigured(),
+  sendEmail: (...args: unknown[]) => mocks.sendEmail(...args),
+  emailQuote: (value: string) => value,
+  emailStrong: (value: string) => value,
+  renderEmail: () => ({ html: "<html />", text: "email" }),
+}));
+
+vi.mock("./_app-url.js", () => ({
+  getDeckUrl: (deckId: string) => `https://slides.example/deck/${deckId}`,
 }));
 
 vi.mock("@agent-native/core/server/poll", () => ({
@@ -28,6 +40,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: (...args: unknown[]) =>
     mocks.getRequestUserEmail(...args),
   getRequestOrgId: (...args: unknown[]) => mocks.getRequestOrgId(...args),
+  getRequestUserName: () => mocks.getRequestUserName(),
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -138,6 +151,9 @@ describe("approve-deck-access-request", () => {
     mocks.getRequestUserEmail.mockReturnValue("OWNER@example.com");
     mocks.getRequestOrgId.mockReturnValue("org-1");
     mocks.resolveAccess.mockResolvedValue({ role: "owner", resource: {} });
+    mocks.getRequestUserName.mockReturnValue("Owner Name");
+    mocks.isEmailConfigured.mockResolvedValue(true);
+    mocks.sendEmail.mockResolvedValue(undefined);
     mocks.verifyScopedAgentAccessToken.mockReturnValue({
       ok: true,
       viewerEmail: "viewer@example.com",
@@ -168,6 +184,60 @@ describe("approve-deck-access-request", () => {
     expect(db.update).toHaveBeenCalledOnce();
   });
 
+  it("emails the requester once access is granted", async () => {
+    mocks.getDb.mockReturnValue(
+      createDb([privateDeck()], [accessRequest()], []),
+    );
+
+    await expect(
+      (approveDeckAccessRequest as any).run({
+        deckId: "deck-1",
+        approvalToken: "approval-token",
+      }),
+    ).resolves.toMatchObject({ requesterNotified: true });
+    expect(mocks.sendEmail).toHaveBeenCalledOnce();
+    expect(mocks.sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "viewer@example.com",
+        replyTo: "owner@example.com",
+        subject: 'You now have access to "Private demo"',
+        templateId: "slides.deck-access-granted",
+      }),
+    );
+  });
+
+  it("keeps the grant and reports a failed requester email", async () => {
+    const db = createDb([privateDeck()], [accessRequest()], []);
+    mocks.getDb.mockReturnValue(db);
+    mocks.sendEmail.mockRejectedValue(new Error("provider down"));
+
+    await expect(
+      (approveDeckAccessRequest as any).run({
+        deckId: "deck-1",
+        approvalToken: "approval-token",
+      }),
+    ).resolves.toMatchObject({
+      alreadyAllowed: false,
+      requesterNotified: false,
+    });
+    expect(db.insert).toHaveBeenCalledOnce();
+  });
+
+  it("does not attempt the requester email without an email provider", async () => {
+    mocks.getDb.mockReturnValue(
+      createDb([privateDeck()], [accessRequest()], []),
+    );
+    mocks.isEmailConfigured.mockResolvedValue(false);
+
+    await expect(
+      (approveDeckAccessRequest as any).run({
+        deckId: "deck-1",
+        approvalToken: "approval-token",
+      }),
+    ).resolves.toMatchObject({ requesterNotified: null });
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+  });
+
   it("is idempotent when the requester is already shared", async () => {
     const db = createDb(
       [privateDeck()],
@@ -187,6 +257,7 @@ describe("approve-deck-access-request", () => {
       shareId: "existing-share",
     });
     expect(db.insert).not.toHaveBeenCalled();
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
 
   it("rejects invalid tokens before reading the deck", async () => {
