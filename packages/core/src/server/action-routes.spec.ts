@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
-import { getRequestContext, getRequestRunContext } from "./request-context.js";
+import {
+  getRequestContext,
+  getRequestRunContext,
+  markExplicitPersonalOrgScope,
+  markRequestIdentityAuthenticatedAtMs,
+} from "./request-context.js";
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn());
 const mockResolveOrgIdForEmail = vi.hoisted(() => vi.fn());
@@ -477,6 +482,43 @@ describe("mountActionRoutes", () => {
       }),
     ).resolves.toEqual({ ok: true });
     expect(observedAuthUserId).toBe("better-auth-user-1");
+  });
+
+  it("carries session validation time across later action-context lookups", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    let observedAuthenticatedAtMs: number | undefined;
+    const run = vi.fn(async () => {
+      observedAuthenticatedAtMs =
+        getRequestContext()?.identityAuthenticatedAtMs;
+      return { ok: true };
+    });
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const event = {
+      context: {},
+      _method: "POST",
+      req: { json: async () => ({}) },
+    };
+    markRequestIdentityAuthenticatedAtMs(event, "owner@example.com", 2_000);
+    markExplicitPersonalOrgScope(event);
+
+    mountActionRoutes(
+      nitroApp,
+      { test: { http: { method: "POST" }, run } as any },
+      { getOwnerFromEvent: async () => "owner@example.com" },
+    );
+
+    try {
+      await expect(mounted[0]!.handler(event)).resolves.toEqual({ ok: true });
+      expect(observedAuthenticatedAtMs).toBe(2_000);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("continues the action and reports failed optional identity resolution", async () => {

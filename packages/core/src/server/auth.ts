@@ -251,6 +251,7 @@ import {
 } from "./onboarding-html.js";
 import {
   getRequestContext,
+  markRequestIdentityAuthenticatedAtMs,
   hasContinuationLocalRequestContext,
   hasExplicitPersonalOrgScope,
   markExplicitPersonalOrgScope,
@@ -4818,14 +4819,21 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   const ctx = event.context as {
     __anSessionCache?: Promise<AuthSession | null>;
   };
-  return (ctx.__anSessionCache ??= (async () => {
-    const session = await resolveSessionUncached(event);
-    const resolved = session?.email
-      ? await backfillSessionOrg(session, event)
-      : session;
-    if (resolved?.email) await resumeIdentityRekeyForSession(resolved.email);
-    return resolved;
-  })());
+  if (!ctx.__anSessionCache) {
+    ctx.__anSessionCache = (async () => {
+      const session = await resolveSessionUncached(event);
+      if (session?.email) {
+        // Logout compares its cutoff to the validation boundary, before enrichment awaits.
+        markRequestIdentityAuthenticatedAtMs(event, session.email, Date.now());
+      }
+      const resolved = session?.email
+        ? await backfillSessionOrg(session, event)
+        : session;
+      if (resolved?.email) await resumeIdentityRekeyForSession(resolved.email);
+      return resolved;
+    })();
+  }
+  return ctx.__anSessionCache;
 }
 
 async function resolveSessionUncached(

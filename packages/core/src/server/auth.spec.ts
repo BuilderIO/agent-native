@@ -7708,6 +7708,77 @@ describe("server/auth", () => {
   });
 
   describe("getSession", () => {
+    it("records identity validation before asynchronous organization enrichment", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      let resolveAuthSession!: (value: unknown) => void;
+      let resolveOrgBackfill!: (value: string | null) => void;
+      let authLookupStarted!: () => void;
+      let orgBackfillStarted!: () => void;
+      const authLookup = new Promise<void>((resolve) => {
+        authLookupStarted = resolve;
+      });
+      const orgBackfill = new Promise<void>((resolve) => {
+        orgBackfillStarted = resolve;
+      });
+      const authSession = new Promise<unknown>((resolve) => {
+        resolveAuthSession = resolve;
+      });
+      const backfilledOrg = new Promise<string | null>((resolve) => {
+        resolveOrgBackfill = resolve;
+      });
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => undefined),
+        getBetterAuthSync: vi.fn(() => ({
+          api: {
+            getSession: vi.fn(() => {
+              authLookupStarted();
+              return authSession;
+            }),
+          },
+        })),
+      }));
+      vi.doMock("../org/context.js", () => ({
+        resolveOrgIdForEmailViaEvent: vi.fn(() => {
+          orgBackfillStarted();
+          return backfilledOrg;
+        }),
+      }));
+      const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+
+      try {
+        const { getRequestIdentityAuthenticatedAtMs } =
+          await import("./request-context.js");
+        const { getSession } = await import("./auth.js");
+        const event = createMockEvent();
+        const pendingSession = getSession(event);
+
+        await authLookup;
+        now.mockReturnValue(1_100);
+        resolveAuthSession({
+          user: { id: "auth-user", email: "owner@example.com" },
+          session: { token: "session-token" },
+        });
+        await orgBackfill;
+        now.mockReturnValue(2_000);
+
+        expect(
+          getRequestIdentityAuthenticatedAtMs(event, "owner@example.com"),
+        ).toBe(1_100);
+
+        resolveOrgBackfill("org-1");
+        await expect(pendingSession).resolves.toMatchObject({
+          email: "owner@example.com",
+          orgId: "org-1",
+        });
+      } finally {
+        now.mockRestore();
+      }
+    });
+
     it("lets an isolated development harness bypass Desktop SSO and use AUTH_DISABLED", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("AUTH_DISABLED", "1");

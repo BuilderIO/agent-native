@@ -164,7 +164,7 @@ export interface RequestContext {
   /** Stable MCP request key used to make transport retries idempotent. */
   mcpRequestId?: string;
   userEmail?: string;
-  /** Time this request identity was validated, preserved through nested scopes. */
+  /** Earliest authentication-resolution time for this identity in the request. */
   identityAuthenticatedAtMs?: number;
   /** Canonical id set only from a validated Better Auth session. */
   authUserId?: string;
@@ -290,6 +290,54 @@ export function hasExplicitPersonalOrgScope(event: {
   return event.context?.[EXPLICIT_PERSONAL_ORG_SCOPE_KEY] === true;
 }
 
+const REQUEST_IDENTITY_AUTH_TIME_KEY = "__anRequestIdentityAuthTime";
+
+type RequestIdentityAuthTime = {
+  email: string;
+  authenticatedAtMs: number;
+};
+
+export function markRequestIdentityAuthenticatedAtMs(
+  event: { context?: Record<string, unknown> },
+  email: string,
+  authenticatedAtMs: number,
+): void {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (
+    !event.context ||
+    !normalizedEmail ||
+    !Number.isFinite(authenticatedAtMs)
+  ) {
+    return;
+  }
+
+  const existing = event.context[REQUEST_IDENTITY_AUTH_TIME_KEY] as
+    | RequestIdentityAuthTime
+    | undefined;
+  event.context[REQUEST_IDENTITY_AUTH_TIME_KEY] = {
+    email: normalizedEmail,
+    authenticatedAtMs:
+      existing?.email === normalizedEmail &&
+      Number.isFinite(existing.authenticatedAtMs)
+        ? Math.min(existing.authenticatedAtMs, authenticatedAtMs)
+        : authenticatedAtMs,
+  } satisfies RequestIdentityAuthTime;
+}
+
+export function getRequestIdentityAuthenticatedAtMs(
+  event: { context?: Record<string, unknown> },
+  email: string,
+): number | undefined {
+  const normalizedEmail = email.trim().toLowerCase();
+  const identity = event.context?.[REQUEST_IDENTITY_AUTH_TIME_KEY] as
+    | RequestIdentityAuthTime
+    | undefined;
+  return identity?.email === normalizedEmail &&
+    Number.isFinite(identity.authenticatedAtMs)
+    ? identity.authenticatedAtMs
+    : undefined;
+}
+
 const GLOBAL_KEY = "__agentNativeRequestContextAls" as const;
 const OBSERVERS_KEY = "__agentNativeRequestContextObservers" as const;
 const BOUNDARY_KEY = "__agentNativeRequestBoundaryInstalled" as const;
@@ -382,18 +430,23 @@ export function runWithRequestContext<T>(
     const inheritedUserEmail = inheritedContext?.userEmail
       ?.trim()
       .toLowerCase();
-    const inheritedAuthTime = inheritedContext?.identityAuthenticatedAtMs;
+    const inheritedAuthTime =
+      typeof inheritedContext?.identityAuthenticatedAtMs === "number" &&
+      Number.isFinite(inheritedContext.identityAuthenticatedAtMs)
+        ? inheritedContext.identityAuthenticatedAtMs
+        : undefined;
+    const contextAuthTime =
+      typeof context.identityAuthenticatedAtMs === "number" &&
+      Number.isFinite(context.identityAuthenticatedAtMs)
+        ? context.identityAuthenticatedAtMs
+        : undefined;
     context = {
       ...context,
       identityAuthenticatedAtMs:
         inheritedUserEmail === contextUserEmail &&
-        typeof inheritedAuthTime === "number" &&
-        Number.isFinite(inheritedAuthTime)
-          ? inheritedAuthTime
-          : typeof context.identityAuthenticatedAtMs === "number" &&
-              Number.isFinite(context.identityAuthenticatedAtMs)
-            ? context.identityAuthenticatedAtMs
-            : Date.now(),
+        inheritedAuthTime !== undefined
+          ? Math.min(inheritedAuthTime, contextAuthTime ?? inheritedAuthTime)
+          : (contextAuthTime ?? Date.now()),
     };
   } else if (context.identityAuthenticatedAtMs !== undefined) {
     const contextWithoutIdentityTime = { ...context };
