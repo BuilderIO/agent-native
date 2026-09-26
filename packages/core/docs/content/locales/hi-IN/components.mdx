@@ -185,22 +185,22 @@ Toolkit की शैलियों में साझा ज्यामि�
 
 ## एजेंट और चैट UI {#agent-chat-ui}
 
-| API                                  | आयात पथ                                       | कब उपयोग करें                                                                                           |
-| ------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `<AgentSidebar>`                     | `@agent-native/core/client` या `/client/chat` | आप अपने ऐप के चारों ओर संपूर्ण साइडबार चाहते हैं।                                                       |
-| `<AgentToggleButton>`                | `@agent-native/core/client` या `/client/chat` | आप साइडबार के लिए अपना स्वयं का हेडर बटन प्रस्तुत करते हैं।                                             |
-| `<AgentPanel>`                       | `@agent-native/core/client` या `/client/chat` | आप पूरा पैनल अपने लेआउट, रूट, डायलॉग या साइड कॉलम में चाहते हैं।                                        |
-| `<AgentChatSurface>`                 | `@agent-native/core/client` या `/client/chat` | आप साइडबार रैपर के बिना पैनल या पेज मोड में चैट करना चाहते हैं।                                         |
-| `<AssistantChat>`                    | `@agent-native/core/client` या `/client/chat` | आप मानक वार्तालाप और कंपोज़र रनटाइम को बनाए रखते हुए आसपास के क्रोम का स्वामी बनना चाहते हैं।           |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` या `/client/chat` | आप `AgentPanel` क्रोम के बिना फ्रेमवर्क के थ्रेड टैब चाहते हैं।                                         |
-| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` या `/client/chat` | आपके पास एक BYO एजेंट एंडपॉइंट है जो सामान्यीकृत चैट इवेंट को स्ट्रीम करता है।                          |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` या `/client/chat` | आपके पास एक OpenAI एजेंट SDK स्ट्रीम है और आप इसके आसपास मानक चैट UI चाहते हैं।                         |
-| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` या `/client/chat` | आपके पास एक OpenAI रिस्पॉन्स इवेंट स्ट्रीम है और आप इसे चैट UI में सामान्यीकृत करना चाहते हैं।          |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client` या `/client/chat` | आपके पास एक AG-UI ईवेंट स्ट्रीम है और आप इसे चैट UI में सामान्यीकृत करना चाहते हैं।                     |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` या `/client/chat` | आपके पास एक Claude एजेंट SDK स्ट्रीम है और आप इसे चैट UI में सामान्यीकृत करना चाहते हैं।                |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` या `/client/chat` | आपके पास Vercel AI SDK स्ट्रीम है और आप इसे चैट UI में सामान्यीकृत करना चाहते हैं।                      |
-| `useChatThreads()`                   | `@agent-native/core/client` या `/client/chat` | आपको एक कस्टम थ्रेड सूची, इतिहास पिकर, या स्कोप्ड चैट UI की आवश्यकता है।                                |
-| `sendToAgentChat()`                  | `@agent-native/core/client` या `/client/chat` | उत्पाद कार्रवाई का काम एजेंट चैट के हाथ में होना चाहिए।                                                 |
+| API                                  | आयात पथ                                       | कब उपयोग करें                                                                                  |
+| ------------------------------------ | --------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `<AgentSidebar>`                     | `@agent-native/core/client` या `/client/chat` | आप अपने ऐप के चारों ओर संपूर्ण साइडबार चाहते हैं।                                              |
+| `<AgentToggleButton>`                | `@agent-native/core/client` या `/client/chat` | आप साइडबार के लिए अपना स्वयं का हेडर बटन प्रस्तुत करते हैं।                                    |
+| `<AgentPanel>`                       | `@agent-native/core/client` या `/client/chat` | आप पूरा पैनल अपने लेआउट, रूट, डायलॉग या साइड कॉलम में चाहते हैं।                               |
+| `<AgentChatSurface>`                 | `@agent-native/core/client` या `/client/chat` | आप साइडबार रैपर के बिना पैनल या पेज मोड में चैट करना चाहते हैं।                                |
+| `<AssistantChat>`                    | `@agent-native/core/client` या `/client/chat` | आप मानक वार्तालाप और कंपोज़र रनटाइम को बनाए रखते हुए आसपास के क्रोम का स्वामी बनना चाहते हैं।  |
+| `<MultiTabAssistantChat>`            | `@agent-native/core/client` या `/client/chat` | आप `AgentPanel` क्रोम के बिना फ्रेमवर्क के थ्रेड टैब चाहते हैं।                                |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` या `/client/chat` | आपके पास एक BYO एजेंट एंडपॉइंट है जो सामान्यीकृत चैट इवेंट को स्ट्रीम करता है।                 |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` या `/client/chat` | आपके पास एक OpenAI एजेंट SDK स्ट्रीम है और आप इसके आसपास मानक चैट UI चाहते हैं।                |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` या `/client/chat` | आपके पास एक OpenAI रिस्पॉन्स इवेंट स्ट्रीम है और आप इसे चैट UI में सामान्यीकृत करना चाहते हैं। |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client` या `/client/chat` | आपके पास एक AG-UI ईवेंट स्ट्रीम है और आप इसे चैट UI में सामान्यीकृत करना चाहते हैं।            |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` या `/client/chat` | आपके पास एक Claude एजेंट SDK स्ट्रीम है और आप इसे चैट UI में सामान्यीकृत करना चाहते हैं।       |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client` या `/client/chat` | आपके पास Vercel AI SDK स्ट्रीम है और आप इसे चैट UI में सामान्यीकृत करना चाहते हैं।             |
+| `useChatThreads()`                   | `@agent-native/core/client` या `/client/chat` | आपको एक कस्टम थ्रेड सूची, इतिहास पिकर, या स्कोप्ड चैट UI की आवश्यकता है।                       |
+| `sendToAgentChat()`                  | `@agent-native/core/client` या `/client/chat` | उत्पाद कार्रवाई का काम एजेंट चैट के हाथ में होना चाहिए।                                        |
 
 `AgentChatRuntime` मानक चैट शेल के लिए BYO-एजेंट अनुबंध है। उत्तीर्ण
 `runtime` से `<AssistantChat>` जब किसी बाहरी एजेंट को पावर देनी चाहिए

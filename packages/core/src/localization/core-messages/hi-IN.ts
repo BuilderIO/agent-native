@@ -580,6 +580,8 @@ const messages: AgentChatTranslation = {
   "message.copyMessage": "संदेश कॉपी करें",
   "message.copyRequestId": "अनुरोध ID कॉपी करें",
   "message.requestIdUnavailable": "अनुरोध ID उपलब्ध नहीं है",
+  "message.unavailable": "यह संदेश अब इस बातचीत में उपलब्ध नहीं है।",
+  "message.navigationUnavailable": "बातचीत में नेविगेशन उपलब्ध नहीं है।",
   "message.edit": "संदेश संपादित करें",
   "message.forkChat": "चैट की नई शाखा बनाएँ",
   "message.mobileInteractiveTitle": "इंटरैक्टिव सामग्री",

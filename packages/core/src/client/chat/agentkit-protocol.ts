@@ -40,6 +40,10 @@ import {
   resumeOptionId,
 } from "@agent-native/agentkit/protocol";
 
+import {
+  emitChatFirstOpenApp,
+  emitChatFirstOpenBrowser,
+} from "../chat-first.js";
 import type {
   AgentChatRuntime,
   AgentChatRuntimeCapabilities,
@@ -55,10 +59,6 @@ import type {
   AgentChatRuntimeTurn,
   AgentChatRuntimeUsage,
 } from "./runtime.js";
-import {
-  emitChatFirstOpenApp,
-  emitChatFirstOpenBrowser,
-} from "../chat-first.js";
 
 export interface CreateAgentKitProtocolAdapterOptions {
   /** Stable clock used for event timestamps and thread fallbacks. */

@@ -135,7 +135,10 @@ interface ActiveTurnBuffer {
 interface PendingApproval {
   approvalId: string;
   runId: string;
-  turnId?: string;
+  assistantId: string;
+  threadId: string;
+  session: MobileAgentKitSession;
+  resolving: boolean;
 }
 
 function eventTurnId(event: AgentEvent): string | undefined {
@@ -321,7 +324,23 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           ) {
             continue;
           }
-          if (active.runId && active.runId !== event.runId) continue;
+          const pendingApproval = pendingApprovalRef.current;
+          if (active.runId && active.runId !== event.runId) {
+            const resumedApproval =
+              event.type === "approval.resolved" &&
+              pendingApproval?.resolving &&
+              pendingApproval.runId === active.runId &&
+              pendingApproval.approvalId === event.approvalId;
+            if (!resumedApproval) continue;
+            pendingApprovalRef.current = null;
+          } else if (
+            event.type === "approval.resolved" &&
+            pendingApproval?.resolving &&
+            pendingApproval.runId === event.runId &&
+            pendingApproval.approvalId === event.approvalId
+          ) {
+            pendingApprovalRef.current = null;
+          }
           active.runId = event.runId;
           if (event.type === "connection.requested") {
             connectionSessionByRequestRef.current.set(event.request.id, {
@@ -347,7 +366,10 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
             pendingApprovalRef.current = {
               approvalId: event.request.id,
               runId: event.runId,
-              turnId: eventTurnId(event),
+              assistantId: active.assistantId,
+              threadId: event.threadId,
+              session,
+              resolving: false,
             };
             active.sawApproval = true;
           }
@@ -404,10 +426,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   const runTurn = useCallback(
     async (
       text: string,
-      extra: Pick<
-        ChatSendOptions & { approvedToolCalls?: string[] },
-        "approvedToolCalls" | "attachments" | "references" | "turnId"
-      > = {},
+      extra: Pick<ChatSendOptions, "attachments" | "references"> = {},
       currentThreadId?: string,
     ) => {
       if (chatEligibilityRef.current !== "eligible") return;
@@ -422,7 +441,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         {
           chat_surface: "mobile",
           thread_id: activeThreadId,
-          turn_kind: extra.approvedToolCalls?.length ? "approval" : "message",
+          turn_kind: "message",
           has_attachments: Boolean(extra.attachments?.length),
           reference_count: extra.references?.length ?? 0,
         },
@@ -542,21 +561,13 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
             },
             metadata: {
               ...(chatScope ? { chatScope } : {}),
-              ...(extra.approvedToolCalls?.length
-                ? {
-                    agentNativeApprovedToolCalls: extra.approvedToolCalls,
-                  }
-                : {}),
               [MOBILE_CHAT_METADATA]: {
-                turnId: extra.turnId ?? nextLocalId("turn"),
+                turnId: nextLocalId("turn"),
                 ...(chatScope ? { scope: chatScope } : {}),
                 ...(extra.references?.length
                   ? { references: extra.references }
                   : {}),
                 ...(details.length ? { attachmentDetails: details } : {}),
-                ...(extra.approvedToolCalls?.length
-                  ? { approvedToolCalls: extra.approvedToolCalls }
-                  : {}),
               },
             },
           },
@@ -685,40 +696,160 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     }
   }, []);
 
-  const approve = useCallback(
-    (approvalKey: string) => {
-      if (stateRef.current.isStreaming) return;
+  const resolvePendingApproval = useCallback(
+    (approvalKey: string, decision: "approve" | "deny") => {
       const pending = pendingApprovalRef.current;
-      if (!pending || pending.approvalId !== approvalKey) return;
-      void runTurn("Approved. Go ahead and run the requested action.", {
-        approvedToolCalls: [approvalKey],
-        ...(pending.turnId ? { turnId: pending.turnId } : {}),
-      });
+      if (!pending || pending.approvalId !== approvalKey || pending.resolving) {
+        return;
+      }
+      const currentGeneration = ++activeGenerationRef.current;
+      const active = activeTurnBufferRef.current;
+      const currentState =
+        active?.runId === pending.runId ? active.state : stateRef.current;
+      const buffered: ChatTurnState = {
+        ...currentState,
+        messages:
+          decision === "deny"
+            ? currentState.messages.map((message) => ({
+                ...message,
+                parts: message.parts.map((part) =>
+                  part.type === "tool-call" &&
+                  part.status === "awaiting-approval" &&
+                  part.approvalKey === approvalKey
+                    ? { ...part, status: "failed" as const, error: "Denied" }
+                    : part,
+                ),
+              }))
+            : currentState.messages,
+        isStreaming: true,
+        activity: null,
+        error: null,
+        errorCode: null,
+      };
+      const turnBuffer: ActiveTurnBuffer = {
+        generation: currentGeneration,
+        assistantId: pending.assistantId,
+        runId: pending.runId,
+        state: buffered,
+        dirty: false,
+        sawTerminal: false,
+        sawApproval: false,
+        acceptEvents: true,
+      };
+      pendingApprovalRef.current = { ...pending, resolving: true };
+      activeTurnBufferRef.current = turnBuffer;
+      stateRef.current = buffered;
+      setState(buffered);
+      void trackMobileEvent(
+        "agent_chat_turn_started",
+        {
+          chat_surface: "mobile",
+          thread_id: pending.threadId,
+          turn_kind: "approval",
+          has_attachments: false,
+          reference_count: 0,
+        },
+        baseUrlRef.current,
+      );
+      liveTurnRef.current = {
+        runId: pending.runId,
+        abort: () =>
+          void pending.session.client.cancelRun(
+            pending.threadId,
+            turnBuffer.runId ?? pending.runId,
+          ),
+      };
+
+      const flushTimer = setInterval(() => {
+        if (
+          !mountedRef.current ||
+          activeGenerationRef.current !== currentGeneration
+        ) {
+          clearInterval(flushTimer);
+          return;
+        }
+        if (turnBuffer.dirty) {
+          turnBuffer.dirty = false;
+          stateRef.current = turnBuffer.state;
+          setState(turnBuffer.state);
+        }
+        if (activeTurnBufferRef.current !== turnBuffer) {
+          clearInterval(flushTimer);
+        }
+      }, FLUSH_INTERVAL_MS);
+
+      void pending.session.client
+        .resolveApproval({
+          threadId: pending.threadId,
+          runId: pending.runId,
+          approvalId: pending.approvalId,
+          response: { decision },
+        })
+        .catch((error: unknown) => {
+          if (
+            !mountedRef.current ||
+            activeGenerationRef.current !== currentGeneration ||
+            activeTurnBufferRef.current !== turnBuffer
+          ) {
+            return;
+          }
+          if (pendingApprovalRef.current?.approvalId === approvalKey) {
+            pendingApprovalRef.current = {
+              ...pendingApprovalRef.current,
+              resolving: false,
+            };
+          }
+          const failed = {
+            ...turnBuffer.state,
+            isStreaming: false,
+            activity: null,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Could not continue after approval.",
+            errorCode: null,
+          };
+          turnBuffer.state = failed;
+          stateRef.current = failed;
+          setState(failed);
+          activeTurnBufferRef.current = null;
+          liveTurnRef.current = null;
+        });
     },
-    [runTurn],
+    [],
   );
 
-  const deny = useCallback((approvalKey?: string) => {
-    if (
-      !approvalKey ||
-      pendingApprovalRef.current?.approvalId === approvalKey
-    ) {
-      pendingApprovalRef.current = null;
-    }
-    setState((current) => ({
-      ...current,
-      messages: current.messages.map((message) => ({
-        ...message,
-        parts: message.parts.map((part) =>
-          part.type === "tool-call" &&
-          part.status === "awaiting-approval" &&
-          (!approvalKey || part.approvalKey === approvalKey)
-            ? { ...part, status: "failed" as const, error: "Denied" }
-            : part,
-        ),
-      })),
-    }));
-  }, []);
+  const approve = useCallback(
+    (approvalKey: string) => resolvePendingApproval(approvalKey, "approve"),
+    [resolvePendingApproval],
+  );
+
+  const deny = useCallback(
+    (approvalKey?: string) => {
+      const pending = pendingApprovalRef.current;
+      if (pending && (!approvalKey || pending.approvalId === approvalKey)) {
+        resolvePendingApproval(pending.approvalId, "deny");
+        return;
+      }
+      if (!approvalKey || pending?.approvalId === approvalKey) {
+        pendingApprovalRef.current = null;
+      }
+      setState((current) => ({
+        ...current,
+        messages: current.messages.map((message) => ({
+          ...message,
+          parts: message.parts.map((part) =>
+            part.type === "tool-call" &&
+            part.status === "awaiting-approval" &&
+            (!approvalKey || part.approvalKey === approvalKey)
+              ? { ...part, status: "failed" as const, error: "Denied" }
+              : part,
+          ),
+        })),
+      }));
+    },
+    [resolvePendingApproval],
+  );
 
   const continueAfterConnection = useCallback(
     (requestId: string, provider: string) => {
@@ -880,7 +1011,6 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       session: MobileAgentKitSession,
       thread: AgentThreadState,
       runId: string,
-      turnId: string | undefined,
       currentGeneration: number,
     ) => {
       const currentThread = session.client.getThread(thread.id);
@@ -928,7 +1058,10 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
             pendingApprovalRef.current = {
               approvalId: event.request.id,
               runId,
-              turnId: eventTurnId(event) ?? turnId,
+              assistantId,
+              threadId: event.threadId,
+              session,
+              resolving: false,
             };
             turnBuffer.sawApproval = true;
           }
@@ -1051,14 +1184,10 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           setState(loadedState);
           setHistoryLoading(false);
           if (loadedState.runId) {
-            const latestRunEvent = thread.events
-              .filter((event) => event.runId === loadedState.runId)
-              .at(-1);
             void resumeRun(
               session,
               thread,
               loadedState.runId,
-              latestRunEvent ? eventTurnId(latestRunEvent) : undefined,
               currentGeneration,
             );
           }

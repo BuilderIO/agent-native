@@ -77,11 +77,11 @@ const MultiTabAssistantChatLazy = lazy(loadMultiTabAssistantChat);
 import { Link, useLocation, useNavigate } from "react-router";
 
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
-import type { AgentChatSurfaceKind } from "./chat/surface-types.js";
 import {
   AGENT_PANEL_OPEN_SETTINGS_EVENT,
   AGENT_PANEL_SET_MODE_EVENT,
 } from "./agent-sidebar-events.js";
+import type { AgentChatSurfaceKind } from "./chat/surface-types.js";
 export {
   shouldHandleAgentPanelChatShortcut,
   shouldHandleAgentSidebarToggle,

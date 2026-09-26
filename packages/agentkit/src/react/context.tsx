@@ -226,6 +226,8 @@ export interface AgentKitLabels {
   nextBranch: string;
   branchPosition: string;
   copyUnavailable: string;
+  messageUnavailable: string;
+  navigationUnavailable: string;
   editMessage: string;
   cancelEditing: string;
   regenerateResponse: string;
@@ -307,6 +309,9 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   nextBranch: "Next branch",
   branchPosition: "{{index}}/{{count}}",
   copyUnavailable: "Copying is unavailable in this browser.",
+  messageUnavailable:
+    "The message is no longer available in this conversation.",
+  navigationUnavailable: "Conversation navigation is unavailable.",
   editMessage: "Edit message",
   cancelEditing: "Cancel editing",
   regenerateResponse: "Regenerate response",

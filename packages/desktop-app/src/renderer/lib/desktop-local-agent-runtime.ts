@@ -1,6 +1,7 @@
 import type {
   AgentChatRuntime,
   AgentChatRuntimeCancelResult,
+  AgentChatRuntimeContinueInput,
   AgentChatRuntimeEvent,
   AgentChatRuntimeSession,
   AgentChatRuntimeTurn,
@@ -124,6 +125,7 @@ interface SessionState {
   threadId?: string;
   runId?: string;
   goalId?: string;
+  pendingApprovalId?: string;
   active?: ActiveTurn;
   starting?: Promise<AgentChatRuntimeTurn>;
   disposed: boolean;
@@ -241,13 +243,28 @@ function handleTranscriptEvent(
   const status = metadata.status;
   if (!isTerminalStatus(status)) return;
 
-  if (status === "errored" || status === "needs-approval") {
+  if (status === "needs-approval") {
+    state.pendingApprovalId = event.id;
+    if (active.messageStarted) {
+      active.queue.push(runtimeMessageEvent(active, "message-done"));
+      active.messageStarted = false;
+    }
+    active.queue.push({
+      type: "approval-request",
+      sessionId: active.sessionId,
+      turnId: active.messageId,
+      approvalId: event.id,
+      message: event.text,
+    });
+    finishTurn(state, active, "interrupted");
+    return;
+  }
+  if (status === "errored") {
     active.queue.push({
       type: "error",
       sessionId: active.sessionId,
       turnId: active.messageId,
       error: event.text || "The local agent could not complete the request.",
-      recoverable: status === "needs-approval",
     });
   }
   finishTurn(
@@ -338,6 +355,44 @@ function createSessionView(
       active.cancelPromise = undefined;
     });
     return active.cancelPromise;
+  };
+
+  const openTurn = (
+    runId: string,
+    goalId: string,
+    abortSignal?: AbortSignal,
+  ): AgentChatRuntimeTurn => {
+    const queue = new AsyncEventQueue<RuntimeEvent>();
+    const active: ActiveTurn = {
+      queue,
+      sessionId: state.id,
+      runId,
+      goalId,
+      messageId: makeId("desktop-agent-message"),
+      assistantText: "",
+      messageStarted: false,
+      sawAssistantDelta: false,
+      unsubscribe: null,
+      removeAbortListener: null,
+      finished: false,
+    };
+    state.active = active;
+    active.unsubscribe = subscribeToTranscript(state, active);
+    if (abortSignal) {
+      const onAbort = () => {
+        void cancelActiveTurn("abort");
+      };
+      abortSignal.addEventListener("abort", onAbort, { once: true });
+      active.removeAbortListener = () =>
+        abortSignal.removeEventListener("abort", onAbort);
+    }
+    return {
+      id: active.messageId,
+      sessionId: state.id,
+      runId,
+      events: queue,
+      cancel: (cancelInput) => cancelActiveTurn(cancelInput?.reason),
+    };
   };
 
   const startTurn = async (
@@ -431,37 +486,7 @@ function createSessionView(
         localRuntimeUnavailable("The local agent did not return a run id.");
       }
 
-      const queue = new AsyncEventQueue<RuntimeEvent>();
-      const active: ActiveTurn = {
-        queue,
-        sessionId: state.id,
-        runId,
-        goalId,
-        messageId: makeId("desktop-agent-message"),
-        assistantText: "",
-        messageStarted: false,
-        sawAssistantDelta: false,
-        unsubscribe: null,
-        removeAbortListener: null,
-        finished: false,
-      };
-      state.active = active;
-      active.unsubscribe = subscribeToTranscript(state, active);
-      if (input.abortSignal) {
-        const onAbort = () => {
-          void cancelActiveTurn("abort");
-        };
-        input.abortSignal.addEventListener("abort", onAbort, { once: true });
-        active.removeAbortListener = () =>
-          input.abortSignal?.removeEventListener("abort", onAbort);
-      }
-      return {
-        id: active.messageId,
-        sessionId: state.id,
-        runId,
-        events: queue,
-        cancel: (cancelInput) => cancelActiveTurn(cancelInput?.reason),
-      };
+      return openTurn(runId, goalId, input.abortSignal);
     })();
 
     state.starting = starting;
@@ -472,12 +497,66 @@ function createSessionView(
     }
   };
 
+  const continueTurn = async (
+    input: AgentChatRuntimeContinueInput = {},
+  ): Promise<AgentChatRuntimeTurn> => {
+    if (state.disposed) {
+      localRuntimeUnavailable("The local agent session has been disposed.");
+    }
+    if (state.starting) {
+      localRuntimeUnavailable("A local agent turn is already starting.");
+    }
+
+    const continuing = (async (): Promise<AgentChatRuntimeTurn> => {
+      const { approval } = input;
+      const { runId, goalId, pendingApprovalId } = state;
+      if (
+        !approval ||
+        !pendingApprovalId ||
+        approval.id !== pendingApprovalId
+      ) {
+        localRuntimeUnavailable(
+          "The local agent is not waiting for this approval.",
+        );
+      }
+      if (!runId || !goalId) {
+        localRuntimeUnavailable("The local agent run is unavailable.");
+      }
+      if (state.active && !state.active.finished) {
+        localRuntimeUnavailable("A local agent turn is already active.");
+      }
+
+      const result = await window.electronAPI.codeAgents.controlRun(
+        goalId,
+        runId,
+        approval.approved ? "approve" : "deny",
+      );
+      if (!result.ok) {
+        localRuntimeUnavailable(
+          result.error ??
+            result.message ??
+            "Could not resolve the local approval.",
+        );
+      }
+      state.pendingApprovalId = undefined;
+      return openTurn(runId, goalId, input.abortSignal);
+    })();
+
+    state.starting = continuing;
+    try {
+      return await continuing;
+    } finally {
+      if (state.starting === continuing) state.starting = undefined;
+    }
+  };
+
   return {
     id: state.id,
     runtimeId: runtime.id,
     threadId: state.threadId,
     startTurn,
     sendMessage: startTurn,
+    continueTurn,
     cancelTurn: (input) => cancelActiveTurn(input?.reason),
     dispose: async () => {
       if (state.disposed) return;
@@ -517,6 +596,7 @@ export function createDesktopLocalAgentRuntime(
     description: option?.description,
     capabilities: {
       messages: { streaming: true, history: true },
+      tools: { events: false, approvals: true },
       sessions: { create: true, persistent: true },
       cancellation: { abortSignal: true, explicitCancel: true },
       models: { selectable: true, reasoningEffort: true },

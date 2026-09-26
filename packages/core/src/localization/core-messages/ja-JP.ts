@@ -600,6 +600,8 @@ const messages: AgentChatTranslation = {
   "message.copyMessage": "メッセージをコピー",
   "message.copyRequestId": "リクエスト ID をコピー",
   "message.requestIdUnavailable": "リクエスト ID を利用できません",
+  "message.unavailable": "この会話ではこのメッセージを利用できなくなりました。",
+  "message.navigationUnavailable": "会話のナビゲーションは利用できません。",
   "message.edit": "メッセージを編集",
   "message.forkChat": "チャットを分岐",
   "message.mobileInteractiveTitle": "インタラクティブコンテンツ",

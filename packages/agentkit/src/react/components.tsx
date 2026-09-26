@@ -2092,6 +2092,7 @@ async function forkAndResubmitMessage({
   options,
   metadata,
   onThreadForked,
+  messageUnavailable,
 }: {
   controller: ReturnType<typeof useAgentKit>["controller"];
   threadId: string;
@@ -2102,10 +2103,11 @@ async function forkAndResubmitMessage({
   options?: AgentRunOptions;
   metadata?: Record<string, unknown>;
   onThreadForked?: (thread: AgentThread) => void;
+  messageUnavailable: string;
 }): Promise<void> {
   const previousMessage = findPreviousMessage(messages, sourceMessage.id);
   if (previousMessage === null) {
-    throw new Error("The message is no longer available in this conversation.");
+    throw new Error(messageUnavailable);
   }
   const forkedThread = await controller.forkThread(
     threadId,
@@ -2246,6 +2248,7 @@ export function AgentMessageActions({
       options: messageRunOptions(previousUserMessage),
       metadata: previousUserMessage.metadata,
       onThreadForked,
+      messageUnavailable: labels.messageUnavailable,
     });
   }, `${threadId}:${message.id}:regenerate`);
   const updateFeedback = async (value: "positive" | "negative") => {
@@ -2995,16 +2998,14 @@ export function AgentKitComposer({
 
     if (editingMessage) {
       if (!onThreadForked) {
-        throw new Error("Conversation navigation is unavailable.");
+        throw new Error(labels.navigationUnavailable);
       }
       const previousMessage = findPreviousMessage(
         thread.messages,
         editingMessage.id,
       );
       if (previousMessage === null) {
-        throw new Error(
-          "The message is no longer available in this conversation.",
-        );
+        throw new Error(labels.messageUnavailable);
       }
       const forkedThread = await controller.forkThread(
         threadId,

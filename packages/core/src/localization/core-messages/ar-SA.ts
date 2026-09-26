@@ -596,6 +596,8 @@ const messages: AgentChatTranslation = {
   "message.copyMessage": "نسخ الرسالة",
   "message.copyRequestId": "نسخ معرّف الطلب",
   "message.requestIdUnavailable": "معرّف الطلب غير متاح",
+  "message.unavailable": "لم تعد هذه الرسالة متاحة في هذه المحادثة.",
+  "message.navigationUnavailable": "التنقل في المحادثة غير متاح.",
   "message.edit": "تعديل الرسالة",
   "message.forkChat": "تفريع المحادثة",
   "message.mobileInteractiveTitle": "محتوى تفاعلي",

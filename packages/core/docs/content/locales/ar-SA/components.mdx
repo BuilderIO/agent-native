@@ -187,22 +187,22 @@ import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
 
 ## الوكيل والدردشة UI {#agent-chat-ui}
 
-| API                                  | مسار الاستيراد                                | استخدم عندما                                                                             |
-| ------------------------------------ | --------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `<AgentSidebar>`                     | `@agent-native/core/client` أو `/client/chat` | تريد الشريط الجانبي الكامل حول تطبيقك.                                                   |
-| `<AgentToggleButton>`                | `@agent-native/core/client` أو `/client/chat` | يمكنك عرض زر الرأس الخاص بك للشريط الجانبي.                                              |
-| `<AgentPanel>`                       | `@agent-native/core/client` أو `/client/chat` | تريد اللوحة الكاملة في التخطيط أو المسار أو مربع الحوار أو العمود الجانبي الخاص بك.      |
-| `<AgentChatSurface>`                 | `@agent-native/core/client` أو `/client/chat` | تريد الدردشة في وضع اللوحة أو الصفحة بدون غلاف الشريط الجانبي.                           |
-| `<AssistantChat>`                    | `@agent-native/core/client` أو `/client/chat` | تريد امتلاك Chrome المحيط مع الاحتفاظ بالمحادثة القياسية ووقت تشغيل الملحن.              |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` أو `/client/chat` | تريد علامات تبويب مؤشر ترابط إطار العمل بدون `AgentPanel` chrome.                        |
-| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` أو `/client/chat` | لديك نقطة نهاية وكيل BYO تعمل على بث أحداث الدردشة الطبيعية.                             |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` أو `/client/chat` | لديك ساحة بث OpenAI Agents SDK وتريد الدردشة القياسية UI حوله.                           |
-| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` أو `/client/chat` | لديك تدفق أحداث ردود OpenAI وتريد تطبيعه في الدردشة UI.                                  |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client` أو `/client/chat` | لديك تدفق أحداث AG-UI وتريد تطبيعه في الدردشة UI.                                        |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` أو `/client/chat` | لديك بث Claude Agent SDK وتريد تطبيعه في الدردشة UI.                                     |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` أو `/client/chat` | لديك بث Vercel AI SDK وتريد تطبيعه في الدردشة UI.                                        |
-| `useChatThreads()`                   | `@agent-native/core/client` أو `/client/chat` | تحتاج إلى قائمة سلاسل محادثات مخصصة، أو منتقي السجل، أو دردشة محددة النطاق UI.           |
-| `sendToAgentChat()`                  | `@agent-native/core/client` أو `/client/chat` | يجب أن يؤدي إجراء المنتج إلى تسليم العمل إلى دردشة الوكيل.                               |
+| API                                  | مسار الاستيراد                                | استخدم عندما                                                                        |
+| ------------------------------------ | --------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `<AgentSidebar>`                     | `@agent-native/core/client` أو `/client/chat` | تريد الشريط الجانبي الكامل حول تطبيقك.                                              |
+| `<AgentToggleButton>`                | `@agent-native/core/client` أو `/client/chat` | يمكنك عرض زر الرأس الخاص بك للشريط الجانبي.                                         |
+| `<AgentPanel>`                       | `@agent-native/core/client` أو `/client/chat` | تريد اللوحة الكاملة في التخطيط أو المسار أو مربع الحوار أو العمود الجانبي الخاص بك. |
+| `<AgentChatSurface>`                 | `@agent-native/core/client` أو `/client/chat` | تريد الدردشة في وضع اللوحة أو الصفحة بدون غلاف الشريط الجانبي.                      |
+| `<AssistantChat>`                    | `@agent-native/core/client` أو `/client/chat` | تريد امتلاك Chrome المحيط مع الاحتفاظ بالمحادثة القياسية ووقت تشغيل الملحن.         |
+| `<MultiTabAssistantChat>`            | `@agent-native/core/client` أو `/client/chat` | تريد علامات تبويب مؤشر ترابط إطار العمل بدون `AgentPanel` chrome.                   |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` أو `/client/chat` | لديك نقطة نهاية وكيل BYO تعمل على بث أحداث الدردشة الطبيعية.                        |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` أو `/client/chat` | لديك ساحة بث OpenAI Agents SDK وتريد الدردشة القياسية UI حوله.                      |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` أو `/client/chat` | لديك تدفق أحداث ردود OpenAI وتريد تطبيعه في الدردشة UI.                             |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client` أو `/client/chat` | لديك تدفق أحداث AG-UI وتريد تطبيعه في الدردشة UI.                                   |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` أو `/client/chat` | لديك بث Claude Agent SDK وتريد تطبيعه في الدردشة UI.                                |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client` أو `/client/chat` | لديك بث Vercel AI SDK وتريد تطبيعه في الدردشة UI.                                   |
+| `useChatThreads()`                   | `@agent-native/core/client` أو `/client/chat` | تحتاج إلى قائمة سلاسل محادثات مخصصة، أو منتقي السجل، أو دردشة محددة النطاق UI.      |
+| `sendToAgentChat()`                  | `@agent-native/core/client` أو `/client/chat` | يجب أن يؤدي إجراء المنتج إلى تسليم العمل إلى دردشة الوكيل.                          |
 
 `AgentChatRuntime` هو عقد وكيل BYO لقشرة الدردشة القياسية. تمرير
 من `runtime` إلى `<AssistantChat>` عندما يتعين على وكيل خارجي تشغيل

@@ -617,7 +617,14 @@ export function createAgentNativeAgentKitTransport(
           "The agent runtime owns a continuation for this thread; the queued message remains pending.",
         );
       }
-      const clear = status.active !== true || status.status !== "running";
+      const clear =
+        status.active !== true ||
+        status.status === "completed" ||
+        status.status === "complete" ||
+        status.status === "failed" ||
+        status.status === "cancelled" ||
+        status.status === "errored" ||
+        status.status === "aborted";
       consecutiveClearPolls = clear ? consecutiveClearPolls + 1 : 0;
       if (consecutiveClearPolls >= RUN_SLOT_STABLE_POLLS) return;
       await new Promise((resolve) =>

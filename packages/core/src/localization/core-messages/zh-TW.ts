@@ -562,6 +562,8 @@ const messages: AgentChatTranslation = {
   "message.copyMessage": "複製訊息",
   "message.copyRequestId": "複製要求 ID",
   "message.requestIdUnavailable": "要求 ID 無法使用",
+  "message.unavailable": "此訊息在此對話中已無法使用。",
+  "message.navigationUnavailable": "對話導覽無法使用。",
   "message.edit": "編輯訊息",
   "message.forkChat": "建立聊天分支",
   "message.mobileInteractiveTitle": "互動式內容",

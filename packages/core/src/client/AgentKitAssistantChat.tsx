@@ -26,8 +26,6 @@ import {
   type AgentKitBranchNavigation,
 } from "@agent-native/agentkit/react";
 import { AgentKitRoot } from "@agent-native/agentkit/react/root";
-
-import "@agent-native/agentkit/react/styles.css";
 import {
   AgentSuggestionBar,
   agentSuggestionPrompt,
@@ -103,6 +101,7 @@ import { agentNativePath } from "./api-path.js";
 import {
   deleteClientAppState,
   readClientAppState,
+  writeClientAppState,
 } from "./application-state.js";
 import { isInBuilderFrame } from "./builder-frame.js";
 import { AgentApprovalCard } from "./chat/agent-approval-card.js";
@@ -175,9 +174,16 @@ const PENDING_SELECTION_TTL_MS = 5 * 60 * 1000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const THREAD_HANDOFF_TTL_MS = 60_000;
 const MAX_THREAD_HANDOFF_SNAPSHOTS = 20;
+const DEFERRED_PROVIDER_SUBMISSIONS_VERSION = 1;
+const DEFERRED_PROVIDER_SUBMISSIONS_KEY_PREFIX =
+  "agentkit-deferred-provider-submissions:";
 const threadHandoffSnapshots = new Map<
   string,
   { snapshot: AgentThreadSnapshot; expiresAt: number }
+>();
+const deferredProviderSubmissionOperations = new Map<
+  string,
+  Promise<PendingProviderSubmission[]>
 >();
 // i18n-ignore: Internal recovery instruction sent to the agent, never shown as product copy.
 const RECOVERY_CONTINUE_PROMPT =
@@ -194,20 +200,157 @@ type AgentKitInternalSendOptions = AssistantChatSendOptions & {
   recoveryEngine?: string;
   recoveryEffort?: string;
   recoveryRequestMode?: "act" | "plan";
+  deferredFileParts?: FilePart[];
+  contextAlreadyIncluded?: boolean;
+  deferredAgentId?: string | null;
+  deferredContextScope?: AgentKitAssistantChatProps["contextScope"] | null;
+  deferredSubmissionId?: string;
 };
 
 interface PendingProviderSubmission {
+  id: string;
   threadId: string;
   text: string;
-  files: PromptComposerFile[];
+  fileParts: FilePart[];
   references: Reference[];
   composerOptions: PromptComposerSubmitOptions;
   options: AgentKitInternalSendOptions;
 }
 
+interface DeferredProviderSubmissionsState {
+  version: typeof DEFERRED_PROVIDER_SUBMISSIONS_VERSION;
+  threadId: string;
+  submissions: PendingProviderSubmission[];
+}
+
 interface PendingSelectionContext {
   text: string;
   capturedAt: number;
+}
+
+function deferredProviderSubmissionsStateKey(threadId: string): string {
+  const encodedThreadId = Array.from(threadId, (character) =>
+    character.codePointAt(0)!.toString(16),
+  ).join("-");
+  return `${DEFERRED_PROVIDER_SUBMISSIONS_KEY_PREFIX}${encodedThreadId}`;
+}
+
+function parseDeferredProviderSubmissions(
+  value: unknown,
+  threadId: string,
+): PendingProviderSubmission[] {
+  if (value === null) return [];
+  const state = asRecord(value);
+  if (
+    state?.version !== DEFERRED_PROVIDER_SUBMISSIONS_VERSION ||
+    state.threadId !== threadId ||
+    !Array.isArray(state.submissions)
+  ) {
+    throw new Error(
+      `Deferred AgentKit submissions for ${threadId} have an invalid state shape.`,
+    );
+  }
+
+  return state.submissions.map((value) => {
+    const submission = asRecord(value);
+    const fileParts = submission?.fileParts;
+    const composerOptions = asRecord(submission?.composerOptions);
+    const options = asRecord(submission?.options);
+    if (
+      typeof submission?.id !== "string" ||
+      submission.threadId !== threadId ||
+      typeof submission.text !== "string" ||
+      !Array.isArray(fileParts) ||
+      !fileParts.every((part) => {
+        const filePart = asRecord(part);
+        return (
+          filePart?.type === "file" &&
+          typeof filePart.name === "string" &&
+          (typeof filePart.url === "string" ||
+            typeof filePart.fileId === "string")
+        );
+      }) ||
+      !Array.isArray(submission.references) ||
+      !composerOptions ||
+      !options
+    ) {
+      throw new Error(
+        `Deferred AgentKit submission for ${threadId} is incomplete.`,
+      );
+    }
+    return {
+      id: submission.id,
+      threadId,
+      text: submission.text,
+      fileParts: fileParts as FilePart[],
+      references: submission.references as Reference[],
+      composerOptions: composerOptions as PromptComposerSubmitOptions,
+      options: options as AgentKitInternalSendOptions,
+    };
+  });
+}
+
+function runDeferredProviderSubmissionStateOperation<T>(
+  threadId: string,
+  operation: (
+    stateKey: string,
+    submissions: PendingProviderSubmission[],
+  ) => Promise<T> | T,
+): Promise<T> {
+  const stateKey = deferredProviderSubmissionsStateKey(threadId);
+  const previous = deferredProviderSubmissionOperations.get(stateKey);
+  const next = (previous ?? Promise.resolve([]))
+    .catch(() => undefined)
+    .then(async () => {
+      const persisted = await readClientAppState<unknown>(stateKey);
+      const submissions = parseDeferredProviderSubmissions(persisted, threadId);
+      return operation(stateKey, submissions);
+    });
+  deferredProviderSubmissionOperations.set(
+    stateKey,
+    next as Promise<PendingProviderSubmission[]>,
+  );
+  const clearOperation = () => {
+    if (deferredProviderSubmissionOperations.get(stateKey) === next) {
+      deferredProviderSubmissionOperations.delete(stateKey);
+    }
+  };
+  void next.then(clearOperation, clearOperation);
+  return next;
+}
+
+function readDeferredProviderSubmissions(
+  threadId: string,
+): Promise<PendingProviderSubmission[]> {
+  return runDeferredProviderSubmissionStateOperation(
+    threadId,
+    (_stateKey, submissions) => submissions,
+  );
+}
+
+function updateDeferredProviderSubmissions(
+  threadId: string,
+  update: (
+    submissions: PendingProviderSubmission[],
+  ) => PendingProviderSubmission[],
+): Promise<PendingProviderSubmission[]> {
+  return runDeferredProviderSubmissionStateOperation(
+    threadId,
+    async (stateKey, current) => {
+      const submissions = update(current);
+      if (submissions.length === 0) {
+        await deleteClientAppState(stateKey);
+      } else {
+        const state: DeferredProviderSubmissionsState = {
+          version: DEFERRED_PROVIDER_SUBMISSIONS_VERSION,
+          threadId,
+          submissions,
+        };
+        await writeClientAppState(stateKey, state);
+      }
+      return submissions;
+    },
+  );
 }
 
 interface AgentKitSurfaceContextValue {
@@ -313,10 +456,17 @@ export const AgentKitAssistantChat = forwardRef<
       ? { status: "loading" }
       : { status: "ready" },
   );
-  const [restoreRetryVersion, setRestoreRetryVersion] = useState(0);
+  const [restoreRetryLoadPhase, setRestoreRetryLoadPhase] = useState<
+    "idle" | "release" | "reopen"
+  >("idle");
+  const [restoreRetryThreadId, setRestoreRetryThreadId] = useState<
+    string | null
+  >(null);
   const notifiedMissingThreadsRef = useRef(new Set<string>());
   const onThreadRestoreLoaded = useCallback(() => {
     setThreadRestore({ status: "ready" });
+    setRestoreRetryLoadPhase("idle");
+    setRestoreRetryThreadId(null);
   }, []);
   useEffect(() => {
     setThreadRestore(
@@ -324,6 +474,8 @@ export const AgentKitAssistantChat = forwardRef<
         ? { status: "loading" }
         : { status: "ready" },
     );
+    setRestoreRetryLoadPhase("idle");
+    setRestoreRetryThreadId(null);
   }, [props.isNewThread, props.isThreadStateLoading, threadId]);
   const onThreadRestoreLoadError = useCallback(
     (error: unknown) => {
@@ -349,8 +501,21 @@ export const AgentKitAssistantChat = forwardRef<
   const retryThreadRestore = useCallback(() => {
     if (props.isNewThread) return;
     setThreadRestore({ status: "loading" });
-    setRestoreRetryVersion((version) => version + 1);
-  }, [props.isNewThread]);
+    setRestoreRetryThreadId(threadId);
+    setRestoreRetryLoadPhase("release");
+  }, [props.isNewThread, threadId]);
+  useEffect(() => {
+    if (
+      restoreRetryLoadPhase !== "release" ||
+      restoreRetryThreadId !== threadId
+    ) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setRestoreRetryLoadPhase("reopen");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [restoreRetryLoadPhase, restoreRetryThreadId, threadId]);
   const labels = useMemo(
     () => ({
       conversation: t("agentChat.message.messages"),
@@ -394,6 +559,8 @@ export const AgentKitAssistantChat = forwardRef<
       messageActions: t("agentChat.message.actions"),
       copyRequestId: t("agentChat.message.copyRequestId"),
       requestIdUnavailable: t("agentChat.message.requestIdUnavailable"),
+      messageUnavailable: t("agentChat.message.unavailable"),
+      navigationUnavailable: t("agentChat.message.navigationUnavailable"),
       copyUnavailable: t("agentChat.recovery.copyFailed"),
       positiveFeedback: t("agentChat.feedback.thumbsUp"),
       negativeFeedback: t("agentChat.feedback.notHelpful"),
@@ -496,6 +663,7 @@ export const AgentKitAssistantChat = forwardRef<
     },
     [],
   );
+  const transportThreadIdRef = useRef(threadId);
   const modelRef = useRef<string | undefined>(props.selectedModel);
   const engineRef = useRef<string | undefined>(props.selectedEngine);
   const effortRef = useRef<AssistantChatAdapterContext["effortRef"]["current"]>(
@@ -513,6 +681,7 @@ export const AgentKitAssistantChat = forwardRef<
   const createTransportRef = useRef(props.createTransport);
   const injectedRuntimeRef = useRef(props.runtime);
   const adapterReloadKeyRef = useRef(props.adapterReloadKey);
+  transportThreadIdRef.current = threadId;
   if (adapterReloadKeyRef.current !== props.adapterReloadKey) {
     adapterReloadKeyRef.current = props.adapterReloadKey;
     injectedRuntimeRef.current = props.runtime;
@@ -601,7 +770,9 @@ export const AgentKitAssistantChat = forwardRef<
       apiUrl: props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
       streamingUrl: props.streamingUrl,
       browserTabId: props.browserTabId,
-      threadId,
+      get threadId() {
+        return transportThreadIdRef.current;
+      },
       surface,
       get mode() {
         return execModeRef.current === "plan" ? "plan" : "act";
@@ -625,7 +796,9 @@ export const AgentKitAssistantChat = forwardRef<
         injectedRuntimeRef.current ??
         createAgentNativeChatRuntime(runtimeOptions),
       browserTabId: props.browserTabId,
-      threadId,
+      get threadId() {
+        return transportThreadIdRef.current;
+      },
       surface,
       get scope() {
         return scopeRef.current;
@@ -660,10 +833,17 @@ export const AgentKitAssistantChat = forwardRef<
     props.agentChatSurface,
     props.apiUrl,
     props.browserTabId,
+    props.createTransport,
     props.streamingUrl,
     props.tabId,
-    threadId,
+    props.createTransport ? threadId : undefined,
   ]);
+  const agentKitLoad =
+    props.isThreadStateLoading ||
+    props.isNewThread ||
+    (restoreRetryThreadId === threadId && restoreRetryLoadPhase === "release")
+      ? "manual"
+      : "auto";
   const history = props.chatHistory as
     | AgentKitHistoryConfig<unknown, any, any>
     | undefined;
@@ -672,7 +852,6 @@ export const AgentKitAssistantChat = forwardRef<
     <ThinkingDisplayProvider value={props.thinkingDisplay}>
       <CoreComposerRuntimeProvider>
         <AgentKitRoot
-          key={`${threadId}:${restoreRetryVersion}`}
           transport={transport}
           clientOptions={{
             transportOwnership: "owned",
@@ -681,9 +860,7 @@ export const AgentKitAssistantChat = forwardRef<
             upload,
           }}
           threadId={threadId}
-          load={
-            props.isThreadStateLoading || props.isNewThread ? "manual" : "auto"
-          }
+          load={agentKitLoad}
           onLoadError={onThreadRestoreLoadError}
           slots={agentKitSlots}
           labels={labels}
@@ -801,7 +978,42 @@ const AgentKitAssistantChatBody = forwardRef<
     pendingProviderSubmissionVersion,
     setPendingProviderSubmissionVersion,
   ] = useState(0);
+  const [deferredSubmissionsLoadedThread, setDeferredSubmissionsLoadedThread] =
+    useState<string | null>(null);
   const pendingProviderRetryTimerRef = useRef<number | undefined>(undefined);
+  const pendingProviderSubmissionsRef = useRef<PendingProviderSubmission[]>([]);
+  const drainingProviderSubmissionsRef = useRef(false);
+  const scheduleProviderSubmissionRetry = useCallback((delayMs = 300) => {
+    if (pendingProviderRetryTimerRef.current !== undefined) return;
+    pendingProviderRetryTimerRef.current = window.setTimeout(() => {
+      pendingProviderRetryTimerRef.current = undefined;
+      setPendingProviderSubmissionVersion((version) => version + 1);
+    }, delayMs);
+  }, []);
+  useEffect(() => {
+    if (deferredSubmissionsLoadedThread === threadId) return;
+    let active = true;
+    pendingProviderSubmissionsRef.current = [];
+    setDeferredSubmissionsLoadedThread(null);
+    void readDeferredProviderSubmissions(threadId).then(
+      (submissions) => {
+        if (!active) return;
+        pendingProviderSubmissionsRef.current = submissions;
+        setDeferredSubmissionsLoadedThread(threadId);
+      },
+      () => {
+        if (active) scheduleProviderSubmissionRetry(1000);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [
+    deferredSubmissionsLoadedThread,
+    pendingProviderSubmissionVersion,
+    scheduleProviderSubmissionRetry,
+    threadId,
+  ]);
   useEffect(
     () => () => {
       if (pendingProviderRetryTimerRef.current !== undefined) {
@@ -837,7 +1049,6 @@ const AgentKitAssistantChatBody = forwardRef<
   const saveSnapshotRef = useRef<() => void>(() => undefined);
   const isUnmountingRef = useRef(false);
   const pendingSubmissionReleaseRef = useRef<(() => void) | null>(null);
-  const pendingProviderSubmissionsRef = useRef<PendingProviderSubmission[]>([]);
   const localSubmissionRef = useRef(false);
   const latestAssistant = useMemo(
     () =>
@@ -1350,15 +1561,18 @@ const AgentKitAssistantChatBody = forwardRef<
       composerOptions: PromptComposerSubmitOptions,
       options: AgentKitInternalSendOptions = {},
     ) => {
-      const context = options.recoveryAction
-        ? ""
-        : [
-            formatAgentChatContextItemsForPrompt(contextItems),
-            pendingSelectionPromptContext(pendingSelection),
-          ]
-            .filter(Boolean)
-            .join("\n\n");
-      const message = appendAgentChatContextToMessage(text, context);
+      const context =
+        options.recoveryAction || options.contextAlreadyIncluded
+          ? ""
+          : [
+              formatAgentChatContextItemsForPrompt(contextItems),
+              pendingSelectionPromptContext(pendingSelection),
+            ]
+              .filter(Boolean)
+              .join("\n\n");
+      const message = options.contextAlreadyIncluded
+        ? text
+        : appendAgentChatContextToMessage(text, context);
       const attachments = [
         ...(options.attachments ?? []),
         ...((composerOptions.attachments ?? []) as AgentChatAttachment[]),
@@ -1371,11 +1585,9 @@ const AgentKitAssistantChatBody = forwardRef<
       if (needsFileStorage && !fileStorageConfigured) {
         throw new Error(t("onboarding.fileStorage.title"));
       }
-      const fileParts = await uploadAgentChatAttachments(
-        control,
-        attachments,
-        files,
-      );
+      const fileParts =
+        options.deferredFileParts ??
+        (await uploadAgentChatAttachments(control, attachments, files));
       if (!options.recoveryAction) {
         await deleteClientAppState("pending-selection-context", {
           keepalive: true,
@@ -1400,7 +1612,15 @@ const AgentKitAssistantChatBody = forwardRef<
         composerOptions.effort ??
         options.recoveryEffort ??
         props.selectedEffort;
-      const actionScope = options.actionScope ?? props.contextScope;
+      const contextScope =
+        options.deferredContextScope !== undefined
+          ? (options.deferredContextScope ?? undefined)
+          : props.contextScope;
+      const selectedAgent =
+        options.deferredAgentId !== undefined
+          ? (options.deferredAgentId ?? undefined)
+          : props.selectedAgent;
+      const actionScope = options.actionScope ?? contextScope;
       const metadata = {
         ...(options.submitMessageId
           ? { submitMessageId: options.submitMessageId }
@@ -1412,17 +1632,25 @@ const AgentKitAssistantChatBody = forwardRef<
           ? { approvedToolCalls: options.approvedToolCalls }
           : {}),
         ...(options.hideUserMessage ? { hideUserMessage: true } : {}),
-        ...(options.recoveryAction
+        ...(options.recoveryAction || options.deferredSubmissionId
           ? {
               custom: {
-                agentNativeRecoveryAction: options.recoveryAction,
+                ...(options.recoveryAction
+                  ? { agentNativeRecoveryAction: options.recoveryAction }
+                  : {}),
+                ...(options.deferredSubmissionId
+                  ? {
+                      agentNativeDeferredSubmissionId:
+                        options.deferredSubmissionId,
+                    }
+                  : {}),
               },
             }
           : {}),
         ...(options.recoveryAction === "continue"
           ? { agentNativeInternalContinuation: true }
           : {}),
-        ...(props.contextScope ? { chatScope: props.contextScope } : {}),
+        ...(contextScope ? { chatScope: contextScope } : {}),
         ...(references.length || options.recoveryReferences?.length
           ? {
               references: [
@@ -1434,7 +1662,7 @@ const AgentKitAssistantChatBody = forwardRef<
         ...(model ? { model } : {}),
         ...(engine ? { engine } : {}),
         ...(effort ? { effort } : {}),
-        ...(props.selectedAgent ? { agentId: props.selectedAgent } : {}),
+        ...(selectedAgent ? { agentId: selectedAgent } : {}),
         requestMode,
       };
       localSubmissionRef.current = true;
@@ -1452,7 +1680,7 @@ const AgentKitAssistantChatBody = forwardRef<
             options: {
               model,
               mode: requestMode,
-              agentId: props.selectedAgent,
+              agentId: selectedAgent,
               reasoningEffort:
                 effort && effort !== "auto" && effort !== "max"
                   ? (effort as "low" | "medium" | "high" | "xhigh")
@@ -1532,18 +1760,80 @@ const AgentKitAssistantChatBody = forwardRef<
               (readiness.state === "unknown" ||
                 readiness.state === "unavailable")))
         ) {
-          const deferredOptions = { ...options };
-          delete deferredOptions.submitMessageId;
-          pendingProviderSubmissionsRef.current.push({
-            threadId,
-            text,
-            files: [...files],
-            references: [...references],
-            composerOptions: { ...composerOptions },
-            options: deferredOptions,
-          });
-          reportAgentChatSubmitResult(options.submitMessageId, true);
-          return { status: "submitted" };
+          try {
+            const attachments = [
+              ...(options.attachments ?? []),
+              ...((composerOptions.attachments ?? []) as AgentChatAttachment[]),
+            ];
+            const needsFileStorage =
+              files.length > 0 ||
+              attachments.some(
+                (attachment) => !attachment.displayOnly && !attachment.url,
+              );
+            if (needsFileStorage && !fileStorageConfigured) {
+              throw new Error(t("onboarding.fileStorage.title"));
+            }
+            // Persist only URLs or opaque file handles; application_state is
+            // not a file store and must never receive attachment bodies.
+            const fileParts = await uploadAgentChatAttachments(
+              control,
+              attachments,
+              files,
+            );
+            const context = options.recoveryAction
+              ? ""
+              : [
+                  formatAgentChatContextItemsForPrompt(contextItems),
+                  pendingSelectionPromptContext(pendingSelection),
+                ]
+                  .filter(Boolean)
+                  .join("\n\n");
+            const { submitMessageId } = options;
+            const deferredOptions = { ...options };
+            delete deferredOptions.submitMessageId;
+            delete deferredOptions.attachments;
+            deferredOptions.contextAlreadyIncluded = true;
+            deferredOptions.deferredSubmissionId =
+              submitMessageId ?? createAgentUploadId();
+            deferredOptions.deferredAgentId = props.selectedAgent ?? null;
+            deferredOptions.deferredContextScope =
+              props.contextScope === undefined ? null : props.contextScope;
+            deferredOptions.requestMode ??=
+              props.execMode === "plan" ? "plan" : "act";
+            const deferredComposerOptions = { ...composerOptions };
+            delete deferredComposerOptions.attachments;
+            deferredComposerOptions.model ??= props.selectedModel;
+            deferredComposerOptions.engine ??= props.selectedEngine;
+            deferredComposerOptions.effort ??= props.selectedEffort;
+            const submission: PendingProviderSubmission = {
+              id: deferredOptions.deferredSubmissionId,
+              threadId,
+              text: appendAgentChatContextToMessage(text, context),
+              fileParts,
+              references: [...references],
+              composerOptions: deferredComposerOptions,
+              options: deferredOptions,
+            };
+            const submissions = await updateDeferredProviderSubmissions(
+              threadId,
+              (current) =>
+                current.some(({ id }) => id === submission.id)
+                  ? current
+                  : [...current, submission],
+            );
+            pendingProviderSubmissionsRef.current = submissions;
+            setDeferredSubmissionsLoadedThread(threadId);
+            reportAgentChatSubmitResult(submitMessageId, true);
+            return { status: "submitted" };
+          } catch (error) {
+            reportAgentChatSubmitResult(
+              options.submitMessageId,
+              false,
+              "submission-failed",
+            );
+            dispatchSetupRequiredEvent(error, props.tabId, threadId);
+            throw error;
+          }
         }
         const reason = setupMissing
           ? "engine-not-configured"
@@ -1568,56 +1858,105 @@ const AgentKitAssistantChatBody = forwardRef<
     },
     [
       acquireSubmission,
+      contextItems,
+      control,
       dispatch,
+      fileStorageConfigured,
+      pendingSelection,
+      props.contextScope,
+      props.execMode,
+      props.selectedAgent,
+      props.selectedEffort,
+      props.selectedEngine,
+      props.selectedModel,
       isRestoring,
       props.tabId,
       providerChecksEnabled,
       readiness.state,
       setupMissing,
+      t,
       threadId,
     ],
   );
 
   useEffect(() => {
-    if (!canChat || isRestoring) return;
-    const waiting = pendingProviderSubmissionsRef.current;
-    const ready = waiting.filter(
-      (submission) => submission.threadId === threadId,
-    );
-    pendingProviderSubmissionsRef.current = waiting.filter(
-      (submission) => submission.threadId !== threadId,
-    );
-    for (const submission of ready) {
-      void submit(
-        submission.text,
-        submission.files,
-        submission.references,
-        submission.composerOptions,
-        submission.options,
-      )
-        .then((result) => {
-          if (
-            result.status === "rejected" &&
-            result.reason === "submission-unavailable" &&
-            !setupMissing
-          ) {
-            pendingProviderSubmissionsRef.current.push(submission);
-            if (pendingProviderRetryTimerRef.current === undefined) {
-              pendingProviderRetryTimerRef.current = window.setTimeout(() => {
-                pendingProviderRetryTimerRef.current = undefined;
-                setPendingProviderSubmissionVersion((version) => version + 1);
-              }, 300);
-            }
-          }
-        })
-        .catch(() => undefined);
+    if (
+      !canChat ||
+      isRestoring ||
+      setupMissing ||
+      deferredSubmissionsLoadedThread !== threadId ||
+      drainingProviderSubmissionsRef.current
+    ) {
+      return;
     }
+    const submission = pendingProviderSubmissionsRef.current.find(
+      (candidate) => candidate.threadId === threadId,
+    );
+    if (!submission) return;
+
+    let active = true;
+    drainingProviderSubmissionsRef.current = true;
+    void (async () => {
+      let release: (() => void) | null = null;
+      try {
+        release = await acquireSubmission();
+        if (!release) {
+          if (active) scheduleProviderSubmissionRetry();
+          return;
+        }
+        const hasSubmissionMarker = (message: { metadata?: unknown }) => {
+          const custom = asRecord(asRecord(message.metadata)?.custom);
+          return custom?.agentNativeDeferredSubmissionId === submission.id;
+        };
+        const alreadySubmitted =
+          thread.messages.some(
+            (message) =>
+              message.role === "user" &&
+              message.status !== "error" &&
+              hasSubmissionMarker(message),
+          ) ||
+          thread.queuedMessages.some((message) => hasSubmissionMarker(message));
+        if (!alreadySubmitted) {
+          await dispatch(
+            submission.text,
+            [],
+            submission.references,
+            submission.composerOptions,
+            {
+              ...submission.options,
+              deferredFileParts: submission.fileParts,
+              contextAlreadyIncluded: true,
+              deferredSubmissionId: submission.id,
+            },
+          );
+        }
+        const submissions = await updateDeferredProviderSubmissions(
+          threadId,
+          (current) => current.filter(({ id }) => id !== submission.id),
+        );
+        pendingProviderSubmissionsRef.current = submissions;
+        setPendingProviderSubmissionVersion((version) => version + 1);
+      } catch {
+        if (active) scheduleProviderSubmissionRetry(1000);
+      } finally {
+        release?.();
+        drainingProviderSubmissionsRef.current = false;
+      }
+    })();
+    return () => {
+      active = false;
+    };
   }, [
+    acquireSubmission,
     canChat,
+    deferredSubmissionsLoadedThread,
+    dispatch,
     isRestoring,
     pendingProviderSubmissionVersion,
+    scheduleProviderSubmissionRetry,
     setupMissing,
-    submit,
+    thread.messages,
+    thread.queuedMessages,
     threadId,
   ]);
 

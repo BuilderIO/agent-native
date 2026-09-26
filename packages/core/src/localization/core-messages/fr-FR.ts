@@ -344,6 +344,10 @@ const messages: AgentChatTranslation = {
   "message.copyMessage": "Copier le message",
   "message.copyRequestId": "Copier l’ID de requête",
   "message.requestIdUnavailable": "ID de requête indisponible",
+  "message.unavailable":
+    "Ce message n’est plus disponible dans cette conversation.",
+  "message.navigationUnavailable":
+    "La navigation dans la conversation est indisponible.",
   "message.edit": "Modifier le message",
   "message.forkChat": "Dupliquer le chat",
   "message.mobileInteractiveTitle": "Contenu interactif",

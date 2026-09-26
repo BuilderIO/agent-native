@@ -584,6 +584,9 @@ const messages: AgentChatTranslation = {
   "message.copyMessage": "메시지 복사",
   "message.copyRequestId": "요청 ID 복사",
   "message.requestIdUnavailable": "요청 ID를 사용할 수 없음",
+  "message.unavailable":
+    "이 대화에서 해당 메시지를 더 이상 사용할 수 없습니다.",
+  "message.navigationUnavailable": "대화 탐색을 사용할 수 없습니다.",
   "message.edit": "메시지 편집",
   "message.forkChat": "채팅 분기",
   "message.mobileInteractiveTitle": "인터랙티브 콘텐츠",

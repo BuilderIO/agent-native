@@ -459,6 +459,28 @@ describe("mobile AgentKit adapter", () => {
     });
   });
 
+  it.each(["awaiting_approval", "awaiting_input"] as const)(
+    "restores mobile turn state for %s runs",
+    (status) => {
+      const thread: AgentThreadState = {
+        ...createThread(),
+        activeRunIds: ["run-1"],
+        runs: {
+          "run-1": {
+            id: "run-1",
+            status,
+            lastSequence: 3,
+          },
+        },
+      };
+
+      expect(agentKitThreadToMobileTurnState(thread)).toMatchObject({
+        isStreaming: true,
+        runId: "run-1",
+      });
+    },
+  );
+
   it("formats failed run snapshots with the shared chat error copy", () => {
     const thread: AgentThreadState = {
       ...createThread(),

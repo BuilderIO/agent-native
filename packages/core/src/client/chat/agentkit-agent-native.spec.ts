@@ -736,6 +736,111 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("keeps queued work behind approval and input waits", async () => {
+    let activeRunChecks = 0;
+    let queueWriteRunCheckCount = 0;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/runs/active?threadId=thread-approval")) {
+          activeRunChecks += 1;
+          if (activeRunChecks === 1) {
+            return json({ active: true, status: "awaiting_approval" });
+          }
+          if (activeRunChecks === 2) {
+            return json({ active: true, status: "awaiting_input" });
+          }
+          return json({ active: false, status: "completed" });
+        }
+        if (url.endsWith("/threads/thread-approval") && !init?.method) {
+          return json({
+            id: "thread-approval",
+            threadData: JSON.stringify({
+              queuedMessages: [
+                { id: "queued-approval", text: "Continue after approval" },
+              ],
+            }),
+          });
+        }
+        if (url.endsWith("/threads/thread-approval/queued")) {
+          queueWriteRunCheckCount = activeRunChecks;
+          return json({ ok: true });
+        }
+        if (url.endsWith("/_agent-native/agent-chat")) {
+          return new Response('data: {"type":"done"}\n\n', {
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.steerQueuedMessage?.({
+      threadId: "thread-approval",
+      messageId: "queued-approval",
+    });
+
+    expect(activeRunChecks).toBe(4);
+    expect(queueWriteRunCheckCount).toBe(4);
+    await transport.dispose();
+  });
+
+  it.each(["errored", "aborted"] as const)(
+    "releases queued work after an active %s run is terminal",
+    async (terminalStatus) => {
+      const queueWrites: unknown[] = [];
+      let startRunRequests = 0;
+      const fetcher = vi.fn(
+        async (input: string | URL | Request, init?: RequestInit) => {
+          const url = String(input);
+          if (url.includes("/runs/active?threadId=thread-terminal")) {
+            return json({ active: true, status: terminalStatus });
+          }
+          if (url.endsWith("/threads/thread-terminal") && !init?.method) {
+            return json({
+              id: "thread-terminal",
+              threadData: JSON.stringify({
+                queuedMessages: [{ id: "queued-terminal", text: "Try again" }],
+              }),
+            });
+          }
+          if (url.endsWith("/threads/thread-terminal/queued")) {
+            queueWrites.push(JSON.parse(String(init?.body)));
+            return json({ ok: true });
+          }
+          if (url.endsWith("/_agent-native/agent-chat")) {
+            startRunRequests += 1;
+            return json({ error: "Deterministic start rejection" }, 502);
+          }
+          return json({ error: "Not found" }, 404);
+        },
+      );
+      const transport = createAgentNativeAgentKitTransport({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetcher as typeof fetch,
+      });
+
+      await expect(
+        transport.steerQueuedMessage?.({
+          threadId: "thread-terminal",
+          messageId: "queued-terminal",
+        }),
+      ).rejects.toThrow("Deterministic start rejection");
+
+      expect(startRunRequests).toBe(1);
+      expect(queueWrites).toHaveLength(2);
+      expect(queueWrites[0]).toEqual({ queuedMessages: [] });
+      expect(queueWrites[1]).toMatchObject({
+        queuedMessages: [{ id: "queued-terminal", text: "Try again" }],
+      });
+      await transport.dispose();
+    },
+  );
+
   it("keeps queued work durable while the runtime owns a continuation", async () => {
     const queueWrites: unknown[] = [];
     const fetcher = vi.fn(

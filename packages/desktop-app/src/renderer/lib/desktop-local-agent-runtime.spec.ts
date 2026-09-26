@@ -63,6 +63,28 @@ function completedEvent(): CodeAgentTranscriptEvent {
   };
 }
 
+function needsApprovalEvent(): CodeAgentTranscriptEvent {
+  return {
+    id: "event-approval",
+    runId: "run-1",
+    type: "status",
+    text: "Approve the pending local action to continue.",
+    createdAt: "2026-09-26T12:00:00.000Z",
+    metadata: { status: "needs-approval" },
+  };
+}
+
+function assistantDeltaEvent(): CodeAgentTranscriptEvent {
+  return {
+    id: "event-assistant-delta",
+    runId: "run-1",
+    type: "system",
+    text: "I need approval before continuing.",
+    createdAt: "2026-09-26T12:00:00.000Z",
+    metadata: { type: "assistant_delta" },
+  };
+}
+
 async function readEvents(turn: AgentChatRuntimeTurn) {
   const events: AgentChatRuntimeEvent[] = [];
   for await (const event of turn.events) events.push(event);
@@ -103,6 +125,61 @@ describe("Desktop local AgentKit runtime lifecycle", () => {
     );
     await turn.cancel?.({ reason: "test" });
   });
+
+  it.each([
+    { approved: true, command: "approve" },
+    { approved: false, command: "deny" },
+  ] as const)(
+    "surfaces approval and continues the same local run ($command)",
+    async ({ approved, command }) => {
+      const api = createDesktopAgentApi();
+      const runtime = createDesktopLocalAgentRuntime("codex");
+      const session = await runtime.createSession({ id: "thread-approval" });
+      const turn = await session.startTurn({
+        prompt: "Make the requested change.",
+      });
+
+      api.emit([assistantDeltaEvent(), needsApprovalEvent()]);
+      const events = await readEvents(turn);
+      expect(
+        events.findIndex((event) => event.type === "message-done"),
+      ).toBeLessThan(
+        events.findIndex((event) => event.type === "approval-request"),
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "approval-request",
+          approvalId: "event-approval",
+          message: "Approve the pending local action to continue.",
+        }),
+      );
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ type: "error" }),
+      );
+      expect(runtime.capabilities.tools?.approvals).toBe(true);
+
+      await expect(
+        session.continueTurn?.({
+          approval: { id: "stale-approval", approved: true },
+        }),
+      ).rejects.toThrow("not waiting for this approval");
+      expect(api.controlRun).not.toHaveBeenCalled();
+
+      const continued = await session.continueTurn?.({
+        turnId: turn.id,
+        approval: { id: "event-approval", approved },
+      });
+      expect(api.controlRun).toHaveBeenCalledWith("goal-1", "run-1", command);
+      expect(continued?.runId).toBe("run-1");
+      expect(continued?.id).not.toBe(turn.id);
+
+      if (!continued) throw new Error("The local run did not continue.");
+      api.emit([completedEvent()]);
+      await expect(readEvents(continued)).resolves.toContainEqual(
+        expect.objectContaining({ type: "done", reason: "complete" }),
+      );
+    },
+  );
 
   it("keeps a failed stop distinct from an already-finished run", async () => {
     const api = createDesktopAgentApi(false);

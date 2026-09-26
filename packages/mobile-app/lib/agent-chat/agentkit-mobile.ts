@@ -254,7 +254,13 @@ export function agentKitThreadToMobileTurnState(
   const activeRun = [...thread.activeRunIds]
     .reverse()
     .map((runId) => thread.runs[runId])
-    .find((run) => run?.status === "running" || run?.status === "queued");
+    .find(
+      (run) =>
+        run?.status === "running" ||
+        run?.status === "queued" ||
+        run?.status === "awaiting_approval" ||
+        run?.status === "awaiting_input",
+    );
   const activeActivity = Object.values(thread.activities).find(
     (activity) => activity.status === "running",
   );

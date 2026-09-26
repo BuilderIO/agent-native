@@ -588,6 +588,9 @@ const messages = {
   "message.copyMessage": "Copy message",
   "message.copyRequestId": "Copy request ID",
   "message.requestIdUnavailable": "Request ID unavailable",
+  "message.unavailable":
+    "The message is no longer available in this conversation.",
+  "message.navigationUnavailable": "Conversation navigation is unavailable.",
   "message.edit": "Edit message",
   "message.forkChat": "Fork chat",
   "message.mobileInteractiveTitle": "Interactive content",

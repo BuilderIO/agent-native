@@ -5,6 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const chatMocks = vi.hoisted(() => ({
+  appState: new Map<string, unknown>(),
+  composerDrafts: new Map<string, string>(),
   threadId: "thread-1",
   readThread: () => chatMocks.thread,
   thread: {
@@ -233,8 +235,16 @@ vi.mock("./agentkit-chat/parity-renderers.js", () => ({
 }));
 
 vi.mock("./application-state.js", () => ({
-  deleteClientAppState: vi.fn(async () => undefined),
-  readClientAppState: vi.fn(async () => null),
+  deleteClientAppState: vi.fn(async (key: string) => {
+    chatMocks.appState.delete(key);
+  }),
+  readClientAppState: vi.fn(
+    async (key: string) => chatMocks.appState.get(key) ?? null,
+  ),
+  writeClientAppState: vi.fn(async (key: string, value: unknown) => {
+    chatMocks.appState.set(key, value);
+    return value;
+  }),
 }));
 
 vi.mock("./builder-frame.js", () => ({
@@ -242,8 +252,11 @@ vi.mock("./builder-frame.js", () => ({
 }));
 
 vi.mock("./chat/composer-draft.js", () => ({
-  readAssistantChatComposerDraft: () => null,
-  writeAssistantChatComposerDraft: vi.fn(),
+  readAssistantChatComposerDraft: (key: string) =>
+    chatMocks.composerDrafts.get(key) ?? null,
+  writeAssistantChatComposerDraft: vi.fn((key: string, text: string) => {
+    chatMocks.composerDrafts.set(key, text);
+  }),
 }));
 
 vi.mock("./chat/run-recovery.js", () => ({
@@ -400,7 +413,10 @@ import {
   AgentKitAssistantChat,
   type AgentKitAssistantChatProps,
 } from "./AgentKitAssistantChat.js";
-import type { AssistantChatHandle } from "./chat/surface-types.js";
+import type {
+  AssistantChatHandle,
+  AssistantChatSendOptions,
+} from "./chat/surface-types.js";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -438,6 +454,8 @@ function baseProps(
 }
 
 beforeEach(() => {
+  chatMocks.appState.clear();
+  chatMocks.composerDrafts.clear();
   chatMocks.threadId = "thread-1";
   chatMocks.thread = {
     thread: null,
@@ -556,6 +574,40 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(runtimeOptions.streamingUrl).toBe(
       "https://stream.example.test/agent-chat",
     );
+  });
+
+  it("keeps the managed AgentKit transport alive across restore retries and thread changes", async () => {
+    await mount(baseProps({ isNewThread: false }));
+    const transport = chatMocks.rootProps.transport;
+    expect(chatMocks.transportOptions.threadId).toBe("thread-1");
+    expect(chatMocks.runtimeOptions.threadId).toBe("thread-1");
+    expect(chatMocks.rootProps.clientOptions).toMatchObject({
+      retainActiveRunsOnThreadRelease: true,
+    });
+
+    await act(async () => {
+      chatMocks.rootProps.onLoadError(
+        Object.assign(new Error("offline"), { status: 503 }),
+      );
+    });
+    const retryButton = container.querySelector("button");
+    expect(retryButton).not.toBeNull();
+    await act(async () => retryButton!.click());
+    expect(chatMocks.rootProps.load).toBe("manual");
+    await flush();
+    expect(chatMocks.rootProps.load).toBe("auto");
+    expect(chatMocks.rootProps.transport).toBe(transport);
+
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ isNewThread: false, threadId: "thread-2" })}
+        />,
+      );
+    });
+    expect(chatMocks.rootProps.transport).toBe(transport);
+    expect(chatMocks.transportOptions.threadId).toBe("thread-2");
+    expect(chatMocks.runtimeOptions.threadId).toBe("thread-2");
   });
 
   it("keeps the composer text callback stable across host rerenders", async () => {
@@ -681,63 +733,125 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
   });
 
-  it("queues an imperative send while provider status is unresolved", async () => {
+  it("durably queues unresolved sends with files and references across remounts", async () => {
     chatMocks.readiness = {
       canChat: false,
       missing: false,
       state: "unknown",
     };
+    chatMocks.control.uploadFiles.mockResolvedValueOnce([
+      {
+        type: "file",
+        name: "notes.txt",
+        mediaType: "text/plain",
+        url: "https://files.example.test/notes.txt",
+      },
+    ]);
     chatMocks.guidedQuestions = [{ id: "question-1" }];
     const ref = createRef<AssistantChatHandle>();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    const props = baseProps({
+      providerStatusChecksEnabled: true,
+      tabId: "tab-1",
+    });
     await act(async () => {
-      root.render(
-        <AgentKitAssistantChat
-          ref={ref}
-          {...baseProps({ providerStatusChecksEnabled: true })}
-        />,
-      );
+      root.render(<AgentKitAssistantChat ref={ref} {...props} />);
     });
     const results: CustomEvent[] = [];
     const listener = (event: Event) => results.push(event as CustomEvent);
     window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+    const reference = {
+      type: "file",
+      path: "notes.txt",
+      name: "notes.txt",
+      source: "composer",
+    } as const;
 
     await act(async () => {
+      ref.current?.prefillMessage("Visible composer draft");
       await ref.current?.sendMessage("Wait for the provider", undefined, {
         submitMessageId: "pending-provider-submit",
-      });
+        attachments: [
+          {
+            type: "text/plain",
+            name: "notes.txt",
+            text: "private attachment body",
+          },
+        ],
+        recoveryReferences: [reference],
+      } as AssistantChatSendOptions);
     });
 
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
     expect(results.map((event) => event.detail)).toEqual([
       { submitMessageId: "pending-provider-submit", delivered: true },
     ]);
+    expect(chatMocks.composerProps.initialText).toBe("Visible composer draft");
     expect(chatMocks.guidedFlowProps).toMatchObject({
       isSubmissionBlocked: true,
       providerStatus: "unknown",
     });
+    const stateKey = [...chatMocks.appState.keys()].find((key) =>
+      key.startsWith("agentkit-deferred-provider-submissions:"),
+    );
+    expect(stateKey).toBeDefined();
+    const persisted = chatMocks.appState.get(stateKey!) as {
+      submissions: Array<{
+        fileParts: unknown[];
+        options: { recoveryReferences: unknown[] };
+      }>;
+    };
+    expect(persisted.submissions[0]).toMatchObject({
+      fileParts: [
+        {
+          type: "file",
+          name: "notes.txt",
+          url: "https://files.example.test/notes.txt",
+        },
+      ],
+      options: { recoveryReferences: [reference] },
+    });
+    expect(JSON.stringify(persisted)).not.toContain("private attachment body");
+
+    await unmount();
+    root = undefined as unknown as Root;
 
     chatMocks.readiness = {
       canChat: true,
       missing: false,
       state: "configured",
     };
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
     await act(async () => {
-      root.render(
-        <AgentKitAssistantChat
-          ref={ref}
-          {...baseProps({ providerStatusChecksEnabled: true })}
-        />,
-      );
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      root.render(<AgentKitAssistantChat ref={ref} {...props} />);
     });
+    await flush();
 
-    expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "Wait for the provider" }),
-    );
+    expect(chatMocks.composerProps.initialText).toBe("Visible composer draft");
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+    expect(request).toMatchObject({
+      text: "Wait for the provider",
+      attachments: [
+        {
+          type: "file",
+          name: "notes.txt",
+          url: "https://files.example.test/notes.txt",
+        },
+      ],
+      metadata: {
+        references: [reference],
+        custom: {
+          agentNativeDeferredSubmissionId: "pending-provider-submit",
+        },
+      },
+    });
     expect(results).toHaveLength(1);
+    expect(chatMocks.appState.has(stateKey!)).toBe(false);
     window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
   });
 
@@ -1038,6 +1152,8 @@ describe("AgentKitAssistantChat host behavior", () => {
       regenerateResponse: "agentChat.message.regenerate",
       expandMessage: "agentChat.common.expand",
       collapseMessage: "agentChat.common.collapse",
+      messageUnavailable: "agentChat.message.unavailable",
+      navigationUnavailable: "agentChat.message.navigationUnavailable",
       queueMoveToTop: "agentChat.queue.moveToTop",
       previewAttachment: "Preview {{name}}",
       imagePreview: "agentChat.composer.imagePreview",
