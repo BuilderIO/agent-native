@@ -217,14 +217,23 @@ describe("<NewDeckReferenceStep>", () => {
     ).toContain("Reference PDF");
   });
 
-  it("blocks file imports and explains when private storage is unavailable", async () => {
+  it("blocks file imports and shows storage setup when storage is unavailable", async () => {
     const { onImport } = await renderStep({}, false);
 
-    expect(document.querySelector('input[accept=".pdf"]')).toHaveProperty(
-      "disabled",
-      true,
-    );
+    const input = document.querySelector('input[accept=".pdf"]')!;
+    expect(input).toHaveProperty("disabled", true);
     expect(screen.getByTestId("file-storage-setup-card")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.change(input, {
+        target: {
+          files: [
+            new File(["pdf"], "reference.pdf", { type: "application/pdf" }),
+          ],
+        },
+      });
+    });
+
     expect(onImport).not.toHaveBeenCalled();
   });
 
