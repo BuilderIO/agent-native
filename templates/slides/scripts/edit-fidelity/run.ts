@@ -1231,7 +1231,9 @@ async function runScenario(
         result.violations.push(
           "idempotence: edited text not found after reload",
         );
-      } else if (!(await enterEdit(page, slideId, again.point))) {
+      } else if (
+        !(await enterEdit(page, slideId, again.point, result.violations))
+      ) {
         result.violations.push(
           "idempotence: could not re-enter edit after reload",
         );

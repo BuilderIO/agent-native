@@ -40,6 +40,8 @@ import {
 export interface InPlaceTextSessionOptions {
   /** Viewport point of the click that started editing; the caret lands there. */
   caretPoint?: { x: number; y: number } | null;
+  /** Select the word at `caretPoint`, as a native double-click would. */
+  selectWord?: boolean;
   /** Called after every change to the edited content. */
   onInput?: () => void;
 }
@@ -2085,6 +2087,11 @@ export function startInPlaceTextSession(
   const point = options.caretPoint ? caretFromPoint(options.caretPoint) : null;
   if (point && el.contains(point[0])) {
     placeCaret(...point);
+    if (options.selectWord) {
+      const selection = window.getSelection();
+      selection?.modify("move", "backward", "word");
+      selection?.modify("extend", "forward", "word");
+    }
   } else if (
     selection &&
     initialRange &&
