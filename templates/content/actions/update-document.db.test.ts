@@ -301,10 +301,10 @@ describe("update-document compare-and-swap", () => {
     ).toHaveLength(0);
   });
 
-  it("persists a peer observation after the local authored attempt already committed", async () => {
-    const base = "Original passage\nTail";
-    const local = "Local passage\nTail";
-    const observed = "Local passage\nTail\nPeer passage";
+  it("preserves an unlineaged peer observation without poisoning later authored merges", async () => {
+    const base = "Original beta gamma";
+    const local = "Alpha beta gamma";
+    const observed = "Alpha beta peer gamma";
     const id = await createDocument({ content: base });
     const session = nextId("browser-session");
     const first = await runWithRequestContext({ userEmail: OWNER }, () =>
@@ -327,30 +327,118 @@ describe("update-document compare-and-swap", () => {
     );
     expect(first.content).toBe(local);
 
+    const observationAttemptId = nextId("observed-attempt");
+    const intentsBefore = await getDb()
+      .select()
+      .from(schema.documentBodyIntents)
+      .where(eq(schema.documentBodyIntents.documentId, id));
+    const observationArgs = {
+      id,
+      content: observed,
+      baseRevision: first.revision,
+      editorSessionId: session,
+      editorEditGeneration: 1,
+      editorSnapshotTitle: "Untitled",
+      editorSnapshotContent: observed,
+      browserSaveAttemptId: observationAttemptId,
+    };
     const replay = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run(observationArgs, {
+        caller: "frontend",
+        userEmail: OWNER,
+      }),
+    );
+    expect(replay).toMatchObject({
+      preservationRequired: true,
+      reason: "provenance",
+      document: { content: local, bodyRevision: 1 },
+    });
+    const checkpointId = "checkpointId" in replay ? replay.checkpointId : "";
+    expect(checkpointId).toBeTruthy();
+    expect(await documentRow(id)).toMatchObject({
+      content: local,
+      bodyRevision: 1,
+    });
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentBodyIntents)
+        .where(eq(schema.documentBodyIntents.documentId, id)),
+    ).toEqual(intentsBefore);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.id, checkpointId)),
+    ).toMatchObject([{ content: observed }]);
+    const receiptReplay = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        updateDocumentAction.run(observationArgs, {
+          caller: "frontend",
+          userEmail: OWNER,
+        }),
+    );
+    expect(receiptReplay).toMatchObject({
+      preservationRequired: true,
+      reason: "provenance",
+      checkpointId,
+    });
+
+    const peer = await runWithRequestContext({ userEmail: OWNER }, () =>
       updateDocumentAction.run(
         {
           id,
           content: observed,
           baseRevision: first.revision,
-          editorSessionId: session,
+          authoredBaseRevision: first.revision,
+          authoredBaseContent: local,
+          authoredCandidateContent: observed,
+          editorSessionId: nextId("peer-session"),
           editorEditGeneration: 1,
-          editorSnapshotTitle: "Untitled",
-          editorSnapshotContent: observed,
-          browserSaveAttemptId: nextId("observed-attempt"),
+          browserSaveAttemptId: nextId("peer-attempt"),
         },
         { caller: "frontend", userEmail: OWNER },
       ),
     );
-    expect(replay.content).toBe(observed);
-    expect((await documentRow(id)).content).toBe(observed);
+    expect(peer).toMatchObject({
+      content: observed,
+      bodyRevision: 2,
+      bodyIntentOutcome: { status: "applied" },
+    });
+    const independent = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run(
+        {
+          id,
+          content: "Alpha local beta gamma",
+          baseRevision: first.revision,
+          authoredBaseRevision: first.revision,
+          authoredBaseContent: local,
+          authoredCandidateContent: "Alpha local beta gamma",
+          editorSessionId: nextId("independent-session"),
+          editorEditGeneration: 1,
+          browserSaveAttemptId: nextId("independent-attempt"),
+        },
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    expect(independent).toMatchObject({
+      content: "Alpha local beta peer gamma",
+      bodyRevision: 3,
+      bodyIntentOutcome: { status: "applied" },
+    });
   });
 
   it("replays the exact receipt after its editor generation settles", async () => {
     const id = await createDocument({ content: "Before" });
+    const baseRevision = documentRevisionToken(0, "Before");
     const args = {
       id,
       content: "After",
+      baseRevision,
+      authoredBaseRevision: baseRevision,
+      authoredBaseContent: "Before",
+      authoredCandidateContent: "After",
       editorSessionId: nextId("settled-replay-session"),
       editorEditGeneration: 1,
       editorSnapshotTitle: "Untitled",
@@ -380,6 +468,35 @@ describe("update-document compare-and-swap", () => {
       content: "After",
       bodyRevision: 1,
     });
+  });
+
+  it("allows a frontend metadata save that echoes the unchanged body", async () => {
+    const id = await createDocument({ title: "Before", content: "Body" });
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run(
+        {
+          id,
+          title: "After",
+          content: "Body",
+          baseTitle: "Before",
+          baseRevision: documentRevisionToken(0, "Body"),
+          browserSaveAttemptId: nextId("metadata-attempt"),
+        },
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    expect(result).toMatchObject({
+      title: "After",
+      content: "Body",
+      bodyRevision: 0,
+      browserSaveAttempt: { result: "applied" },
+    });
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentBodyIntents)
+        .where(eq(schema.documentBodyIntents.documentId, id)),
+    ).toHaveLength(0);
   });
 
   it("converges overlapping browser sessions regardless of save delivery order", async () => {
@@ -623,6 +740,14 @@ describe("update-document compare-and-swap", () => {
       id,
       content: "After",
       baseRevision: documentRevisionToken(before.bodyRevision, before.content),
+      authoredBaseRevision: documentRevisionToken(
+        before.bodyRevision,
+        before.content,
+      ),
+      authoredBaseContent: before.content,
+      authoredCandidateContent: "After",
+      editorSessionId: nextId("receipt-session"),
+      editorEditGeneration: 1,
       browserSaveAttemptId: nextId("save"),
     };
     const invoke = (input: typeof args) =>
@@ -722,6 +847,11 @@ describe("update-document compare-and-swap", () => {
       id,
       content: "After",
       baseRevision: documentRevisionToken(0, "Before"),
+      authoredBaseRevision: documentRevisionToken(0, "Before"),
+      authoredBaseContent: "Before",
+      authoredCandidateContent: "After",
+      editorSessionId: nextId("lifecycle-session"),
+      editorEditGeneration: 1,
       browserSaveAttemptId: nextId("lifecycle-attempt"),
     };
     const deliver = () =>
@@ -766,6 +896,14 @@ describe("update-document compare-and-swap", () => {
       id,
       content: "First passage\nBrowser second",
       baseRevision: documentRevisionToken(0, "First passage\nSecond passage"),
+      authoredBaseRevision: documentRevisionToken(
+        0,
+        "First passage\nSecond passage",
+      ),
+      authoredBaseContent: "First passage\nSecond passage",
+      authoredCandidateContent: "First passage\nBrowser second",
+      editorSessionId: nextId("lost-response-session"),
+      editorEditGeneration: 1,
       browserSaveAttemptId: nextId("lost-response"),
     };
     const deliver = (input: typeof args) =>
@@ -816,8 +954,15 @@ describe("update-document compare-and-swap", () => {
       updateDocumentAction.run(
         {
           id,
+          title: "Rejected title",
+          baseTitle: "Stale title",
           content: "Rejected",
           baseRevision: documentRevisionToken(0, "stale"),
+          authoredBaseRevision: documentRevisionToken(0, "Before"),
+          authoredBaseContent: "Before",
+          authoredCandidateContent: "Rejected",
+          editorSessionId: nextId("conflict-session"),
+          editorEditGeneration: 1,
           browserSaveAttemptId: attemptId,
         },
         { caller: "frontend", userEmail: OWNER },
@@ -1681,7 +1826,16 @@ describe("update-document compare-and-swap", () => {
 
     const result = await runWithRequestContext({ userEmail: EDITOR }, () =>
       updateDocumentAction.run(
-        { id: documentId, content: "edited by collaborator" },
+        {
+          id: documentId,
+          content: "edited by collaborator",
+          authoredBaseRevision: documentRevisionToken(0, "owner body"),
+          authoredBaseContent: "owner body",
+          authoredCandidateContent: "edited by collaborator",
+          editorSessionId: nextId("shared-editor-session"),
+          editorEditGeneration: 1,
+          browserSaveAttemptId: nextId("shared-editor-attempt"),
+        },
         {
           caller: "frontend",
           actionName: "update-document",
@@ -1786,6 +1940,12 @@ describe("update-document compare-and-swap", () => {
         {
           id: documentId,
           content: "collaborator body",
+          authoredBaseRevision: documentRevisionToken(0, "owner body"),
+          authoredBaseContent: "owner body",
+          authoredCandidateContent: "collaborator body",
+          editorSessionId: nextId("favorite-editor-session"),
+          editorEditGeneration: 1,
+          browserSaveAttemptId: nextId("favorite-editor-attempt"),
         },
         {
           caller: "frontend",

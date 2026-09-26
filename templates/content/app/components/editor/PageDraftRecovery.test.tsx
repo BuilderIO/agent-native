@@ -94,6 +94,7 @@ describe("Page draft recovery", () => {
     title: "Saved",
     content: "Saved body",
     updatedAt: "v2",
+    revision: "saved-body-revision",
   } as Document;
   const render = () =>
     root.render(
@@ -163,10 +164,41 @@ describe("Page draft recovery", () => {
       expect.objectContaining({
         baseUpdatedAt: "v2",
         editorSessionId: "tab:page",
-        editorEditGeneration: 4,
+        editorEditGeneration: 5,
+        baseRevision: "saved-body-revision",
+        authoredBaseRevision: "saved-body-revision",
+        authoredBaseContent: "Saved body",
+        authoredCandidateContent: "Draft body",
+        browserSaveAttemptId: expect.any(String),
       }),
     );
     expect(state.resolve).not.toHaveBeenCalled();
+  });
+
+  it("keeps an identified draft pending when its write requires preservation", async () => {
+    state.draft = {
+      title: "Draft",
+      content: "Draft body",
+      version: 3,
+      baseDocumentUpdatedAt: "v2",
+      loadedContentWasEmpty: 0,
+      editorSessionId: "tab:page",
+      editGeneration: 4,
+    };
+    state.update.mockResolvedValue({
+      preservationRequired: true,
+      document: page,
+      reason: "structure",
+      checkpointId: "checkpoint",
+    });
+
+    await act(async () => render());
+
+    expect(state.remove).not.toHaveBeenCalled();
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(
+      container.querySelector('[data-testid="recovery-comparison"]'),
+    ).not.toBeNull();
   });
 
   it("does not reopen recovery when Use saved already superseded the draft generation", async () => {

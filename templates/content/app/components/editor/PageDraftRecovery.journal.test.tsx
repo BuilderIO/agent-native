@@ -250,7 +250,7 @@ describe("Page browser journal recovery", () => {
     expect(container.querySelector("textarea")).not.toBeNull();
   });
 
-  it("replays the observed body when a peer update extends the authored candidate", async () => {
+  it("retains a peer-extended observation in History without confirming an unlineaged save", async () => {
     state.entries = [
       {
         ...entry("first", "Local Peer"),
@@ -263,7 +263,12 @@ describe("Page browser journal recovery", () => {
         },
       },
     ];
-    state.update.mockResolvedValue({ ...page, content: "Local Peer" });
+    state.update.mockResolvedValue({
+      preservationRequired: true,
+      document: page,
+      reason: "provenance",
+      checkpointId: "observed-checkpoint",
+    });
     state.rebase.mockImplementation(
       async (args: {
         base: { content: string; updatedAt: string; revision?: string };
@@ -271,11 +276,16 @@ describe("Page browser journal recovery", () => {
         persist: (
           content: string,
           base: { content: string; updatedAt: string; revision?: string },
-        ) => Promise<Document>;
-      }) => ({
-        status: "saved",
-        document: await args.persist(args.content, args.base),
-      }),
+        ) => Promise<{ checkpointId: string }>;
+      }) => {
+        const response = await args.persist(args.content, args.base);
+        return {
+          status: "preservation",
+          localDraft: args.content,
+          base: args.base,
+          checkpointId: response.checkpointId,
+        };
+      },
     );
 
     await act(async () => render());
@@ -286,6 +296,8 @@ describe("Page browser journal recovery", () => {
       "authoredCandidateContent",
     );
     expect(state.entries).toEqual([]);
+    expect(state.retained).toHaveBeenCalledWith("first");
+    expect(state.retainedNotice).toBe(true);
   });
 
   it("does not clear a newer journal for an older attempt's receipt", async () => {

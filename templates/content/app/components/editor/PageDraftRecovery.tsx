@@ -416,10 +416,23 @@ export function PageDraftRecovery({
         if (draftDiffers && !draft.baseDocumentUpdatedAt) {
           throw new Error("The draft has no original document version.");
         }
+        if (draft.content !== document.content && !document.revision) {
+          throw new Error("The current body revision is unavailable.");
+        }
         const saved = await update.mutateAsync({
           id: document.id,
           title: draft.title,
           content: draft.content,
+          ...(draft.content !== document.content
+            ? {
+                baseRevision: document.revision,
+                baseTitle: document.title,
+                authoredBaseRevision: document.revision,
+                authoredBaseContent: document.content,
+                authoredCandidateContent: draft.content,
+                browserSaveAttemptId: crypto.randomUUID(),
+              }
+            : {}),
           ...(draft.baseDocumentUpdatedAt
             ? {
                 baseUpdatedAt: draft.baseDocumentUpdatedAt,
@@ -427,10 +440,14 @@ export function PageDraftRecovery({
               }
             : {}),
           loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
-          ...(identifiedDraft
+          ...(identifiedDraft || draft.content !== document.content
             ? {
-                editorSessionId: draft.editorSessionId!,
-                editorEditGeneration: draft.editGeneration!,
+                editorSessionId: identifiedDraft
+                  ? draft.editorSessionId!
+                  : `preview-recovery:${document.id}:${draft.version}`,
+                editorEditGeneration: identifiedDraft
+                  ? draft.editGeneration! + 1
+                  : 0,
                 editorSnapshotTitle: draft.title,
                 editorSnapshotContent: draft.content,
               }

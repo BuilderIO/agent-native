@@ -9,14 +9,13 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentRevisionToken } from "./_document-edit-mutation.js";
 import {
   lockPreviewDocumentDraftSettlement,
   settlePreviewDocumentDraft,
 } from "./_preview-document-draft-settlement.js";
 import createDocument from "./create-document.js";
-import updateDocument, {
-  type DocumentUpdateConflictResponse,
-} from "./update-document.js";
+import updateDocument from "./update-document.js";
 
 const exactDraft = {
   documentId: z.string().min(1),
@@ -693,25 +692,36 @@ export default defineAction({
             document: current,
           };
         }
+        if (!current) conflict("The document was removed during recovery.");
+        const baseRevision = documentRevisionToken(
+          current.bodyRevision,
+          current.content,
+        );
         const saved = await updateDocument.run(
           {
             id: args.documentId,
             title: draft.title,
             content: draft.content,
             baseUpdatedAt: args.expectedDocumentUpdatedAt,
+            baseRevision,
+            baseTitle: current.title,
+            authoredBaseRevision: baseRevision,
+            authoredBaseContent: current.content,
+            authoredCandidateContent: draft.content,
+            browserSaveAttemptId: processingToken,
             loadedUpdatedAt: draft.baseDocumentUpdatedAt ?? undefined,
             loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
             historySessionId: `draft-recovery:${draft.id}`,
-            editorSessionId: draft.editorSessionId ?? undefined,
-            editorEditGeneration: draft.editGeneration ?? undefined,
+            editorSessionId: claimId,
+            editorEditGeneration: 0,
             editorSnapshotTitle: draft.title,
             editorSnapshotContent: draft.content,
             preserveLeadingTitleHeading: true,
             reuseLabels: [],
           },
-          ctx,
+          { ...ctx, caller: "frontend" },
         );
-        if ((saved as DocumentUpdateConflictResponse).conflict === true) {
+        if ("conflict" in saved && saved.conflict === true) {
           const [winner] = await db
             .select()
             .from(schema.documents)
@@ -731,7 +741,20 @@ export default defineAction({
           await restoreClaimedDraft(draft);
           return {
             status: "document_conflict" as const,
-            document: (saved as DocumentUpdateConflictResponse).document,
+            document: saved.document,
+          };
+        }
+        const resultDocument = "document" in saved ? saved.document : saved;
+        if (
+          "preservationRequired" in saved ||
+          "superseded" in saved ||
+          resultDocument.title !== draft.title ||
+          resultDocument.content !== draft.content
+        ) {
+          await restoreClaimedDraft(draft);
+          return {
+            status: "document_conflict" as const,
+            document: resultDocument,
           };
         }
         await markClaimResolved();

@@ -1047,6 +1047,46 @@ export default defineAction({
             browserSaveConfirmation = confirmation;
           }
         };
+        const preserveUnmergedContent = async (
+          candidateContent: string,
+          reason: "structure" | "provenance",
+        ) => {
+          const checkpointId = await preserveDocumentBodyIntent({
+            db: tx as ReturnType<typeof getDb>,
+            ownerEmail,
+            documentId: id,
+            title: args.title ?? historyBefore.title,
+            candidateContent,
+            actorEmail: requestUserEmail ?? null,
+            origin: "frontend",
+            operation: "update-document-preservation",
+            now: nextDocumentUpdatedAt(historyBefore.updatedAt),
+          });
+          preservationRequired = { reason, checkpointId };
+          if (args.browserSaveAttemptId && browserSavePayload) {
+            await tx.insert(schema.documentBrowserSaveAttempts).values({
+              id: randomUUID(),
+              ownerEmail,
+              orgId: requestOrgId,
+              documentId: id,
+              actorEmail: (requestUserEmail as string).toLowerCase(),
+              attemptId: args.browserSaveAttemptId,
+              payloadDigest: browserSavePayload,
+              resultJson: JSON.stringify({
+                kind: "preservation-required",
+                attemptId: args.browserSaveAttemptId,
+                result: "applied",
+                revision: documentRevisionToken(
+                  historyBefore.bodyRevision,
+                  historyBefore.content,
+                ),
+                updatedAt: historyBefore.updatedAt,
+                reason,
+                checkpointId,
+              }),
+            });
+          }
+        };
         if (authoredBase && authoredCandidateContent !== undefined) {
           const prior = await findDocumentBodyIntent({
             db: tx as ReturnType<typeof getDb>,
@@ -1077,6 +1117,15 @@ export default defineAction({
             return;
           }
         }
+        if (
+          ctx?.caller === "frontend" &&
+          !authoredBase &&
+          content !== undefined &&
+          content !== historyBefore.content
+        ) {
+          await preserveUnmergedContent(content, "provenance");
+          return;
+        }
         let intentMerge:
           | Extract<
               ReturnType<typeof mergeDocumentBodyIntents>,
@@ -1105,41 +1154,10 @@ export default defineAction({
             priorIntents,
           });
           if (resolved.status === "preservation-required") {
-            const checkpointId = await preserveDocumentBodyIntent({
-              db: tx as ReturnType<typeof getDb>,
-              ownerEmail,
-              documentId: id,
-              title: args.title ?? historyBefore.title,
-              candidateContent: authoredCandidateContent,
-              actorEmail: requestUserEmail ?? null,
-              origin: "frontend",
-              operation: "update-document-preservation",
-              now: nextDocumentUpdatedAt(historyBefore.updatedAt),
-            });
-            preservationRequired = { reason: resolved.reason, checkpointId };
-            if (args.browserSaveAttemptId && browserSavePayload) {
-              await tx.insert(schema.documentBrowserSaveAttempts).values({
-                id: randomUUID(),
-                ownerEmail,
-                orgId: requestOrgId,
-                documentId: id,
-                actorEmail: (requestUserEmail as string).toLowerCase(),
-                attemptId: args.browserSaveAttemptId,
-                payloadDigest: browserSavePayload,
-                resultJson: JSON.stringify({
-                  kind: "preservation-required",
-                  attemptId: args.browserSaveAttemptId,
-                  result: "applied",
-                  revision: documentRevisionToken(
-                    historyBefore.bodyRevision,
-                    historyBefore.content,
-                  ),
-                  updatedAt: historyBefore.updatedAt,
-                  reason: resolved.reason,
-                  checkpointId,
-                }),
-              });
-            }
+            await preserveUnmergedContent(
+              authoredCandidateContent,
+              resolved.reason,
+            );
             return;
           }
           intentMerge = resolved;

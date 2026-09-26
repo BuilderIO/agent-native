@@ -61,7 +61,9 @@ function hasAmbiguousIdentity(
 type TextHunk = { from: number; to: number; insert: string };
 
 function textHunks(before: string, after: string): TextHunk[] {
-  const diffs = new DiffMatchPatch().diff_main(before, after, true);
+  const differ = new DiffMatchPatch();
+  const diffs = differ.diff_main(before, after, true);
+  differ.diff_cleanupSemantic(diffs);
   const hunks: TextHunk[] = [];
   let offset = 0;
   let pending: TextHunk | null = null;
@@ -84,13 +86,29 @@ function textHunks(before: string, after: string): TextHunk[] {
     }
   }
   flush();
-  return hunks;
+  const grouped: TextHunk[] = [];
+  for (const hunk of hunks) {
+    const previous = grouped[grouped.length - 1];
+    if (
+      previous &&
+      /^[\p{L}\p{N}_]+$/u.test(before.slice(previous.from, hunk.to))
+    ) {
+      previous.insert += before.slice(previous.to, hunk.from) + hunk.insert;
+      previous.to = hunk.to;
+    } else {
+      grouped.push({ ...hunk });
+    }
+  }
+  return grouped;
 }
 
 function textHunksOverlap(left: TextHunk, right: TextHunk): boolean {
-  if (left.from === left.to || right.from === right.to) {
-    return left.from <= right.to && right.from <= left.to;
-  }
+  if (left.from === left.to && right.from === right.to)
+    return left.from === right.from;
+  if (left.from === left.to)
+    return right.from < left.from && left.from < right.to;
+  if (right.from === right.to)
+    return left.from < right.from && right.from < left.to;
   return left.from < right.to && right.from < left.to;
 }
 
