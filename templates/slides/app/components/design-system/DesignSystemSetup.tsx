@@ -1487,7 +1487,7 @@ export function DesignSystemSetup({
             disabled={
               editingId
                 ? generating || !existingDs || existingDsLoading
-                : !hasAnySources
+                : builderIndexing || !hasAnySources
             }
             className="cursor-pointer"
           >

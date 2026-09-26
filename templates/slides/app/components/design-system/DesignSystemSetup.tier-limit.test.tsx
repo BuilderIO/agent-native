@@ -226,11 +226,15 @@ describe("Slides DesignSystemSetup tier-limit gating", () => {
       target: { files: [new File(["figma"], "brand.fig")] },
     });
 
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "designSystemSetup.chooseAnotherFile",
-      }),
-    );
+    const chooseAnotherFile = await screen.findByRole("button", {
+      name: "designSystemSetup.chooseAnotherFile",
+    });
+    const continueButton = screen.getByRole("button", {
+      name: "designSystemSetup.continueToGeneration",
+    });
+    expect(continueButton.hasAttribute("disabled")).toBe(true);
+
+    fireEvent.click(chooseAnotherFile);
 
     const uploadButton = document
       .getElementById("slides-design-system-figma-source")
