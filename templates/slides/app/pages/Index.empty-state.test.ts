@@ -24,7 +24,7 @@ describe("Slides home header", () => {
     expect(header).not.toContain("<DeckFilterMenu");
     expect(header).not.toContain("newDeck");
     expect(header).not.toContain('{t("home.newDeck")}');
-    expect(source).toContain('shortcutLabel("cmd+k")');
+    expect(source).toContain('isApplePlatform ? "⌘K" : "Ctrl K"');
     expect(source).toContain("slides-home-mobile-toolbar");
     expect(source).toContain('presentation="inline"');
     expect(source).toContain("deckListViewState({");

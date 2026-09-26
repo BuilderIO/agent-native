@@ -48,6 +48,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
@@ -135,7 +136,10 @@ import {
 } from "@/lib/recent-references";
 import { hydrateReferenceDocuments } from "@/lib/reference-document-hydration";
 import { TAB_ID } from "@/lib/tab-id";
-import { cn, shortcutLabel } from "@/lib/utils";
+import { cn, isMacPlatform } from "@/lib/utils";
+
+const subscribeToPlatform = () => () => {};
+const serverUsesApplePlatform = () => false;
 
 const loadPromptPopover = () => import("@/components/editor/PromptDialog");
 const LazyPromptPopover = lazy(loadPromptPopover);
@@ -2365,7 +2369,12 @@ function DeckSearchInput({
   className?: string;
 }) {
   const t = useT();
-  const searchShortcutLabel = shortcutLabel("cmd+k");
+  const isApplePlatform = useSyncExternalStore(
+    subscribeToPlatform,
+    isMacPlatform,
+    serverUsesApplePlatform,
+  );
+  const searchShortcutLabel = isApplePlatform ? "⌘K" : "Ctrl K";
   return (
     <div className={cn("relative min-w-0", className)}>
       <IconSearch

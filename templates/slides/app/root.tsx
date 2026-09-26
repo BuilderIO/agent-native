@@ -237,8 +237,13 @@ function AppContent() {
     }
     setCmdkOpen(true);
   }, [location.pathname]);
+  const shouldHandleContentEditableCommandMenuShortcut = useCallback(
+    () => location.pathname !== "/home",
+    [location.pathname],
+  );
   useCommandMenuShortcut(handleCommandMenuShortcut, {
     allowContentEditable: true,
+    shouldHandleContentEditable: shouldHandleContentEditableCommandMenuShortcut,
   });
   const isDeckEditor = isDeckEditorPath(location.pathname);
   const editorCommands = getEditorCommands();
