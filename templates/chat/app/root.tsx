@@ -167,7 +167,6 @@ function AppContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const location = useLocation();
   return (
     <AppToolkitProvider>
       <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
