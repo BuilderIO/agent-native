@@ -75,6 +75,7 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "अन्य",
   "onboarding.roleOtherInputLabel": "अपनी भूमिका बताएं",
   "onboarding.skipForNow": "अभी छोड़ें",
+  "onboarding.useOwnApiKeys": "मेरी अपनी API कुंजियाँ इस्तेमाल करें",
   "onboarding.saveRoleError": "आपकी भूमिका सहेजी नहीं जा सकी।",
   "onboarding.builderCreateAccount": "Builder.io खाता बनाएँ",
   "onboarding.builderSignInWithAccount": "Builder.io खाते से साइन इन करें",

@@ -3,6 +3,8 @@ import type {
   AgentMessage,
 } from "@agent-native/agentkit";
 import {
+  AgentMessageView,
+  AgentRunFailure,
   AgentConnectionRequestCard,
   AgentKitChat,
 } from "@agent-native/agentkit/react/components";
@@ -10,9 +12,14 @@ import {
   useAgentKit,
   useAgentKitControl,
   useAgentThread,
+  type AgentRunFailureRenderProps,
   type AgentKitRenderProps,
 } from "@agent-native/agentkit/react/context";
 import { AgentKitRoot } from "@agent-native/agentkit/react/root";
+import {
+  BuilderSetupCard,
+  isMissingLlmProviderRunError,
+} from "@agent-native/core/client/agent-chat";
 import { CoreComposerRuntimeProvider } from "@agent-native/core/client/agentkit-chat/composer";
 import {
   McpAgentKitConnectionRequestCard,
@@ -120,7 +127,9 @@ function ChatThreadRouteContent({
             labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}
             slots={{
               emptyState: ChatEmptyState,
+              message: ChatMessage,
               messageSupplement: ChatMcpConnectionSuggestion,
+              runFailure: ChatRunFailure,
               connectionRequest: ChatMcpConnectionRequest,
               footer: ChatAgentFooter,
             }}
@@ -151,6 +160,90 @@ function ChatThreadRouteContent({
       </aside>
     </div>
   );
+}
+
+function ChatMessage({ value, threadId }: AgentKitRenderProps<AgentMessage>) {
+  const metadata = value.metadata as
+    | { custom?: { agentNativeRecoveryAction?: unknown } }
+    | undefined;
+  const recoveryAction = metadata?.custom?.agentNativeRecoveryAction;
+  if (
+    value.role === "user" &&
+    (recoveryAction === "continue" || recoveryAction === "retry")
+  ) {
+    return null;
+  }
+  return <AgentMessageView value={value} threadId={threadId} />;
+}
+
+function ChatRunFailure({
+  error,
+  runId,
+  threadId,
+}: AgentRunFailureRenderProps) {
+  const thread = useAgentThread(threadId);
+  const { controller } = useAgentKit();
+  const t = useT();
+  const recoveryMetadata = (message: (typeof thread.messages)[number]) =>
+    (
+      message.metadata as
+        | {
+            custom?: {
+              agentNativeRecoveryAction?: unknown;
+              agentNativeRecoveryOfRunId?: unknown;
+            };
+          }
+        | undefined
+    )?.custom;
+  const userRequests = thread.messages.filter((message) => {
+    if (message.role !== "user") return false;
+    const action = recoveryMetadata(message)?.agentNativeRecoveryAction;
+    return action !== "continue" && action !== "retry";
+  });
+  const originalRequest = userRequests[0];
+  const hasRetryForThisRun = thread.messages.some(
+    (message) =>
+      recoveryMetadata(message)?.agentNativeRecoveryAction === "retry" &&
+      recoveryMetadata(message)?.agentNativeRecoveryOfRunId === runId,
+  );
+  const retryFirstMessage = useCallback(() => {
+    const prompt =
+      originalRequest?.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n") ?? "";
+    const attachments =
+      originalRequest?.parts.filter((part) => part.type === "file") ?? [];
+    void controller.sendMessage({
+      threadId,
+      text: prompt || t("chat.retryPreviousRequest"),
+      ...(attachments.length ? { attachments } : {}),
+      metadata: {
+        custom: {
+          agentNativeRecoveryAction: "retry",
+          agentNativeRecoveryOfRunId: runId,
+        },
+      },
+    });
+  }, [controller, originalRequest, runId, t, threadId]);
+  const isFirstMessage = userRequests.length === 1 && !hasRetryForThisRun;
+  if (
+    isFirstMessage &&
+    isMissingLlmProviderRunError({
+      message: error.message,
+      details: typeof error.details === "string" ? error.details : undefined,
+      errorCode: error.code,
+    })
+  ) {
+    return (
+      <BuilderSetupCard
+        fullWidth
+        layout="sidebar"
+        onRetry={retryFirstMessage}
+      />
+    );
+  }
+  return <AgentRunFailure error={error} runId={runId} threadId={threadId} />;
 }
 
 function ChatLifecycleTracking({ threadId }: { threadId: string }) {

@@ -73,6 +73,7 @@ const messages = {
   "onboarding.roleOther": "Other",
   "onboarding.roleOtherInputLabel": "Describe your role",
   "onboarding.skipForNow": "Skip for now",
+  "onboarding.useOwnApiKeys": "Use my own API keys",
   "onboarding.saveRoleError": "Could not save your role.",
   "onboarding.builderCreateAccount": "Create Builder.io account",
   "onboarding.builderSignInWithAccount": "Sign in with Builder.io account",

@@ -73,6 +73,7 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "其他",
   "onboarding.roleOtherInputLabel": "描述你的角色",
   "onboarding.skipForNow": "暂时跳过",
+  "onboarding.useOwnApiKeys": "使用我自己的 API 密钥",
   "onboarding.saveRoleError": "无法保存你的角色。",
   "onboarding.builderCreateAccount": "创建 Builder.io 账户",
   "onboarding.builderSignInWithAccount": "使用 Builder.io 账户登录",
