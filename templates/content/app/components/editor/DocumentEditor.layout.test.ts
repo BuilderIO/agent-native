@@ -769,8 +769,8 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("<DocumentReconcileRecovery");
     expect(source).toContain("onKeepMine={handleResolveReconcile}");
-    expect(source).toContain("contentBase: reconcileBase");
-    expect(source).toContain("if (!result.contentPersisted)");
+    expect(source).toContain("const contentBase = reconcileBase");
+    expect(source).toContain("return result.contentPersisted;");
   });
 
   it("keeps a seeded document behind the skeleton while its fetch is pending", () => {
@@ -1923,9 +1923,8 @@ describe("document editor layout", () => {
     expect(teardown).toContain("const baseUpdatedAt");
     expect(teardown).toContain("const loadedContentWasEmpty");
     expect(teardown).toContain("const loadedUpdatedAt");
-    expect(teardown).toContain("lastSavedContentRef.current.content");
-    expect(teardown).toContain("documentRevisionRef.current !==");
-    expect(teardown).toContain("lastSavedContentRef.current.revision");
+    expect(teardown).toContain("pending.contentBase.content");
+    expect(teardown).toContain("pending.contentBase.revision");
     expect(teardown).not.toContain("const optimisticAt");
     expect(teardown).not.toContain("lastSavedContentRef.current =");
     expect(teardown).not.toContain(

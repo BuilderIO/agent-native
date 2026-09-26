@@ -21,6 +21,22 @@ const state = vi.hoisted(() => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
+vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction: vi.fn().mockResolvedValue({ draft: null }),
+  useSession: () => ({
+    session: { email: "writer@example.test", orgId: "org" },
+  }),
+}));
+vi.mock("./page-draft-journal", () => ({
+  readPageDraftJournal: () => null,
+  listPageDraftJournal: () => [],
+  hasRetainedPageDraftNotice: () => false,
+  clearPageDraftJournal: () => true,
+  markPageDraftJournalRetained: () => true,
+}));
+vi.mock("./document-save-rebase", () => ({
+  saveDocumentWithRebase: vi.fn(),
+}));
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ refetchQueries: vi.fn() }),
 }));
@@ -28,6 +44,8 @@ vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@/hooks/use-documents", () => ({
   documentQueryFilter: (id: string) => ({ id }),
   isDocumentUpdateConflict: () => false,
+  isDocumentUpdatePreservationRequired: () => false,
+  isDocumentUpdateSuperseded: () => false,
   usePreviewDocumentDraft: () => ({ ...state.draftQuery, refetch: vi.fn() }),
   useUpdateDocument: () => ({ mutateAsync: vi.fn() }),
   useResolvePreviewDocumentDraft: () => ({ mutateAsync: vi.fn() }),
@@ -79,9 +97,10 @@ describe("Page draft recovery during the creation window", () => {
     expect(container.textContent).not.toContain("database.retry");
   });
 
-  it("mounts the editor once the created row answers", () => {
+  it("mounts the editor once the created row answers", async () => {
     state.draftQuery = { data: { draft: null }, isError: false };
     render();
+    await act(async () => {});
 
     expect(container.querySelector("textarea")).not.toBeNull();
     expect(container.textContent).not.toContain("database.retry");

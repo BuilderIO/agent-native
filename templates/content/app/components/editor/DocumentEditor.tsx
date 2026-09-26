@@ -94,6 +94,8 @@ import {
 import {
   mergeDocumentIntoDocumentCache,
   isDocumentUpdateConflict,
+  isDocumentUpdatePreservationRequired,
+  isDocumentUpdateSuperseded,
   patchDocumentCaches,
   documentQueryFilter,
   documentQueryKey,
@@ -104,7 +106,7 @@ import {
   useUpdatePreviewDocumentDraft,
   useUpdateDocument,
 } from "@/hooks/use-documents";
-import type { DocumentUpdateConflictResponse } from "@/hooks/use-documents";
+import type { DocumentUpdateResult } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   documentSyncStatusQueryKey,
@@ -164,6 +166,10 @@ import {
   saveDocumentWithRebase,
   type DocumentContentBase,
 } from "./document-save-rebase";
+import {
+  authoredCandidateMatchesContent,
+  pendingSaveRetrySnapshot,
+} from "./document-save-retry";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
@@ -181,6 +187,11 @@ import {
   type PendingLocalSourceWrite,
 } from "./local-source-write-state";
 import { NotionConflictBanner } from "./NotionConflictBanner";
+import {
+  clearPageDraftJournal,
+  clearPageDraftJournalGeneration,
+  writePageDraftJournal,
+} from "./page-draft-journal";
 import { PageDraftRecovery } from "./PageDraftRecovery";
 import {
   mayClearRecoveryDraft,
@@ -1168,6 +1179,11 @@ type PendingDocumentSave = {
   contentEditVersion: number;
   editGeneration: number;
   contentAuthoredAfterRevision?: string;
+  authoredContentIntent?: AuthoredContentIntent;
+  contentBase: DocumentContentBase;
+  titleBase: string;
+  contentObservationEpoch: number;
+  saveAttemptId: string;
   expectedLocalSourceRevision?: string | null;
   timeout: ReturnType<typeof setTimeout>;
 };
@@ -1182,8 +1198,18 @@ type DocumentSaveOptions = {
   contentEditVersion?: number;
   editGeneration?: number;
   contentAuthoredAfterRevision?: string;
+  authoredContentIntent?: AuthoredContentIntent;
+  contentObservationEpoch?: number;
+  saveAttemptId?: string;
   editorSnapshotTitle?: string;
   editorSnapshotContent?: string;
+};
+
+type AuthoredContentIntent = {
+  editGeneration: number;
+  baseRevision?: string;
+  baseContent: string;
+  candidateContent: string;
 };
 
 type DocumentUpdates = {
@@ -2014,7 +2040,10 @@ function PageEditorSessionBody({
   localTitleRef.current = localTitle;
   const localContentRef = useRef(localContent);
   const contentEditVersionRef = useRef(0);
+  const confirmedContentEditVersionRef = useRef(0);
+  const contentObservationEpochRef = useRef(0);
   const editorEditGenerationRef = useRef(0);
+  const authoredContentIntentRef = useRef<AuthoredContentIntent | null>(null);
   const editorSessionIdRef = useRef<string | null>(null);
   if (editorSessionIdRef.current === null) {
     editorSessionIdRef.current = `${TAB_ID}:${documentId}:${crypto.randomUUID()}`;
@@ -2224,6 +2253,106 @@ function PageEditorSessionBody({
 
   // Current user info for cursor labels
   const { session } = useSession();
+  const journalWriteErrorShownRef = useRef(false);
+  const journalScope = useCallback(
+    () =>
+      session?.email
+        ? {
+            accountId: session.email,
+            orgId: session.orgId ?? null,
+            documentId,
+            writerId: editorSessionIdRef.current!,
+          }
+        : null,
+    [documentId, session?.email, session?.orgId],
+  );
+  const journalCurrentDraft = useCallback(
+    (
+      title: string,
+      content: string,
+      editGeneration: number,
+      prepared?: {
+        saveAttemptId: string;
+        contentBase: ContentSaveWatermark;
+        titleBase: string;
+        authoredContentIntent?: AuthoredContentIntent;
+      },
+    ) => {
+      if (isLocalFileDocument || isLinkedLocalSourceDocument) return;
+      const scope = journalScope();
+      if (!scope) return;
+      const authored =
+        prepared?.authoredContentIntent ??
+        (authoredContentIntentRef.current?.editGeneration === editGeneration
+          ? authoredContentIntentRef.current
+          : null);
+      try {
+        writePageDraftJournal({
+          scope,
+          snapshot: {
+            title,
+            content,
+            baseTitle: prepared?.titleBase ?? lastSavedTitleRef.current.title,
+            baseContent:
+              prepared?.contentBase.content ??
+              lastSavedContentRef.current.content,
+            baseUpdatedAt:
+              prepared?.contentBase.updatedAt ??
+              lastSavedContentRef.current.updatedAt ??
+              null,
+            baseRevision:
+              prepared?.contentBase.revision ??
+              lastSavedContentRef.current.revision,
+            editGeneration,
+            saveAttemptId: prepared?.saveAttemptId,
+            ...(authored?.baseRevision &&
+            authoredCandidateMatchesContent(content, authored.candidateContent)
+              ? {
+                  authoredBaseRevision: authored.baseRevision,
+                  authoredBaseContent: authored.baseContent,
+                  authoredCandidateContent: authored.candidateContent,
+                }
+              : {}),
+          },
+        });
+        journalWriteErrorShownRef.current = false;
+      } catch {
+        if (!journalWriteErrorShownRef.current) {
+          toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+          journalWriteErrorShownRef.current = true;
+        }
+      }
+    },
+    [isLinkedLocalSourceDocument, isLocalFileDocument, journalScope, t],
+  );
+  const clearConfirmedDraftJournal = useCallback(
+    (
+      saved: Document & {
+        bodyIntentOutcome?: { status: "applied" | "displaced-preserved" };
+      },
+      editGeneration: number,
+    ) => {
+      const scope = journalScope();
+      if (!scope) return;
+      try {
+        if (saved.bodyIntentOutcome) {
+          clearPageDraftJournalGeneration(scope, editGeneration);
+        } else {
+          clearPageDraftJournal(scope, {
+            editGeneration,
+            title: saved.title,
+            content: saved.content,
+          });
+        }
+      } catch {
+        if (!journalWriteErrorShownRef.current) {
+          toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+          journalWriteErrorShownRef.current = true;
+        }
+      }
+    },
+    [journalScope, t],
+  );
   const currentUserAvatarUrl = useAvatarUrl(session?.email);
   const currentUser: CollabUser | undefined = session?.email
     ? {
@@ -2444,7 +2573,7 @@ function PageEditorSessionBody({
   }, [document, isLinkedLocalSourceDocument, localTitle, localContent]);
 
   const pendingPersistenceRef = useRef(
-    new Set<Promise<Document | DocumentUpdateConflictResponse>>(),
+    new Set<Promise<Document | DocumentUpdateResult>>(),
   );
   const persistenceErrorsRef = useRef(
     new Map<keyof DocumentUpdates, unknown>(),
@@ -2453,7 +2582,7 @@ function PageEditorSessionBody({
     async (
       updates: DocumentUpdates,
       options: DocumentSaveOptions = {},
-    ): Promise<Document | DocumentUpdateConflictResponse> => {
+    ): Promise<Document | DocumentUpdateResult> => {
       if (!options.allowQueuedSave && !canEditRef.current) {
         throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
       }
@@ -2596,6 +2725,21 @@ function PageEditorSessionBody({
             historySessionRef.current.activity(documentId),
           editorSessionId: options.editorSessionId,
           editorEditGeneration: options.editGeneration,
+          browserSaveAttemptId: options.saveAttemptId,
+          ...(updates.content !== undefined &&
+          options.authoredContentIntent &&
+          authoredCandidateMatchesContent(
+            updates.content,
+            options.authoredContentIntent?.candidateContent,
+          )
+            ? {
+                authoredBaseRevision:
+                  options.authoredContentIntent.baseRevision,
+                authoredBaseContent: options.authoredContentIntent.baseContent,
+                authoredCandidateContent:
+                  options.authoredContentIntent.candidateContent,
+              }
+            : {}),
           editorSnapshotTitle: options.editorSnapshotTitle,
           editorSnapshotContent: options.editorSnapshotContent,
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
@@ -2635,7 +2779,12 @@ function PageEditorSessionBody({
       pendingPersistenceRef.current.add(request);
       void request.then(
         (result) => {
-          if (isDocumentUpdateConflict(result)) {
+          if (isDocumentUpdateSuperseded(result)) {
+            return;
+          } else if (
+            isDocumentUpdateConflict(result) ||
+            isDocumentUpdatePreservationRequired(result)
+          ) {
             const error = new Error(
               "The page changed before the latest edit could be saved.",
             );
@@ -2853,6 +3002,8 @@ function PageEditorSessionBody({
         options.contentEditVersion ?? contentEditVersionRef.current;
       const editorEditGeneration =
         options.editGeneration ?? editorEditGenerationRef.current;
+      const contentObservationEpoch =
+        options.contentObservationEpoch ?? contentObservationEpochRef.current;
       lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
         serverContent: documentContentRef.current,
         serverUpdatedAt: documentUpdatedAtRef.current,
@@ -2871,14 +3022,6 @@ function PageEditorSessionBody({
       if (
         options.titleBase !== undefined &&
         documentTitleRef.current !== options.titleBase
-      ) {
-        return { contentPersisted: false };
-      }
-      if (
-        options.contentBase &&
-        (documentContentRef.current !== options.contentBase.content ||
-          documentUpdatedAtRef.current !== options.contentBase.updatedAt ||
-          documentRevisionRef.current !== options.contentBase.revision)
       ) {
         return { contentPersisted: false };
       }
@@ -2916,20 +3059,24 @@ function PageEditorSessionBody({
           options,
         );
         return {
-          contentPersisted: !isDocumentUpdateConflict(attested),
+          contentPersisted:
+            !isDocumentUpdateConflict(attested) &&
+            !isDocumentUpdateSuperseded(attested) &&
+            !isDocumentUpdatePreservationRequired(attested),
         };
       }
       if (!hasUpdates) {
         return { contentPersisted: !contentChanged };
       }
 
-      let saved: Document | DocumentUpdateConflictResponse;
+      let saved: Document | DocumentUpdateResult;
       if (
         updates.content !== undefined &&
         !isLinkedLocalSourceDocument &&
         !isLocalFileDocument
       ) {
         const savedTitle = lastSavedTitleRef.current.title;
+        let rebaseAttempt = 0;
         activeContentSavesRef.current += 1;
         let result;
         try {
@@ -2938,9 +3085,11 @@ function PageEditorSessionBody({
             content,
             owner: {
               version: contentEditVersion,
+              observationEpoch: contentObservationEpoch,
               current: () => ({
                 version: contentEditVersionRef.current,
                 content: localContentRef.current,
+                observationEpoch: contentObservationEpochRef.current,
               }),
               canPreferLive: (winner) =>
                 !!winner.revision &&
@@ -2956,22 +3105,63 @@ function PageEditorSessionBody({
               winner.title === updates.title,
             confirmsWrite: (winner) =>
               updates.title === undefined || winner.title === updates.title,
-            persist: (nextContent, contentBase) =>
-              persistDocumentUpdates(
+            persist: (nextContent, contentBase) => {
+              const saveAttemptId =
+                rebaseAttempt++ === 0 && options.saveAttemptId
+                  ? options.saveAttemptId
+                  : crypto.randomUUID();
+              if (
+                contentEditVersionRef.current === contentEditVersion &&
+                contentObservationEpochRef.current ===
+                  contentObservationEpoch &&
+                editorEditGenerationRef.current === editorEditGeneration
+              ) {
+                journalCurrentDraft(title, nextContent, editorEditGeneration, {
+                  saveAttemptId,
+                  contentBase,
+                  titleBase:
+                    options.titleBase ?? lastSavedTitleRef.current.title,
+                });
+              }
+              return persistDocumentUpdates(
                 { ...updates, content: nextContent },
                 {
                   ...options,
                   contentBase,
+                  saveAttemptId,
                   editorSnapshotContent: nextContent,
                 },
-              ),
+              );
+            },
           });
         } finally {
           activeContentSavesRef.current -= 1;
         }
+        if (result.status === "preservation") {
+          toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+          return {
+            contentPersisted: false,
+            outcome: "pending_preservation",
+            recoveryDraft: {
+              title,
+              content: result.localDraft,
+              baseContent: result.base.content,
+              baseUpdatedAt: result.base.updatedAt,
+              baseRevision: result.base.revision,
+            },
+          };
+        }
         if (result.status === "conflict") {
-          reportReconcileRef.current("conflict", result.localDraft);
-          return { contentPersisted: false };
+          return {
+            contentPersisted: false,
+            recoveryDraft: {
+              title,
+              content: result.localDraft,
+              baseContent: result.base?.content,
+              baseUpdatedAt: result.base?.updatedAt,
+              baseRevision: result.base?.revision,
+            },
+          };
         }
         if (result.status === "superseded") {
           return { contentPersisted: false, outcome: "superseded" };
@@ -3006,7 +3196,11 @@ function PageEditorSessionBody({
       } else {
         saved = await persistDocumentUpdates(updates, options);
       }
-      if (isDocumentUpdateConflict(saved)) {
+      if (
+        isDocumentUpdateConflict(saved) ||
+        isDocumentUpdateSuperseded(saved) ||
+        isDocumentUpdatePreservationRequired(saved)
+      ) {
         // Local-file saves retain their own conflict flow. Never acknowledge
         // a rejected SQL write as saved or push it to Notion.
         return { contentPersisted: false };
@@ -3022,6 +3216,18 @@ function PageEditorSessionBody({
         lastSavedTitleRef,
         lastSavedContentRef,
       });
+      if (
+        contentEditVersionRef.current === contentEditVersion &&
+        contentObservationEpochRef.current === contentObservationEpoch
+      ) {
+        confirmedContentEditVersionRef.current = contentEditVersion;
+        if (
+          saved.title === localTitleRef.current &&
+          saved.content === localContentRef.current
+        ) {
+          clearConfirmedDraftJournal(saved, editorEditGeneration);
+        }
+      }
 
       // Push-on-save: when auto-sync is on, trigger a Notion push
       // immediately after the save lands in SQL. This eliminates the
@@ -3057,11 +3263,14 @@ function PageEditorSessionBody({
     [
       documentId,
       autoSync,
+      clearConfirmedDraftJournal,
       isLinkedLocalSourceDocument,
       isLocalFileDocument,
+      journalCurrentDraft,
       persistDocumentUpdates,
       pushDocumentToNotion,
       queryClient,
+      t,
     ],
   );
   const retainRecoveryDraft = useCallback(
@@ -3071,6 +3280,7 @@ function PageEditorSessionBody({
       deferredReason: "conflict" | null,
       editorSessionId: string,
       editGeneration: number,
+      contentBase: DocumentContentBase = lastSavedContentRef.current,
     ) => {
       const current = recoveryDraftRef.current;
       const result = await updatePreviewDocumentDraftRef.current({
@@ -3080,9 +3290,9 @@ function PageEditorSessionBody({
         draft: {
           title,
           content,
-          baseDocumentUpdatedAt: lastSavedContentRef.current.updatedAt,
+          baseDocumentUpdatedAt: contentBase.updatedAt,
           loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
-            lastSavedContentRef.current.content,
+            contentBase.content,
           ),
           deferredReason,
           editorSessionId,
@@ -3133,6 +3343,7 @@ function PageEditorSessionBody({
       deferredReason: "conflict" | null,
       editorSessionId: string,
       editGeneration: number,
+      contentBase?: DocumentContentBase,
     ) => {
       const retain = () =>
         retainRecoveryDraft(
@@ -3141,6 +3352,7 @@ function PageEditorSessionBody({
           deferredReason,
           editorSessionId,
           editGeneration,
+          contentBase,
         );
       const queued = recoveryDraftRetentionQueueRef.current.then(
         retain,
@@ -3187,9 +3399,20 @@ function PageEditorSessionBody({
         options.editorSessionId ?? editorSessionIdRef.current!;
       const editGeneration =
         options.editGeneration ?? editorEditGenerationRef.current;
+      const contentObservationEpoch =
+        options.contentObservationEpoch ?? contentObservationEpochRef.current;
+      const contentBase = {
+        ...(options.contentBase ?? lastSavedContentRef.current),
+      };
+      const saveAttemptId = options.saveAttemptId ?? crypto.randomUUID();
       const contentAuthoredAfterRevision =
         options.contentAuthoredAfterRevision ??
         lastSavedContentRef.current.revision;
+      const authoredContentIntent =
+        options.authoredContentIntent ??
+        (authoredContentIntentRef.current?.editGeneration === editGeneration
+          ? authoredContentIntentRef.current
+          : undefined);
       return enqueueDocumentSave(documentSaveQueueRef, () =>
         savePageWithRecovery({
           save: () =>
@@ -3201,16 +3424,43 @@ function PageEditorSessionBody({
                 historySessionRef.current.activity(documentId),
               editorSessionId,
               editGeneration,
+              contentBase,
+              contentObservationEpoch,
+              saveAttemptId,
               contentAuthoredAfterRevision,
+              authoredContentIntent: authoredCandidateMatchesContent(
+                content,
+                authoredContentIntent?.candidateContent,
+              )
+                ? authoredContentIntent
+                : undefined,
             }),
-          retain: (reason) =>
-            retainRecoveryDraft(
-              title,
-              content,
+          retain: (reason, result) => {
+            const snapshotChanged =
+              contentEditVersionRef.current !== contentEditVersion ||
+              contentObservationEpochRef.current !== contentObservationEpoch;
+            const recovery = result?.recoveryDraft;
+            return retainRecoveryDraft(
+              snapshotChanged
+                ? localTitleRef.current
+                : (recovery?.title ?? title),
+              snapshotChanged
+                ? localContentRef.current
+                : (recovery?.content ?? content),
               reason,
               editorSessionId,
-              editGeneration,
-            ),
+              snapshotChanged
+                ? editorEditGenerationRef.current
+                : editGeneration,
+              recovery && !snapshotChanged && recovery.baseContent !== undefined
+                ? {
+                    content: recovery.baseContent,
+                    updatedAt: recovery.baseUpdatedAt ?? null,
+                    revision: recovery.baseRevision,
+                  }
+                : contentBase,
+            );
+          },
           clear: () =>
             clearRecoveryDraft(
               lastSavedTitleRef.current.title,
@@ -3226,6 +3476,64 @@ function PageEditorSessionBody({
       saveDocumentImmediately,
     ],
   );
+  const retryPendingSaveRef = useRef<
+    (result: DocumentSaveResult, pending: PendingDocumentSave) => void
+  >(() => undefined);
+  const retryPendingSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const retryPendingSaveDelayRef = useRef(800);
+  retryPendingSaveRef.current = (result, pending) => {
+    const currentRetryState = () => ({
+      canEdit: canEditRef.current,
+      contentEditVersion: contentEditVersionRef.current,
+      editGeneration: editorEditGenerationRef.current,
+      contentObservationEpoch: contentObservationEpochRef.current,
+      title: localTitleRef.current,
+      content: localContentRef.current,
+      contentBase: { ...lastSavedContentRef.current },
+      titleBase: lastSavedTitleRef.current.title,
+    });
+    if (!pendingSaveRetrySnapshot(result, pending, currentRetryState())) return;
+    if (retryPendingSaveTimerRef.current)
+      clearTimeout(retryPendingSaveTimerRef.current);
+    const delay = retryPendingSaveDelayRef.current;
+    retryPendingSaveDelayRef.current = Math.min(delay * 2, 30_000);
+    retryPendingSaveTimerRef.current = setTimeout(() => {
+      retryPendingSaveTimerRef.current = null;
+      const snapshot = pendingSaveRetrySnapshot(
+        result,
+        pending,
+        currentRetryState(),
+      );
+      if (!snapshot) return;
+      const retryPending = {
+        ...pending,
+        ...snapshot,
+        saveAttemptId: crypto.randomUUID(),
+      };
+      void queueDocumentSave(snapshot.title, snapshot.content, {
+        contentBase: snapshot.contentBase,
+        titleBase: snapshot.titleBase,
+        contentEditVersion: pending.contentEditVersion,
+        contentObservationEpoch: snapshot.contentObservationEpoch,
+        contentAuthoredAfterRevision: pending.contentAuthoredAfterRevision,
+        authoredContentIntent: pending.authoredContentIntent,
+        editorSessionId: pending.editorSessionId,
+        editGeneration: pending.editGeneration,
+        historySessionId: pending.historySessionId,
+        saveAttemptId: retryPending.saveAttemptId,
+      })
+        .then((next) => {
+          if (next.contentPersisted) {
+            retryPendingSaveDelayRef.current = 800;
+          } else {
+            retryPendingSaveRef.current(next, retryPending);
+          }
+        })
+        .catch(handleBackgroundSaveError);
+    }, delay);
+  };
   const flushPendingDocumentSave = useCallback(
     (pending: PendingDocumentSave) => {
       if (!pending.canEditWhenQueued) return Promise.resolve();
@@ -3238,22 +3546,30 @@ function PageEditorSessionBody({
           contentEditVersion: pending.contentEditVersion,
           editGeneration: pending.editGeneration,
           contentAuthoredAfterRevision: pending.contentAuthoredAfterRevision,
+          authoredContentIntent: pending.authoredContentIntent,
+          contentBase: pending.contentBase,
+          titleBase: pending.titleBase,
+          contentObservationEpoch: pending.contentObservationEpoch,
+          saveAttemptId: pending.saveAttemptId,
         }),
       )
         .then((result) => {
-          if (!result.contentPersisted) {
-            if (result.outcome === "superseded") return;
-            reportReconcileRef.current(
-              "conflict",
-              contentEditVersionRef.current === pending.contentEditVersion
-                ? pending.content
-                : localContentRef.current,
-            );
+          if (result.contentPersisted) {
+            retryPendingSaveDelayRef.current = 800;
+          } else {
+            retryPendingSaveRef.current(result, pending);
           }
         })
         .catch(handleBackgroundSaveError);
     },
     [handleBackgroundSaveError],
+  );
+  useEffect(
+    () => () => {
+      if (retryPendingSaveTimerRef.current)
+        clearTimeout(retryPendingSaveTimerRef.current);
+    },
+    [],
   );
   const prepareHistoryRestore = useCallback(async (): Promise<string> => {
     if (
@@ -3380,6 +3696,15 @@ function PageEditorSessionBody({
         contentEditVersion: contentEditVersionRef.current,
         editGeneration: editorEditGenerationRef.current,
         contentAuthoredAfterRevision: lastSavedContentRef.current.revision,
+        authoredContentIntent:
+          authoredContentIntentRef.current?.editGeneration ===
+          editorEditGenerationRef.current
+            ? authoredContentIntentRef.current
+            : undefined,
+        contentBase: { ...lastSavedContentRef.current },
+        titleBase: lastSavedTitleRef.current.title,
+        contentObservationEpoch: contentObservationEpochRef.current,
+        saveAttemptId: crypto.randomUUID(),
         expectedLocalSourceRevision,
         timeout: setTimeout(() => {
           if (pendingDocumentSaveRef.current === pending) {
@@ -3389,10 +3714,20 @@ function PageEditorSessionBody({
           flushPendingDocumentSave(pending);
         }, 500),
       };
+      journalCurrentDraft(title, content, pending.editGeneration, {
+        saveAttemptId: pending.saveAttemptId,
+        contentBase: pending.contentBase,
+        titleBase: pending.titleBase,
+      });
       pendingDocumentSaveRef.current = pending;
       saveTimeoutRef.current = pending.timeout;
     },
-    [flushPendingDocumentSave, isLinkedLocalSourceDocument, queueDocumentSave],
+    [
+      flushPendingDocumentSave,
+      isLinkedLocalSourceDocument,
+      journalCurrentDraft,
+      queueDocumentSave,
+    ],
   );
 
   useEffect(() => {
@@ -3443,12 +3778,11 @@ function PageEditorSessionBody({
         serverUpdatedAt > lastSavedTitleRef.current.updatedAt;
       const contentIsStale =
         !!documentRevisionRef.current &&
-        !!lastSavedContentRef.current.revision &&
-        documentRevisionRef.current !== lastSavedContentRef.current.revision;
+        !!pending.contentBase.revision &&
+        documentRevisionRef.current !== pending.contentBase.revision;
 
-      const titleChanged = pending.title !== lastSavedTitleRef.current.title;
-      const contentChanged =
-        pending.content !== lastSavedContentRef.current.content;
+      const titleChanged = pending.title !== pending.titleBase;
+      const contentChanged = pending.content !== pending.contentBase.content;
       const updates: Record<string, string> = {};
       if (titleChanged && !titleIsStale) {
         updates.title = pending.title;
@@ -3473,21 +3807,19 @@ function PageEditorSessionBody({
         // can't reconcile the editor, which is fine since it's going away.
         const baseUpdatedAt =
           updates.content !== undefined
-            ? (lastSavedContentRef.current.updatedAt ?? undefined)
+            ? (pending.contentBase.updatedAt ?? undefined)
             : undefined;
         const baseRevision =
           updates.content !== undefined
-            ? lastSavedContentRef.current.revision
+            ? pending.contentBase.revision
             : undefined;
         const loadedContentWasEmpty =
           updates.content !== undefined
-            ? isEffectivelyEmptyDocumentContent(
-                lastSavedContentRef.current.content,
-              )
+            ? isEffectivelyEmptyDocumentContent(pending.contentBase.content)
             : undefined;
         const loadedUpdatedAt =
           updates.content !== undefined
-            ? (lastSavedContentRef.current.updatedAt ?? undefined)
+            ? (pending.contentBase.updatedAt ?? undefined)
             : undefined;
         const attempt = tryCallActionKeepalive(
           "update-document",
@@ -3496,6 +3828,22 @@ function PageEditorSessionBody({
             historySessionId: pending.historySessionId,
             editorSessionId: pending.editorSessionId,
             editorEditGeneration: pending.editGeneration,
+            browserSaveAttemptId: pending.saveAttemptId,
+            ...(updates.content !== undefined &&
+            pending.authoredContentIntent &&
+            authoredCandidateMatchesContent(
+              updates.content,
+              pending.authoredContentIntent?.candidateContent,
+            )
+              ? {
+                  authoredBaseRevision:
+                    pending.authoredContentIntent.baseRevision,
+                  authoredBaseContent:
+                    pending.authoredContentIntent.baseContent,
+                  authoredCandidateContent:
+                    pending.authoredContentIntent.candidateContent,
+                }
+              : {}),
             editorSnapshotTitle: pending.title,
             editorSnapshotContent: pending.content,
             ...updates,
@@ -3506,7 +3854,7 @@ function PageEditorSessionBody({
             ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
             ...(baseRevision !== undefined ? { baseRevision } : {}),
             ...(updates.title !== undefined
-              ? { baseTitle: lastSavedTitleRef.current.title }
+              ? { baseTitle: pending.titleBase }
               : {}),
           },
           {
@@ -3629,7 +3977,11 @@ function PageEditorSessionBody({
                 );
               } else if (Object.keys(updates).length > 0) {
                 const saved = await persistDocumentUpdatesRef.current(updates);
-                if (isDocumentUpdateConflict(saved)) {
+                if (
+                  isDocumentUpdateConflict(saved) ||
+                  isDocumentUpdateSuperseded(saved) ||
+                  isDocumentUpdatePreservationRequired(saved)
+                ) {
                   // Do not acknowledge a CAS loss as a successful flush. The
                   // requester must stop instead of pushing/replacing stale SQL.
                   throw new Error(
@@ -3719,6 +4071,11 @@ function PageEditorSessionBody({
         return;
       localTitleRef.current = newTitle;
       editorEditGenerationRef.current += 1;
+      journalCurrentDraft(
+        newTitle,
+        localContentRef.current,
+        editorEditGenerationRef.current,
+      );
       setLocalTitle(newTitle);
       if (updateReconcileDraft(localContentRef.current, newTitle)) {
         retainActiveRecoveryDraft({
@@ -3741,6 +4098,7 @@ function PageEditorSessionBody({
       documentId,
       editorCanEdit,
       isSuggesting,
+      journalCurrentDraft,
       queryClient,
       retainActiveRecoveryDraft,
       updateReconcileDraft,
@@ -4397,6 +4755,13 @@ function PageEditorSessionBody({
     ) => {
       if (!editorCanEdit) return false;
       contentEditVersionRef.current += 1;
+      editorEditGenerationRef.current += 1;
+      authoredContentIntentRef.current = {
+        editGeneration: editorEditGenerationRef.current,
+        baseRevision: lastSavedContentRef.current.revision,
+        baseContent: lastSavedContentRef.current.content,
+        candidateContent: recovery.localDraft,
+      };
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
@@ -4406,23 +4771,36 @@ function PageEditorSessionBody({
       localContentRef.current = recovery.localDraft;
       setLocalTitle(recovery.localTitle);
       setLocalContent(recovery.localDraft);
+      const contentBase = reconcileBase
+        ? {
+            content: reconcileBase.content,
+            updatedAt: reconcileBase.updatedAt,
+            revision: reconcileBase.revision,
+          }
+        : { ...lastSavedContentRef.current };
+      const saveAttemptId = crypto.randomUUID();
+      journalCurrentDraft(
+        recovery.localTitle,
+        recovery.localDraft,
+        editorEditGenerationRef.current,
+        {
+          saveAttemptId,
+          contentBase,
+          titleBase: reconcileBase?.title ?? lastSavedTitleRef.current.title,
+        },
+      );
       const result = await queueDocumentSave(
         recovery.localTitle,
         recovery.localDraft,
         {
-          contentBase: reconcileBase
-            ? {
-                content: reconcileBase.content,
-                updatedAt: reconcileBase.updatedAt,
-                revision: reconcileBase.revision,
-              }
-            : undefined,
+          contentBase,
           titleBase: reconcileBase?.title,
+          saveAttemptId,
         },
       );
       return result.contentPersisted;
     },
-    [editorCanEdit, queueDocumentSave],
+    [editorCanEdit, journalCurrentDraft, queueDocumentSave],
   );
   reconcileSaveRef.current = handleContentSaveNow;
   reconcileRetainRef.current = ({ localTitle, localDraft }) =>
@@ -4440,9 +4818,21 @@ function PageEditorSessionBody({
   const handleContentChange = useCallback(
     (newContent: string) => {
       if (!editorCanEdit) return;
+      if (newContent === localContentRef.current) return;
       contentEditVersionRef.current += 1;
       editorEditGenerationRef.current += 1;
+      authoredContentIntentRef.current = {
+        editGeneration: editorEditGenerationRef.current,
+        baseRevision: lastSavedContentRef.current.revision,
+        baseContent: lastSavedContentRef.current.content,
+        candidateContent: newContent,
+      };
       localContentRef.current = newContent;
+      journalCurrentDraft(
+        localTitleRef.current,
+        newContent,
+        editorEditGenerationRef.current,
+      );
       setLocalContent(newContent);
       if (updateReconcileDraft(newContent)) {
         retainActiveRecoveryDraft({
@@ -4456,9 +4846,32 @@ function PageEditorSessionBody({
     [
       debouncedSave,
       editorCanEdit,
+      journalCurrentDraft,
       retainActiveRecoveryDraft,
       updateReconcileDraft,
     ],
+  );
+
+  const handleRemoteSnapshotChange = useCallback(
+    (content: string) => {
+      if (content === localContentRef.current) return;
+      contentObservationEpochRef.current += 1;
+      localContentRef.current = content;
+      setLocalContent(content);
+      if (
+        !isSuggesting &&
+        contentEditVersionRef.current > confirmedContentEditVersionRef.current
+      ) {
+        journalCurrentDraft(
+          localTitleRef.current,
+          content,
+          editorEditGenerationRef.current,
+        );
+        // The pending authored attempt owns persistence. A peer observation
+        // must not submit its generation again with a different attempt ID.
+      }
+    },
+    [isSuggesting, journalCurrentDraft],
   );
 
   const handleImmediateContentChange = useCallback(
@@ -5899,7 +6312,11 @@ function PageEditorSessionBody({
                             lastSavedTitleRef.current.title,
                           );
                           const saved = await persistDocumentUpdates(updates);
-                          if (isDocumentUpdateConflict(saved)) {
+                          if (
+                            isDocumentUpdateConflict(saved) ||
+                            isDocumentUpdateSuperseded(saved) ||
+                            isDocumentUpdatePreservationRequired(saved)
+                          ) {
                             throw new Error(
                               t("editor.pageSaveBeforeNavigationFailed"),
                             );
@@ -6136,6 +6553,7 @@ function PageEditorSessionBody({
                               acknowledgedLocalSnapshot
                             }
                             onBaseAwareReconcile={handleBaseAwareReconcile}
+                            onRemoteSnapshotChange={handleRemoteSnapshotChange}
                             collabContentRevision={
                               isLocalFileDocument || isSuggesting
                                 ? null

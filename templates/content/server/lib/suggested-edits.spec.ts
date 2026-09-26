@@ -609,7 +609,7 @@ describe("Content document suggestion adapter", () => {
       coordination,
     });
     expect(
-      writes.some((sql) => sql.startsWith("INSERT INTO document_versions")),
+      writes.some((sql) => /^insert into "?document_versions"?/i.test(sql)),
     ).toBe(true);
     expect(
       writes.some((sql) =>
