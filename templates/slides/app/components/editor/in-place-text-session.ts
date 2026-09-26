@@ -15,7 +15,7 @@ import {
   isBulletMarker,
   isBulletRow,
   removeEmptyBulletAtCaret,
-  rowTextContainer,
+  rowTextRange,
   stripCopiedIdentity,
   ZERO_WIDTH_SPACE,
 } from "./bullet-editing";
@@ -38,7 +38,10 @@ import {
 } from "./rich-text-selection";
 
 export interface InPlaceTextSessionOptions {
-  /** Viewport point of the click that started editing; the caret lands there. */
+  /**
+   * Viewport point of the click that started editing. The caret lands there
+   * unless the native selection (a double-clicked word) already covers it.
+   */
   caretPoint?: { x: number; y: number } | null;
   /** Called after every change to the edited content. */
   onInput?: () => void;
@@ -758,20 +761,14 @@ export function startInPlaceTextSession(
   }
 
   /**
-   * Chrome reshapes only the edited span of a text node, so typing and
-   * deleting next to a joined Arabic letter leaves it drawn unjoined until
-   * the node is recreated.
+   * Chrome reshapes only the edited span of a text node, apart from its
+   * neighbours: typing next to a joined Arabic letter leaves it unjoined, and
+   * any edit drops the kerning the node's last glyph had with the next text
+   * node in the same font (a styled label before its colon) until the node is
+   * recreated.
    */
   function reshape(text: Node | null | undefined) {
-    // Latin text has no joining to redo; leave its node, and whatever the
-    // browser tracks on it, alone.
-    if (
-      !(text instanceof Text) ||
-      !text.isConnected ||
-      !/[^\t\n\r\u0020-\u024f\u2000-\u206f]/.test(text.data)
-    ) {
-      return;
-    }
+    if (!(text instanceof Text) || !text.isConnected) return;
     const range = selectionRange();
     // Read before replaceWith: the selection's live range moves with it.
     const caret =
@@ -1071,49 +1068,67 @@ export function startInPlaceTextSession(
       !STRUCTURAL_BLOCK_TAGS.has(startBlock.tagName) &&
       !STRUCTURAL_BLOCK_TAGS.has(endBlock.tagName)
     ) {
-      const rows = startRow && endRow && startRow !== endRow;
-      const into = rows
-        ? rowTextContainer(startRow, rowMarker(startRow))
-        : startBlock;
-      const from = rows
-        ? rowTextContainer(endRow, rowMarker(endRow))
-        : endBlock;
-      const removed = rows ? endRow : endBlock;
-      let anchor: Node | null = null;
-      if (into.contains(from)) {
-        anchor = from;
-        while (anchor.parentNode !== into) anchor = anchor.parentNode!;
-      }
-      const moved = Array.from(from.childNodes).filter(
-        (child) => !(child instanceof HTMLElement && isBulletMarker(child)),
-      );
-      for (const child of moved) into.insertBefore(child, anchor);
-      let parent = removed.parentElement;
-      removed.remove();
-      while (
-        parent &&
-        parent !== el &&
-        (parent.tagName === "UL" || parent.tagName === "OL") &&
-        parent.children.length === 0
-      ) {
-        const next: HTMLElement | null = parent.parentElement;
-        parent.remove();
-        parent = next;
+      if (startRow && endRow && startRow !== endRow) {
+        joinRows(startRow, endRow);
+      } else {
+        let anchor: Node | null = null;
+        if (startBlock.contains(endBlock)) {
+          anchor = endBlock;
+          while (anchor.parentNode !== startBlock) anchor = anchor.parentNode!;
+        }
+        const moved = Array.from(endBlock.childNodes).filter(
+          (child) => !(child instanceof HTMLElement && isBulletMarker(child)),
+        );
+        for (const child of moved) startBlock.insertBefore(child, anchor);
+        let parent = endBlock.parentElement;
+        endBlock.remove();
+        while (
+          parent &&
+          parent !== el &&
+          (parent.tagName === "UL" || parent.tagName === "OL") &&
+          parent.children.length === 0
+        ) {
+          const next: HTMLElement | null = parent.parentElement;
+          parent.remove();
+          parent = next;
+        }
       }
     }
     settleCaret(caretNode, caretOffset);
   }
 
-  function mergeRows(into: HTMLElement, from: HTMLElement) {
-    const target = rowTextContainer(into, rowMarker(into));
-    const source = rowTextContainer(from, rowMarker(from));
-    const [node, offset] = textPoint(target, Infinity);
-    const marker = rowMarker(from);
-    target.append(
-      ...Array.from(source.childNodes).filter((child) => child !== marker),
+  /**
+   * Moves `from`'s text to the end of `into`'s, removes `from`, and returns
+   * the join point. A run that matches the one it lands after is folded into
+   * it, so joining two rows of one style leaves one span.
+   */
+  function joinRows(into: HTMLElement, from: HTMLElement): [Node, number] {
+    const target = rowTextRange(into, rowMarker(into));
+    const source = rowTextRange(from, rowMarker(from));
+    const join = textOffset(into, target.endContainer, target.endOffset);
+    const last = into.childNodes[target.endOffset - 1];
+    const before = into.childNodes[target.endOffset] ?? null;
+    const moved = Array.from(from.childNodes).slice(
+      source.startOffset,
+      source.endOffset,
     );
+    const first = moved[0];
+    if (
+      last instanceof HTMLElement &&
+      first instanceof HTMLElement &&
+      target.intersectsNode(last) &&
+      last.cloneNode(false).isEqualNode(first.cloneNode(false))
+    ) {
+      last.append(...Array.from(first.childNodes));
+      moved.shift();
+    }
+    for (const node of moved) into.insertBefore(node, before);
     from.remove();
-    placeCaret(node, offset);
+    return textPoint(into, join, true);
+  }
+
+  function mergeRows(into: HTMLElement, from: HTMLElement) {
+    placeCaret(...joinRows(into, from));
   }
 
   /**
@@ -1133,16 +1148,14 @@ export function startInPlaceTextSession(
     ) {
       return true;
     }
-    const marker = rowMarker(row);
-    const text = rowTextContainer(row, marker);
+    const text = rowTextRange(row, rowMarker(row));
     const edge = document.createRange();
     if (direction === "backward") {
-      if (text === row && marker) edge.setStartAfter(marker);
-      else edge.setStart(text, 0);
+      edge.setStart(text.startContainer, text.startOffset);
       edge.setEnd(caret.startContainer, caret.startOffset);
     } else {
       edge.setStart(caret.startContainer, caret.startOffset);
-      edge.setEnd(text, text.childNodes.length);
+      edge.setEnd(text.endContainer, text.endOffset);
     }
     if (hasRenderedContent(edge.cloneContents())) return false;
     const index = rows.indexOf(row);
@@ -1179,11 +1192,31 @@ export function startInPlaceTextSession(
     if (extended && !extended.collapsed) deleteRange(extended);
   }
 
+  /**
+   * Whether a caret sits where a bullet row's text starts. Chrome takes that
+   * spot and the end of the glyph before it for one position: it types into
+   * the glyph, and End stays in the marker's inline-block, which ends there.
+   */
+  function atRowTextStart(range: Range) {
+    const node = range.startContainer;
+    if (!range.collapsed || !(node instanceof Text) || range.startOffset !== 0)
+      return false;
+    const row = bulletRowAt(node);
+    const marker = row && rowMarker(row);
+    if (!row || !marker || node.length === 0) return false;
+    const text = rowTextRange(row, marker);
+    return (
+      textOffset(row, node, 0) ===
+      textOffset(row, text.startContainer, text.startOffset)
+    );
+  }
+
   function isNativeInsert(range: Range) {
     return (
       range.collapsed &&
       range.startContainer instanceof Text &&
-      range.startContainer.length > 0
+      range.startContainer.length > 0 &&
+      !atRowTextStart(range)
     );
   }
 
@@ -1809,6 +1842,10 @@ export function startInPlaceTextSession(
     ) {
       event.preventDefault();
       commands.toggleList(event.code === "Digit7" ? "ordered" : "bullet");
+    } else if (event.key === "End" && !mod && !event.shiftKey) {
+      // One character in, the caret is on the text's own line for End.
+      const range = selectionRange();
+      if (range && atRowTextStart(range)) placeCaret(range.startContainer, 1);
     } else if (event.key === "Tab" && !mod) {
       // Tab never moves focus out of the text being edited; Escape ends it.
       event.preventDefault();
@@ -2082,19 +2119,36 @@ export function startInPlaceTextSession(
   // Firefox draws resize handles on images and tables inside an editable.
   document.execCommand?.("enableObjectResizing", false, "false");
   el.focus({ preventScroll: true });
-  const point = options.caretPoint ? caretFromPoint(options.caretPoint) : null;
-  if (point && el.contains(point[0])) {
-    placeCaret(...point);
-  } else if (
+  const hit = options.caretPoint ? caretFromPoint(options.caretPoint) : null;
+  const point = hit && el.contains(hit[0]) ? hit : null;
+  if (
     selection &&
     initialRange &&
     el.contains(initialRange.startContainer) &&
-    el.contains(initialRange.endContainer)
+    el.contains(initialRange.endContainer) &&
+    (!point || initialRange.comparePoint(...point) === 0)
   ) {
     selection.removeAllRanges();
     selection.addRange(initialRange);
+  } else if (point) {
+    placeCaret(...point);
   } else {
     placeCaret(...textPoint(el, Infinity));
+  }
+  // A click on a bullet's marker edits that row's text, not the glyph.
+  const start = selectionRange();
+  const row = start && bulletRowAt(start.startContainer);
+  const marker = row && rowMarker(row);
+  if (row && marker) {
+    const text = rowTextRange(row, marker);
+    if (text.comparePoint(start.startContainer, start.startOffset) < 0) {
+      placeCaret(
+        ...textPoint(
+          row,
+          textOffset(row, text.startContainer, text.startOffset),
+        ),
+      );
+    }
   }
   // An element with nothing to lay out has no line box to hold a caret (a
   // text box placed with a click is 0px tall), and Chrome drops typing into

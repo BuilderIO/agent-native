@@ -30,6 +30,7 @@ import {
   installInPageHelpers,
   MASK_CSS,
   type EditorState,
+  type KeepaliveWrite,
   type Rect,
   type Snapshot,
   type TextTarget,
@@ -39,12 +40,17 @@ import {
   diffSnapshots,
   findBaselineProblems,
   hardFailures,
+  isDraftRevert,
   isSplicedOnce,
+  keepaliveMismatches,
   lineDiff,
   orphanedBaselineKeys,
   padRect,
   ratchetBaselineEntry,
   restyledAddedText,
+  slideContentsOf,
+  stripSpace,
+  visibleTextOf,
   type BaselineEntry,
   type PixelDiff,
   type ScenarioMetrics,
@@ -592,7 +598,7 @@ async function takeWriteStacks(page: Page): Promise<string[]> {
   return page.evaluate(() => window.__editFidelity.takeWriteStacks());
 }
 
-async function takeKeepaliveWrites(page: Page): Promise<number> {
+async function takeKeepaliveWrites(page: Page): Promise<KeepaliveWrite[]> {
   return page.evaluate(() => window.__editFidelity.takeKeepaliveWrites());
 }
 
@@ -646,11 +652,10 @@ interface WriteDetail {
 
 function describeWrite(
   action: string,
-  request: any,
+  body: any,
   stored: string,
   phase: WriteDetail["phase"],
 ): WriteDetail {
-  const body = JSON.parse(request.postData() ?? "{}");
   const slide = (slideId: string, fields: Record<string, unknown>) => ({
     slideId,
     fields: Object.keys(fields).sort(),
@@ -668,8 +673,6 @@ function describeWrite(
   return { action, phase, slides };
 }
 
-const stripSpace = (s: string) => s.replace(/[\s\u200b\ufeff]+/g, "");
-
 /**
  * The edited element's byte range in the stored source, found the way the
  * in-page helpers find it: by tag, text and occurrence. Text inside elements
@@ -679,19 +682,12 @@ function sourceRangeOf(
   stored: string,
   target: { tag: string; text: string; occurrence: number },
 ): { start: number; end: number } | null {
-  const hidden = new Set(["style", "script", "svg", "template", "math"]);
-  const textOf = (node: P5.Node): string =>
-    node.nodeName === "#text"
-      ? (node as P5.TextNode).value
-      : "childNodes" in node && !hidden.has((node as P5.Element).tagName ?? "")
-        ? (node as P5.ParentNode).childNodes.map(textOf).join("")
-        : "";
   const want = stripSpace(target.text);
   const matches: P5.Element[] = [];
   const visit = (parent: P5.ParentNode) => {
     for (const child of parent.childNodes) {
       if (!("tagName" in child)) continue;
-      const have = stripSpace(textOf(child));
+      const have = stripSpace(visibleTextOf(child));
       if (
         child.tagName === target.tag.toLowerCase() &&
         child.sourceCodeLocation?.startTag &&
@@ -776,6 +772,8 @@ interface ScenarioResult {
   /** Content-writing requests the editor sent, from entering edit to the end. */
   writes?: string[];
   writeDetails?: WriteDetail[];
+  /** Net no-op phases whose two writes were the editor's draft then revert. */
+  draftReverts?: Array<WriteDetail["phase"]>;
   /** Client call stacks of those writes, from the in-page fetch hook. */
   writeStacks?: string[];
   enterSteps?: EnterStep[];
@@ -868,6 +866,8 @@ async function runScenario(
     writeFileSync(path.join(dir, file), data);
   const writes: string[] = [];
   const writeDetails: WriteDetail[] = [];
+  /** Per write, its action and parsed body. */
+  const writeBodies: Array<{ action: string; body: any }> = [];
   let countingWrites = false;
   let phase: WriteDetail["phase"] = "edit";
   const onRequest = (request: any) => {
@@ -875,8 +875,18 @@ async function runScenario(
     if (!countingWrites || (method !== "POST" && method !== "PUT")) return;
     const match = WRITE_ACTION.exec(request.url());
     if (!match) return;
+    const body = JSON.parse(request.postData() ?? "{}");
+    const contents = slideContentsOf(match[1], body, slideId);
     writes.push(match[1]);
-    writeDetails.push(describeWrite(match[1], request, ctx.stored, phase));
+    writeDetails.push(describeWrite(match[1], body, ctx.stored, phase));
+    writeBodies.push({ action: match[1], body });
+    contents.forEach((c, k) => {
+      if (c !== null && c !== ctx.stored)
+        write(
+          `write-${writes.length}${contents.length > 1 ? `-${k + 1}` : ""}.html`,
+          c,
+        );
+    });
     inFlight.add(request);
   };
   const inFlight = new Set<unknown>();
@@ -981,7 +991,9 @@ async function runScenario(
         // ancestor's, moves the text instead of the caret, and the element's
         // box can stay put. Relative to the top of the element's content, the
         // caret moves a full line per Enter (up when Enter removes an empty
-        // last bullet), and a caret left behind reads as unmoved.
+        // last bullet), and a caret left behind reads as unmoved. A list laid
+        // out as a grid puts the new row beside the old one, so a caret that
+        // moved into another block box has moved too.
         const lineOf = (s: EditorState) =>
           s.caretRect && s.contentTop !== null
             ? s.caretRect.y - s.contentTop
@@ -996,7 +1008,8 @@ async function runScenario(
           caretMoved:
             from !== null &&
             to !== null &&
-            Math.abs(to - from) >= prev.caretRect!.height / 2,
+            (Math.abs(to - from) >= prev.caretRect!.height / 2 ||
+              prev.caretBlock !== state.caretBlock),
         };
         enterSteps.push(step);
         if (from === null || to === null) {
@@ -1049,19 +1062,26 @@ async function runScenario(
       ...(await checkExpectedStyles(page, slideId, ctx.expectStyles, "reload")),
     );
     // The reload fires pagehide, where Slides flushes pending saves with
-    // keepalive fetches that inFlight never sees; the in-page hook counts
-    // them. It, or a tracked write still in flight, may land well after the
-    // page reopens.
+    // keepalive fetches that inFlight never sees and that may land well after
+    // the page reopens, so their bodies are checked instead of waited for.
     const unloadWrites = await takeKeepaliveWrites(page);
-    const reloaded =
-      unloadWrites || inFlight.size
-        ? await settleSaved(page, deckId, slideId, () => inFlight.size)
-        : await getSlideContent(page, deckId, slideId);
+    const unloadMismatches = keepaliveMismatches(unloadWrites, slideId, saved);
+    if (unloadMismatches.length) {
+      unloadMismatches.forEach(
+        (c, i) => c !== null && write(`keepalive-${i + 1}.html`, c),
+      );
+      result.violations.push(
+        `a pagehide write carried different content than the edit saved (${unloadMismatches.length} slide content(s) across ${unloadWrites.length} keepalive write(s)${unloadMismatches.includes(null) ? ", some with no content to compare" : ""})`,
+      );
+    }
+    const reloaded = inFlight.size
+      ? await settleSaved(page, deckId, slideId, () => inFlight.size)
+      : await getSlideContent(page, deckId, slideId);
     if (reloaded !== saved && !ctx.openMutatesContent) {
       write("reloaded.html", reloaded);
       const hardAfter = hardFailures(saved, reloaded);
       result.violations.push(
-        `a write landed after the edit settled (stored content changed across the reload; ${unloadWrites} keepalive write(s) on unload${hardAfter.length ? `; ${hardAfter.join(", ")}` : ""})`,
+        `a write landed after the edit settled (stored content changed across the reload; ${unloadWrites.length} keepalive write(s) on unload${hardAfter.length ? `; ${hardAfter.join(", ")}` : ""})`,
       );
     }
 
@@ -1248,12 +1268,41 @@ async function runScenario(
     result.writeStacks = writeStacks;
     const v = result.violations;
     v.push(...styleProblems);
-    if (NET_NOOP.has(scenario) && writes.length)
-      v.push(
-        `${writes.length} content write(s) for a net no-op edit (${writes.join(", ")})`,
-      );
     const px = result.pixels;
     const netNoop = NET_NOOP.has(scenario);
+    if (netNoop) {
+      // Keys far enough apart let the product save the typed "x" as a draft
+      // and then revert it, per phase; any other write is churn.
+      const element = sourceRangeOf(ctx.stored, {
+        tag: state0.sourceTag ?? target.tag,
+        text: editedText,
+        occurrence: state0.sourceText
+          ? state0.sourceOccurrence
+          : target.occurrence,
+      });
+      const unexplained = (["edit", "rerun"] as const).flatMap((p) => {
+        const sent = writeDetails.flatMap((d, i) => (d.phase === p ? [i] : []));
+        if (
+          scenario !== "noop" &&
+          element &&
+          isDraftRevert(
+            ctx.stored,
+            element,
+            "x",
+            sent.map((i) => writeBodies[i]),
+            slideId,
+          )
+        ) {
+          (result.draftReverts ??= []).push(p);
+          return [];
+        }
+        return sent.map((i) => writes[i]);
+      });
+      if (unexplained.length)
+        v.push(
+          `${unexplained.length} content write(s) for a net no-op edit (${unexplained.join(", ")})`,
+        );
+    }
     if (px.editing.outside.pct > tol)
       v.push(
         `view->editing outside the edited element ${px.editing.outside.pct}% > ${tol}%`,

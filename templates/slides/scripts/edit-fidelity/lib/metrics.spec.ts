@@ -6,7 +6,9 @@ import {
   diffSnapshots,
   findBaselineProblems,
   hardFailures,
+  isDraftRevert,
   isSplicedOnce,
+  keepaliveMismatches,
   lineDiff,
   orphanedBaselineKeys,
   ratchetBaselineEntry,
@@ -80,6 +82,38 @@ describe("diffSnapshots", () => {
     );
     expect(d.deltas).toEqual([]);
     expect(d.missing).toEqual([{ key: "box:div.card#0", inside: false }]);
+    expect(d.added).toEqual([]);
+  });
+
+  it("keeps untouched copies of a repeated text paired when the edited copy is renamed", () => {
+    const d = diffSnapshots(
+      snap([
+        rec("text:Q1#0", { color: "a" }, true),
+        rec("text:Q1#1", { color: "b" }),
+        rec("text:Q1#2", { color: "c" }),
+      ]),
+      snap([
+        rec("text:Q1 ok#0", { color: "a" }, true),
+        rec("text:Q1#0", { color: "b" }),
+        rec("text:Q1#1", { color: "c" }),
+      ]),
+    );
+    expect(d.deltas).toEqual([]);
+    expect(d.missing).toEqual([]);
+    expect(d.added).toEqual([]);
+  });
+
+  it("does not pair on the inside flag, which each snapshot locates differently", () => {
+    const records = (wrapperInside: boolean) => [
+      rec("box:div#0", { bg: "red" }),
+      rec("box:div#1", { bg: "pill" }, wrapperInside),
+      rec("text:Title#0", {}, true),
+      rec("box:div#2", { bg: "blue" }),
+      rec("box:div#3", { bg: "green" }),
+    ];
+    const d = diffSnapshots(snap(records(false)), snap(records(true)));
+    expect(d.deltas).toEqual([]);
+    expect(d.missing).toEqual([]);
     expect(d.added).toEqual([]);
   });
 });
@@ -300,5 +334,131 @@ describe("restyledAddedText", () => {
       rec("text:new line#0", white, true),
     ]);
     expect(restyledAddedText(view, reload)).toEqual([]);
+  });
+});
+
+describe("isDraftRevert", () => {
+  const stored =
+    '<div class="a" style="color: red"><p><span style="color: #1F4E79; font-weight: 700">Q3 &amp; Q4</span></p><p style="margin: 4px">Other</p><svg><text>x</text></svg></div>';
+  const start = stored.indexOf("<span");
+  const element = { start, end: stored.indexOf("</p>", start) };
+  const patch = (content: string, fields: object = { content }) => ({
+    action: "patch-deck",
+    body: {
+      deckId: "d",
+      operations: [{ op: "patch-slide", slideId: "s1", fields }],
+    },
+  });
+  const draft = stored.replace("Q4", "Qx4");
+  const check = (writes: Array<{ action: string; body: any }>) =>
+    isDraftRevert(stored, element, "x", writes, "s1");
+
+  it("accepts the typed draft followed by a byte-exact revert", () => {
+    expect(check([patch(draft), patch(stored)])).toBe(true);
+  });
+
+  it("rejects churn: a draft without the key, a loose revert, or extra writes", () => {
+    const nbsp = stored.replace("Q3 ", "Q3&nbsp;");
+    expect(check([patch(nbsp), patch(stored)])).toBe(false);
+    expect(check([patch(draft), patch(nbsp)])).toBe(false);
+    expect(check([patch(draft), patch(stored), patch(stored)])).toBe(false);
+    expect(check([patch(stored)])).toBe(false);
+  });
+
+  it("rejects a draft that changed bytes outside the edited element or put the key elsewhere", () => {
+    const flattened =
+      '<div class="a"><p>Q3 &amp; Qx4</p><p>Other</p><svg><text>x</text></svg></div>';
+    expect(check([patch(flattened), patch(stored)])).toBe(false);
+    const elsewhere = stored.replace("Other", "Otxher");
+    expect(check([patch(elsewhere), patch(stored)])).toBe(false);
+  });
+
+  it("rejects a write that sets more than the edited slide's content", () => {
+    expect(
+      check([patch(draft, { content: draft, notes: "n" }), patch(stored)]),
+    ).toBe(false);
+    const twoSlides = patch(draft);
+    twoSlides.body.operations.push({
+      op: "patch-slide",
+      slideId: "s2",
+      fields: { content: "<p>other</p>" },
+    });
+    expect(check([twoSlides, patch(stored)])).toBe(false);
+    expect(
+      check([
+        {
+          action: "save-deck",
+          body: { deck: { slides: [{ id: "s1", content: draft }] } },
+        },
+        patch(stored),
+      ]),
+    ).toBe(false);
+  });
+});
+
+describe("keepaliveMismatches", () => {
+  const body = (content: string, slideId = "s1") =>
+    JSON.stringify({
+      deckId: "d",
+      operations: [{ op: "patch-slide", slideId, fields: { content } }],
+    });
+
+  it("names a pagehide write whose slide content differs from the saved one", () => {
+    expect(
+      keepaliveMismatches(
+        [
+          { action: "patch-deck", body: body("<p>saved</p>") },
+          { action: "patch-deck", body: body("<p>stale</p>") },
+          { action: "patch-deck", body: body("<p>other</p>", "s2") },
+        ],
+        "s1",
+        "<p>saved</p>",
+      ),
+    ).toEqual(["<p>stale</p>"]);
+  });
+
+  it("reports a write that deletes the slide or saves a deck without it", () => {
+    expect(
+      keepaliveMismatches(
+        [
+          {
+            action: "patch-deck",
+            body: JSON.stringify({
+              operations: [{ op: "delete-slide", slideId: "s1" }],
+            }),
+          },
+          {
+            action: "save-deck",
+            body: JSON.stringify({
+              deck: { slides: [{ id: "s2", content: "<p>other</p>" }] },
+            }),
+          },
+          { action: "patch-deck", body: body("<p>other</p>", "s2") },
+        ],
+        "s1",
+        "<p>saved</p>",
+      ),
+    ).toEqual([null, null]);
+  });
+
+  it("reads save-deck and update-slide bodies, and reports an unreadable one", () => {
+    const deck = JSON.stringify({
+      deckId: "d",
+      deck: { slides: [{ id: "s1", content: "<p>stale</p>" }] },
+    });
+    expect(
+      keepaliveMismatches(
+        [
+          { action: "save-deck", body: deck },
+          {
+            action: "update-slide",
+            body: JSON.stringify({ slideId: "s1", content: "<p>saved</p>" }),
+          },
+          { action: "patch-deck", body: null },
+        ],
+        "s1",
+        "<p>saved</p>",
+      ),
+    ).toEqual(["<p>stale</p>", null]);
   });
 });

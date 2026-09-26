@@ -379,6 +379,124 @@ describe("styled bullet editing", () => {
     expect((newTextSpan.firstChild as Text).data).toBe("\u200B");
   });
 
+  it("keeps the caret's inline style when Enter is pressed at the end of a styled run", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +
+      '<div><span style="font-size:8px;">●</span><span style="font-size:15px;"><strong>Lead</strong><span style="color: red;">muted</span></span></div>' +
+      '<div><span style="font-size:8px;">●</span><span style="font-size:15px;">Second</span></div>' +
+      "</div></div>";
+    const list = document.querySelector(".bullets") as HTMLElement;
+    const colored = list.children[0].querySelector(
+      'span[style*="color"]',
+    ) as HTMLElement;
+    const coloredText = colored.firstChild as Text;
+    placeCaret(coloredText, coloredText.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const selection = window.getSelection()!;
+    const typedInto = selection.anchorNode as Text;
+    typedInto.insertData(selection.anchorOffset, "x");
+
+    const newText = list.children[1].children[1] as HTMLElement;
+    expect(newText.textContent?.replaceAll(ZERO_WIDTH_SPACE, "")).toBe("x");
+    expect((typedInto.parentElement as HTMLElement).style.color).toBe("red");
+    expect(newText.contains(typedInto)).toBe(true);
+    expect(newText.querySelector("strong")).toBeNull();
+    expect(colored.textContent).toBe("muted");
+  });
+
+  it("keeps text typed after Enter at the end of a link out of the link", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +
+      '<div><span style="font-size:8px;">●</span><span style="font-size:15px;">Read the <a href="https://example.com">guide</a></span></div>' +
+      '<div><span style="font-size:8px;">●</span><span style="font-size:15px;">Second</span></div>' +
+      "</div></div>";
+    const list = document.querySelector(".bullets") as HTMLElement;
+    const linkText = list.querySelector("a")!.firstChild as Text;
+    placeCaret(linkText, linkText.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const selection = window.getSelection()!;
+    (selection.anchorNode as Text).insertData(selection.anchorOffset, "Next");
+
+    const newText = list.children[1].children[1] as HTMLElement;
+    expect(newText.innerHTML).toBe(`${ZERO_WIDTH_SPACE}Next`);
+    expect(list.children[0].querySelector("a")!.textContent).toBe("guide");
+  });
+
+  it("puts the caret inside the moved run when Enter splits a styled run", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +
+      '<div><span style="font-size:8px;">●</span><span style="font-size:15px;"><strong>Lead</strong><span style="color: red;">muted tail</span></span></div>' +
+      "</div></div>";
+    const list = document.querySelector(".bullets") as HTMLElement;
+    const coloredText = list.querySelector('span[style*="color"]')!
+      .firstChild as Text;
+    placeCaret(coloredText, "muted".length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const selection = window.getSelection()!;
+    (selection.anchorNode as Text).insertData(selection.anchorOffset, "x");
+
+    const newText = list.children[1].children[1] as HTMLElement;
+    expect(newText.innerHTML).toBe('<span style="color: red;">x tail</span>');
+  });
+
+  it("moves every run after the caret when a row holds its runs as sibling spans", () => {
+    const para = (runs: string) =>
+      `<p style="padding-left:22px;"><span aria-hidden="true" style="display:inline-block;margin-left:-22px;">•</span>${runs}</p>`;
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="frame">' +
+      para(
+        '<span style="color: gray;">Lead </span><span style="font-weight: 700;">96%</span><span style="color: gray;">, rest</span>',
+      ) +
+      para('<span style="color: gray;">Next</span>') +
+      "</div></div>";
+    const list = document.querySelector(".frame") as HTMLElement;
+    const lead = list.querySelector("span[style*=gray]")!.firstChild as Text;
+    placeCaret(lead, lead.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const selection = window.getSelection()!;
+    (selection.anchorNode as Text).insertData(selection.anchorOffset, "x");
+
+    const [first, added] = Array.from(list.children);
+    expect(first.textContent).toBe("•Lead ");
+    expect(added.textContent?.replaceAll(ZERO_WIDTH_SPACE, "")).toBe(
+      "•x96%, rest",
+    );
+    expect(
+      (selection.anchorNode!.parentElement as HTMLElement).style.color,
+    ).toBe("gray");
+  });
+
+  it("removes the empty bullet on a second Enter when the first carried a bold run over", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +
+      '<div><span style="font-size:8px;">●</span><span>First</span></div>' +
+      '<div><span style="font-size:8px;">●</span><span>Lead <strong>bold</strong></span></div>' +
+      "</div></div>";
+    const list = document.querySelector(".bullets") as HTMLElement;
+    const boldText = list.children[1].querySelector("strong")!
+      .firstChild as Text;
+    placeCaret(boldText, boldText.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    expect(list.children.length).toBe(3);
+    const seeded = list.children[2].children[1].querySelector("strong");
+    expect(seeded?.textContent).toBe(ZERO_WIDTH_SPACE);
+    expect(seeded?.contains(window.getSelection()?.anchorNode ?? null)).toBe(
+      true,
+    );
+
+    expect(removeEmptyBulletAtCaret(list)).toEqual({
+      handled: true,
+      editingElement: null,
+    });
+    expect(list.children.length).toBe(2);
+    expect(window.getSelection()?.anchorNode).toBe(boldText);
+  });
+
   it("splits text after the caret into the new bullet", () => {
     const { list } = setup();
     const secondText = list.children[1].children[1] as HTMLElement;

@@ -223,6 +223,24 @@ describe("in-place text session: entering and ending", () => {
     expect(el.outerHTML).toBe(before);
   });
 
+  it("recreates an edited Latin node whose last glyph kerns with the next text node", () => {
+    const el = mount(
+      '<p id="t"><b><span style="font-weight: 700">Abc</span>:</b> rest</p>',
+    );
+    const before = el.outerHTML;
+    const original = textOf(el, "Abc");
+    session = startInPlaceTextSession(el);
+    caret(original, 1);
+    type(el, "x");
+    const typed = el.querySelector("span")!.firstChild as Text;
+    expect(typed).not.toBe(original);
+    const range = window.getSelection()!.getRangeAt(0);
+    expect([range.startContainer, range.startOffset]).toEqual([typed, 2]);
+    typed.deleteData(1, 1);
+    session.end();
+    expect(el.outerHTML).toBe(before);
+  });
+
   it("restores the start bytes when typing and deleting only lost indentation", () => {
     // happy-dom's innerText keeps collapsed whitespace; a browser's does not.
     vi.spyOn(HTMLElement.prototype, "innerText", "get").mockImplementation(
@@ -320,6 +338,88 @@ describe("in-place text session: entering and ending", () => {
     expect(beforeInput(el, "insertParagraph").defaultPrevented).toBe(false);
     expect(session.commands.bold()).toBe(false);
     expect(session.undo()).toBe(false);
+  });
+});
+
+describe("in-place text session: the caret at the click point", () => {
+  afterEach(() => {
+    delete (document as { caretPositionFromPoint?: unknown })
+      .caretPositionFromPoint;
+  });
+
+  /** happy-dom has no hit testing; the click point resolves to this position. */
+  function hitAt(node: Node, offset: number) {
+    Object.defineProperty(document, "caretPositionFromPoint", {
+      configurable: true,
+      value: () => ({ offsetNode: node, offset }),
+    });
+  }
+
+  it("puts a click on a bullet's marker at the start of that row's text", () => {
+    const el = mount(
+      `<div id="t">
+        <div style="display: flex"><span>●</span><span>Alpha one</span>
+        </div>
+        <div style="display: flex"><span>●</span>Beta two
+        </div>
+      </div>`,
+    );
+    const [first, second] = Array.from(el.children);
+    for (const [row, text] of [
+      [first, "Alpha one"],
+      [second, "Beta two"],
+    ] as const) {
+      window.getSelection()!.removeAllRanges();
+      hitAt(row.firstElementChild!.firstChild!, 0);
+      session = startInPlaceTextSession(el, { caretPoint: { x: 1, y: 1 } });
+      const range = window.getSelection()!.getRangeAt(0);
+      expect(range.collapsed).toBe(true);
+      expect([range.startContainer, range.startOffset]).toEqual([
+        textOf(row, text),
+        0,
+      ]);
+      session.end();
+    }
+  });
+
+  it("types into the row's text, not its glyph, and steps End off the glyph at a row's start", () => {
+    const el = mount(
+      '<div id="t"><p><span aria-hidden="true" style="display: inline-block">•</span><span>Alpha</span></p><p><span aria-hidden="true" style="display: inline-block">•</span><span>Beta</span></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const alpha = textOf(el, "Alpha");
+    caret(alpha, 0);
+    expect(key(el, { key: "End" }).defaultPrevented).toBe(false);
+    const range = window.getSelection()!.getRangeAt(0);
+    expect([range.startContainer, range.startOffset]).toEqual([alpha, 1]);
+    caret(alpha, 0);
+    expect(beforeInput(el, "insertText", { data: "x" }).defaultPrevented).toBe(
+      true,
+    );
+    session.end();
+    expect(el.children[0].innerHTML).toBe(
+      '<span aria-hidden="true" style="display: inline-block">•</span><span>xAlpha</span>',
+    );
+  });
+
+  it("keeps a double-clicked word that covers the click point", () => {
+    const el = mount('<p id="t">Alpha beta gamma</p>');
+    const text = el.firstChild as Text;
+    select(text, 6, text, 10);
+    hitAt(text, 8);
+    session = startInPlaceTextSession(el, { caretPoint: { x: 1, y: 1 } });
+    expect(window.getSelection()!.toString()).toBe("beta");
+  });
+
+  it("moves a stale selection elsewhere in the element to the click point", () => {
+    const el = mount('<p id="t">Alpha beta gamma</p>');
+    const text = el.firstChild as Text;
+    select(text, 0, text, 5);
+    hitAt(text, 12);
+    session = startInPlaceTextSession(el, { caretPoint: { x: 1, y: 1 } });
+    const range = window.getSelection()!.getRangeAt(0);
+    expect(range.collapsed).toBe(true);
+    expect([range.startContainer, range.startOffset]).toEqual([text, 12]);
   });
 });
 
@@ -698,6 +798,80 @@ describe("in-place text session: deleting", () => {
     beforeInput(el, "deleteContentBackward");
     session.end();
     expect(el.innerHTML).toBe("Text");
+  });
+});
+
+describe("in-place text session: rows that hold their runs as sibling spans", () => {
+  const para = (runs: string) =>
+    `<p style="padding-left: 22px"><span aria-hidden="true" style="display: inline-block; margin-left: -22px">•</span>${runs}</p>`;
+  const gray = (text: string) => `<span style="color: gray">${text}</span>`;
+  const bold = (text: string) =>
+    `<span style="font-weight: 700">${text}</span>`;
+  const LEAD = para(gray("Lead ") + bold("96%") + gray(", rest"));
+  const NEXT = para(gray("Next ") + bold("bold") + gray(" end"));
+
+  function rowTexts(el: HTMLElement) {
+    return Array.from(el.children).map((row) =>
+      row.textContent!.replaceAll(ZWSP, ""),
+    );
+  }
+
+  it("joins a row split by Enter back whole on Backspace and on Delete", () => {
+    for (const [runText, offset, direction] of [
+      ["Lead", 2, "deleteContentBackward"],
+      ["96%", 1, "deleteContentBackward"],
+      ["Lead", 2, "deleteContentForward"],
+    ] as const) {
+      const el = mount(`<div id="t">${LEAD}${NEXT}</div>`);
+      session = startInPlaceTextSession(el);
+      caret(textOf(el, runText), offset);
+      beforeInput(el, "insertParagraph");
+      expect(el.children).toHaveLength(3);
+      if (direction === "deleteContentForward") {
+        const first = el.children[0].lastElementChild!.firstChild as Text;
+        caret(first, first.length);
+      }
+      beforeInput(el, direction);
+      type(el, "x");
+      session.end();
+      session = null;
+      const joined = `•${runText === "Lead" ? "Lexad " : "Lead 9x6%"}`;
+      expect(rowTexts(el)[0]).toBe(
+        runText === "Lead" ? `${joined}96%, rest` : `${joined}, rest`,
+      );
+      expect(rowTexts(el)[1]).toBe("•Next bold end");
+    }
+  });
+
+  it("deletes the next character, not the row break, at the end of a middle run", () => {
+    const el = mount(`<div id="t">${LEAD}${NEXT}</div>`);
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Lead"), 5);
+    beforeInput(el, "deleteContentForward");
+    session.end();
+    // The Selection.modify stand-in steps into the next run without taking a
+    // character; what matters is that the next row stays where it is.
+    expect(rowTexts(el)).toEqual(["•Lead 96%, rest", "•Next bold end"]);
+  });
+
+  it("keeps the end row's later runs when a selection across rows is deleted", () => {
+    const el = mount(`<div id="t">${LEAD}${NEXT}</div>`);
+    session = startInPlaceTextSession(el);
+    select(textOf(el, "Lead"), 2, textOf(el, "bold"), 2);
+    beforeInput(el, "deleteContentBackward");
+    session.end();
+    expect(rowTexts(el)).toEqual(["•Leld end"]);
+  });
+
+  it("returns the caret to the end of the row, not its first run, when an empty row is removed", () => {
+    const el = mount(`<div id="t">${LEAD}${NEXT}</div>`);
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, ", rest"), ", rest".length);
+    beforeInput(el, "insertParagraph");
+    beforeInput(el, "deleteContentBackward");
+    type(el, "X");
+    session.end();
+    expect(rowTexts(el)).toEqual(["•Lead 96%, restX", "•Next bold end"]);
   });
 });
 

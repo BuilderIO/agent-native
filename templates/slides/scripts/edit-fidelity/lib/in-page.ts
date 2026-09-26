@@ -84,6 +84,11 @@ export interface EditorState {
   contentTop: number | null;
   /** The caret's box, or null unless the selection is a caret in the edited element. */
   caretRect: Rect | null;
+  /**
+   * Position among the edited element's descendants of the block box holding
+   * the caret, -1 for the element itself; null with no caret in it.
+   */
+  caretBlock: number | null;
   sourceTag: string | null;
   sourceText: string | null;
   sourceOccurrence: number;
@@ -120,7 +125,13 @@ export interface InPageHelpers {
   /** Call stacks of content writes sent since the last call, oldest first. */
   takeWriteStacks(): string[];
   /** Keepalive content writes sent since the last call, in this tab. */
-  takeKeepaliveWrites(): number;
+  takeKeepaliveWrites(): KeepaliveWrite[];
+}
+
+export interface KeepaliveWrite {
+  action: string;
+  /** The JSON body; null when it was not a string and could not be read. */
+  body: string | null;
 }
 
 declare global {
@@ -460,6 +471,27 @@ export function installInPageHelpers(chromeSelector: string) {
     return box?.height ? rectOf(box, origin) : null;
   }
 
+  function caretBlock(source: HTMLElement | null): number | null {
+    const selection = getSelection();
+    const at = selection?.rangeCount
+      ? selection.getRangeAt(0).endContainer
+      : null;
+    if (!source || !at || !source.contains(at)) return null;
+    let el = at instanceof Element ? at : at.parentElement;
+    // A flex item computes to display: block, yet the items along a flex row
+    // share its line, so a flex item never counts as a block of its own.
+    while (
+      el &&
+      el !== source &&
+      (/^inline|^contents/.test(getComputedStyle(el).display) ||
+        /flex$/.test(getComputedStyle(el.parentElement!).display))
+    )
+      el = el.parentElement;
+    return !el || el === source
+      ? -1
+      : Array.from(source.querySelectorAll("*")).indexOf(el);
+  }
+
   /**
    * Top of the element's rendered text and line breaks. A range over the
    * whole element would also take in the border box of every child, so a
@@ -503,6 +535,7 @@ export function installInPageHelpers(chromeSelector: string) {
         : null,
       contentTop: source ? contentTop(source, origin) : null,
       caretRect: caretRect(origin, source),
+      caretBlock: caretBlock(source),
       sourceTag: source?.tagName ?? null,
       sourceText: source ? norm(source.textContent) : null,
       sourceOccurrence: source ? occurrenceOf(source, slideRoot) : 0,
@@ -891,29 +924,34 @@ export function installInPageHelpers(chromeSelector: string) {
     const method = (
       init?.method ?? (input instanceof Request ? input.method : "GET")
     ).toUpperCase();
-    if (
-      (method === "POST" || method === "PUT") &&
-      /\/_agent-native\/actions\/(patch-deck|save-deck|update-slide)\b/.test(
-        url,
-      )
-    ) {
+    const action =
+      method === "POST" || method === "PUT"
+        ? /\/_agent-native\/actions\/(patch-deck|save-deck|update-slide)\b/.exec(
+            url,
+          )?.[1]
+        : undefined;
+    if (action) {
       writeStacks.push(new Error().stack ?? "");
       // Slides sends these on pagehide, and Playwright's request events never
-      // report them; the count survives the reload in sessionStorage.
+      // report them; the bodies survive the reload in sessionStorage.
       if (init?.keepalive || (input instanceof Request && input.keepalive)) {
-        sessionStorage.setItem(
-          KEEPALIVE_WRITES,
-          String(Number(sessionStorage.getItem(KEEPALIVE_WRITES) ?? 0) + 1),
+        const sent: KeepaliveWrite[] = JSON.parse(
+          sessionStorage.getItem(KEEPALIVE_WRITES) ?? "[]",
         );
+        sent.push({
+          action,
+          body: typeof init?.body === "string" ? init.body : null,
+        });
+        sessionStorage.setItem(KEEPALIVE_WRITES, JSON.stringify(sent));
       }
     }
     return nativeFetch.call(this, input, init);
   };
   const takeWriteStacks = () => writeStacks.splice(0);
-  const takeKeepaliveWrites = () => {
-    const n = Number(sessionStorage.getItem(KEEPALIVE_WRITES) ?? 0);
+  const takeKeepaliveWrites = (): KeepaliveWrite[] => {
+    const sent = JSON.parse(sessionStorage.getItem(KEEPALIVE_WRITES) ?? "[]");
     sessionStorage.removeItem(KEEPALIVE_WRITES);
-    return n;
+    return sent;
   };
 
   window.__editFidelity = {

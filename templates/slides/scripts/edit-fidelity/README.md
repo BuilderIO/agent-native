@@ -160,8 +160,10 @@ them per slide. For each target and scenario:
      the canvas change, and the caret's line, measured from the top of the
      element's rendered text so that centred and bottom-anchored text, or a
      label beside a taller icon, still shows a full line per Enter. The caret must
-     be collapsed inside the edited element and move to another line; a
-     caret that cannot be measured is its own violation.
+     be collapsed inside the edited element and move to another line, or
+     into another block box (a list laid out as a grid puts the new row
+     beside the old one; flex items count as their row's line, not boxes of
+     their own); a caret that cannot be measured is its own violation.
    - `clickout`: like `typedelete`.
 
    Once the keys are in, it captures `typed.png`: the slide as the live
@@ -175,9 +177,11 @@ them per slide. For each target and scenario:
    write that lands after the edit settled (a `pagehide` flush, say) is a
    violation, unless opening the slide rewrites it anyway. Playwright does
    not report the keepalive writes Slides sends on `pagehide`, so the page
-   counts them in `sessionStorage`. When there was one, the harness waits
-   up to 15 s for it to land, and then, as when a write it does see is still
-   in flight, polls until the stored slide settles before reading.
+   keeps their bodies in `sessionStorage`. Any slide content one carried that
+   differs from `saved.html`, and any that deletes the slide or replaces the
+   deck without it, is a violation whether or not it has landed yet
+   (`keepalive-N.html`), so the harness never waits for one; it polls until
+   the stored slide settles only while a write it does see is in flight.
 8. **Idempotence (`typedelete` only).** A second identical edit must save
    exactly what the first one did.
 
@@ -186,7 +190,8 @@ Each scenario writes this directory:
 ```
 <out>/<case>/sNN/tNN-<scenario>/{view,editing,enter-1..3,typed,after,reload}.png
 <out>/<case>/sNN/tNN-<scenario>/diff-{editing,after,reload,typed}.png
-<out>/<case>/sNN/tNN-<scenario>/{stored,saved,saved2}.html
+<out>/<case>/sNN/tNN-<scenario>/{stored,saved,saved2,reloaded}.html
+<out>/<case>/sNN/tNN-<scenario>/write-N.html, keepalive-N.html
 <out>/<case>/sNN/tNN-<scenario>/html.diff, html-outside.diff
 <out>/<case>/sNN/tNN-<scenario>/result.json, sheet.png
 ```
@@ -224,7 +229,9 @@ deltas for editing/after, the html diff, and the violation count.
   `-webkit-text-fill-color`; text-shadow; text-decoration-line; font feature
   and variation settings; text-align; white-space; opacity; visibility. The
   record is keyed by the text, so a run that moves into an editor `<p>` still
-  pairs up.
+  pairs up. Records pair by document order first: the unchanged head and tail
+  by position, ignoring the `#n` ordinal, so untouched copies of a repeated
+  text still pair when the edited copy's text changes; the rest by key.
   - Every element that paints yields a box record: background, border,
     box-shadow, or an svg/img/hr, including `::before`/`::after`. It carries
     display, margins, paddings, border width/style/color per side, radii,
@@ -240,8 +247,15 @@ deltas for editing/after, the html diff, and the violation count.
   entering edit to the end of the scenario (the `typedelete` rerun included)
   is recorded in `result.json`: `writeDetails` has each request's slides,
   fields, phase (`edit` or the `rerun`), and whether its content equals the
-  stored string, and `writeStacks` has the client call stack of each.
-  `noop` / `typedelete` / `clickout` must send none.
+  stored string, and `writeStacks` has the client call stack of each. Each
+  edited-slide content that differs from stored is kept as `write-N.html`.
+  `noop` / `typedelete` / `clickout` must send none, except that a phase of
+  `typedelete` / `clickout` may send exactly the editor's draft then revert
+  (keys far enough apart for the typed `x` to autosave): two `patch-deck`
+  writes that each set only the edited slide's content, the first byte equal
+  to stored outside the edited element (the rule below) with one `x` added
+  to that element's visible text, the second byte equal to stored. Accepted
+  phases are listed in `draftReverts`.
 - **Saved bytes.** For `append` / `enter3`, the edited element is located in
   the stored source by tag, exact full text and occurrence (the same rule
   for every lookup), and the saved string must
