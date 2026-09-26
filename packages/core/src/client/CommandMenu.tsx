@@ -294,7 +294,7 @@ export function CommandMenu({
 }: CommandMenuProps) {
   const [search, setSearch] = useState("");
   const models = useChatModels({
-    enabled: false,
+    enabled: open && showAgentFallback,
     storageKey: chatModelSelectionStorageKey(chatStorageKey),
   });
   const shouldCheckProviderStatus =
