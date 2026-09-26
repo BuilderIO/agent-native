@@ -2020,8 +2020,9 @@ export function createOAuthPopupWaitingHandler() {
     );
     setResponseHeader(event, "X-Frame-Options", "DENY");
     // Keep the opener alive until the client replaces this inert page with the
-    // provider URL. The response has no script or user data, so it does not
-    // need the default same-origin opener isolation.
+    // provider URL. This only works while every opener document sends no COOP
+    // or `same-origin-allow-popups` (security-headers.ts); an opener sending
+    // `same-origin` severs the popup here and leaves it blank.
     setResponseHeader(event, "Cross-Origin-Opener-Policy", "unsafe-none");
     return OAUTH_POPUP_WAITING_HTML;
   });
