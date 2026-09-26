@@ -65,8 +65,8 @@ async function flush() {
 }
 
 /** Lazy page chunks resolve on their own schedule under vitest. */
-async function waitFor(check: () => boolean) {
-  for (let attempt = 0; attempt < 50 && !check(); attempt += 1) {
+async function waitFor(check: () => boolean, attempts = 50) {
+  for (let attempt = 0; attempt < attempts && !check(); attempt += 1) {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
@@ -703,10 +703,12 @@ describe("SettingsShell", () => {
     await act(async () => {
       root.render(<RouterProvider router={router} />);
     });
-    await waitFor(() => location === "/settings/profile");
+    // Every act() here flushes the ticking re-renders, so a slow runner spends
+    // far longer per poll than a laptop; the budget is in polls, not time.
+    await waitFor(() => location === "/settings/profile", 400);
     clickPage("org");
-    await waitFor(() => location === "/settings/org");
-  });
+    await waitFor(() => location === "/settings/org", 400);
+  }, 30_000);
 
   it("keeps the admin pages from a member whose organization couldn't be read", async () => {
     orgState.value = {

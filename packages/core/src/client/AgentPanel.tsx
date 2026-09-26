@@ -100,7 +100,10 @@ export {
 } from "./AgentSidebar.js";
 export type { AgentSidebarProps } from "./AgentSidebar.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
-import { URLSync } from "./agent-sidebar-url-sync.js";
+import {
+  SettingsReturnPathRecorder,
+  URLSync,
+} from "./agent-sidebar-url-sync.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath, appPath } from "./api-path.js";
 import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
@@ -3054,6 +3057,7 @@ export function AgentChatSurface({
     <>
       <URLSync browserTabId={resolvedBrowserTabId} />
       {panel}
+      <SettingsReturnPathRecorder />
     </>
   );
 }
