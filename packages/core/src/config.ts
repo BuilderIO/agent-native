@@ -1161,7 +1161,8 @@ export function inferAgentNativeDeploymentEnvironment(
 
   if (
     branch === "production" ||
-    (context === "production" && branch !== "beta")
+    (context === "production" && branch !== "beta") ||
+    vercelEnv === "production"
   ) {
     return "production";
   }
