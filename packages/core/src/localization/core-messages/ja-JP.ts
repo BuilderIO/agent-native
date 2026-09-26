@@ -1,6 +1,26 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "URL",
+  "composer.contextInvalidUrl":
+    "有効な HTTP または HTTPS の URL を入力してください。",
+  "composer.contextAttach": "添付",
+  "composer.menu.search": "検索…",
+  "composer.contextPrevious": "前へ",
+  "composer.contextNext": "次へ",
+  "composer.contextLoadFailed": "コンテキストを読み込めませんでした。",
+  "composer.contextLinkRequired": "リンクを入力してください。",
+  "composer.submitFailed": "送信できませんでした。もう一度お試しください。",
+  "composer.addContext": "コンテキストを追加",
+  "composer.contextActionFailed": "コンテキストを追加できませんでした。",
+  "composer.contextBack": "戻る",
+  "composer.searchContext": "コンテキストを検索…",
+  "composer.noContextResults": "一致するコンテキストがありません。",
+  "composer.contextPending": "コンテキストを読み込み中",
+  "composer.contextError": "コンテキストの読み込みに失敗",
+  "composer.retryContext": "{{name}} のコンテキストを再試行",
+  "composer.contextLimitExceeded":
+    "コンテキストが大きすぎます。項目を削除するか、より小さな選択範囲を添付してください。",
   "activity.reasoning": "推論",
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":

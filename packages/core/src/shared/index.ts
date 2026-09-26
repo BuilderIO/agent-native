@@ -37,6 +37,14 @@ export {
 } from "./sign-in-journey.js";
 export { truncate } from "./truncate.js";
 export {
+  composerSourceRequestSchema,
+  composerSourceListSchema,
+  composerSourceReferenceSchema,
+  composerSourceResultSchema,
+  type ComposerSourceRequest,
+  type ComposerSourceResult,
+} from "./composer-source.js";
+export {
   MAX_USER_REGEX_INPUT_LENGTH,
   MAX_USER_REGEX_LENGTH,
   analyzeRegexSource,

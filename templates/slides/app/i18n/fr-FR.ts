@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "Actions du modèle {{title}}",
+    previewAction: "Aperçu",
+    title: "Modèles",
+    browseAll: "Tout parcourir",
+    searchPlaceholder: "Rechercher des modèles…",
+    loading: "Chargement des modèles",
+    empty: "Aucun modèle ne correspond à votre recherche.",
+    loadFailed: "Impossible de charger les modèles.",
+    preview: "Aperçu du modèle",
+    useTemplate: "Utiliser le modèle",
+    opening: "Ouverture du modèle…",
+    createFailed: "Impossible de créer une présentation à partir de ce modèle.",
+    previous: "Précédente",
+    next: "Suivante",
+    slidePosition: "Diapositive {{current}} sur {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["fr-FR"],
   root: {
     commandPresentations: "Présentations",
@@ -815,6 +832,110 @@ const messages = {
     chooseAnotherFile: "Choisir un autre fichier",
   },
   home: {
+    suggestedPrompts: "Prompts suggérés",
+    importMenu: {
+      import: "Importer",
+      options: "Options d’importation",
+      invalidPdf: "Choisissez un fichier PDF.",
+      invalidPptx: "Choisissez un fichier PPTX.",
+      invalidFile: "Choisissez un fichier PDF ou PPTX.",
+      notStarted: "Connectez-vous si nécessaire, puis réessayez l’importation.",
+    },
+    importDeck: "Importer une présentation",
+    context: {
+      websiteReference: "Joindre un site web",
+      websiteUrlLabel: "URL du site web",
+      websiteUrl: "Collez l’URL d’un site web",
+      figmaUrlLabel: "Lien Figma",
+      invalidFigmaUrl:
+        "Saisissez une URL valide de cadre ou de fichier figma.com.",
+      createSystem: "Créer un système de design",
+      noSystems:
+        "Vous n’avez pas encore de système de design. Créez-en un à partir d’un site web, de fichiers ou de Figma.",
+      searchSystems: "Rechercher des systèmes de design…",
+      searchFrames: "Rechercher des cadres Figma…",
+      searchDesigns: "Rechercher des designs…",
+      searchPresentations: "Rechercher des présentations…",
+      menu: {
+        system: "Utiliser un système de design",
+        figma: "Joindre Figma",
+        design: "Utiliser un design comme référence",
+        deck: "Utiliser une présentation comme référence",
+        searchDesign: "Rechercher dans Design…",
+      },
+      loadFailed: "Impossible de charger cette référence. Réessayez.",
+      saveFailed: "Impossible d’enregistrer votre sélection de contexte.",
+      system: "Systèmes de design",
+      figmaUrl: "Collez un lien Figma",
+      browse: "Parcourir les cadres",
+      empty: "Aucune référence trouvée.",
+      previous: "Précédent",
+      next: "Suivant",
+      title: "Contexte",
+      remove: "Retirer la référence",
+      deck: "Présentations",
+      design: "Références de design",
+      figma: "Cadres Figma",
+      notReady:
+        "Le contexte est en cours de chargement ou indisponible. Réessayez ou retirez-le avant l’envoi.",
+      emptySource: "Cette source n’a fourni aucun contexte utilisable.",
+      tooMany: "Choisissez jusqu’à 20 références.",
+      search: "Rechercher des références",
+      designCategory: "Création",
+    },
+    quickStart: {
+      invalidUrl: "Saisissez une URL HTTP ou HTTPS valide.",
+      starting: "Démarrage…",
+      generate: "Générer",
+      connectionRequired:
+        "Connectez Builder.io au-dessus du champ d’accueil, puis réessayez.",
+      invalidPdf: "Choisissez un fichier PDF.",
+      notReady:
+        "Vérifiez le contexte en attente ou en erreur et la connexion, puis réessayez.",
+      tooLong: "Limitez le texte source à moins de 20 000 caractères.",
+      trends: {
+        label: "Créer une présentation sur les dernières tendances du secteur",
+        field: "Secteur ou sujet",
+        prompt:
+          "Recherchez les dernières tendances du sujet fourni et créez une présentation avec des sources actuelles. Vérifiez les informations avant de générer.",
+      },
+      notes: {
+        label: "Transformer des notes de réunion en présentation",
+        field: "Notes de réunion",
+        prompt:
+          "Transformez les notes de réunion fournies en présentation avec les points clés, les décisions et les prochaines étapes. Utilisez les notes comme source.",
+      },
+      pdf: {
+        label: "Résumer les points clés d’un PDF",
+        field: "Fichier PDF",
+        prompt:
+          "Lisez le PDF joint et créez une présentation résumant ses points clés. Signalez le contenu illisible au lieu de deviner.",
+      },
+      website: {
+        label: "Générer une présentation depuis le site de mon entreprise",
+        field: "URL du site de l’entreprise",
+        prompt:
+          "Lisez le site d’entreprise fourni et créez une présentation sur celle-ci. Signalez les problèmes d’accès au lieu d’inventer des faits.",
+      },
+    },
+    connectBuilderIo: "Connecter Builder.io",
+    connectingBuilder: "Connexion à Builder.io…",
+    recent: "Récents",
+    starters: {
+      pitch: {
+        label: "Présentation de projet",
+        prompt: "Crée une présentation de projet sur ",
+      },
+      update: {
+        label: "Point d’avancement",
+        prompt:
+          "Crée un point d’avancement avec les progrès, les résultats et les prochaines étapes pour ",
+      },
+      lesson: {
+        label: "Expliquer un sujet",
+        prompt: "Crée une présentation qui explique ",
+      },
+    },
     loadFailed: "Impossible de charger votre contenu",
     loadFailedDescription:
       "Votre contenu enregistré est toujours disponible. Vérifiez la connexion et réessayez.",
@@ -846,7 +967,7 @@ const messages = {
     newDeckPlaceholder:
       "Décrivez la présentation que vous souhaitez générer...",
     skipPrompt: "Ignorer le prompt",
-    firstDeckPromptTitle: "Quel type de présentation devons-nous générer ?",
+    firstDeckPromptTitle: "Créons votre première présentation",
     firstDeckSkip: "Ignorer",
     chooseReferences: "Choisir des références",
     addDesignSystem: "+ Système de design",

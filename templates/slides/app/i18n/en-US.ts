@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "Template actions for {{title}}",
+    previewAction: "Preview",
+    title: "Templates",
+    browseAll: "Browse all",
+    searchPlaceholder: "Search templates…",
+    loading: "Loading templates",
+    empty: "No templates match your search.",
+    loadFailed: "Could not load templates.",
+    preview: "Template preview",
+    useTemplate: "Use template",
+    opening: "Opening template…",
+    createFailed: "Could not create a presentation from this template.",
+    previous: "Previous",
+    next: "Next",
+    slidePosition: "Slide {{current}} of {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandPresentations: "Presentations",
@@ -789,6 +806,109 @@ const messages = {
     chooseAnotherFile: "Choose another file",
   },
   home: {
+    suggestedPrompts: "Suggested prompts",
+    importMenu: {
+      import: "Import",
+      options: "Import options",
+      invalidPdf: "Choose a PDF file.",
+      invalidPptx: "Choose a PPTX file.",
+      invalidFile: "Choose a PDF or PPTX file.",
+      notStarted: "Complete any required sign-in, then retry the import.",
+    },
+    importDeck: "Import Deck",
+    context: {
+      websiteReference: "Attach website",
+      websiteUrlLabel: "Website URL",
+      websiteUrl: "Paste a website URL",
+      figmaUrlLabel: "Figma link",
+      invalidFigmaUrl: "Enter a valid figma.com frame or file URL.",
+      createSystem: "Create a design system",
+      noSystems:
+        "You don’t have a design system yet. Create one from website, files, or Figma.",
+      searchSystems: "Search design systems…",
+      searchFrames: "Search Figma frames…",
+      searchDesigns: "Search designs…",
+      searchPresentations: "Search presentations…",
+      menu: {
+        system: "Use a design system",
+        figma: "Attach Figma",
+        design: "Reference a design",
+        deck: "Reference a presentation",
+        searchDesign: "Search design…",
+      },
+      loadFailed: "Couldn't load this reference. Try again.",
+      saveFailed: "Couldn't save your context selection.",
+      system: "Design systems",
+      figmaUrl: "Paste a Figma link",
+      browse: "Browse frames",
+      empty: "No references found.",
+      previous: "Previous",
+      next: "Next",
+      title: "Context",
+      remove: "Remove reference",
+      deck: "Presentations",
+      design: "Design references",
+      figma: "Figma frames",
+      notReady:
+        "Context is still loading or unavailable. Retry or remove it before sending.",
+      emptySource: "This source returned no usable context.",
+      tooMany: "Choose up to 20 references.",
+      search: "Search references",
+      designCategory: "Design",
+    },
+    quickStart: {
+      invalidUrl: "Enter a valid HTTP or HTTPS URL.",
+      starting: "Starting…",
+      generate: "Generate",
+      connectionRequired:
+        "Connect Builder.io above the home prompt, then try again.",
+      invalidPdf: "Choose a PDF file.",
+      notReady:
+        "Review the prompt's loading or failed context and connection status, then try again.",
+      tooLong: "Keep source text under 20,000 characters.",
+      trends: {
+        label: "Create a presentation on latest industry trends",
+        field: "Industry or topic",
+        prompt:
+          "Research the latest trends for the supplied topic and create a presentation with current sources. Verify the information before generating.",
+      },
+      notes: {
+        label: "Turn meeting notes into a presentation",
+        field: "Meeting notes",
+        prompt:
+          "Turn the supplied meeting notes into a presentation covering key points, decisions, and next steps. Use the notes as source material.",
+      },
+      pdf: {
+        label: "Summarize a PDF into key takeaways",
+        field: "PDF file",
+        prompt:
+          "Read the attached PDF and create a presentation summarizing its key takeaways. Report unreadable content instead of guessing.",
+      },
+      website: {
+        label: "Generate a deck from my company website",
+        field: "Company website URL",
+        prompt:
+          "Read the supplied company website and create a presentation about the company. Report access failures instead of inventing facts.",
+      },
+    },
+    connectBuilderIo: "Connect Builder.io",
+    connectingBuilder: "Connecting Builder.io…",
+    recent: "Recent",
+    starters: {
+      pitch: {
+        label: "Pitch deck",
+        prompt: "Create a pitch deck about ",
+      },
+      update: {
+        label: "Project update",
+        prompt:
+          "Create a project update covering progress, results, and next steps for ",
+      },
+      lesson: {
+        label: "Teach a topic",
+        prompt: "Create a presentation that explains ",
+      },
+    },
     loadFailed: "Couldn't load your content",
     loadFailedDescription:
       "Your saved content is still available. Check the connection and try again.",
@@ -819,7 +939,7 @@ const messages = {
     newDeckPromptTitle: "New presentation",
     newDeckPlaceholder: "Describe the presentation you want to generate...",
     skipPrompt: "Skip prompt",
-    firstDeckPromptTitle: "What kind of presentation should we generate?",
+    firstDeckPromptTitle: "Let's create your first presentation",
     firstDeckSkip: "Skip",
     chooseReferences: "Choose references",
     addDesignSystem: "+ Design system",

@@ -1684,7 +1684,66 @@ export default {
     staleAnchorDetail:
       "Das ursprüngliche Element wurde auf der Arbeitsfläche nicht mehr gefunden.",
   },
+  homeContext: {
+    websiteReference: "Website anhängen",
+    websiteUrlLabel: "Website-URL",
+    websiteUrl: "Website-URL einfügen",
+    figmaUrlLabel: "Figma-Link",
+    invalidFigmaUrl:
+      "Gib eine gültige Frame- oder Datei-URL von figma.com ein.",
+    tooMany: "Wähle bis zu 20 Referenzen.",
+    invalidWebsiteUrl: "Gib eine gültige HTTP- oder HTTPS-URL ein.",
+    createSystem: "Designsystem erstellen",
+    noSystems:
+      "Du hast noch kein Designsystem. Erstelle eines aus einer Website, Dateien oder Figma.",
+    searchSystems: "Designsysteme suchen…",
+    searchFrames: "Figma-Frames suchen…",
+    searchDesigns: "Designs suchen…",
+    searchPresentations: "Präsentationen suchen…",
+    searchDesign: "Design suchen…",
+    useDesignSystem: "Ein Designsystem verwenden",
+    notReady:
+      "Die Anfrage ist noch nicht bereit. Prüfe den ausgewählten Kontext und die Verbindung und versuche es erneut.",
+    search: "Kontext suchen…",
+    figmaUrl: "Figma-Link einfügen",
+    browse: "Frames durchsuchen",
+    loadFailed: "Diese Referenz konnte nicht geladen werden.",
+    retry: "Erneut versuchen",
+    empty: "Keine passenden Referenzen.",
+    none: "Keine",
+    design: "Design",
+    slides: "Folien",
+    referenceDesign: "Ein Design als Referenz verwenden",
+    figmaReference: "Figma anhängen",
+    referenceDeck: "Eine Präsentation als Referenz verwenden",
+    quickSaas: "SaaS-Landingpage erstellen",
+    quickDashboard: "Dashboard erstellen",
+    quickDeck: "Präsentation erstellen",
+    deckPrompt:
+      "Erstelle eine ansprechende Präsentation mit Titelfolie, klarer Erzählung, visuellen Daten und einer prägnanten Abschlussfolie.",
+  },
   home: {
+    suggestedPrompts: "Vorgeschlagene Prompts",
+    import: "Importieren",
+    importOptions: "Importoptionen",
+    figmaLink: "Figma-Link",
+    importFromFigma: "Aus Figma importieren",
+    figmaFile: "Figma-Datei (.fig)",
+    openImport: "Import öffnen",
+    importSelectedFile: "Ausgewählte Datei importieren",
+    starterSaasPrompt:
+      "Eine moderne SaaS-Landingpage mit dunklem Design, einem Hero-Bereich, drei Funktionskarten und einem abschließenden Handlungsaufruf.",
+    starterDashboardPrompt:
+      "Ein übersichtliches Analyse-Dashboard mit seitlicher Navigation, vier Kennzahlenkarten, einem Diagramm und einer Tabelle mit den letzten Aktivitäten.",
+    starterMobilePrompt:
+      "Ein mobiler App-Prototyp in einem Smartphone-Rahmen mit einer Tab-Leiste unten und drei Listenkarten auf dem Startbildschirm.",
+    starterPricingPrompt:
+      "Eine Preisseite mit drei Tarifen, einer monatlichen/jährlichen Umschaltung, Funktionslisten und einem hervorgehobenen empfohlenen Tarif.",
+    designPromptTitle: "Lass uns dein erstes Design erstellen",
+    recent: "Zuletzt verwendet",
+    browseAllTemplates: "Alle ansehen",
+    connectBuilderIo: "Builder.io verbinden",
+    connectingBuilder: "Builder.io wird verbunden…",
     pageTitle: "Designs",
     searchPlaceholder: "Designs suchen...",
     newDesign: "Neue Design",
@@ -1751,6 +1810,8 @@ export default {
     layoutLabel: "Bildschirm-Layout bereit zum Speichern",
   },
   templatesPage: {
+    previewEmpty: "Diese Vorlage enthält keine Vorschauseiten.",
+    loading: "Vorlagen werden geladen",
     title: "Vorlagen",
     description:
       "Mit passenden Abmessungen und Standardwerten starten und entsperrte Inhalte per Prompt anpassen.",
@@ -1780,7 +1841,7 @@ export default {
     deleteTitle: "Vorlage löschen?",
     deleteDescription:
       "Dadurch wird {{title}} dauerhaft gelöscht. Bereits erstellte Designs bleiben erhalten.",
-    templateActions: "Vorlagenaktionen",
+    templateActions: "Aktionen für {{title}}",
     lockedCount: "{{count}} gesperrt",
     categories: {
       ad: "Anzeige",
