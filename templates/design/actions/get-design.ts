@@ -73,37 +73,35 @@ export default defineAction({
     // batch share a `createdAt` to the millisecond and fall back to the id
     // tiebreak. Nothing may depend on the index matching the order a generator
     // wrote in — see the order-independence case in variant-lineup.test.ts.
-    const baseFileFields = {
-      id: schema.designFiles.id,
-      filename: schema.designFiles.filename,
-      fileType: schema.designFiles.fileType,
-      createdAt: schema.designFiles.createdAt,
-      updatedAt: schema.designFiles.updatedAt,
-    };
-    const fileFilter = fileId
-      ? and(
-          eq(schema.designFiles.designId, id),
-          eq(schema.designFiles.id, fileId),
-        )
-      : eq(schema.designFiles.designId, id);
-    const files =
+    const fileFields =
       includeFileContent === false
-        ? await db
-            .select(baseFileFields)
-            .from(schema.designFiles)
-            .where(fileFilter)
-            .orderBy(
-              asc(schema.designFiles.createdAt),
-              asc(schema.designFiles.id),
+        ? {
+            id: schema.designFiles.id,
+            filename: schema.designFiles.filename,
+            fileType: schema.designFiles.fileType,
+            createdAt: schema.designFiles.createdAt,
+            updatedAt: schema.designFiles.updatedAt,
+          }
+        : {
+            id: schema.designFiles.id,
+            filename: schema.designFiles.filename,
+            fileType: schema.designFiles.fileType,
+            content: schema.designFiles.content,
+            createdAt: schema.designFiles.createdAt,
+            updatedAt: schema.designFiles.updatedAt,
+          };
+    const files = await db
+      .select(fileFields)
+      .from(schema.designFiles)
+      .where(
+        fileId
+          ? and(
+              eq(schema.designFiles.designId, id),
+              eq(schema.designFiles.id, fileId),
             )
-        : await db
-            .select({ ...baseFileFields, content: schema.designFiles.content })
-            .from(schema.designFiles)
-            .where(fileFilter)
-            .orderBy(
-              asc(schema.designFiles.createdAt),
-              asc(schema.designFiles.id),
-            );
+          : eq(schema.designFiles.designId, id),
+      )
+      .orderBy(asc(schema.designFiles.createdAt), asc(schema.designFiles.id));
     const designSystem = await loadAgentDesignSystemContext(
       typeof row.designSystemId === "string" ? row.designSystemId : null,
       getDesignSystem,
@@ -129,7 +127,6 @@ export default defineAction({
       description: row.description,
       projectType: row.projectType,
       designSystemId: row.designSystemId,
-      liveCollaborationEnabled: row.liveCollaborationEnabled === true,
       designSystem,
       data: designDataForAccessRole(row.data ?? null, access.role),
       visibility: row.visibility,
@@ -140,7 +137,7 @@ export default defineAction({
         id: f.id,
         filename: f.filename,
         fileType: f.fileType,
-        ...("content" in f ? { content: f.content } : {}),
+        ...(includeFileContent === false ? {} : { content: f.content }),
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
       })),

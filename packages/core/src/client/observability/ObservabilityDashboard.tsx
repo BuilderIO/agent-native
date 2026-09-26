@@ -1859,7 +1859,7 @@ function ReviewTab({
                                           {message.text}
                                         </span>
                                         <span className="mt-1 block text-xs text-muted-foreground">
-                                          {t("agentChat.common.expand")}
+                                          {t("common.expand")}
                                         </span>
                                       </summary>
                                       <p className="mt-2 whitespace-pre-wrap">
