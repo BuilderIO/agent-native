@@ -227,6 +227,21 @@ describe("extractAnalyticsMemoryCandidates", () => {
     ).toEqual([]);
   });
 
+  it("rejects single-token customer and person references", () => {
+    expect(
+      extractAnalyticsMemoryCandidates([
+        {
+          role: "user",
+          text: "Correction: exclude Alice from the weekly retention report.",
+        },
+        {
+          role: "user",
+          text: "For future Analytics work, use Acme’s report for renewals.",
+        },
+      ]),
+    ).toEqual([]);
+  });
+
   it("rejects billing, mailing, and street addresses", () => {
     expect(
       extractAnalyticsMemoryCandidates([
@@ -370,6 +385,17 @@ describe("extractAnalyticsMemoryCandidates", () => {
         {
           role: "user",
           text: "Remember that trial conversion was 23% last week.",
+        },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("rejects point-in-time counts without units", () => {
+    expect(
+      extractAnalyticsMemoryCandidates([
+        {
+          role: "user",
+          text: "Remember that weekly active users were 423 last week.",
         },
       ]),
     ).toEqual([]);

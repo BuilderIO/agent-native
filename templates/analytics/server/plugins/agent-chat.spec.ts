@@ -277,6 +277,7 @@ describe("Analytics prompt-reference preparation", () => {
     });
     expect(summarizeAnalyticsRun).toHaveBeenCalledWith({
       events: run.events,
+      groundingActionNames: expect.any(Array),
       preloadedReferenceCount: 2,
     });
   });

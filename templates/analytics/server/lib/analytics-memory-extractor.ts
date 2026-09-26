@@ -82,6 +82,8 @@ const CONFIRMATION_QUESTION =
   /\b(?:is that right|did i get that right|is this (?:correct|right)|is that (?:correct|the definition)|correct\?)\b/i;
 const POINT_IN_TIME_RESULT_VALUE =
   /(?:[$€£]\s*\d+(?:[,.]\d+)*(?:\.\d+)?|\d+(?:[,.]\d+)*(?:\.\d+)?\s*(?:%|percent\b))/i;
+const POINT_IN_TIME_RESULT_COUNT =
+  /\b(?:was|were|is|are|reached|hit|totaled|totalled|stood at|increased to|decreased to|grew to|fell to)\s+\d+(?:[,.]\d+)*(?:\.\d+)?\b/i;
 const POINT_IN_TIME_RESULT_PERIOD =
   /\b(?:(?:last|previous|prior|this)\s+(?:\d+\s+)?(?:day|week|month|quarter|year)s?|yesterday|today|as of|week ending|month ending|on 20\d{2}-\d{2}-\d{2})\b/i;
 const STOP_WORDS = new Set([
@@ -167,6 +169,28 @@ function containsLikelyCustomerOrPersonName(text: string): boolean {
     return true;
   }
 
+  const singleTokenAction =
+    /\b(?:exclude|include|ignore|remove|filter\s+out|focus\s+on)\s+([A-Z][\p{L}'-]{2,})(?:['’]s)?\s+(?:from|in|on|for|to|with)\b/u.exec(
+      text,
+    );
+  if (
+    singleTokenAction &&
+    !TECHNICAL_NAMES.has(singleTokenAction[1]!.toLowerCase())
+  ) {
+    return true;
+  }
+
+  const possessiveReference =
+    /\b(?:use|query|reference|follow|copy)\s+([A-Z][\p{L}'-]{2,})['’]s\s+(?:report|dashboard|chart|table|source|dataset|query|metric|account)\b/u.exec(
+      text,
+    );
+  if (
+    possessiveReference &&
+    !TECHNICAL_NAMES.has(possessiveReference[1]!.toLowerCase())
+  ) {
+    return true;
+  }
+
   return /\b(?:exclude|include|ignore|remove|filter\s+out|focus\s+on)\s+(?:[A-Z][\p{L}'-]{2,}\s+){1,2}[A-Z][\p{L}'-]{2,}\s+(?:from|in|on|for|to|with)\b/u.test(
     text,
   );
@@ -200,7 +224,8 @@ function isUnsafe(text: string): boolean {
       text,
     ) ||
     containsLikelyCustomerOrPersonName(text) ||
-    (POINT_IN_TIME_RESULT_VALUE.test(text) &&
+    ((POINT_IN_TIME_RESULT_VALUE.test(text) ||
+      POINT_IN_TIME_RESULT_COUNT.test(text)) &&
       POINT_IN_TIME_RESULT_PERIOD.test(text)) ||
     /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(text) ||
     /\b(?:\+?\d[ .()-]*){10,}\b/.test(text)

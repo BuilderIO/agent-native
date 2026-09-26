@@ -39,6 +39,7 @@ const CATALOG_TOOL_NAMES = new Set([
   "search-analytics-query-catalog",
   "search-dashboard-references",
   "get-sql-dashboard",
+  "get-explorer-dashboard",
   "list-sql-dashboards",
   "list-dashboard-usage-stats",
   "list-data-dictionary",

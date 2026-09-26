@@ -464,6 +464,7 @@ describe("summarizeAnalyticsRun", () => {
         },
         ...[
           "get-sql-dashboard",
+          "get-explorer-dashboard",
           "list-sql-dashboards",
           "list-dashboard-usage-stats",
         ].map((tool, index) => ({
@@ -627,7 +628,7 @@ describe("summarizeAnalyticsRun", () => {
     expect(properties).toEqual({
       preloaded_reference_count: 2,
       tool_search_calls: 1,
-      catalog_calls: 4,
+      catalog_calls: 5,
       query_calls: 7,
       first_query_errored: false,
     });
