@@ -8,6 +8,7 @@ import {
   readBody,
   runWithRequestContext,
   verifyCaptcha,
+  withConfiguredAppBasePath,
 } from "@agent-native/core/server";
 import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { testUserRegex } from "@agent-native/core/shared";
@@ -1855,7 +1856,6 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
 
 export async function cancelBookingById(
   id: string,
-  origin = getAppProductionUrl(),
   options: { zoomMeetingResolved?: boolean } = {},
 ) {
   if (!id)
@@ -1928,7 +1928,7 @@ export async function cancelBookingById(
   const hostEmail = link.ownerEmail;
   const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
   const bookAgainUrl = existing.slug
-    ? `${origin}/book/${existing.slug}`
+    ? `${withConfiguredAppBasePath(getAppProductionUrl())}/book/${existing.slug}`
     : undefined;
   await sendBookingCancellationEmails({
     booking: rowToBooking(existing),
@@ -1959,7 +1959,6 @@ export const deleteBooking = defineEventHandler(async (event: H3Event) => {
       }
       return await cancelBookingById(
         getRouterParam(event, "id") as string,
-        getRequestURL(event).origin,
         parsed.data,
       );
     } catch (error: any) {

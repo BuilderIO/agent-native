@@ -1596,6 +1596,8 @@ export default function Index() {
           .filter((file) => /\.(pdf|pptx|docx)$/i.test(file.originalName))
           .map((file) => file.path);
         let importedReference: ImportedReference | null = null;
+        // The target generation context must retain the source handle; the
+        // imported reference deck stores rendered slides, not the original file.
         let generationFiles = uploaded;
         if (pptxReference) {
           const imported = (await callAction(

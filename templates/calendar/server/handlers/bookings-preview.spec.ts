@@ -14,11 +14,13 @@ const mocks = vi.hoisted(() => ({
   getDb: vi.fn(),
   getFreeBusy: vi.fn(),
   getRouterParam: vi.fn(),
+  getRequestContext: vi.fn(),
   getSession: vi.fn(),
   getSetting: vi.fn(),
   getUserSetting: vi.fn(),
   getDefaultAccountSelection: vi.fn(),
   createGoogleEvent: vi.fn(),
+  sendBookingCancellationEmails: vi.fn(),
   sendBookingConfirmationEmails: vi.fn(),
   dbUpdates: [] as Array<Record<string, unknown>>,
   isConnected: vi.fn(),
@@ -34,11 +36,14 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  getAppProductionUrl: () => "https://calendar.example.com",
   getSession: mocks.getSession,
+  getRequestContext: mocks.getRequestContext,
   recordChange: vi.fn(),
   readBody: mocks.readBody,
   runWithRequestContext: mocks.runWithRequestContext,
   verifyCaptcha: mocks.verifyCaptcha,
+  withConfiguredAppBasePath: (url: string) => `${url}/calendar`,
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -88,7 +93,7 @@ vi.mock("../lib/google-calendar.js", () => ({
 }));
 
 vi.mock("../lib/booking-emails.js", () => ({
-  sendBookingCancellationEmails: vi.fn(),
+  sendBookingCancellationEmails: mocks.sendBookingCancellationEmails,
   sendBookingConfirmationEmails: mocks.sendBookingConfirmationEmails,
 }));
 
@@ -215,6 +220,7 @@ describe("draft booking availability previews", () => {
       key === "calendar-availability" ? availability : { timezone: "UTC" },
     );
     mocks.getDb.mockReturnValue(createDb());
+    mocks.getRequestContext.mockReturnValue(undefined);
     mocks.readBody.mockResolvedValue({
       captchaToken: "captcha-token",
       email: "guest@example.com",
@@ -523,7 +529,7 @@ describe("draft booking availability previews", () => {
     });
     mocks.getDb.mockReturnValue(db);
 
-    await cancelBookingById("booking-1", "https://calendar.example.com");
+    await cancelBookingById("booking-1");
 
     expect(mocks.accessFilter).toHaveBeenCalledWith(
       schema.bookingLinks,
@@ -535,6 +541,34 @@ describe("draft booking availability previews", () => {
       accountId: "zoom-account-1",
       meetingId: "zoom-meeting-1",
     });
+  });
+
+  it("uses the configured URL and mounted path for cancellation links", async () => {
+    const db = createDb({
+      requiredLinkRole: "editor",
+      bookings: [
+        {
+          id: "booking-1",
+          slug: "saved-meeting",
+          status: "confirmed",
+          start: "2026-08-17T09:00:00.000Z",
+          end: "2026-08-17T09:30:00.000Z",
+        },
+      ],
+    });
+    mocks.getDb.mockReturnValue(db);
+    mocks.getRequestContext.mockReturnValue({
+      requestOrigin: "https://attacker.example",
+    });
+
+    await cancelBookingById("booking-1");
+
+    expect(mocks.sendBookingCancellationEmails).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bookAgainUrl:
+          "https://calendar.example.com/calendar/book/saved-meeting",
+      }),
+    );
   });
 
   it("releases the slot when Zoom creation never starts", async () => {
