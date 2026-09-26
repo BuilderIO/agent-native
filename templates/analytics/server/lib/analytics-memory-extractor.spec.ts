@@ -311,4 +311,28 @@ describe("extractAnalyticsMemoryCandidates", () => {
       ]),
     ).toEqual([]);
   });
+
+  it("rejects person names anywhere in guidance and confirmed definitions", () => {
+    expect(
+      extractAnalyticsMemoryCandidates([
+        {
+          role: "user",
+          text: "For future Analytics work, use Jane Doe's account for renewal reporting.",
+        },
+        {
+          role: "user",
+          text: "Correction: report owner is Jane Doe.",
+        },
+        {
+          role: "user",
+          text: "We define qualified signup as an account approved by Jane Doe within seven days.",
+        },
+        {
+          role: "assistant",
+          text: "Qualified signup means an account is approved by Jane Doe within seven days. Is that right?",
+        },
+        { role: "user", text: "Yes, that's exactly right." },
+      ]),
+    ).toEqual([]);
+  });
 });

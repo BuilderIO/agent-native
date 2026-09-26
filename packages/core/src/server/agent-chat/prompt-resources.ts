@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import {
   JEV_TIMEOUT_MS,
   rankJevCandidatesWithStatus,
@@ -999,18 +997,25 @@ async function collectJevMemoryPromptCandidates(input: {
   }
   try {
     input.signal.throwIfAborted();
-    const orgDirectory = input.orgId
-      ? `memory/organizations/${createHash("sha256").update(input.orgId).digest("hex")}`
-      : null;
     const indexPaths = [
-      { scope: "personal" as const, path: "memory/MEMORY.md" },
-      ...(orgDirectory
-        ? [{ scope: "current-org" as const, path: `${orgDirectory}/MEMORY.md` }]
+      {
+        scope: "personal" as const,
+        owner: input.owner,
+        path: "memory/MEMORY.md",
+      },
+      ...(input.orgId
+        ? [
+            {
+              scope: "current-org" as const,
+              owner: sharedResourceOwner(input.orgId),
+              path: "memory/MEMORY.md",
+            },
+          ]
         : []),
     ];
     const indexes = await Promise.all(
-      indexPaths.map(({ path }) =>
-        resourceGetByPath(input.owner!, path, { orgId: input.orgId }),
+      indexPaths.map(({ owner, path }) =>
+        resourceGetByPath(owner, path, { orgId: input.orgId }),
       ),
     );
     input.signal.throwIfAborted();
@@ -1127,11 +1132,13 @@ async function loadSelectedMemoryBodies(input: {
       const entries: Array<{ id: string; content: string } | null> = [];
       for (const candidate of memories) {
         signal.throwIfAborted();
-        const resource = await resourceGetByPath(
-          input.owner!,
-          candidate.path!,
-          { orgId: input.orgId },
-        );
+        const owner =
+          candidate.scope === "current-org"
+            ? sharedResourceOwner(input.orgId)
+            : input.owner;
+        const resource = await resourceGetByPath(owner!, candidate.path!, {
+          orgId: input.orgId,
+        });
         signal.throwIfAborted();
         entries.push(
           resource?.content.trim()

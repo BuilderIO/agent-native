@@ -11,6 +11,8 @@ vi.mock("../../resources/store.js", () => ({
   resourceGetByPath: (...args: unknown[]) => mocks.resourceGetByPath(...args),
   resourcePutSnapshotPairIfCurrent: (...args: unknown[]) =>
     mocks.resourcePutSnapshotPairIfCurrent(...args),
+  sharedResourceOwner: (orgId?: string | null) =>
+    orgId ? `__organization__:${orgId}` : "__shared__",
 }));
 
 import {
@@ -117,7 +119,7 @@ describe("save-memory", () => {
     );
   });
 
-  it("keeps current-organization memories private and namespaced per org", async () => {
+  it("writes current-organization memories to the org resource scope", async () => {
     const { key, resources } = useResourceStore();
 
     await runWithRequestContext({ orgId: "org-a" }, async () => {
@@ -127,18 +129,27 @@ describe("save-memory", () => {
 
     const [[writes]] = mocks.resourcePutSnapshotPairIfCurrent.mock.calls as any;
     const [bodyWrite, indexWrite] = writes;
-    expect(bodyWrite.owner).toBe(owner);
-    expect(indexWrite.owner).toBe(owner);
-    expect(bodyWrite.path).toMatch(
-      /^memory\/organizations\/[a-f0-9]{64}\/coding-style\.md$/,
-    );
-    expect(indexWrite.path).toBe(
-      bodyWrite.path.replace("coding-style.md", "MEMORY.md"),
-    );
-    expect(resources.get(key(owner, bodyWrite.path))).toContain(
+    const orgOwner = "__organization__:org-a";
+    expect(bodyWrite).toMatchObject({
+      owner: orgOwner,
+      path: "memory/coding-style.md",
+    });
+    expect(indexWrite).toMatchObject({
+      owner: orgOwner,
+      path: "memory/MEMORY.md",
+    });
+    expect(resources.get(key(orgOwner, bodyWrite.path))).toContain(
       "Remember this.",
     );
+    expect(resources.get(key(orgOwner, indexWrite.path))).toContain(
+      "coding-style",
+    );
     expect(resources.get(key(owner, "memory/coding-style.md"))).toBeUndefined();
+    expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
+      orgOwner,
+      "memory/MEMORY.md",
+      { orgId: "org-a" },
+    );
   });
 
   it("requires an active org before writing current-org memory", async () => {

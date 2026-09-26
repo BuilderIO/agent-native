@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -379,12 +377,14 @@ describe("preloadJevContextForPrompt", () => {
       },
     );
     expect(
-      mocks.resourceGetByPath.mock.calls
-        .map(([, path]) => path)
-        .filter((path) => path !== "memory/MEMORY.md"),
+      mocks.resourceGetByPath.mock.calls.map(([resourceOwner, path]) => [
+        resourceOwner,
+        path,
+      ]),
     ).toEqual([
-      `memory/organizations/${createHash("sha256").update("org-test").digest("hex")}/MEMORY.md`,
-      "memory/selected-memory.md",
+      [owner, "memory/MEMORY.md"],
+      ["__organization__:org-test", "memory/MEMORY.md"],
+      [owner, "memory/selected-memory.md"],
     ]);
     const rankedCandidates = mocks.rankJevCandidates.mock.calls.flatMap(
       ([options]) =>
@@ -458,36 +458,39 @@ describe("preloadJevContextForPrompt", () => {
     });
 
     expect(result).not.toContain("stale query preference");
-    expect(mocks.resourceGetByPath.mock.calls.map(([, path]) => path)).toEqual([
-      "memory/MEMORY.md",
-      `memory/organizations/${createHash("sha256").update("org-test").digest("hex")}/MEMORY.md`,
+    expect(
+      mocks.resourceGetByPath.mock.calls.map(([resourceOwner, path]) => [
+        resourceOwner,
+        path,
+      ]),
+    ).toEqual([
+      [owner, "memory/MEMORY.md"],
+      ["__organization__:org-test", "memory/MEMORY.md"],
     ]);
   });
 
-  it("loads only private memory for the active org and rejects index traversal", async () => {
+  it("loads only org-scoped memory for the active org and rejects index traversal", async () => {
     const owner = "user@example.test";
     const orgId = "org-a";
-    const otherOrgId = "org-b";
-    const orgDirectory = `memory/organizations/${createHash("sha256").update(orgId).digest("hex")}`;
-    const otherOrgDirectory = `memory/organizations/${createHash("sha256").update(otherOrgId).digest("hex")}`;
+    const orgOwner = "__organization__:org-a";
+    const otherOrgOwner = "__organization__:org-b";
     mocks.getRuntimeSkills.mockReturnValue([]);
     mocks.resourceGetByPath.mockImplementation(
       async (resourceOwner: string, path: string) => {
-        if (resourceOwner !== owner) return null;
-        if (path === "memory/MEMORY.md") return null;
-        if (path === `${orgDirectory}/MEMORY.md`) {
+        if (resourceOwner === owner && path === "memory/MEMORY.md") return null;
+        if (resourceOwner === orgOwner && path === "memory/MEMORY.md") {
           return {
             content: [
               "# Memory Index",
-              `- [other-org](../${otherOrgDirectory}/MEMORY.md) — Never read this cross-org entry.`,
+              "- [other-org](../other-org.md) — Never read this cross-org entry.",
               "- [dialect](dialect.md) — Use BigQuery STRING instead of ILIKE.",
             ].join("\n"),
           };
         }
-        if (path === `${orgDirectory}/dialect.md`) {
+        if (resourceOwner === orgOwner && path === "memory/dialect.md") {
           return { content: "For this organization, use BigQuery STRING." };
         }
-        if (path === `${otherOrgDirectory}/other-org.md`) {
+        if (resourceOwner === otherOrgOwner && path === "memory/other-org.md") {
           return { content: "This must stay in another organization." };
         }
         return null;
@@ -511,13 +514,14 @@ describe("preloadJevContextForPrompt", () => {
 
     expect(result).toContain("For this organization, use BigQuery STRING.");
     expect(result).not.toContain("This must stay in another organization.");
-    const readPaths = mocks.resourceGetByPath.mock.calls.map(
-      ([, path]) => path,
+    const reads = mocks.resourceGetByPath.mock.calls.map(
+      ([resourceOwner, path]) => [resourceOwner, path],
     );
-    expect(readPaths).toContain(`${orgDirectory}/MEMORY.md`);
-    expect(readPaths).toContain(`${orgDirectory}/dialect.md`);
-    expect(readPaths).not.toContain(`${otherOrgDirectory}/MEMORY.md`);
-    expect(readPaths).not.toContain(`${otherOrgDirectory}/other-org.md`);
+    expect(reads).toContainEqual([orgOwner, "memory/MEMORY.md"]);
+    expect(reads).toContainEqual([orgOwner, "memory/dialect.md"]);
+    expect(reads).not.toContainEqual([owner, "memory/dialect.md"]);
+    expect(reads).not.toContainEqual([otherOrgOwner, "memory/MEMORY.md"]);
+    expect(reads).not.toContainEqual([otherOrgOwner, "memory/other-org.md"]);
   });
 
   it("skips Jev and memory retrieval before background dispatch", async () => {

@@ -2,14 +2,13 @@
  * Core script: save-memory
  *
  * Create or update a structured memory entry and its index.
- * Stores memory privately under the current user and maintains its index.
+ * Stores memory in the selected private scope and maintains its index.
  */
-
-import { createHash } from "node:crypto";
 
 import {
   resourceGetByPath,
   resourcePutSnapshotPairIfCurrent,
+  sharedResourceOwner,
   type ResourceSnapshotPairOptions,
 } from "../../resources/store.js";
 import {
@@ -66,11 +65,9 @@ export default async function saveMemoryScript(
   if (scope === "current-org" && !orgId) {
     fail("--scope current-org requires an active organization.");
   }
-  const memoryDirectory = orgId
-    ? `memory/organizations/${createHash("sha256").update(orgId).digest("hex")}`
-    : "memory";
-  const memoryPath = `${memoryDirectory}/${name}.md`;
-  const indexPath = `${memoryDirectory}/MEMORY.md`;
+  const memoryOwner = orgId ? sharedResourceOwner(orgId) : owner;
+  const memoryPath = `memory/${name}.md`;
+  const indexPath = "memory/MEMORY.md";
   const now = new Date().toISOString().slice(0, 10);
 
   // Build the memory file with frontmatter
@@ -87,8 +84,12 @@ ${content}`;
   for (let attempt = 0; attempt < INDEX_WRITE_ATTEMPTS; attempt += 1) {
     // Read both snapshots before the transaction so conflicts cannot leave a
     // new body paired with a stale index.
-    const existingIndex = await resourceGetByPath(owner, indexPath);
-    const existingMemory = await resourceGetByPath(owner, memoryPath);
+    const existingIndex = await resourceGetByPath(memoryOwner, indexPath, {
+      orgId,
+    });
+    const existingMemory = await resourceGetByPath(memoryOwner, memoryPath, {
+      orgId,
+    });
     const index = existingIndex?.content ?? EMPTY_INDEX;
     const lines = index.split("\n");
     const entryLine = `- [${name}](${name}.md) — ${description}`;
@@ -107,14 +108,14 @@ ${content}`;
     const written = await resourcePutSnapshotPairIfCurrent(
       [
         {
-          owner,
+          owner: memoryOwner,
           path: memoryPath,
           content: fileContent,
           mimeType: "text/markdown",
           previous: existingMemory,
         },
         {
-          owner,
+          owner: memoryOwner,
           path: indexPath,
           content: updatedIndex,
           mimeType: "text/markdown",

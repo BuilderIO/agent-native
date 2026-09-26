@@ -24,13 +24,23 @@ const MAX_CANDIDATES = 5;
 const TECHNICAL_NAMES = new Set([
   "athena",
   "active",
+  "activation",
+  "account",
+  "analytics",
   "all",
   "bigquery",
+  "cloud",
+  "conversion",
   "data",
+  "dashboard",
   "databricks",
   "daily",
+  "dictionary",
+  "enterprise",
+  "event",
   "first",
   "for",
+  "google",
   "googlecloud",
   "googlesql",
   "looker",
@@ -39,15 +49,27 @@ const TECHNICAL_NAMES = new Set([
   "mysql",
   "new",
   "our",
+  "paid",
   "postgres",
   "postgresql",
   "powerbi",
+  "qualified",
   "redshift",
+  "renewal",
+  "report",
+  "retention",
   "revenue",
+  "signup",
   "snowflake",
+  "source",
+  "sql",
+  "standard",
+  "string",
   "tableau",
   "the",
+  "text",
   "this",
+  "touch",
   "trino",
   "trial",
   "use",
@@ -93,6 +115,15 @@ function normalize(text: string): string {
 }
 
 function containsLikelyCustomerOrPersonName(text: string): boolean {
+  const titleCasePhrase =
+    /\b([A-Z][\p{L}'-]{2,}(?:\s+[A-Z][\p{L}'-]{2,})+)\b/gu;
+  for (const match of text.matchAll(titleCasePhrase)) {
+    const words = match[1]?.split(/\s+/) ?? [];
+    if (words.some((word) => !TECHNICAL_NAMES.has(word.toLowerCase()))) {
+      return true;
+    }
+  }
+
   const labeledName =
     /\b(?:customer|client|person|contact|subscriber|account|workspace|organization|org)\s+(?:(?:named|called)\s+)?(?:[A-Z][\p{L}'-]{2,}|[a-z][\p{L}'-]{2,}\s+(?:should|must|uses|use|needs|requires|has|is|was)\b)/u.test(
       text,
