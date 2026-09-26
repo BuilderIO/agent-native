@@ -472,6 +472,7 @@ async function enterEdit(
   page: Page,
   slideId: string,
   point: { x: number; y: number },
+  violations?: string[],
 ) {
   const editing = async () => (await editorState(page, slideId)).editing;
   const gestures: Array<[string, () => Promise<void>]> = [
@@ -482,6 +483,17 @@ async function enterEdit(
   for (const [name, gesture] of gestures) {
     await gesture();
     if (!(await waitFor(editing, 900))) continue;
+    // Checked before a double-click's word selection is collapsed: the
+    // editor must open where the user pressed, not wherever it parks a caret.
+    const entry = await page.evaluate(
+      ([p, how]: readonly [{ x: number; y: number }, string]) =>
+        window.__editFidelity.entryCaretProblem(p, how),
+      [point, name] as const,
+    );
+    if (entry)
+      violations?.push(
+        `entering edit put the caret away from the click (${entry})`,
+      );
     // A double-click enters edit with its word selected, and typing would
     // replace that word; every scenario edits at a caret.
     if (name === "dblclick") {
@@ -683,8 +695,7 @@ function sourceRangeOf(
       if (
         child.tagName === target.tag.toLowerCase() &&
         child.sourceCodeLocation?.startTag &&
-        (have === want ||
-          (target.text.length >= 400 && have.startsWith(want.slice(0, 300))))
+        have === want
       ) {
         matches.push(child);
       }
@@ -899,7 +910,12 @@ async function runScenario(
 
     await takeWriteStacks(page);
     countingWrites = true;
-    result.gesture = await enterEdit(page, slideId, current.point);
+    result.gesture = await enterEdit(
+      page,
+      slideId,
+      current.point,
+      result.violations,
+    );
     if (!result.gesture) {
       result.status = "no-edit";
       const v = result.violations;
@@ -949,7 +965,9 @@ async function runScenario(
     } else if (scenario === "enter3") {
       await page.keyboard.press("End");
       let prevPng = editing;
-      let prev = state0;
+      // End keeps the caret's line, but at a soft wrap a Range measures the
+      // next line; read after End only when entry left no measurable caret.
+      let prev = state0.caretRect ? state0 : await editorState(page, slideId);
       for (let k = 1; k <= 3; k++) {
         await page.keyboard.press("Enter");
         await settle(page);
@@ -1174,8 +1192,9 @@ async function runScenario(
           },
         },
       );
-      outsideEqual =
-        outside.found && outside.stored.join("\n") === outside.saved.join("\n");
+      outsideEqual = outside.found
+        ? outside.stored.join("\n") === outside.saved.join("\n")
+        : null;
       if (!outside.found)
         result.violations.push(
           "could not locate the edited element in stored/saved HTML to isolate it",

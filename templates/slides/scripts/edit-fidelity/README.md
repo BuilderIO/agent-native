@@ -137,10 +137,14 @@ them per slide. For each target and scenario:
    slide's font is requested. Scenarios never contaminate each other.
 2. **View.** Capture `view.png` and a style snapshot of the slide.
 3. **Enter edit.** Try click, then a second click, then double-click. The
-   gesture that worked is recorded. A double-click selects the word under
-   it, so that selection is collapsed to a caret before any keys. If none
-   enters edit, the status is `no-edit`; the scenario fails and is never
-   skipped. The clicks must still change nothing: a `no-edit` result also
+   gesture that worked is recorded. A click must leave a caret within one
+   grapheme of the click point (`caretPositionFromPoint`, compared in
+   rendered characters), and a double-click a selection inside the word
+   under it plus one trailing space; either way it must be in the point's
+   row (nearest block, or the row of a bullet marker, which counts up to the
+   start of the row's text). Anything else is a violation. The double-click
+   selection is then collapsed to a caret before any keys. If none enters
+   edit, the status is `no-edit`; the scenario fails and is never skipped. The clicks must still change nothing: a `no-edit` result also
    gets a violation for any write, any change to the stored slide (both
    skipped when opening the slide rewrites it anyway), and a view→after
    pixel diff above tolerance.
@@ -150,10 +154,12 @@ them per slide. For each target and scenario:
    - `typedelete`: `x`, then Backspace.
    - `append`: End, then ` ok`.
    - `enter3`: End, then Enter three times, then `new line`. After each Enter
-     it records `enter-N.png`, the edited element's height, the canvas
-     change, and the caret's line, measured from the top of the element's
-     rendered text so that centred and bottom-anchored text, or a label
-     beside a taller icon, still shows a full line per Enter. The caret must
+     (the first measured from the entry caret, since a caret End left at a
+     soft wrap measures as the next line; from the caret End left only when
+     entry left none) it records `enter-N.png`, the edited element's height,
+     the canvas change, and the caret's line, measured from the top of the
+     element's rendered text so that centred and bottom-anchored text, or a
+     label beside a taller icon, still shows a full line per Enter. The caret must
      be collapsed inside the edited element and move to another line; a
      caret that cannot be measured is its own violation.
    - `clickout`: like `typedelete`.
@@ -237,7 +243,8 @@ deltas for editing/after, the html diff, and the violation count.
   stored string, and `writeStacks` has the client call stack of each.
   `noop` / `typedelete` / `clickout` must send none.
 - **Saved bytes.** For `append` / `enter3`, the edited element is located in
-  the stored source by tag, text and occurrence, and the saved string must
+  the stored source by tag, exact full text and occurrence (the same rule
+  for every lookup), and the saved string must
   start with every stored byte before it and end with every stored byte after
   it. `bytes-outside.txt` shows the first difference.
 - **Saved text.** For `append` / `enter3`, text is read as lines: a `<br>` or
@@ -259,7 +266,8 @@ deltas for editing/after, the html diff, and the violation count.
     canonical form equals the stored one.
   - `append` / `enter3`: the edited element (plus any list items the edit
     added after it) is replaced by a placeholder on both sides, and the rest
-    must match.
+    must match. When the element cannot be located, only that is reported:
+    the outside checks stay unknown (`null`), never "changed outside".
 - **Hard failures** in the saved HTML, counted against the stored HTML:
   - `data-slide-content-scope`, `visibility:hidden`, `data-editing-block`,
     `contenteditable`, `data-builder-id`, `ProseMirror` or `data-src-i`

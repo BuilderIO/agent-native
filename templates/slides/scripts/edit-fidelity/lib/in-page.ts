@@ -105,6 +105,11 @@ export interface InPageHelpers {
     edited: { targetIndex?: number; text?: string },
   ): Snapshot;
   editorState(canvasSel: string): EditorState;
+  /** Why the selection entering edit left is not at the gesture's point, or null. */
+  entryCaretProblem(
+    point: { x: number; y: number },
+    gesture: string,
+  ): Promise<string | null>;
   backgroundPoint(canvasSel: string): { x: number; y: number } | null;
   canonical(html: string): string[];
   canonicalOutside(
@@ -375,7 +380,7 @@ export function installInPageHelpers(chromeSelector: string) {
         index,
         tag: el.tagName,
         className: el.getAttribute("class") ?? "",
-        text: norm(el.textContent).slice(0, 400),
+        text: norm(el.textContent),
         occurrence: occurrenceOf(el, slideRoot),
         point,
         rect: rectOf(el.getBoundingClientRect(), origin),
@@ -499,11 +504,109 @@ export function installInPageHelpers(chromeSelector: string) {
       contentTop: source ? contentTop(source, origin) : null,
       caretRect: caretRect(origin, source),
       sourceTag: source?.tagName ?? null,
-      sourceText: source ? norm(source.textContent).slice(0, 400) : null,
+      sourceText: source ? norm(source.textContent) : null,
       sourceOccurrence: source ? occurrenceOf(source, slideRoot) : 0,
       editorHtml: pm?.innerHTML.slice(0, 4000) ?? "",
       editorText: pm ? lines(pm) : "",
     };
+  }
+
+  /**
+   * Compares in rendered characters from the editor's start, so equivalent
+   * DOM positions agree. That count makes a row's end equal the next row's
+   * start, so the selection must also lie in the point's row. A click on a
+   * glyph's middle may put the caret on either side of it, so the point spans
+   * one grapheme each way; a double-click spans the word and a space after
+   * it; a point on a short leading element of a row (a bullet marker) spans
+   * that element up to the row's text.
+   */
+  async function entryCaretProblem(
+    point: { x: number; y: number },
+    gesture: string,
+  ): Promise<string | null> {
+    await new Promise((r) =>
+      requestAnimationFrame(() => requestAnimationFrame(r)),
+    );
+    const editor = activeEditor();
+    const selection = getSelection();
+    if (!editor || !selection?.rangeCount) return "no selection";
+    const sel = selection.getRangeAt(0);
+    if (
+      !editor.contains(sel.startContainer) ||
+      !editor.contains(sel.endContainer)
+    )
+      return "the selection is outside the editor";
+    const offsetOf = (node: Node, offset: number) => {
+      const r = document.createRange();
+      r.setStart(editor, 0);
+      r.setEnd(node, offset);
+      return strip(r.toString()).length;
+    };
+    const start = offsetOf(sel.startContainer, sel.startOffset);
+    const end = offsetOf(sel.endContainer, sel.endOffset);
+    if (gesture !== "dblclick" && !sel.collapsed)
+      return `a ${gesture} selected characters ${start}-${end} instead of placing a caret`;
+    // caretRangeFromPoint rounds the point to whole pixels, which can move it
+    // across a narrow glyph; the click itself used the fractional point.
+    const pos = document.caretPositionFromPoint?.(point.x, point.y);
+    const range = pos ? null : document.caretRangeFromPoint(point.x, point.y);
+    const node = pos?.offsetNode ?? range?.startContainer;
+    const offset = pos?.offset ?? range?.startOffset ?? 0;
+    if (!node || !editor.contains(node))
+      return "the click point is outside the editor";
+    let lo = offset;
+    let hi = offset;
+    if (node instanceof Text) {
+      const segments = Array.from(
+        new Intl.Segmenter(undefined, {
+          granularity: gesture === "dblclick" ? "word" : "grapheme",
+        }).segment(node.data),
+      );
+      segments.forEach(({ index, segment }, i) => {
+        if (index < offset && index + segment.length >= offset) lo = index;
+        if (index <= offset && index + segment.length > offset) {
+          hi = index + segment.length;
+          const next = segments[i + 1]?.segment;
+          if (gesture === "dblclick" && next && !next.trim()) hi += next.length;
+        }
+      });
+    }
+    let from = offsetOf(node, lo);
+    let to = offsetOf(node, hi);
+    let row: Element = editor;
+    for (
+      let el = node instanceof Element ? node : node.parentElement;
+      el && el !== editor && editor.contains(el);
+      el = el.parentElement
+    ) {
+      const parent = el.parentElement;
+      const own = strip(el.textContent).length;
+      if (
+        parent &&
+        parent.firstElementChild === el &&
+        own >= 1 &&
+        own <= 3 &&
+        strip(parent.textContent).length > own &&
+        offsetOf(parent, 0) === offsetOf(el, 0)
+      ) {
+        from = offsetOf(el, 0);
+        to = from + own;
+        row = parent;
+        break;
+      }
+      if (!getComputedStyle(el).display.startsWith("inline")) {
+        row = el;
+        break;
+      }
+    }
+    const rowRange = document.createRange();
+    rowRange.selectNode(row);
+    const inRow =
+      rowRange.comparePoint(sel.startContainer, sel.startOffset) === 0 &&
+      rowRange.comparePoint(sel.endContainer, sel.endOffset) === 0;
+    if (inRow && start >= from && end <= to) return null;
+    const total = strip(editor.textContent).length;
+    return `selection at character ${start}${end !== start ? `-${end}` : ""} of ${total}${inRow ? "" : " in another row"}, click at ${from}${to !== from ? `-${to}` : ""}`;
   }
 
   function snapshot(
@@ -819,6 +922,7 @@ export function installInPageHelpers(chromeSelector: string) {
     takeKeepaliveWrites,
     snapshot,
     editorState,
+    entryCaretProblem,
     backgroundPoint,
     canonical,
     canonicalOutside,
