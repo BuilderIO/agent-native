@@ -3,22 +3,92 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-25
+
+### Added
+
+- Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
+
+### Fixed
+
+- Cross-screen moves preserve Flex and Grid sizing through undo and redo.
+- Moving a layer from one live app screen into another now lands it instead of failing with "Could not move that layer", and a failed move no longer leaves the layer stuck to the cursor.
+
+## 2026-09-24
+
+### Added
+
+- CSS margins can be adjusted on the canvas and in the layout inspector.
+- Organization admins can review agent runs and summarize linked designs, slide decks, and analytics from Settings.
+- Resized vectors can be point-edited, and the K scale tool shows a Scale section with a live factor.
+- Share editable live canvases and apply collaborators' visual changes
+
+### Improved
+
+- A vector's stroke row shows Position beside Weight instead of a lone Weight field.
+- Design reviews show the real canvas beside its conversation.
+- Local visual edits stay scoped to the right design and recover cleanly when a screen reloads.
+- Pasted images now expose their sizing and adjustment controls in the inspector
+
+### Fixed
+
+- Double-clicking text or a vector on the board starts editing it, and clicking empty canvas deselects it.
+- Interact opens a focused responsive preview without reloading the running design.
+- Interrupted cross-screen moves now restore the layer and leave the canvas ready for the next edit.
+- Keep gradient values visible and limit canvas paints to supported backgrounds
+- Open pen paths no longer paint a filled triangle after Shift+X, matching Figma.
+- Open Pen paths preserve their fill opacity when you finish editing them.
+- Pen path edits save without being blocked by delayed local retry storage.
+- Re-clicking the active responsive preview returns to the canvas even with pending edits
+- SVG paste handles mixed-case markup safely and preserves opacity edits on open Pen paths
+- SVG pastes keep valid namespace and fill data, and closing open paths preserves authored transparency.
+- Text selection remains available during line-height editing, and pasted SVGs have unsafe external styles removed.
+- Visual edit handoffs now accept current edit revisions reliably
+- While editing text, click to place the caret and double-click a word to restyle just that word.
+- Editing a vector path preserves its fill and stroke when reopened or closed.
+- Pasted images, SVGs, and Design layers preserve more of their original content and placement.
+
 ## 2026-09-23
 
 ### Improved
 
+- Pasted vector paths can be edited independently and use gradient strokes
 - Design loads translated catalogs and AI prompt tools only when you need them.
+
+### Fixed
+
+- Entering Interact on a frame with unsaved live edits is now blocked consistently, matching the toolbar Interact toggle
+- Figma clipboard pastes preserve multi-layer spacing and explain access errors.
+- Fixed pasted SVG color inspection, vector path continuation, layer-list keyboard activation, and stroke-row creation.
+- Holding Space during a live-frame drag now preserves the layer's intended parent
+- Interact mode now reliably returns pointer and keyboard control to the running app.
+- Live preview outlines now render at the correct scale as soon as an overview screen loads, not only after zooming
+- Live previews keep their editing outlines, switch cleanly into Interact, and offer a clear coding-agent handoff when signed out.
+- Live URL screens stay editable across modes, public viewers can copy visual-update prompts, and coding agents can pull pending visual edits through Design MCP
+- Pasted images keep their original dimensions, and vector, stroke, and text edits behave more predictably.
+- Pasted SVG files and SVG code become editable vector layers, pasted images keep their native size and land centred, Image/video… (⇧⌘K) uploads images, and images get Fill/Fit/Crop scale modes
+- Pasted SVGs, images, and videos remain editable and keep their size and placement across reloads.
+- Pasted vector and media artwork stays editable and correctly placed, with clearer drawing and scaling feedback.
+- Public visual-edit viewers no longer see a spurious handoff error after making a live edit
+- Space-drag pans the canvas even when another live screen has keyboard focus.
+- Text editing on the canvas now works like Figma: click to place the caret, drag, double-click, or triple-click to select, style just the selected words and keep typing, and the caret stays visible when zoomed out.
+
+### Removed
+
+- Design no longer shows a hint to Command-click to select inner layers.
 
 ## 2026-09-22
 
 ### Improved
 
+- Continue open Pen paths from the selected end anchor after Enter
 - Apps start with an app-shaped skeleton while session data loads immediately.
 - Canvas saves are faster because version checkpoints are taken at most every few minutes while you edit.
 - Large Figma files with hundreds of frames now import in seconds without freezing the editor, keep their Figma canvas layout, and render component slots and instance overrides much more faithfully.
 
 ### Fixed
 
+- Fixed image import, vector editing, scaling, and text selection inconsistencies.
 - Fixed the design system picker showing a still-indexing Builder design system as ready to use
 - Blocks can be selected with one click inside screens
 - Canvas edits on large designs now save even when version history can't be stored, with a one-time notice instead of a lost change.

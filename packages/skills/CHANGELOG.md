@@ -1,5 +1,98 @@
 # @agent-native/skills
 
+## 0.3.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [debfb07]
+- Updated dependencies [d261070]
+- Updated dependencies
+- Updated dependencies [34822ca]
+- Updated dependencies [08b601f]
+  - @agent-native/core@0.189.0
+
+## 0.3.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [1795ecc]
+- Updated dependencies [9b9c28d]
+- Updated dependencies [7045f6f]
+- Updated dependencies [7e1176b]
+- Updated dependencies [b839826]
+- Updated dependencies [556f777]
+- Updated dependencies [f2bc8d1]
+- Updated dependencies [dbb860c]
+- Updated dependencies [3afa6be]
+- Updated dependencies [e645755]
+- Updated dependencies [4917d34]
+- Updated dependencies [14124f8]
+- Updated dependencies [dbb860c]
+- Updated dependencies [8fe9fc4]
+- Updated dependencies [70e612f]
+- Updated dependencies [3866afe]
+- Updated dependencies [7e1176b]
+- Updated dependencies [61a856b]
+- Updated dependencies [bdd0a03]
+- Updated dependencies [fe7e5d8]
+- Updated dependencies [451cb34]
+- Updated dependencies
+- Updated dependencies [83dffad]
+- Updated dependencies [c2a760f]
+- Updated dependencies [67b921b]
+- Updated dependencies [5cd90b0]
+- Updated dependencies [ac01083]
+- Updated dependencies [dbb4504]
+- Updated dependencies [3afa6be]
+- Updated dependencies [7e1176b]
+- Updated dependencies [3afa6be]
+- Updated dependencies [3afa6be]
+- Updated dependencies [21fdd86]
+- Updated dependencies [3afa6be]
+- Updated dependencies [a15d38f]
+- Updated dependencies [74fc788]
+- Updated dependencies [185e25d]
+- Updated dependencies [b5efaf9]
+- Updated dependencies [21fdd86]
+  - @agent-native/core@0.188.0
+
+## 0.3.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [07a6277]
+- Updated dependencies [48387db]
+- Updated dependencies [97d8280]
+- Updated dependencies [212d1b3]
+- Updated dependencies [92d3374]
+- Updated dependencies [039d52c]
+- Updated dependencies [69fac98]
+- Updated dependencies [ee516e2]
+- Updated dependencies [a10ae73]
+- Updated dependencies [15e304f]
+- Updated dependencies [a10ae73]
+- Updated dependencies [a10ae73]
+- Updated dependencies [68a89eb]
+- Updated dependencies [11208d2]
+- Updated dependencies [30aa31d]
+- Updated dependencies [ee70391]
+- Updated dependencies [9a22c5b]
+- Updated dependencies
+- Updated dependencies [1b15104]
+- Updated dependencies [ddabced]
+- Updated dependencies [c3c47f1]
+- Updated dependencies [eb6523c]
+- Updated dependencies [eb6523c]
+- Updated dependencies [fe9609c]
+- Updated dependencies [34ad348]
+- Updated dependencies [1b889ff]
+- Updated dependencies [7e014ff]
+- Updated dependencies [45ad5f3]
+  - @agent-native/core@0.187.0
+
 ## 0.3.0
 
 ### Minor Changes
@@ -1440,28 +1533,5 @@
 
 - Updated dependencies [06cea8f]
   - @agent-native/core@0.164.7
-
-## 0.2.636
-
-### Patch Changes
-
-- Updated dependencies [8e51925]
-  - @agent-native/core@0.164.6
-
-## 0.2.635
-
-### Patch Changes
-
-- Updated dependencies [fc85cb2]
-- Updated dependencies [fc85cb2]
-- Updated dependencies [61ca441]
-  - @agent-native/core@0.164.5
-
-## 0.2.634
-
-### Patch Changes
-
-- Updated dependencies [c58cd6e]
-  - @agent-native/core@0.164.4
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

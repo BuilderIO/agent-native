@@ -19,6 +19,7 @@ vi.mock("../use-action.js", () => ({
 }));
 
 vi.mock("../i18n.js", () => ({
+  useIconPickerLabels: () => ({}),
   useT: () => (key: string, options?: { count?: number }) => {
     if (key === "org.memberCount") return `${options?.count ?? 0} members`;
     if (key === "org.searchPeople") return "Search people";

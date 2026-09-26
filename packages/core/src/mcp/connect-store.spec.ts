@@ -25,6 +25,7 @@ interface DeviceRow {
   org_id: string | null;
   status: string;
   token_jti: string | null;
+  catalog_scope: string | null;
   created_at: number | null;
   expires_at: number | null;
   consumed_at: number | null;
@@ -34,6 +35,7 @@ let tokens: TokenRow[] = [];
 let devices: DeviceRow[] = [];
 let failNextCreateTable = false;
 let failNextOrgLookup = false;
+let failNextDeviceCodeLookup = false;
 const executeDdlMock = vi.hoisted(() => vi.fn());
 
 const exec = async (input: string | { sql: string; args?: unknown[] }) => {
@@ -49,6 +51,9 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
   }
   // Additive org-service-token columns — already part of the in-memory shape.
   if (/^ALTER TABLE mcp_connect_tokens ADD COLUMN/i.test(sql)) {
+    return { rows: [], rowsAffected: 0 };
+  }
+  if (/^ALTER TABLE mcp_device_codes ADD COLUMN/i.test(sql)) {
     return { rows: [], rowsAffected: 0 };
   }
 
@@ -145,17 +150,26 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       org_id: args[3],
       status: args[4],
       token_jti: args[5],
-      created_at: args[6],
-      expires_at: args[7],
-      consumed_at: args[8],
+      catalog_scope: args[6],
+      created_at: args[7],
+      expires_at: args[8],
+      consumed_at: args[9],
     });
     return { rows: [], rowsAffected: 1 };
   }
   if (/^SELECT \* FROM mcp_device_codes WHERE device_code = \?/i.test(sql)) {
+    if (failNextDeviceCodeLookup) {
+      failNextDeviceCodeLookup = false;
+      throw new Error("CONNECTION_LOST");
+    }
     const d = devices.find((r) => r.device_code === args[0]);
     return { rows: d ? [{ ...d }] : [], rowsAffected: 0 };
   }
   if (/^SELECT \* FROM mcp_device_codes WHERE user_code = \?/i.test(sql)) {
+    if (failNextDeviceCodeLookup) {
+      failNextDeviceCodeLookup = false;
+      throw new Error("CONNECTION_LOST");
+    }
     const d = devices.find((r) => r.user_code === args[0]);
     return { rows: d ? [{ ...d }] : [], rowsAffected: 0 };
   }
@@ -228,7 +242,7 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: exec }),
-  isConnectionError: () => false,
+  isConnectionError: (err: any) => err?.message === "CONNECTION_LOST",
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -247,6 +261,7 @@ describe("connect-store", () => {
     devices = [];
     failNextCreateTable = false;
     failNextOrgLookup = false;
+    failNextDeviceCodeLookup = false;
     vi.restoreAllMocks();
   });
 
@@ -509,6 +524,33 @@ describe("connect-store", () => {
       expect(row.deviceCode.length).toBeGreaterThan(20);
       expect(row.status).toBe("pending");
       expect(row.expiresAt).toBe(t + store.DEVICE_CODE_TTL_MS);
+    });
+
+    it("persists requested catalog scope for approval and token minting", async () => {
+      const created = await store.createDeviceCode("full");
+      expect(created.catalogScope).toBe("full");
+      await expect(
+        store.getDeviceCode(created.deviceCode),
+      ).resolves.toMatchObject({
+        catalogScope: "full",
+      });
+      await expect(
+        store.getDeviceCodeByUserCode(created.userCode),
+      ).resolves.toMatchObject({ catalogScope: "full" });
+    });
+
+    it("propagates unreadable device-code lookups instead of returning missing", async () => {
+      const created = await store.createDeviceCode();
+
+      failNextDeviceCodeLookup = true;
+      await expect(store.getDeviceCode(created.deviceCode)).rejects.toThrow(
+        "CONNECTION_LOST",
+      );
+
+      failNextDeviceCodeLookup = true;
+      await expect(
+        store.getDeviceCodeByUserCode(created.userCode),
+      ).rejects.toThrow("CONNECTION_LOST");
     });
 
     it("rate-limits device code creation within the window", async () => {

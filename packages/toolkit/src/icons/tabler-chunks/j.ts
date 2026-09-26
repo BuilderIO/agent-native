@@ -1,0 +1,31 @@
+// Generated from @tabler/icons 3.44.0. Run node packages/toolkit/scripts/generate-tabler-catalog.ts.
+import {
+  IconJacket,
+  IconJetpack,
+  IconJetpackFilled,
+  IconJetski,
+  IconJewishStar,
+  IconJewishStarFilled,
+  IconJoinBevel,
+  IconJoinRound,
+  IconJoinStraight,
+  IconJoker,
+  IconJpg,
+  IconJson,
+  IconJumpRope,
+} from "@tabler/icons-react";
+export default {
+  IconJacket,
+  IconJetpack,
+  IconJetpackFilled,
+  IconJetski,
+  IconJewishStar,
+  IconJewishStarFilled,
+  IconJoinBevel,
+  IconJoinRound,
+  IconJoinStraight,
+  IconJoker,
+  IconJpg,
+  IconJson,
+  IconJumpRope,
+};

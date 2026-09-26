@@ -62,6 +62,8 @@ export interface AgentChatMessage {
   attachments?: AgentChatAttachment[];
   /** Stable tab identifier — auto-generated if omitted */
   tabId?: string;
+  /** Existing chat tab that should receive this submit, regardless of focus. */
+  targetTabId?: string;
   /**
    * Message routing type:
    * - "content" (default): stays in the embedded app agent for content/data operations
@@ -994,6 +996,7 @@ export interface ParsedSubmitChat {
   reuseEmptyTab?: boolean;
   background?: boolean;
   tabId?: string;
+  targetTabId?: string;
   images?: string[];
   attachments?: AgentChatAttachment[];
   /** Mode as sent; the receiver falls back to its exec mode when undefined. */
@@ -1109,6 +1112,7 @@ export function parseSubmitChatMessage(
     background:
       typeof raw.background === "boolean" ? raw.background : undefined,
     tabId: typeof raw.tabId === "string" ? raw.tabId : undefined,
+    targetTabId: nonEmptyString(raw.targetTabId),
     images,
     attachments: parseSubmitChatAttachments(raw.attachments),
     requestMode: normalizeAgentChatRequestMode(raw.requestMode ?? raw.mode),
@@ -1194,9 +1198,22 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     opts.actionScope === undefined
       ? undefined
       : normalizeAgentActionScope(opts.actionScope);
-  const isCodeRequest = routesToCodeFrame(opts);
+  const mcpBridgeEnabled = isMcpAppChatBridgeEnabled();
+  const hasMcpAppLocalPayload =
+    mcpBridgeEnabled &&
+    Boolean(
+      opts.attachments?.length ||
+      opts.images?.length ||
+      opts.referenceImagePaths?.length ||
+      opts.uploadedReferenceImages?.length ||
+      opts.usageLabel ||
+      actionScope,
+    );
+  const isCodeRequest = routesToCodeFrame(opts) && !hasMcpAppLocalPayload;
   const localChatTarget =
-    opts.chatTarget === "local" || keepsApprovalInAppChat(opts);
+    opts.chatTarget === "local" ||
+    keepsApprovalInAppChat(opts) ||
+    hasMcpAppLocalPayload;
   const requestMode =
     normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
     readStoredAgentChatRequestMode();
@@ -1232,17 +1249,10 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     },
   };
 
-  if (
-    opts.submit !== false &&
-    !localChatTarget &&
-    isMcpAppChatBridgeEnabled()
-  ) {
-    // MCP host follow-up APIs carry neither attachment descriptors nor a usage
-    // label. Use the normal wrapper transport when either needs to reach the
-    // chat thread — a label silently downgraded to `chat` is exactly the run
-    // the caller named it to be able to find. (Approval continuations never
-    // get here: they stay in the app's own chat, see keepsApprovalInAppChat.)
-    if (opts.attachments?.length || opts.usageLabel || actionScope) {
+  if (opts.submit !== false && !localChatTarget && mcpBridgeEnabled) {
+    // MCP host follow-ups cannot address a specific chat tab, so a targeted
+    // send must use the wrapper transport to reach the thread it names.
+    if (opts.targetTabId) {
       window.parent.postMessage(
         payload,
         getFramePostMessageTargetOrigin() || "*",
@@ -1345,7 +1355,7 @@ export interface SendToAgentChatAndConfirmResult {
  */
 export function sendToAgentChatAndConfirm(
   opts: Omit<AgentChatMessage, "submitMessageId">,
-  options?: { timeoutMs?: number },
+  options?: { submitMessageId?: string; timeoutMs?: number },
 ): Promise<SendToAgentChatAndConfirmResult> {
   const tabId = opts.tabId ?? generateTabId();
   if (typeof window === "undefined") {
@@ -1366,7 +1376,8 @@ export function sendToAgentChatAndConfirm(
     });
   }
 
-  const submitMessageId = generateAgentChatSubmitMessageId();
+  const submitMessageId =
+    options?.submitMessageId ?? generateAgentChatSubmitMessageId();
   const timeoutMs = Math.max(
     0,
     options?.timeoutMs ?? DEFAULT_SUBMIT_CONFIRM_TIMEOUT_MS,

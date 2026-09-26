@@ -2,6 +2,11 @@
 // in pnpm's node_modules. Logic is correct; types just don't unify across instances.
 import crypto from "node:crypto";
 
+import {
+  parseIconValue,
+  serializeIconValue,
+  type IconValue,
+} from "@agent-native/core/icons";
 import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 
@@ -31,6 +36,16 @@ const MAX_CHILD_PAGE_SYNC_DEPTH = 5;
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function iconAfterNotionSync(
+  localIcon: string | null,
+  remoteIcon: IconValue | null,
+): string | null {
+  // Notion cannot represent Tabler icons, so they remain local to Content.
+  return parseIconValue(localIcon)?.kind === "library"
+    ? localIcon
+    : serializeIconValue(remoteIcon);
 }
 
 function nanoid(size = 12): string {
@@ -991,7 +1006,7 @@ async function pullDocumentFromNotionInner(
 
   const newTitle = pageContent.title || freshDocument.title;
   const newContent = pageContent.content ?? freshDocument.content;
-  const newIcon = pageContent.icon;
+  const newIcon = iconAfterNotionSync(freshDocument.icon, pageContent.icon);
   const contentChanged =
     newTitle !== freshDocument.title ||
     newContent !== freshDocument.content ||
@@ -1248,7 +1263,7 @@ async function pushDocumentToNotionInner(
   const freshDocument = await getDocument(documentId, owner);
   const newContent = remote.content ?? document.content;
   const newTitle = remote.title || document.title;
-  const newIcon = remote.icon;
+  const newIcon = iconAfterNotionSync(freshDocument.icon, remote.icon);
   const contentChanged =
     newTitle !== freshDocument.title ||
     newContent !== freshDocument.content ||

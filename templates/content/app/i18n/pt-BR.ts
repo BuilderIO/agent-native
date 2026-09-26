@@ -829,6 +829,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "Ícones",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recentes",
+    iconPickerColors: "Cores",
+    iconPickerDefault: "Padrão",
+    iconPickerUpload: "Enviar",
+    iconPickerUploading: "Enviando…",
     suggestionCreateFailed: "Não foi possível criar a sugestão",
     suggestionsCount: "{{count}} sugestões",
     acceptSuggestion: "Aceitar",
@@ -1042,6 +1049,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "Ícones",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recentes",
+    iconPickerColors: "Cores",
+    iconPickerDefault: "Padrão",
+    iconPickerUpload: "Enviar",
+    iconPickerUploading: "Enviando…",
     suggestionAmendmentEmpty:
       "Essa edição corresponde à página atual. Rejeite a sugestão para removê-la.",
     suggestionAmendmentFailed: "Não foi possível salvar a sugestão",
@@ -1306,6 +1320,13 @@ const overrides = {
     genericError: "Algo deu errado",
   },
   editor: {
+    iconPickerIcons: "Ícones",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recentes",
+    iconPickerColors: "Cores",
+    iconPickerDefault: "Padrão",
+    iconPickerUpload: "Enviar",
+    iconPickerUploading: "Enviando…",
     ...editor,
     sourceComponent: {
       defaultTitle: "Componente de origem",

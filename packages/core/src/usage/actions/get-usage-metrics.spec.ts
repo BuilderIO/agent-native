@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const listAppUsageMetricsMock = vi.hoisted(() => vi.fn());
+const { listAppUsageMetricsMock, isFeatureFlagEnabledMock } = vi.hoisted(
+  () => ({
+    listAppUsageMetricsMock: vi.fn(),
+    isFeatureFlagEnabledMock: vi.fn(),
+  }),
+);
 
 vi.mock("../../action.js", () => ({
   defineAction: (definition: unknown) => definition,
@@ -8,6 +13,10 @@ vi.mock("../../action.js", () => ({
 
 vi.mock("../metrics-store.js", () => ({
   listAppUsageMetrics: listAppUsageMetricsMock,
+}));
+
+vi.mock("../../feature-flags/store.js", () => ({
+  isFeatureFlagEnabled: isFeatureFlagEnabledMock,
 }));
 
 import { resetAppConfigForTests } from "../../app-config/index.js";
@@ -18,6 +27,7 @@ describe("get-usage-metrics action", () => {
     resetAppConfigForTests();
     vi.stubEnv("AGENT_NATIVE_APP_ID", "configured-app");
     listAppUsageMetricsMock.mockResolvedValue({ ok: true });
+    isFeatureFlagEnabledMock.mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -37,7 +47,12 @@ describe("get-usage-metrics action", () => {
     );
 
     expect(listAppUsageMetricsMock).toHaveBeenCalledWith(
-      { sinceDays: 30, scope: "me", userEmail: undefined },
+      {
+        sinceDays: 30,
+        scope: "me",
+        userEmail: undefined,
+        builderCreditsEnabled: false,
+      },
       {
         ownerEmail: "owner@example.com",
         orgId: undefined,
@@ -58,6 +73,19 @@ describe("get-usage-metrics action", () => {
 
     expect(listAppUsageMetricsMock.mock.calls[0]?.[1]).toMatchObject({
       app: "selected-app",
+    });
+  });
+
+  it("enables reported Builder credits only when the registered flag is on", async () => {
+    isFeatureFlagEnabledMock.mockResolvedValue(true);
+
+    await getUsageMetrics.run(
+      { sinceDays: 30, scope: "me" },
+      { caller: "frontend", userEmail: "owner@example.com" },
+    );
+
+    expect(listAppUsageMetricsMock.mock.calls[0]?.[0]).toMatchObject({
+      builderCreditsEnabled: true,
     });
   });
 });

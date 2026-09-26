@@ -111,6 +111,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         id: "video-generation",
         label: "Video generation",
         required: false,
+        suggested: true,
         builderIncluded: false,
         keySummary: "Gemini API key",
         labelKey: "agentChat.onboarding.capability.assetsVideoGeneration.label",

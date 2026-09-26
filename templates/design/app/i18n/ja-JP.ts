@@ -266,6 +266,12 @@ export default {
       opacity: "不透明度",
       padding: "パディング",
       margin: "マージン",
+      marginTop: "上マージン",
+      marginRight: "右マージン",
+      marginBottom: "下マージン",
+      marginLeft: "左マージン",
+      linkMarginSides: "マージンの辺をリンク",
+      unlinkMarginSides: "マージンの辺のリンクを解除",
       radius: "半径",
       flexGrow: "伸長",
       flexShrink: "縮小",
@@ -579,6 +585,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "ライブコラボレーション",
+      description:
+        "オーナーの localhost にアクセスできない人も、このデザインのライブコピーを表示・編集できるようにします。",
+      enabled: "オン",
+      disabled: "オフ",
+      saving: "保存中…",
+      enableError: "ライブコラボレーションを更新できませんでした。",
+    },
     vectorEndpoints: {
       startPoint: "始点",
       endPoint: "終点",
@@ -958,6 +973,10 @@ export default {
     signUpToSaveDescription:
       "無料アカウントを作成して、デザインや画面レイアウトを保存し、新しい案を生成できます。",
     signUpToShare: "登録して共有",
+    signUpToShareLiveCanvas: "登録してライブキャンバスを共有",
+    liveCanvasLink: "ライブキャンバスのリンク",
+    liveCanvasWaitingForOwner:
+      "オーナーのライブキャンバスのスナップショットを待っています。",
     shareEditorLink: "デザインエディターリンク",
     shareEditorLinkDescription:
       "アクセス権のある人は、このデザインをエディターで開けます。",
@@ -1230,12 +1249,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "保留中のビジュアルスタイル編集を適用",
       applyButton: "スタイルを適用",
+      applySharedEdits: "編集内容を適用",
       previewLabel: "保留中のビジュアルプレビュー",
       applyDesignUpdates: "デザインの更新を適用",
       applying: "適用中…",
       verifying: "ソースとランタイムを検証中…",
       retryWithAgent: "ソース検証を再試行",
       copyPrompt: "エージェントにプロンプトをコピー",
+      copyFullPrompt: "完全なプロンプトをコピー",
       abortPreview: "プレビューを中止して操作",
       agentMessage:
         "保留中のビジュアルスタイル編集をソースに適用してください。",
@@ -1248,6 +1269,8 @@ export default {
       sourceCheckFailedToast:
         "接続されたソースファイルを検証できませんでした。再試行または元に戻せるよう、プレビューは保持されています。",
       copiedToast: "スタイルプロンプトをコピーしました",
+      copiedToastDescription:
+        "コーディングエージェントに貼り付けて、ビジュアルの変更を適用するよう依頼してください。",
       abortedToast: "保留中のプレビューを破棄しました",
       interactBlocked:
         "操作モードに切り替える前に、保留中のライブ編集を適用するか中止してください。",
@@ -1312,6 +1335,8 @@ export default {
       annotationSendError:
         "注釈を送信できませんでした。描画はそのまま残っています。もう一度お試しください。",
       codingHandoffError: "コーディング引き継ぎを作成できませんでした",
+      visualEditPendingConflict:
+        "別の共同編集者の変更が適用待ちです。新しい変更を送る前に適用するか消去してください。",
       codingHandoffCopied: "コーディング引き継ぎをコピーしました",
       clipboardBlocked: "クリップボードがブロックされました",
       htmlCreateError: "HTML ダウンロードを作成できませんでした",

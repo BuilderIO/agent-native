@@ -2000,8 +2000,13 @@ describe("createProductionAgentHandler", () => {
         "tool-search": actionEntry({}),
       },
       initialToolNames: ["denied"],
-      prepareRequest: async () => {
+      prepareRequest: async ({ requestContext }) => {
         lifecycle.push("prepare");
+        expect(requestContext).toContain(
+          "Earlier, compare monthly active users.",
+        );
+        expect(requestContext).not.toContain("Use the approved definition.");
+        expect(requestContext).not.toContain("omit this query result");
       },
       resolveActionSurface: async ({
         threadId,
@@ -2029,6 +2034,38 @@ describe("createProductionAgentHandler", () => {
         body: JSON.stringify({
           message: "Use the configured agent",
           threadId: "thread-allowed",
+          structuredHistory: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "Earlier, compare monthly active users.",
+                },
+              ],
+            },
+            {
+              role: "assistant",
+              content: [
+                { type: "text", text: "Use the approved definition." },
+                {
+                  type: "tool-call",
+                  name: "query-analytics",
+                  input: { sql: "not sent to Jev" },
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "query-1",
+                  content: "omit this query result",
+                },
+              ],
+            },
+          ],
           actionScope: {
             kind: "content-comment-ai",
             requestId: "request-1",
@@ -2215,9 +2252,60 @@ describe("createProductionAgentHandler", () => {
       while (!(await reader.read()).done) {}
     }
 
-    await vi.waitFor(() => {
-      expect(seenTools).toEqual([["common", "tool-search"]]);
+    expect(seenTools[0]).toEqual(["common", "tool-search"]);
+  });
+
+  it("filters an unscoped resolved allowlist through initialToolNames", async () => {
+    const seenTools: string[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        common: actionEntry({}),
+        rare: actionEntry({}),
+        denied: actionEntry({}),
+        "tool-search": actionEntry({}),
+      },
+      initialToolNames: ["common"],
+      resolveActionSurface: async () => ({
+        allowedActionNames: ["common", "rare", "tool-search"],
+      }),
     });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Use the configured agent" }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
+
+    expect(seenTools[0]).toEqual(["common", "tool-search"]);
   });
 
   it("keeps concurrent default and allowlisted action surfaces isolated by thread", async () => {
@@ -2295,7 +2383,7 @@ describe("createProductionAgentHandler", () => {
 
     expect(seenTools).toHaveLength(2);
     expect(seenTools).toContainEqual(["alpha", "tool-search"]);
-    expect(seenTools).toContainEqual(["beta"]);
+    expect(seenTools).toContainEqual([]);
     expect(seenContinuations).toContainEqual(["thread-alpha", false]);
     expect(seenContinuations).toContainEqual(["thread-beta", true]);
   });
@@ -8928,6 +9016,105 @@ describe("runAgentLoop", () => {
         retryable: false,
       }),
     ]);
+  });
+
+  it("does not trip the delegated ask_app budget on an ordinary multi-step, cache-heavy turn", async () => {
+    // 2026-09-24 incident: `runMCPAgentLoop` (the same-app `ask_app` path,
+    // `routedVia: "local"`) defaults `maxRunInputTokens` to
+    // `DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS`. At the old 750_000 value, the
+    // Analytics app's own per-step baseline (~50k-70k tokens of tool schemas,
+    // re-sent whole every iteration including cache reads, per the
+    // whole-prompt-per-call convention) meant EVERY multi-step turn — even a
+    // trivial read-only one — tripped `run-input-token-budget` at 762k-767k,
+    // regardless of task size. Before the fix this test's loop tripped after
+    // 11 iterations (11 * 70_000 = 770_000 > 750_000); it must now run all 12
+    // ordinary iterations to a normal `end_turn` instead.
+    const PER_STEP_BASELINE_TOKENS = 70_000; // measured tool-schema baseline order of magnitude
+    const ORDINARY_ITERATIONS = 12;
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: true,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        const isLastIteration = streamCalls >= ORDINARY_ITERATIONS;
+        if (!isLastIteration) {
+          // Distinct input per call — identical repeated tool calls trip a
+          // separate repetition guard this test isn't exercising.
+          yield {
+            type: "tool-call",
+            id: `tool-${streamCalls}`,
+            name: "noop",
+            input: { step: streamCalls },
+          };
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: `tool-${streamCalls}`,
+                name: "noop",
+                input: { step: streamCalls },
+              },
+            ],
+          };
+        } else {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Here are the results." }],
+          };
+        }
+        // Most of this call's "whole prompt" is cache reads (the resent
+        // baseline), matching the documented `inputTokens` convention:
+        // WHOLE prompt including cache reads, not just the fresh delta.
+        yield {
+          type: "usage",
+          inputTokens: PER_STEP_BASELINE_TOKENS,
+          outputTokens: 10,
+          cacheReadTokens: PER_STEP_BASELINE_TOKENS - 5_000,
+        };
+        yield {
+          type: "stop",
+          reason: isLastIteration ? "end_turn" : "tool_use",
+        };
+      },
+    };
+    const events: any[] = [];
+    const outcomes: AgentLoopOutcome[] = [];
+
+    const { DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS } =
+      await import("../server/agent-chat/action-filters-a2a.js");
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { noop: actionEntry({ readOnly: true }) },
+      send: (event) => events.push(event),
+      onOutcome: (outcome) => outcomes.push(outcome),
+      signal: new AbortController().signal,
+      maxIterations: 50,
+      maxRunInputTokens: DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
+    });
+
+    expect(streamCalls).toBe(ORDINARY_ITERATIONS);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "tripwire" }),
+    );
+    expect(outcomes).not.toContainEqual(
+      expect.objectContaining({ code: "budget_exhausted" }),
+    );
   });
 
   it("clamps the per-tool timeout to what can actually fire inside the run's chunk budget", async () => {

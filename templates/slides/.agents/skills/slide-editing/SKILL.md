@@ -16,13 +16,29 @@ registry; do not assume a fixed 1920x1080 canvas.
 
 ## Slide HTML Structure
 
-Every slide uses this wrapper:
+Every slide uses the same `--deck-*` wrapper contract. What changes is where
+those values come from.
+
+**A design system is linked** - inherit its tokens:
 
 ```html
-<div class="fmd-slide" style="--deck-bg: var(--ds-bg, Canvas); --deck-ink: var(--ds-text, CanvasText); --deck-muted: var(--ds-text-muted, GrayText); --deck-accent: var(--ds-accent, currentColor); --deck-surface: var(--ds-surface, transparent); --deck-heading-font: var(--ds-heading-font, sans-serif); --deck-body-font: var(--ds-body-font, sans-serif); --deck-radius: var(--ds-radius, 0px); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
+<div class="fmd-slide" style="--deck-bg: var(--ds-bg); --deck-ink: var(--ds-text); --deck-muted: var(--ds-text-muted); --deck-accent: var(--ds-accent); --deck-surface: var(--ds-surface); --deck-heading-font: var(--ds-heading-font); --deck-body-font: var(--ds-body-font); --deck-radius: var(--ds-radius); background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
   <!-- Slide content here -->
 </div>
 ```
+
+**No design system is linked** - write the deck's chosen values as literals:
+
+```html
+<div class="fmd-slide" style="--deck-bg: #10261C; --deck-ink: #F2EFE6; --deck-muted: #A8B8AC; --deck-accent: #7FB069; --deck-surface: rgba(255,255,255,0.05); --deck-heading-font: 'Fraunces', Georgia, serif; --deck-body-font: 'Inter', sans-serif; --deck-radius: 4px; background: var(--deck-bg); color: var(--deck-ink); padding: 64px 80px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--deck-body-font);">
+  <!-- Slide content here -->
+</div>
+```
+
+The renderer publishes `--ds-bg` from the slide's own background, and nothing
+else, when no system is linked. Every other `var(--ds-*, ...)` reference
+resolves to its fallback, so an unlinked deck that inherits instead of baking
+renders as unstyled browser defaults. Bake the values.
 
 ## Styling Rules
 
@@ -148,28 +164,25 @@ out one `update-slide` per slide: that is the batching the agent instructions
 rule out, and because the calls issue in parallel, a mistake in the first one
 repeats across all of them before any rejection comes back.
 
-1. Read the reference slide with `get-deck` (`slideId`, `compact=false`) and
-   take the background declaration off its `.fmd-slide` wrapper — not off a
-   child. `deckStyle` summarizes the whole deck, including interior gradients,
-   so it is not a substitute for the wrapper's own value.
-2. Read the target slides for their exact current declarations, as late as
-   possible before the write.
-3. Send one `patch-deck` call carrying every affected slide, then verify with
-   `get-deck` using `compact=true`.
+1. Read the reference and targets together: use one `get-deck` call with
+   `slideIds` and `compact=false` when their IDs are known, or one full-deck
+   `compact=false` read when they are not. Take the reference background from
+   its `.fmd-slide` wrapper — not a child. `deckStyle` summarizes the whole
+   deck, including interior gradients, so it is not a substitute for the
+   wrapper's own value. Keep each returned `contentHash` with its exact HTML.
+2. Send one `patch-deck` call carrying every affected slide and its matching
+   `baseContentHash`, then verify once with `get-deck` using the same `slideIds`
+   and `compact=false`.
 
-Reserve `styleOnly` `update-slide` for one slide, or a handful of named slides.
-Two protections only exist on that path, so know what the deck-wide route gives
-up:
+Set `styleOnly: true` on each CSS-only content operation. `patch-deck` enforces
+that text, markup, element order, and protected layout CSS stay unchanged, and
+rejects stale per-slide hashes before writing. For content or structural edits,
+omit `styleOnly` and include the complete intended slide HTML. Use
+`update-slide` for a focused single-slide edit or when a person is actively
+editing and the smaller scoped mutation matters.
 
-- `patch-deck` patches `fields.content` wholesale and gets no style-only
-  invariant, so keep the rest of each slide's HTML byte-identical yourself.
-- `patch-deck` takes no per-slide `baseContentHash`. It serializes on the deck
-  lock and rejects a write when the deck row moved under it, but it cannot tell
-  that a human edited slide 4 between your read and your patch. Read
-  immediately before patching, and verify after.
-
-When a person is actively editing the deck, prefer per-slide `styleOnly`
-`update-slide` with `baseContentHash` and accept the extra round trips.
+When a person is actively editing the deck or making a focused change, use
+`update-slide` with `baseContentHash` to keep the write scoped to that slide.
 
 Either way, change only the `.fmd-slide` wrapper's background. Interior card
 fills, image backgrounds, and gradients are separate visual elements; leave them

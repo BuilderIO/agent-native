@@ -48,6 +48,10 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+import {
+  deriveLiveEditCapability,
+  deriveLiveEditRegistrationCapability,
+} from "./connect-localhost.js";
 import action from "./refresh-localhost-preview-token.js";
 
 beforeEach(() => {
@@ -96,6 +100,17 @@ describe("refresh-localhost-preview-token", () => {
   });
 
   it("derives a restart-safe preview token from the stored bridge token", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "editor",
+      resource: {
+        visibility: "public",
+        data: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "conn_1",
+          screenMetadata: { secondary: { connectionId: "conn_2" } },
+        }),
+      },
+    });
     mocks.connections = [
       {
         id: "conn_2",
@@ -113,6 +128,79 @@ describe("refresh-localhost-preview-token", () => {
 
     expect(result.previewToken).not.toBe("legacy-random-preview");
     expect(result.previewToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.liveEditCapability).toBe(
+      deriveLiveEditCapability("stored-bridge-token", "design_1"),
+    );
+    expect(result.liveEditCapability).toBe(
+      "35a0a665bdfa09540ba0fa820572e5bdda7b4ce7d3a7906a6d90617063189130",
+    );
+    expect(result.liveEditCapability).not.toBe(
+      deriveLiveEditCapability("stored-bridge-token", "design_2"),
+    );
+    expect(result.liveEditRegistrationCapability).toBe(
+      deriveLiveEditRegistrationCapability("stored-bridge-token", "design_1"),
+    );
+  });
+
+  it("gives a copied public viewer registration only, never pending access", async () => {
+    mocks.connections = [
+      {
+        id: "conn_2",
+        previewToken: "legacy-random-preview",
+        bridgeToken: "stored-bridge-token",
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
+    ];
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_2",
+      publicVisualEdit: true,
+    });
+
+    expect(result.previewToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.liveEditRegistrationCapability).toBe(
+      deriveLiveEditRegistrationCapability("stored-bridge-token", "design_1"),
+    );
+    expect(result).not.toHaveProperty("liveEditCapability");
+    expect(mocks.resolveScope).toHaveBeenCalledWith({
+      designId: "design_1",
+      allowPublicViewer: true,
+    });
+  });
+
+  it("issues live-edit capabilities to the design owner", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "owner",
+      resource: {
+        visibility: "public",
+        data: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "conn_2",
+        }),
+      },
+    });
+    mocks.connections = [
+      {
+        id: "conn_2",
+        previewToken: "legacy-random-preview",
+        bridgeToken: "stored-bridge-token",
+        bridgeUrl: "http://127.0.0.1:7331",
+      },
+    ];
+
+    const result = await action.run({
+      designId: "design_1",
+      connectionId: "conn_2",
+      publicVisualEdit: false,
+    });
+
+    expect(result.liveEditCapability).toBe(
+      deriveLiveEditCapability("stored-bridge-token", "design_1"),
+    );
+    expect(result.liveEditRegistrationCapability).toBe(
+      deriveLiveEditRegistrationCapability("stored-bridge-token", "design_1"),
+    );
   });
 
   it("rejects a connection that is not part of the design", async () => {

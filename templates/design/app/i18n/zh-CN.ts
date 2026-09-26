@@ -251,7 +251,13 @@ export default {
       height: "高度",
       opacity: "不透明度",
       padding: "填充",
-      margin: "利润",
+      margin: "外边距",
+      marginTop: "上外边距",
+      marginRight: "右外边距",
+      marginBottom: "下外边距",
+      marginLeft: "左外边距",
+      linkMarginSides: "链接外边距",
+      unlinkMarginSides: "取消链接外边距",
       radius: "半径",
       flexGrow: "增长",
       flexShrink: "收缩",
@@ -562,6 +568,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "实时协作",
+      description:
+        "允许无法访问所有者 localhost 的人查看和编辑此设计的实时副本。",
+      enabled: "开启",
+      disabled: "关闭",
+      saving: "正在保存…",
+      enableError: "无法更新实时协作。",
+    },
     vectorEndpoints: {
       startPoint: "起点",
       endPoint: "终点",
@@ -919,6 +934,9 @@ export default {
     signUpToSaveDescription:
       "注册免费帐户即可保存设计和屏幕布局，并生成新的方向。",
     signUpToShare: "注册以共享",
+    signUpToShareLiveCanvas: "注册以共享实时画布",
+    liveCanvasLink: "实时画布链接",
+    liveCanvasWaitingForOwner: "正在等待画布所有者的实时快照。",
     shareEditorLink: "设计编辑器链接",
     shareEditorLinkDescription:
       "有访问权限的任何人都可以在编辑器中打开此设计。",
@@ -1188,12 +1206,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "应用待处理的视觉样式编辑",
       applyButton: "应用样式",
+      applySharedEdits: "应用修改",
       previewLabel: "待处理的视觉预览",
       applyDesignUpdates: "应用设计更新",
       applying: "正在应用…",
       verifying: "正在验证源文件和运行时…",
       retryWithAgent: "重试源文件验证",
       copyPrompt: "将提示复制给你的代理",
+      copyFullPrompt: "复制完整提示",
       abortPreview: "中止预览并互动",
       agentMessage: "将待处理的视觉样式编辑应用到源文件。",
       sentToast: "设计更新已发送给代理",
@@ -1205,6 +1225,8 @@ export default {
       sourceCheckFailedToast:
         "无法验证已连接的源文件。预览已保留，你可以重试或撤销。",
       copiedToast: "样式提示已复制",
+      copiedToastDescription:
+        "将其粘贴到你的编程代理中，并让它应用这些视觉更改。",
       abortedToast: "待处理的预览已丢弃",
       interactBlocked: "请先应用或中止待处理的实时编辑，再切换到互动模式。",
       leaveTitle: "离开前应用设计更新？",
@@ -1266,6 +1288,8 @@ export default {
     toasts: {
       annotationSendError: "无法发送批注。你的绘图仍保留在这里，请重试。",
       codingHandoffError: "无法创建编码交接",
+      visualEditPendingConflict:
+        "另一位协作者有待应用的更改。请先应用或清除这些更改，再发送新更改。",
       codingHandoffCopied: "编码交接已复制",
       clipboardBlocked: "剪贴板被阻止",
       htmlCreateError: "无法创建 HTML 下载",

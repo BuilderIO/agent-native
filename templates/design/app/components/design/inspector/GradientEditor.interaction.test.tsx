@@ -87,6 +87,29 @@ function pointerEvent(
 }
 
 describe("GradientEditor onCommit", () => {
+  it("hides native steppers from the compact stop and angle fields", () => {
+    act(() => {
+      root.render(
+        <GradientEditor
+          value={baseValue}
+          onChange={vi.fn()}
+          selectedStopId="a"
+          onSelectStop={vi.fn()}
+        />,
+      );
+    });
+
+    for (const label of ["Stop position", "Gradient angle"]) {
+      const input = container.querySelector<HTMLInputElement>(
+        `input[aria-label="${label}"]`,
+      );
+      expect(input?.className).toContain("[appearance:textfield]");
+      expect(input?.className).toContain(
+        "[&::-webkit-inner-spin-button]:appearance-none",
+      );
+    }
+  });
+
   it("fires onChange on every tick but onCommit exactly once when dragging a stop handle", () => {
     const onChange = vi.fn();
     const onCommit = vi.fn();

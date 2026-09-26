@@ -1,7 +1,9 @@
+import type { IconValue } from "@agent-native/core/icons";
 import { IconFileText } from "@tabler/icons-react";
 import type { ComponentProps, ReactNode } from "react";
 import { Link } from "react-router";
 
+import { ContentIcon } from "@/components/icons/ContentIcon";
 import { cn } from "@/lib/utils";
 
 /**
@@ -64,7 +66,7 @@ export function SidebarNavigationRow({
   children,
   ...props
 }: ComponentProps<typeof Link> & {
-  icon: string | null | undefined;
+  icon: IconValue | string | null | undefined;
   hideIconOnHover?: boolean;
   active?: boolean;
 }) {
@@ -84,11 +86,13 @@ export function SidebarNavigationRow({
       >
         <SidebarRowIcon
           icon={
-            icon ? (
-              icon
-            ) : (
-              <IconFileText className="size-4 text-muted-foreground" />
-            )
+            <ContentIcon
+              value={icon}
+              size={14}
+              fallback={
+                <IconFileText className="size-3.5 text-muted-foreground" />
+              }
+            />
           }
         />
       </span>

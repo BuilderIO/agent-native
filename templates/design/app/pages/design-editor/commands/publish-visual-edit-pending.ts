@@ -2,6 +2,7 @@ import type { RefObject } from "react";
 
 export interface PendingVisualEditHandoff {
   designId: string;
+  publisherId: string;
   revision: number;
   pending: {
     designId: string;
@@ -14,22 +15,31 @@ export interface PendingVisualEditHandoff {
 export interface PublishVisualEditPendingArgs {
   activeScreenBridgeUrl: string | null | undefined;
   activeScreenPreviewToken: string | null | undefined;
+  activeScreenLiveEditCapability: string | null | undefined;
   callAction: (
     name: "publish-visual-edit-pending",
     payload: PendingVisualEditHandoff,
   ) => Promise<unknown>;
-  /** The durable action requires editor access; a signed-out or read-only
-   *  visual-edit viewer would always fail it, so this is skipped for them —
-   *  the local bridge POST below is their actual read path and must still
-   *  run unconditionally. */
-  canEditDesign: boolean;
+  /** The durable action verifies editor access or the same-origin live-share
+   *  URL; this only decides whether to attempt that action from the browser. */
+  canPublishDurableHandoff: boolean;
   designId: string;
   fetchImpl: typeof fetch;
   pending: PendingVisualEditHandoff;
   pendingVisualEditClearRequestedRef: RefObject<string | null>;
   pendingVisualEditHadPendingRef: RefObject<string | null>;
   setPendingVisualEditPublicationFailed: (failed: boolean) => void;
-  showHandoffErrorToast: () => void;
+  showHandoffErrorToast: (error: unknown) => void;
+}
+
+export function shouldPublishVisualEditPending(args: {
+  designId: string | null | undefined;
+  canEditDesign: boolean;
+  canEditLiveScreen: boolean;
+}): boolean {
+  return (
+    Boolean(args.designId) && (args.canEditDesign || args.canEditLiveScreen)
+  );
 }
 
 export async function runPublishVisualEditPending(
@@ -38,8 +48,9 @@ export async function runPublishVisualEditPending(
   const {
     activeScreenBridgeUrl,
     activeScreenPreviewToken,
+    activeScreenLiveEditCapability,
     callAction,
-    canEditDesign,
+    canPublishDurableHandoff,
     designId,
     fetchImpl,
     pending,
@@ -49,7 +60,7 @@ export async function runPublishVisualEditPending(
     showHandoffErrorToast,
   } = args;
   const clearRequested = pending.pending === null;
-  if (canEditDesign) {
+  if (canPublishDurableHandoff) {
     try {
       await callAction("publish-visual-edit-pending", pending);
       setPendingVisualEditPublicationFailed(false);
@@ -66,11 +77,16 @@ export async function runPublishVisualEditPending(
         error,
       );
       setPendingVisualEditPublicationFailed(true);
-      showHandoffErrorToast();
+      showHandoffErrorToast(error);
     }
   }
 
-  if (!activeScreenBridgeUrl || !activeScreenPreviewToken) return;
+  if (
+    !activeScreenBridgeUrl ||
+    !activeScreenPreviewToken ||
+    !activeScreenLiveEditCapability
+  )
+    return;
   try {
     const response = await fetchImpl(
       `${activeScreenBridgeUrl.replace(/\/$/, "")}/live-edit-pending`,
@@ -79,8 +95,13 @@ export async function runPublishVisualEditPending(
         headers: {
           "content-type": "application/json",
           "x-design-preview-token": activeScreenPreviewToken,
+          "x-agent-native-live-edit-capability": activeScreenLiveEditCapability,
         },
-        body: JSON.stringify(pending.pending),
+        body: JSON.stringify({
+          designId: pending.designId,
+          revision: pending.revision,
+          pending: pending.pending,
+        }),
       },
     );
     if (!response.ok) {

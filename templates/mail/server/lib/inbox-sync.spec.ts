@@ -23,11 +23,12 @@ const mocks = vi.hoisted(() => {
     releaseSyncAccount: vi.fn(),
     patchSyncAccount: vi.fn(),
     resetSyncAccountProgress: vi.fn(),
+    readInboxPushGeneration: vi.fn(),
     upsertInboxThreadRows: vi.fn(),
     deleteInboxThreadRow: vi.fn(),
     markThreadsOutOfInboxBeforeSync: vi.fn(),
     readSyncAccounts: vi.fn(),
-    assertSyncClaimHeld: vi.fn(),
+    withSyncClaim: vi.fn(),
     SyncClaimLostError,
   };
 });
@@ -61,11 +62,12 @@ vi.mock("./inbox-store.js", () => ({
   releaseSyncAccount: mocks.releaseSyncAccount,
   patchSyncAccount: mocks.patchSyncAccount,
   resetSyncAccountProgress: mocks.resetSyncAccountProgress,
+  readInboxPushGeneration: mocks.readInboxPushGeneration,
   upsertInboxThreadRows: mocks.upsertInboxThreadRows,
   deleteInboxThreadRow: mocks.deleteInboxThreadRow,
   markThreadsOutOfInboxBeforeSync: mocks.markThreadsOutOfInboxBeforeSync,
   readSyncAccounts: mocks.readSyncAccounts,
-  assertSyncClaimHeld: mocks.assertSyncClaimHeld,
+  withSyncClaim: mocks.withSyncClaim,
   SyncClaimLostError: mocks.SyncClaimLostError,
 }));
 
@@ -90,6 +92,7 @@ function baseRow(overrides: Partial<Record<string, unknown>> = {}) {
     status: "syncing",
     lastError: null,
     lastSyncedAt: null,
+    lastPushGeneration: 0,
     syncClaimId: "claim-1",
     syncClaimedAt: Date.now(),
     // Fresh so tests don't also have to mock a labels.list round trip.
@@ -158,7 +161,10 @@ beforeEach(() => {
   mocks.deleteInboxThreadRow.mockResolvedValue(undefined);
   mocks.markThreadsOutOfInboxBeforeSync.mockResolvedValue(undefined);
   mocks.resetSyncAccountProgress.mockResolvedValue(true);
-  mocks.assertSyncClaimHeld.mockResolvedValue(undefined);
+  mocks.readInboxPushGeneration.mockResolvedValue(0);
+  mocks.withSyncClaim.mockImplementation(
+    async (_owner, _account, _claimId, write) => write({}),
+  );
 });
 
 // The row `claimSyncAccount` hands back for the call under test — tests set
@@ -232,6 +238,7 @@ describe("syncInboxAccount — full sync", () => {
       OWNER,
       ACCOUNT,
       123,
+      expect.anything(),
     );
     expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
       OWNER,
@@ -256,7 +263,7 @@ describe("syncInboxAccount — full sync", () => {
     ]);
     // A newer worker has already taken the claim by the time this page's
     // hydrate round trip finishes.
-    mocks.assertSyncClaimHeld.mockRejectedValueOnce(
+    mocks.withSyncClaim.mockRejectedValueOnce(
       new mocks.SyncClaimLostError(ACCOUNT),
     );
 
@@ -396,6 +403,7 @@ describe("syncInboxAccount — incremental sync", () => {
       ACCOUNT,
       "t1",
       expect.any(Number),
+      expect.anything(),
     );
     expect(mocks.deleteInboxThreadRow.mock.calls[0][3]).toBeLessThanOrEqual(
       batchCalledAt,
@@ -590,6 +598,77 @@ describe("resetInboxSync", () => {
 });
 
 describe("ensureInboxFresh — managed workspace grant", () => {
+  it("syncs a recent account when the pending push generation advances from 9 to 10", async () => {
+    currentRow = baseRow({
+      historyId: "500",
+      lastSyncedAt: Date.now(),
+      lastPushGeneration: 9,
+    });
+    mocks.ensureSyncAccountRow.mockResolvedValue(currentRow);
+    mocks.readInboxPushGeneration.mockResolvedValue(10);
+    mocks.gmailListHistory.mockResolvedValue({ historyId: "600", history: [] });
+
+    const statuses = await ensureInboxFresh(OWNER, { budgetMs: 5_000 });
+
+    expect(statuses).toEqual([
+      expect.objectContaining({ accountEmail: ACCOUNT, state: "ready" }),
+    ]);
+    expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      { lastPushGeneration: 10 },
+      { claimId: "claim-1" },
+    );
+  });
+
+  it("leaves a newer push generation pending when it arrives during sync", async () => {
+    let liveGeneration = 2;
+    currentRow = baseRow({
+      historyId: "500",
+      lastSyncedAt: Date.now(),
+      lastPushGeneration: 1,
+    });
+    mocks.ensureSyncAccountRow.mockImplementation(async () => currentRow);
+    mocks.readInboxPushGeneration.mockImplementation(
+      async () => liveGeneration,
+    );
+    mocks.gmailListHistory.mockImplementationOnce(async () => {
+      liveGeneration = 3;
+      return { historyId: "600", history: [] };
+    });
+
+    await ensureInboxFresh(OWNER, { budgetMs: 5_000 });
+
+    expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      { lastPushGeneration: 2 },
+      { claimId: "claim-1" },
+    );
+
+    currentRow = baseRow({
+      historyId: "600",
+      lastSyncedAt: Date.now(),
+      lastPushGeneration: 2,
+    });
+    mocks.gmailListHistory.mockResolvedValueOnce({
+      historyId: "700",
+      history: [],
+    });
+    const nextStatuses = await ensureInboxFresh(OWNER, { budgetMs: 5_000 });
+
+    expect(nextStatuses).toEqual([
+      expect.objectContaining({ accountEmail: ACCOUNT, state: "ready" }),
+    ]);
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(2);
+    expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      { lastPushGeneration: 3 },
+      { claimId: "claim-1" },
+    );
+  });
+
   it("syncs a managed grant even when listOAuthAccountsByOwner reports no accounts", async () => {
     // HIGH review finding: listOAuthAccountsByOwner returning [] must not be
     // read as "disconnected" — getConnectedAccounts (OAuth rows, else the

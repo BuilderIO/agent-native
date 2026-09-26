@@ -3,9 +3,17 @@ import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { flushOpenDocumentEditorToSql } from "../../actions/_document-flush.js";
+import { getDb, schema } from "../db/index.js";
 import { resolveCommentAiActionSurface } from "../lib/comment-ai.js";
+import {
+  documentChatStartVersionId,
+  recordDocumentHistoryTransition,
+} from "../lib/document-history.js";
 import {
   publicDocumentExtraContext,
   resolvePublicViewerOwner,
@@ -21,8 +29,164 @@ const INJECTED_INITIAL_TOOL_NAMES = [
   "query-staged-dataset",
 ];
 
+const DOCUMENT_EDIT_TOOLS = new Set([
+  "edit-document",
+  "restore-document-version",
+  "update-document",
+]);
+
+function eventRecord(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const event = (entry as { event?: unknown }).event;
+  return event && typeof event === "object"
+    ? (event as Record<string, unknown>)
+    : undefined;
+}
+
+function inputForCompletedTool(
+  events: readonly unknown[],
+  index: number,
+  completed: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (completed.input && typeof completed.input === "object") {
+    return completed.input as Record<string, unknown>;
+  }
+  const id = typeof completed.id === "string" ? completed.id : undefined;
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const candidate = eventRecord(events[cursor]);
+    if (
+      candidate?.type !== "tool_start" ||
+      candidate.tool !== completed.tool ||
+      (id && candidate.id !== id)
+    ) {
+      continue;
+    }
+    return candidate.input && typeof candidate.input === "object"
+      ? (candidate.input as Record<string, unknown>)
+      : undefined;
+  }
+  return undefined;
+}
+
+function hasDocumentEdit(
+  run: { events: readonly unknown[] },
+  documentId: string,
+): boolean {
+  return run.events.some((entry, index) => {
+    const record = eventRecord(entry);
+    if (
+      record?.type !== "tool_done" ||
+      record.completedSideEffect !== true ||
+      record.isError === true ||
+      typeof record.tool !== "string" ||
+      !DOCUMENT_EDIT_TOOLS.has(record.tool)
+    ) {
+      return false;
+    }
+    const input = inputForCompletedTool(run.events, index, record);
+    return (input?.documentId ?? input?.id) === documentId;
+  });
+}
+
+async function autosaveDocumentAtChatBoundary(
+  scope: { type: string; id: string },
+  run: { events?: readonly unknown[]; threadId?: string; runId?: string },
+  phase: "start" | "end",
+): Promise<void> {
+  const hasEdit = run.events
+    ? hasDocumentEdit({ events: run.events }, scope.id)
+    : false;
+  if (
+    scope.type !== "document" ||
+    !run.threadId ||
+    !run.runId ||
+    (phase === "end" && !hasEdit)
+  ) {
+    return;
+  }
+
+  let access = await assertAccess("document", scope.id, "editor");
+  let document = access.resource as {
+    ownerEmail: string;
+    title: string;
+    content: string;
+  };
+  if (phase === "start") {
+    await flushOpenDocumentEditorToSql({
+      documentId: scope.id,
+      ownerEmail: document.ownerEmail,
+    });
+    access = await assertAccess("document", scope.id, "editor");
+    document = access.resource as typeof document;
+  }
+  const db = getDb();
+  const chatContext = { threadId: run.threadId, runId: run.runId, phase };
+
+  if (phase === "start") {
+    const existing = await db
+      .select({ id: schema.documentVersions.id })
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.documentId, scope.id),
+          eq(schema.documentVersions.ownerEmail, document.ownerEmail),
+          eq(
+            schema.documentVersions.id,
+            documentChatStartVersionId(
+              document.ownerEmail,
+              scope.id,
+              run.threadId,
+            ),
+          ),
+        ),
+      )
+      .limit(1);
+    if (existing.length) return;
+  }
+
+  const state = { title: document.title, content: document.content };
+  await recordDocumentHistoryTransition({
+    db,
+    ownerEmail: document.ownerEmail,
+    documentId: scope.id,
+    before: state,
+    after: state,
+    cause: {
+      groupId: `agent:${document.ownerEmail}:${run.runId}`,
+      groupKind: "agent_run",
+      actorEmail: document.ownerEmail,
+      actorKind: "agent",
+      origin: "agent-chat",
+      operation: phase === "start" ? "chat start" : "chat autosave",
+      chatContext,
+      ...(phase === "start" ? { skipBeforeCheckpoint: true } : {}),
+    },
+    now: new Date().toISOString(),
+  });
+}
+
+async function autosaveDocumentBeforeAgentTurn(
+  scope: { type: string; id: string },
+  run: { threadId?: string; runId?: string },
+): Promise<void> {
+  await autosaveDocumentAtChatBoundary(scope, run, "start");
+}
+
+async function autosaveDocumentAfterAgentTurn(
+  scope: { type: string; id: string },
+  run: {
+    events: readonly unknown[];
+    threadId?: string;
+    runId?: string;
+  },
+): Promise<void> {
+  await autosaveDocumentAtChatBoundary(scope, run, "end");
+}
+
 export default createAgentChatPlugin({
   appId: "content",
+  onAgentTurnStart: autosaveDocumentBeforeAgentTurn,
+  onAgentTurnComplete: autosaveDocumentAfterAgentTurn,
   nativeActionsInDev: true,
   resolveActionSurface: resolveCommentAiActionSurface,
   durableBackgroundRuns: true,

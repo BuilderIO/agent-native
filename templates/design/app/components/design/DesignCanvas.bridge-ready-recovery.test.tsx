@@ -41,6 +41,197 @@ afterEach(async () => {
 });
 
 describe("DesignCanvas one-shot bridge queue", () => {
+  it("keeps local layers immediate and captures shared HTML after its reservation", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><html><body>Runtime</body></html>");
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    const documentId = "runtime-document-live";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ),
+    );
+    const reservations: Array<{
+      promise: Promise<{ reservationToken: string }>;
+      resolve: (value: { reservationToken: string }) => void;
+    }> = [];
+    const onRuntimeLayerSnapshot = vi.fn();
+    const onReserveVisualEditSnapshot = vi.fn(() => {
+      let resolve!: (value: { reservationToken: string }) => void;
+      const promise = new Promise<{ reservationToken: string }>((done) => {
+        resolve = done;
+      });
+      reservations.push({ promise, resolve });
+      return promise;
+    });
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/"
+          contentKey="screen-live"
+          screenId="screen-live"
+          sourceType="localhost"
+          bridgeUrl={bridgeUrl}
+          previewToken="ready-recovery-preview-token"
+          liveEditCapability="ready-recovery-live-edit-capability"
+          onRuntimeLayerSnapshot={onRuntimeLayerSnapshot}
+          onReserveVisualEditSnapshot={onReserveVisualEditSnapshot}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    const iframePostMessage = vi.spyOn(iframe.contentWindow!, "postMessage");
+
+    const sendBridgeMessage = async (data: Record<string, unknown>) => {
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data,
+            origin: bridgeUrl,
+            source: iframe.contentWindow,
+          }),
+        );
+      });
+    };
+    const requestReservation = (requestId: number) =>
+      sendBridgeMessage({
+        type: "agent-native:runtime-layer-snapshot-reservation-request",
+        requestId,
+        documentId,
+      });
+    const sendSnapshot = (
+      requestId: number,
+      html: string,
+      reservationToken?: string,
+    ) =>
+      sendBridgeMessage({
+        type: "agent-native:runtime-layer-snapshot",
+        payload: {
+          requestId,
+          documentId,
+          html,
+          nodeCount: 2,
+          ...(reservationToken ? { reservationToken } : {}),
+        },
+      });
+    const expectImmediateSnapshot = async (requestId: number, html: string) => {
+      await sendSnapshot(requestId, html);
+      expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
+        html,
+        nodeCount: 2,
+        documentId,
+        reservationToken: undefined,
+      });
+    };
+    const resolveReservation = async (index: number, token: string) => {
+      await act(async () => {
+        reservations[index]!.resolve({ reservationToken: token });
+        await reservations[index]!.promise;
+      });
+    };
+
+    await sendBridgeMessage({
+      type: "agent-native:editor-chrome-ready",
+      documentId,
+      routePath: "/",
+    });
+    await requestReservation(41);
+    await requestReservation(42);
+    expect(onReserveVisualEditSnapshot).toHaveBeenCalledTimes(2);
+    expect(onReserveVisualEditSnapshot).toHaveBeenNthCalledWith(
+      1,
+      "screen-live",
+    );
+    expect(onReserveVisualEditSnapshot).toHaveBeenNthCalledWith(
+      2,
+      "screen-live",
+    );
+
+    await expectImmediateSnapshot(41, "<body>First</body>");
+    await expectImmediateSnapshot(42, "<body>Second</body>");
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(2);
+
+    await resolveReservation(1, "reservation-for-42");
+    expect(
+      iframePostMessage.mock.calls
+        .map(([message]) => message)
+        .filter(
+          (message) =>
+            (message as { type?: string })?.type ===
+            "grant-runtime-layer-snapshot-reservation",
+        ),
+    ).toContainEqual({
+      type: "grant-runtime-layer-snapshot-reservation",
+      requestId: 42,
+      documentId,
+      reservationToken: "reservation-for-42",
+    });
+    await sendSnapshot(
+      42,
+      "<body>Fresh after reservation</body>",
+      "reservation-for-42",
+    );
+    expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
+      html: "<body>Fresh after reservation</body>",
+      nodeCount: 2,
+      documentId,
+      reservationToken: "reservation-for-42",
+    });
+
+    await resolveReservation(0, "reservation-for-41");
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(3);
+    expect(onRuntimeLayerSnapshot.mock.calls[2]?.[0]).toEqual({
+      html: "<body>Fresh after reservation</body>",
+      nodeCount: 2,
+      documentId,
+      reservationToken: "reservation-for-42",
+    });
+
+    await requestReservation(43);
+    await expectImmediateSnapshot(43, "<body>Third</body>");
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(4);
+    await resolveReservation(2, "reservation-for-43");
+    await sendSnapshot(43, "<body>Fresh third</body>", "reservation-for-43");
+    expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
+      html: "<body>Fresh third</body>",
+      nodeCount: 2,
+      documentId,
+      reservationToken: "reservation-for-43",
+    });
+  });
+
   /**
    * A live-edit screen keeps its already-loaded iframe when the canvas
    * remounts, so the replacement instance can see ordinary bridge traffic
@@ -72,15 +263,39 @@ describe("DesignCanvas one-shot bridge queue", () => {
         ),
       ),
     );
+    const onRuntimeStructureInsertRejected = vi.fn();
+    const onRuntimeStructureRollbackResult = vi.fn();
+    const onRuntimeStructureDeleteRejected = vi.fn();
 
     const render = async (
       insertRequest: {
         requestId: number;
+        transactionId?: string;
         screenId: string;
         html: string;
         additionalHtml?: string[];
         anchor: { selector: string; sourceId?: string };
         placement: "before" | "after" | "inside";
+      } | null,
+      rollbackRequest?: {
+        requestId: string;
+        transactionId?: string;
+        screenId: string;
+        selector: string;
+        sourceId?: string;
+      } | null,
+      targetTransactionId?: string | null,
+      deleteRequest?: {
+        requestId: string;
+        transactionId?: string;
+        screenId: string;
+        selector: string;
+        selectorCandidates?: string[];
+        waitForInsertTransaction?: boolean;
+        rollbackScreenId?: string;
+        rollbackSelector?: string;
+        rollbackSourceId?: string;
+        cancelRequested?: boolean;
       } | null,
     ) => {
       await act(async () => {
@@ -92,7 +307,14 @@ describe("DesignCanvas one-shot bridge queue", () => {
             sourceType="localhost"
             bridgeUrl={bridgeUrl}
             previewToken="ready-recovery-preview-token"
+            liveEditCapability="ready-recovery-live-edit-capability"
             runtimeStructureInsertRequest={insertRequest}
+            runtimeStructureRollbackRequest={rollbackRequest}
+            runtimeStructureTargetTransactionId={targetTransactionId}
+            runtimeStructureDeleteRequest={deleteRequest}
+            onRuntimeStructureInsertRejected={onRuntimeStructureInsertRejected}
+            onRuntimeStructureDeleteRejected={onRuntimeStructureDeleteRejected}
+            onRuntimeStructureRollbackResult={onRuntimeStructureRollbackResult}
             zoom={100}
             deviceFrame="none"
             editMode
@@ -125,6 +347,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
     // Queue the command while the canvas has never seen a ready handshake.
     await render({
       requestId: 1,
+      transactionId: "move-1",
       screenId: "screen-live",
       html: '<div data-agent-native-node-id="drop-1"></div>',
       additionalHtml: ['<div data-agent-native-node-id="drop-2"></div>'],
@@ -245,6 +468,335 @@ describe("DesignCanvas one-shot bridge queue", () => {
       "runtime-structure-insert",
       "style-change",
     ]);
+    expect(onRuntimeStructureInsertRejected).not.toHaveBeenCalled();
+    posted.length = 0;
+    await render(null, null, "move-1", {
+      screenId: "screen-live",
+      requestId: "move-1:source",
+      transactionId: "move-1",
+      selector: "#source",
+      waitForInsertTransaction: true,
+      cancelRequested: true,
+    });
+    expect(
+      posted.filter((message) =>
+        ["cancel-pending-delete-element", "visual-structure-ack"].includes(
+          (message as { type?: string }).type ?? "",
+        ),
+      ),
+    ).toEqual([
+      {
+        type: "cancel-pending-delete-element",
+        selector: "#source",
+        selectorCandidates: [],
+        requestId: "move-1:source",
+        transactionId: "move-1",
+      },
+      {
+        type: "visual-structure-ack",
+        requestId: "move-1:source",
+        applied: false,
+      },
+    ]);
+    expect(onRuntimeStructureDeleteRejected).toHaveBeenCalledExactlyOnceWith({
+      screenId: "screen-live",
+      requestId: "move-1:source",
+      transactionId: "move-1",
+      reason: "cancelled",
+    });
+    await act(async () => root.render(null));
+    expect(onRuntimeStructureInsertRejected).toHaveBeenCalledExactlyOnceWith(
+      "target-canvas-unmounted",
+      "move-1",
+    );
+
+    onRuntimeStructureInsertRejected.mockClear();
+    await render(null, {
+      screenId: "screen-live",
+      requestId: "move-2:rollback",
+      transactionId: "move-2",
+      selector: "",
+    });
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        ),
+      ).not.toBeNull(),
+    );
+    const rollbackIframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    const rollbackWindow = rollbackIframe.contentWindow as Window;
+    rollbackWindow.postMessage = ((message: unknown) => {
+      posted.push(message);
+    }) as Window["postMessage"];
+    posted.length = 0;
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready", routePath: "/" },
+          origin: bridgeUrl,
+          source: rollbackWindow,
+        }),
+      );
+    });
+    expect(
+      posted.filter(
+        (message) =>
+          (message as { type?: string } | null)?.type ===
+          "runtime-structure-rollback-insert",
+      ),
+    ).toHaveLength(1);
+    posted.length = 0;
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: bridgeUrl,
+          source: rollbackWindow,
+        }),
+      );
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready", routePath: "/" },
+          origin: bridgeUrl,
+          source: rollbackWindow,
+        }),
+      );
+    });
+    expect(
+      posted.filter(
+        (message) =>
+          (message as { type?: string } | null)?.type ===
+          "runtime-structure-rollback-insert",
+      ),
+    ).toHaveLength(1);
+    await act(async () => root.render(null));
+    expect(onRuntimeStructureRollbackResult).toHaveBeenCalledExactlyOnceWith({
+      requestId: "move-2:rollback",
+      transactionId: "move-2",
+      applied: false,
+      reason: "target-canvas-unmounted",
+    });
+    expect(onRuntimeStructureInsertRejected).not.toHaveBeenCalled();
+
+    onRuntimeStructureRollbackResult.mockClear();
+    await render(null, null, "move-3");
+    await act(async () => root.render(null));
+    expect(onRuntimeStructureInsertRejected).toHaveBeenCalledExactlyOnceWith(
+      "target-canvas-unmounted",
+      "move-3",
+    );
+    expect(onRuntimeStructureRollbackResult).not.toHaveBeenCalled();
+  });
+
+  it("cancels an acknowledged insert when the destination document reloads before source ack", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><html><body>Runtime</body></html>");
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ),
+    );
+    const onRuntimeStructureInsertRejected = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/target"
+          contentKey="screen-target"
+          screenId="screen-target"
+          sourceType="localhost"
+          bridgeUrl={bridgeUrl}
+          previewToken="ready-recovery-preview-token"
+          liveEditCapability="ready-recovery-live-edit-capability"
+          // The editor supplies this only after insert ack while the source
+          // delete request is still awaiting its own ack.
+          runtimeStructureTargetTransactionId="move-reload"
+          onRuntimeStructureInsertRejected={onRuntimeStructureInsertRejected}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    const iframeWindow = iframe.contentWindow as Window;
+    iframeWindow.postMessage = vi.fn() as unknown as Window["postMessage"];
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:editor-chrome-ready",
+            routePath: "/target",
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+
+    expect(onRuntimeStructureInsertRejected).toHaveBeenCalledExactlyOnceWith(
+      "target-document-replaced",
+      "move-reload",
+    );
+  });
+
+  it("keeps a live iframe bridge ready when its source snapshot key changes", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><html><body>Runtime</body></html>");
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ),
+    );
+    const render = async (contentKey: string) => {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="http://localhost:5173/"
+            contentKey={contentKey}
+            screenId="screen-live"
+            sourceType="localhost"
+            bridgeUrl={bridgeUrl}
+            previewToken="snapshot-refresh-preview-token"
+            liveEditCapability="snapshot-refresh-live-edit-capability"
+            zoom={100}
+            deviceFrame="none"
+            editMode
+            interactMode={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        ),
+      );
+    };
+
+    await render("snapshot-before");
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    const iframeWindow = iframe.contentWindow as Window;
+    const posted: unknown[] = [];
+    iframeWindow.postMessage = ((message: unknown) => {
+      posted.push(message);
+    }) as Window["postMessage"];
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready", routePath: "/" },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+    posted.length = 0;
+
+    await render("snapshot-after");
+    expect(container.querySelector("iframe[data-design-preview-iframe]")).toBe(
+      iframe,
+    );
+    posted.length = 0;
+    const sendStyleChange = (
+      window as unknown as {
+        __designCanvasSendStyleForScreen?: (
+          screenId: string,
+          selector: string,
+          property: string,
+          value: string,
+        ) => boolean;
+      }
+    ).__designCanvasSendStyleForScreen;
+    expect(sendStyleChange).toBeTypeOf("function");
+    await act(async () => {
+      expect(sendStyleChange!("screen-live", "#probe", "opacity", "0.5")).toBe(
+        true,
+      );
+    });
+
+    expect(posted).toContainEqual(
+      expect.objectContaining({
+        type: "style-change",
+        selector: "#probe",
+        property: "opacity",
+        value: "0.5",
+      }),
+    );
   });
 
   it("does not roll back a runtime insert from its informational structure echo", async () => {
@@ -282,6 +834,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
           sourceType="localhost"
           bridgeUrl={bridgeUrl}
           previewToken="runtime-insert-ack-preview-token"
+          liveEditCapability="runtime-insert-ack-live-edit-capability"
           runtimeStructureInsertRequest={{
             requestId: 1,
             screenId: "screen-live",
@@ -436,6 +989,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
             sourceType="localhost"
             bridgeUrl={bridgeUrl}
             previewToken="style-probe-preview-token"
+            liveEditCapability="style-probe-live-edit-capability"
             pendingStylePreviewPatches={pendingStylePreviewPatches}
             zoom={100}
             deviceFrame="none"
@@ -566,30 +1120,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
       sourceId: "card",
       styles: { color: "red" },
     };
-    await render("screen-live", "screen-live-remount", [pendingPatch]);
-    expect(typesOf("style-change")).toHaveLength(0);
-    await act(async () => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: {
-            type: "agent-native:text-edit-status-result",
-            correlationId: "",
-            status: false,
-          },
-          origin: bridgeUrl,
-          source: iframeWindow,
-        }),
-      );
-    });
-    await act(async () => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: { type: "agent-native:editor-chrome-ready", routePath: "/" },
-          origin: bridgeUrl,
-          source: iframeWindow,
-        }),
-      );
-    });
+    await render("screen-live", "screen-live-snapshot-refresh", [pendingPatch]);
     expect(typesOf("style-change")).toContainEqual({
       type: "style-change",
       selector: "#card",
@@ -669,6 +1200,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
           sourceType="localhost"
           bridgeUrl={bridgeUrl}
           previewToken="silent-frame-preview-token"
+          liveEditCapability="silent-frame-live-edit-capability"
           zoom={100}
           deviceFrame="none"
           editMode

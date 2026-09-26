@@ -263,6 +263,12 @@ export default {
       opacity: "Opazität",
       padding: "Polsterung",
       margin: "Marge",
+      marginTop: "Oberer Außenabstand",
+      marginRight: "Rechter Außenabstand",
+      marginBottom: "Unterer Außenabstand",
+      marginLeft: "Linker Außenabstand",
+      linkMarginSides: "Außenabstände verknüpfen",
+      unlinkMarginSides: "Außenabstände lösen",
       radius: "Radius",
       flexGrow: "Wachsen",
       flexShrink: "Schrumpfen",
@@ -580,6 +586,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "Live-Zusammenarbeit",
+      description:
+        "Ermögliche Personen ohne Zugriff auf den localhost des Eigentümers, eine Live-Kopie dieses Designs anzusehen und zu bearbeiten.",
+      enabled: "Ein",
+      disabled: "Aus",
+      saving: "Wird gespeichert…",
+      enableError: "Live-Zusammenarbeit konnte nicht aktualisiert werden.",
+    },
     vectorEndpoints: {
       startPoint: "Startpunkt",
       endPoint: "Endpunkt",
@@ -961,6 +976,11 @@ export default {
     signUpToSaveDescription:
       "Erstelle ein kostenloses Konto, um Designs und Screen-Layouts zu speichern und neue Richtungen zu generieren.",
     signUpToShare: "Zum Teilen registrieren",
+    signUpToShareLiveCanvas:
+      "Registriere dich, um eine Live-Arbeitsfläche zu teilen",
+    liveCanvasLink: "Link zur Live-Arbeitsfläche",
+    liveCanvasWaitingForOwner:
+      "Warte auf den Live-Snapshot der Arbeitsfläche des Besitzers.",
     shareEditorLink: "Design-Editor-Link",
     shareEditorLinkDescription:
       "Alle mit Zugriff koennen dieses Design im Editor oeffnen.",
@@ -1236,12 +1256,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "Ausstehende visuelle Stiländerungen anwenden",
       applyButton: "Stile anwenden",
+      applySharedEdits: "Änderungen anwenden",
       previewLabel: "Ausstehende visuelle Vorschau",
       applyDesignUpdates: "Design-Updates anwenden",
       applying: "Wird angewendet…",
       verifying: "Quelle und Laufzeit werden überprüft…",
       retryWithAgent: "Quellprüfung wiederholen",
       copyPrompt: "Prompt an deinen Agent kopieren",
+      copyFullPrompt: "Vollständigen Prompt kopieren",
       abortPreview: "Vorschau abbrechen und interagieren",
       agentMessage:
         "Wende die ausstehenden visuellen Stiländerungen auf die Quelle an.",
@@ -1254,6 +1276,8 @@ export default {
       sourceCheckFailedToast:
         "Die verbundenen Quelldateien konnten nicht überprüft werden. Die Vorschau wurde zum Wiederholen oder Rückgängigmachen beibehalten.",
       copiedToast: "Stil-Prompt kopiert",
+      copiedToastDescription:
+        "Füge ihn in deinen Programmier-Agenten ein und bitte ihn, die visuellen Änderungen umzusetzen.",
       abortedToast: "Ausstehende Vorschau verworfen",
       interactBlocked:
         "Wende ausstehende Live-Änderungen an oder brich sie ab, bevor du zu Interagieren wechselst.",
@@ -1318,6 +1342,8 @@ export default {
       annotationSendError:
         "Die Anmerkungen konnten nicht gesendet werden. Deine Zeichnung ist noch da – versuche es erneut.",
       codingHandoffError: "Code-Übergabe konnte nicht erstellt werden",
+      visualEditPendingConflict:
+        "Bei einem anderen Mitwirkenden warten Änderungen. Wende sie an oder verwerfe sie, bevor du neue Änderungen sendest.",
       codingHandoffCopied: "Code-Übergabe kopiert",
       clipboardBlocked: "Zwischenablage blockiert",
       htmlCreateError: "HTML-Download konnte nicht erstellt werden",

@@ -813,6 +813,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "アイコン",
+    iconPickerEmoji: "絵文字",
+    iconPickerRecent: "最近",
+    iconPickerColors: "色",
+    iconPickerDefault: "デフォルト",
+    iconPickerUpload: "アップロード",
+    iconPickerUploading: "アップロード中…",
     suggestionCreateFailed: "提案を作成できませんでした",
     suggestionsCount: "{{count}} 件の提案",
     acceptSuggestion: "承認",
@@ -1023,6 +1030,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "アイコン",
+    iconPickerEmoji: "絵文字",
+    iconPickerRecent: "最近",
+    iconPickerColors: "色",
+    iconPickerDefault: "デフォルト",
+    iconPickerUpload: "アップロード",
+    iconPickerUploading: "アップロード中…",
     suggestionAmendmentEmpty:
       "この編集は現在のページと同じです。提案を削除するには却下してください。",
     suggestionAmendmentFailed: "提案を保存できませんでした",
@@ -1282,6 +1296,13 @@ const overrides = {
     genericError: "問題が発生しました",
   },
   editor: {
+    iconPickerIcons: "アイコン",
+    iconPickerEmoji: "絵文字",
+    iconPickerRecent: "最近",
+    iconPickerColors: "色",
+    iconPickerDefault: "デフォルト",
+    iconPickerUpload: "アップロード",
+    iconPickerUploading: "アップロード中…",
     ...editor,
     sourceComponent: {
       defaultTitle: "ソースコンポーネント",

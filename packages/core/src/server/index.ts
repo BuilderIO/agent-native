@@ -6,6 +6,7 @@ export {
   type AppConfig,
   type AppConfigInput,
 } from "../app-config/index.js";
+export { resolveDeployEnvironment } from "./deploy-environment.js";
 export {
   inferWorkspaceAppRootHomePath,
   readConfiguredWorkspaceAppHomePath,
@@ -343,7 +344,9 @@ export {
   createAgentNativeOgImageHandler,
   renderAgentNativeOgImagePng,
   renderAgentNativeOgImageSvg,
+  stageOgImageResponseHeaders,
   type AgentNativeOgImageInput,
+  type AgentNativeOgImagePresentation,
 } from "./social-og-image.js";
 export { AGENT_NATIVE_OG_BACKGROUND_DATA_URL } from "./og-background-data.js";
 export { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
@@ -603,6 +606,8 @@ export {
   isBuilderEnvManaged,
   getBuilderProxyOrigin,
   getBuilderImageGenerationBaseUrl,
+  getBuilderEmbeddingsBaseUrl,
+  getBuilderVideoGenerationBaseUrl,
   getBuilderWebSearchBaseUrl,
   getBuilderAuthHeader,
   resolveBuilderPrivateKey,
@@ -627,6 +632,7 @@ export {
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveSecret,
+  BuilderCredentialLookupError,
   type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
 export {
@@ -757,6 +763,16 @@ export {
   type RenderedEmail,
   type EmailCta,
 } from "./email-template.js";
+export {
+  hasRecurringSweepHandler,
+  registerRecurringSweepHandler,
+  runRecurringSweepHandlers,
+  type RecurringSweepHandler,
+} from "../jobs/sweep-hooks.js";
+export {
+  scheduledTriggerAvailability,
+  type ScheduledTriggerAvailability,
+} from "./agent-chat/recurring-jobs-runtime.js";
 export {
   getAppProductionUrl,
   getFirstPartyProdUrl,

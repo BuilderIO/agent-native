@@ -35,6 +35,15 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Dateien, Agenten oder Ressourcen erwähnen",
   "commands.new": "Entspricht /clear",
   "commands.plan": "Zum schreibgeschützten Planungsmodus wechseln",
+  "observability.viewDetails": "Details anzeigen",
+  "observability.hideDetails": "Details ausblenden",
+  "observability.input": "Eingabe",
+  "observability.output": "Ausgabe",
+  "observability.error": "Fehler",
+  "observability.metadata": "Metadaten",
+  "observability.notCaptured": "Nicht erfasst",
+  "observability.openFullConversation": "Vollständige Unterhaltung öffnen",
+  "observability.learnAboutTab": "Mehr über diesen Tab erfahren",
   "onboarding.back": "Zurück",
   "onboarding.chooseRole": "Wähle deine Rolle",
   "onboarding.customizeRole": "Wir passen das für dich an.",
@@ -305,11 +314,14 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "Antwort neu generieren",
   "message.restoreFailed": "Wiederherstellung fehlgeschlagen ({{status}}).",
   "message.restoreQuestion": "Bis hierher wiederherstellen?",
+  "message.revertQuestion":
+    "Zu diesem Punkt zurückkehren? Änderungen danach gehen verloren.",
   "message.restoreRequestFailed": "Wiederherstellungsanfrage fehlgeschlagen.",
   "message.threadNotFound":
     "Dieser Chat-Thread ist nicht mehr verfügbar. Starte einen neuen Chat oder versuche es erneut, falls das unerwartet war.",
   "message.restoring": "Wird wiederhergestellt...",
   "message.revertHere": "Bis hierher zurücksetzen",
+  "message.revertToBeginning": "Zum Anfang zurückkehren",
   "message.sentAt": "Gesendet {{time}}",
   "plan.act": "Ausführen",
   "plan.implement": "Umsetzen",
@@ -503,6 +515,8 @@ const messages: AgentChatTranslation = {
     "Beschreibe den Skill, den du erstellen möchtest...",
   "composer.documentTooLarge":
     "„{{name}}“ ist {{size}} MB groß. {{label}} sind auf {{maxSize}} MB begrenzt, damit die Nachrichtengröße nicht überschritten wird. Verkleinere die Datei oder teile sie in kleinere Teile auf.",
+  "composer.requestTooLarge":
+    "Diese Nachricht und ihre Anhänge sind zu groß zum Senden. Entferne einen Anhang oder kürze die Nachricht.",
   "composer.file": "Datei",
   "composer.imageModel": "Bildmodell",
   "composer.imagePreview": "Bildvorschau",
@@ -727,7 +741,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "Der KI-Anbieter hat diese Anfrage vorübergehend abgelehnt. Das behebt sich meist innerhalb einer Minute – versuche es erneut.",
   "errorMessages.startNewChat": "Neuen Chat starten",
-  "errorMessages.upgradeAtBuilder": "Bei Builder.io upgraden",
+  "errorMessages.addCreditsInBuilder": "Credits bei Builder hinzufügen",
   "feedback.inaccurate": "Ungenau",
   "feedback.keyboardHint": "{{shortcut}} Enter zum Senden",
   "feedback.notHelpful": "Nicht hilfreich",
@@ -866,6 +880,24 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "Bestätigung konnte nicht gesendet werden.",
   "settings.emailNewLabel": "Neue E-Mail-Adresse",
   "settings.emailNewPlaceholder": "Neue E-Mail-Adresse eingeben",
+  "usage.builderCredits": "Builder-Credits",
+  "usage.creditBalance": "Workspace-Guthaben",
+  "usage.monthlyPlan": "Monatsplan",
+  "usage.dailyFreeLimit": "Tägliches Gratislimit",
+  "usage.creditUsedOfLimit": "{{used}} von {{limit}} verbraucht",
+  "usage.creditRemaining": "{{amount}} verbleibend",
+  "usage.creditUsageUnavailable":
+    "Der Builder-Credit-Verbrauch konnte nicht geladen werden.",
+  "usage.estimatedBuilderCredits": "~{{amount}} geschätzte Credits",
+  "usage.otherUsdSpend": "{{amount}} USD sonstige",
+  "usage.noBuilderCredits": "0 Builder-Credits",
+  "usage.otherUnclassifiedSpend":
+    "Sonstige oder nicht zugeordnete Ausgaben in USD",
+  "usage.providerSpendDetail":
+    "Anbieteraufrufe oder ältere Aufrufe außerhalb der Builder-Abrechnung",
+  "usage.providerSpendToday":
+    "Sonstige oder nicht zugeordnete Nutzung heute: {{amount}}",
+  "usage.driverCreditsAndUsd": "Builder-Credits / USD",
 };
 
 export default messages;

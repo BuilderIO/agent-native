@@ -279,6 +279,8 @@ export default {
     untitledAnalysis: "未命名分析",
   },
   settings: {
+    agentObservability: "代理可觀測性",
+    reviewPreviewUnavailable: "無法預覽",
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
     openAgentSettings: "管理代理",
@@ -1329,6 +1331,7 @@ export default {
     app: "應用",
     unknownApp: "未知應用",
     lastSeen: "最後出現",
+    includeZeroMinuteSessions: "包含 0 分鐘的工作階段",
     duration: "持續時間",
     events: "事件",
     chunks: "分塊",

@@ -1645,7 +1645,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   var runtimeLayerSnapshotTimer: number | null = null;
   var runtimeLayerSnapshotMaxTimer: number | null = null;
+  var runtimeLayerSnapshotReservationRequestId = 0;
+  var runtimeLayerSnapshotReservationInFlight = false;
+  var runtimeLayerSnapshotReservationDirty = false;
   var lastRuntimeLayerSnapshotHtml = "";
+  var lastRuntimeLayerSnapshotReservationToken = "";
   var runtimeDocumentId =
     "runtime-" + Date.now() + "-" + Math.random().toString(16).slice(2);
 
@@ -1993,7 +1997,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  function postRuntimeLayerSnapshot(): void {
+  function postRuntimeLayerSnapshot(
+    reservationToken?: string,
+    requestId?: number,
+  ): void {
     if (runtimeLayerSnapshotTimer !== null) {
       window.clearTimeout(runtimeLayerSnapshotTimer);
     }
@@ -2007,18 +2014,68 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       (window.parent as Window).postMessage(
         {
           type: "agent-native:runtime-layer-snapshot-error",
-          payload: snapshot,
+          payload: {
+            ...snapshot,
+            requestId,
+            documentId: runtimeDocumentId,
+            ...(reservationToken ? { reservationToken } : {}),
+          },
         },
         "*",
       );
       return;
     }
-    if (snapshot.html === lastRuntimeLayerSnapshotHtml) return;
+    var snapshotReservationToken = reservationToken || "";
+    if (
+      snapshot.html === lastRuntimeLayerSnapshotHtml &&
+      snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken
+    ) {
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:runtime-layer-snapshot-unchanged",
+          payload: {
+            requestId,
+            documentId: snapshot.documentId,
+            ...(reservationToken ? { reservationToken } : {}),
+          },
+        },
+        "*",
+      );
+      return;
+    }
     lastRuntimeLayerSnapshotHtml = snapshot.html;
+    lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+    if (requestId !== undefined) snapshot.requestId = requestId;
+    if (reservationToken) snapshot.reservationToken = reservationToken;
     (window.parent as Window).postMessage(
       {
         type: "agent-native:runtime-layer-snapshot",
         payload: snapshot,
+      },
+      "*",
+    );
+  }
+
+  function requestRuntimeLayerSnapshot(): void {
+    if (runtimeLayerSnapshotTimer !== null) {
+      window.clearTimeout(runtimeLayerSnapshotTimer);
+      runtimeLayerSnapshotTimer = null;
+    }
+    if (runtimeLayerSnapshotMaxTimer !== null) {
+      window.clearTimeout(runtimeLayerSnapshotMaxTimer);
+      runtimeLayerSnapshotMaxTimer = null;
+    }
+    if (runtimeLayerSnapshotReservationInFlight) {
+      runtimeLayerSnapshotReservationDirty = true;
+      return;
+    }
+    runtimeLayerSnapshotReservationInFlight = true;
+    runtimeLayerSnapshotReservationRequestId += 1;
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:runtime-layer-snapshot-reservation-request",
+        requestId: runtimeLayerSnapshotReservationRequestId,
+        documentId: runtimeDocumentId,
       },
       "*",
     );
@@ -2034,12 +2091,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       window.clearTimeout(runtimeLayerSnapshotTimer);
     }
     runtimeLayerSnapshotTimer = window.setTimeout(
-      postRuntimeLayerSnapshot,
+      requestRuntimeLayerSnapshot,
       300,
     );
     if (runtimeLayerSnapshotMaxTimer === null) {
       runtimeLayerSnapshotMaxTimer = window.setTimeout(
-        postRuntimeLayerSnapshot,
+        requestRuntimeLayerSnapshot,
         1500,
       );
     }
@@ -4182,22 +4239,123 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  type TypedStyleValue =
+    | { status: "available"; value: string | undefined }
+    | { status: "failed"; error: unknown };
+
+  function typedStyleValue(el: Element, property: string): TypedStyleValue {
+    var typedElement = el as Element & {
+      computedStyleMap?: () => StylePropertyMap;
+    };
+    if (typeof typedElement.computedStyleMap !== "function") {
+      return { status: "available", value: undefined };
+    }
+    try {
+      return {
+        status: "available",
+        value: typedElement.computedStyleMap().get(property)?.toString().trim(),
+      };
+    } catch (error) {
+      return { status: "failed", error };
+    }
+  }
+
+  function dimensionHasAutoMargin(el: Element, property: string): boolean {
+    var margins =
+      property === "width"
+        ? ["margin-left", "margin-right"]
+        : ["margin-top", "margin-bottom"];
+    return margins.some(function (margin) {
+      var value = typedStyleValue(el, margin);
+      // CSSOM resolves auto margins to pixels. If Typed OM cannot distinguish
+      // them, skip stretch preservation rather than freezing an uncertain size.
+      return (
+        value.status === "failed" ||
+        value.value === undefined ||
+        value.value.toLowerCase() === "auto"
+      );
+    });
+  }
+
+  function flexMainAxisDimension(parentStyle: CSSStyleDeclaration) {
+    var inlineAxis = /^(vertical|sideways)/.test(parentStyle.writingMode)
+      ? "height"
+      : "width";
+    if (!/^column/.test(parentStyle.flexDirection)) return inlineAxis;
+    return inlineAxis === "width" ? "height" : "width";
+  }
+
+  function gridItemDimensionIsStretched(
+    el: Element,
+    property: string,
+    cs: CSSStyleDeclaration,
+    parentStyle: CSSStyleDeclaration,
+    typedSize: TypedStyleValue,
+  ): boolean {
+    if (
+      typedSize.status === "failed" ||
+      typedSize.value?.toLowerCase() !== "auto" ||
+      dimensionHasAutoMargin(el, property)
+    ) {
+      return false;
+    }
+    var alignment = property === "width" ? cs.justifySelf : cs.alignSelf;
+    if (alignment === "auto") {
+      alignment =
+        property === "width"
+          ? parentStyle.justifyItems
+          : parentStyle.alignItems;
+    }
+    if (alignment === "stretch") return true;
+    if (alignment !== "normal" || cs.aspectRatio !== "auto") return false;
+    return !/^(audio|canvas|embed|iframe|img|object|video)$/.test(
+      el.tagName.toLowerCase(),
+    );
+  }
+
+  function flexItemDimensionIsStretched(
+    el: Element,
+    property: string,
+    cs: CSSStyleDeclaration,
+    parentStyle: CSSStyleDeclaration,
+  ): boolean {
+    var mainAxis = flexMainAxisDimension(parentStyle);
+    if (property === mainAxis || dimensionHasAutoMargin(el, property)) {
+      return false;
+    }
+    var alignment =
+      cs.alignSelf === "auto" ? parentStyle.alignItems : cs.alignSelf;
+    return alignment === "normal" || alignment === "stretch";
+  }
+
   function portableSizeIsLayoutResolved(
     el: Element,
     property: string,
     cs: CSSStyleDeclaration,
+    typedSize: string,
   ): boolean {
     if ((el as HTMLElement).style?.getPropertyValue(property)) return false;
-    if (property !== "width" || cs.position !== "static") return false;
+    if (typedSize !== cs[property]) return false;
+    if (cs.position === "absolute" || cs.position === "fixed") return false;
     var parent = el.parentElement;
     if (!parent) return false;
     var parentStyle = window.getComputedStyle(parent);
     if (/^(inline-)?flex$/.test(parentStyle.display)) {
-      return cs.flexBasis !== "auto" && cs.flexBasis !== "content";
+      var mainAxis = flexMainAxisDimension(parentStyle);
+      return property === mainAxis
+        ? cs.flexBasis !== "auto" && cs.flexBasis !== "content"
+        : flexItemDimensionIsStretched(el, property, cs, parentStyle);
     }
     if (/^(inline-)?grid$/.test(parentStyle.display)) {
-      return cs.justifySelf === "normal" || cs.justifySelf === "stretch";
+      return gridItemDimensionIsStretched(
+        el,
+        property,
+        cs,
+        parentStyle,
+        typedSize,
+      );
     }
+    if (property !== "width") return false;
     if (cs.display !== "block" && cs.display !== "flow-root") return false;
     var parentContentWidth =
       parent.clientWidth -
@@ -4265,10 +4423,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           return cacheFailure();
         }
         var size = String(typedValue).trim();
+        var preservesSizingMode =
+          /%|calc\(|clamp\(|(?:min|max)\(|(?:fit|fill)-content|(?:min|max)-content/i.test(
+            size,
+          );
         if (
           size &&
           (size !== "auto" || hostStyle?.getPropertyValue(property)) &&
-          !portableSizeIsLayoutResolved(el, property, cs)
+          (!portableSizeIsLayoutResolved(el, property, cs, size) ||
+            preservesSizingMode)
         ) {
           styles[property] = size;
         }
@@ -4437,6 +4600,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "paddingRight",
     "paddingBottom",
     "paddingLeft",
+    "marginTop",
+    "marginRight",
+    "marginBottom",
+    "marginLeft",
     "alignItems",
     "alignContent",
     "justifyItems",
@@ -4629,6 +4796,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return elementLooksLikeComponent(el)
       ? "var(--design-editor-component-contrast-color)"
       : "var(--design-editor-accent-contrast-color)";
+  }
+
+  function marginValueIsAuto(
+    el: Element,
+    side: string,
+    computedValue: string,
+  ): boolean {
+    var typedElement = el as Element & {
+      computedStyleMap?: () => StylePropertyMap;
+    };
+    if (typeof typedElement.computedStyleMap === "function") {
+      var typedValue = typedElement.computedStyleMap().get("margin-" + side);
+      if (String(typedValue).trim().toLowerCase() === "auto") return true;
+    }
+    var inlineValue = (el as HTMLElement).style.getPropertyValue(
+      "margin-" + side,
+    );
+    return (
+      inlineValue.trim().toLowerCase() === "auto" ||
+      computedValue.trim().toLowerCase() === "auto"
+    );
   }
 
   function collectComputedStyles(
@@ -4992,6 +5180,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ? window.getComputedStyle(strokeTarget)
       : paintCs;
     var computed = collectComputedStyles(cs, paintCs, strokeCs);
+    // An open pen path's fill-opacity="0" only keeps its chord unpainted
+    // (Figma fills closed regions only); it is not the fill's own opacity.
+    var paintTarget =
+      vectorPaintTarget(el) ||
+      (el.tagName.toLowerCase() === "path" &&
+      el.hasAttribute("data-an-pen-nodes")
+        ? el
+        : null);
+    var penNodesOwner =
+      paintTarget && paintTarget.hasAttribute("data-an-pen-nodes")
+        ? paintTarget
+        : el;
+    if (
+      paintTarget &&
+      paintTarget.getAttribute("fill-opacity") === "0" &&
+      (penNodesOwner.getAttribute("data-an-pen-nodes") || "").indexOf("[0") ===
+        0
+    ) {
+      computed.fillOpacity =
+        (paintTarget as HTMLElement).style.getPropertyValue("fill-opacity") ||
+        "1";
+    }
     // A multi-shape pasted SVG has no single paint target. Its wrapper's
     // computed `fill` is the SVG initial value (black), not an authored fill.
     // Keep authored wrapper fills visible, while leaving child paints to the
@@ -5027,6 +5237,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         computed.resolvedLineHeightPx = resolvedLineHeightPx;
       }
     }
+    if (marginValueIsAuto(el, "top", cs.marginTop)) computed.marginTop = "auto";
+    if (marginValueIsAuto(el, "right", cs.marginRight))
+      computed.marginRight = "auto";
+    if (marginValueIsAuto(el, "bottom", cs.marginBottom))
+      computed.marginBottom = "auto";
+    if (marginValueIsAuto(el, "left", cs.marginLeft))
+      computed.marginLeft = "auto";
     return {
       ...computed,
       "--an-vector-stroke-position":
@@ -5584,7 +5801,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     edge.setAttribute("data-agent-native-edge-handle", pos);
     var cursor = pos === "n" || pos === "s" ? "ns-resize" : "ew-resize";
     edge.style.cssText =
-      "position:absolute;pointer-events:auto;cursor:" +
+      "position:absolute;z-index:2;pointer-events:auto;cursor:" +
       cursor +
       ";background:transparent;";
     if (pos === "n") {
@@ -6068,6 +6285,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   var selectedEl: Element | null = null;
+  var runtimeStructureInsertTransactionKey = Symbol(
+    "agent-native-runtime-structure-transaction",
+  );
   // Figma parity on the infinite-canvas board: a plain click resolves to the
   // outermost child of this container (the screen root, i.e. null, by default)
   // rather than the raw deepest hit. Double-click drilling
@@ -6188,7 +6408,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     sourceProvenance?: { versionHash?: string; uniqueNodeIds: string[] };
   } | null = null;
   var textEditPointerState: {
-    shield: string;
     selection: string;
     highlight: string;
   } | null = null;
@@ -6414,23 +6633,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
   var activeCrossScreenSourceHtml: string | undefined = undefined;
+  var activeCrossScreenComputedSize:
+    | { width?: number; height?: number }
+    | undefined;
+  var activeCrossScreenDeleteRequestId: string | undefined = undefined;
   var activeCrossScreenDragIdentity: {
     selector: string;
     sourceId: string;
     sourceProvenance?: { versionHash?: string; uniqueNodeId?: string };
   } | null = null;
   var spacingDrag: {
-    key: string;
-    groupKey: string;
-    property: string;
-    oppositeProperty: string;
-    side: string;
-    orientation: string;
-    baseValue: number;
-    baseOppositeValue: number;
-    startX: number;
-    startY: number;
-    el: Element;
+    handle: { key: string; groupKey: string; kind: string };
+    currentValue: number;
+    mirrorOpposite: boolean;
+    syncAllSides: boolean;
   } | null = null;
   var lockedSelectors: string[] = [];
   var hiddenSelectors: string[] = [];
@@ -8196,10 +8412,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function clampSpacingValue(value: number): number {
+  function clampSpacingValue(value: number, allowNegative: boolean): number {
     var rounded = Math.round(value);
     if (!Number.isFinite(rounded)) return 0;
-    return Math.max(0, Math.min(999, rounded));
+    return Math.max(allowNegative ? -999 : 0, Math.min(999, rounded));
   }
 
   // Figma-style handle hit area: only the small handle *line* itself (plus a
@@ -8239,6 +8455,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  function hitRectForMarginHandle(
+    line: { x: number; y: number; width: number; height: number },
+    tolerance: number,
+    side: string,
+    elementRect: { width: number; height: number },
+  ): { x: number; y: number; width: number; height: number } {
+    var hit = {
+      x: line.x - tolerance,
+      y: line.y - tolerance,
+      width: line.width + tolerance * 2,
+      height: line.height + tolerance * 2,
+    };
+    var inwardReach =
+      side === "top" || side === "bottom"
+        ? clampHandleInwardReach(Number.POSITIVE_INFINITY, elementRect.height)
+        : clampHandleInwardReach(Number.POSITIVE_INFINITY, elementRect.width);
+    if (side === "top") {
+      var bottom = Math.min(hit.y + hit.height, inwardReach);
+      hit.y = Math.min(hit.y, bottom - 1);
+      hit.height = Math.max(1, bottom - hit.y);
+    } else if (side === "bottom") {
+      var originalBottom = hit.y + hit.height;
+      var top = Math.max(hit.y, elementRect.height - inwardReach);
+      hit.y = top;
+      hit.height = Math.max(1, originalBottom - top);
+    } else if (side === "left") {
+      var right = Math.min(hit.x + hit.width, inwardReach);
+      hit.x = Math.min(hit.x, right - 1);
+      hit.width = Math.max(1, right - hit.x);
+    } else if (side === "right") {
+      var originalRight = hit.x + hit.width;
+      var left = Math.max(hit.x, elementRect.width - inwardReach);
+      hit.x = left;
+      hit.width = Math.max(1, originalRight - left);
+    }
+    return hit;
+  }
+
   function makeSpacingHandle(config: {
     key: string;
     groupKey?: string;
@@ -8248,6 +8502,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     side?: string;
     orientation: string;
     value: number;
+    valueLabel?: string;
+    elementRect?: { width: number; height: number };
     region: { x: number; y: number; width: number; height: number };
     line?: { x: number; y: number; width: number; height: number };
   }): unknown {
@@ -8266,7 +8522,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             roundedRegion,
             PADDING_HANDLE_HIT_TOLERANCE_BASE * chromeLineScale(),
           )
-        : roundedRegion;
+        : config.kind === "margin"
+          ? hitRectForMarginHandle(
+              config.line,
+              PADDING_HANDLE_HIT_TOLERANCE_BASE * chromeLineScale(),
+              config.side || "",
+              config.elementRect || { width: 0, height: 0 },
+            )
+          : roundedRegion;
     return {
       key: config.key,
       groupKey: config.groupKey || config.key,
@@ -8275,7 +8538,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       oppositeProperty: config.oppositeProperty || "",
       side: config.side || "",
       orientation: config.orientation,
-      value: clampSpacingValue(config.value),
+      value: clampSpacingValue(config.value, config.kind === "margin"),
+      valueLabel: config.valueLabel || "",
       region: roundedRegion,
       hit: hit,
       line: config.line,
@@ -8444,6 +8708,135 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return handles.filter(Boolean);
   }
 
+  function buildMarginSpacingHandles(
+    el: Element,
+    rect: DOMRect,
+    cs: CSSStyleDeclaration,
+  ): unknown[] {
+    var line = chromeLineScale();
+    var tickLength =
+      Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) *
+      line;
+    var marginHandleClearance = 6 * Math.max(1, line);
+    var top = clampSpacingValue(readPx(cs.marginTop), true);
+    var right = clampSpacingValue(readPx(cs.marginRight), true);
+    var bottom = clampSpacingValue(readPx(cs.marginBottom), true);
+    var left = clampSpacingValue(readPx(cs.marginLeft), true);
+
+    return [
+      makeSpacingHandle({
+        key: "margin:top",
+        kind: "margin",
+        property: "marginTop",
+        oppositeProperty: "marginBottom",
+        side: "top",
+        orientation: "horizontal",
+        value: top,
+        valueLabel: marginValueIsAuto(el, "top", cs.marginTop) ? "auto" : "",
+        elementRect: rect,
+        region: {
+          x: 0,
+          y: Math.min(0, -top),
+          width: rect.width,
+          height: Math.max(1, Math.abs(top)),
+        },
+        line: {
+          x: rect.width / 2 - tickLength / 2,
+          y:
+            (top >= 0 ? -1 : 1) *
+              Math.max(marginHandleClearance, Math.abs(top) / 2) -
+            line / 2,
+          width: tickLength,
+          height: line,
+        },
+      }),
+      makeSpacingHandle({
+        key: "margin:right",
+        kind: "margin",
+        property: "marginRight",
+        oppositeProperty: "marginLeft",
+        side: "right",
+        orientation: "vertical",
+        value: right,
+        valueLabel: marginValueIsAuto(el, "right", cs.marginRight)
+          ? "auto"
+          : "",
+        elementRect: rect,
+        region: {
+          x: rect.width + Math.min(0, right),
+          y: 0,
+          width: Math.max(1, Math.abs(right)),
+          height: rect.height,
+        },
+        line: {
+          x:
+            rect.width +
+            (right >= 0 ? 1 : -1) *
+              Math.max(marginHandleClearance, Math.abs(right) / 2) -
+            line / 2,
+          y: rect.height / 2 - tickLength / 2,
+          width: line,
+          height: tickLength,
+        },
+      }),
+      makeSpacingHandle({
+        key: "margin:bottom",
+        kind: "margin",
+        property: "marginBottom",
+        oppositeProperty: "marginTop",
+        side: "bottom",
+        orientation: "horizontal",
+        value: bottom,
+        valueLabel: marginValueIsAuto(el, "bottom", cs.marginBottom)
+          ? "auto"
+          : "",
+        elementRect: rect,
+        region: {
+          x: 0,
+          y: rect.height + Math.min(0, bottom),
+          width: rect.width,
+          height: Math.max(1, Math.abs(bottom)),
+        },
+        line: {
+          x: rect.width / 2 - tickLength / 2,
+          y:
+            rect.height +
+            (bottom >= 0 ? 1 : -1) *
+              Math.max(marginHandleClearance, Math.abs(bottom) / 2) -
+            line / 2,
+          width: tickLength,
+          height: line,
+        },
+      }),
+      makeSpacingHandle({
+        key: "margin:left",
+        kind: "margin",
+        property: "marginLeft",
+        oppositeProperty: "marginRight",
+        side: "left",
+        orientation: "vertical",
+        value: left,
+        valueLabel: marginValueIsAuto(el, "left", cs.marginLeft) ? "auto" : "",
+        elementRect: rect,
+        region: {
+          x: Math.min(0, -left),
+          y: 0,
+          width: Math.max(1, Math.abs(left)),
+          height: rect.height,
+        },
+        line: {
+          x:
+            (left >= 0 ? -1 : 1) *
+              Math.max(marginHandleClearance, Math.abs(left) / 2) -
+            line / 2,
+          y: rect.height / 2 - tickLength / 2,
+          width: line,
+          height: tickLength,
+        },
+      }),
+    ].filter(Boolean);
+  }
+
   function buildGapSpacingHandles(
     el: Element,
     rect: DOMRect,
@@ -8551,14 +8944,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   } | null)[] {
     if (!el || !document.documentElement.contains(el)) return [];
     if (Math.abs(currentRotation(el)) > 0.01) return [];
-    var children = visibleLayoutChildren(el);
-    if (children.length === 0) return [];
     var rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return [];
     var cs = window.getComputedStyle(el);
-    return buildPaddingSpacingHandles(el, rect, cs).concat(
-      buildGapSpacingHandles(el, rect, cs),
-    );
+    return buildPaddingSpacingHandles(el, rect, cs)
+      .concat(buildMarginSpacingHandles(el, rect, cs))
+      .concat(buildGapSpacingHandles(el, rect, cs));
   }
 
   // Figma-style live value readout for the padding handle: shown while
@@ -8579,6 +8970,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       side: string;
       orientation: string;
       value: number;
+      valueLabel?: string;
       region: { x: number; y: number; width: number; height: number };
       line: { x: number; y: number; width: number; height: number } | undefined;
     } | null,
@@ -8607,7 +8999,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       x = rect.left + handle.region.x + handle.region.width / 2;
       y = rect.top + handle.region.y + handle.region.height / 2;
     }
-    spacingBadge.textContent = String(clampSpacingValue(value)) + "px";
+    spacingBadge.textContent =
+      handle.kind === "margin" &&
+      handle.valueLabel === "auto" &&
+      value === handle.value
+        ? "auto"
+        : String(clampSpacingValue(value, handle.kind === "margin")) + "px";
     spacingBadge.style.display = "block";
     spacingBadge.style.background = spacingColor(handle.kind);
     spacingBadge.style.fontSize = 10 * line + "px";
@@ -8666,7 +9063,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // compensates for the host's iframe scale (matches spacingFill's scaled
     // stripe stops — a fixed 6px tile would clip the scaled pattern).
     var hatchTile = 6 * chromeLineScale() + "px";
-    if (handle.kind === "padding") {
+    if (handle.kind === "padding" || handle.kind === "margin") {
       var hatchNode = document.createElement("span");
       hatchNode.setAttribute("data-agent-native-spacing-hatch", handle.kind);
       hatchNode.style.position = "absolute";
@@ -8693,10 +9090,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     regionNode.style.display = "block";
     regionNode.style.boxSizing = "border-box";
     regionNode.style.pointerEvents = "auto";
+    regionNode.style.zIndex =
+      handle.kind === "padding" ? "3" : handle.kind === "margin" ? "1" : "0";
     regionNode.style.backgroundSize = hatchTile + " " + hatchTile;
     regionNode.style.cursor =
       handle.orientation === "vertical" ? "ew-resize" : "ns-resize";
-    var hitRect = handle.kind === "padding" ? handle.hit : handle.region;
+    var hitRect =
+      handle.kind === "padding" || handle.kind === "margin"
+        ? handle.hit
+        : handle.region;
     regionNode.style.left = hitRect.x + "px";
     regionNode.style.top = hitRect.y + "px";
     regionNode.style.width = hitRect.width + "px";
@@ -8706,11 +9108,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // the hatch on this node — buildSpacingHandles' dedicated hatchNode above
     // owns that so it can stay outside the (now much smaller) hit area.
     regionNode.style.background =
-      handle.kind !== "padding" && active
+      handle.kind !== "padding" && handle.kind !== "margin" && active
         ? spacingFill(handle.kind, handle.orientation)
         : "transparent";
     regionNode.style.outline =
-      handle.kind !== "padding" && active
+      handle.kind !== "padding" && handle.kind !== "margin" && active
         ? "1px solid " + spacingColor(handle.kind)
         : "0";
     regionNode.style.outlineOffset = "-1px";
@@ -8750,7 +9152,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var hovered = Boolean(hoverGroupKeys[handle.groupKey]);
       var regionNode = spacingHandleNodesByKey[handle.key];
       if (regionNode) {
-        var gapHighlighted = handle.kind !== "padding" && active;
+        var gapHighlighted =
+          handle.kind !== "padding" && handle.kind !== "margin" && active;
         (regionNode as HTMLElement).style.background = gapHighlighted
           ? spacingFill(handle.kind, handle.orientation)
           : "transparent";
@@ -8785,7 +9188,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (
       spacingDrag &&
       spacingDrag.mirrorOpposite &&
-      activeHandle.kind === "padding" &&
+      (activeHandle.kind === "padding" || activeHandle.kind === "margin") &&
       activeHandle.oppositeProperty
     ) {
       handles.forEach(function (handle) {
@@ -11261,25 +11664,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
+  // The host replays read-only and interaction mode many times a second, so
+  // every writer must derive the shield from both states, not overwrite it.
+  function syncShieldPointerEvents(): void {
+    shieldOverlay.style.pointerEvents =
+      interactionMode || textEditPointerState ? "none" : "auto";
+  }
+
   function setTextEditingPointerPassthrough(enabled: boolean): void {
     if (enabled) {
       if (!textEditPointerState) {
         textEditPointerState = {
-          shield: shieldOverlay.style.pointerEvents,
           selection: selectionOverlay.style.pointerEvents,
           highlight: highlightOverlay.style.pointerEvents,
         };
       }
-      shieldOverlay.style.pointerEvents = "none";
+      syncShieldPointerEvents();
       selectionOverlay.style.pointerEvents = "none";
       highlightOverlay.style.pointerEvents = "none";
       return;
     }
     if (!textEditPointerState) return;
-    shieldOverlay.style.pointerEvents = textEditPointerState.shield;
     selectionOverlay.style.pointerEvents = textEditPointerState.selection;
     highlightOverlay.style.pointerEvents = textEditPointerState.highlight;
     textEditPointerState = null;
+    syncShieldPointerEvents();
   }
 
   function hasTextContent(el: Element | null): boolean {
@@ -12419,6 +12828,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       return false;
     }
+    if (typeof requestId === "string" && requestId) {
+      restorePendingRuntimeDeleteStyle(target, requestId);
+    }
     // A requestId means the host queued this deletion as a pending live edit
     // and may undo it. Register it in the same pending-move table the drag
     // path uses so the existing visual-structure-ack channel can put the node
@@ -12468,6 +12880,95 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     hideMeasurements();
     refreshOverlays();
     return true;
+  }
+
+  function restorePendingRuntimeDeleteStyle(target, requestId) {
+    if (!(target instanceof HTMLElement || target instanceof SVGElement)) {
+      return;
+    }
+    var attribute = "data-agent-native-pending-delete-style";
+    var encoded = target.getAttribute(attribute);
+    if (!encoded) return;
+    var snapshot: {
+      requestId: string;
+      properties: Record<string, { value: string; priority: string }>;
+    };
+    try {
+      snapshot = JSON.parse(encoded);
+    } catch (error) {
+      console.warn("[design:bridge] pending delete style is invalid", error);
+      return;
+    }
+    if (!snapshot.properties || typeof snapshot.requestId !== "string") {
+      console.warn("[design:bridge] pending delete style is incomplete");
+      return;
+    }
+    if (snapshot.requestId !== requestId) return;
+    var originalTransition = snapshot.properties.transition;
+    target.style.setProperty("transition", "none", "important");
+    Object.entries(snapshot.properties).forEach(([property, original]) => {
+      if (property === "transition") return;
+      if (original.value) {
+        target.style.setProperty(property, original.value, original.priority);
+      } else {
+        target.style.removeProperty(property);
+      }
+    });
+    target.removeAttribute(attribute);
+    target.getBoundingClientRect();
+    requestAnimationFrame(function () {
+      if (originalTransition.value) {
+        target.style.setProperty(
+          "transition",
+          originalTransition.value,
+          originalTransition.priority,
+        );
+      } else {
+        target.style.removeProperty("transition");
+      }
+    });
+  }
+
+  function concealPendingRuntimeDelete(
+    selector,
+    selectorCandidates,
+    requestId,
+  ) {
+    if (typeof requestId !== "string" || !requestId) return;
+    var target = findRuntimeTarget(selector, selectorCandidates);
+    if (!(target instanceof HTMLElement || target instanceof SVGElement))
+      return;
+    var attribute = "data-agent-native-pending-delete-style";
+    var encoded = target.getAttribute(attribute);
+    if (encoded) {
+      try {
+        var existing = JSON.parse(encoded);
+        if (existing.requestId === requestId) return;
+        restorePendingRuntimeDeleteStyle(target, existing.requestId);
+      } catch (error) {
+        console.warn("[design:bridge] pending delete style is invalid", error);
+        target.removeAttribute(attribute);
+      }
+    }
+    var properties = ["opacity", "pointer-events", "transition"];
+    var snapshot = {
+      requestId: requestId,
+      properties: Object.fromEntries(
+        properties.map(function (property) {
+          return [
+            property,
+            {
+              value: target.style.getPropertyValue(property),
+              priority: target.style.getPropertyPriority(property),
+            },
+          ];
+        }),
+      ),
+    };
+    target.setAttribute(attribute, JSON.stringify(snapshot));
+    target.style.setProperty("opacity", "0", "important");
+    target.style.setProperty("pointer-events", "none", "important");
+    target.style.setProperty("transition", "none", "important");
   }
 
   function readPx(value: string): number {
@@ -13255,12 +13756,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var delta =
       handle.orientation === "vertical" ? clientX - startX : clientY - startY;
     if (
-      handle.kind === "padding" &&
-      (handle.side === "right" || handle.side === "bottom")
+      (handle.kind === "padding" &&
+        (handle.side === "right" || handle.side === "bottom")) ||
+      (handle.kind === "margin" &&
+        (handle.side === "left" || handle.side === "top"))
     ) {
       delta = -delta;
     }
-    return clampSpacingValue(originValue + delta);
+    return clampSpacingValue(originValue + delta, handle.kind === "margin");
   }
 
   var paddingProperties = [
@@ -13269,6 +13772,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "paddingBottom",
     "paddingLeft",
   ];
+  var marginProperties = [
+    "marginTop",
+    "marginRight",
+    "marginBottom",
+    "marginLeft",
+  ];
+
+  function propertiesForSpacingHandle(handle) {
+    if (handle.kind === "margin") return marginProperties;
+    if (handle.kind === "padding") return paddingProperties;
+    return [handle.property];
+  }
 
   function applySpacingDragValue(
     target: Element,
@@ -13286,18 +13801,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     } | null,
     value: number,
     mirrorOpposite: boolean,
-    syncAllPadding: boolean,
+    syncAllSides: boolean,
   ): void {
     if (!target || !handle) return;
-    if (handle.kind === "padding" && syncAllPadding) {
-      for (var i = 0; i < 4; i += 1) {
-        target.style[paddingProperties[i]] = value + "px";
+    var properties = propertiesForSpacingHandle(handle);
+    if (syncAllSides) {
+      for (var i = 0; i < properties.length; i += 1) {
+        target.style[properties[i]] = value + "px";
       }
       return;
     }
     target.style[handle.property] = value + "px";
     if (
-      handle.kind === "padding" &&
+      (handle.kind === "padding" || handle.kind === "margin") &&
       mirrorOpposite &&
       handle.oppositeProperty
     ) {
@@ -13320,14 +13836,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var events = dragEventNames(e);
     var dragEl = selectedEl;
     var originValue = handle.value;
-    var originInlinePaddingValues = {};
-    for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
-      var paddingProperty = paddingProperties[paddingIndex];
-      originInlinePaddingValues[paddingProperty] = (
+    var spacingProperties = propertiesForSpacingHandle(handle);
+    var originInlineSpacingValues = {};
+    for (
+      var propertyIndex = 0;
+      propertyIndex < spacingProperties.length;
+      propertyIndex += 1
+    ) {
+      var spacingProperty = spacingProperties[propertyIndex];
+      originInlineSpacingValues[spacingProperty] = (
         dragEl as HTMLElement
-      ).style[paddingProperty];
+      ).style[spacingProperty];
     }
-    var syncAllPadding = !!e.shiftKey;
+    var syncAllSides = !!e.shiftKey;
     var startX = e.clientX;
     var startY = e.clientY;
     lastSpacingPointerPoint = { x: startX, y: startY };
@@ -13336,16 +13857,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       handle: handle,
       currentValue: originValue,
       mirrorOpposite: !!e.altKey,
-      syncAllPadding: syncAllPadding,
-      touchedAllPadding: syncAllPadding,
+      syncAllSides: syncAllSides,
     };
-    applySpacingDragValue(
-      dragEl,
-      handle,
-      originValue,
-      !!e.altKey,
-      syncAllPadding,
-    );
+    if (syncAllSides) {
+      applySpacingDragValue(dragEl, handle, originValue, !!e.altKey, true);
+    }
     // Hide the hover-only hatch fill the instant the drag begins (Figma-style:
     // hatch communicates "this is the resizable band" on hover; once dragging,
     // only the live value badge should be visible over the padding band).
@@ -13354,31 +13870,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     function updateSpacingDragState(
       mirrorOpposite: boolean,
-      syncAllPadding: boolean,
+      syncAllSides: boolean,
     ) {
       if (!spacingDrag) return;
       if (
         spacingDrag.mirrorOpposite === mirrorOpposite &&
-        spacingDrag.syncAllPadding === syncAllPadding
+        spacingDrag.syncAllSides === syncAllSides
       ) {
         return;
       }
-      var touchedAllPadding = spacingDrag.touchedAllPadding || syncAllPadding;
-      if (syncAllPadding) {
-        applySpacingDragValue(
-          dragEl,
-          handle,
-          spacingDrag.currentValue,
-          mirrorOpposite,
-          true,
-        );
+      for (
+        var propertyIndex = 0;
+        propertyIndex < spacingProperties.length;
+        propertyIndex += 1
+      ) {
+        var spacingProperty = spacingProperties[propertyIndex];
+        (dragEl as HTMLElement).style[spacingProperty] =
+          originInlineSpacingValues[spacingProperty];
       }
+      applySpacingDragValue(
+        dragEl,
+        handle,
+        spacingDrag.currentValue,
+        mirrorOpposite,
+        syncAllSides,
+      );
       spacingDrag = {
         handle: handle,
         currentValue: spacingDrag.currentValue,
         mirrorOpposite: mirrorOpposite,
-        syncAllPadding: syncAllPadding,
-        touchedAllPadding: touchedAllPadding,
+        syncAllSides: syncAllSides,
       };
       positionOverlay(selectionOverlay, dragEl);
       showSpacingBadgeForHandle(handle, spacingDrag.currentValue);
@@ -13394,10 +13915,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     function restoreSpacingDragValue() {
       if (dragEl && document.documentElement.contains(dragEl)) {
-        for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
-          var paddingProperty = paddingProperties[paddingIndex];
-          (dragEl as HTMLElement).style[paddingProperty] =
-            originInlinePaddingValues[paddingProperty];
+        for (
+          var propertyIndex = 0;
+          propertyIndex < spacingProperties.length;
+          propertyIndex += 1
+        ) {
+          var spacingProperty = spacingProperties[propertyIndex];
+          (dragEl as HTMLElement).style[spacingProperty] =
+            originInlineSpacingValues[spacingProperty];
         }
         selectedEl = dragEl;
         positionOverlay(selectionOverlay, dragEl);
@@ -13432,15 +13957,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ev.clientX,
         ev.clientY,
       );
-      var syncAllPadding = !!ev.shiftKey;
-      var touchedAllPadding =
-        (spacingDrag && spacingDrag.touchedAllPadding) || syncAllPadding;
+      var syncAllSides = !!ev.shiftKey;
       spacingDrag = {
         handle: handle,
         currentValue: nextValue,
         mirrorOpposite: !!ev.altKey,
-        syncAllPadding: syncAllPadding,
-        touchedAllPadding: touchedAllPadding,
+        syncAllSides: syncAllSides,
       };
       lastSpacingPointerPoint = { x: ev.clientX, y: ev.clientY };
       applySpacingDragValue(
@@ -13448,7 +13970,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         handle,
         nextValue,
         !!ev.altKey,
-        syncAllPadding,
+        syncAllSides,
       );
       positionOverlay(selectionOverlay, dragEl);
       showSpacingBadgeForHandle(handle, nextValue);
@@ -13465,32 +13987,35 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var mirrorOpposite = spacingDrag
         ? spacingDrag.mirrorOpposite
         : !!ev.altKey;
-      var syncAllPadding = spacingDrag
-        ? spacingDrag.syncAllPadding
-        : !!ev.shiftKey;
-      var touchedAllPadding = spacingDrag
-        ? spacingDrag.touchedAllPadding
-        : syncAllPadding;
-      var commitAllPadding =
-        handle.kind === "padding" && (syncAllPadding || touchedAllPadding);
+      var syncAllSides = spacingDrag ? spacingDrag.syncAllSides : !!ev.shiftKey;
+      var commitAllSides =
+        (handle.kind === "padding" || handle.kind === "margin") && syncAllSides;
+      if (finalValue === originValue && !commitAllSides) {
+        restoreSpacingDragValue();
+        return;
+      }
       applySpacingDragValue(
         dragEl,
         handle,
         finalValue,
         mirrorOpposite,
-        commitAllPadding,
+        commitAllSides,
       );
       selectedEl = dragEl;
       spacingDrag = null;
       var styles = {};
-      if (commitAllPadding) {
-        for (var paddingIndex = 0; paddingIndex < 4; paddingIndex += 1) {
-          styles[paddingProperties[paddingIndex]] = finalValue + "px";
+      if (commitAllSides) {
+        for (
+          var propertyIndex = 0;
+          propertyIndex < spacingProperties.length;
+          propertyIndex += 1
+        ) {
+          styles[spacingProperties[propertyIndex]] = finalValue + "px";
         }
       } else {
         styles[handle.property] = finalValue + "px";
         if (
-          handle.kind === "padding" &&
+          (handle.kind === "padding" || handle.kind === "margin") &&
           mirrorOpposite &&
           handle.oppositeProperty
         ) {
@@ -13508,7 +14033,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setActiveDragCancel(cancelSpacingDrag);
   }
 
-  function postTextContentChange(el, value, html, originalValue, originalHtml) {
+  function postTextContentChange(
+    el,
+    value,
+    html,
+    originalValue,
+    originalHtml,
+    relativeOperations,
+  ) {
     claimContentAsSource(el);
     publishSourceDocumentProvenance(undefined, true);
     (window.parent as Window).postMessage(
@@ -13521,6 +14053,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           typeof originalValue === "string" ? originalValue : undefined,
         originalHtml:
           typeof originalHtml === "string" ? originalHtml : undefined,
+        relativeOperations:
+          relativeOperations && typeof relativeOperations === "object"
+            ? relativeOperations
+            : undefined,
         payload: getElementInfo(el),
       },
       "*",
@@ -15547,6 +16083,124 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  function computedSizeInPixels(value: string): number | undefined {
+    var match = /^\s*(\d+(?:\.\d+)?)px\s*$/i.exec(value);
+    if (!match) return undefined;
+    var size = Number(match[1]);
+    return Number.isFinite(size) ? size : undefined;
+  }
+
+  function flexItemMainSizeChangesWithoutFlexing(
+    el: Element,
+    property: "width" | "height",
+  ): boolean {
+    var style = (el as HTMLElement).style;
+    if (!style) return false;
+    var originalSize = el.getBoundingClientRect()[property];
+    var declarations = ["flex-grow", "flex-shrink", "transition"].map(
+      function (name) {
+        return {
+          name,
+          value: style.getPropertyValue(name),
+          priority: style.getPropertyPriority(name),
+        };
+      },
+    );
+    try {
+      // The synchronous override is restored before the browser can paint.
+      style.setProperty("transition", "none", "important");
+      style.setProperty("flex-grow", "0", "important");
+      style.setProperty("flex-shrink", "0", "important");
+      return (
+        Math.abs(el.getBoundingClientRect()[property] - originalSize) > 0.5
+      );
+    } finally {
+      declarations.forEach(function (declaration) {
+        if (declaration.value) {
+          style.setProperty(
+            declaration.name,
+            declaration.value,
+            declaration.priority,
+          );
+        } else {
+          style.removeProperty(declaration.name);
+        }
+      });
+    }
+  }
+
+  function crossScreenAutoLayoutSizeFallback(
+    el: Element | null,
+    snapshot: unknown,
+    computed: CSSStyleDeclaration | null,
+  ): { width?: number; height?: number } | undefined {
+    if (
+      !el ||
+      !computed ||
+      computed.position === "absolute" ||
+      computed.position === "fixed"
+    ) {
+      return undefined;
+    }
+    var parent = el.parentElement;
+    if (!parent) return undefined;
+    var parentStyle = window.getComputedStyle(parent);
+    var isFlex = /^(inline-)?flex$/.test(parentStyle.display);
+    var isGrid = /^(inline-)?grid$/.test(parentStyle.display);
+    if (!isFlex && !isGrid) return undefined;
+    var snapshotRoot = (
+      snapshot as {
+        nodes?: Array<{ path?: unknown; styles?: unknown }>;
+      } | null
+    )?.nodes?.find(
+      (node) => Array.isArray(node.path) && node.path.length === 0,
+    );
+    var styles = snapshotRoot?.styles;
+    if (!styles || typeof styles !== "object") return undefined;
+    var mainAxis = isFlex ? flexMainAxisDimension(parentStyle) : undefined;
+    var flexMainSizeIsResolved = false;
+    if (isFlex && mainAxis) {
+      flexMainSizeIsResolved =
+        (computed.flexBasis !== "auto" && computed.flexBasis !== "content") ||
+        ((Number(computed.flexGrow) > 0 || Number(computed.flexShrink) > 0) &&
+          flexItemMainSizeChangesWithoutFlexing(el, mainAxis));
+    }
+    var resolvedByAutoLayout = function (property: "width" | "height") {
+      if (isGrid) {
+        return gridItemDimensionIsStretched(
+          el,
+          property,
+          computed,
+          parentStyle,
+          typedStyleValue(el, property),
+        );
+      }
+      if (property === mainAxis) {
+        return flexMainSizeIsResolved;
+      }
+      return flexItemDimensionIsStretched(el, property, computed, parentStyle);
+    };
+    var result: { width?: number; height?: number } = {};
+    (["width", "height"] as const).forEach((property) => {
+      var snapshotSize = styles[property];
+      var snapshotSizeIsAuto =
+        typeof snapshotSize === "string" &&
+        snapshotSize.trim().toLowerCase() === "auto";
+      if (
+        (Object.prototype.hasOwnProperty.call(styles, property) &&
+          !snapshotSizeIsAuto) ||
+        !resolvedByAutoLayout(property)
+      ) {
+        return;
+      }
+      var size = computedSizeInPixels(computed[property]);
+      if (size !== undefined) result[property] = size;
+    });
+    return result.width !== undefined || result.height !== undefined
+      ? result
+      : undefined;
+  }
+
   // Chromium reports Event.timeStamp relative to the document time origin,
   // while synthetic and older events can carry an epoch timestamp. Normalize
   // both forms before sending a source timestamp to the host document.
@@ -15596,7 +16250,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // does not silently lose Ignore Auto Layout.
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
+      activeCrossScreenComputedSize = undefined;
       activeCrossScreenDragIdentity = null;
+      activeCrossScreenDeleteRequestId = undefined;
       (window.parent as Window).postMessage(
         { type: "agent-native:cross-screen-drag", phase: "cancel" },
         "*",
@@ -15604,11 +16260,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (phase === "start") {
+      activeCrossScreenDeleteRequestId = `cross-screen-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
       activeCrossScreenStyleSnapshot =
         options?.styleSnapshot !== undefined
           ? options.styleSnapshot
           : collectPortableStyleSnapshot(el ?? null);
       activeCrossScreenSourceHtml = el?.outerHTML;
+      var computed = el ? window.getComputedStyle(el) : null;
+      activeCrossScreenComputedSize = crossScreenAutoLayoutSizeFallback(
+        el ?? null,
+        activeCrossScreenStyleSnapshot,
+        computed,
+      );
       var startSourceId = getSourceId(el ?? null);
       var startProvenance = nodeProvenanceForSourceId(
         startSourceId,
@@ -15647,6 +16310,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         boardSurface: designCanvasBoardSurface,
         selector: dragIdentity?.selector ?? getSelector(el ?? null),
         sourceId: dragIdentity?.sourceId ?? getSourceId(el ?? null),
+        sourceDeleteRequestId: activeCrossScreenDeleteRequestId,
         sourceProvenance: dragIdentity?.sourceProvenance,
         iframeX: ev?.clientX ?? 0,
         iframeY: ev?.clientY ?? 0,
@@ -15662,6 +16326,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           : undefined,
         pointerOffset,
         styleSnapshot: activeCrossScreenStyleSnapshot,
+        sourceComputedSize: activeCrossScreenComputedSize,
         // Explicit sibling flag, not just `styleSnapshot === null` — the
         // host must not have to infer capture-failed from a value shape
         // that could change; see collectPortableStyleSnapshot's doc.
@@ -15674,8 +16339,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // Use the pre-lift snapshot: during a drag the bridge may temporarily
         // add a translate() transform to the source element, and that
         // editor-only transform must never become destination markup.
+        // Send it from "start": the host can finalize from its own window
+        // mouseup, in which case this iframe never sees the release and no
+        // "end" is posted.
         sourceCloneHtml:
-          phase === "end" ? activeCrossScreenSourceHtml : undefined,
+          phase === "start" || phase === "end"
+            ? activeCrossScreenSourceHtml
+            : undefined,
         releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : undefined,
       },
       "*",
@@ -15687,7 +16357,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       bridgeIgnoreAutoLayoutKeyPressed = false;
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
+      activeCrossScreenComputedSize = undefined;
       activeCrossScreenDragIdentity = null;
+      activeCrossScreenDeleteRequestId = undefined;
     }
   }
 
@@ -21979,6 +22651,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           crossScreenClaimedByHost
         : false;
       if (ev && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
+        var sourceDeleteRequestId = activeCrossScreenDeleteRequestId;
         postCrossScreenDrag("end", dragEl, ev, {
           duplicate: duplicatedForDrag,
           modifiers: {
@@ -22000,6 +22673,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           postElementSelect(selectedEl);
         } else {
           restoreSourceDragPosition();
+          if (crossScreenClaimedByHost && sourceDeleteRequestId) {
+            var selector = getSelector(dragEl);
+            var sourceId = getSourceId(dragEl);
+            var selectorCandidates = [selector];
+            if (sourceId) {
+              selectorCandidates.push(
+                '[data-agent-native-node-id="' + CSS.escape(sourceId) + '"]',
+              );
+            }
+            concealPendingRuntimeDelete(
+              selector,
+              selectorCandidates,
+              sourceDeleteRequestId,
+            );
+          }
         }
         return;
       }
@@ -23725,6 +24413,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (rawHit && rawHit !== el) return false;
     if (isDocumentRootElement(el)) return false;
     if (outermostSvgAncestor(el) === el) return false;
+    if (!isContainerDropTarget(el)) return false;
     var child = el.firstElementChild;
     // A lone `data-an-text` span is the editor's own wrapper around a
     // painted leaf's bare text (see selectionTargetForHit) — not a real
@@ -24890,6 +25579,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // hit-test, and we already tried the explicit target above.
       if (!programmaticFlag) {
         var descendHit = elementFromEditorPoint(e.clientX, e.clientY);
+        // Figma: double-clicking the selected vector opens point editing,
+        // which the host already owns behind Enter.
+        if (
+          descendHit &&
+          selectedEl &&
+          selectedEl.hasAttribute("data-an-pen-nodes") &&
+          selectedEl.contains(descendHit)
+        ) {
+          postDesignHotkey({ key: "Enter", code: "Enter" });
+          return;
+        }
         if (
           descendHit &&
           descendHit !== document.body &&
@@ -25960,8 +26660,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       // Preserve the more specific Interact ownership when read-only state is
       // replayed after a mode change on a retained iframe.
-      shieldOverlay.style.pointerEvents = interactionMode ? "none" : "auto";
-      setSelectionOverlayResizeChromeVisible(!readOnly && !interactionMode);
+      syncShieldPointerEvents();
+      setSelectionOverlayResizeChromeVisible(
+        !readOnly && !interactionMode && !activeTextEditEl,
+      );
       if (interactionMode) hideSelectionOverlay();
       else if (selectedEl?.isConnected)
         positionOverlay(selectionOverlay, selectedEl);
@@ -25990,11 +26692,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         hideSelectionOverlay();
         highlightOverlay.style.display = "none";
         marqueeSelectionOverlay.style.display = "none";
-        shieldOverlay.style.pointerEvents = "none";
+        syncShieldPointerEvents();
       } else {
         textEditingEnabled = !readOnly && textEditingEnabledFlag;
         setSelectionOverlayResizeChromeVisible(!readOnly);
-        shieldOverlay.style.pointerEvents = "auto";
+        syncShieldPointerEvents();
         if (selectedEl?.isConnected)
           positionOverlay(selectionOverlay, selectedEl);
         scheduleRuntimeLayerSnapshot();
@@ -27035,6 +27737,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         acknowledgeInsert(existingInsertEl, runtimeMutationApplied);
         return;
       }
+      var insertTransactionId =
+        typeof e.data.transactionId === "string" ? e.data.transactionId : "";
+      if (insertTransactionId) {
+        (parsedInsertEl as unknown as Record<symbol, string>)[
+          runtimeStructureInsertTransactionKey
+        ] = insertTransactionId;
+      }
       if (replaceInsertAnchor) {
         var replaceParent = insertAnchor.parentElement;
         if (!replaceParent) {
@@ -27280,17 +27989,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
       return;
     }
+    if (e.data.type === "pending-delete-element") {
+      concealPendingRuntimeDelete(
+        e.data.selector,
+        e.data.selectorCandidates,
+        e.data.requestId,
+      );
+      return;
+    }
+    if (e.data.type === "cancel-pending-delete-element") {
+      var pendingDeleteTarget = findRuntimeTarget(
+        e.data.selector,
+        e.data.selectorCandidates,
+      );
+      if (pendingDeleteTarget) {
+        restorePendingRuntimeDeleteStyle(pendingDeleteTarget, e.data.requestId);
+      }
+      return;
+    }
     if (e.data.type === "runtime-structure-rollback-insert") {
       var rollbackRequestId = String(e.data.requestId || "");
-      var rollbackTarget = findUniqueRuntimeStructureTarget(
-        String(e.data.selector || ""),
-        typeof e.data.sourceId === "string" ? e.data.sourceId : "",
-      );
-      if (
-        !rollbackRequestId ||
-        !rollbackTarget ||
-        !rollbackTarget.parentElement
-      ) {
+      var rollbackTransactionId =
+        typeof e.data.transactionId === "string" ? e.data.transactionId : "";
+      var rollbackTargets = rollbackTransactionId
+        ? Array.from(document.querySelectorAll("*")).filter(
+            (element) =>
+              (element as unknown as Record<symbol, string>)[
+                runtimeStructureInsertTransactionKey
+              ] === rollbackTransactionId,
+          )
+        : [];
+      if (rollbackTargets.length === 0) {
+        var rollbackTarget = findUniqueRuntimeStructureTarget(
+          String(e.data.selector || ""),
+          typeof e.data.sourceId === "string" ? e.data.sourceId : "",
+        );
+        if (rollbackTarget) rollbackTargets = [rollbackTarget];
+      }
+      if (!rollbackRequestId || rollbackTargets.length === 0) {
         (window.parent as Window).postMessage(
           {
             type: "runtime-structure-rollback-result",
@@ -27303,7 +28039,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         return;
       }
-      rollbackTarget.parentElement.removeChild(rollbackTarget);
+      for (var rollbackTarget of rollbackTargets) {
+        if (
+          rollbackTarget === selectedEl ||
+          rollbackTarget.contains(selectedEl)
+        ) {
+          selectedEl = null;
+        }
+        if (
+          rollbackTarget === hoveredEl ||
+          rollbackTarget.contains(hoveredEl)
+        ) {
+          hoveredEl = null;
+        }
+        rollbackTarget.parentElement?.removeChild(rollbackTarget);
+      }
       publishSourceDocumentProvenance(undefined, true);
       refreshOverlays();
       (window.parent as Window).postMessage(
@@ -27337,7 +28087,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (e.data.type === "request-runtime-layer-snapshot") {
-      postRuntimeLayerSnapshot();
+      requestRuntimeLayerSnapshot();
+      return;
+    }
+    if (e.data.type === "grant-runtime-layer-snapshot-reservation") {
+      if (
+        e.data.documentId !== runtimeDocumentId ||
+        e.data.requestId !== runtimeLayerSnapshotReservationRequestId
+      ) {
+        return;
+      }
+      runtimeLayerSnapshotReservationInFlight = false;
+      if (runtimeLayerSnapshotReservationDirty) {
+        runtimeLayerSnapshotReservationDirty = false;
+        requestRuntimeLayerSnapshot();
+        return;
+      }
+      postRuntimeLayerSnapshot(
+        typeof e.data.reservationToken === "string"
+          ? e.data.reservationToken
+          : undefined,
+        Number.isSafeInteger(e.data.requestId) ? e.data.requestId : undefined,
+      );
       return;
     }
     if (e.data.type === "runtime-layer-rename") {
@@ -27441,6 +28212,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         textEditStyleTarget!.innerHTML || "",
         undefined,
         undefined,
+        prop && e.data.relativeOperation
+          ? { [prop]: e.data.relativeOperation }
+          : undefined,
       );
       postTextEditingState(
         textEditStyleTarget,
@@ -27769,11 +28543,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         typeof next.textEditingEnabled === "boolean"
           ? next.textEditingEnabled
           : textEditingEnabledFlag;
-      var wasTextEditingEnabled = textEditingEnabled;
       if (readOnly !== nextReadOnly) {
         readOnly = nextReadOnly;
         if (readOnly) {
-          if (activeTextEditEl) activeTextEditEl.blur();
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
         }
@@ -27781,20 +28553,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       textEditingEnabledFlag = nextTextEditingEnabledFlag;
       textEditingEnabled =
         !readOnly && !interactionMode && textEditingEnabledFlag;
+      if (activeTextEditEl && (readOnly || !textEditingEnabled)) {
+        activeTextEditEl.blur();
+      }
       if (interactionMode) {
         setSelectionOverlayResizeChromeVisible(false);
         hideSelectionOverlay();
         highlightOverlay.style.display = "none";
         marqueeSelectionOverlay.style.display = "none";
-        shieldOverlay.style.pointerEvents = "none";
+        syncShieldPointerEvents();
       } else {
-        setSelectionOverlayResizeChromeVisible(!readOnly);
-        shieldOverlay.style.pointerEvents = "auto";
+        setSelectionOverlayResizeChromeVisible(!readOnly && !activeTextEditEl);
+        syncShieldPointerEvents();
         if (selectedEl?.isConnected)
           positionOverlay(selectionOverlay, selectedEl);
-      }
-      if (!textEditingEnabled && wasTextEditingEnabled && activeTextEditEl) {
-        activeTextEditEl.blur();
       }
       if (typeof next.screenId === "string") {
         designCanvasScreenId = next.screenId;

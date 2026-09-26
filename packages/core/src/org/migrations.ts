@@ -302,4 +302,12 @@ export const ORG_MIGRATIONS = [
     name: "agent-audit-log-base-table",
     sql: AGENT_AUDIT_LOG_CREATE_SQL,
   },
+  {
+    version: 1033,
+    name: "organization-visual-identity",
+    sql: `
+      ALTER TABLE organizations ADD COLUMN IF NOT EXISTS icon_json TEXT;
+      ALTER TABLE organizations ADD COLUMN IF NOT EXISTS icon_revision BIGINT NOT NULL DEFAULT 0;
+    `,
+  },
 ];

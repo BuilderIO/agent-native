@@ -26,6 +26,7 @@ const messages = {
     team: "팀",
   },
   settings: {
+    agentObservability: "에이전트 관찰성",
     title: "설정",
     description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
     labs: "Labs",
@@ -672,14 +673,14 @@ const messages = {
     accessApprovalSignIn: "로그인",
     accessApprovalLoading: "액세스 권한을 부여하는 중...",
     backToDecks: "덱으로 돌아가기",
-    tryAgain: "重试",
+    tryAgain: "다시 시도",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:
       "슬라이드에 이미지를 업로드하려면 에이전트 작성기의 모델 메뉴에서 Builder.io를 연결하세요. 빈 캔버스에 이미지를 놓으면 제공자 없이도 에이전트로 보낼 수 있습니다.",
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
-    deckHasNoSlides: "幻灯片没有页面。",
+    deckHasNoSlides: "덱에 슬라이드가 없습니다.",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
     layoutOverflowWarning: "레이아웃이 넘칩니다",
@@ -694,6 +695,10 @@ const messages = {
       "지금 나가거나 새로고침하면 아직 저장되지 않은 변경 사항을 잃을 수 있습니다. 정말 나가시겠어요?",
     keepEditing: "계속 편집",
     leaveWithoutSaving: "저장하지 않고 나가기",
+    editorMarkupNotSaved:
+      "이 편집은 슬라이드에 편집기 마크업이 추가되므로 저장되지 않았습니다.",
+    textEditConflictNotSaved:
+      "같은 텍스트가 동시에 다른 곳에서 변경되어 텍스트 편집이 저장되지 않았습니다.",
   },
   designSystemSetup: {
     importedBrand: "가져온 브랜드",

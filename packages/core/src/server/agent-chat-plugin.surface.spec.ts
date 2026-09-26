@@ -17,6 +17,7 @@ import {
   filterPromptActionsToSurface,
   filterRuntimeActionsToSurface,
   resolveProductionCodeExecutionForActionSurface,
+  resolveObservabilityReviewSummaryActionSurface,
   resolveConnectSetupInitialToolNames,
   resolveHostedBuilderHandoff,
   resolveConfiguredAgentModel,
@@ -139,6 +140,129 @@ describe("interactive agent run options", () => {
 });
 
 describe("request-scoped action surface", () => {
+  it("limits summary requests to the two run-bound review actions", async () => {
+    const details = {
+      actionScope: {
+        kind: "observability-review-summary",
+        runId: "run-42",
+      },
+      availableActionNames: [
+        "get-observability-review-summary-source",
+        "save-observability-review-summary",
+        "delete-workspace",
+      ],
+    } as any;
+    let hostResolverCalled = false;
+    const hostResolver = () => {
+      hostResolverCalled = true;
+      return { mode: "default" as const };
+    };
+
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface(details, hostResolver),
+    ).resolves.toEqual({
+      allowedActionNames: [
+        "get-observability-review-summary-source",
+        "save-observability-review-summary",
+      ],
+      actionScope: { kind: "observability-review-summary", runId: "run-42" },
+    });
+    expect(hostResolverCalled).toBe(false);
+  });
+
+  it("binds each bulk summary surface to its deduplicated run IDs", async () => {
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface({
+        actionScope: {
+          kind: "observability-review-summary-batch",
+          runIds: [" run-1 ", "run-2", "run-1"],
+        },
+        availableActionNames: [
+          "get-observability-review-summary-source",
+          "save-observability-review-summary",
+        ],
+      } as any),
+    ).resolves.toEqual({
+      allowedActionNames: [
+        "get-observability-review-summary-source",
+        "save-observability-review-summary",
+      ],
+      actionScope: {
+        kind: "observability-review-summary-batch",
+        runIds: ["run-1", "run-2"],
+      },
+    });
+  });
+
+  it("preserves the host resolver for non-summary requests", async () => {
+    const details = { actionScope: { kind: "host-flow" } } as any;
+    const hostResult = { allowedActionNames: ["host-action"] };
+    let receivedDetails: unknown;
+    const hostResolver = (value: unknown) => {
+      receivedDetails = value;
+      return hostResult;
+    };
+
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface(details, hostResolver),
+    ).resolves.toBe(hostResult);
+    expect(receivedDetails).toBe(details);
+  });
+
+  it("limits feedback improvement to a run-bound instruction draft", async () => {
+    const result = await resolveObservabilityReviewSummaryActionSurface({
+      actionScope: {
+        kind: "observability-feedback-improvement",
+        runId: "run-42",
+      },
+      availableActionNames: [
+        "get-observability-review-summary-source",
+        "save-observability-instruction-update",
+        "delete-workspace",
+      ],
+    } as any);
+    expect(result).toEqual({
+      allowedActionNames: [
+        "get-observability-review-summary-source",
+        "save-observability-instruction-update",
+      ],
+      actionScope: {
+        kind: "observability-feedback-improvement",
+        runId: "run-42",
+      },
+    });
+  });
+
+  it("rejects malformed summary scopes and missing review actions", async () => {
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface({
+        actionScope: { kind: "observability-review-summary", runId: "" },
+        availableActionNames: [
+          "get-observability-review-summary-source",
+          "save-observability-review-summary",
+        ],
+      } as any),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface({
+        actionScope: { kind: "observability-review-summary", runId: "run-42" },
+        availableActionNames: ["get-observability-review-summary-source"],
+      } as any),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface({
+        actionScope: {
+          kind: "observability-review-summary-batch",
+          runIds: Array.from({ length: 26 }, (_, index) => `run-${index}`),
+        },
+        availableActionNames: [
+          "get-observability-review-summary-source",
+          "save-observability-review-summary",
+        ],
+      } as any),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
   it("does not import the release migration script during dev discovery", () => {
     const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
@@ -342,13 +466,15 @@ describe("request-scoped action surface", () => {
     expect(prompt).not.toContain("core.denied");
   });
 
-  it("forwards the resolver into every interactive production handler", () => {
+  it("wraps the resolver for every interactive production handler", () => {
     const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
     expect(
-      source.match(/resolveActionSurface: options\?\.resolveActionSurface,/g),
+      source.match(
+        /resolveActionSurface: \(details\) =>\s+resolveObservabilityReviewSummaryActionSurface\(/g,
+      ),
     ).toHaveLength(2);
     expect(source).toContain("resolveActionSurface: resolveDevActionSurface");
   });

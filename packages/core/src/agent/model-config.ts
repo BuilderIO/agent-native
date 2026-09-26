@@ -1,9 +1,7 @@
 /**
  * Central model catalog for built-in agent engines.
  *
- * To bump the framework's managed default, update the Anthropic/OpenAI
- * constants below. Builder gateway and OpenRouter IDs are derived here so the
- * usual default bump stays in one file.
+ * Framework defaults and supported model catalogs for built-in engines.
  */
 
 // ---------------------------------------------------------------------------
@@ -246,19 +244,12 @@ const OPENROUTER_CLAUDE_SONNET_MODEL_ID = ENABLE_CLAUDE_SONNET_5
 
 const ANTHROPIC_DEFAULT_MODEL_ID = CLAUDE_SONNET_MODEL_ID;
 
-function builderGatewayModelId(model: string): string {
-  return model.replace(/\./g, "-");
-}
-
 function openRouterModelId(provider: string, model: string): string {
   return `${provider}/${model}`;
 }
 
 const FRAMEWORK_DEFAULT_OPENAI_MODEL = "gpt-5.6-luna";
-const FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL = builderGatewayModelId(
-  FRAMEWORK_DEFAULT_OPENAI_MODEL,
-);
-const FRAMEWORK_DEFAULT_BUILDER_MODEL = FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL;
+const FRAMEWORK_DEFAULT_BUILDER_MODEL = "gpt-6-luna";
 const FRAMEWORK_DEFAULT_OPENROUTER_MODEL = openRouterModelId(
   "openai",
   FRAMEWORK_DEFAULT_OPENAI_MODEL,
@@ -269,18 +260,24 @@ export const AGENT_MODEL_CONFIG = {
     defaultModel: FRAMEWORK_DEFAULT_BUILDER_MODEL,
     supportedModels: [
       "auto",
-      FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL,
-      "gpt-5-6-terra",
-      "gpt-5-6-sol",
       "claude-haiku-4-5",
       CLAUDE_SONNET_MODEL_ID,
-      "claude-opus-4-8",
-      "gemini-3-5-flash",
+      "claude-opus-5-5",
+      "gpt-6-sol",
+      "gpt-5-6-terra",
+      "gpt-6-luna",
       "gemini-3-1-pro",
-      // Flash-Lite is a transcription-only public id. Advertising it as an
-      // agent-chat option routes through a Vertex preview model whose
-      // availability can lapse while the id remains accepted, leaving chat
-      // with a bare stop/error event that cannot recover.
+      "gemini-3-8-flash",
+      "gemini-3-5-flash-lite",
+      // The older public ID stays available for transcription, but its chat
+      // route targets a Vertex preview model whose availability can lapse.
+      "grok-code-fast",
+      "qwen3-coder",
+      "kimi-k2-5",
+      "deepseek-v4-pro",
+      "deepseek-v3-1",
+      "z-ai-glm-4-5",
+      "z-ai-glm-5-1",
     ],
   },
   anthropic: {
@@ -331,8 +328,6 @@ export const AGENT_MODEL_CONFIG = {
         "anthropic/claude-opus-4.8",
         "anthropic/claude-fable-5",
         "anthropic/claude-fable-5.1",
-        // Current stable Gemini on OpenRouter (2.5 Flash is GA)
-        "google/gemini-2.5-flash",
         "google/gemini-3.8-flash",
         "qwen/qwen3.8-max-0902",
         "meta/muse-spark-1.3",
@@ -341,8 +336,8 @@ export const AGENT_MODEL_CONFIG = {
       ],
     },
     google: {
-      defaultModel: "gemini-3.5-flash",
-      supportedModels: ["gemini-3.5-flash", "gemini-3.1-pro-preview"],
+      defaultModel: "gemini-3.8-flash",
+      supportedModels: ["gemini-3.8-flash", "gemini-3.1-pro-preview"],
     },
     groq: {
       // llama-3.1-70b-versatile and mixtral-8x7b-32768 were decommissioned

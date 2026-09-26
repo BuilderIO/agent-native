@@ -104,13 +104,15 @@ import { AgentActivityTrace } from "./chat/agent-activity-trace.js";
 import {
   DownscalingImageAttachmentAdapter,
   BinaryDocumentAttachmentAdapter,
+  MAX_PDF_BYTES,
   MAX_ESTIMATED_BODY_BYTES,
   AGGRESSIVE_MAX_IMAGE_DIMENSION,
   AGGRESSIVE_JPEG_QUALITY,
   transcodeImageToDataURL,
   createAgentImageAttachments,
   serializeQueuedAttachments,
-  estimateAttachmentBodyBytes,
+  getSubmittedPromptBodyStrings,
+  measureJsonStringBytes,
   getAttachmentBodyStrings,
   type QueuedAttachment,
 } from "./chat/attachment-adapters.js";
@@ -124,7 +126,9 @@ import {
 } from "./chat/markdown-renderer.js";
 import {
   AssistantChatHistoryContext,
+  AssistantChatHistoryBeginningRevertButton,
   assistantMessageHasCompletedSideEffect,
+  findAssistantChatHistoryBeginningVersion,
   findMatchingAssistantChatHistoryVersion,
   isAssistantChatHistoryVersion,
   type AssistantChatHistoryConfig,
@@ -215,10 +219,7 @@ import {
   useAgentDynamicSuggestionsResult,
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
-import {
-  isCreditsLimitErrorCode,
-  isProviderAuthenticationError,
-} from "./error-format.js";
+import { isProviderAuthenticationError } from "./error-format.js";
 import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
@@ -2213,6 +2214,7 @@ export async function restoreAssistantChatHistoryVersion<
   refetch: () => Promise<unknown>;
   onRefetchError: (error: unknown) => void;
 }) {
+  await options.history.restore.beforeRestore?.();
   const args = await options.history.restore.args(options.version);
   const restored = await options.restore(args);
   let applicationFailed = false;
@@ -3314,7 +3316,9 @@ const AssistantChatInner = forwardRef<
   const submissionTailRef = useRef(Promise.resolve());
   const chatHistoryListQuery = useActionQuery<unknown>(
     (chatHistory?.list.action ?? "list-resource-versions") as never,
-    chatHistory?.list.args as never,
+    (typeof chatHistory?.list.args === "function"
+      ? chatHistory.list.args(threadId)
+      : chatHistory?.list.args) as never,
     { enabled: chatHistory !== undefined },
   );
   const chatHistoryVersions = useMemo(() => {
@@ -3335,22 +3339,54 @@ const AssistantChatInner = forwardRef<
   const refetchChatHistory = chatHistoryListQuery.refetch;
   const restoreHistory = chatHistoryRestoreMutation.mutateAsync;
   const createHistoryVersion = chatHistoryCreateMutation.mutateAsync;
+  const [isChatHistoryRestoring, setIsChatHistoryRestoring] = useState(false);
+  const chatHistoryRestoreInFlightRef = useRef(false);
+  const chatHistoryRestoreWaitRef = useRef<Promise<void> | null>(null);
+  const waitForChatHistoryRestore = useCallback(async () => {
+    let restoreWait = chatHistoryRestoreWaitRef.current;
+    while (restoreWait) {
+      await restoreWait;
+      restoreWait = chatHistoryRestoreWaitRef.current;
+    }
+  }, []);
   const restoreChatHistoryVersion = useCallback(
     async (version: AssistantChatHistoryVersion) => {
       if (!chatHistory) return;
-      await restoreAssistantChatHistoryVersion({
-        history: chatHistory,
-        version,
-        restore: restoreHistory,
-        refetch: refetchChatHistory,
-        onRefetchError: (error) =>
-          captureError(error, {
-            tags: {
-              source: "agent-chat-client",
-              phase: "chat-history-refetch-after-restore",
-            },
-          }),
+      if (chatHistoryRestoreInFlightRef.current) {
+        throw new Error("A chat history restore is already in progress.");
+      }
+      if (submissionInFlightRef.current > 0) {
+        throw new Error("A chat submission is already in progress.");
+      }
+      let finishRestore!: () => void;
+      const restoreWait = new Promise<void>((resolve) => {
+        finishRestore = resolve;
       });
+      chatHistoryRestoreWaitRef.current = restoreWait;
+      chatHistoryRestoreInFlightRef.current = true;
+      setIsChatHistoryRestoring(true);
+      try {
+        await restoreAssistantChatHistoryVersion({
+          history: chatHistory,
+          version,
+          restore: restoreHistory,
+          refetch: refetchChatHistory,
+          onRefetchError: (error) =>
+            captureError(error, {
+              tags: {
+                source: "agent-chat-client",
+                phase: "chat-history-refetch-after-restore",
+              },
+            }),
+        });
+      } finally {
+        chatHistoryRestoreInFlightRef.current = false;
+        setIsChatHistoryRestoring(false);
+        if (chatHistoryRestoreWaitRef.current === restoreWait) {
+          chatHistoryRestoreWaitRef.current = null;
+        }
+        finishRestore();
+      }
     },
     [chatHistory, refetchChatHistory, restoreHistory],
   );
@@ -3358,6 +3394,12 @@ const AssistantChatInner = forwardRef<
     () =>
       chatHistory
         ? {
+            beginningVersion: findAssistantChatHistoryBeginningVersion(
+              chatHistoryVersions,
+              threadId,
+              chatHistory.isEditable,
+            ),
+            isRestoring: isChatHistoryRestoring,
             findVersion: (message: AssistantChatHistoryMessage) =>
               findMatchingAssistantChatHistoryVersion(
                 chatHistoryVersions,
@@ -3371,7 +3413,13 @@ const AssistantChatInner = forwardRef<
             restoreVersion: restoreChatHistoryVersion,
           }
         : null,
-    [chatHistory, chatHistoryVersions, restoreChatHistoryVersion],
+    [
+      chatHistory,
+      chatHistoryVersions,
+      isChatHistoryRestoring,
+      restoreChatHistoryVersion,
+      threadId,
+    ],
   );
   const chatHistoryRunObservedRef = useRef(false);
   const chatHistoryCreateKeyRef = useRef<string | null>(null);
@@ -3394,6 +3442,14 @@ const AssistantChatInner = forwardRef<
       !latestAssistantMessage ||
       !assistantMessageHasCompletedSideEffect(latestAssistantMessage)
     ) {
+      void refetchChatHistory().catch((error) =>
+        captureError(error, {
+          tags: {
+            source: "agent-chat-client",
+            phase: "chat-history-refetch-after-run",
+          },
+        }),
+      );
       return;
     }
 
@@ -5175,7 +5231,10 @@ const AssistantChatInner = forwardRef<
       // tool cards or a second Thinking/Stop state.
       clearReconnectReaderForTerminalError();
       setRunErrorInfo({
-        message: detail.message,
+        message:
+          detail.errorCode === "request_too_large"
+            ? t("agentChat.composer.requestTooLarge")
+            : detail.message,
         ...(detail.details ? { details: detail.details } : {}),
         ...(detail.errorCode ? { errorCode: detail.errorCode } : {}),
         ...(detail.runId ? { runId: detail.runId } : {}),
@@ -5195,6 +5254,7 @@ const AssistantChatInner = forwardRef<
     clearReconnectReaderForTerminalError,
     forceStopped,
     latestAssistantRunId,
+    t,
     tabId,
     threadId,
   ]);
@@ -5276,6 +5336,7 @@ const AssistantChatInner = forwardRef<
     // the only user-visible copy and immediately re-enter the provider failure.
     if (
       isRestoring ||
+      isChatHistoryRestoring ||
       engineSetupRequired ||
       isRunning ||
       queuedMessages.length === 0
@@ -5303,7 +5364,7 @@ const AssistantChatInner = forwardRef<
           // complete. Starting the queued turn during that window can reconnect
           // to the old run and replay the old answer under the new prompt.
           const runCleared = await waitForThreadRunToClear(apiUrl, threadId);
-          if (cancelled) return;
+          if (cancelled || chatHistoryRestoreInFlightRef.current) return;
           if (!runCleared) {
             // The server still owns this turn (including a deferred durable
             // successor). Keep the queued message visible and retry after a
@@ -5446,6 +5507,7 @@ const AssistantChatInner = forwardRef<
     apiUrl,
     appendThreadMessage,
     applyLocalQueuedMessages,
+    isChatHistoryRestoring,
     isRestoring,
     isRunning,
     engineSetupRequired,
@@ -5800,7 +5862,8 @@ const AssistantChatInner = forwardRef<
   // The composer stop button uses the handler above; queued send-now keeps the
   // active run alive and only promotes the selected message for later dequeue.
   const sendQueuedMessageNow = useCallback(
-    (id: string) => {
+    async (id: string) => {
+      await waitForChatHistoryRestore();
       const message = queuedMessagesRef.current.find(
         (candidate) => candidate.id === id,
       );
@@ -5848,7 +5911,13 @@ const AssistantChatInner = forwardRef<
       }
       applyLocalQueuedMessages((prev) => promoteQueuedMessage(prev, id));
     },
-    [appendThreadMessage, applyLocalQueuedMessages, threadId, threadRuntime],
+    [
+      appendThreadMessage,
+      applyLocalQueuedMessages,
+      threadId,
+      threadRuntime,
+      waitForChatHistoryRestore,
+    ],
   );
 
   const visibleQueuedMessages = useMemo(
@@ -5878,6 +5947,8 @@ const AssistantChatInner = forwardRef<
       usageLabel?: string,
       actionScope?: AgentActionScope,
     ) => {
+      if (isAgentChatSubmitCancelled(submitMessageId)) return false;
+      await waitForChatHistoryRestore();
       if (isAgentChatSubmitCancelled(submitMessageId)) return false;
       const wasSubmissionInFlight = submissionInFlightRef.current > 0;
       submissionInFlightRef.current += 1;
@@ -5946,15 +6017,21 @@ const AssistantChatInner = forwardRef<
         ];
 
         // ── Body-size guard (Fix 3) ─────────────────────────────────────
-        // Estimate the total serialized attachment payload. If it exceeds the
-        // Vercel/Netlify body limit, progressively re-compress images until
-        // the payload fits, then reject the largest remaining file if still over.
+        // Estimate the prompt and attachment payload. Recompress images before
+        // rejecting a request that still exceeds the Vercel/Netlify body budget.
         let messageAttachments = allAttachments;
         {
-          const allPayloadStrings = getAttachmentBodyStrings(allAttachments);
+          // Continuation requests serialize the prompt once more in history.
+          const promptPayloadStrings = getSubmittedPromptBodyStrings(
+            submittedText,
+            continuationTurnId !== undefined,
+          );
+          const allPayloadStrings = [
+            ...getAttachmentBodyStrings(allAttachments),
+            ...promptPayloadStrings,
+          ];
           if (
-            estimateAttachmentBodyBytes(allPayloadStrings) >
-            MAX_ESTIMATED_BODY_BYTES
+            measureJsonStringBytes(allPayloadStrings) > MAX_ESTIMATED_BODY_BYTES
           ) {
             // Re-compress image attachments more aggressively.
             const recompressed: typeof allAttachments = [];
@@ -5994,36 +6071,21 @@ const AssistantChatInner = forwardRef<
               recompressed.push(att);
             }
             // Re-estimate after recompression.
-            const recompressedPayloadStrings =
-              getAttachmentBodyStrings(recompressed);
+            const recompressedPayloadStrings = [
+              ...getAttachmentBodyStrings(recompressed),
+              ...promptPayloadStrings,
+            ];
             if (
-              estimateAttachmentBodyBytes(recompressedPayloadStrings) >
+              measureJsonStringBytes(recompressedPayloadStrings) >
               MAX_ESTIMATED_BODY_BYTES
             ) {
-              // Find the largest attachment and reject it.
-              let largestIdx = -1;
-              let largestSize = 0;
-              for (let i = 0; i < recompressed.length; i++) {
-                const attachmentSize = estimateAttachmentBodyBytes(
-                  getAttachmentBodyStrings([recompressed[i]]),
-                );
-                if (attachmentSize > largestSize) {
-                  largestSize = attachmentSize;
-                  largestIdx = i;
-                }
-              }
-              if (largestIdx >= 0) {
-                const rejected = recompressed[largestIdx];
-                setComposerError(
-                  `"${rejected.name}" makes the message too large to send (combined attachments must be under ${(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024).toFixed(1)} MB). Remove it or use a smaller file.`,
-                );
-                reportAgentChatSubmitResult(
-                  submitMessageId,
-                  false,
-                  "attachment-too-large",
-                );
-                return false;
-              }
+              setComposerError(t("agentChat.composer.requestTooLarge"));
+              reportAgentChatSubmitResult(
+                submitMessageId,
+                false,
+                "attachment-too-large",
+              );
+              return false;
             }
             messageAttachments = recompressed;
           }
@@ -6133,6 +6195,18 @@ const AssistantChatInner = forwardRef<
             },
           ]);
         } else {
+          try {
+            await chatHistory?.beforeStart?.();
+          } catch (error) {
+            setComposerError(String(error));
+            reportAgentChatSubmitResult(
+              submitMessageId,
+              false,
+              "editor-save-failed",
+            );
+            return false;
+          }
+          if (isAgentChatSubmitCancelled(submitMessageId)) return false;
           markOptimisticRunning();
           try {
             appendThreadMessage({
@@ -6205,6 +6279,8 @@ const AssistantChatInner = forwardRef<
       t,
       threadId,
       updateComposerContextItems,
+      waitForChatHistoryRestore,
+      chatHistory,
     ],
   );
 
@@ -6628,7 +6704,6 @@ const AssistantChatInner = forwardRef<
     !authError;
   const shouldShowRunError =
     !!visibleRunError &&
-    !isCreditsLimitErrorCode(visibleRunError.errorCode) &&
     !showRunningInUI &&
     !forceStopped &&
     visibleRunErrorKey !== dismissedRunErrorKey &&
@@ -7155,6 +7230,11 @@ const AssistantChatInner = forwardRef<
                                             <AssistantChatHistoryContext.Provider
                                               value={chatHistoryContext}
                                             >
+                                              {chatHistoryContext?.beginningVersion ? (
+                                                <MessageScrollerItem>
+                                                  <AssistantChatHistoryBeginningRevertButton />
+                                                </MessageScrollerItem>
+                                              ) : null}
                                               <ThreadPrimitive.Messages
                                                 // Deliberately NOT keyed on part structure. Doing that
                                                 // remounted the whole transcript every time a tool call
@@ -7517,6 +7597,7 @@ const AssistantChatInner = forwardRef<
                                   <ComposerAttachmentPreviewStrip />
                                   <TiptapComposer
                                     focusRef={tiptapRef}
+                                    maxDocumentAttachmentBytes={MAX_PDF_BYTES}
                                     initialText={
                                       initialComposerText ?? undefined
                                     }
@@ -7527,7 +7608,9 @@ const AssistantChatInner = forwardRef<
                                         : undefined
                                     }
                                     disabled={
-                                      isComposerDisabled || showMissingKeySetup
+                                      isComposerDisabled ||
+                                      showMissingKeySetup ||
+                                      isChatHistoryRestoring
                                     }
                                     placeholder={
                                       showMissingKeySetup
@@ -7597,6 +7680,7 @@ const AssistantChatInner = forwardRef<
                                     willQueue={
                                       engineSetupRequired ||
                                       isRunning ||
+                                      isChatHistoryRestoring ||
                                       submissionInFlightRef.current > 0
                                     }
                                     onSlashCommand={onSlashCommand}

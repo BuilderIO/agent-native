@@ -18,6 +18,8 @@
  *   - Published package: this file ships at `dist/styles.css`, so also scan
  *     compiled `.js` next to it for consumers that only install `dist/`.
  */
+@import "./theme/resource-icons.css";
+
 @source "./**/*.{js,ts,tsx}";
 
 body:has(.fixed.bottom-3.left-3) [data-sidebar-footer-actions] {

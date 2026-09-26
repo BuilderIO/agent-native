@@ -798,6 +798,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "आइकन",
+    iconPickerEmoji: "इमोजी",
+    iconPickerRecent: "हाल के",
+    iconPickerColors: "रंग",
+    iconPickerDefault: "डिफ़ॉल्ट",
+    iconPickerUpload: "अपलोड करें",
+    iconPickerUploading: "अपलोड हो रहा है…",
     suggestionCreateFailed: "सुझाव नहीं बनाया जा सका",
     suggestionsCount: "{{count}} सुझाव",
     acceptSuggestion: "स्वीकार करें",
@@ -1009,6 +1016,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "आइकन",
+    iconPickerEmoji: "इमोजी",
+    iconPickerRecent: "हाल के",
+    iconPickerColors: "रंग",
+    iconPickerDefault: "डिफ़ॉल्ट",
+    iconPickerUpload: "अपलोड करें",
+    iconPickerUploading: "अपलोड हो रहा है…",
     suggestionAmendmentEmpty:
       "यह संपादन मौजूदा पेज से मेल खाता है। इसे हटाने के लिए सुझाव को अस्वीकार करें।",
     suggestionAmendmentFailed: "सुझाव सेव नहीं किया जा सका",
@@ -1254,6 +1268,13 @@ const overrides = {
     genericError: "कुछ गलत हुआ",
   },
   editor: {
+    iconPickerIcons: "आइकन",
+    iconPickerEmoji: "इमोजी",
+    iconPickerRecent: "हाल के",
+    iconPickerColors: "रंग",
+    iconPickerDefault: "डिफ़ॉल्ट",
+    iconPickerUpload: "अपलोड करें",
+    iconPickerUploading: "अपलोड हो रहा है…",
     ...editor,
     sourceComponent: {
       defaultTitle: "स्रोत कंपोनेंट",

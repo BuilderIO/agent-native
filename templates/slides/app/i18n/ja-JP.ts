@@ -26,6 +26,7 @@ const messages = {
     team: "チーム",
   },
   settings: {
+    agentObservability: "エージェントの可観測性",
     title: "設定",
     description: "このアプリの言語とワークスペース設定。",
     labs: "Labs",
@@ -677,14 +678,14 @@ const messages = {
     accessApprovalSignIn: "サインイン",
     accessApprovalLoading: "アクセスを許可しています...",
     backToDecks: "デッキに戻る",
-    tryAgain: "重试",
+    tryAgain: "再試行",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:
       "スライドに画像をアップロードするには、エージェント作成欄のモデルメニューから Builder.io に接続してください。空のキャンバスに画像をドロップすると、プロバイダーなしでもエージェントに送信できます。",
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
-    deckHasNoSlides: "幻灯片没有页面。",
+    deckHasNoSlides: "このデッキにはスライドがありません。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
     layoutOverflowWarning: "レイアウトがはみ出しています",
@@ -699,6 +700,10 @@ const messages = {
       "今終了または再読み込みすると、まだ保存されていない変更が失われる可能性があります。本当に終了しますか？",
     keepEditing: "編集を続ける",
     leaveWithoutSaving: "保存せずに終了",
+    editorMarkupNotSaved:
+      "この編集は、スライドにエディターのマークアップが追加されるため保存されませんでした。",
+    textEditConflictNotSaved:
+      "同じテキストが同時に別の場所で変更されたため、テキストの編集は保存されませんでした。",
   },
   designSystemSetup: {
     importedBrand: "インポートしたブランド",

@@ -6,6 +6,7 @@ import {
   getRequestUserEmail,
   isJevEnabled,
 } from "@agent-native/core/server";
+import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
 import {
@@ -26,6 +27,7 @@ import {
   AI_IMPORTANT_LABEL,
   AI_PRIORITY_DEFAULT_INSTRUCTION,
   AI_PRIORITY_MAX_EMAILS,
+  aiPriorityEmailKey,
   aiPriorityEmailSchema,
 } from "../shared/ai-priority.js";
 import { mailLabelsInclude } from "../shared/gmail-labels.js";
@@ -39,13 +41,13 @@ function emailFingerprint(
 ): string {
   return hash(
     JSON.stringify({
+      accountEmail: email.accountEmail,
       id: email.id,
       date: email.date,
       from: email.from,
       to: email.to,
       subject: email.subject,
       snippet: email.snippet,
-      labelIds: email.labelIds,
     }),
   );
 }
@@ -79,16 +81,22 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) fail("Unauthenticated", { errorCode: "unauthenticated" });
     const jevCredentials = await getJevContextCredentials(ownerEmail);
-    if (!(await isJevEnabled(jevCredentials))) {
+    const [jevEnabled, rules, cache, storedFeedback] = await Promise.all([
+      isJevEnabled(jevCredentials),
+      listAutomationRules(ownerEmail),
+      getAiPriorityCache(ownerEmail),
+      getUserSetting(ownerEmail, "ai-priority-feedback"),
+    ]);
+    if (!jevEnabled) {
       fail("Jev is not enabled for this account.", {
         errorCode: "jev_not_enabled",
         statusCode: 403,
       });
     }
 
-    const rules = importantRules(await listAutomationRules(ownerEmail));
-    const instruction = rules.length
-      ? rules.map((rule) => rule.condition.trim()).join("\n")
+    const priorityRules = importantRules(rules);
+    const instruction = priorityRules.length
+      ? priorityRules.map((rule) => rule.condition.trim()).join("\n")
       : AI_PRIORITY_DEFAULT_INSTRUCTION;
     const modelSettings = {
       engine: TYPESAFE_AUTOMATION_ENGINE,
@@ -97,8 +105,8 @@ export default defineAction({
     const instructionKey = hash(
       JSON.stringify({
         model: modelSettings,
-        rules: rules.length
-          ? rules.map(
+        rules: priorityRules.length
+          ? priorityRules.map(
               (rule) => `${rule.id}:${rule.updatedAt}:${rule.condition}`,
             )
           : [instruction],
@@ -117,13 +125,50 @@ export default defineAction({
           b.id.localeCompare(a.id),
       )
       .slice(0, AI_PRIORITY_MAX_EMAILS);
-    const cache = await getAiPriorityCache(ownerEmail);
     const fingerprints = eligibleEmails.map((email) => ({
       id: email.id,
+      accountEmail: email.accountEmail,
       fingerprint: emailFingerprint(email),
     }));
     const scores = getCachedPriorityScores(cache, fingerprints, instructionKey);
-    const pending = eligibleEmails.filter((email) => !scores.has(email.id));
+    const feedbackValue =
+      storedFeedback &&
+      typeof storedFeedback === "object" &&
+      "entries" in storedFeedback
+        ? storedFeedback.entries
+        : (storedFeedback ?? []);
+    const feedback = z
+      .array(
+        z.object({
+          emailId: z.string(),
+          accountEmail: z.string().email().optional(),
+          decision: z.enum(["important", "not-important"]),
+          createdAt: z.number().int(),
+        }),
+      )
+      .max(500)
+      .safeParse(feedbackValue);
+    if (!feedback.success) {
+      throw new Error("Stored importance feedback is unreadable.");
+    }
+    const eligibleKeys = new Set(
+      fingerprints.map((email) =>
+        aiPriorityEmailKey(email.accountEmail, email.id),
+      ),
+    );
+    for (const item of feedback.data) {
+      const key = aiPriorityEmailKey(item.accountEmail, item.emailId);
+      if (eligibleKeys.has(key)) {
+        scores.set(key, {
+          emailId: item.emailId,
+          ...(item.accountEmail ? { accountEmail: item.accountEmail } : {}),
+          score: item.decision === "important" ? 1 : 0,
+        });
+      }
+    }
+    const pending = eligibleEmails.filter(
+      (email) => !scores.has(aiPriorityEmailKey(email.accountEmail, email.id)),
+    );
     let model: AutomationModelSettings = modelSettings;
 
     if (pending.length > 0) {
@@ -136,7 +181,9 @@ export default defineAction({
       );
       model = result.model;
       const incomplete = pending.some((email) => {
-        const score = result.scores.get(email.id)?.score;
+        const score = result.scores.get(
+          aiPriorityEmailKey(email.accountEmail, email.id),
+        )?.score;
         return (
           score === undefined ||
           !Number.isFinite(score) ||
@@ -151,11 +198,14 @@ export default defineAction({
       }
       const now = Date.now();
       const entries: AiPriorityCacheEntry[] = pending.map((email) => {
-        const score = result.scores.get(email.id);
+        const score = result.scores.get(
+          aiPriorityEmailKey(email.accountEmail, email.id),
+        );
         if (!score)
           throw new Error("Priority model returned an invalid result.");
         const entry: AiPriorityCacheEntry = {
           emailId: email.id,
+          accountEmail: email.accountEmail,
           score: score.score,
           fingerprint: emailFingerprint(email),
           instructionKey,
@@ -170,8 +220,10 @@ export default defineAction({
         mergePriorityCache(latestCache, entries, model),
       );
       for (const entry of entries) {
-        scores.set(entry.emailId, {
+        const key = aiPriorityEmailKey(entry.accountEmail, entry.emailId);
+        scores.set(key, {
           emailId: entry.emailId,
+          ...(entry.accountEmail ? { accountEmail: entry.accountEmail } : {}),
           score: entry.score,
           ...(entry.reason ? { reason: entry.reason } : {}),
         });
@@ -179,13 +231,16 @@ export default defineAction({
     }
 
     return {
-      scores: eligibleEmails.map(
-        (email) =>
-          scores.get(email.id) ?? {
+      scores: eligibleEmails.map((email) => {
+        const key = aiPriorityEmailKey(email.accountEmail, email.id);
+        return (
+          scores.get(key) ?? {
             emailId: email.id,
+            ...(email.accountEmail ? { accountEmail: email.accountEmail } : {}),
             score: 0.5,
-          },
-      ),
+          }
+        );
+      }),
       eligibleCount: eligibleEmails.length,
       evaluatedCount: pending.length,
       limit: AI_PRIORITY_MAX_EMAILS,

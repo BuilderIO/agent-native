@@ -298,6 +298,33 @@ export function buildSnippet(
   return buildSearchSnippet(value, terms, maxLength);
 }
 
+export function citationEvidenceMatchesCapture(
+  citation:
+    | {
+        quote?: string | null;
+        preview?: string | null;
+        verbatim?: boolean;
+      }
+    | null
+    | undefined,
+  captureContent: string,
+) {
+  const redactedContent = redactSensitiveText(captureContent)
+    .replace(/\s+/g, " ")
+    .trim();
+  const quote = citation?.quote?.trim();
+  if (quote) return captureContent.includes(quote);
+  if (citation?.verbatim !== false) return false;
+  const preview = citation.preview
+    ?.trim()
+    .replace(/^\.\.\./, "")
+    .replace(/\.\.\.$/, "")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!preview) return false;
+  return redactedContent.includes(preview);
+}
+
 export function scoreSearchText(
   fields: {
     title?: string | null;

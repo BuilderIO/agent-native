@@ -2,10 +2,13 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
 import type { MouseEvent } from "react";
 
-import { BuilderImage } from "../components/builder-image";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
+import {
+  CalendarLandingMock,
+  CalendarLandingMockStyles,
+} from "../components/template-landing/CalendarLandingMock";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import { Button } from "../components/website-redesign/ds/button";
@@ -49,22 +52,25 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "calendar")!;
 
-// Same no-imagery pattern Slides and Clips used: plain ContentCards, no
-// `image`/`imageLabel`, so the section reads as one system with the
-// key-features grid below it instead of leaving placeholder boxes.
 const USE_CASES = [
   {
     id: "book-client-calls-and-demos",
+    mode: "booking",
+    textLeft: true,
     titleKey: "useCase1Title",
     bodyKey: "useCase1Body",
   },
   {
     id: "find-time-for-team-meetings",
+    mode: "team",
+    textLeft: false,
     titleKey: "useCase2Title",
     bodyKey: "useCase2Body",
   },
   {
     id: "adjust-your-day",
+    mode: "reschedule",
+    textLeft: true,
     titleKey: "useCase3Title",
     bodyKey: "useCase3Body",
   },
@@ -124,8 +130,9 @@ export default function CalendarTemplate() {
 
   return (
     <div className="builder-brand-tokens">
-      {/* Hero — copy and layout updated to match Slides; existing hero
-          screenshot kept since there's no newer Calendar asset yet. */}
+      <CalendarLandingMockStyles />
+      {/* The hero pairs the real week-calendar surface with its contextual
+          scheduling assistant. */}
       <div className={HERO_WRAPPER_CLASS}>
         <TemplateHero
           title={
@@ -166,19 +173,17 @@ export default function CalendarTemplate() {
           descriptionPlacement="below-title"
           mediaOverlapsHeader
           media={
-            <BuilderImage
-              src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb8ee318efd694b90980bed38eb869d60"
-              crossOrigin="anonymous"
-              alt={t("templateLanding.calendar.s001")}
-              loading="lazy"
-              decoding="async"
-              className="h-auto max-h-[640px] w-full object-cover object-top"
+            <CalendarLandingMock
+              mode="week"
+              label={t("templateLanding.calendar.s001")}
+              className="h-[420px] sm:h-[620px] lg:h-[800px]"
             />
           }
         />
       </div>
 
-      {/* What can you do with Calendar? — three use-case cards */}
+      {/* Use-case stories pair the existing translated copy with a concrete
+          Calendar surface. */}
       <PageSection>
         <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
           <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
@@ -190,14 +195,58 @@ export default function CalendarTemplate() {
         </GridInner>
 
         <GridInner>
-          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-1">
-            {USE_CASES.map((useCase) => (
-              <ContentCard
-                key={useCase.id}
-                title={t(`templateLanding.calendar.${useCase.titleKey}`)}
-                body={t(`templateLanding.calendar.${useCase.bodyKey}`)}
-              />
-            ))}
+          <div className="flex flex-col border-x border-t border-solid border-[var(--b-border-subtle)]">
+            {USE_CASES.map((useCase) => {
+              const textBlock = (
+                <div
+                  key="text"
+                  className="order-1 flex flex-col justify-center gap-[var(--spacing-3)] p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-4)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+                    {t(`templateLanding.calendar.${useCase.titleKey}`)}
+                  </h3>
+                  <p className="m-0 max-w-[420px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+                    {t(`templateLanding.calendar.${useCase.bodyKey}`)}
+                  </p>
+                </div>
+              );
+              const mediaBlock = (
+                <div
+                  key="media"
+                  className="order-2 flex items-center justify-center p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  <CalendarLandingMock
+                    mode={useCase.mode}
+                    label={t(`templateLanding.calendar.${useCase.titleKey}`)}
+                    className="h-[290px] min-h-[290px] w-full"
+                    showSidebar={false}
+                    showAgent={false}
+                  />
+                </div>
+              );
+              return (
+                <div
+                  key={useCase.id}
+                  className={`grid border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] first:border-t-0 ${
+                    useCase.textLeft
+                      ? "lg:grid-cols-[1fr_1.25fr]"
+                      : "lg:grid-cols-[1.25fr_1fr]"
+                  }`}
+                >
+                  {useCase.textLeft ? (
+                    <>
+                      {textBlock}
+                      {mediaBlock}
+                    </>
+                  ) : (
+                    <>
+                      {mediaBlock}
+                      {textBlock}
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </GridInner>
       </PageSection>

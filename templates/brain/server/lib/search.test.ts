@@ -235,6 +235,7 @@ vi.mock("drizzle-orm", () => ({
 import {
   buildFederatedSearchCoverage,
   buildSnippet,
+  citationEvidenceMatchesCapture,
   escapeLikeTerm,
   normalizeSearchTerms,
   redactSensitiveText,
@@ -486,6 +487,57 @@ describe("Brain universal search helpers", () => {
     );
     expect(snippet).toContain("policy requires approvals");
     expect(snippet.startsWith("...")).toBe(true);
+  });
+
+  it("requires citation text to match the accessible capture", () => {
+    const content =
+      "Contact ava@example.com. The rollout policy requires approvals before launch.";
+
+    expect(
+      citationEvidenceMatchesCapture(
+        { quote: "rollout policy requires approvals" },
+        content,
+      ),
+    ).toBe(true);
+    expect(
+      citationEvidenceMatchesCapture({ quote: "Contact [redacted]." }, content),
+    ).toBe(false);
+    expect(
+      citationEvidenceMatchesCapture(
+        { quote: "Contact mallory@example.com." },
+        content,
+      ),
+    ).toBe(false);
+    expect(
+      citationEvidenceMatchesCapture(
+        {
+          quote: null,
+          preview: "...Contact [redacted]. The rollout policy requires...",
+          verbatim: false,
+        },
+        content,
+      ),
+    ).toBe(true);
+    expect(
+      citationEvidenceMatchesCapture(
+        {
+          quote: null,
+          preview: "unrelated generated preview",
+          verbatim: false,
+        },
+        content,
+      ),
+    ).toBe(false);
+    expect(
+      citationEvidenceMatchesCapture(
+        {
+          quote: null,
+          preview: "The rollout policy requires approvals",
+          verbatim: true,
+        },
+        content,
+      ),
+    ).toBe(false);
   });
 
   it("redacts emails, Slack mailto tokens, and phone-like values", () => {

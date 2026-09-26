@@ -263,6 +263,12 @@ export default {
       opacity: "Opacidad",
       padding: "Relleno",
       margin: "Margen",
+      marginTop: "Margen superior",
+      marginRight: "Margen derecho",
+      marginBottom: "Margen inferior",
+      marginLeft: "Margen izquierdo",
+      linkMarginSides: "Vincular lados del margen",
+      unlinkMarginSides: "Desvincular lados del margen",
       radius: "Radio",
       flexGrow: "Crecer",
       flexShrink: "Encoger",
@@ -578,6 +584,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "Colaboración en directo",
+      description:
+        "Permite que quienes no tienen acceso al localhost del propietario vean y editen una copia en directo de este diseño.",
+      enabled: "Activada",
+      disabled: "Desactivada",
+      saving: "Guardando…",
+      enableError: "No se pudo actualizar la colaboración en directo.",
+    },
     vectorEndpoints: {
       startPoint: "Punto inicial",
       endPoint: "Punto final",
@@ -957,6 +972,10 @@ export default {
     signUpToSaveDescription:
       "Crea una cuenta gratis para guardar diseños, diseños de pantalla y generar nuevas direcciones.",
     signUpToShare: "Registrarse para compartir",
+    signUpToShareLiveCanvas: "Regístrate para compartir un lienzo en vivo",
+    liveCanvasLink: "Enlace al lienzo en vivo",
+    liveCanvasWaitingForOwner:
+      "Esperando la instantánea del lienzo en vivo de su propietario.",
     shareEditorLink: "Enlace del editor de diseño",
     shareEditorLinkDescription:
       "Cualquier persona con acceso puede abrir este diseño en el editor.",
@@ -1231,12 +1250,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "Aplicar ediciones visuales de estilo pendientes",
       applyButton: "Aplicar estilos",
+      applySharedEdits: "Aplicar ediciones",
       previewLabel: "Vista previa visual pendiente",
       applyDesignUpdates: "Aplicar actualizaciones de diseño",
       applying: "Aplicando…",
       verifying: "Verificando el código y el runtime…",
       retryWithAgent: "Reintentar verificación del código",
       copyPrompt: "Copiar prompt a tu agente",
+      copyFullPrompt: "Copiar el prompt completo",
       abortPreview: "Cancelar vista previa e interactuar",
       agentMessage:
         "Aplica las ediciones visuales de estilo pendientes al código fuente.",
@@ -1249,6 +1270,8 @@ export default {
       sourceCheckFailedToast:
         "No se pudieron verificar los archivos conectados. Se conservó la vista previa para reintentar o deshacer.",
       copiedToast: "Prompt de estilo copiado",
+      copiedToastDescription:
+        "Pégalo en tu agente de programación y pídele que aplique los cambios visuales.",
       abortedToast: "Vista previa pendiente descartada",
       interactBlocked:
         "Aplica o cancela las ediciones en vivo pendientes antes de cambiar a Interactuar.",
@@ -1313,6 +1336,8 @@ export default {
       annotationSendError:
         "No se pudieron enviar las anotaciones. Tu dibujo sigue aquí; inténtalo de nuevo.",
       codingHandoffError: "No se pudo crear la entrega para código",
+      visualEditPendingConflict:
+        "Otro colaborador tiene cambios pendientes. Aplícalos o elimínalos antes de enviar cambios nuevos.",
       codingHandoffCopied: "Entrega para código copiada",
       clipboardBlocked: "Portapapeles bloqueado",
       htmlCreateError: "No se pudo crear la descarga HTML",

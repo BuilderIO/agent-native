@@ -244,6 +244,37 @@ describe("trackOnboardingEvent", () => {
 
     expect(trackEventMock).toHaveBeenCalledTimes(2);
   });
+
+  it("does not deduplicate setup-method outcomes across attempts", () => {
+    const properties = {
+      flow: "first_run",
+      step_id: "choice",
+      method_id: "builder_create_account",
+      outcome: "failed",
+    };
+    trackOnboardingEvent("onboarding_method_outcome", {
+      ...properties,
+      onboarding_attempt_id: "attempt-1",
+    });
+    trackOnboardingEvent("onboarding_method_outcome", {
+      ...properties,
+      onboarding_attempt_id: "attempt-2",
+    });
+
+    expect(trackEventMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps abandonment events distinct across onboarding attempts", () => {
+    const properties = {
+      flow: "first_run",
+      step_id: "role",
+      reason: "page_exit",
+    };
+    trackOnboardingEvent("onboarding_abandoned", properties);
+    trackOnboardingEvent("onboarding_abandoned", properties);
+
+    expect(trackEventMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 // A focus or visibility event inside the after-paint window used to stack a

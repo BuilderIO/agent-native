@@ -204,6 +204,7 @@ export type TrackingIdentityUser = {
 
 type TrackingIdentity = {
   userId?: string;
+  authUserId?: string;
   userEmail?: string;
   userName?: string;
   orgId?: string | null;
@@ -475,8 +476,9 @@ function setTrackingIdentityFromSession(data: unknown): void {
     return;
   }
   const email = readTrackingString(session.email);
+  const canonicalAuthUserId = readTrackingString(session.authUserId);
   const authUserId = readTrackingString(session.userId);
-  const userId = email || authUserId;
+  const userId = email || canonicalAuthUserId || authUserId;
   if (!userId) {
     clearTrackingIdentity();
     return;
@@ -484,6 +486,7 @@ function setTrackingIdentityFromSession(data: unknown): void {
   const userName = readTrackingString(session.name);
   _trackingIdentity = {
     userId,
+    ...(canonicalAuthUserId ? { authUserId: canonicalAuthUserId } : {}),
     ...(email ? { userEmail: email } : {}),
     ...(userName ? { userName } : {}),
     orgId: readTrackingString(session.orgId) ?? null,
@@ -522,11 +525,12 @@ function applyTrackingIdentity(
   properties: Record<string, unknown>,
   identity: TrackingIdentity | null = _trackingIdentity,
 ): Record<string, unknown> {
-  if (!identity) return properties;
-  let next = properties;
+  let next = { ...properties };
+  delete next.auth_user_id;
+  delete next.authUserId;
+  if (!identity) return next;
   const assign = (key: string, value: unknown) => {
     if (value !== undefined && value !== null && next[key] === undefined) {
-      if (next === properties) next = { ...properties };
       next[key] = value;
     }
   };
@@ -544,6 +548,10 @@ function applyTrackingIdentity(
  */
 function getTrackingUserId(): string | undefined {
   return _trackingIdentity?.userId;
+}
+
+function getTrackingAuthUserId(): string | undefined {
+  return _trackingIdentity?.authUserId;
 }
 
 export function getAnalyticsIdentityKey(): string | undefined {
@@ -1175,8 +1183,13 @@ export function setSentryUser(
   if (user) {
     const userId = user.email || user.id;
     if (userId) {
+      const authUserId =
+        user.email && user.email === _trackingIdentity?.userEmail
+          ? _trackingIdentity.authUserId
+          : undefined;
       _trackingIdentity = {
         userId,
+        ...(authUserId ? { authUserId } : {}),
         ...(user.email ? { userEmail: user.email } : {}),
         ...(user.username ? { userName: user.username } : {}),
         orgId: orgId ?? null,
@@ -1718,18 +1731,38 @@ function configuredSessionReplayOptions(
       ...(publicKey && !options.publicKey ? { publicKey } : {}),
       ...(endpoint && !options.endpoint ? { endpoint } : {}),
       ...options,
-      onUploadRejected:
-        options.onUploadRejected ??
-        ((details) => {
+      onRecordingStarted: (recordingAttemptId) => {
+        try {
+          trackEvent("session_replay_started", {
+            recording_attempt_id: recordingAttemptId,
+          });
+        } catch {
+          // coercion-ok: keep capture running if optional telemetry fails.
+        }
+        options.onRecordingStarted?.(recordingAttemptId);
+      },
+      onUploadRejected: options.onUploadRejected,
+      onUploadRejectedWithAttemptId: (details, recordingAttemptId) => {
+        try {
           trackEvent("session replay upload rejected", {
+            recording_attempt_id: recordingAttemptId,
             status: details.status,
             restart_attempted: details.restartAttempted,
             restart_succeeded: details.restartSucceeded,
+            ...(details.failureReason
+              ? { failure_reason: details.failureReason }
+              : {}),
+            ...(details.retryAfterSeconds !== undefined
+              ? { retry_after_seconds: details.retryAfterSeconds }
+              : {}),
             ...(details.restartReason
               ? { restart_reason: details.restartReason }
               : {}),
           });
-        }),
+        } finally {
+          options.onUploadRejectedWithAttemptId?.(details, recordingAttemptId);
+        }
+      },
       requireSignedInUser:
         options.requireSignedInUser ??
         sessionReplayRequiresSignedInUserFromEnv() ??
@@ -1939,6 +1972,28 @@ function resolveProps(
   name: string,
   params?: Record<string, unknown>,
 ): Record<string, unknown> {
+  if (name === "session_replay_started") {
+    return params?.recording_attempt_id === undefined
+      ? {}
+      : { recording_attempt_id: params.recording_attempt_id };
+  }
+  if (
+    name === "session replay upload rejected" ||
+    name === "session_replay_upload_rejected"
+  ) {
+    const allowed = [
+      "recording_attempt_id",
+      "status",
+      "restart_attempted",
+      "restart_succeeded",
+      "failure_reason",
+      "retry_after_seconds",
+      "restart_reason",
+    ];
+    return Object.fromEntries(
+      Object.entries(params ?? {}).filter(([key]) => allowed.includes(key)),
+    );
+  }
   if (typeof window === "undefined") return { ...params };
   const base: Record<string, unknown> = {
     url: window.location.origin + window.location.pathname,
@@ -2276,7 +2331,11 @@ function emitBrowserTrackingEvent(
       _pendingAmplitudeEvents.push([name, amplitudeProps]);
     }
   }
-  sendAgentNativeAnalytics(name, props);
+  const authUserId = getTrackingAuthUserId();
+  sendAgentNativeAnalytics(
+    name,
+    authUserId ? { ...props, auth_user_id: authUserId } : props,
+  );
 }
 
 export function trackEvent(
@@ -2302,6 +2361,21 @@ export function trackEvent(
   void recordTrackingEvent(name, props, "client");
   const lifecycle = legacyLifecycleEvent(name, props);
   if (lifecycle) trackEvent(lifecycle.name, lifecycle.properties);
+}
+
+/** Sends explicitly anonymous product events without resolving user identity. */
+export function trackAnonymousEvent(
+  name: string,
+  properties: Record<string, unknown>,
+): void {
+  if (
+    typeof window === "undefined" ||
+    isSyntheticBrowserTraffic() ||
+    isQaTrackingIdentity(_trackingIdentity)
+  ) {
+    return;
+  }
+  sendAgentNativeAnalytics(name, properties);
 }
 
 export function trackLifecycleEvent(

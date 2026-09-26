@@ -13,7 +13,7 @@ import {
   resolveAgentNativeNitroPreset,
 } from "../deploy/nitro-preset.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
-import { cliSpawnOptions } from "./process.js";
+import { cliSpawnOptions, runDevServer } from "./process.js";
 import {
   findBinUpwards,
   findReactRouterInvocation,
@@ -619,7 +619,7 @@ switch (command) {
     const vite = findViteBin();
     const { inspectFlag, rest } = extractNodeInspectFlag(args);
     if (!inspectFlag) {
-      run(vite, rest);
+      runDevServer(vite, rest);
       break;
     }
     const viteJsEntry = findViteJsEntry();
@@ -628,7 +628,7 @@ switch (command) {
         "[agent-native] Could not resolve Vite's JS entry; starting dev " +
           "server without the debugger.",
       );
-      run(vite, rest);
+      runDevServer(vite, rest);
       break;
     }
     // Attach inspect flag to server process (not Vite or Nitro process)
@@ -646,10 +646,14 @@ switch (command) {
       NITRO_DEV_RUNNER: process.env.NITRO_DEV_RUNNER ?? "node-process",
     };
     console.log(`[agent-native] API server debugger listening on ${target}`);
-    run(process.execPath, ["--import", preload, viteJsEntry, ...rest], {
-      env,
-      shell: false,
-    });
+    runDevServer(
+      process.execPath,
+      ["--import", preload, viteJsEntry, ...rest],
+      {
+        env,
+        shell: false,
+      },
+    );
     break;
   }
 
@@ -698,6 +702,9 @@ switch (command) {
 
       if (isReactRouterFramework()) {
         clearAgentNativeNitroPresetMarker();
+        const { clearAgentNativeBuildConfigMarker } =
+          await import("../vite/agent-native-config-loader.js");
+        clearAgentNativeBuildConfigMarker(process.cwd());
         validateReactRouterBuildDependencies();
         const rr = findReactRouterInvocation(["build"]);
         console.log("Building (React Router framework mode)...");
@@ -1384,8 +1391,7 @@ Options:
   --standalone                  Scaffold a single standalone app (no workspace)
   --emit [dir]                  With migrate, emit an own-agent dossier
   --describe <text>             With migrate, describe URL/prose-only sources
-  --preset <name>               Workspace deploy preset:
-                                cloudflare_pages (default), netlify, or vercel
+  --preset <name>               Workspace deploy preset: netlify (default) or vercel
   --build-only                  Build workspace deploy artifacts without publishing
   --eager                       With workspace dev, start every app immediately
   --prewarm                     With workspace dev, warm non-default apps in the background

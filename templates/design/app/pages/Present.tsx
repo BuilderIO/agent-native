@@ -67,6 +67,7 @@ export default function Present() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const reviewEmbed = searchParams.get("reviewEmbed") === "1";
   const { session } = useSession();
   const [currentPage, setCurrentPage] = useState(0);
   const [commentMode, setCommentMode] = useState(false);
@@ -107,7 +108,7 @@ export default function Present() {
       newestFirst: true,
       limit: 500,
     },
-    { enabled: Boolean(id) },
+    { enabled: Boolean(id) && !reviewEmbed },
   );
   const canPost = Boolean(
     session?.email &&
@@ -164,6 +165,7 @@ export default function Present() {
   );
 
   useEffect(() => {
+    if (reviewEmbed) return;
     const commentId =
       reviewThreadIdFromHash(location.hash) ?? searchParams.get("comment");
     const comments = reviewQuery.data?.comments ?? [];
@@ -191,6 +193,7 @@ export default function Present() {
     handleReviewThreadSelect,
     reviewQuery.data?.comments,
     location.hash,
+    reviewEmbed,
     searchParams,
   ]);
 
@@ -198,10 +201,13 @@ export default function Present() {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        const action = resolvePresentEscapeAction({
-          commentsOpen,
-          commentMode,
-        });
+        const action = resolvePresentEscapeAction(
+          {
+            commentsOpen,
+            commentMode,
+          },
+          reviewEmbed,
+        );
         if (action === "close-comments") setCommentsOpen(false);
         if (action === "exit-presentation") void navigate(`/design/${id}`);
         // ReviewCanvasPins owns "defer-to-comment-mode" so it can dismiss an
@@ -222,7 +228,7 @@ export default function Present() {
         setCurrentPage((p) => Math.max(p - 1, 0));
       }
     },
-    [commentMode, commentsOpen, files.length, id, navigate],
+    [commentMode, commentsOpen, files.length, id, navigate, reviewEmbed],
   );
 
   useEffect(() => {
@@ -276,88 +282,94 @@ export default function Present() {
           className="h-full w-full border-0"
           title={`${design.title} — ${activeFile.filename}`}
         />
-        <ReviewCanvasPins
-          active={commentMode}
-          onClose={() => setCommentMode(false)}
-          canvasSelector=".present-review-canvas"
-          resourceType="design"
-          resourceId={id}
-          targetId={activeFile.id}
-          canPost={canPost}
-          canResolve={canResolve}
-          currentUserEmail={session?.email}
-          focusRequest={reviewFocusRequest}
-        />
+        {!reviewEmbed ? (
+          <ReviewCanvasPins
+            active={commentMode}
+            onClose={() => setCommentMode(false)}
+            canvasSelector=".present-review-canvas"
+            resourceType="design"
+            resourceId={id}
+            targetId={activeFile.id}
+            canPost={canPost}
+            canResolve={canResolve}
+            currentUserEmail={session?.email}
+            focusRequest={reviewFocusRequest}
+          />
+        ) : null}
       </div>
 
-      <div className="fixed right-4 top-4 z-[70] flex items-center gap-2">
-        <ReviewStatusBadge
-          status={reviewQuery.data?.reviewStatus?.status ?? "draft"}
-        />
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          className="gap-1.5 rounded-full bg-black/75 text-white shadow-lg hover:bg-black"
-          onClick={() => {
-            setCommentMode(false);
-            setCommentsOpen(true);
-          }}
-        >
-          <IconMessageCircle className="size-4" />
-          {t("review.presentComments")}
-          {reviewCommentCount > 0 ? ` · ${reviewCommentCount}` : ""}
-        </Button>
-      </div>
-
-      <Sheet open={commentsOpen} onOpenChange={setCommentsOpen}>
-        <SheetContent
-          side="right"
-          className="flex w-[min(92vw,380px)] flex-col overflow-hidden p-0"
-        >
-          <SheetHeader className="border-b border-border px-4 py-3">
-            <SheetTitle className="flex items-center gap-2 text-sm">
+      {!reviewEmbed ? (
+        <>
+          <div className="fixed right-4 top-4 z-[70] flex items-center gap-2">
+            <ReviewStatusBadge
+              status={reviewQuery.data?.reviewStatus?.status ?? "draft"}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="gap-1.5 rounded-full bg-foreground/75 text-background shadow-lg hover:bg-foreground"
+              onClick={() => {
+                setCommentMode(false);
+                setCommentsOpen(true);
+              }}
+            >
               <IconMessageCircle className="size-4" />
               {t("review.presentComments")}
-            </SheetTitle>
-            <SheetDescription className="sr-only">
-              {t("review.commentsTitle")}
-            </SheetDescription>
-          </SheetHeader>
-          <ReviewCommentsPanel
-            designId={id}
-            canComment={canPost}
-            canResolve={canResolve}
-            currentTargetId={activeFile?.id ?? null}
-            currentUserEmail={session?.email}
-            canDeleteComment={(comment) =>
-              canResolve ||
-              ("canDelete" in comment && comment.canDelete === true) ||
-              comment.authorEmail === session?.email
-            }
-            signInHref={signInHref}
-            onSelectThread={handleReviewThreadSelect}
-            className="min-h-0 flex-1"
-          />
-          {canPost ? (
-            <div className="shrink-0 border-t border-border p-3">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="w-full gap-1.5"
-                onClick={() => {
-                  setCommentsOpen(false);
-                  setCommentMode(true);
-                }}
-              >
-                <IconMessageCircle className="size-3.5" />
-                {t("review.presentCommentMode")}
-              </Button>
-            </div>
-          ) : null}
-        </SheetContent>
-      </Sheet>
+              {reviewCommentCount > 0 ? ` · ${reviewCommentCount}` : ""}
+            </Button>
+          </div>
+
+          <Sheet open={commentsOpen} onOpenChange={setCommentsOpen}>
+            <SheetContent
+              side="right"
+              className="flex w-[min(92vw,380px)] flex-col overflow-hidden p-0"
+            >
+              <SheetHeader className="border-b border-border px-4 py-3">
+                <SheetTitle className="flex items-center gap-2 text-sm">
+                  <IconMessageCircle className="size-4" />
+                  {t("review.presentComments")}
+                </SheetTitle>
+                <SheetDescription className="sr-only">
+                  {t("review.commentsTitle")}
+                </SheetDescription>
+              </SheetHeader>
+              <ReviewCommentsPanel
+                designId={id}
+                canComment={canPost}
+                canResolve={canResolve}
+                currentTargetId={activeFile?.id ?? null}
+                currentUserEmail={session?.email}
+                canDeleteComment={(comment) =>
+                  canResolve ||
+                  ("canDelete" in comment && comment.canDelete === true) ||
+                  comment.authorEmail === session?.email
+                }
+                signInHref={signInHref}
+                onSelectThread={handleReviewThreadSelect}
+                className="min-h-0 flex-1"
+              />
+              {canPost ? (
+                <div className="shrink-0 border-t border-border p-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full gap-1.5"
+                    onClick={() => {
+                      setCommentsOpen(false);
+                      setCommentMode(true);
+                    }}
+                  >
+                    <IconMessageCircle className="size-3.5" />
+                    {t("review.presentCommentMode")}
+                  </Button>
+                </div>
+              ) : null}
+            </SheetContent>
+          </Sheet>
+        </>
+      ) : null}
 
       {/* Page indicator */}
       {files.length > 1 && (
@@ -375,9 +387,11 @@ export default function Present() {
       )}
 
       {/* Exit hint */}
-      <div className="fixed left-4 top-4 text-xs text-white/20">
-        {t("pages.presentExitHint")}
-      </div>
+      {!reviewEmbed ? (
+        <div className="fixed left-4 top-4 text-xs text-foreground/20">
+          {t("pages.presentExitHint")}
+        </div>
+      ) : null}
     </div>
   );
 }

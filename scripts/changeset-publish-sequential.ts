@@ -324,6 +324,13 @@ function isAlreadyPublished(output: string): boolean {
   );
 }
 
+export function isAlreadyStaged(output: string): boolean {
+  return (
+    output.includes("E409") &&
+    output.includes("Cannot publish over previously staged version")
+  );
+}
+
 // A 404 on the PUT for a package that isn't on npm yet means the registry
 // would not let us CREATE the package. With OIDC trusted publishing this is
 // expected: a brand-new package's first version cannot be created over OIDC
@@ -542,6 +549,14 @@ async function publishPackage(pkg: PublishPackage): Promise<boolean> {
   }
 
   const output = `${result.stdout}\n${result.stderr}`;
+  if (isAlreadyStaged(output)) {
+    console.warn(
+      tagName(pkg) +
+        " was already staged on npm; verifying availability before tagging.",
+    );
+    return true;
+  }
+
   if (isAlreadyPublished(output)) {
     console.warn(
       `${pkg.name}@${pkg.version} was already published by the time npm responded; skipping tag creation.`,

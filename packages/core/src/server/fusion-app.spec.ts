@@ -11,7 +11,11 @@ vi.mock("./builder-browser.js", () => ({
   getBuilderAppHost: () => "https://builder.example.test",
 }));
 
-import { getFusionDeploys, pushFusionBranch } from "./fusion-app.js";
+import {
+  getBuilderCreditUsage,
+  getFusionDeploys,
+  pushFusionBranch,
+} from "./fusion-app.js";
 
 describe("Fusion Builder authorization", () => {
   beforeEach(() => {
@@ -94,5 +98,59 @@ describe("Fusion Builder authorization", () => {
       method: "POST",
       headers: { Authorization: "Bearer bpk-example" },
     });
+  });
+
+  it("reads validated Builder credit allowance with the AI invoke scope", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+    });
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          plan: "paid",
+          balance: 45,
+          quota: { period: "monthly", limit: 100, used: 75, remaining: 25 },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(getBuilderCreditUsage()).resolves.toEqual({
+      plan: "paid",
+      balance: 45,
+      quota: { period: "monthly", limit: 100, used: 75, remaining: 25 },
+    });
+    expect(resolveBuilderRequestAuthorizationMock).toHaveBeenCalledWith({
+      requiredScope: "builder:ai:invoke",
+    });
+    const [input, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(new URL(String(input)).pathname).toBe(
+      "/agent-native/credits/v1/usage",
+    );
+    expect(init?.headers).toMatchObject({
+      Authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+    });
+  });
+
+  it("rejects an invalid credit balance instead of rendering a fake zero", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+    });
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          plan: "paid",
+          balance: null,
+          quota: { period: "monthly", limit: 100, used: 0, remaining: 100 },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(getBuilderCreditUsage()).rejects.toThrow();
   });
 });

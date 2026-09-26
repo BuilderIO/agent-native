@@ -15,6 +15,7 @@ import { dndHostLog } from "@/components/design/dnd-debug";
 import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import { validateCrossScreenSourceHtmlSnapshot } from "@/components/design/multi-screen/cross-screen-drop";
 import { getPrimaryIframeId } from "@/components/design/multi-screen/iframe-targeting";
+import { sendLinkedScreenPreviewPendingDelete } from "@/components/design/multi-screen/linked-screen-preview";
 import type {
   ElementInfo,
   PortableStyleSnapshot,
@@ -217,6 +218,7 @@ export function runCrossScreenElementDrop(
   {
     sourceSelector,
     sourceNodeId,
+    sourceDeleteRequestId,
     sourceScreenId,
     targetScreenId,
     targetAnchorNodeId,
@@ -227,6 +229,7 @@ export function runCrossScreenElementDrop(
     targetAnchorRect,
     targetLocalPoint,
     sourcePointerOffset,
+    sourceComputedSize,
     sourceHtmlSnapshot,
     sourceProvenance,
     targetAnchorProvenance,
@@ -237,6 +240,7 @@ export function runCrossScreenElementDrop(
   }: {
     sourceSelector: string;
     sourceNodeId?: string;
+    sourceDeleteRequestId?: string;
     sourceScreenId: string;
     targetScreenId: string;
     targetAnchorNodeId?: string;
@@ -253,6 +257,7 @@ export function runCrossScreenElementDrop(
     targetCanvasPoint?: { x: number; y: number };
     targetLocalPoint?: { x: number; y: number };
     sourcePointerOffset?: { x: number; y: number };
+    sourceComputedSize?: { width?: number; height?: number };
     sourceHtmlSnapshot?: string;
     sourceProvenance?: unknown;
     targetAnchorProvenance?: unknown;
@@ -501,6 +506,18 @@ export function runCrossScreenElementDrop(
     }
     const transactionId = beginRuntimeStructureTransaction();
     if (!transactionId) return;
+    const deleteRequestId = sourceDeleteRequestId ?? `${transactionId}:source`;
+    const deleteSelectorCandidates = Array.from(
+      new Set([sourceSelector, ...codeLayerSelectorAliases(sourceOwner.node)]),
+    ).filter(Boolean);
+    // Conceal the source in the current DOM before the destination insert is
+    // posted. The React prop path below replays it after source-frame reloads.
+    sendLinkedScreenPreviewPendingDelete(sourceScreenId, {
+      selector: sourceSelector,
+      selectorCandidates: deleteSelectorCandidates,
+      requestId: deleteRequestId,
+      transactionId,
+    });
     runtimeStructureInsertRevisionRef.current += 1;
     setRuntimeStructureInsertRequest({
       requestId: runtimeStructureInsertRevisionRef.current,
@@ -517,18 +534,13 @@ export function runCrossScreenElementDrop(
       placement: targetAnchorPlacement ?? "inside",
     });
     setRuntimeStructureDeleteRequest({
-      requestId: `${transactionId}:source`,
+      requestId: deleteRequestId,
       transactionId,
       screenId: sourceScreenId,
       selector: sourceSelector,
       waitForInsertTransaction: true,
       rollbackScreenId: targetScreenId,
-      selectorCandidates: Array.from(
-        new Set([
-          sourceSelector,
-          ...codeLayerSelectorAliases(sourceOwner.node),
-        ]),
-      ).filter(Boolean),
+      selectorCandidates: deleteSelectorCandidates,
     });
     return;
   }
@@ -852,6 +864,7 @@ export function runCrossScreenElementDrop(
                     targetLocalPoint,
                   }),
                   sourcePointerOffset,
+                  sourceComputedSize,
                 )
               : removeAbsolutePositioningFromNodeInHtml(styled, subjectNodeId);
           return new DOMParser()
@@ -1127,6 +1140,7 @@ export function runCrossScreenElementDrop(
         destNodeAttrId,
         point,
         sourcePointerOffset,
+        sourceComputedSize,
       ),
       branch,
     });

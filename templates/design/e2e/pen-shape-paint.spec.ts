@@ -287,7 +287,7 @@ async function drawClosedTriangle(page: Page, designId: string) {
   return { centroid: { x: card.x + 127, y: card.y + 207 } };
 }
 
-test("a closed pen path commits filled and unstroked, like a drawn rectangle", async ({
+test("a closed pen path starts with a stroke and no fill, like Figma", async ({
   page,
   request,
 }) => {
@@ -297,9 +297,15 @@ test("a closed pen path commits filled and unstroked, like a drawn rectangle", a
 
     const paint = await vectorPaint(page);
     expect(paint).not.toBeNull();
-    expect(paint!.fillAttribute).toBe("rgb(218 218 218)");
-    expect(paint!.strokeAttribute).toBe("none");
-    expect(paint!.shapeStroke).toBe("none");
+    expect(paint!.fillAttribute).toBe("none");
+    expect(paint!.strokeAttribute).toBe("#000000");
+    expect(paint!.shapeStroke).toBe("rgb(0, 0, 0)");
+
+    const fillSection = inspectorSection(page, /^Fill$/i);
+    await fillSection.getByRole("button", { name: "Add fill" }).last().click();
+    await expect
+      .poll(async () => (await vectorPaint(page))?.shapeFill)
+      .toBe("rgb(217, 217, 217)");
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
@@ -320,6 +326,7 @@ test("fill and stroke edits paint the pen shape, not its selection bounds", asyn
 
     const fillSection = inspectorSection(page, /^Fill$/i);
     await expect(fillSection).toBeVisible();
+    await fillSection.getByRole("button", { name: "Add fill" }).last().click();
     await fillSection.locator('button[aria-label="Hide layer"]').click();
     await expect
       .poll(async () => (await vectorPaint(page))?.shapeFill)

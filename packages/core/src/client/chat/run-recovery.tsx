@@ -1,8 +1,9 @@
 // Owns: run-error metadata extractors, recovery helpers, RunErrorRecoveryCard,
-// LoopLimitContinueCard, BuilderConnectCta, BuilderSetupCard, ApiKeyConnect,
+// LoopLimitContinueCard, BuilderConnectCta, BuilderSetupCard,
 // PlanModeCallout, and getLoopLimitMetadata / getRunErrorMetadata exports used
 // by AssistantChatInner.
 
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   IconLoader2,
   IconCheck,
@@ -18,16 +19,14 @@ import {
   IconRefresh,
   IconPlus,
   IconClipboardList,
+  IconArrowUpRight,
 } from "@tabler/icons-react";
-import {
-  lazy,
-  Suspense,
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-} from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Link } from "react-router";
 
+import { isCreditsLimitErrorCode } from "../../agent/engine/error-detail.js";
+import { buildSettingsRoute } from "../../navigation/index.js";
+import { withBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
 import {
@@ -35,18 +34,14 @@ import {
   localizeKnownChatErrorText,
 } from "../error-format.js";
 import { useFormatters, useT } from "../i18n.js";
-import { LazyChunkErrorBoundary } from "../lazy-chunk-error-boundary.js";
-import { LazyChunkRetryFallback } from "../lazy-chunk-retry-fallback.js";
 import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 
-const LazyAgentProviderSetupForm = lazy(() =>
-  import("../settings/ProviderSetupForm.js").then((module) => ({
-    default: module.AgentProviderSetupForm,
-  })),
+const builderSubscriptionUrl = withBuilderUtmTrackingParams(
+  "https://builder.io/account/subscription?signupSource=agent-native",
+  { content: "chat_credit_limit" },
 );
-
 // ─── Type definitions ─────────────────────────────────────────────────────────
 
 export type LoopLimitInfo = { maxIterations?: number };
@@ -366,45 +361,6 @@ export function BuilderConnectCta({
   );
 }
 
-// ─── ApiKeyConnect ────────────────────────────────────────────────────────────
-
-export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
-  const t = useT();
-  const loadingForm = (
-    <div
-      role="status"
-      aria-busy="true"
-      aria-label={t("agentChat.common.loading")}
-      className="space-y-2 rounded-md border border-border bg-accent/20 p-2.5"
-    >
-      <div
-        aria-hidden="true"
-        className="h-8 animate-pulse rounded-md bg-muted"
-      />
-      <div
-        aria-hidden="true"
-        className="h-16 animate-pulse rounded-md bg-muted"
-      />
-      <div
-        aria-hidden="true"
-        className="ms-auto h-8 w-20 animate-pulse rounded-md bg-muted"
-      />
-    </div>
-  );
-
-  return (
-    <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
-      <Suspense fallback={loadingForm}>
-        <LazyAgentProviderSetupForm
-          onConnected={() => onConnected?.()}
-          layout="compact"
-          showTitle={false}
-        />
-      </Suspense>
-    </LazyChunkErrorBoundary>
-  );
-}
-
 // ─── BuilderSetupCard ─────────────────────────────────────────────────────────
 
 export type BuilderSetupCardLayout = "default" | "sidebar";
@@ -417,7 +373,6 @@ export function BuilderSetupContent({
   layout?: BuilderSetupCardLayout;
 }) {
   const t = useT();
-  const [keyOpen, setKeyOpen] = useState(false);
   const sidebarLayout = layout === "sidebar";
 
   return (
@@ -452,29 +407,21 @@ export function BuilderSetupContent({
           )}
         >
           <BuilderConnectCta variant="compact" onConnected={onConnected} />
-          <button
-            type="button"
-            onClick={() => setKeyOpen((open) => !open)}
+          <Link
+            to={buildSettingsRoute("keys")}
             className={cn(
               "agent-builder-setup-card__key-button inline-flex shrink-0 items-center whitespace-nowrap rounded-md text-[11px] font-medium",
               sidebarLayout
                 ? "h-7 border-0 bg-transparent px-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
                 : "h-8 border border-border bg-background px-3 text-foreground hover:bg-accent",
             )}
-            aria-expanded={keyOpen}
           >
             {t("agentPanel.addOwnKeys", {
               defaultValue: "Custom keys",
             })}
-          </button>
+          </Link>
         </div>
       </div>
-
-      {keyOpen ? (
-        <div className="mt-3">
-          <ApiKeyConnect onConnected={onConnected} />
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -607,6 +554,7 @@ export function RunErrorRecoveryCard({
     trackingSource: "assistant_chat_reconnect_error",
   });
   const canRecover = info.recoverable === true;
+  const isBuilderCreditsLimit = isCreditsLimitErrorCode(info.errorCode);
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
   const isProviderAuthError = isProviderAuthenticationError(
     [info.message, info.details].filter(Boolean).join("\n"),
@@ -739,6 +687,36 @@ export function RunErrorRecoveryCard({
           >
             <IconRefresh size={13} />
             {t("agentChat.common.retry")}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isBuilderCreditsLimit) {
+    return (
+      <div className="min-w-0 rounded-lg border border-border bg-card p-3 text-sm">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <p className="min-w-0 flex-1 font-medium text-foreground">
+            {t("agentChat.errorMessages.creditsLimitReached", {
+              defaultValue: "You've reached your AI credits limit.",
+            })}
+          </p>
+          <Button asChild size="sm">
+            <a href={builderSubscriptionUrl} target="_blank" rel="noreferrer">
+              {t("agentChat.errorMessages.addCreditsInBuilder", {
+                defaultValue: "Add credits in Builder",
+              })}
+              <IconArrowUpRight />
+            </a>
+          </Button>
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label={t("agentChat.common.dismiss")}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <IconX size={14} />
           </button>
         </div>
       </div>

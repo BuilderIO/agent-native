@@ -26,6 +26,7 @@ const messages = {
     team: "Equipe",
   },
   settings: {
+    agentObservability: "Observabilidade do agente",
     title: "Configurações",
     description: "Preferências de idioma e espaço de trabalho deste app.",
     labs: "Labs",
@@ -687,14 +688,14 @@ const messages = {
     accessApprovalSignIn: "Entrar",
     accessApprovalLoading: "Concedendo acesso...",
     backToDecks: "Voltar aos decks",
-    tryAgain: "Intentar de nuevo",
+    tryAgain: "Tentar novamente",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:
       "Conecte o Builder.io no menu de modelo do compositor do agente para enviar imagens aos slides. Soltar uma imagem na tela vazia ainda pode enviá-la ao agente sem provedor.",
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
-    deckHasNoSlides: "El deck no tiene diapositivas.",
+    deckHasNoSlides: "Esta apresentação não contém slides.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
     layoutOverflowWarning: "O layout transborda",
@@ -710,6 +711,10 @@ const messages = {
       "Se você sair ou recarregar agora, poderá perder alterações que ainda não foram salvas. Tem certeza de que deseja sair?",
     keepEditing: "Continuar editando",
     leaveWithoutSaving: "Sair sem salvar",
+    editorMarkupNotSaved:
+      "Esta edição não foi salva porque adicionaria marcação do editor ao slide.",
+    textEditConflictNotSaved:
+      "Sua edição de texto não foi salva porque o mesmo texto foi alterado em outro lugar ao mesmo tempo.",
   },
   designSystemSetup: {
     importedBrand: "Marca importada",

@@ -36,9 +36,18 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          package_json_file: package.json
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install changeset checker dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter agentnative
 
       - name: Run changeset check
         env:

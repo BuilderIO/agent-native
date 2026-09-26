@@ -70,6 +70,10 @@ import {
 } from "../db/runtime-diagnostics.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
+  BUILDER_CREDIT_USAGE_REPORTING_FLAG,
+  registerFeatureFlags,
+} from "../feature-flags/registry.js";
+import {
   uploadFile,
   getActiveFileUploadProviderForRequest,
   listFileUploadProviders,
@@ -2101,6 +2105,7 @@ export function createCoreRoutesPlugin(
     options.googleOAuthManagedConnection ?? "unknown";
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "core-routes");
+    registerFeatureFlags([BUILDER_CREDIT_USAGE_REPORTING_FLAG]);
     registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
     // No-op when called from inside the bootstrap (auto-mount path).
     // Otherwise wait so other default plugins finish mounting first.
@@ -4927,6 +4932,7 @@ export function createCoreRoutesPlugin(
           try {
             track(validation.name as string, properties, {
               userId: userEmail,
+              authUserId: session.authUserId,
               sessionId: readBrowserSessionIdHeader(event),
               telemetryOrigin: "client",
             });

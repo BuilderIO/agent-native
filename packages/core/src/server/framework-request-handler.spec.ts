@@ -4,6 +4,7 @@ import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
+import { isServerRuntimeStarted } from "../db/server-runtime.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import { createTrackingEventScope } from "../observability/tracing.js";
 import {
@@ -92,6 +93,22 @@ describe("framework request handler", () => {
     delete process.env.AGENT_NATIVE_DISABLED_PLUGINS;
     resetAppConfigForTests();
     vi.restoreAllMocks();
+    delete (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_SERVER_RUNTIME__;
+  });
+
+  // Bare Node/Docker has no platform env var marking a real invocation the
+  // way Netlify/Lambda/Vercel do, so the hosted-database guard (client.ts's
+  // assertHostedRuntimeDatabase()) relies on this flag instead. It must be
+  // set the first time any plugin — default or app-authored — wires up the
+  // real H3 app, and only then: a build never constructs a real nitroApp.
+  it("marks server-runtime duty started on the first getH3App() call for a nitroApp", () => {
+    expect(isServerRuntimeStarted()).toBe(false);
+
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp);
+
+    expect(isServerRuntimeStarted()).toBe(true);
   });
 
   it("runs a hand-written /api route inside an identity-free RequestContext", async () => {
