@@ -931,6 +931,14 @@ describe("FirstRunOnboarding", () => {
           (properties as Record<string, unknown>).step_id === "choice",
       );
     expect(choiceSkipped()).toHaveLength(0);
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "skip_to_app",
+        outcome: "handoff_failed",
+        error_type: "onboarding_completion_error",
+      }),
+    );
 
     await act(async () => {
       [...document.body.querySelectorAll("button")]
@@ -1874,6 +1882,14 @@ describe("FirstRunOnboarding", () => {
     expect(window.location.pathname).toBe("/");
     expect(document.body.textContent).toContain(
       "first-run completion failed: 500",
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "custom_keys",
+        outcome: "handoff_failed",
+        error_type: "onboarding_completion_error",
+      }),
     );
 
     await act(async () => {

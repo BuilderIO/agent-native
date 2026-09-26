@@ -65,11 +65,13 @@ function trackFirstRunSetupOutcome(
     | "already_connected"
     | "failed"
     | "settings_opened"
-    | "skipped_to_app",
+    | "skipped_to_app"
+    | "handoff_failed",
   errorType?: string,
 ) {
-  if (!attempt || attempt.outcomeTracked) return;
-  attempt.outcomeTracked = true;
+  if (!attempt || (attempt.outcomeTracked && outcome !== "handoff_failed"))
+    return;
+  if (outcome !== "handoff_failed") attempt.outcomeTracked = true;
   trackOnboardingEvent("onboarding_method_outcome", {
     flow: "first_run",
     step_id: "choice",
@@ -199,6 +201,7 @@ export function FirstRunOnboarding({
     screen: FirstRunScreen | null;
     extensionIndex: number;
     onSuccess?: () => void;
+    onFailure?: () => void;
   } | null>(null);
   const completionInFlightRef = useRef(false);
   const onboardingTerminalRef = useRef(false);
@@ -233,30 +236,34 @@ export function FirstRunOnboarding({
       completedScreen: FirstRunScreen | null,
       completedExtensionIndex = extensionIndex,
       onSuccess?: () => void,
+      onFailure?: () => void,
     ) => {
       completionAttemptRef.current = {
         screen: completedScreen,
         extensionIndex: completedExtensionIndex,
         ...(onSuccess ? { onSuccess } : {}),
+        ...(onFailure ? { onFailure } : {}),
       };
       completionInFlightRef.current = true;
-      let onSuccessAfterCompletion: (() => void) | undefined;
+      let completionSucceeded = false;
+      let onCompletionResult: (() => void) | undefined;
       try {
         await completeFirstRun();
+        completionSucceeded = true;
         if (completedScreen) {
           trackFirstRunStepCompleted(completedScreen, completedExtensionIndex);
         }
         onboardingTerminalRef.current = true;
-        onSuccessAfterCompletion = completionAttemptRef.current?.onSuccess;
+        onCompletionResult = completionAttemptRef.current?.onSuccess;
         completionAttemptRef.current = null;
       } catch {
         // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
-        return false;
+        onCompletionResult = completionAttemptRef.current?.onFailure;
       } finally {
         completionInFlightRef.current = false;
       }
-      onSuccessAfterCompletion?.();
-      return true;
+      onCompletionResult?.();
+      return completionSucceeded;
     },
     [completeFirstRun, extensionIndex, trackFirstRunStepCompleted],
   );
@@ -350,6 +357,7 @@ export function FirstRunOnboarding({
       attempt?.screen ?? null,
       attempt?.extensionIndex ?? extensionIndex,
       attempt?.onSuccess,
+      attempt?.onFailure,
     );
   }, [extensionIndex, finishOnboarding]);
   const completionErrorProps = {
@@ -447,19 +455,41 @@ export function FirstRunOnboarding({
   const handleOpenSettings = async () => {
     if (completionInFlightRef.current) return;
     const attempt = startSetupMethod("custom_keys", "manual");
-    await finishOnboarding("choice", extensionIndex, () => {
-      trackFirstRunSetupOutcome(attempt, "settings_opened");
-      navigateToKeySettings();
-    });
+    await finishOnboarding(
+      "choice",
+      extensionIndex,
+      () => {
+        trackFirstRunSetupOutcome(attempt, "settings_opened");
+        navigateToKeySettings();
+      },
+      () => {
+        trackFirstRunSetupOutcome(
+          attempt,
+          "handoff_failed",
+          "onboarding_completion_error",
+        );
+      },
+    );
   };
 
   const handleSkipToApp = async () => {
     if (completionInFlightRef.current) return;
     const attempt = startSetupMethod("skip_to_app", "skip");
-    await finishOnboarding(null, extensionIndex, () => {
-      trackFirstRunStepSkipped("choice", "skip_to_app");
-      trackFirstRunSetupOutcome(attempt, "skipped_to_app");
-    });
+    await finishOnboarding(
+      null,
+      extensionIndex,
+      () => {
+        trackFirstRunStepSkipped("choice", "skip_to_app");
+        trackFirstRunSetupOutcome(attempt, "skipped_to_app");
+      },
+      () => {
+        trackFirstRunSetupOutcome(
+          attempt,
+          "handoff_failed",
+          "onboarding_completion_error",
+        );
+      },
+    );
   };
 
   const builderStatusPending = !previewMode && !connectFlow.statusResolved;
