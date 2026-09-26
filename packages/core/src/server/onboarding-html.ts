@@ -1552,6 +1552,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.25rem; color: #fff; }
   .subtitle { font-size: 0.8125rem; color: #888; margin-bottom: 1.5rem; }
+  .local-dev-available .subtitle { margin-bottom: 0.75rem; }
   .tabs {
     display: inline-flex;
     width: 100%;
@@ -1629,11 +1630,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .btn-secondary:hover { color: #bbb; border-color: rgba(255,255,255,0.2); }
   .local-dev-signin {
-    margin: 1.25rem 0 0.25rem;
-    padding-top: 1rem;
+    margin: 0.75rem 0 0.25rem;
   }
   .btn-local-dev {
-    margin-top: 0.25rem;
+    margin-top: 0;
   }
   .btn-local-dev:disabled { opacity: 0.5; cursor: wait; }
   .local-dev-description {
