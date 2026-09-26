@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 
 import {
   databaseConversionRequest,
@@ -12,6 +13,8 @@ import {
   documentEditorDefaultIconKind,
   documentEditorDatabaseRegionClassName,
   materializedSuggestionForDraft,
+  visibleSavedSuggestionsDuringDraftMaterialization,
+  observeAcceptedCanonicalSettlement,
   documentEditorReservesInlineReviewSpace,
   documentEditorShowsInlineComments,
   documentEditorLoadState,
@@ -51,6 +54,49 @@ import {
 import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
 
 describe("document editor layout", () => {
+  it("waits for canonical Yjs state rather than an isolated suggestion draft", () => {
+    const ydoc = new Y.Doc();
+    const paragraph = new Y.XmlElement("paragraph");
+    const text = new Y.XmlText();
+    text.insert(0, "Before");
+    paragraph.insert(0, [text]);
+    ydoc.getXmlFragment("default").insert(0, [paragraph]);
+    const onRendered = vi.fn();
+    const onOutdated = vi.fn();
+    const stop = observeAcceptedCanonicalSettlement({
+      ydoc,
+      beforeContent: "Before",
+      readbackContent: " AddedBefore",
+      onRendered,
+      onOutdated,
+      onError: vi.fn(),
+    });
+    expect(onRendered).not.toHaveBeenCalled();
+    ydoc.transact(() => {
+      text.insert(0, " Added");
+      const peerParagraph = new Y.XmlElement("paragraph");
+      const peerText = new Y.XmlText();
+      peerText.insert(0, "Peer");
+      peerParagraph.insert(0, [peerText]);
+      ydoc.getXmlFragment("default").insert(1, [peerParagraph]);
+    });
+    expect(onRendered).not.toHaveBeenCalled();
+    expect(onOutdated).toHaveBeenCalledWith(" AddedBefore\nPeer");
+    stop();
+
+    const refreshed = vi.fn();
+    const stopRefreshed = observeAcceptedCanonicalSettlement({
+      ydoc,
+      beforeContent: "Before",
+      readbackContent: " AddedBefore\nPeer",
+      onRendered: refreshed,
+      onOutdated,
+      onError: vi.fn(),
+    });
+    expect(refreshed).toHaveBeenCalledTimes(1);
+    stopRefreshed();
+    ydoc.destroy();
+  });
   it("attests an identified revert even when its snapshot matches the saved page", () => {
     const base = {
       hasUpdates: false,
@@ -239,6 +285,28 @@ describe("document editor layout", () => {
         draft,
       ),
     ).toBeNull();
+  });
+
+  it("hides only the saved copy of a draft while it materializes", () => {
+    const draft = {
+      operations: [{ ordinal: 0, kind: "insert_text", after: "W" }],
+    } as never;
+    const optimistic = {
+      id: "optimistic",
+      operations: [{ ordinal: 1, kind: "insert_text", after: "W" }],
+    } as never;
+    const unrelated = {
+      id: "unrelated",
+      operations: [{ ordinal: 0, kind: "insert_text", after: "X" }],
+    } as never;
+    const saved = [optimistic, unrelated];
+
+    expect(
+      visibleSavedSuggestionsDuringDraftMaterialization(saved, [draft], true),
+    ).toEqual([unrelated]);
+    expect(
+      visibleSavedSuggestionsDuringDraftMaterialization(saved, [draft], false),
+    ).toEqual(saved);
   });
 
   it("keeps review geometry stable after the final inline decision", () => {

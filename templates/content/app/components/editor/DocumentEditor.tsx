@@ -30,7 +30,7 @@ import type {
 } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { Document, DocumentSyncStatus } from "@shared/api";
-import { canonicalizeNfm } from "@shared/nfm";
+import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import {
   SuggestionFormattingMappingError,
   suggestionMarkedSourceRanges,
@@ -49,6 +49,7 @@ import {
   type QueryClient,
   useQueryClient,
 } from "@tanstack/react-query";
+import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap";
 import {
   useCallback,
   useEffect,
@@ -60,6 +61,7 @@ import {
 import type { ClipboardEvent, MutableRefObject, ReactNode } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
+import type { Doc as YDoc } from "yjs";
 
 import {
   contentBlockRegistry,
@@ -226,6 +228,38 @@ import type {
 
 const NO_COMMENT_THREADS: CommentThread[] = [];
 
+export function observeAcceptedCanonicalSettlement(args: {
+  ydoc: YDoc;
+  beforeContent: string;
+  readbackContent: string;
+  onRendered: () => void;
+  onOutdated: (actualContent: string) => void;
+  onError: (error: unknown) => void;
+}) {
+  const before = canonicalizeNfm(args.beforeContent);
+  const readback = canonicalizeNfm(args.readbackContent);
+  let rendered = false;
+  const check = () => {
+    if (rendered) return;
+    try {
+      const actual = canonicalizeNfm(
+        docToNfm(yDocToProsemirrorJSON(args.ydoc, "default") as any),
+      );
+      if (actual === readback && actual !== before) {
+        rendered = true;
+        args.onRendered();
+      } else if (actual !== before && actual !== readback) {
+        args.onOutdated(actual);
+      }
+    } catch (error) {
+      args.onError(error);
+    }
+  };
+  args.ydoc.on("update", check);
+  check();
+  return () => args.ydoc.off("update", check);
+}
+
 export function shouldResumeSelectedSuggestionFromPageActions(
   capturedSelection: VisualEditorSelectionSnapshot | null,
 ) {
@@ -353,6 +387,22 @@ export function materializedSuggestionForDraft(
   return persisted.size === 1
     ? (persisted.values().next().value ?? null)
     : null;
+}
+
+export function visibleSavedSuggestionsDuringDraftMaterialization(
+  saved: ResourceSuggestion[],
+  drafts: DraftSuggestion[],
+  submitting: boolean,
+) {
+  if (!submitting || drafts.length === 0) return saved;
+  const draftKeys = new Set(
+    drafts.map((draft) => suggestionOperationKey(draft.operations[0]!)),
+  );
+  return saved.filter(
+    (suggestion) =>
+      !suggestion.operations[0] ||
+      !draftKeys.has(suggestionOperationKey(suggestion.operations[0])),
+  );
 }
 
 export function sameSuggestionAnchorIds(
@@ -4101,11 +4151,7 @@ function PageEditorSessionBody({
   }, []);
 
   const refreshSuggestionDecisionDocument = useCallback(
-    async (
-      continueSuggesting: boolean,
-      accepted: boolean,
-      resumeSuggestionMode = true,
-    ) => {
+    async (continueSuggesting: boolean, accepted: boolean) => {
       if (decisionRefreshInFlightRef.current) return;
       decisionRefreshInFlightRef.current = true;
       setDecisionRefreshFailed(false);
@@ -4120,8 +4166,13 @@ function PageEditorSessionBody({
           { method: "GET" },
         );
         patchDocumentCaches(queryClient, documentId, refreshedDocument);
-        if (continueSuggesting && resumeSuggestionMode)
-          continueSuggestionModeFrom(refreshedDocument);
+        if (continueSuggesting) continueSuggestionModeFrom(refreshedDocument);
+        if (accepted && continueSuggesting) {
+          const sync = await requestCollabSync();
+          if (sync.status === "failed") throw sync.error;
+          if (sync.status === "unavailable")
+            throw new Error("Collaborative document is unavailable");
+        }
         setPendingSuggestionDecision((current) => {
           if (!accepted || !current || !current.optimistic) return null;
           return { ...current, readbackContent: refreshedDocument.content };
@@ -4146,6 +4197,7 @@ function PageEditorSessionBody({
       databaseId,
       documentId,
       queryClient,
+      requestCollabSync,
       t,
     ],
   );
@@ -4184,6 +4236,42 @@ function PageEditorSessionBody({
   );
 
   useEffect(() => {
+    const pending = pendingSuggestionDecision;
+    if (
+      !isSuggesting ||
+      !collabEditorEnabled ||
+      !ydoc ||
+      pending?.decision !== "accepted" ||
+      pending.readbackContent === null
+    )
+      return;
+    const before = pending.suggestion.operations[0]?.before as
+      | { markdown?: unknown }
+      | undefined;
+    if (typeof before?.markdown !== "string") {
+      setDecisionRefreshFailed(true);
+      return;
+    }
+    const suggestionId = pending.suggestion.id;
+    return observeAcceptedCanonicalSettlement({
+      ydoc,
+      beforeContent: before.markdown,
+      readbackContent: pending.readbackContent,
+      onRendered: () => handleAcceptedDecisionRendered(suggestionId),
+      onOutdated: (actual) =>
+        handleAcceptedDecisionReadbackOutdated(suggestionId, actual),
+      onError: () => setDecisionRefreshFailed(true),
+    });
+  }, [
+    collabEditorEnabled,
+    handleAcceptedDecisionReadbackOutdated,
+    handleAcceptedDecisionRendered,
+    isSuggesting,
+    pendingSuggestionDecision,
+    ydoc,
+  ]);
+
+  useEffect(() => {
     if (
       !decisionReadbackDivergence ||
       pendingSuggestionDecision?.suggestion.id !==
@@ -4196,7 +4284,6 @@ function PageEditorSessionBody({
       void refreshSuggestionDecisionDocument(
         pendingSuggestionDecision.continueSuggesting,
         true,
-        false,
       );
     }, 1000);
     return () => window.clearTimeout(timer);
@@ -4373,12 +4460,22 @@ function PageEditorSessionBody({
     );
   }, [sessionDraftSuggestions, suggestionPersistenceRevision]);
 
+  const displaySavedSuggestions = useMemo(
+    () =>
+      visibleSavedSuggestionsDuringDraftMaterialization(
+        presentedSuggestions,
+        draftSuggestions,
+        isSubmittingSuggestions,
+      ),
+    [presentedSuggestions, draftSuggestions, isSubmittingSuggestions],
+  );
+
   const visualSuggestions = useMemo<VisualEditorSuggestion[]>(() => {
     const currentMarkdown =
       pendingSuggestionDecisionContent ??
       (isSuggesting ? suggestionDraft : document.content);
     const byId = new Map<string, VisualEditorSuggestion>();
-    for (const suggestion of presentedSuggestions) {
+    for (const suggestion of displaySavedSuggestions) {
       if (suggestion.id === editingSuggestionId) continue;
       const presentation = suggestionPresentation(suggestion, currentMarkdown);
       if (presentation) byId.set(presentation.id, presentation);
@@ -4446,21 +4543,21 @@ function PageEditorSessionBody({
     isSuggesting,
     pendingSuggestionDecision,
     pendingSuggestionDecisionContent,
-    presentedSuggestions,
+    displaySavedSuggestions,
     sessionDraftSuggestions,
     suggestionPersistenceRevision,
     suggestionDraft,
   ]);
   const sidebarSuggestions = useMemo(() => {
     if (!editingSuggestionId || sessionDraftSuggestions.length !== 1) {
-      return presentedSuggestions;
+      return displaySavedSuggestions;
     }
-    return presentedSuggestions.map((suggestion) =>
+    return displaySavedSuggestions.map((suggestion) =>
       suggestion.id === editingSuggestionId
         ? { ...suggestion, operations: sessionDraftSuggestions[0]!.operations }
         : suggestion,
     );
-  }, [editingSuggestionId, presentedSuggestions, sessionDraftSuggestions]);
+  }, [editingSuggestionId, displaySavedSuggestions, sessionDraftSuggestions]);
 
   useEffect(() => {
     void setClientAppState(
@@ -6220,6 +6317,7 @@ function PageEditorSessionBody({
                           <VisualEditor
                             onEscape={handleEditorEscape}
                             acceptedDecisionReadback={
+                              !isSuggesting &&
                               pendingSuggestionDecision?.decision ===
                                 "accepted" &&
                               pendingSuggestionDecision.readbackContent !== null

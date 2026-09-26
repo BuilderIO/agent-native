@@ -1435,6 +1435,7 @@ export function suggestionHighlightSpec(
       insertedText: suggestion.afterText,
       insertedPresentation: suggestion.afterPresentation,
       settling: true,
+      settlingBeforePresentation: suggestion.beforePresentation,
       settlingAfterSource: suggestion.afterPresentation?.source,
       settlingReadbackContent: suggestion.settlementReadbackContent,
     };

@@ -52,6 +52,122 @@ function setSpecs(
 }
 
 describe("SuggestionHighlight", () => {
+  it.each([
+    {
+      kind: "insert" as const,
+      before: "Old tail",
+      after: "New Old tail",
+      beforeRange: [0, 0],
+      afterRange: [0, 4],
+      insertedText: "New ",
+    },
+    {
+      kind: "delete" as const,
+      before: "Old tail",
+      after: " tail",
+      beforeRange: [0, 3],
+      afterRange: [0, 0],
+      insertedText: "",
+    },
+    {
+      kind: "replace" as const,
+      before: "Old tail",
+      after: "New tail",
+      beforeRange: [0, 3],
+      afterRange: [0, 3],
+      insertedText: "New",
+    },
+  ])(
+    "settles a $kind at its anchored operation despite an unrelated peer edit",
+    ({ kind, before, after, beforeRange, afterRange, insertedText }) => {
+      const spec: SuggestionHighlightSpec = {
+        suggestionId: "settling",
+        kind,
+        from: 1,
+        to: kind === "insert" ? 1 : 4,
+        insertedText,
+        settling: true,
+        settlingBeforePresentation: {
+          source: before,
+          from: beforeRange[0]!,
+          to: beforeRange[1]!,
+        },
+        insertedPresentation: {
+          source: after,
+          from: afterRange[0]!,
+          to: afterRange[1]!,
+        },
+      };
+      expect(
+        suggestionHighlightKey
+          .getState(setSpecs(state(`${after} peer`), [spec]))!
+          .decorations.find(),
+      ).toHaveLength(0);
+      expect(
+        suggestionHighlightKey
+          .getState(setSpecs(state(before), [spec]))!
+          .decorations.find().length,
+      ).toBeGreaterThan(0);
+    },
+  );
+
+  it("does not mistake the accepted text elsewhere for this insertion", () => {
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "repeated",
+      kind: "insert",
+      from: 1,
+      to: 1,
+      insertedText: "New ",
+      settling: true,
+      settlingBeforePresentation: {
+        source: "Old tail",
+        from: 0,
+        to: 0,
+      },
+      insertedPresentation: {
+        source: "New Old tail",
+        from: 0,
+        to: 4,
+      },
+    };
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("Old tail and New Old tail"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("does not duplicate an accepted insertion at the end of a draft", () => {
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "tail-insert",
+      kind: "insert",
+      from: 5,
+      to: 5,
+      insertedText: "X",
+      settling: true,
+      settlingBeforePresentation: {
+        source: "Before",
+        from: 6,
+        to: 6,
+      },
+      insertedPresentation: {
+        source: "BeforeX",
+        from: 6,
+        to: 7,
+      },
+    };
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("BeforeX"), [spec]))!
+        .decorations.find(),
+    ).toHaveLength(0);
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("Before"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+  });
+
   it("keeps deletions quiet at rest and readable on hover, focus, or selection", () => {
     const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
       encoding: "utf8",

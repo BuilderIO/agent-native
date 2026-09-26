@@ -34,6 +34,7 @@ export interface SuggestionHighlightSpec {
   editableBoundary?: boolean;
   editableText?: boolean;
   settling?: boolean;
+  settlingBeforePresentation?: SuggestionPresentationContext;
   settlingAfterSource?: string;
   settlingReadbackContent?: string | null;
 }
@@ -184,6 +185,52 @@ function deletionWidget(spec: SuggestionHighlightSpec, active: boolean) {
   };
 }
 
+function settledAtOperation(
+  content: string,
+  spec: SuggestionHighlightSpec,
+): boolean {
+  const before = spec.settlingBeforePresentation;
+  const presentation = spec.insertedPresentation;
+  const source = presentation?.source ?? spec.settlingAfterSource;
+  if (!before || !presentation || source === undefined) return false;
+  const { from, to } = presentation;
+  if (
+    from < 0 ||
+    to < from ||
+    to > source.length ||
+    before.from < 0 ||
+    before.to < before.from ||
+    before.to > before.source.length
+  )
+    return false;
+
+  // The persisted after-source locates the operation. Its nearby unchanged
+  // text distinguishes this occurrence from identical text elsewhere.
+  const left = source.slice(Math.max(0, from - 32), from);
+  const right = source.slice(to, Math.min(source.length, to + 32));
+  const localResult = source.slice(from, to);
+  const needle = left + localResult + right;
+  if (!needle) return false;
+  const first = content.indexOf(needle);
+  if (first === -1 || content.indexOf(needle, first + 1) !== -1) return false;
+  if (from === 0 && first !== 0) return false;
+
+  const originalLeft = before.source.slice(
+    Math.max(0, before.from - 32),
+    before.from,
+  );
+  const originalRight = before.source.slice(
+    before.to,
+    Math.min(before.source.length, before.to + 32),
+  );
+  const original =
+    originalLeft + before.source.slice(before.from, before.to) + originalRight;
+  return (
+    original !== needle &&
+    (original.length < needle.length || !content.startsWith(original, first))
+  );
+}
+
 function buildDecorations(
   doc: ProseMirrorNode,
   specs: SuggestionHighlightSpec[],
@@ -192,17 +239,18 @@ function buildDecorations(
   const decorations: Decoration[] = [];
   const size = doc.content.size;
   const settledContent = specs.some((spec) => spec.settling)
-    ? canonicalizeNfm(docToNfm(doc.toJSON()))
+    ? docToNfm(doc.toJSON())
     : null;
 
   for (const spec of specs) {
     if (
       spec.settling &&
-      ((spec.settlingAfterSource !== undefined &&
-        settledContent === canonicalizeNfm(spec.settlingAfterSource)) ||
+      settledContent !== null &&
+      (settledAtOperation(settledContent, spec) ||
         (spec.settlingReadbackContent !== null &&
           spec.settlingReadbackContent !== undefined &&
-          settledContent === canonicalizeNfm(spec.settlingReadbackContent)))
+          canonicalizeNfm(settledContent) ===
+            canonicalizeNfm(spec.settlingReadbackContent)))
     )
       continue;
     const active = activeId === spec.suggestionId;
