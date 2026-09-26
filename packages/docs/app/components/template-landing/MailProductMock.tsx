@@ -549,6 +549,11 @@ export function MailProductMock({
           </div>
         </aside>
       </div>
+      {variant === "jev" ? (
+        <div className="mm-mobile-toast" aria-hidden="true">
+          Archived 1,167 bot notifications · kept 4 PR comments
+        </div>
+      ) : null}
     </div>
   );
 }

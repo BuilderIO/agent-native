@@ -18,6 +18,10 @@
   font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
+.mm-mobile-toast {
+  display: none;
+}
+
 .mm-focus-labels .mm-agent {
   display: none;
 }
@@ -820,5 +824,61 @@
 
   .mm-priority-mark {
     display: none;
+  }
+}
+
+@media (max-width: 639px) {
+  .mail-product-art.mm-focus-jev {
+    position: relative;
+    height: 304px;
+  }
+
+  .mm-mobile-toast {
+    display: block;
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    max-width: calc(100% - 16px);
+    border: 1px solid var(--mm-border);
+    border-radius: 8px;
+    background: var(--mm-card);
+    padding: 8px 10px;
+    color: var(--mm-fg);
+    font-size: 10px;
+    line-height: 1.3;
+  }
+
+  .mail-product-art.mm-focus-labels {
+    height: 256px;
+  }
+
+  .mail-product-art.mm-focus-automations {
+    height: 152px;
+  }
+
+  .mail-product-art .mm-agent {
+    display: none;
+  }
+
+  .mm-focus-jev .mm-thread-row:nth-child(n + 7),
+  .mm-focus-labels .mm-thread-row:nth-child(n + 7) {
+    display: none;
+  }
+
+  .mm-focus-jev .mm-label-chip,
+  .mm-focus-labels .mm-label-chip {
+    display: block;
+    max-width: 68px;
+  }
+
+  .mm-focus-labels .mm-row-actions,
+  .mm-focus-jev .mm-row-actions {
+    display: none;
+  }
+
+  .mm-row-action-rail {
+    width: auto;
+    min-width: 42px;
+    flex-basis: auto;
   }
 }
