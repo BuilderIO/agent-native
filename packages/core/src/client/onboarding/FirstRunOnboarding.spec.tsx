@@ -931,12 +931,11 @@ describe("FirstRunOnboarding", () => {
           (properties as Record<string, unknown>).step_id === "choice",
       );
     expect(choiceSkipped()).toHaveLength(0);
-    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
       "onboarding_method_outcome",
       expect.objectContaining({
         method_id: "skip_to_app",
         outcome: "handoff_failed",
-        error_type: "onboarding_completion_error",
       }),
     );
 
@@ -955,6 +954,10 @@ describe("FirstRunOnboarding", () => {
         method_id: "skip_to_app",
         outcome: "skipped_to_app",
       }),
+    );
+    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({ outcome: "handoff_failed" }),
     );
     window.history.replaceState(null, "", "/");
   });
@@ -1883,12 +1886,11 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).toContain(
       "first-run completion failed: 500",
     );
-    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
       "onboarding_method_outcome",
       expect.objectContaining({
         method_id: "custom_keys",
         outcome: "handoff_failed",
-        error_type: "onboarding_completion_error",
       }),
     );
 
@@ -1908,6 +1910,62 @@ describe("FirstRunOnboarding", () => {
         outcome: "settings_opened",
       }),
     );
+    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({ outcome: "handoff_failed" }),
+    );
+  });
+
+  it("records a failed handoff only when the user leaves before retry succeeds", async () => {
+    mocks.completeFirstRun.mockRejectedValueOnce(
+      new Error("first-run completion failed: 500"),
+    );
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "builder-app",
+        appName: "Builder App",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: "first-run completion failed: 500",
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    const outcomes = () =>
+      mocks.trackOnboardingEvent.mock.calls.filter(
+        ([event]) => event === "onboarding_method_outcome",
+      );
+    expect(outcomes()).toHaveLength(0);
+
+    act(() => window.dispatchEvent(new Event("pagehide")));
+
+    expect(outcomes()).toHaveLength(1);
+    expect(outcomes()[0]?.[1]).toMatchObject({
+      method_id: "custom_keys",
+      outcome: "handoff_failed",
+      error_type: "onboarding_completion_error",
+    });
   });
 
   it("shows no status error while the first Builder status read is in flight", () => {
