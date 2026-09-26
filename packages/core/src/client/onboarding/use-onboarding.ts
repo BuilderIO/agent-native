@@ -23,6 +23,7 @@ import {
 } from "./first-run-status.js";
 
 const seenOnboardingEvents = new Set<string>();
+const ONBOARDING_SUMMARY_TIMEOUT_MS = 15_000;
 
 export function trackOnboardingEvent(
   name: string,
@@ -128,15 +129,33 @@ export function useOnboarding(
         : initialFirstRun
           ? Promise.resolve(true)
           : fetchFirstRunOnboardingStatus();
-      const [summaryRes, firstRunRes] = await Promise.all([
-        fetch(summaryUrl),
+      const summaryController =
+        typeof AbortController === "undefined" ? null : new AbortController();
+      let summaryTimeoutId: ReturnType<typeof setTimeout> | undefined;
+      const summaryTimeout = new Promise<never>((_resolve, reject) => {
+        summaryTimeoutId = setTimeout(() => {
+          summaryController?.abort();
+          reject(new Error("onboarding summary timed out"));
+        }, ONBOARDING_SUMMARY_TIMEOUT_MS);
+      });
+      // Keep the deadline armed through json(); a response body can stall after headers.
+      const summaryRequest = (async () => {
+        const response = await fetch(summaryUrl, {
+          ...(summaryController ? { signal: summaryController.signal } : {}),
+        });
+        if (!response.ok) {
+          throw new Error(`summary: ${response.status}`);
+        }
+        return (await response.json()) as OnboardingSummary;
+      })();
+      const [summary, firstRunRes] = await Promise.all([
+        Promise.race([summaryRequest, summaryTimeout]),
         firstRunPromise,
-      ]);
+      ]).finally(() => {
+        if (summaryTimeoutId !== undefined) clearTimeout(summaryTimeoutId);
+        summaryController?.abort();
+      });
       if (!mountedRef.current) return;
-      if (!summaryRes.ok) {
-        throw new Error(`summary: ${summaryRes.status}`);
-      }
-      const summary = (await summaryRes.json()) as OnboardingSummary;
       const previousSteps = stepsRef.current;
       if (previousSteps.length > 0) {
         for (const [stepIndex, step] of summary.steps.entries()) {
