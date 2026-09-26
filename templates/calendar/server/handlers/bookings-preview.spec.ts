@@ -235,6 +235,46 @@ describe("draft booking availability previews", () => {
     );
   });
 
+  it("uses the matching username owner's timezone for public slot queries", async () => {
+    mocks.getUserSetting.mockImplementation(async (_email, key) =>
+      key === "calendar-availability"
+        ? { ...availability, timezone: "America/Los_Angeles" }
+        : null,
+    );
+    mocks.getDb.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn((table: unknown) => ({
+          where: vi.fn(async () =>
+            table === schema.bookingUsernames
+              ? [{ ownerEmail: "owner@example.com" }]
+              : [],
+          ),
+        })),
+      })),
+    });
+
+    const response = await (getAvailableSlots as any)({
+      query: {
+        date: "2026-08-17",
+        duration: "30",
+        slug: "book",
+        username: "owner",
+      },
+    });
+
+    expect(response.slots[0]).toMatchObject({
+      start: "2026-08-17T16:00:00.000Z",
+      end: "2026-08-17T16:30:00.000Z",
+    });
+    expect(mocks.getFreeBusy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      ["owner@example.com"],
+      "owner@example.com",
+      "America/Los_Angeles",
+    );
+  });
+
   it("returns an unavailable response when the saved link owner is disconnected", async () => {
     mocks.isConnected.mockResolvedValue(false);
 

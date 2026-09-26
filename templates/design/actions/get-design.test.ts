@@ -6,9 +6,9 @@ const mocks = vi.hoisted(() => {
     where: vi.fn(),
     orderBy: vi.fn(),
   };
+  const select = vi.fn(() => selectChain);
   selectChain.from.mockReturnValue(selectChain);
   selectChain.where.mockReturnValue(selectChain);
-  const select = vi.fn(() => selectChain);
 
   return {
     asc: vi.fn((column) => ({ asc: column })),
@@ -177,22 +177,18 @@ describe("get-design", () => {
   });
 
   it("can list file metadata without fetching file content", async () => {
-    mocks.selectChain.orderBy.mockResolvedValueOnce([
-      {
-        id: "file_123",
-        filename: "index.html",
-        fileType: "html",
-        createdAt: "2026-06-29T00:00:00.000Z",
-        updatedAt: "2026-06-29T00:00:00.000Z",
-      },
-    ]);
     const result = await action.run({
       id: "design_123",
       includeFileContent: false,
     });
 
-    expect(mocks.select.mock.calls.at(-1)?.[0]).not.toHaveProperty("content");
-    expect(mocks.selectChain.orderBy).toHaveBeenCalled();
+    expect(mocks.select).toHaveBeenCalledWith({
+      id: "designFiles.id",
+      filename: "designFiles.filename",
+      fileType: "designFiles.fileType",
+      createdAt: "designFiles.createdAt",
+      updatedAt: "designFiles.updatedAt",
+    });
     expect(result.files).toEqual([
       expect.objectContaining({
         id: "file_123",

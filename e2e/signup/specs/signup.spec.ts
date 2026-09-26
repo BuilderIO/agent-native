@@ -178,6 +178,7 @@ for (const target of targets) {
     });
     if (!message) return;
 
+    const verificationStartedAt = Date.now();
     await test.step("use the secure same-origin link from the inbox", async () => {
       const verificationLink = verificationLinkFor(message, target.origin);
       const response = await page.goto(verificationLink, {
@@ -194,6 +195,37 @@ for (const target of targets) {
       expect(new URL(page.url()).origin).toBe(target.origin);
       expect(new URL(page.url()).pathname).not.toMatch(/sign-in|login/i);
     });
+
+    if (target.app === "design" && target.environment === "beta") {
+      await test.step("capture fresh-user first-run readiness", async () => {
+        await expect(page.getByTestId("first-run-role")).toBeVisible({
+          timeout: 30_000,
+        });
+        const elapsedMs = Date.now() - verificationStartedAt;
+        await page.screenshot({
+          path: testInfo.outputPath("design-first-run-onboarding.png"),
+          fullPage: true,
+        });
+        writeFileSync(
+          testInfo.outputPath("design-first-run-timing.json"),
+          `${JSON.stringify(
+            {
+              measurement: "verification-link-open-to-first-run-role-visible",
+              elapsedMs,
+              app: target.app,
+              environment: target.environment,
+            },
+            null,
+            2,
+          )}\n`,
+          "utf8",
+        );
+        testInfo.annotations.push({
+          type: "design-first-run-ready-ms",
+          description: String(elapsedMs),
+        });
+      });
+    }
 
     await test.step("prove the session works before any refresh", async () => {
       assertSession(

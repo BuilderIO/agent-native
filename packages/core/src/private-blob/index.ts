@@ -9,6 +9,7 @@ export type {
 export {
   deletePrivateBlob,
   getActivePrivateBlobProvider,
+  getActivePrivateBlobProviderForRequest,
   listPrivateBlobProviders,
   putPrivateBlob,
   readPrivateBlob,

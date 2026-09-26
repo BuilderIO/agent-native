@@ -1898,6 +1898,12 @@ export default function Index() {
 
   useSetPageTitle(t("home.decksTitle"));
 
+  const viewState = deckListViewState({
+    loading,
+    loadError,
+    deckCount: decks.length,
+  });
+
   // Keep the deck controls in the same compact header row as the primary
   // create action. The mobile fallback below mirrors them because Header is
   // intentionally desktop-only.
@@ -1905,8 +1911,12 @@ export default function Index() {
     useMemo(
       () => (
         <>
-          <DeckSearchInput value={deckSearch} onChange={setDeckSearch} />
-          <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
+          {viewState !== "empty" ? (
+            <>
+              <DeckSearchInput value={deckSearch} onChange={setDeckSearch} />
+              <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
+            </>
+          ) : null}
           <Button
             onClick={openNewDeck}
             onPointerEnter={preloadPromptPopover}
@@ -1919,15 +1929,9 @@ export default function Index() {
           </Button>
         </>
       ),
-      [deckFilter, deckSearch, openNewDeck, setDeckFilter, t],
+      [deckFilter, deckSearch, openNewDeck, setDeckFilter, t, viewState],
     ),
   );
-
-  const viewState = deckListViewState({
-    loading,
-    loadError,
-    deckCount: decks.length,
-  });
 
   if (isStartingNewDeck) {
     return (

@@ -1,4 +1,5 @@
 import {
+  cdnSafeOriginStatus,
   FeatureNotConfiguredError,
   fetchBuilderDesignSystemDecodeJobStatus,
   getSession,
@@ -38,7 +39,7 @@ export const designSystemDecodeJobStatus = defineEventHandler(async (event) => {
           err.builderConnectUrl ?? "/_agent-native/builder/connect",
       };
     }
-    setResponseStatus(event, 502);
+    setResponseStatus(event, cdnSafeOriginStatus(502));
     return {
       error:
         err instanceof Error

@@ -11,7 +11,7 @@
  * hunk. It reads the push result back from git instead of assuming it worked,
  * so "pushed" is a claim backed by a sha the command produced.
  *
- *   node scripts/ship-push.mjs [-m "message"] [--dry-run]
+ *   node scripts/ship-push.mjs [-m "meaningful commit subject"] [--dry-run]
  */
 
 import { execFileSync } from "node:child_process";
@@ -97,6 +97,23 @@ export function isExcludedPath(file) {
   return EXCLUDED.test(file);
 }
 
+export function isSpecificCommitMessage(message) {
+  const subject = message?.split(/\r?\n/, 1)[0].trim();
+  if (
+    !subject ||
+    subject.startsWith("-") ||
+    /^chore:\s*publish branch work\b/i.test(subject)
+  ) {
+    return false;
+  }
+
+  const description = subject
+    .replace(/^[a-z]+(?:\([^)]*\))?:\s*/i, "")
+    .replace(/^(?:fix|update)\s+/i, "")
+    .trim();
+  return /\S+\s+\S+/.test(description);
+}
+
 function main() {
   try {
     assertFreeDisk();
@@ -140,6 +157,14 @@ function main() {
     return;
   }
 
+  const message = explicitMessage?.trim();
+  if (publishable.length > 0 && !isSpecificCommitMessage(message)) {
+    console.error(
+      "ship-push: pass -m with a specific commit subject that describes the change.",
+    );
+    process.exit(1);
+  }
+
   let committed = null;
   if (publishable.length > 0) {
     // Whole files only. `--` keeps a path that looks like a flag from being one.
@@ -172,7 +197,7 @@ function main() {
       .split("\n")
       .filter(Boolean);
     if (staged.length > 0) {
-      git(["commit", "--no-verify", "-m", explicitMessage ?? describe(staged)]);
+      git(["commit", "--no-verify", "-m", message]);
       committed = git(["rev-parse", "--short", "HEAD"]);
     }
   }
@@ -218,14 +243,6 @@ export function parsePorcelain(output) {
     if (/^[RC]/.test(entry)) index += 1;
   }
   return paths;
-}
-
-function describe(files) {
-  const scopes = [
-    ...new Set(files.map((f) => f.split("/").slice(0, 2).join("/"))),
-  ];
-  const head = scopes.slice(0, 3).join(", ");
-  return `chore: publish branch work in ${head}${scopes.length > 3 ? ", …" : ""} (${files.length} files)`;
 }
 
 if (

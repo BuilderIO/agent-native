@@ -25,6 +25,20 @@
   color: hsl(var(--foreground));
 }
 
+.slides-question-flow
+  .guided-question-flow-options
+  button[aria-pressed="false"] {
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--muted) / 0.55);
+}
+
+.slides-question-flow
+  .guided-question-flow-options
+  button
+  .text-muted-foreground {
+  color: hsl(var(--foreground) / 0.8);
+}
+
 /* Hide the sidebar's built-in collapsed tab strip — AgentToggleButton in the
    toolbar serves this purpose instead, so we don't want a redundant bar. */
 button[title="Open agent sidebar"] {

@@ -173,6 +173,7 @@ export default function DesignSystems() {
   const activeBuilderRefreshesRef = useRef(new Set<string>());
 
   const designSystems = data?.designSystems ?? [];
+  const isEmpty = !isLoading && !isError && designSystems.length === 0;
   const selectedDesignSystemId = searchParams.get("designSystemId");
   const selectedDesignSystem = useMemo(
     () =>
@@ -520,12 +521,14 @@ export default function DesignSystems() {
             : t("designSystems.actions.select")}
         </Button>
       ) : null}
-      <Button asChild size="sm" className="cursor-pointer">
-        <Link to="/design-systems/setup" onClick={handleCreateClick}>
-          <IconPlus className="w-3.5 h-3.5" />
-          {t("designSystems.actions.new")}
-        </Link>
-      </Button>
+      {!isEmpty ? (
+        <Button asChild size="sm" className="cursor-pointer">
+          <Link to="/design-systems/setup" onClick={handleCreateClick}>
+            <IconPlus className="w-3.5 h-3.5" />
+            {t("designSystems.actions.new")}
+          </Link>
+        </Button>
+      ) : null}
     </div>,
   );
 
@@ -540,7 +543,7 @@ export default function DesignSystems() {
               onRetry={() => void refetch()}
               retrying={isFetching}
             />
-          ) : designSystems.length === 0 ? (
+          ) : isEmpty ? (
             <EmptyState onCreateClick={handleCreateClick} />
           ) : (
             <>
