@@ -372,6 +372,8 @@ describe("pgliteDataDirFromUrl", () => {
     expect(pgliteDataDirFromUrl("pglite:./data/pglite")).toBe("./data/pglite");
     expect(pgliteDataDirFromUrl("pglite:///tmp/pglite")).toBe("/tmp/pglite");
     expect(pgliteDataDirFromUrl("pglite:memory")).toBe("memory://");
+    expect(pgliteDataDirFromUrl("pglite:memory:")).toBe("memory://");
+    expect(pgliteDataDirFromUrl("pglite:/memory:")).toBe("memory://");
     expect(pgliteDataDirFromUrl("pglite:")).toBe("./data/pglite");
   });
 
