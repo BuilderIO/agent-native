@@ -1,5 +1,25 @@
 # @agent-native/scheduling
 
+## 0.2.0
+
+### Minor Changes
+
+- da924dd: Improve public share previews and recover Calendar bookings safely after Zoom outcomes.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [dbb10d5]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+  - @agent-native/toolkit@0.22.0
+
 ## 0.1.75
 
 ### Patch Changes

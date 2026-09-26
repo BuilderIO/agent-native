@@ -51,6 +51,51 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.192.0
+
+### Minor Changes
+
+- ef74b99: Expose Builder referral links and show eligible invite prompts in credit usage and limit cards.
+- dbb10d5: Remove the split auth marketing UI and route app entry pages through the shared sign-in flow.
+- 39a89d0: Add bounded composer reference contracts and authenticated cross-app reference reads for Design and Slides, preserving receiver-owned access checks and explicit failures.
+- 39a89d0: Add declarative context dialogs for URL attachment and paginated multi-selection, with validation, cancellation, batch callbacks, and localized shared controls. Expose the additive picker configuration through AgentKit while preserving existing submenu pickers.
+
+  Add read-only website composer source requests and the server-side readComposerWebsiteSource helper. Website references retain bounded extraction status, warnings, rendering provenance, and explicit truncation, while failed extraction remains an error.
+
+- da924dd: Improve public share previews and recover Calendar bookings safely after Zoom outcomes.
+
+### Patch Changes
+
+- 05a2561: Persist localhost bridge tokens only after the bridge successfully binds and authenticates.
+- 05a2561: Keep visual-edit bridge credentials paired across repeated app opens and explain how to recover when a running bridge has a different token.
+- 251bd76: Do not treat deployment fallback credentials as a completed Builder OAuth connection.
+- 3e2cecb: Use the cataloged Agent Chat key for the Observability expand label.
+- 7eb9cbb: Scope provider credentials to their endpoints, coalesce workspace app access checks, and support desktop authenticator sign-in.
+- d9f5334: Include chat turn IDs in running events so app chrome can track overlapping turns.
+- 39a89d0: Allow localized search placeholders for composer context categories and reuse the standard upload label for the first context-menu action.
+- 39a89d0: Add connected cascading composer context menus with declarative search, list, link, loading, error, retry, and pagination behavior, plus persistent footer actions for existing links or modal workflows. Apps register authorized data loaders or local choices instead of rebuilding picker views. Allow host file-staging adapters through PromptComposer and AgentKitComposer while preserving shared upload controls and attachment chips, with an opt-out from ordinary text-file inlining when the host already extracts those files. Document scope resets and source-version refreshes, with localized defaults in every supported locale.
+- 39a89d0: Add opt-in hierarchical composer context menus, attachment status and recovery controls, bounded immutable context snapshots, and a shared quick-start submission handle. AgentKit awaits a beforeSend hook and carries the same context metadata through immediate and queued submissions. Composer drafts, files, and context can be staged before provider setup while submission remains gated; hosts can use `submissionDisabled` without disabling staging.
+- b3d823e: Use the Agent Chat catalog key for the observability expand label.
+- Release all public npm packages with a patch version bump.
+- 516469d: Keep existing-account mode selected when a Builder connection attempt fails.
+- 3df50a1: Allow apps to disable raw browser-session tools with `frameworkTools.browserSessions`.
+- 3df50a1: Show one recent usage prompt per chat turn.
+- 39a89d0: Add shared prompt-home layout, controlled template/recent library tabs, and template cards with semantic design-system controls, native link slots, and explicit loading, empty, and error states. Include home geometry in Toolkit styles and the app-shell ejection unit, with localized component documentation.
+- 39a89d0: Add a shared semantic template preview dialog with an inset viewport size, responsive thumbnail rail, keyboard selection, explicit loading/error/empty states, and app-owned rendered content. Align template menus beside captions, reveal them on hover or keyboard focus while keeping them visible on touch devices, and preserve direct primary activation and consistent card dimensions.
+- 51ea25f: Prevent concurrent or unreadable memory-index updates from silently dropping entries.
+- Updated dependencies [dbb10d5]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+  - @agent-native/toolkit@0.22.0
+  - @agent-native/agentkit@0.3.0
+  - @agent-native/recap-cli@0.5.44
+
 ## 0.191.0
 
 ### Minor Changes
@@ -3180,23 +3225,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 - 6a18780: Keep the beta environment switcher visible to signed-out visitors, including the standalone auth page.
 - e439054: Support reusable Code Agent worktrees and reliable local chat forking across Desktop sessions.
 - 5ececad: Surface sync-version allocator reseed failures while preserving the existing retry and clock-fallback behavior.
-
-## 0.164.9
-
-### Patch Changes
-
-- b1c420b: Block agent prompts until an LLM provider is connected and provide an inline Connect AI recovery flow with a clear retry action.
-- 8690e40: Make automation details inspectable in Dispatch, including the prompt, trigger configuration, capabilities, and past runs.
-- e542242: Create every framework-owned table at release time, so a hosted deploy comes up with a complete database.
-
-  Most framework tables are defined by their owning store's `ensureTable()`, not by a migration list — `settings`, `application_state`, `app_secrets` and `resources` among them. On a long-lived server the first request creates whatever is missing. On production serverless it cannot: `schemaEnsureDisabled()` reports every table present so a cold start skips ~390 probes, which is correct for latency and means nothing on the request path can create a table. Only 15 of ~75 framework tables had a migration list, so the other 60 had no path to creation at all on a hosted deploy. Sites published successfully and then failed every request with `relation "public.settings" does not exist`.
-
-  `runFrameworkReleaseMigrations` now runs those stores' own ensure paths first, from an explicit list in `server/release-schema.ts`, and `schemaEnsureDisabled()` no longer applies to a caller holding migration duty — the release step was subject to its own skip, because the Netlify build environment also sets `NETLIFY=true`.
-
-  The list loads each store with a dynamic import, so re-exporting `runFrameworkReleaseMigrations` from `server/index.ts` does not pull 60 store modules into every server boot to serve a path that runs once.
-
-  A new `guard:release-schema-complete` fails the build when a module creates tables and is not in that list, so a new store cannot repeat this. It recognises both `ensureTableExists` and stores that execute DDL held in a named constant, which is how `extensions/slots` created its tables without the first version of the guard seeing it. The migration-duty check moved to `db/migration-runtime.ts` to keep it off `db/client.js`, which stores mock.
-
-  Already-published sites need one redeploy to pick up the missing tables.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

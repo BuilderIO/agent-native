@@ -1,5 +1,25 @@
 # @agent-native/toolkit
 
+## 0.22.0
+
+### Minor Changes
+
+- dbb10d5: Remove the split auth marketing UI and route app entry pages through the shared sign-in flow.
+- 39a89d0: Allow localized search placeholders for composer context categories and reuse the standard upload label for the first context-menu action.
+- 39a89d0: Add connected cascading composer context menus with declarative search, list, link, loading, error, retry, and pagination behavior, plus persistent footer actions for existing links or modal workflows. Apps register authorized data loaders or local choices instead of rebuilding picker views. Allow host file-staging adapters through PromptComposer and AgentKitComposer while preserving shared upload controls and attachment chips, with an opt-out from ordinary text-file inlining when the host already extracts those files. Document scope resets and source-version refreshes, with localized defaults in every supported locale.
+- 39a89d0: Add opt-in hierarchical composer context menus, attachment status and recovery controls, bounded immutable context snapshots, and a shared quick-start submission handle. AgentKit awaits a beforeSend hook and carries the same context metadata through immediate and queued submissions. Composer drafts, files, and context can be staged before provider setup while submission remains gated; hosts can use `submissionDisabled` without disabling staging.
+- 39a89d0: Add declarative context dialogs for URL attachment and paginated multi-selection, with validation, cancellation, batch callbacks, and localized shared controls. Expose the additive picker configuration through AgentKit while preserving existing submenu pickers.
+
+  Add read-only website composer source requests and the server-side readComposerWebsiteSource helper. Website references retain bounded extraction status, warnings, rendering provenance, and explicit truncation, while failed extraction remains an error.
+
+- 39a89d0: Add shared prompt-home layout, controlled template/recent library tabs, and template cards with semantic design-system controls, native link slots, and explicit loading, empty, and error states. Include home geometry in Toolkit styles and the app-shell ejection unit, with localized component documentation.
+- 39a89d0: Add a shared semantic template preview dialog with an inset viewport size, responsive thumbnail rail, keyboard selection, explicit loading/error/empty states, and app-owned rendered content. Align template menus beside captions, reveal them on hover or keyboard focus while keeping them visible on touch devices, and preserve direct primary activation and consistent card dimensions.
+
+### Patch Changes
+
+- 39a89d0: Preserve staged composer context when submitting through composer modes.
+- Release all public npm packages with a patch version bump.
+
 ## 0.21.3
 
 ### Patch Changes
@@ -884,11 +904,5 @@
 ### Patch Changes
 
 - a91535c: Keep alert dialogs centered above full-app overlays.
-
-## 0.4.4
-
-### Patch Changes
-
-- 680b1eb: Scan TypeScript sources from `@agent-native/toolkit/styles.css` so dropdown and popover `z-[250]` utilities are generated in monorepo apps where `dist/` is gitignored.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -1,5 +1,29 @@
 # @agent-native/agentkit
 
+## 0.3.0
+
+### Minor Changes
+
+- 39a89d0: Add connected cascading composer context menus with declarative search, list, link, loading, error, retry, and pagination behavior, plus persistent footer actions for existing links or modal workflows. Apps register authorized data loaders or local choices instead of rebuilding picker views. Allow host file-staging adapters through PromptComposer and AgentKitComposer while preserving shared upload controls and attachment chips, with an opt-out from ordinary text-file inlining when the host already extracts those files. Document scope resets and source-version refreshes, with localized defaults in every supported locale.
+- 39a89d0: Add opt-in hierarchical composer context menus, attachment status and recovery controls, bounded immutable context snapshots, and a shared quick-start submission handle. AgentKit awaits a beforeSend hook and carries the same context metadata through immediate and queued submissions. Composer drafts, files, and context can be staged before provider setup while submission remains gated; hosts can use `submissionDisabled` without disabling staging.
+- 39a89d0: Add declarative context dialogs for URL attachment and paginated multi-selection, with validation, cancellation, batch callbacks, and localized shared controls. Expose the additive picker configuration through AgentKit while preserving existing submenu pickers.
+
+  Add read-only website composer source requests and the server-side readComposerWebsiteSource helper. Website references retain bounded extraction status, warnings, rendering provenance, and explicit truncation, while failed extraction remains an error.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [dbb10d5]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+  - @agent-native/toolkit@0.22.0
+
 ## 0.2.13
 
 ### Patch Changes
