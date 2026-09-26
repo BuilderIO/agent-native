@@ -557,6 +557,78 @@ describe("tool-call result ledger", () => {
     expect(toolDone?.chatUI).toEqual({ renderer: "mail.draft-created" });
   });
 
+  it("does not guess widget eligibility for legacy ledger results", async () => {
+    const input = { action: "create" };
+    const result = JSON.stringify({
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+    });
+    readLedgerMock.mockResolvedValue({ result, artifacts: [] });
+
+    const action = makeWriteAction();
+    action.chatUI = {
+      renderer: "mail.draft-created",
+      when: (_args, recovered) =>
+        Boolean(recovered) &&
+        typeof recovered === "object" &&
+        typeof (recovered as Record<string, unknown>).deepLink === "string",
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", input),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Create a draft" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-draft-legacy-1",
+              name: "manage-draft",
+              input,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-draft-legacy-1",
+              toolName: "manage-draft",
+              toolInput: JSON.stringify(input),
+              content: "Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-resume-legacy",
+    });
+
+    const toolDone = events.find((event: any) => event.type === "tool_done");
+    expect(action.run).not.toHaveBeenCalled();
+    expect(toolDone?.result).toBe(result);
+    expect(toolDone?.chatUI).toBeUndefined();
+    expect(events.some((event: any) => event.type === "widget.created")).toBe(
+      false,
+    );
+  });
+
   it("waits briefly for a late zombie ledger result before re-executing", async () => {
     readLedgerMock
       .mockResolvedValueOnce(null)
