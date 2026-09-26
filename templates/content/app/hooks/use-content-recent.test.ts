@@ -190,14 +190,17 @@ describe("useContentRecent context recovery", () => {
     });
 
     expect(hookMocks.org.refetch).toHaveBeenCalledTimes(2);
-    expect(invalidate).toHaveBeenCalledWith({
-      queryKey: [
-        "action",
-        "get-content-recent",
-        { scopeKey, spaceId: "space-1" },
-      ],
-      exact: true,
-    });
+    expect(invalidate).toHaveBeenCalledWith(
+      {
+        queryKey: [
+          "action",
+          "get-content-recent",
+          { scopeKey, spaceId: "space-1" },
+        ],
+        exact: true,
+      },
+      { cancelRefetch: false },
+    );
 
     hookMocks.query.data = { scopeKey, entries: [] };
     hookMocks.query.error = null;
@@ -251,6 +254,7 @@ describe("useContentRecent context recovery", () => {
       await flush();
     });
     expect(hookMocks.org.refetch).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("output")?.textContent).toBe("loading");
 
     await act(async () => {
       finishRefresh({ isError: true });
@@ -259,7 +263,7 @@ describe("useContentRecent context recovery", () => {
     expect(container.querySelector("output")?.textContent).toBe("error");
   });
 
-  it("keeps overlapping scopes loading while shared org refresh is in flight", async () => {
+  it("keeps same-query consumers loading through shared org refresh", async () => {
     let finishRefresh!: (result: { isError: boolean }) => void;
     const pendingRefresh = new Promise<{ isError: boolean }>((resolve) => {
       finishRefresh = resolve;
@@ -268,7 +272,7 @@ describe("useContentRecent context recovery", () => {
 
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     await act(async () => {
-      root.render(app(["space-1", "space-2"]));
+      root.render(app(["space-1", "space-1"]));
       await flush();
     });
 
@@ -290,6 +294,20 @@ describe("useContentRecent context recovery", () => {
       await flush();
     });
 
+    const args = {
+      scopeKey,
+      spaceId: "space-1",
+    };
     expect(invalidate).toHaveBeenCalledTimes(2);
+    expect(invalidate).toHaveBeenNthCalledWith(
+      1,
+      { queryKey: ["action", "get-content-recent", args], exact: true },
+      { cancelRefetch: false },
+    );
+    expect(invalidate).toHaveBeenNthCalledWith(
+      2,
+      { queryKey: ["action", "get-content-recent", args], exact: true },
+      { cancelRefetch: false },
+    );
   });
 });

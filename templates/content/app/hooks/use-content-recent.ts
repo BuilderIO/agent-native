@@ -68,10 +68,13 @@ export function useContentRecent(spaceId?: string) {
       try {
         const refreshedOrg = await org.refetch({ cancelRefetch: false });
         if (refreshedOrg.isError) return;
-        await queryClient.invalidateQueries({
-          queryKey: ["action", "get-content-recent", args],
-          exact: true,
-        });
+        await queryClient.invalidateQueries(
+          {
+            queryKey: ["action", "get-content-recent", args],
+            exact: true,
+          },
+          { cancelRefetch: false },
+        );
       } catch (error) {
         console.warn(
           "Could not refresh the Content Recent context after a scope mismatch.",
