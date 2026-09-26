@@ -15,6 +15,7 @@ describe("deck title safeguards", () => {
     expect(isOpaqueDeckTitle("H3sVsnns-TEVUOpz9w")).toBe(true);
     expect(isOpaqueDeckTitle("Agent-Native Strategy")).toBe(false);
     expect(isOpaqueDeckTitle("Q4 Pipeline Review")).toBe(false);
+    expect(isOpaqueDeckTitle("CPC_2425_A1_reference")).toBe(false);
   });
 
   it("recognizes imported placeholders as generated titles", () => {

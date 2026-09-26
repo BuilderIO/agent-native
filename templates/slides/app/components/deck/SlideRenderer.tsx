@@ -1490,11 +1490,13 @@ export default function SlideRenderer({
   const dims = getAspectRatioDims(aspectRatio);
 
   if (!thumbnail) {
-    // Full-size rendering (for presentation mode) — same intrinsic canvas scaled to fill
+    // Keep the intrinsic canvas centered while it scales to fit the viewport.
     return (
-      <div className={`w-full h-full overflow-hidden relative ${className}`}>
+      <div
+        className={`relative flex h-full w-full items-center justify-center overflow-hidden ${className}`}
+      >
         <div
-          className="absolute top-0 left-0 origin-top-left"
+          className="shrink-0 origin-center"
           style={{
             width: dims.width,
             height: dims.height,

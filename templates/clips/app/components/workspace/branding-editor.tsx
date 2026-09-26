@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconPalette, IconPhoto } from "@tabler/icons-react";
@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { organizationLogoUrl } from "@/lib/organization-logo";
 
 export type RecordingVisibility = "private" | "org" | "public";
 
@@ -41,22 +42,23 @@ const PRESETS = [
   "#111827",
 ];
 
-async function uploadLogo(file: File): Promise<string> {
+async function uploadLogo(file: File, organizationId: string): Promise<string> {
   const body = await file.arrayBuffer();
-  const res = await fetch(
-    `${appBasePath()}/api/media?filename=${encodeURIComponent(file.name)}`,
-    {
-      method: "POST",
-      body,
-      headers: { "Content-Type": file.type || "application/octet-stream" },
-    },
-  );
+  const query = new URLSearchParams({
+    organizationId,
+    filename: file.name,
+  });
+  const res = await fetch(appApiPath(`/api/media?${query}`), {
+    method: "POST",
+    body,
+    headers: { "Content-Type": file.type || "application/octet-stream" },
+  });
   if (!res.ok) {
     throw new Error(`Upload failed (${res.status})`);
   }
-  const json = (await res.json()) as { url?: string };
-  if (!json.url) throw new Error("Upload returned no URL");
-  return json.url;
+  const json = (await res.json()) as { reference?: string };
+  if (!json.reference) throw new Error("Upload returned no reference");
+  return json.reference;
 }
 
 export function BrandingEditor({
@@ -77,6 +79,14 @@ export function BrandingEditor({
     useState<RecordingVisibility>(initialDefaultVisibility);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [uploadPreviewUrl, setUploadPreviewUrl] = useState<string | null>(null);
+
+  useEffect(
+    () => () => {
+      if (uploadPreviewUrl) URL.revokeObjectURL(uploadPreviewUrl);
+    },
+    [uploadPreviewUrl],
+  );
 
   // The last-saved values the Save button compares against to show the
   // dirty state. Re-seeded after every successful save so the button
@@ -101,6 +111,8 @@ export function BrandingEditor({
     brandColor !== savedState.brandColor ||
     brandLogoUrl !== savedState.brandLogoUrl ||
     defaultVisibility !== savedState.defaultVisibility;
+  const logoUrl =
+    uploadPreviewUrl ?? organizationLogoUrl(brandLogoUrl, organizationId);
 
   const qc = useQueryClient();
   const save = useActionMutation<
@@ -119,12 +131,14 @@ export function BrandingEditor({
       toast.error(t("brandingEditor.uploadImageFile"));
       return;
     }
+    setUploadPreviewUrl(URL.createObjectURL(file));
     try {
       setUploading(true);
-      const url = await uploadLogo(file);
-      setBrandLogoUrl(url);
+      const reference = await uploadLogo(file, organizationId);
+      setBrandLogoUrl(reference);
       toast.success(t("brandingEditor.logoUploaded"));
     } catch (err) {
+      setUploadPreviewUrl(null);
       toast.error(
         err instanceof Error ? err.message : t("brandingEditor.uploadFailed"),
       );
@@ -144,6 +158,7 @@ export function BrandingEditor({
         defaultVisibility,
       });
       setSavedState({ name, brandColor, brandLogoUrl, defaultVisibility });
+      setUploadPreviewUrl(null);
       toast.success(t("brandingEditor.brandingUpdated"));
       void qc.invalidateQueries({
         queryKey: ["action", "list-organization-state"],
@@ -234,12 +249,12 @@ export function BrandingEditor({
               <div
                 className="h-14 w-14 rounded-md flex items-center justify-center border bg-muted/30"
                 style={{
-                  background: brandLogoUrl ? undefined : brandColor + "20",
+                  background: logoUrl ? undefined : brandColor + "20",
                 }}
               >
-                {brandLogoUrl ? (
+                {logoUrl ? (
                   <img
-                    src={brandLogoUrl}
+                    src={logoUrl}
                     alt={t("brandingEditor.logoPreview")}
                     className="max-h-12 max-w-12 object-contain"
                   />
@@ -278,7 +293,10 @@ export function BrandingEditor({
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => setBrandLogoUrl(null)}
+                      onClick={() => {
+                        setBrandLogoUrl(null);
+                        setUploadPreviewUrl(null);
+                      }}
                       disabled={disabled}
                     >
                       {t("brandingEditor.remove")}
@@ -328,9 +346,9 @@ export function BrandingEditor({
               className="rounded-md p-3 flex items-center gap-3 text-white"
               style={{ background: brandColor }}
             >
-              {brandLogoUrl ? (
+              {logoUrl ? (
                 <img
-                  src={brandLogoUrl}
+                  src={logoUrl}
                   alt=""
                   className="h-8 w-8 rounded bg-white/90 object-contain p-1"
                 />
@@ -350,12 +368,8 @@ export function BrandingEditor({
               {t("brandingEditor.emailHeaderPreview")}
             </div>
             <div className="rounded-md border border-[#27272a] bg-[#0a0a0c] p-4 flex items-center justify-center gap-2">
-              {brandLogoUrl ? (
-                <img
-                  src={brandLogoUrl}
-                  alt=""
-                  className="h-7 w-7 object-contain"
-                />
+              {logoUrl ? (
+                <img src={logoUrl} alt="" className="h-7 w-7 object-contain" />
               ) : (
                 <div
                   className="h-7 w-7 rounded bg-white/90 flex items-center justify-center font-semibold text-[12px]"

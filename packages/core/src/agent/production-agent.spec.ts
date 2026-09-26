@@ -89,7 +89,6 @@ import {
   shouldChainBackgroundContinuation,
   toolCallCacheKey,
   MAX_IDENTICAL_TOOL_CALLS,
-  MAX_SAME_ERROR_ACROSS_ARGUMENTS,
   shouldGuardRepeatedSourceSweep,
   resolveSourceSweepToolCallThreshold,
   structuredHistoryToEngineMessages,
@@ -6655,7 +6654,7 @@ describe("runAgentLoop", () => {
     // The schema rejects before `run`, so the model turns are the count that
     // matters. Without an argument-independent breaker this ran 61 turns.
     expect(run).not.toHaveBeenCalled();
-    expect(streamCalls).toBeLessThanOrEqual(MAX_SAME_ERROR_ACROSS_ARGUMENTS);
+    expect(streamCalls).toBe(3);
   });
 
   it("lets a long turn keep going while each tool call is genuinely different", async () => {

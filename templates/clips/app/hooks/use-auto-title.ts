@@ -60,6 +60,7 @@ interface AiRequest {
   kind?: string;
   recordingId?: string;
   requestedAt?: string;
+  requestId?: string;
   currentTitle?: string;
   currentDescription?: string;
   transcriptStatus?: string;
@@ -116,8 +117,8 @@ async function clearRequest(recordingId: string): Promise<void> {
  * Mount this once in the app shell. It watches the exact application-state
  * keys used for queued Clips AI work and delivers every pending request to the
  * agent chat queued by a Clips action.
- * Idempotent — a given (recordingId, kind, requestedAt) is only dispatched
- * once per tab session.
+ * Idempotent — a given (recordingId, kind, requestId) is only dispatched once
+ * per tab session. Older requests use requestedAt for their correlation key.
  */
 export function useAutoTitleBridge(): void {
   // Use the "all" view so we catch recordings regardless of where the user
@@ -152,6 +153,7 @@ export function useAutoTitleBridge(): void {
 
       const recordingId = recordingIdFromTab(detail.tabId);
       const requestedAt = requestedAtFromTab(detail.tabId);
+      const requestId = requestIdFromTab(detail.tabId);
       if (!recordingId || !requestedAt) return;
 
       void retryWorkflowAction(
@@ -159,6 +161,7 @@ export function useAutoTitleBridge(): void {
           operation: "stop",
           recordingId,
           requestedAt,
+          ...(requestId ? { requestId } : {}),
           tabId: detail.tabId,
         },
         "reconciled",
@@ -209,10 +212,10 @@ export function useAutoTitleBridge(): void {
 
           if (request?.kind && DISPATCHABLE_REQUESTS.has(request.kind)) {
             // Server queued a delegation — use the full context it provided.
-            // Key includes requestedAt so each distinct server request fires
-            // exactly once, independent of any prior fallback dispatch.
+            // Prefer the workflow request ID when available; older queued requests
+            // still use requestedAt for their correlation key.
             const dispatchKey = `${rec.id}:${request.kind}:${
-              request.requestedAt ?? "0"
+              request.requestId ?? request.requestedAt ?? "0"
             }`;
             if (dispatched.current.has(dispatchKey)) continue;
             if (
@@ -229,24 +232,31 @@ export function useAutoTitleBridge(): void {
               request.kind === "generate-workflow" &&
               typeof request.requestedAt === "string"
             ) {
+              const workflowRequest = {
+                recordingId: rec.id,
+                requestedAt: request.requestedAt,
+                ...(request.requestId ? { requestId: request.requestId } : {}),
+              };
               if (request.deliveredTabId) {
                 dispatched.current.add(dispatchKey);
                 void consumeWorkflowRequest({
-                  recordingId: rec.id,
-                  requestedAt: request.requestedAt,
+                  ...workflowRequest,
                   tabId: request.deliveredTabId,
                 });
                 continue;
               }
 
-              const tabId = workflowTabId(rec.id, request.requestedAt);
+              const tabId = workflowTabId(
+                rec.id,
+                request.requestedAt,
+                request.requestId,
+              );
               try {
                 const result = (await callAction(
                   "reconcile-workflow-generation" as any,
                   {
                     operation: "track",
-                    recordingId: rec.id,
-                    requestedAt: request.requestedAt,
+                    ...workflowRequest,
                     tabId,
                   } as any,
                 )) as { tracked?: boolean };
@@ -267,8 +277,7 @@ export function useAutoTitleBridge(): void {
                 await retryWorkflowAction(
                   {
                     operation: "release",
-                    recordingId: rec.id,
-                    requestedAt: request.requestedAt,
+                    ...workflowRequest,
                     tabId,
                   },
                   "released",
@@ -278,8 +287,7 @@ export function useAutoTitleBridge(): void {
               }
               dispatched.current.add(dispatchKey);
               void persistAndConsumeWorkflowRequest({
-                recordingId: rec.id,
-                requestedAt: request.requestedAt,
+                ...workflowRequest,
                 tabId,
               });
               continue;
@@ -452,6 +460,7 @@ export function buildAiRequestChatOptions(
 interface WorkflowRunRequest {
   recordingId: string;
   requestedAt: string;
+  requestId?: string;
   tabId: string;
 }
 
@@ -496,8 +505,15 @@ async function persistAndConsumeWorkflowRequest(
   if (delivered) await consumeWorkflowRequest(request);
 }
 
-function workflowTabId(recordingId: string, requestedAt: string) {
-  return `clips-workflow:${recordingId}:${encodeURIComponent(requestedAt)}:${generateTabId()}`;
+function workflowTabId(
+  recordingId: string,
+  requestedAt: string,
+  requestId?: string,
+) {
+  const identity = requestId
+    ? `${encodeURIComponent(requestedAt)}:${encodeURIComponent(requestId)}`
+    : encodeURIComponent(requestedAt);
+  return `clips-workflow:${recordingId}:${identity}:${generateTabId()}`;
 }
 
 function recordingIdFromTab(tabId: string) {
@@ -507,6 +523,11 @@ function recordingIdFromTab(tabId: string) {
 
 function requestedAtFromTab(tabId: string) {
   const match = /^clips-workflow:[^:]+:([^:]+):/.exec(tabId);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function requestIdFromTab(tabId: string) {
+  const match = /^clips-workflow:[^:]+:[^:]+:([^:]+):[^:]+$/.exec(tabId);
   return match ? decodeURIComponent(match[1]) : undefined;
 }
 

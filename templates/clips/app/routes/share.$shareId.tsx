@@ -138,6 +138,10 @@ import {
   isLoomRecordingSource,
 } from "../../shared/loom";
 import {
+  organizationLogoRoutePath,
+  usesOrganizationLogoRoute,
+} from "../../shared/organization-logo.js";
+import {
   CLIPS_ACCESS_REQUEST_TOKEN_PREFIX,
   CLIPS_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
 } from "../../shared/recording-link";
@@ -313,13 +317,18 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
         )
         .limit(1)
     : [];
+  const storedBrandLogoUrl = organizationSettings?.brandLogoUrl?.trim();
 
   const recording: SharePageMetaRecording = {
     id: rec.id,
     title: rec.title,
     description: rec.description,
     ownerInitial: rec.ownerEmail.trim().charAt(0).toUpperCase() || "C",
-    brandLogoUrl: organizationSettings?.brandLogoUrl?.trim() || null,
+    brandLogoUrl: storedBrandLogoUrl
+      ? usesOrganizationLogoRoute(storedBrandLogoUrl) && rec.organizationId
+        ? `${appBasePath()}${organizationLogoRoutePath(rec.organizationId)}`
+        : storedBrandLogoUrl
+      : null,
     thumbnailUrl: rec.password
       ? null
       : resolvePlayerThumbnailUrl(rec, { appPath }),
