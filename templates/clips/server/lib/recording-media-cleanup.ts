@@ -51,7 +51,15 @@ function builderAssetUrl(url: string): string | null {
   }
 }
 
-async function deleteBuilderAssetByUrl(url: string): Promise<boolean> {
+/**
+ * `"absent"` when the asset was already gone: a retry after a delete whose
+ * response was lost. The DELETE's own 404 cannot say that — it is also what a
+ * key without rights to the asset gets — so it only counts once the public
+ * URL has stopped serving it too.
+ */
+async function deleteBuilderAssetByUrl(
+  url: string,
+): Promise<"deleted" | "absent" | false> {
   const assetUrl = builderAssetUrl(url);
   if (!assetUrl) return false;
 
@@ -78,8 +86,11 @@ async function deleteBuilderAssetByUrl(url: string): Promise<boolean> {
     },
   });
 
-  if (res.ok) return true;
-  if (res.status === 404) return false;
+  if (res.ok) return "deleted";
+  if (res.status === 404) {
+    const probe = await fetch(assetUrl, { method: "HEAD" });
+    return probe.status === 404 || probe.status === 410 ? "absent" : false;
+  }
 
   const text = await res.text().catch(() => "");
   throw new Error(
@@ -94,13 +105,13 @@ async function deleteBuilderAssetByUrl(url: string): Promise<boolean> {
  * original, the original file has to leave storage, or the unblurred pixels
  * are still one URL away — which is the whole failure mode redaction exists to
  * prevent. Reports whether the object is actually gone so the caller can
- * refuse to claim a redaction that only half happened.
+ * refuse to claim a redaction that only half happened — including when it was
+ * already gone, so a retry can finish.
  */
 export async function deleteStoredMediaUrl(url: string): Promise<boolean> {
   if (!url || url.startsWith("data:")) return false;
-  return (
-    (await deleteS3ObjectByUrl(url)) || (await deleteBuilderAssetByUrl(url))
-  );
+  if (await deleteS3ObjectByUrl(url)) return true;
+  return (await deleteBuilderAssetByUrl(url)) !== false;
 }
 
 export async function deleteRecordingMediaObjects(
@@ -124,7 +135,7 @@ export async function deleteRecordingMediaObjects(
     try {
       if (
         (await deleteS3ObjectByUrl(url)) ||
-        (await deleteBuilderAssetByUrl(url))
+        (await deleteBuilderAssetByUrl(url)) === "deleted"
       ) {
         result.deleted += 1;
       } else {

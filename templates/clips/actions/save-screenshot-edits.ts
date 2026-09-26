@@ -156,46 +156,70 @@ export function nextScreenshotEdits(
 }
 
 /**
- * What a burn finishes with once its files are gone: its edits and title.
- * Carried in the marker so a later save can finish an interrupted burn as it
- * would have finished, rather than leave marks and crop out of step with the
- * burned picture.
+ * The edits a burn finishes with, once its files are gone. Carried in the
+ * marker so a later save can finish an interrupted burn as it would have
+ * finished, rather than leave marks and crop out of step with the burned
+ * picture.
  */
-interface BurnResult {
-  editsJson: string;
-  title: string;
-}
-
 function withBurnMarker(
   editsJson: string | null,
   staleUrls: string[],
-  result: BurnResult,
+  resultEditsJson: string,
 ) {
   const edits = parseEdits(editsJson) as unknown as Record<string, unknown>;
-  edits[BURN_IN_PROGRESS_KEY] = { staleUrls, result };
+  edits[BURN_IN_PROGRESS_KEY] = { staleUrls, editsJson: resultEditsJson };
   return serializeEdits(edits as unknown as ReturnType<typeof parseEdits>);
 }
 
-/** The row's edits and title once an interrupted burn is finished. */
-function finishedBurn(editsJson: string | null, title: string): BurnResult {
-  const edits = parseEdits(editsJson) as unknown as Record<string, unknown>;
+/** The edits an interrupted burn was going to finish with. */
+function burnResultOf(heldEditsJson: string): string {
+  const edits = parseEdits(heldEditsJson) as unknown as Record<string, unknown>;
   const marker = edits[BURN_IN_PROGRESS_KEY] as
-    | { result?: Partial<BurnResult> }
+    | { editsJson?: unknown }
     | undefined;
-  const result = marker?.result;
-  if (
-    typeof result?.editsJson === "string" &&
-    typeof result.title === "string"
-  ) {
-    return { editsJson: result.editsJson, title: result.title };
-  }
+  if (typeof marker?.editsJson === "string") return marker.editsJson;
   delete edits[BURN_IN_PROGRESS_KEY];
-  return {
-    editsJson: serializeEdits(
-      edits as unknown as ReturnType<typeof parseEdits>,
-    ),
-    title,
-  };
+  return serializeEdits(edits as unknown as ReturnType<typeof parseEdits>);
+}
+
+/**
+ * Swap the marker for the burn's edits and mark the title redacted. The
+ * title is read here, not taken from when the burn began: a rename during the
+ * deletes changes only the title, which the edits predicate cannot see, so it
+ * is pinned too and a lost race re-reads it.
+ */
+async function releaseBurn(
+  db: ReturnType<typeof getDb>,
+  recordingId: string,
+  heldEditsJson: string,
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const [row] = await db
+      .select({
+        title: schema.recordings.title,
+        editsJson: schema.recordings.editsJson,
+      })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, recordingId));
+    if (!row || row.editsJson !== heldEditsJson) return false;
+    const released = await db
+      .update(schema.recordings)
+      .set({
+        editsJson: burnResultOf(heldEditsJson),
+        title: redactedTitle(row.title) ?? row.title,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          eq(schema.recordings.editsJson, heldEditsJson),
+          eq(schema.recordings.title, row.title),
+        ),
+      )
+      .returning({ id: schema.recordings.id });
+    if (released.length) return true;
+  }
+  return false;
 }
 
 /** Deletes each URL; returns the ones that are still in storage. */
@@ -233,7 +257,7 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
 
-    const [existing] = await db
+    let [existing] = await db
       .select()
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId));
@@ -251,25 +275,20 @@ export default defineAction({
     if (leftover) {
       const left = await deleteAll(args.recordingId, leftover);
       if (left.length) throw new Error(ORIGINAL_NOT_DELETED);
-      const finished = finishedBurn(existing.editsJson, existing.title);
-      const cleared = await db
-        .update(schema.recordings)
-        .set({ ...finished, updatedAt: new Date().toISOString() })
-        .where(
-          and(
-            eq(schema.recordings.id, args.recordingId),
-            eq(schema.recordings.editsJson, existing.editsJson ?? ""),
-          ),
-        )
-        .returning({ id: schema.recordings.id });
-      if (!cleared.length) {
+      if (!(await releaseBurn(db, args.recordingId, existing.editsJson!))) {
         throw new Error(
           "This screenshot is still finishing a redaction. Reload it and try again.",
         );
       }
       await writeAppState("refresh-signal", { ts: Date.now() });
-      existing.editsJson = finished.editsJson;
-      existing.title = finished.title;
+      const [finished] = await db
+        .select()
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, args.recordingId));
+      if (!finished) {
+        throw new Error(`Recording not found: ${args.recordingId}`);
+      }
+      existing = finished;
     }
 
     // The CAS below only compares against the row as read here, which a
@@ -305,7 +324,7 @@ export default defineAction({
     const uploaded = await uploadFile({
       data: bytes,
       mimeType,
-      filename: `screenshot-${args.recordingId}${IMAGE_EXTENSION_BY_MIME[mimeType]}`,
+      filename: `${args.recordingId}${IMAGE_EXTENSION_BY_MIME[mimeType]}`,
       ownerEmail,
       recordAsset: false,
     });
@@ -325,7 +344,7 @@ export default defineAction({
       const uploadedBase = await uploadFile({
         data: base.bytes,
         mimeType: base.mimeType,
-        filename: `screenshot-${args.recordingId}${IMAGE_EXTENSION_BY_MIME[base.mimeType]}`,
+        filename: `${args.recordingId}${IMAGE_EXTENSION_BY_MIME[base.mimeType]}`,
         ownerEmail,
         recordAsset: false,
       });
@@ -390,10 +409,7 @@ export default defineAction({
     // writes its marker instead of its edits: the hold has to be on before
     // the original is deleted, and must not lift until it is gone. The edits
     // wait for the second write below, the way the video burn does it.
-    const burnResult: BurnResult = {
-      editsJson: serializeEdits(edits),
-      title: redactedTitle(existing.title) ?? existing.title,
-    };
+    const burnResult = serializeEdits(edits);
     const heldEditsJson = burning
       ? withBurnMarker(existing.editsJson, staleUrls, burnResult)
       : null;
@@ -459,17 +475,7 @@ export default defineAction({
       // Only now: the original is gone, so clearing the marker and the
       // pending list can no longer publish anything they covered. Every other
       // save is refused while the marker is on, so the row is as written.
-      const released = await db
-        .update(schema.recordings)
-        .set({ ...burnResult, updatedAt: now })
-        .where(
-          and(
-            eq(schema.recordings.id, args.recordingId),
-            eq(schema.recordings.editsJson, heldEditsJson!),
-          ),
-        )
-        .returning({ id: schema.recordings.id });
-      if (!released.length) {
+      if (!(await releaseBurn(db, args.recordingId, heldEditsJson!))) {
         // Something outside the editor rewrote the edits. Nothing is exposed
         // — the pixels are burned and the original deleted — and the next
         // save clears the marker, whose files are already gone.

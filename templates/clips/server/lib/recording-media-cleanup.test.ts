@@ -14,7 +14,10 @@ vi.mock("@agent-native/core/server", () => ({
     mockResolveBuilderRequestAuthorization(),
 }));
 
-import { deleteRecordingMediaObjects } from "./recording-media-cleanup";
+import {
+  deleteRecordingMediaObjects,
+  deleteStoredMediaUrl,
+} from "./recording-media-cleanup";
 
 describe("recording-media-cleanup", () => {
   beforeEach(() => {
@@ -129,5 +132,33 @@ describe("recording-media-cleanup", () => {
       errors: [],
     });
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  describe("deleteStoredMediaUrl", () => {
+    const url = "https://cdn.builder.io/api/v1/image/assets%2Fshot.png";
+    const respond = (status: number) => ({
+      ok: status < 300,
+      status,
+      statusText: String(status),
+      text: vi.fn(async () => ""),
+    });
+
+    it("counts an asset that is already gone as deleted", async () => {
+      // A retry after a delete whose response was lost: the object is gone,
+      // and a redaction waiting on it must be able to finish.
+      mockFetch
+        .mockResolvedValueOnce(respond(404))
+        .mockResolvedValueOnce(respond(404));
+      await expect(deleteStoredMediaUrl(url)).resolves.toBe(true);
+      expect(mockFetch.mock.calls[1]?.[1]).toMatchObject({ method: "HEAD" });
+    });
+
+    it("does not trust a 404 while the asset is still being served", async () => {
+      // The same 404 is what a key without rights to the asset gets.
+      mockFetch
+        .mockResolvedValueOnce(respond(404))
+        .mockResolvedValueOnce(respond(200));
+      await expect(deleteStoredMediaUrl(url)).resolves.toBe(false);
+    });
   });
 });

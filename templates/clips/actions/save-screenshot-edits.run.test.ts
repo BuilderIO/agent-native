@@ -37,7 +37,7 @@ vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
     select: () => ({
       from: () => ({
-        where: async () => (mocks.existing ? [mocks.existing] : []),
+        where: async () => (mocks.existing ? [{ ...mocks.existing }] : []),
       }),
     }),
     update: () => ({
@@ -47,6 +47,8 @@ vi.mock("../server/db/index.js", () => ({
             if (mocks.matching <= 0) return [];
             mocks.matching -= 1;
             mocks.updates.push(values);
+            // Reads after a write see it, as they would in the database.
+            if (mocks.existing) Object.assign(mocks.existing, values);
             return [{ id: "shot-1", ...values }];
           };
           return {
@@ -223,13 +225,14 @@ describe("save-screenshot-edits", () => {
         redactions: [{ x: 1, y: 1, width: 50, height: 50 }],
       }),
     ).rejects.toThrow(/unredacted original could not be deleted/);
-    mocks.existing!.editsJson = mocks.updates.at(-1)!.editsJson;
-    mocks.existing!.mediaUpdatedAt = "rev-2";
+    const revision = String(mocks.existing!.mediaUpdatedAt);
     mocks.updates = [];
     mocks.deleteStoredMediaUrl.mockResolvedValue(true);
 
-    await run({ mediaRevision: "rev-2", annotations: [] });
-    expect(mocks.updates[0].title).toBe("(Redacted) Checkout");
+    // Renamed while the burn was stuck: the finish keeps the new name.
+    mocks.existing!.title = "Renamed";
+    await run({ mediaRevision: revision, annotations: [] });
+    expect(mocks.updates[0].title).toBe("(Redacted) Renamed");
     const finished = JSON.parse(String(mocks.updates[0].editsJson));
     expect(finished.burnInProgress).toBeUndefined();
     expect(finished.crop).toEqual({ x: 0, y: 0, width: 500, height: 400 });
@@ -298,5 +301,28 @@ describe("save-screenshot-edits", () => {
     const huge = `data:image/png;base64,${"A".repeat(21 * 1024 * 1024)}`;
     await expect(run({ dataUrl: huge })).rejects.toThrow(/too large/);
     expect(mocks.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it("marks the current title redacted, not the one read before the deletes", async () => {
+    mocks.deleteStoredMediaUrl.mockImplementation(async () => {
+      mocks.existing!.title = "Renamed meanwhile";
+      return true;
+    });
+    await run({
+      baseDataUrl: PNG,
+      redactions: [{ x: 1, y: 1, width: 50, height: 50 }],
+    });
+    expect(mocks.updates.at(-1)!.title).toBe("(Redacted) Renamed meanwhile");
+  });
+
+  it("stores new pictures under the recording's own id", async () => {
+    // S3 keys the object by this name, and the media routes only serve keys
+    // under clips/<recordingId>/.
+    await run({ baseDataUrl: PNG, redactions: [] });
+    for (const [options] of mocks.uploadFile.mock.calls as unknown as [
+      { filename: string },
+    ][]) {
+      expect(options.filename).toMatch(/^shot-1\./);
+    }
   });
 });

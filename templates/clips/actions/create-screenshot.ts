@@ -124,10 +124,12 @@ export default defineAction({
       folderId: args.folderId,
     });
 
+    // Named for the recording alone: storage keys the object by this name,
+    // and the media routes only serve keys under the recording's own id.
     const uploaded = await uploadFile({
       data: bytes,
       mimeType,
-      filename: `screenshot-${id}${IMAGE_EXTENSION_BY_MIME[mimeType]}`,
+      filename: `${id}${IMAGE_EXTENSION_BY_MIME[mimeType]}`,
       ownerEmail,
       recordAsset: false,
     });
