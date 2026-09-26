@@ -1250,6 +1250,29 @@ export const migrations = runMigrations(
       name: "recording-browser-diagnostics-interaction-events",
       sql: `ALTER TABLE recording_browser_diagnostics ADD COLUMN IF NOT EXISTS interaction_events_json TEXT NOT NULL DEFAULT '[]'`,
     },
+    {
+      version: 74,
+      name: "recording-failure-codes-platform",
+      sql: `
+        ALTER TABLE recordings ADD COLUMN IF NOT EXISTS failure_code TEXT;
+        ALTER TABLE recordings ADD COLUMN IF NOT EXISTS recording_platform TEXT;
+      `,
+    },
+    {
+      version: 75,
+      name: "recording-failure-backfill-cursor",
+      sql: `ALTER TABLE clips_backfill_leases ADD COLUMN IF NOT EXISTS cursor_id TEXT`,
+    },
+    {
+      version: 76,
+      name: "recording-failure-backfill-completion",
+      sql: `ALTER TABLE clips_backfill_leases ADD COLUMN IF NOT EXISTS completed_at TEXT`,
+    },
+    {
+      version: 77,
+      name: "recordings-canonical-auth-user-id",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS auth_user_id TEXT`,
+    },
   ],
   { table: "clips_migrations" },
 );

@@ -95,9 +95,7 @@ describe("new deck generation flow", () => {
     const generatingRouteIndex = flow.indexOf(
       "generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}",
     );
-    const submitIndex = flow.indexOf(
-      "agentSubmit(createDeckAgentMessage(prompt)",
-    );
+    const submitIndex = flow.indexOf("await sendToAgentChatAndConfirm(");
 
     expect(generatingRouteIndex).toBeGreaterThan(-1);
     expect(submitIndex).toBeGreaterThan(generatingRouteIndex);
@@ -105,6 +103,30 @@ describe("new deck generation flow", () => {
       "generation_attempt_id=${encodeURIComponent(generationAttemptId)}",
     );
     expect(flow).toContain("submitMessageId: generationSubmitMessageId");
+    expect(flow).toContain("registerStartedGenerationAttempt(");
+  });
+
+  it("accepts a new-deck request only after confirmed message delivery", () => {
+    const deliveryIndex = flow.indexOf("await sendToAgentChatAndConfirm(");
+    const rejectionGuardIndex = flow.indexOf(
+      "if (!delivery.delivered)",
+      deliveryIndex,
+    );
+    const rejectedIndex = flow.indexOf(
+      'trackEvent("generation_request_rejected"',
+      rejectionGuardIndex,
+    );
+    const acceptedIndex = flow.indexOf(
+      'trackEvent("generation_request_accepted"',
+      rejectionGuardIndex,
+    );
+
+    expect(deliveryIndex).toBeGreaterThan(-1);
+    expect(rejectionGuardIndex).toBeGreaterThan(deliveryIndex);
+    expect(rejectedIndex).toBeGreaterThan(rejectionGuardIndex);
+    expect(acceptedIndex).toBeGreaterThan(rejectedIndex);
+    expect(flow).toContain('acceptance_stage: "agent_message_delivered"');
+    expect(flow).toContain('delivery_status: "confirmed"');
   });
 
   it("carries hidden prompt context through generation retries", () => {
@@ -210,9 +232,7 @@ describe("new deck generation flow", () => {
 
   it("blocks generation when an attached reference cannot be read", () => {
     const hydrateIndex = flow.indexOf("await hydrateReferenceDocuments(");
-    const submitIndex = flow.indexOf(
-      "agentSubmit(createDeckAgentMessage(prompt)",
-    );
+    const submitIndex = flow.indexOf("await sendToAgentChatAndConfirm(");
 
     expect(hydrateIndex).toBeGreaterThan(-1);
     expect(hydrateIndex).toBeLessThan(submitIndex);

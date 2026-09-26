@@ -4,7 +4,20 @@ const mockSelectRows = vi.hoisted(() => ({
   queue: [] as Array<Array<Record<string, unknown>>>,
 }));
 const mockReturning = vi.hoisted(() =>
-  vi.fn(async () => [{ id: "updated-recording" }]),
+  vi.fn(async () => [
+    {
+      id: "rec_1",
+      ownerEmail: "owner@example.com",
+      authUserId: "auth-user-1",
+      uploadAttemptId: "upload-attempt-1",
+      durationMs: 5_000,
+      videoFormat: "mp4",
+      hasAudio: true,
+      hasCamera: false,
+      width: 1280,
+      height: 720,
+    },
+  ]),
 );
 const mockUpdateWhere = vi.hoisted(() =>
   vi.fn(() => ({ returning: mockReturning })),
@@ -51,6 +64,14 @@ const mockEnsureRecordingThumbnail = vi.hoisted(() =>
 const mockDispatchPostFinalizeJob = vi.hoisted(() =>
   vi.fn(async () => undefined),
 );
+const mockTrackRecordingFailure = vi.hoisted(() => vi.fn());
+const mockTrack = vi.hoisted(() => vi.fn());
+const mockRecordingTrackingSource = vi.hoisted(() =>
+  vi.fn((userId: string, authUserId?: string | null) => ({
+    userId,
+    ...(authUserId ? { authUserId } : {}),
+  })),
+);
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mockWriteAppState,
@@ -64,6 +85,15 @@ vi.mock("../../server/db/index.js", () => ({
     recordings: {
       id: "id",
       ownerEmail: "ownerEmail",
+      authUserId: "authUserId",
+      uploadAttemptId: "uploadAttemptId",
+      recordingPlatform: "recordingPlatform",
+      durationMs: "durationMs",
+      videoFormat: "videoFormat",
+      hasAudio: "hasAudio",
+      hasCamera: "hasCamera",
+      width: "width",
+      height: "height",
       loomImportClaimId: "loomImportClaimId",
     },
     recordingTranscripts: { recordingId: "recordingId" },
@@ -86,6 +116,13 @@ vi.mock("../../server/lib/ensure-recording-thumbnail.js", () => ({
 vi.mock("../../server/lib/post-finalize-dispatch.js", () => ({
   dispatchPostFinalizeJob: (...args: unknown[]) =>
     mockDispatchPostFinalizeJob(...args),
+}));
+vi.mock("@agent-native/core/tracking", () => ({ track: mockTrack }));
+vi.mock("../../server/lib/recording-failures.js", () => ({
+  recordingTrackingSource: (...args: [string, string?]) =>
+    mockRecordingTrackingSource(...args),
+  trackRecordingFailure: (...args: unknown[]) =>
+    mockTrackRecordingFailure(...args),
 }));
 vi.mock("./loom-transcript.js", () => ({
   fetchLoomTranscript: mockFetchLoomTranscript,
@@ -113,6 +150,9 @@ describe("runLoomImportJob", () => {
     mockQueueBuilderMediaCompression.mockClear();
     mockEnsureRecordingThumbnail.mockClear();
     mockDispatchPostFinalizeJob.mockClear();
+    mockTrackRecordingFailure.mockClear();
+    mockTrack.mockReset();
+    mockRecordingTrackingSource.mockClear();
   });
 
   afterEach(() => {
@@ -141,6 +181,9 @@ describe("runLoomImportJob", () => {
     });
     mockFetchLoomTranscript.mockResolvedValue(null);
     mockSelectRows.queue.push([]); // no existing transcript row
+    mockTrack.mockImplementationOnce(() => {
+      throw new Error("analytics unavailable");
+    });
 
     const result = await runLoomImportJob({
       recordingId: "rec_1",
@@ -149,6 +192,28 @@ describe("runLoomImportJob", () => {
     });
 
     expect(result).toEqual({ status: "ready" });
+    expect(mockTrack).toHaveBeenCalledTimes(1);
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_ready",
+      {
+        app_name: "clips",
+        template_name: "clips",
+        output_id: "rec_1",
+        output_type: "clip",
+        recording_attempt_id: "rec_1",
+        upload_attempt_id: "upload-attempt-1",
+        duration_s: 5,
+        video_format: "mp4",
+        has_audio: true,
+        has_camera: false,
+        width: 1280,
+        height: 720,
+      },
+      { userId: "owner@example.com", authUserId: "auth-user-1" },
+    );
+    expect(mockTrack.mock.invocationCallOrder[0]).toBeGreaterThan(
+      mockReturning.mock.invocationCallOrder[0],
+    );
     expect(mockDownloadLoomVideo).toHaveBeenCalledWith({
       loomId: "abcDEF_123456",
       shareUrl: "https://www.loom.com/share/abcDEF_123456",
@@ -170,6 +235,15 @@ describe("runLoomImportJob", () => {
   });
 
   it("marks the recording failed instead of throwing when the download fails", async () => {
+    mockReturning.mockResolvedValueOnce([
+      {
+        id: "rec_2",
+        ownerEmail: "owner@example.com",
+        authUserId: "auth-user-2",
+        uploadAttemptId: "upload-attempt-2",
+        recordingPlatform: "desktop",
+      },
+    ]);
     mockSelectRows.queue.push([
       {
         id: "rec_2",
@@ -199,6 +273,52 @@ describe("runLoomImportJob", () => {
       }),
     );
     expect(mockUploadFile).not.toHaveBeenCalled();
+    expect(mockTrack).not.toHaveBeenCalled();
+    expect(mockTrackRecordingFailure).toHaveBeenCalledWith({
+      recordingId: "rec_2",
+      userId: "owner@example.com",
+      authUserId: "auth-user-2",
+      uploadAttemptId: "upload-attempt-2",
+      platform: "desktop",
+      failureCode: "loom_import_failed",
+    });
+  });
+
+  it("does not invent canonical identity for a legacy Loom row", async () => {
+    mockReturning.mockResolvedValueOnce([
+      {
+        id: "rec_unknown",
+        ownerEmail: "owner@example.com",
+        authUserId: null,
+        uploadAttemptId: null,
+        recordingPlatform: null,
+      },
+    ]);
+    mockSelectRows.queue.push([
+      {
+        id: "rec_unknown",
+        durationMs: 0,
+        sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+        loomImportClaimId: "claim_unknown",
+      },
+    ]);
+    mockDownloadLoomVideo.mockRejectedValue(new Error("download failed"));
+
+    await runLoomImportJob({
+      recordingId: "rec_unknown",
+      ownerEmail: "owner@example.com",
+      claimId: "claim_unknown",
+    });
+
+    expect(mockTrackRecordingFailure).toHaveBeenCalledTimes(1);
+    expect(mockTrackRecordingFailure.mock.calls[0][0]).toEqual({
+      recordingId: "rec_unknown",
+      userId: "owner@example.com",
+      authUserId: null,
+      uploadAttemptId: null,
+      platform: "import",
+      failureCode: "loom_import_failed",
+    });
   });
 
   it("keeps a playable Loom embed when MP4 export is unavailable", async () => {
@@ -272,6 +392,7 @@ describe("runLoomImportJob", () => {
         failureReason: "storage unavailable",
       }),
     );
+    expect(mockTrack).not.toHaveBeenCalled();
   });
 
   it("keeps playable media ready when transcript persistence fails", async () => {

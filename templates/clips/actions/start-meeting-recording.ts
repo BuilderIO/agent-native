@@ -20,6 +20,7 @@ import {
   parseCalendarMeetingId,
 } from "../server/lib/calendar-event-meetings.js";
 import {
+  getCurrentAuthUserId,
   getCurrentOwnerEmail,
   getActiveOrganizationId,
   nanoid,
@@ -81,6 +82,7 @@ export default defineAction({
 
     await db.insert(schema.recordings).values({
       id: recordingId,
+      authUserId: getCurrentAuthUserId(),
       organizationId: orgId ?? "",
       title: recordingTitle,
       hasAudio: args.hasAudio ?? true,

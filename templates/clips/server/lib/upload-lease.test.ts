@@ -37,6 +37,7 @@ async function execute(db: PGliteClient, statement: SqlStatement) {
 }
 
 const mockAbortResumableUploadSession = vi.hoisted(() => vi.fn());
+const mockTrackRecordingFailure = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({
@@ -55,6 +56,17 @@ vi.mock("./resumable-upload-cleanup.js", () => ({
   abortResumableUploadSession: (...args: unknown[]) =>
     mockAbortResumableUploadSession(...args),
 }));
+vi.mock("./recording-failures.js", () => ({
+  normalizeRecordingPlatform: (value: unknown) =>
+    typeof value === "string" &&
+    ["web", "desktop", "extension", "mobile", "import", "unknown"].includes(
+      value,
+    )
+      ? value
+      : "unknown",
+  trackRecordingFailure: (...args: unknown[]) =>
+    mockTrackRecordingFailure(...args),
+}));
 
 const { reapExpiredUploads, UPLOAD_LEASE_EXPIRED_REASON, uploadLeaseExpiry } =
   await import("./upload-lease.js");
@@ -67,16 +79,22 @@ async function insertRecording(row: {
   status: string;
   lease?: string | null;
   updatedAt?: string;
+  authUserId?: string | null;
+  uploadAttemptId?: string | null;
+  recordingPlatform?: string | null;
 }) {
   await execute(client, {
-    sql: `INSERT INTO recordings (id, owner_email, status, upload_lease_expires_at, updated_at)
-          VALUES (?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO recordings (id, owner_email, status, upload_lease_expires_at, updated_at, auth_user_id, upload_attempt_id, recording_platform)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       row.id,
       "owner@example.com",
       row.status,
       row.lease ?? null,
       row.updatedAt ?? iso(-60_000),
+      row.authUserId ?? null,
+      row.uploadAttemptId ?? null,
+      row.recordingPlatform ?? null,
     ],
   });
 }
@@ -101,23 +119,32 @@ async function chunkKeys(): Promise<string[]> {
 
 async function statusOf(id: string) {
   const { rows } = await execute(client, {
-    sql: `SELECT status, failure_reason FROM recordings WHERE id = ?`,
+    sql: `SELECT status, failure_reason, failure_code FROM recordings WHERE id = ?`,
     args: [id],
   });
   const row = rows[0] as any;
-  return { status: row?.status, failure_reason: row?.failure_reason };
+  return {
+    status: row?.status,
+    failure_reason: row?.failure_reason,
+    failure_code: row?.failure_code,
+  };
 }
 
 describe("upload lease", () => {
   beforeEach(async () => {
     client = await PGlite.create("memory://");
     mockAbortResumableUploadSession.mockResolvedValue(true);
+    mockTrackRecordingFailure.mockClear();
     await execute(
       client,
       `CREATE TABLE recordings (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL,
+      auth_user_id TEXT,
       status TEXT NOT NULL,
+      upload_attempt_id TEXT,
+      recording_platform TEXT,
+      failure_code TEXT,
       failure_reason TEXT,
       upload_lease_expires_at TEXT,
       upload_generation_id TEXT,
@@ -154,6 +181,30 @@ describe("upload lease", () => {
     ]);
   });
 
+  it("tracks a timed-out background upload with its stored canonical identity and attempt", async () => {
+    await insertRecording({
+      id: "timed-out",
+      status: "uploading",
+      lease: iso(-1_000),
+      authUserId: "auth-user-1",
+      uploadAttemptId: "upload-attempt-1",
+      recordingPlatform: "desktop",
+    });
+
+    await reapExpiredUploads({ now: NOW });
+
+    expect(mockTrackRecordingFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "timed-out",
+        userId: "owner@example.com",
+        authUserId: "auth-user-1",
+        uploadAttemptId: "upload-attempt-1",
+        platform: "desktop",
+        failureCode: "upload_timed_out",
+      }),
+    );
+  });
+
   it("fails an upload whose lease expired and reclaims its scratch", async () => {
     await insertRecording({
       id: "dead",
@@ -169,6 +220,7 @@ describe("upload lease", () => {
     expect(await statusOf("dead")).toEqual({
       status: "failed",
       failure_reason: UPLOAD_LEASE_EXPIRED_REASON,
+      failure_code: "upload_timed_out",
     });
     expect(await chunkKeys()).toEqual([]);
   });

@@ -39,6 +39,10 @@ import {
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { reconcileMeetingOnRecordingReady } from "../server/lib/reconcile-meeting-on-finalize.js";
 import {
+  recordingTrackingSource,
+  trackRecordingFailure,
+} from "../server/lib/recording-failures.js";
+import {
   listRecordingChunkKeys,
   validateRecordingChunkKeys,
 } from "../server/lib/recording-upload-state.js";
@@ -313,6 +317,7 @@ async function failStoredButUnservableRecording(params: {
     .update(schema.recordings)
     .set({
       status: "failed",
+      failureCode: "media_verification_failed",
       failureReason,
       updatedAt: now,
     })
@@ -326,8 +331,18 @@ async function failStoredButUnservableRecording(params: {
     .returning({
       id: schema.recordings.id,
       uploadAttemptId: schema.recordings.uploadAttemptId,
+      authUserId: schema.recordings.authUserId,
     });
   if (failed.length !== 1) return false;
+  trackRecordingFailure({
+    recordingId: id,
+    userId: ownerEmail,
+    authUserId: failed[0]?.authUserId,
+    uploadAttemptId: failed[0]?.uploadAttemptId,
+    platform: "unknown",
+    failureCode: "media_verification_failed",
+    failureStage: "media_verification",
+  });
   try {
     track(
       "clips_upload_blocking_failure",
@@ -754,7 +769,7 @@ async function markRecordingReady(params: {
       width: finalWidth,
       height: finalHeight,
     },
-    { userId: ownerEmail },
+    recordingTrackingSource(ownerEmail),
   );
 
   await queueReadyRecordingThumbnail(id);
@@ -1092,6 +1107,13 @@ export default defineAction({
         "Whether the uploaded video bytes were already locally transcoded/compressed before upload",
       ),
     mediaVerificationRetryAttempt: z.number().int().min(1).max(10).optional(),
+    uploadAttemptId: z
+      .string()
+      .min(1)
+      .max(128)
+      .nullable()
+      .optional()
+      .describe("Upload attempt that owns the chunks being finalized"),
     uploadGenerationId: z
       .string()
       .min(1)
@@ -1138,6 +1160,12 @@ export default defineAction({
       if ((existing.uploadGenerationId ?? null) !== generationId) {
         throw new Error("Upload generation changed before finalization");
       }
+      if (
+        args.uploadAttemptId !== undefined &&
+        (existing.uploadAttemptId ?? null) !== args.uploadAttemptId
+      ) {
+        throw new Error("Upload attempt changed before finalization");
+      }
       // Claim finalization before touching provider/scratch state. Reset only
       // admits uploading/failed rows, so once this CAS succeeds it cannot
       // replace the generation underneath a delayed final chunk.
@@ -1151,6 +1179,16 @@ export default defineAction({
               ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
               eq(schema.recordings.status, "uploading"),
               eq(schema.recordings.uploadGenerationId, generationId),
+              ...(args.uploadAttemptId === undefined
+                ? []
+                : args.uploadAttemptId === null
+                  ? [isNull(schema.recordings.uploadAttemptId)]
+                  : [
+                      eq(
+                        schema.recordings.uploadAttemptId,
+                        args.uploadAttemptId,
+                      ),
+                    ]),
             ),
           )
           .returning();
@@ -1497,15 +1535,37 @@ export default defineAction({
         failureReason: string,
       ): Promise<never> => {
         const now = new Date().toISOString();
-        await db
+        const failed = await db
           .update(schema.recordings)
           .set({
             status: "failed",
+            failureCode: "chunk_assembly_failed",
             failureReason,
             mediaUpdatedAt: now,
             updatedAt: now,
           })
-          .where(eq(schema.recordings.id, id));
+          .where(
+            and(
+              eq(schema.recordings.id, id),
+              eq(schema.recordings.status, "processing"),
+            ),
+          )
+          .returning({
+            id: schema.recordings.id,
+            uploadAttemptId: schema.recordings.uploadAttemptId,
+            authUserId: schema.recordings.authUserId,
+          });
+        if (failed.length === 1) {
+          trackRecordingFailure({
+            recordingId: id,
+            userId: ownerEmail,
+            authUserId: failed[0]?.authUserId,
+            uploadAttemptId: failed[0]?.uploadAttemptId,
+            platform: "unknown",
+            failureCode: "chunk_assembly_failed",
+            failureStage: "chunk_assembly",
+          });
+        }
         await writeAppState(`recording-upload-${id}`, {
           ...(uploadState ?? {}),
           recordingId: id,
@@ -1812,10 +1872,11 @@ export default defineAction({
       if (upload === null) {
         const now = new Date().toISOString();
         if (requiresConfiguredVideoStorage()) {
-          await db
+          const failed = await db
             .update(schema.recordings)
             .set({
               status: "failed",
+              failureCode: "storage_setup_required",
               failureReason: STORAGE_SETUP_REQUIRED_REASON,
               durationMs: finalDurationMs,
               width: finalWidth,
@@ -1826,7 +1887,28 @@ export default defineAction({
               mediaUpdatedAt: now,
               updatedAt: now,
             })
-            .where(eq(schema.recordings.id, id));
+            .where(
+              and(
+                eq(schema.recordings.id, id),
+                eq(schema.recordings.status, "processing"),
+              ),
+            )
+            .returning({
+              id: schema.recordings.id,
+              uploadAttemptId: schema.recordings.uploadAttemptId,
+              authUserId: schema.recordings.authUserId,
+            });
+          if (failed.length === 1) {
+            trackRecordingFailure({
+              recordingId: id,
+              userId: ownerEmail,
+              authUserId: failed[0]?.authUserId,
+              uploadAttemptId: failed[0]?.uploadAttemptId,
+              platform: "unknown",
+              failureCode: "storage_setup_required",
+              failureStage: "finalize",
+            });
+          }
 
           await writeAppState(`recording-upload-${id}`, {
             recordingId: id,

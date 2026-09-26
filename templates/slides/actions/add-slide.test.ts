@@ -8,6 +8,7 @@ const mockNotifyClients = vi.fn();
 const mockReadAppState = vi.fn(async () => null);
 const mockWriteAppState = vi.fn(async () => undefined);
 const mockTrack = vi.fn();
+const mockGetRequestContext = vi.hoisted(() => vi.fn());
 
 let deckData: Record<string, unknown>;
 let updatedFields: Record<string, unknown> | undefined;
@@ -161,7 +162,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestContext: () => undefined,
+  getRequestContext: () => mockGetRequestContext(),
   getRequestRunContext: () => undefined,
 }));
 
@@ -171,6 +172,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockGetGenerationCreativeContext.mockResolvedValue(null);
   mockTrack.mockReset();
+  mockGetRequestContext.mockReturnValue(undefined);
   deckData = {
     title: "Test deck",
     slides: [
@@ -209,7 +211,11 @@ describe("add-slide", () => {
   });
 
   it("closes an incremental generation on its final slide", async () => {
+    mockGetRequestContext.mockReturnValue({
+      authUserId: "canonical-auth-user",
+    });
     deckData.generationContext = {
+      targetSlideCount: 3,
       generationAttemptId: "attempt-1",
       generationMode: "action",
     };
@@ -232,6 +238,126 @@ describe("add-slide", () => {
       generation_mode: "incremental",
       source: "add_slide_action",
     });
+    const saved = mockTrack.mock.calls.find(
+      ([name]) => name === "output_saved",
+    );
+    expect(saved?.[1]).toMatchObject({
+      auth_user_id: "canonical-auth-user",
+      generation_attempt_id: "attempt-1",
+      output_id: "deck-1",
+      slide_count: 3,
+      persistence_confirmation: "add_slide_action_commit",
+    });
+    expect(
+      JSON.parse(updatedFields!.data as string).generationContext,
+    ).toMatchObject({
+      generationAttemptId: "attempt-1",
+      generationComplete: true,
+    });
+  });
+
+  it("does not call an unknown target count completed after saving a slide", async () => {
+    deckData.generationContext = {
+      generationAttemptId: "attempt-unknown-target",
+      generationMode: "action",
+    };
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-final",
+      content: "<div>Final</div>",
+      generationComplete: true,
+    });
+
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
+    expect(mockTrack).toHaveBeenCalledWith(
+      "generation_outcome_unresolved",
+      expect.objectContaining({
+        generation_attempt_id: "attempt-unknown-target",
+        outcome: "unresolved",
+        reason: "target_slide_count_unknown",
+        slide_count: 3,
+      }),
+      undefined,
+    );
+    expect(mockTrack).toHaveBeenCalledWith(
+      "output_saved",
+      expect.objectContaining({
+        generation_attempt_id: "attempt-unknown-target",
+        slide_count: 3,
+        persistence_confirmation: "add_slide_action_commit",
+      }),
+      undefined,
+    );
+    expect(
+      JSON.parse(updatedFields!.data as string).generationContext,
+    ).toMatchObject({
+      generationComplete: true,
+      generationOutcome: "unresolved",
+    });
+
+    deckData = JSON.parse(updatedFields!.data as string);
+    mockTrack.mockClear();
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-later-edit",
+      content: "<div>Later edit</div>",
+    });
+
+    const laterEdit = mockTrack.mock.calls.find(
+      ([name]) => name === "deck_edited",
+    );
+    expect(laterEdit?.[1]).not.toHaveProperty("generation_attempt_id");
+    expect(
+      mockTrack.mock.calls.some(([name]) =>
+        [
+          "generation_completed",
+          "generation_outcome_unresolved",
+          "output_saved",
+        ].includes(String(name)),
+      ),
+    ).toBe(false);
+    expect(
+      JSON.parse(updatedFields!.data as string).generationContext,
+    ).toMatchObject({
+      generationAttemptId: "attempt-unknown-target",
+      generationComplete: true,
+      generationOutcome: "unresolved",
+    });
+  });
+
+  it("records bounded retryable failure telemetry for action-owned slide writes", async () => {
+    deckData.generationContext = {
+      generationAttemptId: "attempt-add-slide-failure",
+      generationMode: "action",
+    };
+    transactionFn.mockRejectedValueOnce(new Error("private slide content"));
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-failed",
+        content: "<div>Never persisted</div>",
+        generationComplete: false,
+      }),
+    ).rejects.toThrow("private slide content");
+
+    const failed = mockTrack.mock.calls.find(
+      ([name]) => name === "generation_step_failed",
+    );
+    expect(failed?.[1]).toMatchObject({
+      generation_attempt_id: "attempt-add-slide-failure",
+      output_id: "deck-1",
+      failure_code: "add_slide_failed",
+      failure_stage: "add_slide",
+      error_type: "Error",
+      retryable: true,
+      terminal: false,
+    });
+    expect(failed?.[1]).not.toHaveProperty("message");
+    expect(JSON.stringify(failed?.[1])).not.toContain("private slide content");
   });
 
   it("requires an explicit completion flag for each action-owned incremental write", async () => {
@@ -251,6 +377,37 @@ describe("add-slide", () => {
     });
 
     expect(transactionFn).not.toHaveBeenCalled();
+    expect(mockTrack.mock.calls.some(([name]) => name === "output_saved")).toBe(
+      false,
+    );
+  });
+
+  it("does not mark intermediate persisted slides as a saved output", async () => {
+    deckData.generationContext = {
+      generationAttemptId: "attempt-1",
+      generationMode: "action",
+    };
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-intermediate",
+      content: "<div>Intermediate</div>",
+      generationComplete: false,
+    });
+
+    expect(transactionFn).toHaveBeenCalledOnce();
+    expect(mockTrack.mock.calls.some(([name]) => name === "output_saved")).toBe(
+      false,
+    );
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
+    expect(
+      JSON.parse(updatedFields!.data as string).generationContext,
+    ).toMatchObject({
+      generationAttemptId: "attempt-1",
+      generationComplete: false,
+    });
   });
 
   it("rejects completion before a valid target override without writing", async () => {
@@ -337,6 +494,7 @@ describe("add-slide", () => {
 
   it("returns a persisted-write warning and tracks completion when notification fails", async () => {
     deckData.generationContext = {
+      targetSlideCount: 3,
       generationAttemptId: "attempt-1",
       generationMode: "action",
     };

@@ -1905,7 +1905,7 @@ export class RecorderEngine {
   }
 
   /** Cancel: release tracks immediately, then abort server-side, reset state. */
-  async cancel(): Promise<void> {
+  async cancel(options: { userInitiated?: boolean } = {}): Promise<void> {
     this.streamingRecoveryGeneration += 1;
     this.streamingRecovery.reset();
     this.streamingUploadGeneration += 1;
@@ -1968,6 +1968,12 @@ export class RecorderEngine {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            ...(options.userInitiated
+              ? {
+                  reason: "Recording cancelled by user",
+                  failureCode: "user_cancelled",
+                }
+              : {}),
             ...(uploadAttemptId ? { attemptId: uploadAttemptId } : {}),
             ...(uploadGenerationId ? { uploadGenerationId } : {}),
           }),

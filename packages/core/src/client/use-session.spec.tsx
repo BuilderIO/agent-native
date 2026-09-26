@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const analyticsMocks = vi.hoisted(() => ({
   setSentryUser: vi.fn(),
+  setTrackingIdentityFromSession: vi.fn(),
   trackSessionStatus: vi.fn(),
 }));
 vi.mock("./analytics.js", () => analyticsMocks);
@@ -95,6 +96,7 @@ describe("useSession", () => {
         new Response(
           JSON.stringify({
             userId: "user-1",
+            authUserId: "canonical-user-1",
             email: "person@example.com",
             name: "Person",
             orgId: "org-1",
@@ -110,6 +112,9 @@ describe("useSession", () => {
     expect(container.textContent).toBe("person@example.comperson@example.com");
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledTimes(1);
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledWith(true);
+    expect(analyticsMocks.setTrackingIdentityFromSession).toHaveBeenCalledWith(
+      expect.objectContaining({ authUserId: "canonical-user-1" }),
+    );
   });
 
   it("reports the definitive session state to an embedding host", async () => {

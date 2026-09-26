@@ -262,6 +262,9 @@ export function CopyButton({
       trackEvent("share_link_copied", {
         resource_type: resourceType,
         resource_id: resourceId,
+        ...(resourceType === "recording"
+          ? { recording_attempt_id: resourceId }
+          : {}),
         link_type: linkType,
       });
     }

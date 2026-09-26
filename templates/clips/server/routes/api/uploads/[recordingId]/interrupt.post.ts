@@ -29,6 +29,7 @@ import {
   retryableUploadInterruptionReason,
 } from "../../../../../shared/upload-interruption.js";
 import { getDb, schema } from "../../../../db/index.js";
+import { trackRecordingFailure } from "../../../../lib/recording-failures.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
@@ -84,6 +85,8 @@ export default defineEventHandler(async (event: H3Event) => {
         videoUrl: schema.recordings.videoUrl,
         uploadAttemptId: schema.recordings.uploadAttemptId,
         uploadGenerationId: schema.recordings.uploadGenerationId,
+        authUserId: schema.recordings.authUserId,
+        recordingPlatform: schema.recordings.recordingPlatform,
       })
       .from(schema.recordings)
       .where(
@@ -137,6 +140,7 @@ export default defineEventHandler(async (event: H3Event) => {
         .update(schema.recordings)
         .set({
           status: "failed",
+          failureCode: "upload_interrupted",
           failureReason,
           updatedAt: interruptedAt,
         })
@@ -159,6 +163,15 @@ export default defineEventHandler(async (event: H3Event) => {
         setResponseStatus(event, 409);
         return { error: "Recording upload changed while it was interrupted" };
       }
+      trackRecordingFailure({
+        recordingId,
+        userId: ownerEmail,
+        authUserId: existing.authUserId,
+        uploadAttemptId: attemptId,
+        platform: existing.recordingPlatform,
+        failureCode: "upload_interrupted",
+        failureStage: "upload_interrupt",
+      });
     }
 
     const uploadStateUpdated = await compareAndSetAppState(

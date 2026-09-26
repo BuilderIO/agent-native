@@ -36,13 +36,16 @@ import { randomUUID } from "node:crypto";
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { track } from "@agent-native/core/tracking";
 import { and, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
+import { recordingTrackingSource } from "../server/lib/recording-failures.js";
 import {
+  getCurrentAuthUserId,
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
   ownerEmailMatches,
@@ -88,6 +91,7 @@ export default defineAction({
   run: async (args, actionContext) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
+    const authUserId = getCurrentAuthUserId();
     const videoUrl = args.videoUrl?.trim() || null;
     if (videoUrl?.startsWith("data:")) {
       throw new Error(
@@ -174,6 +178,7 @@ export default defineAction({
 
     await db.insert(schema.recordings).values({
       id,
+      authUserId,
       organizationId,
       orgId: organizationId,
       folderId: args.folderId ?? null,
@@ -195,6 +200,30 @@ export default defineAction({
       // Reuse the first source's thumbnail so the new row has something to show immediately.
       thumbnailUrl: ordered[0].thumbnailUrl ?? null,
     } as any);
+
+    if (videoUrl) {
+      try {
+        track(
+          "recording_ready",
+          {
+            app_name: "clips",
+            template_name: "clips",
+            output_id: id,
+            output_type: "clip",
+            recording_attempt_id: id,
+            duration_s: Math.round(totalDuration / 1000),
+            video_format: "mp4",
+            has_audio: ordered.some((r) => Boolean(r.hasAudio)),
+            has_camera: ordered.some((r) => Boolean(r.hasCamera)),
+            width,
+            height,
+          },
+          recordingTrackingSource(ownerEmail, authUserId),
+        );
+      } catch {
+        // coercion-ok: analytics is best-effort and must not affect stitched media.
+      }
+    }
 
     if (videoUrl && !ordered[0].thumbnailUrl) {
       await dispatchPostFinalizeJob({

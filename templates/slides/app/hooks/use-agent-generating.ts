@@ -15,6 +15,8 @@ export const MAX_GENERATING_MS = 30 * 60 * 1000;
 export const CHAT_STOP_DEBOUNCE_MS = 4_000;
 const CHAT_SUBMIT_TARGET_EVENT = "agentNative.chatSubmitTarget";
 export const SLIDES_GENERATION_STARTED_EVENT = "slides:generation-started";
+export const SLIDES_GENERATION_ATTEMPT_CLEARED_EVENT =
+  "slides:generation-attempt-cleared";
 const startedGenerationAttempts = new Map<string, string>();
 
 function generationAttemptKey(attemptId: string, outputId: string): string {
@@ -45,6 +47,29 @@ export function clearStartedGenerationAttempt(
   outputId: string,
 ): void {
   startedGenerationAttempts.delete(generationAttemptKey(attemptId, outputId));
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(SLIDES_GENERATION_ATTEMPT_CLEARED_EVENT, {
+      detail: { generationAttemptId: attemptId, outputId },
+    }),
+  );
+}
+
+export function registerStartedGenerationAttempt(
+  attemptId: string,
+  outputId: string,
+  tabId: string,
+): void {
+  startedGenerationAttempts.set(
+    generationAttemptKey(attemptId, outputId),
+    tabId,
+  );
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+      detail: { generationAttemptId: attemptId, outputId, tabId },
+    }),
+  );
 }
 
 type AgentGeneratingSubmitOptions = Pick<
@@ -276,18 +301,10 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
         activeTabRef.current &&
         typeof window !== "undefined"
       ) {
-        startedGenerationAttempts.set(
-          generationAttemptKey(generationAttemptId, generationOutputId),
+        registerStartedGenerationAttempt(
+          generationAttemptId,
+          generationOutputId,
           activeTabRef.current,
-        );
-        window.dispatchEvent(
-          new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
-            detail: {
-              generationAttemptId,
-              outputId: generationOutputId,
-              tabId: activeTabRef.current,
-            },
-          }),
         );
       }
     },

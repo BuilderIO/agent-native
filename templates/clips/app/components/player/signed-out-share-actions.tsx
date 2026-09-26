@@ -90,6 +90,7 @@ export function SignedOutShareActions({
     trackEvent("share_link_copied", {
       resource_type: "recording",
       resource_id: recordingId,
+      recording_attempt_id: recordingId,
       link_type: "share",
     });
     setCopied(true);

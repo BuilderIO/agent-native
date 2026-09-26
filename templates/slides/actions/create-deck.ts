@@ -4,10 +4,10 @@ import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
+  getRequestRunContext,
 } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import {
   recordGenerationCreativeContext,
   validateGenerationCreativeContext,
@@ -19,6 +19,10 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import {
+  boundedAnalyticsErrorType,
+  trackSlidesEvent,
+} from "../server/lib/analytics.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import {
   resolveDefaultDesignSystemId,
@@ -124,8 +128,12 @@ function createGenerationAttemptId(): string {
 }
 
 function generationTerminalEvent(signal?: AbortSignal): {
-  name: "generation_failed" | "generation_stuck" | "generation_cancelled";
-  outcome: "failed" | "stuck" | "cancelled";
+  name:
+    | "generation_failed"
+    | "generation_stuck"
+    | "generation_cancelled"
+    | "generation_outcome_unresolved";
+  outcome: "failed" | "stuck" | "cancelled" | "unresolved";
   failure_code: string;
 } {
   if (!signal?.aborted) {
@@ -142,14 +150,27 @@ function generationTerminalEvent(signal?: AbortSignal): {
       : signal.reason instanceof Error
         ? signal.reason.name
         : "";
-  if (/cancel/i.test(reason)) {
+  const normalizedReason = reason.toLowerCase();
+  if (
+    ["user", "abort", "user_stuck_cancel", "user_stuck_retry"].includes(
+      normalizedReason,
+    )
+  ) {
     return {
       name: "generation_cancelled",
       outcome: "cancelled",
       failure_code: "cancelled",
     };
   }
-  if (/stuck|timeout|no_progress/i.test(reason)) {
+  if (
+    [
+      "stuck",
+      "timeout",
+      "run_timeout",
+      "no_progress",
+      "auto_stuck_retry",
+    ].includes(normalizedReason)
+  ) {
     return {
       name: "generation_stuck",
       outcome: "stuck",
@@ -157,19 +178,19 @@ function generationTerminalEvent(signal?: AbortSignal): {
     };
   }
   return {
-    name: "generation_cancelled",
-    outcome: "cancelled",
-    failure_code: "cancelled",
+    name: "generation_outcome_unresolved",
+    outcome: "unresolved",
+    failure_code: "abort_reason_unknown",
   };
 }
 
 function trackGenerationEvent(
   name: string,
   properties: Record<string, unknown>,
-  source: Parameters<typeof track>[2],
+  source: Parameters<typeof trackSlidesEvent>[2],
 ): void {
   try {
-    track(name, properties, source);
+    trackSlidesEvent(name, properties, source);
   } catch {
     // coercion-ok: analytics is best-effort and must not affect deck writes.
   }
@@ -266,6 +287,18 @@ export default defineAction({
       browserGenerationAttemptId ?? createGenerationAttemptId();
     const actionOwnsGenerationLifecycle =
       browserGenerationAttemptId === undefined;
+    const generationThreadId =
+      ctx?.caller === "tool" && ctx.threadId?.trim()
+        ? ctx.threadId.trim()
+        : undefined;
+    const generationRunId =
+      ctx?.caller === "tool" && ctx.runId?.trim()
+        ? ctx.runId.trim()
+        : undefined;
+    const generationTabId =
+      ctx?.caller === "tool"
+        ? getRequestRunContext()?.browserTabId?.trim() || undefined
+        : undefined;
     const generationStartedAt = Date.now();
     let generationOutputId = deckId;
     const db = getDb();
@@ -308,6 +341,17 @@ export default defineAction({
       normalizedSlides.originalIds,
     );
     const incrementalGeneration = !deckId && slides.length === 0;
+    const generationContext = {
+      generationAttemptId,
+      generationMode: "action",
+      generationComplete: !incrementalGeneration && slides.length > 0,
+      ...(!incrementalGeneration && slides.length === 0
+        ? { generationOutcome: "unresolved" }
+        : {}),
+      ...(generationThreadId ? { threadId: generationThreadId } : {}),
+      ...(generationRunId ? { runId: generationRunId } : {}),
+      ...(generationTabId ? { tabId: generationTabId } : {}),
+    };
     if (actionOwnsGenerationLifecycle) {
       trackGenerationEvent(
         "generation_started",
@@ -429,6 +473,15 @@ export default defineAction({
           existingDeck,
           prevData,
         );
+        const previousGenerationContext =
+          prevData.generationContext &&
+          typeof prevData.generationContext === "object" &&
+          !Array.isArray(prevData.generationContext)
+            ? { ...prevData.generationContext }
+            : {};
+        if (actionOwnsGenerationLifecycle) {
+          delete previousGenerationContext.generationOutcome;
+        }
         const data = {
           ...prevData,
           title: existingDeckTitle,
@@ -439,12 +492,10 @@ export default defineAction({
           creativeContext: creativeContextProvenance,
           ...(actionOwnsGenerationLifecycle
             ? {
-                generationContext: incrementalGeneration
-                  ? {
-                      generationAttemptId,
-                      generationMode: "action",
-                    }
-                  : undefined,
+                generationContext: {
+                  ...previousGenerationContext,
+                  ...generationContext,
+                },
               }
             : {}),
         };
@@ -500,8 +551,7 @@ export default defineAction({
             { full: true },
           );
         } catch (error) {
-          postProcessErrorType =
-            error instanceof Error ? error.name : "unknown_error";
+          postProcessErrorType = boundedAnalyticsErrorType(error);
         }
         const postProcessStatus = postProcessErrorType ? "failed" : "completed";
         if (postProcessErrorType && actionOwnsGenerationLifecycle) {
@@ -523,7 +573,11 @@ export default defineAction({
             },
             ctx,
           );
-        } else if (!postProcessErrorType && actionOwnsGenerationLifecycle) {
+        } else if (
+          !postProcessErrorType &&
+          actionOwnsGenerationLifecycle &&
+          slides.length > 0
+        ) {
           trackGenerationEvent(
             "generation_completed",
             {
@@ -539,6 +593,44 @@ export default defineAction({
               ...(loadedDesignSystem
                 ? { design_system_status: loadedDesignSystem.status }
                 : {}),
+            },
+            ctx,
+          );
+        } else if (
+          !postProcessErrorType &&
+          actionOwnsGenerationLifecycle &&
+          slides.length === 0
+        ) {
+          trackGenerationEvent(
+            "generation_outcome_unresolved",
+            {
+              app_name: "slides",
+              template_name: "slides",
+              generation_attempt_id: generationAttemptId,
+              source: "create_deck_action",
+              generation_mode: "bulk",
+              output_id: deckId,
+              output_type: "deck",
+              slide_count: 0,
+              outcome: "unresolved",
+              reason: "no_output",
+              persisted_output: true,
+            },
+            ctx,
+          );
+        }
+        if (actionOwnsGenerationLifecycle && slides.length > 0) {
+          trackGenerationEvent(
+            "output_saved",
+            {
+              app_name: "slides",
+              template_name: "slides",
+              generation_attempt_id: generationAttemptId,
+              output_id: deckId,
+              output_type: "deck",
+              slide_count: slides.length,
+              persistence_confirmation: "create_deck_action_commit",
+              source: "create_deck_action",
             },
             ctx,
           );
@@ -590,14 +682,7 @@ export default defineAction({
         slides,
         createdAt: now,
         updatedAt: now,
-        ...(actionOwnsGenerationLifecycle && incrementalGeneration
-          ? {
-              generationContext: {
-                generationAttemptId,
-                generationMode: "action",
-              },
-            }
-          : {}),
+        ...(actionOwnsGenerationLifecycle ? { generationContext } : {}),
       };
       if (aspectRatio) data.aspectRatio = aspectRatio;
       if (resolvedDesignSystemId) data.designSystemId = resolvedDesignSystemId;
@@ -612,6 +697,23 @@ export default defineAction({
         createdAt: now,
         updatedAt: now,
       });
+
+      if (actionOwnsGenerationLifecycle && slides.length > 0) {
+        trackGenerationEvent(
+          "output_saved",
+          {
+            app_name: "slides",
+            template_name: "slides",
+            generation_attempt_id: generationAttemptId,
+            output_id: id,
+            output_type: "deck",
+            slide_count: slides.length,
+            persistence_confirmation: "create_deck_action_commit",
+            source: "create_deck_action",
+          },
+          ctx,
+        );
+      }
 
       let loadedDesignSystem: Awaited<
         ReturnType<typeof loadAgentDesignSystemContext>
@@ -637,8 +739,7 @@ export default defineAction({
           { full: true },
         );
       } catch (error) {
-        postProcessErrorType =
-          error instanceof Error ? error.name : "unknown_error";
+        postProcessErrorType = boundedAnalyticsErrorType(error);
       }
       const postProcessStatus = postProcessErrorType ? "failed" : "completed";
       if (postProcessErrorType && actionOwnsGenerationLifecycle) {
@@ -674,12 +775,14 @@ export default defineAction({
             output_type: "deck",
             slide_count: slides.length,
             duration_ms: Date.now() - generationStartedAt,
+            acceptance_stage: "create_deck_action",
           },
           ctx,
         );
       } else if (
         postProcessStatus === "completed" &&
-        actionOwnsGenerationLifecycle
+        actionOwnsGenerationLifecycle &&
+        slides.length > 0
       ) {
         trackGenerationEvent(
           "generation_completed",
@@ -696,6 +799,29 @@ export default defineAction({
             ...(loadedDesignSystem
               ? { design_system_status: loadedDesignSystem.status }
               : {}),
+          },
+          ctx,
+        );
+      } else if (
+        postProcessStatus === "completed" &&
+        actionOwnsGenerationLifecycle &&
+        slides.length === 0 &&
+        !incrementalGeneration
+      ) {
+        trackGenerationEvent(
+          "generation_outcome_unresolved",
+          {
+            app_name: "slides",
+            template_name: "slides",
+            generation_attempt_id: generationAttemptId,
+            source: "create_deck_action",
+            generation_mode: "bulk",
+            output_id: id,
+            output_type: "deck",
+            slide_count: 0,
+            outcome: "unresolved",
+            reason: "no_output",
+            persisted_output: true,
           },
           ctx,
         );
@@ -743,7 +869,7 @@ export default defineAction({
             duration_ms: Date.now() - generationStartedAt,
             outcome: terminal.outcome,
             failure_code: terminal.failure_code,
-            error_type: error instanceof Error ? error.name : "unknown_error",
+            error_type: boundedAnalyticsErrorType(error),
           },
           ctx,
         );

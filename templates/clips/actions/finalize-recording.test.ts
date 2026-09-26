@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockState = vi.hoisted(() => ({
   existingRecording: {
@@ -40,6 +40,10 @@ const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockDeleteAppState = vi.hoisted(() => vi.fn());
 const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
+const mockRequestContext = vi.hoisted(() => ({
+  value: null as Record<string, unknown> | null,
+}));
+const mockRequiresConfiguredVideoStorage = vi.hoisted(() => vi.fn(() => false));
 const mockDbExecute = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
   vi.fn(async () => [{ id: "rec_1" }]),
@@ -101,6 +105,10 @@ vi.mock("@agent-native/core/server", () => ({
   getRequestOrgId: vi.fn(() => undefined),
 }));
 
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => mockRequestContext.value,
+}));
+
 vi.mock("@shared/upload-limits.js", () => ({
   MAX_UPLOAD_BYTES: 1024 * 1024 * 1024,
 }));
@@ -125,6 +133,7 @@ vi.mock("../server/db/index.js", () => ({
       status: "recordings.status",
       uploadAttemptId: "recordings.uploadAttemptId",
       uploadGenerationId: "recordings.uploadGenerationId",
+      authUserId: "recordings.authUserId",
       videoUrl: "recordings.videoUrl",
       trashedAt: "recordings.trashedAt",
     },
@@ -206,9 +215,15 @@ vi.mock("../server/lib/video-remux.js", () => ({
 }));
 
 vi.mock("../server/lib/video-storage.js", () => ({
-  requiresConfiguredVideoStorage: vi.fn(() => false),
+  requiresConfiguredVideoStorage: (...args: unknown[]) =>
+    mockRequiresConfiguredVideoStorage(...args),
   STORAGE_SETUP_REQUIRED_REASON: "Storage required",
 }));
+
+afterEach(() => {
+  mockRequestContext.value = null;
+  mockRequiresConfiguredVideoStorage.mockReturnValue(false);
+});
 
 vi.mock("./lib/ensure-seekable-video.js", () => ({
   ensureRecordingSeekable: vi.fn(),
@@ -274,6 +289,19 @@ describe("finalize-recording chunk completeness", () => {
     expect(mockUploadFile).not.toHaveBeenCalled();
   });
 
+  it("rejects a finalizer when the persisted upload attempt changed", async () => {
+    mockState.existingRecording.uploadAttemptId = "attempt-new";
+
+    await expect(
+      finalizeRecording.run({
+        id: "rec_1",
+        uploadAttemptId: "attempt-old",
+      }),
+    ).rejects.toThrow("Upload attempt changed before finalization");
+
+    expect(mockUploadFile).not.toHaveBeenCalled();
+  });
+
   it("fails before upload when persisted chunk indices have a gap", async () => {
     mockState.chunkRows = [
       { key: "recording-chunks-rec_1-000000" },
@@ -291,6 +319,18 @@ describe("finalize-recording chunk completeness", () => {
         failureReason: expect.stringContaining("missing chunk 1"),
       }),
     );
+    const failureEvents = mockTrack.mock.calls.filter(
+      ([eventName]) => eventName === "recording_failed",
+    );
+    expect(failureEvents).toHaveLength(1);
+    expect(failureEvents[0]?.[1]).toEqual(
+      expect.objectContaining({
+        recording_attempt_id: "rec_1",
+        failure_code: "chunk_assembly_failed",
+        failure_stage: "chunk_assembly",
+      }),
+    );
+    expect(failureEvents[0]?.[1]).not.toHaveProperty("failure_reason");
   });
 
   it("fails before upload when final metadata expects more chunks", async () => {
@@ -405,6 +445,7 @@ describe("finalize-recording media serve verification", () => {
   });
 
   it("verifies private S3 uploads with scoped credentials instead of the public URL", async () => {
+    mockRequestContext.value = { authUserId: "canonical-auth-id" };
     seedBufferedRecording();
     const videoUrl =
       "https://clips.example.com/api/storage/clips/recording.webm";
@@ -453,8 +494,38 @@ describe("finalize-recording media serve verification", () => {
         has_audio: true,
         has_camera: false,
       }),
-      { userId: "owner@example.com" },
+      { userId: "owner@example.com", authUserId: "canonical-auth-id" },
     );
+  });
+
+  it("tracks a terminal storage-setup failure with bounded fields", async () => {
+    seedBufferedRecording();
+    mockUploadFile.mockResolvedValue(null);
+    mockRequiresConfiguredVideoStorage.mockReturnValue(true);
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: "failed",
+        storageSetupRequired: true,
+      }),
+    );
+    const failureEvents = mockTrack.mock.calls.filter(
+      ([eventName]) => eventName === "recording_failed",
+    );
+    expect(failureEvents).toHaveLength(1);
+    expect(failureEvents[0]?.[1]).toEqual(
+      expect.objectContaining({
+        recording_attempt_id: "rec_1",
+        failure_code: "storage_setup_required",
+        failure_stage: "finalize",
+      }),
+    );
+    expect(failureEvents[0]?.[1]).not.toHaveProperty("failure_reason");
   });
 
   it("falls back to the public URL when signed S3 credentials cannot read", async () => {
@@ -520,6 +591,11 @@ describe("finalize-recording media serve verification", () => {
     expect(mockUpdateSet).not.toHaveBeenCalledWith(
       expect.objectContaining({ status: "failed" }),
     );
+    expect(
+      mockTrack.mock.calls.filter(
+        ([eventName]) => eventName === "recording_failed",
+      ),
+    ).toHaveLength(0);
     expect(mockWriteAppState).toHaveBeenCalledWith(
       "recording-upload-rec_1",
       expect.objectContaining({
@@ -794,7 +870,11 @@ describe("finalize-recording media serve verification", () => {
     });
     mockCompareAndSetAppState.mockResolvedValue(true);
     mockUpdateReturning.mockResolvedValueOnce([
-      { id: "rec_1", uploadAttemptId: "attempt-1" },
+      {
+        id: "rec_1",
+        uploadAttemptId: "attempt-1",
+        authUserId: "canonical-test-id",
+      },
     ]);
     vi.mocked(fetch).mockResolvedValue(new Response("", { status: 500 }));
 
@@ -815,6 +895,22 @@ describe("finalize-recording media serve verification", () => {
       }),
       { userId: "owner@example.com" },
     );
+    const failureEvents = mockTrack.mock.calls.filter(
+      ([eventName]) => eventName === "recording_failed",
+    );
+    expect(failureEvents).toHaveLength(1);
+    expect(failureEvents[0]?.[1]).toEqual(
+      expect.objectContaining({
+        recording_attempt_id: "rec_1",
+        failure_code: "media_verification_failed",
+        failure_stage: "media_verification",
+      }),
+    );
+    expect(failureEvents[0]?.[1]).not.toHaveProperty("failure_reason");
+    expect(failureEvents[0]?.[2]).toEqual({
+      userId: "owner@example.com",
+      authUserId: "canonical-test-id",
+    });
   });
 
   it("skips verification for app-relative dev media URLs", async () => {

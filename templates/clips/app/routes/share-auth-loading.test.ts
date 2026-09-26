@@ -8,6 +8,17 @@ function readRoute(name: string): string {
 }
 
 describe("authenticated recording route loading", () => {
+  it("joins public share and clip views to the recording attempt", () => {
+    const route = readRoute("share.$shareId.tsx");
+
+    expect(route).toMatch(
+      /trackEvent\("share_view", \{[\s\S]*?recording_attempt_id: recordingId/,
+    );
+    expect(route).toMatch(
+      /trackEvent\("clip_viewed", \{[\s\S]*?recording_attempt_id: recordingId/,
+    );
+  });
+
   it("waits for the browser session before the direct player action", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
     expect(route).toContain("enabled: !!recordingId && !sessionLoading");

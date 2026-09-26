@@ -925,6 +925,7 @@ export default function RecordingPage() {
       app_name: "clips",
       template_name: "clips",
       output_id: recording.id,
+      recording_attempt_id: recording.id,
       output_type: "clip",
       is_owner: role === "owner",
       view_type: "recording_page",

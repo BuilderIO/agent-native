@@ -469,7 +469,8 @@ function clearTrackingIdentity(): void {
   _trackingIdentity = null;
 }
 
-function setTrackingIdentityFromSession(data: unknown): void {
+// The caller must pass the cookie-validated auth-session response.
+export function setTrackingIdentityFromSession(data: unknown): void {
   const session = data as Record<string, unknown> | null;
   if (!session || typeof session !== "object" || session.error) {
     clearTrackingIdentity();

@@ -19,6 +19,12 @@ import { createError } from "h3";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  normalizeRecordingFailureCode,
+  trackRecordingFailure,
+  type RecordingFailureCode,
+} from "../server/lib/recording-failures.js";
+import {
+  getCurrentAuthUserId,
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
   nanoid,
@@ -35,6 +41,64 @@ import {
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import { validateRecordingScope } from "./lib/recording-scope.js";
 import { DEFAULT_RECORDING_TITLE } from "./lib/title-source.js";
+
+export function classifyInitialUploadFailure(error: unknown): {
+  failureCode: RecordingFailureCode;
+  failureStage?: "multipart_start" | "chunk_upload" | "reset_chunks";
+  httpStatus?: number;
+} {
+  const details =
+    error && typeof error === "object"
+      ? (error as Record<string, unknown>)
+      : {};
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof details.message === "string"
+        ? details.message
+        : typeof error === "string"
+          ? error
+          : "";
+  const messageStatus = /\b(?:failed|failure|error)\s*\((\d{3})\)/i.exec(
+    message,
+  )?.[1];
+  const status =
+    (Number.isInteger(details.status) && Number(details.status)) ||
+    (Number.isInteger(details.statusCode) && Number(details.statusCode)) ||
+    (messageStatus ? Number(messageStatus) : undefined);
+  const httpStatus =
+    status && status >= 100 && status <= 599 ? status : undefined;
+  const failureStage =
+    details.failureStage === "multipart_start" ||
+    details.failureStage === "chunk_upload" ||
+    details.failureStage === "reset_chunks"
+      ? details.failureStage
+      : "multipart_start";
+  const failureCode = normalizeRecordingFailureCode(details.failureCode);
+  const storageSetupRequired =
+    failureCode === "storage_setup_required" ||
+    details.errorCode === "builder_oauth_reauthorization_required" ||
+    httpStatus === 401 ||
+    httpStatus === 403 ||
+    /credentials?[^.\n]*(?:not configured|missing)|not connected|reconnect builder(?:\.io)?|scope mismatch|missing its space id/i.test(
+      message,
+    );
+
+  if (storageSetupRequired) {
+    return {
+      failureCode: "storage_setup_required",
+      failureStage,
+      ...(httpStatus ? { httpStatus } : {}),
+    };
+  }
+
+  return {
+    failureCode:
+      failureCode === "unknown" ? "multipart_start_failed" : failureCode,
+    failureStage,
+    ...(httpStatus ? { httpStatus } : {}),
+  };
+}
 
 export default defineAction({
   description:
@@ -67,6 +131,7 @@ export default defineAction({
 
     await db.insert(schema.recordings).values({
       id,
+      authUserId: getCurrentAuthUserId(),
       organizationId,
       orgId: organizationId,
       folderId: args.folderId ?? null,
@@ -74,6 +139,7 @@ export default defineAction({
       title,
       titleSource,
       sourceAppName: args.sourceAppName?.trim() || null,
+      recordingPlatform: args.recordingPlatform ?? "unknown",
       sourceWindowTitle: args.sourceWindowTitle?.trim() || null,
       status: "uploading",
       uploadProgress: 0,
@@ -113,12 +179,28 @@ export default defineAction({
     });
     const streamingRequired = !bufferedFallbackAvailable;
 
-    const failUploadSetup = async (reason: string): Promise<never> => {
+    const failUploadSetup = async (
+      reason: string,
+      failure: ReturnType<typeof classifyInitialUploadFailure> = {
+        failureCode: "storage_setup_required",
+      },
+    ): Promise<never> => {
       const failedAt = new Date().toISOString();
       await db
         .update(schema.recordings)
-        .set({ status: "failed", failureReason: reason, updatedAt: failedAt })
+        .set({
+          status: "failed",
+          failureCode: failure.failureCode,
+          failureReason: reason,
+          updatedAt: failedAt,
+        })
         .where(eq(schema.recordings.id, id));
+      trackRecordingFailure({
+        recordingId: id,
+        userId: ownerEmail,
+        platform: args.recordingPlatform,
+        ...failure,
+      });
       await writeAppState(`recording-upload-${id}`, {
         recordingId: id,
         status: "failed",
@@ -185,6 +267,7 @@ export default defineAction({
             reason
               ? `Video storage could not start an upload: ${reason}`
               : "Video storage could not start a resumable upload session. Refresh and try again.",
+            classifyInitialUploadFailure(err),
           );
         }
         console.warn(

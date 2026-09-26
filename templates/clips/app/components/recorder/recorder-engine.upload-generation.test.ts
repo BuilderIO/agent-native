@@ -117,4 +117,47 @@ describe("RecorderEngine upload generation fencing", () => {
       }),
     });
   });
+
+  it("marks only an explicit user cancellation as user-cancelled", async () => {
+    vi.stubGlobal("window", {
+      setTimeout,
+      clearTimeout,
+      location: { pathname: "/" },
+    });
+    const requests: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        requests.push({
+          url,
+          body: JSON.parse(typeof init?.body === "string" ? init.body : "{}"),
+        });
+        return Response.json({ ok: true });
+      }),
+    );
+
+    const engine = new RecorderEngine({
+      recordingId: "rec-1",
+      mode: "screen",
+      abortUrl: "/api/uploads/rec-1/abort",
+    });
+
+    await engine.cancel({ userInitiated: true });
+
+    expect(requests).toEqual([
+      {
+        url: "/api/uploads/rec-1/abort",
+        body: {
+          reason: "Recording cancelled by user",
+          failureCode: "user_cancelled",
+        },
+      },
+    ]);
+  });
 });

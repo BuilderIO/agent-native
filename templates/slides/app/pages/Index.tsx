@@ -1,3 +1,7 @@
+import {
+  generateTabId,
+  sendToAgentChatAndConfirm,
+} from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import {
@@ -73,6 +77,7 @@ import {
 import { deckIdFromPathname, useDecks } from "@/context/DeckContext";
 import {
   clearStartedGenerationAttempt,
+  registerStartedGenerationAttempt,
   useAgentGenerating,
 } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
@@ -373,6 +378,7 @@ export default function Index() {
     refetch: refetchWorkspaceDefaults,
   } = useWorkspaceDefaults();
   const { session } = useSession();
+  const canonicalAuthUserId = session?.authUserId;
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -442,7 +448,7 @@ export default function Index() {
   const designSystemAutoRef = useRef(true);
   const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
-  const { generating, submit: agentSubmit } = useAgentGenerating();
+  const { generating } = useAgentGenerating();
   const anchorElRef = useRef<HTMLElement | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
   // Keep anchorRef.current in sync so PromptPopover can read it
@@ -896,6 +902,7 @@ export default function Index() {
       output_id: deckId,
       output_type: "deck",
       source: "new_deck_prompt",
+      ...(canonicalAuthUserId ? { auth_user_id: canonicalAuthUserId } : {}),
     });
     setNewDeckPromptOpen(false);
 
@@ -925,6 +932,7 @@ export default function Index() {
           failure_code: failureCode,
           failure_stage: "setup",
           source: "new_deck_prompt",
+          ...(canonicalAuthUserId ? { auth_user_id: canonicalAuthUserId } : {}),
         });
       }
       settlePendingDeckAttachments("discard");
@@ -1196,36 +1204,76 @@ export default function Index() {
     ).catch(() => {});
     deleteClientAppState("guided-questions").catch(() => {});
 
+    const generationTabId = generateTabId();
+    registerStartedGenerationAttempt(
+      generationAttemptId,
+      deckId,
+      generationTabId,
+    );
+    let delivery: Awaited<ReturnType<typeof sendToAgentChatAndConfirm>>;
     try {
-      agentSubmit(createDeckAgentMessage(prompt), context, {
-        newTab: true,
-        reuseEmptyTab: true,
-        openSidebar: true,
-        submitMessageId: generationSubmitMessageId,
-        generationAttemptId,
-        generationOutputId: deckId,
-        ...getUploadedImageAgentOptions(filesForGeneration),
-        attachments: attachmentsForGeneration,
-        ...modelSelection,
-      });
-      trackEvent("generation_request_accepted", {
+      delivery = await sendToAgentChatAndConfirm(
+        {
+          message: createDeckAgentMessage(prompt),
+          context,
+          chatTarget: "local",
+          submit: true,
+          tabId: generationTabId,
+          newTab: true,
+          reuseEmptyTab: true,
+          openSidebar: true,
+          ...getUploadedImageAgentOptions(filesForGeneration),
+          attachments: [...attachmentsForGeneration],
+          ...modelSelection,
+        },
+        { submitMessageId: generationSubmitMessageId },
+      );
+    } catch {
+      delivery = {
+        tabId: generationTabId,
+        delivered: false,
+        reason: "send-failed",
+      };
+    }
+    if (!delivery.delivered) {
+      const failureCode =
+        delivery.reason === "timeout"
+          ? "delivery_timeout"
+          : delivery.reason === "missing-engine"
+            ? "missing_engine"
+            : delivery.reason === "send-failed"
+              ? "send_failed"
+              : "delivery_rejected";
+      trackEvent("generation_request_rejected", {
         app_name: "slides",
         template_name: "slides",
         generation_attempt_id: generationAttemptId,
         output_id: deckId,
         output_type: "deck",
+        outcome: delivery.reason === "timeout" ? "unresolved" : "rejected",
+        failure_code: failureCode,
+        acceptance_stage: "agent_message_delivery",
         source: "new_deck_prompt",
+        ...(canonicalAuthUserId ? { auth_user_id: canonicalAuthUserId } : {}),
       });
-    } catch (error) {
       recoverFromGenerationSetupFailure(
-        error instanceof Error
-          ? error.message
-          : t("home.generationStartFailedDescription"),
-        "agent_submit_failed",
+        t("home.generationStartFailedDescription"),
+        failureCode,
       );
       return;
     }
     settlePendingDeckAttachments("commit");
+    trackEvent("generation_request_accepted", {
+      app_name: "slides",
+      template_name: "slides",
+      generation_attempt_id: generationAttemptId,
+      output_id: deckId,
+      output_type: "deck",
+      acceptance_stage: "agent_message_delivered",
+      delivery_status: "confirmed",
+      source: "new_deck_prompt",
+      ...(canonicalAuthUserId ? { auth_user_id: canonicalAuthUserId } : {}),
+    });
   };
 
   const runPendingDeckGeneration = useCallback(

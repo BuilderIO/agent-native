@@ -6,6 +6,7 @@ const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
 const mockAbortUpload = vi.hoisted(() => vi.fn());
+const mockTrackRecordingFailure = vi.hoisted(() => vi.fn());
 const mockSelectRows = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
 }));
@@ -73,6 +74,10 @@ vi.mock("../../../../lib/recordings.js", () => ({
 vi.mock("./abort.post.js", () => ({
   default: (...args: unknown[]) => mockAbortUpload(...args),
 }));
+vi.mock("../../../../lib/recording-failures.js", () => ({
+  trackRecordingFailure: (...args: unknown[]) =>
+    mockTrackRecordingFailure(...args),
+}));
 
 import handler from "./interrupt.post";
 
@@ -85,6 +90,8 @@ describe("/api/uploads/:recordingId/interrupt route", () => {
         status: "uploading",
         failureReason: null,
         videoUrl: null,
+        authUserId: "auth-user-1",
+        recordingPlatform: "desktop",
       },
     ];
     mockUpdatedRows.rows = [{ id: "rec-1" }];
@@ -123,10 +130,20 @@ describe("/api/uploads/:recordingId/interrupt route", () => {
     expect(mockUpdateSets).toEqual([
       expect.objectContaining({
         status: "failed",
+        failureCode: "upload_interrupted",
         failureReason:
           "Upload was interrupted. The local recording is safe; retry from the Clips desktop app. Last error: TypeError: Load failed",
       }),
     ]);
+    expect(mockTrackRecordingFailure).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      userId: "owner@example.com",
+      authUserId: "auth-user-1",
+      uploadAttemptId: null,
+      platform: "desktop",
+      failureCode: "upload_interrupted",
+      failureStage: "upload_interrupt",
+    });
     expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
       "recording-upload-rec-1",
       expect.objectContaining({ bytesReceived: 7_864_320 }),

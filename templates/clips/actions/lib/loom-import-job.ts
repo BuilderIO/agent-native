@@ -1,5 +1,6 @@
 import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
+import { track } from "@agent-native/core/tracking";
 import { and, asc, eq, gte, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
@@ -9,6 +10,10 @@ import {
   isRetryableRecordingThumbnailStatus,
 } from "../../server/lib/ensure-recording-thumbnail.js";
 import { dispatchPostFinalizeJob } from "../../server/lib/post-finalize-dispatch.js";
+import {
+  recordingTrackingSource,
+  trackRecordingFailure,
+} from "../../server/lib/recording-failures.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
 import { transactionalEmailStore } from "../../server/lib/transactional-email-store.js";
 import {
@@ -71,6 +76,7 @@ export async function failLoomImport(
     .update(schema.recordings)
     .set({
       status: "failed",
+      failureCode: "loom_import_failed",
       failureReason,
       loomImportClaimId: null,
       loomImportClaimedAt: null,
@@ -84,8 +90,22 @@ export async function failLoomImport(
           )
         : eq(schema.recordings.id, recordingId),
     )
-    .returning({ id: schema.recordings.id });
+    .returning({
+      id: schema.recordings.id,
+      ownerEmail: schema.recordings.ownerEmail,
+      authUserId: schema.recordings.authUserId,
+      uploadAttemptId: schema.recordings.uploadAttemptId,
+      recordingPlatform: schema.recordings.recordingPlatform,
+    });
   if (!updated) return { status: "failed", failureReason };
+  trackRecordingFailure({
+    recordingId,
+    userId: updated.ownerEmail,
+    authUserId: updated.authUserId,
+    uploadAttemptId: updated.uploadAttemptId,
+    platform: updated.recordingPlatform ?? "import",
+    failureCode: "loom_import_failed",
+  });
 
   try {
     await writeAppState(`recording-upload-${recordingId}`, {
@@ -228,7 +248,18 @@ export async function runLoomImportJob({
           eq(schema.recordings.loomImportClaimId, claimId),
         ),
       )
-      .returning({ id: schema.recordings.id });
+      .returning({
+        id: schema.recordings.id,
+        ownerEmail: schema.recordings.ownerEmail,
+        authUserId: schema.recordings.authUserId,
+        uploadAttemptId: schema.recordings.uploadAttemptId,
+        durationMs: schema.recordings.durationMs,
+        videoFormat: schema.recordings.videoFormat,
+        hasAudio: schema.recordings.hasAudio,
+        hasCamera: schema.recordings.hasCamera,
+        width: schema.recordings.width,
+        height: schema.recordings.height,
+      });
     if (!mediaReady) {
       const failureReason =
         "The Loom import lease was lost before media was saved.";
@@ -237,6 +268,30 @@ export async function runLoomImportJob({
         claimId,
       });
       return { status: "failed", failureReason };
+    }
+    try {
+      track(
+        "recording_ready",
+        {
+          app_name: "clips",
+          template_name: "clips",
+          output_id: mediaReady.id,
+          output_type: "clip",
+          recording_attempt_id: mediaReady.id,
+          ...(mediaReady.uploadAttemptId
+            ? { upload_attempt_id: mediaReady.uploadAttemptId }
+            : {}),
+          duration_s: Math.round(mediaReady.durationMs / 1000),
+          video_format: mediaReady.videoFormat,
+          has_audio: mediaReady.hasAudio,
+          has_camera: mediaReady.hasCamera,
+          width: mediaReady.width,
+          height: mediaReady.height,
+        },
+        recordingTrackingSource(mediaReady.ownerEmail, mediaReady.authUserId),
+      );
+    } catch {
+      // coercion-ok: analytics is best-effort and must not affect imported media.
     }
     console.log("[loom-import] recording ready", { recordingId });
 

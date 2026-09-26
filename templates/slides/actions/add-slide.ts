@@ -7,7 +7,6 @@ import {
 } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   mergeCreativeContextReuseLabels,
@@ -22,6 +21,10 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import {
+  boundedAnalyticsErrorType,
+  trackSlidesEvent,
+} from "../server/lib/analytics.js";
 import {
   createDeckVersionSnapshot,
   deckVersionChangeGroupFromAction,
@@ -221,424 +224,488 @@ export default defineAction({
       generationComplete,
     },
     ctx,
-  ) =>
-    withDeckLock(deckId, async () => {
-      await assertAccess("deck", deckId, "editor");
-      const db = getDb();
+  ) => {
+    let generationAttemptId: string | undefined;
+    let actionOwnedGeneration = false;
+    let slideCommitted = false;
+    try {
+      return await withDeckLock(deckId, async () => {
+        await assertAccess("deck", deckId, "editor");
+        const db = getDb();
 
-      const rows = await db
-        .select()
-        .from(schema.decks)
-        .where(eq(schema.decks.id, deckId));
+        const rows = await db
+          .select()
+          .from(schema.decks)
+          .where(eq(schema.decks.id, deckId));
 
-      // Reachable only in the narrow window where access resolved and the row
-      // was deleted before this select. A wrong deck id never gets here:
-      // assertAccess throws Forbidden first, on purpose, so a non-member
-      // cannot probe a deck id for existence. Do not delete this as dead.
-      if (!rows.length) {
-        fail(`Deck ${deckId} not found`, {
-          errorCode: "deck_not_found",
-          statusCode: 404,
-        });
-      }
+        // Reachable only in the narrow window where access resolved and the row
+        // was deleted before this select. A wrong deck id never gets here:
+        // assertAccess throws Forbidden first, on purpose, so a non-member
+        // cannot probe a deck id for existence. Do not delete this as dead.
+        if (!rows.length) {
+          fail(`Deck ${deckId} not found`, {
+            errorCode: "deck_not_found",
+            statusCode: 404,
+          });
+        }
 
-      const row = rows[0];
-      const deck = JSON.parse(row.data);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const slides: any[] = Array.isArray(deck.slides) ? deck.slides : [];
-      const generationContext =
-        deck.generationContext &&
-        typeof deck.generationContext === "object" &&
-        !Array.isArray(deck.generationContext)
-          ? deck.generationContext
-          : null;
-      if (
-        generationContext?.generationMode === "action" &&
-        generationComplete === undefined
-      ) {
-        throw new ActionContractError(
-          "Set generationComplete=false on intermediate slides and true on the final slide of an action-owned incremental generation.",
-          {
-            errorCode: "generation_completion_flag_required",
-            details: { deckId },
-          },
-        );
-      }
-      const targetSlideCount =
-        generationContext &&
-        Number.isInteger(generationContext.targetSlideCount) &&
-        generationContext.targetSlideCount > 0
-          ? generationContext.targetSlideCount
-          : null;
-      if (targetSlideCountOverride !== undefined) {
-        if (!isAgentPatchCaller(ctx?.caller)) {
+        const row = rows[0];
+        const deck = JSON.parse(row.data);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const slides: any[] = Array.isArray(deck.slides) ? deck.slides : [];
+        const generationContext =
+          deck.generationContext &&
+          typeof deck.generationContext === "object" &&
+          !Array.isArray(deck.generationContext)
+            ? deck.generationContext
+            : null;
+        const activeGenerationAttemptId =
+          typeof generationContext?.generationAttemptId === "string" &&
+          generationContext.generationComplete !== true &&
+          generationContext.generationOutcome === undefined
+            ? generationContext.generationAttemptId
+            : undefined;
+        generationAttemptId = activeGenerationAttemptId;
+        actionOwnedGeneration =
+          generationContext?.generationMode === "action" &&
+          activeGenerationAttemptId !== undefined;
+        if (actionOwnedGeneration && generationComplete === undefined) {
           throw new ActionContractError(
-            "targetSlideCountOverride is only available to agent calls after an explicit user request for more slides.",
-            { errorCode: "target_slide_count_override_agent_only" },
+            "Set generationComplete=false on intermediate slides and true on the final slide of an action-owned incremental generation.",
+            {
+              errorCode: "generation_completion_flag_required",
+              details: { deckId },
+            },
           );
         }
+        const targetSlideCount =
+          generationContext &&
+          Number.isInteger(generationContext.targetSlideCount) &&
+          generationContext.targetSlideCount > 0
+            ? generationContext.targetSlideCount
+            : null;
+        if (targetSlideCountOverride !== undefined) {
+          if (!isAgentPatchCaller(ctx?.caller)) {
+            throw new ActionContractError(
+              "targetSlideCountOverride is only available to agent calls after an explicit user request for more slides.",
+              { errorCode: "target_slide_count_override_agent_only" },
+            );
+          }
+          if (
+            targetSlideCount === null ||
+            targetSlideCountOverride <= targetSlideCount ||
+            slides.length < targetSlideCount ||
+            targetSlideCountOverride <= slides.length
+          ) {
+            throw new ActionContractError(
+              targetSlideCount === null
+                ? "targetSlideCountOverride requires a persisted target slide count."
+                : slides.length < targetSlideCount
+                  ? `targetSlideCountOverride is only valid after the deck reaches its persisted target of ${targetSlideCount} slides.`
+                  : `targetSlideCountOverride must extend both the persisted target of ${targetSlideCount} and the current deck size of ${slides.length}.`,
+              {
+                errorCode: "target_slide_count_override_invalid",
+                details: {
+                  deckId,
+                  currentSlideCount: slides.length,
+                  targetSlideCount,
+                  targetSlideCountOverride,
+                },
+              },
+            );
+          }
+        }
         if (
-          targetSlideCount === null ||
-          targetSlideCountOverride <= targetSlideCount ||
-          slides.length < targetSlideCount ||
-          targetSlideCountOverride <= slides.length
+          isAgentPatchCaller(ctx?.caller) &&
+          targetSlideCount !== null &&
+          slides.length >= targetSlideCount &&
+          targetSlideCountOverride === undefined
         ) {
-          throw new ActionContractError(
-            targetSlideCount === null
-              ? "targetSlideCountOverride requires a persisted target slide count."
-              : slides.length < targetSlideCount
-                ? `targetSlideCountOverride is only valid after the deck reaches its persisted target of ${targetSlideCount} slides.`
-                : `targetSlideCountOverride must extend both the persisted target of ${targetSlideCount} and the current deck size of ${slides.length}.`,
+          throw new AgentActionStopError(
+            `Cannot add a slide: this deck already has ${slides.length} slides and its requested target is ${targetSlideCount}. Re-read the deck and stop adding slides unless the user explicitly changes the target.`,
             {
-              errorCode: "target_slide_count_override_invalid",
+              errorCode: "target_slide_count_reached",
               details: {
                 deckId,
                 currentSlideCount: slides.length,
                 targetSlideCount,
-                targetSlideCountOverride,
               },
             },
           );
         }
-      }
-      if (
-        isAgentPatchCaller(ctx?.caller) &&
-        targetSlideCount !== null &&
-        slides.length >= targetSlideCount &&
-        targetSlideCountOverride === undefined
-      ) {
-        throw new AgentActionStopError(
-          `Cannot add a slide: this deck already has ${slides.length} slides and its requested target is ${targetSlideCount}. Re-read the deck and stop adding slides unless the user explicitly changes the target.`,
-          {
-            errorCode: "target_slide_count_reached",
-            details: {
-              deckId,
-              currentSlideCount: slides.length,
-              targetSlideCount,
-            },
-          },
-        );
-      }
 
-      const effectiveTargetSlideCount =
-        targetSlideCountOverride ?? targetSlideCount;
-      if (
-        generationComplete &&
-        effectiveTargetSlideCount !== null &&
-        slides.length + 1 < effectiveTargetSlideCount
-      ) {
-        throw new ActionContractError(
-          `Cannot complete generation before reaching its target of ${effectiveTargetSlideCount} slides.`,
-          {
-            errorCode: "generation_completed_before_target_reached",
-            details: {
-              deckId,
-              currentSlideCount: slides.length,
-              postWriteSlideCount: slides.length + 1,
-              targetSlideCount: effectiveTargetSlideCount,
-            },
-          },
-        );
-      }
-
-      if (targetSlideCountOverride !== undefined) {
-        deck.generationContext = {
-          ...(generationContext ?? {}),
-          targetSlideCount: targetSlideCountOverride,
-        };
-      }
-
-      const newSlideId =
-        slideId ??
-        `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-
-      const existingContext = deckCreativeContext(deck.creativeContext);
-      if (
-        existingContext &&
-        contextPackId !== undefined &&
-        contextPackId !== existingContext.contextPackId
-      ) {
-        throw new Error(
-          "The added slide must use the deck's existing creative-context pack",
-        );
-      }
-      const effectivePackId = contextPackId ?? existingContext?.contextPackId;
-      const requestedLabels: CreativeContextReuseLabel[] = reuseLabels.length
-        ? reuseLabels
-        : [
+        const effectiveTargetSlideCount =
+          targetSlideCountOverride ?? targetSlideCount;
+        if (
+          generationComplete &&
+          effectiveTargetSlideCount !== null &&
+          slides.length + 1 < effectiveTargetSlideCount
+        ) {
+          throw new ActionContractError(
+            `Cannot complete generation before reaching its target of ${effectiveTargetSlideCount} slides.`,
             {
-              kind: "slide",
-              label: "Net-new slide",
-              dataRole: "untrusted-reference",
-              elementId: newSlideId,
-              influence: "generated",
+              errorCode: "generation_completed_before_target_reached",
+              details: {
+                deckId,
+                currentSlideCount: slides.length,
+                postWriteSlideCount: slides.length + 1,
+                targetSlideCount: effectiveTargetSlideCount,
+              },
             },
-          ];
-      let contextMode: "off" | "auto" | "pinned";
-      let recordedPackId: string | null;
-      let validatedLabels: CreativeContextReuseLabel[];
-      if (effectivePackId) {
-        const validated = await validateGenerationCreativeContext({
-          contextPackId: effectivePackId,
-          contextPackSource:
-            contextPackId === undefined ? "inherited" : "explicit",
-          contextModeOverride,
-          reuseLabels: requestedLabels,
-          reuseLabelsSource: reuseLabels.length ? "explicit" : "inherited",
-        });
-        contextMode =
-          validated.contextMode === "off"
-            ? "off"
-            : (existingContext?.contextMode ?? validated.contextMode);
-        recordedPackId = validated.contextPackId;
-        validatedLabels = validated.reuseLabels;
-      } else if (existingContext) {
-        const validated = await validateGenerationCreativeContext({
-          contextModeOverride,
-          reuseLabels: requestedLabels,
-        });
-        contextMode = validated.contextMode;
-        recordedPackId = validated.contextPackId;
-        validatedLabels = validated.reuseLabels;
-      } else {
-        const validated = await validateGenerationCreativeContext({
-          contextModeOverride,
-          reuseLabels: requestedLabels,
-        });
-        contextMode = validated.contextMode;
-        recordedPackId = validated.contextPackId;
-        validatedLabels = validated.reuseLabels;
-      }
-      const slideReuseLabels = validatedLabels.map((label) => ({
-        ...label,
-        elementId: newSlideId,
-      }));
-      const mergedReuseLabels = mergeCreativeContextReuseLabels(
-        existingContext?.reuseLabels ?? [],
-        slideReuseLabels,
-      );
-      const previousGeneration =
-        contextMode === "off"
-          ? null
-          : await getGenerationCreativeContext({
+          );
+        }
+
+        if (targetSlideCountOverride !== undefined) {
+          deck.generationContext = {
+            ...(generationContext ?? {}),
+            targetSlideCount: targetSlideCountOverride,
+          };
+        }
+
+        const newSlideId =
+          slideId ??
+          `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+        const existingContext = deckCreativeContext(deck.creativeContext);
+        if (
+          existingContext &&
+          contextPackId !== undefined &&
+          contextPackId !== existingContext.contextPackId
+        ) {
+          throw new Error(
+            "The added slide must use the deck's existing creative-context pack",
+          );
+        }
+        const effectivePackId = contextPackId ?? existingContext?.contextPackId;
+        const requestedLabels: CreativeContextReuseLabel[] = reuseLabels.length
+          ? reuseLabels
+          : [
+              {
+                kind: "slide",
+                label: "Net-new slide",
+                dataRole: "untrusted-reference",
+                elementId: newSlideId,
+                influence: "generated",
+              },
+            ];
+        let contextMode: "off" | "auto" | "pinned";
+        let recordedPackId: string | null;
+        let validatedLabels: CreativeContextReuseLabel[];
+        if (effectivePackId) {
+          const validated = await validateGenerationCreativeContext({
+            contextPackId: effectivePackId,
+            contextPackSource:
+              contextPackId === undefined ? "inherited" : "explicit",
+            contextModeOverride,
+            reuseLabels: requestedLabels,
+            reuseLabelsSource: reuseLabels.length ? "explicit" : "inherited",
+          });
+          contextMode =
+            validated.contextMode === "off"
+              ? "off"
+              : (existingContext?.contextMode ?? validated.contextMode);
+          recordedPackId = validated.contextPackId;
+          validatedLabels = validated.reuseLabels;
+        } else if (existingContext) {
+          const validated = await validateGenerationCreativeContext({
+            contextModeOverride,
+            reuseLabels: requestedLabels,
+          });
+          contextMode = validated.contextMode;
+          recordedPackId = validated.contextPackId;
+          validatedLabels = validated.reuseLabels;
+        } else {
+          const validated = await validateGenerationCreativeContext({
+            contextModeOverride,
+            reuseLabels: requestedLabels,
+          });
+          contextMode = validated.contextMode;
+          recordedPackId = validated.contextPackId;
+          validatedLabels = validated.reuseLabels;
+        }
+        const slideReuseLabels = validatedLabels.map((label) => ({
+          ...label,
+          elementId: newSlideId,
+        }));
+        const mergedReuseLabels = mergeCreativeContextReuseLabels(
+          existingContext?.reuseLabels ?? [],
+          slideReuseLabels,
+        );
+        const previousGeneration =
+          contextMode === "off"
+            ? null
+            : await getGenerationCreativeContext({
+                appId: "slides",
+                artifactType: "deck",
+                artifactId: deckId,
+              });
+        if (
+          recordedPackId &&
+          previousGeneration?.contextPackId &&
+          previousGeneration.contextPackId !== recordedPackId
+        ) {
+          throw new Error(
+            "The deck's recorded creative-context pack does not match its stored metadata",
+          );
+        }
+        const slideElementProvenance = slideReuseLabels.map((label) => ({
+          elementId: newSlideId,
+          influence: label.influence ?? ("reference-conditioned" as const),
+          ...(label.itemId ? { itemId: label.itemId } : {}),
+          ...(label.itemVersionId
+            ? { itemVersionId: label.itemVersionId }
+            : {}),
+          label: label.label,
+        }));
+        const elementProvenance =
+          contextMode === "off"
+            ? slideElementProvenance
+            : replaceCreativeContextElementProvenance(
+                previousGeneration?.elementProvenance ?? [],
+                slideElementProvenance,
+              );
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const newSlide: any = {
+          id: newSlideId,
+          content: normalizeSlidePadding(content),
+          layoutFitRevision: createLayoutFitRevision(),
+          creativeContextReuseLabels: slideReuseLabels,
+        };
+        if (layout) newSlide.layout = layout;
+        if (notes !== undefined) newSlide.notes = notes;
+
+        const insertIndex =
+          typeof position === "number"
+            ? Math.max(0, Math.min(position, slides.length))
+            : slides.length;
+        const shouldRepairTitle = slides.length === 0;
+        slides.splice(insertIndex, 0, newSlide);
+
+        const now = nextDeckRevision(row.updatedAt);
+        deck.slides = slides;
+        const sourceImportCleared =
+          deck.sourceImport !== undefined && deck.sourceImport !== null;
+        if (sourceImportCleared) delete deck.sourceImport;
+        deck.updatedAt = now;
+        const currentTitle =
+          typeof row.title === "string" && row.title.trim()
+            ? row.title
+            : deck.title;
+        const repairedTitle = shouldRepairTitle
+          ? repairGeneratedDeckTitle(currentTitle, newSlide.content)
+          : null;
+        if (repairedTitle) deck.title = repairedTitle;
+        deck.creativeContext =
+          contextMode === "off" && existingContext
+            ? existingContext
+            : {
+                contextMode,
+                contextPackId: recordedPackId,
+                reuseLabels: mergedReuseLabels,
+              };
+        if (actionOwnedGeneration) {
+          deck.generationContext = {
+            ...(deck.generationContext ?? generationContext),
+            generationComplete,
+            generationOutcome:
+              generationComplete && effectiveTargetSlideCount === null
+                ? "unresolved"
+                : undefined,
+          };
+        }
+
+        await db.transaction(async (tx: any) => {
+          await createDeckVersionSnapshot(
+            {
+              id: row.id,
+              title: row.title,
+              data: row.data,
+              ownerEmail: row.ownerEmail,
+            },
+            {
+              force: isAgentPatchCaller(ctx?.caller),
+              chatContext: deckVersionChatContextFromAction(ctx),
+              label: "Before adding slide",
+              db: tx,
+            },
+          );
+          const updateResult = await tx
+            .update(schema.decks)
+            .set({
+              ...(repairedTitle ? { title: repairedTitle } : {}),
+              data: JSON.stringify(deck),
+              updatedAt: now,
+            })
+            .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
+          assertDeckWriteApplied(updateResult, deckId, "slide addition");
+          await recordGenerationCreativeContext(
+            {
               appId: "slides",
               artifactType: "deck",
               artifactId: deckId,
-            });
-      if (
-        recordedPackId &&
-        previousGeneration?.contextPackId &&
-        previousGeneration.contextPackId !== recordedPackId
-      ) {
-        throw new Error(
-          "The deck's recorded creative-context pack does not match its stored metadata",
-        );
-      }
-      const slideElementProvenance = slideReuseLabels.map((label) => ({
-        elementId: newSlideId,
-        influence: label.influence ?? ("reference-conditioned" as const),
-        ...(label.itemId ? { itemId: label.itemId } : {}),
-        ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
-        label: label.label,
-      }));
-      const elementProvenance =
-        contextMode === "off"
-          ? slideElementProvenance
-          : replaceCreativeContextElementProvenance(
-              previousGeneration?.elementProvenance ?? [],
-              slideElementProvenance,
-            );
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const newSlide: any = {
-        id: newSlideId,
-        content: normalizeSlidePadding(content),
-        layoutFitRevision: createLayoutFitRevision(),
-        creativeContextReuseLabels: slideReuseLabels,
-      };
-      if (layout) newSlide.layout = layout;
-      if (notes !== undefined) newSlide.notes = notes;
-
-      const insertIndex =
-        typeof position === "number"
-          ? Math.max(0, Math.min(position, slides.length))
-          : slides.length;
-      const shouldRepairTitle = slides.length === 0;
-      slides.splice(insertIndex, 0, newSlide);
-
-      const now = nextDeckRevision(row.updatedAt);
-      deck.slides = slides;
-      const sourceImportCleared =
-        deck.sourceImport !== undefined && deck.sourceImport !== null;
-      if (sourceImportCleared) delete deck.sourceImport;
-      deck.updatedAt = now;
-      const currentTitle =
-        typeof row.title === "string" && row.title.trim()
-          ? row.title
-          : deck.title;
-      const repairedTitle = shouldRepairTitle
-        ? repairGeneratedDeckTitle(currentTitle, newSlide.content)
-        : null;
-      if (repairedTitle) deck.title = repairedTitle;
-      deck.creativeContext =
-        contextMode === "off" && existingContext
-          ? existingContext
-          : {
               contextMode,
               contextPackId: recordedPackId,
-              reuseLabels: mergedReuseLabels,
-            };
-
-      await db.transaction(async (tx: any) => {
-        await createDeckVersionSnapshot(
-          {
-            id: row.id,
-            title: row.title,
-            data: row.data,
-            ownerEmail: row.ownerEmail,
-          },
-          {
-            force: isAgentPatchCaller(ctx?.caller),
-            chatContext: deckVersionChatContextFromAction(ctx),
-            label: "Before adding slide",
-            db: tx,
-          },
-        );
-        const updateResult = await tx
-          .update(schema.decks)
-          .set({
-            ...(repairedTitle ? { title: repairedTitle } : {}),
-            data: JSON.stringify(deck),
-            updatedAt: now,
-          })
-          .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
-        assertDeckWriteApplied(updateResult, deckId, "slide addition");
-        await recordGenerationCreativeContext(
-          {
-            appId: "slides",
-            artifactType: "deck",
-            artifactId: deckId,
-            contextMode,
-            contextPackId: recordedPackId,
-            reuseLabels:
-              contextMode === "off" ? slideReuseLabels : mergedReuseLabels,
-            elementProvenance,
-          },
-          { db: tx },
-        );
-      });
-
-      // Best-effort agent presence: light the agent up on the newly-added slide
-      // in open editors and drop a lingering "AI edited" highlight for it. Uses
-      // the NEW slide's id. Never blocks or fails the write.
-      touchAgentSlidePresence({
-        deckId,
-        slideId: newSlideId,
-        label: slideLabelFor(newSlide, insertIndex),
-      });
-
-      // Broadcast to any open editors so the new slide appears immediately.
-      // A broadcast failure must not turn the already-committed write into an
-      // action failure that callers may retry.
-      let notificationErrorType: string | undefined;
-      try {
-        const agentChangeId = deckVersionChangeGroupFromAction(ctx);
-        await notifyClients(deckId, {
-          slideId: newSlideId,
-          actor: "agent",
-          ...(agentChangeId ? { agentChangeId } : {}),
+              reuseLabels:
+                contextMode === "off" ? slideReuseLabels : mergedReuseLabels,
+              elementProvenance,
+            },
+            { db: tx },
+          );
         });
-      } catch (error) {
-        notificationErrorType =
-          error instanceof Error && error.name ? error.name : "unknown_error";
-      }
+        slideCommitted = true;
 
-      const generationAttemptId =
-        typeof generationContext?.generationAttemptId === "string"
-          ? generationContext.generationAttemptId
-          : undefined;
+        // Best-effort agent presence: light the agent up on the newly-added slide
+        // in open editors and drop a lingering "AI edited" highlight for it. Uses
+        // the NEW slide's id. Never blocks or fails the write.
+        touchAgentSlidePresence({
+          deckId,
+          slideId: newSlideId,
+          label: slideLabelFor(newSlide, insertIndex),
+        });
 
-      track(
-        "deck_edited",
-        {
-          app_name: "slides",
-          template_name: "slides",
-          output_id: deckId,
-          output_type: "deck",
-          slide_id: newSlideId,
-          slide_count: slides.length,
-          edit_mode: "add_slide",
-          ...(generationAttemptId
-            ? { generation_attempt_id: generationAttemptId }
-            : {}),
-        },
-        ctx,
-      );
-      if (notificationErrorType) {
-        track(
-          "deck_change_notification_failed",
+        // Broadcast to any open editors so the new slide appears immediately.
+        // A broadcast failure must not turn the already-committed write into an
+        // action failure that callers may retry.
+        let notificationErrorType: string | undefined;
+        try {
+          const agentChangeId = deckVersionChangeGroupFromAction(ctx);
+          await notifyClients(deckId, {
+            slideId: newSlideId,
+            actor: "agent",
+            ...(agentChangeId ? { agentChangeId } : {}),
+          });
+        } catch (error) {
+          notificationErrorType = boundedAnalyticsErrorType(error);
+        }
+
+        trackSlidesEvent(
+          "deck_edited",
           {
             app_name: "slides",
             template_name: "slides",
             output_id: deckId,
             output_type: "deck",
             slide_id: newSlideId,
-            failure_stage: "client_notification",
-            error_type: notificationErrorType,
+            slide_count: slides.length,
+            edit_mode: "add_slide",
             ...(generationAttemptId
               ? { generation_attempt_id: generationAttemptId }
               : {}),
           },
           ctx,
         );
-      }
-      if (
-        generationComplete &&
-        generationAttemptId &&
-        generationContext?.generationMode === "action"
-      ) {
-        track(
-          "generation_completed",
-          {
-            app_name: "slides",
-            template_name: "slides",
-            generation_attempt_id: generationAttemptId,
-            output_id: deckId,
-            output_type: "deck",
-            slide_count: slides.length,
-            generation_mode: "incremental",
-            outcome: "completed",
-            source: "add_slide_action",
-          },
-          ctx,
-        );
-      }
+        if (notificationErrorType) {
+          trackSlidesEvent(
+            "deck_change_notification_failed",
+            {
+              app_name: "slides",
+              template_name: "slides",
+              output_id: deckId,
+              output_type: "deck",
+              slide_id: newSlideId,
+              failure_stage: "client_notification",
+              error_type: notificationErrorType,
+              ...(generationAttemptId
+                ? { generation_attempt_id: generationAttemptId }
+                : {}),
+            },
+            ctx,
+          );
+        }
+        if (
+          generationComplete &&
+          generationAttemptId &&
+          generationContext?.generationMode === "action"
+        ) {
+          const completedWithKnownTarget = effectiveTargetSlideCount !== null;
+          trackSlidesEvent(
+            completedWithKnownTarget
+              ? "generation_completed"
+              : "generation_outcome_unresolved",
+            {
+              app_name: "slides",
+              template_name: "slides",
+              generation_attempt_id: generationAttemptId,
+              output_id: deckId,
+              output_type: "deck",
+              slide_count: slides.length,
+              generation_mode: "incremental",
+              outcome: completedWithKnownTarget ? "completed" : "unresolved",
+              ...(!completedWithKnownTarget
+                ? { reason: "target_slide_count_unknown" }
+                : {}),
+              source: "add_slide_action",
+            },
+            ctx,
+          );
+          trackSlidesEvent(
+            "output_saved",
+            {
+              app_name: "slides",
+              template_name: "slides",
+              generation_attempt_id: generationAttemptId,
+              output_id: deckId,
+              output_type: "deck",
+              slide_count: slides.length,
+              persistence_confirmation: "add_slide_action_commit",
+              source: "add_slide_action",
+            },
+            ctx,
+          );
+        }
 
-      const base = {
-        deckId,
-        slideId: newSlideId,
-        slideNumber: insertIndex + 1,
-        position: insertIndex,
-        slideCount: slides.length,
-        appUrl: getDeckUrl(deckId),
-        deepLink: deckDeepLink(deckId),
-        contextMode,
-        contextPackId: recordedPackId,
-        reuseLabels: slideReuseLabels,
-        ...(sourceImportCleared ? { sourceImportCleared: true } : {}),
-        ...(notificationErrorType
-          ? { notificationStatus: "failed", notificationErrorType }
-          : {}),
-        layoutFit: {
-          status: "pending" as const,
+        const base = {
+          deckId,
           slideId: newSlideId,
-          contentHash: hashSlideContent(newSlide.content),
-          layoutFitRevision: newSlide.layoutFitRevision,
-        },
-      };
+          slideNumber: insertIndex + 1,
+          position: insertIndex,
+          slideCount: slides.length,
+          appUrl: getDeckUrl(deckId),
+          deepLink: deckDeepLink(deckId),
+          contextMode,
+          contextPackId: recordedPackId,
+          reuseLabels: slideReuseLabels,
+          ...(sourceImportCleared ? { sourceImportCleared: true } : {}),
+          ...(notificationErrorType
+            ? { notificationStatus: "failed", notificationErrorType }
+            : {}),
+          layoutFit: {
+            status: "pending" as const,
+            slideId: newSlideId,
+            contentHash: hashSlideContent(newSlide.content),
+            layoutFitRevision: newSlide.layoutFitRevision,
+          },
+        };
 
-      return base;
-    }),
+        return base;
+      });
+    } catch (error) {
+      if (actionOwnedGeneration && generationAttemptId && !slideCommitted) {
+        try {
+          trackSlidesEvent(
+            "generation_step_failed",
+            {
+              app_name: "slides",
+              template_name: "slides",
+              generation_attempt_id: generationAttemptId,
+              output_id: deckId,
+              output_type: "deck",
+              failure_code: "add_slide_failed",
+              failure_stage: "add_slide",
+              error_type: boundedAnalyticsErrorType(error),
+              retryable: true,
+              terminal: false,
+            },
+            ctx,
+          );
+        } catch {
+          // Keep the original action error if best-effort analytics also fails.
+        }
+      }
+      throw error;
+    }
+  },
   link: ({ result, args }) => {
     const deckId =
       result && typeof result === "object"

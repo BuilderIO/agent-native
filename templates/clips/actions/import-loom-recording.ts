@@ -6,6 +6,7 @@ import {
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { buildDeepLink } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { extractLoomVideoId, normalizeLoomShareUrl } from "@shared/loom.js";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -14,7 +15,9 @@ import { parseEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
+import { recordingTrackingSource } from "../server/lib/recording-failures.js";
 import {
+  getCurrentAuthUserId,
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
   nanoid,
@@ -170,6 +173,7 @@ export default defineAction({
 
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
+    const authUserId = getCurrentAuthUserId();
     let existingRecording: typeof schema.recordings.$inferSelect | null = null;
     if (args.recordingId) {
       [existingRecording] = await db
@@ -267,6 +271,8 @@ export default defineAction({
       spaceIds: stringifySpaceIds(spaceIds),
       title,
       titleSource,
+      recordingPlatform: "import" as const,
+      failureCode: null,
       sourceAppName,
       sourceWindowTitle: sourceUrl,
       description: existingRecording?.description ?? "",
@@ -284,6 +290,7 @@ export default defineAction({
       uploadProgress: 100,
       visibility,
       updatedAt: now,
+      ...(authUserId ? { authUserId } : {}),
     });
 
     const saveWaitingForStorage = async (videoSizeBytes: number) => {
@@ -465,8 +472,10 @@ export default defineAction({
 
     const videoUrl = upload.url;
     const recordingValues = buildRecordingValues(media.sizeBytes, videoFormat);
+    let persistedAuthUserId = authUserId;
+    let persistedReady = !existingRecording;
     if (existingRecording) {
-      await db
+      const [updated] = await db
         .update(schema.recordings)
         .set({
           ...recordingValues,
@@ -476,7 +485,12 @@ export default defineAction({
           loomImportClaimId: null,
           loomImportClaimedAt: null,
         })
-        .where(eq(schema.recordings.id, id));
+        .where(eq(schema.recordings.id, id))
+        .returning({ authUserId: schema.recordings.authUserId });
+      if (updated) {
+        persistedReady = true;
+        persistedAuthUserId = updated.authUserId ?? authUserId;
+      }
     } else {
       await db.insert(schema.recordings).values({
         id,
@@ -487,6 +501,33 @@ export default defineAction({
         ownerEmail,
         createdAt,
       });
+    }
+
+    if (persistedReady) {
+      try {
+        track(
+          "recording_ready",
+          {
+            app_name: "clips",
+            template_name: "clips",
+            output_id: id,
+            output_type: "clip",
+            recording_attempt_id: id,
+            ...(existingRecording?.uploadAttemptId
+              ? { upload_attempt_id: existingRecording.uploadAttemptId }
+              : {}),
+            duration_s: Math.round(durationMs / 1000),
+            video_format: videoFormat,
+            has_audio: true,
+            has_camera: false,
+            width,
+            height,
+          },
+          recordingTrackingSource(ownerEmail, persistedAuthUserId),
+        );
+      } catch {
+        // coercion-ok: analytics is best-effort and must not affect imported media.
+      }
     }
 
     await dispatchPostFinalizeJob({

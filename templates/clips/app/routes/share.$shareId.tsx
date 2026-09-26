@@ -442,6 +442,7 @@ export default function ShareRoute() {
         void trackEvent("share_cta_click", {
           surface: "clip",
           recording_id: recordingId,
+          recording_attempt_id: recordingId,
           cta,
           ref: attribution.ref,
           via: attribution.via,
@@ -468,12 +469,14 @@ export default function ShareRoute() {
       void trackEvent("share_view", {
         surface: "clip",
         recording_id: recordingId,
+        recording_attempt_id: recordingId,
         ref: attribution.ref,
         via: attribution.via,
       });
       void trackEvent("clip_viewed", {
         app_name: "clips",
         template_name: "clips",
+        recording_attempt_id: recordingId,
         output_type: "clip",
         view_type: "shared",
         ref: attribution.ref,

@@ -180,6 +180,7 @@ describe("SignedOutShareActions", () => {
     expect(trackEvent).toHaveBeenCalledWith("share_link_copied", {
       resource_type: "recording",
       resource_id: "clip-1",
+      recording_attempt_id: "clip-1",
       link_type: "share",
     });
     expect(copyButton?.getAttribute("aria-label")).toBe(

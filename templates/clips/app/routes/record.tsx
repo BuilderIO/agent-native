@@ -1375,6 +1375,11 @@ export default function RecordRoute() {
           sourceWindowTitle: captureTitle.sourceWindowTitle,
           hasCamera: opts.mode !== "screen",
           hasAudio: wantsMic,
+          recordingPlatform: isDesktopApp
+            ? "desktop"
+            : isMobileRecorderRuntime(navigator)
+              ? "mobile"
+              : "web",
           visibility: reportContext ? "org" : undefined,
           spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
           folderId: folderIdFromUrl ?? undefined,
@@ -1672,6 +1677,11 @@ export default function RecordRoute() {
           titleSource: reportTitle ? "context" : "upload",
           hasCamera: false,
           hasAudio: true,
+          recordingPlatform: isDesktopApp
+            ? "desktop"
+            : isMobileRecorderRuntime(navigator)
+              ? "mobile"
+              : "web",
           width: meta.width,
           height: meta.height,
           visibility: reportContext ? "org" : undefined,
@@ -2451,87 +2461,108 @@ export default function RecordRoute() {
     toast.success(t("recordRoute.recordingDownloadStarted"));
   }, []);
 
-  const doCancel = useCallback(async () => {
-    // Invalidate any in-flight startFlow().
-    dismissUploadToast();
-    startSessionRef.current += 1;
-    countdownAudioCueRef.current?.cleanup();
-    countdownAudioCueRef.current = null;
-    const uploadRecordingId = fileUploadRecordingIdRef.current;
-    const uploadAbortUrl = fileUploadAbortUrlRef.current;
-    if (fileUploadAbortRef.current) {
-      fileUploadAbortRef.current.abort(makeAbortError("Upload cancelled"));
-      fileUploadAbortRef.current = null;
-    }
-    fileUploadRecordingIdRef.current = null;
-    fileUploadAbortUrlRef.current = null;
-    const engine = engineRef.current;
-    const pendingId = pendingRef.current?.id;
-    const pendingAbortUrl = pendingRef.current?.abortUrl;
-    engineRef.current = null;
-    pendingRef.current = null;
-    liveTranscription.stop();
-    browserDiagnosticsRef.current?.dispose();
-    browserDiagnosticsRef.current = null;
-    if (extensionCapture) {
-      void sendClipsExtensionMessage(extensionCapture.extensionId, {
-        type: "CLIPS_CAPTURE_CANCEL",
-        sessionId: extensionCapture.sessionId,
-      });
-    }
-    try {
-      await engine?.cancel();
-    } catch {
-      // ignore
-    }
-    if (pendingId) {
-      // The recording may have already finished uploading server-side (the
-      // final chunk can land, and the row can flip to "ready", while we're
-      // still awaiting saveBrowserDiagnostics/finishSavedRecording on the
-      // client). A separate GET-status-then-POST-trash sequence would still
-      // race finalize between the two calls, so ask the server to trash
-      // atomically instead: `skipIfReady` makes the trash a conditional
-      // no-op if the row is already "ready" by the time the UPDATE runs, so a
-      // fully saved video is never silently discarded.
-      if (pendingAbortUrl && clipIntakeRef.current) {
-        fetch(pendingAbortUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        }).catch(() => {});
-      } else {
-        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: pendingId, skipIfReady: true }),
-        }).catch(() => {});
+  const doCancel = useCallback(
+    async (userInitiated = false) => {
+      // Invalidate any in-flight startFlow().
+      dismissUploadToast();
+      startSessionRef.current += 1;
+      countdownAudioCueRef.current?.cleanup();
+      countdownAudioCueRef.current = null;
+      const uploadRecordingId = fileUploadRecordingIdRef.current;
+      const uploadAbortUrl = fileUploadAbortUrlRef.current;
+      if (fileUploadAbortRef.current) {
+        fileUploadAbortRef.current.abort(makeAbortError("Upload cancelled"));
+        fileUploadAbortRef.current = null;
       }
-    }
-    if (uploadRecordingId) {
-      // A local file import (as opposed to a live recording) never
-      // populates pendingRef — its row id only exists in uploadFile's own
-      // closure. Without this, discarding mid-upload aborts the transfer
-      // but leaves the row merely marked "failed" instead of trashed, which
-      // contradicts the confirmation dialog's "permanently deleted" copy.
-      if (uploadAbortUrl) {
-        fetch(uploadAbortUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        }).catch(() => {});
-      } else {
-        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
-        }).catch(() => {});
+      fileUploadRecordingIdRef.current = null;
+      fileUploadAbortUrlRef.current = null;
+      const engine = engineRef.current;
+      const uploadAbortFence = engine?.getUploadAbortFence();
+      const pendingId = pendingRef.current?.id;
+      const pendingAbortUrl = pendingRef.current?.abortUrl;
+      engineRef.current = null;
+      pendingRef.current = null;
+      liveTranscription.stop();
+      browserDiagnosticsRef.current?.dispose();
+      browserDiagnosticsRef.current = null;
+      if (extensionCapture) {
+        void sendClipsExtensionMessage(extensionCapture.extensionId, {
+          type: "CLIPS_CAPTURE_CANCEL",
+          sessionId: extensionCapture.sessionId,
+        });
       }
-    }
-    setCameraStream(null);
-    setPreviewStream(null);
-    setIsPaused(false);
-    setSavingKind(null);
-    setUiState("idle");
-    setUploadProgress(null);
-  }, [dismissUploadToast, extensionCapture, liveTranscription]);
+      try {
+        await engine?.cancel({ userInitiated });
+      } catch {
+        // coercion-ok: keep running the server-side cancellation fence if local capture teardown fails.
+      }
+      if (pendingId) {
+        // The recording may have already finished uploading server-side (the
+        // final chunk can land, and the row can flip to "ready", while we're
+        // still awaiting saveBrowserDiagnostics/finishSavedRecording on the
+        // client). A separate GET-status-then-POST-trash sequence would still
+        // race finalize between the two calls, so ask the server to trash
+        // atomically instead: `skipIfReady` makes the trash a conditional
+        // no-op if the row is already "ready" by the time the UPDATE runs, so a
+        // fully saved video is never silently discarded.
+        if (pendingAbortUrl && clipIntakeRef.current) {
+          fetch(pendingAbortUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            ...(userInitiated
+              ? {
+                  body: JSON.stringify({
+                    reason: "Recording cancelled by user",
+                    failureCode: "user_cancelled",
+                    ...uploadAbortFence,
+                  }),
+                }
+              : {}),
+          }).catch(() => {});
+        } else {
+          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: pendingId, skipIfReady: true }),
+          }).catch(() => {});
+        }
+      }
+      if (uploadRecordingId) {
+        // A local file import (as opposed to a live recording) never
+        // populates pendingRef — its row id only exists in uploadFile's own
+        // closure. Without this, discarding mid-upload aborts the transfer
+        // but leaves the row merely marked "failed" instead of trashed, which
+        // contradicts the confirmation dialog's "permanently deleted" copy.
+        if (uploadAbortUrl) {
+          fetch(uploadAbortUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            ...(userInitiated
+              ? {
+                  body: JSON.stringify({
+                    reason: "Recording cancelled by user",
+                    failureCode: "user_cancelled",
+                  }),
+                }
+              : {}),
+          }).catch(() => {});
+        } else {
+          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
+          }).catch(() => {});
+        }
+      }
+      setCameraStream(null);
+      setPreviewStream(null);
+      setIsPaused(false);
+      setSavingKind(null);
+      setUiState("idle");
+      setUploadProgress(null);
+    },
+    [dismissUploadToast, extensionCapture, liveTranscription],
+  );
 
   const playCountdownAudioCue = useCallback(() => {
     void countdownAudioCueRef.current?.play();
@@ -2584,7 +2615,7 @@ export default function RecordRoute() {
   const confirmDiscard = useCallback(() => {
     discardAutoPausedRef.current = false;
     setDiscardConfirmOpen(false);
-    void doCancel();
+    void doCancel(true);
   }, [doCancel]);
 
   // A background upload (e.g. importing a local video file) can finish
@@ -2715,7 +2746,7 @@ export default function RecordRoute() {
       if (intent === "restart") {
         void restart();
       } else {
-        void doCancel();
+        void doCancel(true);
       }
     },
     [doCancel, restart],
@@ -2745,7 +2776,7 @@ export default function RecordRoute() {
         if (uiState === "countdown") {
           e.preventDefault();
           e.stopPropagation();
-          void doCancel();
+          void doCancel(true);
           return;
         }
         const engineState = engineRef.current?.getState();
@@ -2786,7 +2817,7 @@ export default function RecordRoute() {
         }
         if (uiState !== "idle") {
           e.preventDefault();
-          void doCancel();
+          void doCancel(true);
           return;
         }
       }
@@ -2995,7 +3026,7 @@ export default function RecordRoute() {
               variant="outline"
               size="sm"
               className="w-full"
-              onClick={() => void doCancel()}
+              onClick={() => void doCancel(true)}
             >
               {t("common.cancel")}
             </Button>
@@ -3009,7 +3040,7 @@ export default function RecordRoute() {
           seconds={3}
           onOneSecond={playCountdownAudioCue}
           onComplete={onCountdownComplete}
-          onCancel={doCancel}
+          onCancel={() => void doCancel(true)}
         />
       )}
 

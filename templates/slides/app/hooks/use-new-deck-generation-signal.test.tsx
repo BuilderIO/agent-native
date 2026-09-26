@@ -131,6 +131,114 @@ describe("useNewDeckGenerationSignal", () => {
     );
   });
 
+  it("surfaces only the correlated pre-running start failure", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    props = {
+      attemptId: "attempt-1",
+      tabId: "target-tab",
+      broadGenerating: false,
+      submitStarted: true,
+    };
+
+    act(() => root.render(<Harness />));
+    expect(state.attempt.runError).toBe(false);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: false,
+            reason: "start_failed",
+            tabId: "other-tab",
+          },
+        }),
+      );
+    });
+    expect(state.attempt.runError).toBe(false);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: false,
+            reason: "start_failed",
+            tabId: "target-tab",
+          },
+        }),
+      );
+    });
+    expect(state.attempt.runError).toBe(true);
+  });
+
+  it("matches action runs to producer tabId and validates optional runId independently", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    props = {
+      attemptId: "attempt-1",
+      tabId: "browser-tab-id",
+      threadId: "agent-thread-id",
+      runId: "agent-run-id",
+      actionOwned: true,
+      broadGenerating: false,
+      submitStarted: true,
+    };
+
+    act(() => root.render(<Harness />));
+    expect(observerState.options).toEqual({ tabId: "browser-tab-id" });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            tabId: "another-browser-tab",
+          },
+        }),
+      );
+    });
+    expect(state.generating).toBe(false);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            tabId: "browser-tab-id",
+          },
+        }),
+      );
+    });
+    expect(state.generating).toBe(true);
+    expect(state.generationStarted).toBe(true);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:run-error", {
+          detail: {
+            tabId: "browser-tab-id",
+            runId: "another-agent-run",
+          },
+        }),
+      );
+    });
+    expect(state.attempt.runError).toBe(false);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:run-error", {
+          detail: {
+            tabId: "browser-tab-id",
+            runId: "agent-run-id",
+          },
+        }),
+      );
+    });
+    expect(state.attempt.runError).toBe(true);
+  });
+
   it("uses the broad signal only after this component submitted before tab resolution", () => {
     container = document.createElement("div");
     document.body.appendChild(container);

@@ -18,7 +18,9 @@ const mocks = vi.hoisted(() => ({
   writeAppState: vi.fn(),
   writeAppStateForCurrentTab: vi.fn(),
   uploadFile: vi.fn(),
+  ssrfSafeFetch: vi.fn(),
   getDb: vi.fn(),
+  getCurrentAuthUserId: vi.fn(),
   getCurrentOwnerEmail: vi.fn(),
   getDefaultRecordingVisibility: vi.fn(),
   nanoid: vi.fn(),
@@ -30,6 +32,13 @@ const mocks = vi.hoisted(() => ({
   isCandidateDirectVideoUrl: vi.fn(),
   queueBuilderMediaCompression: vi.fn(),
   dispatchPostFinalizeJob: vi.fn(),
+  track: vi.fn(),
+  recordingTrackingSource: vi.fn(
+    (userId: string, authUserId?: string | null) => ({
+      userId,
+      ...(authUserId ? { authUserId } : {}),
+    }),
+  ),
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -43,13 +52,16 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
-  ssrfSafeFetch: vi.fn(),
+  ssrfSafeFetch: (...args: unknown[]) => mocks.ssrfSafeFetch(...args),
 }));
 
 vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: (...args: unknown[]) => mocks.uploadFile(...args),
 }));
 vi.mock("@agent-native/core/server", () => ({ buildDeepLink: vi.fn() }));
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mocks.track(...args),
+}));
 
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => mocks.and(...args),
@@ -65,6 +77,8 @@ vi.mock("../server/db/index.js", () => ({
     recordings: {
       id: "recordings.id",
       ownerEmail: "recordings.ownerEmail",
+      authUserId: "recordings.authUserId",
+      uploadAttemptId: "recordings.uploadAttemptId",
       status: "recordings.status",
       sourceAppName: "recordings.sourceAppName",
       createdAt: "recordings.createdAt",
@@ -83,8 +97,14 @@ vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
   dispatchPostFinalizeJob: (...args: unknown[]) =>
     mocks.dispatchPostFinalizeJob(...args),
 }));
+vi.mock("../server/lib/recording-failures.js", () => ({
+  recordingTrackingSource: (...args: [string, string?]) =>
+    mocks.recordingTrackingSource(...args),
+}));
 
 vi.mock("../server/lib/recordings.js", () => ({
+  getCurrentAuthUserId: (...args: unknown[]) =>
+    mocks.getCurrentAuthUserId(...args),
   getCurrentOwnerEmail: (...args: unknown[]) =>
     mocks.getCurrentOwnerEmail(...args),
   getDefaultRecordingVisibility: (...args: unknown[]) =>
@@ -142,6 +162,7 @@ function createDb(firstReadyImportId: string | null) {
 describe("first imported recording transactional email", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.getCurrentAuthUserId.mockReturnValue(null);
     mocks.ensureEnabledAt.mockResolvedValue({
       enabledAt: "2026-07-01T00:00:00.000Z",
     });
@@ -230,6 +251,7 @@ describe("first imported recording transactional email", () => {
     } as any;
     mocks.getDb.mockReturnValue(db);
     mocks.getCurrentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.getCurrentAuthUserId.mockReturnValue("auth-user-webm");
     mocks.requireOrganizationAccess.mockResolvedValue({
       organizationId: "org-1",
     });
@@ -255,7 +277,10 @@ describe("first imported recording transactional email", () => {
     });
     mocks.limit.mockResolvedValue([{ id: "recording-webm" }]);
 
-    await importLoomRecording.run({
+    mocks.track.mockImplementationOnce(() => {
+      throw new Error("analytics unavailable");
+    });
+    const result = await importLoomRecording.run({
       url: "https://media.example.com/source.webm",
     });
 
@@ -273,6 +298,97 @@ describe("first imported recording transactional email", () => {
       kind: "thumbnail",
       requireAccepted: true,
     });
+    expect(result).toMatchObject({ status: "ready" });
+    expect(mocks.track).toHaveBeenCalledTimes(1);
+    expect(mocks.track).toHaveBeenCalledWith(
+      "recording_ready",
+      {
+        app_name: "clips",
+        template_name: "clips",
+        output_id: "recording-webm",
+        output_type: "clip",
+        recording_attempt_id: "recording-webm",
+        duration_s: 0,
+        video_format: "webm",
+        has_audio: true,
+        has_camera: false,
+        width: 0,
+        height: 0,
+      },
+      { userId: "owner@example.com", authUserId: "auth-user-webm" },
+    );
+    expect(mocks.track.mock.invocationCallOrder[0]).toBeGreaterThan(
+      insertValues.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("does not emit ready when a direct media import fails", async () => {
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+      })),
+    } as any;
+    mocks.getDb.mockReturnValue(db);
+    mocks.getCurrentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.requireOrganizationAccess.mockResolvedValue({
+      organizationId: "org-1",
+    });
+    mocks.getDefaultRecordingVisibility.mockResolvedValue("private");
+    mocks.nanoid.mockReturnValue("recording-failed");
+    mocks.parseSpaceIds.mockReturnValue([]);
+    mocks.stringifySpaceIds.mockReturnValue("[]");
+    mocks.isCandidateDirectVideoUrl.mockReturnValue(true);
+    mocks.hasRequestVideoStorage.mockResolvedValue(true);
+    mocks.downloadDirectVideo.mockRejectedValue(new Error("download failed"));
+
+    await expect(
+      importLoomRecording.run({
+        url: "https://media.example.com/source.mp4",
+      }),
+    ).rejects.toThrow("download failed");
+    expect(mocks.track).not.toHaveBeenCalled();
+  });
+
+  it("does not emit ready while a Loom import is still processing", async () => {
+    const insertValues = vi.fn(async () => undefined);
+    const db = {
+      insert: vi.fn(() => ({ values: insertValues })),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+      })),
+    } as any;
+    mocks.getDb.mockReturnValue(db);
+    mocks.getCurrentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.requireOrganizationAccess.mockResolvedValue({
+      organizationId: "org-1",
+    });
+    mocks.getDefaultRecordingVisibility.mockResolvedValue("private");
+    mocks.nanoid.mockReturnValue("recording-processing");
+    mocks.parseSpaceIds.mockReturnValue([]);
+    mocks.stringifySpaceIds.mockReturnValue("[]");
+    mocks.hasRequestVideoStorage.mockResolvedValue(true);
+    mocks.ssrfSafeFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        type: "video",
+        html: "<iframe></iframe>",
+        title: "Loom video",
+        duration: 5,
+      }),
+    });
+
+    const result = await importLoomRecording.run({
+      url: "https://www.loom.com/share/abcDEF_123456",
+    });
+
+    expect(result).toMatchObject({
+      recordingId: "recording-processing",
+      status: "processing",
+    });
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "processing", videoUrl: null }),
+    );
+    expect(mocks.track).not.toHaveBeenCalled();
   });
 
   it("does not hide a failed direct-import thumbnail enqueue", async () => {
@@ -335,6 +451,7 @@ describe("first imported recording transactional email", () => {
       spaceIds: "[]",
       visibility: "private",
       folderId: null,
+      authUserId: null,
       description: "",
       createdAt: "2026-09-01T00:00:00.000Z",
     };
@@ -350,12 +467,17 @@ describe("first imported recording transactional email", () => {
       update: vi.fn(() => ({
         set: (values: unknown) => {
           updateValues(values);
-          return { where: vi.fn(async () => undefined) };
+          return {
+            where: vi.fn(() => ({
+              returning: vi.fn(async () => [{ authUserId: "auth-user-retry" }]),
+            })),
+          };
         },
       })),
     } as any;
     mocks.getDb.mockReturnValue(db);
     mocks.getCurrentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.getCurrentAuthUserId.mockReturnValue("auth-user-retry");
     mocks.requireOrganizationAccess.mockResolvedValue({
       organizationId: "org-1",
     });
@@ -389,6 +511,7 @@ describe("first imported recording transactional email", () => {
         status: "ready",
         videoUrl: "https://media.example.com/recording-retry.mp4",
         thumbnailUrl: null,
+        authUserId: "auth-user-retry",
       }),
     );
     expect(result).toMatchObject({

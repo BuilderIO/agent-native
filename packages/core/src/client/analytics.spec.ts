@@ -826,6 +826,35 @@ describe("browser analytics pageviews", () => {
     expect(gtagEvent?.[2]).not.toHaveProperty("auth_user_id");
   });
 
+  it("uses the canonical id published by the validated session hook", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking, setTrackingIdentityFromSession, trackEvent } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      authSessionRefresh: false,
+      pageviewTracking: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+    });
+    setTrackingIdentityFromSession({
+      email: "owner@example.test",
+      userId: "provider-profile-id",
+      authUserId: "canonical-auth-user-id",
+    });
+    trackEvent("session_hook_event", { auth_user_id: "caller-spoof" });
+    await tick();
+
+    const event = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((item) => item.event === "session_hook_event");
+    expect(event?.properties.auth_user_id).toBe("canonical-auth-user-id");
+    expect(event?.properties).not.toHaveProperty("authUserId");
+  });
+
   it("tracks replay attempts without email, URL, or replay content", async () => {
     installBrowser("https://app.agent-native.com/private?token=private-url", {
       email: "private@example.test",

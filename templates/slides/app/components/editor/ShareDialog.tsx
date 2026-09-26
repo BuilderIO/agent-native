@@ -96,10 +96,17 @@ export default function ShareDialog({
       if (typeof payload.shareToken !== "string" || !payload.shareToken) {
         throw new Error(t("share.createFailed"));
       }
+      const generationAttemptId =
+        typeof deck.generationContext?.generationAttemptId === "string"
+          ? deck.generationContext.generationAttemptId
+          : undefined;
       trackEvent("share_link_created", {
         output_id: deck.id,
         output_type: "deck",
         share_type: "presentation_link",
+        ...(generationAttemptId
+          ? { generation_attempt_id: generationAttemptId }
+          : {}),
       });
       setShareLink({ deckId: deck.id, token: payload.shareToken });
       setDialogOpen(true);

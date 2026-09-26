@@ -48,6 +48,7 @@ describe("recording share popover", () => {
 
   it("restores the split Share and Copy link toolbar action", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
+    const shareUiSource = readSource("../sharing/share-ui.tsx");
     const shareTriggerSource = readSource("./clips-share-trigger.tsx");
     const recordingRouteSource = readSource(
       "../../routes/_app.r.$recordingId.tsx",
@@ -59,6 +60,8 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain("<IconCheck");
     expect(shareDialogSource).toContain("copyShareLink");
     expect(shareDialogSource).toContain('link_type: "share"');
+    expect(shareDialogSource).toContain("recording_attempt_id: recordingId");
+    expect(shareUiSource).toContain('resourceType === "recording"');
     expect(shareDialogSource).toContain("<TooltipContent");
     expect(shareDialogSource).not.toContain("PageHeaderSecondaryAction");
     expect(recordingRouteSource).not.toContain("<RecordingAgentHandoffPopover");

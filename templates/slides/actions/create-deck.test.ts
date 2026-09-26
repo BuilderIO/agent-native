@@ -12,6 +12,7 @@ const mockGetUserEmail = vi.fn(() => "owner@example.com");
 const mockGetOrgId = vi.fn(() => null);
 const mockRecordGenerationCreativeContext = vi.fn();
 const mockTrack = vi.hoisted(() => vi.fn());
+const mockGetRequestContext = vi.hoisted(() => vi.fn());
 const mockValidateGenerationCreativeContext = vi.fn(
   async (input: {
     contextPackId?: string;
@@ -131,7 +132,7 @@ vi.mock("../server/lib/deck-versions.js", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestContext: () => undefined,
+  getRequestContext: () => mockGetRequestContext(),
   getRequestUserEmail: () => mockGetUserEmail(),
   getRequestOrgId: () => mockGetOrgId(),
   getRequestRunContext: () => mockGetRequestRunContext(),
@@ -167,6 +168,7 @@ beforeEach(() => {
   insertedRow = undefined;
   updatedFields = undefined;
   mockTrack.mockClear();
+  mockGetRequestContext.mockReturnValue(undefined);
   mockGetUserEmail.mockReturnValue("owner@example.com");
   mockGetOrgId.mockReturnValue(null);
 });
@@ -648,26 +650,50 @@ describe("create-deck — generation lifecycle tracking", () => {
   );
 
   it("joins generation start and completion with one opaque attempt id", async () => {
-    const result = await action.run({
-      title: "T",
-      slides: [{ id: "s1", content: "<div>Slide</div>" }],
-    });
+    const result = await action.run(
+      {
+        title: "T",
+        slides: [{ id: "s1", content: "<div>Slide</div>" }],
+      },
+      {
+        caller: "tool",
+        threadId: "slides-agent-thread",
+        runId: "slides-agent-run",
+      },
+    );
 
     const events = trackedEvents();
     const started = events.find((event) => event.name === "generation_started");
     const completed = events.find(
       (event) => event.name === "generation_completed",
     );
+    const terminalEvents = events.filter((event) =>
+      [
+        "generation_completed",
+        "generation_failed",
+        "generation_stuck",
+        "generation_cancelled",
+        "generation_outcome_unresolved",
+      ].includes(event.name),
+    );
 
+    expect(terminalEvents).toHaveLength(1);
     expect(started?.properties.generation_attempt_id).toEqual(
       completed?.properties.generation_attempt_id,
     );
     expect(started?.properties.generation_attempt_id).toEqual(
       expect.any(String),
     );
-    expect(JSON.parse(insertedRow!.data as string)).not.toHaveProperty(
-      "generationContext",
-    );
+    expect(
+      JSON.parse(insertedRow!.data as string).generationContext,
+    ).toMatchObject({
+      generationAttemptId: started?.properties.generation_attempt_id,
+      generationMode: "action",
+      generationComplete: true,
+      threadId: "slides-agent-thread",
+      runId: "slides-agent-run",
+      tabId: "slides-tab-1",
+    });
     expect(result.id).toBe(completed?.properties.output_id);
     expect(started?.properties).not.toHaveProperty("title");
     expect(started?.properties).not.toHaveProperty("prompt");
@@ -678,7 +704,7 @@ describe("create-deck — generation lifecycle tracking", () => {
     });
   });
 
-  it("clears prior incremental context when an action-owned bulk attempt replaces a deck", async () => {
+  it("replaces stale attempt metadata while preserving unrelated deck context", async () => {
     existingDeckRow = {
       id: "deck-1",
       updatedAt: "2026-01-01T00:00:00.000Z",
@@ -688,6 +714,8 @@ describe("create-deck — generation lifecycle tracking", () => {
         generationContext: {
           generationAttemptId: "previous-attempt",
           generationMode: "action",
+          generationOutcome: "unresolved",
+          targetSlideCount: 4,
         },
       }),
     };
@@ -701,9 +729,16 @@ describe("create-deck — generation lifecycle tracking", () => {
     const started = trackedEvents().find(
       (event) => event.name === "generation_started",
     );
-    expect(JSON.parse(updatedFields!.data as string)).not.toHaveProperty(
-      "generationContext",
-    );
+    const generationContext = JSON.parse(
+      updatedFields!.data as string,
+    ).generationContext;
+    expect(generationContext).toMatchObject({
+      generationAttemptId: started?.properties.generation_attempt_id,
+      generationMode: "action",
+      generationComplete: true,
+      targetSlideCount: 4,
+    });
+    expect(generationContext).not.toHaveProperty("generationOutcome");
     expect(started?.properties.generation_attempt_id).not.toBe(
       "previous-attempt",
     );
@@ -734,12 +769,20 @@ describe("create-deck — generation lifecycle tracking", () => {
       const completed = trackedEvents().find(
         (event) => event.name === "generation_completed",
       );
+      const saved = trackedEvents().find(
+        (event) => event.name === "output_saved",
+      );
 
       expect(result.postProcessStatus).toBe("completed");
       expect(completed?.properties).toMatchObject({
         output_id: result.id,
         slide_count: 1,
         design_system_status: "unavailable",
+      });
+      expect(saved?.properties).toMatchObject({
+        output_id: result.id,
+        slide_count: 1,
+        persistence_confirmation: "create_deck_action_commit",
       });
       expect(
         trackedEvents().some(
@@ -782,6 +825,47 @@ describe("create-deck — generation lifecycle tracking", () => {
     expect(
       events.find((event) => event.name === "deck_edited")?.properties,
     ).toMatchObject({ generation_attempt_id: generationAttemptId });
+  });
+
+  it("does not report an empty bulk replacement as completed or saved", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({ title: "T", slides: [] }),
+    };
+
+    await action.run(
+      { title: "T2", slides: [], deckId: "deck-1" },
+      {
+        caller: "tool",
+        threadId: "slides-agent-thread",
+        runId: "slides-agent-run",
+      },
+    );
+
+    const events = trackedEvents();
+    expect(events.some((event) => event.name === "generation_completed")).toBe(
+      false,
+    );
+    expect(events.some((event) => event.name === "output_saved")).toBe(false);
+    expect(
+      events.find((event) => event.name === "generation_outcome_unresolved")
+        ?.properties,
+    ).toMatchObject({
+      output_id: "deck-1",
+      slide_count: 0,
+      outcome: "unresolved",
+      reason: "no_output",
+      persisted_output: true,
+    });
+    expect(
+      JSON.parse(updatedFields!.data as string).generationContext,
+    ).toMatchObject({
+      generationAttemptId: events[0]?.properties.generation_attempt_id,
+      generationComplete: false,
+      generationOutcome: "unresolved",
+      tabId: "slides-tab-1",
+    });
   });
 
   it("does not emit a terminal lifecycle event when the browser owns a failing attempt", async () => {
@@ -844,7 +928,17 @@ describe("create-deck — generation lifecycle tracking", () => {
   });
 
   it("keeps incremental empty-deck generation open for later add-slide calls", async () => {
-    const result = await action.run({ title: "T", slides: [] });
+    mockGetRequestContext.mockReturnValue({
+      authUserId: "canonical-auth-user",
+    });
+    const result = await action.run(
+      { title: "T", slides: [] },
+      {
+        caller: "tool",
+        threadId: "slides-agent-thread",
+        runId: "slides-agent-run",
+      },
+    );
 
     const events = trackedEvents();
     expect(events.map((event) => event.name)).toEqual([
@@ -855,24 +949,84 @@ describe("create-deck — generation lifecycle tracking", () => {
     expect(events[1]?.properties).toMatchObject({
       generation_mode: "incremental",
       slide_count: 0,
+      acceptance_stage: "create_deck_action",
+      auth_user_id: "canonical-auth-user",
     });
     expect(events[1]?.properties).not.toHaveProperty("prompt");
+    expect(events.some((event) => event.name === "output_saved")).toBe(false);
     expect(JSON.parse(insertedRow!.data as string).generationContext).toEqual({
       generationAttemptId: events[0]?.properties.generation_attempt_id,
       generationMode: "action",
+      generationComplete: false,
+      threadId: "slides-agent-thread",
+      runId: "slides-agent-run",
+      tabId: "slides-tab-1",
     });
     expect(result.slideCount).toBe(0);
   });
 
+  it("does not persist owner metadata from a non-agent caller", async () => {
+    await action.run(
+      { title: "T", slides: [] },
+      {
+        caller: "frontend",
+        threadId: "untrusted-thread",
+        runId: "untrusted-run",
+      },
+    );
+
+    const generationContext = JSON.parse(
+      insertedRow!.data as string,
+    ).generationContext;
+    expect(generationContext).toMatchObject({
+      generationAttemptId: expect.any(String),
+      generationMode: "action",
+      generationComplete: false,
+    });
+    expect(generationContext).not.toHaveProperty("threadId");
+    expect(generationContext).not.toHaveProperty("runId");
+    expect(generationContext).not.toHaveProperty("tabId");
+  });
+
   it.each([
-    ["generation_failed", undefined, "failed", "action_error"],
-    ["generation_stuck", "no_progress", "stuck", "stuck"],
-    ["generation_cancelled", "user_stuck_cancel", "cancelled", "cancelled"],
+    ["generation_failed", undefined, false, "failed", "action_error"],
+    ["generation_stuck", "no_progress", true, "stuck", "stuck"],
+    [
+      "generation_cancelled",
+      "user_stuck_cancel",
+      true,
+      "cancelled",
+      "cancelled",
+    ],
+    [
+      "generation_outcome_unresolved",
+      undefined,
+      true,
+      "unresolved",
+      "abort_reason_unknown",
+    ],
+    [
+      "generation_outcome_unresolved",
+      "AbortError",
+      true,
+      "unresolved",
+      "abort_reason_unknown",
+    ],
+    [
+      "generation_outcome_unresolved",
+      "mystery_cancel_reason",
+      true,
+      "unresolved",
+      "abort_reason_unknown",
+    ],
   ] as const)(
     "emits %s with the attempt id and bounded failure fields",
-    async (eventName, abortReason, outcome, failureCode) => {
+    async (eventName, abortReason, shouldAbort, outcome, failureCode) => {
       const controller = new AbortController();
-      if (abortReason) controller.abort(abortReason);
+      if (shouldAbort) {
+        if (abortReason === undefined) controller.abort();
+        else controller.abort(abortReason);
+      }
       mockValidateGenerationCreativeContext.mockRejectedValueOnce(
         new Error("generation failed with private details"),
       );
@@ -880,7 +1034,11 @@ describe("create-deck — generation lifecycle tracking", () => {
       await expect(
         action.run(
           { title: "T", slides: [] },
-          { caller: "tool", signal: controller.signal },
+          {
+            caller: "tool",
+            signal: controller.signal,
+            threadId: "slides-agent-thread",
+          },
         ),
       ).rejects.toThrow("generation failed");
 
@@ -889,7 +1047,17 @@ describe("create-deck — generation lifecycle tracking", () => {
         (event) => event.name === "generation_started",
       );
       const terminal = events.find((event) => event.name === eventName);
+      const terminalEvents = events.filter((event) =>
+        [
+          "generation_completed",
+          "generation_failed",
+          "generation_stuck",
+          "generation_cancelled",
+          "generation_outcome_unresolved",
+        ].includes(event.name),
+      );
 
+      expect(terminalEvents).toHaveLength(1);
       expect(terminal?.properties.generation_attempt_id).toBe(
         started?.properties.generation_attempt_id,
       );

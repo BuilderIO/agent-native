@@ -6,7 +6,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Deck } from "@/context/DeckContext";
 
-import { refreshDeckForGenerationOutcome } from "./DeckEditor";
+import {
+  refreshDeckForGenerationOutcome,
+  resolveGenerationAttemptId,
+} from "./DeckEditor";
 
 const deckEditorSource = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "DeckEditor.tsx"),
@@ -68,6 +71,34 @@ describe("generation deck refresh", () => {
   });
 });
 
+describe("generation attempt URL fallback", () => {
+  it("uses a validated persisted id before the query fallback", () => {
+    expect(resolveGenerationAttemptId("persisted_attempt-1", "query-2")).toBe(
+      "persisted_attempt-1",
+    );
+  });
+
+  it("accepts a query fallback only when this deck issued that attempt", () => {
+    expect(resolveGenerationAttemptId(undefined, "query_attempt-2", true)).toBe(
+      "query_attempt-2",
+    );
+    expect(resolveGenerationAttemptId(undefined, "query_attempt-2")).toBeNull();
+  });
+
+  it("rejects a syntactically valid query without a same-deck registry match", () => {
+    expect(
+      resolveGenerationAttemptId(undefined, "query_attempt-2", false),
+    ).toBe(null);
+  });
+
+  it.each(["bad id", "x".repeat(65), "éclair", ""])(
+    "rejects malformed query fallback %j",
+    (queryValue) => {
+      expect(resolveGenerationAttemptId(undefined, queryValue)).toBeNull();
+    },
+  );
+});
+
 describe("generation outcome cleanup", () => {
   it("emits unresolved when refresh is unavailable and resets in finally", () => {
     const settleStart = deckEditorSource.indexOf(
@@ -92,7 +123,7 @@ describe("generation outcome cleanup", () => {
     );
   });
 
-  it("cleans up a submitted attempt on page exit before the run becomes active", () => {
+  it("reports editor exit as nonterminal UI telemetry and preserves the attempt", () => {
     const recordExitStart = deckEditorSource.indexOf("const recordExit = (");
     const recordExitEnd = deckEditorSource.indexOf(
       "const handlePageHide =",
@@ -103,14 +134,14 @@ describe("generation outcome cleanup", () => {
       recordExitEnd,
     );
 
-    expect(recordExitBody).toContain("!state.sawActive");
-    expect(recordExitBody).toContain("`${exitReason}_before_active`");
-    expect(recordExitBody).toContain(
-      "clearStartedGenerationAttempt(generationAttemptId, id);",
+    expect(recordExitBody).toContain('trackEvent("generation_ui_exited", {');
+    expect(recordExitBody).toContain("exit_reason: exitReason");
+    expect(recordExitBody).toContain("exit_stage: exitStage");
+    expect(recordExitBody).not.toContain(
+      "generationTerminalAttemptRef.current = generationAttemptId;",
     );
-    expect(recordExitBody).toContain(
-      "generationRunStartedRef.current = false;",
-    );
+    expect(recordExitBody).not.toContain("clearStartedGenerationAttempt");
+    expect(recordExitBody).not.toContain('trackEvent("generation_abandoned"');
   });
 
   it("ignores a bfcache restore instead of treating it as a permanent exit", () => {
@@ -124,7 +155,7 @@ describe("generation outcome cleanup", () => {
     expect(guardBody).toContain("event.persisted");
   });
 
-  it("marks a started-but-not-submitted attempt terminal with a distinct exit reason", () => {
+  it("deduplicates pagehide and route-exit signals without marking terminal", () => {
     const recordExitStart = deckEditorSource.indexOf("const recordExit = (");
     const recordExitEnd = deckEditorSource.indexOf(
       "const handlePageHide =",
@@ -135,18 +166,12 @@ describe("generation outcome cleanup", () => {
       recordExitEnd,
     );
 
-    const submitStartedIndex = recordExitBody.indexOf(
-      "submitStarted: generationRunStartedRef.current,",
+    expect(recordExitBody).toContain(
+      "generationUiExitAttemptRef.current === generationAttemptId",
     );
-    const terminalMarkIndex = recordExitBody.indexOf(
-      "generationTerminalAttemptRef.current = generationAttemptId;",
-      submitStartedIndex,
+    expect(recordExitBody).toContain(
+      "generationUiExitAttemptRef.current = generationAttemptId;",
     );
-
-    expect(submitStartedIndex).toBeGreaterThanOrEqual(0);
-    expect(terminalMarkIndex).toBeGreaterThan(submitStartedIndex);
-    expect(recordExitBody).toContain("`${exitReason}_before_submit`");
-    expect(recordExitBody).toContain("!state.submitStarted");
   });
 });
 

@@ -8,6 +8,14 @@ function readRoute(name: string): string {
 }
 
 describe("direct recording route shell cue", () => {
+  it("joins clip views to their recording attempt", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toMatch(
+      /trackEvent\("clip_viewed", \{[\s\S]*?recording_attempt_id: recording\.id/,
+    );
+  });
+
   it("prefers public-share timestamps over legacy owner timestamps", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
 

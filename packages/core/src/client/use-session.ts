@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { AuthSession } from "../server/auth.js";
-import { setSentryUser, trackSessionStatus } from "./analytics.js";
+import {
+  setSentryUser,
+  setTrackingIdentityFromSession,
+  trackSessionStatus,
+} from "./analytics.js";
 import { agentNativeApiDisabledReason } from "./api-surface.js";
 import {
   fetchAuthSessionStatus,
@@ -114,6 +118,7 @@ function hasFreshSessionCache(): boolean {
 }
 
 function publishSessionIdentity(session: AuthSession | null): void {
+  setTrackingIdentityFromSession(session);
   const identity = session?.userId ?? session?.email ?? null;
   if (trackedSessionIdentity !== identity) {
     trackedSessionIdentity = identity;

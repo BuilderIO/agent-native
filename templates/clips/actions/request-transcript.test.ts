@@ -568,6 +568,7 @@ describe("requestTranscript regeneration", () => {
         failure_code: "CLOUD_FAILED",
         stage: "transcription",
         retryable: false,
+        recording_attempt_id: "rec_failed",
         output_id: "rec_failed",
         output_type: "clip",
       },
@@ -816,6 +817,14 @@ describe("requestTranscript regeneration", () => {
     expect(mockTranscribeWithBuilder).toHaveBeenCalledWith(
       expect.objectContaining({ diarize: true }),
     );
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_completed",
+      expect.objectContaining({
+        recording_attempt_id: "rec_empty",
+        output_id: "rec_empty",
+      }),
+      { userId: "owner@example.com" },
+    );
   });
 
   it("keeps a still-running transcription marked live instead of going stale", async () => {
@@ -943,6 +952,36 @@ describe("importLoomTranscriptForRecording", () => {
     });
     expect(mockInsertValues).not.toHaveBeenCalled();
     expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+
+  it("tracks Loom transcript completion with its recording attempt ID", async () => {
+    mockFetchLoomTranscript.mockResolvedValue({
+      language: "en",
+      segments: [{ startMs: 0, endMs: 1200, text: "Transcript." }],
+      fullText: "Transcript.",
+    });
+
+    await importLoomTranscriptForRecording({
+      db: mockDb as any,
+      recordingId: "rec_loom",
+      ownerEmail: "owner@example.com",
+      recording: {
+        videoUrl: "https://www.loom.com/embed/abcDEF_123456",
+        sourceAppName: "Loom",
+        sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+        durationMs: 1200,
+      },
+      now: "2026-06-19T12:00:00.000Z",
+    });
+
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_completed",
+      expect.objectContaining({
+        recording_attempt_id: "rec_loom",
+        output_id: "rec_loom",
+      }),
+      { userId: "owner@example.com" },
+    );
   });
 
   it("still records a failed Loom transcript when there is nothing ready to preserve", async () => {

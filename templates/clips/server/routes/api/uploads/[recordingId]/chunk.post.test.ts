@@ -14,6 +14,9 @@ const mockGetHeader = vi.hoisted(() => vi.fn());
 const mockReadRawBody = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockGetEventOwnerContext = vi.hoisted(() => vi.fn());
+const mockRequestContext = vi.hoisted(() => ({
+  value: null as Record<string, unknown> | null,
+}));
 const mockOwnerEmailMatches = vi.hoisted(() => vi.fn());
 const mockDeleteRecordingChunks = vi.hoisted(() => vi.fn());
 const mockRenewUploadLease = vi.hoisted(() => vi.fn());
@@ -30,6 +33,9 @@ const mockAllowsSqlRecordingChunkScratch = vi.hoisted(() => vi.fn());
 const mockShouldRejectVideoUploadWithoutStorage = vi.hoisted(() => vi.fn());
 const mockFinalizeRun = vi.hoisted(() => vi.fn());
 const mockUpdateSets = vi.hoisted(() => [] as Record<string, unknown>[]);
+const mockUpdateReturning = vi.hoisted(() =>
+  vi.fn(async () => [{ id: "rec-1" }]),
+);
 const mockSelectRows = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
 }));
@@ -44,7 +50,9 @@ const mockDb = vi.hoisted(() => ({
   update: vi.fn(() => ({
     set: vi.fn((values: Record<string, unknown>) => {
       mockUpdateSets.push(values);
-      return { where: vi.fn(async () => undefined) };
+      return {
+        where: vi.fn(() => ({ returning: mockUpdateReturning })),
+      };
     }),
   })),
 }));
@@ -60,7 +68,14 @@ vi.mock("@agent-native/core/feature-flags", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  runWithRequestContext: (_ctx: unknown, fn: () => unknown) => fn(),
+  runWithRequestContext: (ctx: Record<string, unknown>, fn: () => unknown) => {
+    mockRequestContext.value = ctx;
+    return fn();
+  },
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => mockRequestContext.value,
 }));
 
 vi.mock("@agent-native/core/tracking", () => ({
@@ -177,6 +192,8 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     vi.clearAllMocks();
     mockAppState.clear();
     mockUpdateSets.length = 0;
+    mockUpdateReturning.mockResolvedValue([{ id: "rec-1" }]);
+    mockRequestContext.value = null;
     mockSelectRows.rows = [
       {
         id: "rec-1",
@@ -564,6 +581,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       hasCamera: false,
       locallyTranscoded: undefined,
       mimeType: "video/webm",
+      uploadAttemptId: null,
     });
     // The empty sentinel must not be persisted as a zero-byte chunk.
     expect(chunkKeys().sort()).toEqual([
@@ -884,6 +902,11 @@ describe("/api/uploads/:recordingId/chunk route", () => {
   });
 
   it("does not label a non-cancel finalize failure as an abort", async () => {
+    mockGetEventOwnerContext.mockResolvedValue({
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+      authUserId: "canonical-auth-id",
+    });
     mockAppState.set(`${CHUNK_PREFIX}000000`, { bytes: 5 });
     mockFinalizeRun.mockResolvedValue({
       status: "failed",
@@ -914,8 +937,45 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         recording_attempt_id: "rec-1",
         upload_mode: "buffered",
       }),
-      { userId: "owner@example.com" },
+      { userId: "owner@example.com", authUserId: "canonical-auth-id" },
     );
+    expect(mockRequestContext.value).toEqual(
+      expect.objectContaining({ authUserId: "canonical-auth-id" }),
+    );
+  });
+
+  it("tracks one bounded failure when finalize persists a terminal error", async () => {
+    mockGetEventOwnerContext.mockResolvedValue({
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+      authUserId: "canonical-auth-id",
+    });
+    mockSelectRows.rows[0]!.status = "processing";
+    mockFinalizeRun.mockRejectedValue(new Error("raw finalize detail"));
+    setRequest({
+      query: { index: "0", total: "0", isFinal: "1", mimeType: "video/webm" },
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({ ok: false }),
+    );
+
+    const failureEvents = mockTrack.mock.calls.filter(
+      ([eventName]) => eventName === "recording_failed",
+    );
+    expect(failureEvents).toHaveLength(1);
+    expect(failureEvents[0]?.[1]).toEqual(
+      expect.objectContaining({
+        recording_attempt_id: "rec-1",
+        failure_code: "finalize_failed",
+        failure_stage: "finalize",
+      }),
+    );
+    expect(failureEvents[0]?.[1]).not.toHaveProperty("failure_reason");
+    expect(failureEvents[0]?.[2]).toEqual({
+      userId: "owner@example.com",
+      authUserId: "canonical-auth-id",
+    });
   });
 
   it("preserves buffered source-byte proof when finalize committed before its response was lost", async () => {
@@ -996,6 +1056,11 @@ describe("/api/uploads/:recordingId/chunk route", () => {
   });
 
   it("fails the recording when cumulative bytes exceed the upload ceiling", async () => {
+    mockGetEventOwnerContext.mockResolvedValue({
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+      authUserId: "canonical-auth-id",
+    });
     mockAppState.set(`${CHUNK_PREFIX}000000`, {
       recordingId: "rec-1",
       index: 0,
@@ -1030,6 +1095,22 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     );
     expect(chunkKeys()).toEqual([]);
     expect(mockFinalizeRun).not.toHaveBeenCalled();
+    const failureEvents = mockTrack.mock.calls.filter(
+      ([eventName]) => eventName === "recording_failed",
+    );
+    expect(failureEvents).toHaveLength(1);
+    expect(failureEvents[0]?.[1]).toEqual(
+      expect.objectContaining({
+        recording_attempt_id: "rec-1",
+        failure_code: "recording_too_large",
+        failure_stage: "chunk_upload",
+      }),
+    );
+    expect(failureEvents[0]?.[1]).not.toHaveProperty("failure_reason");
+    expect(failureEvents[0]?.[2]).toEqual({
+      userId: "owner@example.com",
+      authUserId: "canonical-auth-id",
+    });
   });
 
   it("relays a fresh resumable chunk to the provider and advances the committed offset", async () => {
