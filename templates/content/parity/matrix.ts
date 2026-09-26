@@ -575,6 +575,7 @@ export const parityMatrix: ParityRow[] = [
       "get-content-database-personal-view",
       "list-document-properties",
       "reorder-document-property",
+      "search-content-database-rows",
       "set-document-property",
       "update-content-database-personal-view",
       "update-content-database-view",

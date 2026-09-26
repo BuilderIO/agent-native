@@ -12,6 +12,8 @@ import {
   isComputedPropertyType,
   normalizePropertyValue,
   parsePropertyOptions,
+  parsePropertyValue,
+  serializePropertyValue,
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import { contentDatabaseSourceFieldsAllowLocalWrite } from "../shared/source-field-policy.js";
@@ -28,6 +30,7 @@ import {
   nanoid,
   normalizedValueJson,
 } from "./_property-utils.js";
+import { validateRelationWrite } from "./_relation-values.js";
 
 async function assertPropertyWritableByRowMutation(
   db: ReturnType<typeof getDb>,
@@ -279,7 +282,7 @@ export default defineAction({
       };
     }
 
-    const valueJson = normalizedValueJson(type, value);
+    let valueJson = normalizedValueJson(type, value);
     await db.transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as ReturnType<typeof getDb>,
@@ -340,6 +343,23 @@ export default defineAction({
         database.id,
         lockedDefinition,
       );
+      if (lockedType === "relation") {
+        const [stored] = await tx
+          .select({ valueJson: schema.documentPropertyValues.valueJson })
+          .from(schema.documentPropertyValues)
+          .where(
+            and(
+              eq(schema.documentPropertyValues.documentId, documentId),
+              eq(schema.documentPropertyValues.propertyId, propertyId),
+            ),
+          );
+        const ids = await validateRelationWrite(tx, {
+          definition: lockedDefinition,
+          nextValue: value,
+          previousValue: parsePropertyValue(stored?.valueJson),
+        });
+        valueJson = serializePropertyValue(ids);
+      }
       const isNaturalKey = lockedDatabase.naturalKeyPropertyId === propertyId;
       if (isNaturalKey) {
         let parsed: unknown;

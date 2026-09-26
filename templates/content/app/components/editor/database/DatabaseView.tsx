@@ -4156,7 +4156,10 @@ export function databaseSelectionCapabilities(args: {
 export function databaseBulkEditableProperties(properties: DocumentProperty[]) {
   return properties.filter(
     (property) =>
-      property.editable && !isComputedPropertyType(property.definition.type),
+      property.editable &&
+      !isComputedPropertyType(property.definition.type) &&
+      // Row mutations do not accept relation values yet.
+      property.definition.type !== "relation",
   );
 }
 
@@ -14239,7 +14242,9 @@ function databaseTableCellDisplayValue(
     );
   }
 
-  return displayValue(property, undefined, wrapCells ? "wrapped" : "compact");
+  return displayValue(property, undefined, wrapCells ? "wrapped" : "compact", {
+    interactiveRelations: true,
+  });
 }
 
 export function isDatabasePropertyVisibleInView(

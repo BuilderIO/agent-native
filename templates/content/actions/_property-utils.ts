@@ -57,6 +57,7 @@ import {
   propertyDefinitionsPositionScope,
   withPositionLock,
 } from "./_position-utils.js";
+import { withRelationTargets } from "./_relation-values.js";
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;
 type ContentDatabaseRow = InferSelectModel<typeof schema.contentDatabases>;
@@ -808,7 +809,9 @@ export async function listPropertiesForDatabase(
     }
   }
 
-  return nextProperties;
+  if (!includeContainerDerivedValues) return nextProperties;
+  const [withTargets] = await withRelationTargets(db, [nextProperties]);
+  return withTargets;
 }
 
 function serializePropertyDefinition(
@@ -1018,6 +1021,11 @@ export async function listPropertiesForDatabaseDocuments(
     result.set(document.id, nextProperties);
   }
 
+  const documentIdsInOrder = [...result.keys()];
+  const withTargets = await withRelationTargets(db, [...result.values()]);
+  documentIdsInOrder.forEach((documentId, index) => {
+    result.set(documentId, withTargets[index]!);
+  });
   return result;
 }
 
