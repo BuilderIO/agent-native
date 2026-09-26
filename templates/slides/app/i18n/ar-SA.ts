@@ -929,7 +929,6 @@ const messages = {
       "لا يزال المحتوى المحفوظ متاحًا. تحقق من الاتصال وأعد المحاولة.",
     retry: "إعادة المحاولة",
     decksTitle: "العروض",
-    newDeck: "عرض جديد",
     deckLengthQuestion: "ما طول هذا العرض؟",
     deckLengthHeader: "طول العرض",
     deckLengthShort: "قصير (3–5 شرائح)",

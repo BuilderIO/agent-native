@@ -935,7 +935,6 @@ const messages = {
       "Ihre gespeicherten Inhalte sind weiterhin verfügbar. Prüfen Sie die Verbindung und versuchen Sie es erneut.",
     retry: "Erneut versuchen",
     decksTitle: "Decks",
-    newDeck: "Neues Deck",
     deckLengthQuestion: "Wie lang soll dieses Deck sein?",
     deckLengthHeader: "Decklänge",
     deckLengthShort: "Kurz (3–5 Folien)",

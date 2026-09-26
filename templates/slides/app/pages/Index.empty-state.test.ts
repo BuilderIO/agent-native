@@ -22,7 +22,8 @@ describe("Slides empty deck list", () => {
     expect(header).toMatch(
       /viewState !== "empty" \? \([\s\S]*?<DeckSearchInput[\s\S]*?<DeckFilterMenu[\s\S]*?: null/,
     );
-    expect(header).toContain('{t("home.newDeck")}');
+    expect(header).not.toContain('{t("home.newDeck")}');
+    expect(source).toContain('presentation="inline"');
     expect(source).toContain("deckListViewState({");
   });
 });

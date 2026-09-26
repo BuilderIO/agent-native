@@ -940,7 +940,6 @@ const messages = {
       "El contenido guardado sigue disponible. Comprueba la conexión e inténtalo de nuevo.",
     retry: "Reintentar",
     decksTitle: "Decks",
-    newDeck: "Nuevo deck",
     deckLengthQuestion: "¿Qué longitud debe tener este deck?",
     deckLengthHeader: "Longitud del deck",
     deckLengthShort: "Corto (3–5 diapositivas)",

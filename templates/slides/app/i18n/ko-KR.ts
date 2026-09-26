@@ -908,7 +908,6 @@ const messages = {
       "저장된 콘텐츠는 그대로 있습니다. 연결을 확인하고 다시 시도하세요.",
     retry: "다시 시도",
     decksTitle: "덱",
-    newDeck: "새 덱",
     deckLengthQuestion: "이 덱은 얼마나 길어야 하나요?",
     deckLengthHeader: "덱 길이",
     deckLengthShort: "짧게(3–5장)",

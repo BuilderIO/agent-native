@@ -932,7 +932,6 @@ const messages = {
       "Seu conteúdo salvo continua disponível. Verifique a conexão e tente novamente.",
     retry: "Tentar novamente",
     decksTitle: "Decks",
-    newDeck: "Novo deck",
     deckLengthQuestion: "Qual deve ser o tamanho deste deck?",
     deckLengthHeader: "Tamanho do deck",
     deckLengthShort: "Curto (3–5 slides)",

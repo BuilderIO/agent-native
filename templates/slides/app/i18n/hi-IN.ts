@@ -904,7 +904,6 @@ const messages = {
       "आपका सहेजा गया कॉन्टेंट अभी भी उपलब्ध है। कनेक्शन जाँचें और फिर कोशिश करें।",
     retry: "फिर कोशिश करें",
     decksTitle: "डेक",
-    newDeck: "नया डेक",
     deckLengthQuestion: "यह डेक कितना लंबा होना चाहिए?",
     deckLengthHeader: "डेक लंबाई",
     deckLengthShort: "छोटा (3–5 स्लाइड)",
