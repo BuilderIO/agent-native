@@ -72,6 +72,7 @@ import {
 } from "./claude-code-participant.js";
 import { createCodeAgentAgentTools } from "./code-agent-agent-tools.js";
 import {
+  claudeMcpConfig,
   codexMcpConfigArgs,
   mergeCodeAgentMcpConfig,
   restrictCodeAgentMcpConfig,
@@ -677,7 +678,43 @@ async function executeClaudeCliRun(options: {
     },
   });
 
+  let mcpConfigDir: string | undefined;
+  let followUpInput!: Parameters<typeof executeCodeAgentRun>[0];
+  // Cleanup never decides the run's outcome: a delete failure is recorded in
+  // the transcript, and the run still completes or starts its follow-up.
+  const removeMcpConfig = () => {
+    if (!mcpConfigDir) return;
+    try {
+      fs.rmSync(mcpConfigDir, { recursive: true, force: true });
+      mcpConfigDir = undefined;
+    } catch (error) {
+      appendCodeAgentTranscriptEvent({
+        runId: options.run.id,
+        kind: "note",
+        message: `Could not remove the temporary Claude MCP config at ${mcpConfigDir}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        metadata: { engine: CLAUDE_CLI_ENGINE_NAME },
+      });
+    }
+  };
   try {
+    // Deliver the same host-scoped servers the Codex path receives (see
+    // executeCodexCliRun), through a private file rather than argv because
+    // the headers can carry session cookies or bearer tokens.
+    const mcpConfig = claudeMcpConfig(
+      process.env.MCP_SERVERS === undefined ? await buildMergedConfig() : null,
+    );
+    let mcpConfigPath: string | undefined;
+    if (mcpConfig) {
+      mcpConfigDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "agent-native-code-claude-"),
+      );
+      mcpConfigPath = path.join(mcpConfigDir, "mcp.json");
+      fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig), {
+        mode: 0o600,
+      });
+    }
     const result = await runClaudeCodeParticipant({
       // Claude's driver uses acceptEdits, which is the closest available
       // mapping for auto-edit and full-auto. Keep ask-before-edit on the
@@ -692,6 +729,8 @@ async function executeClaudeCliRun(options: {
       cwd,
       model,
       effort: reasoningEffort,
+      mcpConfigPath,
+      mcpServerNames: mcpConfig ? Object.keys(mcpConfig.mcpServers) : [],
       signal: options.signal,
       onEvent: (event) => {
         const text = appendClaudeParticipantTranscriptEvents(
@@ -704,6 +743,9 @@ async function executeClaudeCliRun(options: {
         if (streamToolOutputToStdout) options.stdout?.write(text);
       },
     });
+    // The CLI has exited; drop the credential-bearing config before any
+    // queued or steering follow-up starts its own run.
+    removeMcpConfig();
     const finalMessage =
       readClaudeParticipantResultText(result.events) ??
       (assistantText.join("\n\n").trim() || "Claude Code run completed.");
@@ -742,7 +784,7 @@ async function executeClaudeCliRun(options: {
           permissionMode: pendingFollowUp.permissionMode,
         });
       }
-      return executeCodeAgentRun({
+      followUpInput = {
         runId: options.run.id,
         prompt: pendingFollowUp.prompt,
         attachments:
@@ -755,37 +797,37 @@ async function executeClaudeCliRun(options: {
         stdout: options.stdout,
         streamToolOutputToStdout: options.streamToolOutputToStdout,
         signal: options.signal,
+      };
+    } else {
+      appendCodeAgentTranscriptEvent({
+        runId: options.run.id,
+        kind: "status",
+        message: "Claude Code run completed.",
+        metadata: {
+          status: "completed",
+          phase: "complete",
+          engine: CLAUDE_CLI_ENGINE_NAME,
+        },
       });
-    }
-
-    appendCodeAgentTranscriptEvent({
-      runId: options.run.id,
-      kind: "status",
-      message: "Claude Code run completed.",
-      metadata: {
+      return updateCodeAgentRunRecord(options.run.id, {
         status: "completed",
         phase: "complete",
-        engine: CLAUDE_CLI_ENGINE_NAME,
-      },
-    });
-    return updateCodeAgentRunRecord(options.run.id, {
-      status: "completed",
-      phase: "complete",
-      needsApproval: false,
-      progress: {
-        label: "Complete",
-        completed: 1,
-        total: 1,
-        percent: 100,
-      },
-      metadata: {
-        executionCompletedAt: new Date().toISOString(),
-        engine: CLAUDE_CLI_ENGINE_NAME,
-        model,
-        ...(reasoningEffort ? { reasoningEffort } : {}),
-        permissionMode: options.permissionMode,
-      },
-    });
+        needsApproval: false,
+        progress: {
+          label: "Complete",
+          completed: 1,
+          total: 1,
+          percent: 100,
+        },
+        metadata: {
+          executionCompletedAt: new Date().toISOString(),
+          engine: CLAUDE_CLI_ENGINE_NAME,
+          model,
+          ...(reasoningEffort ? { reasoningEffort } : {}),
+          permissionMode: options.permissionMode,
+        },
+      });
+    }
   } catch (error) {
     const interrupted = options.signal?.aborted === true;
     const message = error instanceof Error ? error.message : String(error);
@@ -826,7 +868,12 @@ async function executeClaudeCliRun(options: {
         model,
       },
     });
+  } finally {
+    removeMcpConfig();
   }
+  // Only after the `finally` cleanup, so a failed delete is retried before the
+  // next CLI run starts.
+  return executeCodeAgentRun(followUpInput);
 }
 
 function buildClaudeCliPrompt(run: CodeAgentRunRecord, prompt: string): string {

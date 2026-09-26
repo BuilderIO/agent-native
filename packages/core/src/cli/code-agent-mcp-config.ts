@@ -149,16 +149,8 @@ export function codexMcpConfigArgs(
   config: McpConfig | null = null,
   environment: NodeJS.ProcessEnv = process.env,
 ): string[] {
-  const servers =
-    restrictCodeAgentMcpConfig(
-      mergeCodeAgentMcpConfig(config, environment),
-      environment,
-    )?.servers ?? {};
-  if (Object.keys(servers).length === 0) return [];
   const args: string[] = [];
-  for (const [serverId, server] of Object.entries(servers)) {
-    if (server.type !== "http" || !server.url) continue;
-    const key = codexConfigKey(serverId);
+  for (const [key, server] of codeAgentHttpMcpServers(config, environment)) {
     args.push("-c", `mcp_servers.${key}.url=${tomlString(server.url)}`);
     if (server.headers && Object.keys(server.headers).length > 0) {
       args.push(
@@ -168,4 +160,58 @@ export function codexMcpConfigArgs(
     }
   }
   return args;
+}
+
+/**
+ * Callers must also pass `--strict-mcp-config` (Claude's equivalent of
+ * `--ignore-user-config`), or user-level MCP servers join this scoped set.
+ */
+export function claudeMcpConfig(
+  config: McpConfig | null = null,
+  environment: NodeJS.ProcessEnv = process.env,
+): {
+  mcpServers: Record<
+    string,
+    { type: "http"; url: string; headers?: Record<string, string> }
+  >;
+} | null {
+  const mcpServers = Object.fromEntries(
+    codeAgentHttpMcpServers(config, environment).map(([key, server]) => [
+      key,
+      {
+        type: "http" as const,
+        url: server.url,
+        ...(server.headers && Object.keys(server.headers).length > 0
+          ? { headers: server.headers }
+          : {}),
+      },
+    ]),
+  );
+  return Object.keys(mcpServers).length > 0 ? { mcpServers } : null;
+}
+
+function codeAgentHttpMcpServers(
+  config: McpConfig | null,
+  environment: NodeJS.ProcessEnv,
+): Array<[string, { url: string; headers?: Record<string, string> }]> {
+  const servers =
+    restrictCodeAgentMcpConfig(
+      mergeCodeAgentMcpConfig(config, environment),
+      environment,
+    )?.servers ?? {};
+  // Both CLIs need a sanitized key, and a lossy key would let one server (and
+  // its credential headers) silently replace another. Reject that instead.
+  const idsByKey = new Map<string, string>();
+  return Object.entries(servers).flatMap(([serverId, server]) => {
+    if (server.type !== "http" || !server.url) return [];
+    const key = codexConfigKey(serverId);
+    const existing = idsByKey.get(key);
+    if (existing !== undefined) {
+      throw new Error(
+        `MCP server IDs "${existing}" and "${serverId}" both map to "${key}". Rename one of them.`,
+      );
+    }
+    idsByKey.set(key, serverId);
+    return [[key, { url: server.url, headers: server.headers }]];
+  });
 }

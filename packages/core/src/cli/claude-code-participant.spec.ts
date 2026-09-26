@@ -100,6 +100,43 @@ describe("Claude Code participant", () => {
     expect(args.join(" ")).not.toContain("Bash");
   });
 
+  it("adds host MCP servers and pre-approves them only for the driver", () => {
+    const mcp = {
+      mcpConfigPath: "/tmp/agent-native-code-claude-x/mcp.json",
+      mcpServerNames: ["app-crm", "app-mail"],
+    };
+    const driver = buildClaudeCodeParticipantArgs({ role: "driver", ...mcp });
+    const watchdog = buildClaudeCodeParticipantArgs({
+      role: "watchdog",
+      ...mcp,
+    });
+
+    for (const args of [driver, watchdog]) {
+      expect(args).toContain("--strict-mcp-config");
+      expect(args[args.indexOf("--mcp-config") + 1]).toBe(mcp.mcpConfigPath);
+    }
+    expect(driver[driver.indexOf("--allowedTools") + 1]).toBe(
+      "mcp__app-crm,mcp__app-mail",
+    );
+    // Plan mode runs read-only MCP tools and refuses mutating ones by itself.
+    expect(watchdog).not.toContain("--allowedTools");
+    expect(buildClaudeCodeParticipantArgs({ role: "driver" })).not.toContain(
+      "--mcp-config",
+    );
+  });
+
+  it("rejects a relative MCP config path", async () => {
+    await expect(
+      runClaudeCodeParticipant({
+        role: "driver",
+        prompt: "hi",
+        cwd: "/repo",
+        mcpConfigPath: "mcp.json",
+        preflight: async () => SUBSCRIPTION_STATUS,
+      }),
+    ).rejects.toThrow("Claude Code MCP config must be an absolute file path.");
+  });
+
   it("permits only an absolute packaged executable override", async () => {
     const child = new FakeClaudeChild();
     const spawnProcess = vi.fn<ClaudeCodeParticipantSpawn>(() => child);
