@@ -7093,6 +7093,7 @@ async function mountBetterAuthRoutes(
         return { error: "Not authenticated" };
       }
       try {
+        await revokeEmbedSessionsForOwner(session.email);
         const db = getDbExec();
         // 1. Resolve user_id from email so we can wipe Better Auth sessions
         // by their FK column.

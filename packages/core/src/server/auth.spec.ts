@@ -1895,6 +1895,94 @@ describe("server/auth", () => {
       );
     }, 30_000);
 
+    it("revokes all-session embed access before changing cookies and fails closed", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const operations: string[] = [];
+      let failRevocation = false;
+      const revokeEmbedSessionsForOwner = vi.fn(async () => {
+        operations.push("revoke");
+        if (failRevocation) throw new Error("revocation store unavailable");
+      });
+      const mockExecute = vi.fn(async (query: any) => {
+        operations.push("database");
+        const sql = typeof query === "string" ? query : query.sql;
+        return {
+          rows: sql?.includes('SELECT id FROM "user"')
+            ? [{ id: "auth-user-1" }]
+            : [],
+        };
+      });
+      const auth = {
+        handler: vi.fn(async () => new Response("{}")),
+        api: {
+          getSession: vi.fn(async () => ({
+            user: { id: "auth-user-1", email: "owner@example.com" },
+            session: { token: "session-token" },
+          })),
+          signOut: vi.fn(async () => ({ headers: new Headers() })),
+        },
+      };
+
+      vi.doMock("./embed-session.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        revokeEmbedSessionsForOwner,
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: vi.fn(async () => auth),
+        getBetterAuthSync: vi.fn(() => auth),
+        resumeIdentityRekeysForEmail: vi.fn(async () => {}),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("../org/context.js", () => ({
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+      }));
+
+      const { autoMountAuth, COOKIE_NAME } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const logoutAllHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/logout-all",
+      )?.[1];
+
+      operations.length = 0;
+      const event = createJsonPostEvent(
+        "/_agent-native/auth/logout-all",
+        {},
+        { cookie: `${COOKIE_NAME}=session-token` },
+      );
+      await expect(logoutAllHandler(event)).resolves.toEqual({ ok: true });
+      expect(operations[0]).toBe("revoke");
+      expect(revokeEmbedSessionsForOwner).toHaveBeenCalledWith(
+        "owner@example.com",
+      );
+      expect(event.res.headers.get("set-cookie") ?? "").toContain(
+        `${COOKIE_NAME}=; Max-Age=0`,
+      );
+
+      operations.length = 0;
+      failRevocation = true;
+      const failedEvent = createJsonPostEvent(
+        "/_agent-native/auth/logout-all",
+        {},
+        { cookie: `${COOKIE_NAME}=session-token` },
+      );
+      await expect(logoutAllHandler(failedEvent)).resolves.toEqual({
+        error: "revocation store unavailable",
+      });
+      expect(failedEvent.res.status).toBe(500);
+      expect(operations).toEqual(["revoke"]);
+      expect(failedEvent.res.headers.get("set-cookie") ?? "").toBe("");
+    }, 30_000);
+
     it("revokes the Better Auth session row directly so logout can't be resurrected by the legacy-cookie fallback", async () => {
       // Reproduces the reported bug: a token whose legacy `sessions` row was
       // never written (the magic-link `addSession` mirror is best-effort —
