@@ -1,5 +1,8 @@
 name: Deploy Netlify PR previews from GitHub Actions
 
+# pull_request_target is intentional: GitHub loads this workflow from the base
+# revision. The PR build job has no deployment secrets; the separate upload job
+# checks out the trusted base revision and only receives the built artifact.
 on:
   pull_request_target:
     branches: [main]
