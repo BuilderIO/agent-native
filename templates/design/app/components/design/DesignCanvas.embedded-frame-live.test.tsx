@@ -178,7 +178,14 @@ describe("DesignCanvas live embedded-frame offset", () => {
       await reportFocus("agent-native:editor-chrome-ready", true);
       expect(document.activeElement).toBe(scrollSurface);
 
-      for (const role of ["textbox", "combobox", "searchbox"]) {
+      for (const role of [
+        "textbox",
+        "combobox",
+        "searchbox",
+        "button",
+        "link",
+        "switch",
+      ]) {
         const input = iframe!.contentDocument!.createElement("div");
         input.setAttribute("role", role);
         input.tabIndex = 0;
@@ -194,6 +201,76 @@ describe("DesignCanvas live embedded-frame offset", () => {
       iframe!.focus();
       await reportFocus("agent-native:canvas-focus-state", true);
       expect(document.activeElement).toBe(scrollSurface);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("uses the current edit mode when live frames report focus", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    const render = (mode: {
+      interactMode: boolean;
+      editMode: boolean;
+      readOnly: boolean;
+    }) => (
+      <DesignCanvas
+        content="<!doctype html><html><body></body></html>"
+        contentKey="live-url-frame-focus-mode"
+        sourceType="localhost"
+        screenId="library"
+        zoom={100}
+        deviceFrame="none"
+        interactMode={mode.interactMode}
+        editMode={mode.editMode}
+        readOnly={mode.readOnly}
+        registerRuntimeBridge={false}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+      />
+    );
+
+    try {
+      await act(async () =>
+        root.render(
+          render({ interactMode: false, editMode: true, readOnly: false }),
+        ),
+      );
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      const scrollSurface =
+        container.querySelector<HTMLElement>('[tabindex="-1"]');
+      expect(iframe?.contentWindow).toBeTruthy();
+      expect(scrollSurface).not.toBeNull();
+
+      for (const mode of [
+        { interactMode: true, editMode: true, readOnly: false },
+        { interactMode: false, editMode: false, readOnly: false },
+        { interactMode: false, editMode: true, readOnly: true },
+      ]) {
+        await act(async () => root.render(render(mode)));
+        iframe!.focus();
+        expect(document.activeElement).toBe(iframe);
+        await act(async () =>
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data: {
+                type: "agent-native:canvas-focus-state",
+                focusSafe: true,
+              },
+              origin: window.location.origin,
+              source: iframe!.contentWindow,
+            }),
+          ),
+        );
+        expect(document.activeElement).toBe(iframe);
+        expect(document.activeElement).not.toBe(scrollSurface);
+      }
     } finally {
       await act(async () => root.unmount());
       container.remove();

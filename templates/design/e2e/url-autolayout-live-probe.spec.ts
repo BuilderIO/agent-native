@@ -68,6 +68,7 @@ test.describe("URL-backed live auto-layout probe", () => {
     </style></head><body><main>
       <div id="flow" data-source-id="flow-root" data-agent-native-node-id="flow-root" data-agent-native-layer-name="Flow root" data-source-file="index.html" data-source-line="1" data-source-column="1"><div id="v1" data-source-id="v1" data-agent-native-node-id="v1" data-agent-native-layer-name="V1" data-source-file="index.html" data-source-line="1" data-source-column="2" data-card>V1</div><div id="v2" data-source-id="v2" data-agent-native-node-id="v2" data-agent-native-layer-name="V2" data-source-file="index.html" data-source-line="1" data-source-column="3" data-card>V2</div><div id="v3" data-source-id="v3" data-agent-native-node-id="v3" data-agent-native-layer-name="V3" data-source-file="index.html" data-source-line="1" data-source-column="4" data-card>V3</div></div>
       <div id="group-grid" data-source-id="group-grid" data-agent-native-node-id="group-grid" data-source-file="index.html" data-source-line="1" data-source-column="5"><div id="group-occupied" data-source-id="group-occupied" data-agent-native-node-id="group-occupied" data-agent-native-layer-name="Occupied" data-source-file="index.html" data-source-line="1" data-source-column="8" data-group-card style="grid-column:3 / 5;grid-row:2">Occupied</div><div id="group-a" data-source-id="group-a" data-agent-native-node-id="group-a" data-agent-native-layer-name="Group A" data-source-file="index.html" data-source-line="1" data-source-column="6" data-group-card style="grid-column:1;grid-row:1">A</div><div id="group-b" data-source-id="group-b" data-agent-native-node-id="group-b" data-agent-native-layer-name="Group B" data-source-file="index.html" data-source-line="1" data-source-column="7" data-group-card style="grid-column:2;grid-row:1">B</div></div>
+      <button type="button">Keep focus in app</button>
     </main></body></html>`;
     fs.writeFileSync(path.join(rootPath, "index.html"), source);
     devServer = http.createServer((_req, res) => {
@@ -151,6 +152,56 @@ test.describe("URL-backed live auto-layout probe", () => {
             Boolean(liveFrame && active.contains(liveFrame))
           );
         }),
+      )
+      .toBe(true);
+
+    await frame.getByRole("button", { name: "Keep focus in app" }).focus();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document.activeElement ===
+            document.querySelector("iframe[data-design-preview-iframe]"),
+        ),
+      )
+      .toBe(true);
+
+    await frame.locator("body").evaluate(() => {
+      const host = document.createElement("e2e-focus-host");
+      const shadow = host.attachShadow({ mode: "open" });
+      const input = document.createElement("input");
+      input.setAttribute("aria-label", "Shadow input");
+      shadow.append(input);
+      document.body.append(host);
+      input.focus();
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document.activeElement ===
+            document.querySelector("iframe[data-design-preview-iframe]"),
+        ),
+      )
+      .toBe(true);
+
+    await frame.locator("body").evaluate(() => {
+      const nested = document.createElement("iframe");
+      nested.id = "nested-focus-frame";
+      nested.srcdoc = '<input aria-label="Nested frame input">';
+      document.body.append(nested);
+    });
+    const nestedFrame = await frame
+      .locator("#nested-focus-frame")
+      .contentFrame();
+    await nestedFrame.locator("input").focus();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document.activeElement ===
+            document.querySelector("iframe[data-design-preview-iframe]"),
+        ),
       )
       .toBe(true);
   });
