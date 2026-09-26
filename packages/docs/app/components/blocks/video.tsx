@@ -12,7 +12,6 @@ export function VideoBlock({ data, ctx }: BlockReadProps<VideoData>) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { current, initial, autoplayStopped } =
     usePrefersReducedMotion(videoRef);
-  // Autoplay only fires once the reduced-motion preference has resolved.
   const shouldAutoplay =
     Boolean(data.autoplay) && current === false && !autoplayStopped;
   const shouldMute = Boolean(data.autoplay) && initial !== true;
