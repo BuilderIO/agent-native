@@ -533,9 +533,8 @@ export default function ShareRoute() {
     status: sessionStatus,
     retry: retrySession,
   } = useSession();
-  // appPath("/") always renders the public marketing shell (root.tsx's
-  // isMarketingHome), even for a signed-in viewer - never use it as a
-  // signed-in destination.
+  // The root entry is public, even for signed-in viewers; keep private
+  // destinations on the app's home route.
   const homeHref = session ? appPath("/home") : appPath("/");
   const retriedUnavailableSessionRef = useRef(false);
   const requestAccess = useActionMutation<

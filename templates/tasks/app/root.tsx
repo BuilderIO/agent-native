@@ -194,24 +194,15 @@ function AppContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const location = useLocation();
-  const isMarketingPath = location.pathname === "/";
   return (
     <AppProviders
       queryClient={queryClient}
-      isPublicPath={isMarketingPath}
       toaster={<Toaster position="bottom-left" />}
       i18n={{ catalog: i18nCatalog }}
     >
       <AppToolkitProvider>
-        {isMarketingPath ? (
-          <Outlet />
-        ) : (
-          <>
-            <DbSyncSetup />
-            <AppContent />
-          </>
-        )}
+        <DbSyncSetup />
+        <AppContent />
       </AppToolkitProvider>
     </AppProviders>
   );

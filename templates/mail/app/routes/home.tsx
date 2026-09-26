@@ -87,7 +87,7 @@ export function HydrateFallback() {
   return <DefaultSpinner />;
 }
 
-// Private app entry retained at /home; / serves the public marketing page.
+// Private app entry retained at /home; / redirects to shared sign-in/signup.
 export default function IndexRoute() {
   // Should never render — both loaders redirect to the inbox.
   return null;
