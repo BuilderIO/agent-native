@@ -22,7 +22,7 @@ import {
   type PrivateBlobProvider,
 } from "@agent-native/core/private-blob";
 import { readAppSecret } from "@agent-native/core/secrets";
-import { resolveSecret } from "@agent-native/core/server";
+import { getRequestOrgId, resolveSecret } from "@agent-native/core/server";
 
 import {
   legacyOrganizationLogoObjectKey,
@@ -122,15 +122,24 @@ function buildS3Config(values: {
 }
 
 function readS3EnvConfig(): S3Config | null {
-  const env = process.env;
   return buildS3Config({
-    bucket: env.S3_BUCKET || env.R2_BUCKET,
-    accessKeyId: env.S3_ACCESS_KEY_ID || env.R2_ACCESS_KEY_ID,
-    secretAccessKey: env.S3_SECRET_ACCESS_KEY || env.R2_SECRET_ACCESS_KEY,
-    endpoint: env.S3_ENDPOINT || env.R2_ENDPOINT,
-    region: env.S3_REGION || env.R2_REGION,
-    publicBaseUrl: env.S3_PUBLIC_BASE_URL || env.R2_PUBLIC_BASE_URL,
+    bucket: readS3EnvSecret("S3_BUCKET", "R2_BUCKET"),
+    accessKeyId: readS3EnvSecret("S3_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"),
+    secretAccessKey: readS3EnvSecret(
+      "S3_SECRET_ACCESS_KEY",
+      "R2_SECRET_ACCESS_KEY",
+    ),
+    endpoint: readS3EnvSecret("S3_ENDPOINT", "R2_ENDPOINT"),
+    region: readS3EnvSecret("S3_REGION", "R2_REGION"),
+    publicBaseUrl: readS3EnvSecret("S3_PUBLIC_BASE_URL", "R2_PUBLIC_BASE_URL"),
   });
+}
+
+function readS3EnvSecret(
+  primary: string,
+  fallback: string,
+): string | undefined {
+  return cleanValue(process.env[primary]) ?? cleanValue(process.env[fallback]);
 }
 
 async function resolveS3Secret(primary: string, fallback: string) {
@@ -181,7 +190,7 @@ async function resolveOrganizationLogoS3Secret(
         })
       )?.value,
     ) ??
-    (await resolveS3Secret(primary, fallback))
+    readS3EnvSecret(primary, fallback)
   );
 }
 
@@ -545,7 +554,12 @@ export const clipsOrganizationLogoPrivateBlobProvider: PrivateBlobProvider = {
   id: S3_ORGANIZATION_LOGO_PROVIDER_ID,
   name: "Clips organization logo storage",
   isConfigured: () => readS3EnvConfig() !== null,
-  isConfiguredForRequest: async () => (await readS3Config()) !== null,
+  isConfiguredForRequest: async () => {
+    const organizationId = getRequestOrgId();
+    return organizationId
+      ? (await readOrganizationLogoS3Config(organizationId)) !== null
+      : false;
+  },
   async put(input) {
     const organizationId = input.metadata?.organizationId;
     const extension = input.mimeType
@@ -556,7 +570,7 @@ export const clipsOrganizationLogoPrivateBlobProvider: PrivateBlobProvider = {
         "Clips logo storage requires an organization and image MIME type",
       );
     }
-    const cfg = await readS3Config();
+    const cfg = await readOrganizationLogoS3Config(organizationId);
     if (!cfg) {
       throw new S3StorageError("S3 credentials are not configured", 503);
     }
@@ -596,9 +610,12 @@ export const clipsOrganizationLogoPrivateBlobProvider: PrivateBlobProvider = {
     };
   },
   async delete(handle) {
+    const organizationId = handle.metadata?.organizationId;
     const key = privateLogoHandleKey(handle);
-    if (!key) throw new Error("Clips organization logo handle is invalid");
-    const cfg = await readS3Config();
+    if (!key || typeof organizationId !== "string") {
+      throw new Error("Clips organization logo handle is invalid");
+    }
+    const cfg = await readOrganizationLogoS3Config(organizationId);
     if (!cfg) {
       throw new S3StorageError("S3 credentials are not configured", 503);
     }
