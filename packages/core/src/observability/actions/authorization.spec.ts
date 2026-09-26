@@ -8,7 +8,15 @@ const mockGetInstructionUpdates = vi.hoisted(() => vi.fn());
 const mockInsertInstructionUpdate = vi.hoisted(() => vi.fn());
 const mockInsertFeedback = vi.hoisted(() => vi.fn());
 const mockGetOutputReviewSummarySource = vi.hoisted(() => vi.fn());
+const mockListOutputReviews = vi.hoisted(() => vi.fn());
+const mockGetOutputReviewDetailForRun = vi.hoisted(() => vi.fn());
+const mockGetOutputReviewAppForRun = vi.hoisted(() => vi.fn());
+const mockGetAppConfig = vi.hoisted(() => vi.fn());
 const mockUpsertHumanReviewSummary = vi.hoisted(() => vi.fn());
+
+vi.mock("../../app-config/index.js", () => ({
+  getAppConfig: () => mockGetAppConfig(),
+}));
 
 vi.mock("../../server/org-admin.js", () => ({
   currentRequestUserIsOrgAdmin: (...args: unknown[]) => mockIsOrgAdmin(...args),
@@ -28,6 +36,11 @@ vi.mock("../store.js", () => ({
 }));
 
 vi.mock("../reviews.js", () => ({
+  listOutputReviews: (...args: unknown[]) => mockListOutputReviews(...args),
+  getOutputReviewDetailForRun: (...args: unknown[]) =>
+    mockGetOutputReviewDetailForRun(...args),
+  getOutputReviewAppForRun: (...args: unknown[]) =>
+    mockGetOutputReviewAppForRun(...args),
   getOutputReviewSummarySource: (...args: unknown[]) =>
     mockGetOutputReviewSummarySource(...args),
 }));
@@ -50,7 +63,34 @@ describe("observability admin action authorization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsOrgAdmin.mockResolvedValue(false);
+    mockGetAppConfig.mockReturnValue({
+      observability: { superOrgId: undefined },
+    });
+    mockListOutputReviews.mockResolvedValue([]);
+    mockGetOutputReviewDetailForRun.mockResolvedValue({
+      found: true,
+      runId: "r-b",
+      orgId: "org-b",
+      app: null,
+      messages: [],
+      artifacts: [],
+      summary: null,
+      ask: "Ask",
+      answer: "Done",
+    });
+    mockGetOutputReviewAppForRun.mockResolvedValue({ found: true, app: null });
     mockGetOutputReviewSummarySource.mockReset();
+    mockGetOutputReviewSummarySource.mockResolvedValue({
+      found: true,
+      runId: "r-b",
+      threadTitle: null,
+      attachedArtifacts: [],
+      threadEvidenceAvailable: false,
+      messages: [],
+      toolEvidence: [],
+      toolEvidenceAvailable: false,
+      malformedThreadToolOutput: false,
+    });
     mockUpsertHumanReviewSummary.mockReset();
   });
 
@@ -123,6 +163,86 @@ describe("observability admin action authorization", () => {
       listObservabilityReviews.run({ cacheOrgId: "org-b" }, adminContext),
     ).rejects.toMatchObject({ statusCode: 403 });
     expect(mockGetTraceSummaries).not.toHaveBeenCalled();
+  });
+
+  it("keeps an ordinary org admin's review list scoped to that org", async () => {
+    mockIsOrgAdmin.mockResolvedValue(true);
+
+    await listObservabilityReviews.run({}, adminContext);
+
+    expect(mockListOutputReviews).toHaveBeenCalledWith({
+      sinceMs: expect.any(Number),
+      limit: 100,
+      scope: { kind: "organization", orgId: "org-a" },
+    });
+  });
+
+  it("only lets configured super-organization admins request cross-org details", async () => {
+    mockIsOrgAdmin.mockResolvedValue(true);
+    mockGetAppConfig.mockReturnValue({
+      observability: { superOrgId: "org-super" },
+    });
+
+    await expect(
+      getObservabilityReviewDetail.run(
+        { runId: "r-b", orgId: "org-b" },
+        adminContext,
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      getObservabilityReviewApp.run(
+        { runId: "r-b", orgId: "org-b" },
+        adminContext,
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      getObservabilityReviewSummarySource.run(
+        { runId: "r-b", orgId: "org-b" },
+        adminContext,
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mockGetOutputReviewDetailForRun).not.toHaveBeenCalled();
+    expect(mockGetOutputReviewAppForRun).not.toHaveBeenCalled();
+    expect(mockGetOutputReviewSummarySource).not.toHaveBeenCalled();
+  });
+
+  it("gives the configured super-org admin cross-org read scope", async () => {
+    mockIsOrgAdmin.mockResolvedValue(true);
+    mockGetAppConfig.mockReturnValue({
+      observability: { superOrgId: "org-a" },
+    });
+
+    await listObservabilityReviews.run({}, adminContext);
+    await getObservabilityReviewDetail.run(
+      { runId: "r-b", orgId: "org-b" },
+      adminContext,
+    );
+    await getObservabilityReviewApp.run(
+      { runId: "r-b", orgId: "org-b" },
+      adminContext,
+    );
+    await getObservabilityReviewSummarySource.run(
+      { runId: "r-b", orgId: "org-b" },
+      adminContext,
+    );
+
+    expect(mockListOutputReviews).toHaveBeenCalledWith({
+      sinceMs: expect.any(Number),
+      limit: 100,
+      scope: { kind: "all", activeOrgId: "org-a" },
+    });
+    expect(mockGetOutputReviewDetailForRun).toHaveBeenCalledWith({
+      runId: "r-b",
+      orgId: "org-b",
+    });
+    expect(mockGetOutputReviewAppForRun).toHaveBeenCalledWith({
+      runId: "r-b",
+      orgId: "org-b",
+    });
+    expect(mockGetOutputReviewSummarySource).toHaveBeenCalledWith({
+      runId: "r-b",
+      orgId: "org-b",
+    });
   });
 
   it.each([

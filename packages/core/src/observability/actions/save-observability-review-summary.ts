@@ -5,7 +5,8 @@ import { getOutputReviewSummarySource } from "../reviews.js";
 import { getTraceSummary, upsertHumanReviewSummary } from "../store.js";
 import type { HumanReviewArtifactRef, HumanReviewSummary } from "../types.js";
 import {
-  requireObservabilityOrgAdmin,
+  authorizeObservabilityOrgAdmin,
+  getObservabilityOrgAdminAccess,
   requireObservabilityReviewRunScope,
 } from "./authorization.js";
 
@@ -147,8 +148,9 @@ export default defineAction({
     })
     .strict(),
   agentTool: true,
+  authorize: authorizeObservabilityOrgAdmin,
   run: async (args, ctx) => {
-    const { userId, orgId } = await requireObservabilityOrgAdmin(ctx);
+    const { userId, orgId } = getObservabilityOrgAdminAccess(ctx);
     requireObservabilityReviewRunScope(args.runId);
     const target = await getTraceSummary(args.runId, { orgId });
     if (!target)
