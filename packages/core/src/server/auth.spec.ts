@@ -1809,17 +1809,13 @@ describe("server/auth", () => {
 
     it("revokes embed sessions for every signed-out identity before clearing cookies", async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("OAUTH_STATE_SECRET", "auth-logout-test-secret");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
 
       const revokeEmbedSessionsForOwner = vi.fn(async () => {});
       vi.doMock("./embed-session.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
-        resolveEmbedSessionFromRequest: vi.fn(async () => ({
-          email: "owner@example.com",
-          token: "partitioned-embed-token",
-          targetPath: "/inbox",
-        })),
         revokeEmbedSessionsForOwner,
       }));
       vi.doMock("./better-auth-instance.js", () => ({
@@ -1852,18 +1848,24 @@ describe("server/auth", () => {
       }));
 
       const { autoMountAuth } = await import("./auth.js");
+      const { signEmbedSessionToken } = await import("./embed-session.js");
       const app = createMockApp();
       await autoMountAuth(app);
 
       const logoutHandler = app.use.mock.calls.find(
         (call: any[]) => call[0] === "/_agent-native/auth/logout",
       )?.[1];
+      const embedToken = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        targetPath: "/inbox",
+        audienceHost: "localhost",
+      });
       const event = createJsonPostEvent(
         "/_agent-native/auth/logout",
         {},
         {
-          cookie:
-            "an_embed_session=partitioned-embed-token; an_session=normal-session",
+          cookie: `an_embed_session=${embedToken}; an_session=normal-session`,
+          host: "localhost",
         },
       );
 
@@ -1882,7 +1884,7 @@ describe("server/auth", () => {
       const failedEvent = createJsonPostEvent(
         "/_agent-native/auth/logout",
         {},
-        { cookie: "an_embed_session=partitioned-embed-token" },
+        { cookie: `an_embed_session=${embedToken}`, host: "localhost" },
       );
       await expect(logoutHandler(failedEvent)).resolves.toEqual({
         error: "Unable to revoke session",

@@ -27,10 +27,14 @@ import {
   requestHasEmbedAuthMarker,
   resolveEmbedSessionFromRequest,
   consumeEmbedSessionTicket,
+  createEmbedSessionTicket,
+  revokeEmbedSessionsForOwner,
+  resolveEmbedSessionTokenForHost,
   setEmbedSessionCookie,
   signEmbedSessionToken,
   verifyEmbedSessionToken,
 } from "./embed-session.js";
+import { getRequestContext, runWithRequestContext } from "./request-context.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -38,6 +42,7 @@ describe("embed session tokens", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-20T12:00:00Z"));
+    dbExec.execute.mockReset().mockResolvedValue({ rows: [], rowsAffected: 1 });
     process.env = { ...ORIGINAL_ENV, OAUTH_STATE_SECRET: "embed-test-secret" };
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
@@ -80,14 +85,133 @@ describe("embed session tokens", () => {
       reason: "expired",
     });
   });
+
+  it("checks host audience and logout revocation without an H3 request", async () => {
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "calendar.example.test",
+      targetPath: "/inbox",
+    });
+
+    await expect(
+      resolveEmbedSessionTokenForHost(token, "other.example.test"),
+    ).resolves.toBeNull();
+    await expect(
+      resolveEmbedSessionTokenForHost(token, "calendar.example.test"),
+    ).resolves.toMatchObject({ ownerEmail: "owner@example.com" });
+
+    const legacyToken = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/inbox",
+    });
+    await expect(
+      resolveEmbedSessionTokenForHost(
+        legacyToken,
+        "beta.calendar.agent-native.com",
+      ),
+    ).resolves.toBeNull();
+
+    dbExec.execute.mockResolvedValueOnce({
+      rows: [{ revoked_before: Date.now() }],
+      rowsAffected: 0,
+    });
+    await expect(
+      resolveEmbedSessionTokenForHost(token, "calendar.example.test"),
+    ).resolves.toBeNull();
+  });
 });
 
 describe("embed session tickets", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-20T12:00:00Z"));
     dbExec.execute.mockReset().mockResolvedValue({ rows: [], rowsAffected: 1 });
     dbExec.transaction
       .mockReset()
       .mockImplementation(async (run) => run(dbExec));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("rejects ticket creation when logout wins after the request was authenticated", async () => {
+    let revokedBefore: number | null = null;
+    let ticketInserted = false;
+    dbExec.execute.mockImplementation(async ({ sql, args }) => {
+      if (sql.includes("SELECT revoked_before")) {
+        return {
+          rows:
+            revokedBefore === null ? [] : [{ revoked_before: revokedBefore }],
+          rowsAffected: 0,
+        };
+      }
+      if (sql.includes("INSERT INTO agent_native_embed_session_revocations")) {
+        revokedBefore = Number(args[1]);
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (sql.includes("INSERT INTO agent_native_embed_tickets")) {
+        ticketInserted = true;
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+
+    let releaseTicketInsert!: () => void;
+    let signalTicketTransaction!: () => void;
+    const ticketTransactionStarted = new Promise<void>((resolve) => {
+      signalTicketTransaction = resolve;
+    });
+    const releaseTicketTransaction = new Promise<void>((resolve) => {
+      releaseTicketInsert = resolve;
+    });
+    let transactionCount = 0;
+    dbExec.transaction.mockImplementation(async (run) => {
+      transactionCount += 1;
+      if (transactionCount === 1) {
+        signalTicketTransaction();
+        await releaseTicketTransaction;
+      }
+      return run(dbExec);
+    });
+
+    const pendingTicket = runWithRequestContext(
+      { userEmail: "owner@example.com" },
+      async () => {
+        const authenticatedAtMs =
+          getRequestContext()?.identityAuthenticatedAtMs;
+        expect(authenticatedAtMs).toBe(Date.now());
+        return runWithRequestContext({ userEmail: "OWNER@example.com" }, () => {
+          expect(getRequestContext()?.identityAuthenticatedAtMs).toBe(
+            authenticatedAtMs,
+          );
+          return createEmbedSessionTicket({
+            ownerEmail: "owner@example.com",
+            targetPath: "/inbox",
+          });
+        });
+      },
+    ) as Promise<unknown>;
+
+    await ticketTransactionStarted;
+    await revokeEmbedSessionsForOwner("owner@example.com");
+    releaseTicketInsert();
+
+    await expect(pendingTicket).rejects.toThrow(
+      "Embed session ticket creation was revoked by logout.",
+    );
+    expect(ticketInserted).toBe(false);
+    expect(revokedBefore).toBe(Date.now());
+
+    vi.advanceTimersByTime(1);
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        createEmbedSessionTicket({
+          ownerEmail: "owner@example.com",
+          targetPath: "/inbox",
+        }),
+      ),
+    ).resolves.toMatchObject({ ticket: expect.any(String) });
+    expect(ticketInserted).toBe(true);
   });
 
   it("lets a signed-in collaborator redeem a resource-scoped capability", async () => {
@@ -322,6 +446,17 @@ describe("requestMatchesEmbedTarget", () => {
         "/_agent-native/open?app=mail&view=inbox&composeDraftId=d1",
       ),
     ).toBe(false);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/_agent-native/application-state/compose", {
+          host: "internal.gateway:3000",
+          "x-forwarded-host": "mail.agent-native.com",
+          "x-forwarded-proto": "https, http",
+          referer: "https://evil.example/inbox?embedded=1",
+        }),
+        "/_agent-native/open?app=mail&view=inbox&composeDraftId=d1",
+      ),
+    ).toBe(false);
   });
 
   it("does not build thread record paths from unsafe view paths", () => {
@@ -404,6 +539,7 @@ describe("requestMatchesEmbedTarget", () => {
     expect(
       requestHasEmbedAuthMarker(
         fakeEvent("/_agent-native/actions/list-libraries", {
+          host: "mail.test",
           authorization: `Bearer ${token}`,
           [EMBED_TARGET_HEADER]: "/picker?embedded=1",
         }),
@@ -412,6 +548,7 @@ describe("requestMatchesEmbedTarget", () => {
     expect(
       requestHasEmbedAuthMarker(
         fakeEvent("/_agent-native/actions/list-libraries", {
+          host: "mail.test",
           authorization: `Bearer ${token}`,
           [EMBED_TARGET_HEADER]: "/settings?embedded=1",
         }),
@@ -430,6 +567,7 @@ describe("requestMatchesEmbedTarget", () => {
 
     const runtimeSession = await resolveEmbedSessionFromRequest(
       fakeEvent("/api/emails?view=inbox&limit=25", {
+        host: "mail.test",
         cookie: `${EMBED_SESSION_COOKIE}=${token}`,
       }),
     );
@@ -443,10 +581,29 @@ describe("requestMatchesEmbedTarget", () => {
     await expect(
       resolveEmbedSessionFromRequest(
         fakeEvent("/settings", {
+          host: "mail.test",
           cookie: `${EMBED_SESSION_COOKIE}=${token}`,
         }),
       ),
     ).resolves.toBeNull();
+  });
+
+  it("resolves the embed owner for logout without a target referrer", async () => {
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "mail.test",
+      targetPath: "/inbox",
+      ttlSeconds: 60,
+    });
+
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/_agent-native/auth/logout", {
+          host: "mail.test",
+          cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+        }),
+      ),
+    ).resolves.toMatchObject({ email: "owner@example.com" });
   });
 
   it("revokes embed cookies across browser partitions after logout", async () => {
@@ -479,7 +636,6 @@ describe("requestMatchesEmbedTarget", () => {
       resolveEmbedSessionFromRequest(partitionedEmbedRequest),
     ).resolves.toMatchObject({ email: "owner@example.com" });
 
-    const { revokeEmbedSessionsForOwner } = await import("./embed-session.js");
     await revokeEmbedSessionsForOwner("OWNER@example.com");
 
     await expect(
@@ -507,7 +663,10 @@ describe("requestMatchesEmbedTarget", () => {
 
       await expect(
         resolveEmbedSessionFromRequest(
-          fakeEvent("/inbox", { cookie: `${EMBED_SESSION_COOKIE}=${token}` }),
+          fakeEvent("/inbox", {
+            host: "mail.test",
+            cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+          }),
         ),
       ).resolves.toMatchObject({ email: "owner@example.com" });
       const verified = verifyEmbedSessionToken(token);
@@ -657,6 +816,26 @@ describe("requestMatchesEmbedTarget", () => {
         }),
       ),
     ).resolves.toBeNull();
+
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/inbox", {
+          host: "internal.gateway:3000",
+          "x-forwarded-host": betaHost,
+          "x-forwarded-proto": "https, http",
+          cookie: `${EMBED_SESSION_COOKIE}=${legacyToken}`,
+        }),
+      ),
+    ).resolves.toBeNull();
+
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/inbox", {
+          host: "beta.calendar.agent-native.com.",
+          cookie: `${EMBED_SESSION_COOKIE}=${legacyToken}`,
+        }),
+      ),
+    ).resolves.toBeNull();
   });
 
   it("accepts signed-out visual-edit bootstrap tokens only on their issuing host", async () => {
@@ -672,7 +851,9 @@ describe("requestMatchesEmbedTarget", () => {
     await expect(
       resolveEmbedSessionFromRequest(
         fakeEvent("/visual-edit", {
-          host,
+          host: "internal.gateway:3000",
+          "x-forwarded-host": host,
+          "x-forwarded-proto": "https",
           authorization: `Bearer ${token}`,
         }),
       ),
@@ -682,7 +863,9 @@ describe("requestMatchesEmbedTarget", () => {
     });
 
     const siblingRequest = fakeEvent("/visual-edit", {
-      host: "beta.calendar.agent-native.com",
+      host: "internal.gateway:3000",
+      "x-forwarded-host": "beta.calendar.agent-native.com",
+      "x-forwarded-proto": "https",
       authorization: `Bearer ${token}`,
     });
     await expect(resolveEmbedSessionFromRequest(siblingRequest)).resolves.toBe(
@@ -755,7 +938,9 @@ describe("requestMatchesEmbedTarget", () => {
       targetPath: "/picker?mediaType=image",
       ttlSeconds: 60,
     });
-    const event = fakeEvent(`/@vite/client?__an_embed_token=${token}`);
+    const event = fakeEvent(`/@vite/client?__an_embed_token=${token}`, {
+      host: "mail.test",
+    });
 
     await expect(resolveEmbedSessionFromRequest(event)).resolves.toMatchObject({
       email: "owner@example.com",
@@ -781,6 +966,7 @@ describe("requestMatchesEmbedTarget", () => {
       resolveEmbedSessionFromRequest(
         fakeEvent(
           `/_agent-native/actions/get-design?__an_embed_token=${token}&${EMBED_TARGET_QUERY_PARAM}=${matchingTarget}`,
+          { host: "mail.test" },
         ),
       ),
     ).resolves.toMatchObject({
@@ -792,12 +978,14 @@ describe("requestMatchesEmbedTarget", () => {
       resolveEmbedSessionFromRequest(
         fakeEvent(
           `/_agent-native/actions/get-design?__an_embed_token=${token}&${EMBED_TARGET_QUERY_PARAM}=${encodeURIComponent("/design/design-1")}`,
+          { host: "mail.test" },
         ),
       ),
     ).resolves.toBeNull();
     await expect(
       resolveEmbedSessionFromRequest(
         fakeEvent("/_agent-native/actions/get-design", {
+          host: "mail.test",
           cookie: `${EMBED_SESSION_COOKIE}=${token}`,
         }),
       ),
@@ -805,6 +993,7 @@ describe("requestMatchesEmbedTarget", () => {
     await expect(
       resolveEmbedSessionFromRequest(
         fakeEvent("/design/design-1", {
+          host: "mail.test",
           cookie: `${EMBED_SESSION_COOKIE}=${token}`,
         }),
       ),
@@ -823,6 +1012,7 @@ describe("requestMatchesEmbedTarget", () => {
     await expect(
       resolveEmbedSessionFromRequest(
         fakeEvent("/@vite/client", {
+          host: "mail.test",
           cookie: `${EMBED_SESSION_COOKIE}=${token}`,
         }),
       ),
@@ -832,6 +1022,7 @@ describe("requestMatchesEmbedTarget", () => {
     expect(
       requestHasEmbedAuthMarker(
         fakeEvent("/_agent-native/actions/get-design", {
+          host: "mail.test",
           cookie: `${EMBED_SESSION_COOKIE}=${token}`,
         }),
       ),

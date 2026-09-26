@@ -8,7 +8,8 @@ vi.mock("h3", () => ({
     event.headers?.[name] ?? event.headers?.[name.toLowerCase()],
   getMethod: (event: any) => event.method ?? "GET",
   getQuery: (event: any) => event.query ?? {},
-  getRequestURL: (event: any) => event.url ?? new URL("https://app.test/"),
+  getRequestHeader: (event: any, name: string) =>
+    event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
   setResponseHeader: (...a: any[]) => setResponseHeader(...a),
 }));
 
@@ -35,7 +36,11 @@ function fakeEvent(
   return {
     method,
     query,
-    headers,
+    headers: {
+      host: "app.test",
+      "x-forwarded-proto": "https",
+      ...headers,
+    },
     res: {
       headers: {
         getSetCookie: () => [],
@@ -106,7 +111,14 @@ describe("createEmbedStartRouteHandler", () => {
     const handler = createEmbedStartRouteHandler();
 
     const res: Response = await handler(
-      fakeEvent("GET", { ticket: "ticket-123" }),
+      fakeEvent(
+        "GET",
+        { ticket: "ticket-123" },
+        {
+          host: "internal.gateway:3000",
+          "x-forwarded-host": "beta.calendar.agent-native.com",
+        },
+      ),
     );
 
     expect(consumeEmbedSessionTicket).toHaveBeenCalledWith(
@@ -118,7 +130,7 @@ describe("createEmbedStartRouteHandler", () => {
       ownerEmail: "steve@example.com",
       orgId: "builder",
       targetPath: "/inbox",
-      audienceHost: "app.test",
+      audienceHost: "beta.calendar.agent-native.com",
       scope: "full",
       ticketCreatedAtMs: expect.any(Number),
     });

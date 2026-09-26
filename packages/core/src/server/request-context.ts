@@ -164,6 +164,8 @@ export interface RequestContext {
   /** Stable MCP request key used to make transport retries idempotent. */
   mcpRequestId?: string;
   userEmail?: string;
+  /** Time this request identity was validated, preserved through nested scopes. */
+  identityAuthenticatedAtMs?: number;
   /** Canonical id set only from a validated Better Auth session. */
   authUserId?: string;
   userName?: string;
@@ -374,6 +376,29 @@ export function runWithRequestContext<T>(
     inheritedContext?.trackingScope !== undefined
   ) {
     context = { ...context, trackingScope: inheritedContext.trackingScope };
+  }
+  const contextUserEmail = context.userEmail?.trim().toLowerCase();
+  if (contextUserEmail) {
+    const inheritedUserEmail = inheritedContext?.userEmail
+      ?.trim()
+      .toLowerCase();
+    const inheritedAuthTime = inheritedContext?.identityAuthenticatedAtMs;
+    context = {
+      ...context,
+      identityAuthenticatedAtMs:
+        inheritedUserEmail === contextUserEmail &&
+        typeof inheritedAuthTime === "number" &&
+        Number.isFinite(inheritedAuthTime)
+          ? inheritedAuthTime
+          : typeof context.identityAuthenticatedAtMs === "number" &&
+              Number.isFinite(context.identityAuthenticatedAtMs)
+            ? context.identityAuthenticatedAtMs
+            : Date.now(),
+    };
+  } else if (context.identityAuthenticatedAtMs !== undefined) {
+    const contextWithoutIdentityTime = { ...context };
+    delete contextWithoutIdentityTime.identityAuthenticatedAtMs;
+    context = contextWithoutIdentityTime;
   }
   if (
     context.run?.allowedActionNames !== undefined ||

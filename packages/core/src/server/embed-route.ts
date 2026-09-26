@@ -4,7 +4,6 @@ import {
   getHeader,
   getMethod,
   getQuery,
-  getRequestURL,
   setResponseHeader,
 } from "h3";
 
@@ -30,6 +29,7 @@ import {
   setEmbedSessionCookie,
   signEmbedSessionToken,
 } from "./embed-session.js";
+import { getForwardedRequestHostname } from "./request-origin.js";
 
 function withConfiguredBasePath(path: string): string {
   const base = getConfiguredAppBasePath();
@@ -364,7 +364,7 @@ export function createEmbedStartRouteHandler(
       ownerEmail: consumed.ownerEmail,
       orgId: consumed.orgId,
       targetPath: target,
-      audienceHost: getRequestURL(event).hostname,
+      audienceHost: getForwardedRequestHostname(event),
       scope: consumed.scope,
       ...(consumed.ticketCreatedAtMs != null &&
       !isEmbedCapabilityScope(consumed.scope)
