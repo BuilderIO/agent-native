@@ -248,6 +248,7 @@ describe("Design template library", () => {
     expect(mocks.create).toHaveBeenCalledExactlyOnceWith({
       templateId: "starter",
       title: "Starter template",
+      newId: expect.any(String),
     });
     expect(mocks.navigate).toHaveBeenCalledWith("/design/new-copy");
     expect(named("dialog")).toHaveLength(0);
@@ -360,6 +361,7 @@ describe("Design template library", () => {
     expect(mocks.create).toHaveBeenCalledExactlyOnceWith({
       templateId: "starter",
       title: "Starter template",
+      newId: expect.any(String),
     });
     expect(mocks.navigate).toHaveBeenCalledWith("/design/new-copy");
   });

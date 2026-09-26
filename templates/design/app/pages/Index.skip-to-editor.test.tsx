@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   clearPendingGeneration: vi.fn(),
   fullAppBuilding: false,
   ownCount: 0,
+  ownedCount: 0,
   ownStatus: "success",
   templatesError: false,
   summaryParams: null as Record<string, unknown> | null,
@@ -82,9 +83,12 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string, params: Record<string, unknown>) => {
     if (name === "list-designs") {
       if (params.compact === "true") {
-        mocks.summaryParams = params;
+        if (params.createdBy === "all") mocks.summaryParams = params;
         return {
-          data: { totalCount: mocks.ownCount },
+          data: {
+            totalCount:
+              params.createdBy === "me" ? mocks.ownedCount : mocks.ownCount,
+          },
           isSuccess: mocks.ownStatus === "success",
           isError: mocks.ownStatus === "error",
           isFetching: false,
@@ -306,6 +310,7 @@ beforeEach(async () => {
   mocks.fullAppBuilding = false;
   mocks.systemsEnabled = true;
   mocks.ownCount = 0;
+  mocks.ownedCount = 0;
   mocks.ownStatus = "success";
   mocks.templatesError = false;
   mocks.agentEngine = { state: "configured", missing: false };
@@ -520,6 +525,7 @@ describe("Index skip to editor", () => {
       templateId: "saved-template",
       title: "Saved template",
       designSystemId: "override-system",
+      newId: "design-1",
     });
     expect(mocks.createDesign).not.toHaveBeenCalled();
     expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
@@ -677,6 +683,7 @@ describe("home library", () => {
     expect(mocks.createFromTemplate).toHaveBeenCalledExactlyOnceWith({
       templateId: "starter-template",
       title: "Starter template",
+      newId: "design-1",
     });
     expect(mocks.promptProps?.selectedTemplateId).toBe(
       originalPrompt?.selectedTemplateId,

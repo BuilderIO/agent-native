@@ -498,6 +498,7 @@ export default function Index() {
   const [deckSearch, setDeckSearch] = useState("");
   const [homeSection, setHomeSection] =
     useState<PromptHomeLibraryTab>("templates");
+  const deckFilterWasSelectedRef = useRef(false);
   useEffect(() => {
     if (deckSearch.trim()) setHomeSection("recent");
   }, [deckSearch]);
@@ -663,6 +664,7 @@ export default function Index() {
   const setDeckFilter = useCallback(
     (value: string) => {
       const nextFilter = value === "mine" ? "mine" : "all";
+      deckFilterWasSelectedRef.current = true;
       setStoredDeckFilter(nextFilter);
       writeStoredDeckFilter(nextFilter);
       setSearchParams(
@@ -680,6 +682,21 @@ export default function Index() {
     },
     [setSearchParams],
   );
+
+  useEffect(() => {
+    if (
+      deckFilterWasSelectedRef.current ||
+      deckFilter !== "mine" ||
+      searchParams.has("createdBy") ||
+      decks.length === 0 ||
+      decks.some((deck) => deck.createdByMe)
+    ) {
+      return;
+    }
+    deckFilterWasSelectedRef.current = true;
+    setStoredDeckFilter("all");
+    writeStoredDeckFilter("all");
+  }, [deckFilter, decks, searchParams]);
 
   const setNewDeckPromptOpen = useCallback(
     (open: boolean, options: { clearInitialPrompt?: boolean } = {}) => {

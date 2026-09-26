@@ -166,6 +166,7 @@ export default function Index() {
   );
   const [homeSection, setHomeSection] =
     useState<PromptHomeLibraryTab>("templates");
+  const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const [quickStartPending, setQuickStartPending] = useState(false);
   const quickStartRef = useRef(false);
@@ -191,6 +192,7 @@ export default function Index() {
 
   const skipToEditorPendingRef = useRef(false);
   const newDesignSystemWasChosenRef = useRef(false);
+  const templateCopyIdsRef = useRef(new Map<string, string>());
 
   const normalizedSearch = search.trim();
   const listDesignsParams = useMemo(
@@ -217,6 +219,15 @@ export default function Index() {
     page: 1,
     pageSize: 1,
     createdBy: "all",
+    compact: "true",
+    includePreview: "false",
+  });
+  const ownedDesignsSummary = useActionQuery<
+    Pick<DesignListResult, "totalCount">
+  >("list-designs", {
+    page: 1,
+    pageSize: 1,
+    createdBy: "me",
     compact: "true",
     includePreview: "false",
   });
@@ -472,6 +483,7 @@ export default function Index() {
 
   const handleDesignFilterChange = useCallback((next: string) => {
     if (next !== "all" && next !== "mine") return;
+    designFilterWasSelectedRef.current = true;
     const nextFilter: DesignFilter = next;
     setDesignFilter(nextFilter);
     writeStoredDesignFilter(nextFilter);
@@ -480,6 +492,29 @@ export default function Index() {
       current.size === 0 ? current : new Set(),
     );
   }, []);
+
+  useEffect(() => {
+    if (
+      designFilterWasSelectedRef.current ||
+      designFilter !== "mine" ||
+      !accessibleDesignsSummary.isSuccess ||
+      !ownedDesignsSummary.isSuccess ||
+      accessibleDesignsSummary.data.totalCount === 0 ||
+      ownedDesignsSummary.data.totalCount !== 0
+    ) {
+      return;
+    }
+    designFilterWasSelectedRef.current = true;
+    setDesignFilter("all");
+    writeStoredDesignFilter("all");
+    setPage(1);
+  }, [
+    accessibleDesignsSummary.data?.totalCount,
+    accessibleDesignsSummary.isSuccess,
+    designFilter,
+    ownedDesignsSummary.data?.totalCount,
+    ownedDesignsSummary.isSuccess,
+  ]);
 
   const handlePageChange = useCallback(
     (nextPage: number) => {
@@ -623,16 +658,21 @@ export default function Index() {
         const title = trimmedPrompt
           ? derivePromptTitle(trimmedPrompt)
           : selectedTemplate.title;
+        const newId =
+          templateCopyIdsRef.current.get(selectedTemplate.id) ?? nanoid();
+        templateCopyIdsRef.current.set(selectedTemplate.id, newId);
         try {
           const result = await createFromTemplateMutation.mutateAsync({
             templateId: selectedTemplate.id,
             title,
+            newId,
             ...(designSystemId !== undefined ? { designSystemId } : {}),
             ...(trimmedPrompt ? { prompt } : {}),
           });
           if (!result.id) {
             throw new Error("Template copy did not return a design ID");
           }
+          templateCopyIdsRef.current.delete(selectedTemplate.id);
           const effectiveDesignSystemId = result.designSystemId ?? null;
           if (result.adaptationPending) {
             const effectiveSystemTitle =

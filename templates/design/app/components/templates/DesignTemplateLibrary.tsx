@@ -11,6 +11,7 @@ import {
 } from "@agent-native/toolkit/app-shell";
 import { IconDots } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { nanoid } from "nanoid";
 import { useRef, useState, type RefObject } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -89,6 +90,7 @@ export function DesignTemplateLibrary({
   const remove = useActionMutation("delete-design-template");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const pending = useRef(false);
+  const retryIds = useRef(new Map<string, string>());
   const preview = templates.find(
     (template) => template.id === params.get("templateId"),
   );
@@ -111,11 +113,15 @@ export function DesignTemplateLibrary({
     pending.current = true;
     setPendingId(template.id);
     try {
+      const newId = retryIds.current.get(template.id) ?? nanoid();
+      retryIds.current.set(template.id, newId);
       const result = await create.mutateAsync({
         templateId: template.id,
         title: template.title,
+        newId,
       });
       if (!result.id) throw new Error(t("templatesPage.createFailed"));
+      retryIds.current.delete(template.id);
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-designs"],
       });

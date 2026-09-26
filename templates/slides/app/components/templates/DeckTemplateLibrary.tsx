@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { useDecks } from "@/context/DeckContext";
 
 import { DeckTemplatePreview } from "./DeckTemplatePreview";
 import { DeckTemplateStage } from "./DeckTemplateStage";
@@ -41,6 +42,7 @@ export function DeckTemplateLibrary({
 }) {
   const t = useT();
   const navigate = useNavigate();
+  const { reloadDecksWithStatus } = useDecks();
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const selectedId = params.get("templateId");
@@ -76,6 +78,11 @@ export function DeckTemplateLibrary({
     try {
       const result = await create.mutateAsync({ templateId: id, newId });
       if (!result.id) throw new Error(t("templatesPage.createFailed"));
+      const reloadStatus = await reloadDecksWithStatus();
+      if (reloadStatus !== "loaded") {
+        throw new Error(t("templatesPage.createFailed"));
+      }
+      retryIds.current.delete(id);
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-decks"],
       });

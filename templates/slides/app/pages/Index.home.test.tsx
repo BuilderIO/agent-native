@@ -486,7 +486,7 @@ describe("Slides prompt-led home", () => {
     expect(
       await screen.findByRole("tabpanel", { name: "Recent" }),
     ).toBeTruthy();
-    expect(screen.getByText("No decks match your search.")).toBeTruthy();
+    expect(screen.getByText("Shared presentation")).toBeTruthy();
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Templates" }), {
       button: 0,
       ctrlKey: false,
