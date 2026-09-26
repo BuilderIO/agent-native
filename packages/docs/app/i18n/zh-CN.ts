@@ -1657,9 +1657,9 @@ const zhCN = {
       useCasesHeading: "让 Mail 占据第一关",
       useCasesBody:
         "显示紧急线索，按含义标记消息，并在您保持控制的同时保持重复的收件箱工作继续进行。",
-      useCase1Title: "看看今天需要什么",
+      useCase1Title: "由 Jev 驱动的智能收件箱",
       useCase1Body:
-        "邮件按紧急程度、截止日期和等待者对主题进行排名，然后向您提供收件箱摘要，其中包含下一步有用的操作。",
+        "告诉 Jev 什么最重要：将 GitHub 人工 PR 评论保留在 Product，归档机器人通知，并把经理的邮件移到 Important。用提示词调整规则，也能通过反馈优化垃圾邮件过滤。",
       useCase2Title: "按含义标记消息",
       useCase2Body:
         "代理可以应用发件人和对话上下文中的标签，因此研究、财务和客户线索很容易找到。",

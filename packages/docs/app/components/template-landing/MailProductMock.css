@@ -18,6 +18,56 @@
   font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
+.mail-product-art.mm-jev-art {
+  border-color: transparent;
+  border-radius: 17px;
+  padding: 16px;
+  background:
+    radial-gradient(
+      ellipse at 14% 18%,
+      rgb(172 126 255 / 92%),
+      transparent 42%
+    ),
+    radial-gradient(ellipse at 88% 82%, rgb(56 201 183 / 78%), transparent 42%),
+    linear-gradient(
+      132deg,
+      hsl(247 48% 31%),
+      hsl(278 39% 36%) 52%,
+      hsl(188 49% 24%)
+    );
+  box-shadow: none;
+}
+
+.mm-jev-art .mm-app {
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 8px;
+}
+
+.mm-jev-art .mm-agent-user-message,
+.mm-jev-art .mm-agent-assistant-message {
+  font-size: 10px;
+}
+
+.mm-jev-art .mm-agent-result-heading > strong {
+  font-size: 10px;
+}
+
+.mm-jev-art .mm-agent-result-copy strong {
+  font-size: 9px;
+}
+
+.mm-jev-art .mm-agent-result-copy small,
+.mm-jev-art .mm-agent-result-status,
+.mm-jev-art .mm-agent-message-tools {
+  font-size: 8px;
+}
+
+.mm-jev-art .mm-agent-result-row {
+  min-height: 32px;
+  padding-block: 4px;
+}
+
 .mail-product-art *,
 .mail-product-art *::before,
 .mail-product-art *::after {
@@ -595,6 +645,16 @@
   color: hsl(0 71% 76%);
 }
 
+.mm-label-chip--important {
+  background: hsl(42 76% 37% / 0.28);
+  color: hsl(42 91% 76%);
+}
+
+.mm-label-chip--product {
+  background: hsl(217 67% 38% / 0.31);
+  color: hsl(217 81% 77%);
+}
+
 .mm-subject-line {
   display: flex;
   min-width: 0;
@@ -695,6 +755,46 @@
 .mm-automation-notice time {
   flex: none;
   font-size: 6px;
+}
+
+.mm-jev-notice {
+  display: flex;
+  min-height: 29px;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--mm-border);
+  background: linear-gradient(
+    90deg,
+    hsl(270 50% 45% / 0.18),
+    hsl(173 51% 35% / 0.14)
+  );
+  padding: 0 8px;
+  color: var(--mm-fg);
+  font-size: 8px;
+}
+
+.mm-jev-notice > svg {
+  flex: none;
+  color: hsl(270 88% 80%);
+}
+
+.mm-jev-notice > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mm-jev-notice strong {
+  color: hsl(270 88% 80%);
+  font-weight: 650;
+}
+
+.mm-jev-notice time {
+  flex: none;
+  color: var(--mm-muted);
+  font-size: 7px;
 }
 
 @container (max-width: 710px) {

@@ -1771,9 +1771,9 @@ const ptBR = {
       useCasesHeading: "Deixe o Mail dar o primeiro passo",
       useCasesBody:
         "Revele conversas urgentes, rotule as mensagens por significado e mantenha o trabalho repetitivo da caixa de entrada em andamento enquanto você mantém o controle.",
-      useCase1Title: "Veja o que precisa de você hoje",
+      useCase1Title: "Uma caixa de entrada mais inteligente, com Jev",
       useCase1Body:
-        "O Mail classifica os tópicos por urgência, prazos e quem está esperando e, em seguida, fornece um resumo da caixa de entrada com as próximas ações úteis.",
+        "Diga ao Jev o que importa: mantenha no Product os comentários de pessoas em pull requests do GitHub, arquive notificações de bots e mova os e-mails da sua liderança para Important. Ajuste cada regra com um prompt e ensine o filtro de spam com seu feedback.",
       useCase2Title: "Rotular mensagens por significado",
       useCase2Body:
         "O agente pode aplicar rótulos do contexto do remetente e da conversa, para que as conversas de pesquisa, finanças e clientes fiquem fáceis de encontrar.",

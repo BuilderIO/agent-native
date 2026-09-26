@@ -1757,9 +1757,9 @@ const enUS = {
       useCasesHeading: "Let Mail take the first pass",
       useCasesBody:
         "Surface urgent threads, label messages by meaning, and keep repetitive inbox work moving while you stay in control.",
-      useCase1Title: "See what needs you today",
+      useCase1Title: "A smarter inbox, powered by Jev",
       useCase1Body:
-        "Mail ranks threads by urgency, deadlines, and who is waiting, then gives you an inbox brief with the next useful actions.",
+        "Tell Jev what matters: keep human GitHub pull-request comments in Product, archive bot notifications, and move your manager’s mail to Important. Refine every rule with a prompt, and teach the spam filter as you go.",
       useCase2Title: "Label messages by meaning",
       useCase2Body:
         "The agent can apply labels from sender and conversation context, so research, finance, and customer threads stay easy to find.",

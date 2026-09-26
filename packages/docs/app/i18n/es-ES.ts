@@ -1779,9 +1779,9 @@ const esES = {
       useCasesHeading: "Deja que Mail dé el primer paso",
       useCasesBody:
         "Descubra hilos urgentes, etiquete los mensajes según su significado y mantenga en movimiento el trabajo repetitivo de la bandeja de entrada mientras mantiene el control.",
-      useCase1Title: "Mira lo que te necesita hoy",
+      useCase1Title: "Una bandeja más inteligente, con Jev",
       useCase1Body:
-        "Mail clasifica los hilos por urgencia, fechas límite y quién está esperando, luego le brinda un resumen en la bandeja de entrada con las siguientes acciones útiles.",
+        "Dile a Jev qué importa: mantén visibles en Product los comentarios de personas en pull requests de GitHub, archiva las notificaciones de bots y mueve los correos de tu responsable a Important. Ajusta cada regla con un prompt y mejora el filtro de spam con tus comentarios.",
       useCase2Title: "Etiquetar mensajes por significado",
       useCase2Body:
         "El agente puede aplicar etiquetas del contexto del remitente y de la conversación, de modo que los hilos de investigación, finanzas y clientes sean fáciles de encontrar.",

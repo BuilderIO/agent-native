@@ -1657,9 +1657,9 @@ const messages = {
       useCasesHeading: "讓 Mail 佔據第一關",
       useCasesBody:
         "显示紧急线索，按含义标记消息，并在您保持控制的同时保持重复的收件箱工作继续进行。",
-      useCase1Title: "看看今天需要什麼",
+      useCase1Title: "由 Jev 驅動的智慧收件匣",
       useCase1Body:
-        "郵件按緊急程度、截止日期和等待者對主題進行排名，然後向您提供收件匣摘要，其中包含下一步有用的操作。",
+        "告訴 Jev 什麼最重要：將 GitHub 人工 PR 留言保留在 Product，封存機器人通知，並將主管的郵件移到 Important。用提示調整規則，也能透過回饋改善垃圾郵件篩選。",
       useCase2Title: "按含義標記訊息",
       useCase2Body:
         "代理商可以應用寄件者和對話上下文中的標籤，因此研究、財務和客戶線索很容易找到。",

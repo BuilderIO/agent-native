@@ -1784,9 +1784,10 @@ const frFR = {
       useCasesHeading: "Laissez Mail prendre le premier passage",
       useCasesBody:
         "Faites apparaître les fils de discussion urgents, étiquetez les messages selon leur signification et continuez le travail répétitif de la boîte de réception tout en gardant le contrôle.",
-      useCase1Title: "Voyez ce dont vous avez besoin aujourd'hui",
+      useCase1Title:
+        "Une boîte de réception plus intelligente, propulsée par Jev",
       useCase1Body:
-        "Mail classe les fils de discussion par urgence, délais et personnes en attente, puis vous donne un aperçu de la boîte de réception avec les prochaines actions utiles.",
+        "Dites à Jev ce qui compte : gardez visibles dans Product les commentaires humains des pull requests GitHub, archivez les notifications de bots et déplacez les e-mails de votre responsable vers Important. Ajustez chaque règle avec un prompt et améliorez le filtre anti-spam au fil de vos retours.",
       useCase2Title: "Étiquetez les messages par leur signification",
       useCase2Body:
         "L'agent peut appliquer des étiquettes à partir du contexte de l'expéditeur et de la conversation, afin que les fils de recherche, financiers et clients restent faciles à trouver.",

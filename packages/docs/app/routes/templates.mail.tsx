@@ -52,7 +52,7 @@ const template = templates.find((t) => t.slug === "mail")!;
 const USE_CASES = [
   {
     id: "priority-sorting",
-    variant: "priorities",
+    variant: "jev",
     titleKey: "useCase1Title",
     bodyKey: "useCase1Body",
     textLeft: true,
@@ -210,7 +210,11 @@ export default function MailTemplate() {
                 >
                   <MailProductMock
                     variant={useCase.variant}
-                    className="h-[300px] w-full max-w-[540px] lg:h-[390px] lg:max-w-none"
+                    className={
+                      useCase.variant === "jev"
+                        ? "h-[380px] w-full max-w-[540px] lg:h-[480px] lg:max-w-none mm-jev-art"
+                        : "h-[300px] w-full max-w-[540px] lg:h-[390px] lg:max-w-none"
+                    }
                     label={t(`templateLanding.mail.${useCase.titleKey}`)}
                   />
                 </div>

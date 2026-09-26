@@ -1782,9 +1782,9 @@ const deDE = {
       useCasesHeading: "Überlassen Sie Mail den ersten Durchgang",
       useCasesBody:
         "Zeigen Sie dringende Threads an, kennzeichnen Sie Nachrichten nach Bedeutung und halten Sie sich wiederholende Aufgaben im Posteingang in Bewegung, während Sie die Kontrolle behalten.",
-      useCase1Title: "Sehen Sie, was Sie heute brauchen",
+      useCase1Title: "Ein intelligenterer Posteingang, unterstützt von Jev",
       useCase1Body:
-        "Mail ordnet die Threads nach Dringlichkeit, Fristen und wartenden Personen und informiert Sie dann in Ihrem Posteingang über die nächsten nützlichen Aktionen.",
+        "Sag Jev, was wichtig ist: Behalte menschliche GitHub-Pull-Request-Kommentare in Product, archiviere Bot-Benachrichtigungen und verschiebe die Nachrichten deiner Führungskraft nach Important. Passe jede Regel per Prompt an und verbessere den Spamfilter mit deinem Feedback.",
       useCase2Title: "Kennzeichnen Sie Nachrichten nach ihrer Bedeutung",
       useCase2Body:
         "Der Agent kann Beschriftungen aus dem Absender- und Konversationskontext anwenden, sodass Recherche-, Finanz- und Kundenthreads leicht zu finden sind.",
