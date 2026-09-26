@@ -1,6 +1,4 @@
-
 import type * as React from "react";
-
 
 export type CanvasPrimitiveKind =
   | "rect"
@@ -16,7 +14,11 @@ export interface CanvasPrimitiveVisual {
   color?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Canonical tokens
+// ---------------------------------------------------------------------------
 
+/** Default fill — a soft Figma-like neutral gray. */
 // guard:allow-raw-color — a drawn shape must not retint with the document theme.
 export const DEFAULT_SHAPE_FILL = "rgb(217 217 217)";
 
@@ -61,7 +63,6 @@ export function canvasVectorPaint(overrides: {
   };
 }
 
-
 export function canvasPrimitiveVisual(
   kind: CanvasPrimitiveKind,
 ): CanvasPrimitiveVisual {
@@ -96,7 +97,6 @@ export function canvasPrimitiveVisual(
   }
 }
 
-
 export function canvasPrimitiveStyleString(
   kind: CanvasPrimitiveKind,
   overrides?: { fill?: string; stroke?: string; strokeWidth?: number },
@@ -130,7 +130,6 @@ export function canvasPrimitiveStyleString(
 
   return parts.join(";");
 }
-
 
 export function canvasPrimitiveReactStyle(
   kind: CanvasPrimitiveKind,

@@ -1,5 +1,3 @@
-// global scope. Its only job is to
-
 (function clipsOverlayHost() {
   type OverlayPart = "bubble" | "countdown" | "toolbar" | "saving";
 

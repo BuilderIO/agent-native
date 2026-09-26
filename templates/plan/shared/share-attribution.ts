@@ -17,6 +17,7 @@
  * email. Omit `via` rather than leak PII into a public URL or event.
  */
 
+/** Fixed referral source for plan shares. */
 export const PLAN_SHARE_REF = "plan_share";
 
 export const PLAN_SHARE_SURFACE = "plan";

@@ -28,7 +28,6 @@ describe("serializeTextShadowLayers", () => {
   });
 
   it("omits spread, which text-shadow has no slot for", () => {
-    // Keeping the spread token would make the whole declaration invalid and the
     const value = serializeTextShadowLayers([layer({ spread: 6 })]);
     expect(value).toBe("0px 4px 12px rgba(0, 0, 0, 0.25)");
     expect(serializeShadowLayers([layer({ spread: 6 })])).toContain("6px");

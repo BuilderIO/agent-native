@@ -677,7 +677,6 @@ describe("Design final response guard", () => {
   });
 
   it("does not read a bare mention of a design as a request to change one", () => {
-    // `design` is the only token in both the verb and the object pattern, so
     expect(looksLikeDesignMutationRequest("nice design")).toBe(false);
     expect(looksLikeDesignMutationRequest("I love design")).toBe(false);
     expect(

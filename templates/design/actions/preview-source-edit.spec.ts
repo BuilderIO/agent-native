@@ -1,5 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// ---------------------------------------------------------------------------
+// preview-source-edit.spec.ts
+//
+// Regression test for an inverted `nextVersionHash`: the action used to
+// return `undefined` exactly when the edit DID change the content (the case
+// where a caller actually needs the post-edit hash to pass into
+// apply-source-edit's `expectedVersionHash` and close the preview -> apply
+// race), and returned the unchanged `currentVersionHash` when nothing
+// changed (where a "next" hash adds no value — it's identical to "current").
+// Fixed to compute the real post-edit hash via the same `sourceContentHash`
+// convention apply-source-edit.ts uses (server/source-workspace.ts's
+// writeInlineSourceFile hashes the persisted content the same way), and to
+// omit it only when there is genuinely no new content to hash.
+// ---------------------------------------------------------------------------
 
 const mocks = vi.hoisted(() => ({
   resolveSourceWorkspace: vi.fn(),

@@ -14,6 +14,7 @@
  * an email. Omit `via` rather than leak PII into a public URL or event.
  */
 
+/** Fixed referral source for clip shares. */
 export const CLIP_SHARE_REF = "clip_share";
 
 export const REF_PARAM = "ref";

@@ -1,4 +1,3 @@
-
 import { getDbExec } from "@agent-native/core/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
@@ -88,6 +87,7 @@ export async function renewUploadLease(
   if (held.length > 0) return { held: true };
 
   // guard:allow-unscoped — by primary key, and every caller resolves the
+  // recording through an owner-scoped read before asking for the lease.
   const [row] = await getDb()
     .select({
       status: schema.recordings.status,

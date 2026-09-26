@@ -341,6 +341,7 @@ describe("connect-localhost", () => {
       rootPath: "/tmp/app",
     });
 
+    // Insert reuses the existing token; the conflict set uses a coalesce()
     // expression that fills a null token but never clobbers an existing one.
     expect(insertedValues?.bridgeToken).toBe("existing_bridge_token");
     expect(upsertConfig?.set.bridgeToken).toBeInstanceOf(SQL);

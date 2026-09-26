@@ -535,6 +535,10 @@ async function ensureNativeObject(input: {
       visibility: input.connection.visibility,
       createdAt: now,
     });
+    // Seeded only at creation: a status field needs at least one managed
+    // option before any write to it (see `assertKnownOptions` in
+    // `server/lib/record-fields.ts`), and re-checking on every later mutation
+    // would cost a query per status field per write for no benefit — the
     // backfill migration handles pre-existing rows this never ran for.
     if (
       ATTRIBUTE_TYPE_SPECS[attributeColumns.attributeType].usesOptions &&

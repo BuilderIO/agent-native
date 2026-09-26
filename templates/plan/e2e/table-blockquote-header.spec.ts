@@ -1,6 +1,5 @@
 import { test, expect, type Page, type APIResponse } from "@playwright/test";
 
-
 const UPDATE_ACTION = "/_agent-native/actions/update-visual-plan";
 const CREATE_ACTION = "/_agent-native/actions/create-visual-plan";
 const GET_ACTION = "/_agent-native/actions/get-visual-plan";
@@ -132,7 +131,6 @@ async function openPlanForEditing(page: Page, planId: string) {
 }
 
 const RICH_SEED_ID = "rt-seed";
-
 
 test.describe("editable plan title + subtitle (header)", () => {
   function titleEl(page: Page) {
@@ -336,7 +334,6 @@ test.describe("editable plan title + subtitle (header)", () => {
       .toBe(retyped);
   });
 });
-
 
 test.describe("structured table block (inline cell editing)", () => {
   const TABLE_ID = "tbl-1";
@@ -687,7 +684,6 @@ test.describe("structured table block (inline cell editing)", () => {
   });
 });
 
-
 test.describe("blockquote (inline prose, not an atom)", () => {
   const slashMenu = (page: Page) => page.locator(".an-rich-md-slash-menu");
   const slashTitles = (page: Page) =>
@@ -763,6 +759,9 @@ test.describe("blockquote (inline prose, not an atom)", () => {
     await expect(blockquoteAfter).toContainText(line2, { timeout: 10_000 });
   });
 
+  // EDGE: typing across the autosave race — type a long burst into a blockquote
+  // with NO per-keystroke waits. The editor debounces + serializes saves, so the
+  // FINAL coalesced text must win (no 5xx, no dropped tail) and persist as `> …`.
   test("rapid typing into a blockquote coalesces; the final text wins (autosave race)", async ({
     page,
   }) => {

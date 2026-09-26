@@ -1,4 +1,14 @@
 /// <reference lib="dom" />
+/**
+ * Renders a fidelity candidate (imported HTML, or an exported SVG) to a PNG at
+ * exactly the source frame's canvas size.
+ *
+ * Every wait here exists because skipping it produces a *plausible* screenshot
+ * that silently omits content — a blank web font, an image still in flight, a
+ * pending layout pass. A fidelity harness that screenshots early reports a
+ * false diff and sends the next fix at the wrong target, so unmet waits are
+ * raised, never swallowed.
+ */
 import type { Browser, Page } from "@playwright/test";
 
 export interface RenderOptions {

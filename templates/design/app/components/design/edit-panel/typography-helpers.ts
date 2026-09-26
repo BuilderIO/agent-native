@@ -201,20 +201,6 @@ export function resolveLineHeightFieldValue(
   };
 }
 
-/**
- * Finds the unit token (one of `units`) in `raw`, validated to appear at
- * most once. Both callers below funnel into parseScrubExpression, which
- * strips every occurrence of the unit it's told to use (global regex) — so
- * a second, unstripped occurrence, a doubled suffix ("2pxpx"/"2px px") or a
- * mismatched pair ("2%%", "2em%"), would otherwise silently vanish instead
- * of failing to parse. Returns null for that malformed case.
- *
- * Matches anywhere in the input, not only at the end: a letter-spacing
- * expression like "(x+0.005em)*2" carries its one unit token
- * mid-expression, so this is deliberately looser than "exactly one
- * TRAILING token" — it only guards against a SECOND token appearing
- * anywhere, not against where the single token sits.
- */
 function singleUnitToken(
   raw: string,
   units: readonly string[],
@@ -315,7 +301,6 @@ export function parseLetterSpacingInput(
   const explicitUnit = token.unit;
   const unit: LetterSpacingUnit =
     explicitUnit === "px" ? "px" : explicitUnit ? "%" : current.unit;
-  // The `x` token has no defined base across dimensions: it's only meaningful
   const nonEmUnit = explicitUnit ?? (unit === "%" ? "%" : "px");
   const nonEmBase =
     !explicitUnit || nonEmUnit === current.unit ? current.value : Number.NaN;

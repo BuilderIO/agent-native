@@ -263,8 +263,10 @@ export default defineAction({
       .where(eq(schema.designLocalhostConnections.id, id))
       .limit(1);
 
+    // Older CLI versions used a non-user-scoped connection ID. Reuse that
     // credential only when this owner/org has one unambiguous row for the
     // exact app URL and root; otherwise a new row could mint a token that an
+    // already-running bridge does not have.
     if (!args.id && !existing[0] && rootPath) {
       const priorConnections = await db
         .select({

@@ -214,6 +214,8 @@ function cacheCanonicalSource(
     canonicalSourceCacheNodes += retainedNodes;
   }
   // ponytail: a closed design's unchanged entries keep their strings until
+  // newer entries evict them by count; prune by live file ids if heap
+  // profiles show it.
   while (
     canonicalSourceCacheBytes > CANONICAL_SOURCE_CACHE_MAX_BYTES ||
     canonicalSourceCacheNodes > CANONICAL_SOURCE_CACHE_MAX_NODES ||

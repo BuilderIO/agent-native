@@ -91,7 +91,6 @@ function assertActionSuccess<T>(result: T): T {
   return result;
 }
 
-
 export type ApiError = Error & { status?: number; retryAfterMs?: number };
 
 export async function apiFetch<T>(
@@ -156,6 +155,9 @@ export function parseAccountErrorsHeader(
     return errors.length > 0 ? errors : undefined;
   } catch (error) {
     // coercion-ok: this header is a best-effort diagnostic, not core data —
+    // a malformed value must not break the actual email list. Logged (not
+    // swallowed silently) so a genuinely broken header stays debuggable
+    // instead of just reading as "no account errors".
     console.error("Failed to parse X-Account-Errors header", error);
     return undefined;
   }
@@ -325,7 +327,6 @@ function delayedInvalidate(
   }, ms);
 }
 
-
 export function useAddOptimisticReply() {
   const qc = useQueryClient();
   const { allAccounts } = useAccountFilter();
@@ -393,7 +394,6 @@ export function useAddOptimisticReply() {
     };
   };
 }
-
 
 type SuppressionAction =
   | "archive"
@@ -647,7 +647,6 @@ export function filterSuppressedThreads(
     (e) => !isSuppressedInView(e.threadId || e.id, view, label),
   );
 }
-
 
 type OptimisticProperty = "isRead" | "isStarred";
 type OptimisticOverride = {
@@ -1054,7 +1053,6 @@ function applyOverrides(emails: EmailMessage[]): EmailMessage[] {
   return changed ? result : emails;
 }
 
-
 import type { InfiniteData } from "@tanstack/react-query";
 
 export type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
@@ -1137,7 +1135,6 @@ function replaceEmailInInfiniteList(
   };
   return replaced ? next : upsertEmailInInfiniteList(old, message);
 }
-
 
 export interface EmailsPage {
   emails: EmailMessage[];
@@ -1774,7 +1771,9 @@ export function useToggleStar() {
           true,
         );
       } else if (previousThread) {
+        // Only clear the row's star if no OTHER message in the thread is
         // still starred — the server never removes STARRED at message scope
+        // (see applyLocalLabelDelta), so neither should we.
         const otherStarred = previousThread.some(
           (message) => message.id !== id && message.isStarred,
         );
@@ -3074,7 +3073,6 @@ export function useMuteThread() {
   });
 }
 
-
 export type Contact = { name: string; email: string; count: number };
 
 export function useContacts() {
@@ -3085,7 +3083,6 @@ export function useContacts() {
     refetchOnWindowFocus: false,
   });
 }
-
 
 export const EMPTY_LABELS: Label[] = [];
 
@@ -3117,7 +3114,6 @@ export function useLabels(accountEmails?: readonly string[]) {
       : undefined;
   return { ...query, data: query.data?.labels, accountErrors };
 }
-
 
 let pinnedLabelsUpdateTail: Promise<void> = Promise.resolve();
 let savedFiltersUpdateTail: Promise<void> = Promise.resolve();
@@ -3373,7 +3369,6 @@ export function useUpdateSettings() {
     },
   });
 }
-
 
 export type EmailTrackingStats = {
   opens: number;

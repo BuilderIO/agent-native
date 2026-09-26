@@ -332,7 +332,6 @@ export interface Booking {
   meetingLink?: string;
   meetingLinkPending?: boolean;
   googleEventId?: string;
-  /** Token for cancel/reschedule link (only returned to the booker) */
   cancelToken?: string;
   zoomNeedsReview?: boolean;
   zoomCancellationNeedsReview?: boolean;

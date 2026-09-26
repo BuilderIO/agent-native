@@ -1660,6 +1660,11 @@ describe("session replay ingest parsing", () => {
     expect(conditionText(reservationDelete?.where)).toContain(reservedId);
   });
 
+  // --- Regression coverage for the prod "empty Sessions list" root causes. ---
+  // These exercise behavior the previous suite never did: the anonymous
+  // cross-origin ingest path resolving storage in the key owner's org scope,
+  // and recordings being written org-visible so teammates (not just the key
+  // owner) can see them.
 
   function replayIngestKeyDbResults(orgId: string | null) {
     return [
@@ -1856,6 +1861,8 @@ describe("session replay ingest parsing", () => {
 
   it("reserves usage before uploading chunk blobs or inserting chunk rows", async () => {
     // Regression coverage for the admission race: the usage row must land
+    // before the slow blob upload, not after, or concurrent first chunks can
+    // all read the same pre-reservation total and overshoot the budget.
     const originalNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
     const order: string[] = [];

@@ -6,6 +6,10 @@ import type {
   ContentDatabaseTableQuery,
 } from "@shared/api";
 // @vitest-environment happy-dom
+//
+// Mount the real DatabaseView with an empty mocked database so UI regressions
+// can cover its composed controls and mutation error paths without heavier row
+// and property subtrees.
 import type { QueryClient as QueryClientType } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";

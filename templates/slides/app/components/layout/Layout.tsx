@@ -126,6 +126,10 @@ export function Layout({ children }: LayoutProps) {
       );
   }, []);
 
+  // Scope new chats to the deck the user is currently editing. The route
+  // is `/deck/:id`; everywhere else (list, presentation) leaves
+  // scope null so chats stay in the general pool. Keep the visible label
+  // semantic so an imported deck id never leaks into the composer chip.
   const deckScope = useMemo(() => {
     const match = location.pathname.match(/^\/deck\/([^/]+)/);
     const deckId = match?.[1];

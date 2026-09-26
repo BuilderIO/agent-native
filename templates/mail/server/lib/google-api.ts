@@ -1,10 +1,8 @@
-
 const GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 const PEOPLE_BASE = "https://people.googleapis.com/v1";
 const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3";
 const OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const OAUTH_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
-
 
 export function createOAuth2Client(
   clientId: string,
@@ -95,7 +93,6 @@ export function createOAuth2Client(
     },
   };
 }
-
 
 const QUOTA_COOLDOWN_MS = 90_000;
 const QUOTA_COOLDOWN_MAX_MS = 300_000;
@@ -343,6 +340,9 @@ export async function googleFetch(
       }
     }
 
+    // 429 or 403-with-quota-reason — do NOT retry immediately. A retry inside
+    // the same exhausted quota window just deepens the lockout. Trip the
+    // per-token circuit breaker and let callers/UI retry after the cooldown.
     if (!res.ok && isQuotaError(res.status, data)) {
       const cooldownMs = parseRetryAfterMs(res.headers) ?? QUOTA_COOLDOWN_MS;
       const effectiveCooldownMs = tripCooldown(accessToken, cooldownMs);
@@ -364,7 +364,6 @@ export async function googleFetch(
   }
 }
 
-
 function qs(params: Record<string, string | number | undefined>): string {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -373,7 +372,6 @@ function qs(params: Record<string, string | number | undefined>): string {
   const str = sp.toString();
   return str ? `?${str}` : "";
 }
-
 
 export function gmailGetProfile(accessToken: string) {
   return googleFetch(`${GMAIL_BASE}/profile`, accessToken);
@@ -625,7 +623,6 @@ export function gmailStopWatch(accessToken: string): Promise<null> {
   return googleFetch(`${GMAIL_BASE}/stop`, accessToken, { method: "POST" });
 }
 
-
 const GMAIL_BATCH_URL = "https://gmail.googleapis.com/batch/gmail/v1";
 
 async function gmailBatchGet(
@@ -666,7 +663,6 @@ async function gmailBatchGet(
     );
   }
 
-  // Pre-pay the whole batch so the token bucket sees real cost instead of a
   await acquireQuota(accessToken, ids.length * costPerItem);
 
   const boundary = `batch_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
@@ -848,7 +844,6 @@ function parseBatchResponse(
   return results;
 }
 
-
 export function peopleGetProfile(accessToken: string, personFields: string) {
   return googleFetch(
     `${PEOPLE_BASE}/people/me${qs({ personFields })}`,
@@ -880,7 +875,6 @@ export function peopleListOtherContacts(
 ) {
   return googleFetch(`${PEOPLE_BASE}/otherContacts${qs(params)}`, accessToken);
 }
-
 
 export function calendarGetEvent(
   accessToken: string,

@@ -78,6 +78,8 @@ const CREDENTIAL_LABELS = String.raw`password|passcode|secret|token|api[-_ ]?key
 
 const CREDENTIAL_LABEL_PATTERN = String.raw`\b(?:${CREDENTIAL_LABELS})\s*[:=]`;
 
+// Case-insensitive in both directions: the detector and the redactor must
+// agree, or `authorization: bearer <token>` is suppressed but not redacted.
 const UNLABELLED_CREDENTIAL_PATTERN = new RegExp(
   UNLABELLED_CREDENTIAL_SOURCES.join("|"),
   "gi",

@@ -5,6 +5,7 @@
  * inside its body — it cannot close over module scope.
  */
 
+/** Editor chrome that legitimately differs between view and edit. */
 export const CHROME_SELECTOR = [
   "[data-slide-selection-chrome]",
   "[data-slide-selection-outline]",

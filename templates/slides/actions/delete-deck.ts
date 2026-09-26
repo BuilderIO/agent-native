@@ -52,6 +52,7 @@ export default defineAction({
         }
       }
       const result = await db.transaction(async (tx) => {
+        // Comment creation takes this same lock before validating the slide,
         // so deck removal cannot race an insert of an orphaned comment.
         const [lockedDeck] = await tx
           .select({ id: schema.decks.id })

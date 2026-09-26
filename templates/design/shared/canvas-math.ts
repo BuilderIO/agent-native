@@ -244,19 +244,6 @@ export const DEFAULT_ASSIGNED_REGION_HEIGHT = 1024;
 export const DEFAULT_ASSIGNED_REGION_GAP = 320;
 export const DEFAULT_ASSIGNED_REGION_MAX_COLUMNS = 3;
 
-/**
- * Zoom range for the MultiScreenCanvas overview surface (wheel/pinch zoom,
- * toolbar/keyboard zoom, pixel-grid threshold). Exported so every zoom-clamp
- * in MultiScreenCanvas.tsx reads from one place instead of a locally
- * redeclared magic number.
- *
- * NOTE: DesignCanvas's own single-screen pinch-zoom currently clamps to a
- * different range (10–500) — that's a separate, pre-existing surface with
- * its own zoom semantics (it also supports device-frame previews at fixed
- * scales) and reconciling the two ranges is intentionally left as a
- * follow-up rather than done here, since DesignCanvas.tsx is out of scope
- * for this fix.
- */
 export const DEFAULT_CANVAS_MIN_ZOOM = 2;
 export const DEFAULT_CANVAS_MAX_ZOOM = 25600;
 
@@ -1760,7 +1747,6 @@ function applyResizeSnapStep(
   };
 }
 
-
 export interface Transform3DParts {
   rotateX: number;
   rotateY: number;
@@ -1801,21 +1787,6 @@ function angleFnToDegrees(transform: string, fnName: string): number | null {
   return null;
 }
 
-/**
- * Parses the 3D rotation + perspective portion of a CSS `transform` string
- * into plain degree/px numbers, ignoring any translate()/scale()/skew()
- * parts that may also be present (those are preserved separately by the
- * caller — see `composeTransform3D`).
- *
- * Returns `null` — rather than a best-effort guess — when the transform
- * contains a `matrix()`/`matrix3d()`/`rotate3d()` composite or any other
- * token this parser doesn't recognize, so callers can show a "custom
- * transform" state instead of silently misreporting angles (matches how
- * the 2D rotation field's `parseRotationValue` falls back to reading the
- * resolved matrix for *display*, but 3D composition from an arbitrary
- * matrix is not safely invertible into independent X/Y/Z/perspective
- * fields, so this parser intentionally does not attempt it).
- */
 export function parseTransform3DParts(
   transform: string | undefined,
 ): Transform3DParts | null {

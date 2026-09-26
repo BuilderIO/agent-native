@@ -37,6 +37,7 @@ function cachedBuilderDocCount(data: string | null): number | undefined {
     parsed = JSON.parse(data);
   } catch {
     // coercion-ok: unparseable row data leaves the count unknown, and
+    // undefined stays distinguishable from a measured zero.
     return undefined;
   }
   if (!parsed || typeof parsed !== "object") return undefined;

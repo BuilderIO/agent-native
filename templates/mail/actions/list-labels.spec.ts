@@ -190,6 +190,9 @@ describe("list-labels action", () => {
         ["ok@gmail.com", new Map([["Label_1", "Clients"]])],
       ]),
     });
+    // broken@gmail.com has no valid token at all (e.g. refresh failed or a
+    // managed grant could not resolve) — it must show up in
+    // `errors` instead of silently vanishing from the response.
     const result = await action.run({}, undefined as any);
 
     expect(result.labels).toEqual(

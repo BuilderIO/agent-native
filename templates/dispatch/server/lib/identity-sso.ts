@@ -393,6 +393,7 @@ function buildCodeTableSql(): string {
 }
 
 async function ensureCodeTable(): Promise<void> {
+  // The Dispatch release migration owns this table in production serverless
   // deployments. Do not turn a missing release migration into request-time DDL.
   if (isProductionServerlessFunctionRuntime()) return;
   if (!codeTableInitPromise) {

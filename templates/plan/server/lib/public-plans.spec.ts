@@ -1,18 +1,3 @@
-/**
- * Adversarial coverage for the anonymous-owner / public-viewer resolution in
- * public-plans.ts.
- *
- * This is the prime auth-bypass surface for the plan app: a signed-out HTTP
- * caller's effective identity for reading/writing ownable plans is whatever
- * these resolvers return. We try to break the visibility gate and the
- * plan-id-from-request parsing (which decides WHICH plan's visibility is
- * checked) with cross-origin Referer, query-param injection, path traversal,
- * non-public plans, and missing-plan cases.
- *
- * The db is mocked so we can (a) observe the exact id the resolver looks up and
- * (b) control the returned visibility, exercising the real gate logic in
- * public-plans.ts rather than re-implementing it.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const headers = new Map<string, string>();

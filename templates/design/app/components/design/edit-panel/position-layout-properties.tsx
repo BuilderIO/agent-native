@@ -141,8 +141,7 @@ export function deriveConstraintsValue(element: ElementInfo): ConstraintsValue {
   return {
     horizontal: horizontalMixed
       ? "mixed"
-      :
-        authoredWidth === "100%" ||
+      : authoredWidth === "100%" ||
           (percentageLength(authoredWidth) && percentageLength(definiteLeft))
         ? "scale"
         : definiteLeft && definiteRight
@@ -719,6 +718,12 @@ function Rotation3DControls({
   const t = useT();
   const transformMixed = isMixedValue(styles.transform);
   const parts = transformMixed ? null : parseTransform3DParts(styles.transform);
+  // `parts === null` (and not mixed) means the authored transform is a
+  // matrix()/matrix3d()/rotate3d() composite (or an unrecognized token) that
+  // parseTransform3DParts can't safely invert into independent X/Y/Z/
+  // perspective fields — show the fields disabled with a note instead of
+  // guessing, matching how Mixed values disable commit rather than silently
+  // defaulting to 0. See parseTransform3DParts's doc comment.
   const isCustomTransform = !transformMixed && parts === null;
   const disabled = transformMixed || isCustomTransform;
   const displayParts: Transform3DParts = parts ?? {

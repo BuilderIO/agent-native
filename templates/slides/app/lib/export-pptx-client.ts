@@ -998,6 +998,8 @@ function localFaceUrls(family: string): string[] {
       rules = sheet.cssRules ?? undefined;
     } catch {
       // coercion-ok: a cross-origin sheet is unreadable by design. The Google
+      // Fonts fetch below is what covers those families, so this is a skip with
+      // a defined successor, not a swallowed failure.
       continue;
     }
     for (const rule of Array.from(rules ?? [])) {

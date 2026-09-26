@@ -184,6 +184,9 @@ export function withLocalEmailMutationLock<T>(
         try {
           await releaseDatabaseLease(ownerEmail, leaseRaw);
         } catch (error) {
+          // The lease expires and is token-scoped, so a transient cleanup
+          // failure must not turn an already committed mailbox write into an
+          // ambiguous failure that callers may retry.
           console.warn(
             "[local-email-store] failed to release mutation lease; it will expire",
             error,

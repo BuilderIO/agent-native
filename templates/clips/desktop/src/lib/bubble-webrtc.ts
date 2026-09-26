@@ -312,6 +312,16 @@ export function startBubbleWebrtc(
     }, CONNECT_TIMEOUT_MS);
   }
 
+  // -- wire up listeners --------------------------------------------------
+  //
+  // Race-safe listen tracking. `listen()` is async and returns a Promise
+  // that resolves to the unlisten fn. If `stop()` is called between the
+  // listen() call and its resolution (e.g. a fast preview→record→cancel
+  // cycle), the fire-and-forget `.then(push)` pattern would never enqueue
+  // the unlisten — the listener would live on for the lifetime of the
+  // webview, with its closure pinning the peer connection + ICE state.
+  // Instead: if `stopped` is already true when the promise resolves, call
+  // the unlisten immediately.
   const trackListen = (p: Promise<UnlistenFn>): void => {
     p.then((u) => {
       if (stopped) {

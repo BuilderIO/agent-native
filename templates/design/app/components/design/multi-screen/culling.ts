@@ -3,7 +3,6 @@ import { getRotatedFrameAABB } from "@shared/canvas-math";
 import { SURFACE_PADDING } from "./overview-layout";
 import type { FrameGeometry, Point } from "./types";
 
-
 export const OVERVIEW_CULLING_ENABLED = true;
 
 export const OVERVIEW_CULLING_OVERSCAN_FACTOR = 2;
@@ -14,10 +13,6 @@ export const OVERVIEW_LIVE_IFRAME_CEILING = 96;
 
 export const OVERVIEW_LIVE_BOOT_BUDGET = 4;
 
-/** On-screen width (CSS px) below which an unprotected inline screen renders a
- * static preview instead of a live editor document. Nothing inside a frame
- * that small can be targeted, and every editor document carries the full
- * editor bridge, parsed and compiled on the editor's own main thread. */
 export const OVERVIEW_LIVE_EDITOR_MIN_SCREEN_PX = 240;
 
 const LIVE_EDITOR_DEMOTE_RATIO = 0.75;

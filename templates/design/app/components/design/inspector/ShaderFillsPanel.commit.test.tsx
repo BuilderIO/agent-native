@@ -1,5 +1,22 @@
 // @vitest-environment happy-dom
 
+/**
+ * Preview/commit gesture-lifecycle tests for ShaderFillsPanel (added
+ * alongside this fix): before this change, `ShaderControls`' `onChange`
+ * (fired on every continuous uniform-tuning tick — typing or dragging a
+ * slider) and a discrete preset/create-new pick both funneled through the
+ * same `commit()` path, which fired the expensive `apply-shader` codegen
+ * mutation on *every single tick* of a drag — a "commit storm" identical in
+ * spirit to the one GradientEditor's `onCommit` was added to fix (see
+ * GradientEditor.interaction.test.tsx).
+ *
+ * The fix splits `commit()` into `preview()` (cheap: local state + the
+ * caller's `onApply`, called on every tick) and `commitNow()` (expensive:
+ * the caller's `onCommit` + the `apply-shader` mutation, called exactly once
+ * per gesture/discrete pick). Gesture-end for a continuous ShaderControls
+ * drag is detected via pointerup/blur bubbling out of the tuning container,
+ * since ShaderControls doesn't surface its own ScrubInput gesture phase.
+ */
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";

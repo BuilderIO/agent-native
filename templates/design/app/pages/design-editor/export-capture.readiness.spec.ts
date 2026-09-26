@@ -4,17 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { waitForExportReady } from "./export-capture";
 
-/**
- * Regression coverage for the PNG/SVG/PDF export readiness race: a capture
- * taken before webfonts resolve and before a CDN-injected stylesheet lands
- * produces the field-reported "low quality / broken layout" export. See the
- * `waitForExportReady` docblock in `export-capture.ts` for the full story.
- *
- * Uses the ambient `document` (has a real `defaultView` under the happy-dom
- * test environment) rather than `document.implementation.createHTMLDocument`,
- * which produces a detached document with no `defaultView` — exactly the
- * "no-op" case one of these tests exercises on purpose.
- */
 describe("waitForExportReady", () => {
   const originalFontsDescriptor = Object.getOwnPropertyDescriptor(
     document,

@@ -1,7 +1,5 @@
-
 import type { ShaderDescriptor, ShaderPresetName } from "./shader-presets.js";
 import { SHADER_PRESET_MAP } from "./shader-presets.js";
-
 
 const SAFE_FALLBACK_COLOR = "#808080";
 
@@ -12,17 +10,6 @@ const SAFE_FALLBACK_COLOR = "#808080";
  */
 const CSS_BREAKOUT_RE = /[;{}<>]|url\(/i;
 
-/**
- * Strict allowlist for a single CSS colour token. Accepts only:
- * - hex: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`
- * - `rgb()` / `rgba()`
- * - `hsl()` / `hsla()`
- * - `oklch()`
- * - bare named colours (e.g. `rebeccapurple`, `transparent`)
- *
- * Anything containing CSS-breakout characters, whitespace that could break out
- * of the property value, or `url(` is rejected.
- */
 function isSafeCssColor(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
@@ -51,7 +38,6 @@ function safeSelector(selector: string): string {
   return trimmed;
 }
 
-
 function resolveColors(descriptor: ShaderDescriptor): string[] {
   if (descriptor.colors && descriptor.colors.length > 0) {
     return safePalette(descriptor.colors);
@@ -71,7 +57,6 @@ function resolveBackColor(
   if (presetDef?.defaultColorBack) return safeColor(presetDef.defaultColorBack);
   return palette[palette.length - 1] ?? "#000000";
 }
-
 
 function buildConicGradient(colors: string[], rotation = 0): string {
   const deg = Math.round((rotation * 180) / Math.PI);
@@ -100,7 +85,6 @@ function buildLinearGradient(colors: string[], angleDeg = 135): string {
     .join(", ");
   return `linear-gradient(${angleDeg}deg, ${stops})`;
 }
-
 
 export function generateShaderFillPreviewCss(
   descriptor: ShaderDescriptor,

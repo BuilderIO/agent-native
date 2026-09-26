@@ -1271,10 +1271,6 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
                 | tauri::WindowEvent::Resized(_)
                 | tauri::WindowEvent::ScaleFactorChanged { .. }
         ) {
-            // During a hand-drag the move command owns the position and clamps
-            // every frame; re-clamping here would race that loop and bring back
-            // the edge jitter, so yield until the drag ends (which runs a final
-            // clamp of its own).
             if BUBBLE_DRAGGING.load(Ordering::SeqCst) {
                 return;
             }

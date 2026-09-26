@@ -1,4 +1,3 @@
-
 import { execSync } from "node:child_process";
 import {
   existsSync,
@@ -50,7 +49,6 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "@jridgewell/trace-mapping",
   ],
 };
-
 
 function getBridgeFiles(): string[] {
   return readdirSync(bridgeDir)
@@ -168,7 +166,6 @@ function hydratedEmbeddedCanvasGestureBridgeScript(options?: {
       options?.editingSafety ? "true" : "false",
     );
 }
-
 
 describe("bridge source files", () => {
   const bridgeFiles = getBridgeFiles();
@@ -473,7 +470,6 @@ describe("editor chrome shared gesture controller", () => {
   );
 });
 
-
 it(
   "bridge tsconfig — tsc -p bridge/tsconfig.json exits clean",
   { timeout: 30_000 },
@@ -513,7 +509,6 @@ it("keeps cancel cleanup compatible with held modifiers", () => {
   expect(cancel).toContain("bridgeSpaceKeyPressed = false");
   expect(cancel).not.toContain("bridgeIgnoreAutoLayoutKeyPressed = false");
 });
-
 
 describe("generated bridge modules", () => {
   const bridgeFiles = getBridgeFiles();
@@ -1746,7 +1741,6 @@ it(
   },
 );
 
-
 it(
   "editor chrome bridge omits a move position badge and locks to the dominant axis while Shift is held during a move drag",
   { timeout: 30_000 },
@@ -1891,6 +1885,8 @@ it(
       expect(guideVisible).toBe(true);
 
       // Holding Cmd/Ctrl bypasses snapping entirely (Figma behavior) — nudge
+      // one px further (still well within snap range if snapping were
+      // active) and hold Meta so the raw (unsnapped) position is used.
       await page.keyboard.down(PLATFORM_PRIMARY_KEY);
       await page.mouse.move(174 + 278, 244);
       const bypassedLeft = await page.evaluate(() => {
@@ -2641,7 +2637,6 @@ it(
     }
   },
 );
-
 
 it(
   "editor chrome bridge K-scale tool proportionally scales border width and font size during resize; a normal resize leaves them untouched",
@@ -4031,7 +4026,6 @@ it(
   },
 );
 
-
 it(
   "editor chrome bridge sets/clears data-an-state-preview on state-preview messages, activating the twin CSS rule",
   { timeout: 30_000 },
@@ -4286,7 +4280,6 @@ it(
     }
   },
 );
-
 
 it(
   "editor chrome bridge padding handle: only the handle line drags padding, elsewhere in the padding band moves the element",
@@ -4770,7 +4763,6 @@ it(
     }
   },
 );
-
 
 describe("editor chrome bridge — text editing session", () => {
   async function beginTextEditOnTarget(page: import("@playwright/test").Page) {
@@ -6386,6 +6378,7 @@ describe("editor chrome bridge — text editing session", () => {
         expect(raceState.editing).toBe(true);
 
         // The race window: a keystroke while the editable is unfocused must
+        // pull focus back into the editable, never fall through to hotkeys.
         await page.keyboard.press("a");
         await page.waitForTimeout(30);
         const afterKey = await page.evaluate(() => ({
@@ -6415,7 +6408,6 @@ describe("editor chrome bridge — text editing session", () => {
     },
   );
 });
-
 
 it(
   "editor chrome bridge rotation drag preserves computed transform from a class rule",
@@ -6630,7 +6622,6 @@ it(
   },
 );
 
-
 function collectBridgeMessages(
   page: import("@playwright/test").Page,
   options: { grantSnapshotReservations?: boolean } = {},
@@ -6681,6 +6672,20 @@ async function readBridgeMessages(page: import("@playwright/test").Page) {
   );
 }
 
+// Selects `selector` directly via the bridge's `select-element` postMessage
+// instead of a plain click. Plain clicks now resolve container-first (Figma
+// parity — containerFirstSelectionTarget): clicking a descendant nested more
+// than one level below the current container scope (the screen root, i.e.
+// document.body, by default) selects that scope's direct child on the path
+// to the pointer, not the descendant itself. A setup that needs a specific
+// nested element selected — to drag/resize/etc. THAT element rather than its
+// wrapping container — must select it explicitly.
+//
+// Waits for the overlay to actually match the target's CURRENT rect, not
+// just for display:block — a re-select of the element that is ALREADY the
+// selection (e.g. re-selecting after changing its size) never flips display,
+// so that alone resolves immediately against the stale, pre-change geometry
+// and races the postMessage's async delivery.
 async function selectElementDirect(
   page: import("@playwright/test").Page,
   selector: string,
@@ -7509,7 +7514,6 @@ it(
   },
 );
 
-
 it(
   "editor chrome bridge moves every multi-selected member by the same delta and keeps the selection",
   { timeout: 30_000 },
@@ -8084,6 +8088,13 @@ it(
   },
 );
 
+// ── Zoom-invariant chrome (constant screen size) ────────────────────────────
+//
+// The host CSS-scales the whole iframe by the canvas zoom and reports that
+// scale to the bridge; every piece of editor chrome must multiply its
+// intrinsic sizes by the inverse so the APPARENT size on screen is constant
+// at any zoom — zoomed out (scale < 1) AND zoomed in (scale > 1, where the
+// old Math.max(1, …) floors made chrome render chunky).
 
 it(
   "editor chrome bridge renders selection border, handles, and the spacing badge at constant screen size across zoom levels",
@@ -8184,7 +8195,6 @@ it(
   },
 );
 
-
 it(
   "editor chrome bridge adapts the board-default white text color to inherit when nesting into a light container",
   { timeout: 30_000 },
@@ -8279,7 +8289,6 @@ it(
     }
   },
 );
-
 
 it(
   "editor chrome bridge shows a between-children insertion line when hovering a container gap and drops at that slot (B5-4)",
@@ -9108,7 +9117,6 @@ it(
     }
   },
 );
-
 
 it(
   "editor chrome bridge rejects reordering an Alpine x-for template clone with visible feedback and no DOM mutation",
@@ -10005,7 +10013,6 @@ it(
   },
 );
 
-
 function hydratedHitTestBridgeScript(): string {
   return hitTestBridgeScript;
 }
@@ -10330,7 +10337,6 @@ it(
   },
 );
 
-
 it(
   "hit-test bridge resolves a hover over the gap BETWEEN children to a before/after slot instead of inside-append",
   { timeout: 30_000 },
@@ -10468,7 +10474,6 @@ it(
     }
   },
 );
-
 
 it(
   "resolves the reparent target to the hovered pristine flex row, not its outer ancestor",
@@ -10851,7 +10856,6 @@ it(
     }
   },
 );
-
 
 it(
   "editor chrome bridge resolves a drop into a container whose ONLY children are x-for clones to a container-inside anchor, never a clone",
@@ -11428,7 +11432,6 @@ it(
   },
 );
 
-
 it(
   "editor chrome bridge posts element-hover only when the hovered element actually changes, not on every raw pointermove",
   { timeout: 30_000 },
@@ -11553,7 +11556,6 @@ it(
   },
 );
 
-
 it(
   "editor chrome bridge coalesces cross-screen-drag move-phase posts to one per frame, with the latest position",
   { timeout: 30_000 },
@@ -11633,6 +11635,12 @@ it(
       expect(lastMoveMessage.iframeX).toBe(189);
       expect(lastMoveMessage.iframeY).toBe(169);
 
+      // Schedule one more tick, then release in the SAME synchronous task
+      // (both dispatched in-page, back to back, with no `await` between them
+      // so no animation frame can possibly run in between) — cleanupMoveDrag
+      // must cancel the still-pending tick so no stale "move" can post after
+      // "end". Using page.mouse.up() here instead would reintroduce exactly
+      // the real-IPC-timing race this synchronous dispatch avoids.
       await page.evaluate(() => {
         document.dispatchEvent(
           new PointerEvent("pointermove", {
@@ -11821,7 +11829,6 @@ it(
   },
 );
 
-
 it(
   "editor chrome bridge keeps the selection overlay tracking an element through a transform transition, not just its start/end rect",
   { timeout: 30_000 },
@@ -11921,6 +11928,21 @@ const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   { name: "Cmd/Ctrl+Shift+X strikethrough", key: "x", shift: true },
   { name: "Cmd/Ctrl+U underline", key: "u" },
   { name: "Cmd/Ctrl+C copy", key: "c" },
+  // NOTE: bare Cmd/Ctrl+V (plain paste) is deliberately excluded here. It's
+  // the one chord shouldForwardDesignHotkey defers instead of forwarding
+  // immediately (see plainPasteHotkey in editor-chrome.bridge.ts): the
+  // keydown handler leaves the browser's native paste alone and schedules a
+  // design-hotkey post on a 0ms timer, but the document-level "paste"
+  // listener unconditionally cancels that timer the instant a real paste
+  // DOMEvent arrives (Figma-clipboard-flavored or not) so paste is never
+  // double-handled. Chromium's synthetic CDP keyboard input dispatches that
+  // real paste event even against a non-editable, unfocused document body,
+  // so this chord can't be exercised as a simple "did a design-hotkey
+  // message arrive" assertion the way every other chord here can. The
+  // Cmd+Alt+V / Cmd+Shift+V variants below aren't `plainPasteHotkey` (that
+  // flag requires !altKey && !shiftKey) and forward immediately and
+  // synchronously like every other chord, so they cover the same "v" array
+  // entry without the paste-event race.
   { name: "Cmd/Ctrl+Alt+V paste properties", key: "v", alt: true },
   { name: "Cmd/Ctrl+Shift+V paste over", key: "v", shift: true },
   { name: "Cmd/Ctrl+D duplicate", key: "d" },
@@ -14560,7 +14582,6 @@ it(
     }
   },
 );
-
 
 it(
   "hit-test bridge treats an unmarked absolute group with children as a free-form container",

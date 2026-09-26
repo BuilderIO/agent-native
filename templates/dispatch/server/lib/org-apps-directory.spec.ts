@@ -123,7 +123,6 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
   });
 
   it("REJECTS a cross-org token (domain resolves to a different org secret)", async () => {
-    // Signed with ORG A's secret, but the verifier only knows ORG B's secret
     const tok = await signA2AToken(
       "mallory@orga.com",
       "orga.com",

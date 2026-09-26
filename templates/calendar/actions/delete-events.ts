@@ -34,7 +34,6 @@ import {
   resolveCalendarEventRange,
 } from "./list-events.js";
 
-
 async function resolveFilterTimezone(
   requested: string | undefined,
   ownerEmail: string,
@@ -145,13 +144,11 @@ export default defineAction({
     if (!hasIds && !(from && to)) {
       throw new Error("A bulk delete needs both from and to, or explicit ids.");
     }
-    // "thisAndFollowing" would have those occurrences race to rewrite the same
     if (args.removeOnly && args.scope === "thisAndFollowing") {
       throw new Error(
         'removeOnly cannot honor scope "thisAndFollowing" — Google only lets a non-organizer drop one occurrence at a time. Use scope single per occurrence, or scope all to remove the whole series from your calendar.',
       );
     }
-    // is incoherent: two occurrences of one series would either race to rewrite
     if (hasIds && args.scope !== "single" && args.ids!.length > 1) {
       throw new Error(
         `scope "${args.scope}" acts on a whole recurring series, so it takes exactly one id. Call it once per series, or use scope single to remove specific occurrences.`,

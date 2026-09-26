@@ -4,7 +4,6 @@ import { originFor, productionHostFor, selectedSites } from "../lib/fleet";
 import { mustRespond, parseJson } from "../lib/http";
 import { installBetaE2ETrafficMarker } from "../lib/test-traffic";
 
-
 const sites = selectedSites();
 
 test.beforeEach(async ({ page }) => {
@@ -85,6 +84,10 @@ for (const site of sites) {
     });
 
     test("does not share a database with its production twin", async () => {
+      // Beta is meant to absorb risk before production sees it. A shared
+      // database means a bad migration or a destructive agent turn on beta
+      // lands directly in production data, and it is why this suite's
+      // authenticated specs must clean up after themselves.
       const production = productionHostFor(site);
       const betaHealth = parseJson<{ database?: { urlHash?: string } }>(
         await mustRespond(`${origin}/_agent-native/health`, {

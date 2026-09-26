@@ -338,6 +338,9 @@ export default defineAction({
       for (const region of regions) region.x += boardRightEdge;
     }
     // Dedupe any filename (explicit or auto-generated) so two screens can
+    // never resolve to the same target file, and so no target collides with
+    // an existing screen — otherwise generate-design silently overwrites the
+    // other screen's content.
     const dedupeFilename = (base: string): string => {
       if (!usedFilenames.has(base)) {
         usedFilenames.add(base);

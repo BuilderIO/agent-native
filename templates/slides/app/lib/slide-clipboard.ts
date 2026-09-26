@@ -114,6 +114,7 @@ function getBrowserStorage(): SlideClipboardStorage | null {
     return window.localStorage;
   } catch {
     // coercion-ok: storage availability is reported as an explicit unavailable status.
+    // Storage can be disabled by an embedded browser or privacy setting.
     return null;
   }
 }
@@ -280,6 +281,7 @@ export function readSlideClipboards(
     raw = storage.getItem(storageKey);
   } catch {
     // coercion-ok: storage read failures return an explicit unreadable status.
+    // A failed read is not the same as an empty clipboard.
     return { status: "unreadable", slides: null, copiedAt: null };
   }
   if (raw === null) return { status: "empty", slides: null, copiedAt: null };
@@ -313,6 +315,7 @@ export function readSlideClipboards(
     };
   } catch {
     // coercion-ok: malformed storage data returns an explicit unreadable status.
+    // A malformed local value must not become a pasteable slide.
     return unreadableClipboardResult();
   }
 }
@@ -346,6 +349,7 @@ export function writeSlideClipboards(
     return true;
   } catch {
     // coercion-ok: a failed write returns false while the in-memory clipboard remains usable.
+    // The in-memory editor clipboard remains available when persistence fails.
     return false;
   }
 }

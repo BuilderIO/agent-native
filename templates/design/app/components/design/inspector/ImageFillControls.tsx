@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-
 export type ImageFitMode = "fill" | "fit" | "crop" | "tile";
 
 export interface ImageFillValue {
@@ -45,6 +44,7 @@ const FIT_MODES: Array<{ mode: ImageFitMode; label: string }> = [
   { mode: "tile", label: "Tile" }, // i18n-ignore image fit mode
 ];
 
+// ─── CSS serialization ─────────────────────────────────────────────────────────
 
 /**
  * Escape a URL for embedding inside a double-quoted CSS url("...") token.
@@ -247,7 +247,6 @@ export function mergeImageFitDraft(
 ): ImageFillValue {
   return { ...value, url: urlDraft.trim(), fit };
 }
-
 
 export interface ImageFillControlsProps {
   value: ImageFillValue;

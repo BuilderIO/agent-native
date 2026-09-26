@@ -1,4 +1,3 @@
-
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 
@@ -590,7 +589,12 @@ async function matchNameAndLocation(
   const firstWord = keys.normalizedName.split(" ")[0];
   if (!firstWord) return;
 
+  // `lower(...)` on both sides makes the PostgreSQL match case-insensitive.
+  //
   // ponytail: a leading-wildcard LIKE cannot use an index, so this is a bounded
+  // scan capped at MAX_DEDUPE_SCAN rows of the same object type. The upgrade is
+  // a normalized-name column written by the attribute writer; add it when the
+  // record count makes this probe show up in a slow query log.
   const rows = await db
     .select({
       id: schema.crmRecords.id,

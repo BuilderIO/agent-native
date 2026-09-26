@@ -1,4 +1,3 @@
-
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
@@ -59,7 +58,6 @@ import {
   type BoardOption,
 } from "./board-model";
 import { toEntryFilters, type EntryFilter } from "./entry-filter";
-
 
 interface BoardAttributeOption {
   id: string;
@@ -124,17 +122,6 @@ const DAY_UNIT: Intl.NumberFormatOptions = {
   unitDisplay: "narrow",
 };
 
-/**
- * Drop confirmation: the accent tint lands instantly on the card that just
- * committed, then eases back to rest. Board-local rather than a shared motion
- * token — nothing else in the app confirms a drop, and 900ms is far outside
- * the interaction scale the other surfaces share.
- *
- * It REPLACES the resting `bg-card` rather than being layered on top of it.
- * Two `bg-*` utilities on one element are decided by their order in the
- * generated stylesheet, not by the order they are written, and the theme
- * colour wins — so a flash appended to the class list silently paints nothing.
- */
 const CARD_REST_CLASS = "bg-card";
 const DROP_FLASH_CLASS = "bg-[hsl(var(--crm-accent)/0.12)] transition-none";
 
@@ -167,7 +154,6 @@ interface BoardData {
   refetch: () => void;
   commit: (move: { card: BoardCard; toValue: string }) => Promise<unknown>;
 }
-
 
 function toBoardOptions(attribute: BoardAttribute | null): BoardOption[] {
   return (attribute?.options ?? []).map((option) => ({
@@ -220,7 +206,6 @@ function statusAttributesOf(
 ): BoardAttribute[] {
   return attributes.filter((attribute) => attribute.attributeType === "status");
 }
-
 
 function useListBoard(props: CrmBoardProps, enabled: boolean): BoardData {
   const attributesQuery = useActionQuery<AttributesResponse>(
@@ -327,7 +312,6 @@ function useListBoard(props: CrmBoardProps, enabled: boolean): BoardData {
       ),
   };
 }
-
 
 function useObjectBoard(props: CrmBoardProps, enabled: boolean): BoardData {
   const attributesQuery = useActionQuery<AttributesResponse>(
@@ -442,7 +426,6 @@ function conditionsOf(filter: unknown): unknown[] {
   const conditions = (filter as { conditions?: unknown }).conditions;
   return Array.isArray(conditions) ? conditions : [];
 }
-
 
 export function CrmBoard(props: CrmBoardProps) {
   const t = useT();
@@ -977,7 +960,6 @@ function BoardTable({ columns, now }: { columns: BoardColumn[]; now: Date }) {
     </div>
   );
 }
-
 
 const EMPTY_CELL = "—";
 

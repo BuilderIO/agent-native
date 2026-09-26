@@ -405,7 +405,6 @@ describe("canvas snap and resize math", () => {
   });
 
   describe("resizeFrameFromDelta flip-normalization (Figma-parity CV-flip)", () => {
-
     it("flips horizontally when the 'e' handle is dragged past the west edge", () => {
       const origin = { x: 100, y: 100, width: 150, height: 150 };
       const result = resizeFrameFromDelta(origin, "e", -200, 0, {
@@ -2250,6 +2249,9 @@ describe("3D transform parse/compose", () => {
       expect(parsed.rotateX).toBe(0);
       expect(parsed.rotateY).toBe(0);
       expect(parsed.perspective).toBe(0);
+      // Recomposing with the parsed (2D-only) parts must reproduce the exact
+      // same rotate() token and preserve the surrounding transform verbatim —
+      // no perspective()/rotateX()/rotateY() churn for existing designs.
       expect(composeTransform3D(original, parsed)).toBe(
         "rotate(45deg) translateX(10px) scale(1.2)",
       );
@@ -2263,6 +2265,16 @@ describe("3D transform parse/compose", () => {
     });
 
     it("still parses rotateZ correctly after EditPanel's plain Z-rotation field (mergeRotationValue) edits a 3D-active transform", () => {
+      // EditPanel.tsx's plain rotation field always writes a bare rotate()
+      // (via mergeRotationValue), never rotateZ() — even when the 3D
+      // expander is active alongside it. ROTATE_FN_PATTERN
+      // (`rotate[Zz]?\(...\)`, non-global) only replaces the FIRST rotate
+      // family match, and critically does NOT match rotateX()/rotateY()
+      // (the "X"/"Y" isn't the optional "Z"), so editing the plain Z field
+      // while rotateX/rotateY are present correctly swaps only the
+      // rotateZ() token for a bare rotate() token, leaving rotateX/rotateY
+      // untouched. parseTransform3DParts must still recover the edited Z
+      // value from that bare rotate() via its rotateZ ?? rotate fallback.
       const threeDActive =
         "perspective(800px) rotateX(10deg) rotateY(20deg) rotateZ(30deg)";
       const afterZFieldEdit = threeDActive.replace(

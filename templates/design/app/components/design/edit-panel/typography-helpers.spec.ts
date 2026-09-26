@@ -25,7 +25,6 @@ import {
   TEXT_CASE_OPTIONS,
 } from "./typography-helpers";
 
-
 describe("splitFontFamilyList", () => {
   it("splits a plain comma-separated stack", () => {
     expect(splitFontFamilyList("Inter, sans-serif")).toEqual([
@@ -128,7 +127,6 @@ describe("displayFontFamilyName", () => {
   });
 });
 
-
 describe("resolveFontFamilyFieldValue", () => {
   it("returns the MIXED_VALUE sentinel unchanged for a mixed selection", () => {
     expect(resolveFontFamilyFieldValue(MIXED_VALUE)).toBe(MIXED_VALUE);
@@ -143,7 +141,6 @@ describe("resolveFontFamilyFieldValue", () => {
     );
   });
 });
-
 
 describe("isKnownFontWeight", () => {
   it("recognizes every standard notch", () => {
@@ -162,7 +159,6 @@ describe("isKnownFontWeight", () => {
     expect(isKnownFontWeight("normal")).toBe(false);
   });
 });
-
 
 describe("resolveFixedResizeDimension", () => {
   it("preserves an existing authored (non-auto) size verbatim", () => {
@@ -287,7 +283,6 @@ describe("line-height field values", () => {
   });
 });
 
-
 describe("parseTextDecorationLineTokens", () => {
   it("returns an empty set for none/undefined/empty", () => {
     expect(parseTextDecorationLineTokens(undefined).size).toBe(0);
@@ -361,7 +356,6 @@ describe("nextTextDecorationLineValue", () => {
     );
   });
 });
-
 
 describe("TEXT_CASE_OPTIONS", () => {
   it("exposes exactly the four supported text-transform keywords", () => {
@@ -484,7 +478,6 @@ describe("text truncation styles", () => {
   });
 });
 
-
 describe("parseLetterSpacingInput / resolveLetterSpacingFieldValue", () => {
   const px = { value: 0, unit: "px" as const };
   const pct = { value: 2, unit: "%" as const };
@@ -522,6 +515,7 @@ describe("parseLetterSpacingInput / resolveLetterSpacingFieldValue", () => {
     expect(parseLetterSpacingInput("2em%", px)).toBeNull();
     expect(parseLetterSpacingInput("2px", pct)?.cssValue).toBe("2px");
     expect(parseLetterSpacingInput("2", px)?.cssValue).toBe("2px");
+    // A unit embedded mid-expression, followed by further arithmetic
     // (not another unit token), is not "doubled" and must keep working.
     expect(
       parseLetterSpacingInput("(x+1)px", { value: 0.64, unit: "px" }),

@@ -3,8 +3,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { appApiPath } from "@/lib/api-path";
 
+// ─── Generic integration credentials (via encrypted per-user vault) ──────────
+//
 // SECURITY: The raw API key is NEVER sent to the browser. The status endpoint
 // returns only `{ connected }`; the secret is stored server-side in the
+// encrypted credentials vault, scoped to the requesting user.
 
 type Provider = "apollo" | "hubspot" | "gong" | "pylon";
 
@@ -55,7 +58,6 @@ function useIntegrationDisconnect(provider: Provider) {
     },
   });
 }
-
 
 export function useAllIntegrations() {
   const apollo = useIntegrationStatus("apollo");

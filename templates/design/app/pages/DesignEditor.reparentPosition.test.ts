@@ -1,5 +1,37 @@
 // @vitest-environment happy-dom
 
+/**
+ * DesignEditor.reparentPosition.test.ts
+ *
+ * Regression coverage for the nested-container reparent bug: DesignEditor's
+ * (private, unexported) `getAbsolutePositioningForNodeInHtml` used to read
+ * only a node's own inline `style.left`/`style.top` — correct for a direct
+ * child of the screen root, but wrong for anything nested inside another
+ * positioned/flow container, since that value is relative to the node's OWN
+ * immediate parent rather than the screen root. `computeReparentedChildPosition`
+ * (shared/board-file.ts) then did a flat `source - target` subtraction,
+ * which is only valid when both inputs share the same coordinate space.
+ * Combining a parent-relative read with that flat subtraction produced a
+ * garbage delta whenever the source or target container was nested two or
+ * more levels deep — the dropped element visibly jumped away from the
+ * cursor.
+ *
+ * The fix reuses `authoredElementPosition` (MultiScreenCanvas's
+ * primitive-drop-target.ts — now exported for exactly this reuse) inside
+ * `getAbsolutePositioningForNodeInHtml`, which walks every ancestor up to
+ * `<body>` accumulating positioned-ancestor offsets and static-flow
+ * padding/sibling contributions. That produces a true screen-root-relative
+ * position for both source and target regardless of nesting depth, so
+ * `computeReparentedChildPosition`'s flat subtraction becomes valid again.
+ *
+ * `getAbsolutePositioningForNodeInHtml` itself stays private to
+ * DesignEditor.tsx (matching every other module-level helper in that file),
+ * so this spec exercises the exact same public seam DesignEditor.tsx now
+ * calls through: `authoredElementPosition` feeding
+ * `computeReparentedChildPosition`, using jsdom-style parsed documents built
+ * the same way `getAbsolutePositioningForNodeInHtml` builds them (DOMParser
+ * + a `data-agent-native-node-id` lookup).
+ */
 
 import { describe, expect, it } from "vitest";
 

@@ -177,7 +177,11 @@ describe("applyScopedVisualStyleEdit (§6.4 single write path)", () => {
 });
 
 describe("Fill 'Add layer' single-property commit with a breakpoint active", () => {
+  // Mirrors EditPanel's FillProperties "Add layer" button (the +) for an
+  // element with no existing visible fill: a single onStyleChange("backgroundColor",
   // ...) call — not a multi-property patch — must still scope through
+  // applyScopedVisualStyleEdit instead of silently landing as a base inline
+  // style while a non-base breakpoint (e.g. Mobile 390) is active.
   it("a single backgroundColor commit scopes to the active breakpoint's @media block", () => {
     const patch = applyScopedVisualStyleEdit({
       content: html,
@@ -290,6 +294,12 @@ describe("delete-to-display:none at an active breakpoint (item 7b)", () => {
   });
 
   it("at the base scope (no active breakpoint), a display:none write is a plain inline style — callers must route base deletes through structural removal instead", () => {
+    // This function is scope-agnostic; the base-vs-scoped BRANCHING decision
+    // (structural remove vs. display:none override) lives in
+    // handleDeleteSelection, asserted below via source checks. This case
+    // documents why: at upperBoundPx === null there is no @media scoping to
+    // hide the element at a specific width only, so a real delete must stay
+    // structural at the base scope.
     const patch = applyScopedVisualStyleEdit({
       content: html,
       target: { nodeId: "hero" },
@@ -514,6 +524,13 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
   });
 
   it("never falls back to a base inline write while a breakpoint is active", () => {
+    // On scoped-patch failure the legacy selector-based fallback would
+    // clobber every viewport width — the commit must fail loud instead. The
+    // decision now lives in the pure resolveVisualStyleCommitContent helper
+    // (behaviorally pinned in DesignEditor.styleCommitAndDropAnchor.spec.ts:
+    // breakpointScoped + failure → hard error even when a legacy fallback
+    // exists); this source assertion pins that commitVisualStyles actually
+    // routes through it with the breakpoint-scope flag wired.
     const commitVisualStylesSource = readFileSync(
       "app/pages/design-editor/commands/commit-visual-styles.ts",
       "utf8",

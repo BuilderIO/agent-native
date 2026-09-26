@@ -190,7 +190,6 @@ describe("syncInboxAccount — full sync", () => {
     expect(first.state).toBe("initial");
     expect(mocks.upsertInboxThreadRows).toHaveBeenCalledTimes(1);
     expect(mocks.upsertInboxThreadRows.mock.calls[0][0]).toHaveLength(2);
-    // Page token persisted so the next call resumes instead of restarting.
     expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,

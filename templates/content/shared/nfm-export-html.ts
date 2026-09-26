@@ -9,7 +9,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { splitGfmPipeRow } from "./nfm.js";
 
-
 export interface NfmExportRenderers {
   renderBlocks: (markdown: string) => string;
   renderInline: (text: string) => string;
@@ -36,6 +35,7 @@ const EXPORT_ICON_COLORS: Record<IconColor, string> = {
   red: "#c4554d", // guard:allow-raw-color - standalone export has no theme tokens
 }; // guard:allow-raw-color - standalone export document, no theme tokens
 
+/** Stylesheet rules the exported document needs for NFM container blocks. */
 export const NFM_EXPORT_STYLES = `
     .nfm-table-scroll { margin: 18px 0; max-width: 100%; overflow-x: auto; }
     table.nfm-table {
@@ -85,7 +85,6 @@ export const NFM_EXPORT_PRINT_STYLES = `
       .nfm-callout, .nfm-columns { break-inside: avoid; }
       .nfm-details > summary { list-style: none; }`;
 
-
 const OPEN_TAG_PATTERN = /^<([a-z][a-z0-9_-]*)((?:\s[^>]*)?)>$/;
 
 function unescapeAttr(value: string): string {
@@ -124,7 +123,6 @@ function renderCellContent(
     .map((segment) => renderers.renderInline(segment))
     .join("<br />");
 }
-
 
 type Alignment = "left" | "center" | "right" | null;
 
@@ -251,7 +249,6 @@ function detectContainer(
 function detectBlock(lines: string[], index: number): BlockDescriptor | null {
   return detectPipeTable(lines, index) ?? detectContainer(lines, index);
 }
-
 
 interface ContainerInput {
   attrs: Record<string, string>;

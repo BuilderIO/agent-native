@@ -96,6 +96,7 @@ export async function listDueBrainSources(
   const db = getDb();
   const where = options.system
     ? // guard:allow-unscoped — system scheduler enumerates retryable sources,
+      // then re-enters each row's owner/org context before syncing.
       and(
         inArray(schema.brainSources.status, RETRYABLE_SOURCE_STATUSES),
         ne(schema.brainSources.provider, "manual"),

@@ -1,9 +1,3 @@
-
-
-
-
-
-
 CREATE SCHEMA IF NOT EXISTS `builder-3b0a2.analytics`
 OPTIONS (location = "US");
 

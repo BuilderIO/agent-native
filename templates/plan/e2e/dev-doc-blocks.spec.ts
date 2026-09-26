@@ -262,7 +262,6 @@ test.describe("dev-doc blocks render + persist", () => {
         },
       },
       assertRendered: async (node) => {
-        // Filename header + a token that only exists on the ADDED side (the typed
         await expect(node).toContainText("src/add.ts", { timeout: 15_000 });
         await expect(node).toContainText("a: number");
       },

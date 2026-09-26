@@ -157,18 +157,6 @@ pub(crate) fn spawn_refresh(
     });
 }
 
-/// Spawn the long-running feature-flags poller. Idempotent — gated on a
-/// static `OnceLock` so a double-call from setup is safe. Runs on its own
-/// loop, entirely separate from the meetings watcher's tick; it only reads
-/// that watcher's already-live session credentials (server URL / cookie /
-/// auth token) via `session_snapshot()` instead of tracking a second copy.
-///
-/// Starts immediately (no initial delay) and retries every
-/// `REMOTE_FLAGS_FAST_POLL_SECS` until the first successful fetch — session
-/// credentials aren't pushed by the renderer until sign-in completes, so this
-/// closes that gap without the app needing to notify this loop. Once a fetch
-/// succeeds it settles into the slower `REMOTE_FLAGS_POLL_SECS` keep-warm
-/// cadence.
 pub(crate) fn spawn_watcher(app: AppHandle) {
     static STARTED: OnceLock<()> = OnceLock::new();
     if STARTED.set(()).is_err() {
@@ -186,9 +174,6 @@ pub(crate) fn spawn_watcher(app: AppHandle) {
             }
         };
         let mut fetched_once = false;
-        // Backs off a credential pair that got a 401 instead of retrying it
-        // every fast-poll tick; a renderer repush is a different pair and is
-        // retried on the very next tick regardless of where the backoff is.
         let mut unauthorized_retry: Option<UnauthorizedRetry> = None;
         loop {
             if let Some(state) = app.try_state::<MeetingsWatcherState>() {

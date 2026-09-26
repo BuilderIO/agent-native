@@ -1566,16 +1566,6 @@ function InspectorTabsHeader({
   );
 }
 
-/**
- * Which background scope the nothing-selected panel addresses. Scope follows
- * what you are looking at; permission only decides whether the section appears
- * at all. Deciding by callback presence instead handed read-only viewers the
- * live document controls and editors the board colour.
- *
- * `single` alone does not mean "inside a screen editing it" — standalone it is
- * the responsive interactive view, and only a host-embedded editor stays in
- * `edit` there. Document scope needs both.
- */
 export function resolveBackgroundPanelScope(input: {
   viewMode: DesignViewMode;
   mode: EditorMode;
@@ -2606,6 +2596,10 @@ export const EditPanel = memo(function EditPanel({
       html: breakpointContext.html,
       onReset: (property, maxWidthPx) => {
         if (!nodeId) return;
+        // The reset's `value` argument is the current (post-reset) display
+        // value — the base/wider-scope value the field falls back to once
+        // the override is cleared — never a new value to persist; see the
+        // `breakpointReset` doc on `StyleChangeMeta` for the full contract.
         const camelProperty = property.replace(
           /-([a-z])/g,
           (_, letter: string) => letter.toUpperCase(),

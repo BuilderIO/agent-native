@@ -4,8 +4,6 @@ import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import { EMBED_TOKEN_QUERY_PARAM } from "@agent-native/core/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// earlier test's URL-derived token would otherwise leak into a later test
-// each test controls the credential instead of the URL/sessionStorage state.
 vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/host")>()),
   getEmbedAuthToken: vi.fn(() => null),

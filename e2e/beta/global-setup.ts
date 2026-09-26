@@ -30,7 +30,6 @@ function providerKeyRequired(): boolean {
   return process.env.BETA_E2E_CLUSTER?.trim().toLowerCase() === "chat";
 }
 
-
 export function authedLaneRequested(): boolean {
   const explicit = process.env.BETA_E2E_AUTHED?.trim().toLowerCase();
   if (explicit === "0" || explicit === "false") return false;
@@ -104,6 +103,10 @@ async function globalSetup(): Promise<void> {
     `[beta-e2e] establishing sessions as ${email} on: ${targets.map((site) => site.id).join(", ")}`,
   );
 
+  // The key is written only where a turn will actually run. Every install is a
+  // durable write to the e2e account's credential vault on that host — and for
+  // most beta apps that vault lives in the production database — so writing it
+  // to hosts this run will never prompt is avoidable damage.
   const needsKey = new Set(chatSites().map((site) => site.id));
 
   const browser = await chromium.launch();

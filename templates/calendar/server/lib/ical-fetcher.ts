@@ -7,14 +7,6 @@ function normalizeUrl(url: string): string {
   return url.replace(/^webcal:\/\//i, "https://");
 }
 
-/**
- * Reject iCal URLs that point at private/internal addresses or non-https
- * schemes. The URL flows in from user input (the `add-external-calendar`
- * action) so without this guard a malicious URL like
- * `http://169.254.169.254/latest/meta-data/iam/security-credentials/` would
- * cause the production server to fetch AWS IAM creds and (for
- * fetchICalEvents) return them through the action response.
- */
 function assertSafeICalUrl(httpUrl: string): void {
   let parsed: URL;
   try {

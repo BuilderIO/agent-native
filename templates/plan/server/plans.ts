@@ -572,7 +572,6 @@ export async function writeEvent(input: {
     });
 }
 
-
 export function emitPlanCreated(input: {
   planId: string;
   title: string;
@@ -766,6 +765,10 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
     planId,
     resolvePlanAccessContext(currentAccess()),
   );
+  // `!access` means not-found OR no-permission (the resolver conflates them to
+  // avoid leaking existence). Throw ForbiddenError (statusCode 403) so the action
+  // surface returns a clean 4xx instead of a 500 stack — a missing/private plan
+  // must never surface as an Internal Server Error.
   if (!access || !access.resource) {
     throw new ForbiddenError(`Plan ${planId} not found`);
   }

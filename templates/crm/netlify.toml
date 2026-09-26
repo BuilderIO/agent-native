@@ -11,4 +11,6 @@ NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"
 
 [context.production.environment]
+# Production release migrations own schema setup; request functions must skip
+# migration probes on every serverless invocation.
 AGENT_NATIVE_RELEASE_MIGRATIONS = "1"

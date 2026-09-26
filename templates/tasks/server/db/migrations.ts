@@ -1,6 +1,9 @@
 import { runMigrations } from "@agent-native/core/db";
 import { loadDrizzleMigrations } from "@agent-native/core/db/drizzle-migrations";
 
+// The checked-in Drizzle metadata baseline represents this legacy schema, so
+// future `db:generate` runs produce deltas instead of recreating these tables.
+// Keep historical entries unnamed for legacy-ledger compatibility; every new
 // migration must add a stable, unique `name` slug.
 const legacyTasksMigrations = [
   {

@@ -157,6 +157,8 @@ export function SnoozeModal({
     };
   }, [nlInput]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Filter presets + weekdays by prefix match
+  // (e.g. "tom" → "tomorrow", "next" → "next week", "mond" → "monday")
   const query = nlInput.trim().toLowerCase();
   const filteredMatches = query
     ? [...presets, ...getWeekdayOptions()].filter((p) =>

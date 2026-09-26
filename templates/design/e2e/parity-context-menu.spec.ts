@@ -395,6 +395,10 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
         return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
       }
 
+      // The focused row uses the shared panel hover token (a translucent tint)
+      // with the regular foreground text. Composite the tint over an assumed
+      // white menu surface to get the effective row color, then require
+      // WCAG AA contrast (>= 4.5:1) between that and the computed text color.
       const [r, g, b, a] = parseRgb(bg);
       const surface: [number, number, number] = [255, 255, 255];
       const effective: [number, number, number] = [

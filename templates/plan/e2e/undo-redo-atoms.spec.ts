@@ -1,6 +1,5 @@
 import { test, expect, type Page, type APIResponse } from "@playwright/test";
 
-
 const UPDATE_ACTION = "/_agent-native/actions/update-visual-plan";
 const CREATE_ACTION = "/_agent-native/actions/create-visual-plan";
 const GET_ACTION = "/_agent-native/actions/get-visual-plan";
@@ -431,6 +430,7 @@ test.describe("undo / redo restores the document", () => {
     await expect(prose).not.toContainText("UNDOABLE-EDIT", { timeout: 8_000 });
     await expect(prose).toContainText("Original sentence", { timeout: 8_000 });
 
+    // Undo writes a NEW doc state → autosaves it; the persisted markdown must drop
     // the token. (If undo only mutated the DOM without re-serializing, this fails.)
     await expect
       .poll(async () => await getRichTextMarkdown(page, planId, RT_BLOCK_ID), {
@@ -477,7 +477,6 @@ test.describe("undo / redo restores the document", () => {
     await expect(prose).toContainText("Nested leaf A", { timeout: 15_000 });
     await expect(prose).toContainText("Nested leaf B");
 
-    // a token to that specific leaf. Clicking the text node, then Control+End would
     const leafB = prose
       .locator("li")
       .filter({ hasText: "Nested leaf B" })
@@ -500,6 +499,7 @@ test.describe("undo / redo restores the document", () => {
       .toContain("Nested leaf B-DEEPEDIT");
 
     // Undo the leaf edit. The nested list must be restored EXACTLY — the token
+    // gone, all four items present, and the indentation/structure intact.
     await prose.click();
     for (let i = 0; i < 12; i += 1) {
       await page.keyboard.press("ControlOrMeta+z");
@@ -564,7 +564,11 @@ test.describe("undo / redo restores the document", () => {
     );
     const atomBefore = await getBlockData(page, planId, DIAGRAM_BLOCK_ID);
 
+    // Edit at the very end of the post-atom tail prose run. Click directly on the
+    // tail paragraph's TEXT (centre of the run, which is inside the editable text
+    // node) so the caret lands in this specific block — clicking the far-right
     // empty edge can drop the caret outside the text node, so the token never
+    // lands. Then press End to move to the end of that line before typing.
     const tailParagraph = prose
       .locator("p")
       .filter({ hasText: "Tail prose to edit." })

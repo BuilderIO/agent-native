@@ -97,10 +97,7 @@ function isRetryableTransactionConflict(error: unknown): boolean {
         ? (error as { code: string }).code
         : ""
       : "";
-  return (
-    code === "40001" ||
-    code === "40P01"
-  );
+  return code === "40001" || code === "40P01";
 }
 
 function withDesignDataLock<T>(
@@ -192,7 +189,9 @@ async function mutateDesignDataUnlocked<TTransactionResult>({
           );
         }
         if (mutateFiles) {
+          // Keep the design-data CAS and HTML rewrites in one transaction.
           // ponytail: reuse the existing design-file lock; split by design only
+          // if breakpoint edits become a measurable multi-tenant bottleneck.
           await lockDesignFilesTable(tx);
         }
 

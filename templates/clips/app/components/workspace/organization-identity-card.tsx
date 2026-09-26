@@ -34,6 +34,11 @@ export function OrganizationIdentityCard() {
     isError: isOrgError,
     isFetching: isOrgFetching,
   } = useOrg();
+  // Personal scope owns this surface: the framework Team card below already
+  // renders "create an organization", so an org-scoped branding fetch here
+  // has nothing to read and its failure reads as a broken page. A failed org
+  // lookup also leaves `orgInfo` undefined, so it must stay distinguishable
+  // from a loaded `orgId: null` instead of silently hiding the section.
   const activeOrgId = orgInfo?.orgId ?? null;
   const hasActiveOrg = Boolean(activeOrgId);
 

@@ -602,6 +602,18 @@ export function runDeleteSelection({
       if (nodes.length === 0) continue;
       const removedSelectors: string[] = [];
       const formerParentAttrIds = new Set<string>();
+      // Item 7b — while a breakpoint is the active edit target, Delete
+      // must not structurally remove the element (that would remove it at
+      // EVERY width, defeating the point of scoping). Instead it writes a
+      // display:none override scoped to the active breakpoint's upper
+      // bound, through the exact same planBreakpointStyleWrite routing
+      // regular style edits use (applyScopedVisualStyleEdit / see
+      // commitVisualStyles' matching upperBoundPx-gated branch above).
+      // Only file.id === activeFile?.id can be the breakpoint-scoped
+      // target — activeBreakpointUpperBoundPx describes the ACTIVE
+      // screen's viewport scope, not other files' — so a multi-screen
+      // overview selection spanning other screens still deletes those
+      // structurally.
       const useBreakpointScopedDelete =
         activeBreakpointWidthStateRef.current !== undefined &&
         file.id === activeFile?.id &&
@@ -706,6 +718,10 @@ export function runDeleteSelection({
       : { kind: "design-file" as const, fileId: activeFile.id }
     : undefined;
   const baseContent = activeLiveSnapshot?.html ?? getFreshActiveContent();
+  // Item 7b — same breakpoint-scoped display:none routing as the
+  // multi-layer-snapshot branch above, for the single-runtime-selected-
+  // element fallback path (e.g. single-screen canvas click-select with no
+  // layers-panel snapshot).
   if (
     activeBreakpointWidthStateRef.current !== undefined &&
     activeBreakpointUpperBoundPx != null

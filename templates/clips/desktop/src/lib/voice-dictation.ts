@@ -192,10 +192,16 @@ function pickMimeType(): string {
   return "audio/webm";
 }
 
+// Pick the built-in MacBook microphone over any Bluetooth / external input.
+// Bluetooth headsets force macOS into a tighter audio-session mode that
+// pauses + glitches whatever's playing the moment we open getUserMedia,
+// and we don't get the dictation experience right unless we sidestep that
+// by always pinning to the built-in mic. Returns null when labels are
+// empty (no prior permission grant) — the caller falls back to plain
+// `audio: true` so the first-time grant prompt still goes through.
 async function pickBuiltInMicId(): Promise<string | null> {
   try {
     if (!navigator.mediaDevices?.enumerateDevices) return null;
-    // Device labels are only populated AFTER permission has been granted
     const devices = await navigator.mediaDevices.enumerateDevices();
     const inputs = devices.filter(
       (d) => d.kind === "audioinput" && concreteMediaDeviceId(d.deviceId),
@@ -1137,7 +1143,9 @@ export function installDesktopVoiceDictation(
       startInFlight = false;
       stopRequestedBeforeReady = false;
       session = null;
+      // Clear the hands-free flag alongside session so a failed
       // native start (mic permission denial, engine-busy) can't wedge every
+      // future press into a no-op stop() branch.
       setHandsFreeActive(false);
       if (
         String(err).includes("unavailable in tauri dev") &&
@@ -1884,6 +1892,15 @@ export function installDesktopVoiceDictation(
         setHandsFreeActive(true);
       }
       void start(event.payload?.source).then(() => {
+        // Race guard: the physical key-up of this same upgrade press (a
+        // hands-free tap is typically brief) independently calls
+        // Rust's `set_dictation_active_and_sync_escape(false)` and can land
+        // after our arm-on-upgrade invoke above, disarming Escape for a
+        // session that's actually still live. Re-assert once start() has
+        // settled (by then the key-edge noise from this press is over) so
+        // the two writers can't leave Escape stuck disarmed. No-op unless
+        // still hands-free (start failed / was superseded clears the flag
+        // via setHandsFreeActive(false) already).
         if (upgradeToHandsFree && handsFreeActive) {
           invoke("set_dictation_escape_active", { active: true }).catch(
             () => {},

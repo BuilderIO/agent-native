@@ -1,4 +1,3 @@
-
 import { defineAction, embedApp } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -279,8 +278,6 @@ export default defineAction({
           })
         : null;
 
-    //      bound to this recording id and pass it via `?t=<token>` instead of
-    //      otherwise see the plaintext password). The downstream
     const resolvedVideoUrl = resolvePlayerVideoUrl(rec, {
       addPasswordToken: access.role !== "owner",
       proxyRemoteMedia: true,

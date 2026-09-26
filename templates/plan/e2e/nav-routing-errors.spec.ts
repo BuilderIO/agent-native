@@ -6,7 +6,6 @@ function makeE2ePassword(label: string): string {
   return ["example", label, Date.now().toString(36), "pw"].join("-");
 }
 
-
 type Fixture = { id: string; title: string; url: string };
 
 function titleRegExp(title: string): RegExp {
@@ -527,6 +526,10 @@ test.describe("nav / routing — plan you don't own", () => {
       "could not provision a second user/plan in this env — skipping cross-owner check",
     );
 
+    // Capture the get-visual-plan response statuses for the foreign plan. A
+    // missing-or-private plan must come back as a clean 4xx (403, per the
+    // server's ForbiddenError that conflates not-found and no-permission to
+    // avoid leaking existence) — NOT a 5xx that would leak an internal stack.
     const foreignPlanStatuses: number[] = [];
     page.on("response", (resp) => {
       const url = resp.url();
@@ -541,6 +544,8 @@ test.describe("nav / routing — plan you don't own", () => {
     await page.goto(`/plans/${otherPlanId}`, { waitUntil: "domcontentloaded" });
 
     // SECURITY/UX: the foreign private plan must NOT render its secret content
+    // for an unauthorized viewer. It should resolve to the graceful not-found
+    // card instead of the plan body.
     await expect(async () => {
       const body = await page.locator("body").innerText();
       expect(

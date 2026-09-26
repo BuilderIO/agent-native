@@ -176,6 +176,12 @@ async function figmaJson<T>(
     return figmaJson<T>(path, attempt + 1, cacheVersion);
   }
   if (!response.ok) {
+    // Figma's own message names the real cause (bad scope, rate limit, missing
+    // file). Surfacing the status alone would send the next fix at the wrong
+    // target.
+    // Figma's body names the real cause (bad scope, rate limit, missing file).
+    // If the body itself cannot be read, say so — an empty string would read as
+    // "Figma returned no explanation", which is a different and misleading fact.
     let detail: string;
     try {
       detail = (await response.text()).slice(0, 300);

@@ -951,6 +951,9 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   }
 
   // guard:allow-unscoped — public submission endpoint intentionally accepts anonymous responses for published forms by slug or id; it returns no owner data and rejects non-published forms.
+  // Public submission endpoint: published forms are intentionally readable
+  // without an authenticated viewer, but only by a resolved public identifier
+  // and published status.
   // guard:allow-unscoped — anonymous respondents must be able to submit published forms; unpublished/private forms still return 404
   if (!form) {
     setResponseStatus(event, 404);
@@ -1070,7 +1073,12 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     }
   }
 
+  // Verify captcha — but only when the public site key is configured. The
+  // client (SSR renderer and React page) only renders the Turnstile widget and
+  // produces a token when VITE_TURNSTILE_SITE_KEY is set, so enforcing the
   // secret without the site key would reject every submission with no widget
+  // ever shown. Keep the requirement symmetric: skip verification when the
+  // client could not have rendered a widget.
   if (process.env.VITE_TURNSTILE_SITE_KEY) {
     const captchaResult = await verifyCaptcha(body.captchaToken ?? "");
     if (!captchaResult.success) {

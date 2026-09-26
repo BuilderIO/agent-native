@@ -120,7 +120,6 @@ for (const site of sites) {
         `${site.host} served /sign-in with no Google button, no password form, and no sign-in copy — nobody can get in. Page text: ${affordances.bodyText.slice(0, 200)}`,
       ).toBe(true);
 
-      // apps that legitimately offer only password or Supabase sign-in.
       if (!affordances.google) {
         test.info().annotations.push({
           type: "no-google",

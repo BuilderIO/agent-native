@@ -76,6 +76,9 @@ export default defineAction({
     for (const slot of toRemove) {
       if (!slot.assetId) continue;
       // Never trust the slot's assetId as permission to delete: variant state
+      // is client-writable, so re-read the row and let the draft rules decide.
+      // A slot pointing at another kit, at saved kit content, or at someone
+      // else's draft clears from the tray without touching the asset.
       const [asset] = await db
         .select({
           id: schema.assets.id,

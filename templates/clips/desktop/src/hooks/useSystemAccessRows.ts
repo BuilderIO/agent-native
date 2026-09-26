@@ -24,10 +24,6 @@ type SystemAccessDefinition = {
   panes: MacosPrivacyPane[];
 };
 
-/**
- * Collapses the per-pane permission list into the few lines a user acts on:
- * capture as one grant, then only the extras their configuration needs.
- */
 export function useSystemAccessRows({
   includeVoicePaste,
   includeFnMonitoring,

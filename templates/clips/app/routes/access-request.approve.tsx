@@ -43,7 +43,6 @@ export default function ApproveRecordingAccessRequestRoute() {
   const approvalTokenFromUrl = searchParams.get("token") ?? "";
   const approvalTokenStorageKey =
     recordingAccessApprovalSessionKey(recordingId);
-  // Only the URL token is knowable on the server, so reading storage in the
   const [approvalToken, setApprovalToken] = useState(
     () => approvalTokenFromUrl ?? "",
   );

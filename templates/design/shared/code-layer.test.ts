@@ -3972,7 +3972,6 @@ describe("breakpoint-scoped edits (§6.4 Framer cascade)", () => {
 
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("max-[809px]:text-lg");
-    // Base token untouched — the override cascades below 810 only.
     expect(patch.content).toContain("text-sm");
   });
 

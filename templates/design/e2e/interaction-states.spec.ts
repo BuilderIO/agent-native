@@ -253,6 +253,9 @@ test.describe("element interaction states", () => {
     const betaButton = designFrame(page).locator(
       '[data-agent-native-node-id="e2e-beta-button"]',
     );
+    // Press through the iframe locator so the key stays in the preview frame.
+    // A page-level Shift+Tab can race the bridge's parent-side selection focus
+    // after the preceding pointer click and never reach the iframe.
     await betaButton.press("Shift+Tab");
     await expect
       .poll(() =>

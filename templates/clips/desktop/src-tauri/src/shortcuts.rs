@@ -1052,11 +1052,6 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                                 - fn_down_at_for_cb.load(Ordering::SeqCst);
                         fn_down_at_for_cb.store(0, Ordering::SeqCst);
                         if elapsed_since_down < 80 {
-                            // Fast tap: the delayed-start thread (still
-                            // pending) will emit start+stop together once it
-                            // wakes — see the fast_tap branch above. Emitting
-                            // our own stop now would race ahead of a start
-                            // that hasn't happened yet.
                             return CallbackResult::Keep;
                         }
                         let _ = app_for_cb.emit(

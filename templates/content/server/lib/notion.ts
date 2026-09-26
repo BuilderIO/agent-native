@@ -708,7 +708,6 @@ export async function saveNotionTokensForOwner(
   return accountId;
 }
 
-
 export interface NotionComment {
   id: string;
   rich_text: Array<{ plain_text: string }>;
@@ -756,18 +755,6 @@ export type AddedNotionComment = {
   discussionId: string | null;
 };
 
-/**
- * Add a comment to a Notion page, or a reply to an existing discussion
- * thread when `discussionId` is provided. Passing `discussion_id` (instead
- * of a `parent` page reference) is what makes Notion append the comment to
- * that thread as a reply rather than starting a new, unrelated top-level
- * comment — see sync-notion-comments.ts for how local comment replies map
- * to a stored `notion_discussion_id`.
- *
- * Auth/permission/rate-limit failures (401/403/404/429) are rethrown so
- * sync-notion-comments can surface a real error instead of silently
- * reporting the comment as pushed.
- */
 export async function addNotionComment(
   pageId: string,
   text: string,

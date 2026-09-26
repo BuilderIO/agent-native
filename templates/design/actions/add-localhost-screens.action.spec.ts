@@ -922,6 +922,14 @@ describe("add-localhost-screens refresh behavior", () => {
   });
 
   it("recovers when a concurrent request wins the insert race for the same route/filename", async () => {
+    // Cross-request race: this request's `existingFiles` snapshot (taken once,
+    // up front) found no match for /settings, but by the time its insert
+    // executes a concurrent add-localhost-screens call has already committed
+    // the winning design_files row for the identical (design_id, filename)
+    // pair. The design_files_design_filename_unique_idx unique index (see
+    // server/plugins/db.ts) turns that into a real constraint-violation error
+    // — forced here via insertConflictOnce — which the action must catch and
+    // recover from by adopting the winning row instead of throwing.
     mocks.state.insertConflictOnce = true;
     mocks.state.winnerFile = {
       id: "winner_file",

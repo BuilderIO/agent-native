@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -61,6 +60,9 @@ export function LiveWaveform({
         flexShrink: 0,
         gap: `${barGap}px`,
         opacity: dimmed ? 0.3 : 1,
+        // The meter is this green everywhere. A surface overrides by setting
+        // `--waveform`, or its own `color` on the wrapper. The literal is the
+        // fallback for an app that has not declared the token yet.
         // guard:allow-raw-color — meter green is theme-invariant capture chrome
         color: "var(--waveform, #97c459)",
         transition: "opacity 150ms ease-out",

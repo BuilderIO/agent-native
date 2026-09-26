@@ -1,5 +1,16 @@
 // @vitest-environment happy-dom
 
+/**
+ * Regression coverage for the referral-attribution loss traced to this repo's
+ * production data: `referral_source` shows up on ~2%/14d of clip signups but
+ * `referrer_user` (the `via` query param) never does. Root cause — every
+ * surface that auto-copies a fresh recording's share link right after it's
+ * created (record.tsx's post-stop toast, the stitched-clip toast) called the
+ * bare `copyRecordingShareLink(recordingId)` with no owner id, even though
+ * the signed-in recorder always owns the recording they just made. `ref=` (and
+ * therefore `referral_source`) still landed because `withShareAttribution`
+ * sets it unconditionally; `via=` (and `referrer_user`) never did.
+ */
 import { readFileSync } from "node:fs";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

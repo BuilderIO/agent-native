@@ -1,4 +1,3 @@
-
 import { rgbaToHsl, hslToRgba, type RgbaColor } from "@shared/color-utils";
 import { describe, expect, it } from "vitest";
 
@@ -12,7 +11,6 @@ import {
   resolveActivePaint,
   rgbaToHsv,
 } from "./DesignColorPicker";
-
 
 describe("inferPaintType", () => {
   it("returns 'solid' for a plain hex color at full opacity", () => {
@@ -54,7 +52,6 @@ describe("inferPaintType", () => {
   });
 });
 
-
 describe("GRADIENT_PAINT_TYPES", () => {
   it("contains all four gradient variants", () => {
     expect(GRADIENT_PAINT_TYPES.has("linear")).toBe(true);
@@ -69,7 +66,6 @@ describe("GRADIENT_PAINT_TYPES", () => {
     expect(GRADIENT_PAINT_TYPES.has("shader")).toBe(false);
   });
 });
-
 
 describe("resolveActivePaint – precedence", () => {
   const solidValue = "#ffffff";
@@ -103,7 +99,6 @@ describe("resolveActivePaint – precedence", () => {
   });
 });
 
-
 describe("resolveActivePaint – gradient paint types engage GradientEditor", () => {
   const solidValue = "#ffffff";
 
@@ -118,7 +113,6 @@ describe("resolveActivePaint – gradient paint types engage GradientEditor", ()
     },
   );
 });
-
 
 describe("resolveActivePaint – image mode", () => {
   it("clicking 'image' engages ImageFillControls regardless of paintType prop", () => {
@@ -141,7 +135,6 @@ describe("resolveActivePaint – image mode", () => {
   });
 });
 
-
 describe("resolveActivePaint – shader mode", () => {
   it("clicking 'shader' sets showShaderPanel=true", () => {
     const result = resolveActivePaint("solid", "shader", "#ffffff", 100);
@@ -157,7 +150,6 @@ describe("resolveActivePaint – shader mode", () => {
     expect(result.showShaderPanel).toBe(true);
   });
 });
-
 
 describe("resolveActivePaint – solid mode", () => {
   it("solid paint type shows no special editor", () => {
@@ -176,7 +168,6 @@ describe("resolveActivePaint – solid mode", () => {
   });
 });
 
-
 describe("resolveActivePaint – localPaintType stability", () => {
   it("localPaintType persists across repeated calls even when paintType prop reverts to solid", () => {
     const r1 = resolveActivePaint("solid", "radial", "#ffffff", 100);
@@ -193,7 +184,6 @@ describe("resolveActivePaint – localPaintType stability", () => {
     expect(r3.showGradientEditor).toBe(true);
   });
 });
-
 
 describe("parseNumericDraft", () => {
   it("parses ordinary numeric drafts", () => {
@@ -216,7 +206,6 @@ describe("parseNumericDraft", () => {
     expect(parseNumericDraft("0")).toBe(0);
   });
 });
-
 
 describe("expandHexShorthand", () => {
   it("expands a single hex digit across all channels", () => {
@@ -242,7 +231,6 @@ describe("expandHexShorthand", () => {
     expect(expandHexShorthand("FF0000AA")).toBe("FF0000AA");
   });
 });
-
 
 describe("hasHexAlpha", () => {
   it("detects 4-digit shorthand hex-with-alpha (#RGBA)", () => {
@@ -279,6 +267,25 @@ describe("hasHexAlpha", () => {
   });
 });
 
+// ─── RGB <-> HSL / HSB round-trip stability (no drift on repeated conversion) ──
+//
+// Classic bug: converting RGB -> HSL -> RGB (or RGB -> HSV -> RGB) repeatedly,
+// as happens every time a user nudges a value in one mode then switches to
+// another, can "creep" indefinitely if intermediate state is cached instead
+// of always re-derived from a single RGB source of truth. DesignColorPicker
+// always recomputes HSL/HSV fresh from the current RGB `value` on every
+// render (see `hsl`/`hsv` in the component body), so this suite pins that
+// no-cache invariant at the pure-function level.
+//
+// Note: because HSL/HSV store saturation/lightness/value as rounded 0-100
+// integers (matching Figma's own integer HSB/HSL fields), a handful of
+// arbitrary RGB triples are inherently off by ±1 per channel after the very
+// first round trip — that's unavoidable quantization from displaying a
+// continuous color in an integer percent field, not a bug. The bug this
+// suite actually guards against is *unbounded* drift: once an RGB value has
+// gone through one round trip, every further round trip of that same value
+// must reproduce it exactly — a fixed point, not a random walk that keeps
+// creeping every time the user nudges a field or switches modes.
 
 describe("RGB <-> HSL round-trip stability (shared/color-utils)", () => {
   const exactSamples: RgbaColor[] = [

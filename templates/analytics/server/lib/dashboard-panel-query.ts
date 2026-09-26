@@ -461,6 +461,10 @@ export async function runDashboardPanelQuery(args: {
         },
       );
     } catch (error) {
+      // Only the "no BigQuery equivalent exists" failure becomes a rendered
+      // state. Every other failure — timeout, permission, provider outage —
+      // still throws, because those are retryable and must not read to the
+      // user as a permanent property of the panel.
       if (!(error instanceof FirstPartyAnalyticsUnsupportedSqlError))
         throw error;
       console.error(

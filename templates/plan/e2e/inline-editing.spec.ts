@@ -1,6 +1,5 @@
 import { test, expect, type Page, type APIResponse } from "@playwright/test";
 
-
 const UPDATE_ACTION = "/_agent-native/actions/update-visual-plan";
 const CREATE_ACTION = "/_agent-native/actions/create-visual-plan";
 
@@ -214,6 +213,8 @@ test.describe("single-document rich-text editing + autosave", () => {
 
     await page.waitForTimeout(2500);
 
+    // (2) Autosave must not 5xx while typing one short edit. (Currently fails —
+    // pins the autosave self-race; see assertNoSaveRace.)
     expect(
       saves.statuses.length,
       "at least one autosave fired",
@@ -274,6 +275,8 @@ test.describe("single-document rich-text editing + autosave", () => {
 
     assertNoSaveRace(saves);
 
+    // The final text must be the one persisted (last-writer-wins on the surviving
+    // save). Asserted after the race check so the failure points at the root cause.
     await expect
       .poll(async () => await getPlanMarkdown(page, planId), {
         timeout: 15_000,
@@ -309,7 +312,10 @@ test.describe("single-document rich-text editing + autosave", () => {
     ).toBeVisible({ timeout: 10_000 });
 
     await page.waitForTimeout(3000);
+    // The autosave that should persist these shortcuts must not 5xx. Currently
     // FAILS (autosave self-race) — and because every keystroke's save races, the
+    // shortcuts frequently never reach SQL (the persistence assertions below then
+    // fail too). Lead with the race check so the failure names the root cause.
     assertNoSaveRace(saves);
 
     await expect
@@ -336,6 +342,9 @@ test.describe("single-document rich-text editing + autosave", () => {
     await expect(prose).toContainText("café 日本語 🚀✅", { timeout: 5_000 });
 
     await page.waitForTimeout(3000);
+    // The autosave persisting this must not 5xx. Currently FAILS (autosave
+    // self-race) — and the race also truncates the saved text mid-edit, so the
+    // round-trip assertions below fail too. Lead with the race check.
     expect(
       saves.statuses.length,
       "at least one autosave fired",

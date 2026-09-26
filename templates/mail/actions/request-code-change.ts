@@ -50,7 +50,10 @@ export default defineAction({
       };
     }
 
+    // OAuth custody wins when connected, falls back to a legacy private key
+    // otherwise — same precedence runBuilderAgent applies internally, so this
     // gate must recognize the same two credential kinds or an OAuth-only-
+    // connected org gets told branch creation isn't configured at all.
     const authorization = await resolveBuilderRequestAuthorization({
       requiredScope: "builder:agents:run",
     });

@@ -11,7 +11,6 @@ import {
   waitForBridge,
 } from "./helpers";
 
-
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
 const FIXTURE = `<!doctype html>
@@ -167,6 +166,13 @@ test.beforeEach(async ({ page }, testInfo) => {
 });
 
 // PR #5644 ("Use direct selection inside design screens") made a plain click
+// inside a SCREEN select the deepest block under the pointer directly — a
+// documented, human-directed exception to Figma (see
+// editor-chrome.bridge.ts's plainClickSelectionTarget). The infinite-canvas
+// board surface keeps the original Figma container-first behavior, so these
+// two tests run the same nested Card/Kid A fixture as a board object
+// (newBoardDesign) instead of a screen (newDesign) to assert the contract
+// where it still holds.
 test.describe("click selects the container on the board surface, not the deep child", () => {
   test("clicking a child inside Card selects Card, not Kid A", async ({
     page,

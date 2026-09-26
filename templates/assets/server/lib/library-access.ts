@@ -95,18 +95,6 @@ export async function assertCanDraftAuthoredBy(
   );
 }
 
-/**
- * Who may read an unsaved draft.
- *
- * A draft is visible to the person who generated it and to anyone who could
- * approve it — an editor has to see a proposal to act on it, and a fellow
- * drafter has no business reading someone else's unsaved prompts and previews.
- * Saved kit content is unaffected: this scope only ever narrows candidates.
- *
- * Resolve it once per read and pass it to `canReadDraftAsset` per row. The
- * per-kit role lookups only run for candidate-bearing reads, so ordinary asset
- * lists pay nothing.
- */
 export interface DraftReadScope {
   unrestricted: boolean;
   approvableLibraryIds: Set<string>;
@@ -218,7 +206,9 @@ export function draftReadFilter(
   if (scope.ownRunIds.size) {
     clauses.push(inArray(table.generationRunId, Array.from(scope.ownRunIds)));
   }
+  // No approvable kit and no run of their own: this caller authored none of the
   // candidates in scope, so the query must return nothing rather than fall
+  // through to an unfiltered read.
   if (!clauses.length) return sql`1 = 0`;
   return clauses.length === 1 ? clauses[0] : or(...clauses);
 }

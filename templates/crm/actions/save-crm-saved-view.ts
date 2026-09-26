@@ -14,7 +14,6 @@ import {
 } from "../server/lib/crm-query.js";
 import { requireCrmScope, toJson } from "./_crm-action-utils.js";
 
-/** A save that lost a race — surfaces as HTTP 409 instead of clobbering. */
 class CrmSavedViewConflictError extends Error {
   readonly statusCode = 409;
   readonly code = "crm-saved-view-conflict";

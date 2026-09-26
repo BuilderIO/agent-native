@@ -1509,6 +1509,9 @@ export const bootstrapActivationHandler = defineEventHandler(
         bootstrap.email,
         bootstrap.name,
         undefined,
+        // verifyIdentityBootstrapRequest only accepts assertions that carried
+        // `email_verified: true`, so provisioning must not leave the local row
+        // unverified against a password nobody set.
         { emailVerified: true },
       );
       if (bootstrap.orgId) {
@@ -1684,6 +1687,7 @@ export const authorizeHandler = defineEventHandler(
     const localOrg = hasFederationRollout
       ? await getOrgContext(event).catch((error) => {
           // coercion-ok: malformed or unreadable local org state omits org
+          // claims rather than turning identity SSO into an org grant.
           void error;
           return null;
         })

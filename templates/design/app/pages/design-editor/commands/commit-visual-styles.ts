@@ -233,6 +233,18 @@ export function runCommitVisualStyles(
   });
   if (!activeFile || !canEditDesign) return;
   if (!canApplyContentEdit(activeFile.id)) return;
+  // Cross-pipeline write race guard (see GlslShaderPanel.tsx's module doc
+  // comment on withShaderWriteLock/waitForShaderWriteToSettle): a shader
+  // apply/remove/knob-commit for this same file goes through a completely
+  // separate round trip (read-source-file -> apply-source-edit) than this
+  // function's own commit, and both eventually rewrite the SAME Y.Doc —
+  // one via a server-side diff, this one via a synchronous, untracked
+  // full-document ydoc.transact rewrite below. Racing the two produces a
+  // corrupted, doubled document (verified). The common case (no shader
+  // write in flight for this file) stays fully synchronous — only defer
+  // when isShaderWriteInFlight is actually true, so this never adds a
+  // microtask tick to the hot path or breaks the same-tick multi-property
+  // composition the baseContent comment below depends on.
   if (isShaderWriteInFlight(activeFile.id)) {
     void waitForShaderWriteToSettle(activeFile.id).then(() => {
       commitVisualStyles(selector, styles, options);
@@ -309,6 +321,8 @@ export function runCommitVisualStyles(
     });
     return;
   }
+  // Read through the editor's source boundary so pending linked projections
+  // and synchronous local writes compose before this full-document commit.
   const activeLiveSnapshot = isRunningAppSourceType(activeCanvasSourceType)
     ? activeFile
       ? liveScreenSnapshotsById[activeFile.id]
@@ -510,7 +524,24 @@ export function runCommitVisualStyles(
   const nextContent = applyInlineStylesToHtml(baseContent, selector, {
     ...Object.fromEntries(entries),
   });
+  // §6.4 — Breakpoint-scoped editing (Framer cascade). Reuses the
+  // `projection` and `targetNode` resolved above for the patch-proof
+  // block (same baseContent). When a non-base breakpoint frame is
+  // active, EVERY property routes through the single class-vs-media
+  // decision (planBreakpointStyleWrite):
+  //
+  // - Tailwind-utility values become width-scoped responsive classes
+  //   (`max-[<bound>px]:text-lg`), replacing any same-stem token at the
+  //   same bound.
   // guard:allow-raw-color - prose naming CSS value kinds, not a color literal
+  // - Raw CSS values (exact px from drags, rgb()/calc(), …) become
+  //   managed `@media (max-width: <bound>px)` rules in the
+  //   `<style data-agent-native-breakpoints>` block, targeting the
+  //   element's stable node id.
+  //
+  // Base edits (no active breakpoint, or the active frame is the widest
+  // context) keep the plain inline-style path and cascade down to every
+  // narrower breakpoint unless overridden there.
   const stylePatch = entries.reduce<{
     content: string;
     failed: string | null;

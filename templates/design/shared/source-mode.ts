@@ -23,6 +23,16 @@
  *   migration-CTA pattern.
  */
 
+// Circular-safe imports from `design-source-capabilities.ts`.
+//
+// `design-source-capabilities.ts` imports only via `import type` from this
+// module, so the runtime module graph has NO cycle.  TypeScript's type checker
+// handles the bidirectional type reference correctly; `tsc --noEmit` passes.
+//
+// - Type-only import: used for the `capabilities?` fields on source descriptors
+//   and `LocalhostDesignConnectionConfig.sourceCapabilities`.
+// - Value import: the canonical default maps consumed by
+//   `resolveDescriptorCapabilities()`.
 import type { DesignSourceCapabilities } from "./design-source-capabilities";
 import {
   FUSION_DISCONNECTED_CAPABILITIES,

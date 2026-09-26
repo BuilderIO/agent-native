@@ -241,7 +241,6 @@ export function SlideContextToolbar({
   const decorationMixed = mixedTextStyles.includes("textDecoration");
   const isUnderline =
     !decorationMixed && (snapshot?.textDecoration ?? "").includes("underline");
-  // token in place keeps the rest; writing a bare "none" would erase them.
   const underlinePatch = () => {
     if (decorationMixed) return "underline";
     const tokens = (snapshot?.textDecoration ?? "")

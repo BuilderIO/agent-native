@@ -1,4 +1,6 @@
 // i18n-raw-literal-disable-file
+// Navigation context state helpers exposed to the agent.
+// Pure logic — no React, no icons.
 import type {
   ContentDatabaseItem,
   ContentDatabaseResponse,

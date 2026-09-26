@@ -1,17 +1,3 @@
-/**
- * publish-visual-plan ACCESS + SECURITY surface.
- *
- * publish-visual-plan is the share/account bridge: it loads a plan, then pushes
- * the full plan content (MDX + repoPath) to a connected hosted instance using a
- * DEVICE-level bearer token, and writes hostedPlanId/hostedPlanUrl back onto the
- * plan row. This spec drives the REAL action against a REAL PostgreSQL DB with the
- * REAL core access helpers, mocking only `fetch` and the publish-auth resolver.
- *
- * It pins the access level publish enforces (currently viewer-level read, NOT
- * editor/owner) and the scope of the hostedPlanUrl write-back. Where the
- * behavior is weaker than the rest of the write surface, the test is written to
- * FAIL so the gap is visible (see the two `BUG:` tests).
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";

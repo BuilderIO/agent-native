@@ -1,4 +1,12 @@
 /// <reference lib="dom" />
+/**
+ * Pixel comparison for Figma fidelity runs.
+ *
+ * Decoding happens inside the Chromium page the harness already launches for
+ * rendering, so no image-codec dependency is needed. A dimension mismatch is a
+ * reported failure rather than a silent resize: scaling one side to fit would
+ * let a wrongly-sized import score as a near match.
+ */
 import type { Browser } from "@playwright/test";
 
 export interface GridCell {

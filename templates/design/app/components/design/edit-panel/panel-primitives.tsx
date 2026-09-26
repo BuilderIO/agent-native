@@ -66,6 +66,17 @@ export function normalizeLengthValue(
 
 const DEFAULT_PAINT_COLOR = "#000000"; // guard:allow-raw-color — valid initial value for an empty solid-paint editor
 
+/**
+ * Enter and Escape are the only PropInput keys that manually call `.blur()`
+ * after handling themselves (commit-then-blur for Enter, revert-then-blur for
+ * Escape). Both must pre-arm `skipNextBlurCommitRef` so the onBlur handler —
+ * which fires synchronously inside that manual `.blur()` call, before React
+ * re-renders with the just-committed/-reverted draft — doesn't re-run
+ * commit() a second time against the same stale closure and double-invoke
+ * `onChange` with the identical value. Exported so the contract (which keys
+ * require the guard) is unit-testable without needing to simulate real DOM
+ * focus/blur timing.
+ */
 export function propInputKeyRequiresBlurGuard(key: string): boolean {
   return key === "Enter" || key === "Escape";
 }

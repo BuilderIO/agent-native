@@ -244,6 +244,8 @@ export default defineAction({
       (provider) => provider.configured === null,
     );
     return {
+      // Keep a compact, explicit summary first so models do not infer source
+      // availability from the much larger per-credential list below.
       hasConfiguredDataSources: configuredDataSources.length > 0,
       configuredDataSourceCount: configuredDataSources.length,
       configuredDataSources,

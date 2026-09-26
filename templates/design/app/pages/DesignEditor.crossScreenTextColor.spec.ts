@@ -1,5 +1,48 @@
 // @vitest-environment happy-dom
 
+/**
+ * DesignEditor.crossScreenTextColor.spec.ts
+ *
+ * Regression coverage for finding 8 (cross-screen text color adaptation) AND
+ * its review follow-up (finding 1, the DOMParser defaultView bug):
+ *
+ * - handleCrossScreenElementDrop used to never adapt board/screen text's
+ *   auto-applied white color when it landed in a light destination, so
+ *   white-on-white text became invisible on a cross-screen drop even though
+ *   the in-screen drag path (editor-chrome.bridge.ts's
+ *   adaptAutoTextColorForNest) already handled the same problem for
+ *   same-document re-parents.
+ * - The original fix's `destinationBackgroundIsLightForNode` called
+ *   `ownerDocument.defaultView.getComputedStyle(...)` on a DOMParser-parsed
+ *   DETACHED document. In real Chrome, `defaultView` is ALWAYS null for a
+ *   DOMParser document — so that code path always hit the `if (!view)
+ *   return true` fallback and a pre-marker white text dropped onto a DARK
+ *   destination got wrongly rewritten to `color:inherit`. happy-dom gives
+ *   DOMParser documents a non-null `defaultView` that resolves `<style>`
+ *   block rules via getComputedStyle, which is NOT how real Chrome behaves
+ *   — the previous version of this spec file relied on exactly that
+ *   unrealistic behavior (background set via a `<style>` block, not inline)
+ *   and therefore could not have caught the bug it was meant to guard.
+ *
+ * This file now tests:
+ * - `resolveDestinationBackgroundLightness` — the pure decision helper,
+ *   exercised with explicit input chains only (no DOM, no environment
+ *   quirks to be honest or dishonest about).
+ * - `shouldAdaptAutoTextColorForCrossScreenMove` / `isStaleAutoTextColorMarker`
+ *   — pure decision tables, same as before.
+ * - `adaptAutoTextColorForCrossScreenNode` — the HTML-string-level function,
+ *   now using only signals a DOMParser-detached document can ACTUALLY read
+ *   without getComputedStyle: inline `background`/`background-color`
+ *   declarations and utility-class name hints (the "Daylist" real-world
+ *   case: dark backgrounds expressed via inline style or a `bg-*-900`-shape
+ *   class, not a `<style>` block rule a detached doc can't resolve). A
+ *   `<style>` block case is included explicitly to confirm it does NOT
+ *   resolve via the no-live-doc fallback (proving the fix doesn't
+ *   accidentally reintroduce a getComputedStyle-shaped dependency), and a
+ *   live-document case confirms the PREFERRED path (a real mounted
+ *   destination iframe) correctly resolves stylesheet/class-cascaded
+ *   backgrounds when available.
+ */
 
 import { describe, expect, it } from "vitest";
 

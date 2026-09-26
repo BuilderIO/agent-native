@@ -142,6 +142,9 @@ export const updateDesignSystem = defineEventHandler(async (event) => {
 
   return withSlidesRequestContext(event, async () => {
     try {
+      // assertAccess loads the row and verifies the caller has editor+
+      // role on this resource — it must run BEFORE the update (and in
+      // the same scope) so we don't leak existence to non-editors.
       await assertAccess("design-system", id, "editor");
 
       const db = getDb();
@@ -188,6 +191,10 @@ export const deleteDesignSystem = defineEventHandler(async (event) => {
 
   return withSlidesRequestContext(event, async () => {
     try {
+      // assertAccess loads the row and verifies the caller has admin
+      // role on this resource — it must run BEFORE the delete (and in
+      // the same scope) so we don't leak existence to callers who lack
+      // access.
       await assertAccess("design-system", id, "admin");
       const db = getDb();
       const result = await db

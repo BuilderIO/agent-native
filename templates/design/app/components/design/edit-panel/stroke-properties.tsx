@@ -972,6 +972,7 @@ function VectorStrokeProperties({
   const supportsEndpointControls =
     element.tagName?.toLowerCase() === "svg" &&
     isVectorEndpointPrimitiveKind(element.primitiveKind) &&
+    // Marker choices require a structural SVG rewrite. Keep them out of a
     // responsive scope until the marker DOM can be scoped with the value.
     breakpointOverrideContext?.activeWidthPx == null;
   const addStroke = () => {

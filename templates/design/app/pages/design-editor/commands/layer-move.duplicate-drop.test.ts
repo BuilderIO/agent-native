@@ -1,4 +1,8 @@
 // @vitest-environment happy-dom
+//
+// duplicateNodeForPanelDrop now clones through prepareClonedHtmlLayer (see
+// clone-and-pen-edit.ts), which needs a real `document` to build the clone
+// through — the default node test environment has none.
 import {
   buildCodeLayerProjection,
   buildCodeLayerTree,

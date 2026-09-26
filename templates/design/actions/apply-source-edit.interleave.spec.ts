@@ -951,7 +951,19 @@ describe("apply-source-edit / update-file cross-pipeline interleave", () => {
 
     const finalLive = await readLiveSourceFile(currentFileRef());
 
+    // The core invariant the reported bug violated: whichever edit "wins"
     // the race, the persisted document must stay a single well-formed HTML
+    // document — never truncated mid-attribute, never duplicated into two
+    // concatenated documents. At this document size diff-match-patch
+    // resolves the stale diff as a clean (if lossy — see the note below)
+    // full-document replace rather than a corrupted merge; the genuine
+    // duplicated-document corruption this bug produced needed a client-side
+    // untracked full ydoc.transact rewrite racing a diff-based server write
+    // (reproduced separately against the real ydoc-manager — see
+    // GlslShaderPanel.tsx's write-race guard, which closes that exact path)
+    // rather than two diff-based server writes. This assertion is the
+    // documented, always-true floor: never corrupt, regardless of document
+    // size or which write wins.
     assertWellFormed(finalLive.content);
     expect(finalLive.content.includes("data-an-shader-fill")).toBe(false);
     expect(finalLive.content).toContain("linear-gradient");
@@ -1163,7 +1175,6 @@ describe("update-file expectedVersionHash guard (server-discipline layer)", () =
 });
 
 describe("update-file TOCTOU fix: hash check + write serialized under withSourceFileWriteLock", () => {
-
   it("two concurrent update-file calls carrying the SAME valid base hash: exactly one succeeds, the other fails loud with the version error", async () => {
     const live = await readLiveSourceFile(currentFileRef());
     const contentA = buildDoc(" data-writer-a");

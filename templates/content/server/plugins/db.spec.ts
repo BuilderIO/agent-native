@@ -145,18 +145,6 @@ describe("content db.ts migration entries follow the naming convention", () => {
   });
 });
 
-/**
- * Belt-and-braces guard for the same bug class: even with the regression
- * guard above, a future column could still ship without a migration if
- * someone forgets to update this file. `ensureAdditiveColumns` (from
- * @agent-native/core/db) is the framework-level safety net that patches any
- * gap — but since the startup-speedup change it no longer runs inline at
- * boot: the db plugin only awaits the hand-written migrations and then
- * schedules server/lib/startup-maintenance.ts, which runs the net and the
- * one-time data repairs once per isolate, after boot, retrying loudly on
- * failure. These assertions pin that wiring: the net still exists, still
- * runs after both migration runners, and boot no longer blocks on it.
- */
 describe("content db.ts schedules post-boot maintenance after runMigrations", () => {
   const maintenanceSource = readFileSync(
     new URL("../lib/startup-maintenance.ts", import.meta.url),
@@ -187,6 +175,8 @@ describe("content db.ts schedules post-boot maintenance after runMigrations", ()
     expect(scheduleCallIdx).toBeGreaterThan(sourceMigrationsCallIdx);
 
     // Both migration plugin functions must be awaited before the scheduler
+    // is called, not just textually after it — and the scheduler itself must
+    // NOT be awaited (boot no longer pays for the net or the repairs).
     expect(dbTsSource).toMatch(
       /await\s+runContentMigrations\([^)]*\)[\s\S]*?await\s+runContentSourceMigrations\([^)]*\)[\s\S]*?void\s+scheduleStartupMaintenance\(\);/,
     );
@@ -227,6 +217,7 @@ describe("content db.ts schedules post-boot maintenance after runMigrations", ()
 
   it("awaits each retry chain before the next step and keeps the trigger ref'd", () => {
     // A fire-and-forget retry would let the next step race the safety net
+    // the retry is still finishing, so the chain must be awaited.
     expect(maintenanceSource).toMatch(/await\s+scheduleRetry\(/);
     const triggerIdx = maintenanceSource.indexOf(
       "export function scheduleStartupMaintenance",

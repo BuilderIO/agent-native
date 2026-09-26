@@ -7,6 +7,11 @@ import {
   schedulePendingTextEditActivation,
 } from "./design-canvas/pending-text-edit";
 
+// Creation-race keystroke routing: while a begin-text-edit command is pending
+// (text element created, bridge session not yet active), host keystrokes are
+// routed through this policy so they can never hit host shortcuts — the
+// overnight failure mode was arrow keys panning and Delete deleting whole
+// layers/screens while the user believed they were typing into the new text.
 describe("routePendingTextEditKey", () => {
   it("buffers printable characters (letters, digits, space, symbols)", () => {
     expect(routePendingTextEditKey({ key: "h" })).toEqual({

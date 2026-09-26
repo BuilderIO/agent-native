@@ -11,6 +11,8 @@ const PUBLIC_PLAN_REVIEW_ACTIONS: ReadonlySet<string> = new Set(
 export default defineEventHandler(async (event) => {
   const path = (event.node?.req?.url ?? event.path ?? "/").split("?")[0] ?? "/";
   if (PUBLIC_PLAN_REVIEW_ACTIONS.has(path)) return;
+  // In local mode all action paths are open — the action handlers gate ownership
+  // via requirePlanOwnerEmailForWrite (returns the local identity) so there is no
   // security gap; this path can never be reached on a hosted/production deploy.
   if (isLocalPlanRuntime() && path.startsWith("/_agent-native/actions/"))
     return;

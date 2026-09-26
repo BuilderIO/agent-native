@@ -1303,6 +1303,7 @@ function addPartitionPrunedEventDeduplication(
       }
     }
     // ponytail: insertAll is at-least-once; staging + MERGE is the upgrade path
+    // for physical exactly-once if the warehouse contract requires it.
     result +=
       sql.slice(cursor, predicateEnd) +
       " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1" +
@@ -1321,6 +1322,9 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   args: Array<string | null>,
   table: BigQueryTableRef,
 ): string {
+  // The Postgres scope builder uses a text fallback for nullable event
+  // dates. BigQuery's event_date is a DATE, and the fallback is unnecessary
+  // because the sink normalizes it before insert.
   const normalizedScopeSql = scopedSql.replace(
     /\(COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= (\$\d+|\?)\)/g,
     (_match, placeholder: string) => `(event_date <= ${placeholder})`,

@@ -98,7 +98,6 @@ export default defineEventHandler(async (event: H3Event) => {
         return { error: "Invalid desktop exchange challenge." };
       }
       try {
-        // token returned to the initiating Tauri app. Only an in-app WebView
         if (desktopWebview) {
           desktopBrowserBindingHash = prepareDesktopOAuthBrowserBinding(event);
           desktopVerifierHash = await registerDesktopExchange(

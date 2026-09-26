@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -104,7 +103,13 @@ export default defineAction({
       hasTranscript = Boolean(transcript?.fullText?.trim());
     }
 
+    // actualEnd and endReason are first-writer-wins, enforced in SQL so two
     // concurrent stops (desktop detector and a manual click, say) cannot race
+    // the read above. The reason rides the same actual_end transition, so a
+    // retry can never attach a cause to an end it did not perform.
+    // transcriptStatus stays a plain write: live rows start as "pending", so
+    // "pending" cannot be read as a finalizer claim here; finalize-meeting's
+    // own compare-and-swap guards its claim.
     await db
       .update(schema.meetings)
       .set({

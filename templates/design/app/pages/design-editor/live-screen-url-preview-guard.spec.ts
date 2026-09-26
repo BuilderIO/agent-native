@@ -83,6 +83,8 @@ describe("live screen URL preview guard", () => {
     const guard = "if (isStandaloneHttpUrl(baseContent))";
 
     expect(section).toContain(guard);
+    // Must refuse BEFORE the projection is built, or the doomed 3-node parse
+    // still happens and the misleading "no editable match" wins the race.
     const projectionOffset = section.search(
       /buildCodeLayerProjection\(\s*baseContent\b/,
     );

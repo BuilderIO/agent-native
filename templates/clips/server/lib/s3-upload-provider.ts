@@ -1,4 +1,3 @@
-
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import type { FileUploadProvider } from "@agent-native/core/file-upload";
 import {
@@ -27,6 +26,11 @@ function cleanValue(value: string | null | undefined): string | undefined {
   return cleaned ? cleaned : undefined;
 }
 
+// A hung S3-compatible endpoint (flaky VPN, misconfigured security group that
+// accepts the TCP connection but never responds, etc.) would otherwise leave
+// finalize-recording — and the request that triggered it — waiting forever.
+// PUT gets a generous budget since it uploads the full recording; DELETE is a
+// small best-effort cleanup call and can fail fast.
 const S3_PUT_TIMEOUT_MS = 120_000;
 const S3_DELETE_TIMEOUT_MS = 30_000;
 const S3_MULTIPART_MIN_PART_BYTES = 5 * 1024 * 1024;
@@ -213,7 +217,6 @@ async function readOrganizationLogoS3Config(
     ),
   });
 }
-
 
 async function hmac(key: ArrayBuffer, msg: string): Promise<ArrayBuffer> {
   const k = await crypto.subtle.importKey(
@@ -840,7 +843,6 @@ export async function fetchS3ObjectByUrl(
     timeoutMs: options.timeoutMs ?? S3_PUT_TIMEOUT_MS,
   });
 }
-
 
 export const s3FileUploadProvider: FileUploadProvider = {
   id: "s3",

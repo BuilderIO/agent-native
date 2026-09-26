@@ -114,11 +114,6 @@ function createOAuthVerifier(): string {
   );
 }
 
-/**
- * Public-share account gating composes the framework's shared auth pattern:
- * magic-link first, the standard Google entry point, and email/password as a
- * fallback. Clips owns only the intent copy and continuation callback.
- */
 export function AccountGateDialog({
   open,
   onOpenChange,

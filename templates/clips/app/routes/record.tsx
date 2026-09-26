@@ -329,6 +329,10 @@ function directRecorderUrl(opts?: {
 }
 
 function isPermissionError(message: string): boolean {
+  // Device-busy errors ("That camera is busy in another app", "Microphone is
+  // currently in use") mention the device name but are not permission failures
+  // — sending the user to enable a permission they already have wastes their
+  // time. Require an explicit permission/denied/blocked keyword to qualify.
   const isDeviceBusy =
     /\b(busy|in use|already in use|in another (app|application|tab)|currently used|conflicting)\b/i.test(
       message,
@@ -1110,7 +1114,6 @@ export default function RecordRoute() {
   const startSessionRef = useRef(0);
   const cancelledStartSessionRef = useRef<number | null>(null);
   const restartInFlightRef = useRef<Promise<void> | null>(null);
-
 
   useEffect(() => {
     if (!previewVideoRef.current) return;
@@ -2277,7 +2280,6 @@ export default function RecordRoute() {
     } catch (err) {
       const message =
         err instanceof Error ? err.message : t("recordRoute.uploadFailed");
-      // Detection is name-only. The abort invariant is: every cancel-shaped
       if (err instanceof Error && err.name === "AbortError") {
         return;
       }
@@ -2407,6 +2409,14 @@ export default function RecordRoute() {
       // ignore
     }
     if (pendingId) {
+      // The recording may have already finished uploading server-side (the
+      // final chunk can land, and the row can flip to "ready", while we're
+      // still awaiting saveBrowserDiagnostics/finishSavedRecording on the
+      // client). A separate GET-status-then-POST-trash sequence would still
+      // race finalize between the two calls, so ask the server to trash
+      // atomically instead: `skipIfReady` makes the trash a conditional
+      // no-op if the row is already "ready" by the time the UPDATE runs, so a
+      // fully saved video is never silently discarded.
       if (pendingAbortUrl && clipIntakeRef.current) {
         fetch(pendingAbortUrl, {
           method: "POST",
@@ -2716,6 +2726,10 @@ export default function RecordRoute() {
     fireConfetti,
   ]);
 
+  // Query params can preselect recorder controls, but browser capture must
+  // still start from the user's Start click. Calling getDisplayMedia from an
+  // effect loses Chrome's transient user activation and looks like a fake
+  // permission failure even when Camera and Microphone are already allowed.
 
   useEffect(() => {
     let released = false;

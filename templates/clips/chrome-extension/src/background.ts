@@ -282,7 +282,6 @@ const sessions = new Map<string, CaptureSession>();
 const tabToSession = new Map<number, string>();
 let activeNativeRecording: NativeRecording | null = null;
 
-
 type CaptureMode = "screen" | "camera";
 type OverlayPhase = "idle" | "countdown" | "recording" | "paused" | "saving";
 type OverlayPart = "bubble" | "countdown" | "toolbar" | "saving";
@@ -1233,6 +1232,8 @@ function recordingUrl(
 }
 
 // The extension only stores the signed-in user's token and email; email is PII
+// and must never become the `via` attribution param, so share URLs go out
+// without an owner id.
 function recordingShareUrl(
   recording: Pick<NativeRecording, "clipsBaseUrl" | "recordingId">,
 ): string {
@@ -1353,7 +1354,6 @@ async function handlePopupStart(message: PopupStartMessage) {
 async function startRecordingFromTab(args: {
   tab: ChromeTab;
   settings: ExtensionSettings;
-  // one back to a fresh permission tab on failure would open a new tab per
   allowPermissionRecovery?: boolean;
 }) {
   const { tab, settings } = args;
@@ -1438,7 +1438,11 @@ async function handlePermissionStartAfterGrant() {
   });
 }
 
+// The popup's gate let this start because the cached grant said the device was
+// allowed, and Chrome then refused a prompt the offscreen recorder could not
+// show. Drop the stale cache entry so the gate stops trusting it, and send the
 // user through the permission page — the only surface Chrome will prompt from —
+// with the recording queued to resume once the grant lands.
 async function recoverMissingMediaPermission(args: {
   error: MediaPermissionRequiredError;
   tab: ChromeTab;
@@ -1900,6 +1904,8 @@ async function stopRecording() {
   if (overlayPhase === "saving") return { ok: false };
   recording.status = "stopping";
   // Disable the popup while saving so a second Stop or Discard cannot race
+  // finalization. Keep an overlay up with a "Saving…" card so the user still
+  // gets feedback during the upload gap.
   setActionPopup("");
   overlayPhase = "saving";
   countdownEndsAtMs = 0;

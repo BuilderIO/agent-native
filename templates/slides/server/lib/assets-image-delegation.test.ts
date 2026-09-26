@@ -106,7 +106,6 @@ describe("delegateImageGenerationToAssets", () => {
     expect(sentText).toContain("https://cdn.example.com/ref-2.png");
   });
 
-  // Falling back locally on an auth/permission refusal would bypass the Assets
   it.each([
     "A2A request failed (401): Invalid or expired A2A token",
     "A2A request failed (403): Forbidden",

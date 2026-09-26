@@ -409,7 +409,6 @@ export interface PendingLocalFileContent {
   startedAt: number;
   baseUpdatedAt?: string | null;
   baseContent?: string;
-  /** An identity-only migration yields to a newer peer or agent snapshot. */
   identityMigrationSourceContent?: string;
   identityMigrationStoredContent?: string;
   identityMigrationStoredUpdatedAt?: string | null;

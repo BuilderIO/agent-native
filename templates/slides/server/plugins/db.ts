@@ -22,6 +22,9 @@ function isDrizzleTable(value: unknown): value is object {
 const schemaTables = Object.values(schema).filter(isDrizzleTable);
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently.
 export const runSlidesMigrations = runMigrations(
   [
     {
@@ -225,7 +228,6 @@ export const runSlidesMigrations = runMigrations(
     {
       version: 24,
       name: "slides-deck-shares-user-principal-unique",
-      // CREATE UNIQUE INDEX would otherwise fail before this migration is
       sql: `DELETE FROM deck_shares
 WHERE principal_type = 'user'
   AND id NOT IN (

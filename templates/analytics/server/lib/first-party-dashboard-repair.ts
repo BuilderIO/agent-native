@@ -118,6 +118,7 @@ async function applyRepairToDashboardRow(
 
 export async function repairPersistedFirstPartyDashboardQueries(): Promise<boolean> {
   // guard:allow-unscoped — startup repair targets two fixed first-party dashboards
+  // and only replaces the exact shipped legacy SQL under an optimistic fence.
   const db = getDb() as any;
   const rows = await db
     .select({
@@ -153,6 +154,10 @@ export async function repairPersistedFirstPartyDashboardQueries(): Promise<boole
 
 export async function repairUnboundedFirstPartyPanelsAcrossDashboards(): Promise<number> {
   // guard:allow-unscoped — this explicit operator repair may touch any
+  // dashboard's persisted panel SQL. It must never run during server startup:
+  // reading every config on each serverless cold start can saturate the
+  // database. Exact-string matches and the optimistic (config, updatedAt)
+  // fence ensure a concurrent edit always wins.
   const db = getDb() as any;
   const rows = await db
     .select({
@@ -177,6 +182,7 @@ export async function repairUnboundedFirstPartyPanelsAcrossDashboards(): Promise
       );
       if (wasRepaired) repairedCount += 1;
     } catch (err) {
+      // One dashboard's malformed config or a lost optimistic-concurrency
       // race must not block repairing every other dashboard.
       console.warn(
         `[db] Unbounded first-party panel repair failed for dashboard "${row.id}" (non-fatal):`,

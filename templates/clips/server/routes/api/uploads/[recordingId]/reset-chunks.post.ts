@@ -1,4 +1,3 @@
-
 import { randomUUID } from "node:crypto";
 
 import {
@@ -276,6 +275,7 @@ export async function handleResetRecordingChunks(
       return { error: "Recording upload is no longer resettable" };
     }
 
+    // Fence this reset before deleting any provider or buffered state. A
     // retry that lost the token race must not tear down the winner's session.
     const now = new Date().toISOString();
     const useGenerationFence =

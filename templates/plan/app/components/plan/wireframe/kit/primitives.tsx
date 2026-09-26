@@ -15,18 +15,6 @@ export const KitConfigContext = createContext<{
   style?: "sketchy" | "clean";
 }>({});
 
-/*
- * wf-kit — low-fi wireframe primitives (hand-drawn vibe), ported to React from
- * Claude's wf-kit.jsx. Every primitive reads CSS vars set by
- * plan-wireframe-tokens.css on the `.plan-wf` scope (density / accent / theme),
- * and the sketch wobble is an SVG filter applied at the Screen level so the
- * whole mock wobbles together like one drawing.
- *
- * Layout is ALWAYS flex — row/col/sidebar/main set the direction. Only Fab and
- * overlays use absolute positioning. These are the renderers for the
- * NODE_VOCAB nodes; see ./registry.tsx for the el -> component mapping.
- */
-
 const V = {
   ink: "var(--ink)",
   soft: "var(--ink-soft)",
@@ -74,7 +62,6 @@ function fontWeight(weight?: "normal" | "medium" | "bold"): number {
   if (weight === "medium") return 600;
   return 400;
 }
-
 
 export function Screen({
   children,
@@ -127,7 +114,6 @@ export function Screen({
   );
 }
 
-
 export function Hand({
   children,
   size,
@@ -160,7 +146,6 @@ export function Hand({
   );
 }
 
-
 export function Bar({
   w = 80,
   h,
@@ -188,7 +173,6 @@ export function Bar({
   );
 }
 
-
 export function Lines({
   n = 2,
   gap = 6,
@@ -213,7 +197,6 @@ export function Lines({
     </div>
   );
 }
-
 
 export function Box({
   children,
@@ -246,7 +229,6 @@ export function Box({
     </div>
   );
 }
-
 
 export function Check({
   done = false,
@@ -292,7 +274,6 @@ export function Check({
   );
 }
 
-
 export function Pill({
   children,
   tone = "default",
@@ -329,7 +310,6 @@ export function Pill({
   );
 }
 
-
 export function Prio({ level = 2, label }: { level?: number; label?: string }) {
   const fill = level === 1 ? V.warn : level === 2 ? V.soft : "transparent";
   const bd = level === 3 ? V.soft : "transparent";
@@ -353,7 +333,6 @@ export function Prio({ level = 2, label }: { level?: number; label?: string }) {
     </span>
   );
 }
-
 
 export function Btn({
   children,
@@ -405,7 +384,6 @@ export function Btn({
   );
 }
 
-
 export function Chip({
   children,
   active = false,
@@ -440,7 +418,6 @@ export function Chip({
     </span>
   );
 }
-
 
 export function Field({
   label,
@@ -495,7 +472,6 @@ export function Field({
   );
 }
 
-
 export function StatusBar() {
   return (
     <div
@@ -518,7 +494,6 @@ export function StatusBar() {
     </div>
   );
 }
-
 
 export function Fab({ icon = "+" }: { icon?: string }) {
   return (
@@ -550,7 +525,6 @@ export function Fab({ icon = "+" }: { icon?: string }) {
     </div>
   );
 }
-
 
 export function BrowserBar({
   title = "todo",
@@ -609,7 +583,6 @@ export function BrowserBar({
   );
 }
 
-
 export function SectionLabel({
   children,
   right,
@@ -646,7 +619,6 @@ export function SectionLabel({
   );
 }
 
-
 export function Avatar({ size = 26 }: { size?: number }) {
   return (
     <div
@@ -663,7 +635,6 @@ export function Avatar({ size = 26 }: { size?: number }) {
     />
   );
 }
-
 
 export function IconSquare({
   size = 18,
@@ -698,7 +669,6 @@ export function IconSquare({
     </div>
   );
 }
-
 
 export function NavItem({
   label,
@@ -756,7 +726,6 @@ export function NavItem({
   );
 }
 
-
 export function Sidebar({
   children,
   width = 196,
@@ -791,7 +760,6 @@ export function Sidebar({
   );
 }
 
-
 export function Main({
   children,
   style = {},
@@ -817,7 +785,6 @@ export function Main({
     </div>
   );
 }
-
 
 export function Row({
   children,
@@ -872,7 +839,6 @@ export function Col({
     </div>
   );
 }
-
 
 export function TaskRow({
   title,
@@ -940,7 +906,6 @@ export function TaskRow({
   );
 }
 
-
 export function Card({
   children,
   style = {},
@@ -965,7 +930,6 @@ export function Card({
     </Box>
   );
 }
-
 
 export function Column({
   title,
@@ -1018,7 +982,6 @@ export function Column({
   );
 }
 
-
 export function Toolbar({
   children,
   style = {},
@@ -1049,7 +1012,6 @@ export function Toolbar({
   );
 }
 
-
 export function Tabs({
   items = [],
 }: {
@@ -1065,7 +1027,6 @@ export function Tabs({
     </div>
   );
 }
-
 
 export function KV({ rows = [] }: { rows?: Array<{ k: string; v: string }> }) {
   return (
@@ -1094,7 +1055,6 @@ export function KV({ rows = [] }: { rows?: Array<{ k: string; v: string }> }) {
   );
 }
 
-
 export function SearchBar({
   placeholder = "Search",
 }: {
@@ -1120,7 +1080,6 @@ export function SearchBar({
   );
 }
 
-
 export function Divider({ style = {} }: { style?: CSSProperties }) {
   return (
     <div
@@ -1134,7 +1093,6 @@ export function Divider({ style = {} }: { style?: CSSProperties }) {
     />
   );
 }
-
 
 export function Title({
   text,
@@ -1153,7 +1111,6 @@ export function Title({
     </Hand>
   );
 }
-
 
 export function Text({
   value,

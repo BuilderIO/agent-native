@@ -29,7 +29,10 @@ export function LocalNetworkAccessPrompt({
   onDismiss: () => void;
   proactive?: boolean;
 }) {
+  // "unreachable" is the one confident case (permission is confirmed
+  // granted, so it's confirmed NOT the cause) — every other kind is
   // deliberately hedged copy, never a diagnosed permission claim. See
+  // classifyBridgeRegistrationFailure's doc comment for why.
   const isConfirmedUnreachable = kind === "unreachable";
   const isStalePreviewToken = kind === "stalePreviewToken";
   const title = proactive

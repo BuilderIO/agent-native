@@ -311,6 +311,8 @@ export function armPendingTextCapture(args: {
       active.nodeId = nodeId;
     },
     cancel() {
+      // Token-scoped: a later creation on the same surface already superseded
+      // this one, and cancelling the earlier request must not touch it.
       if (active?.token === token) cancelActive();
     },
   };

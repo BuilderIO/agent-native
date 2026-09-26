@@ -45,6 +45,7 @@ const getQuietColor = (overImagery = false) =>
   // guard:allow-raw-color — as above: read against the frames, not the theme.
   overImagery ? "rgba(226, 232, 240, 0.45)" : getBrandColorAlpha(0.2);
 const getWaveBg = () => getBrandColorAlpha(0.08);
+/** Darkens the band behind the bars when they sit over filmstrip frames. */
 // guard:allow-raw-color — a scrim over video frames, which are whatever the recording holds; it has to darken them in either theme.
 const WAVE_SCRIM = "rgba(2, 6, 23, 0.46)";
 const EXCLUDED_FILL = "rgba(15, 23, 42, 0.65)";

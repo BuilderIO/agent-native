@@ -136,7 +136,6 @@ export function parsePenPathFromSerializedD(d: string): PenPath | null {
         }
         continue;
       }
-      // Unknown token — grammar mismatch, bail rather than guess.
       return null;
     }
 

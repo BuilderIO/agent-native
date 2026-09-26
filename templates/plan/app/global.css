@@ -541,7 +541,6 @@
   display: none;
 }
 
-
 @container plan-doc (min-width: 1200px) {
   .plan-content-surface:not([data-recap-screenshot-theme])
     .plan-document-body
@@ -955,7 +954,6 @@
 .plan-prose td {
   color: var(--plan-muted);
 }
-
 
 .plan-code-surface {
   max-width: 100%;

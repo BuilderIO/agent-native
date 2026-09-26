@@ -545,7 +545,6 @@ export async function sanitizeCaptureForStorage(
       });
   decision ??= jev.decision ?? null;
   fallbackReason = jev.failureReason;
-  // credential lookup itself threw, so a broken vault fails closed instead of
   const classifierConfigured =
     jev.configured ||
     Boolean(jev.failureReason) ||

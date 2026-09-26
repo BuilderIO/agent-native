@@ -1,21 +1,3 @@
-/**
- * Local kiwi decode path for Figma clipboard pastes.
- *
- * When no Figma access token is configured, a clipboard paste still carries
- * the full fig-kiwi binary buffer: geometry, auto-layout, text, fills, and
- * effects are all present in the kiwi message. This module decodes that
- * buffer locally using the same decoder as the .fig upload path, synthesizes
- * an editable HTML screen per top-level frame, and annotates IMAGE fill
- * elements with `data-figma-image-ref` attributes so that a later call to
- * `hydrate-figma-paste-images` can fill them in once the user connects their
- * Figma access token.
- *
- * Images are NOT available in the clipboard buffer — Figma stores image bytes
- * server-side and only includes a 20-byte SHA-1 hash in the kiwi message.
- * Elements with image fills render as `about:blank` placeholders until
- * `hydrate-figma-paste-images` resolves and mirrors the real URLs.
- */
-
 import { assertSafeDecodedFigDocument, decodeFig } from "./fig-file-decoder.js";
 import {
   type FigNode,

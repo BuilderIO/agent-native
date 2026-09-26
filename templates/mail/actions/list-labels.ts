@@ -53,6 +53,9 @@ function recomputeLocalCounts(labels: Label[], emails: any[]): Label[] {
   });
 }
 
+// Same bound + redaction shape as list-emails.ts's inventoryError: never let
+// a token leak into a surfaced error, and cap length so one bad message
+// can't blow up the response.
 function boundedErrorMessage(err: unknown): string {
   const message =
     err instanceof Error

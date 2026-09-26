@@ -219,6 +219,7 @@ describe("update-slide", () => {
       slideId: "slide-1",
       actor: "agent",
     });
+    // A deterministic focused edit without an existing or explicit Creative
     // Context scope must not enter the generation-context gate.
     expect(mockValidateGenerationCreativeContext).not.toHaveBeenCalled();
     expect(mockRecordGenerationCreativeContext).not.toHaveBeenCalled();

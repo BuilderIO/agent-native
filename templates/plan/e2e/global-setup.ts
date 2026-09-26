@@ -97,7 +97,6 @@ async function globalSetup(_config: FullConfig) {
   // eslint-disable-next-line no-console
   console.log("[global-setup] auth:", JSON.stringify(result));
   await ctx.storageState({ path: authStatePath });
-  // a fixed-account/secret-rotation deadlock) instead of a hardcoded default.
   writeFileSync(authEmailPath, String(result.sessionEmail || EMAIL).trim());
   await browser.close();
   if (!result.sessionEmail) {

@@ -93,6 +93,23 @@ const UNDERLINE_PROXIMITY = 0.6;
 
 const DEFAULT_TEXT_COLOR = "#000000"; // guard:allow-raw-color - fallback when the page's real fill color can't be determined
 
+/**
+ * When a run's real fill color can't be recovered (the color timeline
+ * didn't line up 1:1 with `getTextContent()`'s items), defaulting to a
+ * fixed black is invisible on a dark deck background — this reads black on
+ * a light page and white on a dark one instead, using the same background
+ * this page already resolved to.
+ *
+ * `backgroundColor` only ever comes from a page-covering *vector* fill —
+ * there's no cheap, reliable way to sample a raster background photo's
+ * actual luminance here (decoding it would mean pulling in the same
+ * fragile native-canvas path `pdf-parse-setup.ts` deliberately avoids for
+ * text extraction). But a full-bleed photo is still almost never "blank
+ * white paper", and design decks overwhelmingly lay light text over
+ * full-bleed photos — so when a page has no vector background fill AND
+ * covers itself edge-to-edge with an image, assume dark rather than
+ * defaulting to the invisible black-on-photo case this was written for.
+ */
 export function contrastingDefaultColor(
   backgroundColor: string | undefined,
   hasFullBleedImage = false,

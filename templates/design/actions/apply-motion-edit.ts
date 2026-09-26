@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import {
   agentEnterDocument,
@@ -37,11 +36,9 @@ import {
   withTimelinePlaybackMode,
 } from "../shared/motion-timeline.js";
 
-
 export const MAX_MOTION_TRACKS = 64;
 export const MAX_MOTION_KEYFRAMES_PER_TRACK = 128;
 export const MAX_MOTION_DURATION_MS = 120_000;
-
 
 const keyframeSchema = z.object({
   t: z
@@ -117,7 +114,6 @@ const trackSchema = z.object({
         "track. Prefer the top-level playbackMode parameter.",
     ),
 });
-
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
@@ -201,7 +197,6 @@ async function persistFileContent(
     agentLeaveDocument(file.id);
   }
 }
-
 
 export default defineAction({
   description:
@@ -503,6 +498,10 @@ export default defineAction({
 
     const resolvedTimelineId = existingTimelineId ?? nanoid();
 
+    // ── 5. Persist the motion_timeline row FIRST (atomic SQL portion) ───────
+    // The timeline row is written before the HTML so that a failure in the
+    // HTML write step cannot leave the design content mutated without a
+    // corresponding row.
     await db.transaction(async (tx) => {
       if (existingTimelineId) {
         await tx

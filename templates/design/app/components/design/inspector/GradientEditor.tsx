@@ -19,7 +19,6 @@ import {
 
 import { cn } from "@/lib/utils";
 
-
 export type GradientKind = "linear" | "radial" | "angular" | "diamond";
 
 export interface GradientStopValue {
@@ -69,6 +68,7 @@ export interface GradientEditSessionTarget {
   onChange: (nextCss: string, meta?: { phase: "preview" | "commit" }) => void;
 }
 
+// ─── Checkerboard (matches DesignColorPicker) ───────────────────────────────────
 
 // guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
 const CHECKER_A = "#e5e5e5";
@@ -77,7 +77,6 @@ const CHECKER_B = "#ffffff";
 const CHECKERBOARD_IMAGE = `conic-gradient(${CHECKER_A} 25%, ${CHECKER_B} 0 50%, ${CHECKER_A} 0 75%, ${CHECKER_B} 0)`;
 const CHECKER_SIZE = "8px 8px";
 const CHECKER_POS = "0 0";
-
 
 function sortedStops(stops: GradientStopValue[]): GradientStopValue[] {
   return [...stops].sort((a, b) => a.position - b.position);
@@ -156,7 +155,6 @@ export function nearestStopId(
   }
   return best?.id ?? null;
 }
-
 
 let stopCounter = 0;
 function nextStopId(): string {
@@ -284,7 +282,6 @@ export function parseGradientCss(
   };
 }
 
-
 interface AngleDialProps {
   angle: number;
   onChange: (angle: number) => void;
@@ -398,7 +395,6 @@ function AngleDial({
     </div>
   );
 }
-
 
 export interface GradientEditorProps {
   value: GradientValue;

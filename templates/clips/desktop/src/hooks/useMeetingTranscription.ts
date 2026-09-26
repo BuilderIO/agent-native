@@ -21,7 +21,6 @@ import {
 } from "../lib/transcription-engine";
 import { normalizeServerUrl } from "../lib/url";
 
-
 export interface MeetingTranscriptionPayload {
   meetingId: string;
   joinUrl?: string | null;
@@ -88,7 +87,6 @@ function unlistenAll(unlisteners: Array<() => void>): void {
   }
 }
 
-
 export function useMeetingTranscription({
   callClipsAction,
   serverUrl,
@@ -109,7 +107,6 @@ export function useMeetingTranscription({
     () => normalizeServerUrl(serverUrl),
     [serverUrl],
   );
-
 
   const flushTranscript = useCallback(async (): Promise<void> => {
     const session = sessionRef.current;
@@ -148,7 +145,6 @@ export function useMeetingTranscription({
       if (session.flushInFlight === run) session.flushInFlight = null;
     }
   }, [callClipsAction]);
-
 
   const stopInFlightRef = useRef<Promise<void> | null>(null);
 
@@ -205,6 +201,14 @@ export function useMeetingTranscription({
           });
           if (reason !== "app-quit") await finalizePromise;
         }
+        // Keep completed notes in Clips instead of interrupting the user by
+        // opening a browser tab. On a normal stop the pill stays up and
+        // switches to its finished banner off `meetings:transcription-stopped`;
+        // it hides itself once the user opens the meeting or dismisses it.
+        // Guard the shared Rust-side state writes and sessionRef null-out by
+        // identity. App quit and other callers can still race a stop against a
+        // new start that slips in between awaits, and stale teardown must not
+        // clobber the session that has since taken over.
         if (sessionRef.current === session) {
           if (reason === "app-quit" || reason === "replaced") {
             await invoke("recording_pill_hide").catch(() => {});
@@ -234,7 +238,6 @@ export function useMeetingTranscription({
     if (enabled) return;
     stopTranscription("lab-disabled").catch(() => {});
   }, [enabled, stopTranscription]);
-
 
   const runStartTranscription = useCallback(
     async (payload: MeetingTranscriptionPayload) => {
@@ -766,6 +769,8 @@ export function useMeetingTranscription({
           await stopTranscriptionEngine(liveEngine).catch(() => {});
         } else if (engineStarting) {
           // coercion-ok: an engine that never started has nothing to tear
+          // down, and null is distinguishable from a started one below. The
+          // start failure itself is already being reported by this catch.
           const engine = await engineStarting.catch(() => null);
           if (engine) await stopTranscriptionEngine(engine).catch(() => {});
         }
@@ -833,7 +838,6 @@ export function useMeetingTranscription({
     [runStartTranscription],
   );
 
-
   useEffect(() => {
     if (!enabled) return;
     const unlisteners: Array<() => void> = [];
@@ -871,7 +875,6 @@ export function useMeetingTranscription({
       unlisteners.length = 0;
     };
   }, [enabled, startTranscription]);
-
 
   useEffect(() => {
     if (!enabled) return;

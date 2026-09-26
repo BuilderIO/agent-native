@@ -162,6 +162,7 @@ export async function fetchRemoteImage(
       body = await response.read();
     } catch {
       // coercion-ok: a truncated transfer has no partial-success form here;
+      // the caller answers 502 either way.
       return { ok: false, reason: "fetch-failed" };
     }
     if (body === "too-large") return { ok: false, reason: "too-large" };

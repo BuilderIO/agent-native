@@ -93,6 +93,9 @@ export function useTweaks({
         return true;
       } catch {
         // coercion-ok: `false` is the typed "not journaled" result, never
+        // mistakable for success. Do not claim an offline retry exists when
+        // IndexedDB itself failed — the mutation path uses this to tell
+        // durable retries from edits that must stay in this tab's memory.
         return false;
       }
     },

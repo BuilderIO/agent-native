@@ -1048,6 +1048,16 @@ export function PlanDocumentEditor({
     } catch {
       return;
     }
+    // Hard data-loss guard: the editor mounts EMPTY (custom `setContent` seeds it
+    // from `content.blocks` a tick later), so it can serialize an empty doc both
+    // before the seed AND in a transient post-seed normalization/extension
+    // transaction. Either empty must never wipe existing blocks unless the user
+    // genuinely cleared the document. A real clear (select-all + delete) keeps the
+    // prose surface focused; the seed-race empty fires with nothing focused. So an
+    // empty serialization is honored as an intentional clear ONLY when the editor
+    // is currently focused — otherwise it is the mount/seed echo and is ignored.
+    // (`hasSeededRef` alone is insufficient: the seed sets it true, then the
+    // transient empty arrives "seeded" and slipped through, wiping the plan.)
     const prevCount = blocksRef.current.length;
     if (next.length === 0 && prevCount > 0 && !isEditorFocused()) return;
     if (

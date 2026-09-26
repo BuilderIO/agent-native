@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+// jsdom only: withMeasuredGeometry's regression test below measures a real
+// (mocked) live-preview iframe node.
 
 import type { CodeLayerNode, CodeLayerProjection } from "@shared/code-layer";
 import { describe, expect, it, vi } from "vitest";

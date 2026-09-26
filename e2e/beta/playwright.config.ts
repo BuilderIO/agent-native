@@ -2,7 +2,6 @@ import { defineConfig, devices } from "@playwright/test";
 
 import { BETA_E2E_TEST_TRAFFIC_HEADERS } from "./lib/test-traffic";
 
-
 const isCi = Boolean(process.env.CI);
 const isAuthedCiRun = isCi && process.env.BETA_E2E_AUTHED === "1";
 
@@ -72,6 +71,8 @@ export default defineConfig({
     {
       name: "registry",
       testMatch: /specs\/registry\.spec\.ts$/,
+      // Registry checks do not spend model tokens, but one retry still
+      // separates a cold host from a deterministic authentication failure.
       retries: 1,
       use: { ...AUTHED_ARTIFACTS },
     },

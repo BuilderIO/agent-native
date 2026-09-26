@@ -180,6 +180,8 @@ export function scheduleBeginTextEditForScreen(
         if (finished) return;
         if (status === "activation-requested") activationRequested = true;
         lastStatus = status;
+        // An abandoned creation never settles early on a live session: the
+        // caller has to decide the node's fate by its committed content, and
         // settling here would race the commit the stand-down click started.
         if (isTextEditSessionOutcome(status) && !options?.isAbandoned?.()) {
           settle(status);

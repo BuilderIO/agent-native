@@ -232,6 +232,12 @@ export async function getActiveOrganizationId(
       // below keeps distinct from a definite null.
     }
     if (resolved) return resolved;
+    // A definite null covers both no membership and an explicit Personal
+    // selection, and the legacy sources below cannot improve on either: they
+    // are not scoped to a caller, so they would either hand over an org this
+    // caller has no relationship with or reactivate scope the user opted out
+    // of. Migration v61 seeds `org_members` for every legacy workspace owner
+    // and member, so a real legacy user resolves here rather than below.
     if (resolved === null) return null;
   }
 
@@ -260,21 +266,6 @@ export async function getActiveOrganizationId(
   return null;
 }
 
-/**
- * Vet a legacy workspace id before it becomes an active organization id.
- *
- * Neither legacy source is scoped to a caller and neither is cleaned up when an
- * organization is deleted: the app-state key keeps naming a deleted org, and
- * the `workspaces` lookup takes the globally newest row, which can belong to
- * someone else entirely. Either way the caller ends up with an org id they have
- * no relationship with, and every org-scoped read answers 403 instead of the
- * personal scope they actually have.
- *
- * Migration v61 seeds `org_members` for every legacy workspace owner and
- * member, so a real legacy user resolves through membership well before this
- * fallback runs. A caller with no identity at all (CLI, solo dev) has nothing
- * to scope by, so an existing org is the best available answer there.
- */
 async function legacyOrganizationIdForCaller(
   organizationId: string | null | undefined,
   email: string | undefined,
@@ -435,6 +426,9 @@ export async function countRecordingViews(
     .where(eq(schema.recordingViews.recordingId, recordingId));
 
   // `recording_views` only exists from migration v46, so clips recorded before
+  // it have zero log rows. Floor the total at the counted-viewer count so those
+  // clips keep reporting a real number instead of dropping to 0, and so the
+  // total can never read below the unique-viewer count beside it.
   return Math.max(
     Number(viewLogRow?.value ?? 0),
     Number(viewerRow?.value ?? 0),

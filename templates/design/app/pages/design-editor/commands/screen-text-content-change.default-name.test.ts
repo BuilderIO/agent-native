@@ -1,4 +1,8 @@
 // @vitest-environment happy-dom
+//
+// Same DOM requirement as text-content-change.default-name.test.ts:
+// html-layer-positioning.ts's attribute writer early-returns null under
+// `typeof window === "undefined"`.
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import { describe, expect, it, vi } from "vitest";
 

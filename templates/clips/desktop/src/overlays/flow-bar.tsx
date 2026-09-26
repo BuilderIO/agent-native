@@ -19,6 +19,10 @@ type FlowStateChangePayload = {
 };
 
 export function FlowBar() {
+  // Default to "recording" not "idle" — there's a race between the Rust
+  // window opening and the React listener registering, so a default of
+  // "idle" caused the bar to flash an "EN" language pill that never went
+  // away if the start event was missed.
   const [state, setState] = useState<FlowState>("recording");
   const [processingStage, setProcessingStage] =
     useState<FlowProcessingStage>("finalizing");

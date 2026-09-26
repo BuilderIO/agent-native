@@ -8,7 +8,6 @@ import { chromium, type FullConfig } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { designE2eRunRoot } from "./global-teardown";
 
-
 export const E2E_EMAIL = "e2e+autoz@local.test";
 export const E2E_MENTION_EMAIL = "alice+e2e@local.test";
 export const E2E_PASSWORD = "password-e2e-1234";
@@ -459,6 +458,8 @@ export default async function globalSetup(config: FullConfig) {
       // eslint-disable-next-line no-console
       console.log("[e2e] editor warm");
     } catch (error) {
+      // Not fatal — the suite still runs, the first test just pays the
+      // compile again. Say so out loud rather than reporting a warm editor.
       // eslint-disable-next-line no-console
       console.warn(
         `[e2e] editor warmup did not finish (${(error as Error).message.split("\n")[0]}); ` +

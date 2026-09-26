@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -10,7 +9,6 @@ import { getDb, schema } from "../server/db/index.js";
 import { isAllowedFigmaSvgRenderRequest } from "../server/lib/design-to-figma-svg.js";
 import { readLiveSourceFile } from "../server/source-workspace.js";
 import "../server/db/index.js";
-
 
 export interface ScreenshotViewport {
   label: string;
@@ -70,7 +68,6 @@ export interface ScreenshotResult {
   diagnostics: ScreenshotDiagnostics;
 }
 
-
 const DEFAULT_VIEWPORTS: ScreenshotViewport[] = [
   { label: "desktop", widthPx: 1280, heightPx: 800 },
   { label: "mobile", widthPx: 375, heightPx: 812 },
@@ -100,7 +97,6 @@ export function resolveViewports(
   }));
 }
 
-
 export {
   importPlaywright,
   isMissingBrowserError,
@@ -124,7 +120,6 @@ export function chromiumUnavailableReason(err: unknown): string {
   );
 }
 
-
 async function liveContent(
   fileId: string,
   storedContent: string,
@@ -142,8 +137,17 @@ async function liveContent(
   ).content;
 }
 
+// ---------------------------------------------------------------------------
+// Contrast math — exported at module scope purely so it is unit-testable
+// without a browser. `collectPageDiagnostics` below duplicates this exact
+// logic in its own closure: Playwright's `page.evaluate` serializes a
+// function via `Function#toString()` and runs it inside the page, where it
 // cannot reference anything from this module's outer scope, so the
+// evaluate-context copy cannot simply call these exports. Keep the two copies
+// in sync if the WCAG math changes.
+// ---------------------------------------------------------------------------
 
+/** WCAG relative luminance for one sRGB channel triplet (0-255 each). */
 export function relativeLuminance(r: number, g: number, b: number): number {
   const channel = (v: number) => {
     const c = v / 255;
@@ -176,7 +180,6 @@ export function requiredContrastRatio(
     fontSizePx >= 24 || (fontSizePx >= 18.66 && fontWeight >= 700);
   return isLarge ? 3 : 4.5;
 }
-
 
 function collectPageDiagnostics(): {
   documentWidthPx: number;
@@ -358,7 +361,6 @@ function collectPageDiagnostics(): {
     zeroSizeOrOffscreen,
   };
 }
-
 
 export default defineAction({
   description:

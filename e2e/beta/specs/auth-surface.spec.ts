@@ -5,7 +5,6 @@ import { originFor, productionHostFor, selectedSites } from "../lib/fleet";
 import { mustRespond, parseJson } from "../lib/http";
 import { installBetaE2ETrafficMarker } from "../lib/test-traffic";
 
-
 const sites = selectedSites();
 
 test.beforeEach(async ({ page }) => {
@@ -28,6 +27,9 @@ for (const site of sites) {
 
       const gate = await settleAuthGate(page);
 
+      // A protected route that renders anonymously is an authorization
+      // regression, not a reason to skip the test. The gate must also remain
+      // on the app's own origin so a sign-in cannot be redirected elsewhere.
       expect(
         gate.gated,
         `${site.id} served ${target} without a sign-in surface`,

@@ -626,6 +626,10 @@ export function usePreviewDocumentDraft(
     documentId ? { documentId } : undefined,
     {
       enabled: !!documentId && options.enabled !== false,
+      // The caller gates this off while it knows creation is pending. A 403/404
+      // that still arrives for a row that young is one this connection cannot
+      // see yet rather than a refusal, so ride it out. Once the row is past its
+      // settling window a 403 is a real authorization answer and stays terminal.
       ...documentScopedReadRetryOptions(
         isWithinCreateSettlingWindow(options.createdAt),
       ),

@@ -1,5 +1,18 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // @vitest-environment happy-dom
+/**
+ * Per-release smoke test for every export path the export menu offers.
+ *
+ * The reports behind this file all shared one shape: an export was presented as
+ * a working option and then produced nothing the user could see - no file, no
+ * link, no error. So each path is checked against a single invariant rather
+ * than against its own bespoke plumbing:
+ *
+ *   every export either produces an artifact, or says out loud that it did not.
+ *
+ * Silence is the failure. A path that resolves without downloading a file,
+ * opening a deck, or showing an error is a regression even when nothing threw.
+ */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

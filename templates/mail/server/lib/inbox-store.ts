@@ -4,7 +4,6 @@ import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
-
 export type CachedGmailLabel = {
   id: string;
   name: string;
@@ -142,7 +141,6 @@ function toSyncAccountRow(
   };
 }
 
-
 export async function readInboxThreads(
   ownerEmail: string,
   opts?: { accountEmails?: string[] },
@@ -270,13 +268,11 @@ export async function readCachedLabels(
   return { labels: [...labelsById.values()], labelMapByAccount };
 }
 
-
 export type LocalLabelDelta = {
   add?: string[];
   remove?: string[];
   providerHistoryId?: string;
   scope?: "thread" | "message";
-  /** Message ids the delta actually targets; only meaningful for scope "message". */
   messageIds?: string[];
 };
 
@@ -362,7 +358,10 @@ export async function applyLocalLabelDelta(
 
     for (const row of rows) {
       const labels = new Set(parseJsonArray<string>(row.labelIdsJson, []));
+      // UNREAD/STARRED are handled separately below, not applied blindly
       // here: at message scope the delta only describes the last-touched
+      // message, not the thread's whole state, so the union must be derived
+      // from the recomputed unread count / an add-only star rule instead.
       for (const l of remove)
         if (!messageScoped || (l !== "UNREAD" && l !== "STARRED"))
           labels.delete(l);
@@ -493,7 +492,6 @@ export async function findAccountForMessage(
   return null;
 }
 
-
 const CATEGORY_MAP: Record<string, string> = {
   IMPORTANT: "important",
   CATEGORY_PERSONAL: "personal",
@@ -541,7 +539,6 @@ export function inboxRowToItem(
     isAutomated: row.isAutomated,
   };
 }
-
 
 export type ThreadUpsertInput = {
   ownerEmail: string;

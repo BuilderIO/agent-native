@@ -1,7 +1,5 @@
 import { registerRequiredSecret } from "@agent-native/core/secrets";
 
-
-
 registerRequiredSecret({
   key: "GEMINI_API_KEY",
   label: "Gemini API Key (recommended)",
@@ -116,7 +114,6 @@ registerRequiredSecret({
   },
 });
 
-
 registerRequiredSecret({
   key: "GOOGLE_CLIENT_ID",
   label: "Google Calendar Client ID",
@@ -138,7 +135,6 @@ registerRequiredSecret({
   kind: "api-key",
   required: false,
 });
-
 
 registerRequiredSecret({
   key: "SLACK_SIGNING_SECRET",
@@ -184,6 +180,10 @@ registerRequiredSecret({
   required: false,
 });
 
+// ── Brain transcript ingest ──────────────────────────────────────────
+// Both values are workspace-scoped: every clip in the workspace must reach
+// the same Brain source, while the encrypted secret store keeps the token out
+// of action responses, application state, and client bundles.
 
 registerRequiredSecret({
   key: "BRAIN_INGEST_URL",
@@ -221,7 +221,6 @@ registerRequiredSecret({
       : { ok: false, error: "Token looks too short." };
   },
 });
-
 
 registerRequiredSecret({
   key: "CLIPS_DISABLE_BUILDER_COMPRESSION",

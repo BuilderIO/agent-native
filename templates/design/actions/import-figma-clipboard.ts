@@ -35,7 +35,6 @@ import { parseFigmaFileKey } from "../shared/figma-url.js";
 
 const NODE_STRUCTURE_DEPTH = 3;
 
-// the validator only checks current_user:read. An absent token normally
 const CREDENTIAL_MISSING_RE =
   /credential not configured|figma.*request failed:.*403|figma.*request failed:.*forbidden/i;
 const TRANSIENT_ERROR_RE =

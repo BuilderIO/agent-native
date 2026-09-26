@@ -1,12 +1,3 @@
-/**
- * figma-image-hydration.spec.ts
- *
- * Covers the token-free `.fig` hydration path:
- *  - resolveFigImageHashes: only requested hashes present in the .fig are
- *    uploaded and mapped; absent hashes are skipped.
- *  - hydrateFileImagesFromFig: end-to-end load → collect → match → persist.
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({

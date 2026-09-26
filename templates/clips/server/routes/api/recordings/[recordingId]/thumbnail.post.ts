@@ -1,4 +1,3 @@
-
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import {
@@ -98,7 +97,9 @@ export default defineEventHandler(async (event: H3Event) => {
       parseEdits(existing.editsJson).thumbnail,
     );
 
+    // If we already have a thumbnail, don't overwrite editor-picked thumbnails.
     // Auto-generated thumbnails may be replaced by the player when the saved
+    // image probes as blank.
     if (existing.thumbnailUrl) {
       if (!replaceAutoThumbnail || hasEditorThumbnail) {
         console.log("[thumbnail] already set, skipping", { recordingId });

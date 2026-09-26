@@ -11,8 +11,6 @@ import {
 } from "@agent-native/core/db/schema";
 import { boolean } from "drizzle-orm/pg-core";
 
-// Workspaces & members (DEPRECATED — kept only for the in-place migration
-
 export const organizationSettings = table("organization_settings", {
   organizationId: text("organization_id").primaryKey(),
   brandColor: text("brand_color").notNull().default("#18181B"),
@@ -71,7 +69,6 @@ export const invites = table("invites", {
   createdAt: text("created_at").notNull().default(now()),
 });
 
-
 export const spaces = table("spaces", {
   id: text("id").primaryKey(),
   organizationId: text("workspace_id").notNull(),
@@ -102,7 +99,6 @@ export const folders = table("folders", {
   createdAt: text("created_at").notNull().default(now()),
 });
 
-
 export const recordings = table("recordings", {
   id: text("id").primaryKey(),
   organizationId: text("workspace_id").notNull(),
@@ -120,7 +116,9 @@ export const recordings = table("recordings", {
   description: text("description").notNull().default(""),
 
   thumbnailUrl: text("thumbnail_url"),
+  // Terminal outcome of the last thumbnail generation attempt. NULL means
   // "never attempted" — every pre-migration row starts here too, which is
+  // why the thumbnail sweeper treats NULL the same as "pending".
   thumbnailStatus: text("thumbnail_status", {
     enum: ["pending", "generated", "failed", "none"],
   }),
@@ -152,6 +150,8 @@ export const recordings = table("recordings", {
     .default("uploading"),
   uploadProgress: integer("upload_progress").notNull().default(0),
   uploadLeaseExpiresAt: text("upload_lease_expires_at"),
+  // Fences resumed writers: every recovery claim rotates this token so stale
+  // chunks and delayed interruption callbacks cannot mutate the new attempt.
   uploadAttemptId: text("upload_attempt_id"),
   uploadGenerationId: text("upload_generation_id"),
   failureReason: text("failure_reason"),
@@ -210,7 +210,6 @@ export const clipIntakeSessions = table(
 );
 
 export const recordingShares = createSharesTable("recording_shares");
-
 
 export const recordingTags = table("recording_tags", {
   id: text("id").primaryKey(),
@@ -302,7 +301,6 @@ export const recordingCtas = table("recording_ctas", {
   createdAt: text("created_at").notNull().default(now()),
 });
 
-
 export const recordingComments = table("recording_comments", {
   id: text("id").primaryKey(),
   recordingId: text("recording_id").notNull(),
@@ -329,7 +327,6 @@ export const recordingReactions = table("recording_reactions", {
   videoTimestampMs: integer("video_timestamp_ms").notNull().default(0),
   createdAt: text("created_at").notNull().default(now()),
 });
-
 
 export const recordingViewers = table(
   "recording_viewers",
@@ -402,7 +399,6 @@ export const recordingAgentViews = table(
   }),
 );
 
-
 export const meetings = table("clips_meetings", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id"),
@@ -465,7 +461,6 @@ export const meetingActionItems = table("meeting_action_items", {
   createdAt: text("created_at").notNull().default(now()),
 });
 
-
 export const calendarAccounts = table("calendar_accounts", {
   id: text("id").primaryKey(),
   provider: text("provider", {
@@ -510,8 +505,6 @@ export const calendarEvents = table("calendar_events", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
-// framework-shareable resource. It stores only provider metadata and secret
-
 export const slackInstallations = table("slack_installations", {
   id: text("id").primaryKey(),
   teamId: text("team_id").notNull(),
@@ -538,7 +531,6 @@ export const slackInstallations = table("slack_installations", {
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
-
 
 export const dictations = table("clips_dictations", {
   id: text("id").primaryKey(),

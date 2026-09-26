@@ -36,9 +36,6 @@ struct LiveUploadParams {
     has_camera: bool,
 }
 
-/// Explicit opt-in credentials for a secondary Clip sink. `server_url: None`
-/// means local-only; a partial remote configuration is rejected rather than
-/// broadening authentication or quietly changing the retention path.
 #[derive(Clone)]
 pub(crate) struct ClipLiveUploadConfig {
     pub(crate) server_url: Option<String>,

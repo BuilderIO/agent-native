@@ -1,5 +1,3 @@
-
-
 WITH visitors_by_source AS (
   SELECT
     DATE_TRUNC(DATE(created_date), WEEK) AS week,

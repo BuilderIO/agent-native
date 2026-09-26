@@ -27,7 +27,6 @@ export default createCoreRoutesPlugin({
   googleOAuthManagedConnection: "not_applicable",
   envKeys,
   anonymousOwner: resolvePublicViewerOwner,
-  // signed-in user; scope it to the viewer cookie instead of answering 401.
   anonymousApplicationState: true,
   resolveOpenPath: resolveContentOpenPath,
 });

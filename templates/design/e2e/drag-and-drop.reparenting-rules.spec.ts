@@ -200,6 +200,12 @@ test.describe("reparenting rules", () => {
     await page.mouse.up();
     await page.waitForTimeout(2500); // e2e-harness-ignore moved verbatim by the drag-and-drop split
 
+    // Scope to the authored screen iframe, not `.first()`: a canvas Move
+    // drag always posts cross-screen claim messages (even within one
+    // screen) and that mounts a board-surface iframe ahead of it — same
+    // `[data-design-preview-iframe]` attribute, no `data-screen-iframe-id`,
+    // and none of this screen's own content. See `node()` in
+    // e2e/drag-and-drop.shared.ts, which guards against the same trap.
     const nested = await page
       .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
       .first()
@@ -253,6 +259,9 @@ test.describe("reparenting rules", () => {
     );
     await page.mouse.up();
     await page.waitForTimeout(2200); // e2e-harness-ignore moved verbatim by the drag-and-drop split
+    // peer PR (hotkeys) owns the Space-modifier retain-parent behavior; if an
+    // unmodified drag also fails to reparent, the assertion below fails for
+    // that real reason instead of silently skipping.
 
     const id = await newDesign(page);
     await openEditor(page, id);

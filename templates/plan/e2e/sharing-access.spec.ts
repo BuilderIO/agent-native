@@ -217,6 +217,9 @@ test.describe("sharing + publish + access control", () => {
     await outsider?.context.close();
   });
 
+  // (c) A totally unrelated account must NOT be able to open a PRIVATE plan by
+  // id. Either an explicit not-found / 403, or any non-2xx — but never the plan
+  // content. CRITICAL if the secret body leaks.
   test("outsider cannot read a private plan by id", async ({ page }) => {
     const planId = await createOwnerPlan(
       page.request,
@@ -325,6 +328,11 @@ test.describe("sharing + publish + access control", () => {
     const res = await reviewer.request.post(`${ACTIONS}/publish-visual-plan`, {
       data: { planId },
     });
+    // A correctly gated publish must DENY a viewer: either a 403, or (if no
+    // hosted account is connected in this dev env) a needsAuth signal is NOT a
+    // pass — a viewer must never reach the publish path at all. We treat any
+    // 2xx with hostedPlanId OR a needsAuth:true (meaning the viewer was allowed
+    // INTO the publish flow) as the security failure.
     const status = res.status();
     let body: any = null;
     try {
@@ -502,7 +510,6 @@ test.describe("sharing + publish + access control", () => {
     ).toBeFalsy();
   });
 
-
   test("owner UI exposes the Share control and an editable document", async ({
     page,
   }) => {
@@ -520,6 +527,24 @@ test.describe("sharing + publish + access control", () => {
     await expect(editable.first()).toBeVisible({ timeout: 20_000 });
   });
 
+  // (a) VIEWER UI: a viewer should be able to READ the plan, but the inline
+  // editor must be read-only and owner-only controls (Publish/Share-admin)
+  // must not be exposed. The page gates content editing on the access role
+  // returned by list-resource-shares (role: "viewer" => canEditPlanContent
+  // false). We assert that the viewer's rendered DOCUMENT BODY is NOT an
+  // editable surface.
+  //
+  // POST-REFACTOR UI: the plan document renders inside `.plan-content-surface`.
+  // A read-only rich-text block renders via `PlanMarkdownReader` (react-markdown,
+  // Tiptap-free, wrapped in `.an-rich-md-wrapper--readonly`); an editable block
+  // mounts the shared Tiptap `RichMarkdownEditor`, whose ProseMirror node carries
+  // `contenteditable="true"`. So inside the document surface, ANY
+  // `[contenteditable="true"]` means an edit affordance was leaked to the viewer.
+  // We scope the check to `.plan-content-surface` so the legitimate comment
+  // composer (`CommentMentionEditor`, a contentEditable textbox a viewer IS
+  // allowed to use, and which lives OUTSIDE the document surface) is not counted.
+  // If a contentEditable surface appears inside the document for a viewer, that
+  // is a real bug — the read-only experience leaks an inline edit affordance.
   test("viewer UI is read-only (no editable inline editor)", async ({
     baseURL,
   }) => {
@@ -551,6 +576,8 @@ test.describe("sharing + publish + access control", () => {
       await viewerPage.waitForTimeout(2_500);
 
       // A viewer must NOT be presented with an editable document surface. Scope
+      // the contentEditable probe to the plan document body so the legitimate
+      // comment composer (outside `.plan-content-surface`) is not counted.
       const editableCount = await docSurface
         .locator('[contenteditable="true"]')
         .count();

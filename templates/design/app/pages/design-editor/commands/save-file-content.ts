@@ -309,6 +309,7 @@ export function runSaveFileContent(
     .catch(() => {})
     .then(async () => {
       // An identity migration is disposable. Never send a queued old snapshot
+      // after a newer source publication or user edit has replaced it.
       if (
         pending.identityMigrationSourceContent !== undefined &&
         latestFileSaveForUnloadRef.current[pending.id] !== pending

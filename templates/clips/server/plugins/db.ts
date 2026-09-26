@@ -149,6 +149,7 @@ async function backfillRecordingOrgIdsInBatches(): Promise<void> {
     for (;;) {
       if (!(await renewRecordingOrgIdBackfillLease())) return;
       // guard:allow-unscoped — this is a leased, bounded one-time repair over
+      // historical recordings whose org id was never populated.
       const result = await exec.execute({
         sql: `UPDATE recordings
           SET org_id = workspace_id
@@ -192,6 +193,9 @@ function scheduleRecordingOrgIdBackfill(): void {
 }
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently — see the v41 incident documented on v41 below.
 export const migrations = runMigrations(
   [
     {
@@ -858,6 +862,8 @@ export const migrations = runMigrations(
     {
       version: 50,
       name: "clips-public-organization-default",
+      // Earlier releases persisted the old private default into org rows.
+      // Normalize that state once; the org setting remains an explicit override.
       // guard:allow-unscoped — startup migration normalizes legacy defaults across organizations.
       sql: [
         `UPDATE workspaces SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at`,
@@ -893,6 +899,13 @@ export const migrations = runMigrations(
     {
       version: 53,
       name: "recording-upload-lease",
+      // Grant every pre-lease in-progress recording one full lease horizon so
+      // the reaper can reach rows the old session-keyed sweeps could never
+      // select. Backfilling `updated_at` instead would hand a live upload an
+      // already-expired lease and reap it before its next chunk lands, so
+      // pre-lease rows get the same horizon any other row gets. Long-stranded
+      // rows are terminated one horizon after this runs.
+      // Idempotent: the UPDATE only touches NULL leases.
       // guard:allow-unscoped — startup migration backfills every owner's rows.
       sql: [
         `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS upload_lease_expires_at TEXT`,
@@ -918,6 +931,11 @@ export const migrations = runMigrations(
     {
       version: 57,
       name: "recording-agent-views-clear-placeholder-label",
+      // Rows written before the user-agent column stored the literal placeholder
+      // 'Agent' for any agent the user-agent patterns could not name, which is
+      // indistinguishable from an agent that really is called "Agent". NULL is
+      // the one value that means "we don't know", so unnamed history renders as
+      // unknown too.
       // guard:allow-unscoped — startup migration normalizes a legacy placeholder across all rows.
       sql: `UPDATE recording_agent_views SET agent_label = NULL WHERE agent_label = 'Agent'`,
     },
@@ -948,13 +966,17 @@ export const migrations = runMigrations(
     {
       version: 60,
       name: "backfill-legacy-clips-tables",
+      // Run-only: this copies legacy rows forward in a way SQL alone cannot
+      // express. It used to sit in the plugin body and re-ran on every cold
+      // start; nothing writes the legacy tables any more, so it is a one-time
+      // historical migration and belongs here. A throw leaves it unrecorded
+      // and it retries on the next boot.
       sql: {},
       run: backfillLegacyClipsTables,
     },
     {
       version: 61,
       name: "sync-workspaces-to-organizations",
-      // missing, so a first-boot race leaves it pending instead of applied.
       sql: {},
       run: syncWorkspacesToOrganizations,
     },
@@ -1121,9 +1143,17 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
     !(await hasTable("organization_settings"))
   ) {
     // As a tracked migration this must NOT be recorded as applied when the
+    // framework's org tables simply have not been created yet — recording it
+    // would mean the sync never runs and historical workspaces never become
+    // organizations. Deferring leaves the entry pending so the next boot
+    // retries it, without logging a startup failure.
     return deferMigration();
   }
 
+  // 1) Copy workspaces → organizations. Use the workspace id as the org id
+  //    so every downstream FK (`spaces.workspace_id`, `recordings.workspace_id`,
+  //    etc.) already points at the right org without a remap. The framework
+  //    `organizations` table has a simple shape: id, name, created_by, created_at.
   // guard:allow-unscoped — schema migration backfill — system-level by design
   try {
     await exec.execute(`
@@ -1143,6 +1173,7 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
     );
   }
 
+  // 2) Copy workspaces → organization_settings (brand fields sidecar).
   // guard:allow-unscoped — schema migration backfill — system-level by design
   try {
     await exec.execute(`

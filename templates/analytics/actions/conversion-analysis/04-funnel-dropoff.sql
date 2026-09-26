@@ -1,5 +1,3 @@
-
-
 WITH time_periods AS (
   SELECT
     'Recent (Last 4 Weeks)' AS period,
@@ -82,7 +80,6 @@ ORDER BY
     WHEN 'Recent (Last 4 Weeks)' THEN 1
     WHEN 'Baseline (Weeks 5-8 Ago)' THEN 2
   END;
-
 
 WITH time_periods AS (
   SELECT

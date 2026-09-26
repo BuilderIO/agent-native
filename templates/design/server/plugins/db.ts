@@ -19,6 +19,11 @@ function isDrizzleTable(value: unknown): value is object {
 const schemaTables = Object.values(schema).filter(isDrizzleTable);
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently — see the analytics template's v75-v83 incident
+// documented in templates/analytics/server/plugins/db.ts for the failure
+// class this guards against.
 const designMigrations: Parameters<typeof runMigrations>[0] = [
   {
     version: 1,
@@ -247,11 +252,19 @@ ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS org_id TEXT;
 ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private';
 CREATE INDEX IF NOT EXISTS motion_timeline_owner_org_updated_idx ON motion_timeline (owner_email, org_id, updated_at)`,
   },
+  // v18: intentionally no-op. New org-scoped designs now default to
+  // org-visible at creation time, but existing private org rows may have
+  // been intentionally private. There is no durable marker that separates
+  // old default-private rows from explicit private rows, so do not widen
+  // historical access in a migration.
   {
     version: 18,
     sql: {},
   },
+  // v19: design_fusion_edits — declared in schema.ts (queued AI edit intents
   // for fusion-backed full-app designs) but never had a migration create the
+  // table, so any fresh/existing database without it 500s on first write.
+  // Named per the convention above since this is a new entry.
   {
     version: 19,
     name: "design-fusion-edits-table",

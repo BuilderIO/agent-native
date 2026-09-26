@@ -456,6 +456,8 @@ describe("apply-visual-edit", () => {
   });
 
   // Write-race fix coverage: an applied+changed edit must actually persist
+  // through readLiveSourceFile/writeInlineSourceFile (expectedVersionHash
+  // CAS), not the old raw unconditional db.update + applyText/seedFromText.
   describe("persistence (readLiveSourceFile / writeInlineSourceFile CAS)", () => {
     it("rejects broken stylesheet content before writing SQL or collaborative text", async () => {
       const before =

@@ -41,6 +41,8 @@ registerRequiredSecret({
   },
 });
 
+// Optional: connects Figma frame import, library browsing, and open-ended REST
+// reads in agent chat. The provider API injects this server-side as
 // X-Figma-Token; never pass it through action parameters or chat.
 registerRequiredSecret({
   key: "FIGMA_ACCESS_TOKEN",

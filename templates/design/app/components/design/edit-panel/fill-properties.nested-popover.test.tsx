@@ -1,5 +1,35 @@
 // @vitest-environment happy-dom
 
+/**
+ * Regression coverage for a cluster of fill/gradient color-picker bugs
+ * reported for an *existing* background layer's own row popover (as
+ * opposed to the base fill row, which already rendered a single
+ * `DesignColorPicker` directly):
+ *
+ *   1. Clicking an existing gradient/image layer's row required a second
+ *      click to reach the real color picker.
+ *   2. Clicking inside the open picker's gradient editor (a stop handle)
+ *      closed the picker instead of letting the user interact with it.
+ *   3. Switching an existing layer's paint type closed the picker and
+ *      dropped the pending change.
+ *
+ * Root cause: the row wrapped `DesignColorPicker` — which already owns its
+ * own `Popover` — in a *second*, independent outer `Popover` for a
+ * custom-looking trigger (swatch + "Linear 1" + opacity, instead of
+ * DesignColorPicker's default swatch + hex). Two nested popovers meant the
+ * outer one opened first (showing DesignColorPicker's own default trigger,
+ * requiring a second click), and the outer popover's dismissable layer
+ * treated pointer interaction with the inner picker's portaled content as
+ * "outside", closing both the instant the gradient editor was touched. The
+ * row was also keyed by the layer's own CSS content
+ * (`` `${layer}-${index}` ``), so any edit to that layer — including a
+ * paint-type switch — remounted the row and reset its open popover.
+ *
+ * This file renders the real `FillProperties` component with real
+ * `Popover`/`DesignColorPicker`/`GradientEditor` (nothing mocked except
+ * i18n, tooltips, and the unrelated motion `FieldTrailer`), so it exercises
+ * the actual popover lifecycle rather than a stubbed one.
+ */
 
 import { act } from "react";
 import { useState } from "react";

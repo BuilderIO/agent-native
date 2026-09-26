@@ -1,26 +1,5 @@
-
 import type { DesignBridgeOperationStatus } from "./source-mode";
 
-
-/**
- * The full set of named capabilities a design source can advertise.
- *
- * - **readFile / writeFile / applyEdit** — low-level file I/O; bridge-backed.
- * - **resolveNodeToFile** — resolve a DOM node → source file + span.
- * - **previewPatch / diffPatch** — preview or diff a proposed source edit
- *   without committing it.
- * - **captureSnapshot / captureState** — snapshot the rendered iframe or
- *   capture running-app route+data state.
- * - **indexComponents** — static AST or runtime parse of React/TS components.
- * - **indexTokens** — parse CSS vars / Tailwind config / theme JSON for tokens.
- * - **writeTokens** — write token changes back to the real source files.
- * - **previewMotion** — scrub/play keyframe animations without writing to DB.
- * - **writeMotion** — commit a motion timeline (managed `<style>` block or
- *   real CSS module, depending on tier).
- * - **branch** — create/manage a Builder-hosted branch (fusion tier only).
- * - **deployPreview** — deploy a branch preview URL.
- * - **deploy** — merge/publish the branch to production.
- */
 export const DESIGN_CAPABILITY_NAMES = [
   "readFile",
   "writeFile",
@@ -42,26 +21,17 @@ export const DESIGN_CAPABILITY_NAMES = [
 
 export type DesignCapabilityName = (typeof DESIGN_CAPABILITY_NAMES)[number];
 
-
 export type CapabilityStatus = DesignBridgeOperationStatus | "unavailable";
-
 
 export interface DesignSourceCapabilityEntry {
   status: CapabilityStatus;
   reason?: string;
 }
 
-
-/**
- * A map of every `DesignCapabilityName` to its status for a given source.
- * Read by UI panels and server-side actions to decide whether to enable,
- * preview-only, or show a migration CTA.
- */
 export type DesignSourceCapabilities = Record<
   DesignCapabilityName,
   DesignSourceCapabilityEntry
 >;
-
 
 export function hasCapability(
   caps: DesignSourceCapabilities,
@@ -69,7 +39,6 @@ export function hasCapability(
 ): boolean {
   return caps[name]?.status === "available";
 }
-
 
 export function available(reason?: string): DesignSourceCapabilityEntry {
   return { status: "available", ...(reason !== undefined ? { reason } : {}) };
@@ -86,17 +55,6 @@ export function unavailable(reason?: string): DesignSourceCapabilityEntry {
   };
 }
 
-
-/**
- * Default capability map for **inline** (HTML/Alpine/SQL) designs.
- *
- * - CSS-var token edits and motion are available through the Tweaks loop and
- *   the managed `<style data-agent-native-motion>` block respectively.
- * - File-level ops (`readFile`, `writeFile`, `applyEdit`) are available for
- *   inline SQL-backed design_files through the Design source action surface.
- * - Real-app-only capabilities (`indexComponents`, `writeTokens`, `branch`,
- *   `deploy*`) are `unavailable` and trigger the "Make it real" CTA.
- */
 export const INLINE_DEFAULT_CAPABILITIES: DesignSourceCapabilities = {
   readFile: available("Inline design files can be read from Design"),
   writeFile: available("Inline design files can be saved through Design"),

@@ -85,9 +85,6 @@ pub struct MeetingsSessionSnapshot {
 
 pub(crate) type SessionCredentials = (Option<String>, Option<String>);
 
-/// Longest a poller waits before retrying the same failing credential pair,
-/// so a stuck install still notices a silently-refreshed cookie eventually
-/// instead of backing off forever.
 const UNAUTHORIZED_RETRY_CAP: Duration = Duration::from_secs(5 * 60);
 
 pub(crate) struct UnauthorizedRetry {
@@ -239,10 +236,6 @@ pub async fn meetings_watcher_set_server_url(
     Ok(())
 }
 
-/// Forward the renderer's `document.cookie` to the Rust fetch loop. Called
-/// from the popover on boot and after any sign-in change. Empty strings
-/// clear the cookie, which makes the watcher skip its poll entirely (no
-/// credentials to send) rather than hit the server and 401.
 #[tauri::command]
 pub async fn meetings_watcher_set_session(
     state: tauri::State<'_, MeetingsWatcherState>,

@@ -208,6 +208,8 @@ function errorName(err: unknown): string {
   return (err as { name?: string } | null)?.name ?? "";
 }
 
+// getUserMedia failed because the requested device is gone (unplugged / stale
+// saved id), not a permission error — recoverable by retrying with the default.
 function isDeviceUnavailableError(err: unknown): boolean {
   const name = errorName(err);
   return (
@@ -782,7 +784,6 @@ export class RecorderEngine {
     };
   }
 
-
   async acquire(): Promise<RecorderStartResult> {
     this.transition("pickingSources");
 
@@ -834,6 +835,11 @@ export class RecorderEngine {
         throw new Error(policyBlock);
       }
 
+      // Start display capture synchronously before the first `await`. Brave
+      // (and stricter Chromium/WebKit builds) require getDisplayMedia to be
+      // directly anchored to the user's click. Camera/mic prompts do not need
+      // that transient activation, and launching them in parallel with the
+      // screen picker can make Chrome/macOS report a false permission failure.
       const displaySurface = normalizeDisplaySurfaceForRuntime(
         this.opts.displaySurface ?? "window",
       );
@@ -993,7 +999,6 @@ export class RecorderEngine {
         cameraStream: this.getCameraStream(),
       };
     } catch (err) {
-      // by a camera permission denial would leave the screen capture
       this.cleanupTracks();
       this.transition("error", { reason: errorMessage(err) });
       throw err instanceof Error ? err : this.friendlyError(err);
@@ -1019,7 +1024,6 @@ export class RecorderEngine {
     this.uploadAttemptId = null;
     this.uploadGenerationId = null;
   }
-
 
   async start(): Promise<void> {
     this.streamingRecoveryGeneration += 1;
@@ -1525,7 +1529,6 @@ export class RecorderEngine {
     return uploadMode;
   }
 
-
   private async compressAndReupload(
     meta: RecordingFinalizeMeta,
   ): Promise<Record<string, unknown> | undefined> {
@@ -1685,7 +1688,6 @@ export class RecorderEngine {
       }
     }
   }
-
 
   private buildMixedAudioTrack(
     streams: (MediaStream | null | undefined)[],
@@ -2570,6 +2572,8 @@ export class RecorderEngine {
     this.wakeLock = null;
     try {
       // coercion-ok: optional chaining yields undefined only when the Wake
+      // Lock API itself is absent (older/other browsers) — a real rejection
+      // (denied request) is caught below, not coerced here.
       const wakeLock = (await navigator.wakeLock?.request?.("screen")) ?? null;
       if (generation !== this.wakeLockGeneration || !this.displayStream) {
         wakeLock?.release().catch(() => {});

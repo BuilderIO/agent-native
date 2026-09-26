@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { deleteAppSecret, readAppSecret } from "@agent-native/core/secrets";
@@ -31,6 +30,9 @@ export default defineAction({
       .where(eq(schema.calendarAccounts.id, args.id));
     if (!account) throw new Error(`Calendar account not found: ${args.id}`);
 
+    // Secrets are scoped by the account's stored owner email (set at connect
+    // time — see server/lib/google-calendar-oauth.ts `secretScopeEmail`), not
+    // the current caller's email. A non-owner admin disconnecting someone
     // else's account must still hit the right (scope, scopeId, key) row.
     const secretScopeEmail = account.ownerEmail;
 

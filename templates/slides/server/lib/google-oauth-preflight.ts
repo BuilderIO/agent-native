@@ -2,12 +2,6 @@ const AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const PROBE_TIMEOUT_MS = 2_500;
 const CACHE_TTL_MS = 10 * 60 * 1_000;
 
-/**
- * Google rejects a misconfigured authorization request before it ever shows a
- * consent screen, so the browser lands on an error page instead of the deck it
- * came from. These are the rejections an operator can actually act on; anything
- * else is reported as `unknown` rather than guessed at.
- */
 const REJECTION_CODES = [
   "redirect_uri_mismatch",
   "invalid_client",
@@ -22,7 +16,6 @@ const REJECTION_CODES = [
 export type GoogleOAuthRejectionCode = (typeof REJECTION_CODES)[number];
 
 export type GoogleOAuthPreflight =
-  /** Google accepted the authorization request and would show a consent screen. */
   | { status: "ok" }
   /** Google refused the request itself — no user can complete this flow. */
   | { status: "rejected"; code: GoogleOAuthRejectionCode | "unrecognized" }

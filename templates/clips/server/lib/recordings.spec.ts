@@ -329,6 +329,8 @@ describe("getActiveOrganizationId legacy fallbacks", () => {
   });
 
   it("honors a definite no-org answer instead of reviving a legacy workspace", async () => {
+    // `resolveOrgIdForEmail` returns null both for no membership and for an
+    // explicit Personal selection. Either way it has answered, and the
     // caller-unscoped legacy sources must not reactivate org scope.
     mocks.getRequestUserEmail.mockReturnValue("personal@example.test");
     mocks.resolveOrgIdForEmail.mockResolvedValue(null);
@@ -367,7 +369,6 @@ describe("getActiveOrganizationId legacy fallbacks", () => {
   });
 
   it("accepts an existing legacy workspace when there is no caller identity", async () => {
-    // best available answer rather than a silent downgrade to personal scope.
     mocks.getRequestUserEmail.mockReturnValue(null);
     stubSelects([{ id: "org_solo" }], [{ id: "org_solo" }]);
 

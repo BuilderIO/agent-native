@@ -1,19 +1,3 @@
-//! Local Whisper meeting transcription (whisper.cpp via `whisper-rs`).
-//!
-//! `SFSpeechRecognizer` can only run one recognition task per process — two
-//! concurrent cloud recognizers collide ("no speech" 1110), and even
-//! on-device they race over a shared resource. For meetings we need BOTH the
-//! mic stream and the system-audio stream transcribed in parallel and tagged
-//! by `source`. whisper.cpp has no such limit: we run one whisper context with
-//! a per-stream worker thread, fully offline.
-//!
-//! Capture is reused from the existing modules:
-//!   - mic    → `native_speech::macos::start_raw_mic_capture` (AVAudioEngine +
-//!              optional VoiceProcessingIO AEC, other-audio ducking off)
-//!   - meetings on macOS 15+ → one ScreenCaptureKit stream with independent
-//!              microphone + system-audio outputs
-//!   - legacy system audio → `system_audio::macos::start_raw_system_capture`
-//!
 use tauri::AppHandle;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

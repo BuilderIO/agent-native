@@ -38,7 +38,6 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-
 interface DesignToken {
   name: string;
   cssVar: string;
@@ -72,12 +71,10 @@ interface TokenImportFile {
   content: string;
 }
 
-
 export interface TokensPanelProps {
   designId: string;
   onTokensApplied?: (resolvedCssVars: Record<string, string>) => void;
 }
-
 
 export function isColorValue(value: string): boolean {
   const v = value.trim();
@@ -90,13 +87,6 @@ export function isColorValue(value: string): boolean {
   );
 }
 
-/**
- * Normalizes user-typed CSS custom-property input for the manual "Add one
- * token" flow: trims surrounding whitespace first, then ensures a `--`
- * prefix. Trimming before the prefix check matters — a leading space (e.g.
- * pasted input) would otherwise fail `startsWith("--")` and produce a
- * doubled-up, server-rejected name like `-- --foo`.
- */
 export function normalizeCssVarName(raw: string): string {
   const trimmed = raw.trim();
   return trimmed.startsWith("--") ? trimmed : `--${trimmed}`;
@@ -121,7 +111,6 @@ function typeLabel(type: DesignToken["type"]): {
       return { label: "Other", Icon: IconBrush };
   }
 }
-
 
 interface TokenRowProps {
   token: DesignToken;
@@ -238,7 +227,6 @@ function TokenRow({
   );
 }
 
-
 interface TokenGroupSectionProps {
   group: TokenGroup;
   editingKey: string | null;
@@ -301,7 +289,6 @@ function TokenGroupSection({
     </div>
   );
 }
-
 
 type TokenCreateMode = "menu" | "add" | "text";
 
@@ -566,7 +553,6 @@ function TokenCreateOption({
   );
 }
 
-
 const TOKEN_IMPORT_ACCEPT = [
   ".css",
   ".scss",
@@ -595,7 +581,6 @@ async function readImportFiles(fileList: FileList): Promise<TokenImportFile[]> {
 
   return files.filter((file) => file.content.trim().length > 0);
 }
-
 
 export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
   const t = useT();

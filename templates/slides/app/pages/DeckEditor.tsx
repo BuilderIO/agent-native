@@ -322,9 +322,6 @@ type AccessRequestCapability =
 
 export const SLIDE_CLIPBOARD_ARM_WINDOW_MS = 30_000;
 
-/** True when a Cmd/Ctrl+V should still be treated as "paste the slide that
- * was just copied" rather than unrelated clipboard activity landing outside
- * every recognized text field. */
 export function isSlideClipboardStillArmed(
   armedAt: number | null,
   now: number = Date.now(),
@@ -1984,6 +1981,9 @@ export default function DeckEditor() {
     }
   }, [accessRequestSentDeckId, id]);
 
+  // The final generation write can race the last sync event. Pull the
+  // authoritative open deck when the run settles so a stale canvas does not
+  // require a browser refresh to reveal completed slides.
   useEffect(() => {
     if (
       !id ||
@@ -2909,6 +2909,9 @@ export default function DeckEditor() {
     [deck, id, selectedSlideIdsForAction, updateSlides],
   );
 
+  // Command/Ctrl+C then Command/Ctrl+V on the focused slide rail copies/pastes
+  // the selected slide directly below itself. Canvas shortcuts own these keys
+  // only while the canvas has focus, even if its selection remains visible.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!deck || !id || !canEdit) return;
@@ -3059,6 +3062,13 @@ export default function DeckEditor() {
     };
   }, [activeSlideId, id]);
 
+  // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
+  // keep this valid after deck contents change instead of only on first load.
+  // Track the last URL ?slide param we processed so we can tell "the URL changed
+  // externally" (agent navigate command, browser back/forward, deep link) apart
+  // from "the URL is the same as last render, just other state moved". Without
+  // this, the resolver short-circuited on external URL changes and the agent's
+  // navigate --slideNumber / --slideIndex commands were effectively ignored.
   const lastUrlSlideParamRef = useRef<string | null>(null);
   const pendingUrlSlideIdRef = useRef<string | null>(null);
   useEffect(() => {

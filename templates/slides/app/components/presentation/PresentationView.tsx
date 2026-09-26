@@ -70,7 +70,6 @@ function PdfExportStage({
   );
 }
 
-
 function getAnimationSteps(slide: Slide): SlideAnimation[] | null {
   if (slide.animations && slide.animations.length > 0) {
     const doc = new DOMParser().parseFromString(slide.content, "text/html");
@@ -149,7 +148,6 @@ function annotateStepsForPresentation(
   return styleTag + doc.body.innerHTML;
 }
 
-
 function isInstant(t: Slide["transition"]): boolean {
   return !t || t === "instant" || t === "none";
 }
@@ -189,7 +187,6 @@ function getExitClass(
       return "";
   }
 }
-
 
 export default function PresentationView({
   slides,
@@ -310,6 +307,14 @@ export default function PresentationView({
   useEffect(() => clearTransitionTimer, [clearTransitionTimer]);
 
   // One atomic effect handles both cases so they can't race each other:
+  // - A genuine deep link or deck switch (startIndex/deckId changed) reseeds
+  //   from initialIndex. This component is reused across deck navigation
+  //   (see the exit-handler refs above), so a new deck at the same `?slide=`
+  //   must still reset instead of inheriting the previous deck's position.
+  // - Otherwise, a skip toggle or reorder changed safeSlides without a new
+  //   deep link. A length-only clamp would silently swap in a different
+  //   slide at the same index, so follow the previously-shown slide's id to
+  //   its new position, falling back to a raw clamp only when it's gone.
   const prevDeepLinkKeyRef = useRef({ startIndex, deckId });
   const prevSafeSlideIdsRef = useRef<string[]>(safeSlides.map((s) => s.id));
   useEffect(() => {

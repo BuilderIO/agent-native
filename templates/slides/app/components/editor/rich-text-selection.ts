@@ -1,4 +1,3 @@
-
 import { sanitizeSlideHtml } from "@/lib/sanitize-slide-html";
 
 import {
@@ -162,6 +161,7 @@ export function restoreEditableTextRange(
 
 function isStylableText(text: Text) {
   // ponytail: whitespace-only text holding a newline is treated as source
+  // indentation; styling a deliberately blank line would need layout reads.
   if (/^\s*\n\s*$/.test(text.data)) return false;
   return !text.parentElement?.closest("style, script, template, svg");
 }

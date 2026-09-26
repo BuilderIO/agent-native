@@ -28,6 +28,8 @@ const browser = await chromium.launch();
 const page = await browser.newPage({
   viewport: { width: panelWidth * panels.length + 40, height: 400 },
 });
+// A local diagnostic sheet, not product UI: the dark ground and checkerboard
+// exist so red diff pixels and transparent regions read clearly.
 // guard:allow-raw-color — diagnostic artifact, not themed UI
 await page.setContent(`<!doctype html><body style="margin:0;background:#111;font:12px system-ui;color:#eee">
 <div id="sheet" style="display:inline-flex;gap:8px;padding:8px;align-items:flex-start">${cells}</div>

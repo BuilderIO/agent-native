@@ -37,6 +37,8 @@ async function getApiKey(): Promise<string> {
   return credential.value;
 }
 
+// The name Notion reports for a token is whatever label its creator typed in, so it
+// routinely names an unrelated product. Never restate it as the current workspace.
 const NOTION_ACCESS_HINT =
   "This usually means the page or database was never shared with the Notion integration behind NOTION_API_KEY, not that the id is wrong. Fix it in Notion: open the page, then ••• → Connections → add the integration. The integration's Notion-side label may not match this app or workspace.";
 
@@ -278,7 +280,6 @@ export async function getContentCalendar(
   contentCalendarCache.set(calendarCacheKey, { entries, ts: Date.now() });
   return entries;
 }
-
 
 export interface RichText {
   type: string;

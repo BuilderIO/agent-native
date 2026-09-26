@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
@@ -104,7 +103,6 @@ export default defineAction({
     const role = mapRole(args.role);
     const inviteeEmail = args.email.trim().toLowerCase();
 
-    // the only live token.
     const [existing] = await db
       .select({ id: orgInvitations.id })
       .from(orgInvitations)

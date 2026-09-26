@@ -111,6 +111,9 @@ export async function handleGoogleCalendarCallback(
       );
     }
 
+    // 4. Persist tokens in app_secrets (encrypted at rest). NEVER write
+    //    tokens onto the calendar_accounts row. Existing rows may have stored
+    //    mixed-case owner emails, so keep their secret scope stable.
     const secretScopeEmail = existing?.ownerEmail ?? ownerEmail;
     const accessKey = calendarSecretKey("google", externalAccountId, "access");
     const refreshKey = calendarSecretKey(

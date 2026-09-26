@@ -76,6 +76,7 @@ export default defineAction({
     const updatedAt = new Date().toISOString();
     const setThreadResolved = async (resolved: boolean) => {
       await db.transaction(async (tx) => {
+        // Reply creation takes this same thread lock before checking
         // resolution, so resolution cannot race an insert.
         await tx
           .select({ id: schema.slideComments.id })

@@ -997,7 +997,6 @@ function discardPendingDeckOps(deckId: string) {
   notifySaveListeners();
 }
 
-
 type PatchDeckFields = Extract<
   PatchDeckOp,
   { op: "patch-deck-fields" }
@@ -2098,7 +2097,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     const requestId = ++deckListRequestIdRef.current;
     const createSeqAtRequest = localCreateSeqRef.current;
     const includePreview = currentOpenDeckIdFromWindow() === null;
+    // A write that is enqueued, debounced, flushed, and drained entirely
+    // inside this GET leaves nothing in the pending maps by the time the
+    // response lands, so `hasPendingLocalWrite` below can't see it from those
     // alone. Snapshot each known deck's write sequence up front so that race
+    // is still detectable.
     const writeSeqAtRequest = new Map(
       decksRef.current.map((d) => [d.id, deckLocalWriteSeq.get(d.id) ?? 0]),
     );
@@ -2122,6 +2125,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     );
     for (const id of freshById.keys()) localCreateSeqByIdRef.current.delete(id);
 
+    // A deck with an uncommitted local write (mid-edit, a debounced/in-flight
+    // save, or an optimistic create still saving) must not have this stale
+    // server snapshot clobber it — the same checks `refetchOpenDeckIfChanged`
+    // uses per slide, plus the write-seq race captured above.
     const hasPendingLocalWrite = (id: string) =>
       pendingCreateIdsRef.current.has(id) ||
       hasUncommittedDeckChanges(id, dirtyDeckIdsRef.current) ||
@@ -2474,6 +2481,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     })();
   }, [nextOpenDeckRequestId, orgLoading, resetDeckBaseline]);
 
+  // Organization changes are a hard access boundary. Clear the previous
+  // scope before loading the next one so optimistic state and stale responses
+  // cannot keep prior-organization decks visible.
   const lastOrgIdRef = useRef<string | null | undefined>(undefined);
   useLayoutEffect(() => {
     if (orgLoading) return;

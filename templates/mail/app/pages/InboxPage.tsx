@@ -854,6 +854,7 @@ export function InboxPage() {
     sortMode,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // One-shot agent navigation: agent writes navigate.json, UI reads it, navigates, deletes it
   const { data: navCommand } = navState.command;
   const lastCommandRef = useRef<string>("");
   useEffect(() => {
@@ -907,6 +908,13 @@ export function InboxPage() {
 
     void navState.clearCommand();
   }, [navCommand, view, navigate, jevAvailability.isLoading, jevConfigured]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Stable-identity pattern: keep the previous array reference when the
+  // content hasn't meaningfully changed. Without this, markThreadRead's
+  // optimistic update (which rebuilds the emails array for a single isRead
+  // flip) produces a new `threads` reference on every unread-open, which
+  // cascades through EmailThread's props and re-renders the whole detail
+  // view. With this, the props only change when the list of threads (or
+  // their latest-message identities) actually changes.
   const rawThreads = useMemo(() => groupIntoThreads(emails), [emails]);
   const prevThreadsRef = useRef<ThreadSummary[]>([]);
   const threads = useMemo(() => {

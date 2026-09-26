@@ -32,6 +32,8 @@ export default defineAction({
     agent: z.enum(["claude", "codex", "openai-compatible"]).optional(),
     model: z.string().min(1),
     // Token counts must already be normalized to the cache-exclusive shape
+    // calculateCost expects (the recap CLI strips Codex's cached_input_tokens
+    // out of input and folds reasoning_output_tokens into output before POSTing).
     inputTokens: z.number().int().nonnegative(),
     outputTokens: z.number().int().nonnegative(),
     cacheReadTokens: z.number().int().nonnegative().default(0),

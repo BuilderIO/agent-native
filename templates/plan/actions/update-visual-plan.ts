@@ -992,6 +992,19 @@ export default defineAction({
 
     await db.transaction(async (tx) => {
       // guard:allow-unscoped -- gated above by editor access, or by public
+      // viewer access plus new-open-human-comment / canvas-review-markup validation.
+      //
+      // Skip the plans row UPDATE entirely when there are no plan-authoring
+      // changes (pure comments and/or consumedCommentIds). This prevents
+      // comment activity from bumping plans.updatedAt, which would:
+      //   1. break a concurrent agent's optimistic-lock check (false "Plan
+      //      changed" conflict when the agent read the plan before a reviewer
+      //      commented and then posts contentPatches), and
+      //   2. reorder the plan list by updatedAt-desc even though no authored
+      //      content changed.
+      // Comments still propagate to the polling UI because get-visual-plan /
+      // loadPlanBundle queries planComments independently (not via plans.updatedAt)
+      // and planEvents still gets a row written below.
       if (hasPlanAuthoringChanges) {
         const updatedRows = await tx
           .update(schema.plans)

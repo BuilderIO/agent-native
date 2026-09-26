@@ -27,10 +27,6 @@ const SQL_DASHBOARD_KEY = `sql-dashboard-${GA_DASHBOARD_ID}`;
 
 const ALLOWED_KEYS = new Set(credentialKeys.map((k) => k.key));
 
-/**
- * Validate a credential value before saving. Returns an error message, or null if valid.
- * Catches common mistakes like uploading an OAuth client credential instead of a service account key.
- */
 function validateCredential(key: string, value: string): string | null {
   if (key === "GOOGLE_APPLICATION_CREDENTIALS_JSON") {
     let parsed: Record<string, unknown>;

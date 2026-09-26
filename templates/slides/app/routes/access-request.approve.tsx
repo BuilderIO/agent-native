@@ -42,7 +42,6 @@ export default function ApproveDeckAccessRequestRoute() {
   const deckId = searchParams.get("deckId") ?? "";
   const approvalTokenFromUrl = searchParams.get("token") ?? "";
   const approvalTokenStorageKey = deckAccessApprovalSessionKey(deckId);
-  // Only the URL token is knowable on the server, so reading storage in the
   const [approvalToken, setApprovalToken] = useState(
     () => approvalTokenFromUrl ?? "",
   );

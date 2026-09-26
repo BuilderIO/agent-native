@@ -42,6 +42,9 @@ import { cn } from "@/lib/utils";
 
 import { type ScrubInputChangeMeta, ScrubInput } from "./ScrubInput";
 
+// ---------------------------------------------------------------------------
+// Dynamic shader component map
+// ---------------------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyShaderComponent = React.ComponentType<Record<string, any>>;
@@ -56,7 +59,6 @@ const SHADER_COMPONENTS: Record<ShaderPresetName, AnyShaderComponent> = {
   Dithering: Dithering as AnyShaderComponent,
   PaperTexture: PaperTexture as AnyShaderComponent,
 };
-
 
 interface ShaderPreviewProps {
   descriptor: ShaderDescriptor;
@@ -130,7 +132,6 @@ function ShaderPreview({ descriptor, animated }: ShaderPreviewProps) {
   }
 }
 
-
 function ParamLabel({ children }: { children: React.ReactNode }) {
   return (
     <span className="w-[5.5rem] shrink-0 truncate !text-[11px] text-muted-foreground">
@@ -138,7 +139,6 @@ function ParamLabel({ children }: { children: React.ReactNode }) {
     </span>
   );
 }
-
 
 interface ColorSwatchProps {
   color: string;
@@ -180,7 +180,6 @@ function ColorSwatch({ color, label, onChange }: ColorSwatchProps) {
     </Tooltip>
   );
 }
-
 
 interface ParamRowProps {
   paramDef: ParamDef;
@@ -334,7 +333,6 @@ function ParamRow({ paramDef, value, onChange }: ParamRowProps) {
 
   return null;
 }
-
 
 export interface ShaderControlsProps {
   descriptor: ShaderDescriptor;

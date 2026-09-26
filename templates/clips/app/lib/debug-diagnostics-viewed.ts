@@ -41,6 +41,7 @@ function readAll(): Record<string, ViewedEntry> {
     return entries;
   } catch {
     // coercion-ok: corrupted/unavailable storage only means the viewer sees
+    // an already-seen badge count again; it must never block the Debug tab.
     return {};
   }
 }

@@ -251,6 +251,9 @@ export function runScreenElementSelect(
   }
   if (node) {
     if (viewModeRef.current === "overview") {
+      // Activate the frame scope before caching its measurement. The scope
+      // switch invalidates rendered metadata, so doing this after the write
+      // drops the only responsive measurement for the selected layer.
       if (options.breakpointWidthPx !== undefined) {
         handleBreakpointBarSelect(options.breakpointWidthPx);
         const guidanceKey = `design-responsive-edit-guidance:${id}:${screenId}`;
@@ -279,6 +282,18 @@ export function runScreenElementSelect(
       );
     }
   }
+  // Known limitation: elements rendered from a `<template x-for>`
+  // repeater (common in AI-generated Alpine.js list/task UIs) have no
+  // per-instance static DOM node in the SOURCE HTML at all — neither
+  // resolveCodeLayerNodeFromElementInfo nor a selector-based
+  // applyVisualEdit resolution can find a unique per-instance node to
+  // stamp. Fixing that requires the code-layer projection itself to
+  // model `<template>` repeater children as selectable/attributable
+  // nodes, which is out of scope for this selection-time fix.
+  // Figma spec §1: Shift+click is the only additive (union) click gesture.
+  // Cmd/Ctrl+click alone deep-selects and REPLACES, same as a plain click —
+  // it must not be OR'd in here, or a deep-selected child gets unioned onto
+  // the container it was cycled out of instead of replacing it.
   const additiveSelection = Boolean(
     node && (intent?.additive || intent?.range || intent?.shiftKey),
   );
@@ -299,8 +314,7 @@ export function runScreenElementSelect(
         : null;
       setSelectedElement(
         remainingNode
-          ?
-            withMeasuredGeometry(
+          ? withMeasuredGeometry(
               elementInfoFromCodeLayerNode(remainingNode),
               screenId,
             )

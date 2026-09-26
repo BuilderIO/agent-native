@@ -1,5 +1,3 @@
-
-
 export const INTERACTION_STATES = [
   "hover",
   "focus",
@@ -35,7 +33,6 @@ export interface InteractionStateDeclaration {
   value: string;
 }
 
-
 const CSS_VALUE_BREAKOUT_RE = /[;{}<>]|\/\*|\*\/|\burl\s*\(/i;
 const CSS_VALUE_CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
@@ -54,7 +51,6 @@ export function isSafeInteractionStateCssProperty(property: string): boolean {
     property,
   );
 }
-
 
 const OPEN_RE = /<style\b(?=[^>]*\bdata-agent-native-states\b)[^>]*>/i;
 const RESPONSIVE_OPEN_RE =
@@ -121,6 +117,7 @@ export function injectManagedResponsiveInteractionStateCss(
   );
 }
 
+// ─── CSS body parse / serialize ──────────────────────────────────────────────
 
 /**
  * Matches ONE real pseudo-class state rule for a node id, e.g.
@@ -276,7 +273,6 @@ export function duplicateStatePreviewRules(html: string): string {
   const model = parseInteractionStatesCss(css);
   return injectManagedInteractionStateCss(html, rebuildCssWithPreviews(model));
 }
-
 
 function writeModel(html: string, model: InteractionStatesModel): string {
   return injectManagedInteractionStateCss(
@@ -491,7 +487,6 @@ export function listAllInteractionStateDeclarations(
   }
   return declarations;
 }
-
 
 function escAttr(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');

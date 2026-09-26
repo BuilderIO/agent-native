@@ -4,6 +4,11 @@ import {
   buildCodeLayerTree,
 } from "@shared/code-layer";
 // @vitest-environment happy-dom
+//
+// html-layer-positioning.ts's DOMParser-based rebase helpers early-return
+// null under `typeof window === "undefined"` (the default node test
+// environment), which would make this test pass/fail independent of the
+// actual id-resolution bug this file exists to pin.
 import { afterEach, describe, expect, it } from "vitest";
 
 import { runPublishCanonicalContent } from "@/pages/design-editor/commands/publish-canonical-content";

@@ -150,7 +150,18 @@ export function useMediaDevices({
   }, [micLabel, selectedMicId]);
 
   const unlockDeviceLabels = useCallback(async () => {
+    // Audio-only probe to unlock mic labels. We INTENTIONALLY skip video —
+    // the on-screen camera bubble window owns the camera, and probing
     // video here would race for the hardware and knock the bubble's
+    // stream offline (macOS can't reliably share a camera across two
+    // WebViews in the same process). Camera-label text is low-value
+    // anyway; most machines have one.
+    //
+    // The meter already needs an input while this control is visible. Reuse the
+    // recorder's fallback chain so a disconnected saved device cannot leave
+    // both the meter and the device list stranded until the user changes a
+    // selection. This may use the system default only after an exact saved
+    // device fails, or when the user has explicitly left the picker on Default.
     try {
       await refreshSelectedMicrophone();
     } catch {
@@ -236,6 +247,15 @@ export function useMediaDevices({
     setMicLabel(fallback.label);
   }, [micId, micLabel, mics]);
 
+  // A stored device id that no longer matches anything enumerated (e.g. the
+  // webcam/mic was unplugged since the app last ran) must not be rewritten to
+  // the OS default. Keep the explicit choice unless we can rematch it by saved
+  // label, because macOS default can point at Continuity/iPhone.
+  //
+  // Only trust a NON-EMPTY list, though: enumeration legitimately returns an
+  // empty list on a transient error or before permission is granted, and
+  // clearing a valid saved selection over that would destroy the user's
+  // choice for no reason.
   useEffect(() => {
     if (!cameraId || cameras.length === 0) return;
     if (cameras.some((d) => d.deviceId === cameraId)) return;

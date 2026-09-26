@@ -34,6 +34,9 @@ export async function resolveGoogleSlidesExportAvailability(input: {
     scopes: readonly string[];
   }) => Promise<GoogleOAuthPreflight>;
 }): Promise<GoogleSlidesExportAvailability> {
+  // This gate exists to stop a doomed authorization request. An already
+  // connected account never starts one, so there is nothing here to prevent -
+  // and disabling it would block an export that works.
   if (input.hasUploadCapableAccount) return { available: true };
   if (!input.configured || !input.clientId) {
     return { available: false, reason: "not-configured" };

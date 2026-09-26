@@ -147,7 +147,15 @@ export const designLocalhostConnections = table(
   },
 );
 
+// ---------------------------------------------------------------------------
+// New tables — additive only; never alter existing tables.
+// All ownable tables are read/written through accessFilter / assertAccess.
+// ---------------------------------------------------------------------------
 
+/**
+ * Real-app component metadata indexed from TS prop types, cva/tailwind-variants
+ * variants, and Storybook stories. Scoped to one design + source ref.
+ */
 export const componentIndex = table("component_index", {
   id: text("id").primaryKey(),
   designId: text("design_id").notNull(),

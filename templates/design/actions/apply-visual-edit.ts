@@ -85,15 +85,6 @@ function resolveActivePrefix(
   return null;
 }
 
-/**
- * Derive a CSS-property key from a Tailwind class token for use in
- * `responsive-class` `"remove"` operations (e.g. `"text-lg"` → `"font-size"`).
- *
- * Delegates to the shared `utilityStem` so the key matches EXACTLY what
- * `setPropertyClass`/`removePropertyClass` compute internally — a divergent
- * local heuristic would make breakpoint-scoped removes silently miss (and, with
- * the old first-segment heuristic, nuke unrelated utilities like `text-center`).
- */
 function stemFromToken(token: string): string {
   const prefixMatch = /^(?:2xl|xl|lg|md|sm):/.exec(token);
   const utility = prefixMatch ? token.slice(prefixMatch[0].length) : token;

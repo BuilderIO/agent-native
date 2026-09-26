@@ -1,4 +1,15 @@
 // @vitest-environment happy-dom
+//
+// Narrow hypothesis: structural edits (drag-into-container, undo, alt-drag
+// out, delete+undo) on a document that carries a Tailwind Play CDN script +
+// inline `tailwind.config` + Alpine CDN script + inline theme script trigger
+// `runtimeDocumentNeedsReload` (DesignCanvas.tsx ~1078) even though no
+// *script* text actually changed — because `applyVisualEdit` re-serializes
+// bytes it shouldn't. Reuses the `renderCanvas` harness from
+// DesignCanvas.head-edit-no-reload.test.tsx: a stable `iframe.srcdoc`
+// reference across an update means `runtimeDocumentNeedsReload` returned
+// false (in-place morph); a new one means it returned true (full reload,
+// the observed "flash").
 
 import { applyVisualEdit } from "@shared/code-layer";
 import { act } from "react";

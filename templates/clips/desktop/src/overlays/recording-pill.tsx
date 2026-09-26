@@ -164,7 +164,6 @@ export function MeetingPill() {
         const next: PillContext = {
           meetingId,
           mode,
-          // to false there would race the flag to a live-looking pill.
           title:
             ev.payload?.title ?? (isSameSession ? prev.title : null) ?? null,
           starting:

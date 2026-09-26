@@ -1,5 +1,3 @@
-
-
 WITH cohort_definitions AS (
   SELECT
     'Recent (Last 8 Weeks)' AS cohort,

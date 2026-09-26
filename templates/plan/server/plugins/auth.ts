@@ -42,6 +42,7 @@ export default createAuthPlugin({
     "/local-plans",
   ],
   publicPaths: [
+    // Agent-readable context link: fetched with no session cookie, so the
     // gate must not 401 before the handler verifies its scoped token.
     PLAN_AGENT_CONTEXT_ENDPOINT,
     ...PUBLIC_PLAN_ACTION_PATHS,

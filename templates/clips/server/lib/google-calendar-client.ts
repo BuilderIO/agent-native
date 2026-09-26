@@ -147,13 +147,6 @@ export async function refreshAccessToken(args: {
   return (await res.json()) as GoogleTokenResponse;
 }
 
-/**
- * True when a refresh-token-endpoint failure is permanent (the refresh token
- * itself is dead — revoked, expired, or the OAuth client is wrong) rather
- * than transient (network error, 429, 5xx, timeout). Only permanent
- * failures should ever flip a calendar account to "needs-reauth"; transient
- * ones should be recorded as a sync error and retried on the next poll.
- */
 export function isPermanentRefreshFailure(error: unknown): boolean {
   const message =
     error instanceof Error
@@ -283,12 +276,6 @@ async function listEventsPage(
 
 const MAX_EVENT_PAGES = 5;
 
-/**
- * List events on a calendar, transparently following `nextPageToken` until the
- * page count cap is hit or the server stops returning a token. Throws on
- * non-2xx. Returns the merged list; `nextPageToken` is only included when the
- * cap was hit (so callers can decide whether to widen the time window).
- */
 export async function listEvents(
   args: ListEventsArgs,
 ): Promise<ListEventsResponse> {
@@ -305,6 +292,7 @@ export async function listEvents(
   return {
     items: merged,
     // Only surface a token if we exited because of the page cap — otherwise the
+    // caller fetched everything available in the requested window.
     nextPageToken: lastNextToken,
   };
 }

@@ -1,19 +1,3 @@
-/**
- * Regression coverage for the analyses read/modify/write race, mirroring
- * `dashboards-store.interleave.spec.ts`'s CAS-retry fixture for dashboards.
- *
- * `upsertAnalysis` used to write the whole record keyed only by `id`, with no
- * version/lock check (unlike `upsertDashboard`, which already had one). Two
- * concurrent writers that both read the same base — e.g. `rename-analysis`
- * renaming while `save-analysis` re-runs with fresh results — silently
- * clobbered each other, last writer wins. `upsertAnalysis` now accepts an
- * optional `expectedUpdatedAt` fence, and `upsertAnalysisWithRetry` re-reads +
- * re-applies a mutation when that fence loses a race.
- *
- * The fake database below deliberately loses the first fenced write once
- * (`state.loseNextCas`) to simulate a concurrent writer landing in between,
- * exactly like the dashboards fixture.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type AnalysisRow = {

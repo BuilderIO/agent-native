@@ -134,6 +134,7 @@ export default defineAction({
     >`CASE WHEN ${schema.dashboards.kind} = 'sql' AND jsonb_typeof(${schema.dashboards.config}::jsonb -> 'panels') = 'array' THEN jsonb_array_length(${schema.dashboards.config}::jsonb -> 'panels') ELSE 0 END`;
 
     // guard:allow-unscoped — org owner/admin audit intentionally spans all
+    // dashboard rows in the active org after requireDbAdminContextFromRequest.
     const dashboardRows = await db
       .select({
         id: schema.dashboards.id,

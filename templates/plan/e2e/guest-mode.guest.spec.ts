@@ -413,6 +413,8 @@ test.describe("guest mode + claim", () => {
     });
     await ownerCtx.close();
 
+    // The PUBLIC review link must still resolve for a brand-new anonymous viewer
+    // (separate logged-out context) — no data loss, no auth wall.
     const anonCtx = await browser.newContext();
     const anonPage = await anonCtx.newPage();
     await anonPage.goto("/plans");

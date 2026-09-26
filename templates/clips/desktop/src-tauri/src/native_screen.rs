@@ -2534,11 +2534,6 @@ pub async fn native_fullscreen_recording_stop_and_save(
             ));
         }
     }
-    // Only treat the file as permanently unrecoverable when the SCK delegate
-    // explicitly called recording_did_fail (error contains "finalization callback failed",
-    // the unique prefix used by the delegate path). Transient stop_capture /
-    // remove_recording_output errors use "recording finalize failed" and should
-    // remain retryable — deleting on those would risk silent data loss.
     let is_definitive_finalize_error = stop_outcome
         .as_ref()
         .err()

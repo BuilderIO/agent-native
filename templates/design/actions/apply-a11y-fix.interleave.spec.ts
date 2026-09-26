@@ -224,6 +224,14 @@ describe("apply-a11y-fix CAS safety (false-CAS fix)", () => {
   it("rejects the write when a sibling edit lands on the SAME collab doc between the fix's base read and its persist, instead of silently clobbering it", async () => {
     await seedFromText(FILE_ID, baseDoc());
 
+    // Simulate the base read the action performs internally
+    // (resolveEditableDesignFile → readLiveSourceFile) BEFORE it computes its
+    // patch. We can't intercept the action's own internal read directly, so
+    // instead we race a concurrent sibling write in: the fix action calls run()
+    // — kicking off its OWN internal read-transform-write sequence — and while
+    // it does so a competing writer mutates the SAME node's sibling content on
+    // the collab doc first (this test's "concurrent editor" model matches
+    // insert-design-native-asset.interleave.spec.ts's race shape).
     const preFixLive = await readLiveSourceFile(currentFileRef());
 
     const siblingEdited = preFixLive.content.replace(

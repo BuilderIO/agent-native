@@ -1,4 +1,3 @@
-
 import {
   askIncompleteForFrame,
   parseAgentFrame,
@@ -129,6 +128,7 @@ export async function streamMeetingAsk(opts: {
     const contentType = res.headers.get("content-type") ?? "";
     if (!res.ok || !contentType.includes("text/event-stream")) {
       // coercion-ok: already the failure path — an unreadable error body still
+      // ends in the thrown generic error line below, never a silent success.
       const text = await res.text().catch(() => "");
       let serverMessage = "";
       try {
@@ -203,10 +203,7 @@ export async function streamMeetingAsk(opts: {
     if (timedOut && !opts.signal.aborted) {
       throw new Error("The agent stopped responding. Try again.");
     }
-    if (
-      !opts.signal.aborted &&
-      err instanceof TypeError
-    ) {
+    if (!opts.signal.aborted && err instanceof TypeError) {
       throw new Error("Couldn't reach the agent. Try again.");
     }
     throw err;

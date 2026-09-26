@@ -16,13 +16,6 @@ import {
 import { comparePngs } from "./lib/compare.js";
 import { renderHtmlToPng } from "./lib/render.js";
 
-/**
- * Resolve the clipboard's image hashes to Figma's own CDN URLs. Unlike the
- * product's action this does not mirror them to durable storage: a harness
- * renders once and throws the page away, and the mirror needs app blob storage
- * a script does not have. Returns null when no token is configured, so the run
- * still produces its unhydrated number instead of failing.
- */
 async function hydratePasteImages(
   html: string,
   fileKey: string,
@@ -181,6 +174,12 @@ async function runCase(
     );
   }
   const file = result.files[0]!;
+  // The clipboard carries image HASHES, never bytes. The product resolves them
+  // through `hydrate-figma-paste-images` once Figma is connected, so measuring
+  // the unhydrated HTML scores a documented absence rather than the converter:
+  // on the Untitled UI landing page the placeholders alone cover 16% of the
+  // page. Hydrate here when a token is available so the number matches what a
+  // connected user actually gets, and keep the unhydrated one beside it.
   const hydration = await hydratePasteImages(file.content, figmeta.fileKey);
   if (hydration) file.content = hydration.html;
   const width = file.preferredFrame?.width;

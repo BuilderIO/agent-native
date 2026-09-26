@@ -1187,6 +1187,10 @@ type RequestDesignAccessResult = {
 /* i18n-ignore */
 /* i18n-ignore */
 
+// Mirrors `--design-chrome-rail-width` in app/global.css (8 baseline units ×
+// 8px). The rail is always-on chrome (not measured via a ref) so the very
+// first overview camera render — before any layout effect could measure the
+// DOM — already accounts for it; see chromeInsetLeft below.
 const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
 
 const NO_SELECTORS: string[] = [];
@@ -2730,6 +2734,8 @@ function DesignEditor() {
   >(new Map());
   const fileDeletionUndoStackRef = useRef<FileDeletionHistoryEntry[]>([]);
   const fileDeletionRedoStackRef = useRef<FileDeletionHistoryEntry[]>([]);
+  // File deletion undo/redo recreates or removes SQL rows asynchronously.
+  // Disable every history command while one of those mutations is in flight
   // so a rapid second Cmd+Z cannot race a create against the pending delete.
   const fileHistoryMutationPendingRef = useRef(false);
   const pendingHistoryDirectionsRef = useRef<Array<"undo" | "redo">>([]);
@@ -3074,10 +3080,7 @@ function DesignEditor() {
     syncUndoRedoState();
   }, [pendingLiveNonStyleEdits, syncUndoRedoState]);
   const recordContentHistoryEntry = useCallback(
-    (
-      entry: ContentHistoryEntry,
-      selectedLayerIdsOverride?: string[],
-    ) => {
+    (entry: ContentHistoryEntry, selectedLayerIdsOverride?: string[]) => {
       const changes = getContentHistoryChanges(entry).filter(
         hasContentHistoryChange,
       );
@@ -3432,7 +3435,6 @@ function DesignEditor() {
         pendingPersistedSelectionWriteRef.current = null;
         persistedSelectionStateRef.current = null;
         persistedSelectionContextRef.current = null;
-        // using only the scoped owner as permission to clear both keys would
         for (const key of keys) {
           // coercion-ok: absent client state means there is nothing to clear.
           const current = await readClientAppState(key).catch(() => null);
@@ -4195,6 +4197,10 @@ function DesignEditor() {
     },
     [id],
   );
+  // §6.4 — "show all breakpoints" toggle: when true (default) the overview
+  // renders one linked read-write frame per breakpoint width next to each
+  // screen (same document at each viewport width); hiding keeps the chips
+  // usable while decluttering the board.
   const [breakpointFramesHidden, setBreakpointFramesHidden] = useState(false);
 
   const openComponentSourceMutation = useActionMutation(
@@ -6183,7 +6189,10 @@ function DesignEditor() {
 
   const handleBreakpointBarSelect = useCallback(
     (widthPx: number | undefined, selectedBreakpointId?: string) => {
+      // Selection and bridge events from a breakpoint iframe can be followed
+      // by a style commit in the same browser task. Mirror synchronously so
       // that commit cannot observe the previous frame's scope while React is
+      // still scheduling the state update.
       activeBreakpointWidthStateRef.current = widthPx;
       invalidateRenderedElementInfo();
       setActiveBreakpointWidthState(widthPx);
@@ -6217,6 +6226,22 @@ function DesignEditor() {
     [designBreakpoints, id, persistActiveBreakpoint],
   );
 
+  // Item 9 — agent→UI breakpoint sync. `set-active-breakpoint` (the action
+  // the agent calls) persists `design-active-breakpoint:<designId>` to
+  // application state so the agent and UI agree on the active edit scope;
+  // this effect is the UI half that was previously missing — the BreakpointBar
+  // chip/viewport-width only ever changed from the UI's own chip clicks.
+  // React to the targeted active-breakpoint app-state counter, read the key,
+  // and apply it -
+  // except this key is a durable "current scope" value (not a one-shot
+  // command), so unlike that effect this one does NOT null the key out after
+  // reading; it just dedupes against the last-applied breakpointId so the
+  // UI's own echoed write doesn't re-run every local setter on every chip
+  // click (see lastAppliedActiveBreakpointIdRef's doc comment above, and
+  // handleBreakpointBarSelect/handleBreakpointBarRemove/
+  // handleOverviewActiveBreakpointChange below, which seed the ref
+  // immediately on a local write so the resulting poll tick is a no-op
+  // instead of a redundant re-apply).
   useEffect(() => {
     if (!id || !isSignedIn) return;
     let cancelled = false;
@@ -6256,6 +6281,14 @@ function DesignEditor() {
     };
   }, [activeBreakpointStateVersion, designBreakpoints, id, isSignedIn]);
 
+  // Agent→UI: open the write-consent dialog when the agent requests local file
+  // write access via request-localhost-write-consent (granting stays human-only).
+  // One-shot: consume the app-state key, open the dialog, then clear it so
+  // echoed app-state bumps don't re-open it.
+  //
+  // Keyed on edit access, not ambient session state: the visual-edit handoff can
+  // grant a local capability without a normal Design sign-in. Gating this on
+  // `isSignedIn` would leave that user unable to grant write consent.
   useEffect(() => {
     if (!id || !canEditDesign) return;
     let cancelled = false;
@@ -7562,7 +7595,6 @@ function DesignEditor() {
     };
   }, [activeFileId, zoom, setPresence]);
 
-
   const mapIframeRectToViewport = useCallback(
     (iframe: HTMLIFrameElement, rect: DOMRect): DOMRect | null => {
       const frameRect = iframe.getBoundingClientRect();
@@ -8764,6 +8796,9 @@ function DesignEditor() {
     [activeContent, canvasIframeRef],
   );
 
+  // ── Inspector header quick actions (Create component / Inspect code) ───────
+  // Resolve the design-level source type + capability map so the inspector can
+  // gate the real-app affordances (jump-to-source, prop write-back).
   const activeCanvasSourceType = resolveOverviewScreenSourceType(
     activeOverviewScreen,
     designSourceType,
@@ -10800,6 +10835,21 @@ function DesignEditor() {
       setOverviewSelectedScreenIds((current) =>
         sameStringIds(current, nextIds) ? current : nextIds,
       );
+      // BP-DEEP item 5 — Framer click-to-target: a click on EMPTY overview
+      // canvas clears the screen selection (ids === []); that gesture also
+      // returns the active edit scope to Base, mirroring clicking the base
+      // frame itself. Two guards keep this from over-firing:
+      // - viewModeRef: the selection-clear that fires while entering
+      //   single-screen mode (enterSingleScreen flips the ref to "single"
+      //   synchronously before any state settles) must not reset a
+      //   breakpoint the user is about to keep editing in the focused view.
+      // - overviewSelectedScreenIdsRef (still holding the PRE-update
+      //   selection when this callback runs — it's re-assigned during
+      //   render): MultiScreenCanvas's selection-report effect fires once on
+      //   mount with [] before its prop sync, and an []→[] "transition" is
+      //   that mount echo, not a user's empty-canvas click; without this
+      //   guard every overview (re)mount would clobber a persisted/agent-set
+      //   active breakpoint back to auto.
       if (
         ids.length === 0 &&
         overviewSelectedScreenIdsRef.current.length > 0 &&
@@ -11172,7 +11222,6 @@ function DesignEditor() {
   useEffect(() => {
     if (files.length > 0) resetAgentGenerating();
   }, [files.length, resetAgentGenerating]);
-
 
   const handleTweakPromptSubmit = useCallback(
     (
@@ -11900,8 +11949,7 @@ function DesignEditor() {
 
   const measureTargetSelector =
     selectedElement && sizeNeedsMeasurement(selectedElement.computedStyles)
-      ?
-        (selectedElement.runtimeSelector ?? selectedElement.selector ?? null)
+      ? (selectedElement.runtimeSelector ?? selectedElement.selector ?? null)
       : null;
   const measureTargetScreenId = activeFile?.id ?? "";
   const measureTargetKey = measureTargetSelector
@@ -12446,6 +12494,23 @@ function DesignEditor() {
     ],
   );
 
+  // BUG-DOUBLE-TOGGLE-RACE: commitVisualStyles commits Cmd+U/Cmd+Shift+X
+  // through the SHORTHAND "textDecoration" property, but its synchronous
+  // optimistic patch to selectedElement.computedStyles only merges the exact
+  // key(s) it was given — it never decomposes "textDecoration" into the
+  // LONGHAND "textDecorationLine" the toggle READS to decide its next value.
+  // `textDecorationLine` only catches up once the bridge's async
+  // getComputedStyle round trip lands. A second Cmd+U within that window
+  // therefore recomputes nextTextDecorationLineValue from the STALE
+  // pre-toggle value, lands on the SAME target the first press already
+  // committed, and the style-commit pipeline dedupes the identical value as
+  // a no-op — consecutive toggles silently stop alternating.
+  //
+  // Fix: track our own optimistic textDecorationLine value per selected
+  // element, updated synchronously the instant we commit, and prefer it over
+  // the (possibly still-stale) computedStyles reading for the SAME element.
+  // Shared between underline and strikethrough since both toggle tokens
+  // within the same textDecorationLine value — a separate ref per hotkey
   // would let one clobber the other's still-in-flight token.
   const optimisticTextDecorationLineRef =
     useRef<OptimisticTextDecorationLineEntry | null>(null);
@@ -21444,6 +21509,9 @@ function DesignEditor() {
   canvasBackgroundRef.current = canvasBackground ?? themedCanvasBackground;
   useEffect(() => {
     if (canvasBackground) return;
+    // A throwaway element, not the raw token: the token is space-separated
+    // HSL, which the colour parser rejects. After a frame, because next-themes
+    // sets the `dark` class in an ancestor effect React runs after this one.
     const frame = requestAnimationFrame(() => {
       const probe = document.createElement("span");
       probe.style.cssText =
@@ -22326,7 +22394,6 @@ function DesignEditor() {
     return defaultMatch?.id ?? "auto";
   }, [activeBreakpointWidthState, statesPanelBreakpoints]);
 
-
   const handleStatesPanelBreakpointSelect = useCallback(
     (breakpointId: string) => {
       if (breakpointId === "auto") {
@@ -22466,32 +22533,6 @@ function DesignEditor() {
     [selectedElementFullViewScreenId],
   );
 
-  /**
-   * On-canvas gradient-edit handles (Figma parity) for a whole selected
-   * SCREEN FRAME's own background fill — the "page defaults" case in
-   * EditPanel (no DOM child selected, so EditPanel shows `pageStyles` and
-   * `handleStyleChange` defaults its selector to "body").
-   *
-   * Scope note / known gap: this only covers a single selected overview
-   * screen frame. It does NOT cover BOARD/DRAFT primitive fills — draft
-   * primitive selection (`selectedDraftIds`) is internal state inside
-   * MultiScreenCanvas and is not exposed as a prop, so DesignEditor has no
-   * id to key a draft's gradientEditTarget on. It also doesn't gate on
-   * "the fill color-picker popover is specifically open" — EditPanel/
-   * DesignColorPicker expose no popover-open or live-paint-type signal
-   * (StyleChangeMeta is just `{ phase }`, and the file-level
-   * `inspectorPopoverOpen` flag fires for ANY Radix popover in the editor,
-   * not specifically the color picker's gradient tab — using it here would
-   * make gradient handles spuriously appear while e.g. the export or
-   * alignment popovers are open). Instead this derives directly from the
-   * frame's OWN resolved background-image value: whenever the single
-   * selected screen's background is a linear-gradient, handles show;
-   * whenever it isn't (solid color, image, none), they don't. See the
-   * `gradientEditTarget` doc on MultiScreenCanvas and `GradientEditSessionTarget`
-   * in inspector/GradientEditor.tsx for the fuller contract this partially
-   * implements, and the follow-up note where this prop is passed below for
-   * the exact EditPanel/DesignColorPicker changes needed to close the gap.
-   */
   const singleSelectedOverviewScreenId =
     viewMode === "overview" &&
     !selectedElement &&
@@ -24595,7 +24636,31 @@ function DesignEditor() {
     },
     [boardFileId, handleScreenTextContentChange],
   );
+  // PF8: rare, discrete interactions (add/activate a breakpoint) — not a
+  // per-frame gesture path. addBreakpointMutation/setActiveBreakpointMutation
+  // are useActionMutation(...) results (packages/core/src/client/use-action.ts),
+  // which return a fresh object every render (untyped passthrough of
+  // TanStack Query's useMutation with an inline mutationFn/onSuccess), so
+  // these deps still change every render — same as the ~24 other
+  // useCallback([...Mutation...]) call sites already in this file. Hoisting
+  // still centralizes the closure and keeps the JSX prop list declarative;
+  // full stabilization would require a latest-ref wrapper around
   // useActionMutation itself, out of scope for a call-site-only fix.
+  // (handleBreakpointBarSelect itself now lives up near designBreakpoints'
+  // own declaration — see the comment there — so handleEscapeHotkey, which
+  // is defined earlier in this component than this line, can reference it.)
+  // BP-DEEP item 5 — Framer-style click-to-target: picking a BASE screen
+  // frame (a regular Screen, not one of its breakpoint sub-frames) always
+  // returns the active edit target to Base. This mirrors clicking the Base
+  // chip in BreakpointBar (handleBreakpointBarSelect(undefined)) so the two
+  // entry points ("click the frame" vs "click the chip") stay in sync
+  // instead of leaving activeBreakpointWidthState pointed at a breakpoint
+  // that's no longer the visibly-focused frame. Only resets when a
+  // breakpoint is ACTUALLY active, so plain screen-to-screen picking while
+  // already on Base doesn't fire a redundant mutation on every click.
+  // PF8: onPick has no unstable deps (state setters + refs + a
+  // zero-dep useCallback) — hoisting removes a fresh-arrow-per-render prop
+  // on MultiScreenCanvas without changing behavior.
   const handleOverviewScreenPick = useCallback(
     (pickedId: string) => {
       pendingOverviewScreenSelectionRef.current = null;
@@ -24604,6 +24669,12 @@ function DesignEditor() {
       setCreatedOverviewLayerSelection(null);
       setSelectedElement(null);
       setHoveredElement(null);
+      // PICK-RACE — see computeOverviewScreenPickSelectionIds's doc comment
+      // (design-editor/selection-state.ts) for the full race this closes:
+      // MultiScreenCanvas's shift-click toggle can't report its full
+      // multi-id array through the single-id onPick signature, so a
+      // shift-held pick must leave the current selection alone rather than
+      // clobber it to a wrong singleton.
       if (!shiftKeyHeldRef.current) {
         setOverviewSelectedScreenIds([pickedId]);
       }
@@ -24837,7 +24908,6 @@ function DesignEditor() {
     },
     [designBreakpoints, handleBreakpointChangeWidth],
   );
-  // breakpoint scope is already correct by the time this runs — this only
   const handleOverviewEditBreakpoint = useCallback(
     (screenId: string, _widthPx: number) => {
       handleOverviewFrameAction(screenId);
@@ -26483,6 +26553,12 @@ function DesignEditor() {
               ),
               reprompt: t("designEditor.nodeRewrite.regenerate"),
             }}
+            // U4/U8: hasCanvasClipboard only reflects copies made in THIS
+            // tab/window. Peek the live system clipboard right as the menu
+            // opens so a copy made elsewhere is picked up before the
+            // Paste/Paste-here items render — otherwise they stay disabled
+            // until the user's first same-tab copy even though a real
+            // clipboard payload is already sitting in the OS clipboard.
             onOpenChange={(open) => {
               if (!open) {
                 setCanvasLayerHitCandidates([]);

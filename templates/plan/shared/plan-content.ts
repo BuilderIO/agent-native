@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-
 export const PLAN_CONTENT_VERSION = 2;
 
 export const PLAN_CONTENT_MIN_VERSION = 1;
@@ -113,7 +112,6 @@ export type PlanImplementationMapBlock = PlanBlockBase & {
   };
 };
 
-
 export type PlanWireframeSurface =
   | "desktop"
   | "mobile"
@@ -215,6 +213,9 @@ export type PlanWireframeBlock = PlanBlockBase & {
   };
 };
 
+/* -------------------------------------------------------------------------- */
+/* Legacy region wireframe — renderer FALLBACK for old / imported plans only  */
+/* -------------------------------------------------------------------------- */
 
 /**
  * @deprecated Region-based wireframe shape. New generation never emits this;
@@ -267,7 +268,6 @@ export type PlanLegacyWireframeBlock = PlanBlockBase & {
  */
 export type PlanSketchWireframeBlock = PlanLegacyWireframeBlock;
 
-
 export type PlanDiagramNode = {
   id: string;
   label: string;
@@ -303,7 +303,6 @@ export type PlanDiagramBlock = PlanBlockBase & {
 
 /** @deprecated Back-compat alias for `PlanDiagramBlock`. */
 export type PlanSketchDiagramBlock = PlanDiagramBlock;
-
 
 export type PlanImageBlock = PlanBlockBase & {
   type: "image";
@@ -538,7 +537,6 @@ export type PlanBlock =
   | PlanJsonExplorerBlock
   | PlanAnnotatedCodeBlock;
 
-
 export type PlanAnnotationPlacement =
   | "top"
   | "right"
@@ -626,7 +624,6 @@ export type PlanCanvasViewport = {
   };
 };
 
-
 export type PlanPrototypeScreen = {
   id: string;
   title?: string;
@@ -689,7 +686,6 @@ export type PlanContent = {
   };
   blocks: PlanBlock[];
 };
-
 
 export type PlanContentPatch =
   | {
@@ -815,7 +811,6 @@ export type PlanContentPatch =
       op: "set-notion-sync";
       value: boolean;
     };
-
 
 const idSchema = z.string().trim().min(1).max(120);
 
@@ -2109,7 +2104,6 @@ export const planContentSchema: z.ZodType<PlanContent> = z
 
 export type PlanContentInput = z.input<typeof planContentSchema>;
 
-
 const OLD_BLOCK_TYPE_ALIASES: Record<string, PlanBlockType> = {
   "sketch-wireframe": "legacy-wireframe",
   "sketch-diagram": "diagram",
@@ -2208,7 +2202,6 @@ export function migratePlanContent(raw: unknown): unknown {
 
   return content;
 }
-
 
 const wireframeNodePatchSchema = z
   .object({

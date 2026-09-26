@@ -37,7 +37,6 @@ import {
 } from "./monitor-stats.js";
 import { type AccessCtx, type MonitorStatus } from "./uptime-monitors.js";
 
-
 export type StatusPageDensity = "comfortable" | "compact";
 export type StatusPageAlignment = "left" | "center";
 
@@ -118,7 +117,6 @@ export interface PublicStatusPage {
   generatedAt: string;
 }
 
-
 const MAX_STATUS_PAGES_PER_OWNER = 50;
 const MAX_MONITORS_PER_PAGE = 50;
 const MAX_TITLE_LENGTH = 120;
@@ -134,7 +132,6 @@ const EMPTY_WINDOWS: UptimeWindows = {
   uptime30d: null,
   uptime90d: null,
 };
-
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -185,7 +182,6 @@ function statusToTone(
       return "neutral";
   }
 }
-
 
 export function normalizeSlug(raw: unknown): string {
   return (
@@ -361,7 +357,6 @@ export function aggregateWindows(windowsList: UptimeWindows[]): UptimeWindows {
   };
 }
 
-
 function rowToStatusPage(row: any): StatusPage {
   return {
     id: row.id,
@@ -443,6 +438,8 @@ async function resolveOwnedMonitorRefs(
 
 async function slugIsTaken(slug: string, exceptId?: string): Promise<boolean> {
   const db = getDb() as any;
+  // Slug is a GLOBAL public namespace (`/status/<slug>`), so uniqueness is
+  // checked across all owners intentionally — not owner-scoped.
   // guard:allow-unscoped — global slug uniqueness check for the public URL namespace
   const rows = await db
     .select({ id: schema.statusPages.id })
@@ -451,7 +448,6 @@ async function slugIsTaken(slug: string, exceptId?: string): Promise<boolean> {
     .limit(2);
   return rows.some((row: any) => row.id !== exceptId);
 }
-
 
 export async function listStatusPages(ctx: AccessCtx): Promise<StatusPage[]> {
   const db = getDb() as any;
@@ -580,7 +576,6 @@ export async function deleteStatusPage(
   });
 }
 
-
 async function persistMonitorRefs(
   page: StatusPage,
   refs: StatusPageMonitorRef[],
@@ -653,7 +648,6 @@ export async function reorderStatusPageMonitors(
   return persistMonitorRefs(page, next, ctx);
 }
 
-
 async function buildStatusPageView(
   page: StatusPage,
 ): Promise<PublicStatusPage> {
@@ -721,6 +715,9 @@ export async function getPublicStatusPage(
   if (!normalized) return null;
   const db = getDb() as any;
   const table = schema.statusPages;
+  // Public viewer endpoint: look up strictly by slug AND published=true. Not
+  // owner-scoped by design (there is no authenticated requester); the included
+  // monitors are re-scoped to the page owner inside buildStatusPageView.
   // guard:allow-unscoped — public status page viewer; published-only, monitor reads re-scoped to page owner
   const [row] = await db
     .select()

@@ -8,6 +8,12 @@
  * Tailwind one at a time; when the last hand-written rule is gone, swap these
  * two imports for plain `@import "tailwindcss"` and delete this comment.
  */
+/* Layer order decides who wins, and it has to be declared before the imports.
+   `styles.css` is unlayered CSS, and unlayered always beats a layer — including
+   bare element rules like `button { font-size: inherit }`, which would quietly
+   defeat every `text-sm` on a shadcn Button. Pulling it into `legacy` puts it
+   below `utilities` so Tailwind can do its job, while keeping the tray's own
+   cascade intact for the surfaces still using it. */
 @layer legacy, theme, utilities;
 
 @import "./styles.css" layer(legacy);
@@ -255,8 +261,6 @@
   }
 }
 
-/* The tray follows the OS, so dark mode is a media query rather than the web
-   app's `.dark` class. Both resolve the same token names. */
 @custom-variant dark (@media (prefers-color-scheme: dark));
 
 /**
@@ -286,6 +290,9 @@
     0 -6px 16px -6px hsl(var(--ui-foreground) / 0.1),
     0 -20px 40px -20px hsl(var(--ui-foreground) / 0.14);
 
+  /* The live audio meter is this green on every surface — recorder, meeting
+     pill, dictation bar. It lived inside `.record-pill-scope`, so meters
+     outside that scope silently fell back to inherited text color. */
   /* guard:allow-raw-color — meter green is theme-invariant, like the capture chrome it sits on */
   --waveform: #97c459;
   --ui-background: 0 0% 100%;

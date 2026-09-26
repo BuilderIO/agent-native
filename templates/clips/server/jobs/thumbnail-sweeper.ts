@@ -44,6 +44,7 @@ export async function runThumbnailSweepOnce(): Promise<void> {
     }>;
     try {
       // guard:allow-unscoped — background recovery scans every owner for
+      // recordings whose thumbnail dispatch never landed.
       candidates = await db
         .select({
           id: schema.recordings.id,

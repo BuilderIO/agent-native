@@ -36,13 +36,6 @@ const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 // correctly, and on 15.4+ the majority of capture apps still honour it.
 #[cfg(target_os = "macos")]
 fn set_window_capture_excluded(window: &WebviewWindow, excluded: bool) {
-    // AppKit's `-[NSWindow setSharingType:]` is strictly main-thread-only, and
-    // macOS 15.5+ hard-asserts it (the process crashes in
-    // `-[NSWMWindowCoordinator performTransactionUsingBlock:]` otherwise).
-    // Most of our callers are `async fn #[tauri::command]`s, which run on a
-    // tokio worker thread — so we always hop back to the main runloop before
-    // poking AppKit. If we're already on the main thread (e.g. the setup
-    // handler path), `run_on_main_thread` just runs the closure inline.
     let win = window.clone();
     if let Err(err) = win.clone().run_on_main_thread(move || {
         let label = win.label().to_string();
@@ -238,14 +231,6 @@ pub fn raise_to_status_level(window: &WebviewWindow) {
     }
 }
 
-// Windows has no window-level concept — `always_on_top` sets WS_EX_TOPMOST,
-// a z-order position rather than a level, so another app that calls
-// `SetWindowPos(HWND_TOPMOST)` after ours moves above ours even though both
-// windows are "always on top". Re-issuing `set_always_on_top(true)` re-sends
-// that call and pops the overlay back to the front of the topmost band —
-// the closest Windows equivalent to the NSStatusWindowLevel escape hatch
-// above. Combine with `start_topmost_reassert_loop` below: a single call at
-// show time only wins the race until the next app does the same.
 #[cfg(target_os = "windows")]
 pub fn raise_to_status_level(window: &WebviewWindow) {
     if let Err(err) = window.set_always_on_top(true) {
@@ -272,16 +257,6 @@ fn is_current_topmost_generation(current_generation: &AtomicU64, generation: u64
     current_generation.load(Ordering::SeqCst) == generation
 }
 
-/// Poll a window every couple of seconds and reassert `raise_to_status_level`
-/// while it's visible. A single call at show time only wins the Windows
-/// z-order race described there until another app raises itself topmost
-/// afterward — e.g. a call app's floating controls appearing mid-recording —
-/// which is exactly how the recording pill/toolbar can end up silently
-/// buried with no taskbar entry to recover it (both windows are
-/// intentionally `skip_taskbar`). Each start advances a caller-owned
-/// generation; an older task exits when superseded, while the new task always
-/// starts. This avoids losing the loop if a window is recreated while the old
-/// task is exiting. No-op on macOS/Linux.
 #[cfg(target_os = "windows")]
 pub fn start_topmost_reassert_loop(
     app: &AppHandle,

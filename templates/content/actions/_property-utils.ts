@@ -719,8 +719,7 @@ export async function listPropertiesForDatabase(
             databaseRowNumber: rowNumberByDocumentId.get(valueDocument.id),
           })
         : valueDocument && isBlocksPropertyType(type)
-          ?
-            resolveBlocksFieldValue({
+          ? resolveBlocksFieldValue({
               options,
               documentBody: valueDocument.content,
               blockFieldContent: blockContentByPropertyId.get(definition.id),
@@ -1198,7 +1197,6 @@ export function normalizedValueJson(
   return serializePropertyValue(normalizePropertyValue(type, value));
 }
 
-
 export async function blockFieldContentsForDocument(
   documentId: string,
 ): Promise<Map<string, string>> {
@@ -1429,6 +1427,16 @@ export async function seedDefaultBlocksField(args: {
   return null;
 }
 
+// One-time startup repair for LEGACY databases that have never been seeded —
+// i.e. databases created before the Blocks type existed and which have NO
+// primary Blocks field yet (blocks_seeded = 0). Their `documents.content` body
+// still works; seeding the primary field exposes it as a first-class property.
+//
+// Runs at boot from the migration plugin, NOT from any read path, so opening a
+// shared/legacy row never triggers a write. Uses each database's own owner/org
+// (no request context). Idempotent: the atomic claim in seedDefaultBlocksField
+// makes re-runs no-ops, and databases whose primary was intentionally deleted
+// (blocks_seeded = 1) are skipped.
 export async function repairUnseededBlocksFields(): Promise<number> {
   const db = getDb();
   const databases = await db

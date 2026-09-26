@@ -3,6 +3,7 @@ import { type DefaultTreeAdapterTypes, parse, type ParserError } from "parse5";
 import CssSyntaxError from "postcss/lib/css-syntax-error";
 import CssInput from "postcss/lib/input";
 import parseCss from "postcss/lib/parse";
+// This exported PostCSS subpath has no declaration file.
 // @ts-expect-error PostCSS exports its tokenizer without TypeScript declarations.
 import tokenizeCss from "postcss/lib/tokenize";
 
@@ -183,8 +184,7 @@ export class DesignHtmlIntegrityError extends Error {
               `${describeDesignHtmlIntegrityIssue(entry)}\n\n  ${entry.line} | ${entry.excerpt}`,
           )
           .join("\n\n")
-      :
-        `${DOCUMENT_SHAPE_MESSAGES[issue] ?? "the design HTML is invalid"}. The write was not applied.`;
+      : `${DOCUMENT_SHAPE_MESSAGES[issue] ?? "the design HTML is invalid"}. The write was not applied.`;
     super(`${DESIGN_HTML_INTEGRITY_ERROR_CODE}: ${where}${explained}`);
     this.name = "DesignHtmlIntegrityError";
     this.issue = issue;
@@ -294,8 +294,6 @@ function createLocator(value: string): Locator {
     };
   };
 }
-
-
 
 type Parse5Node = DefaultTreeAdapterTypes.Node;
 type Parse5Element = DefaultTreeAdapterTypes.Element;
@@ -513,7 +511,6 @@ function stripBoundaryNoise(value: string): string {
     .replace(/<!--(?:[\s\S]*?)-->/g, "")
     .trim();
 }
-
 
 function collectParseErrorIssues(
   parsed: ParsedDocument,
@@ -982,7 +979,6 @@ function collectStructuralIssues(
     .slice(0, MAX_REPORTED_ISSUES);
 }
 
-
 const ROOT_TAG_PATTERN = /<\s*(\/?)\s*(html|head|body)\b/gi;
 
 function countRootTags(
@@ -1102,11 +1098,6 @@ function bindsAnything(name: string): boolean {
   );
 }
 
-/**
- * True when the document declares a scope that holds nothing and binds
- * nothing — `<body x-data="{}">` on an otherwise plain page. Loading Alpine
- * would change how it renders in no way at all.
- */
 function declaresNoAlpineBehaviour(
   declared: DefaultTreeAdapterTypes.Element,
   parsed: ParsedDocument,
@@ -1132,6 +1123,11 @@ function collectInteractiveRuntimeIssues(
     parsed.elements.find((element) =>
       element.attrs.some((attribute) => attribute.name.toLowerCase() === name),
     );
+  // `x-data` is the one directive Alpine cannot work without, and it has no
+  // meaning outside Alpine — so it anchors the runtime check without
+  // misreading a `:`/`@` attribute from another framework as Alpine. An EMPTY
+  // scope with no bindings anywhere is the exception: there is no state, so
+  // the absent runtime leaves nothing inert and a hard refusal is wrong.
   const declared = runtimeOwner === "document" ? ownerOf("x-data") : undefined;
   const scoped =
     declared && !declaresNoAlpineBehaviour(declared, parsed)

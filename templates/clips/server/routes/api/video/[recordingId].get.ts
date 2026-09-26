@@ -365,7 +365,18 @@ export default defineEventHandler(async (event: H3Event) => {
         return { error: REDACTION_HOLD_MESSAGE, redactionPending: true };
       }
 
+      // Password gate — owners skip it (they set it). Same behavior as
+      // public-recording.get.ts so the two endpoints don't disagree.
+      // Accepts either:
+      //   - protected media cookie — preferred. It is httpOnly, scoped to this
+      //     recording's video route, and renewed while playback/range requests
+      //     continue.
       //   - `?t=<token>` — fallback for contexts that cannot use the cookie
+      //     immediately. Minted by public-recording.get.ts after the password
+      //     check passes; keeps the plaintext password out of the video URL.
+      //   - `?password=<pw>` — legacy fallback so existing share pages /
+      //     bookmarks keep working during rollout.
+      // (audit 11 F-07)
       const q = getQuery(event) as {
         [LOOM_START_MS_QUERY_PARAM]?: unknown;
         password?: string;

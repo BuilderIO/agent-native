@@ -183,6 +183,8 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   // resolveBuilderGatewayAuth() itself requires a complete token+space-id pair
+  // and returns null for a partial one, so generation.ts never sees "which half
+  // is missing" -- it only has to stop before calling Builder on a null auth.
   it("fails before calling Builder when the gateway auth is unusable", async () => {
     resolveBuilderGatewayAuthMock.mockResolvedValue(null);
     const fetchMock = vi.fn();

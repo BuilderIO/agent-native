@@ -258,15 +258,6 @@ const collapse = (s: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-/**
- * `after` is `before` with `token` inserted exactly once, at any point: End
- * lands mid-text in a wrapped paragraph. Beside the token, the insertion may
- * only hold spaces and marker glyphs, since Enter in a custom bullet row
- * clones its marker; any letter or digit there, or any text of `before`
- * missing, fails. Whitespace runs compare as one space, so a line break reads
- * as a space and a token's leading space may merge with one already there,
- * but a lost space fails.
- */
 export function isSplicedOnce(
   before: string,
   token: string,

@@ -8,8 +8,6 @@ import { LABELS_QUERY_KEY } from "@/hooks/use-emails";
 import { INBOX_THREADS_QUERY_KEY } from "@/hooks/use-inbox-threads";
 import { shouldInvalidateMailQueryForActionEvent } from "@/lib/sync-invalidation";
 
-// earlier test's URL-derived token would otherwise leak into a later test
-// each test controls the credential instead of the URL/sessionStorage state.
 vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/host")>()),
   getEmbedAuthToken: vi.fn(() => null),

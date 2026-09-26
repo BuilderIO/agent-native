@@ -61,7 +61,40 @@ import {
 } from "./InspectorControlPopover";
 import { ScrubInput, type ScrubInputChangeMeta } from "./ScrubInput";
 
+// ─── Cross-pipeline write-race guard ──────────────────────────────────────────
+//
+// This picker's persist flow (read-source-file GET -> pure transform ->
+// apply-source-edit POST) is a SEPARATE round trip from the base Fill
+// section's style commits (DesignEditor.tsx's commitVisualStyles ->
+// update-file), and both ultimately feed the SAME per-file Yjs collab
+// document — one via a diff-based server-side `applyText`, the other via the
+// host's own synchronous, untracked full-document `ydoc.transact` rewrite
+// (see DesignEditor.tsx's applyLocalContentUpdate/commitVisualStyles
+// "Untracked full rewrite" comments). If a base style edit (e.g. Fill's Add
+// layer / Remove layer) fires WHILE a shader apply/remove/knob-commit for the
+// SAME file is still in flight, the two writes are computed from a common
+// ancestor but never see each other before landing: the shader write's
+// server-side diff and the style edit's own client-side full-document Y.Text
+// rewrite merge as two divergent CRDT deltas, which do not converge to either
+// intended document — verified to reproduce as a corrupted, doubled document
+// (two concatenated <!DOCTYPE>...</html> copies) via the real
+// applyShaderToHtml/applyVisualEdit/applyTextToYDoc functions.
+//
+// `withShaderWriteLock`/`isShaderWriteInFlight` below is a small, file-scoped
+// exclusion registry (no new action, no new GlslShaderPanelContext field —
+// EditPanel.tsx's context plumbing is unchanged) that DesignEditor.tsx's
+// commitVisualStyles imports directly to defer its own competing write until
+// this picker's in-flight persist for the same file has fully settled
+// (including the onApplied host-sync), closing the race at its source
+// instead of papering over the corrupted result afterward.
 
+/**
+ * Per-file registry of in-flight shader persist operations (read-source-file
+ * GET through apply-source-edit POST through the onApplied host-sync
+ * callback). Module-scoped rather than threaded through
+ * GlslShaderPanelContext so DesignEditor.tsx can await it without EditPanel.tsx
+ * needing to forward a new prop.
+ */
 const shaderWriteLocks = new Map<string, Promise<void>>();
 
 export function isShaderWriteInFlight(fileId: string | undefined): boolean {
@@ -95,7 +128,6 @@ function withShaderWriteLock<T>(
   return run;
 }
 
-
 export interface GlslShaderPanelContext {
   designId?: string;
   fileId?: string;
@@ -104,7 +136,6 @@ export interface GlslShaderPanelContext {
   onApplied?: (fileId: string, content: string, updatedAt?: string) => void;
   onEditCode?: (shaderId: string) => void;
 }
-
 
 interface SourceFileResult {
   fileId?: string;
@@ -198,7 +229,6 @@ export function usePersistShaderEdit(context: GlslShaderPanelContext) {
 
   return { persist, busy };
 }
-
 
 function normalizeHex(value: string): string {
   const hex = value.trim();
@@ -350,7 +380,6 @@ function PresetThumb({
     </Tooltip>
   );
 }
-
 
 export function GlslShaderKnobs({
   def,
@@ -552,7 +581,6 @@ export function GlslShaderKnobs({
   );
 }
 
-
 export interface GlslShaderPanelProps {
   mode: GlslShaderMode;
   context: GlslShaderPanelContext;
@@ -672,6 +700,9 @@ export function GlslShaderPanel({
 
   const removeFromNode = async () => {
     if (!nodeId) return;
+    // Scope removal to this panel's mode — a fill and an effect can coexist
+    // on one node (see shared/shader-fills.ts), so clearing the fill picker
+    // must not also wipe a coexisting shader effect (and vice versa).
     const ok = await persist((html) =>
       removeShaderFromNode(html, nodeId, mode),
     );
@@ -989,7 +1020,6 @@ export function GlslShaderPanel({
     </div>
   );
 }
-
 
 export function GlslShaderEffectSection({
   context,

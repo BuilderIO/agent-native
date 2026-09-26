@@ -14,6 +14,11 @@ const MAX_JSON_CONTEXT_CHARS = 2_500;
 const MAX_BUILDER_DOCS = 8;
 const MAX_BUILDER_DOC_CHARS = 1_200;
 const MAX_TOKEN_VALUES = 48;
+// Per-section budgets for a locally-stored kit. These exist because one shared
+// JSON dump starves whatever `JSON.stringify` happens to order last — which was
+// `notes` and `customCSS`, the only carriers of component, shadow, and motion
+// detail a rich import produces. Sectioning them means a 500-token kit loses
+// tail tokens instead of losing its entire component vocabulary.
 const MAX_NAMED_TOKENS = 220;
 const MAX_CUSTOM_CSS_CHARS = 3_000;
 const MAX_NOTES_CHARS = 3_000;

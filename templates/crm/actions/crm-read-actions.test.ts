@@ -1,4 +1,9 @@
+// Read-side action contracts. The record/read-through cases stay mocked — they
+// are about which adapter is consulted — while the list, navigation, and
+// view-screen cases run against a real PGlite database with the app's own
 // migrations, because what they protect (the resolved ownership scope bounding
+// the returned rows, a saved view's grouping, a query-string flag) cannot be
+// observed through a stubbed query builder.
 
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,6 +44,7 @@ vi.mock("../server/crm/adapter.js", () => ({
   isConnectedCrmProvider: (provider: string) =>
     provider === "hubspot" || provider === "salesforce",
 }));
+// The connected-adapter factory is stubbed, but scope resolution is the real
 // thing: a mock that answers "which scope?" cannot prove the scope bounds rows.
 vi.mock("../server/crm/native-adapter.js", async (importOriginal) => {
   const actual =

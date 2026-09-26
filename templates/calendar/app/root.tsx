@@ -268,6 +268,10 @@ export default function Root() {
     createAgentNativeQueryClient({
       defaultOptions: {
         queries: {
+          // Chrome gets one focus refresh because external calendar events can
+          // change without a DB sync event (e.g. delayed Google webhooks).
+          // Desktop already has the shell's focus-aware DB sync, and repeated
+          // webview focus events otherwise duplicate the events request.
           // request-storm-allow: one user-driven focus refresh for provider data.
           refetchOnWindowFocus: !isAgentNativeDesktop(),
           retry: 1,

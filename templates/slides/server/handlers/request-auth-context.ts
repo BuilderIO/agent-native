@@ -36,7 +36,6 @@ export class SlidesSessionLookupError extends Error {
 export async function resolveSlidesRequestAuthContext(
   event: H3Event,
 ): Promise<SlidesRequestAuthContext> {
-  // the browser org lookup after that would let a stale active-org cookie
   const mcpSession = await getMcpOAuthBearerSession(event);
   let session: Awaited<ReturnType<typeof getSession>>;
   if (mcpSession?.email) {

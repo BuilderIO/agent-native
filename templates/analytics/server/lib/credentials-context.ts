@@ -18,10 +18,6 @@ export function requireRequestCredentialContext(
   return ctx;
 }
 
-/**
- * Same as above but returns null instead of throwing. Use when the caller
- * wants to surface a friendlier "missing credential" error.
- */
 export function tryRequestCredentialContext(): CredentialContext | null {
   return getCredentialContext();
 }

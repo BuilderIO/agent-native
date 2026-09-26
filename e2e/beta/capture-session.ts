@@ -132,7 +132,6 @@ async function capture(): Promise<void> {
       }
 
       if (email && email !== resolved.email) {
-        // Stop rather than warn: continuing emits a token map spanning two
         throw new Error(
           `[${site.id}] signed in as ${resolved.email} but a previous app captured ${email}. The suite runs as one identity — sign in with the same account on every app and re-run.`,
         );

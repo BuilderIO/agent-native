@@ -11,7 +11,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML, SEED_TITLE } from "./global-setup";
 
-
 export async function readSeedDesignId(): Promise<string> {
   const authDir = process.env.E2E_AUTH_DIR
     ? path.resolve(process.env.E2E_AUTH_DIR)
@@ -174,6 +173,7 @@ function screenFrameSelector(screenTarget?: string): string {
 function screenFrame(page: Page, screenTarget?: string): FrameLocator {
   const matchingFrames = page.locator(screenFrameSelector(screenTarget));
   // ponytail: no route target uses the last Screen; inspect editor state if exact focus matters.
+  // Route targets stay strict so ambiguous filenames cannot select the wrong Screen.
   const iframe = screenTarget ? matchingFrames : matchingFrames.last();
   return iframe.contentFrame();
 }

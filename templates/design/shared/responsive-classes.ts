@@ -1,6 +1,4 @@
-
 import type { TailwindBreakpointPrefix } from "./design-state.js";
-
 
 export interface ParsedClassToken {
   raw: string;
@@ -11,7 +9,6 @@ export interface ParsedClassToken {
 export type BreakpointClassGroups = {
   [P in TailwindBreakpointPrefix]: string[];
 };
-
 
 const BREAKPOINT_MIN_WIDTHS: ReadonlyArray<{
   prefix: TailwindBreakpointPrefix;
@@ -48,7 +45,6 @@ const CORE_MAX_VARIANT_BOUNDS: Readonly<Record<string, number>> = {
 
 const CORE_MAX_VARIANT_RE = /^max-(2xl|xl|lg|md|sm):/;
 
-
 export function parseClassToken(token: string): ParsedClassToken {
   const match = PREFIX_RE.exec(token);
   if (!match) {
@@ -71,6 +67,10 @@ export function parseClassGroups(className: string): BreakpointClassGroups {
 
   const tokens = className.trim().split(/\s+/).filter(Boolean);
   for (const token of tokens) {
+    // Max-width-scoped tokens belong to the desktop-down cascade — they are
+    // NOT base values and must not pollute the min-width groups (a
+    // `max-[809px]:text-sm` token is an override below 810px, not the base
+    // font size). They are handled by the `*MaxWidth*` helpers instead.
     if (parseMaxWidthClassToken(token)) continue;
     const { prefix } = parseClassToken(token);
     groups[prefix].push(token);
@@ -78,7 +78,6 @@ export function parseClassGroups(className: string): BreakpointClassGroups {
 
   return groups;
 }
-
 
 const SINGLE_WORD_PROPERTY: Readonly<Record<string, string>> = {
   flex: "display",
@@ -220,7 +219,6 @@ export function utilityStem(utility: string): string {
   return family;
 }
 
-
 export function getPropertyClasses(
   className: string,
   prefix: TailwindBreakpointPrefix,
@@ -286,14 +284,12 @@ export function removePropertyClass(
     .join(" ");
 }
 
-
 export function widthToPrefix(widthPx: number): TailwindBreakpointPrefix {
   for (const { prefix, minPx } of BREAKPOINT_MIN_WIDTHS) {
     if (widthPx >= minPx) return prefix;
   }
   return "base";
 }
-
 
 export function overriddenPrefixes(
   className: string,
@@ -320,7 +316,6 @@ export function resetToBase(
   if (prefix === "base") return className;
   return removePropertyClass(className, prefix, stem);
 }
-
 
 export interface ParsedMaxWidthClassToken {
   raw: string;
@@ -350,14 +345,6 @@ export function maxWidthClassToken(boundPx: number, utility: string): string {
   return `max-[${Math.round(boundPx)}px]:${utility}`;
 }
 
-/**
- * Move generated arbitrary max-width tokens to their new bounds while
- * leaving core max-* variants and every unrelated token untouched.
- *
- * Returns null when a moved token would collide with another utility for the
- * same property at its target bound. Callers should treat that as a typed
- * refusal and roll back the surrounding write.
- */
 export function migrateMaxWidthClassBounds(
   className: string,
   boundMap: ReadonlyMap<number, number | null>,
@@ -538,7 +525,6 @@ export function breakpointUpperBoundPx(
   return Math.round(Math.min(...candidates)) - 1;
 }
 
-
 const CSS_PROPERTY_UTILITY_STEMS: Readonly<Record<string, string[]>> = {
   color: ["text-color"],
   "background-color": ["background-color"],
@@ -640,20 +626,6 @@ export function planBreakpointStyleWrite(args: {
   };
 }
 
-
-/**
- * Resolve which utility for `stem` is effective at `viewportWidthPx`,
- * following both cascades the way the rendered CSS does:
- *
- * 1. Among max-width scopes whose bound ≥ width, the NARROWEST bound wins
- *    (managed emission order puts narrower ranges later in the sheet).
- * 2. Otherwise the largest satisfied min-width prefix wins (Tailwind
- *    mobile-first).
- * 3. Otherwise the base token.
- *
- * Heuristic for indicators and agent inspection — the browser's real cascade
- * also involves stylesheet order for hand-authored documents.
- */
 export function effectiveUtilityAtWidth(
   className: string,
   stem: string,

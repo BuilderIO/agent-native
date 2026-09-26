@@ -21,13 +21,11 @@ import {
 } from "./drag-and-drop.shared";
 import { appPath } from "./helpers";
 
-
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 test.beforeEach(async ({}, testInfo) => {
   setBaseURL(testInfo);
 });
-
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_W = 1280;
@@ -168,7 +166,6 @@ async function zoomOut(page: Page, times = 4) {
   await page.waitForTimeout(300);
 }
 
-
 test("in-screen: a drag moves the element by exactly the pointer delta at the current zoom", async ({
   page,
 }) => {
@@ -297,6 +294,16 @@ test("in-screen: Escape mid-drag cancels the move and restores the exact origina
 test("in-screen: Escape after a completed drag does NOT revert it (host focus and iframe focus)", async ({
   page,
 }) => {
+  // Figma spec: Escape only cancels a drag while it is live; once the pointer
+  // releases, the move is committed and a later Escape (even 1ms later) must
+  // leave it alone. A prior fix made a *late-arriving* cancel message from an
+  // Escape that predates the mouseup still win the postMessage race — but
+  // that same 200ms grace window would also wrongly revert an Escape a user
+  // genuinely presses after the drag is already done, unless the pending
+  // revert is ordered by when Escape was actually pressed, not by when its
+  // message shows up. Cover both routes a real Escape can take from here:
+  // iframe focus (the bridge's own local keydown listener) and host focus
+  // (the async "agent-native:cancel-active-drag" postMessage).
   const id = await newDesign(page);
   await openEditor(page, id);
 

@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { createBuilderEngine } from "@agent-native/core/agent/engine";
 import {
@@ -103,7 +102,10 @@ export default defineAction({
       transcript.length,
     );
 
+    // 1) Builder gateway (preferred — OAuth custody wins when connected,
+    // falls back to a legacy private key otherwise; same precedence engine.stream()
     // applies internally, so this gate must recognize the same two credential kinds
+    // or an OAuth-only-connected user gets routed straight to the BYOK fallback).
     const builderConfigured = await resolveHasBuilderGatewayCredential();
     let builderReturnedEmpty = false;
     let builderFailureMessage: string | null = null;

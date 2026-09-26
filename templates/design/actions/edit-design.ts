@@ -378,7 +378,6 @@ export default defineAction({
         contextPackId !== undefined ||
         contextModeOverride !== undefined ||
         reuseLabels.length > 0;
-      // service; only an explicit context request needs a prior scope lookup.
       const previous =
         hasCreativeContextRequest && contextModeOverride !== "off"
           ? await getGenerationCreativeContext({

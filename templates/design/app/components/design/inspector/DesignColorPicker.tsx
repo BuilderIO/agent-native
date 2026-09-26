@@ -75,7 +75,6 @@ import {
 } from "./ImageFillControls";
 import { ShaderFillsPanel } from "./ShaderFillsPanel";
 
-
 export type DesignColorMode = "hex" | "rgb" | "hsl" | "hsb";
 export type DesignGradientType = "linear" | "radial" | "angular" | "diamond";
 export type DesignFillType = "solid" | "gradient" | "image";
@@ -203,7 +202,6 @@ export interface DesignColorPickerProps {
   trigger?: ReactNode;
 }
 
-
 interface HsvaColor {
   h: number;
   s: number;
@@ -211,9 +209,7 @@ interface HsvaColor {
   a: number;
 }
 
-
 const FALLBACK_COLOR: RgbaColor = { r: 0, g: 0, b: 0, a: 1 };
-
 
 const DEFAULT_LABELS: DesignColorPickerLabels = {
   trigger: "Open color picker", // i18n-ignore fallback component label
@@ -244,12 +240,12 @@ const DEFAULT_LABELS: DesignColorPickerLabels = {
   diamond: "Diamond", // i18n-ignore fallback component label
 };
 
+// Keep transparency tiles light on both light and dark editor surfaces.
 // guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
 const CHECKER_A = "#e5e5e5";
 // guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
 const CHECKER_B = "#ffffff";
 const CHECKERBOARD_IMAGE = `conic-gradient(${CHECKER_A} 25%, ${CHECKER_B} 0 50%, ${CHECKER_A} 0 75%, ${CHECKER_B} 0)`;
-
 
 function IconLinearGradient({ className }: { className?: string }) {
   return (
@@ -395,7 +391,6 @@ function IconDiamondGradient({ className }: { className?: string }) {
   );
 }
 
-
 const PAINT_TYPES: Array<{
   type: DesignPaintType;
   label: string;
@@ -444,7 +439,6 @@ const BLEND_MODE_OPTIONS = [
   { value: "luminosity", label: "Luminosity" },
 ] as const;
 
-
 type EyeDropperCtor = new () => { open: () => Promise<{ sRGBHex: string }> };
 
 export function hasEyeDropperSupport(): boolean {
@@ -462,7 +456,6 @@ export async function beginEyedropperPick(): Promise<string | null> {
     return null;
   }
 }
-
 
 export function DesignColorPicker({
   value,
@@ -607,7 +600,6 @@ export function DesignColorPicker({
     setHexDraft(nextHex);
   }, [color]);
 
-
   useEffect(() => {
     if (!parsedImageFill) return;
     setImageFill((current) =>
@@ -617,7 +609,6 @@ export function DesignColorPicker({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsedImageFill?.url, parsedImageFill?.fit]);
-
 
   const lastEmittedValueRef = useRef(value);
 
@@ -691,7 +682,6 @@ export function DesignColorPicker({
     if (onOpacityChange) onOpacityChange(nextOpacity);
     else onChange(lastEmittedValueRef.current);
   };
-
 
   const emitGradient = (
     next: GradientValue,
@@ -769,7 +759,6 @@ export function DesignColorPicker({
     else emitColorFromHsv(next);
   };
 
-
   const emitImageFill = (next: ImageFillValue) => {
     setImageFill(next);
     if (onImageFillChange) {
@@ -779,7 +768,6 @@ export function DesignColorPicker({
     emitPaintValue(imageFillToCss(next));
     notifyChangeComplete();
   };
-
 
   const previewShader = (descriptor: ShaderDescriptor, css: string) => {
     setShaderDescriptor(descriptor);
@@ -792,7 +780,6 @@ export function DesignColorPicker({
     emitPaintValue(css);
     notifyChangeComplete();
   };
-
 
   const setPaintType = (nextType: DesignPaintType) => {
     if (disabled) return;
@@ -885,7 +872,6 @@ export function DesignColorPicker({
   };
 
   const hasEyeDropper = hasEyeDropperSupport();
-
 
   function renderValueInputs() {
     if (mode === "hex") {
@@ -1007,7 +993,6 @@ export function DesignColorPicker({
       </div>
     );
   }
-
 
   return (
     <div className={cn("space-y-1.5", className)}>
@@ -1606,7 +1591,6 @@ export function DesignColorPicker({
   );
 }
 
-
 const COLOR_MODES: Array<{ value: DesignColorMode; label: string }> = [
   { value: "hex", label: "Hex" }, // i18n-ignore color mode
   { value: "rgb", label: "RGB" }, // i18n-ignore color mode
@@ -2100,7 +2084,6 @@ function ScrubbyNumberInput({
   );
 }
 
-
 export type PointerGestureState = boolean;
 
 export const POINTER_GESTURE_IDLE: PointerGestureState = false;
@@ -2115,7 +2098,6 @@ export function endPointerGesture(state: PointerGestureState): {
 } {
   return { state: POINTER_GESTURE_IDLE, shouldCommit: state };
 }
-
 
 const SCRUB_DRAG_THRESHOLD_PX = 3;
 const SCRUB_PIXELS_PER_STEP = 4;
@@ -2152,7 +2134,6 @@ export function computeScrubbedValue(
   const delta = Math.round(deltaX / SCRUB_PIXELS_PER_STEP) * rate;
   return clamp(startValue + delta, min, max);
 }
-
 
 export function inferPaintType(
   value: string,

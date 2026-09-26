@@ -60,7 +60,6 @@ import {
   buildMigrationSeed,
 } from "../shared/builder-app.js";
 
-
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 
 function resolveBuilderAppHost(): string {
@@ -76,6 +75,9 @@ function buildConnectUrl(origin: string): string {
   return `${base}/_agent-native/builder/connect`;
 }
 
+// ---------------------------------------------------------------------------
+// Snapshot helpers
+// ---------------------------------------------------------------------------
 
 /**
  * Persist a `design_versions` snapshot row before the migration so the user
@@ -100,7 +102,10 @@ async function snapshotDesign(
     .from(schema.designFiles)
     .where(eq(schema.designFiles.designId, designId));
 
+  // Also capture the design data blob (tweaks, source type, etc.).
   // guard:allow-unscoped — the action's run() resolves and asserts editor
+  // access on the design (resolveAccess + assertAccess "design", designId)
+  // before this snapshot helper runs; reads only the addressed design row by id.
   const [design] = await db
     .select({ data: schema.designs.data, title: schema.designs.title })
     .from(schema.designs)
@@ -129,7 +134,6 @@ async function snapshotDesign(
 
   return versionId;
 }
-
 
 export default defineAction({
   description:
@@ -171,6 +175,8 @@ export default defineAction({
     await assertAccess("design", designId, "editor");
 
     // Make Real migration is Builder-staff only for now. The dialog waitlists
+    // everyone else; enforce the same entitlement on the trusted request
+    // identity so the action cannot be invoked directly to bypass the UI.
     const requesterEmail = getRequestUserEmail()?.toLowerCase() ?? "";
     if (!requesterEmail.endsWith("@builder.io")) {
       throw new Error(

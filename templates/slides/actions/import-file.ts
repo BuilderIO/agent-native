@@ -546,6 +546,8 @@ async function importPdfPagesWithFidelity(args: {
     const doc = await loadDocument();
     pageCount = doc.numPages;
     // coercion-ok: undefined here means either canvasFactory was absent or
+    // getImage() already failed and logged a warning above — text-only
+    // fidelity is the intended degrade, not a swallowed failure.
     fidelityPages = await parsePdfFidelity(doc, imageResult?.pages ?? []);
   } finally {
     await pdf.destroy();

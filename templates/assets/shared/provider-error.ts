@@ -104,6 +104,7 @@ function tryParseJson(text: string): unknown {
     return JSON.parse(text);
   } catch {
     // coercion-ok: `undefined` is the typed "not JSON" value the caller checks
+    // for before deciding there is no readable detail.
     return undefined;
   }
 }

@@ -5,7 +5,6 @@ import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("overlay");
 
-
 type OverlayPhase = "idle" | "countdown" | "recording" | "paused" | "saving";
 
 const TOOLBAR_COLLAPSED_H = 154;
@@ -155,7 +154,6 @@ function send(
     onComplete?.(false);
   }
 }
-
 
 function postBubble(kind: string, extra: Record<string, unknown> = {}): void {
   try {
@@ -319,7 +317,6 @@ async function initBubble(): Promise<void> {
   await connectCamera();
 }
 
-
 function initCountdown(): void {
   const wrap = document.createElement("div");
   wrap.className = "countdown";
@@ -352,6 +349,14 @@ function initCountdown(): void {
   wrap.append(controls, hint);
   root.appendChild(wrap);
 
+  // Each number is shown via a CHAINED setTimeout — the next step is scheduled
+  // one second after the current one actually renders, not on a fixed interval.
+  // This is deliberate: when the camera is slow to connect (e.g. an iPhone
+  // Continuity Camera) it can hog the main thread and stall a tick. A setInterval
+  // would then fire all the missed ticks back-to-back ("3"… then "2 1 Go" in a
+  // burst); chaining means a stall only delays the next number, it never bursts.
+  // At "Go" we tell the worker to start the recorder; the worker's own timer is
+  // just a fallback for pages where no overlay can be injected.
   const STEP_MS = 1000;
   const steps = ["3", "2", "1", "Go"];
   let doneSent = false;
@@ -376,7 +381,6 @@ function initCountdown(): void {
 
   showStep(0);
 }
-
 
 function initToolbar(): void {
   const pill = document.createElement("div");
@@ -496,7 +500,6 @@ function initToolbar(): void {
   render();
 }
 
-
 function initSaving(): void {
   const card = document.createElement("div");
   card.className = "saving-card";
@@ -518,7 +521,6 @@ function formatDuration(ms: number): string {
   const seconds = total % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
-
 
 const state: OverlayState = {
   phase: "recording",

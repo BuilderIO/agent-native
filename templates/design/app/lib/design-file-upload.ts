@@ -217,13 +217,6 @@ export interface HydrateImagesFromFigOptions {
   onProgress?: (progress: DesignFileUploadProgress) => void;
 }
 
-/**
- * Token-free image hydration: uploads the original `.fig` and fills the
- * `about:blank` placeholders left by a no-token clipboard paste with the
- * `.fig`'s embedded image bytes. Same authenticated multipart route as
- * `uploadDesignFile`, plus a `hydrateFileIds` field that switches the server
- * into hydrate mode instead of creating new screens.
- */
 export function hydrateImagesFromFig({
   fileIds,
   ...options

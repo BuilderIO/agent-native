@@ -301,6 +301,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       await finishImport(result, t("designEditor.import.figmaUrlSuccess"));
       setFigmaRateLimitError(null);
     } catch (error) {
+      // A rejected credential should not linger in component state or the DOM.
       setFigmaAccessToken("");
       const { result, isRateLimited } = readFigmaImportFailure(
         error,

@@ -6,22 +6,6 @@
     )
 }}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 with
 
     qualifying_forms as (

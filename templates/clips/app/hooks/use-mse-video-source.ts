@@ -1,4 +1,3 @@
-
 import {
   type RefObject,
   useCallback,
@@ -33,7 +32,6 @@ export function useMseVideoSource({
   videoFormat,
   disabled,
 }: UseMseVideoSourceParams): UseMseVideoSourceResult {
-  // WebM recordings use the native Infinity-duration workaround; only MP4 (and
   const eligible =
     !disabled &&
     !!sourceUrl &&

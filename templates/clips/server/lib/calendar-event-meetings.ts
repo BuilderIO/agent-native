@@ -122,7 +122,6 @@ export async function resolveCalendarAccessToken(
       credentials: credentialCandidates,
     });
   } catch (err) {
-    // Only a permanent failure (dead refresh token / bad OAuth client) means
     if (isPermanentRefreshFailure(err)) return null;
     if (
       bundle?.accessToken &&

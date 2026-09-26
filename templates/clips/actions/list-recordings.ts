@@ -161,6 +161,9 @@ export default defineAction({
 
     const orgId = await getActiveOrganizationId();
 
+    // Library = "Your personal recordings in the active org". `accessFilter`
+    // admits all owner rows regardless of org, so library must add both the
+    // owner-email and current-org predicates to scope correctly.
     if (args.view === "library") {
       const email = getRequestUserEmail();
       if (email) {
@@ -256,7 +259,10 @@ export default defineAction({
       FROM ${schema.recordingViews}
       WHERE ${schema.recordingViews.recordingId} = ${schema.recordings.id}
     )`;
+    // Same floor as `countRecordingViews`: `recording_views` only exists from
     // migration v46, so pre-migration clips have no log rows and must fall back
+    // to the counted-viewer count instead of sorting as zero. CASE keeps the
+    // ordering expression explicit about which count wins.
     const viewCountOrder = sql<number>`(
       CASE WHEN ${viewLogCount} > ${countedViewerCount}
         THEN ${viewLogCount}
@@ -267,8 +273,7 @@ export default defineAction({
       args.sort === "oldest"
         ? [asc(schema.recordings.createdAt)]
         : args.sort === "views"
-          ?
-            [desc(viewCountOrder), desc(schema.recordings.createdAt)]
+          ? [desc(viewCountOrder), desc(schema.recordings.createdAt)]
           : [desc(schema.recordings.createdAt)];
 
     const rows = await db

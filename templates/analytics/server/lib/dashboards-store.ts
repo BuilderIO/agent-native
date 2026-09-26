@@ -1,17 +1,3 @@
-/**
- * Dashboards + analyses store — SQL first, legacy settings-KV as
- * read-only fallback. Writes always go to SQL.
- *
- * Lazy migration: when a record is fetched by id and exists only in the
- * legacy settings store, it is copied into SQL on the fly using the
- * settings key as the source of truth for `ownerEmail` / `orgId` /
- * `visibility`, then returned. Subsequent reads hit SQL directly.
- *
- * - `u:<email>:dashboard-{id}`     → kind='explorer', owner=email,  visibility='private'
- * - `u:<email>:sql-dashboard-{id}` → kind='sql',      owner=email,  visibility='private'
- * - `o:<orgId>:sql-dashboard-{id}` → kind='sql',      owner=caller, visibility='org'
- * - `adhoc-analysis-{id}`          → owner=caller,   legacy visibility from its source key
- */
 import { createHash } from "node:crypto";
 
 import { getRequestRunContext, recordChange } from "@agent-native/core/server";
@@ -208,6 +194,10 @@ async function getScopedLegacySettings(
   ctx: Pick<AccessCtx, "email" | "orgId">,
   options?: { dashboardKind?: DashboardKind; limit?: number },
 ): Promise<Record<string, Record<string, unknown>>> {
+  // User scope first, then org: callers append these to the SQL rows in
+  // iteration order and never re-sort, so the order is user-visible. The
+  // previous full-table read inherited whatever order the settings table
+  // returned, which no query pinned.
   const prefixes: string[] = [];
   if (options?.dashboardKind === "sql") {
     if (ctx.email) prefixes.push(`u:${ctx.email}:${SQL_PREFIX}`);
@@ -583,7 +573,6 @@ function recordScopedChange(
   });
 }
 
-
 function accessFields(role?: AccessRole): {
   role?: AccessRole;
   canEdit?: boolean;
@@ -733,6 +722,8 @@ async function migrateDashboardFromSettings(
     })
     .onConflictDoNothing();
   // guard:allow-unscoped — read-after-write of the row just inserted above
+  // with ownerEmail from ctx; eq(id) is sufficient because we know the id we
+  // just wrote and onConflictDoNothing leaves any pre-existing row untouched.
   const [row] = await db
     .select()
     .from(schema.dashboards)
@@ -931,15 +922,6 @@ export async function listDashboards(
   return out;
 }
 
-/**
- * List dashboard metadata without transferring or parsing each dashboard's
- * potentially very large panel config. This is the list-path counterpart to
- * `getDashboard`, which remains the full-config detail read.
- *
- * Legacy settings rows are surfaced directly instead of being migrated during
- * the read. Opening one by id still performs the existing lazy migration, but
- * navigation no longer turns an ordinary list into N sequential writes.
- */
 export async function listDashboardSummaries(
   ctx: AccessCtx,
   filter?: {
@@ -1631,7 +1613,9 @@ export async function upsertDashboard(
         updatedBy: ctx.email,
       };
       if (expectedUpdatedAt !== undefined) {
+        // Fenced write. Snapshot the revision only after we know this exact
         // write actually landed — otherwise a lost race would record a
+        // revision for a save that never happened.
         const updateResult = await writeDb
           .update(schema.dashboards)
           .set(setValues)
@@ -2238,7 +2222,6 @@ export async function removeDashboard(
   }
 }
 
-
 function rowToAnalysis(row: any, role?: AccessRole): AnalysisRecord {
   return {
     id: row.id,
@@ -2721,7 +2704,9 @@ export async function upsertAnalysis(
               : stableStringify(body.resultData))));
     if (!changed) return existing;
     if (expectedUpdatedAt !== undefined) {
+      // Fenced write. Snapshot the revision only after we know this exact
       // write actually landed — otherwise a lost race would record a
+      // revision for a save that never happened.
       const updateResult = await db
         .update(schema.analyses)
         .set(patch)
@@ -2777,6 +2762,9 @@ export async function upsertAnalysis(
     });
   }
   // guard:allow-unscoped — read-after-write of the analysis row just upserted
+  // above with ownerEmail from ctx; the upsert path already gated access via
+  // assertAccess earlier in this function for the update branch, and the
+  // insert branch sets ownerEmail = ctx.email, so eq(id) is sufficient.
   const [row] = await db
     .select()
     .from(schema.analyses)
@@ -3073,7 +3061,6 @@ export async function unhideAnalysis(
   );
   return analysis;
 }
-
 
 export interface DashboardViewRecord {
   id: string;

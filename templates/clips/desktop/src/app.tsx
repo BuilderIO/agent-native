@@ -517,6 +517,7 @@ async function hasConfiguredVideoStorage(
       );
       if (!res.ok) return "unknown";
       // coercion-ok: an unparseable body maps to the typed "unknown" probe
+      // result, which callers treat as distinct from configured/missing.
       const body = (await res.json().catch(() => null)) as {
         configured?: boolean;
         builderReauthorizationRequired?: boolean;
@@ -591,12 +592,6 @@ function urlForFetchInput(input: FetchInput): string | null {
   return null;
 }
 
-/** True only for `tauri dev` / `pnpm vite:dev`, where the webview is served
- *  from Vite at http://localhost:1420. Protocol alone is NOT the test:
- *  packaged Windows builds load from http(s)://tauri.localhost — one of the
- *  exact origins the framework trusts with cookie credentials
- *  (TRUSTED_NATIVE_APP_ORIGIN_RE) — and classifying those as dev would strip
- *  `credentials: "include"` from every production request on Windows. */
 function isDevOriginWebview(): boolean {
   return (
     import.meta.env.DEV &&
@@ -641,7 +636,14 @@ export function installAuthFetchInterceptor(): void {
     if (currentAuthToken && !headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${currentAuthToken}`);
     }
+    // Cookies are only an option from the packaged app. `tauri dev` serves the
+    // webview from http://localhost:1420, and the framework deliberately keeps
+    // localhost off credentialed CORS ("only the configured browser allowlist
+    // and the framework's exact native app origins may receive cookies" —
+    // shouldAllowMcpEmbedCredentials). Since we always add X-Request-Source,
+    // the preflight is credentialed, so asking for cookies there fails the
     // whole request rather than degrading. The bearer token above is the
+    // supported credential for this origin, and the server returns it in the
     // login body precisely because localhost:1420 is on its token allowlist.
     const credentials: RequestCredentials | undefined = isDevOriginWebview()
       ? "omit"
@@ -1306,7 +1308,6 @@ export function App({
   useEffect(() => {
     void refreshVideoStorageStatus();
   }, [refreshVideoStorageStatus]);
-
 
   useEffect(() => {
     if (
@@ -2432,7 +2433,6 @@ export function App({
         return null;
       })();
       if (!flowId || !verifier) {
-        // sign-in's exchange slot; fail closed rather than weaken the credential.
         throw new Error("Secure OAuth flow generation is unavailable.");
       }
       const base = serverUrl.replace(/\/+$/, "");
@@ -2561,6 +2561,14 @@ export function App({
   }, [isRecording]);
 
   useEffect(() => {
+    // Race-safe listen tracking. `listen()` is async — the unlisten fn
+    // only exists AFTER the IPC round-trip resolves. If React cleanup
+    // fires before that, the "fire-and-forget" `.then((u) => push(u))`
+    // pattern never enqueues the unlisten and the listener leaks
+    // forever. Each leaked listener closes over the effect scope +
+    // React state, so every remount of this component grows heap.
+    // Track `cancelled` and call the unlisten IMMEDIATELY if it arrives
+    // after cleanup ran.
     let cancelled = false;
     const unlistens: Array<() => void> = [];
     const track = (p: Promise<() => void>) => {
@@ -2816,7 +2824,6 @@ export function App({
       if (!transferred) {
         bubbleStreamRef.current = null;
       }
-      // would race the re-run's show_bubble and close the window out from under it.
       if (!recordingInFlight && !bubbleActiveRef.current) {
         invoke("hide_overlays", {
           preserveFinalizing: recordingStopFinalizingRef.current,
@@ -3016,7 +3023,6 @@ export function App({
     };
   }, [loadPendingUploads, serverUrl]);
 
-
   useEffect(() => saveString(MODE_KEY, mode), [mode]);
   useEffect(
     () => saveString(VOICE_SHORTCUT_KEY, voiceShortcut),
@@ -3055,7 +3061,6 @@ export function App({
   useEffect(() => saveBool(CAM_ON_KEY, cameraOn), [cameraOn]);
   useEffect(() => saveBool(MIC_ON_KEY, micOn), [micOn]);
   useEffect(() => saveBool(SYSTEM_AUDIO_KEY, systemAudioOn), [systemAudioOn]);
-
 
   function openInBrowser(path: string) {
     const href = `${serverUrl.replace(/\/+$/, "")}${path}`;
@@ -3792,7 +3797,12 @@ export function App({
           return;
         recordingCancelInFlightRef.current = true;
         const cancelDone = recorder.cancel();
+        // Optimistic feedback: bring the popover back and clear the tray's
+        // recording state the moment the cancel is dispatched — the recorder
+        // teardown can take seconds and neither call depends on it. The flow
+        // gate below must NOT be released here: it stays latched until
         // cancel() resolves so a fast Start can't race the tearing-down
+        // session.
         if (!cancelled) {
           invoke("set_recording_state", { active: false }).catch(() => {});
           invoke("show_popover").catch(() => {});
@@ -3879,7 +3889,6 @@ export function App({
     localRecordingMode,
     serverUrl,
   ]);
-
 
   const showSourceRow = mode !== "camera";
   const imminentMeeting = meetings.find(meetingCanStartNotes) ?? null;
@@ -4542,7 +4551,6 @@ export function App({
   );
 }
 
-
 function hidePopover() {
   getCurrentWindow()
     .hide()
@@ -5036,6 +5044,7 @@ export function SignInForm({
               (JSON.parse(raw) as { available?: boolean }).available === true;
           } catch (err) {
             // coercion-ok: recorded and logged below as its own outcome, so an
+            // unreadable body never passes for "not available".
             parseError = err instanceof Error ? err.message : String(err);
           }
         }
@@ -5084,7 +5093,6 @@ export function SignInForm({
             `Dev sign-in didn't work (${res.status})`,
         );
       }
-      // A missing token is legitimate: the server only puts it in the body for
       if (json?.token) saveDesktopAuthToken(serverUrl, json.token);
       await onSignedIn();
     } catch (err) {
@@ -5167,6 +5175,10 @@ export function SignInForm({
         await onSignedIn();
         return;
       }
+      // Post to the framework's Better Auth-backed email/password endpoint.
+      // Production Tauri builds cannot rely on cross-origin cookies sticking,
+      // so the desktop fetch interceptor stores the returned session token and
+      // sends it as Authorization on later same-server requests.
       const res = await fetch(
         `${serverUrl.replace(/\/+$/, "")}/_agent-native/auth/login`,
         {
@@ -5673,8 +5685,6 @@ function ActiveRecordingBanner() {
     </section>
   );
 }
-
-
 
 type VoiceProviderStatus = {
   browser: true;
@@ -6421,6 +6431,7 @@ function Setup({
       parsed = new URL(trimmed);
     } catch {
       // coercion-ok: null is the typed "not a URL" outcome the next branch
+      // reports to the user as an inline field error.
       parsed = null;
     }
     if (

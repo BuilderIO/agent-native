@@ -1,4 +1,3 @@
-
 import { createHash } from "node:crypto";
 
 import { count, desc, eq, sql } from "drizzle-orm";
@@ -80,6 +79,9 @@ export async function recordAgentView(
         ],
         set: {
           lastSeenAt: now,
+          // A later poll in the same session can arrive without the token that
+          // carried the name (public clips are readable without one), so an
+          // absent label must never erase a stored one — a new name still wins.
           agentLabel: sql`COALESCE(excluded.agent_label, ${schema.recordingAgentViews.agentLabel})`,
           requestCount: sql`${schema.recordingAgentViews.requestCount} + 1`,
         },

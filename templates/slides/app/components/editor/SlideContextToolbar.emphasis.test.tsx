@@ -116,6 +116,7 @@ describe("contextual toolbar emphasis toggles", () => {
     fireEvent.click(button);
 
     // Only the underline token is removed. A bare "none" here would also drop
+    // the line-through the user never asked to change.
     expect(onChange).toHaveBeenCalledWith({ textDecoration: "line-through" });
   });
 

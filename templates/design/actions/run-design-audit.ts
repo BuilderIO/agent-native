@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -16,7 +15,6 @@ import {
   describeDesignHtmlIntegrityIssue,
   inspectDesignHtmlDocumentIntegrity,
 } from "../shared/html-integrity.js";
-
 
 function extractNodeId(tagHtml: string): string | undefined {
   const m = tagHtml.match(
@@ -40,7 +38,6 @@ function extractSelector(tagHtml: string, tagName: string): string | undefined {
   }
   return undefined;
 }
-
 
 function checkMissingAlt(html: string): A11yFinding[] {
   const findings: A11yFinding[] = [];
@@ -340,7 +337,20 @@ function checkContrastHint(html: string): A11yFinding[] {
   return findings;
 }
 
+// ---------------------------------------------------------------------------
+// Multi-screen token-drift check
+// ---------------------------------------------------------------------------
+//
+// design-generation/SKILL.md's "Multi-screen consistency contract" requires
+// every screen's `:root` token block to match index.html's byte-for-byte, but
+// nothing enforced it — an agent could silently let a screen's palette drift.
+// This extracts each screen's `:root { --name: value; ... }` custom-property
+// map and flags any screen whose property VALUES diverge from the design's
+// reference screen (index.html, or the first screen when index.html is
+// absent). Screens that legitimately have no `:root` block (e.g. a bare
+// fragment) are skipped, not flagged — there is nothing to reconcile.
 
+/** One screen's parsed `:root` custom-property map (property name → value). */
 export interface RootTokenMap {
   filename: string;
   tokens: Record<string, string>;
@@ -361,12 +371,6 @@ export function extractRootTokens(html: string): Record<string, string> {
   return tokens;
 }
 
-/**
- * Compare every non-reference screen's `:root` token map against the
- * reference screen's (normally `index.html`) and return one finding per
- * diverging property per screen. Screens with no `:root` block are skipped.
- * Pure and dependency-free so it can be unit tested without a DB.
- */
 export function checkTokenDrift(
   screens: Array<{ filename: string; html: string }>,
   referenceFilename = "index.html",
@@ -407,7 +411,6 @@ export function checkTokenDrift(
   }
   return findings;
 }
-
 
 export interface DesignSystemExpectation {
   title: string;
@@ -575,7 +578,6 @@ export function checkDesignSystemAdherence(
   return findings;
 }
 
-
 async function liveContent(
   fileId: string,
   storedContent: string,
@@ -592,7 +594,6 @@ async function liveContent(
     })
   ).content;
 }
-
 
 export default defineAction({
   description:

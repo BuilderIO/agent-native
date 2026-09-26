@@ -206,7 +206,6 @@ interface EmailListProps {
   onSortModeChange?: (mode: MailSortMode) => void;
 }
 
-
 const INBOX_ZERO_PHOTOS = [
   "photo-1506744038136-46273834b3fb", // Yosemite valley
   "photo-1470071459604-3b5ec3a7fe05", // Misty green mountains
@@ -348,7 +347,6 @@ function MailLoadingState({
   );
 }
 
-
 const RATE_LIMIT_RETRY_MS = 60_000;
 
 function getRateLimitRetryMs(error: {
@@ -476,7 +474,6 @@ function AccountErrorsNotice({ errors }: { errors: AccountError[] }) {
     </div>
   );
 }
-
 
 export function EmailList({
   emails: emailsProp,
@@ -2372,6 +2369,9 @@ export function EmailList({
     return <MailLoadingState containerRef={containerRef} />;
   }
 
+  // Client-sliced inbox tabs can have no matches on the first page even when
+  // later inbox pages contain matching threads. Keep the sentinel mounted so
+  // the infinite query can continue before showing an empty state.
   if (threads.length === 0 && hasNextPage) {
     return (
       <div className="flex h-full flex-col" ref={containerRef}>
@@ -2407,6 +2407,7 @@ export function EmailList({
     );
   }
 
+  // Empty state
   if (threads.length === 0) {
     if (searchQuery) {
       return (

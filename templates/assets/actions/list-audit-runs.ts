@@ -61,6 +61,10 @@ export default defineAction({
     const db = getDb();
 
     // guard:allow-unscoped — org-admin audit, gated by assertOrgAdmin above.
+    // The `scope` object below carries `orgId` (multi-tenant) or `ownerEmail`
+    // (single-user) which we apply explicitly below; `accessFilter` is too
+    // narrow because it filters by the caller's *own* libraries / shares,
+    // and an audit needs to see every run in the admin's org.
     const filters = [];
     if (scope.orgId)
       filters.push(eq(schema.assetGenerationRuns.orgId, scope.orgId));

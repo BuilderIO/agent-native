@@ -28,7 +28,6 @@ import {
   type StatusPageMonitorRef,
 } from "./status-pages";
 
-
 const EMPTY_WINDOWS: UptimeWindows = {
   uptime24h: null,
   uptime7d: null,
@@ -136,7 +135,6 @@ const SAFE_MONITOR_KEYS = [
   "windows",
 ];
 
-
 describe("normalizeSlug", () => {
   it("lowercases, replaces runs of non-alphanumerics with single dashes, trims", () => {
     expect(normalizeSlug("  My Cool Status!!  ")).toBe("my-cool-status");
@@ -186,7 +184,7 @@ describe("sanitizePublicMonitor (security boundary)", () => {
     );
     expect(Object.keys(result).sort()).toEqual(SAFE_MONITOR_KEYS);
     expect(result.host).toBe("api.example.com");
-    expect(result.url).toBeNull();
+    expect(result.url).toBeNull(); // showUrl false → no leak
     // The token in the query string must never appear anywhere on the object.
     expect(JSON.stringify(result)).not.toContain("SECRET");
   });
@@ -271,7 +269,6 @@ describe("assemblePublicMonitors (inclusion boundary)", () => {
   });
 });
 
-
 describe("getPublicStatusPage", () => {
   beforeEach(() => {
     getDbMock.mockReset();
@@ -309,7 +306,6 @@ describe("getPublicStatusPage", () => {
     expect(getMonitorStatsMock.mock.calls[0][1]).toEqual(["m1"]);
   });
 });
-
 
 describe("status-pages.ts public-read source invariants", () => {
   const source = readFileSync(

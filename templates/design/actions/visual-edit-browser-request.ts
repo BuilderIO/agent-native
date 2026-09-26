@@ -28,12 +28,6 @@ export function isSameOriginVisualEditBrowserRequest(
   return !fetchSite || fetchSite === "same-origin" || fetchSite === "none";
 }
 
-/**
- * The browser relay is only a transport handoff. Keep every access, scope,
- * consent, and path check in the action before returning this marker. A
- * same-origin GET may omit Origin, so the optional browser metadata is
- * checked without making that normal fetch shape unusable.
- */
 export function isLocalhostBridgeRelayRequest(
   ctx?: Pick<ActionRunContext, "caller" | "requestHeaders">,
 ): boolean {

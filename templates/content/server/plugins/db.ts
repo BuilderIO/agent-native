@@ -3,6 +3,10 @@ import { runMigrations } from "@agent-native/core/db";
 import { scheduleStartupMaintenance } from "../lib/startup-maintenance.js";
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently — see the analytics db.ts v75-v83 incident this
+// convention was introduced to prevent.
 const contentMigrations = [
   {
     version: 1,
@@ -423,6 +427,11 @@ const contentMigrations = [
     sql: `CREATE INDEX IF NOT EXISTS document_block_field_contents_document_idx ON document_block_field_contents (document_id);
         CREATE UNIQUE INDEX IF NOT EXISTS document_block_field_contents_doc_prop_idx ON document_block_field_contents (document_id, property_id)`,
   },
+  // v50-v52: DB-enforced single-primary Blocks invariant. `primary_blocks_property_id`
+  // is the one source of truth for which property backs `documents.content`;
+  // `blocks_seeded` records that a database was seeded once, so an intentionally
+  // deleted primary is never silently recreated. Both are additive and safe on
+  // existing data.
   {
     version: 50,
     sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS primary_blocks_property_id TEXT`,

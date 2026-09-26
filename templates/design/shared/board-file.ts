@@ -24,7 +24,6 @@ import {
   VECTOR_START_ENDPOINT_PROPERTY,
 } from "./vector-endpoints.js";
 
-
 export const BOARD_FILENAME = "__board__.html";
 
 // guard:allow-raw-color — Figma's default shape paint (D9D9D9), independent of the document theme.
@@ -43,11 +42,9 @@ function getHtmlAttributeValue(tag: string, name: string): string {
   );
 }
 
-
 export function isBoardFile(filename: string): boolean {
   return filename === BOARD_FILENAME;
 }
-
 
 export function emptyBoardHtml(): string {
   return `<!DOCTYPE html>
@@ -65,7 +62,6 @@ export function emptyBoardHtml(): string {
 </body>
 </html>`;
 }
-
 
 export function boardObjectEntryToHtmlFragment(
   entry: BoardObjectEntry,
@@ -174,7 +170,6 @@ export function boardObjectEntryToHtmlFragment(
   return `<div style="${style}" ${dataAttrs}>${text ? escapeHtml(text) : ""}</div>`;
 }
 
-
 function kindToLayerName(kind: BoardObjectEntry["kind"]): string {
   switch (kind) {
     case "frame":
@@ -200,6 +195,9 @@ function kindToLayerName(kind: BoardObjectEntry["kind"]): string {
   }
 }
 
+// ---------------------------------------------------------------------------
+// backfillBoardPrimitiveMarkers
+// ---------------------------------------------------------------------------
 
 /**
  * Adds `data-an-primitive="<kind>"` to board primitive elements that are
@@ -238,7 +236,6 @@ function kindToLayerName(kind: BoardObjectEntry["kind"]): string {
  */
 export function backfillBoardPrimitiveMarkers(html: string): string {
   if (!html.includes("data-agent-native-node-id=")) return html;
-
 
   const bodyStart = html.indexOf("<body");
   if (bodyStart === -1) return html;
@@ -479,7 +476,6 @@ function _inferSvgPrimitiveKind(inner: string): string | null {
 
   return null;
 }
-
 
 export const BOARD_SURFACE_CONTENT_OFFSET_PX = 65_536;
 
@@ -725,7 +721,6 @@ export function normalizePoisonedBoardNestedCoords(html: string): {
     samples,
   };
 }
-
 
 function escapeAttr(value: string): string {
   return value

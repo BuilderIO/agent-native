@@ -328,6 +328,10 @@ function matchScore(
     }
   }
 
+  // Proportional, not all-or-nothing: a 7-word question could never hit the old
+  // full-coverage bonus, so long real questions collapsed to near-random scores.
+  // Damped for short queries — at full strength every one-of-one-token match tied
+  // at the same score, so generic "... Rate" entries mass-tied above exact panels.
   const coverageWeight = Math.min(terms.length, 3) / 3;
   score += 40 * (matched.size / terms.length) * coverageWeight;
   return { score: Math.round(score), matchedTerms: [...matched] };

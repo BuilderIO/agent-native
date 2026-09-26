@@ -373,6 +373,9 @@ function styleOnlyGenericSuggestion(): string {
   );
 }
 
+// objectId swaps an element's INNER content and never touches the opening tag,
+// so it cannot move that element's own style attribute — the usual target of a
+// style edit. Echoing it back would hand over a call that either misses the
 // declaration or trips the style-only structure invariant.
 function styleOnlyObjectIdSuggestion(): string {
   return (

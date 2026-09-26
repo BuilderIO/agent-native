@@ -262,6 +262,7 @@ describe("dismiss-variant-slots", () => {
     });
 
     // An unreadable check is not a permission answer, so it must not come back
+    // as a quietly retained asset.
     await expect(action.run({ scope: "all" })).rejects.toThrow(
       "db unavailable",
     );

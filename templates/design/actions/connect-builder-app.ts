@@ -1,27 +1,3 @@
-/**
- * connect-builder-app — return the Builder connection state / CTA payload for
- * a design so the UI can render the appropriate inline card.
- *
- * This action intentionally does NOT start the OAuth / cli-auth flow; the
- * existing `connect-builder` agent-chat tool owns that flow and renders the
- * interactive card in chat.  What this action does instead:
- *
- * 1. Check whether Builder is currently configured (credentials + project ID)
- *    via the shared `resolveBuilderStatus` helper (no credential values leak).
- * 2. Return a structured payload the UI can use to decide whether to render
- *    an "already connected" summary, a "connect to unlock" CTA, or a
- *    "Builder enabled — ready to migrate" state.
- *
- * The `connectUrl` field is the pre-built URL that opens the Builder cli-auth
- * popup from the current app origin (same shape the agent-chat plugin returns
- * in the `kind: "connect-builder-card"` tool result).  The UI should open this
- * in a popup and poll `/builder/status` for completion, matching the existing
- * connect flow.
- *
- * Gate: any design the caller can view is sufficient — the action is read-only
- * and returns only connection-level metadata, not design content.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { getBuilderBranchProjectId } from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
@@ -30,7 +6,6 @@ import { z } from "zod";
 
 import "../server/db/index.js";
 import { resolveBuilderStatus } from "../shared/builder-app.js";
-
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 
@@ -46,7 +21,6 @@ function buildConnectUrl(origin: string): string {
   const base = origin.replace(/\/+$/, "");
   return `${base}/_agent-native/builder/connect`;
 }
-
 
 export default defineAction({
   description:
@@ -78,6 +52,7 @@ export default defineAction({
 
     const appHost = resolveBuilderAppHost();
 
+    // Surface the env-level branch project id for informational use only.
     // (Credential values are never included.)
     const branchProjectId =
       status.branchProjectId || getBuilderBranchProjectId() || undefined;

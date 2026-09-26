@@ -106,7 +106,6 @@ function stripCrlf(s: string): string {
   return s.replace(/[\r\n]+/g, " ").trim();
 }
 
-
 const labelMapCache = new Map<
   string,
   { map: Map<string, string>; expiresAt: number }
@@ -350,7 +349,6 @@ async function userEmail(event: H3Event): Promise<string> {
   return session.email;
 }
 
-
 function reqSource(event: H3Event) {
   return getHeader(event, "x-request-source") || undefined;
 }
@@ -466,7 +464,6 @@ function gmailErrorStatus(error: unknown): {
   return { status: parsed ? Number(parsed) : 502 };
 }
 
-
 export const listEmails = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const {
@@ -508,6 +505,8 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         }
       }
 
+      // Fence list responses before token resolution so an in-flight request
+      // cannot repopulate the old shared snapshot while force-refresh waits.
       if (forceRefresh) invalidateListCacheForOwner(email);
 
       const { tokens: accountTokens, errors: tokenErrors } =
@@ -677,6 +676,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
   };
 });
 
+// ─── Thread messages ─────────────────────────────────────────────────────────
 
 export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
@@ -788,7 +788,6 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
   return threadMessages;
 });
 
-
 export const getEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   if (await isConnected(email)) {
@@ -842,7 +841,6 @@ export const getEmail = defineEventHandler(async (event: H3Event) => {
   }
   return found;
 });
-
 
 export const reportSpam = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
@@ -910,7 +908,6 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
     return { id: getRouterParam(event, "id"), threadId, spam: true };
   });
 });
-
 
 async function readBlockedSenders(email: string): Promise<string[]> {
   const data = await getUserSetting(email, "blocked-senders");
@@ -1026,7 +1023,6 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-
 async function readMutedThreads(email: string): Promise<string[]> {
   const data = await getUserSetting(email, "muted-threads");
   if (data && Array.isArray((data as any).threads)) {
@@ -1101,7 +1097,6 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-
 export const deleteEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   return withLocalEmailMutationLock(email, async () => {
@@ -1115,7 +1110,6 @@ export const deleteEmail = defineEventHandler(async (event: H3Event) => {
     return { ok: true };
   });
 });
-
 
 export const sendEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
@@ -1394,7 +1388,6 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-
 export const saveDraft = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const settings = await readSettings(email);
@@ -1654,7 +1647,6 @@ function buildTrackingContext(
   };
 }
 
-
 export const deleteDraft = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const id = getRouterParam(event, "id") as string;
@@ -1689,7 +1681,6 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
     return { ok: true };
   });
 });
-
 
 export type ContactEntry = { name: string; email: string; count: number };
 export type ContactLookupResult = {
@@ -1938,7 +1929,6 @@ export const listContacts = defineEventHandler(async (event: H3Event) => {
   return result.contacts;
 });
 
-
 export const listLabels = defineEventHandler(async (_event: H3Event) => {
   const email = await userEmail(_event);
   if (await isConnected(email)) {
@@ -2067,7 +2057,6 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
   );
 });
 
-
 export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const { eventId, calendarId, response, accountEmail } = (await readBody(
@@ -2131,7 +2120,6 @@ export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
     return { error: error.message };
   }
 });
-
 
 export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);

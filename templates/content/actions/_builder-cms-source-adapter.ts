@@ -243,7 +243,6 @@ function pickStringField(
   return null;
 }
 
-// `model:shortId` token instead of raw JSON.
 function builderReferenceLabel(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
   const ref = value as Record<string, unknown>;

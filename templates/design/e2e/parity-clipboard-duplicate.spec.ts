@@ -8,7 +8,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { appPath, cdpScreenshot, designFrame, gotoEditor } from "./helpers";
 
-
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 
 async function action(
@@ -185,17 +184,6 @@ async function lastSelectedElementSelector(page: Page): Promise<string | null> {
   return matches[matches.length - 1]?.[1] ?? null;
 }
 
-/**
- * Click to select an element by its node id. Figma parity: a click inside a
- * group first selects the group itself; a second click drills into the
- * child (see editor-chrome.bridge.ts's descend-on-click/dblclick path).
- *
- * The descend's selection-changed message is an async iframe -> host
- * postMessage round trip, not a fixed-latency one: a flat sleep here is a
- * race against it (passes when the host is idle, flakes under load) rather
- * than a synchronization point. Poll __designTrace for the round trip to
- * actually land on `nodeId` instead of guessing how long it takes.
- */
 async function selectByNodeId(page: Page, nodeId: string) {
   const frame = designFrame(page);
   const el = frame.locator(`[data-agent-native-node-id="${nodeId}"]`);

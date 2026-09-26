@@ -1,4 +1,3 @@
-
 :root {
   color-scheme: light dark;
 
@@ -103,7 +102,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   overflow: hidden;
 }
 
-
 .app {
   margin: 0;
   padding: 14px;
@@ -153,7 +151,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-top: 1px solid var(--border);
   background: var(--bg);
 }
-
 
 .header {
   display: grid;
@@ -293,7 +290,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   outline: none;
   box-shadow: 0 0 0 2px var(--brand-ring);
 }
-
 
 .feedback-popover-content {
   width: min(320px, calc(100vw - 36px));
@@ -462,7 +458,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-
 .panel {
   display: flex;
   flex-direction: column;
@@ -629,7 +624,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   vector-effect: non-scaling-stroke;
 }
 
-
 .primary {
   width: 100%;
   border: none;
@@ -717,7 +711,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   pointer-events: none;
   filter: invert(1);
 }
-
 
 .recorder-disclosures {
   display: flex;
@@ -1105,7 +1098,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-
 .bottom-row {
   display: flex;
   flex-direction: column;
@@ -1227,7 +1219,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: hsl(var(--ui-success) / 0.85);
   font-size: 11px;
 }
-
 
 .app-popover-view {
   gap: 0;
@@ -1625,7 +1616,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   box-shadow: 0 0 0 2px var(--bg);
 }
 
-
 .recent-list {
   display: flex;
   flex-direction: column;
@@ -1689,7 +1679,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   margin-top: 1px;
 }
 
-
 .footer {
   display: flex;
   align-items: center;
@@ -1720,7 +1709,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: var(--brand);
   text-decoration: underline;
 }
-
 
 .setup {
   width: 100%;
@@ -1838,7 +1826,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   box-shadow: 0 0 0 2px var(--brand-ring);
 }
 
-
 .tooltip-content {
   z-index: 60;
   max-width: min(260px, calc(100vw - 16px));
@@ -1898,7 +1885,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     transform: scale(0.96);
   }
 }
-
 
 .alert-dialog-overlay {
   position: absolute;
@@ -2617,7 +2603,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-
 .countdown-root {
   position: fixed;
   inset: 0;
@@ -2717,7 +2702,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     opacity: 0;
   }
 }
-
 
 .preparing-root {
   position: fixed;
@@ -2886,7 +2870,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-
 .toolbar-root {
   position: fixed;
   inset: 0;
@@ -3022,7 +3005,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-color: rgba(245, 158, 11, 0.35);
 }
 
-
 .bubble-wrapper {
   position: fixed;
   inset: var(--overlay-shadow-gutter);
@@ -3057,7 +3039,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: 100%;
   object-fit: cover;
   border-radius: 50%;
-  transform: scaleX(-1);
+  transform: scaleX(-1); /* Mirror — feels more natural for selfie view. */
   /* compositing-ok: live <video> is composited regardless. */
   will-change: transform, opacity;
   backface-visibility: hidden;
@@ -3088,7 +3070,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   text-align: center;
   padding: 12px;
 }
-
 
 .bubble-close,
 .bubble-controls {
@@ -3199,7 +3180,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   width: 16px;
   height: 16px;
 }
-
 
 .signin {
   display: flex;
@@ -3434,7 +3414,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-
 .meeting-notification-root {
   position: fixed;
   inset: 0;
@@ -3654,7 +3633,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: white;
 }
 
-
 .meeting-nub-root {
   position: fixed;
   inset: 0;
@@ -3735,7 +3713,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .meeting-nub-handle:active {
   cursor: grabbing;
 }
-
 
 .flow-bar-root {
   position: fixed;
@@ -3997,7 +3974,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: block;
 }
 
-
 .region-guides-layer,
 .region-guides-editor {
   position: fixed;
@@ -4028,6 +4004,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-radius: 8px;
   /* guard:allow-raw-color — selection fill is a capture-surface affordance, not app chrome. */
   background: rgba(255, 255, 255, 0.035);
+  /* The spread creates one cheap, click-through cutout for the selected area. */
   /* guard:allow-raw-color — dimming must remain legible over light and dark desktop content. */
   box-shadow: 0 0 0 100vmax rgba(5, 8, 14, 0.64);
   pointer-events: none;
@@ -4287,7 +4264,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-
 .region-record-border-layer {
   position: fixed;
   inset: 0;
@@ -4332,7 +4308,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     opacity: 0.6;
   }
 }
-
 
 .pill-outer {
   display: flex;
@@ -4622,7 +4597,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: rgba(255, 255, 255, 0.1);
 }
 
-
 .pill-error {
   margin: 0 10px 6px;
   padding: 6px 10px;
@@ -4879,7 +4853,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: #e5e5e5;
   border-bottom-left-radius: 4px;
 }
-
 
 .pill-inner:not(.pill-inner-compact) {
   background: hsl(var(--ui-popover) / 0.98);

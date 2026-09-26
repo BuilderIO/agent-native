@@ -44,7 +44,6 @@ export interface LocalhostConnectionScope {
 
 export async function resolveLocalhostConnectionScope(options?: {
   designId?: string;
-  /** Public /visual-edit may read a design's read-only preview credential. */
   allowPublicViewer?: boolean;
 }): Promise<LocalhostConnectionScope> {
   const designId = options?.designId;

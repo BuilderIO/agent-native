@@ -36,6 +36,12 @@ function createStorage(initial?: Record<string, string>) {
   };
 }
 
+// Reproduces the Andrew Rohman Slack thread (C0ATH3CCZT4 / 1786711059459639):
+// a slide copied once early in the session kept silently re-duplicating on
+// unrelated, much-later Cmd/Ctrl+V presses that landed outside every
+// recognized text-input safe zone. The ambient document-level shortcut can
+// never enumerate every safe zone, so it must stop trusting an
+// indefinitely-armed clipboard instead.
 describe("isSlideClipboardStillArmed", () => {
   it("stays armed immediately after a copy", () => {
     const armedAt = 1_000;

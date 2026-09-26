@@ -27,6 +27,9 @@ function isDrizzleTable(value: unknown): value is object {
 const schemaTables = Object.values(schema).filter(isDrizzleTable);
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently — see the v75-v83 incident documented on v75 below.
 const ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000;
 
 function getAnalyticsMigrationDatabaseUrl(): string {
@@ -661,7 +664,13 @@ export const runAnalyticsMigrations = runMigrations(
       name: "analytics-alert-incidents-rule-triggered-idx",
       sql: `CREATE INDEX IF NOT EXISTS analytics_alert_incidents_rule_triggered_idx ON analytics_alert_incidents (rule_id, triggered_at)`,
     },
+    // v79: session_recordings gained `network_error_count` in schema.ts (failed
+    // network requests observed in captured replay diagnostics events) without
     // a matching migration, so pre-existing production tables never got the
+    // column — every read/write touching it 42703'd. Backfill it the same way
+    // page_count/error_count/rage_click_count/privacy_mode were added (v61-64).
+    // Also caught by the v75-v83 version-collision incident described above —
+    // named so it applies regardless of a database's recorded MAX(version).
     {
       version: 79,
       name: "session-recordings-network-error-count",
@@ -1163,7 +1172,12 @@ export const runAnalyticsMigrations = runMigrations(
       name: "analytics-query-pressure-daily-key-idx",
       sql: `CREATE UNIQUE INDEX IF NOT EXISTS analytics_query_pressure_daily_key_idx ON analytics_query_pressure_daily (tenant_key, event_date, query_class)`,
     },
+    // Keep this historical migration name reserved, but record it without a
+    // boot-time run. Scanning analytics_events here makes every concurrent
+    // serverless migration runner hold a database connection for the full
+    // history; v126-v131 continue to maintain the compact tables incrementally.
     // Any future one-shot backfill must use a new migration identity or an
+    // explicit out-of-band job because this marker is permanently applied.
     {
       version: 132,
       name: "analytics-rollups-historical-backfill",
@@ -1479,7 +1493,10 @@ export default async (nitroApp: any): Promise<void> => {
       }
     ).__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ === true;
   if (isInBackgroundFunctionRuntime() && !isScheduledRollupRuntime) {
+    // Most durable workers execute signed internal routes against a schema
     // owned by the regular server. A second migration runner only adds a Neon
+    // pool probe to every worker cold start. The scheduled rollup worker is
+    // the exception because it can be the first post-deploy invocation.
     console.info(
       "[db] Skipping Analytics migrations in durable background runtime",
     );
@@ -1497,6 +1514,10 @@ export default async (nitroApp: any): Promise<void> => {
     );
     return;
   }
+  // The schema must exist before the first query. Measured cost on this
+  // database (180 tables): ~5.5s for the version check alone, which is why the
+  // serverless runtime never runs it on cold starts. The scheduled worker is
+  // the one serverless exception and claims migration duty explicitly.
   // guard:allow-boot-data-work — schema must exist before the first query
   if (isScheduledRollupRuntime) {
     // guard:allow-boot-data-work — scheduled worker owns the release migration

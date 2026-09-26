@@ -136,6 +136,7 @@ export function parseProxyableImageUrl(raw: string): URL | null {
     url = new URL(raw);
   } catch {
     // coercion-ok: null is this function's documented "refused" result and
+    // the caller answers 400; an unparseable URL carries no other detail.
     return null;
   }
 

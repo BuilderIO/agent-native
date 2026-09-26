@@ -100,7 +100,11 @@ export function registerGroundingActions(names: Iterable<string>): void {
   groundingActionNames = new Set(
     [...names].map((name) => normalizeActionToolName(name)),
   );
+  // An empty set is never a real deployment: it means the installed core build
+  // predates `grounding` and dropped it from every definition. Registration
   // runs at plugin module scope, so throwing here would take the whole server
+  // down for a response-guard heuristic; the failure is raised at first use
+  // instead, where it costs one turn.
   if (groundingActionNames.size === 0) {
     console.error(
       "[analytics] no action declares grounding: true; the installed @agent-native/core cannot carry the flag, so the response guard is unusable",
@@ -786,7 +790,17 @@ export function draftClaimsAnalyticsMetrics(text: string): boolean {
   return hasUnsupportedResultClaim(String(text ?? "").trim());
 }
 
+// Whether a draft only restates an earlier turn's grounded result. Every
+// figure it states must appear in those tool results, and every metric it
+// names must be named somewhere in that turn's evidence (query input, result
+// payload, or the answer given from it), so a figure cannot be re-attributed
+// to a different metric ("paying customers were 532" over a signups result).
+// A draft with no figures at all returns false rather than vacuously true, so
+// a qualitative-only draft still has to earn grounding this turn.
 // ponytail: numeric-value match after comma stripping plus term-stem presence
+// — a rounded or derived figure ("~1.2k", a percentage computed from two
+// counts) reads as ungrounded and is retried; add unit-aware or tolerance
+// matching if that retries too often.
 export function draftRestatesPriorEvidence(
   draft: string,
   prior: {

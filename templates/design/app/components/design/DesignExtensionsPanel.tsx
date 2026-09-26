@@ -63,7 +63,6 @@ import type { ElementInfo } from "./types";
 
 export const DESIGN_EDITOR_EXTENSION_SLOT_ID = "design.editor.inspector";
 
-
 interface SlotInstall {
   installId: string;
   extensionId: string;
@@ -127,7 +126,6 @@ interface DesignExtensionsPanelProps {
 
 type CreateExtensionSubmitHandler = (text: string) => void;
 
-
 type FirstPartyExtId =
   | "design.asset-library"
   | "design.shader-fills"
@@ -146,7 +144,6 @@ type FirstPartyRow = {
   badge?: React.ReactNode;
   panel: React.ReactNode;
 };
-
 
 const DEFAULT_ASSETS_PICKER_URL =
   "https://assets.agent-native.com/library?__an_picker=1&mediaType=image&layout=vertical";
@@ -205,7 +202,6 @@ function pickedAssetImageSource(payload: unknown): string | null {
   );
 }
 
-
 function buildExtensionCreateContext(
   prompt: string,
   context: DesignExtensionSlotContext,
@@ -255,7 +251,6 @@ function buildExtensionCreateContext(
     "- Keep the extension compact enough for a right-side inspector panel and use semantic Tailwind colors.",
   ].join("\n");
 }
-
 
 function useSlotInstalls(slotId: string) {
   const versions = useChangeVersions(["action"]);
@@ -323,7 +318,6 @@ export async function installExtensionRequest(
     }),
   ]);
 }
-
 
 interface FirstPartyRowProps {
   id: FirstPartyExtId;
@@ -419,7 +413,6 @@ function ToolFilterMenu<T extends string>({
     </DropdownMenu>
   );
 }
-
 
 export interface ResolvedScreenDropPoint {
   screenId: string;
@@ -1061,7 +1054,6 @@ export function AssetLibraryPanel({
   );
 }
 
-
 interface ShaderFillsExtPanelProps {
   context: DesignExtensionSlotContext;
 }
@@ -1260,7 +1252,6 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
   );
 }
 
-
 interface TokenAuditorPanelProps {
   context: DesignExtensionSlotContext;
 }
@@ -1308,7 +1299,6 @@ function TokenAuditorPanel({ context }: TokenAuditorPanelProps) {
     </div>
   );
 }
-
 
 interface MotionPresetsPanelProps {
   context: DesignExtensionSlotContext;
@@ -1362,7 +1352,6 @@ function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
     </div>
   );
 }
-
 
 export function DesignExtensionsPanel({
   context,
@@ -1418,6 +1407,11 @@ export function DesignExtensionsPanel({
   const installExtension = async (extensionId: string) => {
     setInstallingId(extensionId);
     try {
+      // Awaits both slot queries' refetch, not just firing invalidation —
+      // see installExtensionRequest's doc comment for the duplicate-install
+      // race this closes: installingId (and therefore the disabled Install
+      // button) must stay set until the "Available" list has actually
+      // dropped this extension, not just until the POST resolves.
       await installExtensionRequest(slotId, extensionId, queryClient);
     } catch {
       toast.error(t("designEditor.extensionsInstallError"));
@@ -1682,7 +1676,6 @@ export function DesignExtensionsPanel({
     </div>
   );
 }
-
 
 function CreateExtensionPopover({
   open,

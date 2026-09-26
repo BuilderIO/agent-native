@@ -1,43 +1,5 @@
 import { test, expect, type Page, type APIResponse } from "@playwright/test";
 
-/*
- * REGISTRY BLOCKS — live render E2E for the editor-unification claim.
- *
- * Area under test: the content app's `VisualEditor` consumes core's
- * `RegistryBlockNode` (`createRegistryBlockNode`) -> `RegistryBlockNodeView` ->
- * `BlockView` -> each block's React `Read` component — the SAME render path the
- * plan app's `dev-doc-blocks.spec.ts` already browser-proved 8/8.
- *
- * Content stores a document as a single Notion-Flavored-Markdown (NFM) string in
- * `documents.content`. A registry block (mermaid, api-endpoint / `<Endpoint>`,
- * data-model, diff / `<Diff>`, file-tree, json-explorer, annotated-code,
- * openapi-spec) is encoded INLINE as a PascalCase MDX element. On open, `nfm.ts`
- * parses the element into a `registryBlock` ProseMirror atom (preserving the
- * verbatim source as `__raw`); the editor lazily hydrates its typed `data` and
- * the shared NodeView mounts a `.plan-block-node[data-block-id=<id>]` wrapping a
- * `section.plan-block` rendered by the block's `Read`.
- *
- * The NFM round-trip (data) is already proven by content's unit tests
- * (`shared/nfm.registry.spec.ts`, `app/components/editor/*roundtrip*`). What was
- * NOT yet confirmed — and what this spec confirms in a real browser — is that
- * content's editor VISUALLY mounts + renders the NodeView for an inline registry
- * block.
- *
- * Each test:
- *   1. Creates a document whose NFM body carries a recognizable registry block,
- *      via the authed action surface (`create-document`).
- *   2. Opens `/page/<id>` and waits for the editor surface (`.ProseMirror`).
- *   3. Asserts the block's NodeView (`.plan-block-node[data-block-id=<id>]`)
- *      mounts and renders the block's distinctive content (api-endpoint -> the
- *      "GET" method pill + path; diff -> the filename + an added-only token).
- *   4. Asserts the render survives a full page reload, and (for one block) that
- *      it still renders in dark mode without throwing.
- *
- * The block ids in the fixtures are the `id="…"` attribute of the MDX element —
- * the editor's `registryBlock` node carries that exact id as `data-block-id`.
- * retries:2 + web-first auto-retrying expects absorb transient HMR reloads.
- */
-
 const CREATE_ACTION = "/_agent-native/actions/create-document";
 const GET_ACTION = "/_agent-native/actions/get-document";
 const BLOCK_RENDER_TIMEOUT = 45_000;
@@ -198,7 +160,6 @@ test.describe("content editor renders inline registry blocks", () => {
       .toBeTruthy();
   });
 
-  // diff -> `<Diff>` -> DiffRead: the filename header + a token that exists only
   test("diff (<Diff>) renders the filename + an added-only token and survives reload", async ({
     page,
   }) => {
@@ -229,7 +190,6 @@ test.describe("content editor renders inline registry blocks", () => {
       `the registryBlock NodeView for "${blockId}" should mount in the content editor`,
     ).toBeVisible({ timeout: 30_000 });
 
-    // Filename header (always rendered) + a token that ONLY exists on the added
     await expect(node).toContainText("src/add.ts", {
       timeout: BLOCK_RENDER_TIMEOUT,
     });

@@ -1,4 +1,3 @@
-
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
@@ -56,7 +55,6 @@ export class CrmCursorError extends Error {
     this.name = "CrmCursorError";
   }
 }
-
 
 export const CRM_FILTER_CONDITIONS = [
   "is",
@@ -126,7 +124,6 @@ export interface CrmFilterNode {
   op: "and" | "or";
   conditions: Array<CrmFilterLeaf | CrmFilterNode>;
 }
-
 
 type ConditionFamily =
   | "text"
@@ -270,7 +267,6 @@ function isActorTarget(target: ResolvedTarget): boolean {
     : target.spec.actor === true;
 }
 
-
 interface AttributeRow {
   id: string;
   fieldName: string;
@@ -402,7 +398,6 @@ function resolveTarget(
   );
 }
 
-
 type Scalar = string | number | boolean;
 
 function resolveToken(
@@ -482,7 +477,6 @@ function requireNumber(value: Scalar, target: ResolvedTarget): number {
   return parsed;
 }
 
-
 const RELATIVE_DAYS = /^(last|next)-(\d{1,3})-days$/;
 
 function isoDay(time: number): string {
@@ -524,7 +518,6 @@ export function resolveRelativeDateToken(
       }
     : { from: isoDay(startOfDay), to: isoDay(startOfDay + days * DAY_MS) };
 }
-
 
 function likePattern(value: Scalar, mode: "contains" | "prefix" | "suffix") {
   const escaped = String(value).replace(/([\\%_])/g, "\\$1");
@@ -825,7 +818,6 @@ export async function compileCrmFilter(input: {
   });
 }
 
-
 interface SortKey {
   expression: SQL;
   direction: "asc" | "desc";
@@ -909,7 +901,6 @@ function orderByFor(keys: SortKey[]): SQL[] {
   clauses.push(sql`${schema.crmRecords.id} asc`);
   return clauses;
 }
-
 
 export interface StoredCrmView {
   id: string;
@@ -1081,7 +1072,6 @@ function normalizeStoredSort(raw: unknown): unknown {
   return Array.isArray(raw) ? raw : [];
 }
 
-
 type ScopeValidationTarget = {
   connectionId: string;
   workspaceConnectionId: string | null;
@@ -1146,6 +1136,8 @@ function toRecordSummary(row: SummaryRow, columns?: string[]) {
     id: row.id,
     displayName: row.displayName,
     kind: row.kind,
+    // Not a display column: it is the concurrency token every write needs, so
+    // a view's column selection must never drop it.
     remoteRevision: row.remoteRevision,
     ...(included.has("domain") || included.has("primaryEmail")
       ? { subtitle: row.domain ?? row.primaryEmail ?? undefined }

@@ -470,6 +470,9 @@ export function createOpenVisualEditWebMcpActions(options?: {
             onBridgeTokenRejected,
           });
         }
+        // The same-origin page transport invokes this call, but cannot start a
+        // local process. A host may pass a token it used to start that process;
+        // do not expose bridge credentials in the result.
         const {
           designId,
           connectionId,

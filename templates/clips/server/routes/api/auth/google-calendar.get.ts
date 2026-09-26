@@ -97,6 +97,7 @@ export default defineEventHandler(async (event: H3Event) => {
       redirect_uri: redirectUri,
       response_type: "code",
       // We need a refresh token, so always force prompt=consent — Google only
+      // hands back refresh_token on the FIRST consent unless we re-prompt.
       access_type: "offline",
       prompt: "consent",
       include_granted_scopes: "true",

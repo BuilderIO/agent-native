@@ -214,6 +214,8 @@ describe("buildNotionAuthUrl", () => {
     });
 
     it("does not mark the CSRF cookie Secure on a plain-http origin (n17)", async () => {
+      // Browsers (Safari even on http://localhost) silently drop Secure
+      // cookies set over plain http, which previously made the CSRF-binding
       // cookie never arrive and broke Connect Notion in http dev entirely.
       const event = mockEvent("http://localhost/api/notion/auth-url");
 

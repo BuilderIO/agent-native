@@ -47,7 +47,6 @@ async function roundTrip(content: PlanContent): Promise<PlanContent> {
   return parsePlanMdxFolder(folder);
 }
 
-
 describe("prototype.mdx round-trip (no data loss/drift)", () => {
   it("preserves transition id + trigger and per-state ids across the full screen set", async () => {
     const content: PlanContent = {
@@ -94,6 +93,8 @@ describe("prototype.mdx round-trip (no data loss/drift)", () => {
     const proto = result.prototype;
     expect(proto?.surface).toBe("mobile");
     expect(proto?.initialScreenId).toBe("home");
+    // Transition id + trigger must survive — the serializer emits them and the
+    // parser reads them, so dropping either is silent data loss.
     expect(proto?.transitions?.[0]).toEqual({
       id: "tr1",
       from: "home",
@@ -182,7 +183,6 @@ describe("prototype.mdx round-trip (no data loss/drift)", () => {
     expect(result.prototype?.screens[0]?.state).toEqual([]);
   });
 });
-
 
 describe("prototype patch ops (idempotency, bad ids, sanitize)", () => {
   const withPrototype = (): PlanContent =>
@@ -347,7 +347,6 @@ describe("prototype patch ops (idempotency, bad ids, sanitize)", () => {
   });
 });
 
-
 describe("parsePlanContent fail-closed on pathological input", () => {
   function nestTabs(depth: number): PlanBlock {
     let block: PlanBlock = {
@@ -371,6 +370,9 @@ describe("parsePlanContent fail-closed on pathological input", () => {
   });
 
   it("returns null (not a RangeError) for pathologically deep tabs (overflows the recursive parser)", () => {
+    // At this depth the recursive schema/migration throws a RangeError that
+    // safeParse does NOT catch; the landed outer try/catch must convert it to a
+    // graceful null so the plan page renders a fallback instead of crashing.
     const content = { version: 2, blocks: [nestTabs(6000)] };
     let result: PlanContent | null = null;
     expect(() => {
@@ -385,7 +387,6 @@ describe("parsePlanContent fail-closed on pathological input", () => {
     expect(parsePlanContent(null)).toBeNull();
   });
 });
-
 
 describe("generated prototype content round-trips", () => {
   it("createPrototypePlanContent output survives JSON -> MDX -> JSON", async () => {
@@ -509,7 +510,6 @@ describe("generated prototype content round-trips", () => {
     ).not.toThrow();
   });
 });
-
 
 describe("documented prototype directive contract", () => {
   it("BUG: rejects the canonical Alpine `<template x-for>` even though x-for is advertised as a supported safe directive", () => {

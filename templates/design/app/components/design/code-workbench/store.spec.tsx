@@ -10,7 +10,6 @@ import type { WorkspaceProvider, WorkspaceReadResult } from "./workspace/types";
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-
 interface FakeModelEntry {
   content: string;
   savedContent: string;
@@ -160,6 +159,12 @@ function mount(providers: WorkspaceProvider[]) {
 
 describe("WorkbenchProvider", () => {
   it("does not pin a preview tab when an external (agent/poll) edit lands on it", async () => {
+    // Regression test for the store↔model-registry dirty-tracking race: an
+    // external content replacement used to synchronously report the buffer
+    // as dirty (see model-registry.spec.ts), which store.tsx's markDirty
+    // then treated as a real user edit and pinned the preview tab. Agent
+    // edits arriving on a previewed file must never silently convert it into
+    // a pinned tab.
     const { provider } = makeProvider({
       content: "<h1>hello</h1>",
       versionHash: "v1",

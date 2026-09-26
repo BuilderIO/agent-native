@@ -366,6 +366,7 @@ const CARD_DIVIDER = "#27272a"; // guard:allow-raw-color — inlined for email c
 const CARD_STRONG = "#fafafa"; // guard:allow-raw-color — inlined for email clients
 const CARD_MUTED = "#a1a1aa"; // guard:allow-raw-color — inlined for email clients
 
+/** The clip card plus the Watched/Read pair, as one trusted HTML block. */
 function recapHeroHtml(
   clip: RecapTopClipInput,
   copy: RecapCopy,

@@ -1486,6 +1486,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [],
   );
 
+  // Track the pannable surface's own on-screen size for culling's viewport
+  // bounds (getOverscannedViewportCanvasBounds). Only the surface's *size*
+  // matters here (not scroll/position), since world-space bounds are derived
+  // from pan/zoom separately — a plain ResizeObserver on the fixed-position
+  // surface element is sufficient and avoids reading getBoundingClientRect on
+  // every render.
+  // Measure before paint. A passive effect lets the initial {0,0} viewport
+  // commit paint every on-screen frame as a placeholder, then swaps those
+  // placeholders for live iframes one frame later — a visible cold-open flash.
+  // The synchronous layout measurement keeps the first painted overview on
+  // the correct culling tier while ResizeObserver owns later size changes.
+  //
+  // Also: when the left chrome opens/closes (or minimal mode toggles), the
+  // surface's left edge moves while its width changes. Without compensating
+  // pan.x by that left-edge delta, every board item appears to slide with the
+  // chrome. Keep world content fixed in viewport/monitor coordinates.
   useLayoutEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
@@ -2235,6 +2251,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (chromeSettleTimerRef.current !== null) {
         window.clearTimeout(chromeSettleTimerRef.current);
       }
+      // PERF9-WHEEL: unmounting mid-gesture means the settled commitView
+      // never runs — don't leave the module-scoped gesture flag stuck (the
+      // muted elements unmount with the canvas, so no style restore needed).
+      // Clears unconditionally (single-canvas-instance assumption — see the
+      // module-scope doc comment on wheelCameraGestureActive above).
       wheelGestureActiveRef.current = false;
       setWheelCameraGestureActive(false);
       wheelGestureMutedElementsRef.current = null;
@@ -3779,7 +3800,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           return;
         }
 
-
         const boardPoint = boardPointFromDragMessage(
           sourceScreenId,
           iframeX,
@@ -4393,6 +4413,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           : null;
       const requestId = drillInRequestRef.current + 1;
       drillInRequestRef.current = requestId;
+      // Deep: drill-in/pick must see nested descendants to walk one level
+      // further per repeat click — unlike a marquee, which stops at the
+      // current container scope's direct children by default.
       void collectLayerMarqueeCandidates(new Set([id]), true, point).then(
         (result) => {
           if (drillInRequestRef.current !== requestId) return;
@@ -7157,8 +7180,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         hasMoved: false,
       };
       setIsDragging(true);
+      // Figma parity: object drags keep the default arrow cursor, never a
+      // grabbing hand — see the matching comment in beginDraftDrag above.
 
+      // The surface itself never moves mid-gesture, so its bounding rect is
       // invariant for the whole drag. Cache it once instead of letting the
+      // allCommitted/getCanvasPoint branch below call getBoundingClientRect
+      // on every tick — that read would force a synchronous layout reflow
+      // right after this same tick's direct style writes (a classic
+      // write-then-read thrash), scoped to primitive/layer drags specifically
+      // (the only path that reaches that branch).
       const cachedSurfaceRect = surfaceRef.current?.getBoundingClientRect();
       const getCanvasPointFromCachedRect = (clientX: number, clientY: number) =>
         cachedSurfaceRect
@@ -9459,8 +9490,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     : dragCursor
       ? dragCursor
       : isDragging && marquee
-        ?
-          "default"
+        ? "default"
         : penActive || getDraftCreationTool(effectiveTool)
           ? "crosshair"
           : effectiveTool === "hand"
@@ -11674,7 +11704,6 @@ function GradientEditOverlay({
   } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Linear-only (P0 scope, see prop doc): non-linear/unparseable values
   if (!gradient || gradient.kind !== "linear") return null;
 
   const { width, height } = geometry;
@@ -12724,7 +12753,6 @@ function sameScreenRootComputedStylesById(
   );
 }
 
-
 const BREAKPOINT_LABEL_WITH_WIDTH_MIN_FRAME_WIDTH = 128;
 
 function BreakpointPreviewRow({
@@ -12765,14 +12793,6 @@ function BreakpointPreviewRow({
   primaryScale: number;
   naturalAspect: number;
   previewUrl: string | undefined;
-  /**
-   * The primary screen's srcdoc with the lightweight hit-test responder already
-   * injected (memoised in the parent Screen component).  Passed down so
-   * breakpoint sub-iframes carry the same responder and can be found via
-   * their own distinct [data-screen-iframe-id] (see getBreakpointIframeId)
-   * by the cross-screen drop-into-container handler when that breakpoint is
-   * the active edit scope (see getActiveScreenIframeId).
-   */
   srcdocWithHitTest: string;
   metadata: ResolvedScreenMetadata;
   screenRootComputedStylesById?: Record<string, Record<string, string>>;

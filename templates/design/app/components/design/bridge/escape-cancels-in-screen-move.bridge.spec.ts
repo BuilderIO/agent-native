@@ -61,7 +61,6 @@ describe("Escape mid-drag cancels an in-screen move even when it loses the postM
       await page.mouse.down();
       await page.mouse.move(290, 420, { steps: 8 });
       await page.waitForTimeout(30);
-      // as the host would, at the real keydown — even though, per the race
       const pressedAt = await page.evaluate(() => Date.now());
       await page.mouse.up();
       await page.waitForTimeout(30);

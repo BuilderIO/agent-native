@@ -308,6 +308,23 @@ export function imageFillChangePatch(
   };
 }
 
+/**
+ * Patch for the Fill panel's "+" (add fill) action.
+ *
+ * Figma parity: clicking "+" always adds a new fill on top of whatever is
+ * already there. The only exception is a genuinely empty fill state (no
+ * visible base solid AND no existing background layers) — there "+" just
+ * reveals the hidden base solid instead of stacking an empty default
+ * fill on top of nothing.
+ *
+ * Previously the caller only checked whether the base solid had visible
+ * alpha, so an element with an existing gradient/image layer stack but a
+ * *hidden* base solid (e.g. right after `solidToGradientPatch` converts
+ * solid -> gradient and clears backgroundColor to "transparent") had "+"
+ * silently un-hide the base solid instead of adding a new layer — the
+ * opposite of what "+" is supposed to do, and it reintroduced the exact
+ * phantom-second-fill problem `solidToGradientPatch` exists to avoid.
+ */
 // guard:allow-raw-color — Figma's new-fill paint; hex because solid layers need a parseable colour.
 const NEW_FILL_COLOR = "#d9d9d9";
 

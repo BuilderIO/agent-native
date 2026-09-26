@@ -79,6 +79,7 @@ function verifyStateSignature(state: Record<string, any>): {
   const secret = getStateSecret();
   if (!secret) {
     // Without a secret we cannot verify — refuse to honour any
+    // attacker-controllable redirect path.
     return { ok: false, redirectPath: null };
   }
   const claimed =
@@ -117,7 +118,10 @@ export default defineEventHandler(async (event) => {
   const target = verified.ok ? safeReturnPath(verified.redirectPath) : "/";
 
   // CSRF binding: the nonce in `state.n` must match the HttpOnly cookie set
+  // by buildNotionAuthUrl for the session that started this flow. Reject
+  // (without exchanging the code or saving any token) on a missing or
   // mismatched cookie — do NOT fall back to accepting when the cookie is
+  // absent, that would reopen the hole entirely.
   const cookieNonce = getCookie(event, NOTION_OAUTH_STATE_COOKIE);
   const stateNonce = typeof state.n === "string" ? state.n : null;
   deleteCookie(event, NOTION_OAUTH_STATE_COOKIE, { path: "/" });

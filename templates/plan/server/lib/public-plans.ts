@@ -84,6 +84,7 @@ async function getPublicPlanForEvent(event: H3Event) {
   if (!id) return null;
 
   // guard:allow-unscoped -- public review identity only resolves public plans
+  // by id and returns no owner data.
   const [plan] = await getDb()
     .select({
       id: schema.plans.id,

@@ -1,4 +1,22 @@
+// Serializes "read MAX(position) among siblings, then insert/update at
+// MAX+1" sequences so two concurrent writers (agent + human, two browser
+// tabs, an import job racing a manual add) never read the same MAX and
+// persist duplicate `position` values. `position` columns in this app have
+// no unique/sequence constraint (see templates/content/server/db/schema.ts),
+// so ordering is only as stable as the read-then-insert stays atomic.
+//
+// Mirrors the per-deck lock in templates/slides/actions/patch-deck.ts: an
 // in-process, globalThis-keyed promise chain per scope key. This only
+// serializes writers within THIS process, but that is sufficient here
+// because every write path already goes through the app's own action/route
+// layer in the same server process — it is not a substitute for a DB-level
+// unique constraint, but it closes the read-then-write race that produces
+// duplicate positions today.
+//
+// Sites that already compute MAX(position) and insert inside the SAME
+// `db.transaction()` (e.g. submit-content-database-form.ts,
+// add-content-database-source-field-property.ts) do not need this helper —
+// wrap new sites in the lock instead of introducing a second mechanism.
 
 const LOCK_KEY = "__contentPositionLocks" as const;
 type GlobalWithLocks = typeof globalThis & {

@@ -181,6 +181,9 @@ export function Bubble() {
     const unlistens: Array<() => void> = [];
     let stopped = false;
     let pc: RTCPeerConnection | null = null;
+    // Tracks the handshake id the popover stamped on the most recent
+    // offer we processed. ICE candidates arriving for a stale id are
+    // ignored (the popover sometimes re-negotiates if it reboots).
     let currentHandshakeId: number | null = null;
     const trackListen = (p: Promise<() => void>) => {
       p.then((u) => {
@@ -655,12 +658,7 @@ export function Bubble() {
         <canvas
           ref={canvasRef}
           className="bubble-video"
-          style={
-            activePath === "webrtc"
-              ? { display: "none" }
-              :
-                undefined
-          }
+          style={activePath === "webrtc" ? { display: "none" } : undefined}
         />
         {/* Close X — top-right of bubble, only visible on hover. Marked
             `data-no-drag` so pointer-down here does NOT start a drag;

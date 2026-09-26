@@ -503,6 +503,7 @@ async function buildInboxTabsSummary(
     };
   } catch {
     // coercion-ok: null is a distinguishable "omit tabs from this screen"
+    // signal the caller below checks for — never merged into a fake summary.
     return null;
   }
 }

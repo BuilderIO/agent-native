@@ -1234,6 +1234,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       };
     }, [hasEditorThumbnail, thumbnailUrl]);
 
+    // Opportunistically capture and upload a still-frame thumbnail for the
+    // owner as soon as the first visible frame is ready. We skip editor-picked
     // thumbnails, but refresh auto-generated thumbnails that probed as blank.
     const captureThumbnail = useCallback(() => {
       if (thumbnailCapturedRef.current) return;

@@ -1,4 +1,3 @@
-
 export type BurnStatus = "running" | "done" | "failed";
 
 interface BurnState {
@@ -20,11 +19,6 @@ function sweep(now: number): void {
   }
 }
 
-/**
- * Claim a recording for a burn. False when one is already under way — two
- * re-encodes of the same clip would race to replace the same file, and the
- * loser would delete the winner's.
- */
 export function startBurn(recordingId: string): boolean {
   const now = Date.now();
   sweep(now);

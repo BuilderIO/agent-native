@@ -219,6 +219,8 @@ export function renderPlainTextLinks(text: string): string {
 
 export function extractMarkdownUrls(markdown: string): string[] {
   const urls = new Set<string>();
+  // Each pass rewrites what it matched so a later pattern cannot rematch it;
+  // only add() escapes, so the final string is deliberately never read.
   // oxlint-disable-next-line no-unused-vars
   let text = decodeCommonHtmlEntities(normalizeMarkdownHardBreaks(markdown));
 

@@ -313,12 +313,6 @@ describe("buildSvgForeignObject XML validity", () => {
   });
 });
 
-/**
- * The tokenizer reads raw source text while the client sanitizer reads decoded
- * DOM values, so the two only agree if the tokenizer decodes before deciding.
- * The XML consumer resolves `&#58;` back to `:`, which turned an inert-looking
- * token into an active `javascript:` URL in the exported file.
- */
 describe("buildSvgForeignObject active-content decoding", () => {
   it("drops entity-encoded javascript schemes", () => {
     const svg = buildSvgForeignObject({

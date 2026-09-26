@@ -113,7 +113,6 @@ export default defineAction({
       }
     }
 
-    // read-only credential every time. Older rows can still contain a random
     const previewTokenFor = (connection: {
       bridgeToken?: string | null;
       previewToken?: string | null;

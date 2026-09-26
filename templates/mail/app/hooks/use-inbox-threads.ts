@@ -914,17 +914,6 @@ export function markInboxThreadReadOptimistic(
   return mutation.id;
 }
 
-/**
- * Optimistically adjust one thread row's unread count by a single message's
- * read/unread delta (±1), instead of setting the whole row read/unread like
- * `markInboxThreadReadOptimistic` — for message-scoped mutations (mark one
- * message read/unread) where other messages in the thread may still be
- * unread. The journal stores the absolute target so replaying it over an
- * already-updated server response is idempotent. Mirrors the clamp-to-[0,
- * messageCount] rule in server/lib/inbox-store.ts's message scope. The active
- * tab's unread count only moves when the row itself crosses the zero/nonzero
- * boundary — the tab counts unread *threads*, not messages.
- */
 export function adjustInboxThreadUnreadOptimistic(
   qc: QueryClient,
   threadId: string,

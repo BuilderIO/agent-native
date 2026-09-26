@@ -1,19 +1,3 @@
-/**
- * Tests for generate-design.
- *
- * Coverage focus (in addition to the pre-existing tool-schema test): the
- * existing-file UPDATE path now goes through writeInlineSourceFile with a
- * freshly-read expectedVersionHash, closing the stale-diff-base race where
- * `file.content` is LLM-generated content that can be arbitrarily stale by
- * the time this action persists it (the same bug class already fixed in
- * insert-design-native-asset.ts / insert-asset.ts). The NEW-file creation
- * path (db.insert + seedFromText) uses the same core write mechanics as
- * before. Both paths now also stamp missing data-agent-native-node-id
- * attributes before persisting (shared/screen-annotation.ts) so generated
- * screens are born fully addressable by id-keyed editor operations instead
- * of depending on a client-side backfill the first time someone opens them.
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -479,6 +463,16 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
   it("reports (never throws) the conflict when the live content changed since it was read (concurrent write)", async () => {
     setExistingFile("<html><body>old</body></html>");
 
+    // Simulate a concurrent writer's collab mutation landing in the exact
+    // race window this fix closes: AFTER this action's own
+    // readLiveSourceFile() call (which establishes expectedVersionHash from
+    // the then-current base) but BEFORE writeInlineSourceFile's internal
+    // re-check. hasCollabState() flips true and getText() returns the
+    // concurrent content on the FIRST read (inside the action's own
+    // readLiveSourceFile) so the captured expectedVersionHash reflects the
+    // pre-race base; a second, different value on the SECOND read (inside
+    // writeInlineSourceFile) simulates the concurrent write having landed in
+    // between, so writeInlineSourceFile's own hash re-check must reject it.
     const collab = await import("@agent-native/core/collab");
     let hasCollabCalls = 0;
     (collab.hasCollabState as any).mockImplementation(async () => {
@@ -538,6 +532,11 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     ]);
 
     // Only file-2 gets the "concurrent write" race from the test above: its
+    // collab doc already exists, and the live content differs between this
+    // action's own pre-write read and writeInlineSourceFile's internal
+    // re-check, so its write is rejected as a genuine conflict. file-1 has no
+    // collab doc and takes the plain seedFromText path used by every other
+    // test in this block, so it must save normally in the same batch.
     const collab = await import("@agent-native/core/collab");
     let file2GetTextCalls = 0;
     (collab.hasCollabState as any).mockImplementation(

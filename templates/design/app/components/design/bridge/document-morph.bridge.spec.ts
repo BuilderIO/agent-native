@@ -866,7 +866,9 @@ describe("morph edge cases", () => {
           ),
         );
 
+        // The seed branch used to adopt the incoming head as its baseline, so
         // the first breakpoint/motion/token write never reached the document
+        // and every later diff was measured against a head never applied.
         expect(
           await page
             .locator("head style[data-agent-native-breakpoints]")
@@ -1421,7 +1423,9 @@ describe("morph findings from the sixth review round", () => {
           '[data-agent-native-node-id="an-root"]',
         );
 
+        // Alpine evaluates x-data once, so patching the attribute in place
         // leaves every binding underneath on the old scope. Polled because
+        // Alpine re-initialises the replacement on its own observer tick.
         await expect
           .poll(
             async () =>

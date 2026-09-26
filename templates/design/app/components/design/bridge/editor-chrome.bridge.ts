@@ -286,7 +286,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "",
     );
     chromeTransitionStyle.textContent =
-      "html{overflow:clip}"  +
+      "html{overflow:clip}" +
       '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
@@ -1980,7 +1980,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return el === document.body || el === document.documentElement;
   }
 
+  // A hairline and a zero-height flow container are both real layers. Pad them
+  // for hit-testing and outlines instead of dropping them, or a click can
+  // select what a marquee cannot.
+  // Both this bridge and the lightweight hit-test bridge are injected into the
+  // same document unless Interact mode drops this one. The fallback answers
   // selectable-rects only when this flag is absent, or two replies race and the
+  // host keeps whichever arrives first.
   (window as unknown as Record<string, boolean>).__agentNativeEditorChrome =
     true;
 
@@ -2337,6 +2343,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return target;
   }
 
+  // Climbs from `el` to the ancestor that is a direct child of `scope`
+  // (inclusive: returns `el` itself when `el === scope`). Bounded at
   // document.body/documentElement even if `scope` is never reached, so a
   // stale or detached scope can never walk the climb past the top level.
   function containerScopeAncestor(el: Element, scope: Element): Element {
@@ -2353,6 +2361,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return node;
   }
 
+  // Figma parity (spec Part 3 + ground truth Round 2): a plain click selects
+  // the outermost child of the CURRENT container scope — the screen root by
+  // default, or the container last drilled into via double-click — instead of
+  // the raw deepest hit under the pointer. A click that lands outside the
+  // drilled container exits drill mode (Figma: clicking elsewhere returns to
+  // top-level selection). Cmd/Ctrl+click deep-selects and must call
+  // selectionTargetForHit directly instead of this.
   function containerFirstSelectionTarget(
     hit: Element | null,
     descendIntoGroup?: boolean,
@@ -3058,7 +3073,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return defaults;
   }
 
+  // Native computed values preserve auto/%/calc without freezing used layout
+  // pixels or trying to replay the cascade. Like the other snapshot properties,
+  // sizes describe the current computed state, including active animations.
   // ponytail: font-relative sizes may canonicalize to pixels; preserving authored
+  // units across different stylesheets would require declaration provenance.
   var PORTABLE_STYLE_BOX_SIZE_PROPERTIES: Record<string, boolean> = {
     width: true,
     height: true,
@@ -4157,6 +4176,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  // Raw authored (not computed) inline style values for the properties the
+  // EditPanel constraints/position/auto-size readers need to distinguish
+  // "unset" from "resolved to a computed pixel value" (e.g. an absolutely
+  // positioned element with only `left` authored still computes both `left`
+  // and `right` — only the inline style tells you which side was actually
+  // set). Empty-string values are omitted so callers can treat key-absence as
+  // "not authored".
   var INLINE_STYLE_PROPERTIES = [
     "position",
     "left",
@@ -5117,7 +5143,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
+  // Every element the click path can reach, not just the id-bearing ones: an id
+  // attribute is a persistence detail, and generated markup routinely has none,
+  // so keying selectability off it made a marquee miss what a click hits.
+  // Figma parity: a marquee selects objects at the CURRENT container scope
+  // (the screen root by default, or the container last drilled into) — the
   // same scope containerFirstSelectionTarget resolves clicks against — never
+  // reaching into a candidate's nested descendants unless Cmd/Ctrl is held
+  // (`deep`), matching Cmd/Ctrl+click's own deep-select.
   function collectSelectableElements(deep?: boolean): Element[] {
     var nodes = Array.prototype.slice.call(
       document.body ? document.body.querySelectorAll("*") : [],
@@ -5378,7 +5411,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   appendEditorChromeNode(selectionOverlay);
   if (readOnly) setSelectionOverlayResizeChromeVisible(false);
 
+  // ── Gradient edit overlay (in-iframe parity for MultiScreenCanvas's
+  // GradientEditOverlay) ──────────────────────────────────────────────────
+  // Renders the same gradient line + endpoint squares + round stop markers
+  // over an element *inside* this screen's iframe content, driven entirely
+  // by `gradient-edit-target` / `gradient-edit-clear` postMessages from the
+  // parent (DesignEditor forwards its existing `gradientEditTarget` state
+  // for the active screen — see the doc comment on
+  // `gradientEditOverlayTarget` below for the exact wiring contract). Linear
   // gradients only, matching MultiScreenCanvas's overlay scope: an
+  // unparseable or non-linear `cssValue` renders nothing.
+  //
+  // The math below (gradientLineEndpoints/gradientStopPoints/
+  // angleFromDraggedEndpoint/stopPercentFromDraggedPoint) is a direct port
+  // of the same-named pure functions exported from MultiScreenCanvas.tsx —
+  // this file cannot import them (bridge sources may not import/require
+  // anything, see bridge.guard.spec.ts), so the formulas are duplicated
+  // here verbatim. Keep both copies in sync if the math ever changes.
   var gradientOverlay = document.createElement("div");
   gradientOverlay.setAttribute("data-agent-native-edit-overlay", "gradient");
   gradientOverlay.style.cssText =
@@ -5767,6 +5816,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     selection: string;
     highlight: string;
   } | null = null;
+  // T22: deferred begin-text-edit command for a node that hasn't landed in
+  // this document yet. The host posts begin-text-edit immediately after
+  // creating a text primitive, but the node itself arrives via the
+  // replace-document-content persist round-trip — when the command wins that
+  // race the old behavior silently dropped it, leaving the user typing into
+  // nothing (worst case: Delete/arrow keystrokes fell through to host layer
+  // shortcuts). Instead, poll briefly (bounded ~2s, rAF cadence) for the
+  // nodeId and activate the edit the moment it appears. Only the newest
+  // command is kept; any user pointerdown or a user-initiated text edit
+  // cancels it (the user has moved on — never yank focus later).
   type BeginTextEditRepeat = { sourceSelector: string; itemIndex: number };
   var pendingBeginTextEdit: {
     nodeId: string;
@@ -6053,6 +6112,29 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return cancel();
   }
 
+  // The host's Escape handler learns of an active drag from THIS document's
+  // own postEditorDragState message and cancels it by posting
+  // "agent-native:cancel-active-drag" back — both hops cross the iframe
+  // boundary as an async postMessage. The mouseup that ends the very same
+  // gesture is dispatched natively, directly to this document, and reliably
+  // finishes (removing this gesture's listeners and committing) before that
+  // cancel message is even delivered here, so `cancelActiveBridgeDrag` above
+  // finds nothing to cancel and the commit that should have been cancelled
+  // stands.
+  //
+  // Kept in a SEPARATE slot from `activeDragCancel` rather than reusing it:
+  // the plain-keydown Escape handler below also calls `cancelActiveBridgeDrag`
+  // directly, synchronously, whenever focus happens to sit in this document
+  // for ANY reason — arming that shared slot here would let an unrelated
+  // LATER Escape undo an already-finished gesture. Only the postMessage path
+  // (the one actually exposed to the race above) consults this slot, via
+  // cancelActiveBridgeDragOrPendingCommit.
+  //
+  // Tagged with the gesture's own id and cleared the moment ANY new gesture
+  // begins (beginPotentialShieldDrag), so a stale revert left over from
+  // gesture A can never fire once the user has moved on to gesture B — it
+  // simply vanishes rather than being left to fire against whatever gesture
+  // is active by the time it would.
   var MOVE_CANCEL_RACE_GRACE_MS = 200;
   var dragGestureSequence = 0;
   var pendingMoveCommitRevert: {
@@ -6080,6 +6162,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }, MOVE_CANCEL_RACE_GRACE_MS);
   }
 
+  // Used ONLY by the "agent-native:cancel-active-drag" message handler, so
+  // the grace window above is never reachable from the plain-keydown Escape
+  // path (which keeps calling cancelActiveBridgeDrag directly, touching only
+  // a genuinely live gesture).
+  //
+  // `pressedAt` is the moment Escape was actually pressed (the host computes
+  // it as performance.timeOrigin + the keydown event's timeStamp — real event
+  // creation time, not message-delivery time), never message-arrival time —
+  // the postMessage round trip means "cancel arrived after the commit" is
+  // true for BOTH an Escape that predates the mouseup (the race this grace
+  // window exists to fix) and one pressed genuinely after the drag already
+  // finished (which must NOT revert it). Per MDN, event creation time is
+  // comparable across browsing contexts as performance.timeOrigin +
+  // event.timeStamp, so both this document's releasedAt/activeDragStartedAt
+  // and the host's pressedAt sit on the same epoch-ms wall clock even though
+  // they're stamped in different documents; only comparing those creation
+  // times — never message arrival order — can tell the two cases apart.
+  //
+  // Gesture identity comes first, before touching the active gesture at all:
+  // an Escape stamped before the CURRENTLY active gesture began belongs to
+  // some earlier gesture (already finished or itself already cancelled) and
+  // must not reach in and cancel whatever the user has since started.
   function cancelActiveBridgeDragOrPendingCommit(pressedAt?: number): boolean {
     if (
       activeDragCancel &&
@@ -7031,6 +7135,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var liveTemplate = templateContentOf(live);
     var nextTemplate = templateContentOf(next);
     if (liveTemplate && nextTemplate) {
+      // Its own key scope: a node id can legitimately appear both inside a
+      // template and in the instantiated body, and the outer map must not
+      // hand the live one over to the template. Snapshot repeat rows before
+      // morphing the inert children so unkeyed paths cannot shift mid-walk.
       var templateContext = scopedMorphContext(liveTemplate, nextTemplate);
       var repeatCloneSnapshot = snapshotRepeatCloneTargets(
         live as HTMLTemplateElement,
@@ -7148,6 +7256,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
     ensureEditorChromeStyle();
     if (lastSourceHeadHtml === null) {
+      // First patch after a srcdoc build. The document already carries the
+      // head it was built from, so this seeds the baseline — but it cannot
+      // just adopt: when the first patch is itself a head edit (a breakpoint,
+      // motion or token write, none of which reload the frame any more),
+      // adopting means that stylesheet never reaches the live document and
+      // every later diff is measured against a head that was never applied.
+      // Insert only what is genuinely new; replaceSourceHeadNodes skips nodes
+      // already present.
       replaceSourceHeadNodes(null, nextHeadHtml);
       lastSourceHeadHtml = nextHeadHtml;
     }
@@ -7425,6 +7541,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return Math.max(allowNegative ? -999 : 0, Math.min(999, rounded));
   }
 
+  // Figma-style handle hit area: only the small handle *line* itself (plus a
+  // few px of pointer tolerance) should start a padding drag. The rest of the
+  // padding band must fall through to normal element move/select — dragging
+  // anywhere else inside the element (even inside the padding region) moves
+  // the element, it does not resize padding. Gap handles keep the previous
+  // full-region hit area (out of scope for this fix; not covered by the
+  // reported UX regression). Base tolerance is in editor-chrome (unscaled)
+  // pixels; callers multiply by chromeLineScale() so the hit area keeps a
+  // constant on-screen size regardless of canvas zoom, matching how the
+  // handle line's own thickness (chromeLineScale()) is derived.
   var PADDING_HANDLE_HIT_TOLERANCE_BASE = 4;
 
   function hitRectForPaddingHandle(
@@ -8025,6 +8151,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     lineNode.style.background = spacingColor(handle.kind);
     spacingOverlay.appendChild(lineNode);
 
+    // Visual-only hatch band over the full padding region. Purely decorative
+    // (pointer-events: none) — it must never intercept clicks, since only the
+    // small hit node below is allowed to start a padding drag. Hatch is a
+    // hover affordance only: it shows the band the user is about to resize,
+    // and disappears the instant a drag starts (kind === "padding" only, per
+    // the reported regression; gap handles are out of scope for this fix).
+    // Constant-screen-size chrome: tile the hatch pattern at a size that
+    // compensates for the host's iframe scale (matches spacingFill's scaled
+    // stripe stops — a fixed 6px tile would clip the scaled pattern).
     var hatchTile = 6 * chromeLineScale() + "px";
     if (handle.kind === "padding" || handle.kind === "margin") {
       var hatchNode = document.createElement("span");
@@ -8832,7 +8967,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     hideGridTrackOverlay();
   }
 
-  // occupies a line, so only a genuinely non-numeric token (a line name) drops.
   function gridTrackSizes(template: string): number[] {
     var sizes: number[] = [];
     if (!template || template === "none") return sizes;
@@ -9479,6 +9613,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (trackLayout) renderGridTrackOverlay(el, trackLayout);
   }
 
+  // ── Frame name labels ───────────────────────────────────────────────────
+  // This chrome paints over the design's own page, never over editor surfaces.
   // guard:allow-raw-color — a mid grey is legible on white screens and dark boards.
   var FRAME_LABEL_IDLE_COLOR = "rgba(113,113,122,0.95)";
   var FRAME_PRIMITIVE_SELECTOR = '[data-an-primitive="frame"]';
@@ -11745,7 +11881,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return Number.isFinite(num) ? num : null;
   }
 
-
   function clampGradientT(t: number): number {
     if (!Number.isFinite(t)) return 0;
     return Math.max(0, Math.min(1, t));
@@ -11817,7 +11952,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return clampGradientT(t) * 100;
   }
 
-  // MultiScreenCanvas overlay's own linear-only scope).
   var GRADIENT_LINEAR_RE = /^linear-gradient\s*\(([\s\S]*)\)\s*$/i;
   var GRADIENT_ANGLE_RE = /(-?\d+(?:\.\d+)?)deg/;
   function splitGradientTopLevel(input: string): string[] {
@@ -11933,7 +12067,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var gradient = parseLinearGradientCss(target.cssValue);
     if (!gradient) {
-      // Non-linear/unparseable — render nothing (linear-only scope, matches
       hideGradientOverlay();
       return;
     }
@@ -14250,7 +14383,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     rect: true,
   };
 
-
   function isFreeformRelativeContainer(el: Element | null): boolean {
     if (!el || el === document.body || el === document.documentElement) {
       return false;
@@ -14672,6 +14804,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "*",
     );
     if (phase === "end") {
+      // A non-Apple S keyup can land in the overview host after this source
+      // iframe loses focus. End the source gesture's modifier scope here so a
+      // missed iframe keyup cannot affect the next drag.
       bridgeIgnoreAutoLayoutKeyPressed = false;
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
@@ -15716,9 +15851,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
 
-    // Leaving a frame for its parent's empty area stacks the layer immediately
-    // above the frame being exited. A hit on a sibling is an explicit slot
-    // and keeps that sibling as its insertion anchor.
     var exitedContainer = el.parentElement;
     var receivingContainer = exitedContainer && exitedContainer.parentElement;
     var targetContainer = dropContainerForTarget(target);
@@ -15752,9 +15884,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
 
-    // Flow child (a real flow-reorder gesture) dropped into an empty plain
-    // container: convert it to auto layout before the structural move. This is
-    // the flow path only; the absolute/free drag keeps shapes free.
     if (
       target &&
       target.dropMode === "flow-insert" &&
@@ -19818,6 +19947,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
     }
 
+    // Client px per CSS px for this element. 1 unless an ancestor between it
+    // and the viewport is CSS-scaled; offsetWidth is the untransformed box.
+    // Client px per CSS px contributed by ANCESTORS. Measured on the offset
+    // parent, never on dragEl: its own rect already carries its own
+    // transform, so a rotated or scaled layer would report its local
+    // transform as if the parent were scaled. 1 means "no mapping known",
+    // which is the identity, not a measurement.
     function ancestorScale(el, axis) {
       var host = el && (el as HTMLElement).offsetParent;
       if (!host) return 1;
@@ -20036,6 +20172,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           hideInsertionGuide();
         }
       }
+      // Snap guides only make sense for a free absolute placement — never at
+      // once alongside the auto-layout flow-insert indicator (the element is
+      // about to be reflowed into a flex/grid slot, not placed at an x/y
+      // coordinate), and never while the pointer has left the iframe (the
+      // host owns a cross-screen drop at that point).
+      //
+      // An "absolute-container" target is a free placement: the element keeps
+      // its x/y inside the frame it lands in, so it is precisely the case
+      // guides are for. Hiding them there left every board drag — where the
+      // primitives live inside an absolutely positioned frame — with no
+      // guides at all.
       var flowInsertPending =
         !!currentAutoLayoutTarget &&
         currentAutoLayoutTarget.dropMode !== "absolute-container";
@@ -21763,6 +21910,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     stopNativeInteraction(e);
     clearGridProjectionCaches();
+    // Consume any host handoff at pointerdown; the synthetic event carries
     // the same value so async postMessage delivery cannot win the race.
     hostIgnoreAutoLayoutAtPointerDown = false;
     pendingMoveCommitRevert = null;
@@ -22272,6 +22420,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           return;
         }
         if (!focusInsideEdit) {
+          // Race window: the session is active but focus sits elsewhere
+          // (creation focus race, transient focus steal). If the user is
+          // legitimately typing in a real form control, leave it alone;
+          // otherwise pull focus back into the editable so the keystroke
+          // lands as text — and never reaches host shortcuts.
           if (!isEditorTypingTarget(activeNow)) {
             try {
               activeTextEditEl.focus();
@@ -22670,8 +22823,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ? eventTarget
         : null;
     var target = programmaticFlag
-      ?
-        rawTargetFallback || findTextEditTarget(eventTarget)
+      ? rawTargetFallback || findTextEditTarget(eventTarget)
       : findTextEditTarget(elementFromEditorPoint(e.clientX, e.clientY)) ||
         findTextEditTarget(eventTarget) ||
         rawTargetFallback;
@@ -25088,7 +25240,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   window.addEventListener("scroll", scheduleRefreshOverlays, true);
   window.addEventListener("resize", scheduleRefreshOverlays);
 
+  // Document-level native-interaction net for the z-index race: the shield
+  // (z-index 99990) only wins pointer dispatch when nothing in the previewed
+  // app paints above it, and real running apps routinely do — portalled
+  // modals/toasts/menus at 99999+/2147483647, or any node appended to <body>
+  // after the shield at an equal z-index. When that happens the app element
+  // is the real e.target, not the shield, so none of the shield-bound
+  // listeners above ever see the event. `document` is still an ancestor of
+  // that element regardless of paint order, so a capture listener here still
+  // sees every such event. Registered LAST among this file's own
+  // document-level listeners (all of which sit above this line) so this net
+  // can never preempt them via stopImmediatePropagation — e.g. the
+  // click-away-commits-text-edit pointerdown listener above must still run
+  // first. `activeDragCancel` is truthy for the file's mouse-event-driven
+  // drags (move/resize/rotate/spacing/reorder), whose own document-level
+  // mousemove/mouseup listeners are attached later still (on the mousedown
   // that starts the drag) and would otherwise be the same kind of race
+  // victim; deferring to them while a drag owns input avoids that.
   function isNativeInteractionNetExempt(target: Element | null): boolean {
     return (
       isOverlayElement(target) ||

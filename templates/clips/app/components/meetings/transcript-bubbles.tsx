@@ -438,6 +438,12 @@ export function TranscriptBubbles({
                   ? t("transcriptBubbles.searchClose")
                   : t("transcriptBubbles.searchTranscript")
               }
+              // Without this, clicking here while the input is focused blurs
+              // it first (onBlur may already auto-close on an empty query),
+              // then this handler runs against state that just changed out
+              // from under it — sometimes reopening what onBlur just closed.
+              // Keeping focus on the input means blur never fires from this
+              // click at all, so there's nothing left to race.
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
             >

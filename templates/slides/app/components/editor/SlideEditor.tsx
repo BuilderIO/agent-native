@@ -2635,6 +2635,8 @@ export default function SlideEditor({
     ],
   );
 
+  // Exit edit mode when switching slides — save pending content first so
+  // typing isn't lost when the user clicks a different slide in the sidebar.
   useEffect(() => {
     const previousSlideId = previousSlideIdRef.current;
     if (previousSlideId === slide.id) return;
@@ -2686,6 +2688,9 @@ export default function SlideEditor({
     };
   }, [endTextSession]);
 
+  // Another slide's HTML is about to replace the canvas under an open edit
+  // (the agent navigated, or a slide switch rendered before the effect above
+  // ran). Save the edit while its DOM still exists.
   useEffect(() => {
     const boundary = contentReplaceBoundaryRef.current;
     if (!boundary) return;
@@ -2699,6 +2704,8 @@ export default function SlideEditor({
       boundary.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
   }, []);
 
+  // Keep canvas gesture handlers from stealing the browser's native text
+  // selection stream once an inline edit has started.
   useEffect(() => {
     if (!editingEl) return;
     const onPointerDown = (event: PointerEvent) => {
@@ -2980,6 +2987,7 @@ export default function SlideEditor({
     syncSelectionToAppState(buildSelectionState("canvas", []));
   }, [buildSelectionState, slide.id]);
 
+  // Content reconciliation can replace the DOM node behind an open overlay.
   useEffect(() => {
     if (!imageOverlay) return;
     const target = selectedImg;
@@ -2996,6 +3004,7 @@ export default function SlideEditor({
     syncSelectionToAppState(null);
   }, [imageOverlay, selectedImg, slide.content]);
 
+  // Stamp all elements with data-builder-id after render
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -3007,7 +3016,6 @@ export default function SlideEditor({
     }, 50);
     return () => clearTimeout(timer);
   }, [slide.id, slide.content]);
-
 
   const applyMultiSelection = useCallback(
     (ids: Set<string>) => {
@@ -3328,6 +3336,9 @@ export default function SlideEditor({
     applyMultiSelectionRef.current(ids);
   }, [slide.content, getSlideContent]);
 
+  // One Escape owner for the HTML editor. Radix dialogs/popovers and native
+  // form controls retain their own Escape behavior before we arbitrate canvas
+  // state. Gesture cancellation is deliberately ahead of selection clearing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -3556,6 +3567,9 @@ export default function SlideEditor({
     selectedImg,
   ]);
 
+  // Keep cached rects fresh on scroll/resize so outlines + chip stay aligned.
+  // Group drag calls the same helper every pointer move so its outlines do not
+  // lag behind the objects until the next scroll or resize.
   useEffect(() => {
     if (multiSelection.size === 0) return;
     const update = () => {
@@ -3752,6 +3766,10 @@ export default function SlideEditor({
     [commitTableMutation, tableHasMergedCells, tableHasColgroup],
   );
 
+  // Delete/Backspace removes the selected slide content (single or
+  // multi-select). Only active when something is selected for styling (not
+  // while inline-editing text, where Backspace should delete a character) and
+  // not while the browser focus is in an unrelated input.
   useEffect(() => {
     if (editingEl) return;
     if (multiSelection.size === 0 && !selectedElementSelector) return;
@@ -4387,6 +4405,10 @@ export default function SlideEditor({
       window.removeEventListener("blur", clearOverlappingClipboardIds);
   }, [deckId]);
 
+  // One window listener for object copy/paste/duplicate. Native text editing
+  // must always win: bail the instant a text edit is active or focus is on any
+  // form control, BEFORE touching the clipboard or selection, so ordinary
+  // Cmd/Ctrl+C/V/D typing is never hijacked.
   useEffect(() => {
     if (readOnly) return;
     const onKey = (e: KeyboardEvent) => {
@@ -4443,6 +4465,8 @@ export default function SlideEditor({
     storedFormOfCopy,
   ]);
 
+  // The native paste event is authoritative: a matching layer marker means
+  // the in-app copy is latest; otherwise current native content wins.
   useEffect(() => {
     if (readOnly) return;
     const onPaste = (e: ClipboardEvent) => {
@@ -4510,6 +4534,9 @@ export default function SlideEditor({
     return () => window.removeEventListener("paste", onPaste, true);
   }, [deckId, getClipboardSelection, pasteSlideObjects, readOnly, slide.id]);
 
+  // Appearance clipboard shortcuts are deliberately separate from object
+  // copy/paste. The Alt modifier keeps Cmd/Ctrl+C/V available for duplicating
+  // objects and for native text editing.
   useEffect(() => {
     if (readOnly) return;
     const onKey = (e: KeyboardEvent) => {
@@ -6675,6 +6702,9 @@ export default function SlideEditor({
           : null);
       if (!element) return;
 
+      // Arrow nudging is also a first-class way to move flow-layout text and
+      // images. Promote those elements using the same reversible freeform
+      // boundary as a real drag, then persist the exact resulting HTML.
       const frozen = isPersistedFreeformObject(element)
         ? { element }
         : freezeElementForFreeformSelection(element);
@@ -6733,7 +6763,6 @@ export default function SlideEditor({
     selectedImg,
     selectedElementSelector,
   ]);
-
 
   const handleSlidePointerUp = useCallback(
     (e: React.PointerEvent) => {
@@ -7114,6 +7143,9 @@ export default function SlideEditor({
     ],
   );
 
+  // Keep these listeners stable while React re-renders the marquee overlay.
+  // Re-attaching them whenever marquee state changes can lose a fast
+  // pointermove/pointerup between the effect cleanup and re-install.
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
       const origin = marqueeOriginRef.current;
@@ -8121,6 +8153,8 @@ export default function SlideEditor({
     !!selectedStyleSnapshot ||
     multiSelection.size > 0;
 
+  // Flow objects are promoted for the resize gesture and restored when a
+  // press does not become a resize.
   const selectedForDrag = selectedElementRect ? resolveSelectedElement() : null;
   const isSelectedElementDraggable = selectedForDrag
     ? !isSlideCanvasShell(selectedForDrag)

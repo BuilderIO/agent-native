@@ -93,7 +93,6 @@ export function withDeckLock<T>(
   return next;
 }
 
-
 const SlideAnimationSchema = z.object({
   id: z.string().min(1).describe("Stable ID for this ordered reveal step"),
   elementIndex: z
@@ -451,6 +450,9 @@ function storedCreativeContext(value: unknown): {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Core merge logic (exported for unit tests)
+// ---------------------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function applyOperation(
@@ -562,6 +564,8 @@ export function applyOperation(
         );
       }
       const byId = new Map(slides.map((s: { id: string }) => [s.id, s]));
+      // Build the new order from the client's desired order, keeping only
+      // slides that actually exist in the server copy.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const reordered: any[] = orderedIds
         .map((id) => byId.get(id))
@@ -592,6 +596,8 @@ export function applyOperation(
         );
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // Copy every provided field: a duplicated or undo-restored slide has to
+      // keep its transition, animations, and image data, not just its text.
       const newSlide: any = {
         ...fields,
         id: slideId,
@@ -787,7 +793,6 @@ export function isAgentPatchCaller(caller: string | undefined): boolean {
     caller === "webmcp"
   );
 }
-
 
 export default defineAction({
   title: "Patch Slides deck",

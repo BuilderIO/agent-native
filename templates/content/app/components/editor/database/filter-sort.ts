@@ -1,4 +1,6 @@
 // i18n-raw-literal-disable-file -- unused pure helper copy; live database editor owns localized UI.
+// Filter/sort logic: apply, upsert, move, match, property value helpers.
+// Pure logic — no React, no icons.
 import type {
   ContentDatabaseItem,
   DocumentProperty,

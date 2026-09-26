@@ -175,23 +175,6 @@ describe("usePersistShaderEdit (shader preset apply regression)", () => {
   });
 });
 
-/**
- * Regression test for the cross-pipeline write-race data-loss bug: a shader
- * apply (this hook's persist()) and a base Fill "Add layer" / "Remove layer"
- * style commit (DesignEditor.tsx's commitVisualStyles) both eventually
- * rewrite the SAME per-file Yjs collab document through two independent
- * round trips — a diff-based server write here, and the host's own
- * synchronous full-document ydoc rewrite there. Verified (via a standalone
- * repro against the real applyShaderToHtml/applyVisualEdit/applyTextToYDoc
- * functions) that racing the two produces a corrupted, doubled document
- * (two concatenated <!DOCTYPE>...</html> copies), not a clean overwrite.
- *
- * `isShaderWriteInFlight`/`waitForShaderWriteToSettle` are the exclusion
- * primitives DesignEditor.tsx's commitVisualStyles checks before doing its
- * own competing write. These tests exercise the registry directly (not a
- * mocked stand-in) so a regression in the ordering/clearing logic itself
- * would fail here, independent of any DesignEditor.tsx wiring.
- */
 describe("shader write-race exclusion registry (isShaderWriteInFlight / waitForShaderWriteToSettle)", () => {
   beforeEach(() => {
     callActionCalls.length = 0;
@@ -337,6 +320,10 @@ describe("shader write-race exclusion registry (isShaderWriteInFlight / waitForS
       html: html.replace("v1", "v1-shader"),
       errors: [],
     }));
+    // Second persist starts while the first's read-source-file is still
+    // gated — it must NOT begin its own read until the first has fully
+    // settled (including its write), or the two would compute against the
+    // same stale base and race exactly like the reported bug.
     const second = persist((html: string) => ({
       html: html.replace("v2", "v2-shader"),
       errors: [],

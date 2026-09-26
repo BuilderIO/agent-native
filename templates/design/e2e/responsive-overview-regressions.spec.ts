@@ -159,6 +159,11 @@ test("responsive frames select and edit directly with explicit scope persistence
     await gotoEditor(page, designId);
     await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
 
+    // Content-fit height: the 390px mobile frame must render at its own
+    // content height (the fixture is 900px tall), NOT the desktop primary's
+    // aspect ratio (which produced a ~274px landscape sliver that clipped the
+    // content — the reported mobile-vs-tablet screenshot). A correctly-sized
+    // mobile frame is portrait (taller than wide).
     const mobileIframe = page.locator(
       `iframe[data-screen-iframe-id="${fileId}::bp-390"]`,
     );

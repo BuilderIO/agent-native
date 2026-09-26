@@ -916,6 +916,14 @@ async function init(): Promise<void> {
 
   const refreshDevices = async (): Promise<void> => {
     inputDevices = await enumerateInputDevices();
+    // A stored device id that no longer matches anything enumerated (unplugged
+    // hardware, or a stale virtual "default" id saved before this fix) must not
+    // keep being treated as a real selection — clear it so capture honestly
+    // falls back to the OS default instead of trying to `exact`-match a ghost id.
+    // Only trust a NON-empty list, though: enumeration yields empty lists on
+    // transient errors or before permission is granted, and wiping a valid
+    // saved selection over that would destroy the user's choice for no reason
+    // (the label already renders a fallback while the list is empty).
     let settingsChanged = false;
     if (
       settings.videoDeviceId &&

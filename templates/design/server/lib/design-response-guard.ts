@@ -169,6 +169,7 @@ function parseResult(content: string): Record<string, unknown> | null {
       : null;
   } catch {
     // coercion-ok: malformed action output is unreadable and must fail closed
+    // rather than count as proof that Design content was persisted.
     return null;
   }
 }

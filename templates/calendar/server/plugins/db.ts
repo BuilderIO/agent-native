@@ -9,6 +9,12 @@ import * as schema from "../db/schema.js";
 
 const LEGACY_DEV_OWNER_SQL = "'local@localhost'"; // guard:allow-localhost-fallback - migration marker for legacy dev-owned rows, not an auth fallback
 
+/**
+ * Every Drizzle table exported from schema.ts. Filters out type-only and
+ * helper exports (e.g. re-exported `eq`/`sql`) the same way db.spec.ts's
+ * `isDrizzleTable` regression guard does: a real table carries a
+ * Symbol-keyed drizzle metadata bag, plain exports don't.
+ */
 function isDrizzleTable(value: unknown): value is object {
   return (
     !!value &&
@@ -22,6 +28,10 @@ function isDrizzleTable(value: unknown): value is object {
 const schemaTables = Object.values(schema).filter(isDrizzleTable);
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently — see the analytics template's v75-v83 incident
+// (packages/core/src/db/migrations.ts and templates/analytics/server/plugins/db.ts).
 export const runCalendarMigrations = runMigrations(
   [
     {

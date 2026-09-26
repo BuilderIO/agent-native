@@ -1,4 +1,14 @@
+// Camera/microphone grants for the chrome-extension:// origin, and the one
+// failure they produce that does not mean "the user cancelled".
+//
 // Chrome only shows the permission prompt for a real extension page, so the
+// headless offscreen recorder can never answer one: an ungranted getUserMedia()
+// there rejects immediately with NotAllowedError "Permission dismissed". The
+// cached grant below is what lets a recording get that far — it can outlive the
+// real grant (Chrome revokes permissions for origins it considers unused, and
+// clearing site data drops them), and nothing but reinstalling the extension
+// used to clear it. So a dismissal from a headless context is a missing grant to
+// recover from, never a cancellation to report back as-is.
 
 const CACHE_KEY = "clipsMediaPermission";
 
@@ -56,6 +66,8 @@ export class MediaPermissionRequiredError extends Error {
   }
 }
 
+// True only for the "Chrome would have to ask, and nobody can answer" family. A
+// system-level denial (macOS/Windows privacy settings) reads the same to the
 // page but cannot be fixed from the permission page, so it stays a raw failure.
 export function isMediaPermissionDeniedError(error: unknown): boolean {
   const text =
@@ -138,6 +150,7 @@ export async function hasGrantedDeviceLabels(
     return devices.some((entry) => entry.kind === kind && Boolean(entry.label));
   } catch {
     // coercion-ok: unreadable is not "revoked", but the only caller treats both
+    // the same — it routes through the permission page either way, which recovers.
     return false;
   }
 }

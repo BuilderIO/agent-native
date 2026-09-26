@@ -73,6 +73,8 @@ describe("OrganizationIdentityCard", () => {
   });
 
   it("reports a failed organization lookup instead of hiding the section", () => {
+    // A failed `useOrg()` leaves `data` undefined, which is indistinguishable
+    // from a loaded `orgId: null` unless the error is read. Coercing it into
     // personal scope would silently hide an auth/network/backend failure.
     state.org = undefined;
     state.orgError = true;

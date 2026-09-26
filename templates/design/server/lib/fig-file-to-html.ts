@@ -1,4 +1,3 @@
-
 import {
   base64ToBytes,
   readAscii,
@@ -2013,7 +2012,6 @@ function layoutSizing(
     }
   }
 
-
   if (node.type === "TEXT" && node.textAutoResize) {
     if (node.textAutoResize === "WIDTH_AND_HEIGHT") {
       horizontal = "HUG";
@@ -2448,18 +2446,6 @@ function decodePathCommands(bytes: Uint8Array | undefined): string {
   return out.join(" ");
 }
 
-/**
- * Decode a Figma vector-network blob into an SVG path. The clipboard ships this
- * editable `vectorData.vectorNetworkBlob` instead of a flattened `commandsBlob`,
- * so it's the only vector geometry a no-token paste has. Format (little-endian,
- * reverse-engineered from real `.fig` data):
- *   header  : u32 vertexCount, segmentCount, regionCount, _reserved
- *   vertices: vertexCount × { f32 x, f32 y, u32 styleID }               (12 B)
- *   segments: segmentCount × { u32 startVtx, f32 tanStart{x,y},
- *                              u32 endVtx, f32 tanEnd{x,y}, u32 _ }  (24 B / 28 stride)
- * Each segment is the cubic P0=vtx[start], P1=P0+tanStart, P2=vtx[end]+tanEnd,
- * P3=vtx[end] (zero tangents → a line); segments chain end→start into subpaths.
- */
 interface DecodedVectorNetwork {
   d: string;
   arrowEnd: boolean;
@@ -2810,7 +2796,6 @@ function emitSvgBody(
       const maskBase = `bool-${guidKey(node.guid).replace(/[^a-z0-9]/gi, "")}`;
       const pad = bandWidth + 1;
       const box = `x="${num(-pad)}" y="${num(-pad)}" width="${num(w + pad * 2)}" height="${num(h + pad * 2)}"`;
-      // not themeable colours: a token would make the mask follow the viewer's
       const keep = (operand: { d: string; transform: string }) =>
         // guard:allow-raw-color — mask alpha, see above
         `<path d="${operand.d}"${operand.transform} fill="#fff" />`;

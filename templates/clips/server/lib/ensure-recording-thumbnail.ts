@@ -139,6 +139,7 @@ export async function releaseRecordingThumbnailLease(
 }
 
 // ponytail: process-local single-flight plus a five-minute SQL lease keeps
+// separate production isolates from decoding and uploading the same clip.
 const inFlightThumbnailEnsures = new Map<
   string,
   Promise<EnsureRecordingThumbnailResult>

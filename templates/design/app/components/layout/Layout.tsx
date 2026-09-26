@@ -93,6 +93,7 @@ export function Layout({ children }: LayoutProps) {
   const builderHostEmbed = isBuilderHostEmbed();
   const embedChromeRequested = isEmbedChromeRequested();
   // The shell canvas is embedded without a session, so this cannot be the token
+  // check alone or it renders Design's own nav inside Builder.
   const embedded = builderHostEmbed || isEmbedAuthActive();
   useNavigationState(hasSession);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);

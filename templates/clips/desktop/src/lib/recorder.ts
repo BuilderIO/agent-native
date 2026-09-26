@@ -3290,6 +3290,7 @@ async function startNativeFullscreenRecording(
     };
     const warmMic = async (recordingId: string) => {
       assertStartupActive();
+      // An IPC timeout does not stop native work. Fail the startup on timeout;
       // never let begin race a warm invoke that is still creating its stream.
       await guardRecordingStart(
         invoke("native_fullscreen_recording_warm", {
@@ -4138,6 +4139,19 @@ async function startRecordingInner(
     }
   }
 
+  // 1. Acquire streams BEFORE the countdown so recording can start without a
+  //    permission prompt in the countdown.
+  //
+  // CRITICAL: WebKit requires `getDisplayMedia` to be called from a user
+  // gesture handler. Dispatch that request first, synchronously. Its native
+  // sharing panel owns the user's attention while it is open, so secondary
+  // WebKit capture and native Rewind suspension are ordered after this call.
+  // This preserves the activation-bound getDisplayMedia call while keeping
+  // AppKit's sharing controls from competing with capture-graph setup.
+  // `video: false` on the audio getUserMedia is EXPLICIT — WebKit on macOS
+  // has been observed to treat `{ audio: ... }` with no `video` key as
+  // "caller hasn't expressed a video preference" and renegotiate the
+  // page's media session in unpredictable ways.
   if (wantsCamera) {
     console.log(
       "[clips-recorder] acquiring camera in popover (owner for bubble overlay)",
@@ -4995,7 +5009,6 @@ async function startRecordingInner(
     ) {
       void saveTranscriptFailure(TRANSCRIPTION_START_FAILURE);
     }
-
 
     const performStop = async (): Promise<RecorderStopResult> => {
       if (stopped) return { recordingId: id, viewUrl: `/r/${id}` };

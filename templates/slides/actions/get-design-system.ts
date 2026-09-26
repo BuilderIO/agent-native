@@ -42,6 +42,13 @@ function truncate(value: string, maxChars: number): string {
   return `${value.slice(0, maxChars).trimEnd()}\n[truncated]`;
 }
 
+// list-design-systems only ever reads the docCount baked into row.data at
+// proxy creation time (always absent) - this is the one place that hydrates
+// a live count from Builder, so it is the one place that can refresh the
+// cache. Compare-and-set against the exact data snapshot this request read
+// avoids clobbering a concurrent sync/update; a lost race just leaves the
+// next call to persist it. Never bumps updatedAt, so a background count
+// refresh doesn't reorder the list.
 async function persistBuilderDocCount(
   row: { id: string; ownerEmail: string; data: string | null },
   docCount: number,
@@ -100,12 +107,6 @@ function formatTokenValues(
   ];
 }
 
-/**
- * A locally-stored kit has no flat token record like Builder's `tokenValues`
- * — it's grouped one level deep (colors.primary, typography.headingFont).
- * Flatten it to the same `name: value` shape so the compact summary can
- * reuse `formatTokenValues` instead of dumping the whole JSON blob.
- */
 function flattenLocalTokenValues(data: unknown): Record<string, string> {
   const flat: Record<string, string> = {};
   if (!data || typeof data !== "object") return flat;

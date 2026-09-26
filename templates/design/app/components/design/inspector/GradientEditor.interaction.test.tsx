@@ -1,5 +1,20 @@
 // @vitest-environment happy-dom
 
+/**
+ * Gesture-lifecycle tests for GradientEditor's `onCommit` (added alongside
+ * this test): `onChange` alone fires on every stop-drag / angle-drag
+ * pointermove tick (cheap live preview), while `onCommit` must fire exactly
+ * once per gesture — mirroring the onChange/onChangeComplete split already
+ * used by DesignColorPicker and the preview/commit `phase` split used by
+ * ScrubInput (see ScrubInput.gesture.test.ts). Before this fix, GradientEditor
+ * had no way at all to signal "this gesture is done" — every discrete action
+ * (add/remove a stop, drag a stop, drag the angle dial, commit a position/
+ * angle field) only ever called `onChange`, so a caller wired to persist on
+ * "commit" (like DesignColorPicker's `notifyChangeComplete`) never fired
+ * during gradient editing, or — if a caller (mis)treated every onChange as a
+ * commit — persisted a new history entry on every single pointermove tick of
+ * a drag ("commit storm").
+ */
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";

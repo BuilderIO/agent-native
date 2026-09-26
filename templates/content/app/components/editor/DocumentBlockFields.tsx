@@ -199,7 +199,12 @@ export type BlockFieldsRenderState =
   | { kind: "solo"; field: DocumentProperty; target: BlocksStorageTarget }
   | { kind: "multi"; fields: DocumentProperty[] };
 
+// Whether the query data we are holding belongs to the current row and database.
+// `useDocumentProperties` keeps the previous document's data as placeholder
 // across a scope change, so both identities must be confirmed before the field
+// layout is trusted — otherwise the old doc's solo-primary layout could route
+// the new doc's edits to the body. The response carries its own `documentId`
+// (shared/api.ts → DocumentPropertiesResponse).
 export function isLoadedForDocument(
   documentId: string,
   databaseId: string | null,
@@ -575,10 +580,7 @@ function BlockFieldShell({
 
   return (
     <section
-      className={cn(
-        "group/blockfield rounded-md",
-        isDragging && "opacity-50",
-      )}
+      className={cn("group/blockfield rounded-md", isDragging && "opacity-50")}
       data-block-field-shell
       data-block-field-id={property.definition.id}
     >

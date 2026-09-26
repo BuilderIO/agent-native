@@ -354,6 +354,8 @@ export function RecordGrid({ kind, emptyTitle }: RecordGridProps) {
 
   return (
     // ponytail: a fixed viewport-relative height rather than a flex chain — the
+    // shell's <main> is a scroll container, not a flex column, so `flex-1` here
+    // would collapse. Switch to flex-1 if <main> ever becomes display:flex.
     <div className="flex h-[calc(100vh-9.5rem)] min-h-[320px] flex-col">
       {/* No bottom rule here: the grid header carries its own top border, and
           two adjacent lines read as a heavy divider. */}

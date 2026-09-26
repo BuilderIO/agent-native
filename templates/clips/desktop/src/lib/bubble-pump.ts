@@ -162,7 +162,6 @@ export function startBubbleFramePump(stream: MediaStream): () => void {
 
     if (recording && w.clipsChunkBusy === true) return;
 
-    // main thread a real break. Trailing-edge only — the next tick re-
     if (lastEncodeDurationMs > frameIntervalMs) {
       lastEncodeDurationMs = 0;
       lastEmitMs = now;

@@ -123,7 +123,10 @@ describe("plan db.ts migration entries follow the naming convention", () => {
 
   const entries = extractEntries(dbTsSource);
   // Plan's migration list has gaps: versions 34/35 were never declared in
+  // code (see the collision audit — the live DB recorded them from a
   // different historical migration path, but code has never declared those
+  // version numbers). This is expected, pre-existing, and not something this
+  // guard should flag.
   const MAX_VERSION_IN_CODE = 37;
 
   it("finds migration entries to check (sanity guard against a regex drift)", () => {

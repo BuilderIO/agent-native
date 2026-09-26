@@ -1,18 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * Regression test for the per-form write lock added around the
- * read -> applyFieldOps -> update body in patch-form-fields.ts.
- *
- * Simulates a real read-modify-write race: two concurrent callers patch
- * DIFFERENT fields on the same form. The first caller's DB `select` is
- * delayed to open a window where, without serialisation, the second
- * caller's select/merge/update could interleave between the first
- * caller's read and write and clobber it. With `withFormLock` in place,
- * the second caller's read-modify-write only starts after the first
- * caller's write has fully landed, so both edits survive.
- */
-
 type Row = {
   id: string;
   status: string;

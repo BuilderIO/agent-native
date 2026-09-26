@@ -1,16 +1,9 @@
-
 import type {
   CrmAttributeAuthority,
   CrmFieldDefinition,
   CrmFieldStoragePolicy,
 } from "../../shared/crm-contract.js";
 
-/**
- * `authority` mirrors the `storage_policy -> authority` backfill the
- * `crm-typed-attributes-bitemporal-fields` migration ran once as SQL: a
- * locally owned storage policy gets locally owned authority, everything else
- * (mirrored, remote-only, redacted) is the provider's.
- */
 export function crmAttributeAuthorityFor(
   storagePolicy: CrmFieldStoragePolicy,
 ): CrmAttributeAuthority {

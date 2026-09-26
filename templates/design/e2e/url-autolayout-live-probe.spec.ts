@@ -585,6 +585,8 @@ test.describe("URL-backed live auto-layout probe", () => {
     });
     await expect(consent).toBeVisible({ timeout: 10_000 });
     await consent.getByRole("button", { name: "Allow writes" }).click();
+    // The dialog handler awaits the server-side grant action before it closes,
+    // while Playwright's click only waits for the synchronous React handler.
     // Wait for the close so the following bridge write cannot race the grant.
     await expect(consent).toBeHidden({ timeout: 10_000 });
     console.log("URL probe granted write consent");

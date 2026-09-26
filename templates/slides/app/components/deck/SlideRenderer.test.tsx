@@ -807,7 +807,6 @@ describe("SlideInner autofit", () => {
     expect(slideDeclaresTextColor(html as string)).toBe(expected);
   });
 
-  // `data-slide-content-scope` turns it off. It reached only the raw-HTML
   it("turns the palette off for a markdown layout whose slide declares colors", () => {
     const slide: Slide = {
       id: "markdown-authored-colors",

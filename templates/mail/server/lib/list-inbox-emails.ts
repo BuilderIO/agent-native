@@ -79,13 +79,6 @@ export function retryAfterSecondsFromErrors(
   );
 }
 
-/**
- * Fetch, thread-scope, sort, and snooze-filter Gmail messages for a view.
- * Returns a discriminated result instead of throwing on Gmail errors so both
- * callers can decide how to surface a rate-limit/quota failure gracefully
- * (HTTP status + Retry-After header for the REST handler, a structured JSON
- * error payload for the agent action) rather than an unhandled exception.
- */
 export async function listInboxEmails(
   params: ListInboxEmailsParams,
 ): Promise<ListInboxEmailsResult> {

@@ -32,7 +32,6 @@ import type {
 } from "../shared/design-surface-index.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 
-
 async function liveContent(
   fileId: string,
   storedContent: string,
@@ -68,7 +67,6 @@ function parseJson<T>(raw: string | null | undefined, fallback: T): T {
   }
 }
 
-
 function extractNodes(
   html: string,
   codeLayerSource: CodeLayerSource,
@@ -92,7 +90,6 @@ function extractNodes(
   }
   return nodeMap;
 }
-
 
 function extractAlpineComponents(
   html: string,
@@ -126,7 +123,6 @@ function extractAlpineComponents(
 
   return Array.from(componentMap.values());
 }
-
 
 function guessTokenKind(
   varName: string,
@@ -219,13 +215,15 @@ function extractTokensFromHtml(html: string): DesignSurfaceToken[] {
   return tokens;
 }
 
-
 async function fetchMotionTimelines(
   db: ReturnType<typeof getDb>,
   designId: string,
   fileId?: string,
 ): Promise<Record<string, DesignSurfaceMotionTimeline>> {
   // guard:allow-unscoped — run() resolves design access via
+  // resolveAccess("design", designId) and throws on null before calling this
+  // helper; rows are scoped by designId (motion timelines are children of the
+  // design, not independently shareable).
   const rows = await db
     .select({
       id: schema.motionTimeline.id,
@@ -273,12 +271,14 @@ async function fetchMotionTimelines(
   return result;
 }
 
-
 async function fetchDesignStates(
   db: ReturnType<typeof getDb>,
   designId: string,
 ): Promise<DesignSurfaceState[]> {
   // guard:allow-unscoped — run() resolves design access via
+  // resolveAccess("design", designId) and throws on null before calling this
+  // helper; rows are scoped by designId (design states are children of the
+  // design, not independently shareable).
   const rows = await db
     .select({
       id: schema.designState.id,
@@ -304,12 +304,14 @@ async function fetchDesignStates(
   }));
 }
 
-
 async function fetchLatestReview(
   db: ReturnType<typeof getDb>,
   designId: string,
 ): Promise<DesignSurfaceReview | undefined> {
   // guard:allow-unscoped — run() resolves design access via
+  // resolveAccess("design", designId) and throws on null before calling this
+  // helper; rows are scoped by designId (review snapshots are children of the
+  // design, not independently shareable).
   const rows = await db
     .select({
       id: schema.designReviewSnapshot.id,
@@ -368,7 +370,6 @@ async function fetchLatestReview(
     compareVersionId: row.compareVersionId ?? undefined,
   };
 }
-
 
 export default defineAction({
   description:

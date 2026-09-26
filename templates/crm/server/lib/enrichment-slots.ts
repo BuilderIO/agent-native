@@ -275,13 +275,6 @@ export const providerApiSlotDeps: CrmEnrichmentSlotDeps = {
   execute: (args) => enrichmentRuntime.executeRequest(args),
 };
 
-/**
- * Whether a slot can be used right now.
- *
- * `unknown` is not a synonym for `missing`: a credential lookup that itself
- * failed tells us nothing about whether the credential exists, and rendering
- * that as "not connected" sends the user to configure something already set up.
- */
 export type CrmEnrichmentSlotCredential =
   | { status: "granted" }
   | { status: "missing"; reason: string }
@@ -414,6 +407,7 @@ export async function runEnrichmentSlot(input: {
     });
   } catch (error) {
     // A credential check that itself failed is NOT "unconfigured" — we do not
+    // know whether the credential exists.
     return { slot, status: "error", error: messageOf(error) };
   }
   if (!credential.available) {

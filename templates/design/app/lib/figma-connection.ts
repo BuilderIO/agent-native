@@ -85,7 +85,10 @@ export async function getFigmaConnectionStatus(options?: {
   }
 
   // An invalid user-vault token wins over any managed fallback because the
+  // importer resolves that scoped row first. Prompt the user to replace it.
+  // For an unset vault row, ask the authenticated runtime whether it has a
   // usable managed credential. This returns only a boolean and follows the
+  // same request-scoped resolver as Figma imports.
   const managedAvailable =
     figma.status === "unset"
       ? await callAction<{ available: boolean }>(

@@ -125,7 +125,6 @@ async function resolveTablePlaceholder(
     .replace(/\b@project\./g, `${projectId}.`);
 }
 
-
 interface L1Entry {
   result: QueryResult;
   createdAt: number;
@@ -142,6 +141,8 @@ function getCacheKey(
   cacheScope: string,
 ): string {
   // Scope by caller as well as project so a warm server process cannot serve
+  // cached warehouse results across tenants that happen to query the same
+  // project/table names.
   return createHash("sha256")
     .update(`${cacheScope}\n${projectId}\n${sql}`)
     .digest("hex");
@@ -218,7 +219,6 @@ async function setL2(
     console.warn("[bigquery] L2 cache write failed:", err);
   }
 }
-
 
 export interface QueryResult {
   rows: Record<string, unknown>[];

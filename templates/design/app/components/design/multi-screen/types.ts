@@ -472,21 +472,6 @@ export interface MultiScreenCanvasProps {
     details?: { html?: string },
   ) => void;
   vectorEdit?: VectorEditOverlayState | null;
-  /**
-   * Figma-parity on-canvas gradient editing handles: when present and
-   * `frameOrDraftId` matches the single currently-selected screen frame or
-   * draft primitive, renders a draggable gradient line (start/end handles +
-   * per-stop markers) over that target's bounds in the selection-chrome
-   * layer. When null/undefined (the default), nothing new renders and
-   * existing selection/drag behavior is unaffected. The parent
-   * (DesignEditor) owns opening/closing the inspector's gradient tab,
-   * parsing/serializing the CSS value, and persistence — this component
-   * only draws the overlay and reports drag phases back through
-   * `onChange("preview" | "commit")`. See `GradientEditOverlayTarget` below
-   * and `GradientEditSessionTarget` in `inspector/GradientEditor.tsx` for
-   * the full contract. Linear gradients + overview-canvas board/draft/
-   * screen-frame targets only — see that type's doc for scope notes.
-   */
   gradientEditTarget?: GradientEditOverlayTarget | null;
   onDropFiles?: (
     files: File[],
@@ -831,7 +816,6 @@ export type PendingWheelGesture =
       deltaY: number;
     };
 
-
 export type CrossScreenDropPlacement = "before" | "after" | "inside";
 export type CrossScreenDropAxis = "x" | "y";
 export type CrossScreenDropMode = "flow-insert" | "absolute-container";
@@ -878,7 +862,6 @@ export interface CrossScreenDropGuide {
   axis: CrossScreenDropAxis;
   boardRect: FrameGeometry;
 }
-
 
 export interface AltHoverMeasurementLine {
   orientation: "horizontal" | "vertical";

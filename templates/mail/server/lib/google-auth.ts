@@ -154,6 +154,10 @@ export async function getOAuth2Credentials(owner?: string): Promise<{
 }
 
 /**
+ * Get a valid access token for the given stored tokens, refreshing if expired.
+ * Returns the (possibly refreshed) access token and updates stored tokens if refreshed.
+ */
+/**
  * Permanent OAuth refresh failures Google can return. When we hit one of
  * these, the refresh_token is dead — keeping the row around makes
  * `getAuthStatus` lie ("connected": true) and `listEmails` silently return
@@ -177,6 +181,16 @@ export function isPermanentRefreshError(message: string): boolean {
   return PERMANENT_REFRESH_ERRORS.some((code) => m.includes(code));
 }
 
+// Single-flight refresh per stored token row. Concurrent callers for the same
+// account (labels, emails, settings, google-status all fire on mount) must
+// await one in-flight `oauth2.refreshToken` instead of each racing their own
+// — the loser's write would otherwise stomp the winner's via last-writer-wins
+// `saveOAuthTokens`, silently dropping the account for that caller. Keyed by
+// accountId alone: within provider "google" a row is uniquely identified by
+// accountId (saveOAuthTokens/deleteOAuthTokens resolve owner from the
+// existing row when omitted), and some callers (getAuthStatus) don't pass an
+// owner — keying on owner too would split the exact concurrent callers this
+// exists to coalesce.
 const refreshInflight = new Map<string, Promise<string>>();
 
 async function refreshAccessToken(
@@ -201,7 +215,10 @@ async function refreshAccessToken(
       await deleteOAuthTokens("google", accountId);
       throw err;
     }
+    // Transient failure (network hiccup, 5xx, timeout). If the existing
     // token hasn't actually expired yet — we only entered this path
+    // because we're inside the 5-minute pre-expiry buffer — fall back to
+    // it so a flaky moment doesn't 502 the inbox.
     if (
       tokens.access_token &&
       tokens.expiry_date &&
@@ -236,7 +253,6 @@ async function getValidAccessToken(
   owner?: string,
 ): Promise<string> {
   if (!tokens.access_token && !tokens.refresh_token) {
-    // instead of throwing). Unlike the missing-refresh-token path below, do
     throw new Error(
       `No usable OAuth tokens for ${accountId} — please reconnect.`,
     );
@@ -447,6 +463,9 @@ export async function getClientsWithErrors(
   const requested = accountEmails
     ? new Set(accountEmails.map((email) => email.toLowerCase()))
     : null;
+  // Filtering happens before getValidAccessToken. This is important: token
+  // refreshes are writes and an explicitly scoped inventory read must not
+  // refresh unrelated accounts.
   const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
     (account) =>
       hasGmailScope(account.tokens) &&
@@ -2374,10 +2393,7 @@ export function gmailToEmailMessage(
       !labels.includes("TRASH"),
     isTrashed: labels.includes("TRASH"),
     labelIds: labels
-      .filter(
-        (l: string) =>
-          !["UNREAD", "STARRED"].includes(l),
-      )
+      .filter((l: string) => !["UNREAD", "STARRED"].includes(l))
       .map((l: string) => {
         const categoryMap: Record<string, string> = {
           IMPORTANT: "important",

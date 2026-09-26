@@ -30,6 +30,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 // i18n-raw-literal-disable-file -- unused shared helper copy; live database editor owns localized UI.
+// Shared UI primitives used by multiple database view modules.
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -76,7 +77,6 @@ import {
 import { dbText } from "./text";
 import type { DatabaseBoardGroup, DatabaseDropSide } from "./types";
 
-
 export function databaseViewIcon(type: ContentDatabaseViewType) {
   if (type === "board") return IconLayoutKanban;
   if (type === "list") return IconList;
@@ -87,7 +87,6 @@ export function databaseViewIcon(type: ContentDatabaseViewType) {
   if (type === "sidebar") return IconLayoutSidebar;
   return IconTable;
 }
-
 
 export type DatabaseDragPreviewState =
   | {
@@ -159,7 +158,6 @@ export function DatabaseDropIndicator({
   );
 }
 
-
 export function databaseItemPageIconText(
   document: Pick<Document, "icon"> | null | undefined,
 ) {
@@ -194,7 +192,6 @@ export function DatabaseItemPageIcon({
   );
 }
 
-
 export function DatabaseGroupHeader({
   group,
   collapsed,
@@ -226,7 +223,6 @@ export function DatabaseGroupHeader({
     </button>
   );
 }
-
 
 export function DatabaseRowSelectionControl({
   checked,
@@ -282,7 +278,6 @@ export function DatabaseRowSelectionControl({
   );
 }
 
-
 export function DatabaseBulkOptionPill({
   option,
 }: {
@@ -299,7 +294,6 @@ export function DatabaseBulkOptionPill({
     </span>
   );
 }
-
 
 export function DatabaseNoMatchingPages({
   label = "No pages match this view",
@@ -329,7 +323,6 @@ export function DatabaseNoMatchingPages({
   );
 }
 
-
 export function DatabaseConstraintChip({
   icon,
   label,
@@ -354,7 +347,6 @@ export function DatabaseConstraintChip({
     </span>
   );
 }
-
 
 export type DatabasePropertyPickerOption = {
   key: string;
@@ -469,7 +461,6 @@ export function DatabasePropertyPickerSubContent({
   );
 }
 
-
 export function databaseToolbarIconButtonClass(active = false) {
   return cn(
     "h-7 w-7 p-0 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-45",
@@ -478,7 +469,6 @@ export function databaseToolbarIconButtonClass(active = false) {
 }
 
 export { IconFilter };
-
 
 export function RowActionsCell({
   item,

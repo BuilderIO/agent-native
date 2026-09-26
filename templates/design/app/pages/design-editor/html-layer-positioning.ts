@@ -472,6 +472,8 @@ const SCREEN_DEFAULT_HEIGHT_STYLE =
 const SCREEN_HEIGHT_MODE_META =
   /<meta\b(?=[^>]*\bdata-agent-native-screen-height-mode(?:[=\s>]))[^>]*\s*\/?>/gi; // i18n-ignore regex syntax is not user-facing text
 
+/** Toggle the blank Screen viewport floor and mark explicit Hug for the
+ * content reporter. Authored page constraints remain intact. */
 export function setScreenRootDefaultHeightMode(
   content: string,
   heightMode: "auto" | "fixed" | "hug",

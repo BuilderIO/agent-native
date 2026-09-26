@@ -269,6 +269,7 @@ export default defineAction({
     const publishOperations: AppStateCompareAndSetOperation[] = [
       {
         key: pendingKey,
+        // CAS compares serialized JSON exactly. Validate a parsed copy above,
         // but retain the original snapshot so schema key order cannot fake a race.
         expectedValue: pendingState,
         nextValue: pendingState,
@@ -296,6 +297,9 @@ export default defineAction({
     }
     const published = await compareAndSetManyAppState(publishOperations);
     if (!published) {
+      // A tool retry can race the first successful publish for the same
+      // request. Reuse that winner only while its pending/proposal pair is
+      // still atomically current; a genuinely newer selection must still win.
       const winner = await readAppState(proposalKey);
       if (
         isNodeRewriteProposal(winner) &&

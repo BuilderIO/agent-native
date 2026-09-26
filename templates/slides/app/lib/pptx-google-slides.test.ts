@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+// retargetPptxForGoogleSlides round-trips a real Blob through JSZip, which
+// needs a FileReader to read a Blob back — absent in plain Node, provided by
+// happy-dom (see export-pptx-client.test.ts's own JSZip/Blob round trips).
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 

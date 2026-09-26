@@ -502,6 +502,7 @@ function isPublicHttpUrl(value: string): boolean {
     return protocol === "http:" || protocol === "https:";
   } catch {
     // coercion-ok: invalid draft input is intentionally represented as false
+    // so the Save action stays disabled until it becomes a web URL.
     return false;
   }
 }

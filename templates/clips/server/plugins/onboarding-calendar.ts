@@ -1,4 +1,3 @@
-
 import { registerOnboardingStep } from "@agent-native/core/onboarding";
 
 export default async (): Promise<void> => {
@@ -49,6 +48,12 @@ export default async (): Promise<void> => {
         },
       },
     ],
+    // The completion check is best-effort — the action layer is the source of
+    // truth, so we only mark complete when at least one calendar_account row
+    // exists for the current user. The framework's onboarding registry calls
+    // this on demand and provides the resolved user via context. We swallow
+    // every error so a missing table (pre-migration) or an unauthenticated
+    // request never blocks the rest of the checklist.
     isComplete: async (ctx) => {
       const userEmail = ctx?.userEmail;
       if (!userEmail) return false;

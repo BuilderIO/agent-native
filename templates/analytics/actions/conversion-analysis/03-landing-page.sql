@@ -1,5 +1,3 @@
-
-
 WITH first_pageviews AS (
   SELECT
     visitor_id,

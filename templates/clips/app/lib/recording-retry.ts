@@ -80,6 +80,7 @@ export async function retryRecordingUploadFromBackup(
   });
   if (!resetRes.ok) {
     // coercion-ok: the request already failed; this only fills in the
+    // human-readable detail on the error we're about to throw.
     const text = await resetRes.text().catch(() => "");
     throw new Error(
       `Couldn't restart the upload (reset-chunks ${resetRes.status}). ${
@@ -140,6 +141,7 @@ export async function retryRecordingUploadFromBackup(
     });
     if (!res.ok) {
       // coercion-ok: the request already failed; this only fills in the
+      // human-readable detail on the error we're about to throw.
       const text = await res.text().catch(() => "");
       throw new Error(
         `Upload failed on chunk ${index + 1} of ${total} (${res.status}). ${
@@ -148,6 +150,8 @@ export async function retryRecordingUploadFromBackup(
       );
     }
     // coercion-ok: an unparsable 2xx body leaves `status`/`videoUrl` unknown
+    // below, which the caller already treats as "not confirmed ready" and
+    // keeps the local backup — it never gets coerced into a false success.
     result = (await res.json().catch(() => undefined)) as
       | Record<string, unknown>
       | undefined;

@@ -1,5 +1,3 @@
-
-
 export const A11Y_FINDING_SEVERITIES = ["error", "warning", "info"] as const;
 
 export type A11ySeverity = (typeof A11Y_FINDING_SEVERITIES)[number];
@@ -32,7 +30,35 @@ export interface A11yFinding {
   fixAvailable: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Inline auto-fix mapping
+// ---------------------------------------------------------------------------
+//
+// Some a11y findings can be repaired inline against the SQL-backed HTML design
+// content using the same deterministic edit primitives the visual editor uses
+// (`apply-visual-edit`: style / class / textContent). Those primitives can set
+// an inline style value, add/remove/replace a class token, or rewrite leaf text
+// — so the fixes we can apply purely inline are the ones that reduce to one of
+// those operations on a *targeted* node:
+//
+//   - contrast / color   → set an inline `color` (style edit) or swap a text
+//                           color class, raising the foreground contrast.
+//   - tap-target         → add a min-size utility class (e.g. `min-h-[44px]`).
+//   - focus-visibility   → add a `focus-visible:ring-2` utility class.
+//
+// Fixes that require writing a *new attribute* (alt, aria-label,
+// aria-labelledby) or semantic/structural code changes are NOT expressible
+// through the deterministic edit engine's exported intents, so they remain
+// "real-app only" and are surfaced as informational findings (no inline Fix).
+// `a11yFindingToEdit` returns `null` for those.
 
+/**
+ * A single deterministic edit that repairs an a11y finding inline. The shape is
+ * a strict subset of the `apply-visual-edit` `EditIntent` union — only the kinds
+ * the inline (SQL HTML) edit engine can apply without escalating: `style`,
+ * `class`, and `textContent`. The `apply-a11y-fix` action forwards this verbatim
+ * to the shared `applyVisualEdit` primitive.
+ */
 export type A11yFixEdit =
   | {
       kind: "style";
@@ -111,7 +137,6 @@ export function isA11yFindingAutoFixable(finding: A11yFinding): boolean {
   return a11yFindingToEdit(finding) !== null;
 }
 
-
 export const VISUAL_DIFF_CHANGE_KINDS = [
   "added",
   "removed",
@@ -136,7 +161,6 @@ export interface VisualDiffEntry {
   beforeImageUrl?: string;
   afterImageUrl?: string;
 }
-
 
 export const DESIGN_REVIEW_STATUSES = [
   "pending",

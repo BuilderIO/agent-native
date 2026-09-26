@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+// Radix handles Escape before canvas hotkeys, so closing the picker must
+// preserve both committed paint changes and the canvas selection.
 
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";

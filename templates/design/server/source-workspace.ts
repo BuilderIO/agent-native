@@ -468,7 +468,6 @@ export async function writeInlineSourceFile(args: {
   file: SourceWorkspaceFile;
   content: string;
   expectedVersionHash?: string;
-  /** A content-only identity migration verified against the live source. */
   identityOnly?: boolean;
   operationSource?: string;
   operationRevision?: number;
@@ -619,6 +618,10 @@ export async function writeInlineSourceFile(args: {
         const rawSqlHash = sourceContentHash(currentFile.content ?? "");
         const expectedHashMatchesLive =
           args.expectedVersionHash === current.versionHash;
+        // Local publication can reach Yjs before the corresponding SQL
+        // migration request. In that case accept the exact canonical transform
+        // only when the request is based on the still-current raw SQL preimage
+        // and Yjs already contains that exact transform.
         const expectedHashMatchesPublishedPreimage =
           current.content === args.content &&
           args.expectedVersionHash === rawSqlHash &&

@@ -32,7 +32,6 @@ import {
 import { resolveHasCompleteBuilderConnection } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
-
 export interface BuilderConnectionStatus {
   connected: boolean;
   builderEnabled: boolean;
@@ -46,11 +45,13 @@ export interface MigrationSeed {
   totalBytes: number;
 }
 
-
 const MAX_SEED_FILES = 10;
 
 const MAX_HTML_BYTES_PER_FILE = 80_000;
 
+// ---------------------------------------------------------------------------
+// Connection status
+// ---------------------------------------------------------------------------
 
 /**
  * Return the Builder connection status for the current request context.
@@ -82,14 +83,6 @@ export async function resolveBuilderStatus(): Promise<BuilderConnectionStatus> {
   };
 }
 
-
-/**
- * Extract the `:root` block(s) from a raw HTML/CSS string.
- *
- * Returns only the lines inside `:root { … }` declarations to keep the
- * migration seed focused on custom-property tokens rather than the full
- * stylesheet.  Falls back to the empty string when no `:root` block is found.
- */
 function extractRootCssVars(html: string): string {
   const matches = [...html.matchAll(/:root\s*\{([^}]*)\}/g)];
   if (matches.length === 0) return "";
@@ -106,7 +99,6 @@ function extractRootCssVars(html: string): string {
   }
   return lines.length > 0 ? `:root {\n${lines.join("\n")}\n}` : "";
 }
-
 
 export function buildMigrationSeed(params: {
   title: string;

@@ -7,6 +7,7 @@
  * Read `README-tokens.md` in this directory before styling a surface.
  */
 
+/** Fixed. There is no density toggle; every consumer must agree on 36. */
 export const ROW_HEIGHT = 36;
 export const HEADER_HEIGHT = 40;
 

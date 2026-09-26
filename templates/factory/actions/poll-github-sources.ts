@@ -559,6 +559,7 @@ export default defineAction({
     const repository = parseGitHubRepositoryRef(repositoryRef);
     const repositoryName = `${repository.owner}/${repository.repo}`;
     const client = createGitHubClient({ ownerEmail: userEmail, orgId });
+    // One author decision for the whole run: the page walk, the parked-PR
     // recheck, and the reopen path must not disagree about who is in scope.
     const acceptsAuthor = (authorId: string): boolean =>
       !job ||

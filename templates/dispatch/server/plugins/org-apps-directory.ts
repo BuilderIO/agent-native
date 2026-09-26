@@ -126,6 +126,9 @@ export const orgAppsHandler = defineEventHandler(
       );
     }
 
+    // ---- Same-org enforcement ------------------------------------------
+    // The verified org_domain MUST resolve to a local org. This both
+    // confirms the caller is the SAME org Dispatch serves and gives us the
     // org identity to scope the (read-only) discovery to.
     let localOrg: { orgId: string; orgName: string } | null = null;
     try {

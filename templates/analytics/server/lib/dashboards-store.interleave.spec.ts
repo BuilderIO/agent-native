@@ -1,18 +1,3 @@
-/**
- * Regression coverage for the dashboards `config` read/modify/write race.
- *
- * `upsertDashboard` used to write the whole `config` JSON blob keyed only by
- * `id`, with no version/lock check. Two concurrent writers that both read the
- * same base (agent adds a panel while a human drags one) silently clobbered
- * each other — last writer wins over the whole blob. `upsertDashboard` now
- * accepts an optional `expectedUpdatedAt` fence, and `upsertDashboardWithRetry`
- * re-reads + re-applies a mutation when that fence loses a race.
- *
- * The fake database below deliberately loses the first fenced write once
- * (`state.loseNextCas`) to simulate a concurrent writer landing in between,
- * mirroring templates/design/actions/design-data-mutations.interleave.spec.ts's
- * CAS-retry fixture for the same class of bug.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type DashboardRow = {
@@ -232,6 +217,10 @@ vi.mock("../db/index.js", () => {
       createdBy: { name: "createdBy" },
       chatContext: { name: "chatContext" },
     },
+    // Not exercised by these tests, but `dashboards-store.ts` builds a
+    // module-scope column-projection constant (`analysisListColumns`) from
+    // `schema.analyses` at import time, so it must exist to avoid a crash
+    // on import.
     analyses: {
       id: { name: "id" },
       name: { name: "name" },

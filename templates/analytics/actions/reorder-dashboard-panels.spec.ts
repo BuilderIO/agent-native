@@ -172,7 +172,11 @@ describe("reorder-dashboard-panels", () => {
   });
 
   it("recomputes the move against fresh state on retry so a concurrent writer's save is never dropped", async () => {
+    // Simulates two interleaved writers: this call is asked to move "c" to
     // the top, but loses the race on its first fenced write because a
+    // concurrent writer already saved a different reorder (moving "b" to the
+    // top) in between. A correct retry re-reads that winning save and
+    // reapplies "move c to top" on top of it, landing both writers' edits.
     const beforeConcurrentWrite = {
       kind: "sql",
       config: {
@@ -191,6 +195,8 @@ describe("reorder-dashboard-panels", () => {
     let mutateCallCount = 0;
     mocks.upsertDashboardWithRetry.mockImplementationOnce(
       async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
+        // Attempt 1: computed against the stale pre-race snapshot, then lost
+        // to the concurrent writer's fenced write (never applied).
         mutateCallCount += 1;
         await mutate(beforeConcurrentWrite);
         mutateCallCount += 1;

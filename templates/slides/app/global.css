@@ -370,7 +370,6 @@ button[title="Open agent sidebar"] {
   flex: 1 1 auto;
 }
 
-
 @container (max-width: 36rem) {
   .deck-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -469,7 +468,6 @@ button[title="Open agent sidebar"] {
   @apply my-4;
   border-color: var(--ds-accent, #2457d6);
 }
-
 
 .fmd-slide {
   position: relative;
@@ -1173,7 +1171,6 @@ button[title="Open agent sidebar"] {
   font-size: inherit;
 }
 
-
 .slide-image-clickable[data-editable] img,
 .slide-image-clickable[data-editable] .fmd-img-placeholder {
   cursor: pointer;
@@ -1431,7 +1428,6 @@ button[title="Open agent sidebar"] {
   height: 14px;
 }
 
-
 @keyframes slide-fade-in {
   from {
     opacity: 0;
@@ -1539,7 +1535,6 @@ button[title="Open agent sidebar"] {
 .slide-anim-zoom-exit {
   animation: slide-zoom-out 250ms cubic-bezier(0.55, 0.055, 0.675, 0.19) both;
 }
-
 
 @keyframes elem-appear {
   from {

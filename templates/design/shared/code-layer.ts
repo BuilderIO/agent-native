@@ -255,15 +255,6 @@ export interface StyleToken {
   token: string;
   source: "inline-style" | "class";
   confidence: number;
-  /**
-   * For class-sourced tokens only: the resolved utility string per responsive
-   * prefix.  Only prefixes that have an explicit class token are included.
-   *
-   * @example
-   * // className="text-sm md:text-base lg:text-lg"
-   * // styleToken for "color" property would have:
-   * // breakpointValues = { base: "text-sm", md: "text-base", lg: "text-lg" }
-   */
   breakpointValues?: Partial<Record<TailwindBreakpointPrefix, string>>;
   overriddenAtPrefixes?: TailwindBreakpointPrefix[];
 }
@@ -555,32 +546,6 @@ export interface AutoLayoutEditIntent {
   containerRect?: { width: number; height: number };
 }
 
-/**
- * Responsive-class edit intent — adds, replaces, or removes a single Tailwind
- * utility at the given `prefix` (breakpoint scope) without touching classes at
- * other breakpoints.
- *
- * Examples:
- * - Add `text-base` at `md:` on a node that already has `text-sm` base:
- *   `{ kind: "responsive-class", target, prefix: "md", operation: "add", utility: "text-base" }`
- *
- * - Replace whatever `text-*` class currently lives at `lg:` with `text-xl`:
- *   `{ kind: "responsive-class", target, prefix: "lg", operation: "replace", utility: "text-xl" }`
- *
- * - Remove the `md:` override for the `text` stem, falling back to the base:
- *   `{ kind: "responsive-class", target, prefix: "md", operation: "remove", stem: "text" }`
- *
- * `utility` should be the bare utility without its prefix (e.g. `"text-lg"`,
- * not `"md:text-lg"`).  The prefix is applied automatically.
- * `stem` is required only for `"remove"` operations.
- * `from` is an optional guard for `"replace"`: when present, the replace only
- * applies if the utility EFFECTIVE at `prefix` equals `from` (bare, without
- * prefix). "Effective" follows the Tailwind mobile-first cascade — an explicit
- * override at `prefix` wins, otherwise the nearest smaller breakpoint's
- * utility (down to base) is what renders there. If the guard fails (a stale
- * selection targeting a different element/state than the caller expected) the
- * edit reports `"conflict"` instead of silently overwriting whatever is there.
- */
 export interface ResponsiveClassEditIntent {
   kind: "responsive-class";
   target: EditIntentTarget;
@@ -589,13 +554,6 @@ export interface ResponsiveClassEditIntent {
   utility?: string;
   stem?: string;
   from?: string;
-  /**
-   * Framer-style desktop-down scope (§6.4 breakpoint bar). When set, the
-   * edit writes a `max-[<maxWidthPx>px]:` scoped token instead of a
-   * min-width `prefix` token, and `prefix` is ignored. The bound comes from
-   * `breakpointUpperBoundPx` (just below the next-wider frame). `from`
-   * guards are not applied to max-width scopes.
-   */
   maxWidthPx?: number;
 }
 
@@ -7023,6 +6981,7 @@ function applyTextEdit(
  * Uses the helpers from `responsive-classes.ts` so the logic is shared with
  * the StatesPanel / inspector UI.
  */
+/** Mobile-first breakpoint order used to resolve the effective utility at a prefix. */
 const BREAKPOINT_CASCADE: ReadonlyArray<TailwindBreakpointPrefix> = [
   "base",
   "sm",
@@ -7032,12 +6991,6 @@ const BREAKPOINT_CASCADE: ReadonlyArray<TailwindBreakpointPrefix> = [
   "2xl",
 ];
 
-/**
- * Resolve the utilities EFFECTIVE at `prefix` for the given property `stem`,
- * following the Tailwind mobile-first cascade: an explicit override at
- * `prefix` wins; otherwise the nearest smaller breakpoint (down to base) with
- * a token for that stem is what actually renders there.
- */
 function effectivePropertyUtilities(
   className: string,
   prefix: TailwindBreakpointPrefix,
@@ -7916,7 +7869,6 @@ function applyWrapNodes(
   if (parentIndexes.size !== 1) return "unsupported";
 
   targetElements.sort((a, b) => a.start - b.start);
-
 
   const backgroundPromotion = autoLayout
     ? findSelectionBackgroundRectangle(
@@ -9436,7 +9388,6 @@ function applyVisualEditUnsafe(
     };
   }
 
-
   if (intent.kind === "wrapNodes") {
     const wrapEdit = applyWrapNodes(html, initial, intent);
     if (typeof wrapEdit === "string") {
@@ -9583,7 +9534,6 @@ function applyVisualEditUnsafe(
       ),
     };
   }
-
 
   const resolution = resolveTarget(initial, intent.target);
   if (resolution.status !== "resolved" || !resolution.node) {

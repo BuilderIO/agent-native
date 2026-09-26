@@ -75,6 +75,7 @@ export default defineAction({
       zip.file(filename, content);
     }
 
+    // Add design data if present. Public/viewer exports keep render metadata
     // but must never serialize a localhost bridge token into the archive.
     const exportDesignData = designDataForAccessRole(
       row.data ?? null,

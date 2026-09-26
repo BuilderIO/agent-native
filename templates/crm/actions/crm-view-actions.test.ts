@@ -1,4 +1,3 @@
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -269,7 +268,6 @@ describe("save-crm-saved-view", () => {
     const saved = (await save({ name: "Contended" })) as any;
     const stale = saved.updatedAt;
 
-    // would leave `updatedAt` unchanged and the race would not be observable.
     await otherWriter(saved.id, "Renamed by someone else");
 
     await expect(

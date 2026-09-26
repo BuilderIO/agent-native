@@ -167,6 +167,8 @@ describe("create-folder action", () => {
       from: vi.fn().mockReturnThis(),
       where: vi.fn().mockImplementation((condition) => {
         // The parent lookup must scope to the caller's own folders when
+        // there's no space — otherwise this fix could silently regress into
+        // letting anyone nest under anyone's personal folders.
         expect(condition).toMatchObject({
           op: "and",
           args: expect.arrayContaining([ownerPredicate]),

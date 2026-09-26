@@ -2658,6 +2658,10 @@ export function AssetPickerSurface() {
     Boolean(waitingForPresetData);
   const mediaLabel = mediaType === "video" ? "video" : "image";
   const viewingDrafts = assetTab === "drafts";
+  // The standalone Library "Drafts" tab mirrors the home Recent Drafts section:
+  // every unsaved draft across all accessible libraries, regardless of media
+  // type. The embedded picker keeps its library + media-type scope so an
+  // image-only picker never surfaces video drafts.
   const draftsGlobalView = viewingDrafts && !embedded;
   const assetsParams = useMemo(
     () => ({

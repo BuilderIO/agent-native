@@ -6488,6 +6488,11 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
     currentItems.map((row) => [row.document.id, row]),
   );
 
+  // Reads MAX(position) for both `documents` and `content_database_items`
+  // then batch-inserts at MAX+1.. — serialize the whole read-through-write
+  // span per scope so a concurrent import/add/move targeting the same parent
+  // document or the same database can't read the same MAX (see
+  // _position-utils.ts).
   return withPositionLock(
     documentsPositionScope(args.database.ownerEmail, args.database.documentId),
     () =>

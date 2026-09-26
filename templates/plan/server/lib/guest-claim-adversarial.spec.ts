@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-
 describe("claim middleware — adversarial scoping", () => {
   const getSessionMock = vi.fn();
   const updateSpy = vi.fn();
@@ -170,7 +169,6 @@ describe("claim middleware — adversarial scoping", () => {
   });
 
   it("a logged-in user replaying ANOTHER guest's id can only ever move rows owned by that id (claim is cookie-scoped, not selective)", async () => {
-    // caller who forges a cookie for an id they happen to know would claim those
     store = [
       { id: "p1", ownerEmail: GUEST_B, orgId: null }, // victim guest's plan
       { id: "p2", ownerEmail: OTHER_ACCOUNT, orgId: null }, // real account plan
@@ -196,7 +194,6 @@ describe("claim middleware — adversarial scoping", () => {
   });
 
   it("DEFENSIVE GAP: a synthetic public-viewer / local identity as the session email is NOT excluded by the claim guard", async () => {
-    // The guard only skips: no session, a guest-* session, or session===cookie.
     const PUBLIC_VIEWER =
       "public-cccccccc-cccc-cccc-cccc-cccccccccccc@agent-native.local";
     store = [{ id: "p1", ownerEmail: GUEST_A, orgId: null }];

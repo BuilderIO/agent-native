@@ -36,6 +36,7 @@ export async function listMigrationOrphansForAuditAdmin(
   try {
     scope = await assertOrgAdmin();
   } catch (error) {
+    // Merging a caller's own default templates is not an audit operation. A
     // non-admin simply must not receive cross-owner migration diagnostics.
     if (error instanceof ForbiddenAuditError) return [];
     throw error;

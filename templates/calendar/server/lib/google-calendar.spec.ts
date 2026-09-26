@@ -2778,6 +2778,12 @@ describe("connection status reads a broken managed connection as disconnected", 
     resolveWorkspaceConnectionForAppMock.mockResolvedValue({ available: true });
   });
 
+  // A workspace connection can be registered and marked "connected" in the
+  // catalog while the token it backs can no longer be resolved (revoked,
+  // mid-authorization, misconfigured credential). `isConnected` and
+  // `getConnectedAccounts` are read as a plain yes/no by every read and write
+  // action (list-events included), so a thrown resolution error here must not
+  // surface as a 500 - it must read the same as "not connected".
   it("isConnected returns false instead of throwing", async () => {
     resolveOAuthAccessTokenMock.mockRejectedValue(
       new Error("no workspace token available"),

@@ -284,6 +284,7 @@ async function exposeGoogleFontStylesheetsForPdf(
         } catch (error) {
           throwIfExportAborted(signal);
           // coercion-ok: font CSS is an enhancement; the original exporter can
+          // still complete with its existing fallback when the font CDN fails.
           console.warn(
             `[export-pdf] could not inline Google Font CSS for ${href}; the PDF may use fallback metrics`,
             error,
@@ -561,7 +562,17 @@ export async function exportDeckAsPdf(
           // guard:allow-raw-color — a PDF page has no theme to follow.
           backgroundColor: "#000000",
           quality: 0.92,
+          // Pair with the in-DOM CORS preload above. modern-screenshot's
+          // internal image fetcher needs no-cache so re-issued requests don't
+          // get served the original tainted (no-CORS) response from the HTTP
+          // cache, and an anonymous-CORS request mode so the response itself
+          // is usable on a clean canvas.
+          //
+          // `same-origin` rather than `omit`: images the preload rewrote to
+          // /api/image-proxy are same-origin and that route needs the session
           // cookie, so omitting credentials would 401 exactly the images this
+          // is meant to rescue. Cross-origin requests still go out anonymously,
+          // which is what CORS mode requires.
           fetch: {
             requestInit: {
               cache: "no-cache",

@@ -1,15 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * Integration-style coverage of the COMMENT PATH through update-visual-plan:
- * identity stamping (anti-spoof), the public-comment authorization gate, and
- * that the notification call receives the right inserted ids + prior comments.
- *
- * Mirrors actions/update-visual-plan.spec.ts mock wiring so it exercises the
- * real action body. Uses the real ../server/plans.js comment-row builder +
- * resolveCommentAuthor (only loadPlanBundle / DB-touching helpers are stubbed).
- */
-
 const request = vi.hoisted(() => ({
   email: undefined as string | undefined,
   name: undefined as string | undefined,
@@ -593,7 +583,6 @@ describe("update-visual-plan comment path (integration)", () => {
     ).rejects.toThrow("editor gate");
     expect(assertPlanEditorMock).toHaveBeenCalledWith("plan_1");
   });
-
 
   describe("mixed resolve+consume preserves anchor/resolutionTarget/mentionsJson", () => {
     it("keeps stored anchor, resolutionTarget, and mentionsJson when caller omits them in a combined resolve+consume request", async () => {

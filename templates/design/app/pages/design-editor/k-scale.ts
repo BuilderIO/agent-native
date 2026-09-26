@@ -76,7 +76,10 @@ export function applyKScaleStyleChanges(
     };
   }
 
+  // Semantic SVG/Boolean edits keep the established per-style dispatcher. Start
+  // from the original gesture source so fallback cannot retain a partial batch.
   // ponytail: mixed semantic gestures reparse per property; batching their
+  // specialized serializers removes that ceiling.
   let nextContent = content;
   for (const change of activeChanges) {
     const currentProjection = buildCodeLayerProjection(nextContent, { source });

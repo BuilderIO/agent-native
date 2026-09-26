@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
-  // out-of-scope probe to answer differently; otherwise every call sees `rows`.
   rowsByCall: [] as Record<string, unknown>[][],
   legacySettings: {} as Record<string, Record<string, unknown>>,
   projection: null as Record<string, unknown> | null,

@@ -889,6 +889,10 @@ export default defineAction({
       ? await getCalendarTimezone(owner!)
       : undefined;
 
+    // Reject invalid, expired, owner-bound, and query-bound cursors before any
+    // provider call. Omitted account filters require the cheap owned-account
+    // lookup to reproduce the exact query key, but token refreshes and calendar
+    // reads remain behind this gate.
     let preparedCursor: InventoryCursor | undefined;
     let preparedQuery: string | undefined;
     let preparedRange: CalendarEventRange | undefined;

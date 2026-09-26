@@ -73,6 +73,7 @@ export async function submitNativeNotification(
       });
     });
     // Desktop plugin permission checks cannot see Focus/OS suppression, and
+    // its backend queues delivery without acknowledging notification display.
     return { status: "submitted", visibility: "unknown" };
   } catch (error) {
     return {

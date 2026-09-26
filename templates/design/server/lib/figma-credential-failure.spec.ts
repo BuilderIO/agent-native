@@ -1,13 +1,3 @@
-/**
- * Pins the assumption behind `isProviderCredentialFailure`.
- *
- * Core raises "no credential available" as an untyped `Error`, so the design
- * app recognizes it by message. That is only safe if something fails loudly
- * when core rewords it — so these tests drive the REAL
- * `createProviderApiRuntime` into both failure shapes rather than asserting
- * against a hand-copied string.
- */
-
 import { readFileSync } from "node:fs";
 
 import { createProviderApiRuntime } from "@agent-native/core/provider-api";

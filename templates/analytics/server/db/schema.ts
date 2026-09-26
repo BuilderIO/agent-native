@@ -13,15 +13,6 @@ import { boolean } from "drizzle-orm/pg-core";
 export * from "./schema-monitoring.js";
 export * from "./schema-errors.js";
 
-/**
- * Dashboards table — covers both Explorer and SQL dashboards. The
- * distinction lives in `kind` and the shape of the `config` JSON blob.
- * Previously stored in the settings KV store under
- * `u:<email>:dashboard-{id}` / `u:<email>:sql-dashboard-{id}` /
- * `o:<orgId>:sql-dashboard-{id}`. Those keys are read as a fallback
- * during lazy migration (see server/lib/dashboards-store.ts) and the
- * legacy rows can be removed once the team is sure everyone's migrated.
- */
 export const dashboards = table("dashboards", {
   id: text("id").primaryKey(),
   kind: text("kind", { enum: ["explorer", "sql"] }).notNull(),
@@ -379,11 +370,6 @@ export const analyticsAlertIncidents = table("analytics_alert_incidents", {
   orgId: text("org_id"),
 });
 
-/**
- * Admin-only registry of external agent-native app databases that Analytics can
- * inspect. Secret values live in app_secrets; this table stores metadata and
- * secret keys scoped to the active organization.
- */
 export const analyticsDbAdminConnections = table(
   "analytics_db_admin_connections",
   {

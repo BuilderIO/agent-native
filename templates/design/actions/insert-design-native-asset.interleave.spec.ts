@@ -1,37 +1,3 @@
-/**
- * insert-design-native-asset.interleave.spec.ts
- *
- * Regression test for the QA-reported (R64/R71) asset-insert corruption bug:
- * inserting assets (insert-design-native-asset / insert-asset) while other
- * edits are in flight corrupted the stored design HTML — assets disappeared
- * / reappeared, deleted assets resurrected, and attribute text + style edits
- * were serialized as VISIBLE TEXT with nested <!DOCTYPE> blocks.
- *
- * Root cause: both actions read a "base" HTML string (collab live text, or
- * the SQL row) at the START of the action, then performed unrelated async
- * work (DB lookups, assertAccess), and only THEN wrote the transformed
- * content via a raw `db.update` + unconditional `applyText`/`seedFromText`
- * char-diff merge — with no re-check that the base they diffed against was
- * still current. If a concurrent writer (another insert, or a style/attr
- * edit racing through update-file/apply-visual-edit) landed in the gap
- * between the read and the write, the diff-based `applyText` call computed
- * its cursor-based delete/insert against a STALE base while the live Y.Text
- * had already moved on — corrupting or dropping whichever change didn't
- * "win" (the same stale-diff-base class of bug documented and fixed for
- * update-file in apply-source-edit.interleave.spec.ts).
- *
- * Fix: both actions now read the live base via readLiveSourceFile and write
- * through writeInlineSourceFile (server/source-workspace.ts), passing the
- * versionHash of the base they just read as expectedVersionHash.
- * writeInlineSourceFile re-reads the live text immediately before its own
- * applyText call and rejects the write if it no longer matches — closing the
- * race window instead of silently corrupting.
- *
- * This spec exercises the REAL insert-design-native-asset/insert-asset
- * action modules (not mocked at the writeInlineSourceFile boundary) against
- * a fake DB + a real per-docId Y.Doc registry, the same harness shape as
- * apply-source-edit.interleave.spec.ts.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 

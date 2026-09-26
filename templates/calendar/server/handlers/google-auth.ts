@@ -469,6 +469,12 @@ export const handleGoogleCallback = defineEventHandler(
         stateOrgId,
       );
 
+      // 3. Create session token (after we have the email)
+      // Skip for add-account flows — adding a second account must not switch
+      // the current session. If the selected Google account differs from the
+      // current owner, treat it as add-account even if older state omitted the
+      // flag; otherwise the UI reloads as the newly selected account and loses
+      // sight of the tokens that were saved under the original owner.
       const isAddAccount =
         addAccount || (owner !== undefined && email !== owner);
       track(

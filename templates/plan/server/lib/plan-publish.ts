@@ -1,28 +1,3 @@
-/**
- * Publish bridge: read the hosted base URL + auth token used by
- * `publish-visual-plan` to push a local plan to a hosted Agent-Native instance.
- *
- * CONTRACT (consumed by `publish-visual-plan`, written by `agent-native connect`
- * — owned by the CLI/auth agent):
- *
- * The hosted base URL and a bearer token are resolved in priority order:
- *   1. Env vars — `PLAN_PUBLISH_URL` (or `PLAN_HOSTED_URL`) and
- *      `PLAN_PUBLISH_TOKEN` (or `AGENT_NATIVE_TOKEN`).
- *   2. A JSON config file at `PLAN_PUBLISH_CONFIG_PATH`, defaulting to
- *      `~/.agent-native/plan-publish.json`, shaped like:
- *        { "url": "https://plan.agent-native.com", "token": "<bearer>" }
- *      (also accepts `baseUrl`/`hostedUrl` and `accessToken`/`bearerToken`).
- *
- * This mirrors the existing device-token config precedent in
- * `packages/core/src/cli/code-agent-connector.ts`
- * (`~/.agent-native/remote-device.json`). `agent-native connect <hosted-url>`
- * already mints a token via the device-code flow; that flow should additionally
- * persist `{ url, token }` to this file (or the env vars) so the server can
- * publish on the user's behalf. Until then, the action returns a structured
- * `needsAuth` result instead of throwing, so the client can trigger lazy
- * account creation.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -56,10 +31,6 @@ function stripTrailingSlash(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
-/**
- * Resolve the hosted base URL the user would connect to, even when no token is
- * configured (used to surface the connect command / auth URL on `needsAuth`).
- */
 export function resolvePlanHostedUrl(): string {
   const fromEnv = firstString(
     process.env.PLAN_PUBLISH_URL,

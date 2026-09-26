@@ -1,3 +1,39 @@
+// Module-level registry of ONE save controller per PEEK document id.
+//
+// PROBLEM (the rebase race class — what the per-doc lane could NOT fix):
+//   The row peek renders a SINGLE `DatabaseItemPreview` instance whose `item`
+//   prop changes on row-switch (it has no per-row `key`, so it does not remount).
+//   The old design gave it ONE controller whose target document id was REBASED on
+//   every row-switch, plus a shared cross-doc serialization lane. That produced
+//   two timing bugs no patch could fully close:
+//     - lane queue-jump: a `running`/`tail` microtask gap let a new enqueue
+//       dispatch synchronously AHEAD of already-queued saves; and
+//     - stale completion after rebase: an OLD-row in-flight save resolving AFTER
+//       the row-switch `mark()` overwrote the SHARED controller's `lastSaved` with
+//       the old payload and triggered a redundant save against the NEW row.
+//   Both are properties of sharing one mutable-target controller across rows.
+//
+// FIX (one controller per document id, ref-counted — mirrors blockFieldSaveRegistry):
+//   There is exactly ONE controller per document id. A controller's target doc id
+//   is fixed at creation and NEVER changes. Switching rows RELEASES the old doc's
+//   controller (whose release flushes its pending save synchronously, bound to its
+//   own id) and ACQUIRES the new doc's controller. No `saveTargetIdRef` rebase on
+//   a live controller; no cross-doc shared mutable target; no cross-doc lane.
+//
+//   With per-doc controllers each is single-flight + trailing for ITS doc only:
+//     - A stale completion can only ever advance ITS OWN controller's `lastSaved`
+//       (correct) — never another row's. The stale-completion-after-rebase bug is
+//       structurally impossible.
+//     - Single-flight per doc means at most one save in flight per id, so there is
+//       nothing left for a serialization lane to order. The lane is deleted.
+//
+//   - acquire(id, factory): returns the SAME controller for a doc id, creating it
+//     once via `factory` and bumping a ref-count.
+//   - release(id): decrements the ref-count. At 0 we do NOT evict immediately: we
+//     flush-then-evict. The final flush still dispatches synchronously bound to
+//     this doc id, and a quick reopen BEFORE the flush settles re-acquires the
+//     SAME instance (eviction cancelled) — so a quick reopen reuses the live
+//     controller and there is never a competing second controller for the id.
 
 import type { PreviewDocumentSaveController } from "./previewDocumentSaveController";
 

@@ -9,23 +9,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { appPath, childNodeIds, designFrame, gotoEditor } from "./helpers";
 
-/**
- * YouTube tutorial parity — #3 (Figma official: "Card component with auto
- * layout", structural/layers/duplicate/reorder/rename steps only — component
- * and variant steps have no equivalent and are reported as findings, not
- * tests) and #6 (moonlearning: "Advanced Figma Tips & Tricks", the steps that
- * land in canvas pointer gestures / layers panel / group structure / mouse
- * pan+zoom; the rest — version history, batch component rename, move-to-page,
- * nudge preference, GIF frame picker, dev-mode comments, Community import —
- * have no equivalent here and are reported as findings).
- *
- * Scope per the finder preamble: canvas pointer gestures, layers panel,
- * context menu, clipboard/duplicate, group/frame/ungroup structure,
- * undo/redo, pan/zoom, board objects, screens as frames. Inspector style
- * edits, keyboard-shortcut handling, screen resize/breakpoints, typography
- * and vector/boolean-ops are peer-owned; noted, not tested, here.
- */
-
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 

@@ -187,12 +187,6 @@ async function fetchImageBytes(url: string): Promise<{
   return { buffer, mimeType };
 }
 
-/**
- * Same dedupe scope as the upload route: reference assets in this library
- * with the same role. Returns the existing asset when the fetched bytes are
- * already stored, so repeat imports are idempotent instead of duplicating
- * the asset row and blob.
- */
 async function findDuplicateReferenceAsset(input: {
   libraryId: string;
   role: (typeof IMPORTABLE_REFERENCE_ROLES)[number];

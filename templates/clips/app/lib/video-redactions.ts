@@ -1,4 +1,3 @@
-
 export interface RedactionKey {
   atMs: number;
   x: number;
@@ -23,8 +22,10 @@ export type RedactionStyle = "mosaic" | "solid";
 
 export const DEFAULT_REDACTION_STYLE: RedactionStyle = "mosaic";
 
+/** Redaction black: unmistakably deliberate over any footage. */
 // guard:allow-raw-color — an ffmpeg argument, not styling: this is burned into a video file that has no theme to follow.
 export const DEFAULT_REDACTION_COLOR = "#0b0f19";
+/** Tone a mosaic is built in when none was chosen. */
 // guard:allow-raw-color — an ffmpeg argument, as above.
 export const DEFAULT_MOSAIC_TONE = "#8a8f98";
 export const MOSAIC_PALETTE = [
@@ -53,6 +54,11 @@ export function streakUnitPx(frameWidth: number | undefined): number {
   const width = frameWidth && frameWidth > 0 ? frameWidth : 1280;
   return Math.max(8, Math.min(120, Math.round(width / 56)));
 }
+/**
+ * The border. Mid grey rather than white: the blur's palette runs from light
+ * grey up to white, and a white border on a white block is no border at all.
+ * It still reads against the solid style's near-black fill.
+ */
 // guard:allow-raw-color — an ffmpeg argument, as above.
 export const REDACTION_EDGE_COLOR = "0x8a9099";
 
@@ -268,7 +274,6 @@ export function clampRedactionToDuration(
 export function newRedactionId(): string {
   return `redact-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
-
 
 export interface RedactionSegment {
   fromMs: number;

@@ -82,12 +82,6 @@ interface DecodedJwt {
   signature: Buffer;
 }
 
-/**
- * Split + base64url-decode a compact JWS WITHOUT verifying the signature.
- * Mirrors `jose.decodeJwt` usage in the core A2A receiver: used only to read
- * the UNVERIFIED `org_domain` so we know which org secret to verify against.
- * Trust is established by `verifyA2ABearerToken` below.
- */
 export function decodeJwtUnverified(token: string): DecodedJwt | null {
   if (typeof token !== "string") return null;
   const parts = token.split(".");
@@ -144,20 +138,6 @@ function verifyWithSecret(
   return decoded.payload;
 }
 
-/**
- * Verify an inbound A2A bearer token the same way the core A2A receiver does:
- *
- *   1. Decode (unverified) to read the asserted `org_domain`.
- *   2. Resolve the specific org's `a2a_secret` by domain.
- *   3. Verify the signature with that org-bound secret. A deployment-wide
- *      compatibility secret may be supplied only after the plugin proves the
- *      asserted domain is the deployment's sole organization.
- *
- * `resolveOrgSecretByDomain` is injected so this stays pure/testable; the
- * plugin wires it to `getA2ASecretByDomain` from `@agent-native/core/org`.
- *
- * Returns the verified `{ email, orgDomain }` or null. `null` => 401.
- */
 export async function verifyA2ABearerToken(input: {
   token: string;
   resolveOrgSecretByDomain: (domain: string) => Promise<string | null>;
@@ -200,6 +180,12 @@ export async function verifyA2ABearerToken(input: {
     .map((secret) => verifyWithSecret(decoded, secret, now))
     .find((candidate) => candidate !== null);
   if (payload) {
+    // The org directory is a general A2A-peer endpoint. Reject tokens
+    // minted for a different single purpose — SSO identity assertions
+    // (`scope: "identity"`) or MCP-connect personal tokens
+    // (`scope: "mcp-connect"`) — so a leaked or replayed privileged token
+    // cannot enumerate the org's apps. General A2A peer tokens carry no
+    // `scope` claim and are still accepted.
     const scope =
       typeof (payload as { scope?: unknown }).scope === "string"
         ? ((payload as { scope: string }).scope as string)
@@ -210,6 +196,9 @@ export async function verifyA2ABearerToken(input: {
       typeof sub === "string" && sub.trim() ? sub.trim() : undefined;
     if (!email) return null;
     // The verified token MUST carry an org_domain — the directory is
+    // strictly org-scoped, and the same-org check needs it. A token with
+    // no org_domain (e.g. a personal/no-org caller) cannot be tied to an
+    // org and is rejected.
     return { email, orgDomain: assertedDomain };
   }
   return null;

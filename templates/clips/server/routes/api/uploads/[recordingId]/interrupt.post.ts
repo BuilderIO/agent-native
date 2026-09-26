@@ -1,5 +1,11 @@
 // guard:allow-api-route — Upload transport interruption preserves resumable state for desktop recovery.
 
+/**
+ * Mark a live upload as interrupted without discarding its provider session or
+ * buffered chunks. Explicit cancellation continues to use /abort.
+ *
+ * Route: POST /api/uploads/:recordingId/interrupt
+ */
 
 import {
   compareAndSetAppState,

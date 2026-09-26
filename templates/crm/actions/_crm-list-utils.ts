@@ -1,4 +1,3 @@
-
 import type { ActionRunContext } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
@@ -78,7 +77,6 @@ export function crmActorFrom(ctx?: ActionRunContext): {
         : "automation";
   return { type, id: ctx?.userEmail ?? null };
 }
-
 
 export function crmApiSlug(value: string): string {
   const slug = value
@@ -174,7 +172,6 @@ export async function requireCrmListEntry(
   }
   return entry;
 }
-
 
 export interface CrmListAttribute extends CrmWritableAttribute {
   label: string;
@@ -296,7 +293,6 @@ export function indexAttributes(
 ): Map<string, CrmListAttribute> {
   return new Map(attributes.map((attribute) => [attribute.apiSlug, attribute]));
 }
-
 
 export interface CrmObjectAttribute {
   id: string;
@@ -438,7 +434,6 @@ export async function initialCrmEntryValues(input: {
   return { values, initialValues };
 }
 
-
 interface StoredValueRow {
   stringValue: string | null;
   numberValue: number | null;
@@ -576,7 +571,6 @@ export async function writeCrmListEntryValues(input: {
   }
   return writes;
 }
-
 
 export const CRM_ENTRY_FILTER_OPERATORS = [
   "eq",
@@ -774,7 +768,10 @@ export function buildEntryFilter(
         `Filter "contains" on "${filter.attribute}" expects a string.`,
       );
     }
+    // `lower(...)` on both sides makes contains matching case-insensitive in
+    // PostgreSQL.
     // A structured value is matched on its quoted JSON token so `won` cannot
+    // match `unwon` inside a multi-value array.
     const needle =
       kind === "json"
         ? `%"${filter.value.toLowerCase()}"%`

@@ -250,6 +250,31 @@ export default defineAction({
       };
     }
 
+    // Optimistic-concurrency guard (cross-pipeline write-race fix): a content
+    // update here is a FULL-document write that, when syncCollab runs, is
+    // char-diffed against the live collaboration text (applyText). If the
+    // caller computed `content` from a since-stale read — e.g. a base Fill
+    // style commit queued while a shader apply-source-edit landed for the
+    // same file — that silent diff-merge is exactly how the shader/fill
+    // interleave corrupted or lost screen content. When the caller supplies
+    // the hash of the content it based this write on, verify the file still
+    // matches before writing and fail loud otherwise, mirroring
+    // writeInlineSourceFile's expectedVersionHash contract.
+    //
+    // TOCTOU fix: the hash check alone is NOT enough — two concurrent
+    // update-file calls can each read the same live text, each pass the hash
+    // check, and then both proceed to write, with the second one silently
+    // winning over a base it never actually re-validated against. Route the
+    // whole hash-check -> write -> collab-sync critical section through the
+    // SAME per-file in-process lock writeInlineSourceFile uses
+    // (withSourceFileWriteLock, server/source-workspace.ts), keyed by file
+    // id, so a second guarded caller's hash check runs AFTER the first
+    // caller's write has fully landed and observes the true current state
+    // (and is rejected by the hash guard instead of interleaving). Callers
+    // that don't pass a hash keep today's last-write-wins behavior for the
+    // VALUE they write, but the write itself is still serialized under the
+    // same lock so it can't interleave with a concurrent guarded writer's own
+    // read-check-write.
     let skippedStaleMirror = false;
     let skippedStaleOperation = false;
     let exactOperationAlreadyPersisted = false;
@@ -346,6 +371,36 @@ export default defineAction({
               persistedFile.contentOperationResultHash === persistedContentHash;
           }
 
+          // SQL-mirror-only skip path: when the caller explicitly opted OUT of
+          // collab sync (syncCollab: false) and supplied an expectedVersionHash
+          // that no longer matches the LIVE collab text, and a live collab doc
+          // actually exists for this file, the caller's `content` was computed
+          // from a base that a live editor has since moved past. Overwriting the
+          // SQL mirror column with that stale content here would silently regress
+          // it out from under the live document (which stays the source of
+          // truth) the next time it's read back out of SQL. Skip the content
+          // write instead of throwing: filename/fileType updates in the same call
+          // still proceed, and the caller gets `skippedStaleMirror: true` back
+          // instead of a thrown error, because they explicitly said they weren't
+          // trying to sync into collab in the first place. Every other
+          // expectedVersionHash combination (syncCollab true/default, or no live
+          // collab state, or a matching hash, or no hash at all) is UNCHANGED.
+          //
+          // Own-edit false-positive fix: a single client's own edit reaches the
+          // live collab doc via TWO independent, unordered paths — the Yjs
+          // update (~80ms client debounce, applied to the server's in-memory doc
+          // as soon as its POST lands) and this guarded update-file call (~400ms
+          // client debounce). The Yjs path usually wins the race, so by the time
+          // this call's hash check runs, `liveContent` often already equals the
+          // very `content` this call is trying to write — that is NOT a
+          // divergent concurrent edit, it's the same edit having arrived early
+          // by a different transport. Comparing hashes first would reject that
+          // as "stale" and permanently skip the SQL mirror write (there is no
+          // background job that later reconciles design_files.content from the
+          // live collab doc — see hasCollabState below), silently losing writes
+          // on every edit after the first in a session. Check content equality
+          // BEFORE the hash comparison so this exact-match case always proceeds
+          // as a normal write instead of hitting either the skip or throw path.
           let skipContentWrite = skippedStaleOperation;
           if (
             !skippedStaleOperation &&

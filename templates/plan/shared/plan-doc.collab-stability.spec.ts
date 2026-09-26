@@ -1,5 +1,63 @@
 // @vitest-environment happy-dom
 
+/**
+ * Collab-stability properties for the plan doc ↔ blocks[] serializer.
+ *
+ * These tests verify the SERIALIZATION properties that must hold for single-doc
+ * Yjs collab in `PlanDocumentEditor`. Single-doc collab is now ENABLED
+ * (`SINGLE_DOC_COLLAB_ENABLED = true`); this suite remains the regression guard
+ * for the serialization layer it depends on.
+ *
+ * ROOT CAUSE DIAGNOSIS (2026-06) AND RESOLUTION:
+ *   The pure `blocks[] → doc JSON → blocks[]` round-trip IS byte-stable —
+ *   the existing `plan-doc.roundtrip.spec.ts` suite confirms this. The
+ *   instability that kept collab off was NOT in the pure serialization layer:
+ *
+ *   1. FULL-FRAGMENT REWRITE (the original problem): `editor.commands
+ *      .setContent(newDoc)` when the Collaboration extension is active routes
+ *      through y-prosemirror, which replaces the ENTIRE `Y.XmlFragment` rather
+ *      than patching individual changed nodes. Every `planBlock` ReactNodeView
+ *      (`Tiptap ReactRenderer`) is torn down and recreated; each `ReactRenderer`
+ *      constructor calls `flushSync`, firing inside a React render lifecycle and
+ *      producing "flushSync called from inside a lifecycle method" warnings at a
+ *      rate proportional to the autosave frequency × the number of structured
+ *      blocks.
+ *
+ *   2. WHY `normalizeValue` WAS NOT ENOUGH: The `normalizeValue` guard in
+ *      `useCollabReconcile` prevents UNNECESSARY `setContent` calls (those where
+ *      the serialized content is already equivalent). But the initial seed and
+ *      any external agent/peer edit still require an apply, which — via the old
+ *      whole-document `setContent` — triggered the full-fragment rewrite above.
+ *
+ *   3. HOW COLLAB WAS RE-ENABLED (no `packages/core` change needed): The plan's
+ *      injected `setContent` (in `PlanDocumentEditor.tsx`) now applies external
+ *      edits SURGICALLY via `applyBlocksSurgically` → `applyDocSurgically`
+ *      (exported from `@agent-native/core/client/editor`). It parses the
+ *      authoritative `blocks[]` into a doc built with the LIVE editor's schema
+ *      (`editor.schema.nodeFromJSON(blocksToProseJSON(blocks))`), diffs it
+ *      top-level against the live doc, and dispatches ONE
+ *      `tr.replaceWith(from, to, changed)` for the changed run — so unchanged
+ *      `planBlock` NodeViews are never torn down and, under Collaboration, Yjs
+ *      sees a minimal edit instead of a full `Y.XmlFragment` rewrite. Because the
+ *      plan's serializer has no tiptap-markdown storage parser, the reconcile's
+ *      own `defaultParseValue` returns null and every external apply routes
+ *      through the plan's `setContent`, so the surgical path lives entirely in
+ *      template code. See `PlanDocumentEditor.surgical.spec.ts` for the direct
+ *      NodeView-identity regression test.
+ *
+ * SERIALIZATION STABILITY (no Yjs, pure data layer):
+ *   The `normalizeValue` function used by `PlanDocumentEditor` runs:
+ *     `JSON.stringify(proseJSONToBlocks(blocksToProseJSON(blocks), blocks))`
+ *   This is a fixed point after the first pass — confirmed by the tests below.
+ *   It is the correct canonicalization for the reconcile's "already in sync" check.
+ *
+ * PER-BLOCK COLLAB (live today):
+ *   The `PlanMarkdownEditor` component (used for legacy per-block editing) already
+ *   implements real-time collaboration using per-block doc IDs of the form
+ *   `plan:${planId}:${blockId}`. The server-side collab plugin is healthy and
+ *   handles both `plan:<id>` (single-doc shape) and `plan:<id>:<block>` (per-block
+ *   shape) correctly (see `server/collab-plugin.spec.ts`).
+ */
 
 import { describe, expect, it } from "vitest";
 

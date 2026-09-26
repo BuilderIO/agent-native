@@ -55,25 +55,6 @@ async function resolveDeckChangeScope(
   }
 }
 
-/**
- * Broadcast a deck change to all connected UI clients. Exported so agent
- * actions (add-slide, update-slide, create-deck) can notify the frontend
- * after a direct DB write — otherwise the UI has no way to know the deck
- * was modified until the next 3-second poll, and won't notice content
- * changes to slides inside an existing deck at all.
- *
- * The second argument accepts either a legacy `type` string (backwards compat
- * with callers like `notifyClients(id, "deck-deleted")`) or an options object
- * carrying `slideId` / `actor` so the client can attribute agent edits to a
- * specific slide. The wire payload always includes `type` and `deckId`; extra
- * fields are only present when supplied.
- *
- * Callers that already know the event's owner/org/visibility scope (e.g.
- * `delete-deck`'s per-recipient fanout) should keep passing it explicitly —
- * that skips the lookup below entirely. Every other caller only knows the
- * deckId, so this resolves the scope from the deck row itself (one query,
- * one place) instead of requiring all 14+ call sites to look it up.
- */
 export async function notifyClients(
   deckId: string,
   typeOrOptions: string | NotifyClientsOptions = "deck-changed",

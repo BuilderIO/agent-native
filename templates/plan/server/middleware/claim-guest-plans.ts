@@ -46,6 +46,7 @@ export default defineEventHandler(async (event) => {
 
   try {
     // guard:allow-unscoped -- re-keys ONLY the caller's own guest-owned plans
+    // (guest identity proven by their httpOnly cookie) onto their account.
     await getDb()
       .update(schema.plans)
       .set({ ownerEmail: userEmail })

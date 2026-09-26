@@ -1,5 +1,20 @@
 // @vitest-environment happy-dom
 
+/**
+ * DesignEditor.radixOverlayGuard.spec.ts
+ *
+ * Regression coverage for finding 7: `isRadixOverlayOpen` is the single
+ * shared predicate behind both of the editor's Radix-overlay pointer-event
+ * shields (`inspectorPopoverOpen` and `updateIframePointerEvents`), which
+ * used to hand-duplicate slightly different logic. The
+ * `updateIframePointerEvents` copy never checked a wrapper's own
+ * `data-state` when it had no stateful descendant, so it always treated
+ * that shape as "open" — this could leave the single-screen preview
+ * iframe's pointer-events stuck at `none` after closing the zoom menu via
+ * item-select (menu close via the reused-wrapper path leaves
+ * `data-state="closed"` on the wrapper itself with no stateful child left
+ * inside).
+ */
 
 import { describe, expect, it } from "vitest";
 

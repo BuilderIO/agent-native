@@ -38,7 +38,6 @@
 
 import { parseCssColorExtended } from "./color-utils.js";
 
-
 export interface FigmaSvgRect {
   x: number;
   y: number;
@@ -59,6 +58,7 @@ export const ZERO_RADII: FigmaSvgCornerRadii = { tl: 0, tr: 0, br: 0, bl: 0 };
 export interface FigmaSvgColorStop {
   offset: number;
   // guard:allow-raw-color — exported SVG paint read from the design's own computed styles, never app UI
+  /** Any valid SVG color (rgb()/rgba()/#hex/named). */
   color: string;
 }
 
@@ -185,7 +185,6 @@ export interface FigmaSvgExportReport {
   vectorizedTextCaveat: string;
 }
 
-
 export function n(value: number): string {
   if (!Number.isFinite(value)) return "0";
   const rounded = Math.round(value * 1000) / 1000;
@@ -221,7 +220,6 @@ export function isZeroRadii(radii: FigmaSvgCornerRadii): boolean {
 export function clampRadius(radius: number, maxRadius: number): number {
   return Math.max(0, Math.min(radius, maxRadius));
 }
-
 
 export function roundedRectPath(
   rect: FigmaSvgRect,
@@ -262,7 +260,6 @@ export function roundedRectPath(
     .join(" ");
 }
 
-
 export function insetRectForStroke(
   rect: FigmaSvgRect,
   strokeWidth: number,
@@ -286,7 +283,6 @@ export function insetRadiiForStroke(
     bl: clamp(radii.bl),
   };
 }
-
 
 export function gradientAngleToRotation(angleDeg: number): number {
   return (((angleDeg - 90) % 360) + 360) % 360;
@@ -427,8 +423,14 @@ export function buildRadialGradientDef(
   return `<radialGradient id="${id}"${units} cx="${n(cx)}" cy="${n(cy)}" r="${n(r)}">${stopMarkup(stops)}</radialGradient>`;
 }
 
+// ---------------------------------------------------------------------------
+// Computed-style string parsers — pure, unit-testable without a browser.
+// These assume Chromium's normalized `getComputedStyle` output (the engine
+// `extractFigmaSvgScene` renders with), documented per-function.
+// ---------------------------------------------------------------------------
 
 // guard:allow-raw-color — exported SVG paint read from the design's own computed styles, never app UI
+/** Split on top-level commas only — doesn't split inside `rgba(...)`/`rgb(...)` parens. */
 export function splitTopLevelCommas(value: string): string[] {
   const parts: string[] = [];
   let depth = 0;
@@ -732,7 +734,6 @@ export function resolveRadialGradientGeometry(
   return { cx, cy, rx: sideX * scale, ry: sideY * scale };
 }
 
-
 export function objectFitToPreserveAspectRatio(
   fit: "cover" | "contain" | "stretch" | "none" | "scale-down",
   position?: string,
@@ -750,7 +751,6 @@ function isTopLeftObjectPosition(position: string | undefined): boolean {
     v === "0px" || v === "0%" || v === "0" || v === "left" || v === "top";
   return atStart(x) && atStart(y ?? x);
 }
-
 
 interface RenderCtx {
   defs: string[];
@@ -1462,7 +1462,6 @@ export function safeFigmaSvgFilename(title: string | null | undefined): string {
   return `${safe || "design"}-figma-${Date.now()}.svg`;
 }
 
-
 export interface RawFigmaSvgTextLine {
   text: string;
   x: number;
@@ -1491,6 +1490,7 @@ export interface RawFigmaSvgNode {
   opacity: number;
   cornerRadiiRaw: FigmaSvgCornerRadii;
   // guard:allow-raw-color — exported SVG paint read from the design's own computed styles, never app UI
+  /** Computed `background-color`, e.g. "rgba(0, 0, 0, 0)" or "rgb(255, 255, 255)". */
   backgroundColor: string;
   backgroundImage: string;
   backgroundSize?: string;
@@ -1994,7 +1994,6 @@ export function hydrateRawFigmaSvgNode(
   };
 }
 
-
 export interface RawFigmaSvgSceneResult {
   root: RawFigmaSvgNode;
   originOffset: { x: number; y: number };
@@ -2308,6 +2307,10 @@ export function collectRawFigmaSvgScene(
         return false;
       const paintsOwnBox =
         cs.backgroundImage !== "none" ||
+        // The walker is serialized into the page, so it cannot call helpers
+        // from this module's scope. A computed background-color is always a
+        // functional colour string; fully transparent is the only "no paint"
+        // value Chromium reports.
         // guard:allow-raw-color — comparing against a computed CSS value, not authoring one
         (cs.backgroundColor !== "rgba(0, 0, 0, 0)" &&
           cs.backgroundColor !== "transparent") ||
@@ -2729,7 +2732,6 @@ export function collectRawFigmaSvgScene(
           "backdrop-filter cannot be expressed in SVG — rasterized this element's region via screenshot.",
       };
     }
-    // rather than calling a module-scope helper that is not defined there.
     const filterText = base.filter.trim();
     const isLoneDropShadow =
       tag !== "IMG" &&

@@ -44,7 +44,6 @@ export default defineAction({
       )
       .returning({ id: schema.recordings.id });
     if (!recording) {
-      // The conditional UPDATE is the invariant. This follow-up read only
       await assertNoDirectRecordingShares(recordingId);
       throw new Error("This Clip is unavailable.");
     }

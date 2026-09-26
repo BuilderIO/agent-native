@@ -1,4 +1,3 @@
-
 const DB_NAME = "clips-web-recording-backups";
 const DB_VERSION = 1;
 const META_STORE = "recordings";
@@ -225,6 +224,7 @@ export async function hasRecordingBackup(
     return !!meta && isCompleteRecordingBackup(meta, chunks);
   } catch {
     // coercion-ok: an unreadable backup store is exactly as unusable for
+    // retry as a missing one — both mean "can't replay from this browser".
     return false;
   }
 }

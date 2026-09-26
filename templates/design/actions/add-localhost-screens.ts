@@ -1032,6 +1032,11 @@ export default defineAction({
             ) {
               throw err;
             }
+            // Cross-request race: this snapshot's `existingFiles` query ran
+            // before another call committed its insert. Only adopt the
+            // winner when its persisted URL proves it is the same route;
+            // otherwise retry with a distinct filename so a lossy primary
+            // slug cannot overwrite a different route.
             const [winner] = await db
               .select()
               .from(schema.designFiles)

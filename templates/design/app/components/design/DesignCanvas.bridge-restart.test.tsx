@@ -1,4 +1,14 @@
 // @vitest-environment happy-dom
+//
+// Behavioral coverage for the live-edit bridge auto-reconnect decision logic
+// (see the classifyLiveEditHealthProbe doc comment in DesignCanvas.tsx). The
+// authenticated live-edit iframe is a real cross-origin navigation, so this
+// component can never read a 409 "unknown-bridge-key" response body directly
+// — it instead watches for the missing agent-native:editor-chrome-ready
+// handshake and probes /health to compare bridgeInstanceId. These tests drive
+// that flow end-to-end through mocked fetch responses rather than importing
+// the (intentionally unexported, see DesignCanvas.refreshBoundary.test.ts)
+// pure decision function directly.
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -292,6 +302,7 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     expect(container.querySelector("iframe")).toBeNull();
 
     // Window identity is part of the recovery token: an otherwise well-formed
+    // ready packet from another same-origin window cannot revive the key.
     await act(async () => {
       postReadyHandshake(window);
       await flushMicrotasks();

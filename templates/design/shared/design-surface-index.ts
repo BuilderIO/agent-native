@@ -1,7 +1,5 @@
-
 import type { DesignCapabilityName } from "./design-source-capabilities";
 import type { DesignSourceType } from "./source-mode";
-
 
 export interface DesignSurfaceSourceMeta {
   sourceType: DesignSourceType;
@@ -10,7 +8,6 @@ export interface DesignSurfaceSourceMeta {
   indexedAt: string;
   availableCapabilities: DesignCapabilityName[];
 }
-
 
 export interface DesignSurfaceNode {
   nodeId: string;
@@ -21,7 +18,6 @@ export interface DesignSurfaceNode {
   childNodeIds: string[];
   selected?: boolean;
 }
-
 
 export type DesignComponentKind = "alpine-annotation" | "react-component";
 
@@ -44,7 +40,6 @@ export interface DesignSurfaceComponent {
   instanceNodeIds: string[];
 }
 
-
 export type DesignTokenKind =
   | "color"
   | "typography"
@@ -60,13 +55,8 @@ export interface DesignSurfaceToken {
   label: string;
   cssVar: string;
   resolvedValue: string;
-  /**
-   * Source file where this token is defined (real-app only; `globals.css`,
-   * `tailwind.config.ts`, etc.).
-   */
   sourceFile?: string;
 }
-
 
 export interface DesignSurfaceMotionTrack {
   targetNodeId: string;
@@ -82,7 +72,6 @@ export interface DesignSurfaceMotionTimeline {
   compiledHash?: string;
 }
 
-
 export type DesignStateKind = "state" | "fixture" | "capture";
 
 export type DesignBreakpoint = "auto" | "desktop" | "tablet" | "mobile";
@@ -96,7 +85,6 @@ export interface DesignSurfaceState {
   hasData: boolean;
   previewRef?: string;
 }
-
 
 export type DesignReviewFindingSeverity = "error" | "warning" | "info";
 
@@ -127,7 +115,6 @@ export interface DesignSurfaceReview {
   baseVersionId?: string;
   compareVersionId?: string;
 }
-
 
 export interface DesignSurfaceIndex {
   version: 1;

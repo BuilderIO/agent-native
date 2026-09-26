@@ -12,6 +12,7 @@
  * or colors.
  */
 
+/* Hand-drawn fonts. Excalifont is served by the app; no remote font dependency. */
 
 .plan-wf {
   --ink: var(--plan-text, hsl(var(--foreground)));

@@ -53,15 +53,6 @@ function columnsOf(table: DrizzleTable): DrizzleColumn[] {
   );
 }
 
-/**
- * Pre-existing schema.ts columns with zero mentions in db.ts migrations,
- * found while adding this guard. None of these are introduced by this
- * change — they predate it. `ensureAdditiveColumns` patches any of these
- * that are actually missing from a live table at boot, so leaving them
- * unasserted here does not reintroduce the swallowed-migration failure mode;
- * it just means this specific regex guard doesn't cover them. Reported to
- * the task owner for follow-up rather than silently asserted away.
- */
 const KNOWN_COVERAGE_DRIFT = new Set<string>([]);
 
 describe("clips db migrations cover every schema.ts column", () => {

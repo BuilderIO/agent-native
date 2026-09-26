@@ -12,7 +12,6 @@ function makeE2ePassword(label: string): string {
   return ["example", label, Date.now().toString(36), "pw"].join("-");
 }
 
-
 const CREATE_ACTION = "/_agent-native/actions/create-visual-plan";
 const GET_ACTION = "/_agent-native/actions/get-visual-plan";
 const UPDATE_ACTION = "/_agent-native/actions/update-visual-plan";
@@ -260,7 +259,6 @@ async function shareWith(
   return false;
 }
 
-
 test("collab transport: owner can reach state/users/awareness for both docId shapes", async ({
   page,
 }) => {
@@ -310,10 +308,21 @@ test("collab transport: owner can reach state/users/awareness for both docId sha
   }
 });
 
-
 test("edit fidelity: a single client's typed text round-trips byte-perfect to the editor AND to SQL", async ({
   browser,
 }) => {
+  // REGRESSION GUARD for the prosemirror-collab-serializer single-doc refactor.
+  // ONE client, no collaboration involved. After typing a known phrase and
+  // pausing (so the autosave→poll→reconcile cycle runs), the editor and the
+  // persisted markdown must BOTH contain the full phrase. They currently DO NOT
+  // intermittently: the non-byte-identical `blocks[] → doc → blocks[]` round-trip
+  // (`PlanDocumentEditor` getMarkdown/setContent) races the autosave echo, and a
+  // reconcile re-applies a slightly-stale `value`, truncating the LAST 1-2
+  // characters of freshly-typed text — sometimes only in SQL, sometimes rewriting
+  // the live editor backwards on screen. Reproduced single-client and in
+  // inline-editing.spec.ts (`EDITED-…485` → `EDITED-17`). A failure here is a real
+  // data-loss bug in the single-doc editor, NOT a collab/transport issue; fix the
+  // reconcile race (or make the blocks↔doc round-trip byte-stable) in app code.
   const ctx = await browser.newContext({ storageState: STATE_FILE });
   const page = await ctx.newPage();
   try {
@@ -354,7 +363,6 @@ test("edit fidelity: a single client's typed text round-trips byte-perfect to th
     await ctx.close();
   }
 });
-
 
 test("live sync: an edit in context A appears in context B within a few seconds", async ({
   browser,
@@ -400,7 +408,6 @@ test("live sync: an edit in context A appears in context B within a few seconds"
     await ctxB.close();
   }
 });
-
 
 test("concurrent edits: near-simultaneous typing converges to one consistent, non-duplicated value", async ({
   browser,
@@ -456,6 +463,7 @@ test("concurrent edits: near-simultaneous typing converges to one consistent, no
     ).toBeTruthy();
 
     // No DUPLICATION: whichever token(s) survive must appear exactly once each
+    // (the reconcile must never insert the same region twice).
     for (const token of [tokenA, tokenB]) {
       const count = (converged.match(new RegExp(token, "g")) || []).length;
       expect(
@@ -464,6 +472,7 @@ test("concurrent edits: near-simultaneous typing converges to one consistent, no
       ).toBeLessThanOrEqual(1);
     }
 
+    // The surviving writer's token persists to SQL (separates a live bug from an
     // autosave 500). Whichever token won convergence must be the one stored.
     const survivingToken = converged.includes(tokenA) ? tokenA : tokenB;
     await expect
@@ -477,7 +486,6 @@ test("concurrent edits: near-simultaneous typing converges to one consistent, no
     await ctxB.close();
   }
 });
-
 
 test("presence: awareness transport is reachable and a remote editor's live cursor renders in the single-doc surface", async ({
   browser,
@@ -540,7 +548,6 @@ test("presence: awareness transport is reachable and a remote editor's live curs
     await ctxB.close().catch(() => {});
   }
 });
-
 
 test("guest viewer: a signed-out viewer of a public plan sees content but write routes are blocked", async ({
   browser,
@@ -626,7 +633,6 @@ test("guest viewer: a signed-out viewer of a public plan sees content but write 
   }
 });
 
-
 test("edge — interleaved edits: clients converge to one consistent value with no duplication", async ({
   browser,
 }) => {
@@ -682,7 +688,6 @@ test("edge — interleaved edits: clients converge to one consistent value with 
     await ctxB.close();
   }
 });
-
 
 test("edge — backgrounded tab: edit from the foreground tab converges after the other refocuses", async ({
   browser,

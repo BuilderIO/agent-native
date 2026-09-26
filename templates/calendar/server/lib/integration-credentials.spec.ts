@@ -17,7 +17,6 @@ import type { H3Event } from "h3";
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// regression to a shared/"local" scope would be observable in `storedKeys`.
 type Stored = { scope: string; key: string; value: string };
 const store = new Map<string, Stored>();
 
@@ -107,7 +106,6 @@ describe("integration-credentials per-user vault", () => {
       expect.objectContaining({ userEmail: USER_EMAIL }),
     );
 
-    // The only entry in the store is under the per-user scope.
     const entries = [...store.values()];
     expect(entries).toHaveLength(1);
     expect(entries[0].scope).toBe(`u:${USER_EMAIL}`);

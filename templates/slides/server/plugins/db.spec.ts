@@ -48,6 +48,15 @@ function columnsOf(table: DrizzleTable): DrizzleColumn[] {
   );
 }
 
+// Known pre-existing drift: verified against the live slides Neon DB
+// (2026-07 collision audit) that these columns/tables ARE covered by the
+// migration history below, but the plain substring/word-boundary regex this
+// test uses can't always see them (e.g. a column name that only appears
+// inside a multi-column CREATE TABLE string that itself isn't re-scanned per
+// column, or a name that collides with a common word). If a future column
+// legitimately has zero mentions in db.ts, add its `table.column` here only
+// after confirming (like the audit above did for v16-v19) that it's actually
+// missing live, and prefer shipping a real migration over widening this list.
 const KNOWN_COVERAGE_EXCEPTIONS = new Set<string>();
 
 describe("slides db migrations cover every schema.ts column", () => {

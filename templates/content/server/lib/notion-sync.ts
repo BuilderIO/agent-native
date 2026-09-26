@@ -1,4 +1,5 @@
 // @ts-nocheck — Drizzle ORM types from core vs local resolve to different instances
+// in pnpm's node_modules. Logic is correct; types just don't unify across instances.
 import crypto from "node:crypto";
 
 import {
@@ -764,7 +765,6 @@ export async function getDocumentSyncStatus(
       hasConflict: Boolean(link.hasConflict),
     });
     const next = await getSyncLink(documentId, owner);
-    // the normal "connect Notion" flow instead of hammering a dead token
     const connected = !(
       error instanceof NotionApiError && error.status === 401
     );

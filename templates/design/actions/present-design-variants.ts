@@ -231,6 +231,11 @@ async function markSupersededVariantSets(
 ): Promise<{ markedSetIds: string[] }> {
   const db = getDb();
 
+  // Cheap early-exit read so the common case (no stale variant set to mark)
+  // never bumps the design's updatedAt via a no-op mutateDesignData call —
+  // mutateDesignDataUnlocked always advances updatedAt on every commit, even
+  // when the payload is unchanged. The authoritative check still runs inside
+  // the mutate() callback below, so a race against this snapshot is harmless.
   const [designRow] = await db
     .select({ data: schema.designs.data })
     .from(schema.designs)

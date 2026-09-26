@@ -21,6 +21,7 @@ export async function resolveTemplateAccess(
   minRole: ShareRole | "owner" = "viewer",
 ) {
   // guard:allow-unscoped — this helper combines the template ACL with the
+  // inherited Brand Kit ACL before exposing the row to its callers.
   const [template] = await getDb()
     .select()
     .from(schema.assetTemplates)

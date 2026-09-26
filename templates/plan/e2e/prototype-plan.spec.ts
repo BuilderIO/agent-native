@@ -13,7 +13,6 @@ import {
   planE2eAuthEmailPath,
 } from "./auth-state";
 
-
 const REVIEWER_EMAIL =
   process.env.PLAN_E2E_EMAIL ||
   (() => {
@@ -944,7 +943,9 @@ test("EDGE: a one-screen prototype renders without global next/prev controls", a
   ).toHaveCount(0);
 });
 
+/* ------------------------------------------------------------------ */
 /* 11. EDGE: cyclic transitions never deadlock the viewer               */
+/* ------------------------------------------------------------------ */
 test("EDGE: cyclic transitions let the viewer loop A -> B -> A safely", async ({
   page,
 }) => {

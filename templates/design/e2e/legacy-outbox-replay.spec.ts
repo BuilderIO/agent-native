@@ -114,6 +114,12 @@ test("legacy hashless outbox content rebases without overwriting newer source", 
 }) => {
   test.setTimeout(60_000);
   const designId = await createFixtureDesign(page, "Legacy outbox replay");
+  // html/body carry canonical node ids too: without them,
+  // ensureCodeLayerNodeIdsInHtml (shared/code-layer.ts) treats this content as
+  // non-canonical, and DesignEditor's identity-migration effect immediately
+  // persists a stamped copy on the very first gotoEditor below — before the
+  // outbox scenario even starts — which corrupts the byte-exact content
+  // assertion this test relies on to prove the legacy entry never replayed.
   const currentHtml = `<!doctype html><html lang="en" data-agent-native-node-id="legacy-outbox-html"><head><meta charset="utf-8"></head><body style="margin:0" data-agent-native-node-id="legacy-outbox-body"><main data-agent-native-node-id="legacy-outbox-main" style="padding:24px"><p data-agent-native-node-id="legacy-outbox-current">Newer server source</p></main></body></html>`;
   const staleHtml = `<!doctype html><html lang="en" data-agent-native-node-id="legacy-outbox-html"><head><meta charset="utf-8"></head><body style="margin:0" data-agent-native-node-id="legacy-outbox-body"><main data-agent-native-node-id="legacy-outbox-main" style="padding:24px"><p data-agent-native-node-id="legacy-outbox-stale">Stale queued source</p></main></body></html>`;
 

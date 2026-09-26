@@ -1,3 +1,58 @@
+// Debounced save controller for the row PEEK's primary "Content" body (and its
+// title), which — unlike the full-page editor — does NOT use Yjs collab and so
+// persists through a plain debounced `update-document` write.
+//
+// WHY THIS EXISTS (data-loss fix): the peek used a bare `setTimeout` whose
+// pending value lived only inside the timer closure. Every lifecycle transition
+// that could happen before the ~450ms debounce fired — switching to another row,
+// the peek editor unmounting, or the sheet closing / "Open page" navigating —
+// CLEARED that timer instead of FLUSHING it, so the latest primary-body edit was
+// dropped. The additional (non-primary) Blocks fields already flush-on-release
+// via blockFieldSaveController; this controller gives the primary path the SAME
+// durability, modeled directly on that controller:
+//
+//  - A payload is marked clean ONLY after its save promise RESOLVES. A failed
+//    save leaves it dirty so it retries on the next edit or flush — never
+//    silently recorded as saved.
+//  - flush() persists the latest dirty payload immediately (row-switch / unmount
+//    / close / Open-page), so a debounce that has not fired yet is not dropped.
+//  - mark() adopts fresh server content as the new confirmed baseline (e.g. an
+//    agent edit) without scheduling a save.
+//
+// ONE CONTROLLER PER DOCUMENT ID (race-class elimination): this controller is
+// bound to a SINGLE `documentId` for its entire life and NEVER retargets. The
+// peek services many rows over its lifetime by acquiring a per-doc controller
+// from `previewDocumentSaveRegistry` and releasing it on row-switch — exactly
+// like the additional Blocks fields, which mount/unmount per (document, field)
+// and never rebase a live controller's target. Two prior bugs came from the old
+// single-controller-with-rebased-target design and are now STRUCTURALLY
+// impossible:
+//
+//   1. Lane queue-jump (the per-doc serialization lane's `running`/`tail`
+//      microtask gap). Gone: with a single-flight controller per doc id there is
+//      never more than one save in flight for the id, so there is nothing to
+//      serialize across — the lane is deleted entirely (no second mechanism).
+//   2. Stale completion after rebase. An OLD-row in-flight save that resolved
+//      AFTER a row-switch `mark()` used to overwrite the SHARED controller's
+//      `lastSaved` with the old payload and trigger a redundant save against the
+//      NEW row's baseline. Gone: each controller's `lastSaved`/`pending`/in-flight
+//      state belongs to ITS doc only; a stale completion can only ever advance
+//      ITS OWN baseline (correct), never another row's, because the controller's
+//      doc id is fixed at creation.
+//
+// SINGLE-FLIGHT + TRAILING (lost-update safety): the server write is
+// unconditional (last request to the DB wins). Because at most one save() per
+// controller is ever outstanding, server write order == issue order for the doc.
+// While a save is in flight, edits coalesce into one `pending` payload; when it
+// settles, exactly one trailing save fires for the LATEST payload if it differs.
+//
+// SYNCHRONOUS FINAL DISPATCH (async-flush-vs-sync-teardown race fix): call sites
+// invoke flush() fire-and-forget on row-switch / close / Open-page / unmount, so
+// the final write must be DISPATCHED (save() invoked) before the caller tears
+// down or navigates. flush() therefore issues the final save SYNCHRONOUSLY — it
+// does NOT await the in-flight save first. The save is bound to this controller's
+// fixed doc id, so it can never be retargeted; single-flight guarantees it does
+// not overlap a prior save for the id.
 
 export interface PreviewDocumentPayload {
   title: string;

@@ -1,4 +1,8 @@
 // @vitest-environment node
+// The sibling suite runs in happy-dom, which only ever exercises the DOMParser
+// branch. Public deck, share, and present pages are server-rendered, where
+// DOMParser is undefined and sanitizeSlideHtml falls back to its regex twin —
+// so that branch needs its own environment to be covered at all.
 import { describe, expect, it } from "vitest";
 
 import { sanitizeSlideHtml } from "./sanitize-slide-html";

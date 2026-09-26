@@ -44,6 +44,8 @@ const fieldOpSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("upsert"),
     // `id` is optional on create-form (auto-generated from the label) but the
+    // merge keys on it, so an id-less upsert would append a field that then
+    // fails validation.
     field: formFieldSchema
       .extend({
         id: formFieldSchema.shape.id
@@ -85,6 +87,7 @@ export default defineAction({
       const ops = args.ops as Array<{ op: string; [k: string]: unknown }>;
 
       // ponytail: three CAS attempts; move to a shared retry policy if hot-form
+      // contention needs tuning.
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const [existing] = await db
           .select()

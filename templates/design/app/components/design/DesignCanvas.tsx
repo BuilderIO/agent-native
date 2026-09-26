@@ -553,7 +553,6 @@ interface DesignCanvasProps {
   /** Read-only localhost bridge credential. Filesystem write tokens never enter
    * this browser component. */
   previewToken?: string;
-  /** Design-bound credential for live-edit bridge operations only. */
   liveEditCapability?: string;
   liveEditRegistrationCapability?: string;
   publicVisualEdit?: boolean;
@@ -1079,6 +1078,17 @@ function contentHash(value: string): string {
 
 const SCRIPT_ELEMENT_RE = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi; // i18n-ignore non-UI regex
 
+/**
+ * A structural edit's `nextContent` can come from a live-DOM round trip (the
+ * bridge resolves the moved/edited node against the running iframe, not
+ * against the original source bytes). The browser's own attribute serializer
+ * normalizes a bare boolean attribute like `defer` to `defer=""` on that trip
+ * even though nothing about the script changed — comparing raw markup would
+ * read that as a script edit and force a spurious reload. Re-parse each match
+ * through an inert `<template>` (its content never executes or attaches to
+ * the document) so both sides compare the DOM's own canonical serialization
+ * instead of whichever byte-for-byte form the source happened to be in.
+ */
 function normalizeScriptMarkup(scriptHtml: string): string {
   const template = document.createElement("template");
   template.innerHTML = scriptHtml;
@@ -1446,6 +1456,21 @@ export function DesignCanvas({
       }
     };
   }, []);
+  // Zoom-invariant chrome: the non-embedded-frame render path below wraps the
+  // iframe in its own CSS `transform: scale(zoom / 100)` (see the
+  // `deviceFrame === "none"` and framed branches further down) — a purely
+  // visual, OUTER scale the bridge running INSIDE the iframe has no way to
+  // observe. `editorChromeScaleX/Y` is the only channel that tells the bridge
+  // what scale its own chrome (selection borders, resize handles, spacing
+  // overlays) must counter-scale by to stay a constant on-screen size, Figma-
+  // style, instead of visually shrinking/growing with content as the user
+  // zooms. The overview caller already folds its own zoom into the
+  // editorChromeScaleX/Y it passes down for exactly this reason; this
+  // component must do the same with its OWN `zoom` prop for single-view,
+  // multiplying in whatever scale the caller passed (default 1) rather than
+  // assuming the caller already accounted for it — single-view's caller
+  // historically didn't pass either prop at all, so the bridge always
+  // computed with scale=1 and chrome scaled with content on every zoom.
   const effectiveEditorChromeScaleX = (zoom / 100) * editorChromeScaleX;
   const effectiveEditorChromeScaleY = (zoom / 100) * editorChromeScaleY;
   const previousContentKeyRef = useRef(contentKey);
@@ -1854,6 +1879,17 @@ export function DesignCanvas({
   const previewTokenRefreshAttemptRef = useRef<string | null>(null);
   const [bridgeRegistrationRetryNonce, setBridgeRegistrationRetryNonce] =
     useState(0);
+  // Scoped strictly to the registration fetch() itself failing — drives
+  // externalPreviewUrl's raw-URL fallback and the floating
+  // LocalNetworkAccessPrompt card below. Deliberately separate from
+  // bridgeConnectionLostError: a fetch failure and "the live document never
+  // confirmed ready after a successful registration" (handleSuspectedBridge
+  // Restart's destructive paths) are different failure modes — the latter
+  // proves the bridge WAS reachable, so a permission-flavored "maybe you need
+  // to grant local network access" message would be actively misleading
+  // there, and unlike a fetch failure there's no still-reachable raw
+  // dev-server document to fall back to showing (the live document itself is
+  // what stopped responding).
   const [bridgeRegistrationError, setBridgeRegistrationError] = useState<{
     bridgeKey: string;
     message: string;
@@ -1938,6 +1974,7 @@ export function DesignCanvas({
         return url.toString();
       } catch {
         // coercion-ok: an unparseable URL has no frame to render; the screen
+        // falls back to its own content, as it did before any fusion linkage.
         return null;
       }
     }
@@ -2286,7 +2323,16 @@ export function DesignCanvas({
     },
     [],
   );
+  // Single source of truth for a registration attempt, shared by the
+  // automatic effect below and the manual "Connect" button (see
+  // handleConnectLocalNetworkAccess) — see bridgeRegistrationAttemptGeneration
+  // Ref's comment for why a shared, generation-guarded function is required
+  // instead of each caller firing its own independent fetch.
+  // Returns true/false for a transient definite outcome, a terminal stale-token
+  // outcome, or null when a newer attempt (effect-driven or manual) has already
   // superseded this one. Callers must treat null and stale-token as "nothing to
+  // retry", or a stale attempt could schedule a redundant retry after a later
+  // attempt already succeeded.
   const attemptBridgeRegistration =
     useCallback(async (): Promise<BridgeRegistrationAttemptResult> => {
       if (
@@ -2322,7 +2368,11 @@ export function DesignCanvas({
         });
         if (isPreviewTokenStaleStatus(response.status)) {
           if (!isCurrent()) return null;
+          // A public viewer may outlive the local bridge process. Refresh the
           // read-only credential automatically so a reboot is a recoverable
+          // registration event, not a dead iframe that waits for a manual
+          // reconnect click. The action never returns the write-capable bridge
+          // token; it derives the paired preview credential server-side.
           if (designId && connectionId) {
             try {
               const refreshAttemptKey = `${liveEditBridgeKey}:${effectivePreviewToken}`;
@@ -2380,6 +2430,8 @@ export function DesignCanvas({
                 return true;
               }
             } catch (refreshError) {
+              // Keep the explicit stale-token error below when the public
+              // refresh endpoint cannot recover this connection.
               console.debug(
                 "[design:bridge] preview token refresh failed",
                 refreshError instanceof Error
@@ -2405,6 +2457,10 @@ export function DesignCanvas({
           throw new Error(`Bridge registration failed (${response.status})`);
         }
         // coercion-ok: response.ok already confirmed the registration itself
+        // succeeded above; bridgeInstanceId is supplementary metadata for the
+        // restart-detection heuristic only (see classifyLiveEditHealthProbe),
+        // and the null/missing case below is checked explicitly, not treated
+        // as equivalent to a present value.
         const payload = (await response.json().catch(() => null)) as {
           bridgeInstanceId?: string;
         } | null;
@@ -2519,7 +2575,6 @@ export function DesignCanvas({
     lateLiveEditReadyRecoveryRef.current = null;
   }, [liveEditBridgeKey]);
 
-  // Chrome only offers its Local Network Access permission dialog for a
   const handleConnectLocalNetworkAccess = useCallback(async () => {
     setConnectingLocalNetworkAccess(true);
     bridgeRegistrationRetryAttemptRef.current = 0;
@@ -2604,6 +2659,12 @@ export function DesignCanvas({
         return;
       }
     }
+    // A failed manual attempt (still-refused permission, dev server still
+    // down) must not silently stop automatic recovery — schedule the same
+    // backoff retry the automatic path uses. null means a newer attempt
+    // (effect-driven or another click) already superseded this one, which
+    // already has its own outcome to handle; only a definite false schedules
+    // here.
     void attemptBridgeRegistration().then((result) => {
       if (result === false) scheduleBridgeRegistrationRetry();
     });
@@ -3143,6 +3204,17 @@ export function DesignCanvas({
       bootReadyRef.current = false;
     }
   }
+  // Edit mode must never let a live URL receive native app input before the
+  // injected editor bridge has proved that it owns the document. A cached
+  // registration can outlive a bridge restart, and a 401/409 can otherwise
+  // leave an ordinary app iframe interactive while the canvas looks editable.
+  // Interact mode is the deliberate exception: it is the one mode where the
+  // running app, rather than the editor, owns pointer and keyboard input.
+  // A URL-backed localhost frame in Edit mode is never allowed to receive
+  // native app input until the editor bridge is ready. This also covers the
+  // short window before the public visual-edit token query resolves: the raw
+  // URL is useful as a loading surface, but releasing it early makes a failed
+  // registration look like a working editor and lets clicks mutate the app.
   const liveEditFrameRequiresBridge =
     sourceType === "localhost" &&
     Boolean(rawExternalPreviewUrl) &&
@@ -3174,6 +3246,9 @@ export function DesignCanvas({
     Boolean(externalPreviewUrl) &&
     !usingRawFallbackPreview &&
     readyIframeDocumentIdentity !== iframeDocumentIdentity;
+  // A failed registration may still leave the raw dev-server URL mounted as a
+  // visual fallback. In Edit mode that fallback is not an editor: cover it
+  // with the same blocking surface used during bridge boot, so a 401/409 or a
   // denied local-network permission can never hand clicks to the app.
   const liveEditRegistrationFailurePending =
     liveEditFrameRequiresBridge && bridgeRegistrationFailedForCurrentKey;
@@ -3425,6 +3500,8 @@ export function DesignCanvas({
             grantSnapshot(result.reservationToken);
           });
         }
+        // Local Layers must not wait for the owner-only shared snapshot reservation.
+        // The iframe captures again with its reservation token before publishing.
         grantSnapshot();
         return;
       }
@@ -4661,6 +4738,8 @@ export function DesignCanvas({
     iframeDocumentIdentity,
   ]);
 
+  // Mirror the selection down only when it changes, so stale re-posts can't
+  // race a fast click and re-highlight the old element.
   const lastSelectionMirrorSignatureRef = useRef<string | null>(null);
   const forceSelectionMirrorResyncRef = useRef(true);
   const suppressMirrorSelectorsRef = useRef<string[] | null>(null);
@@ -5254,7 +5333,6 @@ export function DesignCanvas({
     };
   }, [previewFrameId, screenId]);
 
-  // Creation-race keystroke routing (host side). Active only while a
   const pendingTextEditRef = useRef<{
     nodeId: string;
     buffer: string;
@@ -6075,11 +6153,7 @@ export function DesignCanvas({
   }, [replaceRuntimeContentInPlace, runtimeReplacementEnabled]);
 
   const deleteRuntimeElement = useCallback(
-    (
-      selector?: string | null,
-      candidates?: string[],
-      requestId?: string,
-    ) => {
+    (selector?: string | null, candidates?: string[], requestId?: string) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return false;
       return postOneShotBridgeMessage({
@@ -6092,6 +6166,11 @@ export function DesignCanvas({
     [postOneShotBridgeMessage],
   );
 
+  // BUG-UNDO-LINKED-BREAKPOINT: every mounted frame for a screen (primary +
+  // breakpoint siblings) registers its own replace/style handlers so the
+  // orchestrator can fan out undo/redo and base style commits to all of them.
+  // `registerRuntimeBridge` still owns the single-active global helpers below;
+  // this registry is the multi-frame path those globals cannot reach.
   useEffect(() => {
     const frameId = previewFrameId ?? screenId;
     if (!frameId) return;
@@ -6153,6 +6232,10 @@ export function DesignCanvas({
 
   useEffect(() => {
     if (!registerRuntimeBridge) return;
+    // Fan out base-scope style edits to linked breakpoint iframes so they stay
+    // visually in sync (BUG-UNDO-LINKED-BREAKPOINT). Breakpoint-scoped preview
+    // frames must only patch themselves — otherwise a Phone edit briefly paints
+    // onto Tablet/Desktop siblings before persistence scope is decided.
     const sendStyleChangeLinked = (
       selector: string,
       property: string,
@@ -6255,6 +6338,8 @@ export function DesignCanvas({
     (window as any).__designCanvasClearShaderFillPreview =
       clearShaderFillPreview;
     return () => {
+      // Identity-guard each delete so a stale unmounting instance never clobbers
+      // a freshly mounted instance's bridge during a remount race.
       if ((window as any).__designCanvasSendStyle === sendStyleChangeLinked) {
         delete (window as any).__designCanvasSendStyle;
       }
@@ -6558,6 +6643,19 @@ export function DesignCanvas({
             ? "100%"
             : embeddedFrame.viewportHeight
           : resolvedHeight,
+        // BP-DEEP item 2: when a breakpoint chip constrains the viewport
+        // (previewWidthPx) the wrapper is NARROWER than the canvas, so there
+        // is no horizontal overflow for the scroll-centering effect above to
+        // act on — without a layout-level center the frame pins to the
+        // canvas's left edge, which reads as broken next to the
+        // device-preview control's flex-centered framed modes. Block + auto
+        // margins center it in the zoom layer's LAYOUT space, which is safe
+        // for the T-zoom-anchor invariant: the margin inset is constant in
+        // layer-local coordinates (transform scale never changes layout), so
+        // the cursor-anchored zoom math — which only assumes the zoom
+        // layer's own top-left corner stays a fixed point in scroll-content
+        // space — is untouched. Base editing (previewWidthPx unset) keeps
+        // the original inline-block full-width layout unchanged.
         ...(previewWidthPx !== null &&
         previewWidthPx !== undefined &&
         !embeddedFrame
@@ -6647,10 +6745,7 @@ export function DesignCanvas({
             boardSurface ? undefined : (previewFrameId ?? screenId ?? undefined)
           }
           data-design-source-type={
-            sourceType ??
-            (externalPreviewUrl
-              ? "localhost"
-              : "inline")
+            sourceType ?? (externalPreviewUrl ? "localhost" : "inline")
           }
           className="relative block h-full w-full border-0 bg-transparent"
           style={{
@@ -7123,6 +7218,38 @@ export function DesignCanvas({
           ref={zoomLayerRef}
           className="relative h-full w-full"
           style={{
+            // T-zoom-anchor: transform-origin MUST be top-left here (not
+            // center-center) to match usePinchZoom's documented contract
+            // ("Assumes the scaled content uses transform-origin: top left
+            // ... Disable for layouts with transform-origin: center center")
+            // and the pinch-zoom-wheel bridge-forwarded handler above, both of
+            // which compute the cursor-anchored scroll delta assuming the
+            // scaled box's own top-left corner is a fixed point in
+            // scroll-content space. Centering this box via flexbox instead
+            // (the previous approach) re-centers the *painted* box around the
+            // container's center on every zoom change, which moves that
+            // "fixed" point every time the box's rendered size changes —
+            // exactly the invariant the cursor-anchor math depends on, so
+            // Cmd/Ctrl+wheel or pinch zoom would drift away from the cursor.
+            // Initial centering (and re-centering on a content/screen swap)
+            // is instead handled by imperatively setting scrollLeft/scrollTop
+            // once — see the effect keyed on [deviceFrame, contentKey] above
+            // usePinchZoom — so the layout itself stays simple and
+            // top-left-anchored while still looking centered at rest.
+            //
+            // BP-DEEP v2 item 5 — zoom-out must anchor CENTER: below 100%
+            // the painted layer is SMALLER than the container, so there is
+            // no scrollable overflow and the old transform shrank the canvas
+            // toward the container's top-left corner. The translate() below
+            // (only nonzero when zoom < 100) re-centers the painted layer in
+            // both axes. This cannot break the cursor-anchor math above:
+            // translate percentages resolve against the layer's LAYOUT box
+            // (constant, zoom-independent), and in the sub-100% regime where
+            // the offset is nonzero the container has no overflow — the
+            // anchor math's scroll deltas clamp to 0 regardless — while at
+            // >= 100% the offset is exactly 0 and the original top-left
+            // contract holds verbatim. The offset is also continuous at
+            // 100% (0), so crossing the boundary mid-gesture cannot jump.
             transform: getSingleScreenZoomTransform(
               zoom,
               deviceFrame,

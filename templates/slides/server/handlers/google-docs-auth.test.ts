@@ -141,6 +141,8 @@ describe("getGoogleDocsStatus", () => {
   });
 
   it("tells the resolver a connected upload-capable account exists", async () => {
+    // The default fixture account carries drive.file, so the gate must know an
+    // upload can already happen without a fresh authorization request.
     await getGoogleDocsStatus({} as any);
 
     expect(mocks.resolveGoogleSlidesExportAvailability).toHaveBeenCalledWith(

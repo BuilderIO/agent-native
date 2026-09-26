@@ -279,6 +279,14 @@ export function PlanContentRenderer({
     });
   };
 
+  // The single-document editor is CLIENT-ONLY: Tiptap can't render on the server,
+  // so SSR + the first client paint render the read-only per-block view, and the
+  // editor swaps in after hydration. This avoids a hydration mismatch (which would
+  // force React to regenerate the tree and drop editor state). It also gates on
+  // real editability (not review/annotation mode, and a persistence channel).
+  // The single-document editor is ON (non-collab seed path, which materializes the
+  // inline custom-block nodes). A hard guard in PlanDocumentEditor refuses to
+  // persist an empty/catastrophically-smaller doc over real content, so a seed
   // race can never wipe `blocks[]`. Single-doc multi-user collab is a fast-follow.
   const SINGLE_DOC_EDITOR_ENABLED = true;
   const [mounted, setMounted] = useState(false);

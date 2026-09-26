@@ -400,6 +400,7 @@ export async function readSlackBotTokenForPayload(
   if (!teamId) return null;
 
   // guard:allow-unscoped — signed Slack webhook resolves the installation by
+  // provider team/app id before reading the encrypted app_secrets token ref.
   const rows = await getDb()
     .select({
       id: schema.slackInstallations.id,

@@ -288,6 +288,7 @@ describe("DesignCanvas live embedded-frame offset", () => {
       expect(ownDocument.activeElement).toBe(ownEditable);
       expect(document.activeElement).toBe(iframe);
 
+      // The child marks and focuses its editable before its state message
       // reaches DesignCanvas. The DOM check must cover this short race window.
       await enterCanvas();
       expect(document.activeElement).toBe(iframe);

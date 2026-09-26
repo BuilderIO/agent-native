@@ -139,7 +139,21 @@ export function convertToSlideHtml(
 const DEFAULT_SLIDE_WIDTH_EMU = 9144000;
 const DEFAULT_SLIDE_HEIGHT_EMU = 5143500;
 const DEFAULT_PPTX_BACKGROUND = "#ffffff"; // guard:allow-raw-color - PPTX's own white default when no background is declared
+// OOXML's own default run color when nothing in the run, the placeholder
+// chain, or `<p:txStyles>` declares one. It has to be the value the file
+// format states, not a readable-looking approximation: an invented near-black
+// renders beside the deck's real black inside a single text box, which is
+// visible as two different blacks in one paragraph.
 const DEFAULT_PPTX_FOREGROUND = "#000000"; // guard:allow-raw-color - OOXML's declared default text color
+/**
+ * OOXML's own default run size, used only when the run, its placeholder
+ * chain, and the deck's `<p:defaultTextStyle>` all fail to state one.
+ * KNOWN GAP: the parser does not read `<p:defaultTextStyle>` or the master's
+ * `<p:otherStyle>`, and real decks routinely declare 14pt there — an unsized
+ * run in one of those decks renders 28% oversized and overflows its authored
+ * box. Fixing that needs the parser to surface the deck's declared default,
+ * not a different constant here.
+ */
 const DEFAULT_PPTX_FONT_SIZE_PT = 18;
 
 function referenceBoxForSlide(
@@ -654,6 +668,9 @@ function blockArcPath(
   const innerY = outerY - inset;
   if (!(innerX > 0) || !(innerY > 0)) return undefined;
   // ponytail: parametric angles, exact for a circular block arc — which is
+  // every one in the decks this was measured against. A markedly elliptical
+  // one starts and ends a few degrees around from where PowerPoint puts it;
+  // OOXML's `cat2`/`sat2` true-angle correction is the upgrade.
   const at = (radiusX: number, radiusY: number, degrees: number) => {
     const angle = (degrees * Math.PI) / 180;
     return `${round1(outerX + radiusX * Math.cos(angle))} ${round1(outerY + radiusY * Math.sin(angle))}`;

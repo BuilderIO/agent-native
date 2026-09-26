@@ -117,7 +117,6 @@ const FORBIDDEN = {
   literalHref: `<a id="xss-lit" href="javascript:window.__xss&&window.__xss()">lit</a>`,
 };
 
-
 test.describe("stored XSS via wireframe html (dangerouslySetInnerHTML, no iframe)", () => {
   test("obvious vectors (script tag, img onerror, literal javascript:) never execute as a viewer", async ({
     page,
@@ -153,7 +152,9 @@ test.describe("stored XSS via wireframe html (dangerouslySetInnerHTML, no iframe
       wireframePlan(OBFUSCATED.tabHref, title),
       title,
     );
+    // KNOWN BUG: the schema currently ACCEPTS the tab-obfuscated href because it
     // only matches the literal token `javascript:`. Correct behavior is to
+    // reject it OR strip the scheme before storing.
     if (!created.id) {
       expect(created.ok).toBe(false);
       return;
@@ -248,7 +249,6 @@ test.describe("stored XSS via wireframe html (dangerouslySetInnerHTML, no iframe
   });
 });
 
-
 test.describe("custom-html block (sandboxed iframe) neutralizes payloads", () => {
   test("obfuscated + obvious payloads in custom-html never reach the top document", async ({
     page,
@@ -297,7 +297,6 @@ test.describe("custom-html block (sandboxed iframe) neutralizes payloads", () =>
     ).toEqual([]);
   });
 });
-
 
 test.describe("DoS: deeply nested tabs", () => {
   function nestedTabs(depth: number): unknown {

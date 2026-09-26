@@ -121,6 +121,7 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
   if (!anonymousAccess && !tokenGrantsAgentAccess) return null;
 
   // Tokenized URLs must never put the access token in a publicly cached SSR
+  // shell. The client registers tools after it has verified access instead.
   if (tokenGrantsAgentAccess) return null;
 
   const agentContextUrl = buildAgentApiUrls(recording.id, {

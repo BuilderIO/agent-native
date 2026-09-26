@@ -34,6 +34,12 @@ test.describe("reparenting and reordering", () => {
     await page.mouse.up();
     await page.waitForTimeout(2500); // e2e-harness-ignore moved verbatim by the drag-and-drop split
 
+    // Scope to the authored screen iframe, not `.first()`: a canvas Move
+    // drag always posts cross-screen claim messages (even within one
+    // screen) and that mounts a board-surface iframe ahead of it — same
+    // `[data-design-preview-iframe]` attribute, no `data-screen-iframe-id`,
+    // and none of this screen's own content. See `node()` in
+    // e2e/drag-and-drop.shared.ts, which guards against the same trap.
     const nested = await page
       .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
       .first()

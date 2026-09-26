@@ -1,4 +1,3 @@
-
 import {
   chooseFallbackAudioInput,
   enumerateAudioInputDevices,
@@ -329,7 +328,6 @@ async function readDeviceIds(overrides?: {
   }
 }
 
-// isLikelyPhoneMic). Device labels are only populated once permission has
 async function lookupAudioDeviceLabel(deviceId: string): Promise<string> {
   if (!deviceId) return "";
   try {
@@ -630,8 +628,6 @@ function warnIfTrackDeviceMismatch(
     },
   );
 }
-
-
 
 async function readyVideo(stream: MediaStream): Promise<HTMLVideoElement> {
   const video = document.createElement("video");
@@ -1065,7 +1061,6 @@ function cleanup(recording: ActiveRecording): void {
   void recording.audioContext?.close().catch(() => undefined);
 }
 
-
 async function acquire(message: AcquireMessage): Promise<{
   ok: boolean;
   width: number;
@@ -1084,6 +1079,9 @@ async function acquire(message: AcquireMessage): Promise<{
     audio: message.audioDeviceId,
   });
 
+  // Chrome cannot prompt for camera/mic in this headless document, so an
+  // ungranted device rejects as a dismissal. requireMediaPermission types that
+  // apart from a real cancellation; the worker sends the user to the permission
   // page instead of surfacing Chrome's "Permission dismissed" as a dead end.
   const acquireMicStream = async (): Promise<MediaStream> => {
     const audioLabel = await lookupAudioDeviceLabel(devices.audio);
@@ -1150,7 +1148,6 @@ function stopPreparedStreams(): void {
     prepared.cameraStream,
   ]);
 }
-
 
 async function begin(message: BeginMessage): Promise<{
   ok: boolean;
@@ -1628,7 +1625,6 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
     recording.rejectStopped(error);
   }
 }
-
 
 function pause(message: SimpleMessage): { ok: boolean } {
   const recording = activeRecording;

@@ -1,4 +1,9 @@
 // @vitest-environment happy-dom
+//
+// canvas-primitive-insert.ts's appendCanvasPrimitiveToHtml (and the
+// html-layer-positioning.ts attribute writer this pulls in) early-return
+// null under `typeof window === "undefined"` (the default node test
+// environment), so this needs a real DOM.
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import { describe, expect, it, vi } from "vitest";
 

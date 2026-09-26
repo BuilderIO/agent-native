@@ -68,6 +68,7 @@ export function applyPortableStyleSnapshotToHtml(
   if (typeof window === "undefined" || !snapshot?.nodes?.length) {
     return content;
   }
+  // Equal heads do not guarantee equal body/ancestor cascades.
   // ponytail: inline snapshots may mask later responsive stylesheet rules.
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");

@@ -88,6 +88,8 @@ async function resolveManagedCalendarClientOrNull(): Promise<ManagedCalendarClie
     return await resolveManagedCalendarClient();
   } catch {
     // coercion-ok: null is the same typed "not connected" result callers
+    // already get for "no managed connection configured" - isConnected and
+    // getConnectedAccounts never distinguish it from a genuine read success.
     return null;
   }
 }
@@ -438,14 +440,6 @@ function isPermanentRefreshError(message: string): boolean {
   return PERMANENT_REFRESH_ERRORS.some((code) => m.includes(code));
 }
 
-/**
- * Get a valid access token for a Google account, refreshing if expired.
- *
- * Throws on refresh failure rather than returning a stale token. Callers
- * that aggregate across accounts should catch and translate to a per-
- * account error so UIs can prompt a reconnect instead of silently
- * showing empty results.
- */
 async function getValidAccessToken(
   accountId: string,
   tokens: GoogleTokens,
@@ -453,8 +447,22 @@ async function getValidAccessToken(
   orgId?: string,
 ): Promise<string> {
   if (!tokens.access_token && !tokens.refresh_token) {
+    // The stored record has no usable credentials at all. The most common
+    // cause is a row that failed to decrypt after a SECRETS_ENCRYPTION_KEY /
+    // BETTER_AUTH_SECRET rotation — core's parseStoredTokens returns `{}`
+    // instead of throwing. Without this guard the expiry check below is
+    // skipped (no expiry_date) and we fall through to returning
+    // `tokens.access_token === undefined`, so every Google call goes out as
     // "Authorization: Bearer undefined" and 401s instead of prompting a
+    // reconnect.
+    //
+    // Deliberately do NOT delete the row here (unlike the provider-confirmed
+    // dead paths below): a failed decrypt can also mean THIS process has the
+    // wrong key — e.g. a dev server pointed at a prod DB with a different
     // secret, or key material missing at boot. Deleting would irreversibly
+    // destroy tokens a correctly configured deployment can still decrypt.
+    // Throwing is enough: getAuthStatus excludes accounts whose token fetch
+    // throws, so the UI still flips to the reconnect banner.
     throw new Error(
       `No usable OAuth tokens for ${accountId} — please reconnect.`,
     );
@@ -498,11 +506,13 @@ async function getValidAccessToken(
       throw lastRefreshError;
     } catch (err: any) {
       if (isPermanentRefreshError(err?.message || "")) {
-        // surfaces the connect banner instead of a stale-token illusion.
         await deleteOAuthTokens("google", accountId);
         throw err;
       }
+      // Transient failure (network hiccup, 5xx, timeout). If the existing
       // token hasn't actually expired yet — we only entered this path
+      // because we're inside the 5-minute pre-expiry buffer — fall back to
+      // it so a flaky moment doesn't 502 the calendar.
       if (
         tokens.access_token &&
         tokens.expiry_date != null &&
@@ -636,7 +646,11 @@ const accountTimezoneCache = new Map<
 const ACCOUNT_TIMEZONE_CACHE_TTL_MS = 60 * 60 * 1000;
 const ACCOUNT_TIMEZONE_CACHE_MAX_ENTRIES = 500;
 
+// Only cache confirmed outcomes (has/doesn't have a resolvable time zone).
 // A thrown error (token refresh, network, provider failure) is never cached
+// — it's indistinguishable from a real "no time zone" answer, and caching it
+// would silently disable a peer's working-hours filter for the TTL even
+// right after they reconnect.
 function cacheAccountTimezone(key: string, value: string | null): void {
   if (
     !accountTimezoneCache.has(key) &&
@@ -695,6 +709,9 @@ async function resolveGoogleAccountTimezone(
     );
   } catch {
     // coercion-ok: deliberately not the same as "confirmed no account" —
+    // this is never cached (see cacheAccountTimezone), so the caller
+    // (getEligibleHostAvailability) re-checks on the next request instead
+    // of a lookup failure being treated as a stable negative result.
     return null;
   }
 
@@ -709,7 +726,6 @@ async function resolveGoogleAccountTimezone(
     accounts.find((a) => a.accountId.trim().toLowerCase() === key) ??
     accounts[0];
 
-  // would re-derive a fresh token from the same request each time and
   let accessToken: string;
   try {
     const tokens = account.tokens as unknown as GoogleTokens;
@@ -736,6 +752,9 @@ async function resolveGoogleAccountTimezone(
   }
   if (!resolved) {
     // coercion-ok: deliberately not the same as "confirmed no timezone" —
+    // this is never cached (see cacheAccountTimezone), so the caller
+    // (getEligibleHostAvailability) re-checks on the next request instead
+    // of a lookup failure being treated as a stable negative result.
     return null;
   }
 

@@ -1535,7 +1535,6 @@ export async function recordSessionReplayChunks(
           413,
         );
       }
-      // (and any S3 provider's scoped-secret lookup) would resolve nothing —
       const chunk = await runWithRequestContext(
         { userEmail: key.ownerEmail, orgId: key.orgId ?? undefined },
         () =>

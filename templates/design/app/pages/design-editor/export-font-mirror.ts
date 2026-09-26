@@ -1,4 +1,3 @@
-
 const MIRROR_STYLE_MARKER = "data-agent-native-export-fontface";
 
 export interface MirroredFonts {
@@ -334,6 +333,7 @@ function harvestFontFaceRules(
     if (rule.type === IMPORT_RULE) {
       const importRule = rule as CSSImportRule;
       // `@import url(print-fonts.css) print` contributes nothing to a screen
+      // preview, so following it would mirror faces the preview never used.
       const importMedia = importRule.media?.mediaText;
       if (importMedia && !harvest.conditionApplies("media", importMedia)) {
         continue;

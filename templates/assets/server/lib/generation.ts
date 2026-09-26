@@ -1433,12 +1433,6 @@ export async function selectReferences(input: {
   subjectAssetId?: string;
   intent?: GenerationIntent;
   limit?: number;
-  /**
-   * Drafts are private to their author, and the pool below scores every asset
-   * in the kit — including unsaved candidates. Without this scope an automatic
-   * selection would quietly send another drafter's candidate to the provider.
-   * Required: pass `unrestrictedDraftReadScope()` for an approver.
-   */
   draftScope: DraftReadScope;
 }): Promise<ReferenceForGeneration[]> {
   const db = getDb();

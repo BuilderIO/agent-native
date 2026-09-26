@@ -1,18 +1,3 @@
-/**
- * GET /api/public-recording?id=<recordingId>[&password=<pw>]
- *
- * Public read endpoint for share/:id and embed/:id pages — lets unauthenticated
- * viewers fetch a recording's player data without going through the
- * authenticated `/_agent-native/actions/get-recording-player-data` route.
- *
- * Only returns data when:
- *   - recording.visibility === 'public', or the signed-in viewer has org/share access, AND
- *   - either no password is set, the viewer is owner, or the provided password matches
- *
- * For `org` or `private` visibility, signed-in org members and explicit shares
- * may load the same player payload as the authenticated route.
- */
-
 import {
   getSession,
   signScopedAgentAccessToken,
@@ -127,6 +112,10 @@ function setProtectedMediaAccessCookie(
   return token;
 }
 
+// Best-effort, per-instance (not distributed) throttle on wrong-password
+// attempts against a password-protected share. Keyed by IP + recordingId so
+// one abusive client/recording pair can't brute-force unlimited guesses
+// against a single server instance. Mirrors the limiter in view-event.post.ts.
 const PASSWORD_ATTEMPT_WINDOW_MS = 60_000;
 const PASSWORD_ATTEMPT_MAX = 10;
 const PASSWORD_ATTEMPT_MAX_BUCKETS = 5000;
@@ -286,6 +275,10 @@ export default defineEventHandler(async (event) => {
   if (rec.password && !viewerIsOwner) {
     if (!tokenAllowsAgentAccess) {
       if (!password) {
+        // No password supplied at all — this is the initial load or a
+        // background poll sitting on the password prompt, not a guess. Don't
+        // touch the throttle, or a viewer who never submits anything would
+        // eventually get 429'd just for polling.
         setResponseStatus(event, 401);
         return { error: "Password required", passwordRequired: true };
       }
@@ -364,7 +357,23 @@ export default defineEventHandler(async (event) => {
     durationMs: rec.durationMs,
   });
 
+  // Normalize the player videoUrl:
+  //   1. Rewrite the legacy `/api/uploads/:id/blob` shape to the current
+  //      `/api/video/:id` endpoint so old rows keep playing after the move.
+  //   2. Keep all Loom imports behind the same-origin `/api/video/:id` access
+  //      gate. Legacy Loom rows render an iframe inside that route; reuploaded
+  //      Loom rows proxy their stored provider URL from the server.
+  //   3. For password-protected public recordings, the password check above
+  //      mints a signed media grant cookie scoped to `/api/video/:id`. We also
+  //      append the same 6-hour token as a fallback for browsers/embeds that
   //      cannot use the cookie immediately. Sticking the plaintext password in
+  //      the URL leaks it into browser history, CDN logs, and Referer headers.
+  //      The downstream `/api/video/:id` route accepts `?t=<token>`, the media
+  //      cookie, or `?password=<pw>` as a legacy fallback. (audit 11 F-07)
+  //      Remote provider URLs (R2/S3/Builder) are kept behind the same-origin
+  //      proxy on public pages so CORS, Range support, and fragile signed URLs
+  //      fail in one server-controlled place instead of as opaque <video>
+  //      errors in the browser.
   const resolvedVideoUrl = resolvePlayerVideoUrl(rec, {
     addPasswordToken: false,
     appPath,

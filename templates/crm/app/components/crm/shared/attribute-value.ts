@@ -1,4 +1,3 @@
-
 import {
   ATTRIBUTE_TYPE_SPECS,
   CRM_ATTRIBUTE_TYPES,
@@ -63,7 +62,6 @@ export interface CrmValueSpec {
   parse(text: string, ctx: CrmValueContext): CrmValueParse;
 }
 
-
 export function activeOptions(attribute: CrmValueShape): CrmAttributeOption[] {
   return (attribute.options ?? []).filter((option) => !option.archived);
 }
@@ -81,10 +79,6 @@ export interface CrmValueToken {
   color?: string;
 }
 
-/**
- * One token per value member. Both surfaces render option chips from this —
- * they differ only in the wrapper, not in what a chip says.
- */
 export function valueTokens(
   attribute: CrmValueShape,
   value: CrmAttributeValue | undefined,
@@ -110,7 +104,6 @@ export function valueTokens(
   }
   return tokens;
 }
-
 
 function asDisplayString(value: CrmAttributeValue): string {
   if (value === null || value === undefined) return "";
@@ -165,7 +158,6 @@ function formatCurrency(
     return `${value} ${code}`;
   }
 }
-
 
 export const RATING_MAX = 5;
 
@@ -413,7 +405,6 @@ export function assertValueRegistryComplete(): void {
   }
 }
 
-
 function scalarsOf(value: CrmAttributeValue): CrmAttributeValue[] {
   return Array.isArray(value) ? value : value === null ? [] : [value];
 }
@@ -501,7 +492,6 @@ export function attributeInputValue(
   return String(value);
 }
 
-
 export interface CrmEditorDraft {
   draft: string;
   seed: string;
@@ -514,7 +504,6 @@ export function editorDraftFor(
   if (!state) return { draft: seed, seed };
   return state.seed === seed ? state : { draft: seed, seed };
 }
-
 
 export function referenceMembers(
   value: CrmAttributeValue | undefined,

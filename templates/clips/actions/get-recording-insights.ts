@@ -1,4 +1,3 @@
-
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { count, eq } from "drizzle-orm";
@@ -56,6 +55,10 @@ export default defineAction({
       countedViewerRows.map((v) => v.viewerEmail ?? `anon:${v.id}`),
     ).size;
 
+    // Mirrors `countRecordingViews`: `recording_views` only exists from
+    // migration v46, so clips recorded before it have zero log rows. Floor the
+    // total at the counted-viewer count so those clips keep reporting a real
+    // number instead of 0, and so total can never read below uniqueViewers.
     const views = Math.max(Number(viewLogRow?.value ?? 0), countedViewers);
 
     const completionRate =

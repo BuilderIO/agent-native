@@ -290,6 +290,8 @@ function PanelEditorContent({
       isProgramSource
         ? parseProgramDescriptor(form.sql)
         : { programId: "", paramsText: "" },
+    // Only re-derive when switching into program mode or loading a new panel;
+    // subsequent edits are tracked in local state below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [open, panel],
   );

@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -229,6 +228,9 @@ describe("parsePenPathFromSerializedD (inverse of serializePenPath)", () => {
     const d = serializePenPath(path);
     const parsed = parsePenPathFromSerializedD(d);
     expect(parsed).not.toBeNull();
+    // Re-serializing the parsed-back path must reproduce the exact same `d`
+    // string — the real invariant this parser exists for (data-an-pen-nodes
+    // round-tripping through commit -> re-hydrate -> re-commit).
     expect(serializePenPath(parsed!)).toBe(d);
     expect(parsed!.closed).toBe(path.closed);
     expect(parsed!.nodes).toHaveLength(path.nodes.length);

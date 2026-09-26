@@ -15,7 +15,6 @@ import {
   serializePlanContent,
 } from "./plan-content.js";
 
-
 const wireframeBlock = (html: string): PlanBlock => ({
   id: "wf",
   type: "wireframe",
@@ -43,7 +42,6 @@ const parseCustomHtml = (html: string) =>
     blocks: [customHtmlBlock(html)],
   });
 
-
 describe("wireframe html sanitization (rendered live via dangerouslySetInnerHTML)", () => {
   const rejected = [
     ["script tag", "<div><script>alert(1)</script></div>"],
@@ -70,14 +68,6 @@ describe("wireframe html sanitization (rendered live via dangerouslySetInnerHTML
     });
   }
 
-  /**
-   * BUG (high): the wireframe `html` field is rendered LIVE into the page via
-   * `dangerouslySetInnerHTML` (app/components/plan/wireframe/Wireframe.tsx:248)
-   * with NO iframe sandbox and NO sanitizeCustomHtml pass — only the schema
-   * regex `unsafeCustomHtmlPattern`. That regex matches the literal token
-   * `javascript:`, so a tab/newline inside the scheme (which browsers strip
-   * before navigating) bypasses it. Result: a stored XSS link in a SHARED plan.
-   */
   it("rejects a javascript: url obfuscated with a tab (browsers strip the tab)", () => {
     const payload = '<a href="java\tscript:alert(document.domain)">Click</a>';
     expect(parseWireframeHtml(payload).success).toBe(false);
@@ -152,7 +142,6 @@ describe("diagram html sanitizer", () => {
     expect(out.toLowerCase()).not.toContain("javascript:");
   });
 });
-
 
 describe("resource bounds and DoS protection", () => {
   function nestTabs(depth: number): PlanBlock {
@@ -265,7 +254,6 @@ describe("resource bounds and DoS protection", () => {
     );
   });
 });
-
 
 describe("structural validation", () => {
   it("rejects an unknown surface enum", () => {
@@ -488,7 +476,6 @@ describe("structural validation", () => {
   });
 });
 
-
 describe("patch surface stays safe", () => {
   const baseCustomHtml = (): PlanContent =>
     planContentSchema.parse({
@@ -660,7 +647,6 @@ describe("patch surface stays safe", () => {
   });
 });
 
-
 describe("parse and migration robustness", () => {
   it("returns null on malformed JSON, html, and empty inputs", () => {
     expect(parsePlanContent("{not json")).toBeNull();
@@ -707,7 +693,6 @@ describe("parse and migration robustness", () => {
     ).toThrow();
   });
 });
-
 
 describe("sanitizeStoredPlanHtml (legacy full-document escape hatch)", () => {
   it("strips script execution while preserving document structure and styling", () => {
