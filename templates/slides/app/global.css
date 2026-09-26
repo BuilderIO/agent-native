@@ -28,7 +28,7 @@
   display: grid;
   height: 3.5rem;
   grid-template-columns:
-    minmax(0, 1fr) minmax(8rem, min(30rem, max(8rem, calc(100cqw - 24rem))))
+    minmax(0, 1fr) minmax(8rem, min(30rem, max(8rem, calc(100cqw - 32rem))))
     minmax(0, 1fr);
   grid-template-rows: 3.5rem;
   column-gap: 0.75rem;
@@ -48,7 +48,7 @@
   }
 }
 
-@container (max-width: 36rem) {
+@container (max-width: 40rem) {
   .slides-home-toolbar .slides-home-import-label {
     display: none;
   }

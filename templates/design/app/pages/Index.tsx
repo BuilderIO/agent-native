@@ -99,6 +99,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import { useShortcutLabel } from "@/hooks/use-shortcut-label";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
   readStoredDesignFilter,
@@ -152,6 +153,7 @@ interface HomeSuggestionsResult {
 
 export default function Index() {
   const t = useT();
+  const searchShortcutLabel = useShortcutLabel("$mod+k");
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -1087,7 +1089,7 @@ export default function Index() {
         aria-hidden="true"
         className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 select-none rounded bg-muted px-1 py-0.5 font-mono text-[10px] leading-4 text-muted-foreground"
       >
-        ⌘K
+        {searchShortcutLabel}
       </kbd>
     </div>,
   );

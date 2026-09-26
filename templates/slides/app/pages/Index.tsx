@@ -135,7 +135,7 @@ import {
 } from "@/lib/recent-references";
 import { hydrateReferenceDocuments } from "@/lib/reference-document-hydration";
 import { TAB_ID } from "@/lib/tab-id";
-import { cn } from "@/lib/utils";
+import { cn, shortcutLabel } from "@/lib/utils";
 
 const loadPromptPopover = () => import("@/components/editor/PromptDialog");
 const LazyPromptPopover = lazy(loadPromptPopover);
@@ -391,6 +391,7 @@ async function loadReferenceDeckGenerationContext(
 }
 
 export default function Index() {
+  const searchShortcutLabel = shortcutLabel("cmd+k");
   const t = useT();
   const {
     decks,
@@ -2384,7 +2385,7 @@ function DeckSearchInput({
         aria-hidden="true"
         className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 select-none rounded bg-muted px-1 py-0.5 font-mono text-[10px] leading-4 text-muted-foreground"
       >
-        ⌘K
+        {searchShortcutLabel}
       </kbd>
     </div>
   );
