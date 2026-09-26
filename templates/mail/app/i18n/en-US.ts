@@ -70,6 +70,25 @@ const messages = {
       aiSetupPromptTravel: "Travel confirmations and reservations I need",
       aiSetupTagFinance: "Finance",
       aiSetupPromptFinance: "Bills and account statements I need",
+      aiSetupArchiveExample:
+        "Bot and CI notifications from GitHub, Vercel, and Dependabot",
+      aiSetupFilteredExample:
+        "Cold sales outreach and recruiters I haven't replied to",
+      aiSetupSortingHeadline: "Sorting your inbox",
+      aiSetupSortingProgress: "Sorting recent mail: {{processed}} of {{total}}",
+      aiSetupUndoing: "Undoing inbox changes…",
+      aiSetupSortingFailed:
+        "Could not sort your inbox. Your rules are saved; try again.",
+      aiSetupUndoComplete:
+        "Restored {{count}} messages to their previous state.",
+      aiSetupRuleCount: "{{count}} matched",
+      aiSetupNoMatches: "No messages in the last 14 days matched these rules.",
+      aiSetupChatTip: "You can refine or add rules anytime in chat.",
+      aiSetupChatPrompt: "Prioritize emails from my boss…",
+      aiSetupNoRules: "No rules were selected.",
+      aiSetupPartialFailure: "{{count}} messages could not be updated.",
+      aiSetupSortInbox: "Sort my inbox",
+      aiSetupImportantExample: "Anything from my manager, Priya…",
       priorityFeedbackLabel: "Importance feedback",
       priorityScoreHigh: "High importance",
       priorityScoreMedium: "Medium importance",
@@ -538,6 +557,8 @@ const messages = {
         "Adds the agent-native-filtered label and archives the conversation. You can undo it anytime.",
       learningNote:
         "Keeps the message in Inbox and teaches the filter not to repeat the mistake.",
+      learningProgress:
+        "Confirmed {{count}} of {{required}} examples. Recent mail will be checked after {{required}} are confirmed.",
       rememberLabel: "Remember for future mail (optional)",
       correctLabel: "What should it learn? (optional)",
       rememberPlaceholder:
@@ -557,6 +578,23 @@ const messages = {
       spamMode: "Spam",
       tagMode: "Tag",
       aiTagsTitle: "AI tags",
+      filteredMode: "Filtered",
+      autoArchiveMode: "Auto-archive",
+      manageSettings: "Manage",
+      askJev: "Ask Jev",
+      askJevPrompt:
+        "Help me refine this Mail rule: {{condition}}. Ask what I want changed, then update it.",
+      composerPlaceholder: "Ask Jev to organize your inbox…",
+      ruleBackfillStarting: "Applying this rule to recent mail…",
+      ruleBackfillProgress:
+        "Applying to recent mail: {{processed}} of {{total}}",
+      ruleBackfillMatches: "{{count}} recent messages matched",
+      ruleBackfillNoMatches: "No recent messages matched this rule.",
+      ruleBackfillFailed: "Could not apply this rule to recent mail.",
+      ruleBackfillPartialFailure: "{{count}} messages could not be updated.",
+      ruleBackfillUndoing: "Restoring recent mail…",
+      ruleBackfillUndoComplete: "{{count}} messages restored",
+      ruleBackfillReview: "Review matches",
       importantMode: "Important",
       notImportantMode: "Not important",
       importantLabel: "AI Important",

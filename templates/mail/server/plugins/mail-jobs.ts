@@ -3,6 +3,10 @@ import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
 import { startIntervalJob } from "@agent-native/core/server/interval-job";
 import { z } from "zod";
 
+import {
+  processMailAiFilterBackfills,
+  purgeExpiredMailAiFilterBackfills,
+} from "../lib/ai-filter-backfill.js";
 import { purgeExpiredMailAiFilterRuleUndoSnapshots } from "../lib/ai-filter-rule-undo.js";
 import { processAutomations } from "../lib/automation-engine.js";
 import { getClientForAccount, startWatch } from "../lib/google-auth.js";
@@ -19,6 +23,7 @@ import {
 } from "../lib/jobs.js";
 
 const INTERVAL_MS = 60_000; // 1 minute
+const AI_FILTER_BACKFILL_INTERVAL_MS = 10_000;
 const WATCH_RENEW_INTERVAL_MS = 12 * 60 * 60_000;
 // Backstop for the whole tick (job sends + Gmail watch renewal, both outbound
 // network calls with no timeout of their own), reported through the job's
@@ -143,6 +148,11 @@ export default () => {
         console.error("[mail-jobs] AI-filter undo cleanup failed:", err);
       }
       try {
+        await purgeExpiredMailAiFilterBackfills();
+      } catch (err) {
+        console.error("[mail-jobs] AI-filter backfill cleanup failed:", err);
+      }
+      try {
         await processJobs();
       } catch (err) {
         console.error("[mail-jobs] processJobs failed:", err);
@@ -167,6 +177,19 @@ export default () => {
       leading: false,
       onError: (err) =>
         console.error("[mail-jobs] tick exceeded time budget:", err),
+    },
+  );
+
+  startIntervalJob(
+    async () => {
+      await processMailAiFilterBackfills();
+    },
+    {
+      intervalMs: AI_FILTER_BACKFILL_INTERVAL_MS,
+      timeoutMs: 45_000,
+      leading: false,
+      onError: (err) =>
+        console.error("[mail-jobs] AI-filter backfill tick failed:", err),
     },
   );
 };

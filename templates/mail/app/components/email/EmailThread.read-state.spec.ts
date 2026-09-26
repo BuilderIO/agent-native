@@ -27,12 +27,22 @@ describe("EmailThread trash shortcuts", () => {
     expect(source).toContain('t("mail.actions.moveToTrash")} (D / #)');
   });
 
-  it("shows importance feedback in Inbox and trash in other non-trash views", () => {
-    expect(source).toContain('email && view === "inbox" && (');
+  it("shows importance feedback in Inbox and the Filtered review view", () => {
+    expect(source).toContain(
+      'email && (view === "inbox" || isAiFiltered) && (',
+    );
     expect(source).toContain(
       'email && view !== "inbox" && view !== "trash" && (',
     );
     expect(source).toContain('<IconTrash className="h-4 w-4" />');
+  });
+});
+
+describe("EmailThread labels", () => {
+  it("resolves label ids through the account-scoped label map", () => {
+    expect(source).toContain("const { data: labels = [] } = useLabels(");
+    expect(source).toContain("labelNames.get(labelId)");
+    expect(source).toContain("mailLabelDisplayName(");
   });
 });
 
