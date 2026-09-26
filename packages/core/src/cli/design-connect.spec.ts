@@ -581,7 +581,7 @@ describe("design connect CLI", () => {
         | undefined;
       expect(
         childEnvironment?.["AGENT_NATIVE_DESIGN_CONNECT_DEFER_TOKEN_PERSIST"],
-      ).toBe("true");
+      ).toBeUndefined();
       expect(winningBridge).toBeDefined();
       expect(fs.readFileSync(persistedPath, "utf8").trim()).toBe(winningToken);
       expect(JSON.stringify(error.mock.calls)).toContain(

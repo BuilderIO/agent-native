@@ -4379,7 +4379,6 @@ async function startDetachedDesignBridge(
     env: {
       ...process.env,
       AGENT_NATIVE_BRIDGE_TOKEN: bridgeToken,
-      AGENT_NATIVE_DESIGN_CONNECT_DEFER_TOKEN_PERSIST: "true",
     },
     stdio: ["ignore", logFd.fd, logFd.fd],
     shell: process.platform === "win32",
@@ -4552,8 +4551,6 @@ export async function runDesign(argv: string[]) {
     bridgeToken: seedBridgeToken,
     previewToken: seedPreviewToken,
     allowedOrigins: appUrl ? [appUrl] : [],
-    persistBridgeToken:
-      process.env["AGENT_NATIVE_DESIGN_CONNECT_DEFER_TOKEN_PERSIST"] !== "true",
   });
   console.error("Design localhost bridge running");
   console.error(`Bridge:   ${manifest.bridgeUrl}`);
