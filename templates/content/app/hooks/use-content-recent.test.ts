@@ -301,4 +301,32 @@ describe("useContentRecent context recovery", () => {
       { cancelRefetch: false },
     );
   });
+
+  it("forgets a settled recovery after its consumers unmount", async () => {
+    let finishRefresh!: (result: { isError: boolean }) => void;
+    const pendingRefresh = new Promise<{ isError: boolean }>((resolve) => {
+      finishRefresh = resolve;
+    });
+    hookMocks.org.refetch.mockReset().mockImplementation(() => pendingRefresh);
+
+    await act(async () => {
+      root.render(app(["space-1", "space-1"]));
+      await flush();
+    });
+    expect(hookMocks.org.refetch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      root.unmount();
+      finishRefresh({ isError: true });
+      await flush();
+    });
+    root = createRoot(container);
+
+    await act(async () => {
+      root.render(app());
+      await flush();
+    });
+
+    expect(hookMocks.org.refetch).toHaveBeenCalledTimes(2);
+  });
 });

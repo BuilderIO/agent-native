@@ -32,7 +32,14 @@ function recoverContentRecentScope(
   const recovery = recoveries.get(scopeKey);
   if (recovery) return recovery;
 
-  const nextRecovery = Promise.resolve().then(refresh);
+  let nextRecovery: Promise<void>;
+  nextRecovery = Promise.resolve()
+    .then(refresh)
+    .finally(() => {
+      if (recoveries.get(scopeKey) === nextRecovery) {
+        recoveries.delete(scopeKey);
+      }
+    });
   recoveries.set(scopeKey, nextRecovery);
   return nextRecovery;
 }
