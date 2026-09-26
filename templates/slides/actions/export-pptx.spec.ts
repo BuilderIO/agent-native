@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   ssrfSafeFetch: vi.fn(),
+  resolveAccess: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
@@ -9,7 +10,7 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
-  resolveAccess: vi.fn(),
+  resolveAccess: mocks.resolveAccess,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -20,7 +21,7 @@ vi.mock("../server/db/index.js", () => ({}));
 
 import PptxGenJS from "pptxgenjs";
 
-import {
+import exportPptx, {
   applyDeckIdentity,
   assertServerPptxExportable,
   cssGradientToDrawingMl,
@@ -32,6 +33,18 @@ import {
   tableOptions,
   themeClrSchemeXml,
 } from "./export-pptx";
+
+describe("export-pptx action", () => {
+  it("rejects empty decks before generating a PowerPoint", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: { data: JSON.stringify({ slides: [] }) },
+    });
+
+    await expect(
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {} as never),
+    ).rejects.toThrow("Cannot export empty deck");
+  });
+});
 
 /** An imported-PPTX slide wrapper holding one `data-pptx-element-kind` element. */
 function importedSlide(element: string, slideStyle = "background:#000000;") {
