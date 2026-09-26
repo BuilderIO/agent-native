@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Expose private blob storage readiness in the shared file upload status.
+Report Slides file storage readiness and omit absent AgentKit runtime run IDs.

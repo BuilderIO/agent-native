@@ -1124,7 +1124,7 @@ describe("createAgentKitProtocolAdapter", () => {
     });
   });
 
-  it("keeps an approval turn resumable until Core continues it", async () => {
+  it("omits absent runtime run ids from initial and replacement run metadata", async () => {
     let continueTurnCalled = false;
     async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {
@@ -1168,6 +1168,13 @@ describe("createAgentKitProtocolAdapter", () => {
       threadId: "thread-1",
       messages: [userMessage("Publish it")],
     });
+    const startedRun = await transport.getRun?.({
+      threadId: "thread-1",
+      runId,
+    });
+    expect(startedRun?.metadata).not.toHaveProperty(
+      "x-agent-native.observability.runtimeRunId",
+    );
     const stream = transport.subscribeToRun({ threadId: "thread-1", runId });
     const iterator = stream[Symbol.asyncIterator]();
     let approvalSeen = false;
@@ -1188,6 +1195,13 @@ describe("createAgentKitProtocolAdapter", () => {
       ],
     });
     expect(resumed?.runId).not.toBe(runId);
+    const replacementRun = await transport.getRun?.({
+      threadId: "thread-1",
+      runId: resumed!.runId,
+    });
+    expect(replacementRun?.metadata).not.toHaveProperty(
+      "x-agent-native.observability.runtimeRunId",
+    );
     expect(await iterator.next()).toMatchObject({ done: true });
     const remaining = await drain(
       transport.subscribeToRun({
