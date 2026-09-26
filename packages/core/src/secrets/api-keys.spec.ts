@@ -251,6 +251,24 @@ describe("deleteApiKey", () => {
     });
   });
 
+  it("keeps a Vault-synced endpoint beside the provider key it deletes", async () => {
+    mocks.roles.set(`${ORG}:${ME}`, "admin");
+    put("org", ORG, { key: "OPENAI_API_KEY", value: "fake-openai-9999" });
+    put("org", ORG, {
+      key: "OPENAI_BASE_URL",
+      value: "https://gw.example",
+      description: `${VAULT_PREFIX} OPENAI_BASE_URL`,
+    });
+
+    const result = await deleteApiKey(
+      { email: ME, orgId: ORG },
+      { name: "OPENAI_API_KEY", scope: "org" },
+    );
+
+    expect(result).toEqual({ status: "deleted", removed: ["OPENAI_API_KEY"] });
+    expect(mocks.deleted).toEqual([`org:${ORG}:OPENAI_API_KEY`]);
+  });
+
   it("refuses organization keys for members, managed keys, and vault keys", async () => {
     mocks.roles.set(`${ORG}:${ME}`, "member");
     put("workspace", ORG, { key: "SHARED_WEBHOOK", value: "fake-hook-2222" });

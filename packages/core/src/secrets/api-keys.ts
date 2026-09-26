@@ -161,9 +161,7 @@ function toEntry(
   const registered = getRequiredSecret(meta.key);
   const managedBy = resolveSecretManagedBy(meta.key);
   const provider = providerForName(meta.key);
-  const vault =
-    meta.scope !== "user" &&
-    !!meta.description?.startsWith(VAULT_SYNC_DESCRIPTION_PREFIX);
+  const vault = isVaultSynced(meta.scope, meta.description);
   const mayChange = !managedBy && !vault && (owner === "user" || manages);
 
   // Replace writes through the routes' own target, so it only applies when
@@ -263,6 +261,16 @@ export async function listApiKeys(
   };
 }
 
+/** Vault writes shared rows with this description; a user's own rows are never synced. */
+function isVaultSynced(
+  scope: SecretScope,
+  description: string | null | undefined,
+): boolean {
+  return (
+    scope !== "user" && !!description?.startsWith(VAULT_SYNC_DESCRIPTION_PREFIX)
+  );
+}
+
 export type DeleteApiKeyRefusal =
   | { status: "not-found" }
   | { status: "forbidden"; error: string }
@@ -297,12 +305,7 @@ export async function deleteApiKey(
   const rows = await listAppSecretsForScope(storedScope, scopeId);
   const row = rows.find((meta) => meta.key === input.name);
   if (!row) return { status: "not-found" };
-  if (
-    storedScope !== "user" &&
-    row.description?.startsWith(VAULT_SYNC_DESCRIPTION_PREFIX)
-  ) {
-    return { status: "vault" };
-  }
+  if (isVaultSynced(storedScope, row.description)) return { status: "vault" };
 
   const provider = AGENT_PROVIDER_CATALOG.find(
     (option) => option.id === providerForName(input.name),
@@ -313,10 +316,15 @@ export async function deleteApiKey(
         ...(provider.endpointKey ? [provider.endpointKey] : []),
       ]
     : [input.name];
-  const present = new Set(rows.map((meta) => meta.key));
+  const byName = new Map(rows.map((meta) => [meta.key, meta]));
   const removed: string[] = [];
   for (const name of names) {
-    if (!present.has(name)) continue;
+    const meta = byName.get(name);
+    if (!meta) continue;
+    // Vault owns its rows, and a managed name is never the user's to delete,
+    // even when it sits beside the key being removed.
+    if (isVaultSynced(storedScope, meta.description)) continue;
+    if (resolveSecretManagedBy(name)) continue;
     if (await deleteAppSecret({ key: name, scope: storedScope, scopeId })) {
       removed.push(name);
     }
