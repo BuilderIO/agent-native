@@ -628,11 +628,11 @@ describe("Index search empty state", () => {
 });
 
 describe("home library", () => {
-  it("uses an unfiltered own-design summary and keeps shared-only users on templates", async () => {
+  it("uses an unfiltered accessible-design summary for shared-only users", async () => {
     expect(mocks.summaryParams).toEqual({
       page: 1,
       pageSize: 1,
-      createdBy: "me",
+      createdBy: "all",
       compact: "true",
       includePreview: "false",
     });

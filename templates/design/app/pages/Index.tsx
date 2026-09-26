@@ -211,17 +211,18 @@ export default function Index() {
     isFetching,
     refetch,
   } = useActionQuery<DesignListResult>("list-designs", listDesignsParams);
-  const ownDesignsSummary = useActionQuery<
+  const accessibleDesignsSummary = useActionQuery<
     Pick<DesignListResult, "totalCount">
   >("list-designs", {
     page: 1,
     pageSize: 1,
-    createdBy: "me",
+    createdBy: "all",
     compact: "true",
     includePreview: "false",
   });
   const hasRecentDesigns =
-    ownDesignsSummary.isSuccess && ownDesignsSummary.data.totalCount > 0;
+    accessibleDesignsSummary.isSuccess &&
+    accessibleDesignsSummary.data.totalCount > 0;
   const hasSearchResultsSection = normalizedSearch.length > 0;
   useEffect(() => {
     if (hasSearchResultsSection) setHomeSection("recent");
@@ -1143,10 +1144,10 @@ export default function Index() {
           ) : null
         }
       >
-        {ownDesignsSummary.isError ? (
+        {accessibleDesignsSummary.isError ? (
           <QueryErrorState
-            onRetry={() => void ownDesignsSummary.refetch()}
-            retrying={ownDesignsSummary.isFetching}
+            onRetry={() => void accessibleDesignsSummary.refetch()}
+            retrying={accessibleDesignsSummary.isFetching}
           />
         ) : null}
         <PromptHomeLibrary

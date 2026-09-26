@@ -1999,8 +1999,7 @@ export default function Index() {
     loadError,
     deckCount: decks.length,
   });
-  const hasRecentDecks =
-    viewState === "decks" && decks.some((deck) => deck.createdByMe === true);
+  const hasRecentDecks = viewState === "decks" && decks.length > 0;
   const hasDeckSearch = normalizedDeckSearch.length > 0;
 
   if (isStartingNewDeck) {

@@ -448,26 +448,30 @@ describe("Slides prompt-led home", () => {
     await screen.findByRole("textbox", { name: "Presentation prompt" });
   });
 
-  it.each([{ decks: [] }, { decks: [sharedDeck] }])(
-    "keeps the composer as the focal point without owned work (%j)",
-    async ({ decks }) => {
-      renderHome({ decks });
-      expect(
-        screen.getByRole("heading", {
-          name: "What kind of presentation should we generate?",
-        }),
-      ).toBeTruthy();
-      expect(
-        await screen.findByRole("textbox", { name: "Presentation prompt" }),
-      ).toBeTruthy();
-      expect(screen.queryByRole("region", { name: "Recent" })).toBeNull();
-      expect(
-        screen.getByRole("link", { name: /browse all/i }).getAttribute("href"),
-      ).toBe("/templates");
-      expect(screen.getByText("Starter template library")).toBeTruthy();
-      expect(screen.queryByRole("button", { name: /new deck/i })).toBeNull();
-    },
-  );
+  it("keeps the composer as the focal point without accessible work", async () => {
+    renderHome({ decks: [] });
+    expect(
+      screen.getByRole("heading", {
+        name: "What kind of presentation should we generate?",
+      }),
+    ).toBeTruthy();
+    expect(
+      await screen.findByRole("textbox", { name: "Presentation prompt" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Recent" })).toBeNull();
+    expect(
+      screen.getByRole("link", { name: /browse all/i }).getAttribute("href"),
+    ).toBe("/templates");
+    expect(screen.getByText("Starter template library")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /new deck/i })).toBeNull();
+  });
+
+  it("shows the Recent tab for shared-only accessible decks", async () => {
+    renderHome({ decks: [sharedDeck] });
+    expect(await screen.findByRole("tab", { name: "Recent" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Templates" })).toBeTruthy();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+  });
 
   it("keeps the recent panel available while searching a shared-only home", async () => {
     renderHome({ decks: [sharedDeck] });
