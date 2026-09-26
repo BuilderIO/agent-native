@@ -1,4 +1,7 @@
-import { useAgentEngineConfigured } from "@agent-native/core/client/agent-chat";
+import {
+  BuilderSetupCard,
+  useAgentEngineConfigured,
+} from "@agent-native/core/client/agent-chat";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
 import {
   snapshotComposerContextItems,
@@ -12,10 +15,6 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  BuilderConnectPopover,
-  useBuilderConnectFlow,
-} from "@agent-native/core/client/settings";
 import {
   CreativeContextShareSheet,
   parseCreativeContexts,
@@ -274,8 +273,11 @@ export default function Index() {
     refetch: refetchDesignSystems,
   } = useDesignSystems(systemsEnabled);
   const agentEngine = useAgentEngineConfigured();
-  const quickActionsEnabled =
-    agentEngine.state === "configured" && !agentEngine.missing;
+  const agentEngineConfigured = agentEngine.state === "configured";
+  const retryAgentEngineStatus = useCallback(() => {
+    window.dispatchEvent(new Event("agent-engine:configured-changed"));
+  }, []);
+  const quickActionsEnabled = agentEngineConfigured && !agentEngine.missing;
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
     "generate-home-suggestions",
     {},
@@ -285,12 +287,6 @@ export default function Index() {
       staleTime: 5 * 60 * 1000,
     },
   );
-  const builderConnect = useBuilderConnectFlow({
-    enabled: agentEngine.missing,
-    provisionAccount: true,
-    trackingSource: "design_home",
-  });
-
   /**
    * The picker showed a column of near-identical names ("Builder indexed
    * design system" three times over). Each system already carries its palette
@@ -647,6 +643,7 @@ export default function Index() {
       options: PromptComposerSubmitOptions,
       pendingOptions?: { skipQuestions?: boolean },
     ) => {
+      if (agentEngine.state !== "configured") return;
       // The rejection already surfaced its own toast in handleCreativeContextChange;
       // swallow it here so a flaky context save can't block generation, but
       // only after letting it settle instead of racing it.
@@ -840,6 +837,7 @@ export default function Index() {
       void navigate(`/design/${id}`);
     },
     [
+      agentEngine.state,
       createDesign,
       createFromTemplateMutation,
       createFusionAppMutation,
@@ -1090,35 +1088,50 @@ export default function Index() {
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
       <PromptHome
         title={t("home.designPromptTitle")}
-        connection={
-          agentEngine.missing ? (
-            <>
-              <BuilderConnectPopover flow={builderConnect}>
-                <Button variant="outline" disabled={builderConnect.connecting}>
-                  {builderConnect.connecting
-                    ? t("home.connectingBuilder")
-                    : t("home.connectBuilderIo")}
-                  <IconArrowRight />
-                </Button>
-              </BuilderConnectPopover>
-              {builderConnect.error ? (
-                <p role="alert" className="max-w-md text-xs text-destructive">
-                  {builderConnect.error}
-                </p>
-              ) : null}
-            </>
-          ) : null
-        }
         composer={
           <div data-design-home-composer>
+            {agentEngine.state !== "configured" ? (
+              <div className="mb-2">
+                {agentEngine.missing ? (
+                  <BuilderSetupCard
+                    onConnected={retryAgentEngineStatus}
+                    fullWidth
+                    layout="sidebar"
+                  />
+                ) : (
+                  <div
+                    className="flex items-center justify-center gap-3 text-sm text-muted-foreground"
+                    role="status"
+                  >
+                    <span>
+                      {t(
+                        agentEngine.state === "unknown"
+                          ? "agentChat.setup.checkingProvider"
+                          : "agentChat.setup.providerStatusUnavailable",
+                      )}
+                    </span>
+                    {agentEngine.state === "unavailable" ? (
+                      <button
+                        type="button"
+                        className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={retryAgentEngineStatus}
+                      >
+                        {t("agentChat.common.retry")}
+                      </button>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            ) : null}
             <PromptPopover
               inline
               open
               onOpenChange={() => {}}
               composerRef={composerRef}
-              submissionDisabled={agentEngine.missing}
-              showModelSelector={!agentEngine.missing}
-              modelStatusChecksEnabled={!agentEngine.missing}
+              disabled={!agentEngineConfigured}
+              submissionDisabled={!agentEngineConfigured}
+              showModelSelector={agentEngineConfigured}
+              modelStatusChecksEnabled={false}
               title={t("home.newDesignLower")}
               draftScope="design:new:0"
               placeholder={

@@ -655,6 +655,7 @@ const messages = {
       createAccount: "创建账户",
       signIn: "登录",
       haveAccount: "我已有账户",
+      storageStatusUnavailable: "ファイルストレージを確認できませんでした。",
       retry: "重试",
       sendFeedback: "フィードバックを送信",
       feedbackPlaceholder:

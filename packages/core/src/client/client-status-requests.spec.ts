@@ -5,6 +5,7 @@ import {
   fetchAuthSessionStatus,
   fetchBuilderStatus,
   fetchEnvironmentStatus,
+  fetchFileUploadStatus,
   invalidateClientStatusRequest,
   invalidateClientStatusRequests,
 } from "./client-status-requests.js";
@@ -44,6 +45,18 @@ describe("client status requests", () => {
     await expect(second).resolves.toEqual({
       state: "available",
       value: { configured: true },
+    });
+  });
+
+  it("keeps a failed file-storage status probe unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("storage check failed", { status: 503 })),
+    );
+
+    await expect(fetchFileUploadStatus()).resolves.toEqual({
+      state: "unavailable",
+      status: 503,
     });
   });
 
