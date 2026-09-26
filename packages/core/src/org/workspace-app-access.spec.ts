@@ -443,6 +443,38 @@ describe("isWorkspaceAppAccessAllowed", () => {
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
+  it("preserves a same-origin Dispatch registry mounted below the app path", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("APP_URL", "https://community.example.test");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "account-expert", isDispatch: false }]),
+    );
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://community.example.test/dispatch",
+    );
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://community.example.test");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "account-expert" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    ).resolves.toBe(true);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://community.example.test/dispatch/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
+    );
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
   it("uses the local ACL when a workspace has no Dispatch registry", async () => {
     vi.stubEnv("APP_URL", "https://community.example.test");
     vi.stubEnv(

@@ -125,21 +125,30 @@ function configuredWorkspaceDirectory(): string | null {
   const workspace = config.workspace;
   const noDispatch =
     workspaceManifestDispatchState(workspace.appsJson) === "no-dispatch";
-  const isOwnOrigin = (value: string) => {
+  const isSelfFallback = (value: string) => {
     if (!noDispatch || !config.app.url) return false;
     try {
-      // The generated directory fallback can point at this app even though its registry route is absent.
-      return new URL(value).origin === new URL(config.app.url).origin;
+      const directoryUrl = new URL(value);
+      const appUrl = new URL(config.app.url);
+      const normalizedPath = (path: string) => path.replace(/\/+$/, "") || "/";
+      // A same-host Dispatch registry may be mounted at /dispatch.
+      return (
+        directoryUrl.origin === appUrl.origin &&
+        normalizedPath(directoryUrl.pathname) ===
+          normalizedPath(appUrl.pathname)
+      );
     } catch {
-      // coercion-ok: an invalid URL cannot prove that it is this app's origin.
+      // coercion-ok: an invalid URL cannot prove it is this app's fallback.
       return false;
     }
   };
   const orgDirectoryUrl = workspace.orgDirectoryUrl?.trim();
-  if (orgDirectoryUrl && !isOwnOrigin(orgDirectoryUrl)) return orgDirectoryUrl;
+  if (orgDirectoryUrl && !isSelfFallback(orgDirectoryUrl)) {
+    return orgDirectoryUrl;
+  }
 
   const gatewayUrl = workspace.gatewayUrl?.trim();
-  if (!gatewayUrl || isOwnOrigin(gatewayUrl)) return null;
+  if (!gatewayUrl || isSelfFallback(gatewayUrl)) return null;
 
   try {
     const url = new URL(gatewayUrl);
