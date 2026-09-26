@@ -27,6 +27,7 @@ import {
   getRequestRunContext,
   runWithRequestContext,
 } from "../server/request-context.js";
+import * as settingsStore from "../settings/store.js";
 import { warnAgent } from "./action-warnings.js";
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import type {
@@ -75,6 +76,7 @@ import {
   markBackgroundContinuationChunkTerminal,
   resolveAgentModelSelection,
   resolveAgentOwnerEmail,
+  resolveOwnerEngineApiKey,
   resolveBackgroundDispatchOutcome,
   resolveFinalResponseGuardRequestText,
   resolvePresendWithCap,
@@ -136,6 +138,28 @@ describe("runCompletionCallbackWithDatabaseRetry", () => {
 
     expect(callback).toHaveBeenCalledTimes(2);
     expect(sleep).toHaveBeenCalledWith(250);
+  });
+});
+
+describe("resolveOwnerEngineApiKey", () => {
+  it("skips active engine settings for an explicit engine instance", async () => {
+    const getSetting = vi
+      .spyOn(settingsStore, "getSetting")
+      .mockResolvedValue(undefined);
+    try {
+      await expect(
+        resolveOwnerEngineApiKey({
+          engineOption: {
+            name: "test",
+            stream: vi.fn(),
+          } as unknown as AgentEngine,
+          ownerEmail: "ada@example.com",
+        }),
+      ).resolves.toEqual({ apiKey: undefined, apiKeyEnvVar: undefined });
+      expect(getSetting).not.toHaveBeenCalled();
+    } finally {
+      getSetting.mockRestore();
+    }
   });
 });
 

@@ -914,6 +914,14 @@ export async function resolveOwnerEngineApiKey(input: {
    */
   anthropicFallback?: string;
 }): Promise<ResolvedOwnerApiKey> {
+  if (
+    input.engineOption &&
+    typeof input.engineOption === "object" &&
+    "stream" in input.engineOption
+  ) {
+    return NO_OWNER_API_KEY;
+  }
+
   const engineName = explicitEngineName(input.engineOption);
   if (engineName) {
     const resolved = await getOwnerApiKeyForEngine(
