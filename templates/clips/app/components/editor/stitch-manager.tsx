@@ -4,7 +4,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupDialog } from "@agent-native/core/client/setup-connections";
 import {
   IconPuzzle,
   IconGripVertical,
@@ -14,7 +14,6 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -61,6 +60,7 @@ export function StitchManager({
   const [progress, setProgress] = useState(0);
   const [title, setTitle] = useState(t("stitchManager.defaultTitle"));
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const storageCheckInFlight = useRef(false);
   const storageStatus = useVideoStorageStatus(open);
   const storageConfigured =
@@ -76,8 +76,13 @@ export function StitchManager({
       setQueue([]);
       setProgress(0);
       setBusy(false);
+      setStorageSetupOpen(false);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (storageConfigured) setStorageSetupOpen(false);
+  }, [storageConfigured]);
 
   const available = useMemo(() => {
     const rows: RecordingLite[] = (listQuery.data?.recordings ??
@@ -131,11 +136,15 @@ export function StitchManager({
       storageConfigured =
         !storageCheck.isError && storageCheck.data?.configured === true;
     } catch {
+      setStorageSetupOpen(true);
       return;
     } finally {
       storageCheckInFlight.current = false;
     }
-    if (!storageConfigured) return;
+    if (!storageConfigured) {
+      setStorageSetupOpen(true);
+      return;
+    }
     setBusy(true);
     setProgress(0);
     try {
@@ -215,12 +224,6 @@ export function StitchManager({
             {t("stitchManager.title")}
           </DialogTitle>
         </DialogHeader>
-
-        {storageStatus.isError ? (
-          <StorageStatusRetry onRetry={() => void storageStatus.refetch()} />
-        ) : !storageStatus.isLoading && !storageConfigured ? (
-          <FileStorageSetupCard />
-        ) : null}
 
         <div className="grid min-h-[320px] flex-1 grid-cols-2 gap-3">
           <div className="flex min-h-0 min-w-0 flex-col rounded-md border">
@@ -332,10 +335,7 @@ export function StitchManager({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t("common.cancel")}
           </Button>
-          <Button
-            onClick={handleCombine}
-            disabled={busy || queue.length < 2 || !storageConfigured}
-          >
+          <Button onClick={handleCombine} disabled={busy || queue.length < 2}>
             {busy ? (
               <IconLoader2 className="w-4 h-4 mr-1 animate-spin" />
             ) : (
@@ -345,6 +345,11 @@ export function StitchManager({
           </Button>
         </DialogFooter>
       </DialogContent>
+      <FileStorageSetupDialog
+        open={storageSetupOpen}
+        onOpenChange={setStorageSetupOpen}
+        onConnected={() => void storageStatus.refetch()}
+      />
     </Dialog>
   );
 }

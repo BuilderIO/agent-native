@@ -1,6 +1,15 @@
-import { type ChangeEvent, type ReactNode, useCallback, useRef } from "react";
+import { FileStorageSetupDialog } from "@agent-native/core/client/setup-connections";
+import {
+  type ChangeEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router";
 
+import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import { setPendingUploadFile } from "@/lib/pending-upload-file";
 
 const VIDEO_ACCEPT = "video/mp4,video/webm,video/quicktime,video/*";
@@ -12,11 +21,36 @@ export function useUploadVideoPicker(): {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const destinationRef = useRef("/record");
+  const storageStatus = useVideoStorageStatus();
+  const storageConfigured =
+    storageStatus.data?.configured === true && !storageStatus.isError;
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
 
-  const openUploadPicker = useCallback((destination: string) => {
-    destinationRef.current = destination;
-    inputRef.current?.click();
-  }, []);
+  useEffect(() => {
+    if (storageConfigured) setStorageSetupOpen(false);
+  }, [storageConfigured]);
+
+  const openUploadPicker = useCallback(
+    (destination: string) => {
+      destinationRef.current = destination;
+      if (storageConfigured) {
+        inputRef.current?.click();
+        return;
+      }
+      if (storageStatus.data?.configured === false && !storageStatus.isError) {
+        setStorageSetupOpen(true);
+        return;
+      }
+      void storageStatus.refetch().then((result) => {
+        if (!result.isError && result.data?.configured) {
+          inputRef.current?.click();
+        } else {
+          setStorageSetupOpen(true);
+        }
+      });
+    },
+    [storageConfigured, storageStatus],
+  );
 
   const handleChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -32,14 +66,21 @@ export function useUploadVideoPicker(): {
   return {
     openUploadPicker,
     input: (
-      <input
-        ref={inputRef}
-        type="file"
-        accept={VIDEO_ACCEPT}
-        className="hidden"
-        data-button-group-ignore="true"
-        onChange={handleChange}
-      />
+      <>
+        <input
+          ref={inputRef}
+          type="file"
+          accept={VIDEO_ACCEPT}
+          className="hidden"
+          data-button-group-ignore="true"
+          onChange={handleChange}
+        />
+        <FileStorageSetupDialog
+          open={storageSetupOpen}
+          onOpenChange={setStorageSetupOpen}
+          onConnected={() => void storageStatus.refetch()}
+        />
+      </>
     ),
   };
 }

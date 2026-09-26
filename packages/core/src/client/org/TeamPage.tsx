@@ -100,7 +100,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { FileStorageSetupCard } from "../FileStorageSetupCard.js";
 import { useIconPickerLabels, useT } from "../i18n.js";
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import { SettingsSkeleton } from "../settings/SettingsSkeleton.js";
@@ -1109,25 +1108,6 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
             ) : undefined
           }
         />
-        {isOwnerOrAdmin &&
-          (fileUploadStatus.data?.configured === false &&
-          !fileUploadStatus.isError ? (
-            <FileStorageSetupCard />
-          ) : fileUploadStatus.isError ? (
-            <div
-              role="status"
-              className="flex items-center justify-between gap-3 text-sm text-muted-foreground"
-            >
-              <span>{t("onboarding.fileStorage.title")}</span>
-              <Button
-                type="button"
-                className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => void fileUploadStatus.refetch()}
-              >
-                {t("agentChat.common.retry")}
-              </Button>
-            </div>
-          ) : null)}
         <ErrorText error={setVisualIdentity.error} />
         {setVisualIdentity.data?.syncPending && (
           <p role="status" className="text-xs text-muted-foreground">

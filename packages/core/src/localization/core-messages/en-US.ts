@@ -111,7 +111,7 @@ const messages = {
   "onboarding.fileStorage.description":
     "Connect Builder.io (free) or configure your own S3-compatible object storage.",
   "onboarding.fileStorage.reconnectBuilder": "Reconnect Builder.io",
-  "onboarding.fileStorage.custom": "Add your own object storage keys",
+  "onboarding.fileStorage.custom": "Use custom keys",
   "onboarding.fileStorage.customDescription":
     "Configure an S3-compatible bucket with a stable public URL.",
   "onboarding.capability.voiceInput.label": "Voice input",

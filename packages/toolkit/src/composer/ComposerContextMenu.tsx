@@ -77,6 +77,7 @@ export type ComposerContextMenuItem =
 export interface ComposerContextMenuProps {
   items: readonly ComposerContextMenuItem[];
   addAttachment?: (file: File) => Promise<unknown>;
+  onAttachmentRequest?: () => void;
   attachmentAccept?: string;
   onAttachmentError?: (message: string) => void;
   disabled?: boolean;
@@ -237,6 +238,7 @@ function LegacyContextPage({ children }: { children: ReactNode }) {
 export function ComposerContextMenu({
   items,
   addAttachment,
+  onAttachmentRequest,
   attachmentAccept,
   onAttachmentError,
   disabled,
@@ -529,14 +531,15 @@ export function ComposerContextMenu({
           >
             {(query) => (
               <DropdownMenuGroup>
-                {addAttachment &&
+                {(addAttachment || onAttachmentRequest) &&
                   uploadLabel
                     .toLocaleLowerCase()
                     .includes(query.trim().toLocaleLowerCase()) && (
                     <DropdownMenuItem
                       onSelect={() => {
                         changeOpen(false);
-                        inputRef.current?.click();
+                        if (addAttachment) inputRef.current?.click();
+                        else onAttachmentRequest?.();
                       }}
                     >
                       <IconFile size={16} />

@@ -108,7 +108,7 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.description":
     "連接 Builder.io（免費）或設定自己的相容 S3 物件儲存空間。",
   "onboarding.fileStorage.reconnectBuilder": "重新連接 Builder.io",
-  "onboarding.fileStorage.custom": "新增自己的物件儲存金鑰",
+  "onboarding.fileStorage.custom": "使用自訂金鑰",
   "onboarding.fileStorage.customDescription":
     "設定具有穩定公開 URL 的相容 S3 儲存桶。",
   "onboarding.capability.voiceInput.label": "語音輸入",
