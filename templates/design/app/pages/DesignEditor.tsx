@@ -17798,14 +17798,23 @@ function DesignEditor() {
         transactionId &&
         destinationScreenExists
       ) {
-        runtimeStructureRollbackRevisionRef.current += 1;
-        const requestId = `${transactionId}:rollback:${runtimeStructureRollbackRevisionRef.current}`;
-        setRuntimeStructureRollbackRequest((current) =>
-          current?.requestId === rollbackRequest.requestId
-            ? retryCrossScreenRollbackRequest(rollbackRequest, requestId)
-            : current,
+        const retryRevision = runtimeStructureRollbackRevisionRef.current + 1;
+        const retryRequest = retryCrossScreenRollbackRequest(
+          rollbackRequest,
+          `${transactionId}:rollback:${retryRevision}`,
         );
-        return;
+        if (retryRequest) {
+          runtimeStructureRollbackRevisionRef.current = retryRevision;
+          setRuntimeStructureRollbackRequest((current) =>
+            current?.requestId === rollbackRequest.requestId
+              ? retryRequest
+              : current,
+          );
+          return;
+        }
+        setRuntimeStructureRollbackRequest((current) =>
+          current?.requestId === rollbackRequest.requestId ? null : current,
+        );
       }
       const hasPendingInsert = Boolean(
         transactionId &&

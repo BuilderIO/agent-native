@@ -114,6 +114,8 @@ describe("DesignEditor Layers-panel live-screen row drop", () => {
       'details.reason === "rollback-timeout"',
     );
     expect(rollbackResultHandler).toContain("retryCrossScreenRollbackRequest(");
+    expect(rollbackResultHandler).toContain("if (retryRequest)");
+    expect(rollbackResultHandler).toContain("releaseCrossScreenDropAdmission(");
   });
 
   it("cancels rollback timeout on the first bridge result without rearming per render", () => {

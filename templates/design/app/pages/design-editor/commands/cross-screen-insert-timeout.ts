@@ -5,6 +5,7 @@ import type {
 } from "@/components/design/types";
 
 export const CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS = 2_200;
+const MAX_CROSS_SCREEN_ROLLBACK_RETRIES = 1;
 
 export function scheduleCrossScreenInsertTimeout(
   request: (RuntimeStructureInsertRequest & { screenId: string }) | null,
@@ -64,8 +65,10 @@ export function cancelCrossScreenRollbackTimeout(timeoutRef: {
 
 export function retryCrossScreenRollbackRequest<
   T extends RuntimeStructureRollbackRequest,
->(request: T, requestId: string): T {
-  return { ...request, requestId };
+>(request: T, requestId: string): (T & { retryCount: number }) | null {
+  const retryCount = request.retryCount ?? 0;
+  if (retryCount >= MAX_CROSS_SCREEN_ROLLBACK_RETRIES) return null;
+  return { ...request, requestId, retryCount: retryCount + 1 };
 }
 
 export function crossScreenSourceDeleteCancellation(

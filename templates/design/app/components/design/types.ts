@@ -121,6 +121,7 @@ export interface RuntimeStructureRollbackRequest {
   sourceId?: string;
   /** A target lost across canvas unmount is already rolled back if absent. */
   idempotent?: boolean;
+  retryCount?: number;
 }
 
 export interface RuntimeLayerRenameRequest {

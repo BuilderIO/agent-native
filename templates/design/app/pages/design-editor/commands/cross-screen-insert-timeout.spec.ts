@@ -165,7 +165,7 @@ describe("crossScreenRollbackDisposition", () => {
 });
 
 describe("retryCrossScreenRollbackRequest", () => {
-  it("keeps the rollback transaction while assigning a fresh bridge request id", () => {
+  it("retries once with a fresh request id, then settles", () => {
     const request = {
       requestId: "move-1:rollback:1",
       transactionId: "move-1",
@@ -175,9 +175,15 @@ describe("retryCrossScreenRollbackRequest", () => {
       idempotent: true,
     };
 
+    const retry = retryCrossScreenRollbackRequest(request, "move-1:rollback:2");
+    expect(retry).toEqual({
+      ...request,
+      requestId: "move-1:rollback:2",
+      retryCount: 1,
+    });
     expect(
-      retryCrossScreenRollbackRequest(request, "move-1:rollback:2"),
-    ).toEqual({ ...request, requestId: "move-1:rollback:2" });
+      retry && retryCrossScreenRollbackRequest(retry, "move-1:rollback:3"),
+    ).toBeNull();
   });
 });
 
