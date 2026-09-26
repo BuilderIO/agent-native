@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import {
   resourceGetByPath,
   resourcePutSnapshotPairIfCurrent,
+  type ResourceSnapshotPairOptions,
 } from "../../resources/store.js";
 import {
   getAmbientUserEmail,
@@ -26,7 +27,12 @@ const EMPTY_INDEX = `# Memory Index
 const INDEX_WRITE_ATTEMPTS = 5;
 const MEMORY_SCOPES = ["personal", "current-org"] as const;
 
-export default async function saveMemoryScript(args: string[]): Promise<void> {
+export type SaveMemoryScriptOptions = ResourceSnapshotPairOptions;
+
+export default async function saveMemoryScript(
+  args: string[],
+  options?: SaveMemoryScriptOptions,
+): Promise<void> {
   const parsed = parseArgs(args);
 
   const name = parsed.name;
@@ -77,7 +83,7 @@ updated: ${now}
 ${content}`;
 
   let updatedIndex = "";
-  let indexSaved = false;
+  let pairSaved = false;
   for (let attempt = 0; attempt < INDEX_WRITE_ATTEMPTS; attempt += 1) {
     // Read both snapshots before the transaction so conflicts cannot leave a
     // new body paired with a stale index.
@@ -98,28 +104,37 @@ ${content}`;
     if (!found) updatedLines.push(entryLine);
     updatedIndex = updatedLines.join("\n").trimEnd() + "\n";
 
-    const written = await resourcePutSnapshotPairIfCurrent([
-      {
-        owner,
-        path: memoryPath,
-        content: fileContent,
-        mimeType: "text/markdown",
-        previous: existingMemory,
-      },
-      {
-        owner,
-        path: indexPath,
-        content: updatedIndex,
-        mimeType: "text/markdown",
-        previous: existingIndex,
-      },
-    ]);
+    const written = await resourcePutSnapshotPairIfCurrent(
+      [
+        {
+          owner,
+          path: memoryPath,
+          content: fileContent,
+          mimeType: "text/markdown",
+          previous: existingMemory,
+        },
+        {
+          owner,
+          path: indexPath,
+          content: updatedIndex,
+          mimeType: "text/markdown",
+          previous: existingIndex,
+        },
+      ],
+      options,
+    );
     if (written) {
-      indexSaved = true;
+      if (
+        written[0].resource.content !== fileContent ||
+        written[1].resource.content !== updatedIndex
+      ) {
+        fail("save-memory could not verify the committed memory pair.");
+      }
+      pairSaved = true;
       break;
     }
   }
-  if (!indexSaved) {
+  if (!pairSaved) {
     fail(
       "Memory index changed repeatedly while saving; retry the memory write.",
     );
@@ -132,17 +147,7 @@ ${content}`;
     );
   }
 
-  // Do not report success until both writes are visible through the resource
-  // read path. This catches storage or ownership mismatches that would
-  // otherwise leave the caller believing a memory was saved.
-  const persistedMemory = await resourceGetByPath(owner, memoryPath);
-  if (persistedMemory?.content !== fileContent) {
-    fail(`save-memory could not verify persisted memory "${name}".`);
-  }
-  const persistedIndex = await resourceGetByPath(owner, indexPath);
-  if (persistedIndex?.content !== updatedIndex) {
-    fail("save-memory could not verify persisted memory index.");
-  }
+  // A later read can see a newer save; the pair result is the committed snapshot.
 
   if (parsed.quiet !== "true") {
     console.log(`Saved memory "${name}" (${type}): ${description}`);

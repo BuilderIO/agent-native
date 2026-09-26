@@ -55,7 +55,9 @@ const TECHNICAL_NAMES = new Set([
   "your",
 ]);
 const CONFIRMATION =
-  /^(?:yes|yeah|yep|correct|confirmed|exactly|that's right|that is right|that's correct|that is correct|you got it)(?:[.!\s,]|$)/i;
+  /^(?:yes|yeah|yep|correct|confirmed|exactly|that's right|that is right|that's correct|that is correct|you got it|yes,?\s+(?:that's|that is)\s+(?:exactly\s+)?(?:right|correct))[.!]*$/i;
+const CONFIRMATION_QUESTION =
+  /\b(?:is that right|did i get that right|is this (?:correct|right)|is that (?:correct|the definition)|correct\?)\b/i;
 const STOP_WORDS = new Set([
   "about",
   "are",
@@ -76,6 +78,15 @@ const STOP_WORDS = new Set([
   "we",
   "what",
 ]);
+const DEFINITION_STOP_WORDS = new Set([
+  ...STOP_WORDS,
+  "a",
+  "an",
+  "its",
+  "that",
+]);
+const ADDRESS_DETAILS =
+  /\baddress\b|\b(?:p\.?\s*o\.?\s*box|post office box)\s*#?\s*\d+\b|\b\d{1,6}(?:[-–]\d{1,6})?[a-z]?,?\s+(?:(?:street|st\.?|avenue|ave\.?|avenida|av\.?|rue|calle|via|viale|strada|strasse|straße|boulevard|blvd\.?|lane|ln\.?|drive|dr\.?|road|rd\.?|route|chemin|carrer|carretera|paseo|piazza|corso|platz|weg|gasse|ulica|prospekt|court|ct\.?|circle|cir\.?|way|place|pl\.?|parkway|pkwy\.?|terrace|ter\.?|highway|hwy\.?)\b|(?:[\p{L}\p{N}.'’-]+\s+){1,5}(?:street|st\.?|avenue|ave\.?|avenida|av\.?|boulevard|blvd\.?|lane|ln\.?|drive|dr\.?|road|rd\.?|route|carrer|carretera|court|ct\.?|circle|cir\.?|way|place|pl\.?|parkway|pkwy\.?|terrace|ter\.?|highway|hwy\.?)\b)|\b(?:rue|calle|via|viale|strada|strasse|straße|avenida|boulevard|chemin|route|carrer|carretera|paseo|piazza|corso|platz|weg|gasse|ulica|prospekt)\s+(?:(?:de|del|da|di|della)\s+)?(?:[\p{L}\p{N}.'’-]+\s+){0,4}\d{1,6}(?:[-–]\d{1,6})?\b/iu;
 
 function normalize(text: string): string {
   return text.replace(/\s+/g, " ").trim();
@@ -107,6 +118,7 @@ function isUnsafe(text: string): boolean {
       text,
     ) ||
     /[{};]|=>|\$\{/.test(text) ||
+    ADDRESS_DETAILS.test(text) ||
     /\b(?:api\s*key|api\s*token|access\s*token|auth(?:entication)?\s*token|password|passphrase|credential|private\s+key|secret\s+key|client\s+secret|signing\s+key|secret|bearer|ssn|social security|credit card|card number|my name is|my email is|my phone|home address|date of birth)\b/i.test(
       text,
     ) ||
@@ -178,15 +190,60 @@ function metricTokens(metric: string): string[] {
   );
 }
 
+function restatesDefinition(text: string, definition: string): boolean {
+  const negation =
+    /\b(?:no|not|never|without|except|excluding|exclude|excluded|doesn't|does not|isn't|is not|don't|do not|didn't|did not|cannot|can't|won't|will not|shouldn't|should not|wouldn't|would not|fail(?:s|ed)? to)\b/gi;
+  const definitionNegations = new Set(
+    definition.match(negation)?.map((token) => token.toLowerCase()) ?? [],
+  );
+  if (
+    (text.match(negation) ?? []).some(
+      (token) => !definitionNegations.has(token.toLowerCase()),
+    )
+  ) {
+    return false;
+  }
+
+  const requiredTokens = (
+    definition.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
+  ).filter(
+    (token) =>
+      (token.length > 1 || /\d/.test(token)) &&
+      !DEFINITION_STOP_WORDS.has(token),
+  );
+  if (requiredTokens.length === 0) return false;
+
+  const questionIndex = text.search(CONFIRMATION_QUESTION);
+  const statement = questionIndex < 0 ? text : text.slice(0, questionIndex);
+  let started = false;
+  let matchedTokens = 0;
+  for (const token of statement.match(/[\p{L}\p{N}]+/gu) ?? []) {
+    if (!started) {
+      if (token === requiredTokens[0]) {
+        started = true;
+        matchedTokens = 1;
+      }
+      continue;
+    }
+    if (token === requiredTokens[matchedTokens]) {
+      matchedTokens += 1;
+    } else if (!DEFINITION_STOP_WORDS.has(token)) {
+      return false;
+    }
+  }
+  return matchedTokens === requiredTokens.length;
+}
+
 function findMetricConfirmationIndex(
   messages: readonly AnalyticsMemoryMessage[],
   definitionIndex: number,
   metric: string,
+  definition: string,
 ): number | null {
   const tokens = metricTokens(metric);
   if (tokens.length === 0) return null;
 
-  let assistantRestatedMetric = false;
+  let assistantRestatedDefinition = false;
   for (
     let index = definitionIndex + 1;
     index < Math.min(messages.length, definitionIndex + 12);
@@ -196,20 +253,18 @@ function findMetricConfirmationIndex(
     if (!message) continue;
 
     if (message.role === "user") {
-      return assistantRestatedMetric &&
+      return assistantRestatedDefinition &&
         CONFIRMATION.test(normalize(message.text))
         ? index
         : null;
     }
     if (message.role === "assistant") {
       const assistantText = normalize(message.text).toLowerCase();
-      const askedForConfirmation =
-        /\b(?:is that right|did i get that right|is this (?:correct|right)|is that (?:correct|the definition)|correct\?)\b/i.test(
-          assistantText,
-        );
-      assistantRestatedMetric ||=
+      const askedForConfirmation = CONFIRMATION_QUESTION.test(assistantText);
+      assistantRestatedDefinition ||=
         askedForConfirmation &&
-        tokens.some((token) => assistantText.includes(token));
+        tokens.some((token) => assistantText.includes(token)) &&
+        restatesDefinition(assistantText, definition);
     }
   }
   return null;
@@ -277,7 +332,12 @@ export function extractAnalyticsMemoryCandidates(
       continue;
     }
     const localTriggerIndex = definition
-      ? findMetricConfirmationIndex(boundedMessages, index, definition.metric)
+      ? findMetricConfirmationIndex(
+          boundedMessages,
+          index,
+          definition.metric,
+          definition.definition,
+        )
       : index;
     if (localTriggerIndex === null) {
       continue;

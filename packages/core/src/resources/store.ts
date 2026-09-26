@@ -2033,9 +2033,14 @@ async function resourcePutIfSnapshotInternal(
 
 const SNAPSHOT_PAIR_CONFLICT = Symbol("resource snapshot pair conflict");
 
+export type ResourceSnapshotPairOptions = {
+  beforeWrite?: (tx: DbExec) => Promise<void>;
+};
+
 /** Update a resource pair atomically and emit change events only after commit. */
 export async function resourcePutSnapshotPairIfCurrent(
   writes: readonly [ResourceSnapshotWrite, ResourceSnapshotWrite],
+  options?: ResourceSnapshotPairOptions,
 ): Promise<
   readonly [ResourceSnapshotWriteResult, ResourceSnapshotWriteResult] | null
 > {
@@ -2062,6 +2067,7 @@ export async function resourcePutSnapshotPairIfCurrent(
   ];
   try {
     result = await client.transaction(async (tx) => {
+      await options?.beforeWrite?.(tx);
       const firstResult = await resourcePutIfSnapshotInternal(first, false, tx);
       if (!firstResult) throw SNAPSHOT_PAIR_CONFLICT;
       const secondResult = await resourcePutIfSnapshotInternal(

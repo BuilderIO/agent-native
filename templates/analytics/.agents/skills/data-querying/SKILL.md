@@ -189,17 +189,20 @@ When you complete an analysis and discover:
 
 Analytics automatically captures explicit user corrections and metric
 definitions the user confirms after the thread has been idle. State corrections
-plainly, and ask the user to confirm a new metric definition before treating it
-as durable. Captures stay private to the user and, when learned in an
+plainly. Before asking for confirmation, restate the complete proposed metric
+definition in plain language, including its key conditions and time window or
+grain when applicable; a bare “yes” to a metric-name-only question is not
+confirmation. Captures stay private to the user and, when learned in an
 organization, are retrieved only in that same organization. Do not call
 `save-memory` again for those same items.
 
 Use `save-memory` for other verified, durable personal Analytics knowledge,
 with a short actionable description; read the existing entry first when
 updating it. Do not save guesses, one-off result values, raw queries,
-credentials, or personal or customer-identifying details. If the finding is
-uncertain or only applies to the current analysis, leave it in the answer
-instead of creating a memory.
+credentials, or personal or customer-identifying details such as names, contact
+information, street/billing/mailing addresses, or personal identifiers. If the
+finding is uncertain or only applies to the current analysis, leave it in the
+answer instead of creating a memory.
 
 For entries not suitable for personal memory, use the project `LEARNINGS.md`
 only when it contains genuinely reusable, non-sensitive guidance:

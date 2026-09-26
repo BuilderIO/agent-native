@@ -38,6 +38,9 @@ export interface AnalyticsPromptReferences {
 const CATALOG_TOOL_NAMES = new Set([
   "search-analytics-query-catalog",
   "search-dashboard-references",
+  "get-sql-dashboard",
+  "list-sql-dashboards",
+  "list-dashboard-usage-stats",
   "list-data-dictionary",
   "search-bigquery-schema",
 ]);
@@ -45,35 +48,10 @@ const CATALOG_TOOL_NAMES = new Set([
 // these bounded source reads count as query outcomes.
 // ponytail: add new source-query actions here as they ship.
 const QUERY_TOOL_NAMES = new Set([
-  "account-deep-dive",
   "bigquery",
-  "builder-blog-articles",
-  "content-calendar",
-  "db-admin-federated-read",
-  "gcloud",
-  "get-error-issue",
-  "gong-calls",
-  "gong-native-insights",
-  "grafana",
-  "hubspot-deals",
-  "hubspot-metrics",
-  "hubspot-records",
-  "jira",
-  "jira-search",
-  "list-error-issues",
-  "match-error-issues",
-  "pylon-issues",
-  "prometheus",
   "query-agent-native-analytics",
   "query-dashboard-panel",
-  "query-inbound-forms",
   "query-staged-dataset",
-  "sentry",
-  "seo-blog-pages",
-  "seo-page-keywords",
-  "seo-top-keywords",
-  "slack-messages",
-  "stripe",
 ]);
 
 export function summarizeAnalyticsRun(input: {

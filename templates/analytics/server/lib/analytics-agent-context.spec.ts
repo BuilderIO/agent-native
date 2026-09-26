@@ -433,6 +433,13 @@ describe("summarizeAnalyticsRun", () => {
             input: { search: "private metric" },
           },
         },
+        ...[
+          "get-sql-dashboard",
+          "list-sql-dashboards",
+          "list-dashboard-usage-stats",
+        ].map((tool, index) => ({
+          event: { type: "tool_start", tool, id: `catalog-${index + 2}` },
+        })),
         {
           event: {
             type: "tool_start",
@@ -579,8 +586,8 @@ describe("summarizeAnalyticsRun", () => {
     expect(properties).toEqual({
       preloaded_reference_count: 2,
       tool_search_calls: 1,
-      catalog_calls: 1,
-      query_calls: 5,
+      catalog_calls: 4,
+      query_calls: 2,
       first_query_errored: true,
     });
     expect(JSON.stringify(properties)).not.toMatch(/private|SELECT|rows/i);

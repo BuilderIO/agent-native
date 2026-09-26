@@ -22,6 +22,7 @@ const USER_TEXT_LIMIT = 321;
 const ASSISTANT_TEXT_LIMIT = 300;
 const QUEUE_TABLE = "analytics_memory_capture_queue";
 const WORKER_LEASE_TABLE = "analytics_memory_capture_worker_lease";
+const LOST_CAPTURE_WINDOW = Symbol("analytics-memory-capture-window-lost");
 // ponytail: one lease serializes Memory.md updates; split per owner if throughput matters.
 
 type CaptureJob = {
@@ -169,11 +170,17 @@ export async function enqueueAnalyticsMemoryCapture(input: {
   const threadId = input.threadId.trim();
   if (!owner || !threadId) return false;
 
+  const orgId = input.orgId ?? null;
   const now = Date.now();
-  await getDbExec().execute({
+  const result = await getDbExec().execute({
     sql: `INSERT INTO ${QUEUE_TABLE} (
       owner_email, thread_id, org_id, ready_at, attempt_count, created_at, updated_at
-    ) VALUES ($1, $2, $3, $4, 0, $5, $5)
+    )
+    SELECT $1, $2, $3, $4, 0, $5, $5
+    FROM chat_threads
+    WHERE id = $2 AND owner_email = $1
+      AND org_id IS NOT DISTINCT FROM $3
+      AND source_app_id = 'analytics'
     ON CONFLICT (owner_email, thread_id) DO UPDATE SET
       org_id = EXCLUDED.org_id,
       ready_at = EXCLUDED.ready_at,
@@ -181,17 +188,11 @@ export async function enqueueAnalyticsMemoryCapture(input: {
       lease_token = NULL,
       lease_expires_at = NULL,
       updated_at = EXCLUDED.updated_at`,
-    args: [
-      owner,
-      threadId,
-      input.orgId ?? null,
-      now + ANALYTICS_MEMORY_CAPTURE_IDLE_MS,
-      now,
-    ],
+    args: [owner, threadId, orgId, now + ANALYTICS_MEMORY_CAPTURE_IDLE_MS, now],
     timeoutMs: 10_000,
     maxAttempts: 1,
   });
-  return true;
+  return result.rowsAffected > 0;
 }
 
 async function acquireWorkerLease(
@@ -299,6 +300,7 @@ async function processJob(job: CaptureJob): Promise<void> {
       if (
         !thread ||
         thread.ownerEmail !== owner ||
+        thread.orgId !== orgId ||
         thread.source?.appId !== "analytics"
       ) {
         await deleteJob(job);
@@ -343,7 +345,53 @@ async function processJob(job: CaptureJob): Promise<void> {
         ];
         if (orgId) args.push("--scope", "current-org");
         args.push("--quiet", "true");
-        await saveMemory(args);
+        try {
+          await saveMemory(args, {
+            beforeWrite: async (tx) => {
+              const threadRows = await tx.execute({
+                sql: `SELECT 1 FROM chat_threads
+                  WHERE id = $1 AND owner_email = $2
+                    AND org_id IS NOT DISTINCT FROM $3
+                    AND updated_at = $4 AND source_app_id = 'analytics'
+                  FOR UPDATE`,
+                args: [job.thread_id, owner, orgId, thread.updatedAt],
+                timeoutMs: 10_000,
+                maxAttempts: 1,
+              });
+              if (threadRows.rows.length === 0) throw LOST_CAPTURE_WINDOW;
+
+              const queueRows = await tx.execute({
+                sql: `SELECT 1 FROM ${QUEUE_TABLE}
+                  WHERE owner_email = $1 AND thread_id = $2
+                    AND org_id IS NOT DISTINCT FROM $3
+                    AND lease_token = $4 AND ready_at = $5
+                  FOR UPDATE`,
+                args: [
+                  job.owner_email,
+                  job.thread_id,
+                  orgId,
+                  job.lease_token,
+                  job.ready_at,
+                ],
+                timeoutMs: 10_000,
+                maxAttempts: 1,
+              });
+              if (queueRows.rows.length === 0) throw LOST_CAPTURE_WINDOW;
+            },
+          });
+        } catch (error) {
+          if (error === LOST_CAPTURE_WINDOW) {
+            await trackCaptureOutcome(
+              owner,
+              orgId,
+              "skipped",
+              candidates.length,
+              savedCount,
+            );
+            return;
+          }
+          throw error;
+        }
         savedCount += 1;
       }
 

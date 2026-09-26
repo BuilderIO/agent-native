@@ -84,6 +84,67 @@ describe("extractAnalyticsMemoryCandidates", () => {
     ).toEqual([]);
   });
 
+  it("requires the assistant to restate the metric definition before confirmation", () => {
+    const definition = {
+      role: "user" as const,
+      text: "We define qualified signup as a new account that verifies its email within seven days.",
+    };
+
+    expect(
+      extractAnalyticsMemoryCandidates([
+        definition,
+        { role: "assistant", text: "Qualified signup—is that right?" },
+        { role: "user", text: "Yes." },
+      ]),
+    ).toEqual([]);
+    expect(
+      extractAnalyticsMemoryCandidates([
+        definition,
+        {
+          role: "assistant",
+          text: "Qualified signup does not mean a new account that verifies its email within seven days. Is that right?",
+        },
+        { role: "user", text: "Yes." },
+      ]),
+    ).toEqual([]);
+    expect(
+      extractAnalyticsMemoryCandidates([
+        definition,
+        {
+          role: "assistant",
+          text: "Qualified signup is a new account. Is that right?",
+        },
+        { role: "user", text: "Yes." },
+      ]),
+    ).toEqual([]);
+    expect(
+      extractAnalyticsMemoryCandidates([
+        definition,
+        {
+          role: "assistant",
+          text: "Qualified signup means a new account does not verify its email within seven days. Is that right?",
+        },
+        { role: "user", text: "Yes." },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("requires an unqualified confirmation of the restated definition", () => {
+    expect(
+      extractAnalyticsMemoryCandidates([
+        {
+          role: "user",
+          text: "We define paid activation as a new account that starts a paid plan within seven days.",
+        },
+        {
+          role: "assistant",
+          text: "Paid activation means a new account starts a paid plan within seven days. Is that right?",
+        },
+        { role: "user", text: "Yes, but only for enterprise accounts." },
+      ]),
+    ).toEqual([]);
+  });
+
   it("captures a specific user correction as reusable guidance", () => {
     expect(
       extractAnalyticsMemoryCandidates([
@@ -141,6 +202,49 @@ describe("extractAnalyticsMemoryCandidates", () => {
         {
           role: "user",
           text: "Going forward, use the saved dashboard for customer 202-555-0100 reports.",
+        },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("rejects billing, mailing, and street addresses", () => {
+    expect(
+      extractAnalyticsMemoryCandidates([
+        {
+          role: "user",
+          text: "Remember that the billing address is 123 Main Street, Springfield for future reports.",
+        },
+        {
+          role: "user",
+          text: "For future analytics work, use the mailing address at 1600 Pennsylvania Avenue NW, Washington, DC.",
+        },
+        {
+          role: "user",
+          text: "Correction: use 123 Main St, Springfield as the default location for reports.",
+        },
+        {
+          role: "user",
+          text: "Going forward, use PO Box 428 for monthly statements.",
+        },
+        {
+          role: "user",
+          text: "Going forward, use 12 rue Victor Hugo, Paris as the location for reports.",
+        },
+        {
+          role: "user",
+          text: "Correction: use 123-125 Main Street as the default location for reports.",
+        },
+        {
+          role: "user",
+          text: "Remember that the office address is 45 Calle de Alcalá, Madrid for weekly reports.",
+        },
+        {
+          role: "user",
+          text: "Correction: use Calle Mayor 12 as the default location for reports.",
+        },
+        {
+          role: "user",
+          text: "Correction: use Via Roma 12 as the default location for reports.",
         },
       ]),
     ).toEqual([]);

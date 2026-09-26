@@ -102,6 +102,21 @@ describe("save-memory", () => {
     );
   });
 
+  it("passes the snapshot-pair write guard through save-memory", async () => {
+    useResourceStore();
+    const options = { beforeWrite: vi.fn(async () => {}) };
+
+    await runWithRequestContext({}, async () => {
+      ensureRequestRunContext()!.owner = owner;
+      await saveMemoryScript(args, options);
+    });
+
+    expect(mocks.resourcePutSnapshotPairIfCurrent).toHaveBeenCalledWith(
+      expect.any(Array),
+      options,
+    );
+  });
+
   it("keeps current-organization memories private and namespaced per org", async () => {
     const { key, resources } = useResourceStore();
 
@@ -136,7 +151,7 @@ describe("save-memory", () => {
     expect(mocks.resourcePutSnapshotPairIfCurrent).not.toHaveBeenCalled();
   });
 
-  it("does not claim success when the memory write cannot be read back", async () => {
+  it("does not claim success when the committed pair does not contain both writes", async () => {
     mocks.resourceGetByPath.mockResolvedValue(null);
     mocks.resourcePutSnapshotPairIfCurrent.mockResolvedValue([
       { before: null, resource: { content: "" } },
@@ -148,7 +163,45 @@ describe("save-memory", () => {
         ensureRequestRunContext()!.owner = owner;
         await saveMemoryScript(args);
       }),
-    ).rejects.toThrow('could not verify persisted memory "coding-style"');
+    ).rejects.toThrow("could not verify the committed memory pair");
+  });
+
+  it("does not fail when another save updates the index after this pair commits", async () => {
+    const { key, resources } = useResourceStore();
+    const save =
+      mocks.resourcePutSnapshotPairIfCurrent.getMockImplementation()!;
+    mocks.resourcePutSnapshotPairIfCurrent.mockImplementationOnce(
+      async (writes: any[]) => {
+        const committed = await save(writes);
+        resources.set(
+          key(owner, "memory/MEMORY.md"),
+          "# Memory Index\n- [other](other.md) — Other guidance\n",
+        );
+        return committed;
+      },
+    );
+
+    await expect(
+      runWithRequestContext({}, async () => {
+        ensureRequestRunContext()!.owner = owner;
+        await saveMemoryScript(args);
+      }),
+    ).resolves.toBeUndefined();
+    expect(resources.get(key(owner, "memory/MEMORY.md"))).toContain("other");
+  });
+
+  it("surfaces failures from the atomic pair transaction", async () => {
+    useResourceStore();
+    mocks.resourcePutSnapshotPairIfCurrent.mockRejectedValueOnce(
+      new Error("transaction unavailable"),
+    );
+
+    await expect(
+      runWithRequestContext({}, async () => {
+        ensureRequestRunContext()!.owner = owner;
+        await saveMemoryScript(args);
+      }),
+    ).rejects.toThrow("transaction unavailable");
   });
 
   it("does not write either resource when an index read fails", async () => {

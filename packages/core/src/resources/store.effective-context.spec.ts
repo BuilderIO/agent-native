@@ -1407,6 +1407,71 @@ describe("resourceEffectiveContext", () => {
     }
   });
 
+  it("rolls back guard writes when a snapshot pair pre-write guard fails", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceGetByPath,
+      resourcePut,
+      resourcePutSnapshotPairIfCurrent,
+    } = await import("./store.js");
+    const suffix = `${Date.now()}-${Math.random()}`;
+    const bodyPath = `context/snapshot-pair-guard-body-${suffix}.md`;
+    const indexPath = `context/snapshot-pair-guard-index-${suffix}.md`;
+    const guardError = new Error("capture lease expired");
+
+    try {
+      const previousBody = await resourcePut(
+        SHARED_OWNER,
+        bodyPath,
+        "body before",
+      );
+      const previousIndex = await resourcePut(
+        SHARED_OWNER,
+        indexPath,
+        "index before",
+      );
+
+      await expect(
+        resourcePutSnapshotPairIfCurrent(
+          [
+            {
+              owner: SHARED_OWNER,
+              path: bodyPath,
+              content: "body after",
+              previous: previousBody,
+            },
+            {
+              owner: SHARED_OWNER,
+              path: indexPath,
+              content: "index after",
+              previous: previousIndex,
+            },
+          ],
+          {
+            beforeWrite: async (tx) => {
+              await tx.execute({
+                sql: "UPDATE resources SET content = ? WHERE id = ?",
+                args: ["guard side effect", previousBody.id],
+              });
+              throw guardError;
+            },
+          },
+        ),
+      ).rejects.toBe(guardError);
+
+      await expect(
+        resourceGetByPath(SHARED_OWNER, bodyPath),
+      ).resolves.toMatchObject({ content: "body before" });
+      await expect(
+        resourceGetByPath(SHARED_OWNER, indexPath),
+      ).resolves.toMatchObject({ content: "index before" });
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, bodyPath);
+      await resourceDeleteByPath(SHARED_OWNER, indexPath);
+    }
+  });
+
   it("commits both inserts in a snapshot pair together", async () => {
     const {
       SHARED_OWNER,
