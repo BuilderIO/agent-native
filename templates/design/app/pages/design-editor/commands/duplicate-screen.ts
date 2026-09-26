@@ -58,25 +58,34 @@ export function getDuplicateScreenGeometry(
   sourceGeometry: FrameGeometry,
   occupiedGeometries: readonly FrameGeometry[],
 ): FrameGeometry {
-  const rowBottom = sourceGeometry.y + sourceGeometry.height;
-  const rowGeometries = occupiedGeometries.filter(
-    (geometry) =>
-      geometry.y < rowBottom && geometry.y + geometry.height > sourceGeometry.y,
-  );
-  let x = sourceGeometry.x + sourceGeometry.width + DUPLICATE_SCREEN_GAP;
-  let candidate = { ...sourceGeometry, x, y: sourceGeometry.y };
-  let overlappingGeometry = rowGeometries.find((geometry) =>
-    duplicateGeometriesOverlap(candidate, geometry),
-  );
-  while (overlappingGeometry) {
-    x =
-      overlappingGeometry.x + overlappingGeometry.width + DUPLICATE_SCREEN_GAP;
-    candidate = { ...candidate, x };
-    overlappingGeometry = rowGeometries.find((geometry) =>
-      duplicateGeometriesOverlap(candidate, geometry),
-    );
+  return {
+    ...getFirstFreeDuplicateGeometry(
+      {
+        ...sourceGeometry,
+        x: sourceGeometry.x + sourceGeometry.width + DUPLICATE_SCREEN_GAP,
+        y: sourceGeometry.y,
+      },
+      occupiedGeometries,
+    ),
+    z: (sourceGeometry.z ?? 0) + 1,
+  };
+}
+
+function getFirstFreeDuplicateGeometry(
+  candidate: FrameGeometry,
+  occupiedGeometries: readonly FrameGeometry[],
+): FrameGeometry {
+  let free = { ...candidate };
+  while (true) {
+    const overlap = occupiedGeometries
+      .filter((geometry) => duplicateGeometriesOverlap(free, geometry))
+      .sort((left, right) => left.x - right.x)[0];
+    if (!overlap) return free;
+    free = {
+      ...free,
+      x: overlap.x + overlap.width + DUPLICATE_SCREEN_GAP,
+    };
   }
-  return { ...candidate, z: (sourceGeometry.z ?? 0) + 1 };
 }
 
 function duplicateGeometriesOverlap(
@@ -95,18 +104,23 @@ function duplicateGeometriesOverlap(
 function reserveDuplicateGeometry(
   filename: string,
   candidate: FrameGeometry,
+  occupiedGeometries: readonly FrameGeometry[],
   pendingGeometries: ReadonlyMap<string, FrameGeometry>,
+  preserveRequestedPosition: boolean,
 ): FrameGeometry {
-  let reserved = { ...candidate };
-  for (const [pendingFilename, pendingGeometry] of pendingGeometries) {
-    if (
-      pendingFilename !== filename &&
-      duplicateGeometriesOverlap(reserved, pendingGeometry)
-    ) {
-      reserved.x =
-        pendingGeometry.x + pendingGeometry.width + DUPLICATE_SCREEN_GAP;
-    }
-  }
+  const otherPending = [...pendingGeometries.entries()]
+    .filter(([pendingFilename]) => pendingFilename !== filename)
+    .map(([, geometry]) => geometry);
+  const reserved =
+    preserveRequestedPosition &&
+    !otherPending.some((geometry) =>
+      duplicateGeometriesOverlap(candidate, geometry),
+    )
+      ? { ...candidate }
+      : getFirstFreeDuplicateGeometry(candidate, [
+          ...occupiedGeometries,
+          ...otherPending,
+        ]);
   const pendingZ = [...pendingGeometries.values()].map(
     (geometry) => geometry.z ?? 0,
   );
@@ -188,6 +202,7 @@ export function runDuplicateScreen(
   }: DuplicateScreenArgs,
   screenId: string,
   request?: {
+    mode?: "alt-click" | "alt-drag";
     canvasPosition?: { x: number; y: number };
     preserveCamera?: boolean;
     historyBatchId?: string;
@@ -272,12 +287,16 @@ export function runDuplicateScreen(
           z: (adjacentGeometry.z ?? 0) + (request.duplicateStackIndex ?? 0),
         }
       : adjacentGeometry);
+  const preserveRequestedPosition =
+    request?.canvasPosition !== undefined && request.mode !== "alt-click";
   const createdGeometry = recoveryState?.geometry
     ? recoveryState.geometry
     : reserveDuplicateGeometry(
         filename,
         requestedGeometry,
+        occupiedGeometries,
         pendingDuplicateGeometriesRef.current,
+        preserveRequestedPosition,
       );
   pendingDuplicateGeometriesRef.current.set(filename, createdGeometry);
   // Carry screen dimensions/height mode for every duplicate so the new frame

@@ -682,6 +682,9 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         { timeout: 10_000 },
       )
       .toBe(true);
+    await expect
+      .poll(() => fileList(request, designId), { timeout: 10_000 })
+      .toContain("__board__.html");
     const filesBefore = await fileList(request, designId);
 
     await card.click({ force: true });
