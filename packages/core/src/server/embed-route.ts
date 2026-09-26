@@ -366,6 +366,10 @@ export function createEmbedStartRouteHandler(
       targetPath: target,
       audienceHost: getRequestURL(event).hostname,
       scope: consumed.scope,
+      ...(consumed.ticketCreatedAtMs != null &&
+      !isEmbedCapabilityScope(consumed.scope)
+        ? { ticketCreatedAtMs: consumed.ticketCreatedAtMs }
+        : {}),
       ...(isEmbedCapabilityScope(consumed.scope)
         ? {
             ttlSeconds: Math.max(

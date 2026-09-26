@@ -100,6 +100,7 @@ describe("createEmbedStartRouteHandler", () => {
       targetPath: "/inbox",
       scope: "full",
       expiresAt: Date.now() + 60_000,
+      ticketCreatedAtMs: Date.now() - 1,
     });
 
     const handler = createEmbedStartRouteHandler();
@@ -119,6 +120,7 @@ describe("createEmbedStartRouteHandler", () => {
       targetPath: "/inbox",
       audienceHost: "app.test",
       scope: "full",
+      ticketCreatedAtMs: expect.any(Number),
     });
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(

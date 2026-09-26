@@ -1595,7 +1595,15 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
-        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        getDbExec: () => {
+          const execute = vi.fn(async () => ({ rows: [] }));
+          return {
+            execute,
+            transaction: async (
+              run: (tx: { execute: typeof execute }) => unknown,
+            ) => run({ execute }),
+          };
+        },
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
@@ -1799,7 +1807,7 @@ describe("server/auth", () => {
       expect(setCookie).not.toContain("Partitioned");
     });
 
-    it("revokes embed sessions for the signed-out identity before clearing cookies", async () => {
+    it("revokes embed sessions for every signed-out identity before clearing cookies", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
@@ -1818,11 +1826,29 @@ describe("server/auth", () => {
         getBetterAuth: vi.fn(async () => null),
         getBetterAuthSync: vi.fn(() => null),
       }));
+      const mockExecute = vi.fn(async (query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        const args = typeof query === "string" ? undefined : query.args;
+        if (
+          sql?.includes("SELECT email, created_at FROM sessions") &&
+          args?.[0] === "normal-session"
+        ) {
+          return {
+            rows: [
+              { email: "other-owner@example.com", created_at: Date.now() },
+            ],
+          };
+        }
+        return { rows: [] };
+      });
       vi.doMock("../db/client.js", () => ({
-        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("./legacy-auth-migration.js", () => ({
+        resolveCanonicalUserForLegacySession: vi.fn(async () => null),
       }));
 
       const { autoMountAuth } = await import("./auth.js");
@@ -1835,14 +1861,17 @@ describe("server/auth", () => {
       const event = createJsonPostEvent(
         "/_agent-native/auth/logout",
         {},
-        { cookie: "an_embed_session=partitioned-embed-token" },
+        {
+          cookie:
+            "an_embed_session=partitioned-embed-token; an_session=normal-session",
+        },
       );
 
       await expect(logoutHandler(event)).resolves.toEqual({ ok: true });
 
-      expect(revokeEmbedSessionsForOwner).toHaveBeenCalledWith(
-        "owner@example.com",
-      );
+      expect(
+        new Set(revokeEmbedSessionsForOwner.mock.calls.map(([email]) => email)),
+      ).toEqual(new Set(["owner@example.com", "other-owner@example.com"]));
       expect(event.res.headers.get("set-cookie") ?? "").toContain(
         "an_embed_session=; Max-Age=0",
       );
@@ -1902,7 +1931,12 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
-        getDbExec: () => ({ execute: mockExecute }),
+        getDbExec: () => ({
+          execute: mockExecute,
+          transaction: async (
+            run: (tx: { execute: typeof mockExecute }) => unknown,
+          ) => run({ execute: mockExecute }),
+        }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),

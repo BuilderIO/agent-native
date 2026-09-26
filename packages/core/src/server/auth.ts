@@ -2028,15 +2028,6 @@ async function performLogout(
   event: H3Event,
   getAuth: () => Promise<BetterAuthInstance | null> | BetterAuthInstance | null,
 ): Promise<{ ok: true } | { error: string }> {
-  try {
-    const sessionEmail = (await resolveSessionUncached(event))?.email;
-    if (sessionEmail) await revokeEmbedSessionsForOwner(sessionEmail);
-  } catch (error) {
-    captureAuthError(error, { route: "logout" });
-    setResponseStatus(event, 503);
-    return { error: "Unable to revoke session" };
-  }
-
   const bearerToken = getBearerSessionToken(event);
   const betterAuthTokens = getBetterAuthSessionTokenValues(event);
   const rawTokens = [
@@ -2044,7 +2035,36 @@ async function performLogout(
     ...betterAuthTokens,
     ...(bearerToken ? [bearerToken] : []),
   ];
-  const candidates = rawTokens.flatMap(sessionTokenLookupCandidates);
+  const candidates = [
+    ...new Set(rawTokens.flatMap(sessionTokenLookupCandidates)),
+  ];
+  try {
+    const identities = new Set<string>();
+    const addIdentity = (email: string | null | undefined) => {
+      const normalized = normalizeAuthEmail(email);
+      if (normalized) identities.add(normalized);
+    };
+
+    addIdentity((await resolveSessionUncached(event))?.email);
+    addIdentity(
+      (await resolveSessionUncached(event, { ignoreEmbedSession: true }))
+        ?.email,
+    );
+    for (const token of candidates) {
+      addIdentity(
+        (await getSessionEmail(token)) ??
+          (await emailFromBetterAuthSessionToken(token)),
+      );
+    }
+    for (const email of identities) {
+      await revokeEmbedSessionsForOwner(email);
+    }
+  } catch (error) {
+    captureAuthError(error, { route: "logout" });
+    setResponseStatus(event, 503);
+    return { error: "Unable to revoke session" };
+  }
+
   let revocationFailed = false;
 
   let auth: BetterAuthInstance | null = null;
@@ -4810,6 +4830,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
 
 async function resolveSessionUncached(
   event: H3Event,
+  options: { ignoreEmbedSession?: boolean } = {},
 ): Promise<AuthSession | null> {
   const cookieOnlyDesktopCheck = isDesktopSessionCookieOnlyCheck(event);
   // 1. MCP App embed session. This is a short-lived browser session minted
@@ -4820,13 +4841,15 @@ async function resolveSessionUncached(
   // specific intent for an embed request. Checking it before the legacy
   // an_session cookie prevents a stale cookie (common when an ACCESS_TOKEN is
   // configured) from shadowing the embed identity.
-  const embedSession = await resolveEmbedSessionFromRequest(event);
-  if (embedSession && !isEmbedCapabilityScope(embedSession.scope)) {
-    return {
-      email: embedSession.email,
-      token: embedSession.token,
-      ...(embedSession.orgId ? { orgId: embedSession.orgId } : {}),
-    };
+  if (!options.ignoreEmbedSession) {
+    const embedSession = await resolveEmbedSessionFromRequest(event);
+    if (embedSession && !isEmbedCapabilityScope(embedSession.scope)) {
+      return {
+        email: embedSession.email,
+        token: embedSession.token,
+        ...(embedSession.orgId ? { orgId: embedSession.orgId } : {}),
+      };
+    }
   }
 
   // 2. ACCESS_TOKEN check (programmatic/agent access)
