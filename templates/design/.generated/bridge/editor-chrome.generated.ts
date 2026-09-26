@@ -12410,7 +12410,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var wrappedFlexAxis = wrappedFlexMainAxis(container);
       var axis = wrappedFlexAxis || parentFlowAxis(container);
       var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
-      var reverseFlow = !multiTrackGrid && (axis === "x" && containerStyles.flexDirection === "row-reverse" || axis === "y" && containerStyles.flexDirection === "column-reverse");
+      var reverseFlow = !multiTrackGrid && (axis === "x" && (containerStyles.flexDirection === "row" || containerStyles.flexDirection === "row-reverse") && containerStyles.flexDirection === "row-reverse" !== (containerStyles.direction === "rtl") || axis === "y" && containerStyles.flexDirection === "column-reverse");
       var best = null;
       var bestDistance = Infinity;
       var placement = "after";

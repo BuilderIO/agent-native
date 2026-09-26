@@ -43,6 +43,7 @@ interface DuplicateBatchState {
   sourceIds: Set<string>;
   completedSourceIds: Set<string>;
   copyIds: Set<string>;
+  pendingFilenames: Set<string>;
 }
 
 const duplicateBatchStatesByPendingMap = new WeakMap<
@@ -67,6 +68,7 @@ function duplicateBatchState(
       sourceIds: new Set(),
       completedSourceIds: new Set(),
       copyIds: new Set(),
+      pendingFilenames: new Set(),
     };
     batches.set(historyBatchId, state);
   }
@@ -165,18 +167,34 @@ function reserveDuplicateGeometry(
   filename: string,
   candidate: FrameGeometry,
   occupiedGeometries: readonly FrameGeometry[],
-  pendingGeometries: ReadonlyMap<string, FrameGeometry>,
+  pendingGeometries: ReadonlyMap<string, FrameGeometry>, // i18n-ignore: type syntax is not rendered copy
   preserveRequestedPosition: boolean,
+  sameBatchFilenames?: ReadonlySet<string>,
 ): FrameGeometry {
   const existingReservation = pendingGeometries.get(filename);
   const otherPending = [...pendingGeometries.entries()]
-    .filter(([pendingFilename]) => pendingFilename !== filename)
-    .map(([, geometry]) => geometry);
-  const reserved =
-    preserveRequestedPosition &&
-    !otherPending.some((geometry) =>
-      duplicateGeometriesOverlap(candidate, geometry),
+    .filter(
+      ([pendingFilename]) =>
+        pendingFilename !== filename &&
+        !(
+          preserveRequestedPosition && sameBatchFilenames?.has(pendingFilename)
+        ),
     )
+    .map(([, geometry]) => geometry);
+  const existingReservationIsFree =
+    existingReservation !== undefined &&
+    !occupiedGeometries.some((geometry) =>
+      duplicateGeometriesOverlap(existingReservation, geometry),
+    ) &&
+    !otherPending.some((geometry) =>
+      duplicateGeometriesOverlap(existingReservation, geometry),
+    );
+  const reserved = existingReservationIsFree
+    ? { ...existingReservation }
+    : preserveRequestedPosition &&
+        !otherPending.some((geometry) =>
+          duplicateGeometriesOverlap(candidate, geometry),
+        )
       ? { ...candidate }
       : getFirstFreeDuplicateGeometry(candidate, [
           ...occupiedGeometries,
@@ -353,6 +371,7 @@ export function runDuplicateScreen(
     mode?: "alt-click" | "alt-drag";
     duplicateStackSourceIds?: string[];
     canvasPosition?: { x: number; y: number };
+    canvasFrameGeometryById?: CanvasFrameGeometryById;
     preserveCamera?: boolean;
     historyBatchId?: string;
   },
@@ -362,6 +381,20 @@ export function runDuplicateScreen(
   if (!source) return Promise.resolve(undefined);
   const pendingFilenames = pendingDuplicateFilenamesRef.current;
   const recoveries = duplicateRecoveryRef.current;
+  const persistedGeometry = getCanvasFrameGeometry(designDataJsonRef.current);
+  for (const [pendingFilename] of pendingDuplicateGeometriesRef.current) {
+    const file = files.find(({ filename }) => filename === pendingFilename);
+    if (
+      file &&
+      [
+        persistedGeometry[file.id],
+        liveFrameGeometryRef.current[file.id],
+        request?.canvasFrameGeometryById?.[file.id],
+      ].some(isCompleteFrameGeometry)
+    ) {
+      pendingDuplicateGeometriesRef.current.delete(pendingFilename);
+    }
+  }
   for (const pendingFilename of pendingFilenames) {
     if (
       files.some((file) => file.filename === pendingFilename) &&
@@ -409,26 +442,38 @@ export function runDuplicateScreen(
     width: sourceOverviewScreen?.width ?? 1280,
     height: sourceOverviewScreen?.height ?? 2560,
   });
-  const persistedGeometry = getCanvasFrameGeometry(designDataJsonRef.current);
+  const persistedGeometryAtStart = getCanvasFrameGeometry(
+    designDataJsonRef.current,
+  );
   const sourceGeometry =
-    [liveFrameGeometryRef.current[screenId], persistedGeometry[screenId]].find(
-      isCompleteFrameGeometry,
-    ) ?? fallbackGeometry;
-  const currentFrameGeometry = {
-    ...persistedGeometry,
-  };
+    [
+      request?.canvasFrameGeometryById?.[screenId],
+      liveFrameGeometryRef.current[screenId],
+      persistedGeometryAtStart[screenId],
+    ].find(isCompleteFrameGeometry) ?? fallbackGeometry;
+  const currentFrameGeometry = { ...persistedGeometryAtStart };
   for (const [frameId, liveGeometry] of Object.entries(
     liveFrameGeometryRef.current,
   )) {
     currentFrameGeometry[frameId] = {
-      ...persistedGeometry[frameId],
+      ...persistedGeometryAtStart[frameId],
       ...liveGeometry,
     };
   }
   for (const [frameId, geometry] of Object.entries(currentFrameGeometry)) {
-    const persistedZ = persistedGeometry[frameId]?.z;
+    const persistedZ = persistedGeometryAtStart[frameId]?.z;
     if (typeof persistedZ === "number") {
       currentFrameGeometry[frameId] = { ...geometry, z: persistedZ };
+    }
+  }
+  for (const [frameId, canvasGeometry] of Object.entries(
+    request?.canvasFrameGeometryById ?? {},
+  )) {
+    if (isCompleteFrameGeometry(canvasGeometry)) {
+      currentFrameGeometry[frameId] = {
+        ...currentFrameGeometry[frameId],
+        ...canvasGeometry,
+      };
     }
   }
   currentFrameGeometry[screenId] = {
@@ -492,18 +537,24 @@ export function runDuplicateScreen(
     reserveDuplicateGeometry(
       filename,
       requestedGeometry,
-      preserveExplicitDropPosition ? [] : occupiedGeometries,
+      occupiedGeometries,
       pendingDuplicateGeometriesRef.current,
       preserveExplicitDropPosition,
+      duplicateBatch?.pendingFilenames,
     );
+  const initialStackZ = duplicateStack.copyZBySourceId.get(screenId);
   let createdGeometry = {
     ...initiallyReservedGeometry,
-    z: Math.max(
-      duplicateStack.copyZBySourceId.get(screenId) ?? requestedGeometry.z ?? 0,
-      initiallyReservedGeometry.z ?? 0,
-    ),
+    z:
+      request?.mode === "alt-click"
+        ? (initialStackZ ?? initiallyReservedGeometry.z ?? 0)
+        : Math.max(
+            initialStackZ ?? requestedGeometry.z ?? 0,
+            initiallyReservedGeometry.z ?? 0,
+          ),
   };
   pendingDuplicateGeometriesRef.current.set(filename, createdGeometry);
+  duplicateBatch?.pendingFilenames.add(filename);
   // Carry screen dimensions/height mode for every duplicate so the new frame
   // uses the same overview scale. Runtime metadata also keeps localhost/fusion
   // duplicates URL-backed. The carry must be path-addressed or it replaces a
@@ -555,6 +606,7 @@ export function runDuplicateScreen(
   // the first mutation, so only the newest call's onSuccess ever runs.
   let createdFileId: string | undefined;
   let duplicateBatchCopyId: string | undefined;
+  let appliedDuplicateStackChange: DuplicateStackHistoryChange | undefined;
   const canCleanupCreatedFile = recoveredFileId === undefined;
   const createFile = () =>
     createFileAsync({
@@ -662,6 +714,16 @@ export function runDuplicateScreen(
           };
         }
       }
+      for (const [frameId, canvasGeometry] of Object.entries(
+        request?.canvasFrameGeometryById ?? {},
+      )) {
+        if (!isCompleteFrameGeometry(latestGeometry[frameId])) {
+          latestGeometry[frameId] = {
+            ...canvasGeometry,
+            ...latestGeometry[frameId],
+          };
+        }
+      }
       const latestSourceGeometry =
         [latestGeometry[screenId], sourceGeometry].find(
           isCompleteFrameGeometry,
@@ -695,7 +757,10 @@ export function runDuplicateScreen(
         sourceIds: duplicateStackSourceIds,
       });
       const latestOccupiedGeometries = Object.entries(latestGeometry)
-        .filter(([frameId]) => frameId !== screenId)
+        .filter(
+          ([frameId]) =>
+            frameId !== screenId && !completedBatchCopyIds.has(frameId),
+        )
         .map(([, geometry]) => geometry)
         .filter(isCompleteFrameGeometry);
       const latestAdjacentGeometry = getDuplicateScreenGeometry(
@@ -717,18 +782,21 @@ export function runDuplicateScreen(
         reserveDuplicateGeometry(
           filename,
           latestRequestedGeometry,
-          preserveExplicitDropPosition ? [] : latestOccupiedGeometries,
+          latestOccupiedGeometries,
           pendingDuplicateGeometriesRef.current,
           preserveExplicitDropPosition,
+          duplicateBatch?.pendingFilenames,
         );
+      const landingStackZ = landingStack.copyZBySourceId.get(screenId);
       createdGeometry = {
         ...reservedGeometry,
-        z: Math.max(
-          landingStack.copyZBySourceId.get(screenId) ??
-            latestRequestedGeometry.z ??
-            0,
-          reservedGeometry.z ?? 0,
-        ),
+        z:
+          request?.mode === "alt-click"
+            ? (landingStackZ ?? reservedGeometry.z ?? 0)
+            : Math.max(
+                landingStackZ ?? latestRequestedGeometry.z ?? 0,
+                reservedGeometry.z ?? 0,
+              ),
       };
       pendingDuplicateGeometriesRef.current.set(filename, createdGeometry);
       const appliedStack = applyDuplicateStackHistoryChange(
@@ -736,7 +804,7 @@ export function runDuplicateScreen(
         landingStack,
         "redo",
       );
-      const appliedStackChange = duplicateStackChangeBetween(
+      appliedDuplicateStackChange = duplicateStackChangeBetween(
         latestGeometry,
         appliedStack.geometryById,
       );
@@ -801,7 +869,9 @@ export function runDuplicateScreen(
         geometry: createdGeometry,
         preserveCamera: request?.preserveCamera,
         historyBatchId: request?.historyBatchId,
-        ...(appliedStackChange ? { duplicateStack: appliedStackChange } : {}),
+        ...(appliedDuplicateStackChange
+          ? { duplicateStack: appliedDuplicateStackChange }
+          : {}),
         screenMetadata,
         localhostScreen,
       });
@@ -814,7 +884,6 @@ export function runDuplicateScreen(
       );
       recoveries.delete(filename);
       pendingFilenames.delete(filename);
-      pendingDuplicateGeometriesRef.current.delete(filename);
       toast.success(t("designEditor.toasts.screenDuplicated"));
       return nextId;
     })
@@ -883,14 +952,51 @@ export function runDuplicateScreen(
           });
         }
       }
-      if (survivingFileId) {
-        const nextGeometry = {
-          ...getCanvasFrameGeometry(designDataJsonRef.current),
+      if (survivingFileId || appliedDuplicateStackChange) {
+        const persistedGeometry = getCanvasFrameGeometry(
+          designDataJsonRef.current,
+        );
+        let nextGeometry: CanvasFrameGeometryById = {
+          ...persistedGeometry,
         };
-        delete nextGeometry[survivingFileId];
-        writeFrameGeometrySnapshot(nextGeometry, {
-          replacePendingGeometrySave: true,
-        });
+        for (const [frameId, liveGeometry] of Object.entries(
+          liveFrameGeometryRef.current,
+        )) {
+          nextGeometry[frameId] = {
+            ...persistedGeometry[frameId],
+            ...liveGeometry,
+          };
+          const persistedZ = persistedGeometry[frameId]?.z;
+          if (typeof persistedZ === "number") {
+            nextGeometry[frameId] = { ...nextGeometry[frameId], z: persistedZ };
+          }
+        }
+        if (survivingFileId) delete nextGeometry[survivingFileId];
+        if (appliedDuplicateStackChange) {
+          const freshStackEntries = Object.entries(
+            appliedDuplicateStackChange.after,
+          ).filter(
+            ([frameId, afterZ]) =>
+              (nextGeometry[frameId]?.z ?? null) === afterZ,
+          );
+          const rollbackStackChange: DuplicateStackHistoryChange = {
+            before: Object.fromEntries(
+              freshStackEntries.map(([frameId]) => [
+                frameId,
+                appliedDuplicateStackChange!.before[frameId] ?? null,
+              ]),
+            ),
+            after: Object.fromEntries(freshStackEntries),
+          };
+          nextGeometry = applyDuplicateStackHistoryChange(
+            nextGeometry,
+            rollbackStackChange,
+            "undo",
+          ).geometryById;
+        }
+        // A normal write compacts the failed optimistic save with its inverse
+        // while keeping unrelated pending geometry operations intact.
+        writeFrameGeometrySnapshot(nextGeometry);
       } else if (!recoveries.has(filename)) {
         pendingFilenames.delete(filename);
         pendingDuplicateGeometriesRef.current.delete(filename);

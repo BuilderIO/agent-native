@@ -164,6 +164,7 @@ export interface DuplicateRequest {
   mode: "alt-click" | "alt-drag";
   screen: ScreenFile;
   canvasPosition: { x: number; y: number };
+  canvasFrameGeometryById?: FrameGeometryById;
   canvasOffset?: { x: number; y: number };
   dropCanvasPosition?: { x: number; y: number };
   preserveCamera?: boolean;

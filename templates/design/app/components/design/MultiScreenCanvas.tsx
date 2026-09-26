@@ -10637,6 +10637,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             mode: "alt-click",
             screen,
             canvasPosition,
+            canvasFrameGeometryById: frameGeometryRef.current,
             preserveCamera: true,
             historyBatchId,
             duplicateStackSourceIds,

@@ -697,7 +697,11 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     const card = page.locator(
       `[data-frame-id="${sourceId}"] [data-screen-card]`,
     );
+    const frameLabel = page.locator(
+      `[data-frame-id="${sourceId}"] [data-frame-label]`,
+    );
     await expect(card).toBeVisible();
+    await expect(frameLabel).toBeVisible();
     // Overview layout settles asynchronously with no discrete event — poll
     // the card's box until two consecutive reads agree before force-clicking
     // its current position.
@@ -722,7 +726,14 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       .toContain("__board__.html");
     const filesBefore = await fileList(request, designId);
 
-    await card.click({ force: true });
+    await page
+      .getByRole("button", { name: /^\d+%$/ })
+      .first()
+      .click();
+    await page.getByRole("menuitem", { name: "Zoom to fit" }).click();
+    await expect(card).toBeInViewport();
+    await expect(frameLabel).toBeInViewport();
+    await frameLabel.click({ force: true });
     await expect
       .poll(async () => (await selectionContext(request)).selectedScreenIds)
       .toEqual([sourceId]);
@@ -784,7 +795,8 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       .click();
     await page.getByRole("menuitem", { name: "Zoom to fit" }).click();
     await expect(card).toBeInViewport();
-    await card.click({ force: true });
+    await expect(frameLabel).toBeInViewport();
+    await frameLabel.click({ force: true });
     await expect
       .poll(async () => (await selectionContext(request)).selectedScreenIds)
       .toEqual([sourceId]);
@@ -828,9 +840,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
           "the second Cmd+D should select its own copy too (Figma parity)",
       })
       .toEqual([dup2Id]);
-    await expect(
-      page.locator(`[data-frame-id="${dup2Id}"] [data-screen-card]`),
-    ).toBeInViewport();
+    // Cmd+D preserves the camera, so a later free slot can be offscreen.
     const dup2Content = await fileContent(request, designId, dup2!);
     expect(dup2Content).toContain('data-agent-native-component="Navigation"');
     expect(dup2Content).toContain("Wordmark");

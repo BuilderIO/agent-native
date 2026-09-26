@@ -10202,7 +10202,8 @@ it("editor chrome bridge does not self-anchor same-parent unnest for a clone", (
 
 it.each([
   {
-    direction: "row-reverse",
+    flexDirection: "row-reverse",
+    textDirection: "ltr",
     axis: "x",
     firstRect: {
       left: 120,
@@ -10223,7 +10224,52 @@ it.each([
     point: { x: 100, y: 40 },
   },
   {
-    direction: "column-reverse",
+    flexDirection: "row",
+    textDirection: "rtl",
+    axis: "x",
+    firstRect: {
+      left: 120,
+      top: 20,
+      right: 160,
+      bottom: 60,
+      width: 40,
+      height: 40,
+    },
+    secondRect: {
+      left: 40,
+      top: 20,
+      right: 80,
+      bottom: 60,
+      width: 40,
+      height: 40,
+    },
+    point: { x: 100, y: 40 },
+  },
+  {
+    flexDirection: "row-reverse",
+    textDirection: "rtl",
+    axis: "x",
+    firstRect: {
+      left: 40,
+      top: 20,
+      right: 80,
+      bottom: 60,
+      width: 40,
+      height: 40,
+    },
+    secondRect: {
+      left: 120,
+      top: 20,
+      right: 160,
+      bottom: 60,
+      width: 40,
+      height: 40,
+    },
+    point: { x: 100, y: 40 },
+  },
+  {
+    flexDirection: "column-reverse",
+    textDirection: "ltr",
     axis: "y",
     firstRect: {
       left: 20,
@@ -10244,8 +10290,8 @@ it.each([
     point: { x: 40, y: 100 },
   },
 ])(
-  "editor chrome bridge resolves $direction insertion by visual order",
-  ({ direction, axis, firstRect, secondRect, point }) => {
+  "editor chrome bridge resolves $flexDirection $textDirection insertion by visual order",
+  ({ flexDirection, textDirection, axis, firstRect, secondRect, point }) => {
     const first = {
       getBoundingClientRect: () => firstRect,
     } as unknown as Element;
@@ -10269,7 +10315,8 @@ it.each([
       window: {
         getComputedStyle: () => ({
           display: "flex",
-          flexDirection: direction,
+          flexDirection,
+          direction: textDirection,
           gridTemplateColumns: "",
         }),
       },

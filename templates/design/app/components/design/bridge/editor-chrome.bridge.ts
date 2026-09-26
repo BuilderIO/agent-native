@@ -17119,7 +17119,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         .length > 1;
     var reverseFlow =
       !multiTrackGrid &&
-      ((axis === "x" && containerStyles.flexDirection === "row-reverse") ||
+      ((axis === "x" &&
+        (containerStyles.flexDirection === "row" ||
+          containerStyles.flexDirection === "row-reverse") &&
+        (containerStyles.flexDirection === "row-reverse") !==
+          (containerStyles.direction === "rtl")) ||
         (axis === "y" && containerStyles.flexDirection === "column-reverse"));
     var best: Element | null = null;
     var bestDistance = Infinity;

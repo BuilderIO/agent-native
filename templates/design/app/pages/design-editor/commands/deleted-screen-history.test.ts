@@ -672,6 +672,8 @@ describe("screen deletion history identity", () => {
           })),
         } as any,
         designDataJsonRef,
+        fileCreationRedoStackRef,
+        fileCreationUndoStackRef,
         fileDeletionRedoStackRef,
         fileDeletionUndoStackRef,
         fileHistoryMutationPendingRef,
