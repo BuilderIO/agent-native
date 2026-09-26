@@ -96,7 +96,7 @@ export function ObservabilityReviewSummaryButton({
               size={compact ? "icon" : "sm"}
               variant={compact ? "ghost" : "default"}
               aria-label={label}
-              disabled={disabled}
+              aria-disabled={disabled}
               aria-busy={status === "sending"}
               className={
                 status === "sending" ? "cursor-wait opacity-60" : undefined
