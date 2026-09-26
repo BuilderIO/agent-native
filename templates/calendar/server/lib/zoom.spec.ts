@@ -93,9 +93,12 @@ describe("needsZoomCancellationReview", () => {
     ).toBe(true);
   });
 
-  it("requires review when a booking link conferencing config is unreadable", () => {
-    expect(needsZoomCancellationReview({ conferencing: "{" })).toBe(true);
-  });
+  it.each(["{", JSON.stringify({ type: "unknown" })])(
+    "requires review when a booking link conferencing config is unreadable: %s",
+    (conferencing) => {
+      expect(needsZoomCancellationReview({ conferencing })).toBe(true);
+    },
+  );
 
   it("does not require review for cancelled legacy Zoom bookings", () => {
     expect(

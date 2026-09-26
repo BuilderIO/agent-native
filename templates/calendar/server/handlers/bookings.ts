@@ -58,6 +58,7 @@ import {
   getBookingLinkRequiredHostEmails,
   isBookingLinkHost,
   normalizeBookingHosts,
+  parseBookingConferencingConfig,
 } from "../lib/booking-link-utils.js";
 import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
 import { eventBlocksAvailability } from "../lib/calendar-availability.js";
@@ -1400,10 +1401,20 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
 
     // Check for conflicts + insert atomically in a transaction
-    let conferencing: ConferencingConfig | undefined;
-    if (link?.conferencing) {
-      conferencing = JSON.parse(link.conferencing);
+    const parsedConferencing = parseBookingConferencingConfig(
+      link?.conferencing,
+    );
+    if (parsedConferencing.status === "invalid") {
+      setResponseStatus(event, 422);
+      return {
+        error: "Failed to create booking",
+        code: "invalid_conferencing_config",
+      };
     }
+    const conferencing =
+      parsedConferencing.status === "valid"
+        ? parsedConferencing.config
+        : undefined;
     const db = getDb();
     const insertResult = await db.transaction(async (tx) => {
       if (viewer) {

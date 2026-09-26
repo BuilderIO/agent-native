@@ -1,4 +1,10 @@
-import type { BookingHost, BookingLink } from "../../shared/api.js";
+import { z } from "zod";
+
+import type {
+  BookingHost,
+  BookingLink,
+  ConferencingConfig,
+} from "../../shared/api.js";
 import { schema } from "../db/index.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -26,6 +32,30 @@ function parseJson<T>(value: string | null, fallback: T): T {
     return JSON.parse(value) as T;
   } catch {
     return fallback;
+  }
+}
+
+const conferencingConfigSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("none"), url: z.string().optional() }),
+  z.object({ type: z.literal("google_meet"), url: z.string().optional() }),
+  z.object({ type: z.literal("zoom"), url: z.string().optional() }),
+  z.object({ type: z.literal("custom"), url: z.string().optional() }),
+]);
+
+export function parseBookingConferencingConfig(
+  value: string | null | undefined,
+):
+  | { status: "absent" }
+  | { status: "invalid" }
+  | { status: "valid"; config: ConferencingConfig } {
+  if (value == null) return { status: "absent" };
+  try {
+    const parsed = conferencingConfigSchema.safeParse(JSON.parse(value));
+    return parsed.success
+      ? { status: "valid", config: parsed.data }
+      : { status: "invalid" };
+  } catch {
+    return { status: "invalid" };
   }
 }
 

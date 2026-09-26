@@ -339,6 +339,27 @@ describe("draft booking availability previews", () => {
     expect(mocks.insertedBookings).toHaveLength(1);
   });
 
+  it.each(["{", "{}", JSON.stringify({ type: "unknown" })])(
+    "rejects a booking with invalid saved conferencing config: %s",
+    async (conferencing) => {
+      bookingLink.conferencing = conferencing;
+      const db = createDb();
+      mocks.getDb.mockReturnValue(db);
+      const event = {};
+
+      const response = await (createBooking as any)(event);
+
+      expect(response).toEqual({
+        error: "Failed to create booking",
+        code: "invalid_conferencing_config",
+      });
+      expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 422);
+      expect(db.transaction).not.toHaveBeenCalled();
+      expect(mocks.insertedBookings).toHaveLength(0);
+      expect(mocks.createZoomMeeting).not.toHaveBeenCalled();
+    },
+  );
+
   it("releases the slot when Zoom creation never starts", async () => {
     bookingLink.conferencing = JSON.stringify({ type: "zoom" });
     bookingLink.hosts = JSON.stringify([]);

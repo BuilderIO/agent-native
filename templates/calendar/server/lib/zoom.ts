@@ -21,6 +21,8 @@ import { createZoomProvider } from "@agent-native/scheduling/server/providers";
  */
 import { nanoid } from "nanoid";
 
+import { parseBookingConferencingConfig } from "./booking-link-utils.js";
+
 const PROVIDER = "zoom_video";
 const SCOPES = [
   "meeting:write:meeting",
@@ -81,18 +83,10 @@ export function needsZoomCancellationReview(booking: {
   if (booking.status === "cancelled") return false;
   if (booking.zoomMeetingId && booking.zoomAccountId) return false;
   if (booking.zoomNeedsReview) return true;
-  if (booking.conferencing) {
-    try {
-      const config: unknown = JSON.parse(booking.conferencing);
-      if (!config || typeof config !== "object" || Array.isArray(config)) {
-        return true;
-      }
-      const type = (config as { type?: unknown }).type;
-      if (typeof type !== "string") return true;
-      if (type === "zoom") return true;
-    } catch {
-      return true;
-    }
+  const conferencing = parseBookingConferencingConfig(booking.conferencing);
+  if (conferencing.status === "invalid") return true;
+  if (conferencing.status === "valid" && conferencing.config.type === "zoom") {
+    return true;
   }
   if (!booking.meetingLink) return false;
 
