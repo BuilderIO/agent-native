@@ -194,8 +194,9 @@ export function StorageSetupCard({
       }
       aria-busy={
         inlineConnect &&
-        !builderConnect.statusResolved &&
-        !builderConnect.hasFetchedStatus
+        (connecting ||
+          builderConnect.connecting ||
+          (!builderConnect.statusResolved && !builderConnect.hasFetchedStatus))
       }
       disabled={
         connecting ||

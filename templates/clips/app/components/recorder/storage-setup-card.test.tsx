@@ -230,6 +230,7 @@ describe("StorageSetupCard", () => {
     });
 
     expect(container.textContent).toContain("storageSetup.waitingForBuilder");
+    expect(container.querySelector('button[aria-busy="true"]')).not.toBeNull();
     expect(container.textContent).not.toContain(
       "agentChat.onboarding.builderCreateAndActivate",
     );
