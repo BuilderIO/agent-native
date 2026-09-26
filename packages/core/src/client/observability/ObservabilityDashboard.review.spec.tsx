@@ -766,7 +766,15 @@ describe("ObservabilityDashboard human review", () => {
   });
 
   it("rolls back a failed optimistic vote and reports the failure", async () => {
-    mockSubmitFeedback.mockRejectedValue(new Error("offline"));
+    let finishSecondVote: (() => void) | undefined;
+    mockSubmitFeedback
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishSecondVote = resolve;
+          }),
+      );
 
     await act(async () => {
       root.render(
@@ -795,6 +803,208 @@ describe("ObservabilityDashboard human review", () => {
         ?.getAttribute("aria-pressed"),
     ).toBe("false");
     expect(row.querySelector('[role="status"]')?.textContent).toBeTruthy();
+
+    const secondRow = container.querySelector<HTMLElement>(
+      '[data-review-row="run-2"]',
+    )!;
+    await act(async () =>
+      secondRow
+        .querySelector<HTMLButtonElement>('[data-review-vote="up"]')
+        ?.click(),
+    );
+    expect(row.querySelector('[role="status"]')?.textContent).toBeTruthy();
+    expect(
+      secondRow.querySelector('[role="status"]')?.textContent,
+    ).toBeTruthy();
+    await act(async () => finishSecondVote?.());
+  });
+
+  it("reconciles the latest vote for a historical run in a grouped thread", async () => {
+    const primary = mockOutputReviews().data.find(
+      (review) => review.runId === "run-1",
+    )!;
+    const makeReviews = (feedback: typeof primary.feedback) => [
+      {
+        ...primary,
+        runCount: 2,
+        runs: [
+          { runId: "run-1", model: "model-a", createdAt: 30 },
+          { runId: "run-2", model: "model-b", createdAt: 20 },
+        ],
+        feedback,
+      },
+    ];
+    const latestDown = {
+      id: "vote-run-2-latest-down",
+      runId: "run-2",
+      feedbackType: "thumbs_down" as const,
+      value: "",
+      createdAt: 20,
+    };
+    const oldUp = {
+      id: "vote-run-2-old-up",
+      runId: "run-2",
+      feedbackType: "thumbs_up" as const,
+      value: "",
+      createdAt: 10,
+    };
+    let finishVote: (() => void) | undefined;
+    mockSubmitFeedback.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishVote = resolve;
+        }),
+    );
+    mockOutputReviews.mockReturnValue({
+      isLoading: false,
+      data: makeReviews([latestDown, oldUp]),
+    });
+
+    const renderDashboard = async () =>
+      act(async () =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <AgentNativeI18nProvider persistPreference={false}>
+              <ObservabilityDashboard showHumanReview />
+            </AgentNativeI18nProvider>
+          </QueryClientProvider>,
+        ),
+      );
+    await renderDashboard();
+    const reviewTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Human review"),
+    );
+    await act(async () => reviewTab?.click());
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-review-run-id="run-1"]')
+        ?.click(),
+    );
+    const detail = reviewDetail("run-1")!;
+    const runPicker = detail.querySelector<HTMLSelectElement>(
+      '[aria-label="Total runs"]',
+    )!;
+    await act(async () => {
+      runPicker.value = "run-2";
+      runPicker.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(
+      detail
+        .querySelector('[aria-label="Thumbs down"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    await act(async () =>
+      detail
+        .querySelector<HTMLButtonElement>('[aria-label="Thumbs up"]')
+        ?.click(),
+    );
+    expect(
+      detail
+        .querySelector('[aria-label="Thumbs up"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    mockOutputReviews.mockReturnValue({
+      isLoading: false,
+      data: makeReviews([latestDown, oldUp]),
+    });
+    await renderDashboard();
+    expect(
+      reviewDetail("run-1")
+        ?.querySelector('[aria-label="Thumbs up"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    mockOutputReviews.mockReturnValue({
+      isLoading: false,
+      data: makeReviews([
+        {
+          ...latestDown,
+          id: "vote-run-2-confirmed-up",
+          feedbackType: "thumbs_up",
+          createdAt: 30,
+        },
+        latestDown,
+        oldUp,
+      ]),
+    });
+    await renderDashboard();
+    mockOutputReviews.mockReturnValue({
+      isLoading: false,
+      data: makeReviews([
+        {
+          ...latestDown,
+          id: "vote-run-2-newer-down",
+          createdAt: 40,
+        },
+        {
+          id: "vote-run-2-confirmed-up",
+          runId: "run-2",
+          feedbackType: "thumbs_up",
+          value: "",
+          createdAt: 30,
+        },
+        latestDown,
+        oldUp,
+      ]),
+    });
+    await renderDashboard();
+    expect(
+      reviewDetail("run-1")
+        ?.querySelector('[aria-label="Thumbs down"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    await act(async () => finishVote?.());
+  });
+
+  it("shows note-save failures beside the note save action", async () => {
+    mockSubmitFeedback.mockRejectedValue(new Error("offline"));
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard showHumanReview />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    const reviewTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Human review"),
+    );
+    await act(async () => reviewTab?.click());
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-review-run-id="run-1"]')
+        ?.click(),
+    );
+    const detail = reviewDetail("run-1")!;
+    await act(async () =>
+      detail
+        .querySelector<HTMLButtonElement>('[aria-label="Add feedback"]')
+        ?.click(),
+    );
+    const input = popoverTextarea("What should change or stay the same?")!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "Please improve the chart labels.");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const save = popoverButton(input, "Save feedback")!;
+    await act(async () => save.click());
+    await vi.waitFor(() =>
+      expect(
+        save.parentElement?.querySelector('[role="status"]')?.textContent,
+      ).toBeTruthy(),
+    );
+    expect(
+      detail.querySelector(
+        '[role="group"][aria-label="Review feedback"] [role="status"]',
+      ),
+    ).toBeNull();
   });
 
   it("keeps cross-organization review rows read-only", async () => {

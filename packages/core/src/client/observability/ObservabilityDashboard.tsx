@@ -106,6 +106,19 @@ function formatPercent(ratio: number): string {
   return `${(ratio * 100).toFixed(1)}%`;
 }
 
+function latestReviewVote(
+  review: OutputReviewListRow | undefined,
+  runId: string,
+) {
+  return review?.feedback.find(
+    (entry) =>
+      (entry.runId === runId ||
+        (entry.runId == null && review.runId === runId)) &&
+      (entry.feedbackType === "thumbs_up" ||
+        entry.feedbackType === "thumbs_down"),
+  );
+}
+
 function truncateId(id: string, len = 8): string {
   return id.length > len ? id.slice(0, len) + "…" : id;
 }
@@ -1050,9 +1063,9 @@ function ReviewTab({
     Record<string, "thumbs_up" | "thumbs_down">
   >({});
   const [pendingVotes, setPendingVotes] = useState<Record<string, boolean>>({});
-  const [feedbackErrorRunId, setFeedbackErrorRunId] = useState<string | null>(
-    null,
-  );
+  const [voteErrors, setVoteErrors] = useState<Record<string, boolean>>({});
+  const [pendingNotes, setPendingNotes] = useState<Record<string, boolean>>({});
+  const [noteErrors, setNoteErrors] = useState<Record<string, boolean>>({});
   const [summaryStatus, setSummaryStatus] = useState<
     "sending" | "sent" | "failed" | null
   >(null);
@@ -1082,13 +1095,13 @@ function ReviewTab({
       let changed = false;
       const next = { ...current };
       for (const [runId, vote] of Object.entries(current)) {
-        const confirmed = reviews
-          .find((review) => review.runId === runId)
-          ?.feedback.some(
-            (entry) =>
-              (entry.runId === runId || entry.runId == null) &&
-              entry.feedbackType === vote,
-          );
+        const review = reviews.find(
+          (candidate) =>
+            candidate.runId === runId ||
+            candidate.runs?.some((run) => run.runId === runId),
+        );
+        const confirmed =
+          latestReviewVote(review, runId)?.feedbackType === vote;
         if (confirmed) {
           delete next[runId];
           changed = true;
@@ -1220,7 +1233,11 @@ function ReviewTab({
     const previous = optimisticVotes[runId];
     setOptimisticVotes((current) => ({ ...current, [runId]: feedbackType }));
     setPendingVotes((current) => ({ ...current, [runId]: true }));
-    setFeedbackErrorRunId(null);
+    setVoteErrors((current) => {
+      const next = { ...current };
+      delete next[runId];
+      return next;
+    });
     try {
       await feedbackMutation.mutateAsync({
         runId,
@@ -1233,7 +1250,7 @@ function ReviewTab({
         else delete next[runId];
         return next;
       });
-      setFeedbackErrorRunId(runId);
+      setVoteErrors((current) => ({ ...current, [runId]: true }));
     } finally {
       setPendingVotes((current) => {
         const next = { ...current };
@@ -1245,8 +1262,13 @@ function ReviewTab({
 
   const saveNote = (runId: string) => {
     const note = feedbackNote?.runId === runId ? feedbackNote.value.trim() : "";
-    if (!note) return;
-    setFeedbackErrorRunId(null);
+    if (!note || pendingNotes[runId]) return;
+    setPendingNotes((current) => ({ ...current, [runId]: true }));
+    setNoteErrors((current) => {
+      const next = { ...current };
+      delete next[runId];
+      return next;
+    });
     void feedbackMutation
       .mutateAsync({
         runId,
@@ -1268,7 +1290,14 @@ function ReviewTab({
           queryKey: ["action", "list-observability-reviews"],
         });
       })
-      .catch(() => setFeedbackErrorRunId(runId));
+      .catch(() => setNoteErrors((current) => ({ ...current, [runId]: true })))
+      .finally(() =>
+        setPendingNotes((current) => {
+          const next = { ...current };
+          delete next[runId];
+          return next;
+        }),
+      );
   };
 
   const saveInstruction = (runId: string, threadId: string | null) => {
@@ -1417,20 +1446,9 @@ function ReviewTab({
   const activeFeedback = selectedReview?.feedback.filter(
     (entry) => entry.runId === activeRunId,
   );
-  const persistedSelectedVote =
-    activeFeedback?.find(
-      (entry) =>
-        entry.feedbackType === "thumbs_up" ||
-        entry.feedbackType === "thumbs_down",
-    ) ??
-    (activeRunId === selectedReview?.runId
-      ? selectedReview?.feedback.find(
-          (entry) =>
-            entry.runId == null &&
-            (entry.feedbackType === "thumbs_up" ||
-              entry.feedbackType === "thumbs_down"),
-        )
-      : undefined);
+  const persistedSelectedVote = activeRunId
+    ? latestReviewVote(selectedReview, activeRunId)
+    : undefined;
   const selectedVoteType = activeRunId
     ? (optimisticVotes[activeRunId] ?? persistedSelectedVote?.feedbackType)
     : persistedSelectedVote?.feedbackType;
@@ -1753,7 +1771,7 @@ function ReviewTab({
                             {t("agentChat.common.saving")}
                           </span>
                         )}
-                        {feedbackErrorRunId === review.runId && (
+                        {voteErrors[review.runId] && (
                           <span
                             role="status"
                             aria-live="polite"
@@ -2167,7 +2185,7 @@ function ReviewTab({
                                   {t("agentChat.common.saving")}
                                 </span>
                               )}
-                              {activeRunId === feedbackErrorRunId && (
+                              {activeRunId && voteErrors[activeRunId] && (
                                 <span
                                   role="status"
                                   aria-live="polite"
@@ -2308,24 +2326,51 @@ function ReviewTab({
                                     )}
                                   />
                                 </label>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    saveNote(
-                                      activeRunId ?? selectedReview.runId,
-                                    )
-                                  }
-                                  title={t("observability.saveFeedback")}
-                                  disabled={
-                                    !(feedbackNote?.runId ===
-                                    (activeRunId ?? selectedReview.runId)
-                                      ? feedbackNote.value.trim()
-                                      : "") || feedbackMutation.isPending
-                                  }
-                                  className="mt-2 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
-                                >
-                                  {t("observability.saveFeedback")}
-                                </button>
+                                <div className="mt-2 flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      saveNote(
+                                        activeRunId ?? selectedReview.runId,
+                                      )
+                                    }
+                                    title={t("observability.saveFeedback")}
+                                    aria-busy={Boolean(
+                                      pendingNotes[
+                                        activeRunId ?? selectedReview.runId
+                                      ],
+                                    )}
+                                    disabled={
+                                      !(feedbackNote?.runId ===
+                                      (activeRunId ?? selectedReview.runId)
+                                        ? feedbackNote.value.trim()
+                                        : "") ||
+                                      Boolean(
+                                        pendingNotes[
+                                          activeRunId ?? selectedReview.runId
+                                        ],
+                                      )
+                                    }
+                                    className="rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+                                  >
+                                    {pendingNotes[
+                                      activeRunId ?? selectedReview.runId
+                                    ]
+                                      ? t("agentChat.common.saving")
+                                      : t("observability.saveFeedback")}
+                                  </button>
+                                  {noteErrors[
+                                    activeRunId ?? selectedReview.runId
+                                  ] && (
+                                    <span
+                                      role="status"
+                                      aria-live="polite"
+                                      className="text-xs text-destructive"
+                                    >
+                                      {t("agentChat.common.saveFailed")}
+                                    </span>
+                                  )}
+                                </div>
                               </PopoverContent>
                             </Popover>
                             <Popover
