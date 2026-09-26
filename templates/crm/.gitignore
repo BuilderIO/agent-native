@@ -8,6 +8,7 @@ build
 .netlify
 *.log
 
+# Local credentials and development database
 .env
 .env.*
 !.env.example

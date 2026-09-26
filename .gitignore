@@ -82,6 +82,9 @@ db-exec
 .env.*
 !.env.example
 !.env.*.example
+# Editor and tooling backups of the above. `.env` was ignored but `.env.bak`
+# was not, so a routine push could have committed a file full of production
+# credentials.
 *.bak
 *.orig
 test-reports/
@@ -90,8 +93,11 @@ test-reports/
 tsup.config.bundled_*.mjs
 packages/core/corpus.tmp-*/
 
+# Temporary trusted document exports can contain internal workspace content.
 /.tmp-docs-trusted-*/
 
+# Local output of `preview-dashboard-report.ts` — contains real internal
+# analytics data and is meant for local inspection only, never committed.
 .report-preview/
 
 .pnpm-store/

@@ -26,11 +26,14 @@ dist-ssr
 .env
 .output/
 
+# Auth sessions (sensitive, never commit)
 data/.sessions.json
 
 media/*.png
 media/theme.json
 
+# Generated report snapshot — contains live production analytics (traffic,
+# referral, and artifact-level data); never commit
 .report-preview/
 
 learnings.md
