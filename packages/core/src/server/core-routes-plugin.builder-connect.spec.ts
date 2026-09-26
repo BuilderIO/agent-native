@@ -24,7 +24,6 @@ import {
 import {
   disconnectBuilderConnectionAtScope,
   parseBuilderConnectionScope,
-  resolveBuilderCallbackPersonalDeny,
   resolveBuilderCallbackWrite,
   resolveBuilderConnectAuthorization,
   resolveBuilderOrgMutation,
@@ -32,6 +31,7 @@ import {
   selectLiveBuilderConnectStates,
   type BuilderScopedDisconnectDeps,
 } from "./core-routes-plugin.js";
+import { PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE } from "./personal-provider-key-policy.js";
 
 function createMockEvent(): H3Event {
   return {
@@ -207,74 +207,6 @@ describe("Builder connection scope", () => {
     ).resolves.toBeNull();
   });
 
-  it("re-checks personal eligibility when the OAuth callback lands", async () => {
-    getOrgContextMock.mockResolvedValue({ orgId: "org-123", role: "member" });
-    await expect(
-      resolveBuilderCallbackPersonalDeny(
-        createMockEvent(),
-        "member@example.com",
-        "personal",
-        "member",
-      ),
-    ).resolves.toBeNull();
-
-    // The owner restricted personal keys while the member was on Builder.io.
-    isRestrictedMock.mockResolvedValue(true);
-    await expect(
-      resolveBuilderCallbackPersonalDeny(
-        createMockEvent(),
-        "member@example.com",
-        "personal",
-        "member",
-      ),
-    ).resolves.toBe("Owners and admins restricted personal API keys.");
-    await expect(
-      resolveBuilderCallbackPersonalDeny(
-        createMockEvent(),
-        "member@example.com",
-        null,
-        "member",
-      ),
-    ).resolves.toBe("Owners and admins restricted personal API keys.");
-
-    // The member became an admin mid-flow: a personal grant is no longer theirs.
-    isRestrictedMock.mockResolvedValue(false);
-    getOrgContextMock.mockResolvedValue({ orgId: "org-123", role: "admin" });
-    await expect(
-      resolveBuilderCallbackPersonalDeny(
-        createMockEvent(),
-        "admin@example.com",
-        "personal",
-        "member",
-      ),
-    ).resolves.toBe(
-      "Owners and admins connect Builder.io for the organization.",
-    );
-
-    // A scopeless connect started as a member still lands personally, so a
-    // member promoted mid-flow is refused rather than shadowing the org grant.
-    await expect(
-      resolveBuilderCallbackPersonalDeny(
-        createMockEvent(),
-        "admin@example.com",
-        null,
-        "member",
-      ),
-    ).resolves.toBe(
-      "Owners and admins connect Builder.io for the organization.",
-    );
-
-    // An org connect is re-checked by resolveBuilderCallbackWrite instead.
-    await expect(
-      resolveBuilderCallbackPersonalDeny(
-        createMockEvent(),
-        "admin@example.com",
-        "org",
-        "admin",
-      ),
-    ).resolves.toBeNull();
-  });
-
   it("still requires organization membership for a named connection", async () => {
     getOrgContextMock.mockResolvedValue({ orgId: null, role: null });
     await expect(
@@ -290,64 +222,71 @@ describe("Builder connection scope", () => {
 });
 
 describe("resolveBuilderCallbackWrite", () => {
-  it("fails an org connect whose connector lost owner/admin instead of saving it personally", () => {
-    expect(
-      resolveBuilderCallbackWrite({
-        requestedScope: "org",
-        pendingOrgId: "org-123",
-        pendingRole: "admin",
-        currentOrg: { orgId: "org-123", role: "member" },
-      }),
-    ).toEqual({
+  const write = (
+    requestedScope: "org" | "personal" | null,
+    currentRole: string | null,
+    personalAllowed = true,
+  ) =>
+    resolveBuilderCallbackWrite({
+      requestedScope,
+      pendingOrgId: "org-123",
+      currentRole,
+      personalAllowed,
+    });
+
+  it("writes the org grant only while the connector is an owner or admin there", () => {
+    expect(write("org", "owner")).toEqual({ scope: "org", role: "owner" });
+    expect(write("org", "member")).toEqual({
       deny: "Only an organization owner or admin can change the shared Builder connection.",
     });
-    expect(
-      resolveBuilderCallbackWrite({
-        requestedScope: "org",
-        pendingOrgId: "org-123",
-        pendingRole: "admin",
-        currentOrg: { orgId: "org-other", role: "owner" },
-      }),
-    ).toHaveProperty("deny");
+    // Not a member of the flow's organization any more.
+    expect(write("org", null)).toHaveProperty("deny");
   });
 
-  it("writes the org grant when the connector is still an owner or admin", () => {
-    expect(
-      resolveBuilderCallbackWrite({
-        requestedScope: "org",
-        pendingOrgId: "org-123",
-        pendingRole: "owner",
-        currentOrg: { orgId: "org-123", role: "owner" },
-      }),
-    ).toEqual({ scope: "org", role: "owner" });
+  it("writes a personal grant for a member the org allows one", () => {
+    expect(write("personal", "member")).toEqual({ scope: "user", role: null });
+    expect(write("personal", "member", false)).toEqual({
+      deny: PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
+    });
   });
 
-  it("writes a personal grant for a personal connect", () => {
+  it("refuses a personal grant for someone who became an owner or admin", () => {
+    expect(write("personal", "admin")).toEqual({
+      deny: "Owners and admins connect Builder.io for the organization.",
+    });
+  });
+
+  it("decides a connect that named no scope from the current role", () => {
+    // Promoted since connect start: the grant is the org's, never a personal
+    // one that would shadow it.
+    expect(write(null, "admin")).toEqual({ role: "admin" });
+    // Demoted since connect start: personal, and only if the org allows it.
+    expect(write(null, "member")).toEqual({ role: null });
+    expect(write(null, "member", false)).toEqual({
+      deny: PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
+    });
+  });
+
+  it("uses the role in the flow's organization, not wherever the connector is now", () => {
+    // The caller reads the role in pendingOrgId, so switching the active org to
+    // one where they are an admin neither blocks nor redirects the write.
     expect(
       resolveBuilderCallbackWrite({
         requestedScope: "personal",
-        pendingOrgId: "org-123",
-        pendingRole: "member",
-        currentOrg: null,
+        pendingOrgId: "org-a",
+        currentRole: "member",
+        personalAllowed: true,
       }),
     ).toEqual({ scope: "user", role: null });
   });
 
-  it("keeps the role-decided write for connects that named no scope", () => {
+  it("treats a connector without an organization as personal", () => {
     expect(
       resolveBuilderCallbackWrite({
         requestedScope: null,
-        pendingOrgId: "org-123",
-        pendingRole: "admin",
-        currentOrg: { orgId: "org-123", role: "admin" },
-      }),
-    ).toEqual({ role: "admin" });
-    expect(
-      resolveBuilderCallbackWrite({
-        requestedScope: null,
-        pendingOrgId: "org-123",
-        pendingRole: "admin",
-        currentOrg: { orgId: "org-123", role: "member" },
+        pendingOrgId: null,
+        currentRole: null,
+        personalAllowed: true,
       }),
     ).toEqual({ role: null });
   });

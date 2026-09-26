@@ -287,6 +287,7 @@ import { createOpenRouteHandler } from "./open-route.js";
 import {
   PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
   PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
+  readOrgMemberRole,
 } from "./personal-provider-key-policy.js";
 import {
   createPollEventsHandler,
@@ -622,66 +623,42 @@ export async function resolveScopelessBuilderConnectRestriction(
 }
 
 /**
- * A personal grant's eligibility (the member's role and the org's personal-key
- * restriction) can change during the OAuth round trip just like org authority,
- * so the callback runs connect start's checks again before saving. Returns the
- * refusal, or null.
- */
-export async function resolveBuilderCallbackPersonalDeny(
-  event: H3Event,
-  ownerEmail: string,
-  requestedScope: BuilderConnectionScope | null,
-  pendingRole: string | null,
-): Promise<string | null> {
-  if (requestedScope === "personal") {
-    return (
-      await resolveBuilderConnectAuthorization(event, ownerEmail, "personal")
-    ).deny;
-  }
-  if (requestedScope === null && !isBuilderOrgManagerRole(pendingRole)) {
-    // The write keeps the role captured at start, so this flow lands as a
-    // personal grant; someone promoted since would shadow the org's
-    // connection with it.
-    const member = await resolveBuilderOrgMutation(event, {
-      allowMemberInitiation: true,
-    });
-    if (member.orgId && isBuilderOrgManagerRole(member.role)) {
-      return BUILDER_PERSONAL_CONNECTION_DENIED;
-    }
-    return resolveScopelessBuilderConnectRestriction(event, ownerEmail);
-  }
-  return null;
-}
-
-/**
- * Decide custody when the OAuth callback lands. Authority captured at connect
- * start is re-checked here: a named org connection whose connector is no
- * longer an owner/admin of that org fails instead of landing as a personal
- * grant, which would silently shadow the org's connection for that person.
+ * Decide custody when the OAuth callback lands, from the connector's role *now*
+ * in the organization the flow started in. The start-time role only records
+ * intent: a promotion, a demotion, or switching the active organization during
+ * the OAuth round trip must not land a grant the connector can no longer hold.
+ * An owner or admin connects for the organization and never personally, since
+ * a personal grant would shadow the org's connection for them; anyone else
+ * connects personally only while the org allows personal grants.
  */
 export function resolveBuilderCallbackWrite(input: {
   requestedScope: BuilderConnectionScope | null;
   pendingOrgId: string | null;
-  pendingRole: string | null;
-  currentOrg: { orgId: string | null; role: string | null } | null;
+  /** The connector's current role in `pendingOrgId`, or null when not a member. */
+  currentRole: string | null;
+  /** Whether the org's policy allows this connector a personal grant. */
+  personalAllowed: boolean;
 }): { scope?: BuilderOAuthScope; role: string | null } | { deny: string } {
-  const currentManagerRole =
-    input.pendingOrgId !== null &&
-    input.currentOrg?.orgId === input.pendingOrgId &&
-    isBuilderOrgManagerRole(input.currentOrg.role)
-      ? input.currentOrg.role
+  const managerRole =
+    input.pendingOrgId !== null && isBuilderOrgManagerRole(input.currentRole)
+      ? input.currentRole
       : null;
-  if (input.requestedScope === "personal") return { scope: "user", role: null };
   if (input.requestedScope === "org") {
-    return currentManagerRole
-      ? { scope: "org", role: currentManagerRole }
+    return managerRole
+      ? { scope: "org", role: managerRole }
       : { deny: BUILDER_ORG_CONNECTION_DENIED };
   }
-  return {
-    role: isBuilderOrgManagerRole(input.pendingRole)
-      ? currentManagerRole
-      : null,
-  };
+  if (managerRole) {
+    return input.requestedScope === "personal"
+      ? { deny: BUILDER_PERSONAL_CONNECTION_DENIED }
+      : { role: managerRole };
+  }
+  if (!input.personalAllowed) {
+    return { deny: PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE };
+  }
+  return input.requestedScope === "personal"
+    ? { scope: "user", role: null }
+    : { role: null };
 }
 
 export type BuilderEffectiveConnection =
@@ -4978,38 +4955,24 @@ export function createCoreRoutesPlugin(
           }
           const pendingOrgId =
             typeof pending.orgId === "string" ? pending.orgId : null;
-          const pendingRole =
-            typeof pending.role === "string" ? pending.role : null;
-          const personalDeny = await resolveBuilderCallbackPersonalDeny(
-            event,
-            ownerEmail,
-            requestedConnectionScope,
-            pendingRole,
-          );
-          if (personalDeny) {
-            return fail(
-              403,
-              personalDeny,
-              ownerEmail,
-              "org_authorization_required",
-              tracking,
-            );
-          }
-          // Re-check authority after the external OAuth round trip. A role
-          // captured at connect start must not authorize a later org write.
-          const needsOrgRecheck =
-            requestedConnectionScope === "org" ||
-            (requestedConnectionScope === null &&
-              isBuilderOrgManagerRole(pendingRole));
+          // Authority is read again after the external OAuth round trip, in
+          // the organization the flow started in (see resolveBuilderCallbackWrite).
+          const currentRole = pendingOrgId
+            ? await readOrgMemberRole(pendingOrgId, ownerEmail)
+            : null;
+          const landsPersonally =
+            requestedConnectionScope !== "org" &&
+            !(pendingOrgId && isBuilderOrgManagerRole(currentRole));
           const callbackWrite = resolveBuilderCallbackWrite({
             requestedScope: requestedConnectionScope,
             pendingOrgId,
-            pendingRole,
-            currentOrg: needsOrgRecheck
-              ? await resolveBuilderOrgMutation(event, {
-                  allowMemberInitiation: true,
+            currentRole,
+            personalAllowed: landsPersonally
+              ? await isPersonalBuilderGrantAllowed({
+                  ownerEmail,
+                  orgId: pendingOrgId,
                 })
-              : null,
+              : true,
           });
           if ("deny" in callbackWrite) {
             return fail(
