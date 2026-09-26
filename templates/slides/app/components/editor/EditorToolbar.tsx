@@ -42,6 +42,7 @@ import {
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -52,7 +53,9 @@ import {
 import { Link } from "react-router";
 import { toast } from "sonner";
 
+import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -62,6 +65,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -75,9 +79,11 @@ import {
   type Deck,
   type Slide,
 } from "@/context/DeckContext";
+import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import { DeckBackupError } from "@/lib/deck-backup";
 import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
+import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
 import { parseUploadResponse } from "@/lib/upload-response";
 
 import {
@@ -208,6 +214,7 @@ export default function EditorToolbar({
   canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
+  const hasSlides = deck.slides.length > 0;
   const creativeContextEnabled = useCreativeContextLab();
   const editorUrl =
     typeof window === "undefined"
@@ -231,6 +238,7 @@ export default function EditorToolbar({
   };
   const shareLinkOrder = getDeckShareLinkOrder(deck.visibility);
   const primaryShareLink = shareLinks[shareLinkOrder.primary];
+  const showShareLink = hasSlides || shareLinkOrder.primary === "editor";
 
   const { saving } = useSaveState();
   const deckHasUnsavedChanges = hasUnsavedDeckChanges(deckId);
@@ -251,7 +259,12 @@ export default function EditorToolbar({
 
   const contextToolbarVisible = canEdit && Boolean(currentSlide);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const backupInputRef = useRef<HTMLInputElement>(null);
   const exportMenuRef = useRef<ExportMenuHandle>(null);
+  const storageQuery = useSlideFileStorageStatus();
+  const fileStorageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
+  const [showStorageSetup, setShowStorageSetup] = useState(false);
   const [exportStatus, setExportStatus] = useState<ExportStatus>({
     state: "idle",
   });
@@ -267,6 +280,24 @@ export default function EditorToolbar({
       ? "instant"
       : currentSlide.transition;
 
+  const openFileImport = useCallback(() => {
+    if (storageQuery.isLoading) {
+      setShowStorageSetup(true);
+      return;
+    }
+    if (fileStorageConfigured) {
+      fileInputRef.current?.click();
+    } else {
+      setShowStorageSetup(true);
+    }
+  }, [fileStorageConfigured, storageQuery.isLoading]);
+
+  useEffect(() => {
+    if (showStorageSetup && fileStorageConfigured) {
+      setShowStorageSetup(false);
+    }
+  }, [fileStorageConfigured, showStorageSetup]);
+
   useLayoutEffect(() => {
     const measuredWidth =
       titleMeasureRef.current?.getBoundingClientRect().width;
@@ -280,6 +311,11 @@ export default function EditorToolbar({
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".json") && !fileStorageConfigured) {
+      setShowStorageSetup(true);
+      e.target.value = "";
+      return;
+    }
     setImporting(true);
     toast(t("editorToolbar.importingFile"), {
       description: t("editorToolbar.readingFile", { fileName: file.name }),
@@ -347,9 +383,12 @@ export default function EditorToolbar({
       });
     } catch (err) {
       console.error("Import failed:", err);
+      const storageSetupRequired = isStorageSetupRequiredError(err);
+      if (storageSetupRequired) void storageQuery.refetch();
       toast.error(t("editorToolbar.importFailed"), {
-        description:
-          err instanceof DeckBackupError
+        description: storageSetupRequired
+          ? t("home.fileStorageSetupRequired")
+          : err instanceof DeckBackupError
             ? t("editorToolbar.invalidBackup")
             : err instanceof Error
               ? err.message
@@ -357,7 +396,7 @@ export default function EditorToolbar({
       });
     } finally {
       setImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      e.target.value = "";
     }
   };
 
@@ -509,41 +548,43 @@ export default function EditorToolbar({
       });
     }
 
-    commands.push(
-      {
-        id: "download-html",
-        group: "deck",
-        label: t("editorExport.downloadHtml"),
-        keywords: ["export", "html", "download"],
-        icon: IconCode,
-        run: () => void exportMenuRef.current?.exportHtml(),
-      },
-      {
-        id: "export-pdf",
-        group: "deck",
-        label: t("editorExport.exportPdf"),
-        keywords: ["export", "pdf", "download"],
-        icon: IconFileTypePdf,
-        run: () => void exportMenuRef.current?.exportPdf(),
-      },
-      {
-        id: "export-pptx",
-        group: "deck",
-        label: t("editorExport.exportPptx"),
-        keywords: ["export", "powerpoint", "pptx", "download"],
-        icon: IconDownload,
-        run: () => void exportMenuRef.current?.exportPptx(),
-      },
-    );
-    if (onExportGoogleSlides) {
-      commands.push({
-        id: "export-to-google-slides",
-        group: "deck",
-        label: t("editorExport.openInGoogleSlides"),
-        keywords: ["google", "slides", "export"],
-        icon: IconBrandGoogle,
-        run: () => void exportMenuRef.current?.exportGoogleSlides(),
-      });
+    if (hasSlides) {
+      commands.push(
+        {
+          id: "download-html",
+          group: "deck",
+          label: t("editorExport.downloadHtml"),
+          keywords: ["export", "html", "download"],
+          icon: IconCode,
+          run: () => void exportMenuRef.current?.exportHtml(),
+        },
+        {
+          id: "export-pdf",
+          group: "deck",
+          label: t("editorExport.exportPdf"),
+          keywords: ["export", "pdf", "download"],
+          icon: IconFileTypePdf,
+          run: () => void exportMenuRef.current?.exportPdf(),
+        },
+        {
+          id: "export-pptx",
+          group: "deck",
+          label: t("editorExport.exportPptx"),
+          keywords: ["export", "powerpoint", "pptx", "download"],
+          icon: IconDownload,
+          run: () => void exportMenuRef.current?.exportPptx(),
+        },
+      );
+      if (onExportGoogleSlides) {
+        commands.push({
+          id: "export-to-google-slides",
+          group: "deck",
+          label: t("editorExport.openInGoogleSlides"),
+          keywords: ["google", "slides", "export"],
+          icon: IconBrandGoogle,
+          run: () => void exportMenuRef.current?.exportGoogleSlides(),
+        });
+      }
     }
     if (onDuplicateDeck) {
       commands.push({
@@ -564,7 +605,7 @@ export default function EditorToolbar({
           : t("editorToolbar.importFile"),
         keywords: ["import", "pptx", "docx", "pdf"],
         icon: importing ? IconLoader2 : IconDownload,
-        run: () => fileInputRef.current?.click(),
+        run: () => void openFileImport(),
       },
       {
         id: "saved-versions",
@@ -596,8 +637,10 @@ export default function EditorToolbar({
     commentsOpen,
     currentSlide,
     drawMode,
+    hasSlides,
     importing,
     isDark,
+    openFileImport,
     onAddEmptySlide,
     onDuplicateDeck,
     onExportGoogleSlides,
@@ -733,7 +776,9 @@ export default function EditorToolbar({
           offline={offline}
           onDownloadBackup={onDownloadBackup}
           onImportBackup={
-            onImportDeckBackup ? () => fileInputRef.current?.click() : undefined
+            onImportDeckBackup
+              ? () => backupInputRef.current?.click()
+              : undefined
           }
           className="flex-shrink-0 mr-1"
         />
@@ -892,6 +937,7 @@ export default function EditorToolbar({
               inline
               hideExportDialog
               onExportStatusChange={setExportStatus}
+              hasSlides={hasSlides}
               deckId={deckId}
               deckTitle={deckTitle}
               onDuplicate={onDuplicateDeck ?? (() => {})}
@@ -902,7 +948,7 @@ export default function EditorToolbar({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               disabled={importing}
-              onSelect={() => fileInputRef.current?.click()}
+              onSelect={() => void openFileImport()}
             >
               {importing ? (
                 <IconLoader2 className="size-4 animate-spin" />
@@ -934,9 +980,10 @@ export default function EditorToolbar({
               description: t("editorToolbar.commenterRoleDescription"),
             },
           }}
-          shareUrl={primaryShareLink.url}
+          shareUrl={showShareLink ? primaryShareLink.url : undefined}
           shareUrlLabel={primaryShareLink.label}
           shareUrlDescription={primaryShareLink.description}
+          showShareLinks={showShareLink}
           shareTabs={
             creativeContextEnabled
               ? {
@@ -967,24 +1014,59 @@ export default function EditorToolbar({
         />
       </div>
       {/* Present button — matches Share trigger height (h-9) */}
-      <Link
-        to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
-        onClick={onPresent ? handlePresentClick : undefined}
-        onAuxClick={onPresent ? handlePresentClick : undefined}
-        className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-      >
-        <IconPlayerPlay className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
-      </Link>
+      {hasSlides ? (
+        <Link
+          to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
+          onClick={onPresent ? handlePresentClick : undefined}
+          onAuxClick={onPresent ? handlePresentClick : undefined}
+          className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        >
+          <IconPlayerPlay className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
+        </Link>
+      ) : (
+        <button
+          type="button"
+          disabled
+          className="inline-flex h-9 flex-shrink-0 cursor-not-allowed items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground opacity-50 transition-colors"
+        >
+          <IconPlayerPlay className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
+        </button>
+      )}
 
       {/* Hidden file input for "Import" overflow menu item */}
       <input
         ref={fileInputRef}
         type="file"
-        accept=".pptx,.docx,.pdf,.json"
+        accept=".pptx,.docx,.pdf"
         onChange={handleImportFile}
         className="hidden"
       />
+      <input
+        ref={backupInputRef}
+        type="file"
+        accept=".json"
+        onChange={handleImportFile}
+        className="hidden"
+      />
+      <Dialog open={showStorageSetup} onOpenChange={setShowStorageSetup}>
+        <DialogContent className="max-w-lg">
+          {storageQuery.isLoading ? (
+            <div className="grid gap-3">
+              <Skeleton className="h-5 w-2/3" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : (
+            <UploadStorageGate
+              configured={fileStorageConfigured}
+              unavailable={storageQuery.isError}
+              onRetry={() => void storageQuery.refetch()}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       <div className="flex items-center gap-1">
         <RunsTray pollMs={0} />

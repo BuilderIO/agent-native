@@ -73,6 +73,7 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
 
   beforeEach(() => {
     clearMock.mockClear();
+    coreClientMocks.useGuidedQuestionFlow.mockClear();
     agentChatMocks.sendToDesignAgentChat.mockClear();
     agentChatMocks.sendToDesignAgentChat.mockImplementation(
       () => "generated-tab-id",
@@ -84,6 +85,9 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
       description: undefined,
       skipLabel: undefined,
       submitLabel: undefined,
+      isSubmissionBlocked: false,
+      providerStatus: "configured",
+      retryProviderStatus: vi.fn(),
       clear: clearMock,
       handleSubmit: vi.fn(),
       handleSkip: vi.fn(),
@@ -223,6 +227,47 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     expect("model" in call).toBe(false);
     expect("engine" in call).toBe(false);
 
+    await cleanup();
+  });
+
+  it("does not submit answers or skip while provider setup is required", async () => {
+    coreClientMocks.useGuidedQuestionFlow.mockReturnValue({
+      payload: null,
+      questions: null,
+      title: undefined,
+      description: undefined,
+      skipLabel: undefined,
+      submitLabel: undefined,
+      isSubmissionBlocked: true,
+      providerStatus: "missing",
+      retryProviderStatus: vi.fn(),
+      clear: clearMock,
+      handleSubmit: vi.fn(),
+      handleSkip: vi.fn(),
+    });
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: null,
+    });
+
+    await act(async () => {
+      latestHook!.handleSubmit({ q1: "answer" });
+      latestHook!.handleSkip();
+    });
+
+    expect(agentChatMocks.sendToDesignAgentChat).not.toHaveBeenCalled();
+    await cleanup();
+  });
+
+  it("leaves local-runtime continuations outside the hosted provider gate", async () => {
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      engine: "claude-cli",
+    });
+
+    expect(coreClientMocks.useGuidedQuestionFlow).toHaveBeenCalledWith(
+      expect.objectContaining({ providerStatusChecksEnabled: false }),
+    );
     await cleanup();
   });
 

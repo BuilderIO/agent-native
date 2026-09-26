@@ -181,6 +181,7 @@ export function Layout({ children }: LayoutProps) {
     : "show-questions";
   const { questions: pendingDesignQuestions } = useGuidedQuestionFlow({
     enabled: hasSession,
+    providerStatusChecksEnabled: false,
     stateKey: designQuestionStateKey,
     queryKey: [designQuestionStateKey],
     browserTabId,

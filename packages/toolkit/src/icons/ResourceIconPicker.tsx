@@ -534,6 +534,10 @@ export function ResourceIconPicker({
           other.authority === entry.authority,
       ) === index,
   );
+  const showUploadTab = !!onUpload || uploadChoices.length > 0;
+  React.useEffect(() => {
+    if (!showUploadTab && tab === "upload") setTab("icons");
+  }, [showUploadTab, tab]);
   return (
     <Popover
       open={open}
@@ -590,10 +594,17 @@ export function ResourceIconPicker({
           }}
         >
           <div className="p-2">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList
+              className={cn(
+                "grid w-full",
+                showUploadTab ? "grid-cols-3" : "grid-cols-2",
+              )}
+            >
               <TabsTrigger value="icons">{labels.iconsTab}</TabsTrigger>
               <TabsTrigger value="emoji">{labels.emojiTab}</TabsTrigger>
-              <TabsTrigger value="upload">{labels.uploadTab}</TabsTrigger>
+              {showUploadTab && (
+                <TabsTrigger value="upload">{labels.uploadTab}</TabsTrigger>
+              )}
             </TabsList>
           </div>
           {tab !== "upload" && (

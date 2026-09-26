@@ -24,6 +24,7 @@ import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   PromptComposer,
   isClaudeCodeAgentId,
+  isLocalRuntimeEngine,
   isLunaModel,
   readAgentPromptAttachment,
   resolvePreferredAgentModel,
@@ -4038,7 +4039,9 @@ function CodeAgentComposer({
       onEffortChange={(effort) =>
         onModelSelectionChange({ ...normalizedModel, effort })
       }
-      modelStatusChecksEnabled={false}
+      modelStatusChecksEnabled={
+        !terminalAgent && !isLocalRuntimeEngine(normalizedModel.engine)
+      }
       onTextChange={onPromptChange}
       slashCommands={slashCommands}
       includeDefaultSlashSkills={false}
@@ -5710,7 +5713,6 @@ function TranscriptPanel({
             suggestions={[]}
             dynamicSuggestions={false}
             plusMenuMode="upload-only"
-            providerStatusChecksEnabled={false}
             createAdapter={createAdapter}
             adapterReloadKey={controller}
             loadHistoryRepository={loadHistoryRepository}

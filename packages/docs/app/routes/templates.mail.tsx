@@ -223,7 +223,7 @@ export default function MailTemplate() {
                     variant={useCase.variant}
                     className={
                       useCase.variant === "jev"
-                        ? "h-[380px] w-full max-w-[540px] lg:h-[480px] lg:max-w-none mm-jev-art"
+                        ? "h-[380px] w-full max-w-[540px] lg:h-[480px] lg:max-w-none"
                         : "h-[300px] w-full max-w-[540px] lg:h-[390px] lg:max-w-none"
                     }
                     label={t(`templateLanding.mail.${useCase.titleKey}`)}

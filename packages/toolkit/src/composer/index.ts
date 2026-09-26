@@ -45,6 +45,7 @@ export {
   displayableComposerModeMessage,
   getComposerSubmitIntentForEnterKey,
   handleComposerFileDrop,
+  isLocalRuntimeEngine,
   getOversizedDocumentAttachmentError,
   insertComposerHardBreakAndScrollIntoView,
   type ComposerSubmitIntent,

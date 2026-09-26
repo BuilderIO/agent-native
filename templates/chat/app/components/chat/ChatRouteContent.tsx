@@ -223,6 +223,9 @@ function ChatAgentFooter({ children }: { children: ReactNode }) {
     description,
     skipLabel,
     submitLabel,
+    isSubmissionBlocked,
+    providerStatus,
+    retryProviderStatus,
     handleSubmit,
     handleSkip,
   } = useGuidedQuestionFlow({
@@ -246,6 +249,9 @@ function ChatAgentFooter({ children }: { children: ReactNode }) {
             {...(description ? { description } : {})}
             {...(skipLabel ? { skipLabel } : {})}
             {...(submitLabel ? { submitLabel } : {})}
+            isSubmissionBlocked={isSubmissionBlocked}
+            providerStatus={providerStatus}
+            onRetryProviderStatus={retryProviderStatus}
             className="h-auto items-stretch justify-stretch bg-transparent"
           />
         </div>

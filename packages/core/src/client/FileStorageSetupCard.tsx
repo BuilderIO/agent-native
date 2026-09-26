@@ -1,6 +1,13 @@
 import { ActionButton } from "@agent-native/toolkit/design-system";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { useCallback, useEffect, useState } from "react";
 
+import {
+  fetchFileUploadStatus,
+  invalidateClientStatusRequest,
+} from "./client-status-requests.js";
 import { useT } from "./i18n.js";
+import { DeferredBuilderConnectPopover as BuilderConnectPopover } from "./settings/deferred-builder-connect-popover.js";
 import {
   BuilderConnectCard,
   DefaultBuilderConnectCardView,
@@ -8,6 +15,28 @@ import {
 
 export function FileStorageSetupCard() {
   const t = useT();
+  const [builderReauthorizationRequired, setBuilderReauthorizationRequired] =
+    useState(false);
+  const refreshStorageStatus = useCallback(async () => {
+    invalidateClientStatusRequest("/_agent-native/file-upload/status");
+    const result = await fetchFileUploadStatus<{
+      builderReauthorizationRequired?: unknown;
+    }>();
+    if (result.state === "available") {
+      setBuilderReauthorizationRequired(
+        result.value?.builderReauthorizationRequired === true,
+      );
+    }
+  }, []);
+  useEffect(() => {
+    void refreshStorageStatus();
+    const refresh = () => void refreshStorageStatus();
+    window.addEventListener("agent-engine:configured-changed", refresh);
+    return () => {
+      window.removeEventListener("agent-engine:configured-changed", refresh);
+    };
+  }, [refreshStorageStatus]);
+
   const openCustomStorage = () => {
     if (typeof window === "undefined") return;
     window.dispatchEvent(
@@ -23,12 +52,27 @@ export function FileStorageSetupCard() {
         title={t("onboarding.fileStorage.title")}
         description={t("onboarding.fileStorage.description")}
         trackingSource="file_upload_chat_card"
-        render={({ viewModel, className }) => (
-          <div className="space-y-2">
+        onConnected={refreshStorageStatus}
+        showManage
+        render={({ viewModel }) => (
+          <div className="space-y-2 rounded-lg border border-border bg-background p-4 shadow-sm">
             <DefaultBuilderConnectCardView
               viewModel={viewModel}
-              className={className}
+              className="border-0 bg-transparent p-0 shadow-none"
+              showManage={!builderReauthorizationRequired}
             />
+            {builderReauthorizationRequired && viewModel.connectFlow ? (
+              <BuilderConnectPopover
+                flow={viewModel.connectFlow}
+                onConnect={(provisionAccount) =>
+                  viewModel.connectFlow?.start({ provisionAccount })
+                }
+              >
+                <Button type="button" variant="outline" className="w-full">
+                  {t("onboarding.fileStorage.reconnectBuilder")}
+                </Button>
+              </BuilderConnectPopover>
+            ) : null}
             <ActionButton
               type="button"
               intent="neutral"

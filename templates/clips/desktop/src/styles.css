@@ -4712,6 +4712,41 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 6px 10px 10px;
 }
 
+.pill-ask-provider-status {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 12px 0;
+  color: hsl(var(--ui-muted-foreground));
+  font-size: 11px;
+}
+
+.pill-ask-provider-status > button,
+.pill-ask-provider-actions > button {
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ui-foreground));
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.pill-ask-provider-status > button:focus-visible,
+.pill-ask-provider-actions > button:focus-visible {
+  outline: 2px solid hsl(var(--ui-ring));
+  outline-offset: 2px;
+}
+
+.pill-ask-provider-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .pill-ask-input {
   flex: 1;
   min-width: 0;

@@ -1,9 +1,11 @@
 import {
+  GuidedQuestionProviderGate,
   getOtherGuidedAnswerText,
   hasGuidedAnswer,
   isOtherGuidedAnswer,
   makeOtherGuidedAnswer,
   normalizeGuidedAnswers,
+  type AgentEngineConfiguredState,
   type GuidedQuestion,
   type GuidedQuestionOption,
 } from "@agent-native/core/client/agent-chat";
@@ -25,6 +27,9 @@ interface QuestionFlowProps {
   description?: string;
   skipLabel?: string;
   submitLabel?: string;
+  isSubmissionBlocked?: boolean;
+  providerStatus?: AgentEngineConfiguredState;
+  onRetryProviderStatus?: () => void;
 }
 
 export function QuestionFlow({
@@ -35,6 +40,9 @@ export function QuestionFlow({
   description,
   skipLabel,
   submitLabel,
+  isSubmissionBlocked = false,
+  providerStatus = "configured",
+  onRetryProviderStatus,
 }: QuestionFlowProps) {
   const t = useT();
   const guidedQuestions = questions as GuidedQuestion[];
@@ -68,6 +76,19 @@ export function QuestionFlow({
   );
   const requiredAnswered = requiredQuestions.filter(isAnswered).length;
   const allRequiredAnswered = requiredAnswered === requiredQuestions.length;
+
+  if (isSubmissionBlocked) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-background px-5 py-8 sm:px-8 lg:px-10">
+        <div className="w-full max-w-xl">
+          <GuidedQuestionProviderGate
+            providerStatus={providerStatus}
+            onRetry={onRetryProviderStatus}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full w-full items-start justify-center overflow-y-auto bg-transparent px-5 py-8 text-[13px] text-foreground sm:px-8 lg:px-10">

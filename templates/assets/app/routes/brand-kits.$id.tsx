@@ -12,6 +12,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import {
   CreativeContextShareSheet,
@@ -70,6 +71,10 @@ import {
   AssetPreviewDialog,
   type PreviewAsset,
 } from "@/components/asset/AssetPreviewDialog";
+import {
+  FileUploadStorageGate,
+  getFileUploadStorageState,
+} from "@/components/FileUploadStorageGate";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -348,6 +353,9 @@ export function BrandKitDetailRoute({
   headerMode?: "full" | "actions";
 } = {}) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageState = getFileUploadStorageState(fileUploadStatus);
+  const canUploadFiles = fileStorageState === "configured";
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -822,7 +830,7 @@ export function BrandKitDetailRoute({
   }
 
   async function upload(files: FileList | null, category = "style-only") {
-    if (!files?.length || uploading) return;
+    if (!canUploadFiles || !files?.length || uploading) return;
     const selectedFiles = Array.from(files);
     const oversizedFile = selectedFiles.find(
       (file) => file.size > MAX_ASSET_UPLOAD_BATCH_BYTES,
@@ -1157,8 +1165,10 @@ export function BrandKitDetailRoute({
       pendingUploads={uploads}
       folders={folders}
       promotingReferenceKeys={promotingReferenceKeys}
-      onUploadClick={() => fileInputRef.current?.click()}
-      onDrop={(files) => void upload(files)}
+      onUploadClick={
+        canUploadFiles ? () => fileInputRef.current?.click() : undefined
+      }
+      onDrop={canUploadFiles ? (files) => void upload(files) : undefined}
       onMoveToReferences={(asset, slot) => {
         void handleMoveToReferences(asset, slot);
       }}
@@ -1176,7 +1186,7 @@ export function BrandKitDetailRoute({
       variant="outline"
       className="gap-2"
       onClick={() => fileInputRef.current?.click()}
-      disabled={uploading}
+      disabled={!canUploadFiles || uploading}
     >
       {uploading ? (
         <Spinner className="h-4 w-4" />
@@ -1314,6 +1324,7 @@ export function BrandKitDetailRoute({
         accept="image/png,image/jpeg,image/webp,image/avif,video/mp4,video/quicktime,video/x-m4v,video/webm"
         multiple
         className="hidden"
+        disabled={!canUploadFiles}
         onChange={(event) => upload(event.target.files)}
       />
 
@@ -1365,6 +1376,7 @@ export function BrandKitDetailRoute({
         onDragEnter={(e: DragEvent<HTMLDivElement>) => {
           if (!e.dataTransfer.types.includes("Files")) return;
           e.preventDefault();
+          if (!canUploadFiles) return;
           dragCounterRef.current += 1;
           if (dragCounterRef.current === 1) setIsDragOver(true);
         }}
@@ -1380,10 +1392,15 @@ export function BrandKitDetailRoute({
           e.preventDefault();
           dragCounterRef.current = 0;
           setIsDragOver(false);
-          void upload(e.dataTransfer.files);
+          if (canUploadFiles) void upload(e.dataTransfer.files);
         }}
       >
-        {isDragOver && (
+        <FileUploadStorageGate
+          state={fileStorageState}
+          onRetry={() => void fileUploadStatus.refetch()}
+          className="mb-4"
+        />
+        {canUploadFiles && isDragOver && (
           <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-primary bg-primary/5 backdrop-blur-[1px]">
             <IconUpload className="h-10 w-10 text-primary" />
             <span className="text-base font-semibold text-primary">
@@ -2144,8 +2161,8 @@ function AssetSwimlaneBoard({
   pendingUploads: PendingUpload[];
   folders: any[];
   promotingReferenceKeys: Set<string>;
-  onUploadClick: () => void;
-  onDrop: (files: FileList) => void;
+  onUploadClick?: () => void;
+  onDrop?: (files: FileList) => void;
   onMoveToReferences: (asset: any, slot?: any) => void;
   onRemoveFromReferences: (asset: any) => void;
   selectedIds: Set<string>;
@@ -2538,6 +2555,8 @@ function AssetSwimlaneBoard({
     }
     return (
       <button
+        type="button"
+        disabled={!onUploadClick || !onDrop}
         onClick={onUploadClick}
         onDragOver={(e) => {
           if (e.dataTransfer.types.includes("Files")) e.preventDefault();
@@ -2545,7 +2564,7 @@ function AssetSwimlaneBoard({
         onDrop={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          onDrop(e.dataTransfer.files);
+          onDrop?.(e.dataTransfer.files);
         }}
         className="flex min-h-90 w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center"
       >
@@ -2781,9 +2800,11 @@ function AssetSwimlaneBoard({
           }
           items={visibleGalleryItems}
           action={
-            <Button variant="outline" size="sm" onClick={onUploadClick}>
-              {t("library.add")}
-            </Button>
+            onUploadClick ? (
+              <Button variant="outline" size="sm" onClick={onUploadClick}>
+                {t("library.add")}
+              </Button>
+            ) : undefined
           }
           empty={
             scope === "references" && assets.length > 0 ? (
@@ -3308,12 +3329,13 @@ function LaneDropTarget({
 }: {
   title: string;
   body: string;
-  onClick: () => void;
-  onDrop: (files: FileList) => void;
+  onClick?: () => void;
+  onDrop?: (files: FileList) => void;
 }) {
   return (
     <button
       type="button"
+      disabled={!onClick || !onDrop}
       onClick={onClick}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("Files")) e.preventDefault();
@@ -3321,7 +3343,7 @@ function LaneDropTarget({
       onDrop={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        onDrop(e.dataTransfer.files);
+        onDrop?.(e.dataTransfer.files);
       }}
       className="flex h-full min-h-37 w-full items-center justify-center rounded-md px-4 text-center transition hover:bg-muted/25"
     >

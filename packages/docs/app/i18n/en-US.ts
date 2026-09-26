@@ -1,4 +1,11 @@
 const enUS = {
+  agentChat: {
+    setup: {
+      checkingProvider: "Checking AI connection…",
+      providerStatusUnavailable: "Couldn't check AI connection.",
+    },
+    common: { retry: "Retry" },
+  },
   language: {
     label: "Language",
     system: "System",

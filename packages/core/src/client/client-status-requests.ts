@@ -176,6 +176,12 @@ export function fetchBuilderStatus<T = unknown>(): Promise<
   return fetchClientStatus<T>("/_agent-native/builder/status");
 }
 
+export function fetchFileUploadStatus<T = unknown>(): Promise<
+  ClientStatusResult<T>
+> {
+  return fetchClientStatus<T>("/_agent-native/file-upload/status");
+}
+
 export function fetchAuthSessionStatus<T = unknown>(): Promise<
   ClientStatusResult<T>
 > {

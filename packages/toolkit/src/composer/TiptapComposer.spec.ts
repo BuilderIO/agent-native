@@ -1153,6 +1153,31 @@ describe("createTiptapComposerExtensions", () => {
     expect(added[0]?.name).toMatch(/^\d+-[a-z0-9]+-image\.png$/);
   });
 
+  it("consumes but does not attach file drops while uploads are disabled", () => {
+    const file = new File(["fake"], "image.png", { type: "image/png" });
+    const added = vi.fn();
+    let prevented = false;
+    let stopped = false;
+    const handled = handleComposerFileDrop({
+      event: {
+        dataTransfer: { files: [file] },
+        preventDefault: () => {
+          prevented = true;
+        },
+        stopPropagation: () => {
+          stopped = true;
+        },
+      } as unknown as DragEvent,
+      addAttachment: added,
+      attachmentsEnabled: false,
+    });
+
+    expect(handled).toBe(true);
+    expect(prevented).toBe(true);
+    expect(stopped).toBe(true);
+    expect(added).not.toHaveBeenCalled();
+  });
+
   it("caps the model picker height without forcing empty vertical space", () => {
     expect(MODEL_SELECTOR_POPOVER_STYLE).toMatchObject({
       fontSize: 13,
@@ -1452,6 +1477,111 @@ describe("createTiptapComposerExtensions", () => {
     await act(async () => {});
 
     expect(onModelChange).toHaveBeenCalledWith("claude-sonnet-5", "claude-cli");
+  });
+});
+
+describe("TiptapComposer paste handling", () => {
+  it("keeps text from a mixed text and image paste when uploads are disabled", async () => {
+    const pastedText = "Keep this text";
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            attachmentsEnabled: false,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            providerConnectStatusEnabled: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const editor = container.querySelector<HTMLElement>(
+      ".agent-composer-prosemirror",
+    );
+    expect(editor).not.toBeNull();
+    const clipboardData = {
+      files: [new File(["image"], "image.png", { type: "image/png" })],
+      getData: (type: string) => (type === "text/plain" ? pastedText : ""),
+    };
+    const pasteEvent = new Event("paste", {
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(pasteEvent, "clipboardData", {
+      value: clipboardData,
+    });
+
+    await act(async () => {
+      editor?.dispatchEvent(pasteEvent);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(editor?.textContent).toBe(pastedText);
+    expect(pasteEvent.defaultPrevented).toBe(true);
+  });
+
+  it("keeps large plain-text pastes in the composer when uploads are disabled", async () => {
+    const pastedText = "A".repeat(3200);
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            attachmentsEnabled: false,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            providerConnectStatusEnabled: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const editor = container.querySelector<HTMLElement>(
+      ".agent-composer-prosemirror",
+    );
+    expect(editor).not.toBeNull();
+    const clipboardData = {
+      files: [],
+      getData: (type: string) => (type === "text/plain" ? pastedText : ""),
+    };
+    const pasteEvent = new Event("paste", {
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(pasteEvent, "clipboardData", {
+      value: clipboardData,
+    });
+
+    await act(async () => {
+      editor?.dispatchEvent(pasteEvent);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(editor?.textContent).toBe(pastedText);
   });
 });
 

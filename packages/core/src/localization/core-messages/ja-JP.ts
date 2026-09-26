@@ -114,10 +114,11 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "独自のAIモデルを接続",
   "onboarding.capability.fileStorage.keySummary":
     "ファイルのアップロードと保存",
-  "onboarding.fileStorage.title": "ファイルストレージを選択",
+  "onboarding.fileStorage.title": "ファイルをアップロードするストレージを接続",
   "onboarding.fileStorage.description":
-    "Builderの管理ストレージ、または独自のS3互換バケット用のカスタムストレージキーを選択します。",
-  "onboarding.fileStorage.custom": "カスタムストレージキーを使用",
+    "Builder.io（無料）を接続するか、独自のS3互換オブジェクトストレージを設定してください。",
+  "onboarding.fileStorage.reconnectBuilder": "Builder.ioを再接続",
+  "onboarding.fileStorage.custom": "独自のオブジェクトストレージキーを追加",
   "onboarding.fileStorage.customDescription":
     "安定した公開URLを持つS3互換バケットを設定します。",
   "onboarding.capability.voiceInput.label": "音声入力",
@@ -674,7 +675,9 @@ const messages: AgentChatTranslation = {
   "recovery.copyDebug": "デバッグ情報をコピー",
   "recovery.copyFailed": "コピーに失敗しました",
   "recovery.credentialRejected":
-    "現在の Builder.io またはモデルプロバイダーの認証情報が拒否されました。Builder.io に再接続してから、このメッセージを再試行してください。",
+    "モデルプロバイダーが保存済みの認証情報を拒否しました。Builder.io への接続またはプロバイダーキーを更新してから、このメッセージを再試行してください。",
+  "codeRequired.builderAgentNotConnected":
+    "Builder Cloud Agents に接続されていません。このホスト型コード変更を実行するには、設定で Builder.io に接続してください。モデルプロバイダーキーはチャットやその他の AI 機能で引き続き使えますが、Builder Cloud Agent の認証には使えません。",
   "recovery.diagnoseRetry": "診断して再試行",
   "recovery.forkDescription": "この会話を別のチャットスレッドに分岐します。",
   "recovery.forkFailed":
@@ -731,6 +734,10 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "AI に接続してチャットを開始...",
   "setup.connectToChat": "AI に接続してチャット",
   "setup.connectToStart": "AI に接続してチャットを開始",
+  "setup.checkingProvider": "AI 接続を確認しています…",
+  "setup.providerStatusUnavailable": "AI 接続を確認できませんでした。",
+  "agentNativeClips.meetingAsk.placeholder": "何でも聞いてください",
+  "agentNativeClips.meetingAsk.ariaLabel": "この会議について質問する",
   "setup.connected": "接続済み",
   "setup.connectedOrganization": "接続済み — {{organization}}",
   "setup.connectedTo": "{{organization}} に接続済み",

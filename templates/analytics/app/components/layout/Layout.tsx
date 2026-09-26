@@ -135,6 +135,9 @@ function InteractiveLayout({ children }: LayoutProps) {
     description: guidedDescription,
     skipLabel: guidedSkipLabel,
     submitLabel: guidedSubmitLabel,
+    isSubmissionBlocked: guidedSubmissionBlocked,
+    providerStatus: guidedProviderStatus,
+    retryProviderStatus: retryGuidedProviderStatus,
     handleSubmit: handleGuidedSubmit,
     handleSkip: handleGuidedSkip,
   } = useGuidedQuestionFlow({
@@ -256,6 +259,9 @@ function InteractiveLayout({ children }: LayoutProps) {
             description={guidedDescription ?? t("guidedQuestions.description")}
             skipLabel={guidedSkipLabel}
             submitLabel={guidedSubmitLabel}
+            isSubmissionBlocked={guidedSubmissionBlocked}
+            providerStatus={guidedProviderStatus}
+            onRetryProviderStatus={retryGuidedProviderStatus}
           />
         </div>
       )}

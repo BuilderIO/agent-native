@@ -1,5 +1,8 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { currentRequestUserIsOrgAdmin } from "@agent-native/core/server";
+import {
+  currentRequestUserIsOrgAdmin,
+  getAppConfig,
+} from "@agent-native/core/server";
 import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -55,10 +58,15 @@ export default defineAction({
           { statusCode: 403 },
         );
       }
+      const isSuperOrgAdmin = getAppConfig().observability.superOrgId === orgId;
       const [resource] = await db
         .select()
         .from(schema.designs)
-        .where(and(eq(schema.designs.id, id), eq(schema.designs.orgId, orgId)))
+        .where(
+          isSuperOrgAdmin
+            ? eq(schema.designs.id, id)
+            : and(eq(schema.designs.id, id), eq(schema.designs.orgId, orgId)),
+        )
         .limit(1);
       if (!resource) fail("Design not found.", { statusCode: 404 });
       access = { role: "viewer" as const, resource };

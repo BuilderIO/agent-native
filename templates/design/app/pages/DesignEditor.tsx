@@ -60,6 +60,7 @@ import {
   ShareButton,
   withShareLinkAttribution,
 } from "@agent-native/core/client/sharing";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import type { ReviewComment } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
@@ -281,7 +282,10 @@ import {
 } from "@/components/design/edit-panel/transform-helpers";
 import { nextTextDecorationLineValue } from "@/components/design/edit-panel/typography-helpers";
 import { AgentNativeMenuMark } from "@/components/design/editor/AgentNativeMenuMark";
-import { DesignBottomToolbar } from "@/components/design/editor/DesignBottomToolbar";
+import {
+  DESIGN_FILE_STORAGE_REQUIRED_EVENT,
+  DesignBottomToolbar,
+} from "@/components/design/editor/DesignBottomToolbar";
 import {
   DesignWorkspaceRail,
   INITIAL_GENERATION_DISABLED_LEFT_PANELS,
@@ -1301,6 +1305,12 @@ export default function DesignEditorRoute() {
 
 function DesignEditor() {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const canUploadDesignMedia =
+    fileUploadStatus.isSuccess && fileUploadStatus.data.configured === true;
+  const requestFileStorageSetup = useCallback(() => {
+    window.dispatchEvent(new Event(DESIGN_FILE_STORAGE_REQUIRED_EVENT));
+  }, []);
   const externalAgentHost = useExternalAgentHost();
   const applePlatform = useApplePlatform();
   const shortcut = (binding: string) =>
@@ -3657,6 +3667,9 @@ function DesignEditor() {
     description: pendingQuestionsDescription,
     skipLabel: pendingQuestionsSkipLabel,
     submitLabel: pendingQuestionsSubmitLabel,
+    isSubmissionBlocked: pendingQuestionsSubmissionBlocked,
+    providerStatus: pendingQuestionsProviderStatus,
+    retryProviderStatus: retryPendingQuestionsProviderStatus,
     handleSubmit: handleQuestionsSubmit,
     handleSkip: handleQuestionsSkip,
   } = useQuestionFlow(id, {
@@ -14192,6 +14205,10 @@ function DesignEditor() {
 
   const uploadImageFileForHtml = useCallback(
     async (file: File) => {
+      if (!canUploadDesignMedia) {
+        requestFileStorageSetup();
+        return "";
+      }
       const dataUrl = await readFileAsDataUrl(file);
       if (!dataUrl) return "";
       const result = (await callAction("upload-image", {
@@ -14206,7 +14223,7 @@ function DesignEditor() {
       });
       return "";
     },
-    [readFileAsDataUrl],
+    [canUploadDesignMedia, readFileAsDataUrl, requestFileStorageSetup],
   );
 
   const uploadMediaFileForHtml = useCallback(
@@ -14221,8 +14238,13 @@ function DesignEditor() {
     (
       files: File[],
       target?: PastedImageFilesTarget | PastedImageFilesClientAnchor,
-    ) =>
-      runPastedImageFiles(
+    ) => {
+      if (files.length === 0) return false;
+      if (!canUploadDesignMedia) {
+        requestFileStorageSetup();
+        return false;
+      }
+      return runPastedImageFiles(
         {
           activeFile,
           applyFileContentUpdate,
@@ -14247,13 +14269,15 @@ function DesignEditor() {
         },
         files,
         target,
-      ),
+      );
+    },
     [
       activeFile?.id,
       applyFileContentUpdate,
       applyLocalContentUpdate,
       boardFileId,
       canEditDesign,
+      canUploadDesignMedia,
       canvasFrameGeometryById,
       getFreshActiveContent,
       getFreshActivePreviewContent,
@@ -14263,6 +14287,7 @@ function DesignEditor() {
       replacePreviewContent,
       selectInsertedLayers,
       t,
+      requestFileStorageSetup,
       uploadMediaFileForHtml,
       zoom,
     ],
@@ -14311,8 +14336,13 @@ function DesignEditor() {
       files: File[],
       targetFileId: string,
       localPoint: { x: number; y: number },
-    ) =>
-      runPastedImageFiles(
+    ) => {
+      if (files.length === 0) return;
+      if (!canUploadDesignMedia) {
+        requestFileStorageSetup();
+        return;
+      }
+      return runPastedImageFiles(
         {
           activeFile,
           applyFileContentUpdate,
@@ -14337,13 +14367,15 @@ function DesignEditor() {
         },
         files,
         { fileId: targetFileId, point: localPoint },
-      ),
+      );
+    },
     [
       activeFile?.id,
       applyFileContentUpdate,
       applyLocalContentUpdate,
       boardFileId,
       canEditDesign,
+      canUploadDesignMedia,
       canvasContainerRef,
       canvasFrameGeometryById,
       getFreshActiveContent,
@@ -14354,6 +14386,7 @@ function DesignEditor() {
       replacePreviewContent,
       selectInsertedLayers,
       t,
+      requestFileStorageSetup,
       uploadMediaFileForHtml,
       viewModeRef,
       zoom,
@@ -26530,6 +26563,9 @@ function DesignEditor() {
               description={pendingQuestionsDescription}
               skipLabel={pendingQuestionsSkipLabel}
               submitLabel={pendingQuestionsSubmitLabel}
+              isSubmissionBlocked={pendingQuestionsSubmissionBlocked}
+              providerStatus={pendingQuestionsProviderStatus}
+              onRetryProviderStatus={retryPendingQuestionsProviderStatus}
             />
           </div>
         ) : (

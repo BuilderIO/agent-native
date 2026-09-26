@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
 import { collectAppPageErrors, renderedText } from "../../beta/lib/app";
 import {
@@ -182,6 +182,7 @@ async function capture(
   consoleErrors: string[],
   networkEvents: string[],
   pendingRequests: Map<string, number>,
+  testInfo: TestInfo,
 ): Promise<JourneyStep> {
   const domDiagnostics = await page
     .evaluate(() => {
@@ -255,11 +256,18 @@ async function capture(
         `${diagnosticText}\n\n<page text unreadable: ${String(error)}>`,
     );
 
+  const screenshot = await page.screenshot({ fullPage: false });
+  const screenshotPath = testInfo.outputPath(
+    `${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.png`,
+  );
+  mkdirSync(dirname(screenshotPath), { recursive: true });
+  writeFileSync(screenshotPath, screenshot);
+
   return {
     label,
     url: page.url(),
     visibleText,
-    screenshot: await page.screenshot({ fullPage: false }),
+    screenshot,
     consoleErrors: [...consoleErrors],
     networkEvents: requestDiagnostics,
   };
@@ -300,6 +308,7 @@ for (const target of targets) {
           errors,
           initialPageNetwork.networkEvents,
           initialPageNetwork.pendingRequests,
+          testInfo,
         ),
       );
     });
@@ -323,6 +332,7 @@ for (const target of targets) {
           errors,
           initialPageNetwork.networkEvents,
           initialPageNetwork.pendingRequests,
+          testInfo,
         ),
       );
       const result = await emailResult;
@@ -359,6 +369,7 @@ for (const target of targets) {
           [...errors, ...verificationErrors],
           verificationPageNetwork.networkEvents,
           verificationPageNetwork.pendingRequests,
+          testInfo,
         ),
       );
       if (postLinkState === "onboarding") {
@@ -374,6 +385,7 @@ for (const target of targets) {
             [...errors, ...verificationErrors],
             verificationPageNetwork.networkEvents,
             verificationPageNetwork.pendingRequests,
+            testInfo,
           ),
         );
       }
@@ -392,6 +404,7 @@ for (const target of targets) {
           postLinkErrors(),
           postLinkNetwork.networkEvents,
           postLinkNetwork.pendingRequests,
+          testInfo,
         ),
       );
     });

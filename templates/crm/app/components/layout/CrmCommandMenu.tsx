@@ -510,6 +510,7 @@ export function CrmCommandMenu() {
         renderResults={renderResults}
         changelog={changelog}
         changelogKey="crm"
+        chatStorageKey="crm"
       >
         {null}
       </CommandMenu>

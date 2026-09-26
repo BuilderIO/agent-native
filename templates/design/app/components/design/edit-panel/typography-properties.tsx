@@ -1,4 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { VisualFontFamilyPicker } from "@agent-native/toolkit/design-tweaks";
 import {
   IconAlignCenter,
@@ -374,6 +376,8 @@ export function TypographyProperties({
   onFontUploaded?: (font: UploadedFont) => void | Promise<void>;
 }) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const canUploadFonts = fileUploadStatus.data?.configured === true;
   const fontUploadInputRef = useRef<HTMLInputElement>(null);
   const [fontUploading, setFontUploading] = useState(false);
   const styles = element.computedStyles;
@@ -460,7 +464,7 @@ export function TypographyProperties({
           ],
   );
   const handleFontUpload = async (file: File) => {
-    if (!designId || !onFontUploaded) return;
+    if (!canUploadFonts || !designId || !onFontUploaded) return;
     setFontUploading(true);
     try {
       const uploaded = await uploadFont(file, designId);
@@ -596,6 +600,7 @@ export function TypographyProperties({
                   accept=".woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf"
                   className="sr-only"
                   aria-label={t("promptDialog.uploadFile")}
+                  disabled={!canUploadFonts}
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     event.target.value = "";
@@ -608,7 +613,7 @@ export function TypographyProperties({
                       type="button"
                       variant="ghost"
                       size="icon"
-                      disabled={fontUploading}
+                      disabled={fontUploading || !canUploadFonts}
                       aria-label={t("promptDialog.uploadFile")}
                       className="size-6 shrink-0"
                       onClick={() => fontUploadInputRef.current?.click()}
@@ -625,6 +630,11 @@ export function TypographyProperties({
           </div>
         </InspectorGridCell>
       </InspectorGrid>
+      {designId && onFontUploaded && !canUploadFonts ? (
+        <div className="mt-2">
+          <FileStorageSetupCard />
+        </div>
+      ) : null}
 
       {/* Row 2: weight + size side by side */}
       <InspectorGrid className="items-center" layout="action-pair">

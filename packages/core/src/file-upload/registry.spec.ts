@@ -205,18 +205,12 @@ describe("file-upload registry", () => {
       expect(result).toBeNull();
     });
 
-    it("falls back to null when credential resolution throws (DB unavailable)", async () => {
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    it("propagates credential lookup failures instead of treating them as missing storage", async () => {
       canAuthorizeBuilderApiRequestMock.mockRejectedValue(new Error("db down"));
 
-      const result = await uploadFile({ data: new Uint8Array([1]) });
-
-      expect(result).toBeNull();
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("Builder credential check failed"),
-        expect.stringContaining("db down"),
+      await expect(uploadFile({ data: new Uint8Array([1]) })).rejects.toThrow(
+        "db down",
       );
-      warn.mockRestore();
     });
 
     it("does NOT swallow a real upload failure as a fallback", async () => {

@@ -1,4 +1,7 @@
-import { useAgentEngineConfigured } from "@agent-native/core/client/agent-chat";
+import {
+  BuilderSetupCard,
+  useAgentEngineConfigured,
+} from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import {
@@ -15,10 +18,6 @@ import {
   fetchFirstRunOnboardingStatus,
   isFirstRunOnboardingEnabled,
 } from "@agent-native/core/client/onboarding";
-import {
-  BuilderConnectPopover,
-  useBuilderConnectFlow,
-} from "@agent-native/core/client/settings";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   AgentSuggestionBar,
@@ -411,13 +410,12 @@ export default function Index() {
   } = useWorkspaceDefaults();
   const { session } = useSession();
   const agentEngine = useAgentEngineConfigured();
-  const builderConnect = useBuilderConnectFlow({
-    enabled: agentEngine.missing,
-    provisionAccount: true,
-    trackingSource: "slides_home",
-  });
   const quickActionsEnabled =
     agentEngine.state === "configured" && !agentEngine.missing;
+  const agentEngineConfigured = agentEngine.state === "configured";
+  const retryAgentEngineStatus = useCallback(() => {
+    window.dispatchEvent(new Event("agent-engine:configured-changed"));
+  }, []);
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
     "generate-home-suggestions",
     {},
@@ -1291,6 +1289,7 @@ export default function Index() {
       attachments: PromptAttachmentActions,
       options?: SlidesPromptSubmitOptions,
     ) => {
+      if (agentEngine.state !== "configured") return "retain" as const;
       pendingDeckAttachmentActionsRef.current = attachments;
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       const retryContext =
@@ -1352,6 +1351,7 @@ export default function Index() {
       newDeckRetryContext,
       newDeckRetryModelSelection,
       newDeckRetryPrompt,
+      agentEngine.state,
       setNewDeckPromptOpen,
       runPendingDeckGeneration,
     ],
@@ -1952,27 +1952,41 @@ export default function Index() {
           <ImportDeckButton controller={deckImport} />
         </>
       }
-      connection={
-        agentEngine.missing ? (
-          <>
-            <BuilderConnectPopover flow={builderConnect}>
-              <Button variant="outline" disabled={builderConnect.connecting}>
-                {builderConnect.connecting
-                  ? t("home.connectingBuilder")
-                  : t("home.connectBuilderIo")}
-                <IconArrowRight />
-              </Button>
-            </BuilderConnectPopover>
-            {builderConnect.error ? (
-              <p role="alert" className="max-w-md text-xs text-destructive">
-                {builderConnect.error}
-              </p>
-            ) : null}
-          </>
-        ) : null
-      }
       composer={
         <div data-slides-home-composer>
+          {agentEngine.state !== "configured" ? (
+            <div className="mb-2">
+              {agentEngine.missing ? (
+                <BuilderSetupCard
+                  onConnected={retryAgentEngineStatus}
+                  fullWidth
+                  layout="sidebar"
+                />
+              ) : (
+                <div
+                  className="flex items-center justify-center gap-3 text-sm text-muted-foreground"
+                  role="status"
+                >
+                  <span>
+                    {t(
+                      agentEngine.state === "unknown"
+                        ? "agentChat.setup.checkingProvider"
+                        : "agentChat.setup.providerStatusUnavailable",
+                    )}
+                  </span>
+                  {agentEngine.state === "unavailable" ? (
+                    <button
+                      type="button"
+                      className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={retryAgentEngineStatus}
+                    >
+                      {t("home.retry")}
+                    </button>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          ) : null}
           <LazyChunkErrorBoundary
             fallback={
               <div
@@ -2004,9 +2018,10 @@ export default function Index() {
                 presentation="inline"
                 context={composerContext}
                 controllerRef={homeComposerRef}
-                submissionDisabled={agentEngine.missing}
-                showModelSelector={!agentEngine.missing}
-                modelStatusChecksEnabled={!agentEngine.missing}
+                disabled={!agentEngineConfigured}
+                submissionDisabled={!agentEngineConfigured}
+                showModelSelector={agentEngineConfigured}
+                modelStatusChecksEnabled={false}
                 open={showNewDeckPrompt}
                 onOpenChange={setNewDeckPromptOpen}
                 title={t("home.newDeckPromptTitle")}

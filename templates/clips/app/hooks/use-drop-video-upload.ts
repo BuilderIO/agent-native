@@ -12,6 +12,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { fetchVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import { MAX_UPLOAD_BYTES } from "@/lib/compress";
 import { defaultRecordingTitle } from "@/lib/recording-title";
 import { isMobileRecorderRuntime } from "@/lib/recording-visibility";
@@ -25,22 +26,38 @@ export interface DropUploadItem {
   key: string;
   fileName: string;
   progress: number;
+  /** The created recording id, once `create-recording` returns. The grid
+   * hides the real card for this id while its placeholder is on screen so a
+   * file never appears twice mid-upload. */
   recordingId?: string;
 }
 
 type QueuedDropUpload = {
+  key: string;
   file: File;
   scope: { spaceId?: string | null; folderId?: string | null };
 };
+
+export type VideoStorageGateIssue = "missing" | "unavailable";
 
 function defaultTitleFor(file: File): string {
   return file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle();
 }
 
-export function useDropVideoUpload(scope: {
-  spaceId?: string | null;
-  folderId?: string | null;
-}) {
+/** Uploads dropped video files straight from the library grid — creates the
+ * recording row via `create-recording`, then streams it to
+ * `/api/uploads/:id/chunk` the same way the recorder's file picker does, so
+ * `finalize-recording` treats it identically. Skips the recorder route's
+ * bug-report/intake and re-encode paths (not applicable to a plain drop) and
+ * never navigates away — the grid's own polling and the shared refresh
+ * signal pick up the new "uploading" card as soon as the row exists. */
+export function useDropVideoUpload(
+  scope: {
+    spaceId?: string | null;
+    folderId?: string | null;
+  },
+  onStorageSetupRequired?: (issue: VideoStorageGateIssue) => void,
+) {
   const t = useT();
   const queryClient = useQueryClient();
   const [uploads, setUploads] = useState<DropUploadItem[]>([]);
@@ -59,12 +76,8 @@ export function useDropVideoUpload(scope: {
     async (
       file: File,
       scope: { spaceId?: string | null; folderId?: string | null },
+      key: string,
     ) => {
-      const key = `${file.name}-${file.size}-${Date.now()}-${Math.random()}`;
-      setUploads((prev) => [
-        ...prev,
-        { key, fileName: file.name, progress: 0 },
-      ]);
       const setProgress = (progress: number) => {
         setUploads((prev) =>
           prev.map((u) => (u.key === key ? { ...u, progress } : u)),
@@ -133,6 +146,8 @@ export function useDropVideoUpload(scope: {
           );
         }
         createdId = info.id;
+        // Tie the placeholder to the real row so the grid hides that row's
+        // card while this placeholder (with its progress bar) is on screen.
         setRecordingId(createdId);
 
         void uploadVideoBlobThumbnail(createdId, file, {
@@ -295,6 +310,9 @@ export function useDropVideoUpload(scope: {
         }
         setProgress(1);
 
+        // The bytes are in, but with no storage connected the clip can't be
+        // served yet — say so rather than claiming a finished upload. The row
+        // persists in a "waiting for storage" state the card surfaces.
         if (
           finalResult?.waitingForStorage === true ||
           finalResult?.status === "waiting_storage"
@@ -306,6 +324,8 @@ export function useDropVideoUpload(scope: {
         } else {
           toast.success(t("recordRoute.videoUploaded"));
         }
+        // Refetch so the real card is present before the placeholder leaves,
+        // making the hand-off seamless (the finally block clears it).
         await invalidateRecordings().catch((error) => {
           console.warn("[clips] dropped-upload list refresh failed", error);
         });
@@ -367,7 +387,7 @@ export function useDropVideoUpload(scope: {
     try {
       while (fileQueueRef.current.length > 0) {
         const item = fileQueueRef.current.shift();
-        if (item) await uploadOne(item.file, item.scope);
+        if (item) await uploadOne(item.file, item.scope, item.key);
       }
     } catch (error) {
       console.warn("[clips] dropped video upload queue failed", error);
@@ -385,12 +405,42 @@ export function useDropVideoUpload(scope: {
         spaceId: scope.spaceId,
         folderId: scope.folderId,
       };
-      fileQueueRef.current.push(
-        ...Array.from(files, (file) => ({ file, scope: uploadScope })),
-      );
-      void drainFileQueue();
+      const queuedFiles = Array.from(files, (file) => ({
+        key: `${file.name}-${file.size}-${Date.now()}-${Math.random()}`,
+        file,
+        scope: uploadScope,
+      }));
+      if (queuedFiles.length === 0) return;
+      setUploads((prev) => [
+        ...prev,
+        ...queuedFiles.map(({ key, file }) => ({
+          key,
+          fileName: file.name,
+          progress: 0,
+        })),
+      ]);
+      const removePlaceholders = () => {
+        const keys = new Set(queuedFiles.map(({ key }) => key));
+        setUploads((prev) => prev.filter((upload) => !keys.has(upload.key)));
+      };
+      void fetchVideoStorageStatus()
+        .then((status) => {
+          if (!status.configured) {
+            removePlaceholders();
+            onStorageSetupRequired?.("missing");
+            toast.error(t("clipsFinalRaw.connectStorageToFinish"));
+            return;
+          }
+          fileQueueRef.current.push(...queuedFiles);
+          void drainFileQueue();
+        })
+        .catch(() => {
+          removePlaceholders();
+          onStorageSetupRequired?.("unavailable");
+          toast.error(t("meetingsRoute.calendarStatusUnavailable"));
+        });
     },
-    [drainFileQueue, scope.folderId, scope.spaceId],
+    [drainFileQueue, onStorageSetupRequired, scope.folderId, scope.spaceId, t],
   );
 
   return { uploads, uploadFiles };

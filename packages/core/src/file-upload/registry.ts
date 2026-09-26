@@ -45,17 +45,13 @@ export async function getActiveFileUploadProviderForRequest(): Promise<FileUploa
       if (await provider.isConfiguredForRequest()) return provider;
     }
   }
-  try {
-    const [{ canAuthorizeBuilderApiRequest }, { BUILDER_ASSETS_WRITE_SCOPE }] =
-      await Promise.all([
-        import("../server/builder-api-auth.js"),
-        import("../server/builder-oauth.js"),
-      ]);
-    if (await canAuthorizeBuilderApiRequest(BUILDER_ASSETS_WRITE_SCOPE)) {
-      return builderFileUploadProvider;
-    }
-  } catch {
-    // Treat failed scoped credential lookups as unavailable.
+  const [{ canAuthorizeBuilderApiRequest }, { BUILDER_ASSETS_WRITE_SCOPE }] =
+    await Promise.all([
+      import("../server/builder-api-auth.js"),
+      import("../server/builder-oauth.js"),
+    ]);
+  if (await canAuthorizeBuilderApiRequest(BUILDER_ASSETS_WRITE_SCOPE)) {
+    return builderFileUploadProvider;
   }
   return null;
 }

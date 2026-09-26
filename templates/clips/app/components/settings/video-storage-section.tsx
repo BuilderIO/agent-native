@@ -112,9 +112,11 @@ export function VideoStorageSection({
   const [saving, setSaving] = useState(false);
   const [clearing, setClearing] = useState(false);
 
-  const storageConfigured = !!storageStatus.data?.configured;
+  const storageConfigured = storageStatus.data?.configured === true;
   const activeProviderName = storageStatus.data?.activeProvider?.name ?? null;
   const s3Configured = storageStatus.data?.activeProvider?.id === "s3";
+  const builderStorageNeedsReconnect =
+    storageStatus.data?.builderReauthorizationRequired === true;
 
   function validate(current: Record<string, string>): Record<string, string> {
     const next: Record<string, string> = {};
@@ -224,23 +226,37 @@ export function VideoStorageSection({
         <SettingsRow
           label="Builder.io"
           description={
-            builder.loading
-              ? t("settings.checkingBuilder")
-              : s3Configured && storageConfigured && activeProviderName
-                ? t("settings.s3CurrentProvider", {
-                    providerName: activeProviderName,
-                  })
-                : builder.connected
-                  ? builder.orgName
-                    ? t("settings.builderConnectedFor", {
-                        orgName: builder.orgName,
-                      })
-                    : t("settings.builderConnectedGeneric")
-                  : t("settings.builderIncludes")
+            storageStatus.isError
+              ? t("meetingsRoute.calendarStatusUnavailable")
+              : builder.loading
+                ? t("settings.checkingBuilder")
+                : s3Configured && storageConfigured && activeProviderName
+                  ? t("settings.s3CurrentProvider", {
+                      providerName: activeProviderName,
+                    })
+                  : builder.connected
+                    ? builder.orgName
+                      ? t("settings.builderConnectedFor", {
+                          orgName: builder.orgName,
+                        })
+                      : t("settings.builderConnectedGeneric")
+                    : t("settings.builderIncludes")
           }
           control={
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {builder.connected ? (
+              {storageStatus.isError ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void storageStatus.refetch()}
+                >
+                  {t("meetingDetail.retry")}
+                </Button>
+              ) : null}
+              {builder.connected &&
+              !builderStorageNeedsReconnect &&
+              !storageStatus.isError ? (
                 <span className="inline-flex items-center gap-1.5 text-sm font-medium text-primary">
                   <IconCheck className="h-4 w-4" />
                   {t("common.connected")}

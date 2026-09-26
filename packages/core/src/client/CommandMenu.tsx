@@ -1,4 +1,21 @@
+/**
+ * CommandMenu — reusable command palette with agent chat fallback.
+ *
+ * Features:
+ * - Anchored to top of viewport (not centered)
+ * - Falls back to agent chat when no command matches
+ * - Opens agent sidebar automatically when sending prompts
+ * - Customizable commands via children
+ *
+ * Usage:
+ *   <CommandMenu open={open} onOpenChange={setOpen}>
+ *     <CommandMenu.Group heading="Actions">
+ *       <CommandMenu.Item onSelect={() => doThing()}>Do thing</CommandMenu.Item>
+ *     </CommandMenu.Group>
+ *   </CommandMenu>
+ */
 
+import { isLocalRuntimeEngine } from "@agent-native/toolkit/composer";
 import {
   Command as CommandPrimitive,
   CommandGroup as CommandGroupPrimitive,
@@ -34,10 +51,16 @@ import {
   getChangelogLatestId,
   useChangelogSeen,
 } from "./changelog/use-changelog-seen.js";
+import { BuilderSetupCard } from "./chat/run-recovery.js";
 import { Dialog, DialogContent, DialogTitle } from "./components/ui/dialog.js";
 import { useT } from "./i18n.js";
 import { LazyChunkErrorBoundary } from "./lazy-chunk-error-boundary.js";
 import { signOut, SIGN_OUT_SEARCH_TERMS } from "./sign-out.js";
+import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
+import {
+  chatModelSelectionStorageKey,
+  useChatModels,
+} from "./use-chat-models.js";
 import { cn } from "./utils.js";
 
 const LazyChangelogDialog = lazy(async () => {
@@ -45,6 +68,7 @@ const LazyChangelogDialog = lazy(async () => {
   return { default: ChangelogDialog };
 });
 
+// ─── Context ────────────────────────────────────────────────────────────────
 
 interface CommandMenuContextValue {
   search: string;
@@ -71,7 +95,11 @@ export function useCommandMenuNestedDialog(dismiss: (() => void) | null) {
   }, [dismiss !== null, registerNestedDialog]);
 }
 
+// ─── Hooks ──────────────────────────────────────────────────────────────────
 
+/**
+ * Opens the agent sidebar (dispatches event that AgentSidebar listens for)
+ */
 export function openAgentSidebar() {
   window.dispatchEvent(new Event("agent-panel:open"));
 }
@@ -90,6 +118,10 @@ export function openAgentSettings(
   }
 
   openAgentSidebar();
+  // Voice mode unmounts the chat surface while its dock is collapsed, so its
+  // settings listener does not exist until opening the sidebar remounts it.
+  // Deliver after the open-state render can commit instead of racing React's
+  // concurrent remount. Non-visual runtimes fall back to the next task.
   const dispatchSettings = () => {
     window.dispatchEvent(
       new CustomEvent("agent-panel:open-settings", {
@@ -113,11 +145,15 @@ export function focusAgentChat() {
   openAgentSidebar();
 }
 
+/**
+ * Sends a prompt to the agent and opens the sidebar
+ */
 export function submitToAgent(message: string) {
   focusAgentChat();
   sendToAgentChat({ message, submit: true });
 }
 
+// ─── Sub-components ─────────────────────────────────────────────────────────
 
 interface CommandGroupProps {
   heading?: string;
@@ -155,6 +191,7 @@ function CommandItem({
     }
 
     onOpenChange(false);
+    // Small delay to let dialog close animation start
     setTimeout(onSelect, 50);
   };
 
@@ -247,26 +284,58 @@ function CommandDocsGroup({ docs, heading = "Docs" }: CommandDocsGroupProps) {
   );
 }
 
+// ─── Main Component ─────────────────────────────────────────────────────────
 
 export interface CommandMenuProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children: ReactNode;
+  /** Render app-specific dynamic results from the current search value. */
   renderResults?: (search: string) => ReactNode;
+  /**
+   * Compose app controls around the listbox while retaining this menu's search
+   * and command state. `renderList` must be rendered exactly once.
+   */
   renderContent?: (options: {
     search: string;
     renderList: (results?: ReactNode) => ReactNode;
   }) => ReactNode;
+  /** Placeholder text for the search input */
   placeholder?: string;
+  /** Accessible label for the search input. Defaults to the placeholder. */
   inputLabel?: string;
+  /** Text shown when no results match (before showing agent fallback) */
   emptyText?: string;
+  /** Whether to show the "Ask AI" fallback when no commands match. Default: true */
   showAgentFallback?: boolean;
+  /** Chat model selection namespace used by this app's agent sidebar. */
+  chatStorageKey?: string;
+  /** Clear the current command query on Escape before dismissing the menu. */
   clearSearchOnEscape?: boolean;
+  /** Customize focus restoration when the dialog closes. */
   onCloseAutoFocus?: (event: Event) => void;
+  /** Custom class for the dialog content */
   className?: string;
+  /**
+   * Raw CHANGELOG.md contents. When provided, the menu shows a built-in
+   * "What's new" entry that opens an in-app changelog dialog (with an unseen
+   * dot for new releases). Pass your app's own file:
+   *   import changelog from "../CHANGELOG.md?raw";
+   *   <CommandMenu ... changelog={changelog} />
+   */
   changelog?: string;
+  /** Label for the built-in changelog entry. Default: "What's new". */
   changelogLabel?: string;
+  /**
+   * Stable key used to remember which release a user has already seen (for the
+   * unseen dot). Defaults to the document title's host app; set explicitly when
+   * multiple apps share an origin.
+   */
   changelogKey?: string;
+  /**
+   * Whether to show the built-in "About Agent-Native" entry. Defaults to true
+   * for app-shell menus that provide a changelog; set false for local menus.
+   */
   showAbout?: boolean;
 }
 
@@ -280,6 +349,7 @@ export function CommandMenu({
   inputLabel = placeholder,
   emptyText: _emptyText = "No commands found.",
   showAgentFallback = true,
+  chatStorageKey,
   clearSearchOnEscape = false,
   onCloseAutoFocus,
   className,
@@ -289,6 +359,19 @@ export function CommandMenu({
   showAbout: showAboutProp,
 }: CommandMenuProps) {
   const [search, setSearch] = useState("");
+  const models = useChatModels({
+    enabled: false,
+    storageKey: chatModelSelectionStorageKey(chatStorageKey),
+  });
+  const shouldCheckProviderStatus =
+    showAgentFallback && !isLocalRuntimeEngine(models.selectedEngine);
+  const agentEngineConfigured = useAgentEngineConfigured(
+    shouldCheckProviderStatus,
+  );
+  const providerStatus = shouldCheckProviderStatus
+    ? agentEngineConfigured.state
+    : "configured";
+  const chatReady = providerStatus === "configured";
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const nestedDialogsRef = useRef<Array<() => void>>([]);
@@ -302,6 +385,9 @@ export function CommandMenu({
     };
   }, []);
 
+  // Built-in "What's new" changelog surface (only active when `changelog` is
+  // passed). The dialog is rendered alongside the menu so it survives the menu
+  // closing; the unseen dot persists per browser via localStorage.
   const [changelogOpen, setChangelogOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const hasChangelog =
@@ -314,14 +400,18 @@ export function CommandMenu({
   const openChangelog = useCallback(() => {
     onOpenChange(false);
     markChangelogSeen();
+    // Let the menu close before the dialog opens (avoids overlay flicker).
     setTimeout(() => setChangelogOpen(true), 50);
   }, [onOpenChange, markChangelogSeen]);
 
   const openAbout = useCallback(() => {
     onOpenChange(false);
+    // Let the menu close before the dialog opens (avoids overlay flicker).
     setTimeout(() => setAboutOpen(true), 50);
   }, [onOpenChange]);
 
+  // Focus input when opening; clear search while closed so reopen never renders
+  // dynamic results for the previous query.
   useEffect(() => {
     if (!open) {
       setSearch("");
@@ -330,6 +420,7 @@ export function CommandMenu({
 
     if (open) {
       setSearch("");
+      // Wait for render then focus
       requestAnimationFrame(() => {
         inputRef.current?.focus();
       });
@@ -337,14 +428,20 @@ export function CommandMenu({
   }, [open]);
 
   const handleSubmitToAgent = useCallback(() => {
-    onOpenChange(false);
     if (!search.trim()) {
+      onOpenChange(false);
       focusAgentChat();
       return;
     }
+    if (!chatReady) return;
+    onOpenChange(false);
     submitToAgent(search.trim());
-  }, [search, onOpenChange]);
+  }, [chatReady, search, onOpenChange]);
+  const retryProviderStatus = useCallback(() => {
+    window.dispatchEvent(new Event("agent-engine:configured-changed"));
+  }, []);
 
+  // The built-in "What's new" row matches changelog-ish search terms.
   const changelogRowMatches =
     !search ||
     [
@@ -406,6 +503,7 @@ export function CommandMenu({
     void signOut();
   }, [onOpenChange]);
 
+  // Filter children based on search
   const filterChildren = (nodes: ReactNode): ReactNode => {
     return React.Children.map(nodes, (child) => {
       if (!React.isValidElement(child)) return child;
@@ -420,6 +518,7 @@ export function CommandMenu({
         } as Record<string, unknown>);
       }
 
+      // If it's a CommandGroup, filter its children
       if (child.type === CommandGroup) {
         const groupChildren = filterChildren(props.children as ReactNode);
         const hasChildren = React.Children.count(groupChildren) > 0;
@@ -442,6 +541,7 @@ export function CommandMenu({
         } as Record<string, unknown>);
       }
 
+      // If it's a CommandItem, check if it matches search
       if (child.type === CommandItem) {
         if (!search) return child;
         const text = getTextContent(props.children as ReactNode).toLowerCase();
@@ -455,8 +555,9 @@ export function CommandMenu({
         return null;
       }
 
+      // If it's a separator, keep it (will be cleaned up later if needed)
       if (child.type === CommandSeparator) {
-        return search ? null : child;
+        return search ? null : child; // Hide separators when searching
       }
 
       return child;
@@ -537,8 +638,36 @@ export function CommandMenu({
             showSignOutRow ||
             Boolean(results)) && <CommandSeparator />}
           <div className="p-1">
+            {providerStatus === "missing" ? (
+              <BuilderSetupCard attached fullWidth layout="sidebar" />
+            ) : providerStatus === "unknown" ||
+              providerStatus === "unavailable" ? (
+              <div
+                className="mb-1 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+                role="status"
+              >
+                <span>
+                  {providerStatus === "unknown"
+                    ? t("agentChat.setup.checkingProvider")
+                    : t("agentChat.setup.providerStatusUnavailable")}
+                </span>
+                {providerStatus === "unavailable" ? (
+                  <button
+                    type="button"
+                    className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline"
+                    onClick={retryProviderStatus}
+                  >
+                    {t("agentChat.common.retry")}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             <CommandItemPrimitive
-              className="cursor-pointer gap-2 py-2"
+              className={cn(
+                "gap-2 py-2",
+                chatReady ? "cursor-pointer" : "cursor-not-allowed opacity-50",
+              )}
+              disabled={!chatReady}
               onSelect={handleSubmitToAgent}
             >
               <IconMessage className="h-4 w-4 text-muted-foreground" />
@@ -654,6 +783,7 @@ export function CommandMenu({
   );
 }
 
+// Helper to extract text content from React children
 function getTextContent(children: ReactNode): string {
   if (typeof children === "string") return children;
   if (typeof children === "number") return String(children);
@@ -672,12 +802,14 @@ function getTextContent(children: ReactNode): string {
   return "";
 }
 
+// Attach sub-components
 CommandMenu.Group = CommandGroup;
 CommandMenu.Item = CommandItem;
 CommandMenu.DocsGroup = CommandDocsGroup;
 CommandMenu.Shortcut = CommandShortcut;
 CommandMenu.Separator = CommandSeparator;
 
+// ─── Keyboard Hook ──────────────────────────────────────────────────────────
 
 export const COMMAND_MENU_OPEN_EVENT = "agent-native:open-command-menu";
 
@@ -687,10 +819,14 @@ export function openCommandMenu() {
   }
 }
 
+/**
+ * Hook to handle Cmd+K (or Ctrl+K) to open the command menu
+ */
 export function useCommandMenuShortcut(
   onOpen: () => void,
   options: {
     allowContentEditable?: boolean;
+    /** Return false to leave an editable shortcut untouched for its local handler. */
     shouldHandleContentEditable?: (event: KeyboardEvent) => boolean;
   } = {},
 ) {
@@ -713,9 +849,12 @@ export function useCommandMenuShortcut(
           return;
         }
 
+        // Claim the shortcut before checking the focused element so an outer
+        // host cannot open its own command menu while this one is focused.
         e.preventDefault();
         e.stopPropagation();
 
+        // Don't trigger if user is typing in a native form control.
         if (
           target?.tagName === "INPUT" ||
           target?.tagName === "TEXTAREA" ||

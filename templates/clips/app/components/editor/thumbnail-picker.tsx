@@ -1,5 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
 import {
   IconPhoto,
   IconPhotoEdit,
@@ -10,6 +11,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,6 +23,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import { exportGif, blobToDataUrl } from "@/lib/ffmpeg-export";
 import { seekVideoToTime } from "@/lib/thumbnail-capture";
 import {
@@ -53,6 +56,9 @@ export function ThumbnailPicker({
   currentThumbnail,
 }: ThumbnailPickerProps) {
   const t = useT();
+  const storageQuery = useVideoStorageStatus(open);
+  const storageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
   const [tab, setTab] = useState<ThumbnailPickerTab>("frame");
   const [frameTime, setFrameTime] = useState(0);
   const [gifStart, setGifStart] = useState(0);
@@ -175,6 +181,7 @@ export function ThumbnailPicker({
   };
 
   const handleApply = async () => {
+    if (!storageConfigured) return;
     try {
       if (tab === "upload" && uploadDataUrl) {
         await mutation.mutateAsync({
@@ -209,6 +216,16 @@ export function ThumbnailPicker({
       onOpenChange(false);
     } catch (err: any) {
       console.error(err);
+      if (
+        typeof err?.message === "string" &&
+        err.message.includes("No object storage is connected")
+      ) {
+        await storageQuery.refetch();
+        toast.error(t("thumbnailPicker.failedUpdate"), {
+          description: t("storageSetup.whyDescription"),
+        });
+        return;
+      }
       toast.error(err?.message ?? t("thumbnailPicker.failedUpdate"));
     }
   };
@@ -222,6 +239,12 @@ export function ThumbnailPicker({
             {t("thumbnailPicker.thumbnail")}
           </DialogTitle>
         </DialogHeader>
+
+        {storageQuery.isError ? (
+          <StorageStatusRetry onRetry={() => void storageQuery.refetch()} />
+        ) : storageQuery.isLoading ? null : !storageConfigured ? (
+          <FileStorageSetupCard />
+        ) : null}
 
         <Tabs
           value={tab}
@@ -247,6 +270,7 @@ export function ThumbnailPicker({
               ref={uploadInputRef}
               type="file"
               accept="image/*"
+              disabled={!storageConfigured}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
@@ -260,6 +284,7 @@ export function ThumbnailPicker({
               type="button"
               variant="secondary"
               size="sm"
+              disabled={!storageConfigured}
               onClick={() => uploadInputRef.current?.click()}
             >
               <IconUpload className="mr-1 h-4 w-4" />
@@ -466,6 +491,7 @@ export function ThumbnailPicker({
             onClick={handleApply}
             disabled={
               mutation.isPending ||
+              !storageConfigured ||
               (tab === "upload" && !uploadDataUrl) ||
               (tab === "frame" && !frameDataUrl) ||
               (tab === "gif" && !gifDataUrl)

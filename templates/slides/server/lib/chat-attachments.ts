@@ -358,7 +358,7 @@ export async function prepareSlidesChatAttachments(args: {
       ? [
           "The following attached image(s) have NO embeddable URL — the file-upload provider that hosts public image URLs failed or is not configured, so they were only saved to private import storage and CANNOT be embedded as `<img>` in slide HTML:",
           unembeddableImageList,
-          "Do not silently skip these images. Tell the user the image(s) could not be added to the deck because no public file-upload provider is available, and that connecting Builder.io (or another file provider) in Settings will enable embedding.",
+          "Do not silently skip these images. Tell the user the image(s) could not be added to the deck because no public object storage is available. They can connect Builder.io (free) or configure their own S3-compatible storage keys in Settings → File uploads to enable embedding.",
         ].join("\n")
       : "",
     failed.length > 0

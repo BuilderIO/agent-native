@@ -144,6 +144,7 @@ import {
 } from "@/components/recorder/recorder-engine";
 import { RecordingToolbar } from "@/components/recorder/recording-toolbar";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -2833,7 +2834,11 @@ export default function RecordRoute() {
         <RecorderRouteViewport>
           <div className="mx-auto grid w-full max-w-[420px] gap-2">
             <div className="min-w-0">
-              {storageConfigured === null ? (
+              {storageQuery.isError ? (
+                <StorageStatusRetry
+                  onRetry={() => void storageQuery.refetch()}
+                />
+              ) : storageConfigured === null ? (
                 <PreRecordPanelSkeleton />
               ) : storageConfigured ? (
                 <PreRecordPanel

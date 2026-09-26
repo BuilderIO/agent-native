@@ -1,11 +1,13 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
 import { IconPalette, IconPhoto } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import { organizationLogoUrl } from "@/lib/organization-logo";
 
 export type RecordingVisibility = "private" | "org" | "public";
@@ -54,7 +57,22 @@ async function uploadLogo(file: File, organizationId: string): Promise<string> {
     headers: { "Content-Type": file.type || "application/octet-stream" },
   });
   if (!res.ok) {
-    throw new Error(`Upload failed (${res.status})`);
+    const responseText = await res.text();
+    let errorMessage: string | undefined;
+    try {
+      const body: unknown = JSON.parse(responseText);
+      if (
+        typeof body === "object" &&
+        body !== null &&
+        "error" in body &&
+        typeof body.error === "string"
+      ) {
+        errorMessage = body.error;
+      }
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+    throw new Error(errorMessage ?? `Upload failed (${res.status})`);
   }
   const json = (await res.json()) as { reference?: string };
   if (!json.reference) throw new Error("Upload returned no reference");
@@ -70,6 +88,9 @@ export function BrandingEditor({
   disabled,
 }: BrandingEditorProps) {
   const t = useT();
+  const storageQuery = useVideoStorageStatus();
+  const storageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
   const [name, setName] = useState(initialName);
   const [brandColor, setBrandColor] = useState(initialBrandColor);
   const [brandLogoUrl, setBrandLogoUrl] = useState<string | null>(
@@ -124,6 +145,7 @@ export function BrandingEditor({
   >("set-organization-branding");
 
   async function handleFile(file: File) {
+    if (!storageConfigured) return;
     if (!file.type.startsWith("image/")) {
       toast.error(t("brandingEditor.uploadImageFile"));
       return;
@@ -136,6 +158,16 @@ export function BrandingEditor({
       toast.success(t("brandingEditor.logoUploaded"));
     } catch (err) {
       setUploadPreviewUrl(null);
+      const storageSetupRequired =
+        err instanceof Error &&
+        err.message.includes("No object storage is connected");
+      if (storageSetupRequired) {
+        await storageQuery.refetch();
+        toast.error(t("brandingEditor.uploadFailed"), {
+          description: t("storageSetup.whyDescription"),
+        });
+        return;
+      }
       toast.error(
         err instanceof Error ? err.message : t("brandingEditor.uploadFailed"),
       );
@@ -227,20 +259,27 @@ export function BrandingEditor({
             <p className="text-xs text-muted-foreground">
               {t("brandingEditor.logoUsage")}
             </p>
+            {storageQuery.isError ? (
+              <StorageStatusRetry onRetry={() => void storageQuery.refetch()} />
+            ) : storageQuery.isLoading ? null : !storageConfigured ? (
+              <FileStorageSetupCard />
+            ) : null}
             <div
               className={`rounded-md border border-dashed p-4 flex items-center gap-4 ${
                 dragging ? "bg-primary/5 border-primary" : ""
               }`}
               onDragOver={(e) => {
                 e.preventDefault();
-                setDragging(true);
+                if (storageConfigured && !disabled) setDragging(true);
               }}
               onDragLeave={() => setDragging(false)}
               onDrop={(e) => {
                 e.preventDefault();
                 setDragging(false);
                 const file = e.dataTransfer.files?.[0];
-                if (file) void handleFile(file);
+                if (file && storageConfigured && !disabled) {
+                  void handleFile(file);
+                }
               }}
             >
               <div
@@ -268,7 +307,16 @@ export function BrandingEditor({
                 <div className="flex items-center gap-2 mt-2">
                   <Label
                     htmlFor="logo-upload"
-                    className="inline-flex items-center rounded-md border border-input bg-background px-3 py-1.5 text-sm cursor-pointer hover:bg-accent"
+                    aria-disabled={
+                      disabled || uploading || !storageConfigured
+                        ? true
+                        : undefined
+                    }
+                    className={`inline-flex items-center rounded-md border border-input bg-background px-3 py-1.5 text-sm cursor-pointer hover:bg-accent ${
+                      disabled || uploading || !storageConfigured
+                        ? "pointer-events-none opacity-50"
+                        : ""
+                    }`}
                   >
                     {uploading
                       ? t("brandingEditor.uploading")
@@ -279,7 +327,7 @@ export function BrandingEditor({
                     type="file"
                     accept="image/*"
                     className="sr-only"
-                    disabled={disabled || uploading}
+                    disabled={disabled || uploading || !storageConfigured}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file) void handleFile(file);

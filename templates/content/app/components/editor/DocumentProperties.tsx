@@ -1,6 +1,7 @@
 import { emailToName } from "@agent-native/core/client/collab";
 import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
   closestCenter,
   DndContext,
@@ -93,6 +94,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -2541,6 +2543,9 @@ function FilesMediaValueEditor({
   onDone: () => void;
 }) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageConfigured =
+    fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true;
   const mutation = useSetDocumentProperty(
     documentId,
     property.definition.databaseId!,
@@ -2589,7 +2594,7 @@ function FilesMediaValueEditor({
 
   async function uploadFiles(files: FileList | null) {
     const selectedFiles = Array.from(files ?? []);
-    if (selectedFiles.length === 0) return;
+    if (selectedFiles.length === 0 || !fileStorageConfigured) return;
     setUploading(true);
     try {
       const uploadedUrls: string[] = [];
@@ -2698,20 +2703,26 @@ function FilesMediaValueEditor({
         type="file"
         accept="image/*"
         multiple
+        disabled={!fileStorageConfigured}
         className="sr-only"
         onChange={(event) => void uploadFiles(event.currentTarget.files)}
       />
+      {!fileStorageConfigured ? (
+        <FileStorageStatusGate status={fileUploadStatus} />
+      ) : null}
       <div className="flex justify-end gap-2">
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={mutation.isPending || uploading}
-        >
-          <IconUpload className="size-3.5" />
-          {t("editor.properties.upload")}
-        </Button>
+        {fileStorageConfigured ? (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={mutation.isPending || uploading}
+          >
+            <IconUpload className="size-3.5" />
+            {t("editor.properties.upload")}
+          </Button>
+        ) : null}
         <Button
           type="button"
           variant="ghost"

@@ -9,6 +9,8 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
@@ -86,6 +88,8 @@ import { Awareness } from "y-protocols/awareness";
 import type { Doc as YDoc } from "yjs";
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import type { CommentThread } from "@/hooks/use-comments";
 
 import { BubbleToolbar } from "./BubbleToolbar";
@@ -2872,7 +2876,25 @@ export function VisualEditor({
   onPersistenceControllerChange,
 }: VisualEditorProps) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageState: "configured" | "missing" | "unknown" =
+    fileUploadStatus.isError
+      ? "unknown"
+      : fileUploadStatus.isSuccess
+        ? fileUploadStatus.data?.configured === true
+          ? "configured"
+          : fileUploadStatus.data?.configured === false
+            ? "missing"
+            : "unknown"
+        : "unknown";
+  const fileStorageConfigured = fileStorageState === "configured";
+  const fileStorageStateRef = useRef(fileStorageState);
+  fileStorageStateRef.current = fileStorageState;
+  const [isFileStorageSetupOpen, setIsFileStorageSetupOpen] = useState(false);
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
+  useEffect(() => {
+    if (fileStorageConfigured) setIsFileStorageSetupOpen(false);
+  }, [fileStorageConfigured]);
   const suggestingRef = useRef(suggesting);
   suggestingRef.current = suggesting;
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -2958,6 +2980,11 @@ export function VisualEditor({
     (request: PendingImagePicker) => {
       runIfMediaCreationAllowed(suggestingRef.current, () => {
         if (pendingImagePickerRef.current) return;
+        if (fileStorageStateRef.current !== "configured") {
+          if (editor) restorePendingImagePicker(editor.view, request);
+          setIsFileStorageSetupOpen(true);
+          return;
+        }
         pendingImagePickerRef.current = request;
         imageFileInputRef.current?.click();
       });
@@ -3178,6 +3205,10 @@ export function VisualEditor({
         }
         return runIfMediaCreationAllowed(suggestingRef.current, () => {
           event.preventDefault();
+          if (fileStorageStateRef.current !== "configured") {
+            setIsFileStorageSetupOpen(true);
+            return;
+          }
           const coords = view.posAtCoords({
             left: event.clientX,
             top: event.clientY,
@@ -3210,6 +3241,10 @@ export function VisualEditor({
         }
         return runIfMediaCreationAllowed(suggestingRef.current, () => {
           event.preventDefault();
+          if (fileStorageStateRef.current !== "configured") {
+            setIsFileStorageSetupOpen(true);
+            return;
+          }
           if (imageFiles.length > 0) {
             void uploadAndInsertImageFiles(
               view,
@@ -3597,6 +3632,11 @@ export function VisualEditor({
       pendingImagePickerRef.current = null;
       if (suggestingRef.current) return;
       if (!editor || !file || !request) return;
+      if (fileStorageStateRef.current !== "configured") {
+        restorePendingImagePicker(editor.view, request);
+        setIsFileStorageSetupOpen(true);
+        return;
+      }
 
       const uploadId = createMediaUploadId("image");
       if (!ensurePendingImageUpload(editor.view, request, uploadId)) return;
@@ -4159,12 +4199,43 @@ export function VisualEditor({
           </div>
         </div>
       ) : null}
+      <Dialog
+        open={isFileStorageSetupOpen && !fileStorageConfigured}
+        onOpenChange={setIsFileStorageSetupOpen}
+      >
+        <DialogContent closeLabel={t("close")}>
+          <DialogTitle className="sr-only">
+            {t("onboarding.fileStorage.title")}
+          </DialogTitle>
+          {fileStorageState === "missing" ? (
+            <FileStorageSetupCard />
+          ) : (
+            <div
+              role="status"
+              className="flex items-center justify-between gap-3 text-sm text-muted-foreground"
+            >
+              <span>{t("onboarding.fileStorage.statusUnavailable")}</span>
+              <Button
+                type="button"
+                data-testid="file-storage-retry"
+                variant="link"
+                size="sm"
+                className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => void fileUploadStatus.refetch()}
+              >
+                {t("database.retry")}
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       <RegistryBlockDataProvider value={registryBlockDataValue}>
         <EditorContent editor={editor} />
       </RegistryBlockDataProvider>
       <input
         ref={imageFileInputRef}
         type="file"
+        disabled={!fileStorageConfigured}
         className="hidden"
         tabIndex={-1}
         aria-hidden="true"

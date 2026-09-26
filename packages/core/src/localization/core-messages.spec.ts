@@ -28,6 +28,24 @@ describe("built-in Core chat translations", () => {
     }
   });
 
+  it("exposes file storage copy to shared Core UI in every locale", async () => {
+    for (const locale of SUPPORTED_LOCALES) {
+      const messages = await loadCoreMessagesForLocale(locale);
+      const fileStorage = (
+        messages.onboarding as
+          | { fileStorage: Record<string, string> }
+          | undefined
+      )?.fileStorage;
+      const agentChatFileStorage = (
+        messages.agentChat as
+          | { onboarding?: { fileStorage: Record<string, string> } }
+          | undefined
+      )?.onboarding?.fileStorage;
+
+      expect(fileStorage, locale).toEqual(agentChatFileStorage);
+    }
+  });
+
   it("loads each locale's settings copy from its own catalog", async () => {
     for (const locale of SUPPORTED_LOCALES) {
       const messages = await loadCoreMessagesForLocale(locale);
@@ -129,4 +147,38 @@ describe("built-in Core chat translations", () => {
       ).toBe(expected);
     },
   );
+
+  it("offers both setup paths in English credential guidance", async () => {
+    const messages = await loadAgentChatMessagesForLocale("en-US");
+    const noProviderCopy = messages["errorMessages.noProviderConnected"];
+    const rejectedCredentialCopy = messages["recovery.credentialRejected"];
+
+    expect(noProviderCopy).toContain("connect Builder.io");
+    expect(noProviderCopy).toContain("add a provider key");
+    expect(rejectedCredentialCopy).toContain("Builder.io connection");
+    expect(rejectedCredentialCopy).toContain("provider key");
+    expect(rejectedCredentialCopy).not.toContain("Reconnect Builder.io");
+  });
+
+  it("localizes unresolved provider status copy in every built-in locale", async () => {
+    for (const locale of SUPPORTED_LOCALES) {
+      const messages = await loadAgentChatMessagesForLocale(locale);
+      expect(messages["setup.checkingProvider"], locale).toEqual(
+        expect.any(String),
+      );
+      expect(messages["setup.providerStatusUnavailable"], locale).toEqual(
+        expect.any(String),
+      );
+      expect(messages["codeRequired.builderAgentNotConnected"], locale).toEqual(
+        expect.any(String),
+      );
+      expect(
+        messages["agentNativeClips.meetingAsk.placeholder"],
+        locale,
+      ).toEqual(expect.any(String));
+      expect(messages["agentNativeClips.meetingAsk.ariaLabel"], locale).toEqual(
+        expect.any(String),
+      );
+    }
+  });
 });

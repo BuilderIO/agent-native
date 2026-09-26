@@ -202,7 +202,6 @@ export function SessionWatchPanel({
           disabled={sending}
           placeholder="Message this session…"
           showModelSelector={false}
-          modelStatusChecksEnabled={false}
           attachmentsEnabled={false}
           voiceEnabled={false}
           includeDefaultSlashCommands={false}

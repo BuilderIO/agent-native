@@ -4,6 +4,7 @@ import {
   filterAvailableMobileTabAppIds,
   getAppRoute,
   getDefaultMobileTabAppIds,
+  getMobileAppUrl,
   MOBILE_BOTTOM_TAB_LIMIT,
   toggleMobileTabAppId,
 } from "./mobile-app-navigation";
@@ -63,5 +64,14 @@ describe("mobile chat-first navigation", () => {
   it("uses the tab route for registered apps and the secure fallback for custom apps", () => {
     expect(getAppRoute("mail")).toBe("/mail");
     expect(getAppRoute("custom-notes")).toBe("/app/custom-notes");
+  });
+
+  it("keeps embedded app settings routes on the app origin", () => {
+    expect(getMobileAppUrl("https://chat.example", "/settings#uploads")).toBe(
+      "https://chat.example/settings#uploads",
+    );
+    expect(
+      getMobileAppUrl("https://chat.example", "https://other.example/"),
+    ).toBe("https://chat.example");
   });
 });

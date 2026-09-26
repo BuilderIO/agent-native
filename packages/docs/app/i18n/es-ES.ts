@@ -1,6 +1,13 @@
 import enUS from "./en-US";
 
 const esES = {
+  agentChat: {
+    setup: {
+      checkingProvider: "Comprobando la conexión de IA…",
+      providerStatusUnavailable: "No se pudo comprobar la conexión de IA.",
+    },
+    common: { retry: "Reintentar" },
+  },
   language: {
     label: "Idioma",
     system: "Sistema",

@@ -184,6 +184,18 @@ export default {
     teamCreateOrgDescription:
       "Set up a team to share designs with your colleagues.",
   },
+  onboarding: {
+    fileStorage: {
+      title: "Connect storage to upload files",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "Checking AI connection…",
+      providerStatusUnavailable: "Couldn't check AI connection.",
+    },
+    common: { retry: "Retry" },
+  },
   chat: {
     emptyState: "Describe a design to create",
     suggestionLandingPage: "Design a landing page for my startup",

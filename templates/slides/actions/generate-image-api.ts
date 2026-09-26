@@ -238,7 +238,7 @@ export default defineAction({
     });
     if (!uploaded?.url) {
       throw new Error(
-        "File storage is not configured. Connect Builder.io (free tier available) or another upload provider before generating slide images.",
+        "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads before generating slide images.",
       );
     }
 

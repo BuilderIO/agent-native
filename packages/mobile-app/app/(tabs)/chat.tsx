@@ -808,6 +808,7 @@ export default function ChatTab() {
               isStreaming={
                 chatTarget === "computer" ? remoteSending : chat.isStreaming
               }
+              target={chatTarget}
               settings={settings}
               baseUrl={chat.baseUrl}
               onSend={chatTarget === "computer" ? handleRemoteSend : chat.send}

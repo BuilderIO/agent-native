@@ -85,6 +85,9 @@ export function CodeRequiredDialog({
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
+        if (body?.errorCode === "builder_agent_not_connected") {
+          throw new Error(t("agentChat.codeRequired.builderAgentNotConnected"));
+        }
         throw new Error(body?.error || `Failed (${res.status})`);
       }
       const data = await res.json();

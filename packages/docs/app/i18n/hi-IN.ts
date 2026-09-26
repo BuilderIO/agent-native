@@ -1,6 +1,13 @@
 import enUS from "./en-US";
 
 const hiIN = {
+  agentChat: {
+    setup: {
+      checkingProvider: "AI कनेक्शन की जाँच हो रही है…",
+      providerStatusUnavailable: "AI कनेक्शन की जाँच नहीं हो सकी।",
+    },
+    common: { retry: "फिर से प्रयास करें" },
+  },
   language: {
     label: "भाषा",
     system: "सिस्टम",

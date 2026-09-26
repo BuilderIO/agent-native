@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { useNavigation } from "@react-navigation/native";
 import {
   IconArrowUp,
@@ -26,7 +27,9 @@ import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AppState,
   ActivityIndicator,
+  DeviceEventEmitter,
   Image,
   Platform,
   Pressable,
@@ -37,12 +40,23 @@ import {
 } from "react-native";
 
 import { MOBILE_SHEET_CLOSE_DURATION_MS } from "@/components/MobileSheet";
-import { fetchMentions } from "@/lib/agent-chat/api";
+import {
+  AGENT_ENGINE_CONFIGURED_CHANGED_EVENT,
+  fetchMentions,
+  getAgentEngineStatus,
+  getFileUploadStatus,
+} from "@/lib/agent-chat/api";
+import {
+  canSendChatMessage,
+  canUseChatAttachments,
+  type FileUploadStatus,
+} from "@/lib/agent-chat/attachment-readiness";
 import {
   activeMentionQuery,
   mentionToReference,
   replaceMention,
 } from "@/lib/agent-chat/mention-query";
+import { MOBILE_LOCAL_AGENT_ENGINES } from "@/lib/agent-chat/model-picker";
 import type {
   ChatAttachment,
   ChatReference,
@@ -54,6 +68,7 @@ import { useMobileNavigation } from "@/lib/navigation";
 import { getAndClearLastDictatedText } from "@/lib/voice-api";
 
 import { MobilePopover } from "./MobilePopover";
+import type { ChatTarget } from "./MobileWorkspaceControls";
 
 export type ActionTag = {
   id: string;
@@ -99,18 +114,22 @@ function ActionMenuRow({
   onPress,
   icon,
   trailing,
+  disabled = false,
 }: {
   label: string;
   onPress: () => void;
   icon: React.ReactNode;
   trailing?: React.ReactNode;
+  disabled?: boolean;
 }) {
   return (
     <Pressable
-      className="h-11 flex-row items-center gap-3 rounded-lg px-3 active:bg-accent"
+      className={`h-11 flex-row items-center gap-3 rounded-lg px-3 ${disabled ? "opacity-45" : "active:bg-accent"}`}
       onPress={onPress}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ disabled }}
     >
       <View className="w-5 items-center justify-center">{icon}</View>
       <Text className="flex-1 text-popover-foreground text-[14px] font-medium">
@@ -311,6 +330,7 @@ async function pickPhotoFromLibrary(): Promise<ChatAttachment | null> {
 
 export function Composer({
   isStreaming,
+  target,
   settings,
   baseUrl,
   onSend,
@@ -320,6 +340,7 @@ export function Composer({
   onSelectMode,
 }: {
   isStreaming: boolean;
+  target: ChatTarget;
   settings: AgentChatSettings;
   baseUrl?: string;
   onSend: (
@@ -334,6 +355,7 @@ export function Composer({
 }) {
   const { foreground, mutedForeground, primaryForeground, accentBlue, theme } =
     useMobileThemeColors();
+  const t = useT();
   const mobileNavigation = useMobileNavigation();
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
@@ -345,10 +367,137 @@ export function Composer({
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [menuScreen, setMenuScreen] = useState<"main" | "skill">("main");
   const [actionTag, setActionTag] = useState<ActionTag | null>(null);
+  const localRuntimeSelected = MOBILE_LOCAL_AGENT_ENGINES.has(
+    settings.engine ?? "",
+  );
+  const [providerStatus, setProviderStatus] = useState<
+    "unknown" | "configured" | "missing" | "unavailable"
+  >(localRuntimeSelected ? "configured" : "unknown");
+  const providerStatusRef = useRef(providerStatus);
+  const providerStatusRequestRef = useRef(0);
+  providerStatusRef.current = providerStatus;
+
+  const retryProviderStatus = useCallback(() => {
+    if (localRuntimeSelected) {
+      setProviderStatus("configured");
+      return;
+    }
+    const requestId = ++providerStatusRequestRef.current;
+    setProviderStatus("unknown");
+    void getAgentEngineStatus(baseUrl)
+      .then((status) => {
+        if (requestId === providerStatusRequestRef.current) {
+          setProviderStatus(status);
+        }
+      })
+      .catch(() => {
+        if (requestId === providerStatusRequestRef.current) {
+          setProviderStatus("unavailable");
+        }
+      });
+  }, [baseUrl, localRuntimeSelected]);
+
+  useEffect(() => {
+    if (localRuntimeSelected) {
+      setProviderStatus("configured");
+      return;
+    }
+    retryProviderStatus();
+    return () => {
+      providerStatusRequestRef.current += 1;
+    };
+  }, [localRuntimeSelected, retryProviderStatus]);
+
+  useEffect(() => {
+    if (localRuntimeSelected) return;
+    const configuredSubscription = DeviceEventEmitter.addListener(
+      AGENT_ENGINE_CONFIGURED_CHANGED_EVENT,
+      retryProviderStatus,
+    );
+    const appStateSubscription = AppState.addEventListener(
+      "change",
+      (nextState) => {
+        if (
+          nextState === "active" &&
+          (providerStatusRef.current === "missing" ||
+            providerStatusRef.current === "unavailable")
+        ) {
+          retryProviderStatus();
+        }
+      },
+    );
+    return () => {
+      configuredSubscription.remove();
+      appStateSubscription.remove();
+    };
+  }, [localRuntimeSelected, retryProviderStatus]);
+
+  const chatReady = localRuntimeSelected || providerStatus === "configured";
+  const chatReadyRef = useRef(chatReady);
+  chatReadyRef.current = chatReady;
+  const targetRef = useRef(target);
+  targetRef.current = target;
+
+  const [fileUploadStatus, setFileUploadStatus] =
+    useState<FileUploadStatus>("unknown");
+  const fileUploadStatusRef = useRef<FileUploadStatus>(fileUploadStatus);
+  const fileUploadStatusRequestRef = useRef(0);
+  fileUploadStatusRef.current = fileUploadStatus;
+  const canAttachToChat =
+    target !== "computer" && canUseChatAttachments(chatReady, fileUploadStatus);
+  const canAttachToChatRef = useRef(canAttachToChat);
+  canAttachToChatRef.current = canAttachToChat;
+
+  const retryFileUploadStatus = useCallback(() => {
+    const requestId = ++fileUploadStatusRequestRef.current;
+    fileUploadStatusRef.current = "unknown";
+    setFileUploadStatus("unknown");
+    void getFileUploadStatus(baseUrl)
+      .then((status) => {
+        if (requestId === fileUploadStatusRequestRef.current) {
+          fileUploadStatusRef.current = status;
+          setFileUploadStatus(status);
+        }
+      })
+      .catch(() => {
+        if (requestId === fileUploadStatusRequestRef.current) {
+          fileUploadStatusRef.current = "unavailable";
+          setFileUploadStatus("unavailable");
+        }
+      });
+  }, [baseUrl]);
+
+  useEffect(() => {
+    retryFileUploadStatus();
+    return () => {
+      fileUploadStatusRequestRef.current += 1;
+    };
+  }, [retryFileUploadStatus]);
+
+  useEffect(() => {
+    const appStateSubscription = AppState.addEventListener(
+      "change",
+      (nextState) => {
+        if (
+          nextState === "active" &&
+          fileUploadStatusRef.current !== "configured"
+        ) {
+          retryFileUploadStatus();
+        }
+      },
+    );
+    return () => appStateSubscription.remove();
+  }, [retryFileUploadStatus]);
+
+  useEffect(() => {
+    if (!chatReady) setPlusMenuOpen(false);
+  }, [chatReady]);
 
   const canSend =
     (text.trim().length > 0 || attachments.length > 0 || actionTag !== null) &&
-    !isStreaming;
+    !isStreaming &&
+    !(target === "computer" && attachments.length > 0) &&
+    canSendChatMessage(chatReady, fileUploadStatus, attachments.length > 0);
 
   const activeMention = useMemo(
     () =>
@@ -408,6 +557,18 @@ export function Composer({
 
   useEffect(() => {
     const unsubscribe = navigation.addListener("focus", () => {
+      if (
+        providerStatusRef.current === "missing" ||
+        providerStatusRef.current === "unavailable"
+      ) {
+        retryProviderStatus();
+      }
+      if (
+        fileUploadStatusRef.current === "missing" ||
+        fileUploadStatusRef.current === "unavailable"
+      ) {
+        retryFileUploadStatus();
+      }
       const dictated = getAndClearLastDictatedText();
       if (dictated) {
         setText((current) => {
@@ -418,14 +579,28 @@ export function Composer({
       }
     });
     return unsubscribe;
-  }, [navigation]);
+  }, [navigation, retryFileUploadStatus, retryProviderStatus]);
 
   const startDictation = () => {
     mobileNavigation.push("/capture/dictate");
   };
 
+  const openChatSettings = (path: string) => {
+    mobileNavigation.push(`/app/chat?path=${encodeURIComponent(path)}`);
+  };
+
   const submit = () => {
-    if (!canSend) return;
+    if (
+      !canSend ||
+      (targetRef.current === "computer" && attachments.length > 0) ||
+      !canSendChatMessage(
+        chatReadyRef.current,
+        fileUploadStatusRef.current,
+        attachments.length > 0,
+      )
+    ) {
+      return;
+    }
     const raw = text.trim();
     const value = actionTag
       ? raw
@@ -445,15 +620,23 @@ export function Composer({
   };
 
   const addAttachment = useCallback((attachment: ChatAttachment | null) => {
-    if (attachment) setAttachments((current) => [...current, attachment]);
+    if (attachment && canAttachToChatRef.current) {
+      setAttachments((current) => [...current, attachment]);
+    }
   }, []);
 
   const addAttachments = useCallback((incoming: ChatAttachment[]) => {
-    if (incoming.length) setAttachments((current) => [...current, ...incoming]);
+    if (incoming.length > 0 && canAttachToChatRef.current) {
+      setAttachments((current) => [...current, ...incoming]);
+    }
   }, []);
 
   useEffect(() => {
+    if (!canAttachToChat) return;
     const recover = () => {
+      if (!canAttachToChatRef.current) {
+        return;
+      }
       void ImagePicker.getPendingResultAsync()
         .then(async (result) => {
           if (!result || "code" in result) return;
@@ -467,7 +650,7 @@ export function Composer({
     recover();
     const unsubscribe = navigation.addListener("focus", recover);
     return unsubscribe;
-  }, [navigation, addAttachment]);
+  }, [navigation, addAttachment, canAttachToChat]);
 
   const pendingActionRef = useRef<(() => void) | null>(null);
   const runPendingAction = () => {
@@ -482,25 +665,41 @@ export function Composer({
   };
 
   const handleOpenPlusMenu = () => {
+    if (!chatReady || target === "computer" || isStreaming) return;
     setMenuScreen("main");
     setPlusMenuOpen(true);
   };
 
   const handleUploadFile = () => {
+    if (!canAttachToChat || isStreaming) {
+      return;
+    }
     closeMenuThen(() => {
-      void pickAnyFileAttachments().then(addAttachments);
+      if (canAttachToChatRef.current) {
+        void pickAnyFileAttachments().then(addAttachments);
+      }
     });
   };
 
   const handleTakePhoto = () => {
+    if (!canAttachToChat || isStreaming) {
+      return;
+    }
     closeMenuThen(() => {
-      void captureCameraAttachment().then(addAttachment);
+      if (canAttachToChatRef.current) {
+        void captureCameraAttachment().then(addAttachment);
+      }
     });
   };
 
   const handlePickPhoto = () => {
+    if (!canAttachToChat || isStreaming) {
+      return;
+    }
     closeMenuThen(() => {
-      void pickPhotoFromLibrary().then(addAttachment);
+      if (canAttachToChatRef.current) {
+        void pickPhotoFromLibrary().then(addAttachment);
+      }
     });
   };
 
@@ -510,13 +709,18 @@ export function Composer({
   };
 
   const handleUploadSkillFile = () => {
+    if (!canAttachToChat || isStreaming) {
+      return;
+    }
     setActionTag({
       id: "upload-skill",
       label: "Upload Skill File",
       icon: "upload",
     });
     closeMenuThen(() => {
-      void pickAnyFileAttachments().then(addAttachments);
+      if (canAttachToChatRef.current) {
+        void pickAnyFileAttachments().then(addAttachments);
+      }
     });
   };
 
@@ -629,6 +833,47 @@ export function Composer({
       )}
 
       <View className="rounded-[22px] bg-card-dark border border-border-dark px-3.5 pt-3 pb-2.5">
+        {!chatReady ? (
+          <View
+            className="mb-2 gap-2 rounded-lg border border-border-dark bg-zinc-900/70 px-3 py-2"
+            accessibilityRole="alert"
+          >
+            <Text className="text-muted-foreground text-[12px]">
+              {providerStatus === "unknown"
+                ? t("agentChat.setup.checkingProvider")
+                : providerStatus === "unavailable"
+                  ? t("agentChat.setup.providerStatusUnavailable")
+                  : t("agentChat.setup.connectToStart")}
+            </Text>
+            {providerStatus === "missing" ? (
+              <View className="flex-row flex-wrap gap-3">
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => openChatSettings("/settings/agent")}
+                >
+                  <Text className="text-foreground text-[12px] font-medium">
+                    {t("agentChat.setup.connectBuilder")}
+                  </Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" onPress={onOpenSettings}>
+                  <Text className="text-foreground text-[12px] font-medium">
+                    {t("agentChat.setup.addOwnKeys")}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : providerStatus === "unavailable" ||
+              providerStatus === "unknown" ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={retryProviderStatus}
+              >
+                <Text className="text-foreground text-[12px] font-medium">
+                  {t("agentChat.common.retry")}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
         {actionTag && (
           <View className="flex-row items-center gap-1.5 self-start px-2.5 py-1 rounded-lg bg-zinc-800/90 border border-zinc-700/80 mb-2">
             {renderActionTagIcon(actionTag.icon, foreground)}
@@ -660,13 +905,14 @@ export function Composer({
           keyboardAppearance={theme}
           accessibilityLabel="Message input"
           nativeID="chat-composer-input"
+          editable={chatReady}
         />
 
         <View className="flex-row items-center justify-between pt-1">
           <Pressable
             className="w-8 h-8 rounded-full items-center justify-center -ml-1 active:opacity-75"
             onPress={handleOpenPlusMenu}
-            disabled={isStreaming}
+            disabled={!chatReady || target === "computer" || isStreaming}
             accessibilityRole="button"
             accessibilityLabel="Actions menu"
           >
@@ -796,9 +1042,66 @@ export function Composer({
         <View className="p-2">
           {menuScreen === "main" ? (
             <>
+              {fileUploadStatus === "missing" ? (
+                <View
+                  className="mb-2 gap-2 rounded-lg border border-border-dark bg-zinc-900/70 px-3 py-2"
+                  accessibilityRole="alert"
+                >
+                  <Text className="text-foreground text-[12px] font-medium">
+                    {t("onboarding.fileStorage.title")}
+                  </Text>
+                  <Text className="text-muted-foreground text-[12px]">
+                    {t("onboarding.fileStorage.description")}
+                  </Text>
+                  <View className="flex-row flex-wrap gap-x-3 gap-y-1">
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => openChatSettings("/settings#uploads")}
+                    >
+                      <Text className="text-foreground text-[12px] font-medium">
+                        {t("setup.connectBuilder")}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => openChatSettings("/settings#uploads")}
+                    >
+                      <Text className="text-foreground text-[12px] font-medium">
+                        {t("onboarding.fileStorage.custom")}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : fileUploadStatus === "unknown" ||
+                fileUploadStatus === "unavailable" ? (
+                <View
+                  className="mb-2 gap-2 rounded-lg border border-border-dark bg-zinc-900/70 px-3 py-2"
+                  accessibilityRole="alert"
+                >
+                  <Text className="text-foreground text-[12px] font-medium">
+                    {t("onboarding.capability.fileStorage.keySummary")}
+                  </Text>
+                  {fileUploadStatus === "unknown" ? (
+                    <ActivityIndicator size="small" color={mutedForeground} />
+                  ) : (
+                    <Text className="text-muted-foreground text-[12px]">
+                      {t("agentPanel.keyStatusUnavailable")}
+                    </Text>
+                  )}
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={retryFileUploadStatus}
+                  >
+                    <Text className="text-foreground text-[12px] font-medium">
+                      {t("agentChat.common.retry")}
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
               <ActionMenuRow
                 label="Choose Photo"
                 onPress={handlePickPhoto}
+                disabled={!canAttachToChat}
                 icon={
                   <IconPhoto color={foreground} size={18} strokeWidth={1.8} />
                 }
@@ -806,6 +1109,7 @@ export function Composer({
               <ActionMenuRow
                 label="Upload File"
                 onPress={handleUploadFile}
+                disabled={!canAttachToChat}
                 icon={
                   <IconUpload color={foreground} size={18} strokeWidth={1.8} />
                 }
@@ -813,6 +1117,7 @@ export function Composer({
               <ActionMenuRow
                 label="Take Photo"
                 onPress={handleTakePhoto}
+                disabled={!canAttachToChat}
                 icon={
                   <IconCamera color={foreground} size={18} strokeWidth={1.8} />
                 }
@@ -904,6 +1209,7 @@ export function Composer({
               <ActionMenuRow
                 label="Upload skill file"
                 onPress={handleUploadSkillFile}
+                disabled={!canAttachToChat}
                 icon={
                   <IconUpload color={foreground} size={18} strokeWidth={1.8} />
                 }

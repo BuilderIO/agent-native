@@ -3,29 +3,40 @@ import {
   useCollaborativeDoc,
   type CollabUser,
 } from "@agent-native/core/client/collab";
-import { uploadEditorImage } from "@agent-native/core/client/uploads";
+import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import {
+  uploadEditorImage,
+  useFileUploadStatus,
+} from "@agent-native/core/client/uploads";
 import {
   createImageSlashCommand,
   DEFAULT_SLASH_COMMANDS,
   RichMarkdownEditor,
   type RichMarkdownCollabUser,
 } from "@agent-native/toolkit/editor";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { PlanImageNode } from "./PlanImageNode";
 
-const PLAN_SLASH_COMMANDS = [
-  ...DEFAULT_SLASH_COMMANDS,
-  createImageSlashCommand(uploadEditorImage),
-];
+// Plans get the shared block-level image node: the `/image` slash command, plus
+// paste / drag-drop of image files. Each image uploads through the framework
+// `upload-image` action (`uploadEditorImage`) and is inserted as a standard
+// `![alt](url)` markdown image, so it autosaves through the existing
+// `update-rich-text` path and stays source-syncable.
+// `features.image` is off because `PlanImageNode` (injected below) IS the image
+// node — it extends the shared node with a React node view that adds the hover
+// zoom / lightbox / three-dots menu. Enabling the core image node too would
+// register a second `image` node and collide.
 const PLAN_EDITOR_FEATURES = { image: false } as const;
-const PLAN_EXTRA_EXTENSIONS = [PlanImageNode];
-
 const SAVE_DEBOUNCE_MS = 700;
 const SAVE_RETRY_MS = 120;
 
+// Stable per-tab request source so this client ignores its own collab updates
+// echoing back through the poll ring buffer.
 const TAB_ID = generateTabId();
 
 type PlanMarkdownEditorProps = {
@@ -35,6 +46,14 @@ type PlanMarkdownEditorProps = {
   className?: string;
   ariaLabel?: string;
   contentUpdatedAt?: string | null;
+  /**
+   * When both `planId` and `blockId` are present, prose for this block is edited
+   * collaboratively against a shared Y.Doc keyed `plan:${planId}:${blockId}`.
+   * Markdown still autosaves through `onSave` (the `update-rich-text` patch), so
+   * the canonical content in `plans.content` is unchanged. When absent (public
+   * read, SSR, or missing session) the editor falls back to today's controlled
+   * single-user editing.
+   */
   planId?: string | null;
   blockId?: string | null;
   user?: RichMarkdownCollabUser | null;
@@ -51,6 +70,15 @@ export function PlanMarkdownEditor({
   blockId,
   user,
 }: PlanMarkdownEditorProps) {
+  const fileUploadStatus = useFileUploadStatus();
+  const canUploadImages =
+    import.meta.env.DEV ||
+    (fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true);
+  const storageMissing =
+    !import.meta.env.DEV &&
+    fileUploadStatus.isSuccess &&
+    fileUploadStatus.data?.configured === false;
+  const t = useT();
   const onSaveRef = useRef(onSave);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPersistedMarkdownRef = useRef(markdown);
@@ -61,6 +89,9 @@ export function PlanMarkdownEditor({
 
   onSaveRef.current = onSave;
 
+  // Gate collab on an editable block with a real plan/block id and a known user
+  // with an email (cursors need a stable label + identity). Anything missing
+  // keeps the non-collab single-user path.
   const collabUser: CollabUser | null =
     user && user.email
       ? { name: user.name, email: user.email, color: user.color }
@@ -79,6 +110,24 @@ export function PlanMarkdownEditor({
   });
   const editorEditable =
     editable && (!collabEnabled || initialization.status === "ready");
+  const slashCommands = useMemo(
+    () =>
+      canUploadImages
+        ? [
+            ...DEFAULT_SLASH_COMMANDS,
+            createImageSlashCommand(uploadEditorImage),
+          ]
+        : DEFAULT_SLASH_COMMANDS,
+    [canUploadImages],
+  );
+  const extraExtensions = useMemo(
+    () => [
+      PlanImageNode.configure({
+        onImageUpload: canUploadImages ? uploadEditorImage : null,
+      }),
+    ],
+    [canUploadImages],
+  );
 
   const queueFlush = useCallback((delay = SAVE_DEBOUNCE_MS) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -144,25 +193,50 @@ export function PlanMarkdownEditor({
   );
 
   return (
-    <RichMarkdownEditor
-      value={markdown}
-      onChange={handleChange}
-      onBlur={() => void flushSave()}
-      editable={editorEditable}
-      contentUpdatedAt={contentUpdatedAt}
-      dialect="gfm"
-      preset="plan"
-      features={PLAN_EDITOR_FEATURES}
-      extraExtensions={PLAN_EXTRA_EXTENSIONS}
-      onImageUpload={uploadEditorImage}
-      slashItems={PLAN_SLASH_COMMANDS}
-      className={cn("plan-rich-markdown-editor mt-4", className)}
-      ariaLabel={ariaLabel}
-      interactive={editorEditable}
-      ydoc={collabEnabled ? ydoc : null}
-      collabSynced={collabEnabled ? collabSynced : true}
-      awareness={collabEnabled ? awareness : null}
-      user={collabEnabled ? collabUser : null}
-    />
+    <div>
+      <RichMarkdownEditor
+        value={markdown}
+        onChange={handleChange}
+        onBlur={() => void flushSave()}
+        editable={editorEditable}
+        contentUpdatedAt={contentUpdatedAt}
+        dialect="gfm"
+        preset="plan"
+        features={PLAN_EDITOR_FEATURES}
+        extraExtensions={extraExtensions}
+        onImageUpload={canUploadImages ? uploadEditorImage : null}
+        slashItems={slashCommands}
+        className={cn("plan-rich-markdown-editor mt-4", className)}
+        ariaLabel={ariaLabel}
+        interactive={editorEditable}
+        ydoc={collabEnabled ? ydoc : null}
+        collabSynced={collabEnabled ? collabSynced : true}
+        awareness={collabEnabled ? awareness : null}
+        user={collabEnabled ? collabUser : null}
+      />
+      {storageMissing && editable ? (
+        <div className="mt-4">
+          <FileStorageSetupCard />
+        </div>
+      ) : null}
+      {!fileUploadStatus.isSuccess && editable && !import.meta.env.DEV ? (
+        <div
+          className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4"
+          role="status"
+        >
+          <p className="text-sm text-muted-foreground">
+            {t("plansPage.loadError.storageStatusUnavailable")}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void fileUploadStatus.refetch()}
+          >
+            {t("plansPage.loadError.retry")}
+          </Button>
+        </div>
+      ) : null}
+    </div>
   );
 }

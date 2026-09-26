@@ -1519,7 +1519,7 @@ function ReviewTab({
           </span>
         )}
       </div>
-      <div className="divide-y divide-border" data-review-list>
+      <div className="space-y-2" data-review-list>
         {visibleReviews.length === 0 ? (
           <EmptyState message={t("observability.noData")} />
         ) : (
@@ -1569,10 +1569,15 @@ function ReviewTab({
             return (
               <div
                 key={review.runId}
-                className="group min-w-0"
+                className="group min-w-0 overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground"
                 data-review-row={review.runId}
               >
-                <div className="flex min-w-0 items-center gap-2">
+                <div
+                  className={cn(
+                    "flex min-w-0 items-center gap-3 px-3 py-3 sm:px-4",
+                    expanded && "bg-muted/30",
+                  )}
+                >
                   {hasPreview && (
                     <span className="h-[70px] w-28 shrink-0 overflow-hidden rounded-md border border-border bg-muted/60">
                       <OutputPreview
@@ -1776,9 +1781,10 @@ function ReviewTab({
                   aria-labelledby={triggerId}
                   data-review-detail-for={review.runId}
                   hidden={!expanded}
+                  className="border-t border-border bg-muted/20"
                 >
                   {expanded && selectedReview && (
-                    <div className="border-t border-border">
+                    <div>
                       <div
                         data-review-summary
                         className="flex items-start justify-between gap-3 px-3 py-3 text-sm sm:px-4"

@@ -1,5 +1,11 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import {
+  sendToAgentChat,
+  useAgentEngineConfigured,
+  useChatModels,
+  BuilderSetupCard,
+} from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { isLocalRuntimeEngine } from "@agent-native/toolkit/composer";
 import {
   IconCommand,
   IconNotes,
@@ -69,18 +75,32 @@ interface QuickAskSidebarProps {
   segments?: TranscriptSegment[] | null;
 }
 
+/**
+ * Mounts the Cmd+J keybinding on the meeting detail page. The toggle is
+ * idempotent: pressing Cmd+J while open closes the sheet (and vice versa).
+ *
+ * IMPORTANT: we register exactly one keydown handler. The `useEffect` cleanup
+ * unsubscribes — so route changes / unmounts never leave a stale listener.
+ */
 export function QuickAskSidebar({
   meetingId,
   meetingTitle,
   segments,
 }: QuickAskSidebarProps) {
   const t = useT();
+  const models = useChatModels({ enabled: false });
+  const checkProviderStatus = !isLocalRuntimeEngine(models.selectedEngine);
+  const providerStatus = useAgentEngineConfigured(checkProviderStatus);
+  const readiness = checkProviderStatus ? providerStatus.state : "configured";
+  const chatReady = readiness === "configured";
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [history, setHistory] = useState<ChatTurn[]>([]);
   const [pendingAsk, setPendingAsk] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Single global keydown listener; toggles on Cmd/Ctrl+J. Esc is handled
+  // natively by `Sheet` (Radix Dialog).
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const cmdOrCtrl = e.metaKey || e.ctrlKey;
@@ -93,6 +113,9 @@ export function QuickAskSidebar({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // The desktop pill's "Ask anything" bar hands its question over as `?ask=`
+  // alongside `?chat=1`, so the question the user typed on the overlay lands
+  // in the agent chat here instead of being retyped.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const askParam = params.get("ask")?.trim();
@@ -109,6 +132,7 @@ export function QuickAskSidebar({
     );
   }, []);
 
+  // Focus the composer whenever the sheet opens.
   useEffect(() => {
     if (open) {
       const t = setTimeout(() => textareaRef.current?.focus(), 60);
@@ -119,7 +143,9 @@ export function QuickAskSidebar({
   const send = useCallback(
     (prompt: string) => {
       const trimmed = prompt.trim();
-      if (!trimmed) return;
+      if (!trimmed || !chatReady) return;
+      // Build a compact context object: meeting id + last 200 segments.
+      // Agent chat is the single source of truth — no inline LLM calls.
       const tail = (segments ?? []).slice(-200);
       const turn: ChatTurn = {
         id: `t_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -140,6 +166,7 @@ export function QuickAskSidebar({
         openSidebar: false,
         background: false,
       });
+      // Optimistic placeholder so the user sees we received the prompt.
       setHistory((prev) => [
         ...prev,
         {
@@ -150,14 +177,23 @@ export function QuickAskSidebar({
         },
       ]);
     },
-    [meetingId, meetingTitle, segments, t],
+    [chatReady, meetingId, meetingTitle, segments, t],
   );
 
   useEffect(() => {
     if (!pendingAsk) return;
+    if (readiness === "unknown" || readiness === "unavailable") return;
     setPendingAsk(null);
+    if (readiness === "missing") {
+      setDraft((previous) => previous || pendingAsk);
+      return;
+    }
     send(pendingAsk);
-  }, [pendingAsk, send]);
+  }, [pendingAsk, readiness, send]);
+
+  const retryProviderStatus = () => {
+    window.dispatchEvent(new Event("agent-engine:configured-changed"));
+  };
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -179,6 +215,29 @@ export function QuickAskSidebar({
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {readiness === "missing" ? (
+            <BuilderSetupCard layout="sidebar" />
+          ) : readiness === "unknown" || readiness === "unavailable" ? (
+            <div
+              className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+              role="status"
+            >
+              <span>
+                {readiness === "unknown"
+                  ? t("agentChat.setup.checkingProvider")
+                  : t("agentChat.setup.providerStatusUnavailable")}
+              </span>
+              {readiness === "unavailable" ? (
+                <button
+                  type="button"
+                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline"
+                  onClick={retryProviderStatus}
+                >
+                  {t("agentChat.common.retry")}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <div className="space-y-1.5">
             <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               {t("quickAsk.quickPrompts")}
@@ -189,6 +248,7 @@ export function QuickAskSidebar({
                   key={q.labelKey}
                   type="button"
                   onClick={() => send(t(q.promptKey))}
+                  disabled={!chatReady}
                   className="text-start text-xs rounded-md border border-border bg-background px-2.5 py-2 hover:bg-accent/40 cursor-pointer"
                 >
                   {t(q.labelKey)}
@@ -247,6 +307,7 @@ export function QuickAskSidebar({
             onChange={(e) => setDraft(e.target.value)}
             placeholder={t("quickAsk.placeholder")}
             className="min-h-[44px] max-h-32 resize-none text-sm"
+            disabled={!chatReady}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -257,7 +318,7 @@ export function QuickAskSidebar({
           <Button
             type="submit"
             size="icon"
-            disabled={!draft.trim()}
+            disabled={!draft.trim() || !chatReady}
             className="cursor-pointer h-9 w-9 shrink-0"
             aria-label={t("quickAsk.send")}
           >

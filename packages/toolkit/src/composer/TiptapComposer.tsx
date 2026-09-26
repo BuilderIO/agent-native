@@ -103,8 +103,10 @@ import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
 export interface TiptapComposerHandle {
   focus(): void;
+  /** Insert text through the editor's normal input path. */
   insertText(text: string): void;
   setText(text: string): void;
+  /** Submit replacement text with the current attachments and context, without editing the draft on failure. */
   submitWithText(text: string): Promise<boolean>;
   insertReference(ref: AgentComposerReference): void;
 }
@@ -511,6 +513,7 @@ function clearComposerDraft(
 export function handleComposerFileDrop(options: {
   event: Pick<DragEvent, "dataTransfer" | "preventDefault" | "stopPropagation">;
   addAttachment: (file: File) => Promise<unknown>;
+  attachmentsEnabled?: boolean;
   onError?: (error: unknown) => void;
 }): boolean {
   const droppedFiles = Array.from(options.event.dataTransfer?.files ?? []);
@@ -518,6 +521,7 @@ export function handleComposerFileDrop(options: {
 
   options.event.preventDefault();
   options.event.stopPropagation();
+  if (options.attachmentsEnabled === false) return true;
   const attachments = droppedFiles.map(uniquifyComposerImageFile);
   void Promise.all(
     attachments.map((file) => options.addAttachment(file)),
@@ -756,57 +760,110 @@ function ComposerModeChip({
 type ExecMode = "build" | "plan";
 
 export interface ComposerAgentOption {
+  /** Stable host-defined identifier for the agent runtime. */
   id: string;
+  /** Human-readable runtime name shown in the picker. */
   label: string;
+  /** Optional icon shown beside the runtime name. */
   icon?: React.ReactNode;
+  /** Optional short detail shown below the runtime name. */
   description?: string;
+  /** Whether this runtime can be selected right now. */
   configured?: boolean;
+  /** Optional status text such as "Installed" or "Sign in". */
   statusLabel?: string;
 }
 
 export interface TiptapComposerProps {
   placeholder?: string;
+  /** Accessible name for the editable prompt surface. */
   ariaLabel?: string;
   disabled?: boolean;
+  /** Prevent submission without making the editable surface lose focus. */
   submissionDisabled?: boolean;
+  /** Prevent submission while a host request is in flight. */
   submitting?: boolean;
+  /** Override the generic document attachment cap for a multipart host. */
   maxDocumentAttachmentBytes?: number;
+  /** Disable file attachments while keeping text chat available. */
+  attachmentsEnabled?: boolean;
+  /** Label used in the visible document attachment limit error. */
   documentAttachmentLimitLabel?: string;
   focusRef?: React.Ref<TiptapComposerHandle>;
+  /** Programmatically seed the editor with plain text. */
   initialText?: string;
+  /** Stable key used to re-apply the seeded text. */
   initialTextKey?: string | number;
+  /**
+   * When provided, called instead of composerRuntime.send(). Used for queue
+   * mode and standalone prompt popovers. Receives the live composer
+   * attachments so callers (e.g. PromptComposer) can surface uploaded files.
+   */
   onSubmit?: (
     text: string,
     references: Reference[],
     attachments?: ReadonlyArray<unknown>,
     options?: TiptapComposerSubmitOptions,
   ) => void | Promise<void>;
+  /** Return false to stop a submit before it enters the chat runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
+  /**
+   * Clear the editor after an onSubmit handler runs. Standalone workflows that
+   * may fail outside the composer can keep the draft visible for quick edits.
+   */
   clearOnSubmit?: boolean;
+  /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
+  /** Custom action button (e.g. stop button) to render instead of the default send button. */
   actionButton?: React.ReactNode;
+  /** Whether the default send action will wait behind existing work. */
   willQueue?: boolean;
+  /** Extra button to render alongside the primary action. */
   extraActionButton?: React.ReactNode;
+  /**
+   * Stop control shown instead of the disabled send button while the composer
+   * has no sendable content. Typing or attaching content restores send.
+   */
   stopButton?: React.ReactNode;
+  /** Custom attachment button to render instead of ComposerPrimitive.AddAttachment. */
   attachButton?: React.ReactNode;
+  /** Custom host-owned control rendered next to the attachment affordance. */
   modeControl?: React.ReactNode;
+  /** Explicit host-owned toolbar slot rendered next to the attachment affordance. */
   toolbarSlot?: React.ReactNode;
+  /** Shared sizing/layout variant for host surfaces. Default keeps sidebar behavior. */
   layoutVariant?: AgentComposerLayoutVariant;
+  /** Additional slash commands surfaced in the shared / menu. */
   slashCommands?: SlashCommand[];
+  /** Additional slash skills surfaced in the shared / menu. */
   slashSkills?: SkillResult[];
+  /** Include built-in sidebar slash commands when onSlashCommand is provided. */
   includeDefaultSlashCommands?: boolean;
+  /** Include app-discovered skills from the default agent endpoint. Default true. */
   includeDefaultSlashSkills?: boolean;
+  /** Called when a slash command (e.g. /clear, /help) is executed */
   onSlashCommand?: (command: string) => void;
+  /** Current execution mode (build/plan) */
   execMode?: ExecMode;
+  /** Callback to change execution mode */
   onExecModeChange?: (mode: ExecMode) => void;
+  /** Disable Plan mode while leaving Act mode available. */
   planModeDisabled?: boolean;
+  /** Explanation shown next to the disabled Plan option. */
   planModeDisabledReason?: string;
+  /** Show the microphone button for voice dictation. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
+  /** Selected model override for this conversation */
   selectedModel?: string;
+  /** Selected provider engine for this conversation */
   selectedEngine?: string;
+  /** Selected effort override for this conversation */
   selectedEffort?: ReasoningEffort;
+  /** Show the legacy provider-level Auto model option (default: true). */
   showAutoModelOption?: boolean;
+  /** Controlled open state for hosts that resize around the model picker. */
   modelSelectorOpen?: boolean;
+  /** Available models grouped by provider */
   availableModels?: Array<{
     engine: string;
     label: string;
@@ -815,30 +872,81 @@ export interface TiptapComposerProps {
     statusLabel?: string;
     isSubscription?: boolean;
   }>;
+  /** Whether the model list is still being resolved. */
   modelListLoading?: boolean;
+  /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
+  /** Callback when user picks an effort */
   onEffortChange?: (effort: ReasoningEffort) => void;
+  /** Local or hosted agent runtimes shown above the model list. */
   availableAgents?: ComposerAgentOption[];
+  /** Selected agent runtime identifier. Defaults to the built-in agent. */
   selectedAgent?: string;
+  /** Show only the selected agent in the model control. */
   agentOnly?: boolean;
+  /** Mark the selected runtime as the hosted tools-only harness mode. */
   hostedHarness?: boolean;
+  /** Callback when the user picks an agent runtime. */
   onAgentChange?: (agent: string) => void;
+  /** Called when the shared model picker opens or closes. */
   onModelSelectorOpenChange?: (open: boolean) => void;
+  /**
+   * Disable Builder/provider status polling for hosts that supply provider
+   * state through another channel, such as Electron IPC.
+   */
   providerConnectStatusEnabled?: boolean;
+  /**
+   * Override the Builder.io connect action in the model picker. When provided,
+   * clicking "Connect Builder.io" calls this instead of opening a browser popup.
+   * Used by the Electron desktop app to route through the native IPC handler.
+   */
   onConnectProvider?: () => void;
+  /** Route local runtime setup through the host's native bridge. */
   onConnectLocalRuntime?: (engine: string) => void;
+  /**
+   * Optional secondary model menu (e.g. an image-generation model) rendered as
+   * an extra section inside the model picker. Opt-in; omit for chat-only apps.
+   */
   imageModelMenu?: ComposerImageModelMenu;
+  /** Stable scope for persisted drafts, usually the active thread or tab id. */
   draftScope?: string;
+  /** Keyed context nuggets staged for the next submitted prompt. */
   contextItems?: readonly AgentChatContextItem[];
+  /** Remove a staged context nugget by key. */
   onRemoveContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
   contextMenuItems?: readonly ComposerContextMenuItem[];
-  attachmentsEnabled?: boolean;
+  /**
+   * Controls the "+" menu next to the composer. `"full"` (default) shows the
+   * normal Upload / Skill / Job / Automation / MCP picker, plus Extension when
+   * `extensionTools` is true. `"upload-only"` collapses it to a single button
+   * that opens the file picker directly. `"hidden"` hides attachment controls
+   * for text-only prompt surfaces.
+   */
   plusMenuMode?: "full" | "upload-only" | "terminal" | "hidden";
+  /** Controls the terminal-specific plus menu when `plusMenuMode` is terminal. */
   terminalModeControl?: ComposerTerminalModeControl;
+  /**
+   * Include extension creation in the full "+" menu. Defaults to false so
+   * apps opt into the extension capability deliberately.
+   */
   extensionTools?: boolean;
+  /**
+   * When true and the composer is running inside the Builder.io webview/iframe,
+   * intercept "build me an app/agent" prompts and forward them to the parent
+   * Builder chat via `builder.submitChat` instead of sending to the local
+   * agent. Off by default — the chat sidebar opts in; standalone prompt
+   * forms (NewWorkspaceAppFlow, etc.) handle delegation themselves with
+   * extra context (vault keys, computed app ids) that the raw composer
+   * text lacks.
+   */
   interceptBuildRequestsForBuilder?: boolean;
+  /**
+   * Called when a drag-drop or paste attachment fails (e.g. unsupported format,
+   * size cap). Use this to surface a visible error in the parent chat surface
+   * rather than silently swallowing the problem.
+   */
   onAttachmentError?: (message: string) => void;
 }
 
@@ -853,6 +961,7 @@ function plainTextToDoc(text: string) {
   };
 }
 
+/** Tiptap keeps the Editor object truthy after destroy but clears commandManager. */
 export function isComposerEditorUsable<T extends { isDestroyed?: boolean }>(
   editor: T | null | undefined,
 ): editor is T {
@@ -1042,11 +1151,15 @@ const LOCAL_RUNTIME_ENGINES = new Set([
   "opencode-cli",
 ]);
 
+export function isLocalRuntimeEngine(engine?: string): boolean {
+  return engine !== undefined && LOCAL_RUNTIME_ENGINES.has(engine);
+}
+
 export function hasConfiguredCloudProvider(
   groups: ReadonlyArray<{ engine: string; configured: boolean }>,
 ): boolean {
   return groups.some(
-    (group) => group.configured && !LOCAL_RUNTIME_ENGINES.has(group.engine),
+    (group) => group.configured && !isLocalRuntimeEngine(group.engine),
   );
 }
 
@@ -1096,6 +1209,11 @@ export function shouldShowModelSelectorSkeleton(
   return isLoading && engineCount === 0;
 }
 
+/**
+ * With nothing connected, every family is a dead "needs API key" row, so the
+ * picker shows only the connect CTAs. Never hide the list unless a CTA is
+ * there to replace it — an empty popover reads as more broken, not less.
+ */
 export function shouldShowOnlyConnectPath(
   showBuilderCta: boolean,
   groups: ReadonlyArray<{ configured: boolean }>,
@@ -1103,6 +1221,15 @@ export function shouldShowOnlyConnectPath(
   return showBuilderCta && groups.every((group) => !group.configured);
 }
 
+/**
+ * When nothing is routable yet, the model hook resolves `selectedModel` to
+ * `""` rather than pre-selecting something unusable — that reflects "nothing
+ * chosen," not "nothing to show." The picker itself still has a job to do in
+ * that state (its connect-provider CTAs). During the initial discovery window
+ * the list is empty too, but the button still needs to exist so the picker can
+ * reveal its loading or setup state instead of making the composer look
+ * incomplete.
+ */
 export function shouldRenderModelSelector(
   availableModels: ReadonlyArray<unknown> | undefined,
   onModelChange: unknown,
@@ -1120,6 +1247,7 @@ function friendlyModelName(model: string, t?: ComposerTranslate): string {
   }
   if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
   const normalizedModel = model.replace(/^(?:anthropic|openai|google)\//, "");
+  // Claude: claude-{tier}-{major}[-minor][-dateYYYYMMDD].
   const claude = normalizedModel.match(
     /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?(?:-\d{8,})?$/,
   );
@@ -1127,6 +1255,7 @@ function friendlyModelName(model: string, t?: ComposerTranslate): string {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
     return `Claude ${tier} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
   }
+  // GPT: gpt-{major}[-minor][-variant] → GPT-Major[.Minor] Variant.
   const gpt = normalizedModel.match(/^gpt-(\d+)(?:[.-](\d+))?(?:[.-](.+))?$/);
   if (gpt) {
     const version = `${gpt[1]}${gpt[2] ? `.${gpt[2]}` : ""}`;
@@ -1137,6 +1266,7 @@ function friendlyModelName(model: string, t?: ComposerTranslate): string {
     return `GPT-${version}${variant ? ` ${variant}` : ""}`;
   }
   if (/^o\d/.test(normalizedModel)) return normalizedModel;
+  // Gemini: gemini-{version.parts}-{variant}[-preview] → Gemini Version Variant.
   const geminiVersioned = normalizedModel.match(
     /^gemini-(\d+(?:[-.]\d+)+)-(.+?)(?:-preview)?$/,
   );
@@ -1148,6 +1278,7 @@ function friendlyModelName(model: string, t?: ComposerTranslate): string {
     const version = geminiVersioned[1].replace(/-/g, ".");
     return `Gemini ${version} ${variant}`.replace("Flash Lite", "Flash-Lite");
   }
+  // Gemini: gemini-{version.parts}[-preview] → Gemini Version Parts
   const gemini = normalizedModel.match(/^gemini-(.+?)(?:-preview)?$/);
   if (gemini) {
     const parts = gemini[1]
@@ -1275,6 +1406,7 @@ function compareModelVersions(
   return 0;
 }
 
+/** Keep the newest version of each Claude, Gemini, and GPT tier. */
 function latestModelsOnly(models: readonly string[]): string[] {
   const latest = new Map<string, { id: string; version: number[] }>();
   for (const id of models) {
@@ -1292,6 +1424,15 @@ function latestModelsOnly(models: readonly string[]): string[] {
   return models.filter((id) => !versionedModelFamily(id) || latestIds.has(id));
 }
 
+/**
+ * Coarse relative cost per model, rendered as a quiet `$`…`$$$` suffix.
+ *
+ * Tokens and their order mirror `MODEL_COST_ORDER` in `@agent-native/core`'s
+ * chat-model-groups, which sorts these same rows — the toolkit cannot import
+ * from core, so a new model family has to be added in both places. Tiers are
+ * each provider's own entry/mid/flagship ladder, not a cross-provider price
+ * claim; anything unlisted has no tier rather than a guessed one.
+ */
 const MODEL_COST_TIERS: ReadonlyArray<readonly [string, 1 | 2 | 3]> = [
   ["luna", 1],
   ["terra", 2],
@@ -1322,10 +1463,21 @@ function ModelCostTier({ model }: { model: string }) {
   return <span className="sr-only">{costLabel}</span>;
 }
 
+/**
+ * Optional secondary model menu for apps that drive a separate generation model
+ * alongside the chat LLM (e.g. the Assets app's image-generation model). When
+ * provided, the model picker renders an extra collapsible section so the user
+ * can see and pick both "what reasons about my request" (the chat model) and
+ * "what produces the output" (this model). Opt-in — omit it and nothing changes.
+ */
 export interface ComposerImageModelMenu {
+  /** Currently-selected model id for this secondary menu. */
   value: string;
+  /** Selectable options (stable id + human label). */
   options: Array<{ value: string; label: string }>;
+  /** Invoked when the user picks a different option. */
   onChange: (value: string) => void;
+  /** Section header. Defaults to "Image model". */
   label?: string;
 }
 
@@ -1508,6 +1660,8 @@ function ModelSelector({
     engines.length,
   );
 
+  // Keep setup actions visible, but do not show unusable model rows until one
+  // provider or local agent is ready.
   const builderFlow = adapters.builder!.useConnectFlow!({
     enabled: providerConnectStatusEnabled,
     provisionAccount: true,
@@ -2313,6 +2467,7 @@ export function TiptapComposer({
   submitting = false,
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
+  attachmentsEnabled = true,
   focusRef,
   initialText,
   initialTextKey,
@@ -2363,7 +2518,6 @@ export function TiptapComposer({
   onInspectContextItem,
   onRetryContextItem,
   contextMenuItems,
-  attachmentsEnabled = true,
   plusMenuMode = "full",
   terminalModeControl,
   extensionTools = false,
@@ -2417,6 +2571,7 @@ export function TiptapComposer({
     typeof navigator !== "undefined" &&
     /Mac|iPhone|iPad/.test(navigator.userAgent);
 
+  // Refs for values accessed in handleKeyDown (ProseMirror doesn't re-bind)
   const popoverStateRef = useRef<PopoverState>(null);
   const onAttachmentErrorRef = useRef(onAttachmentError);
   onAttachmentErrorRef.current = onAttachmentError;
@@ -2443,6 +2598,7 @@ export function TiptapComposer({
   } = useSkills(includeDefaultSlashSkills && popover?.type === "/");
 
   const allSlashCommands = useMemo(() => {
+    // A command without a host callback would be deleted as an invisible no-op.
     if (!onSlashCommand) return [];
     return mergeSlashCommands([
       ...(includeDefaultSlashCommands ? builtInCommands(t) : []),
@@ -2481,6 +2637,7 @@ export function TiptapComposer({
     );
   }, [allSlashSkills, popover]);
 
+  // Keep refs in sync with state
   const mentionItemsRef = useRef(filteredMentionItems);
   mentionItemsRef.current = filteredMentionItems;
   const filteredCommandsRef = useRef(filteredCommands);
@@ -2530,6 +2687,7 @@ export function TiptapComposer({
     popoverStateRef.current = null;
   }, []);
 
+  // Persist draft to localStorage so refreshes don't lose the prompt.
   const hasDraftScope = Boolean(draftScope?.trim());
   const draftKey =
     hasDraftScope || initialText === undefined
@@ -2586,6 +2744,8 @@ export function TiptapComposer({
   useEffect(() => {
     lastComposerRuntimeSyncRef.current = null;
   }, [composerRuntime]);
+  // Tiptap reads extension config once at init; ref keeps runtime prop
+  // changes visible to Placeholder's function form.
   const resolvedPlaceholder = composerMode
     ? localizedComposerModeConfig(composerMode, t).placeholder
     : (placeholder ??
@@ -2599,6 +2759,8 @@ export function TiptapComposer({
     extensions: createTiptapComposerExtensions(() => placeholderRef.current),
     editable: !disabled,
     onUpdate: ({ editor: ed }) => {
+      // Drive the send button's enabled state from the actual editor contents;
+      // the composer runtime is only synced on submit, so its isEmpty lags.
       setEditorHasText(composerDocumentHasContent(ed.state.doc));
       onTextChangeRef.current?.(ed.state.doc.textContent.trim());
 
@@ -2621,7 +2783,25 @@ export function TiptapComposer({
         class:
           "agent-composer-prosemirror flex-1 resize-none bg-transparent text-sm text-foreground outline-none leading-[1.625rem] min-h-[3.25rem] max-h-[10rem] overflow-y-auto",
       },
-      handlePaste: (_view, event) => {
+      handlePaste: (view, event) => {
+        if (disabled) {
+          if (event.clipboardData?.files.length) {
+            event.preventDefault();
+            return true;
+          }
+          return false;
+        }
+        if (!attachmentsEnabled) {
+          if (event.clipboardData?.files.length) {
+            event.preventDefault();
+            const pastedText = readClipboardPaste(event.clipboardData).text;
+            if (pastedText) {
+              view.pasteText(pastedText, new Event("paste") as ClipboardEvent);
+            }
+            return true;
+          }
+          return false;
+        }
         const paste = readClipboardPaste(event.clipboardData);
         const pastedText = paste.text;
         const files = Array.from(event.clipboardData?.files ?? []).filter(
@@ -2630,10 +2810,18 @@ export function TiptapComposer({
         if (files.length > 0) {
           event.preventDefault();
           const attachments: File[] = files.map((file) => {
+            // SimpleImageAttachmentAdapter uses file.name as the attachment id.
+            // Clipboard images (e.g. screenshots) are typically all named
+            // "image.png", so a second paste would replace the first instead of
+            // appending. Prepend a unique token so each paste gets a distinct id.
             const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name}`;
             return new File([file], uniqueName, { type: file.type });
           });
 
+          // Google Docs rich clipboard payloads can contain both embedded
+          // image files and the document text. Since handling files means we
+          // prevent Tiptap's default paste, preserve any text as its own chip
+          // instead of silently dropping the source material.
           if (pastedText.trim()) {
             attachments.push(createPastedAttachmentFile(paste));
           }
@@ -2653,6 +2841,13 @@ export function TiptapComposer({
           return true;
         }
 
+        // Page-sized pastes turn into a `Pasted text` attachment chip so the
+        // prompt stays readable while normal paragraphs and lists stay inline.
+        // When the paste is HTML (e.g. an Alpine.js extension or a document the
+        // user wants hosted), it's stored as a real .html attachment so it
+        // travels the same rail as uploading that file — the agent reads it
+        // verbatim via contentFromAttachment instead of retyping it inline,
+        // which cuts off mid-stream on large files and triggers a spin.
         if (shouldConvertClipboardToAttachment(paste)) {
           event.preventDefault();
           void addAttachmentForCurrentScope(
@@ -2672,9 +2867,20 @@ export function TiptapComposer({
         return false;
       },
       handleDrop: (_view, event) => {
+        if (disabled || !attachmentsEnabled) {
+          if (event.dataTransfer?.files.length) {
+            event.preventDefault();
+            return true;
+          }
+          return false;
+        }
+        // Drag-and-drop files (decks, images, PDFs, etc.) into the composer.
+        // Mark handled drops as consumed so the chat-wide drop target does not
+        // add the same file a second time.
         return handleComposerFileDrop({
           event: event as DragEvent,
           addAttachment: addAttachmentForCurrentScope,
+          attachmentsEnabled,
           onError: (error) => {
             const msg = formatAttachmentError(
               error,
@@ -2690,6 +2896,7 @@ export function TiptapComposer({
       handleKeyDown: (view, event) => {
         const pop = popoverStateRef.current;
 
+        // Handle popover keyboard nav
         if (pop) {
           if (event.key === "ArrowUp") {
             event.preventDefault();
@@ -2763,6 +2970,7 @@ export function TiptapComposer({
           setSelectedContextItemKey(null);
         }
 
+        // Backspace removes composer mode chip when editor is empty
         if (event.key === "Backspace" && composerModeRef.current) {
           if (
             view.state.doc.textContent.trim() === "" &&
@@ -2775,6 +2983,7 @@ export function TiptapComposer({
           }
         }
 
+        // Keyboard shortcut toggles Act/Plan mode from inside the editor.
         if (event.key === "Tab" && event.shiftKey) {
           event.preventDefault();
           const current = execModeRef.current;
@@ -2788,6 +2997,9 @@ export function TiptapComposer({
           return true;
         }
 
+        // Submit on Enter. Shift+Enter inserts a newline and keeps the
+        // composer scrolled to the caret.
+        // Cmd+Enter on macOS / Ctrl+Enter elsewhere marks the submit queued.
         if (event.key === "Enter" && event.shiftKey) {
           event.preventDefault();
           return insertComposerHardBreakAndScrollIntoView(view);
@@ -2800,6 +3012,8 @@ export function TiptapComposer({
           return true;
         }
 
+        // Detect @ trigger — only when preceded by start-of-text, space, or newline
+        // (not after alphanumeric chars, which would indicate an email address)
         if (event.key === "@") {
           const { from } = view.state.selection;
           const textBefore = view.state.doc.textBetween(
@@ -2823,6 +3037,7 @@ export function TiptapComposer({
           return false;
         }
 
+        // Detect / trigger (only at start of line or after whitespace)
         if (event.key === "/") {
           const { from } = view.state.selection;
           const textBefore = view.state.doc.textBetween(
@@ -2869,11 +3084,16 @@ export function TiptapComposer({
     };
   }, [cancelScheduledDraftPersist, draftKey, editor]);
 
+  // Placeholder decorations are computed by ProseMirror. Dispatching an empty
+  // transaction makes a locale or composer-mode change visible immediately.
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
     editor.view.dispatch(editor.state.tr.setSelection(editor.state.selection));
   }, [editor, resolvedPlaceholder]);
 
+  // A tab can stay mounted while becoming the active composer later. Publish
+  // its existing draft when the host starts observing it so contextual UI is
+  // correct immediately after a tab switch, not only after the next keystroke.
   useEffect(() => {
     if (!isComposerEditorUsable(editor) || !onTextChange) return;
     onTextChange(editor.state.doc.textContent.trim());
@@ -3031,6 +3251,7 @@ export function TiptapComposer({
     [editor],
   );
 
+  // --- Live voice transcription: text appears in the editor as the user speaks ---
   const voiceAnchorRef = useRef<number | null>(null);
   const prevVoiceInsertRef = useRef("");
 
@@ -3184,6 +3405,7 @@ export function TiptapComposer({
   const voiceCancelRef = useRef(voice.cancel);
   voiceCancelRef.current = voice.cancel;
 
+  // Clean up live text if voice session ends without a final transcript (cancel/error)
   useEffect(() => {
     if (voice.state === "idle" && voiceAnchorRef.current != null) {
       const anchor = voiceAnchorRef.current;
@@ -3213,9 +3435,13 @@ export function TiptapComposer({
     }
   }, [voice.state, editor]);
 
+  // Global shortcut: Cmd/Ctrl + Shift + M toggles dictation. Escape cancels
+  // while recording. Scoped to avoid firing when focus is outside the app.
   useEffect(() => {
     if (!voiceEnabled || !voice.supported) return;
     const handler = (e: KeyboardEvent) => {
+      // e.key can be undefined on some trusted keydown events (autofill/IME
+      // quirks) — seen crashing in production (AGENT-NATIVE-BROWSER-S).
       const isToggleCombo =
         typeof e.key === "string" &&
         e.key.toLowerCase() === "m" &&
@@ -3256,6 +3482,8 @@ export function TiptapComposer({
       referenceFromComposerReference,
     );
 
+    // Build text that preserves @mentions (getText() strips them).
+    // Walk the document and reconstruct with @name for mention/file/skill nodes.
     const textParts: string[] = [];
     ed.state.doc.descendants((node: any) => {
       if (node.isText) {
@@ -3284,6 +3512,7 @@ export function TiptapComposer({
 
     ed.state.doc.descendants((node: any) => {
       if (node.type.name === "fileReference") {
+        // Legacy support
         references.push({
           type: "file",
           path: node.attrs.path,
@@ -3480,6 +3709,7 @@ export function TiptapComposer({
         }
       };
 
+      // Intercept slash commands typed directly (e.g. "/clear" + Enter)
       const trimmed = text.trim();
       if (trimmed.startsWith("/") && references.length === 0) {
         const cmdName = normalizeSlashCommandName(trimmed);
@@ -3491,6 +3721,12 @@ export function TiptapComposer({
         }
       }
 
+      // Builder iframe delegation: when this app is mounted inside the
+      // Builder.io webview and the user typed a "build me an app/agent"
+      // prompt, hand it up to the parent Builder chat instead of sending
+      // it to this app's domain agent. Builder is the code-writing agent;
+      // the local agent (dispatch, mail, etc.) cannot scaffold workspace
+      // apps from inside its own iframe.
       if (
         !composerMode &&
         interceptBuildRequestsForBuilder &&
@@ -3513,6 +3749,7 @@ export function TiptapComposer({
       if (!isComposerEditorUsable(ed)) return false;
       if (!isCurrentDraftScope()) return false;
 
+      // Composer mode: send with context via agent chat bridge
       if (composerMode) {
         const config = localizedComposerModeConfig(composerMode, t);
         config.beforeSend?.();
@@ -3595,6 +3832,7 @@ export function TiptapComposer({
           submitInFlightRef.current = false;
         }
         if (!isCurrentDraftScope()) return true;
+        // Clear any pending attachments now that the host has them.
         void composerRuntime.clearAttachments().catch(() => {});
         if (!clearOnSubmit) {
           closePopover();
@@ -3637,6 +3875,8 @@ export function TiptapComposer({
     ],
   );
 
+  // Helper functions that operate on the editor view directly
+  // These are called from handleKeyDown which can't use React state
   function selectMention(
     _view: any,
     pop: NonNullable<PopoverState>,
@@ -3645,6 +3885,7 @@ export function TiptapComposer({
     const ed = editor;
     if (!isComposerEditorUsable(ed)) return;
     const currentPos = ed.state.selection.from;
+    // startPos is after the trigger char, so -1 to include the @ or /
     const deleteFrom = Math.max(0, pop.startPos - 1);
     ed.chain().focus().deleteRange({ from: deleteFrom, to: currentPos }).run();
     insertReference(composerReferenceFromMentionItem(item));
@@ -3689,6 +3930,7 @@ export function TiptapComposer({
     setPopover(null);
   }
 
+  // Popover select handlers for click-based selection (from MentionPopover)
   const handleSelectMention = useCallback(
     (item: MentionItem) => {
       if (!isComposerEditorUsable(editor) || !popover) return;
@@ -3741,6 +3983,7 @@ export function TiptapComposer({
     [editor, popover, closePopover],
   );
 
+  // Track query text as user types after trigger
   useEffect(() => {
     if (!isComposerEditorUsable(editor) || !popover) return;
 
@@ -3757,6 +4000,7 @@ export function TiptapComposer({
 
       const text = editor.state.doc.textBetween(startPos, from);
 
+      // Verify the trigger character is still there
       if (startPos > 0) {
         const triggerChar = editor.state.doc.textBetween(
           startPos - 1,
@@ -3866,6 +4110,7 @@ export function TiptapComposer({
     scheduleComposerDraftPersist,
   ]);
 
+  // Tiptap only reads `editable` at init; prop changes need setEditable.
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
     editor.setEditable(!disabled);
@@ -4047,28 +4292,30 @@ export function TiptapComposer({
         data-agent-composer-slot="toolbar"
         className="agent-composer-toolbar flex items-center gap-1 px-2 py-1.5"
       >
-        {attachButton ??
-          (contextMenuItems !== undefined || plusMenuMode === "upload-only" ? (
-            <ComposerContextMenu
-              items={contextMenuItems ?? []}
-              addAttachment={
-                attachmentsEnabled ? addAttachmentForCurrentScope : undefined
-              }
-              attachmentAccept={composerRuntime.getState().attachmentAccept}
-              onAttachmentError={onAttachmentError}
-              disabled={disabled}
-            />
-          ) : plusMenuMode === "hidden" ? null : (
-            <ComposerPlusMenu
-              addAttachment={addAttachmentForCurrentScope}
-              attachmentAccept={composerRuntime.getState().attachmentAccept}
-              onSelectMode={handleSelectMode}
-              mode={plusMenuMode}
-              terminalModeControl={terminalModeControl}
-              extensionTools={extensionTools}
-              onAttachmentError={onAttachmentError}
-            />
-          ))}
+        {!disabled && attachmentsEnabled && attachButton ? (
+          attachButton
+        ) : contextMenuItems !== undefined || plusMenuMode === "upload-only" ? (
+          <ComposerContextMenu
+            items={contextMenuItems ?? []}
+            addAttachment={
+              attachmentsEnabled ? addAttachmentForCurrentScope : undefined
+            }
+            attachmentAccept={composerRuntime.getState().attachmentAccept}
+            onAttachmentError={onAttachmentError}
+            disabled={disabled}
+          />
+        ) : disabled || plusMenuMode === "hidden" ? null : (
+          <ComposerPlusMenu
+            addAttachment={addAttachmentForCurrentScope}
+            attachmentsEnabled={attachmentsEnabled}
+            attachmentAccept={composerRuntime.getState().attachmentAccept}
+            onSelectMode={handleSelectMode}
+            mode={plusMenuMode}
+            terminalModeControl={terminalModeControl}
+            extensionTools={extensionTools}
+            onAttachmentError={onAttachmentError}
+          />
+        )}
         {toolbarSlot ?? modeControl}
         <div data-agent-composer-slot="toolbar-spacer" className="flex-1" />
         {shouldRenderModelSelector(availableModels, onModelChange) && (

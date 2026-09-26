@@ -11,6 +11,7 @@ import {
 } from "@agent-native/code-agents-ui";
 import {
   PromptComposer,
+  isLocalRuntimeEngine,
   readAgentPromptAttachment,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
@@ -405,7 +406,9 @@ export default function QuickPromptOverlay({
         availableModels={availableModels}
         modelListLoading={modelListLoading}
         modelSelectorOpen={modelPickerOpen}
-        modelStatusChecksEnabled={false}
+        modelStatusChecksEnabled={
+          !isLocalRuntimeEngine(normalizedModelSelection.engine)
+        }
         selectedAgent={getCodeAgentIdForEngine(normalizedModelSelection.engine)}
         selectedEngine={normalizedModelSelection.engine}
         selectedEffort={normalizedModelSelection.effort}

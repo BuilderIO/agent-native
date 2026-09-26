@@ -4,6 +4,7 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
@@ -27,6 +28,7 @@ import { toast } from "sonner";
 
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
 import { ShareRecordingDialog } from "@/components/player/share-dialog";
+import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -35,7 +37,14 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useDropVideoUpload } from "@/hooks/use-drop-video-upload";
+import type { VideoStorageGateIssue } from "@/hooks/use-drop-video-upload";
 import {
   useFolders,
   useOrganizations,
@@ -49,6 +58,10 @@ import {
   type RecordingSummary,
 } from "@/hooks/use-library";
 import { useUploadVideoPicker } from "@/hooks/use-upload-video-picker";
+import {
+  fetchVideoStorageStatus,
+  useVideoStorageStatus,
+} from "@/hooks/use-video-storage-status";
 import { OPEN_CREATE_FOLDER_EVENT } from "@/lib/command-events";
 import { retryRecordingUploadFromBackup } from "@/lib/recording-retry";
 import { cn } from "@/lib/utils";
@@ -293,9 +306,15 @@ export function LibraryGrid({
   const canManageRecordings = view !== "shared";
   const canMoveSelection = view === "library" || view === "space";
   const canUploadByDrop = canMoveSelection;
+  const [storageGateIssue, setStorageGateIssue] =
+    useState<VideoStorageGateIssue | null>(null);
+  const storageStatus = useVideoStorageStatus(storageGateIssue !== null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const dragDepthRef = useRef(0);
-  const { uploads, uploadFiles } = useDropVideoUpload({ spaceId, folderId });
+  const { uploads, uploadFiles } = useDropVideoUpload(
+    { spaceId, folderId },
+    setStorageGateIssue,
+  );
   const activeUploadIds = useMemo(
     () =>
       new Set(
@@ -481,6 +500,17 @@ export function LibraryGrid({
   };
 
   const handleRetry = async (rec: RecordingSummary) => {
+    let storageConfigured = false;
+    try {
+      storageConfigured = (await fetchVideoStorageStatus()).configured;
+    } catch {
+      setStorageGateIssue("unavailable");
+      return;
+    }
+    if (!storageConfigured) {
+      setStorageGateIssue("missing");
+      return;
+    }
     try {
       await retryRecordingUploadFromBackup(rec.id);
     } catch (err: any) {
@@ -523,6 +553,17 @@ export function LibraryGrid({
     uploadFiles(files);
   };
 
+  const retryStorageStatus = async () => {
+    const result = await storageStatus.refetch();
+    if (result.isError || !result.data) {
+      setStorageGateIssue("unavailable");
+    } else if (result.data.configured) {
+      setStorageGateIssue(null);
+    } else {
+      setStorageGateIssue("missing");
+    }
+  };
+
   const chips: FilterChip[] = [];
   if (tagFilter) {
     chips.push({
@@ -560,6 +601,26 @@ export function LibraryGrid({
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
+      <Dialog
+        open={storageGateIssue !== null}
+        onOpenChange={(open) => {
+          if (!open) setStorageGateIssue(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="sr-only">
+              {t("storageSetup.configureS3")}
+            </DialogTitle>
+          </DialogHeader>
+          {storageGateIssue === "unavailable" ? (
+            <StorageStatusRetry onRetry={() => void retryStorageStatus()} />
+          ) : (
+            <FileStorageSetupCard />
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Share dialog — programmatically opened from the card context menu */}
       {sharingRec && (
         <ShareRecordingDialog

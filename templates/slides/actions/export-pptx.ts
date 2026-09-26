@@ -1662,6 +1662,12 @@ export default defineAction({
     const row = access.resource;
     const deckData = JSON.parse(row.data);
     const slides = deckData.slides || [];
+    if (slides.length === 0) {
+      fail("Cannot export empty deck", {
+        errorCode: "empty_deck",
+        statusCode: 400,
+      });
+    }
     const rawAspectRatio = deckData.aspectRatio;
     const aspectRatio: AspectRatio | undefined = ASPECT_RATIO_VALUES.includes(
       rawAspectRatio,
