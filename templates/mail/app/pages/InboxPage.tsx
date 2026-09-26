@@ -397,6 +397,10 @@ export function InboxPage() {
     activeAccounts.size > 0 ? [...activeAccounts] : undefined,
   );
   const labels = labelsData ?? EMPTY_LABELS;
+  const labelNames = useMemo(
+    () => new Map(labels.map((label) => [label.id, label.name])),
+    [labels],
+  );
 
   const connectedAccounts = useMemo(
     () => googleStatus.data?.accounts ?? EMPTY_ACCOUNTS,
@@ -1068,6 +1072,7 @@ export function InboxPage() {
         {hasThread ? (
           <EmailThread
             activeThreadId={threadId}
+            labelNames={labelNames}
             onArchived={setLastArchivedId}
             emailIds={threadIds}
             threads={threads}

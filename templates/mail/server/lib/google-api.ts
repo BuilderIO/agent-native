@@ -179,12 +179,27 @@ function quotaCooldownMessage(cooldownMs = QUOTA_COOLDOWN_MS): string {
   return `Email service is briefly busy and will be ready again in about ${seconds}s. Ask the user for the missing info if you need it now, or try again in a moment.`;
 }
 
+/**
+ * Every quota/cooldown throw in this file goes through this type instead of
+ * a plain Error. Its HTTP metadata lets the shared action boundary return a
+ * retryable 429 without action-specific catches or message parsing.
+ */
 export class GmailQuotaCooldownError extends Error {
   readonly retryAfterMs: number;
+  readonly statusCode = 429;
+  readonly errorCode = "gmail_quota_cooldown";
+  readonly details: { retryAfterSeconds: number };
+
   constructor(message: string, retryAfterMs: number) {
     super(message);
     this.name = "GmailQuotaCooldownError";
     this.retryAfterMs = retryAfterMs;
+    const retryAfterSeconds = Number.isFinite(retryAfterMs)
+      ? Math.ceil(retryAfterMs / 1000)
+      : 1;
+    this.details = {
+      retryAfterSeconds: Math.min(300, Math.max(1, retryAfterSeconds)),
+    };
   }
 }
 

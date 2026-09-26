@@ -357,6 +357,16 @@ function agentNativeMetadata(
     | undefined;
 }
 
+function setRuntimeRunIdMetadata(
+  metadata: Record<string, unknown> | undefined,
+  runtimeRunId: string | undefined,
+): void {
+  const observability = agentNativeMetadata(metadata)?.observability;
+  if (!observability) return;
+  if (runtimeRunId === undefined) delete observability.runtimeRunId;
+  else observability.runtimeRunId = runtimeRunId;
+}
+
 function objectReference(value: unknown): AgentObjectReference | undefined {
   const object = asRecord(value);
   if (
@@ -2378,7 +2388,7 @@ export function createAgentKitProtocolAdapter(
           [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
             observability: {
               protocolRunId: runId,
-              runtimeRunId: turn.runId,
+              ...(turn.runId === undefined ? {} : { runtimeRunId: turn.runId }),
               runtimeId: runtime.id,
               sessionId: session.id,
               turnId: turn.id,
@@ -2387,6 +2397,7 @@ export function createAgentKitProtocolAdapter(
           } satisfies AgentNativeProtocolMetadata,
         },
       );
+      setRuntimeRunIdMetadata(runMetadata, turn.runId);
       const run: ProtocolRun = {
         runId,
         threadId: input.threadId,
@@ -2723,7 +2734,9 @@ export function createAgentKitProtocolAdapter(
             [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
               observability: {
                 protocolRunId: nextRunId,
-                runtimeRunId: nextTurn.runId,
+                ...(nextTurn.runId === undefined
+                  ? {}
+                  : { runtimeRunId: nextTurn.runId }),
                 runtimeId: runtime.id,
                 sessionId: run.session.id,
                 turnId: nextTurn.id,
@@ -2733,6 +2746,7 @@ export function createAgentKitProtocolAdapter(
             } satisfies AgentNativeProtocolMetadata,
           },
         );
+        setRuntimeRunIdMetadata(replacementMetadata, nextTurn.runId);
         const replacementRun: ProtocolRun = {
           runId: nextRunId,
           threadId: input.threadId,

@@ -41,7 +41,7 @@ const messages = {
       aiSetupTitle: "Configure sua caixa de entrada com IA",
       aiSetupTagLabel: "Criar uma etiqueta de IA",
       aiSetupImportanceLabel: "Emails importantes",
-      aiSetupSpamLabel: "Spam e emails indesejados",
+      aiSetupSpamLabel: "Spam",
       aiSetupArchiveLabel: "Pular caixa de entrada",
       aiSetupSave: "Salvar configuração",
       aiSetupSkip: "Pular por enquanto",
@@ -557,6 +557,8 @@ const messages = {
       actionFailed: "Não foi possível atualizar o filtro de IA.",
       settingsFailed:
         "Não foi possível salvar as configurações do filtro de IA.",
+      automationRulesLoadFailed:
+        "Não foi possível carregar as regras de triagem.",
       instructionFailed: "Não foi possível salvar a instrução do filtro de IA.",
       skipInboxMode: "Pular caixa de entrada",
       spamMode: "Spam",

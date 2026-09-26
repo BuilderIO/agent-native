@@ -72,6 +72,11 @@ async function designRecord(request: APIRequestContext, designId: string) {
     .then((r) => r.json());
 }
 
+async function designData(request: APIRequestContext, designId: string) {
+  const record = await designRecord(request, designId);
+  return JSON.parse(record.data || "{}") as Record<string, any>;
+}
+
 async function fileContent(
   request: APIRequestContext,
   designId: string,
@@ -575,6 +580,18 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     ({ designId } = await newDesign(request, [
       { filename: "index.html", content: NAV_SCREEN },
     ]));
+    const sourceId = await fileId(request, designId, "index.html");
+    const sourceGeometry = { x: 200, y: 720, width: 320, height: 240, z: 4 };
+    await action(request, "update-design", {
+      id: designId,
+      dataOperations: [
+        {
+          op: "set",
+          path: ["canvasFrames", sourceId],
+          value: sourceGeometry,
+        },
+      ],
+    });
     await page.goto(`${BASE_URL}/design/${designId}?view=overview&zoom=30`, {
       waitUntil: "domcontentloaded",
     });
@@ -599,6 +616,9 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         { timeout: 10_000 },
       )
       .toBe(true);
+    await expect
+      .poll(() => fileList(request, designId), { timeout: 10_000 })
+      .toContain("__board__.html");
     const filesBefore = await fileList(request, designId);
 
     await card.click({ force: true });
@@ -622,6 +642,15 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     const dup1 = filesAfter.find((f) => !filesBefore.includes(f));
     expect(dup1, "duplicated screen file should exist").toBe("index-copy.html");
     const dup1Id = await fileId(request, designId, dup1!);
+    const dup1Geometry = (await designData(request, designId)).canvasFrames?.[
+      dup1Id
+    ];
+    expect(dup1Geometry).toMatchObject({
+      x: sourceGeometry.x + sourceGeometry.width + 56,
+      y: sourceGeometry.y,
+      z: sourceGeometry.z + 1,
+    });
+    // Figma selects the new copy after Cmd+D.
     await expect
       .poll(async () => (await selectionContext(request)).selectedScreenIds, {
         timeout: 10_000,
@@ -629,6 +658,11 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
           "Cmd+D should select the new copy (Figma parity) once its history entry lands",
       })
       .toEqual([dup1Id]);
+    await expect(
+      page.locator(`[data-frame-id="${dup1Id}"] [data-screen-card]`),
+    ).toBeInViewport();
+    // Duplicating a screen regenerates every node id (like paste), so assert
+    // on the content signature, not the source id.
     const dup1Content = await fileContent(request, designId, dup1!);
     expect(dup1Content).toContain('data-agent-native-component="Navigation"');
     expect(dup1Content).toContain("Wordmark");
@@ -649,6 +683,14 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       "index-copy-copy.html",
     );
     const dup2Id = await fileId(request, designId, dup2!);
+    const dup2Geometry = (await designData(request, designId)).canvasFrames?.[
+      dup2Id
+    ];
+    expect(dup2Geometry).toMatchObject({
+      x: dup1Geometry.x + dup1Geometry.width + 56,
+      y: dup1Geometry.y,
+      z: dup1Geometry.z + 1,
+    });
     await expect
       .poll(async () => (await selectionContext(request)).selectedScreenIds, {
         timeout: 10_000,
@@ -656,6 +698,9 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
           "the second Cmd+D should select its own copy too (Figma parity)",
       })
       .toEqual([dup2Id]);
+    await expect(
+      page.locator(`[data-frame-id="${dup2Id}"] [data-screen-card]`),
+    ).toBeInViewport();
     const dup2Content = await fileContent(request, designId, dup2!);
     expect(dup2Content).toContain('data-agent-native-component="Navigation"');
     expect(dup2Content).toContain("Wordmark");

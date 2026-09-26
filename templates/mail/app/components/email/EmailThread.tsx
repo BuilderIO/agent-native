@@ -89,6 +89,7 @@ import {
   processHtmlImages,
 } from "@/lib/email-image-policy";
 import { getLabelStyle } from "@/lib/label-colors";
+import { mailLabelDisplayName } from "@/lib/label-display";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import {
   buildForwardDraft,
@@ -152,6 +153,7 @@ function InlineReplyComposerSkeleton() {
 
 export function EmailThread({
   activeThreadId,
+  labelNames,
   onArchived,
   emailIds = [],
   threads = [],
@@ -163,6 +165,7 @@ export function EmailThread({
   onToggleMaximize,
 }: {
   activeThreadId?: string;
+  labelNames?: ReadonlyMap<string, string>;
   onArchived?: (id: string) => void;
   emailIds?: string[];
   threads?: ThreadSummary[];
@@ -1332,7 +1335,12 @@ export function EmailThread({
                       style.text,
                     )}
                   >
-                    {labelId}
+                    {mailLabelDisplayName(
+                      labelNames?.get(labelId) ??
+                        labelId
+                          .replace(/^label:/, "")
+                          .replace(/^CATEGORY_/, ""),
+                    )}
                   </span>
                 );
               })}

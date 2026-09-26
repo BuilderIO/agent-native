@@ -1,7 +1,11 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 import { getAppConfig } from "../app-config/index.js";
-import { deleteUploadedFile, uploadFile } from "../file-upload/index.js";
+import {
+  deleteUploadedFile,
+  getActiveFileUploadProviderForRequest,
+  uploadFile,
+} from "../file-upload/index.js";
 import {
   decryptSecretValue,
   encryptSecretValue,
@@ -317,6 +321,13 @@ export async function getActivePrivateBlobProviderForRequest(): Promise<PrivateB
     if (await provider.isConfiguredForRequest?.()) return provider;
   }
   return null;
+}
+
+export async function isPrivateBlobConfiguredForRequest(): Promise<boolean> {
+  if (await getActivePrivateBlobProviderForRequest()) return true;
+  if (!publicUploadFallbackRef.enabled) return false;
+  if (!getAppConfig().privateBlob.publicUploadFallback) return false;
+  return Boolean(await getActiveFileUploadProviderForRequest());
 }
 
 export function setPrivateBlobPublicUploadFallbackEnabled(

@@ -15677,6 +15677,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         };
       }
     }
+    if (
+      pointerOutsideCurrentParent &&
+      (!pointHit ||
+        pointHit === document.body ||
+        pointHit === document.documentElement) &&
+      dropContainerForTarget(target) === currentParent
+    ) {
+      target = unnestAbsoluteToScreenRoot(el, clientX, clientY) || target;
+    }
     var container = dropContainerForTarget(target);
 
     if (
@@ -15685,7 +15694,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       container !== document.body &&
       isAutoLayoutElement(container)
     ) {
-      return {
+      target = {
         anchor: container,
         placement: "inside",
         axis: parentFlowAxis(container),
@@ -15699,7 +15708,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         container === document.documentElement ||
         target?.anchor === document.body)
     ) {
-      return {
+      target = {
         anchor: currentParent,
         placement: "after",
         axis: "y",
@@ -15707,6 +15716,45 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
 
+    // Leaving a frame for its parent's empty area stacks the layer immediately
+    // above the frame being exited. A hit on a sibling is an explicit slot
+    // and keeps that sibling as its insertion anchor.
+    var exitedContainer = el.parentElement;
+    var receivingContainer = exitedContainer && exitedContainer.parentElement;
+    var targetContainer = dropContainerForTarget(target);
+    if (
+      !ignoreTargetAutoLayout &&
+      target &&
+      exitedContainer &&
+      receivingContainer &&
+      isContainerDropTarget(exitedContainer) &&
+      targetContainer === receivingContainer &&
+      (pointHit === receivingContainer ||
+        !pointHit ||
+        pointHit === document.body ||
+        pointHit === document.documentElement)
+    ) {
+      target = {
+        ...target,
+        anchor: exitedContainer,
+        placement: "after",
+        axis: parentFlowAxis(receivingContainer),
+        persistenceAnchor: exitedContainer,
+        persistencePlacement: "after",
+        gridCell: undefined,
+        gridPlacement: undefined,
+        gridDisplacement: undefined,
+        gridDisplacementPlacements: undefined,
+        gridDisplacementPrevStyles: undefined,
+        guideRect: undefined,
+        guideMode: undefined,
+        guidePlacement: undefined,
+      };
+    }
+
+    // Flow child (a real flow-reorder gesture) dropped into an empty plain
+    // container: convert it to auto layout before the structural move. This is
+    // the flow path only; the absolute/free drag keeps shapes free.
     if (
       target &&
       target.dropMode === "flow-insert" &&

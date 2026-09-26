@@ -255,6 +255,68 @@ export function lineDiff(a: string[], b: string[], max = 120): string[] {
     : out;
 }
 
+const collapse = (s: string) =>
+  s
+    .replace(/[\u200b\ufeff]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/**
+ * `after` is `before` with `token` inserted exactly once, at any point: End
+ * lands mid-text in a wrapped paragraph. Beside the token, the insertion may
+ * only hold spaces and marker glyphs, since Enter in a custom bullet row
+ * clones its marker; any letter or digit there, or any text of `before`
+ * missing, fails. Whitespace runs compare as one space, so a line break reads
+ * as a space and a token's leading space may merge with one already there,
+ * but a lost space fails.
+ */
+export function isSplicedOnce(
+  before: string,
+  token: string,
+  after: string,
+): boolean {
+  const b = collapse(before);
+  const t = collapse(token);
+  const a = collapse(after);
+  const spaced = /^\s/.test(token);
+  for (let i = 0; i <= b.length; i++) {
+    const tail = b.length - i;
+    if (a.length - tail < i + t.length) break;
+    if (!a.startsWith(b.slice(0, i)) || !a.endsWith(b.slice(i))) continue;
+    const inserted = a.slice(i, a.length - tail).split(t);
+    if (inserted.length !== 2 || /[\p{L}\p{N}]/u.test(inserted.join("")))
+      continue;
+    const lead = a.slice(0, i) + inserted[0];
+    if (!spaced || lead === "" || lead.endsWith(" ")) return true;
+  }
+  return false;
+}
+
+/**
+ * Keys of text records `b` adds inside the edited element whose style no
+ * text of that element had in `a`: typing that lands in a new node outside
+ * the run it continued, so it loses the run's color or weight. `diffSnapshots`
+ * lists such records as added, which alone is no violation.
+ */
+export function restyledAddedText(a: Snapshot, b: Snapshot): string[] {
+  const added = new Set(diffSnapshots(a, b).added.map((r) => r.key));
+  const known = new Set(
+    a.records
+      .filter((r) => r.kind === "text" && r.inside)
+      .map((r) => JSON.stringify(r.props)),
+  );
+  return b.records
+    .filter(
+      (r) =>
+        r.kind === "text" &&
+        r.inside &&
+        added.has(r.key) &&
+        !known.has(JSON.stringify(r.props)),
+    )
+    .map((r) => r.key);
+}
+
+// -------------------------------------------------------------- baseline ---
 
 export type Status = "pass" | "fail" | "no-edit" | "error";
 const STATUS_RANK: Record<Status, number> = {
@@ -269,6 +331,8 @@ export interface ScenarioMetrics {
   editingPct: number;
   afterPct: number;
   reloadPct: number;
+  /** Typed, still editing -> after exit, whole slide. */
+  typedPct: number;
   outsideEditingPct: number;
   outsideAfterPct: number;
   styleDeltasEditing: number;
@@ -283,6 +347,7 @@ const PCT_FIELDS = [
   "editingPct",
   "afterPct",
   "reloadPct",
+  "typedPct",
   "outsideEditingPct",
   "outsideAfterPct",
 ] as const;
@@ -307,6 +372,16 @@ export function toBaselineEntry(m: ScenarioMetrics): BaselineEntry {
   return entry;
 }
 
+/** An entry recorded before a field existed holds it to the invariant. */
+function pctCeiling(entry: BaselineEntry, f: (typeof PCT_FIELDS)[number]) {
+  return entry[f] ?? ceilingFor(0);
+}
+
+/**
+ * The entry `--update` writes: a fresh measurement for a new key, and for an
+ * existing one the stricter of the two per field, so an update never loosens
+ * the ratchet. Loosening an entry is a deliberate edit, not a re-measure.
+ */
 export function ratchetBaselineEntry(
   existing: BaselineEntry | undefined,
   m: ScenarioMetrics,
@@ -316,7 +391,8 @@ export function ratchetBaselineEntry(
   if (STATUS_RANK[existing.status] < STATUS_RANK[next.status]) {
     next.status = existing.status;
   }
-  for (const f of PCT_FIELDS) next[f] = Math.min(existing[f], next[f]);
+  for (const f of PCT_FIELDS)
+    next[f] = Math.min(pctCeiling(existing, f), next[f]);
   for (const f of COUNT_FIELDS) next[f] = Math.min(existing[f], next[f]);
   return next;
 }
@@ -343,8 +419,9 @@ export function findBaselineProblems(
       problems.push(`${key}: status ${b.status} -> ${m.status}`);
     }
     for (const f of PCT_FIELDS) {
-      if (m[f] > b[f])
-        problems.push(`${key}: ${f} ${m[f]}% exceeds ceiling ${b[f]}%`);
+      const ceiling = pctCeiling(b, f);
+      if (m[f] > ceiling)
+        problems.push(`${key}: ${f} ${m[f]}% exceeds ceiling ${ceiling}%`);
     }
     for (const f of COUNT_FIELDS) {
       if (m[f] > b[f])
@@ -357,6 +434,18 @@ export function findBaselineProblems(
     }
   }
   return problems;
+}
+
+/** Baseline keys whose case, or slide within it, the corpus no longer has. */
+export function orphanedBaselineKeys(
+  keys: string[],
+  slideCounts: Map<string, number>,
+): string[] {
+  return keys.filter((key) => {
+    const [caseId, slide] = key.split("/");
+    const count = slideCounts.get(caseId);
+    return count === undefined || Number(slide.slice(1)) > count;
+  });
 }
 
 function round3(n: number): number {

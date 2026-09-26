@@ -5,6 +5,10 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-09-26
 
+### Fixed
+
+- Reference file imports now check storage availability before opening the file picker.
+
 ### Changed
 
 - The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.

@@ -135,8 +135,8 @@ const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
 // ponytail: count explicit "couldn't renew, so stopped" reports; broaden only from clear transcript examples.
 const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
   [
-    String.raw`(?:^|[.!?\n])\s*(?!(?:if|when|unless|should|suppose|assuming)\b)[^.!?\n]{0,80}?\b(?:codex|agents?|sessions?|threads?|i|we|this\s+task|the\s+task)\b[^.!?\n]{0,80}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?\n]{0,50}\bleases?\b[^.!?\n]{0,40}\b(?:so|then|and then|therefore)\b\s+(?:would\s+)?(?:just\s+)?(?:(?:it|they|i|we|the\s+(?:session|task|thread|agent)|(?:session|task|thread|agent|codex))\s+)?stop\w*(?:\s+working)?\b(?=\s*(?:[.!?]|$))`,
-    String.raw`\bi\s+(?:(?:had|have) to\s+)?(?:tell|told|asked|reminded)\s+(?:at\s+)?(?:the\s+)?(?:threads?|sessions?|agents?)\s+(?:to\s+)?finish(?:ing)?\s+shipping\s+and\s+(?:to\s+)?(?:ignore|bypass)\s+(?:the\s+)?leases?(?:\s+stuff)?\b`,
+    String.raw`(?:^|[.!?\n])\s*(?!(?:if|when|unless|should|suppose|assuming)\b)(?![^.!?\n]{0,80}\b(?:hypothet\w*|examples?|illustrat\w*|fiction\w*)\b)[^.!?\n]{0,80}?\b(?:codex|agents?|sessions?|threads?|i|we|this\s+task|the\s+task)\b[^.!?\n]{0,80}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?\n]{0,50}\bleases?\b[^.!?\n]{0,40}\b(?:so|then|and then|therefore)\b\s+(?:would\s+)?(?:just\s+)?(?:(?:it|they|i|we|the\s+(?:session|task|thread|agent)|(?:session|task|thread|agent|codex))\s+)?stop\w*(?:\s+working)?\b(?![.!?]\s*(?:this|that|the above|the preceding|that sentence)\s+(?:is|was)\s+(?:(?:just|only|merely)\s+)?(?:an?\s+)?(?:illustrat\w*|hypothet\w*|fiction\w*|examples?)\b)(?=\s*(?:[.!?]|$))`,
+    String.raw`(?:^|[.!?\n])\s*(?!(?:if|when|unless|should|suppose|assuming)\b)(?![^.!?\n]{0,80}\b(?:hypothet\w*|examples?|illustrat\w*|fiction\w*)\b)[^.!?\n]{0,80}?\bi\s+(?:(?:had|have) to\s+)?(?:tell|told|asked|reminded)\s+(?:at\s+)?(?:the\s+)?(?:threads?|sessions?|agents?)\s+(?:to\s+)?finish(?:ing)?\s+shipping\s+and\s+(?:to\s+)?(?:ignore|bypass)\s+(?:the\s+)?leases?(?:\s+stuff)?\b(?![.!?]\s*(?:this|that|it|the above|the preceding|that sentence)\s+(?:is|was)\s+(?:(?:just|only|merely)\s+)?(?:an?\s+)?(?:illustrat\w*|hypothet\w*|fiction\w*|examples?)\b)(?=\s*(?:[.!?]|$))`,
   ].join("|"),
   "i",
 );
@@ -670,6 +670,14 @@ const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
   [true, "This task couldn't renew the PR lease, so it stopped."],
   [true, "I told the threads to finish shipping and ignore the lease stuff."],
   [
+    false,
+    "As a hypothetical example, I told the threads to finish shipping and ignore the lease stuff.",
+  ],
+  [
+    false,
+    "I told the threads to finish shipping and ignore the lease stuff. This is illustrative.",
+  ],
+  [
     true,
     "I had to tell at the threads to finish shipping and ignore the lease stuff.",
   ],
@@ -697,6 +705,34 @@ const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
   [
     false,
     "The lease expired then the task stopped because CI was unavailable.",
+  ],
+  [
+    false,
+    "Hypothetically, Codex couldn't renew the PR lease, so it stopped working.",
+  ],
+  [
+    false,
+    "As a hypothetical example, Codex couldn't renew the PR lease, so it stopped working.",
+  ],
+  [
+    false,
+    "Consider this hypothetical: Codex couldn't renew the PR lease, so it stopped working.",
+  ],
+  [
+    false,
+    "The task could not renew the PR lease, so it stopped working. This is illustrative.",
+  ],
+  [
+    false,
+    "The task could not renew the PR lease, so it stopped working. That was just an example.",
+  ],
+  [
+    false,
+    "In a hypothetical scenario, Codex couldn't renew the PR lease, so it stopped working.",
+  ],
+  [
+    false,
+    "For example, Codex couldn't renew the PR lease, so it stopped working.",
   ],
   [
     false,

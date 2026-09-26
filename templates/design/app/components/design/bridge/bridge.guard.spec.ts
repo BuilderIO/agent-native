@@ -9413,6 +9413,217 @@ it(
 );
 
 it(
+  "editor chrome bridge uses the exited frame for empty-area drops and preserves explicit sibling slots",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      const sourceBuild = await build({
+        entryPoints: [join(bridgeDir, "editor-chrome.bridge.ts")],
+        bundle: true,
+        format: "iife",
+        platform: "browser",
+        target: "es2020",
+        write: false,
+        external: [],
+      });
+      const sourceScript = sourceBuild.outputFiles[0]?.text;
+      if (!sourceScript) throw new Error("Bridge source compilation failed");
+      const fixtureHtml = `<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #outer { position: absolute; left: 100px; top: 100px; width: 600px; height: 500px; background: #eee; }
+      #nested { position: absolute; left: 220px; top: 200px; width: 200px; height: 120px; display: flex; background: #ccc; }
+      #dragme { width: 80px; height: 60px; background: #6366f1; }
+      #candidate { position: absolute; left: 20px; top: 350px; width: 100px; height: 60px; background: #9ca3af; }
+      #overlap { position: absolute; left: 0; top: 0; width: 160px; height: 120px; background: #ef4444; }
+    </style>
+  </head>
+  <body>
+    <main id="outer" data-agent-native-node-id="outer">
+      <section id="nested" data-an-primitive="frame" data-agent-native-node-id="nested">
+        <div id="dragme" data-agent-native-node-id="dragme">Drag me</div>
+      </section>
+      <div id="candidate" data-agent-native-node-id="candidate">Drop area</div>
+      <div id="overlap" data-agent-native-node-id="overlap">Later layer</div>
+    </main>
+  </body>
+</html>`;
+      const dropResults: Array<{
+        crossesExitedFrame: boolean;
+        dropArea: "empty" | "sibling";
+        parentId: string | undefined;
+        childOrder: string[];
+        structureChange: Record<string, unknown> | undefined;
+      }> = [];
+
+      for (const testCase of [
+        { crossesExitedFrame: false, dropArea: "empty" },
+        { crossesExitedFrame: true, dropArea: "empty" },
+        { crossesExitedFrame: false, dropArea: "sibling" },
+      ] as const) {
+        await page.setContent(`<!doctype html><html><body style="margin:0">
+<iframe id="design" style="display:block;width:900px;height:700px;border:0"></iframe>
+<script>
+  window.__bridgeMessages = [];
+  window.addEventListener("message", event => {
+    const message = event.data;
+    if (!message || typeof message.type !== "string") return;
+    window.__bridgeMessages.push(message);
+    if (message.type === "visual-structure-change") {
+      event.source.postMessage({
+        type: "visual-structure-ack",
+        requestId: message.requestId,
+        applied: true,
+      }, "*");
+    }
+  });
+</script>
+</body></html>`);
+        await page.locator("#design").evaluate((iframe, html) => {
+          (iframe as HTMLIFrameElement).srcdoc = html as string;
+        }, fixtureHtml);
+        const iframe = await page.locator("#design").elementHandle();
+        const frame = await iframe?.contentFrame();
+        if (!frame) throw new Error("Design fixture iframe failed to load");
+        await frame.waitForSelector("#dragme");
+        await frame.evaluate(() => {
+          (window as any).__receivedStructureAcks = [];
+          window.addEventListener("message", (event) => {
+            if (event.data?.type === "visual-structure-ack") {
+              (window as any).__receivedStructureAcks.push(event.data);
+            }
+          });
+        });
+        await frame.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(
+            false,
+            "g4",
+            true,
+            sourceScript,
+          ),
+        });
+        await frame.waitForSelector(
+          '[data-agent-native-edit-overlay="shield"]',
+        );
+        await page.evaluate(() => {
+          document
+            .querySelector<HTMLIFrameElement>("#design")!
+            .contentWindow!.postMessage(
+              { type: "select-element", selector: "#dragme" },
+              "*",
+            );
+        });
+        await frame.waitForFunction(() => {
+          const overlay = document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="selection"]',
+          );
+          const target = document.querySelector<HTMLElement>("#dragme");
+          if (!overlay || !target) return false;
+          const overlayRect = overlay.getBoundingClientRect();
+          const targetRect = target.getBoundingClientRect();
+          return (
+            window.getComputedStyle(overlay).display === "block" &&
+            Math.abs(overlayRect.width - targetRect.width) < 2 &&
+            Math.abs(overlayRect.height - targetRect.height) < 2
+          );
+        });
+
+        const dragmeBox = await frame.locator("#dragme").boundingBox();
+        if (!dragmeBox) throw new Error("Dragged layer has no rendered box");
+        const startX = dragmeBox.x + dragmeBox.width / 2;
+        const startY = dragmeBox.y + dragmeBox.height / 2;
+        await page.mouse.move(startX, startY);
+        await page.mouse.down();
+        if (testCase.crossesExitedFrame) {
+          await page.mouse.move(570, 350, { steps: 4 });
+          await page.mouse.move(startX, startY, { steps: 4 });
+        }
+        await page.mouse.move(
+          testCase.dropArea === "empty" ? 650 : 130,
+          testCase.dropArea === "empty" ? 550 : 460,
+          { steps: 12 },
+        );
+        await page.mouse.up();
+
+        const messages = await readBridgeMessages(page);
+        const structureMessage = messages.find(
+          (message) => message.type === "visual-structure-change",
+        );
+        if (!structureMessage) {
+          throw new Error("The host did not receive the structure change");
+        }
+        await frame.waitForFunction((requestId) => {
+          const acknowledgements = (window as any)
+            .__receivedStructureAcks as Array<Record<string, unknown>>;
+          return acknowledgements.some(
+            (acknowledgement) =>
+              acknowledgement.requestId === requestId &&
+              acknowledgement.applied === true,
+          );
+        }, structureMessage.requestId);
+        const structureChange = structureMessage
+          ? {
+              anchorSourceId: structureMessage.anchorSourceId,
+              persistenceAnchorSourceId:
+                structureMessage.persistenceAnchorSourceId,
+              placement: structureMessage.placement,
+              persistencePlacement: structureMessage.persistencePlacement,
+            }
+          : undefined;
+        const result = await frame.evaluate(() => {
+          const outer = document.querySelector<HTMLElement>("#outer")!;
+          const child = document.querySelector<HTMLElement>("#dragme")!;
+          return {
+            parentId: child.parentElement?.id,
+            childOrder: Array.from(outer.children).map((element) => element.id),
+          };
+        });
+
+        dropResults.push({ ...testCase, ...result, structureChange });
+      }
+
+      for (const dropResult of dropResults) {
+        const label = `${dropResult.crossesExitedFrame ? "nested-frame crossing" : "direct exit"} ${dropResult.dropArea} drop`;
+        const observed = JSON.stringify(dropResults);
+        expect(dropResult.parentId, `${label}: ${observed}`).toBe("outer");
+        expect(dropResult.childOrder, `${label}: ${observed}`).toEqual([
+          "nested",
+          "dragme",
+          "candidate",
+          "overlap",
+        ]);
+        if (dropResult.dropArea === "empty") {
+          expect(dropResult.structureChange).toMatchObject({
+            anchorSourceId: "nested",
+            persistenceAnchorSourceId: "nested",
+            placement: "after",
+            persistencePlacement: "after",
+          });
+        } else {
+          expect(dropResult.structureChange).toMatchObject({
+            anchorSourceId: "candidate",
+            persistenceAnchorSourceId: "candidate",
+            placement: "before",
+            persistencePlacement: "before",
+          });
+        }
+      }
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge does not nest a dragged element onto a leaf-content flex button (drop-on-leaf), and still nests onto a real flex container",
   { timeout: 30_000 },
   async () => {

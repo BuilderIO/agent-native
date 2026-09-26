@@ -193,7 +193,7 @@ describe("in-place text session: entering and ending", () => {
     expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
       false,
     );
-    beta.deleteData(4, 1);
+    textOf(el, "betax").deleteData(4, 1);
     session.end();
     expect(el.outerHTML).toBe(before);
   });
@@ -205,11 +205,16 @@ describe("in-place text session: entering and ending", () => {
     session = startInPlaceTextSession(el);
     caret(original, 1);
     type(el, "x");
-    original.deleteData(1, 1);
-    original.splitText(3);
+    // While editing too, or the live text is drawn unlike the saved text.
+    const typed = el.firstChild as Text;
+    expect(typed).not.toBe(original);
+    const range = window.getSelection()!.getRangeAt(0);
+    expect([range.startContainer, range.startOffset]).toEqual([typed, 2]);
+    typed.deleteData(1, 1);
+    typed.splitText(3);
     session.end();
     expect(el.childNodes).toHaveLength(1);
-    expect(el.firstChild).not.toBe(original);
+    expect(el.firstChild).not.toBe(typed);
     expect(el.outerHTML).toBe(before);
   });
 
@@ -222,10 +227,10 @@ describe("in-place text session: entering and ending", () => {
     const el = mount('<h2 id="t">\n    Speakers\n  </h2>');
     const before = el.outerHTML;
     session = startInPlaceTextSession(el);
-    const text = el.firstChild as Text;
-    caret(text, 5);
+    caret(el.firstChild!, 5);
     type(el, "x");
-    text.data = "Speakers\n  ";
+    // Chrome drops collapsed whitespace next to the caret while typing.
+    (el.firstChild as Text).data = "Speakers\n  ";
     session.end();
     expect(el.outerHTML).toBe(before);
   });
@@ -498,6 +503,47 @@ describe("in-place text session: Enter", () => {
     expect(el.innerHTML).toBe(
       '<span style="display: block">x<br><br></span><span style="display: block">Points</span>',
     );
+  });
+
+  /** Chrome reports a flex or grid child's computed display as blockified. */
+  function blockify(...tags: string[]) {
+    const computed = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((node, pseudo) => {
+      const style = computed(node, pseudo);
+      if (!tags.includes(node.tagName)) return style;
+      return new Proxy(style, {
+        get: (target, prop) =>
+          prop === "display" ? "block" : Reflect.get(target, prop, target),
+      });
+    });
+  }
+
+  it("saves one <br> per Enter in a flex text leaf", () => {
+    // A <br> included, yet Chrome lays it out as a break inside the
+    // anonymous item around the text.
+    blockify("BR");
+    const el = mount(
+      '<div id="t" style="height: 160px; display: flex; flex-direction: column; justify-content: flex-end">Quarterly planning</div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, 18);
+    for (let i = 0; i < 3; i++) beforeInput(el, "insertParagraph");
+    type(el, "new line");
+    session.end();
+    expect(el.innerHTML).toBe("Quarterly planning<br><br><br>new line");
+  });
+
+  it("keeps a new line open before a flex sibling item", () => {
+    blockify("BR", "B");
+    const el = mount(
+      '<div id="t" style="display: flex; flex-direction: column">Revenue<b>up</b></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, 7);
+    beforeInput(el, "insertParagraph");
+    expect(el.innerHTML).toBe(`Revenue<br>${ZWSP}<b>up</b>`);
+    session.end();
+    expect(el.innerHTML).toBe("Revenue<br><br><b>up</b>");
   });
 
   it("adds a styled bullet row after the caret's legacy row", () => {
@@ -1034,6 +1080,63 @@ describe("in-place text session: clipboard and drag", () => {
     expect(el.textContent).toBe("alpta gammaha be");
     session.undo();
     expect(el.innerHTML).toBe("alpha <b>beta</b> gamma");
+  });
+  // Chrome places the drop with a live Range made before the delete.
+  function dropAt(el: HTMLElement, drop: Range, text: string) {
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData("text/plain", text);
+    const event = new InputEvent("beforeinput", {
+      inputType: "insertFromDrop",
+      bubbles: true,
+      cancelable: true,
+      dataTransfer,
+    });
+    Object.defineProperty(event, "getTargetRanges", {
+      value: () => [drop],
+    });
+    el.dispatchEvent(event);
+  }
+
+  it("keeps Chrome's drop point through its own drag delete", () => {
+    const el = mount('<p id="t">alpha beta gamma</p>');
+    session = startInPlaceTextSession(el);
+    const text = el.firstChild as Text;
+    const drop = document.createRange();
+    drop.setStart(text, 16);
+    select(text, 6, text, 11);
+    expect(beforeInput(el, "deleteByDrag").defaultPrevented).toBe(false);
+    text.deleteData(6, 5);
+    caret(text, 6);
+    el.dispatchEvent(
+      new InputEvent("input", { inputType: "deleteByDrag", bubbles: true }),
+    );
+    dropAt(el, drop, "beta ");
+    expect(el.textContent).toBe("alpha gammabeta ");
+  });
+
+  it("keeps Chrome's drop point through a drag delete across runs", () => {
+    const el = mount('<p id="t">alpha <b>beta</b> gamma</p>');
+    session = startInPlaceTextSession(el);
+    const drop = document.createRange();
+    drop.setStart(textOf(el, "alpha"), 1);
+    select(textOf(el, "alpha"), 3, textOf(el, "beta"), 2);
+    expect(beforeInput(el, "deleteByDrag").defaultPrevented).toBe(true);
+    dropAt(el, drop, "ha be");
+    expect(el.textContent).toBe("aha belpta gamma");
+  });
+
+  it("reshapes the Arabic run a drag moved text out of, once the drop lands", () => {
+    const el = mount('<p id="t">مراجعة ربع <b>beta</b> gamma</p>');
+    session = startInPlaceTextSession(el);
+    const source = textOf(el, "مراجعة");
+    const drop = document.createRange();
+    drop.setStart(textOf(el, "gamma"), 3);
+    select(source, 7, textOf(el, "beta"), 2);
+    expect(beforeInput(el, "deleteByDrag").defaultPrevented).toBe(true);
+    dropAt(el, drop, "ربع be");
+    expect(el.textContent).toBe("مراجعة ta gaربع bemma");
+    // Chrome redraws the joins left behind only in a recreated node.
+    expect(el.firstChild).not.toBe(source);
   });
 });
 

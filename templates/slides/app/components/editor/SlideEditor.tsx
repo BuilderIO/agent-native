@@ -2551,7 +2551,7 @@ export default function SlideEditor({
   }, [exitInlineEdit, onFlushInlineEdit]);
 
   const enterInlineEdit = useCallback(
-    (block: HTMLElement) => {
+    (block: HTMLElement, caretPoint?: { x: number; y: number }) => {
       const slideContent = getSlideContent();
       if (!slideContent || !slideContent.contains(block)) return;
       const list = isBulletRow(block)
@@ -2590,7 +2590,12 @@ export default function SlideEditor({
           ? null
           : { slideId: slide.id, content: entryContent };
       const slideId = slide.id;
+      // The element itself becomes editable: no copy, overlay, or restyle, so
+      // entering edit changes nothing on the slide. Double-click prevents the
+      // browser's selection default, so select the clicked word here.
       const text = startInPlaceTextSession(el, {
+        caretPoint,
+        selectWord: !!caretPoint,
         onInput: () => {
           if (textSessionRef.current?.text !== text) return;
           if (text.element !== editingElRef.current) {
@@ -8104,7 +8109,7 @@ export default function SlideEditor({
 
       e.preventDefault();
       e.stopPropagation();
-      enterInlineEdit(block);
+      enterInlineEdit(block, { x: e.clientX, y: e.clientY });
     },
     [showImageOverlay, enterInlineEdit, isHtmlSlide, readOnly],
   );

@@ -589,7 +589,7 @@ async function resolveAvailabilityContext({
   draft?: BookingAvailabilityDraft;
   db?: ConflictDb;
 }): Promise<AvailabilityContext> {
-  const [configRaw, bookingLink] = await Promise.all([
+  const [configRaw, bookingLink, usernameOwnerEmail] = await Promise.all([
     getSetting("calendar-availability"),
     slug
       ? db
@@ -610,6 +610,9 @@ async function resolveAvailabilityContext({
           )
           .then((rows) => rows[0])
       : Promise.resolve(undefined),
+    username && !draft
+      ? getBookingUsernameOwner(username)
+      : Promise.resolve(null),
   ]);
   if (draft && !bookingLink) {
     throw createError({
@@ -617,47 +620,57 @@ async function resolveAvailabilityContext({
       statusMessage: "Booking link not found",
     });
   }
+  if (username && !draft && !usernameOwnerEmail) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: "Booking page not found",
+    });
+  }
+  if (username && !draft && bookingLink) {
+    if (bookingLink.ownerEmail !== usernameOwnerEmail) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: "Booking page not found",
+      });
+    }
+  } else if (username && !draft) {
+    return {
+      effectiveConfig: null,
+      ownerEmail: undefined,
+      hostEmails: [],
+      eligibleHosts: [],
+      slug,
+      bookingLink: undefined,
+      durationSource: undefined,
+      conflictSlugs: [],
+    };
+  }
   const config = configRaw as unknown as AvailabilityConfig | null;
-  const usernameOwnerEmail =
-    !bookingLink && username && !draft
-      ? await getBookingUsernameOwner(username)
-      : null;
-  const candidateOwnerEmail = bookingLink?.ownerEmail || usernameOwnerEmail;
-  const [candidateOwnerConfigRaw, candidateOwnerSettingsRaw] =
-    candidateOwnerEmail
-      ? await Promise.all([
-          getUserSetting(candidateOwnerEmail, "calendar-availability"),
-          getUserSetting(candidateOwnerEmail, "calendar-settings"),
-        ])
-      : [null, null];
-  const candidateOwnerConfig =
-    candidateOwnerConfigRaw as AvailabilityConfig | null;
-  const usernameSlugMatches =
-    !usernameOwnerEmail ||
-    candidateOwnerConfig?.bookingPageSlug === slug ||
-    (!candidateOwnerConfig && slug === "book");
-  const ownerEmail =
-    bookingLink?.ownerEmail ||
-    (usernameSlugMatches ? usernameOwnerEmail || undefined : undefined);
+  const ownerEmail = bookingLink?.ownerEmail;
   const overrides = bookingLink
     ? resolveBookingLinkAvailabilityOverrides({ bookingLink, draft })
     : undefined;
   const hostEmails = overrides?.hostEmails ?? (ownerEmail ? [ownerEmail] : []);
-  const ownerConfig = ownerEmail ? candidateOwnerConfig : null;
-  const ownerSettings = ownerEmail
-    ? (candidateOwnerSettingsRaw as { timezone?: string } | null)
-    : null;
+  const [ownerConfigRaw, ownerSettingsRaw, ownerLinkSlugs, eligibleHosts] =
+    await Promise.all([
+      ownerEmail
+        ? getUserSetting(ownerEmail, "calendar-availability")
+        : Promise.resolve(null),
+      ownerEmail
+        ? getUserSetting(ownerEmail, "calendar-settings")
+        : Promise.resolve(null),
+      ownerEmail
+        ? getBookingLinkSlugsForOwners(hostEmails, db)
+        : Promise.resolve([]),
+      getEligibleHostAvailability(ownerEmail, hostEmails),
+    ]);
+  const ownerConfig = ownerConfigRaw as AvailabilityConfig | null;
+  const ownerSettings = ownerSettingsRaw as { timezone?: string } | null;
   const conflictSlugs = ownerEmail
-    ? await getBookingLinkSlugsForOwners(hostEmails, db).then((slugs) =>
-        Array.from(new Set([slug, ...slugs])),
-      )
+    ? Array.from(new Set([slug, ...ownerLinkSlugs]))
     : slug
       ? [slug]
       : [];
-  const eligibleHosts = await getEligibleHostAvailability(
-    ownerEmail,
-    hostEmails,
-  );
 
   return {
     effectiveConfig:
@@ -666,9 +679,7 @@ async function resolveAvailabilityContext({
         ? createDefaultAvailability(
             ownerSettings?.timezone || "America/New_York",
           )
-        : username
-          ? null
-          : config),
+        : config),
     ownerEmail,
     hostEmails,
     eligibleHosts,

@@ -41,7 +41,7 @@ const messages = {
       aiSetupTitle: "KI-Posteingang einrichten",
       aiSetupTagLabel: "KI-Tag erstellen",
       aiSetupImportanceLabel: "Wichtige E-Mails",
-      aiSetupSpamLabel: "Spam und unerwünschte E-Mails",
+      aiSetupSpamLabel: "Unerwünscht",
       aiSetupArchiveLabel: "Posteingang überspringen",
       aiSetupSave: "Einrichtung speichern",
       aiSetupSkip: "Vorerst überspringen",
@@ -562,6 +562,7 @@ const messages = {
       actionFailed: "Der KI-Filter konnte nicht aktualisiert werden.",
       settingsFailed:
         "Die Einstellungen des KI-Filters konnten nicht gespeichert werden.",
+      automationRulesLoadFailed: "Triage-Regeln konnten nicht geladen werden.",
       instructionFailed:
         "Die KI-Filter-Anweisung konnte nicht gespeichert werden.",
       skipInboxMode: "Posteingang überspringen",

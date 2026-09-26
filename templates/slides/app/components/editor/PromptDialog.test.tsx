@@ -194,6 +194,7 @@ vi.mock("./GoogleDriveConnectionCta", () => ({
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   addInlineImageFallbacks,
+  isReferenceStorageReady,
   uploadPromptFiles,
 } from "@/lib/prompt-file-uploads";
 
@@ -364,6 +365,22 @@ describe("uploadPromptFiles", () => {
     cleanup();
     vi.unstubAllGlobals();
     ensureEmbedAuthFetchInterceptor.mockClear();
+  });
+
+  it("reads reference storage readiness from the Slides upload status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ referenceStorageReady: false }), {
+        status: 200,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(isReferenceStorageReady()).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/uploads/status"),
+      { credentials: "include" },
+    );
+    expect(ensureEmbedAuthFetchInterceptor).toHaveBeenCalledOnce();
   });
 
   it("rejects more than 20 files before starting uploads", async () => {

@@ -494,7 +494,7 @@ function mountActionRoutesInternal(
         setResponseHeader(
           event,
           "Access-Control-Expose-Headers",
-          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility",
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After",
         );
 
         const isFrontendMutation =
@@ -889,6 +889,36 @@ function mountActionRoutesInternal(
               const status = isValidationError ? 400 : (explicitStatus ?? 500);
               setResponseStatus(event, status);
 
+              const errorDetails =
+                err?.details &&
+                typeof err.details === "object" &&
+                !Array.isArray(err.details)
+                  ? err.details
+                  : undefined;
+              const retryAfterSeconds = errorDetails?.retryAfterSeconds;
+              if (
+                status === 429 &&
+                typeof retryAfterSeconds === "number" &&
+                Number.isInteger(retryAfterSeconds) &&
+                retryAfterSeconds > 0
+              ) {
+                setResponseHeader(
+                  event,
+                  "Retry-After",
+                  String(Math.min(retryAfterSeconds, 300)),
+                );
+              }
+
+              // Only echo the raw message for known-safe cases:
+              //  - validation errors (deterministic, parameter-shape only)
+              //  - action contract errors, which `fail()` also raises
+              //    (explicitly safe on every transport)
+              //  - AgentActionStopError (an explicit user-facing stop)
+              //  - errors with an explicit statusCode < 500 (client errors)
+              // A bare `throw new Error(...)` is deliberately absent: it is
+              // indistinguishable from a driver or upstream blowup, so it stays
+              // a generic 500 and the real detail — which can contain DB/
+              // driver/upstream text — never leaves the server.
               const isUserFacing =
                 isValidationError ||
                 isActionContractError(err) ||
@@ -905,7 +935,18 @@ function mountActionRoutesInternal(
                         ? {}
                         : { details: err.details }),
                     }
-                  : { error: msg };
+                  : {
+                      error: msg,
+                      ...(typeof err?.errorCode === "string"
+                        ? { errorCode: err.errorCode }
+                        : {}),
+                      ...(status === 429 &&
+                      typeof retryAfterSeconds === "number" &&
+                      Number.isInteger(retryAfterSeconds) &&
+                      retryAfterSeconds > 0
+                        ? { details: { retryAfterSeconds } }
+                        : {}),
+                    };
               }
               const requestId = getHttpRequestTelemetryId(event);
               const captureId = captureError(err, {
