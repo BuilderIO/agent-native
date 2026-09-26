@@ -6,6 +6,36 @@
  * and in focused tests without ever exposing secret values to the browser.
  */
 
+/**
+ * Stable code for "this deployed server is missing a setting it refuses to
+ * run without" — a hosted database or the auth signing secret. The refusal
+ * errors carry it and auth responses repeat it, so the sign-in page can show
+ * its setup guidance: the page hides any other error text that mentions the
+ * database.
+ */
+export const DEPLOY_SETTINGS_REQUIRED_CODE = "DEPLOY_SETTINGS_REQUIRED";
+
+/**
+ * The running server's answer to "which required settings is this deployment
+ * missing?", from `getMissingDeploySettings()`. Each field comes from the same
+ * check the matching refusal uses.
+ */
+export interface MissingDeploySettings {
+  /**
+   * What the database refusal rejects: the env key that resolved to local
+   * PGlite, or `"default"` when no database URL is set. Null when allowed.
+   */
+  databaseSource: string | null;
+  /**
+   * The key that would let Better Auth start: `BETTER_AUTH_SECRET`, or
+   * `A2A_SECRET` in a workspace, which derives the auth secret from it. Null
+   * when the auth secret resolves.
+   */
+  authSecretKey: "BETTER_AUTH_SECRET" | "A2A_SECRET" | null;
+  /** True when a deployed workspace has no `A2A_SECRET`. */
+  a2aSecretMissing: boolean;
+}
+
 export type RuntimeConfigEnvironment = "development" | "production";
 export type RuntimeConfigPhase = "build" | "runtime";
 export type RuntimeConfigIssueSeverity = "warning" | "error";
@@ -51,6 +81,16 @@ export interface RuntimeConfigReportOptions {
   environment?: RuntimeConfigEnvironment;
   phase?: RuntimeConfigPhase;
   appName?: string;
+  /**
+   * The running server's own answer from `getMissingDeploySettings()`. When
+   * given, it replaces the env-name checks for a missing database, auth
+   * secret, and workspace `A2A_SECRET` in every environment. Those checks
+   * guess from key names and `NODE_ENV`, while the server resolves unpooled
+   * and config-level database URLs and the workspace-derived auth secret, and
+   * knows whether it is deployed at all. A runtime probe must never fall back
+   * to them, or the sign-in banner and the refusals can disagree.
+   */
+  missingDeploySettings?: MissingDeploySettings;
 }
 
 /** Parse the truthy spellings accepted by typed runtime configuration flags. */
@@ -173,6 +213,48 @@ function isLoopbackUrl(url: string): boolean {
   }
 }
 
+function missingDatabaseUrlIssue(
+  dbKeys: string[],
+): Omit<RuntimeConfigIssue, "severity"> {
+  return {
+    code: "missing-database-url",
+    title: "Production has no persistent database URL",
+    message: `Set ${dbKeys.join(", ")} to a persistent Postgres database. Local PGlite is development-only and is not safe for a serverless production deploy.`,
+    envKeys: dbKeys,
+  };
+}
+
+function localDatabaseIssue(
+  dbKey: string,
+): Omit<RuntimeConfigIssue, "severity"> {
+  return {
+    code: "local-database-in-production",
+    title: "Production is using a local database",
+    message: `${dbKey} resolves to a local database. Use a persistent remote SQL URL for deploys so auth and app state survive new instances.`,
+    envKeys: [dbKey],
+  };
+}
+
+function missingAuthSecretIssue(): Omit<RuntimeConfigIssue, "severity"> {
+  return {
+    code: "missing-auth-secret",
+    title: "BETTER_AUTH_SECRET is not set for production",
+    message:
+      "Set BETTER_AUTH_SECRET in the deployment environment, using a fresh value from `openssl rand -hex 32`. The public auth URL is inferred from APP_URL, known template or request context, and platform metadata such as Netlify or Vercel; AUTH_DISABLED defaults to false, so neither URL nor bypass flag needs to be prefilled.",
+    envKeys: ["BETTER_AUTH_SECRET"],
+  };
+}
+
+function missingA2ASecretIssue(): Omit<RuntimeConfigIssue, "severity"> {
+  return {
+    code: "missing-a2a-secret",
+    title: "The workspace runtime needs A2A_SECRET",
+    message:
+      "Set A2A_SECRET for trusted internal calls and the workspace's derived auth and OAuth secrets.",
+    envKeys: ["A2A_SECRET"],
+  };
+}
+
 function addIssue(
   issues: RuntimeConfigIssue[],
   issue: Omit<RuntimeConfigIssue, "severity"> & {
@@ -221,6 +303,7 @@ export function getRuntimeConfigReport(
   const phase = options.phase ?? "runtime";
   const authEnabled = requirements.authEnabled ?? true;
   const databaseRequired = requirements.databaseRequired ?? true;
+  const serverAnswer = options.missingDeploySettings;
   const issues: RuntimeConfigIssue[] = [];
 
   if (environment === "production") {
@@ -243,18 +326,12 @@ export function getRuntimeConfigReport(
       const workspaceSecret = valueOf(env, "A2A_SECRET");
       const hasAuthSecret = Boolean(authSecret);
       const hasWorkspaceSecret = Boolean(workspaceSecret);
-      if (!hasAuthSecret && !(isWorkspaceRuntime(env) && hasWorkspaceSecret)) {
-        addIssue(
-          issues,
-          {
-            code: "missing-auth-secret",
-            title: "BETTER_AUTH_SECRET is not set for production",
-            message:
-              "Set BETTER_AUTH_SECRET in the deployment environment, using a fresh value from `openssl rand -hex 32`. The public auth URL is inferred from APP_URL, known template or request context, and platform metadata such as Netlify or Vercel; AUTH_DISABLED defaults to false, so neither URL nor bypass flag needs to be prefilled.",
-            envKeys: ["BETTER_AUTH_SECRET"],
-          },
-          environment,
-        );
+      if (
+        !serverAnswer &&
+        !hasAuthSecret &&
+        !(isWorkspaceRuntime(env) && hasWorkspaceSecret)
+      ) {
+        addIssue(issues, missingAuthSecretIssue(), environment);
       }
 
       if (authSecret && authSecret.length < 32) {
@@ -299,18 +376,8 @@ export function getRuntimeConfigReport(
     }
 
     const workspaceSecret = valueOf(env, "A2A_SECRET");
-    if (isWorkspaceRuntime(env) && !workspaceSecret) {
-      addIssue(
-        issues,
-        {
-          code: "missing-a2a-secret",
-          title: "The workspace runtime needs A2A_SECRET",
-          message:
-            "Set A2A_SECRET for trusted internal calls and the workspace's derived auth and OAuth secrets.",
-          envKeys: ["A2A_SECRET"],
-        },
-        environment,
-      );
+    if (!serverAnswer && isWorkspaceRuntime(env) && !workspaceSecret) {
+      addIssue(issues, missingA2ASecretIssue(), environment);
     }
     if (
       isWorkspaceRuntime(env) &&
@@ -330,33 +397,38 @@ export function getRuntimeConfigReport(
       );
     }
 
-    if (databaseRequired) {
+    if (databaseRequired && !serverAnswer) {
       const dbKeys = databaseEnvKeys(env, options.appName);
       const dbKey = configuredKey(env, dbKeys);
       const dbUrl = dbKey ? valueOf(env, dbKey) : undefined;
       if (!dbUrl) {
-        addIssue(
-          issues,
-          {
-            code: "missing-database-url",
-            title: "Production has no persistent database URL",
-            message: `Set ${dbKeys.join(", ")} to a persistent Postgres database. Local PGlite is development-only and is not safe for a serverless production deploy.`,
-            envKeys: dbKeys,
-          },
-          environment,
-        );
+        addIssue(issues, missingDatabaseUrlIssue(dbKeys), environment);
       } else if (dbKey && isLocalDatabaseUrl(dbUrl)) {
-        addIssue(
-          issues,
-          {
-            code: "local-database-in-production",
-            title: "Production is using a local database",
-            message: `${dbKey} resolves to a local database. Use a persistent remote SQL URL for deploys so auth and app state survive new instances.`,
-            envKeys: [dbKey],
-          },
-          environment,
-        );
+        addIssue(issues, localDatabaseIssue(dbKey), environment);
       }
+    }
+  }
+
+  if (serverAnswer) {
+    // The server refuses or needs these outright, so each is an error in
+    // every environment, including a deploy that never set NODE_ENV.
+    const serverIssues: Array<Omit<RuntimeConfigIssue, "severity">> = [];
+    const { databaseSource, authSecretKey, a2aSecretMissing } = serverAnswer;
+    if (databaseRequired && databaseSource !== null) {
+      serverIssues.push(
+        databaseSource === "default"
+          ? missingDatabaseUrlIssue(databaseEnvKeys(env, options.appName))
+          : localDatabaseIssue(databaseSource),
+      );
+    }
+    if (authEnabled && authSecretKey === "BETTER_AUTH_SECRET") {
+      serverIssues.push(missingAuthSecretIssue());
+    }
+    if (a2aSecretMissing || (authEnabled && authSecretKey === "A2A_SECRET")) {
+      serverIssues.push(missingA2ASecretIssue());
+    }
+    for (const issue of serverIssues) {
+      addIssue(issues, { ...issue, severity: "error" }, environment);
     }
   }
 

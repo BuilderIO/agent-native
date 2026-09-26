@@ -11,6 +11,12 @@ import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../../shared/auth-copy.js";
 import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
 import { isQaTestEmail } from "../../shared/qa-test-email.js";
 import {
+  DEPLOY_SETTINGS_REQUIRED_CODE,
+  parseRuntimeConfigReport,
+  type RuntimeConfigIssueCode,
+  type RuntimeConfigReport,
+} from "../../shared/runtime-config.js";
+import {
   signInJourney,
   type SignInJourney,
 } from "../../shared/sign-in-journey.js";
@@ -235,6 +241,43 @@ function authErrorText(
     return fallback;
   }
   return message;
+}
+
+// The configuration probe also reports weak secrets, the auth URL, and
+// app-declared env keys; those belong to the in-app notice, and this public
+// page must never advertise a weak but working secret. The banner answers only
+// the settings the server refuses or needs outright.
+const REQUIRED_SETTING_ISSUE_CODES = new Set<RuntimeConfigIssueCode>([
+  "missing-database-url",
+  "local-database-in-production",
+  "missing-auth-secret",
+  "missing-a2a-secret",
+]);
+
+/** The env keys the banner names, one per missing setting. */
+function missingSettingKeys(report: RuntimeConfigReport): string[] {
+  const keys = new Set<string>();
+  for (const issue of report.issues) {
+    if (!REQUIRED_SETTING_ISSUE_CODES.has(issue.code)) continue;
+    // missing-database-url lists every alias the runtime accepts; the banner
+    // names the one the deploy docs tell people to set.
+    const key =
+      issue.code === "missing-database-url" ? "DATABASE_URL" : issue.envKeys[0];
+    if (key) keys.add(key);
+  }
+  return [...keys];
+}
+
+function formatSettingList(locale: string, keys: string[]): string {
+  try {
+    return new Intl.ListFormat(locale, {
+      style: "long",
+      type: "conjunction",
+    }).format(keys);
+  } catch {
+    // coercion-ok: an unsupported locale still names every key.
+    return keys.join(", ");
+  }
 }
 
 export function shouldRetryAuthSessionProbe(
@@ -812,6 +855,7 @@ export function AuthPage(props: AuthPageProps) {
   const [sessionProbeComplete, setSessionProbeComplete] = React.useState(false);
   const [sessionProbeAnonymous, setSessionProbeAnonymous] =
     React.useState(false);
+  const [missingSettings, setMissingSettings] = React.useState<string[]>([]);
 
   const [runtimeAppBasePath, setRuntimeAppBasePath] =
     React.useState(appBasePath);
@@ -903,6 +947,42 @@ export function AuthPage(props: AuthPageProps) {
       );
     },
     [messages],
+  );
+  // The banner reports only a report the server actually returned: an
+  // unanswered or malformed probe shows nothing and claims nothing, and the
+  // server still refuses sign-up on its own.
+  const refreshMissingSettings = React.useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        const { response, data } = await requestJson(
+          `${apiPath("/_agent-native/ping")}?configuration=1`,
+          {
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+            signal,
+          },
+        );
+        const report = parseRuntimeConfigReport(data.configuration);
+        if (response.ok && report)
+          setMissingSettings(missingSettingKeys(report));
+      } catch {
+        // coercion-ok: see above; an unanswered probe leaves the banner as is.
+      }
+    },
+    [apiPath],
+  );
+  // Sign-up and sign-in are what a deploy missing a required setting refuses.
+  // Their code asks the probe again, so the banner can name what is missing
+  // when the first probe never answered.
+  const accountFailureText = React.useCallback(
+    (data: Record<string, unknown>, fallback: string) => {
+      if (data.code === DEPLOY_SETTINGS_REQUIRED_CODE) {
+        void refreshMissingSettings();
+        return t("deploySettingsMissingError");
+      }
+      return authErrorText(data, fallback, t("signupInviteOnly"));
+    },
+    [refreshMissingSettings, t],
   );
 
   const pendingEmailStorageKey = React.useCallback(
@@ -1037,6 +1117,19 @@ export function AuthPage(props: AuthPageProps) {
     };
     void probe().finally(() => setSessionProbeComplete(true));
   }, [apiPath, redirectToSignedInApp, runtimeBasePathResolved]);
+
+  React.useEffect(() => {
+    if (!runtimeBasePathResolved) return;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 5000);
+    void refreshMissingSettings(controller.signal).finally(() =>
+      window.clearTimeout(timeout),
+    );
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [refreshMissingSettings, runtimeBasePathResolved]);
 
   React.useEffect(() => {
     if (
@@ -1960,11 +2053,7 @@ export function AuthPage(props: AuthPageProps) {
         if (!response.ok) {
           setNotice("signup", {
             kind: "error",
-            text: authErrorText(
-              data,
-              t("registrationFailed"),
-              t("signupInviteOnly"),
-            ),
+            text: accountFailureText(data, t("registrationFailed")),
           });
           return;
         }
@@ -1985,10 +2074,9 @@ export function AuthPage(props: AuthPageProps) {
           redirectToSignedInApp();
           return;
         }
-        const loginError = authErrorText(
+        const loginError = accountFailureText(
           loginResult.data,
           t("registrationFailed"),
-          t("signupInviteOnly"),
         );
         if (
           loginResult.response.status === 403 &&
@@ -2008,6 +2096,7 @@ export function AuthPage(props: AuthPageProps) {
       }
     },
     [
+      accountFailureText,
       apiPath,
       identityBootstrapHref,
       pendingEmailStorageKey,
@@ -2065,7 +2154,7 @@ export function AuthPage(props: AuthPageProps) {
         }
         setNotice("login", {
           kind: "error",
-          text: authErrorText(data, t("invalidLogin"), t("signupInviteOnly")),
+          text: accountFailureText(data, t("invalidLogin")),
         });
       } catch {
         setNotice("login", { kind: "error", text: t("networkErrorDashRetry") });
@@ -2074,6 +2163,7 @@ export function AuthPage(props: AuthPageProps) {
       }
     },
     [
+      accountFailureText,
       apiPath,
       loginEmail,
       loginPassword,
@@ -2571,6 +2661,19 @@ export function AuthPage(props: AuthPageProps) {
       >
         {upgradeVisible ? t("upgradeCopy") : null}
       </p>
+      {missingSettings.length > 0 ? (
+        <p
+          className="msg error show deploy-settings-notice"
+          role="alert"
+          data-testid="deploy-settings-notice"
+          data-i18n="deploySettingsMissingNotice"
+        >
+          {t("deploySettingsMissingNotice").replace(
+            "{keys}",
+            formatSettingList(locale, missingSettings),
+          )}
+        </p>
+      ) : null}
       {identitySsoEnabled && !googleOnly ? (
         <div className="identity-sso-entry" id="identity-sso-entry">
           <a

@@ -53,7 +53,6 @@ import {
   findInstalledResvgPackages,
   findServerlessBrowserRuntimeConsumer,
   isServerlessNativePlatformPackage,
-  generateCloudflarePagesStaticShellFromManifest,
   generateCloudflareModuleWorkerEntry,
   patchCloudflareModuleServerOutput,
   generateProvidedPluginsNitroPluginSource,
@@ -522,6 +521,16 @@ describe("resolveNitroBuildReplacements", () => {
         AGENT_NATIVE_BUILD_ID: "source-sha",
       })["process.env.AGENT_NATIVE_BUILD_ID"],
     ).toBe(JSON.stringify("deploy-id"));
+  });
+
+  // Bare Node/Docker has no platform marker, so the hosted-database refusal
+  // recognizes the deployed server by this marker plus a booted server.
+  it("marks every production server bundle for the hosted-database refusal", () => {
+    expect(
+      resolveNitroBuildReplacements({})[
+        "process.env.AGENT_NATIVE_BUILD_PRODUCTION_SERVER"
+      ],
+    ).toBe(JSON.stringify("true"));
   });
 
   it("embeds release migration ownership into the Nitro server bundle", () => {
@@ -2079,74 +2088,6 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
       {},
     );
     expect(missingApi.status).toBe(404);
-  });
-
-  it("generates a manifest-based Cloudflare Pages static shell fallback", () => {
-    const html = generateCloudflarePagesStaticShellFromManifest(
-      {
-        entry: {
-          module: "/assets/entry.client-abc.js",
-          imports: ["/assets/vendor-def.js"],
-          css: ["/assets/entry.css"],
-        },
-        routes: {
-          root: {
-            id: "root",
-            module: "/assets/root-ghi.js",
-            imports: ["/assets/root-vendor-jkl.js"],
-            css: ["/assets/root.css"],
-            clientLoaderModule: "/assets/root-client-loader-mno.js",
-          },
-        },
-        url: "/assets/manifest-123.js",
-      },
-      "/docs",
-    );
-
-    expect(html).toContain("window.__reactRouterContext");
-    expect(html).toContain('"basename":"/docs"');
-    expect(html).toContain('"isSpaMode":true');
-    expect(html).toContain('import "/assets/manifest-123.js"');
-    expect(html).toContain('import * as route0 from "/assets/root-ghi.js"');
-    expect(html).toContain(
-      'import * as route0_clientLoader from "/assets/root-client-loader-mno.js"',
-    );
-    expect(html).toContain('import("/assets/entry.client-abc.js")');
-    expect(html).toContain('href="/assets/root.css"');
-    expect(html).toContain("var(--agent-native-viewport-height, 100vh)");
-    expect(html).toContain('data-agent-native-app-skeleton="true"');
-    expect(html).not.toContain("data-agent-native-session-bootstrap");
-    expect(html).not.toContain("data-agent-native-cube-loader");
-    expect(html).not.toContain("an-cube-pulse");
-    expect(html).not.toContain("an-spin");
-    expect(html).not.toContain('rel="manifest"');
-    expect(html).toContain("streamController.enqueue");
-    expect(html).not.toContain("dev server");
-    expect(html).not.toContain("browser console");
-    expect(html).toContain("loaderData");
-    expect(html).not.toContain("en-US");
-  });
-
-  it("hydrates default root loader data in the manifest fallback", () => {
-    const html = generateCloudflarePagesStaticShellFromManifest({
-      entry: {
-        module: "/assets/entry.client-abc.js",
-      },
-      routes: {
-        root: {
-          id: "root",
-          module: "/assets/root-ghi.js",
-          hasLoader: true,
-        },
-      },
-      url: "/assets/manifest-123.js",
-    });
-
-    expect(html).toContain("loaderData");
-    expect(html).toContain("root");
-    expect(html).toContain("en-US");
-    expect(html).toContain("system");
-    expect(html).toContain("messages");
   });
 
   it("injects runtime browser Sentry config into generated worker SSR HTML", async () => {

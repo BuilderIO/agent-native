@@ -5386,6 +5386,71 @@ describe("server/auth", () => {
       expect(getBetterAuth).toHaveBeenCalledTimes(2);
     });
 
+    // On a deploy missing its database or auth secret, Better Auth fails at
+    // startup, so the fallback routes answer every sign-up and sign-in. With
+    // no database, the org auth-policy read is the first database access.
+    // Both must surface the refusal's code, not a generic failure, or the
+    // sign-in page cannot tell the user what to fix.
+    it.each([
+      ["database", "HostedRuntimeLocalDatabaseError", true],
+      ["auth secret", "MissingAuthSecretError", false],
+    ])(
+      "answers fallback sign-up and sign-in with the deploy-settings code when the %s is missing",
+      async (_setting, errorName, databaseRefused) => {
+        vi.stubEnv("NODE_ENV", "production");
+        delete process.env.ACCESS_TOKEN;
+        delete process.env.ACCESS_TOKENS;
+
+        const { DEPLOY_SETTINGS_REQUIRED_CODE } =
+          await import("../shared/runtime-config.js");
+        const refusal = Object.assign(new Error(`${errorName} refusal`), {
+          name: errorName,
+          code: DEPLOY_SETTINGS_REQUIRED_CODE,
+        });
+        vi.doMock("./better-auth-instance.js", () => ({
+          getBetterAuth: vi.fn(async () => {
+            throw refusal;
+          }),
+          getBetterAuthSync: vi.fn(() => undefined),
+        }));
+        vi.doMock("../db/client.js", () => ({
+          getDbExec: () => ({
+            execute: vi.fn(async () => {
+              if (databaseRefused) throw refusal;
+              return { rows: [] };
+            }),
+          }),
+          isLocalDatabase: () => databaseRefused,
+          retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        }));
+
+        const { autoMountAuth } = await import("./auth.js");
+        const app = createMockApp();
+        await autoMountAuth(app);
+
+        for (const route of [
+          "/_agent-native/auth/register",
+          "/_agent-native/auth/login",
+        ]) {
+          const handler = app.use.mock.calls.find(
+            (call: any[]) => call[0] === route,
+          )?.[1];
+          expect(handler).toBeTypeOf("function");
+
+          const event = createJsonPostEvent(route, {
+            email: "new@example.com",
+            password: "secret-password",
+          });
+          await expect(handler(event)).resolves.toEqual({
+            error:
+              "This deployment is missing required settings. Set them in the host's environment, then redeploy.",
+            code: DEPLOY_SETTINGS_REQUIRED_CODE,
+          });
+          expect(event.res.status).toBe(503);
+        }
+      },
+    );
+
     it("accepts HEAD on the auth session endpoint", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

@@ -245,6 +245,7 @@ import {
   resolveDeployEnvironment,
   resolveServerRelease,
 } from "./deploy-environment.js";
+import { getMissingDeploySettings } from "./deploy-settings.js";
 import { createEmbedStartRouteHandler } from "./embed-route.js";
 import { shouldReportError } from "./error-noise-filter.js";
 import {
@@ -2223,6 +2224,7 @@ export function createCoreRoutesPlugin(
               configuration: getRuntimeConfigReport(process.env, requirements, {
                 phase: "runtime",
                 appName: getAppConfig().app.name,
+                missingDeploySettings: getMissingDeploySettings(),
               }),
             };
           }),

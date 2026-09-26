@@ -479,7 +479,10 @@ describe("createGetDb hosted-runtime local database guard", () => {
     );
   });
 
-  it("rejects on a Cloudflare Worker/Pages invocation with no database URL", async () => {
+  it("rejects on a Cloudflare Worker invocation with no database URL", async () => {
+    // A Worker does not reliably set NODE_ENV; vitest's NODE_ENV=test counts
+    // as a local runtime.
+    vi.stubEnv("NODE_ENV", "");
     vi.stubEnv("APP_NAME", "");
     vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv("DATABASE_URL_UNPOOLED", "");

@@ -37,6 +37,7 @@ import {
 } from "../agent/durable-background.js";
 import { declaredEnvKeys } from "../app-config/describe.js";
 import type { AgentNativeFirstRunOnboardingMode } from "../config.js";
+import { PRODUCTION_SERVER_BUILD_MARKER_ENV_VAR } from "../db/server-runtime.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -2432,14 +2433,6 @@ ${
 `;
 }
 
-function escapeHtmlAttribute(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
-
 function findReactRouterManifest(distDir: string): ReactRouterAssetManifest {
   const assetsDir = path.join(distDir, "assets");
   const manifestFile = fs
@@ -2757,135 +2750,6 @@ function patchReactRouterServerManifestInOutput(
   console.log(
     `[deploy] Paired React Router server manifest in ${path.relative(process.cwd(), patchedFile)} with ${path.basename(pairedClientDirectory)}`,
   );
-}
-
-function collectModulePreloads(
-  manifest: ReactRouterAssetManifest,
-  route: ReactRouterAssetManifestRoute,
-): string[] {
-  const paths = new Set<string>();
-  const add = (value: string | undefined) => {
-    if (value) paths.add(value);
-  };
-  add(manifest.url);
-  add(manifest.entry.module);
-  manifest.entry.imports?.forEach(add);
-  add(route.module);
-  route.imports?.forEach(add);
-  add(route.clientActionModule);
-  add(route.clientLoaderModule);
-  add(route.clientMiddlewareModule);
-  add(route.hydrateFallbackModule);
-  return [...paths];
-}
-
-function collectStylesheetLinks(
-  manifest: ReactRouterAssetManifest,
-  route: ReactRouterAssetManifestRoute,
-): string[] {
-  return [...new Set([...(manifest.entry.css ?? []), ...(route.css ?? [])])];
-}
-
-function generateRouteModuleImportScript(
-  manifest: ReactRouterAssetManifest,
-  route: ReactRouterAssetManifestRoute,
-): string {
-  const modules = [
-    ["route0", route.module],
-    ["route0_clientAction", route.clientActionModule],
-    ["route0_clientLoader", route.clientLoaderModule],
-    ["route0_clientMiddleware", route.clientMiddlewareModule],
-    ["route0_hydrateFallback", route.hydrateFallbackModule],
-  ] as const;
-  const imports = modules
-    .filter(([, modulePath]) => modulePath)
-    .map(
-      ([name, modulePath]) =>
-        `import * as ${name} from ${JSON.stringify(modulePath)};`,
-    );
-  const parts = modules
-    .filter(([, modulePath]) => modulePath)
-    .map(([name]) => `...${name}`);
-
-  return [
-    `import ${JSON.stringify(manifest.url)};`,
-    ...imports,
-    `window.__reactRouterRouteModules = {${JSON.stringify(route.id)}:{${parts.join(",")}}};`,
-    `import(${JSON.stringify(manifest.entry.module)});`,
-  ].join("\n");
-}
-
-const EMPTY_REACT_ROUTER_TURBO_STREAM =
-  '[{"_1":2,"_3":-5,"_4":-5},"loaderData",{},"actionData","errors"]\n';
-
-// Manifest fallbacks cannot execute server loaders, so root loaders get the
-// framework's default locale shape to keep hydration from reading undefined.
-const DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM =
-  '[{"_1":2,"_3":-5,"_4":-5},"loaderData",{"_5":6},"actionData","errors","root",{"_7":8,"_9":10,"_11":12,"_13":14},"locale","en-US","preference",{"_7":15},"dir","ltr","messages",{},"system"]\n';
-
-const STATIC_SHELL_LOADING_MARKUP = [
-  '<div role="status" aria-label="Loading application" data-agent-native-app-skeleton="true" style="display:flex;height:var(--agent-native-viewport-height, 100vh);width:100%;overflow:hidden;background-color:hsl(var(--background, 0 0% 100%));color:hsl(var(--foreground, 240 10% 3.9%))">',
-  `<style>
-        [data-agent-native-app-skeleton] [aria-hidden="true"] {
-          animation: an-app-shell-skeleton-pulse 1.2s ease-in-out infinite;
-        }
-        @keyframes an-app-shell-skeleton-pulse {
-          0%, 100% { opacity: 0.45; }
-          50% { opacity: 0.85; }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          [data-agent-native-app-skeleton] [aria-hidden="true"] { animation: none; }
-        }
-        @media (max-width: 767px) {
-          [data-agent-native-app-skeleton] [data-agent-native-app-skeleton-sidebar] { display: none; }
-        }
-      </style>`,
-  '<aside data-agent-native-app-skeleton-sidebar="true" aria-hidden="true" style="display:flex;width:248px;flex-shrink:0;flex-direction:column;gap:16px;border-right:1px solid hsl(var(--border, 240 5.9% 90%));padding:16px">',
-  '<span aria-hidden="true" style="display:block;width:132px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span>',
-  '<div style="display:flex;flex-direction:column;gap:10px"><span aria-hidden="true" style="display:block;width:68%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:82%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:96%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:68%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:82%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:96%;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div>',
-  "</aside>",
-  '<main style="display:flex;min-width:0;flex:1;flex-direction:column">',
-  '<header aria-hidden="true" style="display:flex;height:48px;flex-shrink:0;align-items:center;gap:12px;border-bottom:1px solid hsl(var(--border, 240 5.9% 90%));padding:0 16px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:128px;height:14px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></header>',
-  '<section aria-hidden="true" style="display:flex;width:100%;max-width:960px;flex:1;flex-direction:column;gap:12px;margin:0 auto;padding:24px"><span aria-hidden="true" style="display:block;width:38%;height:28px;margin-bottom:8px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:24%;height:14px;margin-bottom:16px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:52%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:34%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:64%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:44%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:76%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:54%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:52%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:64%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:64%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:74%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div><div style="display:flex;align-items:center;gap:12px"><span aria-hidden="true" style="display:block;width:32px;height:32px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:8px;opacity:0.7"></span><div style="display:flex;flex:1;flex-direction:column;gap:8px"><span aria-hidden="true" style="display:block;width:76%;height:12px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span><span aria-hidden="true" style="display:block;width:84%;height:10px;background-color:hsl(var(--muted, 240 5% 96.1%));border-radius:6px;opacity:0.7"></span></div></div></section>',
-  "</main></div>",
-].join("");
-
-export function generateCloudflarePagesStaticShellFromManifest(
-  manifest: ReactRouterAssetManifest,
-  basePath = normalizeConfiguredAppBasePath(),
-): string {
-  const rootRoute = manifest.routes.root;
-  if (!rootRoute) {
-    throw new Error("React Router manifest is missing the root route");
-  }
-
-  const modulePreloads = collectModulePreloads(manifest, rootRoute)
-    .map(
-      (href) =>
-        `<link rel="modulepreload" href="${escapeHtmlAttribute(href)}"/>`,
-    )
-    .join("");
-  const stylesheets = collectStylesheetLinks(manifest, rootRoute)
-    .map(
-      (href) => `<link rel="stylesheet" href="${escapeHtmlAttribute(href)}"/>`,
-    )
-    .join("");
-  const routeModuleScript = generateRouteModuleImportScript(
-    manifest,
-    rootRoute,
-  );
-  const context = {
-    basename: basePath || "/",
-    future: { unstable_optimizeDeps: false },
-    routeDiscovery: { mode: "initial" },
-    ssr: true,
-    isSpaMode: true,
-  };
-  const encodedInitialState = rootRoute.hasLoader
-    ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
-    : EMPTY_REACT_ROUTER_TURBO_STREAM;
-
-  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
 }
 
 const NODE_BUILTINS = [
@@ -5759,6 +5623,12 @@ export function resolveNitroBuildReplacements(
     // deployed function either. "" is "a build recorded nothing"; a recorded
     // value is always a JSON string (see resolveHarnessBuildReplacement).
     "process.env.AGENT_NATIVE_BUILD_HARNESS": JSON.stringify(harnessMode),
+    // Bare Node/Docker has no platform marker for "this is the deployed
+    // server", so the production bundle carries its own. Keep it here only:
+    // the Vite config's replacements also apply to `pnpm dev`, which must
+    // never look deployed (see db/server-runtime.ts).
+    [`process.env.${PRODUCTION_SERVER_BUILD_MARKER_ENV_VAR}`]:
+      JSON.stringify("true"),
   };
 }
 

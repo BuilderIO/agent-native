@@ -281,6 +281,63 @@ describe("runMigrations – serverless request runtime", () => {
   });
 });
 
+describe("runMigrations – deployed server without a hosted database", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_SERVER_RUNTIME__",
+    );
+    vi.clearAllMocks();
+  });
+
+  // A long-lived Node server exits when a boot migration fails. Migrating a
+  // database the server refuses would take down the sign-in page that
+  // explains the missing DATABASE_URL, so the step is skipped instead.
+  it("skips boot migrations instead of exiting when the server refuses local PGlite", async () => {
+    for (const key of [
+      "NODE_ENV",
+      "APP_NAME",
+      "DATABASE_URL",
+      "DATABASE_URL_UNPOOLED",
+      "NETLIFY_DATABASE_URL",
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+      "NETLIFY",
+      "NETLIFY_FUNCTION_NAME",
+      "NETLIFY_LOCAL",
+      "AWS_LAMBDA_FUNCTION_NAME",
+      "LAMBDA_TASK_ROOT",
+      "AWS_EXECUTION_ENV",
+      "VERCEL",
+      "VERCEL_FUNCTION_ID",
+      "VERCEL_REGION",
+    ]) {
+      vi.stubEnv(key, "");
+    }
+    vi.stubEnv("AGENT_NATIVE_BUILD_PRODUCTION_SERVER", "true");
+    const { markServerRuntimeStarted } = await import("./server-runtime.js");
+    markServerRuntimeStarted();
+    const exit = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const plugin = runMigrations(
+      [{ version: 1, sql: "CREATE TABLE t1 (id INTEGER PRIMARY KEY)" }],
+      { table: "refused_migrations" },
+    );
+    await plugin(null);
+
+    expect(getDbExec).not.toHaveBeenCalled();
+    expect(createDbExec).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("Set DATABASE_URL"),
+    );
+  });
+});
+
 describe("runMigrations – empty migration list", () => {
   it("does not touch the database when a plugin has no migrations", async () => {
     const plugin = runMigrations([], { table: "empty_migrations" });

@@ -11,6 +11,7 @@ vi.mock("../org/accept-pending.js", () => ({
   acceptPendingInvitationsForEmail: mockAcceptPendingInvitationsForEmail,
 }));
 
+import { DEPLOY_SETTINGS_REQUIRED_CODE } from "../shared/runtime-config.js";
 import {
   desktopMagicLinkLandingUrl,
   ensureGoogleAuthIdentityWithAdapter,
@@ -95,6 +96,22 @@ describe("resolveAuthSecret", () => {
   it("throws in production when BETTER_AUTH_SECRET is missing", () => {
     process.env.NODE_ENV = "production";
     expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
+  });
+
+  // The fallback auth routes turn this code into the sign-in page's setup
+  // guidance instead of a generic failure.
+  it("carries the deploy-settings code on the refusal", () => {
+    process.env.NODE_ENV = "production";
+    let thrown: unknown;
+    try {
+      getAuthSecret();
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({
+      name: "MissingAuthSecretError",
+      code: DEPLOY_SETTINGS_REQUIRED_CODE,
+    });
   });
 
   it.each(["beta", "preview", "production"])(
@@ -824,7 +841,10 @@ describe("buildDatabaseConfig hosted-runtime local database guard", () => {
     );
   });
 
-  it("rejects on a Cloudflare Worker/Pages invocation with no database URL", async () => {
+  it("rejects on a Cloudflare Worker invocation with no database URL", async () => {
+    // A Worker does not reliably set NODE_ENV; vitest's NODE_ENV=test counts
+    // as a local runtime.
+    vi.stubEnv("NODE_ENV", "");
     vi.stubEnv("APP_NAME", "");
     vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv("DATABASE_URL_UNPOOLED", "");
