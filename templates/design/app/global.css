@@ -31,10 +31,9 @@
 .design-home-header {
   display: grid;
   height: 3.5rem;
-  grid-template-columns: minmax(0, 1fr) minmax(
-      6rem,
-      min(30rem, max(6rem, calc(100cqw - 27rem)))
-    ) minmax(0, 1fr);
+  grid-template-columns:
+    minmax(0, 1fr) minmax(6rem, min(30rem, max(6rem, calc(100cqw - 27rem))))
+    minmax(0, 1fr);
   grid-template-rows: 3.5rem;
   column-gap: 0.75rem;
   border-bottom: 0;
