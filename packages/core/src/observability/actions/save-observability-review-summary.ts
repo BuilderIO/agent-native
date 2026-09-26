@@ -8,6 +8,7 @@ import {
   authorizeObservabilityOrgAdmin,
   getObservabilityOrgAdminAccess,
   requireObservabilityReviewRunScope,
+  resolveObservabilityReviewOrg,
 } from "./authorization.js";
 
 const summaryText = (max: number) =>
@@ -138,6 +139,13 @@ export default defineAction({
         .min(1)
         .max(200)
         .describe("The target observability run ID."),
+      orgId: z
+        .string()
+        .trim()
+        .min(1)
+        .max(200)
+        .optional()
+        .describe("The target organization ID; required for super-org access."),
       ask: summaryText(2_000).describe(
         "Concise summary of what the user asked.",
       ),
@@ -150,8 +158,10 @@ export default defineAction({
   agentTool: true,
   authorize: authorizeObservabilityOrgAdmin,
   run: async (args, ctx) => {
-    const { userId, orgId } = getObservabilityOrgAdminAccess(ctx);
+    const access = getObservabilityOrgAdminAccess(ctx);
+    const { userId } = access;
     requireObservabilityReviewRunScope(args.runId);
+    const orgId = resolveObservabilityReviewOrg(access.reviewScope, args.orgId);
     const target = await getTraceSummary(args.runId, { orgId });
     if (!target)
       fail("That agent output is no longer available.", { statusCode: 404 });

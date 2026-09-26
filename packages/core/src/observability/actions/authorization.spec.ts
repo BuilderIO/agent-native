@@ -245,6 +245,66 @@ describe("observability admin action authorization", () => {
     });
   });
 
+  it("requires and uses the target org when a super-org admin saves a summary", async () => {
+    mockIsOrgAdmin.mockResolvedValue(true);
+    mockGetAppConfig.mockReturnValue({
+      observability: { superOrgId: "org-a" },
+    });
+    mockGetTraceSummary.mockResolvedValue({ runId: "r-b" });
+    mockUpsertHumanReviewSummary.mockResolvedValue(true);
+
+    await expect(
+      saveObservabilityReviewSummary.run(
+        { runId: "r-b", ask: "Ask", outcome: "Done", artifacts: [] },
+        adminContext,
+      ),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(mockGetTraceSummary).not.toHaveBeenCalled();
+
+    await expect(
+      saveObservabilityReviewSummary.run(
+        {
+          runId: "r-b",
+          orgId: "org-b",
+          ask: "Ask",
+          outcome: "Done",
+          artifacts: [],
+        },
+        adminContext,
+      ),
+    ).resolves.toMatchObject({ saved: true, runId: "r-b" });
+    expect(mockGetTraceSummary).toHaveBeenCalledWith("r-b", {
+      orgId: "org-b",
+    });
+    expect(mockGetOutputReviewSummarySource).toHaveBeenCalledWith({
+      runId: "r-b",
+      orgId: "org-b",
+    });
+    expect(mockUpsertHumanReviewSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "r-b", orgId: "org-b" }),
+    );
+  });
+
+  it("keeps an ordinary org admin's summary save in the active org", async () => {
+    mockIsOrgAdmin.mockResolvedValue(true);
+
+    await expect(
+      saveObservabilityReviewSummary.run(
+        {
+          runId: "r-b",
+          orgId: "org-b",
+          ask: "Ask",
+          outcome: "Done",
+          artifacts: [],
+        },
+        adminContext,
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mockGetTraceSummary).not.toHaveBeenCalled();
+    expect(mockGetOutputReviewSummarySource).not.toHaveBeenCalled();
+    expect(mockUpsertHumanReviewSummary).not.toHaveBeenCalled();
+  });
+
   it.each([
     [
       "source",
