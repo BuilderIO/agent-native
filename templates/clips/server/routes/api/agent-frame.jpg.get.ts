@@ -1,10 +1,12 @@
 /**
  * GET /api/agent-frame.jpg?id=<recordingId>&atMs=<timestampMs>[&password=<pw>|&t=<token>]
  *
- * Extract a JPEG frame from a public clip for external agents.
+ * Extract a JPEG frame from a public clip for external agents. For a
+ * screenshot, the picture itself in its stored format.
  */
 
 import { runWithRequestContext } from "@agent-native/core/server";
+import { isImageRecording } from "@shared/recording-kind";
 import {
   defineEventHandler,
   getQuery,
@@ -26,6 +28,7 @@ import {
   CLIPS_AGENT_ACCESS_PARAM,
   loadPublicAgentAccess,
   loadRecordingMediaFile,
+  loadScreenshotImage,
   queryString,
   RecordingMediaFetchError,
   type PublicAgentAccess,
@@ -235,6 +238,37 @@ export default defineEventHandler(async (event: H3Event) => {
     setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
     return { error: REDACTION_HOLD_MESSAGE, redactionPending: true };
+  }
+  // A still image has one frame, the picture itself; there is no video to
+  // cut one from.
+  if (isImageRecording(recording)) {
+    try {
+      const image = await loadScreenshotImage(recording);
+      setResponseHeader(event, "Content-Type", image.mimeType);
+      setResponseHeader(event, "Cache-Control", "private, no-store");
+      setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+      return Buffer.from(image.bytes);
+    } catch (err) {
+      // Pass the storage outcome on, as the video path does: a timeout or a
+      // missing object is not the same failure to retry as a bad gateway.
+      setResponseStatus(
+        event,
+        err instanceof RecordingMediaFetchError
+          ? err.statusCode
+          : err instanceof Error && /too large/i.test(err.message)
+            ? 413
+            : 502,
+      );
+      setResponseHeader(
+        event,
+        "Content-Type",
+        "application/json; charset=utf-8",
+      );
+      return {
+        error:
+          err instanceof Error ? err.message : "Screenshot could not be loaded",
+      };
+    }
   }
   const durationMs =
     typeof recording.durationMs === "number" ? recording.durationMs : 0;

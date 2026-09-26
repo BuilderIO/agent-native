@@ -71,6 +71,8 @@ import { SortMenu, type SortKey } from "./sort-menu";
 
 interface LibraryGridProps {
   view: "library" | "shared" | "space" | "archive" | "trash" | "all";
+  /** "image" narrows the same list to screenshots; defaults to everything. */
+  kind?: "video" | "image" | "all";
   folderId?: string | null;
   spaceId?: string | null;
   /** What empty-state illustration to render. Defaults from `view`. */
@@ -188,6 +190,7 @@ function buildMoveTargets(
 
 export function LibraryGrid({
   view,
+  kind = "all",
   folderId = null,
   spaceId = null,
   emptyKind,
@@ -242,7 +245,7 @@ export function LibraryGrid({
     setPage(1);
     setSelected(new Set());
     setLastSelectedId(null);
-  }, [view, folderId, spaceId, tagFilter, sort]);
+  }, [view, kind, folderId, spaceId, tagFilter, sort]);
 
   useEffect(() => {
     const handleOpenCreateFolder = () => setCreateFolderOpen(true);
@@ -257,11 +260,12 @@ export function LibraryGrid({
   const countArgs = useMemo(
     () => ({
       view,
+      kind,
       folderId: folderId ?? null,
       spaceId: spaceId ?? null,
       tag: tagFilter ?? null,
     }),
-    [view, folderId, spaceId, tagFilter],
+    [view, kind, folderId, spaceId, tagFilter],
   );
   const { data: totalCount } = useRecordingsCount(countArgs);
   const total = totalCount ?? 0;
@@ -274,6 +278,7 @@ export function LibraryGrid({
   const args: ListRecordingsArgs = useMemo(
     () => ({
       view,
+      kind,
       folderId: folderId ?? null,
       spaceId: spaceId ?? null,
       tag: tagFilter ?? null,
@@ -281,7 +286,7 @@ export function LibraryGrid({
       limit: PAGE_SIZE,
       offset: (page - 1) * PAGE_SIZE,
     }),
-    [view, folderId, spaceId, tagFilter, sort, page],
+    [view, kind, folderId, spaceId, tagFilter, sort, page],
   );
 
   const { data, isLoading, isError, refetch, isRefetching } =

@@ -40,6 +40,10 @@ import {
   isLoomRecordingSource,
 } from "@shared/loom";
 import {
+  isImageRecording,
+  screenshotFileExtension,
+} from "@shared/recording-kind";
+import {
   buildShareContinuationQuery,
   CLIP_SHARE_REF,
 } from "@shared/share-attribution";
@@ -97,6 +101,8 @@ import {
 import { RecordingSidePanel } from "@/components/player/recording-side-panel";
 import { RecordingTagsBar } from "@/components/player/recording-tags-bar";
 import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
+import { ScreenshotEditor } from "@/components/player/screenshot-editor";
+import { ScreenshotStage } from "@/components/player/screenshot-stage";
 import { SettingsPanel } from "@/components/player/settings-panel";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { TimestampedCommentBar } from "@/components/player/timestamped-comment-button";
@@ -149,11 +155,16 @@ import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useUnviewedDebugEventCount } from "@/hooks/use-unviewed-debug-event-count";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import enMessages from "@/i18n/en-US";
+import { withMediaVersion } from "@/lib/media-url";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
   recordingProcessingTransition,
   type RecordingProcessingSnapshot,
 } from "@/lib/recording-processing-lifecycle";
+import {
+  setRecordingSection,
+  type RecordingSection,
+} from "@/lib/recording-section";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 import { parseEdits } from "@/lib/timestamp-mapping";
@@ -425,6 +436,7 @@ export function buildRecordingBreadcrumbItems({
   title,
   trashedAt,
   libraryLabel,
+  home,
   trashLabel,
   spacesLabel,
   space,
@@ -433,6 +445,11 @@ export function buildRecordingBreadcrumbItems({
   title: string;
   trashedAt?: string | null;
   libraryLabel: string;
+  /**
+   * The first crumb, in place of Library, for a recording not in a space —
+   * a loose screenshot starts from Screenshots.
+   */
+  home?: { label: string; to: string };
   trashLabel: string;
   spacesLabel: string;
   space?: { id: string; name: string };
@@ -446,7 +463,9 @@ export function buildRecordingBreadcrumbItems({
             { label: spacesLabel, to: "/spaces" },
             { label: space.name, to: `/spaces/${space.id}` },
           ]
-        : [{ label: libraryLabel, to: "/library" }]),
+        : home
+          ? [home]
+          : [{ label: libraryLabel, to: "/library" }]),
     ...(!trashedAt && folder
       ? [
           {
@@ -627,6 +646,20 @@ export default function RecordingPage() {
   const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  // Keyed to the recording: the page stays mounted across a move to another
+  // one, and the editor keeps the picture it opened on, so an editor left
+  // open would show one screenshot on another's page.
+  const [redactingId, setRedactingId] = useState<string | null>(null);
+  const redacting = redactingId !== null && redactingId === recordingId;
+  const setRedacting = (open: boolean) =>
+    setRedactingId(open ? (recordingId ?? null) : null);
+  // Cleared, not just hidden, on the way out: coming back must not reopen an
+  // editor whose unsaved marks went with the page.
+  useEffect(() => {
+    setRedactingId(null);
+  }, [recordingId]);
+  /** Redaction boxes open in the screenshot editor, saved or not. */
+  const [editorRedactions, setEditorRedactions] = useState(0);
   const isCompactLayout = useIsCompactRecordingLayout();
   // The compact layout stacks the panel below the video, so switching tabs
   // alone leaves the user looking at the player. Desktop opens the rail beside
@@ -721,10 +754,18 @@ export default function RecordingPage() {
         // Poll while the recording is still being assembled / transcoded so
         // the page auto-upgrades from "Processing" to the real player the
         // moment the server flips status to 'ready' and writes videoUrl.
-        if (rec.status !== "ready" || !rec.videoUrl) {
+        // A screenshot never gets a video file, so waiting for one would
+        // poll forever; it is finished once it has its picture.
+        const recHasMedia = isImageRecording(rec)
+          ? Boolean(rec.imageUrl || rec.thumbnailUrl)
+          : Boolean(rec.videoUrl);
+        if (rec.status !== "ready" || !recHasMedia) {
           readyMediaPollRef.current = null;
           return 1000;
         }
+        // Nothing else about a finished screenshot changes on its own; the
+        // settle poll below is for a video's repaired file.
+        if (isImageRecording(rec)) return false;
         if (rec.seekableRepairPending === true) {
           readyMediaPollRef.current = null;
           return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
@@ -786,6 +827,9 @@ export default function RecordingPage() {
   }, [legacyShareQuery, recordingId, shouldFallbackToShare, navigate]);
 
   const recording = playerDataQ.data?.recording;
+  // A screenshot: an image and no video file, so no finalize step, no
+  // transcript, no timeline, and nothing to download as a clip.
+  const isImage = isImageRecording(recording ?? null);
   const {
     dismiss: dismissProcessingToast,
     error: failProcessingToast,
@@ -828,9 +872,15 @@ export default function RecordingPage() {
 
   useEffect(() => {
     if (!recording) return;
+    // "Ready but no video file" means a recording is still being assembled —
+    // except for a screenshot, which has an image and no video file by
+    // definition, and would otherwise sit under a progress toast forever.
+    const hasMedia = isImageRecording(recording)
+      ? Boolean(recording.imageUrl || recording.thumbnailUrl)
+      : Boolean(recording.videoUrl);
     const phase =
       recording.status === "ready"
-        ? recording.videoUrl
+        ? hasMedia
           ? "ready"
           : "processing"
         : recording.status;
@@ -1044,25 +1094,36 @@ export default function RecordingPage() {
   // viewer access to the recording, so any resolved role qualifies to
   // comment/react — no separate "commenter" tier.
   const canComment = role != null && recordingId !== VIEWER_REDESIGN_PREVIEW_ID;
+  // Where the panel lands when the requested tab does not apply. Transcript is
+  // the video default; a screenshot has no transcript tab at all, so it falls
+  // back to the conversation, or to settings when comments are off. A viewer
+  // of a screenshot with comments off has no tab that applies; they stay on
+  // comments rather than bounce between two tabs the guard below rejects.
+  const defaultPanel: SidePanel = !isImage
+    ? "transcript"
+    : recording && !recording.enableComments && canEdit
+      ? "settings"
+      : "comments";
   useEffect(() => {
     if (
       (!canEdit && panel === "settings") ||
       (!browserDiagnostics && panel === "debug") ||
-      (recording && !recording.enableComments && panel === "comments")
+      (recording && !recording.enableComments && panel === "comments") ||
+      (isImage && panel === "transcript")
     ) {
-      setPanel("transcript");
+      setPanel(defaultPanel);
     }
-  }, [browserDiagnostics, canEdit, panel, recording]);
+  }, [browserDiagnostics, canEdit, defaultPanel, isImage, panel, recording]);
 
   useEffect(() => {
     if (panelParam === "agent") {
-      setPanel("transcript");
+      setPanel(defaultPanel);
       requestAgentSidebarOpen();
       return;
     }
     if (panelParam === "comments") {
       setPanel(
-        recording && !recording.enableComments ? "transcript" : "comments",
+        recording && !recording.enableComments ? defaultPanel : "comments",
       );
       if (isCompactLayout) {
         requestAnimationFrame(() => {
@@ -1079,7 +1140,7 @@ export default function RecordingPage() {
       (panelParam !== "settings" || canEdit) &&
       (panelParam !== "debug" || browserDiagnostics)
     ) {
-      setPanel(panelParam === "insights" ? "transcript" : panelParam);
+      setPanel(panelParam === "insights" ? defaultPanel : panelParam);
     }
   }, [
     browserDiagnostics,
@@ -1105,10 +1166,28 @@ export default function RecordingPage() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
+  // A loose screenshot belongs under Screenshots, not Library. Both are views
+  // of the same list, but the sidebar gives stills their own entry and that is
+  // where someone who just took one goes looking. Anything filed in a space or
+  // a folder keeps that real home instead.
+  const screenshotIsUnfiled = isImage && !recordingSpace && !recordingFolder;
+  // The sidebar highlights the same section the breadcrumb starts with.
+  const recordingSection: RecordingSection = recordingSpace
+    ? "spaces"
+    : screenshotIsUnfiled
+      ? "screenshots"
+      : "library";
+  useEffect(() => {
+    setRecordingSection(recordingSection);
+    return () => setRecordingSection(null);
+  }, [recordingSection]);
   const recordingBreadcrumbItems = buildRecordingBreadcrumbItems({
     title: visibleTitle,
     trashedAt: recording?.trashedAt,
     libraryLabel: t("navigation.library"),
+    home: screenshotIsUnfiled
+      ? { label: t("navigation.screenshots"), to: "/screenshots" }
+      : undefined,
     trashLabel: t("trashRoute.title"),
     spacesLabel: t("navigation.spaces"),
     space: recordingSpace,
@@ -1295,11 +1374,17 @@ export default function RecordingPage() {
 
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
   const isLoomRecording = isLoomRecordingSource(recording);
+  // The editor is a timeline: trims, cuts, speed. None of it applies to a
+  // still, whose editing story is markup over the image instead.
   const canUseNativeEditor =
-    canEdit && videoEditingLabEnabled && !isLoomEmbedBacked;
+    canEdit && videoEditingLabEnabled && !isLoomEmbedBacked && !isImage;
   const canDelete = role === "owner";
   const canDownloadRecording = Boolean(
-    recording?.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
+    recording?.enableDownloads &&
+    (isImage
+      ? recording.imageUrl || recording.thumbnailUrl
+      : recording.videoUrl) &&
+    !isLoomEmbedBacked,
   );
   // Mirrors the /share/:shareId reshare restriction (same public/org scope):
   // a plain viewer of a public or org clip must not trigger
@@ -1316,6 +1401,21 @@ export default function RecordingPage() {
     canDownloadRecording || isLoomEmbedBacked
       ? (recording?.videoUrl ?? null)
       : null;
+  /**
+   * Redactions drawn but not burned into the file. Sharing is held back while
+   * there are any: the stored video still shows everything under them.
+   */
+  const savedPendingRedactions = parseRedactions(
+    parseEdits(recording?.editsJson).overlays,
+  ).length;
+  // While the screenshot editor is open, a box drawn but not saved yet counts
+  // too: it is about to be a redaction, and the link would hand out what it
+  // covers just the same.
+  const pendingRedactions = Math.max(
+    savedPendingRedactions,
+    redacting ? editorRedactions : 0,
+  );
+
   const renderShareControl = () => (
     <ShareRecordingPopover
       recordingId={recording.id}
@@ -1334,14 +1434,6 @@ export default function RecordingPage() {
       <ClipsShareTrigger label={t("recordingPage.share")} />
     </ShareRecordingPopover>
   );
-  /**
-   * Redactions drawn but not burned into the file. Sharing is held back while
-   * there are any: the stored video still shows everything under them.
-   */
-  const pendingRedactions = parseRedactions(
-    parseEdits(recording?.editsJson).overlays,
-  ).length;
-
   const downloadRecording = useCallback(async () => {
     // Every way out of here is the same file, and it still shows what the
     // boxes are over until the burn has run.
@@ -1353,27 +1445,32 @@ export default function RecordingPage() {
       });
       return;
     }
-    if (!recording?.videoUrl) return;
+    // A screenshot downloads its image; there is no video file to fetch.
+    const downloadUrl = isImage
+      ? (recording?.imageUrl ?? recording?.thumbnailUrl ?? null)
+      : (recording?.videoUrl ?? null);
+    if (!downloadUrl) return;
     setDownloading(true);
     const downloadToastId = toast.loading(t("sharePage.downloading"));
     try {
-      const res = await fetch(recording.videoUrl);
+      const res = await fetch(downloadUrl);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      const extension =
-        blob.type.includes("webm") || recording.videoFormat === "webm"
+      const extension = isImage
+        ? screenshotFileExtension(blob.type)
+        : blob.type.includes("webm") || recording?.videoFormat === "webm"
           ? "webm"
           : "mp4";
-      a.download = `${sanitizeFilename(recording.title || "clip")}.${extension}`;
+      a.download = `${sanitizeFilename(recording?.title || "clip")}.${extension}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
     } catch {
-      window.open(recording.videoUrl, "_blank", "noopener,noreferrer");
+      window.open(downloadUrl, "_blank", "noopener,noreferrer");
     } finally {
       setDownloading(false);
       toast.dismiss(downloadToastId);
@@ -1384,6 +1481,9 @@ export default function RecordingPage() {
     // so a memoized closure would still think there was nothing pending and
     // hand over the unredacted file.
     pendingRedactions,
+    isImage,
+    recording?.imageUrl,
+    recording?.thumbnailUrl,
     recording?.title,
     recording?.videoFormat,
     recording?.videoUrl,
@@ -1705,7 +1805,7 @@ export default function RecordingPage() {
   const backgroundAiBusy = aiRequestBusy || workflowBusy;
 
   useEffect(() => {
-    if (recording && panel === "settings" && !canEdit) setPanel("transcript");
+    if (recording && panel === "settings" && !canEdit) setPanel(defaultPanel);
   }, [canEdit, panel, recording]);
 
   useEffect(() => {
@@ -1768,7 +1868,12 @@ export default function RecordingPage() {
       setProcessingTimeout(false);
       return;
     }
-    if (recording.status === "ready" && recording.videoUrl) {
+    // A screenshot has its media the moment it exists, so the stuck-upload
+    // watchdog below must not start ticking on one.
+    const hasMedia = isImageRecording(recording)
+      ? Boolean(recording.imageUrl || recording.thumbnailUrl)
+      : Boolean(recording.videoUrl);
+    if (recording.status === "ready" && hasMedia) {
       setProcessingTimeout(false);
       return;
     }
@@ -1883,7 +1988,12 @@ export default function RecordingPage() {
   // in the background. Show a dedicated "still processing" state and let the
   // refetch-interval above upgrade it to the full player as soon as the
   // server writes videoUrl + flips status to 'ready'.
-  if (recording.status !== "ready" || !recording.videoUrl) {
+  if (
+    recording.status !== "ready" ||
+    (isImage
+      ? !recording.imageUrl && !recording.thumbnailUrl
+      : !recording.videoUrl)
+  ) {
     const progress = Number(recording.uploadProgress ?? 0);
     const explicitFailure = recording.status === "failed";
     const rawFailureReason =
@@ -2086,9 +2196,11 @@ export default function RecordingPage() {
           {t("playerSettings.comments")}
         </ViewerTabsTrigger>
       ) : null}
-      <ViewerTabsTrigger value="transcript">
-        {t("recordingPage.transcript")}
-      </ViewerTabsTrigger>
+      {isImage ? null : (
+        <ViewerTabsTrigger value="transcript">
+          {t("recordingPage.transcript")}
+        </ViewerTabsTrigger>
+      )}
       {browserDiagnostics ? (
         <ViewerTabsTrigger value="debug">
           <span className="flex items-center justify-center gap-1.5">
@@ -2217,7 +2329,7 @@ export default function RecordingPage() {
             <SettingsPanel
               recording={recording}
               ctas={ctas}
-              onClose={() => setPanel("transcript")}
+              onClose={() => setPanel(defaultPanel)}
               onRefetch={() => playerDataQ.refetch()}
               showHeader={false}
             />
@@ -2259,7 +2371,9 @@ export default function RecordingPage() {
           </Tooltip>
         ) : null}
 
-        {!editing && recording.enableReactions ? (
+        {/* Reactions are pinned to a moment on the timeline, so they have
+            nowhere to land on a still. */}
+        {!editing && recording.enableReactions && !isImage ? (
           <Popover
             open={reactionPickerOpen}
             onOpenChange={setReactionPickerOpen}
@@ -2339,155 +2453,166 @@ export default function RecordingPage() {
                 {t("recordingPage.edit")}
               </DropdownMenuItem>
             ) : null}
-            <DropdownMenuItem onSelect={openAgentPanel}>
-              <IconMessage className="h-4 w-4" />
-              {t("recordingPage.askAboutClip")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={backgroundAiBusy}
-              onSelect={() => {
-                beginAiRequest("remove-filler-words");
-                removeFillerWords.mutate({
-                  recordingId: recording.id,
-                } as any);
-              }}
-            >
-              {t("recordingPage.removeFillerWords")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={backgroundAiBusy}
-              onSelect={() => {
-                beginAiRequest("remove-silences");
-                removeSilences.mutate({
-                  recordingId: recording.id,
-                  thresholdMs: 1200,
-                } as any);
-              }}
-            >
-              {t("recordingPage.removeSilences")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={backgroundAiBusy}
-              onSelect={() => {
-                beginAiRequest("regenerate-chapters");
-                regenerateChapters.mutate({
-                  recordingId: recording.id,
-                  openInChat: true,
-                } as any);
-              }}
-            >
-              {t("recordingPage.autoChapters")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={backgroundAiBusy}
-              onSelect={() => {
-                beginAiRequest("regenerate-summary");
-                regenerateSummary.mutate({
-                  recordingId: recording.id,
-                  openInChat: true,
-                } as any);
-              }}
-            >
-              {t("recordingPage.regenerateDescription")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                {t("recordingPage.enhanceRecording")}
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-56 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
-                <DropdownMenuItem
-                  disabled={requestTranscript.isPending}
-                  onSelect={() =>
-                    requestTranscriptWithLifecycle({
-                      recordingId: recording.id,
-                      force: true,
-                      regenerate: true,
-                    })
-                  }
-                >
-                  {requestTranscript.isPending ? (
-                    <Spinner className="size-4" />
-                  ) : null}
-                  {t("transcriptPanel.regenerate")}
+            {/* Everything here reads the transcript or the timeline: asking
+                the agent about the clip, cleanup, filler words, silences,
+                chapters, an AI description, transcription. A screenshot has
+                none of those, so the menu keeps only what applies to it —
+                download and delete. */}
+            {isImage ? null : (
+              <>
+                <DropdownMenuItem onSelect={openAgentPanel}>
+                  <IconMessage className="h-4 w-4" />
+                  {t("recordingPage.askAboutClip")}
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   disabled={backgroundAiBusy}
                   onSelect={() => {
-                    beginAiRequest("regenerate-title");
-                    regenerateTitle.mutate({
+                    beginAiRequest("remove-filler-words");
+                    removeFillerWords.mutate({
                       recordingId: recording.id,
                     } as any);
                   }}
                 >
-                  {t("recordingPage.regenerateTitle")}
+                  {t("recordingPage.removeFillerWords")}
                 </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                {t("recordingPage.createFromClip")}
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-64 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
-                {WORKFLOW_MENU_ITEMS.map((item) => {
-                  const menuItem = (
+                <DropdownMenuItem
+                  disabled={backgroundAiBusy}
+                  onSelect={() => {
+                    beginAiRequest("remove-silences");
+                    removeSilences.mutate({
+                      recordingId: recording.id,
+                      thresholdMs: 1200,
+                    } as any);
+                  }}
+                >
+                  {t("recordingPage.removeSilences")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={backgroundAiBusy}
+                  onSelect={() => {
+                    beginAiRequest("regenerate-chapters");
+                    regenerateChapters.mutate({
+                      recordingId: recording.id,
+                      openInChat: true,
+                    } as any);
+                  }}
+                >
+                  {t("recordingPage.autoChapters")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={backgroundAiBusy}
+                  onSelect={() => {
+                    beginAiRequest("regenerate-summary");
+                    regenerateSummary.mutate({
+                      recordingId: recording.id,
+                      openInChat: true,
+                    } as any);
+                  }}
+                >
+                  {t("recordingPage.regenerateDescription")}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    {t("recordingPage.enhanceRecording")}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-56 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
                     <DropdownMenuItem
-                      key={item.kind}
-                      disabled={backgroundAiBusy}
-                      onSelect={() => handleGenerateWorkflow(item.kind)}
-                      className={
-                        item.tooltipKey ? "justify-between gap-3" : undefined
+                      disabled={requestTranscript.isPending}
+                      onSelect={() =>
+                        requestTranscriptWithLifecycle({
+                          recordingId: recording.id,
+                          force: true,
+                          regenerate: true,
+                        })
                       }
                     >
-                      <span>{t(item.labelKey)}</span>
-                      {item.tooltipKey ? (
-                        // guard:allow-large-help-icon - menu item tooltip icon
-                        <IconHelpCircle
-                          aria-hidden="true"
-                          className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
-                        />
+                      {requestTranscript.isPending ? (
+                        <Spinner className="size-4" />
                       ) : null}
+                      {t("transcriptPanel.regenerate")}
                     </DropdownMenuItem>
-                  );
+                    <DropdownMenuItem
+                      disabled={backgroundAiBusy}
+                      onSelect={() => {
+                        beginAiRequest("regenerate-title");
+                        regenerateTitle.mutate({
+                          recordingId: recording.id,
+                        } as any);
+                      }}
+                    >
+                      {t("recordingPage.regenerateTitle")}
+                    </DropdownMenuItem>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    {t("recordingPage.createFromClip")}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-64 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
+                    {WORKFLOW_MENU_ITEMS.map((item) => {
+                      const menuItem = (
+                        <DropdownMenuItem
+                          key={item.kind}
+                          disabled={backgroundAiBusy}
+                          onSelect={() => handleGenerateWorkflow(item.kind)}
+                          className={
+                            item.tooltipKey
+                              ? "justify-between gap-3"
+                              : undefined
+                          }
+                        >
+                          <span>{t(item.labelKey)}</span>
+                          {item.tooltipKey ? (
+                            // guard:allow-large-help-icon - menu item tooltip icon
+                            <IconHelpCircle
+                              aria-hidden="true"
+                              className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
+                            />
+                          ) : null}
+                        </DropdownMenuItem>
+                      );
 
-                  if (!item.tooltipKey) {
-                    return menuItem;
-                  }
+                      if (!item.tooltipKey) {
+                        return menuItem;
+                      }
 
-                  return (
-                    <Tooltip key={item.kind}>
-                      <TooltipTrigger asChild>{menuItem}</TooltipTrigger>
-                      <TooltipContent
-                        side="left"
-                        className="max-w-64 text-xs leading-5"
-                      >
-                        {t(item.tooltipKey)}
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={aiPrefsQ.isLoading || updateAiPrefs.isPending}
-              onSelect={(event) => {
-                event.preventDefault();
-                handleIncludeFullVideoChange(!includeFullVideoInAi);
-              }}
-              title={t("recordingPage.includeFullVideoDescription")}
-              className="justify-between gap-3"
-            >
-              <span>{t("recordingPage.includeFullVideo")}</span>
-              <ViewerSwitch
-                checked={includeFullVideoInAi}
-                disabled={aiPrefsQ.isLoading || updateAiPrefs.isPending}
-                tabIndex={-1}
-                aria-hidden="true"
-                className="pointer-events-none"
-              />
-            </DropdownMenuItem>
+                      return (
+                        <Tooltip key={item.kind}>
+                          <TooltipTrigger asChild>{menuItem}</TooltipTrigger>
+                          <TooltipContent
+                            side="left"
+                            className="max-w-64 text-xs leading-5"
+                          >
+                            {t(item.tooltipKey)}
+                          </TooltipContent>
+                        </Tooltip>
+                      );
+                    })}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={aiPrefsQ.isLoading || updateAiPrefs.isPending}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    handleIncludeFullVideoChange(!includeFullVideoInAi);
+                  }}
+                  title={t("recordingPage.includeFullVideoDescription")}
+                  className="justify-between gap-3"
+                >
+                  <span>{t("recordingPage.includeFullVideo")}</span>
+                  <ViewerSwitch
+                    checked={includeFullVideoInAi}
+                    disabled={aiPrefsQ.isLoading || updateAiPrefs.isPending}
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    className="pointer-events-none"
+                  />
+                </DropdownMenuItem>
+              </>
+            )}
           </RecordingOptionsMenu>
         ) : null}
 
@@ -2555,89 +2680,182 @@ export default function RecordingPage() {
                   {/* Let the viewer grow on wide displays without pushing the
                     discussion below the first scrollable viewport. The comments
                     list owns the desktop scroll so the player stays in context. */}
-                  <div className="relative aspect-video w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl">
-                    <VideoPlayer
-                      ref={playerRef}
-                      onVideoElementChange={setTrackedVideoEl}
-                      recordingId={recording.id}
-                      videoUrl={recording.videoUrl}
-                      mediaVersion={
-                        recording.mediaUpdatedAt ??
-                        recording.videoSizeBytes ??
-                        null
-                      }
-                      videoFormat={recording.videoFormat}
-                      embedProvider={isLoomEmbedBacked ? "loom" : null}
-                      durationMs={recording.durationMs}
-                      editsJson={recording.editsJson}
-                      thumbnailUrl={recording.thumbnailUrl}
-                      role={role}
-                      defaultSpeed={
-                        parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2
-                      }
-                      alwaysShowControls
-                      startMs={resolveStartMs(startMs, recording.durationMs)}
-                      comments={comments}
-                      chapters={chapters}
-                      reactions={reactions}
-                      transcriptSegments={transcriptSegments}
-                      theaterMode={theaterMode}
-                      onTheaterToggle={() => setTheaterMode((v) => !v)}
-                      cta={firstCta}
-                      onCtaClick={() => tracking.reportCtaClick()}
-                      onTimeUpdate={(ms) => setCurrentMs(ms)}
-                      onCommentClick={openCommentsPanel}
-                      onFullscreenChange={setIsPlayerFullscreen}
-                      enableComments={recording.enableComments}
-                      onAddComment={() => {
-                        // The inline conversation is outside the element the
-                        // Fullscreen API paints, so keep the portal composer for
-                        // fullscreen and move to the thread everywhere else.
-                        const liveMs = resolvePlaybackMs();
-                        setCurrentMs(liveMs);
-                        if (!isPlayerFullscreen) {
-                          openCommentsPanel();
-                          return;
+                  {isImage ? (
+                    // A screenshot keeps its own shape rather than being
+                    // letterboxed into the player's 16:9 frame, and carries no
+                    // timestamped comment bar — there is no timeline to pin one
+                    // to. Markup, when it arrives, joins the toolbar here.
+                    <div className="flex w-full flex-col gap-3">
+                      {redacting ? (
+                        <ScreenshotEditor
+                          key={recording.id}
+                          recordingId={recording.id}
+                          mediaRevision={recording.mediaUpdatedAt ?? ""}
+                          // Edit from the un-marked base so existing boxes,
+                          // arrows and text stay movable rather than being
+                          // part of the picture.
+                          baseImageUrl={withMediaVersion(
+                            recording.baseImageUrl ??
+                              recording.imageUrl ??
+                              recording.thumbnailUrl ??
+                              "",
+                            recording.mediaUpdatedAt ?? null,
+                          )}
+                          initialAnnotations={
+                            (recording.annotations ?? []) as never[]
+                          }
+                          pendingOverlays={
+                            parseEdits(recording.editsJson).overlays
+                          }
+                          initialCrop={
+                            (
+                              parseEdits(recording.editsJson) as {
+                                crop?: unknown;
+                              }
+                            ).crop
+                          }
+                          initialBackground={
+                            (
+                              parseEdits(recording.editsJson) as {
+                                background?: unknown;
+                              }
+                            ).background
+                          }
+                          onPendingRedactionsChange={setEditorRedactions}
+                          onCancel={() => setRedacting(false)}
+                          onSaved={() => {
+                            setRedacting(false);
+                            void playerDataQ.refetch();
+                          }}
+                        />
+                      ) : (
+                        <>
+                          {canEdit ? (
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setRedacting(true)}
+                              >
+                                <IconEdit className="size-4" />
+                                {t("screenshot.edit")}
+                              </Button>
+                              {pendingRedactions > 0 ? (
+                                // The picture here already shows the boxes,
+                                // which reads as done. It is not.
+                                <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                                  {t("screenshot.notYetBurned", {
+                                    count: pendingRedactions,
+                                  })}
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          <ScreenshotStage
+                            // A screenshot edit replaces the stored file but
+                            // not its URL, so the version has to change or the
+                            // browser never re-fetches and the redaction looks
+                            // like it did not save.
+                            src={withMediaVersion(
+                              recording.imageUrl ??
+                                recording.thumbnailUrl ??
+                                "",
+                              recording.mediaUpdatedAt ?? null,
+                            )}
+                            alt={visibleTitle}
+                            width={recording.width}
+                            height={recording.height}
+                            className="w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl"
+                          />
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="relative aspect-video w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl">
+                      <VideoPlayer
+                        ref={playerRef}
+                        onVideoElementChange={setTrackedVideoEl}
+                        recordingId={recording.id}
+                        videoUrl={recording.videoUrl}
+                        mediaVersion={
+                          recording.mediaUpdatedAt ??
+                          recording.videoSizeBytes ??
+                          null
                         }
-                        setCommentAtMs(liveMs);
-                        setCommentOpen(true);
-                      }}
-                      enableReactions={recording.enableReactions}
-                      onReact={(emoji) => {
-                        tracking.reportReaction(emoji);
-                        const liveMs = resolvePlaybackMs();
-                        return writeReaction(emoji, liveMs, () =>
-                          playerDataQ.refetch(),
-                        );
-                      }}
-                      className="h-full w-full rounded-none sm:rounded-2xl"
-                    />
-                    {commentOpen && canComment
-                      ? (() => {
-                          const composer = (
-                            <TimestampedCommentBar
-                              recordingId={recording.id}
-                              atMs={commentAtMs}
-                              draft={commentDraft}
-                              onDraftChange={setCommentDraft}
-                              onClose={() => setCommentOpen(false)}
-                              onAdded={() => {
-                                if (isCompactLayout) setPanel("comments");
-                                void playerDataQ.refetch();
-                              }}
-                            />
+                        videoFormat={recording.videoFormat}
+                        embedProvider={isLoomEmbedBacked ? "loom" : null}
+                        durationMs={recording.durationMs}
+                        editsJson={recording.editsJson}
+                        thumbnailUrl={recording.thumbnailUrl}
+                        role={role}
+                        defaultSpeed={
+                          parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2
+                        }
+                        alwaysShowControls
+                        startMs={resolveStartMs(startMs, recording.durationMs)}
+                        comments={comments}
+                        chapters={chapters}
+                        reactions={reactions}
+                        transcriptSegments={transcriptSegments}
+                        theaterMode={theaterMode}
+                        onTheaterToggle={() => setTheaterMode((v) => !v)}
+                        cta={firstCta}
+                        onCtaClick={() => tracking.reportCtaClick()}
+                        onTimeUpdate={(ms) => setCurrentMs(ms)}
+                        onCommentClick={openCommentsPanel}
+                        onFullscreenChange={setIsPlayerFullscreen}
+                        enableComments={recording.enableComments}
+                        onAddComment={() => {
+                          // The inline conversation is outside the element the
+                          // Fullscreen API paints, so keep the portal composer for
+                          // fullscreen and move to the thread everywhere else.
+                          const liveMs = resolvePlaybackMs();
+                          setCurrentMs(liveMs);
+                          if (!isPlayerFullscreen) {
+                            openCommentsPanel();
+                            return;
+                          }
+                          setCommentAtMs(liveMs);
+                          setCommentOpen(true);
+                        }}
+                        enableReactions={recording.enableReactions && !isImage}
+                        onReact={(emoji) => {
+                          tracking.reportReaction(emoji);
+                          const liveMs = resolvePlaybackMs();
+                          return writeReaction(emoji, liveMs, () =>
+                            playerDataQ.refetch(),
                           );
-                          // The Fullscreen API only paints the player's own
-                          // element, so portal the composer there instead of
-                          // exiting fullscreen when it's open.
-                          const fullscreenContainer =
-                            isPlayerFullscreen && playerRef.current?.container;
-                          return fullscreenContainer
-                            ? createPortal(composer, fullscreenContainer)
-                            : composer;
-                        })()
-                      : null}
-                  </div>
+                        }}
+                        className="h-full w-full rounded-none sm:rounded-2xl"
+                      />
+                      {commentOpen && canComment
+                        ? (() => {
+                            const composer = (
+                              <TimestampedCommentBar
+                                recordingId={recording.id}
+                                atMs={commentAtMs}
+                                draft={commentDraft}
+                                onDraftChange={setCommentDraft}
+                                onClose={() => setCommentOpen(false)}
+                                onAdded={() => {
+                                  if (isCompactLayout) setPanel("comments");
+                                  void playerDataQ.refetch();
+                                }}
+                              />
+                            );
+                            // The Fullscreen API only paints the player's own
+                            // element, so portal the composer there instead of
+                            // exiting fullscreen when it's open.
+                            const fullscreenContainer =
+                              isPlayerFullscreen &&
+                              playerRef.current?.container;
+                            return fullscreenContainer
+                              ? createPortal(composer, fullscreenContainer)
+                              : composer;
+                          })()
+                        : null}
+                    </div>
+                  )}
                 </div>
 
                 {/* Recording identity and engagement live with the recording,

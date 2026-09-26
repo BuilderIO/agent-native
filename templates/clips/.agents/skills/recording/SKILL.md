@@ -3,8 +3,9 @@ name: recording
 description: >-
   How screen and camera recording works in Clips — MediaRecorder lifecycle,
   chunked upload, permission handling, pause/resume, camera bubble overlay,
-  and error recovery. Use when adding or modifying the recorder UI, the
-  upload endpoint, or permission prompts.
+  error recovery, and screenshots (still-image recordings). Use when adding
+  or modifying the recorder UI, the upload endpoint, permission prompts, or
+  anything that handles a screenshot.
 ---
 
 # Recording
@@ -176,6 +177,29 @@ is a deliberate permission review.
 Use `move-recording` for both single and bulk folder moves. Pass `id` for one
 clip or `ids` for the selected clips, and `folderId: null` to move them to the
 library or space root.
+
+## Screenshots
+
+A screenshot is a `recordings` row with `kind = "image"` (`isImageRecording`
+in `shared/recording-kind.ts`). It shares folders, spaces, sharing, comments
+and search with clips, and has none of the video parts: no transcript,
+chapters, filmstrip, timeline or audio. `list-recordings --kind=image` lists
+them.
+
+- Capture, annotation and redaction are browser work (`create-screenshot`,
+  `save-screenshot-edits`, both UI-only). The agent reads a screenshot through
+  `get-recording-player-data` or `/api/agent-frame.jpg`, which returns the
+  picture itself for any `atMs`.
+- `imageUrl` is the served picture; `baseImageUrl` is the unmarked base an
+  editor draws on. Both are served through `/api/thumbnail/:id`, which applies
+  the password, expiry and redaction hold. Never hand out the storage URLs.
+- Redaction is two-step, as for video: boxes are saved as pending overlays
+  (held from viewers), then burned in. A burn writes `editsJson.burnInProgress`
+  before deleting the original and clears it after; `unreclaimedUrls` lists
+  older copies not yet deleted. Both are server-only
+  (`server/lib/screenshot-edits.ts`) and must never reach a viewer.
+- Video edit actions refuse screenshots at `assertNativeRecordingMedia`; only
+  `save-screenshot-edits` writes a screenshot's `editsJson`.
 
 ## Pause / resume
 

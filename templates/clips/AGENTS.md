@@ -5,8 +5,8 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 
 ## Skills
 
-- `recording` — capture, upload, playback, Loom import, mobile, folders, bulk
-  moves, Chrome extension.
+- `recording` — capture, screenshots, upload, playback, Loom import, mobile,
+  folders, bulk moves, Chrome extension.
 - `ai-video-tools` — transcription, cleanup, titles, summaries, chapters,
   `voiceContext`, AI setup, Builder credits.
 - `video-editing` — `editsJson`, trim/split/cut/speed/blur, export.

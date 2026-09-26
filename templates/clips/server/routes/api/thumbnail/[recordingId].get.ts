@@ -58,6 +58,7 @@ type ThumbnailRecording = {
   editsJson?: string | null;
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
+  baseImageUrl?: string | null;
   expiresAt?: string | null;
   organizationId?: string | null;
   password?: string | null;
@@ -216,6 +217,7 @@ async function loadRecording(recordingId: string, event: H3Event) {
         editsJson: schema.recordings.editsJson,
         thumbnailUrl: schema.recordings.thumbnailUrl,
         animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+        baseImageUrl: schema.recordings.baseImageUrl,
         expiresAt: schema.recordings.expiresAt,
         organizationId: schema.recordings.organizationId,
         password: schema.recordings.password,
@@ -289,7 +291,22 @@ export default defineEventHandler(async (event: H3Event) => {
         password?: unknown;
         t?: unknown;
         animated?: unknown;
+        base?: unknown;
       };
+
+      // The base image is editing material: the screenshot without its
+      // movable marks. Only people who can edit the recording get it, and it
+      // is never what a share link serves.
+      const wantsBase = query.base === "1";
+      if (wantsBase) {
+        const role = loaded.role;
+        const canEdit =
+          role === "owner" || role === "admin" || role === "editor";
+        if (!canEdit || !recording.baseImageUrl) {
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
+      }
       if (recording.password && loaded.role !== "owner") {
         const queryToken = typeof query.t === "string" ? query.t : "";
         const cookieToken = getCookie(event, cookieName(recordingId)) ?? "";
@@ -306,8 +323,9 @@ export default defineEventHandler(async (event: H3Event) => {
         renewProtectedMediaCookie(event, recordingId);
       }
 
-      const sourceUrl =
-        query.animated === "1"
+      const sourceUrl = wantsBase
+        ? recording.baseImageUrl
+        : query.animated === "1"
           ? recording.animatedThumbnailUrl || recording.thumbnailUrl
           : recording.thumbnailUrl || recording.animatedThumbnailUrl;
       if (!sourceUrl) {

@@ -2,6 +2,7 @@ import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { getConfiguredAppBasePath } from "@agent-native/core/server";
+import { isImageRecording } from "@shared/recording-kind";
 import { useQuery } from "@tanstack/react-query";
 import { and, eq, isNull } from "drizzle-orm";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -10,11 +11,13 @@ import { useParams, useSearchParams } from "react-router";
 
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
+import { ScreenshotStage } from "@/components/player/screenshot-stage";
 import {
   VideoPlayer,
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
 import { useViewTracking } from "@/hooks/use-view-tracking";
+import { withMediaVersion } from "@/lib/media-url";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 
@@ -183,10 +186,17 @@ export default function EmbedRoute() {
       const payload = (q.state.data as { data?: any } | undefined)?.data;
       const rec = payload?.recording;
       if (!rec) return false;
-      if (rec.status !== "ready" || !rec.videoUrl) {
+      // A screenshot never gets a video file; waiting for one polls forever.
+      const recHasMedia = isImageRecording(rec)
+        ? Boolean(rec.imageUrl || rec.thumbnailUrl)
+        : Boolean(rec.videoUrl);
+      if (rec.status !== "ready" || !recHasMedia) {
         readyMediaPollRef.current = null;
         return 2000;
       }
+      // Nothing else about a finished screenshot changes on its own; the
+      // settle poll below is for a video's repaired file.
+      if (isImageRecording(rec)) return false;
       if (rec.seekableRepairPending === true) {
         readyMediaPollRef.current = null;
         return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
@@ -286,6 +296,36 @@ export default function EmbedRoute() {
     return (
       <div className="fixed inset-0 flex h-dvh w-dvw items-center justify-center overflow-hidden bg-black text-white">
         <p className="text-sm">{t("embedRoute.unavailable")}</p>
+      </div>
+    );
+  }
+
+  if (isImageRecording(recording)) {
+    return (
+      // guard:allow-raw-color — standalone embeds match the black player backdrop
+      <div className="fixed inset-0 flex h-dvh w-dvw items-center justify-center overflow-hidden bg-black">
+        <ClipAgentWebMcp
+          recordingId={recording.id}
+          agentContextUrl={
+            typeof dataQ.data?.data?.agentContextUrl === "string"
+              ? dataQ.data.data.agentContextUrl
+              : null
+          }
+          recordingStatus={recording.status}
+          frameAvailable
+        />
+        {/* Through the same gated route as the share page, so the password
+            and expiry cover the picture, not just this page. */}
+        <ScreenshotStage
+          src={withMediaVersion(
+            recording.imageUrl ?? recording.thumbnailUrl ?? "",
+            recording.mediaUpdatedAt ?? null,
+          )}
+          alt={recording.title}
+          width={recording.width}
+          height={recording.height}
+          className="max-h-full w-full"
+        />
       </div>
     );
   }

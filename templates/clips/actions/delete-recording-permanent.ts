@@ -11,18 +11,25 @@ import {
   deleteAppState,
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
+import { isImageRecording } from "@shared/recording-kind";
 import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { countPendingRedactions } from "../server/lib/pending-redactions.js";
 import {
   deleteRecordingMediaObjects,
+  deleteStoredMediaUrl,
   recordingMediaUrls,
 } from "../server/lib/recording-media-cleanup.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
+import {
+  screenshotLeftoverUrls,
+  withDeleteClaim,
+} from "../server/lib/screenshot-edits.js";
 
 export default defineAction({
   description:
@@ -53,6 +60,8 @@ export default defineAction({
           videoUrl: schema.recordings.videoUrl,
           thumbnailUrl: schema.recordings.thumbnailUrl,
           animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+          imageUrl: schema.recordings.imageUrl,
+          baseImageUrl: schema.recordings.baseImageUrl,
         })
         .from(schema.recordings)
         .where(
@@ -62,6 +71,8 @@ export default defineAction({
               inArray(schema.recordings.videoUrl, mediaUrls),
               inArray(schema.recordings.thumbnailUrl, mediaUrls),
               inArray(schema.recordings.animatedThumbnailUrl, mediaUrls),
+              inArray(schema.recordings.imageUrl, mediaUrls),
+              inArray(schema.recordings.baseImageUrl, mediaUrls),
             ),
           ),
         );
@@ -72,7 +83,117 @@ export default defineAction({
       }
     }
 
+    // Some of a screenshot's files are unredacted: its leftovers, and its
+    // base while boxes are still pending. The row is the only record of them,
+    // so they go first, and the row stays — with its hold and a way to retry
+    // — if any is still in storage. Everything else is already redacted and
+    // is cleaned up best-effort, as for a video.
+    //
+    // Before any of that, the row is claimed: a save compares against the
+    // row it read, so changing it here makes every save in flight fail
+    // rather than land between these deletes and the row's removal.
+    const alreadyDeleted = new Set<string>();
+    let claimedEditsJson: string | null = null;
+    let claimedAt: string | null = null;
+    if (isImageRecording(existing)) {
+      claimedAt = new Date().toISOString();
+      claimedEditsJson = withDeleteClaim(existing.editsJson, claimedAt);
+      if (!claimedEditsJson) {
+        throw new Error(
+          "This screenshot's saved edits could not be read, so the files it replaced cannot be found to delete. Nothing was deleted.",
+        );
+      }
+      const claimed = await db
+        .update(schema.recordings)
+        .set({ editsJson: claimedEditsJson, mediaUpdatedAt: claimedAt })
+        .where(
+          and(
+            eq(schema.recordings.id, args.id),
+            eq(schema.recordings.editsJson, existing.editsJson),
+            eq(schema.recordings.mediaUpdatedAt, existing.mediaUpdatedAt),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+      if (!claimed.length) {
+        throw new Error(
+          "This screenshot changed while it was being deleted. Nothing was deleted — try again.",
+        );
+      }
+
+      const unredacted = [
+        // Readable: the claim above refused edits that are not.
+        ...screenshotLeftoverUrls(existing.editsJson)!,
+        ...(existing.baseImageUrl && countPendingRedactions(existing.editsJson)
+          ? [existing.baseImageUrl]
+          : []),
+      ];
+      for (const url of new Set(unredacted)) {
+        if (protectedUrls.has(url)) continue;
+        let gone = false;
+        try {
+          gone = await deleteStoredMediaUrl(url);
+        } catch (err) {
+          console.warn(
+            `[delete-recording-permanent] could not delete an unredacted file for ${args.id}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+        if (!gone) {
+          // Give the row back so it can be edited or deleted again. What is
+          // already gone was a leftover nothing points at, or the base of
+          // boxes the next delete will retry.
+          // Only this delete's own claim comes off: the edits go back as they
+          // were read, so a claim an earlier delete left when it stopped
+          // part-way — files possibly already gone — stays, and the
+          // screenshot can still only be deleted again. The revision stays
+          // bumped: an editor opened before this began must reload.
+          try {
+            await db
+              .update(schema.recordings)
+              .set({ editsJson: existing.editsJson })
+              .where(
+                and(
+                  eq(schema.recordings.id, args.id),
+                  eq(schema.recordings.editsJson, claimedEditsJson),
+                ),
+              );
+          } catch (err) {
+            // The screenshot then stays claimed, so it can only be deleted
+            // again; the storage failure below is what the caller needs.
+            console.warn(
+              `[delete-recording-permanent] could not release the claim on ${args.id}:`,
+              err instanceof Error ? err.message : String(err),
+            );
+          }
+          throw new Error(
+            "An unredacted copy of this screenshot could not be deleted from storage, so the screenshot was kept. Try again later.",
+          );
+        }
+        alreadyDeleted.add(url);
+      }
+    }
+
     await db.transaction(async (tx) => {
+      // The claim is what keeps saves out; a row without it was changed by
+      // something that does not honour it, and is left for the next try.
+      if (claimedEditsJson) {
+        const [current] = await tx
+          .select({
+            editsJson: schema.recordings.editsJson,
+            mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
+          })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, args.id));
+        if (
+          !current ||
+          current.editsJson !== claimedEditsJson ||
+          current.mediaUpdatedAt !== claimedAt
+        ) {
+          throw new Error(
+            "This screenshot changed while it was being deleted. Nothing more was deleted — try again.",
+          );
+        }
+      }
       // Cascade delete every related row before deleting remote objects. If any
       // DB delete fails, the transaction rolls back and provider media stays put.
       await tx
@@ -117,7 +238,7 @@ export default defineAction({
     });
 
     const mediaCleanup = await deleteRecordingMediaObjects(existing, {
-      protectedUrls,
+      protectedUrls: new Set([...protectedUrls, ...alreadyDeleted]),
     });
 
     // Clean up any lingering application state for this recording.

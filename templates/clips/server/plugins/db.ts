@@ -1268,6 +1268,24 @@ export const migrations = runMigrations(
       name: "recording-failure-backfill-completion",
       sql: `ALTER TABLE clips_backfill_leases ADD COLUMN IF NOT EXISTS completed_at TEXT`,
     },
+    {
+      version: 77,
+      name: "recording-kind-screenshots",
+      // Additive. Every existing row is a video, which is exactly what the
+      // NOT NULL DEFAULT backfills, so no reader has to treat pre-migration
+      // rows as "kind unknown". `image_url` stays NULL for videos.
+      sql: [
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'video'`,
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS image_url TEXT`,
+      ].join("; "),
+    },
+    {
+      version: 78,
+      name: "screenshot-base-image",
+      // Additive. NULL until a screenshot is edited, which reads as "the
+      // served image is the unedited capture".
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS base_image_url TEXT`,
+    },
   ],
   { table: "clips_migrations" },
 );

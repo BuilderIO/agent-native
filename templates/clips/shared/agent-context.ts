@@ -282,11 +282,14 @@ export function buildAgentHttpToolManifest({
   transcriptUrl,
   frameUrlTemplate,
   frameAvailable = true,
+  frameResponseType = "image/jpeg",
 }: {
   contextUrl: string;
   transcriptUrl: string;
   frameUrlTemplate: string;
   frameAvailable?: boolean;
+  /** A video frame is a JPEG; a screenshot is served in its stored format. */
+  frameResponseType?: string;
 }) {
   const definitionFor = (name: string) => {
     const definition = CLIPS_WEBMCP_TOOL_DEFINITIONS.find(
@@ -325,7 +328,7 @@ export function buildAgentHttpToolManifest({
       tool(context, contextUrl, "application/json"),
       tool(transcript, transcriptUrl, "application/json"),
       ...(frameAvailable
-        ? [tool(frame, httpFrameUrlTemplate, "image/jpeg")]
+        ? [tool(frame, httpFrameUrlTemplate, frameResponseType)]
         : []),
     ],
   };

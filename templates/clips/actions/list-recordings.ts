@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { getUserProfiles } from "@agent-native/core/user-profile/server";
+import { resolveRecordingKind } from "@shared/recording-kind";
 import {
   and,
   asc,
@@ -116,6 +117,12 @@ export default defineAction({
       .string()
       .nullish()
       .describe("Filter to recordings carrying this tag"),
+    kind: z
+      .enum(["video", "image", "all"])
+      .default("all")
+      .describe(
+        'Filter by what the row holds: "video" for clips, "image" for screenshots, "all" (the default) for both',
+      ),
     search: z
       .string()
       .nullish()
@@ -255,6 +262,12 @@ export default defineAction({
       );
     }
 
+    // Screenshots and clips live in one table; the Screenshots view is this
+    // filter, and the unified library passes "all" so it still shows both.
+    if (args.kind === "image" || args.kind === "video") {
+      whereClauses.push(eq(schema.recordings.kind, args.kind));
+    }
+
     // Tag filter — join-ish via subquery
     if (args.tag) {
       whereClauses.push(
@@ -320,8 +333,10 @@ export default defineAction({
           sourceAppName: schema.recordings.sourceAppName,
           sourceWindowTitle: schema.recordings.sourceWindowTitle,
           description: schema.recordings.description,
+          kind: schema.recordings.kind,
           thumbnailUrl: schema.recordings.thumbnailUrl,
           animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+          mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
           durationMs: schema.recordings.durationMs,
           // Needed to derive the edited-length badge below; dropped before the
           // response is built so the raw edits blob never reaches the client.
@@ -458,6 +473,9 @@ export default defineAction({
         sourceAppName: r.sourceAppName,
         sourceWindowTitle: r.sourceWindowTitle,
         description: r.description,
+        // A screenshot card has no duration, play affordance or transcript,
+        // so the grid has to be able to tell the two apart.
+        kind: resolveRecordingKind(r.kind),
         thumbnailUrl: resolvePlayerThumbnailUrl(r),
         animatedThumbnailUrl: r.animatedThumbnailUrl
           ? resolvePlayerThumbnailUrl(r, { animated: true })

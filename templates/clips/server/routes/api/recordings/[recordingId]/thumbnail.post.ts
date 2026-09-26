@@ -9,6 +9,7 @@
  */
 
 import { runWithRequestContext } from "@agent-native/core/server";
+import { isImageRecording } from "@shared/recording-kind";
 import { and, eq } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -83,6 +84,7 @@ export default defineEventHandler(async (event: H3Event) => {
         ownerEmail: schema.recordings.ownerEmail,
         thumbnailUrl: schema.recordings.thumbnailUrl,
         editsJson: schema.recordings.editsJson,
+        kind: schema.recordings.kind,
       })
       .from(schema.recordings)
       .where(
@@ -99,6 +101,13 @@ export default defineEventHandler(async (event: H3Event) => {
       });
       setResponseStatus(event, 404);
       return { error: "Recording not found" };
+    }
+
+    // A screenshot's thumbnail is the picture viewers are served; replacing
+    // it here would swap what they see outside the editor and its burn.
+    if (isImageRecording(existing)) {
+      setResponseStatus(event, 409);
+      return { error: "A screenshot uses its own picture as its thumbnail." };
     }
 
     const replaceMode = getQuery(event).replace;

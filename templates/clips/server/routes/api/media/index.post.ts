@@ -23,6 +23,11 @@ import {
 } from "h3";
 
 import {
+  hasExpectedImageSignature,
+  IMAGE_EXTENSION_BY_MIME,
+  isSupportedImageMimeType,
+} from "../../../lib/image-signature.js";
+import {
   encodeOrganizationLogoReference,
   ORGANIZATION_LOGO_PURPOSE,
 } from "../../../lib/organization-logo.js";
@@ -40,38 +45,6 @@ function randId(): string {
   let out = "";
   for (const b of bytes) out += chars[b % chars.length];
   return out;
-}
-
-const EXT_BY_MIME: Record<string, string> = {
-  "image/png": ".png",
-  "image/jpeg": ".jpg",
-  "image/gif": ".gif",
-  "image/webp": ".webp",
-};
-
-function hasExpectedImageSignature(bytes: Uint8Array, mimeType: string) {
-  if (mimeType === "image/png") {
-    return (
-      bytes[0] === 0x89 &&
-      bytes[1] === 0x50 &&
-      bytes[2] === 0x4e &&
-      bytes[3] === 0x47
-    );
-  }
-  if (mimeType === "image/jpeg") {
-    return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-  }
-  if (mimeType === "image/gif") {
-    const header = Buffer.from(bytes.subarray(0, 6)).toString("ascii");
-    return header === "GIF87a" || header === "GIF89a";
-  }
-  if (mimeType === "image/webp") {
-    return (
-      Buffer.from(bytes.subarray(0, 4)).toString("ascii") === "RIFF" &&
-      Buffer.from(bytes.subarray(8, 12)).toString("ascii") === "WEBP"
-    );
-  }
-  return false;
 }
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -117,7 +90,9 @@ export default defineEventHandler(async (event: H3Event) => {
         .split(";")[0]
         .trim()
         .toLowerCase();
-      const ext = EXT_BY_MIME[mimeType];
+      const ext = isSupportedImageMimeType(mimeType)
+        ? IMAGE_EXTENSION_BY_MIME[mimeType]
+        : undefined;
       if (!ext) {
         setResponseStatus(event, 400);
         return { error: "Only PNG, JPEG, GIF, and WebP images are allowed" };

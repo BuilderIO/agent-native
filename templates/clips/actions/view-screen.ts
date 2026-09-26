@@ -33,6 +33,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
+import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import {
   getActiveOrganizationId,
   ownerEmailMatches,
@@ -59,7 +60,7 @@ function mapRecording(r: any) {
     id: r.id,
     title: r.title,
     description: r.description,
-    thumbnailUrl: r.thumbnailUrl,
+    thumbnailUrl: listingThumbnailUrl(r),
     durationMs: r.durationMs,
     status: r.status,
     visibility: r.visibility,
@@ -239,7 +240,7 @@ async function fetchLibrary({
     title: r.title,
     durationMs: r.durationMs,
     status: r.status,
-    thumbnailUrl: r.thumbnailUrl,
+    thumbnailUrl: listingThumbnailUrl(r),
     folderId: r.folderId,
     updatedAt: r.updatedAt,
   }));
