@@ -2,8 +2,9 @@ import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 
 import enUSMessages from "@/i18n/en-US";
 
+import { loadPublicDesignMeta } from "../../server/lib/public-design-meta.server";
 import DesignEditorRoute from "../pages/DesignEditor";
-import { designResourceMeta, loadPublicDesignMeta } from "./public-design-meta";
+import { designResourceMeta } from "./public-design-meta";
 
 /**
  * Keep the route module itself as a React Fast Refresh boundary. A bare
