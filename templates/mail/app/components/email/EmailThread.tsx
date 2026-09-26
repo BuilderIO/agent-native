@@ -1,6 +1,6 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
-import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
+import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import {
   findPlainTextLinkRanges,
   renderPlainTextLinks,
@@ -46,7 +46,10 @@ import {
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { AiFilterDialog } from "@/components/email/AiFilterDialog";
+import {
+  AiFilterDialog,
+  type AiFilterDialogTarget,
+} from "@/components/email/AiFilterDialog";
 import { ImportanceFeedbackMenu } from "@/components/email/ImportanceFeedbackMenu";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -75,6 +78,7 @@ import {
   useSettings,
   useUpdateSettings,
   useEmailTracking,
+  useLabels,
   releaseOwnedInboxRemoval,
   releaseSuppressionClaims,
 } from "@/hooks/use-emails";
@@ -153,7 +157,6 @@ function InlineReplyComposerSkeleton() {
 
 export function EmailThread({
   activeThreadId,
-  labelNames,
   onArchived,
   emailIds = [],
   threads = [],
@@ -165,7 +168,6 @@ export function EmailThread({
   onToggleMaximize,
 }: {
   activeThreadId?: string;
-  labelNames?: ReadonlyMap<string, string>;
   onArchived?: (id: string) => void;
   emailIds?: string[];
   threads?: ThreadSummary[];
@@ -323,7 +325,7 @@ export function EmailThread({
   );
   const [aiFilterDialog, setAiFilterDialog] = useState<{
     action: "filter" | "keep";
-    targets: AiFilterTarget[];
+    targets: AiFilterDialogTarget[];
   } | null>(null);
 
   const hasFullBody = !!(email?.bodyHtml || email?.body);
@@ -712,30 +714,33 @@ export function EmailThread({
 
   const openAiFilterDialog = useCallback(
     (action: "filter" | "keep") => {
-      const targets = getActionThreadKeys().flatMap((key): AiFilterTarget[] => {
-        const thread = threads.find(
-          (candidate) =>
-            (candidate.latestMessage.threadId || candidate.latestMessage.id) ===
-            key,
-        );
-        const target =
-          thread?.latestMessage ??
-          (email && (email.threadId || email.id) === key ? email : undefined);
-        if (!target) return [];
-        return [
-          {
-            id: target.id,
-            threadId: target.threadId || target.id,
-            ...(target.accountEmail && target.accountEmail !== "local"
-              ? { accountEmail: target.accountEmail }
-              : {}),
-            sender: target.from.name
-              ? `${target.from.name} <${target.from.email}>`
-              : target.from.email,
-            subject: target.subject,
-          },
-        ];
-      });
+      const targets = getActionThreadKeys().flatMap(
+        (key): AiFilterDialogTarget[] => {
+          const thread = threads.find(
+            (candidate) =>
+              (candidate.latestMessage.threadId ||
+                candidate.latestMessage.id) === key,
+          );
+          const target =
+            thread?.latestMessage ??
+            (email && (email.threadId || email.id) === key ? email : undefined);
+          if (!target) return [];
+          return [
+            {
+              id: target.id,
+              threadId: target.threadId || target.id,
+              ...(target.accountEmail && target.accountEmail !== "local"
+                ? { accountEmail: target.accountEmail }
+                : {}),
+              sender: target.from.name
+                ? `${target.from.name} <${target.from.email}>`
+                : target.from.email,
+              subject: target.subject,
+              snippet: target.snippet,
+            },
+          ];
+        },
+      );
       if (targets.length === 0) {
         toast.error(t("mail.toasts.noEmailSelected"));
         return;
@@ -933,7 +938,14 @@ export function EmailThread({
 
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
-  const { allAccounts } = useAccountFilter();
+  const { activeAccounts, allAccounts } = useAccountFilter();
+  const { data: labels = [] } = useLabels(
+    activeAccounts.size > 0 ? [...activeAccounts] : undefined,
+  );
+  const labelNames = useMemo(
+    () => new Map(labels.map((label) => [label.id, label.name])),
+    [labels],
+  );
   const myEmails = useMemo(() => {
     const emails = new Set(allAccounts.map((a) => a.email.toLowerCase()));
     if (settings?.email) emails.add(settings.email.toLowerCase());
@@ -1336,7 +1348,7 @@ export function EmailThread({
                     )}
                   >
                     {mailLabelDisplayName(
-                      labelNames?.get(labelId) ??
+                      labelNames.get(labelId) ??
                         labelId
                           .replace(/^label:/, "")
                           .replace(/^CATEGORY_/, ""),
@@ -1416,7 +1428,7 @@ export function EmailThread({
                     {t("mail.actions.archive")} (E)
                   </TooltipContent>
                 </Tooltip>
-                {email && view === "inbox" && (
+                {email && (view === "inbox" || isAiFiltered) && (
                   <ImportanceFeedbackMenu
                     onFeedback={(decision) =>
                       void submitPriorityFeedback(decision)

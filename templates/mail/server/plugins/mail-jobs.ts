@@ -3,6 +3,10 @@ import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
 import { startIntervalJob } from "@agent-native/core/server/interval-job";
 import { z } from "zod";
 
+import {
+  processMailAiFilterBackfills,
+  purgeExpiredMailAiFilterBackfills,
+} from "../lib/ai-filter-backfill.js";
 import { purgeExpiredMailAiFilterRuleUndoSnapshots } from "../lib/ai-filter-rule-undo.js";
 import { processAutomations } from "../lib/automation-engine.js";
 import { getClientForAccount, startWatch } from "../lib/google-auth.js";
@@ -18,10 +22,17 @@ import {
   type SendLaterPayload,
 } from "../lib/jobs.js";
 
-const INTERVAL_MS = 60_000;
+const INTERVAL_MS = 60_000; // 1 minute
+const AI_FILTER_BACKFILL_INTERVAL_MS = 10_000;
 const WATCH_RENEW_INTERVAL_MS = 12 * 60 * 60_000;
+// Backstop for the whole tick (job sends + Gmail watch renewal, both outbound
+// network calls with no timeout of their own), reported through the job's
+// onError so a wedged tick is loud rather than silent.
 const TICK_ABORT_MS = Math.max(10_000, INTERVAL_MS * 4);
 let lastWatchRenewalAt = 0;
+// Vite's dev server initializes Nitro plugins more than once during boot
+// (initial load + post-init). Module-scope flag ensures the "skipping" log
+// fires at most once per process.
 let skippingLogged = false;
 
 async function renewAllWatches(): Promise<void> {
@@ -29,6 +40,9 @@ async function renewAllWatches(): Promise<void> {
   const accounts = await listOAuthAccounts("google");
   for (const acc of accounts) {
     try {
+      // Use accountId-based lookup so secondary/added accounts (where
+      // `owner !== accountId`) also get their watch renewed. Gmail watches
+      // expire in ~7 days and must be renewed regularly.
       const client = await getClientForAccount(acc.accountId);
       if (!client) continue;
       await startWatch(client.accessToken);
@@ -76,6 +90,7 @@ async function processJobs(): Promise<void> {
 }
 
 export default () => {
+  // ── Register mail events (runs in all modes, not just background jobs) ──
   registerEvent({
     name: "mail.message.received",
     description:
@@ -102,6 +117,11 @@ export default () => {
     }) as any,
   });
 
+  // Background cron defaults on in production and off in dev. The dev gate
+  // exists because every connected dev server would otherwise process jobs
+  // and automations for every user globally, causing duplicate actions and
+  // duplicate Anthropic spend. Set RUN_BACKGROUND_JOBS=1 to opt in locally,
+  // or RUN_BACKGROUND_JOBS=0 to opt out in production.
   const isProd = process.env.NODE_ENV === "production";
   const flag = process.env.RUN_BACKGROUND_JOBS;
   const enabled = flag === "1" || (isProd && flag !== "0");
@@ -115,12 +135,22 @@ export default () => {
     return;
   }
 
+  // The overlap guard and the hung-tick timeout both come from
+  // startIntervalJob rather than a module-level `running` flag here: these
+  // are outbound Google calls with no timeout of their own, and releasing the
+  // guard on the timeout while a hung call kept running is what let a tick
+  // overlap the next one and send duplicate mail.
   startIntervalJob(
     async () => {
       try {
         await purgeExpiredMailAiFilterRuleUndoSnapshots();
       } catch (err) {
         console.error("[mail-jobs] AI-filter undo cleanup failed:", err);
+      }
+      try {
+        await purgeExpiredMailAiFilterBackfills();
+      } catch (err) {
+        console.error("[mail-jobs] AI-filter backfill cleanup failed:", err);
       }
       try {
         await processJobs();
@@ -147,6 +177,19 @@ export default () => {
       leading: false,
       onError: (err) =>
         console.error("[mail-jobs] tick exceeded time budget:", err),
+    },
+  );
+
+  startIntervalJob(
+    async () => {
+      await processMailAiFilterBackfills();
+    },
+    {
+      intervalMs: AI_FILTER_BACKFILL_INTERVAL_MS,
+      timeoutMs: 45_000,
+      leading: false,
+      onError: (err) =>
+        console.error("[mail-jobs] AI-filter backfill tick failed:", err),
     },
   );
 };

@@ -152,4 +152,10 @@ describe("mail db.ts wires ensureAdditiveColumns after runMigrations", () => {
       /CREATE INDEX IF NOT EXISTS idx_automation_rules_owner ON automation_rules\(owner_email\)/,
     );
   });
+
+  it("prevents concurrent active backfills for one owner and rule set", () => {
+    expect(dbTsSource).toMatch(
+      /CREATE UNIQUE INDEX IF NOT EXISTS mail_ai_filter_backfills_owner_rule_set_active_idx[\s\S]*?ON mail_ai_filter_backfills\(owner_email, rule_set_key\)[\s\S]*?WHERE rule_set_key IS NOT NULL AND status IN \('queued', 'running', 'undoing'\)/,
+    );
+  });
 });
