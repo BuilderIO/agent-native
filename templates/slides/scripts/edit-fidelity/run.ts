@@ -1000,6 +1000,9 @@ async function runScenario(
     // End lands at the end of the visual line, so read where the typing
     // went instead of assuming it followed the element's text.
     const typed = (await editorState(page, slideId)).editorText;
+    await settle(page);
+    const typedShot = await shot(page, slideId);
+    write("typed.png", typedShot);
     const exited = await exitEdit(
       page,
       slideId,
@@ -1091,6 +1094,7 @@ async function runScenario(
         reload,
         rects(snapAfter.editedRect, snapReload.editedRect),
       ),
+      typed: await pair("typed", typedShot, after, []),
     };
 
     // ---- styles and inventory
@@ -1246,6 +1250,12 @@ async function runScenario(
       v.push(
         `after->reload ${px.reload.whole.pct}% > ${tol}% (persisted render differs from the live one)`,
       );
+    // Same page load, so no noise floor: a few px of overflowing text can be
+    // an extra saved line.
+    if (px.typed.whole.diffPixels > 0)
+      v.push(
+        `typed->after ${px.typed.whole.diffPixels}px differ (leaving edit mode changed what the editor showed)`,
+      );
     if (netNoop) {
       if (px.editing.whole.pct > tol)
         v.push(`view->editing ${px.editing.whole.pct}% > ${tol}%`);
@@ -1259,7 +1269,7 @@ async function runScenario(
           `view->after outside the edited element ${px.after.outside.pct}% > ${tol}%`,
         );
     }
-    for (const size of [px.editing, px.after, px.reload]) {
+    for (const size of [px.editing, px.after, px.reload, px.typed]) {
       if (size.whole.sizeMismatch) v.push("screenshot size changed");
     }
     const se = result.style.editing;
@@ -1343,6 +1353,7 @@ async function runScenario(
       ["enter 1", "enter-1.png"],
       ["enter 2", "enter-2.png"],
       ["enter 3", "enter-3.png"],
+      ["typed", "typed.png"],
       ["after exit", "after.png"],
       ["after reload", "reload.png"],
       ["diff view→after", "diff-after.png"],
@@ -1361,6 +1372,7 @@ function metricsOf(r: ScenarioResult): ScenarioMetrics {
     editingPct: r.pixels?.editing.whole.pct ?? 0,
     afterPct: r.pixels?.after.whole.pct ?? 0,
     reloadPct: r.pixels?.reload.whole.pct ?? 0,
+    typedPct: r.pixels?.typed?.whole.pct ?? 0,
     outsideEditingPct: r.pixels?.editing.outside.pct ?? 0,
     outsideAfterPct: r.pixels?.after.outside.pct ?? 0,
     styleDeltasEditing: r.style?.editing.deltas ?? 0,

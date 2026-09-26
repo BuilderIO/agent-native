@@ -266,6 +266,9 @@ function textNodesIn(root: Node): Text[] {
 }
 
 function laysOutOwnLines(element: Element) {
+  // A flex or grid child's computed display is blockified, a <br>'s too, yet
+  // Chrome lays a <br> out as a break in the anonymous item around the text.
+  if (element.tagName === "BR") return false;
   const display = window.getComputedStyle(element).display;
   // A DOM without layout (happy-dom) leaves inline defaults unresolved.
   if (!display) return BLOCK_TAGS.has(element.tagName);
@@ -314,13 +317,6 @@ function hasRenderedContent(node: Node): boolean {
     (node instanceof Element || node instanceof DocumentFragment) &&
     node.querySelector(RENDERED_ELEMENTS) !== null
   );
-}
-
-function renderedAfter(node: Node, block: HTMLElement) {
-  const range = document.createRange();
-  range.setStartAfter(node);
-  range.setEnd(block, block.childNodes.length);
-  return hasRenderedContent(range.cloneContents());
 }
 
 /** What follows `node` on its own line: up to the next box that starts a line. */
@@ -759,6 +755,24 @@ export function startInPlaceTextSession(
     );
   }
 
+  /**
+   * Chrome reshapes only the edited span of a text node, so typing and
+   * deleting next to a joined Arabic letter leaves it drawn unjoined until
+   * the node is recreated.
+   */
+  function reshapeAtCaret() {
+    const range = selectionRange();
+    const text = range?.startContainer;
+    if (!range?.collapsed || !(text instanceof Text)) return;
+    // Latin text has no joining to redo; leave its node, and whatever the
+    // browser tracks on it, alone.
+    if (!/[^\t\n\r\u0020-\u024f\u2000-\u206f]/.test(text.data)) return;
+    const offset = range.startOffset;
+    const copy = text.cloneNode() as Text;
+    text.replaceWith(copy);
+    placeCaret(copy, offset);
+  }
+
   const notify = () => {
     authorZwspOrdinals();
     unscroll();
@@ -887,6 +901,7 @@ export function startInPlaceTextSession(
   function edit(kind: EditKind, mutate: () => void) {
     checkpoint(kind);
     mutate();
+    reshapeAtCaret();
     notify();
   }
 
@@ -1204,7 +1219,7 @@ export function startInPlaceTextSession(
     if (!caret) return;
     const br = document.createElement("br");
     caret.insertNode(br);
-    if (renderedAfter(br, nearestLineBox(br, el))) {
+    if (hasRenderedContent(lineRest(br, nearestLineBox(br, el)))) {
       const next = br.nextSibling;
       if (next instanceof Text) placeCaret(next, 0);
       else
@@ -1667,7 +1682,10 @@ export function startInPlaceTextSession(
       }
       event.preventDefault();
       if (!dragged) return;
-      edit("command", () => deleteRange(dragged));
+      // Not edit(): its reshape would move Chrome's live drop point.
+      checkpoint("command");
+      deleteRange(dragged);
+      notify();
       dragDeleted = true;
       return;
     }
@@ -1710,7 +1728,10 @@ export function startInPlaceTextSession(
       const at =
         (type === "insertFromDrop" ? targetRange(event) : null) ?? range;
       if (dropJoins) {
-        if (insertClipboard(data, at)) notify();
+        if (insertClipboard(data, at)) {
+          reshapeAtCaret();
+          notify();
+        }
       } else {
         command(() => insertClipboard(data, at));
       }
@@ -1734,6 +1755,11 @@ export function startInPlaceTextSession(
     const input = event as InputEvent;
     if (input.inputType === "insertText" && input.data === " ") {
       applyMarkdownShortcut();
+    }
+    // Replacing the node would cancel an IME composition, or move the live
+    // Range Chrome drops a dragged selection at.
+    if (!input.isComposing && input.inputType !== "deleteByDrag") {
+      reshapeAtCaret();
     }
     notify();
   }
@@ -2011,9 +2037,8 @@ export function startInPlaceTextSession(
       }
     }
     if (edited) {
-      // Chrome reshapes only the edited span of a text node, so typing and
-      // deleting next to a joined Arabic letter leaves it drawn unjoined
-      // until the node is recreated. The markup stays identical.
+      // A join or split away from the caret needs the same reshape (see
+      // reshapeAtCaret); the markup stays identical.
       el.normalize();
       for (const text of textNodesIn(el)) text.replaceWith(text.cloneNode());
     }

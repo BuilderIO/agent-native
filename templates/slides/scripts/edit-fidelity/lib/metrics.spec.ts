@@ -12,6 +12,7 @@ import {
   ratchetBaselineEntry,
   restyledAddedText,
   toBaselineEntry,
+  type BaselineEntry,
   type ScenarioMetrics,
 } from "./metrics.ts";
 
@@ -40,6 +41,7 @@ const metrics = (over: Partial<ScenarioMetrics> = {}): ScenarioMetrics => ({
   editingPct: 0,
   afterPct: 0,
   reloadPct: 0,
+  typedPct: 0,
   outsideEditingPct: 0,
   outsideAfterPct: 0,
   styleDeltasEditing: 0,
@@ -148,6 +150,28 @@ describe("baseline ratchet", () => {
       ),
     ).toEqual(["k: status pass -> no-edit"]);
   });
+
+  it("holds a field an older entry lacks to the zero ceiling, and ratchets it", () => {
+    const { typedPct: _typedPct, ...old } = toBaselineEntry(metrics());
+    const baseline = { k: old as BaselineEntry };
+    expect(
+      findBaselineProblems(
+        new Map([["k", metrics({ typedPct: 0.05 })]]),
+        baseline,
+        () => true,
+      ),
+    ).toEqual([]);
+    expect(
+      findBaselineProblems(
+        new Map([["k", metrics({ typedPct: 3 })]]),
+        baseline,
+        () => true,
+      ),
+    ).toEqual(["k: typedPct 3% exceeds ceiling 0.1%"]);
+    expect(
+      ratchetBaselineEntry(baseline.k, metrics({ typedPct: 3 })).typedPct,
+    ).toBe(0.1);
+  });
 });
 
 describe("ratchetBaselineEntry", () => {
@@ -156,6 +180,7 @@ describe("ratchetBaselineEntry", () => {
     editingPct: 0,
     afterPct: 0,
     reloadPct: 0,
+    typedPct: 0,
     outsideEditingPct: 0,
     outsideAfterPct: 0,
     styleDeltasEditing: 0,
@@ -194,6 +219,7 @@ describe("findBaselineProblems and errors", () => {
       editingPct: 0,
       afterPct: 0,
       reloadPct: 0,
+      typedPct: 0,
       outsideEditingPct: 0,
       outsideAfterPct: 0,
       styleDeltasEditing: 0,

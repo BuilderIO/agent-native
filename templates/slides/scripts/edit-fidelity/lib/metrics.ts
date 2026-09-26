@@ -356,6 +356,8 @@ export interface ScenarioMetrics {
   editingPct: number;
   afterPct: number;
   reloadPct: number;
+  /** Typed, still editing -> after exit, whole slide. */
+  typedPct: number;
   outsideEditingPct: number;
   outsideAfterPct: number;
   styleDeltasEditing: number;
@@ -370,6 +372,7 @@ const PCT_FIELDS = [
   "editingPct",
   "afterPct",
   "reloadPct",
+  "typedPct",
   "outsideEditingPct",
   "outsideAfterPct",
 ] as const;
@@ -395,6 +398,11 @@ export function toBaselineEntry(m: ScenarioMetrics): BaselineEntry {
   return entry;
 }
 
+/** An entry recorded before a field existed holds it to the invariant. */
+function pctCeiling(entry: BaselineEntry, f: (typeof PCT_FIELDS)[number]) {
+  return entry[f] ?? ceilingFor(0);
+}
+
 /**
  * The entry `--update` writes: a fresh measurement for a new key, and for an
  * existing one the stricter of the two per field, so an update never loosens
@@ -409,7 +417,8 @@ export function ratchetBaselineEntry(
   if (STATUS_RANK[existing.status] < STATUS_RANK[next.status]) {
     next.status = existing.status;
   }
-  for (const f of PCT_FIELDS) next[f] = Math.min(existing[f], next[f]);
+  for (const f of PCT_FIELDS)
+    next[f] = Math.min(pctCeiling(existing, f), next[f]);
   for (const f of COUNT_FIELDS) next[f] = Math.min(existing[f], next[f]);
   return next;
 }
@@ -443,8 +452,9 @@ export function findBaselineProblems(
       problems.push(`${key}: status ${b.status} -> ${m.status}`);
     }
     for (const f of PCT_FIELDS) {
-      if (m[f] > b[f])
-        problems.push(`${key}: ${f} ${m[f]}% exceeds ceiling ${b[f]}%`);
+      const ceiling = pctCeiling(b, f);
+      if (m[f] > ceiling)
+        problems.push(`${key}: ${f} ${m[f]}% exceeds ceiling ${ceiling}%`);
     }
     for (const f of COUNT_FIELDS) {
       if (m[f] > b[f])

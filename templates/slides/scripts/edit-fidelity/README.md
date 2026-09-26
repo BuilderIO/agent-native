@@ -157,6 +157,10 @@ them per slide. For each target and scenario:
      be collapsed inside the edited element and move to another line; a
      caret that cannot be measured is its own violation.
    - `clickout`: like `typedelete`.
+
+   Once the keys are in, it captures `typed.png`: the slide as the live
+   editor shows it, caret hidden.
+
 6. **Exit.** Escape, except `clickout`, which clicks the empty editor
    background beside the slide. The harness then polls `get-deck` until the
    stored content stops changing, and captures `after.png` and `saved.html`.
@@ -174,8 +178,8 @@ them per slide. For each target and scenario:
 Each scenario writes this directory:
 
 ```
-<out>/<case>/sNN/tNN-<scenario>/{view,editing,enter-1..3,after,reload}.png
-<out>/<case>/sNN/tNN-<scenario>/diff-{editing,after,reload}.png
+<out>/<case>/sNN/tNN-<scenario>/{view,editing,enter-1..3,typed,after,reload}.png
+<out>/<case>/sNN/tNN-<scenario>/diff-{editing,after,reload,typed}.png
 <out>/<case>/sNN/tNN-<scenario>/{stored,saved,saved2}.html
 <out>/<case>/sNN/tNN-<scenario>/html.diff, html-outside.diff
 <out>/<case>/sNN/tNN-<scenario>/result.json, sheet.png
@@ -190,14 +194,18 @@ deltas for editing/after, the html diff, and the violation count.
 
 - **Noise floor.** Each slide is loaded twice with no edit and the two loads
   are diffed. The tolerance used below is `max(0.02%, 2 × noise)`.
-- **Pixels.** pixelmatch runs at threshold 0.1 on view→editing, view→after
-  and after→reload. Each pair is measured over the whole slide and again
+- **Pixels.** pixelmatch runs at threshold 0.1 on view→editing, view→after,
+  after→reload and typed→after. Each pair is measured over the whole slide and again
   "outside" the edited element: the element's old and new rects, padded 4px,
   are blanked and left out of the denominator. A rect covers the element's
   content as well as its box, because text that overflows a fixed-size box
   (a freeform object, an imported text frame) is still the edited element.
   - Every scenario: view→editing outside must be ~0, and after→reload whole
     must be ~0.
+  - Every scenario that edits: typed→after whole must be exactly 0 px. Both
+    shots come from one page load, so no noise floor applies. Leaving edit
+    mode must not change what the editor showed, so a line the save adds or
+    drops, or a style the live element only had while editing, fails here.
   - `noop` / `typedelete` / `clickout`: view→editing and view→after whole
     must be ~0.
   - `append` / `enter3`: view→after outside must be ~0 while the edited
@@ -269,7 +277,8 @@ A scenario is `pass` when it has no violations. Otherwise it is `fail`,
 `baseline.json` maps `case/sNN/tNN/scenario` to a status and to ceilings.
 
 - **Pixel ceilings:** `ceilingFor(d) = d + max(0.1, 15% of d)`, the same as the
-  Design harness.
+  Design harness. An entry recorded before a pixel field existed is held
+  to `ceilingFor(0)` for it.
 - **Count ceilings:** style deltas, missing elements, html diff lines, hard
   failures and violations are exact.
 
