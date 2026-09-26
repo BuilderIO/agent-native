@@ -170,7 +170,14 @@ describe("SecretsSection", () => {
         requestSignal = init?.signal;
         return Promise.resolve({
           ok: true,
-          json: () => new Promise<never>(() => {}),
+          json: () =>
+            new Promise<never>((_resolve, reject) => {
+              requestSignal?.addEventListener(
+                "abort",
+                () => reject(new DOMException("Aborted", "AbortError")),
+                { once: true },
+              );
+            }),
         } as Response);
       }
       return Promise.resolve(Response.json(registeredSecrets));
@@ -198,6 +205,77 @@ describe("SecretsSection", () => {
     expect(secretRequests).toBe(2);
     expect(container.textContent).toContain("OpenAI API key");
     expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("aborts the request on unmount without logging a load error", async () => {
+    vi.useFakeTimers();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    let requestSignal: AbortSignal | null | undefined;
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      if (String(input).endsWith("/secrets/adhoc")) {
+        return Promise.resolve(Response.json([]));
+      }
+      requestSignal = init?.signal;
+      return new Promise<Response>((_resolve, reject) => {
+        requestSignal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          { once: true },
+        );
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+    await act(async () => {
+      root.render(null);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(requestSignal?.aborted).toBe(true);
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it("keeps key cards and save feedback visible during their refresh", async () => {
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      const url = String(input);
+      if (url.endsWith("/secrets/adhoc")) {
+        return Promise.resolve(Response.json([]));
+      }
+      if (url.endsWith("/secrets/OPENAI_API_KEY") && init?.method === "POST") {
+        return Promise.resolve(Response.json({}));
+      }
+      return Promise.resolve(Response.json(registeredSecrets));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+    await openRow("OpenAI API key");
+    await click(findButton("Rotate"));
+
+    const input = container.querySelector<HTMLInputElement>(
+      'input[aria-label="OpenAI API key"]',
+    );
+    expect(input).toBeTruthy();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "new-test-key");
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(findButton("Save"));
+
+    expect(container.textContent).toContain("OpenAI API key");
+    expect(container.textContent).toContain("Saved");
   });
 
   it("shows configured keys while keeping unset providers behind New", async () => {
