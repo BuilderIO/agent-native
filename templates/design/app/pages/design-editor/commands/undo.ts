@@ -1401,7 +1401,33 @@ export function runUndo({
     // it back off, leaving redo permanently empty after this undo.
     performDeleteFiles(
       createdFiles.filter((file): file is DesignFile => Boolean(file)),
-      { skipFileCreationRedoPrune: true },
+      {
+        skipFileCreationRedoPrune: true,
+        onMutationSettled: (deletedFiles, failedFiles) => {
+          const duplicateStack = entries.find(
+            (item) => item.duplicateStack,
+          )?.duplicateStack;
+          if (
+            !duplicateStack ||
+            failedFiles.length > 0 ||
+            deletedFiles.length !== createdFiles.length
+          ) {
+            return;
+          }
+          const restoredGeometry = {
+            ...getCanvasFrameGeometry(designDataJsonRef.current),
+          };
+          for (const [frameId, geometry] of Object.entries(
+            duplicateStack.before,
+          )) {
+            if (geometry) restoredGeometry[frameId] = geometry;
+            else delete restoredGeometry[frameId];
+          }
+          writeFrameGeometrySnapshot(restoredGeometry, {
+            replacePendingGeometrySave: true,
+          });
+        },
+      },
     );
     return true;
   };

@@ -17090,7 +17090,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var member = excluded[i];
         if (
           member &&
-          (member === node || (member.contains && member.contains(node)))
+          (member === node ||
+            (member.contains && member.contains(node)) ||
+            (node.contains && node.contains(member)))
         ) {
           return true;
         }
@@ -17486,7 +17488,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
     }
 
-    var target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+    var receivingContainer = currentParent.parentElement;
+    var target = null;
+    if (
+      pointerOutsideCurrentParent &&
+      receivingContainer &&
+      isAutoLayoutElement(receivingContainer) &&
+      pointHit === receivingContainer
+    ) {
+      target = nearestChildInsertionTarget(
+        receivingContainer,
+        clientX,
+        clientY,
+        dragged,
+      ) || {
+        anchor: receivingContainer,
+        placement: "inside",
+        axis: parentFlowAxis(receivingContainer),
+        dropMode: "flow-insert",
+      };
+    } else {
+      target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+    }
     if (
       (forceNestedAutoLayout || ignoreTargetAutoLayout) &&
       !pointerOutsideCurrentParent
@@ -17558,21 +17581,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
 
-    // Body has no node-id, so persist cannot resolve `html > body` as an
-    // inside-anchor. After the current parent lands the same freeform root
-    // sibling and gives persist a real node-id.
+    // Body has no node-id, so keep an existing board-root sibling anchor when
+    // unnesting promoted the drop past every clipped ancestor.
     if (
       currentParent !== document.body &&
       (container === document.body ||
         container === document.documentElement ||
         target?.anchor === document.body)
     ) {
-      target = {
-        anchor: currentParent,
-        placement: "after",
-        axis: "y",
-        dropMode: "absolute-container",
-      };
+      if (
+        !target ||
+        target.anchor?.parentElement !== document.body ||
+        target.placement === "inside"
+      ) {
+        target = {
+          anchor: currentParent,
+          placement: "after",
+          axis: "y",
+          dropMode: "absolute-container",
+        };
+      }
     }
 
     // Leaving a frame for its parent's empty area stacks the layer immediately
@@ -17587,7 +17615,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       exitedContainer &&
       receivingContainer &&
       isContainerDropTarget(exitedContainer) &&
-      targetContainer === receivingContainer &&
+      !isAutoLayoutElement(receivingContainer) &&
+      (targetContainer === receivingContainer ||
+        target?.anchor === receivingContainer) &&
       (pointHit === receivingContainer ||
         !pointHit ||
         pointHit === document.body ||
@@ -18023,7 +18053,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // After-the-parent (not inside body): body often has no node-id, so persist
   // cannot resolve it and the style-only write leaves the child clipped.
   function unnestAbsoluteToScreenRoot(el, clientX, clientY) {
-    var parent = el && el.parentElement;
+    var child = el;
+    var parent = child && child.parentElement;
     if (
       !parent ||
       parent === document.body ||
@@ -18031,17 +18062,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       return null;
     }
-    var parentRect = parent.getBoundingClientRect();
-    if (
-      clientX >= parentRect.left &&
-      clientX <= parentRect.right &&
-      clientY >= parentRect.top &&
-      clientY <= parentRect.bottom
+    while (
+      parent &&
+      parent !== document.body &&
+      parent !== document.documentElement
     ) {
-      return null;
+      var parentRect = parent.getBoundingClientRect();
+      if (
+        clientX >= parentRect.left &&
+        clientX <= parentRect.right &&
+        clientY >= parentRect.top &&
+        clientY <= parentRect.bottom
+      ) {
+        return {
+          anchor: child,
+          placement: "after",
+          axis: parentFlowAxis(parent),
+          dropMode: "absolute-container",
+        };
+      }
+      child = parent;
+      parent = parent.parentElement;
     }
     return {
-      anchor: parent,
+      anchor: child,
       placement: "after",
       axis: "y",
       dropMode: "absolute-container",

@@ -112,15 +112,14 @@ beforeEach(() => {
 });
 
 describe("getDuplicateScreenGeometry", () => {
-  it("uses the first slot to the right of the source and stacks above it", () => {
+  it("uses the first unoccupied slot to the right and leaves stacking to the command", () => {
     const source = { x: 200, y: 720, width: 320, height: 240, z: 4 };
 
-    expect(getDuplicateScreenGeometry(source, [])).toEqual({
+    expect(getDuplicateScreenGeometry(source, [])).toMatchObject({
       x: 576,
       y: 720,
       width: 320,
       height: 240,
-      z: 5,
     });
   });
 
@@ -132,12 +131,11 @@ describe("getDuplicateScreenGeometry", () => {
       { x: 576, y: 1200, width: 320, height: 240, z: 200 },
     ];
 
-    expect(getDuplicateScreenGeometry(source, occupied)).toEqual({
+    expect(getDuplicateScreenGeometry(source, occupied)).toMatchObject({
       x: 952,
       y: 720,
       width: 320,
       height: 240,
-      z: 5,
     });
   });
 
@@ -148,12 +146,11 @@ describe("getDuplicateScreenGeometry", () => {
       { x: 400, y: 1200, width: 800, height: 600, z: 9 },
     ];
 
-    expect(getDuplicateScreenGeometry(source, occupied)).toEqual({
+    expect(getDuplicateScreenGeometry(source, occupied)).toMatchObject({
       x: 2712,
       y: 240,
       width: 800,
       height: 600,
-      z: 5,
     });
   });
 });
@@ -325,53 +322,58 @@ describe("runDuplicateScreen", () => {
   });
 
   it("preserves source stacking order across a multi-screen duplicate", async () => {
-    const low = {
-      id: "low",
-      filename: "low.html",
+    const first = {
+      id: "first",
+      filename: "first.html",
       fileType: "html",
-      content: "<main>low</main>",
+      content: "<main>first</main>",
       createdAt: "",
       updatedAt: "",
     };
-    const high = {
-      id: "high",
-      filename: "high.html",
+    const second = {
+      id: "second",
+      filename: "second.html",
       fileType: "html",
-      content: "<main>high</main>",
+      content: "<main>second</main>",
       createdAt: "",
       updatedAt: "",
     };
     const args = duplicateArgs({
-      files: [low, high],
+      files: [first, second],
+      overviewScreens: [
+        { id: "first", width: 640, height: 480 },
+        { id: "second", width: 640, height: 480 },
+      ] as any,
       createFileAsync: vi
         .fn()
-        .mockResolvedValueOnce({ id: "copy-low" })
-        .mockResolvedValueOnce({ id: "copy-high" }),
+        .mockResolvedValueOnce({ id: "copy-first" })
+        .mockResolvedValueOnce({ id: "copy-second" }),
       designDataJsonRef: {
         current: {
           canvasFrames: {
-            low: { x: 0, y: 0, width: 640, height: 480, z: 1 },
-            high: { x: 800, y: 0, width: 640, height: 480, z: 4 },
+            first: { x: 0, y: 0, width: 640, height: 480, z: 0 },
+            second: { x: 800, y: 0, width: 640, height: 480, z: 1 },
           },
         },
       },
       liveFrameGeometryRef: {
         current: {
-          low: { x: 0, y: 0, width: 640, height: 480, z: 1 },
-          high: { x: 800, y: 0, width: 640, height: 480, z: 4 },
+          first: { x: 0, y: 0, width: 640, height: 480, z: 0 },
+          second: { x: 800, y: 0, width: 640, height: 480, z: 1 },
         },
       },
     });
     const historyBatchId = "duplicate-test";
 
-    runDuplicateScreen(args, "low", {
+    const duplicateStackSourceIds = ["first", "second"];
+    runDuplicateScreen(args, "first", {
       canvasPosition: { x: 0, y: 600 },
-      duplicateStackIndex: 0,
+      duplicateStackSourceIds,
       historyBatchId,
     });
-    runDuplicateScreen(args, "high", {
+    runDuplicateScreen(args, "second", {
       canvasPosition: { x: 800, y: 600 },
-      duplicateStackIndex: 1,
+      duplicateStackSourceIds,
       historyBatchId,
     });
 
@@ -383,7 +385,349 @@ describe("runDuplicateScreen", () => {
         ([id, geometry]: [string, { z?: number }]) => [id, geometry.z],
       ),
     );
-    expect(zById["copy-low"]).toBeLessThan(zById["copy-high"]);
+    expect(zById).toEqual({ "copy-first": 1, "copy-second": 3 });
+    expect(args.designDataJsonRef.current.canvasFrames).toMatchObject({
+      first: { z: 0 },
+      second: { z: 2 },
+    });
+    expect(args.recordFileCreationHistoryEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        duplicateStack: {
+          before: expect.objectContaining({
+            first: { x: 0, y: 0, width: 640, height: 480, z: 0 },
+            second: { x: 800, y: 0, width: 640, height: 480, z: 1 },
+          }),
+          after: expect.objectContaining({
+            second: { x: 800, y: 0, width: 640, height: 480, z: 2 },
+          }),
+        },
+      }),
+    );
+  });
+
+  it("inserts a Cmd+D copy directly above its source and shifts higher screens", async () => {
+    const screens = ["a", "b", "c"].map((id) => ({
+      id,
+      filename: `${id}.html`,
+      fileType: "html",
+      content: `<main>${id}</main>`,
+      createdAt: "",
+      updatedAt: "",
+    }));
+    const geometry = {
+      a: { x: 0, y: 0, width: 320, height: 240, z: 0 },
+      b: { x: 376, y: 0, width: 320, height: 240, z: 1 },
+      c: { x: 752, y: 0, width: 320, height: 240, z: 2 },
+    };
+    const args = duplicateArgs({
+      files: screens,
+      overviewScreens: screens.map(({ id }) => ({ id })) as any,
+      designDataJsonRef: { current: { canvasFrames: geometry } },
+      liveFrameGeometryRef: { current: geometry },
+    });
+
+    runDuplicateScreen(args, "a", {
+      mode: "alt-click",
+      canvasPosition: { x: 376, y: 0 },
+      duplicateStackSourceIds: ["a"],
+    });
+
+    await vi.waitFor(() =>
+      expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+        "copy",
+        expect.objectContaining({ x: 1128, z: 1 }),
+        expect.any(Object),
+      ),
+    );
+    expect(args.designDataJsonRef.current.canvasFrames).toMatchObject({
+      a: { z: 0 },
+      b: { z: 2 },
+      c: { z: 3 },
+      copy: { z: 1 },
+    });
+  });
+
+  it("reserves repeated Cmd+D copies against a committed copy while screen props catch up", async () => {
+    const screens = ["a", "b", "c"].map((id) => ({
+      id,
+      filename: `${id}.html`,
+      fileType: "html",
+      content: `<main>${id}</main>`,
+      createdAt: "",
+      updatedAt: "",
+    }));
+    const geometry = {
+      a: { x: 0, y: 0, width: 320, height: 240, z: 0 },
+      b: { x: 376, y: 0, width: 320, height: 240, z: 1 },
+      c: { x: 1128, y: 0, width: 320, height: 240, z: 2 },
+    };
+    const args = duplicateArgs({
+      files: screens,
+      overviewScreens: screens.map(({ id }) => ({ id })) as any,
+      createFileAsync: vi
+        .fn()
+        .mockResolvedValueOnce({ id: "copy" })
+        .mockResolvedValueOnce({ id: "copy-2" }),
+      designDataJsonRef: { current: { canvasFrames: geometry } },
+      liveFrameGeometryRef: { current: geometry },
+    });
+
+    const duplicateSource = () =>
+      runDuplicateScreen(args, "a", {
+        mode: "alt-click",
+        canvasPosition: { x: 376, y: 0 },
+        duplicateStackSourceIds: ["a"],
+      });
+    await duplicateSource();
+    expect(args.designDataJsonRef.current.canvasFrames).toMatchObject({
+      a: { z: 0 },
+      copy: { x: 752, z: 1 },
+      b: { z: 2 },
+      c: { z: 3 },
+    });
+    await duplicateSource();
+
+    await vi.waitFor(() =>
+      expect(args.focusCreatedScreen).toHaveBeenCalledTimes(2),
+    );
+    expect(args.designDataJsonRef.current.canvasFrames).toMatchObject({
+      a: { x: 0, z: 0 },
+      copy: { x: 752, z: 2 },
+      b: { x: 376, z: 3 },
+      c: { x: 1128, z: 4 },
+      "copy-2": { x: 1504, z: 1 },
+    });
+  });
+
+  it("keeps persisted occupancy when a committed copy has only a live z value", async () => {
+    const screens = ["a", "b", "copy", "c"].map((id) => ({
+      id,
+      filename: `${id}.html`,
+      fileType: "html",
+      content: `<main>${id}</main>`,
+      createdAt: "",
+      updatedAt: "",
+    }));
+    const geometry = {
+      a: { x: 0, y: 0, width: 320, height: 240, z: 0 },
+      b: { x: 376, y: 0, width: 320, height: 240, z: 1 },
+      copy: { x: 752, y: 0, width: 320, height: 240, z: 2 },
+      c: { x: 1128, y: 0, width: 320, height: 240, z: 3 },
+    };
+    const args = duplicateArgs({
+      files: screens,
+      overviewScreens: screens.map(({ id }) => ({ id })) as any,
+      createFileAsync: vi.fn().mockResolvedValue({ id: "copy-2" }),
+      designDataJsonRef: { current: { canvasFrames: geometry } },
+      liveFrameGeometryRef: {
+        current: {
+          a: geometry.a,
+          b: geometry.b,
+          copy: { z: 4 },
+          c: geometry.c,
+        },
+      },
+    });
+
+    runDuplicateScreen(args, "a", {
+      mode: "alt-click",
+      duplicateStackSourceIds: ["a"],
+    });
+
+    await vi.waitFor(() =>
+      expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+        "copy-2",
+        expect.objectContaining({ x: 1504, z: 1 }),
+        expect.any(Object),
+      ),
+    );
+    expect(args.designDataJsonRef.current.canvasFrames).toMatchObject({
+      a: { z: 0 },
+      copy: { x: 752, z: 3 },
+      b: { x: 376, z: 2 },
+      c: { z: 4 },
+      "copy-2": { x: 1504, z: 1 },
+    });
+  });
+
+  it("keeps an Alt-drag copy above overlapping screens at the requested point", async () => {
+    const source = {
+      id: "source",
+      filename: "source.html",
+      fileType: "html",
+      content: "<main>source</main>",
+      createdAt: "",
+      updatedAt: "",
+    };
+    const overlay = {
+      id: "overlay",
+      filename: "overlay.html",
+      fileType: "html",
+      content: "<main>overlay</main>",
+      createdAt: "",
+      updatedAt: "",
+    };
+    const geometry = {
+      source: { x: 0, y: 0, width: 500, height: 500, z: 0 },
+      overlay: { x: 180, y: 120, width: 500, height: 500, z: 9 },
+    };
+    const args = duplicateArgs({
+      files: [source, overlay],
+      overviewScreens: [{ id: "source" }, { id: "overlay" }] as any,
+      designDataJsonRef: { current: { canvasFrames: geometry } },
+      liveFrameGeometryRef: { current: geometry },
+    });
+
+    runDuplicateScreen(args, "source", {
+      mode: "alt-drag",
+      canvasPosition: { x: 200, y: 140 },
+    });
+
+    await vi.waitFor(() =>
+      expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+        "copy",
+        expect.objectContaining({ x: 200, y: 140, z: 10 }),
+        expect.any(Object),
+      ),
+    );
+    expect(args.designDataJsonRef.current.canvasFrames).toMatchObject({
+      source: { z: 0 },
+      overlay: { z: 9 },
+      copy: { x: 200, y: 140, z: 10 },
+    });
+  });
+
+  it("reserves first-free multi-select copies against screens and earlier copies", async () => {
+    const screens = [
+      { id: "a", filename: "a.html", x: 0 },
+      { id: "b", filename: "b.html", x: 376 },
+      { id: "d", filename: "d.html", x: 1128 },
+    ].map(({ id, filename }) => ({
+      id,
+      filename,
+      fileType: "html",
+      content: `<main>${id}</main>`,
+      createdAt: "",
+      updatedAt: "",
+    }));
+    const geometry = {
+      a: { x: 0, y: 0, width: 320, height: 240, z: 0 },
+      b: { x: 376, y: 0, width: 320, height: 240, z: 1 },
+      d: { x: 1128, y: 0, width: 320, height: 240, z: 2 },
+    };
+    const args = duplicateArgs({
+      files: screens,
+      overviewScreens: screens.map(({ id }) => ({ id })) as any,
+      createFileAsync: vi
+        .fn()
+        .mockResolvedValueOnce({ id: "copy-a" })
+        .mockResolvedValueOnce({ id: "copy-b" }),
+      designDataJsonRef: { current: { canvasFrames: geometry } },
+      liveFrameGeometryRef: { current: geometry },
+    });
+    const duplicateStackSourceIds = ["a", "b"];
+    runDuplicateScreen(args, "a", {
+      mode: "alt-click",
+      canvasPosition: { x: 376, y: 0 },
+      duplicateStackSourceIds,
+      historyBatchId: "multi-copy",
+    });
+    runDuplicateScreen(args, "b", {
+      mode: "alt-click",
+      canvasPosition: { x: 752, y: 0 },
+      duplicateStackSourceIds,
+      historyBatchId: "multi-copy",
+    });
+
+    await vi.waitFor(() =>
+      expect(args.focusCreatedScreen).toHaveBeenCalledTimes(2),
+    );
+    const copiesById = Object.fromEntries(
+      (args.focusCreatedScreen as any).mock.calls.map(
+        ([id, frame]: [string, { x: number }]) => [id, frame],
+      ),
+    );
+    expect(copiesById).toMatchObject({
+      "copy-a": { x: 752 },
+      "copy-b": { x: 1504 },
+    });
+    expect(copiesById["copy-b"].x).toBeGreaterThan(1128);
+  });
+
+  it("rechecks persisted frames after pending copies push a duplicate to the right", async () => {
+    const source = {
+      id: "source",
+      filename: "index.html",
+      fileType: "html",
+      content: "<main>source</main>",
+      createdAt: "",
+      updatedAt: "",
+    };
+    const occupied = {
+      id: "occupied",
+      filename: "occupied.html",
+      fileType: "html",
+      content: "<main>occupied</main>",
+      createdAt: "",
+      updatedAt: "",
+    };
+    const occupiedGeometry = { x: 1200, y: 0, width: 500, height: 100 };
+    const args = duplicateArgs({
+      files: [source, occupied],
+      overviewScreens: [
+        {
+          id: "source",
+          filename: "index.html",
+          content: source.content,
+          updatedAt: "",
+          heightPinned: false,
+          width: 500,
+          height: 100,
+        },
+        {
+          id: "occupied",
+          filename: "occupied.html",
+          content: occupied.content,
+          updatedAt: "",
+          heightPinned: false,
+          width: 500,
+          height: 100,
+        },
+      ],
+      designDataJsonRef: {
+        current: {
+          canvasFrames: {
+            source: { x: 288, y: 0, width: 500, height: 100 },
+            occupied: occupiedGeometry,
+          },
+        },
+      },
+      liveFrameGeometryRef: {
+        current: {
+          source: { x: 288, y: 0, width: 500, height: 100 },
+          occupied: occupiedGeometry,
+        },
+      },
+      pendingDuplicateGeometriesRef: {
+        current: new Map([
+          ["pending-one.html", { x: 844, y: 0, width: 100, height: 100 }],
+          ["pending-two.html", { x: 1000, y: 0, width: 100, height: 100 }],
+        ]),
+      },
+    });
+
+    runDuplicateScreen(args, "source", { canvasPosition: { x: 844, y: 0 } });
+
+    expect(
+      args.pendingDuplicateGeometriesRef.current.get("index-copy.html"),
+    ).toMatchObject({ x: 1756 });
+    await vi.waitFor(() =>
+      expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+        "copy",
+        expect.objectContaining({ x: 1756 }),
+        expect.any(Object),
+      ),
+    );
   });
 
   it("does not retain a recovery id when cleanup rejected after deleting the row", async () => {

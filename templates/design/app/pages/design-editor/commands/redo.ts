@@ -1409,6 +1409,7 @@ export function runRedo({
           item.recoveryFileId ? [item.recoveryFileId] : [],
         ),
       );
+      let rollbackFailed = false;
       for (const [item, createdFileId] of createdFileIds) {
         rollbackFileIds.add(createdFileId);
         try {
@@ -1417,6 +1418,7 @@ export function runRedo({
             allowLockedLayers: true,
           } as any);
         } catch (cleanupError) {
+          rollbackFailed = true;
           const cleanupMessage =
             cleanupError instanceof Error
               ? cleanupError.message
@@ -1440,6 +1442,23 @@ export function runRedo({
         };
         delete nextGeometry[rollbackFileId];
         writeFrameGeometrySnapshot(nextGeometry, {
+          replacePendingGeometrySave: true,
+        });
+      }
+      const duplicateStack = entries.find(
+        (item) => item.duplicateStack,
+      )?.duplicateStack;
+      if (duplicateStack && !rollbackFailed) {
+        const restoredGeometry = {
+          ...getCanvasFrameGeometry(designDataJsonRef.current),
+        };
+        for (const [frameId, geometry] of Object.entries(
+          duplicateStack.before,
+        )) {
+          if (geometry) restoredGeometry[frameId] = geometry;
+          else delete restoredGeometry[frameId];
+        }
+        writeFrameGeometrySnapshot(restoredGeometry, {
           replacePendingGeometrySave: true,
         });
       }
@@ -1568,6 +1587,13 @@ export function runRedo({
         ...item.geometry,
       };
       const dataOperations: DesignDataOperation[] = [
+        ...Object.entries(item.duplicateStack?.after ?? {}).map(
+          ([frameId, stackGeometry]) => ({
+            op: "set" as const,
+            path: ["canvasFrames", frameId] as [string, ...string[]],
+            value: stackGeometry,
+          }),
+        ),
         {
           op: "set",
           path: ["canvasFrames", nextId],
@@ -1609,6 +1635,7 @@ export function runRedo({
       }
       writeFrameGeometrySnapshot({
         ...getCanvasFrameGeometry(designDataJsonRef.current),
+        ...(item.duplicateStack?.after ?? {}),
         [nextId]: geometry,
       });
       optimisticallyInsertCreatedFile({

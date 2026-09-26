@@ -7,7 +7,10 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import { toast } from "sonner";
 
-import { getInitialFrameGeometry } from "@/components/design/multi-screen/frame-geometry";
+import {
+  getCanonicalScreenStack,
+  getInitialFrameGeometry,
+} from "@/components/design/multi-screen/frame-geometry";
 import type { FrameGeometry } from "@/components/design/multi-screen/types";
 import {
   nextDuplicatedFilename,
@@ -139,6 +142,49 @@ function reserveDuplicateGeometry(
   return reserved;
 }
 
+function duplicateStackGeometry(args: {
+  mode?: "alt-click" | "alt-drag";
+  screenId: string;
+  screens: OverviewScreen[];
+  geometryById: CanvasFrameGeometryById;
+  sourceIds: readonly string[];
+}) {
+  const screens = args.screens.some((screen) => screen.id === args.screenId)
+    ? args.screens
+    : [...args.screens, { id: args.screenId } as OverviewScreen];
+  const orderedIds = getCanonicalScreenStack(screens, args.geometryById);
+  const sourceIds = new Set(args.sourceIds);
+  sourceIds.add(args.screenId);
+  const before: Record<string, CanvasFrameGeometry | null> = {};
+  const after: CanvasFrameGeometryById = {};
+  const copyZBySourceId = new Map<string, number>();
+  const screenById = new Map(screens.map((screen) => [screen.id, screen]));
+  if (args.mode === "alt-drag") {
+    let topZ = orderedIds.reduce(
+      (highest, id, index) =>
+        Math.max(highest, args.geometryById[id]?.z ?? index),
+      -1,
+    );
+    for (const id of orderedIds) {
+      if (sourceIds.has(id)) copyZBySourceId.set(id, ++topZ);
+    }
+    return { before, after, copyZBySourceId };
+  }
+  let z = 0;
+  for (const [index, id] of orderedIds.entries()) {
+    const current = args.geometryById[id];
+    before[id] = current ? { ...current } : null;
+    const fallback = getInitialFrameGeometry(index, {
+      width: screenById.get(id)?.width ?? 1280,
+      height: screenById.get(id)?.height ?? 2560,
+    });
+    const next = { ...(current ?? fallback), z: z++ };
+    if (!current || current.z !== next.z) after[id] = next;
+    if (sourceIds.has(id)) copyZBySourceId.set(id, z++);
+  }
+  return { before, after, copyZBySourceId };
+}
+
 export interface DuplicateScreenArgs {
   canEditDesign: boolean;
   createFileAsync: ReturnType<
@@ -212,10 +258,10 @@ export function runDuplicateScreen(
   screenId: string,
   request?: {
     mode?: "alt-click" | "alt-drag";
+    duplicateStackSourceIds?: string[];
     canvasPosition?: { x: number; y: number };
     preserveCamera?: boolean;
     historyBatchId?: string;
-    duplicateStackIndex?: number;
   },
 ) {
   if (!id || !canEditDesign) return Promise.resolve(undefined);
@@ -275,38 +321,74 @@ export function runDuplicateScreen(
     [liveFrameGeometryRef.current[screenId], persistedGeometry[screenId]].find(
       isCompleteFrameGeometry,
     ) ?? fallbackGeometry;
-  const occupiedGeometries = overviewScreens
-    .filter((screen) => screen.id !== screenId)
-    .map(
-      (screen) =>
-        liveFrameGeometryRef.current[screen.id] ?? persistedGeometry[screen.id],
-    )
+  const currentFrameGeometry = {
+    ...persistedGeometry,
+  };
+  for (const [frameId, liveGeometry] of Object.entries(
+    liveFrameGeometryRef.current,
+  )) {
+    currentFrameGeometry[frameId] = {
+      ...persistedGeometry[frameId],
+      ...liveGeometry,
+    };
+  }
+  for (const [frameId, geometry] of Object.entries(currentFrameGeometry)) {
+    const persistedZ = persistedGeometry[frameId]?.z;
+    if (typeof persistedZ === "number") {
+      currentFrameGeometry[frameId] = { ...geometry, z: persistedZ };
+    }
+  }
+  currentFrameGeometry[screenId] = {
+    ...sourceGeometry,
+    z: persistedGeometry[screenId]?.z ?? sourceGeometry.z,
+  };
+  const stackScreens = new Map(
+    overviewScreens.map((screen) => [screen.id, screen]),
+  );
+  for (const frameId of Object.keys(currentFrameGeometry)) {
+    if (!stackScreens.has(frameId)) {
+      stackScreens.set(frameId, { id: frameId } as OverviewScreen);
+    }
+  }
+  const duplicateStack = duplicateStackGeometry({
+    mode: request?.mode,
+    screenId,
+    screens: [...stackScreens.values()],
+    geometryById: currentFrameGeometry,
+    sourceIds: request?.duplicateStackSourceIds ?? [screenId],
+  });
+  const occupiedGeometries = Object.entries(currentFrameGeometry)
+    .filter(([frameId]) => frameId !== screenId)
+    .map(([, geometry]) => geometry)
     .filter(isCompleteFrameGeometry);
   const adjacentGeometry = getDuplicateScreenGeometry(
     sourceGeometry,
     occupiedGeometries,
   );
+  const explicitDropPosition =
+    request?.mode === "alt-drag" ? request.canvasPosition : undefined;
   const requestedGeometry: FrameGeometry =
     recoveryState?.geometry ??
-    (request?.canvasPosition
+    (explicitDropPosition
       ? {
           ...sourceGeometry,
-          x: request.canvasPosition.x,
-          y: request.canvasPosition.y,
-          z: (adjacentGeometry.z ?? 0) + (request.duplicateStackIndex ?? 0),
+          x: explicitDropPosition.x,
+          y: explicitDropPosition.y,
+          z: adjacentGeometry.z,
         }
       : adjacentGeometry);
-  const preserveRequestedPosition =
-    request?.canvasPosition !== undefined && request.mode !== "alt-click";
-  const createdGeometry = recoveryState?.geometry
-    ? recoveryState.geometry
-    : reserveDuplicateGeometry(
+  const preserveExplicitDropPosition = explicitDropPosition !== undefined;
+  const createdGeometry = {
+    ...(recoveryState?.geometry ??
+      reserveDuplicateGeometry(
         filename,
         requestedGeometry,
-        occupiedGeometries,
+        preserveExplicitDropPosition ? [] : occupiedGeometries,
         pendingDuplicateGeometriesRef.current,
-        preserveRequestedPosition,
-      );
+        preserveExplicitDropPosition,
+      )),
+    z: duplicateStack.copyZBySourceId.get(screenId) ?? requestedGeometry.z,
+  };
   pendingDuplicateGeometriesRef.current.set(filename, createdGeometry);
   // Carry screen dimensions/height mode for every duplicate so the new frame
   // uses the same overview scale. Runtime metadata also keeps localhost/fusion
@@ -446,11 +528,18 @@ export function runDuplicateScreen(
       // before the refetch. Write it before the file enters `screens`, or
       // the geometry-sync effect can render a fallback frame first and
       // preserve that stale position over the requested drop point.
-      writeFrameGeometrySnapshot({
+      const nextFrameGeometry = {
         ...getCanvasFrameGeometry(designDataJsonRef.current),
+        ...duplicateStack.after,
         [nextId]: createdGeometry,
-      });
+      };
+      writeFrameGeometrySnapshot(nextFrameGeometry);
       const dataOperations: DesignDataOperation[] = [
+        ...Object.entries(duplicateStack.after).map(([frameId, geometry]) => ({
+          op: "set" as const,
+          path: ["canvasFrames", frameId] as [string, ...string[]],
+          value: geometry,
+        })),
         {
           op: "set",
           path: ["canvasFrames", nextId],
@@ -499,6 +588,10 @@ export function runDuplicateScreen(
         geometry: createdGeometry,
         preserveCamera: request?.preserveCamera,
         historyBatchId: request?.historyBatchId,
+        duplicateStack: {
+          before: duplicateStack.before,
+          after: duplicateStack.after,
+        },
         screenMetadata,
         localhostScreen,
       });

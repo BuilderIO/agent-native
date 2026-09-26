@@ -168,7 +168,7 @@ export interface DuplicateRequest {
   dropCanvasPosition?: { x: number; y: number };
   preserveCamera?: boolean;
   historyBatchId?: string;
-  duplicateStackIndex?: number;
+  duplicateStackSourceIds?: string[];
 }
 
 export interface ScreenContentRenderOptions {

@@ -7403,10 +7403,11 @@ function DesignEditor() {
     (
       screenId: string,
       request?: {
+        mode?: "alt-click" | "alt-drag";
         canvasPosition?: { x: number; y: number };
         preserveCamera?: boolean;
         historyBatchId?: string;
-        duplicateStackIndex?: number;
+        duplicateStackSourceIds?: string[];
       },
     ) =>
       runDuplicateScreen(

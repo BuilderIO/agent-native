@@ -174,6 +174,10 @@ export interface FileCreationHistoryEntry {
   screenMetadata?: Record<string, unknown>;
   localhostScreen?: Record<string, unknown>;
   historyBatchId?: string;
+  duplicateStack?: {
+    before: Record<string, CanvasFrameGeometry | null>;
+    after: CanvasFrameGeometryById;
+  };
   /** Existing row to reuse when create-file succeeded but cleanup did not. */
   recoveryFileId?: string | null;
   /** IDs present before a create attempt that returned no id. */

@@ -128,12 +128,18 @@ const BOARD_AUTO_LAYOUT_HTML = `<!doctype html>
 </div>
 </body></html>`;
 
-async function createDesignWithBoard(request: APIRequestContext) {
+async function createDesignWithBoard(
+  request: APIRequestContext,
+  options: { rootOverflow?: "visible" | "hidden" } = {},
+) {
   const { designId } = await createDesign(request, NAMED_HTML);
   const board = await action(request, "create-file", {
     designId,
     filename: "__board__.html",
-    content: BOARD_AUTO_LAYOUT_HTML,
+    content: BOARD_AUTO_LAYOUT_HTML.replace(
+      "overflow:visible;background:#334155",
+      `overflow:${options.rootOverflow ?? "visible"};background:#334155`,
+    ),
     fileType: "html",
   });
   const boardFileId = board.id ?? board.data?.id;
@@ -395,6 +401,9 @@ async function dragBoardLayerCopyToEmptyCanvas(
   await expect(selectionBox).toBeVisible();
   const dragSurface = selectionBox.locator("[data-frame-drag-surface]");
   await expect(dragSurface).toBeVisible();
+  const traceCountBeforeDrag = await page.evaluate(
+    () => (window as any).__designTrace?.entries?.().length ?? 0,
+  );
   await zoomOutToBoardDropPoint(page);
   const rootBox = await boardNodeHostBounds(
     page,
@@ -503,6 +512,7 @@ async function dragBoardLayerCopyToEmptyCanvas(
     () => (window as any).__designTrace?.entries?.() ?? [],
   );
   const selectedCopy = selectionEntries
+    .slice(traceCountBeforeDrag)
     .filter(
       (entry: { event?: string; data?: { hasSelection?: boolean } }) =>
         entry.event === "selection-changed" && entry.data?.hasSelection,
@@ -1290,6 +1300,57 @@ test.describe("alt-drag board auto-layout frames to empty board", () => {
       expect(childNodeIds(reloaded.html, result.copyId)).toEqual(
         result.copyTree.children.map((child) => child.id),
       );
+    } finally {
+      await action(request, "delete-design", { id: designId }).catch(() => {});
+    }
+  });
+
+  test("copies a deeply nested child through clipped ancestors to the board root", async ({
+    page,
+    request,
+  }) => {
+    const designId = await createDesignWithBoard(request, {
+      rootOverflow: "hidden",
+    });
+    try {
+      const result = await dragBoardLayerCopyToEmptyCanvas(
+        page,
+        request,
+        designId,
+        "frame-2-child-a",
+      );
+      expect(result.sourceTreeBefore.name).toBe("Frame 2 child A");
+
+      const reloaded = await expectBoardCopyAfterReload(
+        page,
+        request,
+        designId,
+        result.copyId,
+      );
+      await expect(reloaded.copy).toBeVisible();
+      expect(
+        await reloaded.copy.evaluate((element) => element.parentElement),
+      ).toBeTruthy();
+      expect(
+        await reloaded.copy.evaluate(
+          (element) => element.parentElement === element.ownerDocument.body,
+        ),
+      ).toBe(true);
+      expect(
+        await reloaded.original
+          .locator('[data-agent-native-node-id="frame-2-child-a"]')
+          .evaluate((element) =>
+            element.parentElement?.getAttribute("data-agent-native-node-id"),
+          ),
+      ).toBe("frame-2");
+      expect(
+        await readLayerTree(
+          reloaded.original.locator(
+            '[data-agent-native-node-id="frame-2-child-a"]',
+          ),
+        ),
+      ).toEqual(result.sourceTreeBefore);
+      expect(await readLayerTree(reloaded.copy)).toEqual(result.copyTree);
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
     }

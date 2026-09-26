@@ -12388,7 +12388,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       function isExcluded(node) {
         for (var i = 0; i < excluded.length; i += 1) {
           var member = excluded[i];
-          if (member && (member === node || member.contains && member.contains(node))) {
+          if (member && (member === node || member.contains && member.contains(node) || node.contains && node.contains(member))) {
             return true;
           }
         }
@@ -12617,7 +12617,23 @@ export const editorChromeBridgeScript: string = `"use strict";
           dropMode: "flow-insert"
         };
       }
-      var target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+      var receivingContainer = currentParent.parentElement;
+      var target = null;
+      if (pointerOutsideCurrentParent && receivingContainer && isAutoLayoutElement(receivingContainer) && pointHit === receivingContainer) {
+        target = nearestChildInsertionTarget(
+          receivingContainer,
+          clientX,
+          clientY,
+          dragged
+        ) || {
+          anchor: receivingContainer,
+          placement: "inside",
+          axis: parentFlowAxis(receivingContainer),
+          dropMode: "flow-insert"
+        };
+      } else {
+        target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+      }
       if ((forceNestedAutoLayout || ignoreTargetAutoLayout) && !pointerOutsideCurrentParent) {
         var nestedHit = elementFromEditorPoint(clientX, clientY);
         while (nestedHit && nestedHit.parentElement !== currentParent && nestedHit !== el && !el.contains(nestedHit)) {
@@ -12654,17 +12670,19 @@ export const editorChromeBridgeScript: string = `"use strict";
         };
       }
       if (currentParent !== document.body && (container === document.body || container === document.documentElement || target?.anchor === document.body)) {
-        target = {
-          anchor: currentParent,
-          placement: "after",
-          axis: "y",
-          dropMode: "absolute-container"
-        };
+        if (!target || target.anchor?.parentElement !== document.body || target.placement === "inside") {
+          target = {
+            anchor: currentParent,
+            placement: "after",
+            axis: "y",
+            dropMode: "absolute-container"
+          };
+        }
       }
       var exitedContainer = el.parentElement;
       var receivingContainer = exitedContainer && exitedContainer.parentElement;
       var targetContainer = dropContainerForTarget(target);
-      if (!ignoreTargetAutoLayout && target && exitedContainer && receivingContainer && isContainerDropTarget(exitedContainer) && targetContainer === receivingContainer && (pointHit === receivingContainer || !pointHit || pointHit === document.body || pointHit === document.documentElement)) {
+      if (!ignoreTargetAutoLayout && target && exitedContainer && receivingContainer && isContainerDropTarget(exitedContainer) && !isAutoLayoutElement(receivingContainer) && (targetContainer === receivingContainer || target?.anchor === receivingContainer) && (pointHit === receivingContainer || !pointHit || pointHit === document.body || pointHit === document.documentElement)) {
         target = {
           ...target,
           anchor: exitedContainer,
@@ -12891,16 +12909,26 @@ export const editorChromeBridgeScript: string = `"use strict";
       return screenRootFlowInsertionTargetForPoint(clientX, clientY, dragged) || unnestAbsoluteToScreenRoot(el, clientX, clientY);
     }
     function unnestAbsoluteToScreenRoot(el, clientX, clientY) {
-      var parent = el && el.parentElement;
+      var child = el;
+      var parent = child && child.parentElement;
       if (!parent || parent === document.body || parent === document.documentElement) {
         return null;
       }
-      var parentRect = parent.getBoundingClientRect();
-      if (clientX >= parentRect.left && clientX <= parentRect.right && clientY >= parentRect.top && clientY <= parentRect.bottom) {
-        return null;
+      while (parent && parent !== document.body && parent !== document.documentElement) {
+        var parentRect = parent.getBoundingClientRect();
+        if (clientX >= parentRect.left && clientX <= parentRect.right && clientY >= parentRect.top && clientY <= parentRect.bottom) {
+          return {
+            anchor: child,
+            placement: "after",
+            axis: parentFlowAxis(parent),
+            dropMode: "absolute-container"
+          };
+        }
+        child = parent;
+        parent = parent.parentElement;
       }
       return {
-        anchor: parent,
+        anchor: child,
         placement: "after",
         axis: "y",
         dropMode: "absolute-container"

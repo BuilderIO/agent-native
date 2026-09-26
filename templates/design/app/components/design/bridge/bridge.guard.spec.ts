@@ -10302,6 +10302,127 @@ it(
 );
 
 it(
+  "editor chrome bridge promotes a deeply nested absolute drop through clipped ancestors to the board root",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 700 },
+    });
+    try {
+      const sourceBuild = await build({
+        entryPoints: [join(bridgeDir, "editor-chrome.bridge.ts")],
+        bundle: true,
+        format: "iife",
+        platform: "browser",
+        target: "es2020",
+        write: false,
+        external: [],
+      });
+      const sourceScript = sourceBuild.outputFiles[0]?.text;
+      if (!sourceScript) throw new Error("Bridge source compilation failed");
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+<iframe id="design" style="display:block;width:900px;height:700px;border:0"></iframe>
+<script>
+  window.__bridgeMessages = [];
+  window.addEventListener("message", event => {
+    const message = event.data;
+    if (!message || typeof message.type !== "string") return;
+    window.__bridgeMessages.push(message);
+    if (message.type === "visual-structure-change") {
+      event.source.postMessage({
+        type: "visual-structure-ack",
+        requestId: message.requestId,
+        applied: true,
+      }, "*");
+    }
+  });
+</script></body></html>`);
+      await page.locator("#design").evaluate((iframe) => {
+        (iframe as HTMLIFrameElement).srcdoc = `<!doctype html><html>
+<body style="margin:0;width:100%;height:100%;position:relative">
+  <main id="root" data-agent-native-node-id="root" style="position:absolute;left:80px;top:80px;width:320px;height:220px;overflow:hidden;background:#ddd">
+    <section id="frame2" data-agent-native-node-id="frame2" data-an-primitive="frame" style="position:absolute;left:20px;top:20px;width:180px;height:140px;overflow:hidden;background:#aaa">
+      <div id="dragme" data-agent-native-node-id="dragme" style="position:absolute;left:20px;top:20px;width:80px;height:50px;background:#6366f1">Drag me</div>
+    </section>
+  </main>
+</body></html>`;
+      });
+      const iframe = await page.locator("#design").elementHandle();
+      const frame = await iframe?.contentFrame();
+      if (!frame) throw new Error("Design fixture iframe failed to load");
+      await frame.waitForSelector("#dragme");
+      await frame.evaluate(() => {
+        (window as any).__receivedStructureAcks = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "visual-structure-ack") {
+            (window as any).__receivedStructureAcks.push(event.data);
+          }
+        });
+      });
+      await frame.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(
+          false,
+          "deep-unnest",
+          true,
+          sourceScript,
+        ),
+      });
+      await frame.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        document
+          .querySelector<HTMLIFrameElement>("#design")!
+          .contentWindow!.postMessage(
+            { type: "select-element", selector: "#dragme" },
+            "*",
+          );
+      });
+      const dragBox = await frame.locator("#dragme").boundingBox();
+      if (!dragBox) throw new Error("Dragged layer has no rendered box");
+      const startX = dragBox.x + dragBox.width / 2;
+      const startY = dragBox.y + dragBox.height / 2;
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(700, 600, { steps: 12 });
+      await page.mouse.up();
+
+      const structureChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-structure-change",
+      );
+      if (!structureChange) {
+        throw new Error("The host did not receive the structure change");
+      }
+      expect(structureChange).toMatchObject({
+        anchorSourceId: "root",
+        persistenceAnchorSourceId: "root",
+        placement: "after",
+        persistencePlacement: "after",
+      });
+      await frame.waitForFunction((requestId) => {
+        const acknowledgements = (window as any)
+          .__receivedStructureAcks as Array<Record<string, unknown>>;
+        return acknowledgements.some(
+          (acknowledgement) =>
+            acknowledgement.requestId === requestId &&
+            acknowledgement.applied === true,
+        );
+      }, structureChange!.requestId);
+      const parents = await frame.evaluate(() => ({
+        rootChildren: Array.from(document.querySelector("#root")!.children).map(
+          (element) => element.id,
+        ),
+        draggedAtBoardRoot:
+          document.querySelector("#dragme")?.parentElement === document.body,
+      }));
+      expect(parents.draggedAtBoardRoot).toBe(true);
+      expect(parents.rootChildren).toEqual(["frame2"]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge does not nest a dragged element onto a leaf-content flex button (drop-on-leaf), and still nests onto a real flex container",
   { timeout: 30_000 },
   async () => {
