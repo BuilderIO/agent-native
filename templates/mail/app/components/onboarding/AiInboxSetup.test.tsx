@@ -226,6 +226,88 @@ describe("AiInboxSetup", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("does not backfill default tags after skipping the tag step", async () => {
+    render(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "mail.thread.back" }));
+    expect(
+      screen
+        .getByRole("button", { name: "mail.sort.aiSetupTagReceipts" })
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
+    expect(
+      screen
+        .getByRole("button", { name: "mail.sort.aiSetupTagGitHub" })
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.startBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["rule-1", "rule-2"],
+      }),
+    );
+    expect(mocks.createRule).toHaveBeenCalledTimes(2);
+  });
+
+  it("saves tags and Important when skipping optional cleanup", async () => {
+    render(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "mail.sort.aiSetupImportantHeadline",
+      }),
+      { target: { value: "Anything from my manager" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.startBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["rule-1", "rule-2", "rule-3"],
+      }),
+    );
+    expect(mocks.createRule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        condition: "mail.sort.aiSetupPromptReceipts",
+      }),
+    );
+    expect(mocks.createRule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        condition: "mail.sort.aiSetupPromptGitHub",
+      }),
+    );
+    expect(mocks.createRule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        condition: "Anything from my manager",
+        actions: [{ type: "label", labelName: AI_IMPORTANT_LABEL }],
+      }),
+    );
+    expect(mocks.createRule).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("progressbar", { name: "4/4" })).not.toBeNull();
+  });
+
   it("enables a matching disabled rule before including it in the backfill", async () => {
     const disabledRule = {
       id: "disabled-receipts",

@@ -415,7 +415,12 @@ describe("startMailAiFilterBackfill", () => {
       results.filter((result) => result.status === "rejected"),
     ).toHaveLength(1);
     expect(database.rows).toHaveLength(1);
-    expect(database.rows[0].ruleSetKey).toBe('["rule-a","rule-b"]');
+    expect(database.rows[0].ruleSetKey).toBe(
+      JSON.stringify([
+        ["rule-a", mocks.rules[0].updatedAt],
+        ["rule-b", mocks.rules[1].updatedAt],
+      ]),
+    );
   });
 
   it("rejects concurrent starts whose rule sets overlap", async () => {
@@ -442,7 +447,7 @@ describe("startMailAiFilterBackfill", () => {
       ownerEmail,
       ruleSetKey: '["rule-a"]',
       status: "undoing",
-      stateJson: "{}",
+      stateJson: JSON.stringify(backfillState(mocks.rules)),
       expiresAt: Date.now() + 60_000,
       updatedAt: Date.now(),
     });
@@ -451,6 +456,46 @@ describe("startMailAiFilterBackfill", () => {
       startMailAiFilterBackfill(ownerEmail, ["rule-a"]),
     ).rejects.toMatchObject({ errorCode: "ai_filter_backfill_active" });
     expect(database.rows).toHaveLength(1);
+  });
+
+  it("queues edited rules behind an active run and retires its undo before applying the replacement", async () => {
+    const previousRule = rule("rule-a");
+    const active: Record<string, any> = runningRow([previousRule]);
+    active.claimId = "active-claim";
+    active.claimedAt = Date.now();
+    const activeState = backfillState([previousRule]);
+    (activeState.snapshots as Record<string, any>)["local:thread-a"] = {
+      key: "local:thread-a",
+      threadId: "thread-a",
+      local: true,
+      messages: [{ id: "saved-incoming", labels: {}, archived: false }],
+    };
+    active.stateJson = JSON.stringify(activeState);
+    database.rows.push(active);
+
+    const editedRule = {
+      ...previousRule,
+      updatedAt: "2026-09-26T00:00:01.000Z",
+    };
+    mocks.rules = [editedRule];
+    const replacement = await startMailAiFilterBackfill(ownerEmail, ["rule-a"]);
+    const queued = database.rows.find((row) => row.id === replacement.runId)!;
+    expect(queued.status).toBe("queued");
+
+    await processMailAiFilterBackfills(ownerEmail);
+    expect(queued.status).toBe("queued");
+    expect(active.undoToken).toBe("undo-token");
+
+    active.status = "failed";
+    active.claimId = null;
+    active.claimedAt = null;
+    active.undoToken = "partial-run-undo";
+    active.undoExpiresAt = Date.now() + 60_000;
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(active.undoToken).toBeNull();
+    expect(active.undoExpiresAt).toBeNull();
+    expect(queued.status).toBe("completed");
   });
 
   it("waits for an in-flight mutation checkpoint before undoing and preserves newer replies", async () => {
@@ -562,21 +607,15 @@ describe("startMailAiFilterBackfill", () => {
       errors: [],
     });
     mocks.ensureGmailLabel.mockResolvedValue("tag-a-id");
-    mocks.gmailGetThread.mockResolvedValue({
-      messages: [{ id: "gmail-message", labelIds: ["INBOX"] }],
-    });
-    mocks.gmailModifyThread.mockResolvedValue({ historyId: "history-1" });
-    mocks.syncInboxLabelDelta.mockImplementation(async () => {
-      const saved = JSON.parse(database.rows[0].stateJson).snapshots[
-        candidate.key
-      ];
-      expect(saved.messages[0].afterLabels).toEqual({
-        "tag-a-id": true,
-        INBOX: false,
+    mocks.gmailGetThread
+      .mockResolvedValueOnce({
+        messages: [{ id: "gmail-message", labelIds: ["INBOX"] }],
+      })
+      .mockResolvedValueOnce({
+        messages: [{ id: "gmail-message", labelIds: ["tag-a-id"] }],
       });
-      expect(saved.messages[0].afterArchived).toBe(true);
-      throw new Error("inbox cache sync failed");
-    });
+    mocks.gmailModifyThread.mockResolvedValue({ historyId: "history-1" });
+    mocks.syncInboxLabelDelta.mockResolvedValue(undefined);
 
     await processMailAiFilterBackfills(ownerEmail);
 
@@ -586,7 +625,7 @@ describe("startMailAiFilterBackfill", () => {
       ["tag-a-id"],
       ["INBOX"],
     );
-    expect(database.rows[0].status).toBe("failed");
+    expect(database.rows[0].status).toBe("completed");
     const saved = JSON.parse(database.rows[0].stateJson).snapshots[
       candidate.key
     ];
@@ -594,6 +633,12 @@ describe("startMailAiFilterBackfill", () => {
       "tag-a-id": true,
       INBOX: false,
     });
+    expect(saved.messages[0].afterArchived).toBe(true);
+    expect(
+      mocks.listAutomationRules.mock.calls.some(
+        ([, ruleId]) => ruleId === tagRule.id,
+      ),
+    ).toBe(true);
   });
 
   it("checkpoints an applied mutation while an undo request owns the run", async () => {

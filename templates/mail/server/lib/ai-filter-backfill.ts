@@ -175,17 +175,43 @@ export function canonicalAiFilterBackfillRuleSetKey(ruleIds: string[]): string {
 function ruleIdsForBackfillRow(row: BackfillRow): string[] {
   if (row.ruleSetKey) {
     const ruleIds: unknown = JSON.parse(row.ruleSetKey);
+    if (Array.isArray(ruleIds) && ruleIds.every((id) => typeof id === "string"))
+      return ruleIds;
     if (
-      !Array.isArray(ruleIds) ||
-      !ruleIds.every((id) => typeof id === "string")
-    ) {
-      throw new Error(
-        "An active Mail AI-filter backfill has an invalid rule set.",
-      );
-    }
-    return ruleIds;
+      Array.isArray(ruleIds) &&
+      ruleIds.every(
+        (rule) =>
+          Array.isArray(rule) &&
+          typeof rule[0] === "string" &&
+          typeof rule[1] === "string",
+      )
+    )
+      return ruleIds.map(([id]) => id);
+    throw new Error(
+      "An active Mail AI-filter backfill has an invalid rule set.",
+    );
   }
   return parseState(row.stateJson).rules.map((rule) => rule.id);
+}
+
+function versionedRuleSetKey(
+  rules: Array<{ id: string; updatedAt: string }>,
+): string {
+  return JSON.stringify(
+    rules
+      .map(({ id, updatedAt }) => [id, updatedAt] as const)
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
+}
+
+function ruleIdsOverlap(row: BackfillRow, ruleIds: Set<string>): boolean {
+  return ruleIdsForBackfillRow(row).some((ruleId) => ruleIds.has(ruleId));
+}
+
+function backfillOwnerLock(tx: any, ownerEmail: string) {
+  return tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${`mail:ai-filter-backfill:${ownerEmail.trim().toLowerCase()}`}, 0::bigint))`,
+  );
 }
 
 function rejectActiveBackfill(): never {
@@ -381,8 +407,8 @@ export async function startMailAiFilterBackfill(
     return { rule, actions: parsed.data };
   });
 
-  const ruleSetKey = canonicalAiFilterBackfillRuleSetKey(
-    validatedRules.map(({ rule }) => rule.id),
+  const ruleSetKey = versionedRuleSetKey(
+    validatedRules.map(({ rule }) => rule),
   );
   const id = nanoid(16);
   const undoToken = nanoid(32);
@@ -405,9 +431,7 @@ export async function startMailAiFilterBackfill(
     },
   );
   const [inserted] = await db.transaction(async (tx: any) => {
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`mail:ai-filter-backfill:${ownerEmail.trim().toLowerCase()}`}, 0::bigint))`,
-    );
+    await backfillOwnerLock(tx, ownerEmail);
     const activeRows = await tx
       .select()
       .from(schema.aiFilterBackfills)
@@ -418,12 +442,25 @@ export async function startMailAiFilterBackfill(
           inArray(schema.aiFilterBackfills.status, ACTIVE_BACKFILL_STATUSES),
         ),
       );
-    const requested = new Set(validatedRules.map(({ rule }) => rule.id));
-    if (
-      activeRows.some((row: BackfillRow) =>
-        ruleIdsForBackfillRow(row).some((ruleId) => requested.has(ruleId)),
-      )
-    ) {
+    const requestedVersions = Object.fromEntries(
+      validatedRules.map(({ rule }) => [rule.id, rule.updatedAt]),
+    );
+    const requested = new Set(Object.keys(requestedVersions));
+    const activeOverlaps = (activeRows as BackfillRow[]).filter((row) =>
+      ruleIdsOverlap(row, requested),
+    );
+    const hasSameVersionOverlap = activeOverlaps.some((row) => {
+      const overlap = ruleIdsForBackfillRow(row).filter((id) =>
+        requested.has(id),
+      );
+      const previousVersions = parseState(row.stateJson).ruleUpdatedAt ?? {};
+      return overlap.some(
+        (id) =>
+          previousVersions[id] === undefined ||
+          previousVersions[id] === requestedVersions[id],
+      );
+    });
+    if (hasSameVersionOverlap) {
       rejectActiveBackfill();
     }
     return tx
@@ -502,6 +539,7 @@ export async function requestMailAiFilterBackfillUndo(
 ): Promise<{ runId: string; status: "undoing" }> {
   const now = Date.now();
   await db.transaction(async (tx: any) => {
+    await backfillOwnerLock(tx, ownerEmail);
     const [row] = await tx
       .select()
       .from(schema.aiFilterBackfills)
@@ -844,13 +882,8 @@ async function assertCurrentAiFilterBackfillRule(
   ruleId: string,
   updatedAt: string | undefined,
 ): Promise<void> {
-  if (
-    !isCurrentAiFilterBackfillRule(
-      ruleId,
-      updatedAt,
-      await listAutomationRules(ownerEmail),
-    )
-  ) {
+  const rules = await listAutomationRules(ownerEmail, ruleId);
+  if (!isCurrentAiFilterBackfillRule(ruleId, updatedAt, rules)) {
     throw new Error(
       "An AI-filter rule changed during this backfill. Start a new run to apply the current rule.",
     );
@@ -1263,7 +1296,7 @@ async function applyGmailActions(
     METADATA_HEADERS,
   );
   return {
-    snapshot: captureGmailPostApplyState(before.snapshot, after),
+    snapshot: captureGmailPostApplyState(expectedAfter, after),
     preview: gmailThreadPreview(candidate, after, labelCache),
   };
 }
@@ -1820,31 +1853,79 @@ async function processUndoBatch(
 async function claimRun(row: BackfillRow): Promise<string | null> {
   const claimId = nanoid(16);
   const now = Date.now();
-  const [claimed] = await db
-    .update(schema.aiFilterBackfills)
-    .set({
-      claimId,
-      claimedAt: now,
-      status: row.status === "queued" ? "running" : row.status,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(schema.aiFilterBackfills.id, row.id),
-        or(
-          eq(schema.aiFilterBackfills.status, "queued"),
-          and(
-            inArray(schema.aiFilterBackfills.status, ["running", "undoing"]),
-            or(
-              isNull(schema.aiFilterBackfills.claimedAt),
-              lt(schema.aiFilterBackfills.claimedAt, now - CLAIM_LIFETIME_MS),
+  return db.transaction(async (tx: any) => {
+    await backfillOwnerLock(tx, row.ownerEmail);
+    const activeRows = (await tx
+      .select()
+      .from(schema.aiFilterBackfills)
+      .where(
+        and(
+          eq(schema.aiFilterBackfills.ownerEmail, row.ownerEmail),
+          gt(schema.aiFilterBackfills.expiresAt, now),
+          inArray(schema.aiFilterBackfills.status, ACTIVE_BACKFILL_STATUSES),
+        ),
+      )) as BackfillRow[];
+    const requested = new Set(ruleIdsForBackfillRow(row));
+    const earlierQueued = (other: BackfillRow) =>
+      other.status === "queued" &&
+      (other.createdAt < row.createdAt ||
+        (other.createdAt === row.createdAt && other.id < row.id));
+    if (
+      activeRows.some(
+        (other) =>
+          other.id !== row.id &&
+          ruleIdsOverlap(other, requested) &&
+          (other.status !== "queued" || earlierQueued(other)),
+      )
+    )
+      return null;
+
+    const [claimed] = await tx
+      .update(schema.aiFilterBackfills)
+      .set({
+        claimId,
+        claimedAt: now,
+        status: row.status === "queued" ? "running" : row.status,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(schema.aiFilterBackfills.id, row.id),
+          or(
+            eq(schema.aiFilterBackfills.status, "queued"),
+            and(
+              inArray(schema.aiFilterBackfills.status, ["running", "undoing"]),
+              or(
+                isNull(schema.aiFilterBackfills.claimedAt),
+                lt(schema.aiFilterBackfills.claimedAt, now - CLAIM_LIFETIME_MS),
+              ),
             ),
           ),
         ),
-      ),
-    )
-    .returning({ id: schema.aiFilterBackfills.id });
-  return claimed ? claimId : null;
+      )
+      .returning({ id: schema.aiFilterBackfills.id });
+    if (!claimed) return null;
+
+    const undoRows = await tx
+      .select()
+      .from(schema.aiFilterBackfills)
+      .where(
+        and(
+          eq(schema.aiFilterBackfills.ownerEmail, row.ownerEmail),
+          inArray(schema.aiFilterBackfills.status, ["completed", "failed"]),
+          gt(schema.aiFilterBackfills.undoExpiresAt, now),
+        ),
+      );
+    for (const previous of undoRows as BackfillRow[]) {
+      if (previous.undoToken && ruleIdsOverlap(previous, requested)) {
+        await tx
+          .update(schema.aiFilterBackfills)
+          .set({ undoToken: null, undoExpiresAt: null, updatedAt: now })
+          .where(eq(schema.aiFilterBackfills.id, previous.id));
+      }
+    }
+    return claimed ? claimId : null;
+  });
 }
 
 function startClaimHeartbeat(id: string, claimId: string): () => void {

@@ -210,11 +210,19 @@ function ownedRule(ownerEmail: string, id: string) {
 
 export async function listAutomationRules(
   ownerEmail: string,
+  ruleId?: string,
 ): Promise<AutomationRule[]> {
   const rules = await db
     .select()
     .from(schema.automationRules)
-    .where(eq(schema.automationRules.ownerEmail, ownerEmail));
+    .where(
+      ruleId
+        ? and(
+            eq(schema.automationRules.ownerEmail, ownerEmail),
+            eq(schema.automationRules.id, ruleId),
+          )
+        : eq(schema.automationRules.ownerEmail, ownerEmail),
+    );
   return rules.map(toApiRule);
 }
 

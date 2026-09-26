@@ -211,6 +211,47 @@ describe("manage-email-rules chat action", () => {
     expect(result).toMatchObject({ mode: "archive", operation: "update" });
   });
 
+  it("reports a queued backfill for an updated AI rule", async () => {
+    mocks.listAutomationRules.mockResolvedValue([
+      {
+        id: "rule-1",
+        domain: "mail",
+        kind: "ai-filter",
+        condition: "from the team",
+        actions: [{ type: "archive" }],
+        enabled: true,
+      },
+    ]);
+    mocks.updateAutomationRule.mockResolvedValue({
+      id: "rule-1",
+      domain: "mail",
+      kind: "ai-filter",
+      condition: "from the team about planning",
+      actions: [{ type: "archive" }],
+      enabled: true,
+    });
+    const result = await createManageEmailRulesAction(true).run({
+      action: "update",
+      id: "rule-1",
+      condition: "from the team about planning",
+    });
+
+    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(ownerEmail, [
+      "rule-1",
+    ]);
+    expect(mocks.readMailAiFilterBackfill).toHaveBeenCalledWith(
+      ownerEmail,
+      "run-1",
+    );
+    expect(result).toMatchObject({
+      operation: "update",
+      backfillRunId: "run-1",
+      backfillStatus: "queued",
+      appliedCounts: null,
+    });
+    expect(result).not.toHaveProperty("backfillError");
+  });
+
   it("keeps star rules on legacy automation behavior", async () => {
     const action = createManageEmailRulesAction(true);
     const result = await action.run({

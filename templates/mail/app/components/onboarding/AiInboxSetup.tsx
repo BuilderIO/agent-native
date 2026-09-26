@@ -477,7 +477,7 @@ export function AiInboxSetup({
     });
   };
 
-  const saveStep = async () => {
+  const saveStep = async (skipCleanup = false) => {
     if (step < 2) {
       setStep((current) => (current + 1) as SetupStep);
       return;
@@ -517,27 +517,29 @@ export function AiInboxSetup({
         ]);
         includeRule(rule);
       }
-      if (archiveEnabled && archivePrompt.trim()) {
-        const rule = await saveRule(archivePrompt, [{ type: "archive" }]);
-        includeRule(rule);
-      }
-      if (spamEnabled && spamPrompt.trim()) {
-        const rule = await saveRule(spamPrompt, [
-          { type: "label", labelName: AI_FILTER_LABEL },
-          { type: "archive" },
-        ]);
-        includeRule(rule);
-      }
-      if (customCleanupPrompt.trim()) {
-        const actions =
-          customCleanupMode === "archive"
-            ? [{ type: "archive" } as const]
-            : [
-                { type: "label", labelName: AI_FILTER_LABEL } as const,
-                { type: "archive" } as const,
-              ];
-        const rule = await saveRule(customCleanupPrompt, actions);
-        includeRule(rule);
+      if (!skipCleanup) {
+        if (archiveEnabled && archivePrompt.trim()) {
+          const rule = await saveRule(archivePrompt, [{ type: "archive" }]);
+          includeRule(rule);
+        }
+        if (spamEnabled && spamPrompt.trim()) {
+          const rule = await saveRule(spamPrompt, [
+            { type: "label", labelName: AI_FILTER_LABEL },
+            { type: "archive" },
+          ]);
+          includeRule(rule);
+        }
+        if (customCleanupPrompt.trim()) {
+          const actions =
+            customCleanupMode === "archive"
+              ? [{ type: "archive" } as const]
+              : [
+                  { type: "label", labelName: AI_FILTER_LABEL } as const,
+                  { type: "archive" } as const,
+                ];
+          const rule = await saveRule(customCleanupPrompt, actions);
+          includeRule(rule);
+        }
       }
 
       if (ruleIds.length > 0) {
@@ -566,6 +568,15 @@ export function AiInboxSetup({
   };
 
   const skip = () => {
+    if (step === 0) {
+      setSelectedTags(new Set());
+      setCustomTagSelected(false);
+    }
+    if (step === 2) {
+      if (jevConfigured) void saveStep(true);
+      else setStep(3);
+      return;
+    }
     setStep((current) => (current + 1) as SetupStep);
   };
 

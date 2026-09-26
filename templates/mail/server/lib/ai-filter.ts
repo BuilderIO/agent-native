@@ -1,8 +1,4 @@
-import {
-  getUserSetting,
-  mutateUserSetting,
-  putUserSetting,
-} from "@agent-native/core/settings";
+import { getUserSetting, mutateUserSetting } from "@agent-native/core/settings";
 import { nanoid } from "nanoid";
 
 import {
@@ -47,8 +43,22 @@ export async function saveAiFilterState(
   if (!parsed.success) {
     throw new Error("Invalid AI filter settings.");
   }
-  await putUserSetting(ownerEmail, AI_FILTER_SETTING_KEY, parsed.data);
-  return parsed.data;
+  const updated = await mutateUserSetting(
+    ownerEmail,
+    AI_FILTER_SETTING_KEY,
+    (current) => {
+      const latest = parseAiFilterState(current);
+      const next = {
+        ...parsed.data,
+        feedback: latest.feedback,
+        decisions: latest.decisions,
+      };
+      const nextParsed = aiFilterStateSchema.safeParse(next);
+      if (!nextParsed.success) throw new Error("Invalid AI filter settings.");
+      return nextParsed.data;
+    },
+  );
+  return parseAiFilterState(updated);
 }
 
 function bounded(value: string | undefined, max: number): string {
