@@ -219,10 +219,7 @@ import {
   useAgentDynamicSuggestionsResult,
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
-import {
-  isCreditsLimitErrorCode,
-  isProviderAuthenticationError,
-} from "./error-format.js";
+import { isProviderAuthenticationError } from "./error-format.js";
 import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
@@ -6707,7 +6704,6 @@ const AssistantChatInner = forwardRef<
     !authError;
   const shouldShowRunError =
     !!visibleRunError &&
-    !isCreditsLimitErrorCode(visibleRunError.errorCode) &&
     !showRunningInUI &&
     !forceStopped &&
     visibleRunErrorKey !== dismissedRunErrorKey &&

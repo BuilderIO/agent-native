@@ -43,12 +43,12 @@ contract.
 - Scale effort to the task. A small, well-specified change is a short read, the
   edit, and the existing checks — not a codebase survey, unrequested tests, or
   browser automation. Save deep exploration for ambiguous or cross-cutting work.
-- Stay on the current git branch. Never create, switch, delete, reset, rebase,
-  stash, or otherwise move branches unless the user explicitly asks for that exact
-  branch operation in the current task.
+- In task-owned worktrees, create or switch to a safe task branch when needed
+  without asking; preserve changes and never move peer worktree branches. In
+  shared checkouts, ask before branch changes unless the user authorized them.
 - Never add `Co-Authored-By` or other agent attribution to commits.
-- PRs use the current branch unless the user explicitly requests a new branch.
-  PRs are ready for review by default, not drafts, unless requested.
+- PRs use the current suitable branch and are ready for review by default, not
+  drafts, unless requested.
 - Deployment split: `.github/workflows/deploy-beta-sites-prebuilt.yml` is the
   sole automatic beta publisher. It builds in GitHub Actions and uploads
   prebuilt artifacts to the independent Netlify beta sites at
