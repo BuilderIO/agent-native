@@ -561,6 +561,77 @@ describe("redo file creation metadata persistence", () => {
     }
   });
 
+  it("rolls back stack shifts when a recovered batch member is reused", async () => {
+    const harness = makeRedoHarness(
+      vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error("later screen metadata failed")),
+    );
+    const recovered = {
+      filename: "recovered.html",
+      content: "recovered",
+      fileType: "html",
+      createdFileId: "recovered-id",
+      recoveryFileId: "recovered-id",
+      historyBatchId: "duplicate-batch",
+      geometry: { x: 376, y: 0, width: 320, height: 240, z: 1 },
+      duplicateStack: { before: { peer: 0 }, after: { peer: 1 } },
+    };
+    const later = {
+      filename: "later.html",
+      content: "later",
+      fileType: "html",
+      createdFileId: "old-later",
+      historyBatchId: "duplicate-batch",
+      geometry: { x: 752, y: 0, width: 320, height: 240, z: 2 },
+      duplicateStack: { before: { peer: 1 }, after: { peer: 2 } },
+    };
+    harness.fileCreationRedoStackRef.current = [recovered, later] as any;
+    harness.queryClient.getQueryData.mockReturnValue({
+      files: [
+        {
+          id: "recovered-id",
+          filename: "recovered.html",
+          content: "recovered",
+          fileType: "html",
+        },
+      ],
+    });
+    const initialGeometry = {
+      peer: { x: 0, y: 0, width: 320, height: 240, z: 0 },
+      "recovered-id": { x: 376, y: 0, width: 320, height: 240, z: 1 },
+    };
+    harness.args.designDataJsonRef.current = {
+      canvasFrames: initialGeometry,
+    };
+    harness.args.liveFrameGeometryRef.current = initialGeometry;
+
+    runRedo(harness.args);
+    await vi.waitFor(() =>
+      expect(harness.args.createFileMutation.mutate).toHaveBeenCalledOnce(),
+    );
+    const completion = harness.getOnSuccess()?.({ id: "new-later" });
+    expect(completion).toBeDefined();
+    await completion;
+    await vi.waitFor(() =>
+      expect(harness.queryClient.invalidateQueries).toHaveBeenCalledOnce(),
+    );
+
+    expect(harness.args.updateDesignAsync).toHaveBeenCalledTimes(2);
+    expect(
+      harness.deleteFileMutation.mutateAsync,
+    ).toHaveBeenCalledExactlyOnceWith({
+      id: "new-later",
+      allowLockedLayers: true,
+    });
+    expect(harness.writeFrameGeometrySnapshot).toHaveBeenLastCalledWith({
+      peer: { ...initialGeometry.peer },
+      "recovered-id": initialGeometry["recovered-id"],
+    });
+    expect(harness.fileCreationRedoStackRef.current).toHaveLength(2);
+  });
+
   it("rolls back duplicate stack after cleanup rejects but absence is confirmed", async () => {
     const harness = makeRedoHarness(
       vi.fn().mockRejectedValue(new Error("metadata failed")),

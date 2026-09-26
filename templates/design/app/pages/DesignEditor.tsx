@@ -715,6 +715,11 @@ import {
   type EnterSingleScreenOptions,
 } from "./design-editor/commands/enter-single-screen";
 import { runEscapeHotkey } from "./design-editor/commands/escape-hotkey";
+import {
+  flushPendingFileCreationHistoryEntries as flushFileCreationHistoryEntries,
+  recordFileCreationHistoryEntry as recordFileCreationHistoryEntryCommand,
+  type PendingFileCreationHistoryEntry,
+} from "./design-editor/commands/file-creation-history";
 import { runFrameSelection } from "./design-editor/commands/frame-selection";
 import { runGeometryCommit } from "./design-editor/commands/geometry-commit";
 import { runGetSelectedLayerSnapshots } from "./design-editor/commands/get-selected-layer-snapshots";
@@ -972,7 +977,6 @@ import {
   getContentHistoryChanges,
   type GeometryHistoryEntry,
   type GeometryHistorySelection,
-  insertFileCreationHistoryEntry,
   type PendingTextCreationHistory,
   type SelectionHistoryEntry,
   MAX_DESIGN_UNDO_STACK,
@@ -3009,7 +3013,7 @@ function DesignEditor() {
   const fileCreationUndoStackRef = useRef<FileCreationHistoryEntry[]>([]);
   const fileCreationRedoStackRef = useRef<FileCreationHistoryEntry[]>([]);
   const pendingFileCreationHistoryEntriesRef = useRef<
-    Array<{ designId: string | undefined; entry: FileCreationHistoryEntry }>
+    PendingFileCreationHistoryEntry[]
   >([]);
   const pendingDuplicateGeometriesRef = useRef<Map<string, FrameGeometry>>(
     new Map(),
@@ -3669,54 +3673,32 @@ function DesignEditor() {
     historyOrderRef.current = [];
     redoOrderRef.current = [];
   }, [clearPendingHistoryDirections]);
-  // U12: record a screen create/duplicate as an undoable entry. Always pushed
-  // to the undo stack (screen creation is only meaningful in overview mode's
-  // shared chronological history) and clears the redo stack like any other
-  // new action.
-  const commitFileCreationHistoryEntry = useCallback(
-    (entry: FileCreationHistoryEntry) => {
-      const inserted = insertFileCreationHistoryEntry(
-        fileCreationUndoStackRef.current,
-        entry,
-      );
-      fileCreationUndoStackRef.current = inserted.stack;
-      if (!inserted.continuesBatch) {
-        clearRedoStacks();
-        historyOrderRef.current = [
-          ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-          "file-created",
-        ];
-      }
-      syncUndoRedoState();
-    },
-    [clearRedoStacks, syncUndoRedoState],
-  );
   const recordFileCreationHistoryEntry = useCallback(
     (entry: FileCreationHistoryEntry) => {
-      if (fileHistoryMutationPendingRef.current) {
-        pendingFileCreationHistoryEntriesRef.current.push({
-          designId: id,
-          entry,
-        });
-        return;
-      }
-      commitFileCreationHistoryEntry(entry);
+      recordFileCreationHistoryEntryCommand({
+        designId: id,
+        entry,
+        fileHistoryMutationPendingRef,
+        pendingFileCreationHistoryEntriesRef,
+        fileCreationUndoStackRef,
+        historyOrderRef,
+        clearRedoStacks,
+        syncUndoRedoState,
+      });
     },
-    [commitFileCreationHistoryEntry, id],
+    [clearRedoStacks, id, syncUndoRedoState],
   );
   const flushPendingFileCreationHistoryEntries = useCallback(() => {
-    if (fileHistoryMutationPendingRef.current) return;
-    const matching = pendingFileCreationHistoryEntriesRef.current.filter(
-      (item) => item.designId === id,
-    );
-    pendingFileCreationHistoryEntriesRef.current =
-      pendingFileCreationHistoryEntriesRef.current.filter(
-        (item) => item.designId !== id,
-      );
-    for (const item of matching) {
-      commitFileCreationHistoryEntry(item.entry);
-    }
-  }, [commitFileCreationHistoryEntry, id]);
+    flushFileCreationHistoryEntries({
+      designId: id,
+      fileHistoryMutationPendingRef,
+      pendingFileCreationHistoryEntriesRef,
+      fileCreationUndoStackRef,
+      historyOrderRef,
+      clearRedoStacks,
+      syncUndoRedoState,
+    });
+  }, [clearRedoStacks, id, syncUndoRedoState]);
   // ── Save refs: selection, frame geometry, tweaks, annotations ──────────────
   const persistedSelectionStateRef = useRef<string | null>(null);
   const persistedSelectionContextRef = useRef<string | null>(null);

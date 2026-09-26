@@ -1455,7 +1455,7 @@ export function runRedo({
             : [],
         ),
       );
-      let rollbackFailed = reusedRecoveryEntries.size > 0;
+      let rollbackFailed = false;
       for (const [item, createdFileId] of createdFileIds) {
         rollbackFileIds.add(createdFileId);
         try {
