@@ -72,7 +72,7 @@ describe("VideoBlock autoplay", () => {
       expect(video?.hasAttribute("playsinline")).toBe(true);
       // `muted` is a live media property React sets directly, not an
       // attribute — assert via the element property, not `hasAttribute`.
-      expect((video as HTMLVideoElement | null)?.muted).toBe(true);
+      expect((video as HTMLVideoElement | null)?.muted).toBe(false);
     });
   });
 
@@ -113,6 +113,17 @@ describe("VideoBlock autoplay", () => {
       expect(video?.hasAttribute("autoplay")).toBe(false);
       expect(video?.hasAttribute("playsinline")).toBe(true);
       expect((video as HTMLVideoElement | null)?.muted).toBe(true);
+    });
+
+    act(() => media.setMatches(false));
+
+    await waitFor(() => {
+      expect(container.querySelector("video")?.hasAttribute("autoplay")).toBe(
+        false,
+      );
+      expect((container.querySelector("video") as HTMLVideoElement).muted).toBe(
+        true,
+      );
     });
   });
 

@@ -10,10 +10,12 @@ export type { VideoData };
 
 export function VideoBlock({ data, ctx }: BlockReadProps<VideoData>) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const prefersReducedMotion = usePrefersReducedMotion(videoRef);
+  const { current, initial, autoplayStopped } =
+    usePrefersReducedMotion(videoRef);
   // Autoplay only fires once the reduced-motion preference has resolved.
   const shouldAutoplay =
-    Boolean(data.autoplay) && prefersReducedMotion === false;
+    Boolean(data.autoplay) && current === false && !autoplayStopped;
+  const shouldMute = Boolean(data.autoplay) && initial !== true;
 
   return (
     <MediaFrame
@@ -32,7 +34,7 @@ export function VideoBlock({ data, ctx }: BlockReadProps<VideoData>) {
           controls
           preload="metadata"
           autoPlay={shouldAutoplay}
-          muted={Boolean(data.autoplay)}
+          muted={shouldMute}
           playsInline
           loop={Boolean(data.loop)}
         />

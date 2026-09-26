@@ -126,8 +126,10 @@ const HERO_WRAPPER_CLASS =
 export default function MailTemplate() {
   const t = useT();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const prefersReducedMotion = usePrefersReducedMotion(videoRef);
-  const shouldAutoplay = prefersReducedMotion === false;
+  const { current, initial, autoplayStopped } =
+    usePrefersReducedMotion(videoRef);
+  const shouldAutoplay = current === false && !autoplayStopped;
+  const shouldMute = initial !== true;
 
   return (
     <div className="builder-brand-tokens">
@@ -176,7 +178,7 @@ export default function MailTemplate() {
                   poster="/videos/mail-jev-story-poster.jpg"
                   aria-label={t("templateLanding.mail.heroDescription")}
                   autoPlay={shouldAutoplay}
-                  muted
+                  muted={shouldMute}
                   loop
                   playsInline
                   controls
