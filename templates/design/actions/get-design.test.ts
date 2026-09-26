@@ -8,15 +8,15 @@ const mocks = vi.hoisted(() => {
   };
   selectChain.from.mockReturnValue(selectChain);
   selectChain.where.mockReturnValue(selectChain);
+  const select = vi.fn(() => selectChain);
 
   return {
     asc: vi.fn((column) => ({ asc: column })),
     and: vi.fn((...conditions) => ({ conditions })),
     eq: vi.fn((left, right) => ({ left, right })),
-    getDb: vi.fn(() => ({
-      select: vi.fn(() => selectChain),
-    })),
+    getDb: vi.fn(() => ({ select })),
     resolveAccess: vi.fn(),
+    select,
     selectChain,
     track: vi.fn(),
     getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
@@ -66,6 +66,7 @@ import action from "./get-design.js";
 describe("get-design", () => {
   beforeEach(() => {
     mocks.resolveAccess.mockReset();
+    mocks.select.mockClear();
     mocks.selectChain.orderBy.mockReset();
     mocks.asc.mockClear();
     mocks.resolveAccess.mockResolvedValue({
@@ -176,11 +177,21 @@ describe("get-design", () => {
   });
 
   it("can list file metadata without fetching file content", async () => {
+    mocks.selectChain.orderBy.mockResolvedValueOnce([
+      {
+        id: "file_123",
+        filename: "index.html",
+        fileType: "html",
+        createdAt: "2026-06-29T00:00:00.000Z",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+    ]);
     const result = await action.run({
       id: "design_123",
       includeFileContent: false,
     });
 
+    expect(mocks.select.mock.calls.at(-1)?.[0]).not.toHaveProperty("content");
     expect(mocks.selectChain.orderBy).toHaveBeenCalled();
     expect(result.files).toEqual([
       expect.objectContaining({
