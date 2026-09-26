@@ -176,9 +176,9 @@ export function AssetsLandingMock({
                     <img
                       src={item.image}
                       alt=""
+                      draggable={false}
                       loading="lazy"
                       decoding="async"
-                      draggable={false}
                     />
                     <div>
                       <strong>{item.title}</strong>
@@ -222,24 +222,23 @@ export function AssetsLandingMock({
                         className="as-generated-primary"
                         src={artwork[0]}
                         alt=""
-                        loading="lazy"
-                        decoding="async"
                         draggable={false}
+                        decoding="async"
                       />
                       <div className="as-generated-secondary">
                         <img
                           src={artwork[1]}
                           alt=""
+                          draggable={false}
                           loading="lazy"
                           decoding="async"
-                          draggable={false}
                         />
                         <img
                           src={artwork[2]}
                           alt=""
+                          draggable={false}
                           loading="lazy"
                           decoding="async"
-                          draggable={false}
                         />
                       </div>
                     </div>
