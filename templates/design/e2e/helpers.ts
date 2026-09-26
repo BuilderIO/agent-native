@@ -101,7 +101,7 @@ export async function canvasZoom(page: Page): Promise<number> {
   const card = await page.locator("[data-screen-card]").first().boundingBox();
   if (!card) throw new Error("no screen card to measure zoom against");
   const contentWidth = await page
-    .locator(DESIGN_PREVIEW_IFRAME_SELECTOR)
+    .locator(DESIGN_SCREEN_IFRAME_SELECTOR)
     .first()
     .contentFrame()
     .locator("body")
@@ -134,6 +134,7 @@ export async function enableFeatureFlag(
 }
 
 const DESIGN_PREVIEW_IFRAME_SELECTOR = "iframe[data-design-preview-iframe]";
+const DESIGN_SCREEN_IFRAME_SELECTOR = `${DESIGN_PREVIEW_IFRAME_SELECTOR}[data-screen-iframe-id]`;
 const E2E_BASE_URL = process.env.E2E_BASE_URL;
 const E2E_BASE_PATH = (() => {
   if (!E2E_BASE_URL) return "";
@@ -159,13 +160,61 @@ export function appPath(path: string): string {
   return `${route.pathname}${route.search}${route.hash}`;
 }
 
-export function designFrame(page: Page, screenId?: string): FrameLocator {
-  const iframe = screenId
-    ? page.locator(
-        `${DESIGN_PREVIEW_IFRAME_SELECTOR}[data-screen-iframe-id="${screenId}"]`,
-      )
-    : page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).last();
+function activeScreenTargetFromUrl(page: Page): string | undefined {
+  const url = new URL(page.url());
+  return (
+    url.searchParams.get("screen") ??
+    url.searchParams.get("fileId") ??
+    url.searchParams.get("filename") ??
+    undefined
+  );
+}
+
+function cssAttributeValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function normalizeScreenTarget(value: string): string {
+  return value
+    .trim()
+    .replace(/^\.?\//, "")
+    .replace(/\.html?$/i, "")
+    .toLowerCase();
+}
+
+function screenFrameSelector(screenTarget?: string): string {
+  if (!screenTarget) return DESIGN_SCREEN_IFRAME_SELECTOR;
+
+  const normalizedTarget = normalizeScreenTarget(screenTarget);
+  const filenameCandidates = new Set([
+    screenTarget,
+    normalizedTarget,
+    `${normalizedTarget}.htm`,
+    `${normalizedTarget}.html`,
+    `./${normalizedTarget}.htm`,
+    `./${normalizedTarget}.html`,
+    `/${normalizedTarget}.htm`,
+    `/${normalizedTarget}.html`,
+  ]);
+  return [
+    `${DESIGN_SCREEN_IFRAME_SELECTOR}[data-screen-iframe-id="${cssAttributeValue(screenTarget)}"]`,
+    ...[...filenameCandidates].map(
+      (filename) =>
+        `[data-screen-shell]:has([data-frame-title][title="${cssAttributeValue(filename)}" i]) ${DESIGN_SCREEN_IFRAME_SELECTOR}:not([data-screen-iframe-id*="::bp-"])`,
+    ),
+  ].join(", ");
+}
+
+function screenFrame(page: Page, screenTarget?: string): FrameLocator {
+  const matchingFrames = page.locator(screenFrameSelector(screenTarget));
+  // ponytail: no route target uses the last Screen; inspect editor state if exact focus matters.
+  // Route targets stay strict so ambiguous filenames cannot select the wrong Screen.
+  const iframe = screenTarget ? matchingFrames : matchingFrames.last();
   return iframe.contentFrame();
+}
+
+export function designFrame(page: Page, screenId?: string): FrameLocator {
+  return screenFrame(page, screenId ?? activeScreenTargetFromUrl(page));
 }
 
 async function selectableNodeByText(
@@ -173,17 +222,17 @@ async function selectableNodeByText(
   text: string,
   screenId?: string,
 ): Promise<Locator> {
-  // A multi-screen design has one iframe per screen, so `.last()` reads the
-  // wrong document. Breakpoint frames stamp their own preview id, so scope
-  // only when that screen really owns an iframe.
-  const scopedFrameCount = screenId
-    ? await page
-        .locator(
-          `${DESIGN_PREVIEW_IFRAME_SELECTOR}[data-screen-iframe-id="${screenId.replace(/"/g, '\\"')}"]`,
-        )
-        .count()
-    : 0;
-  const frame = designFrame(page, scopedFrameCount > 0 ? screenId : undefined);
+  const targetScreen = screenId ?? activeScreenTargetFromUrl(page);
+  const matchingFrames = page.locator(screenFrameSelector(targetScreen));
+  const matchingFrameCount = targetScreen ? await matchingFrames.count() : 0;
+  if (targetScreen && matchingFrameCount !== 1) {
+    throw new Error(
+      matchingFrameCount === 0
+        ? `No Screen iframe matches route target ${JSON.stringify(targetScreen)}`
+        : `Multiple Screen iframes match route target ${JSON.stringify(targetScreen)}`,
+    );
+  }
+  const frame = screenFrame(page, targetScreen);
   const normalizedText = text.replace(/\s+/g, " ").trim();
   const candidates = frame.locator("[data-agent-native-node-id]", {
     hasText: text,
@@ -415,6 +464,7 @@ export async function enterDirectMode(
   page: Page,
   _options?: { screenId?: string },
 ): Promise<void> {
+  const screenId = _options?.screenId ?? activeScreenTargetFromUrl(page);
   const allScreens = page
     .locator("aside")
     .first()
@@ -430,7 +480,7 @@ export async function enterDirectMode(
   // Selection is this helper's whole promise, and the shield is what turns a
   // click into one. Without it every caller fails much later, somewhere else.
   await expect(
-    designFrame(page, _options?.screenId)
+    designFrame(page, screenId)
       .locator('[data-agent-native-edit-overlay="shield"]')
       .first(),
   ).toBeAttached({ timeout: 15_000 });
@@ -553,9 +603,10 @@ export async function selectByText(
   text: string,
   options?: { screenId?: string },
 ): Promise<any> {
-  await enterDirectMode(page, options);
+  const screenId = options?.screenId ?? activeScreenTargetFromUrl(page);
+  await enterDirectMode(page, { screenId });
   await installBridge(page);
-  const target = await selectableNodeByText(page, text, options?.screenId);
+  const target = await selectableNodeByText(page, text, screenId);
   await target.waitFor({ state: "visible", timeout: 8_000 });
   const box = await target.boundingBox();
   if (!box) throw new Error(`no bounding box for ${JSON.stringify(text)}`);
@@ -629,9 +680,10 @@ export async function dragCanvasByText(
   dx: number,
   dy: number,
 ): Promise<string[]> {
-  await selectByText(page, text);
+  const screenId = activeScreenTargetFromUrl(page);
+  await selectByText(page, text, { screenId });
   await page.evaluate(() => ((window as any).__bridge = []));
-  const target = await selectableNodeByText(page, text);
+  const target = await selectableNodeByText(page, text, screenId);
   const box = await target.boundingBox();
   if (!box) throw new Error(`no bounding box for "${text}"`);
   const cx = box.x + box.width / 2;
