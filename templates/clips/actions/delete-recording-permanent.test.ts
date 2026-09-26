@@ -353,7 +353,10 @@ describe("delete-recording-permanent", () => {
       expect(mockUpdates.at(-1)).toEqual({ editsJson: shot.editsJson });
     });
 
-    it("gives the row back without a claim an earlier delete left", async () => {
+    it("keeps a claim an earlier, part-way delete left", async () => {
+      // That delete may already have removed the base under pending boxes;
+      // releasing its claim would let the screenshot be restored or saved
+      // over with its base gone.
       const leftClaimed = {
         ...shot,
         editsJson: JSON.stringify({
@@ -369,7 +372,7 @@ describe("delete-recording-permanent", () => {
       await expect(
         deleteRecordingPermanent.run({ id: "rec_1" }),
       ).rejects.toThrow(/unredacted copy/);
-      expect(mockUpdates.at(-1)).toEqual({ editsJson: shot.editsJson });
+      expect(mockUpdates.at(-1)).toEqual({ editsJson: leftClaimed.editsJson });
     });
 
     it("keeps the row when its edits cannot be read", async () => {

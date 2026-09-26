@@ -35,14 +35,6 @@ export function hasDeleteClaim(editsJson: string | null | undefined): boolean {
   return Boolean(readEditsRecord(editsJson)?.[DELETE_CLAIM_KEY]);
 }
 
-/** The edits with any delete claim taken off; unreadable edits unchanged. */
-export function withoutDeleteClaim(editsJson: string): string {
-  const edits = readEditsRecord(editsJson);
-  if (!edits || !(DELETE_CLAIM_KEY in edits)) return editsJson;
-  const { [DELETE_CLAIM_KEY]: _claim, ...rest } = edits;
-  return JSON.stringify(rest);
-}
-
 /** The edits with the delete claim on; `null` when they cannot be read. */
 export function withDeleteClaim(
   editsJson: string | null | undefined,

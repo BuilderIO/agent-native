@@ -29,7 +29,6 @@ import {
 import {
   screenshotLeftoverUrls,
   withDeleteClaim,
-  withoutDeleteClaim,
 } from "../server/lib/screenshot-edits.js";
 
 export default defineAction({
@@ -143,13 +142,15 @@ export default defineAction({
           // Give the row back so it can be edited or deleted again. What is
           // already gone was a leftover nothing points at, or the base of
           // boxes the next delete will retry.
-          // Without its claim even if an earlier, interrupted delete had left
-          // one. The revision stays bumped: an editor opened before this
-          // began must reload, since some leftovers are now gone.
+          // Only this delete's own claim comes off: the edits go back as they
+          // were read, so a claim an earlier delete left when it stopped
+          // part-way — files possibly already gone — stays, and the
+          // screenshot can still only be deleted again. The revision stays
+          // bumped: an editor opened before this began must reload.
           try {
             await db
               .update(schema.recordings)
-              .set({ editsJson: withoutDeleteClaim(existing.editsJson) })
+              .set({ editsJson: existing.editsJson })
               .where(
                 and(
                   eq(schema.recordings.id, args.id),
@@ -157,8 +158,8 @@ export default defineAction({
                 ),
               );
           } catch (err) {
-            // The claim expires on its own; the storage failure below is the
-            // one the caller needs to see.
+            // The screenshot then stays claimed, so it can only be deleted
+            // again; the storage failure below is what the caller needs.
             console.warn(
               `[delete-recording-permanent] could not release the claim on ${args.id}:`,
               err instanceof Error ? err.message : String(err),

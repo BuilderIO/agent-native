@@ -6,7 +6,6 @@ import {
   screenshotLeftoverUrls,
   viewerScreenshotEditsJson,
   withDeleteClaim,
-  withoutDeleteClaim,
 } from "./screenshot-edits";
 
 const midBurn = JSON.stringify({
@@ -54,12 +53,11 @@ describe("screenshot-edits", () => {
     expect(screenshotLeftoverUrls("{not json")).toBeNull();
   });
 
-  it("keeps the delete claim server-side, and takes it off", () => {
+  it("keeps the delete claim server-side", () => {
     const claimed = withDeleteClaim("{}", new Date().toISOString())!;
     expect(hasDeleteClaim(claimed)).toBe(true);
     expect(hasDeleteClaim("{}")).toBe(false);
     expect(editorScreenshotEditsJson(claimed)).toBe("{}");
-    expect(withoutDeleteClaim(claimed)).toBe("{}");
     expect(withDeleteClaim("{not json", "x")).toBeNull();
   });
 
