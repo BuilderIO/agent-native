@@ -238,6 +238,35 @@ describe("DesignCanvas Pen path completion", () => {
     expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
   });
 
+  it("keeps a rejected closed path when the user clicks before retrying", async () => {
+    const onCreatePrimitive = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce("created-path");
+    const { click, pressKey } = await renderPenCanvas(onCreatePrimitive);
+
+    await click(1, 120, 120);
+    await click(2, 180, 180);
+    await click(3, 120, 120);
+
+    expect(onCreatePrimitive).toHaveBeenCalledTimes(1);
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(2);
+
+    await click(4, 300, 300);
+
+    expect(onCreatePrimitive).toHaveBeenCalledTimes(1);
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(2);
+    await pressKey("Enter");
+
+    expect(onCreatePrimitive).toHaveBeenCalledTimes(2);
+    expect(onCreatePrimitive).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        penPath: expect.objectContaining({ closed: true }),
+      }),
+    );
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+  });
+
   it("retries a rejected continuation update against the same vector", async () => {
     const path: PenPath = {
       closed: false,

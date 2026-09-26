@@ -8958,9 +8958,8 @@ function SingleScreenCreationOverlay({
         e.preventDefault();
         e.stopPropagation();
         seedSelectedPenContinuation();
-        const currentPath = penPathRef.current?.closed
-          ? null
-          : penPathRef.current;
+        const currentPath = penPathRef.current;
+        if (currentPath?.closed) return;
         const pathBefore = currentPath ? clonePenPath(currentPath) : null;
         const rawPoint = toContentPoint(e.clientX, e.clientY);
         if (!pathBefore && continuationPenPathRef.current) {
