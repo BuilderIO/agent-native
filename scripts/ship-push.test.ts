@@ -5,6 +5,7 @@ import {
   assertFreeDisk,
   freeDiskBytes,
   isExcludedPath,
+  isSpecificCommitMessage,
   parsePorcelain,
   selectStageablePaths,
 } from "./ship-push.mjs";
@@ -89,6 +90,16 @@ describe("isExcludedPath", () => {
   it("excludes learnings.md at any path", () => {
     expect(isExcludedPath("learnings.md")).toBe(true);
     expect(isExcludedPath("templates/design/learnings.md")).toBe(true);
+  });
+});
+
+describe("isSpecificCommitMessage", () => {
+  it("rejects empty, generic, and option-looking commit subjects", () => {
+    expect(isSpecificCommitMessage(undefined)).toBe(false);
+    expect(isSpecificCommitMessage("chore: publish branch work")).toBe(false);
+    expect(isSpecificCommitMessage("--dry-run")).toBe(false);
+    expect(isSpecificCommitMessage("-m --foo")).toBe(false);
+    expect(isSpecificCommitMessage("fix: avoid repeated CI runs")).toBe(true);
   });
 });
 

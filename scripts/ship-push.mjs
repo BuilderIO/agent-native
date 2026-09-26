@@ -97,6 +97,14 @@ export function isExcludedPath(file) {
   return EXCLUDED.test(file);
 }
 
+export function isSpecificCommitMessage(message) {
+  return Boolean(
+    message &&
+    !message.startsWith("-") &&
+    !/^chore:\s*publish branch work\b/i.test(message),
+  );
+}
+
 function main() {
   try {
     assertFreeDisk();
@@ -141,10 +149,7 @@ function main() {
   }
 
   const message = explicitMessage?.trim();
-  if (
-    publishable.length > 0 &&
-    (!message || /^chore:\s*publish branch work\b/i.test(message))
-  ) {
+  if (publishable.length > 0 && !isSpecificCommitMessage(message)) {
     console.error(
       "ship-push: pass -m with a specific commit subject; generic 'chore: publish branch work' commits are disabled.",
     );
