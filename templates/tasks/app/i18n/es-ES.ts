@@ -163,6 +163,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "Sugerir cola",
+    noQueueMatch: "Ninguna cola coincide",
+    urgentProbability: "Probabilidad de urgencia: {{percent}} %",
+    applyRoute: "Aplicar cola",
+    routingError: "No se pudo sugerir una cola.",
     panelTitle: "Campos",
     panelSubtitle: "Detalles de la tarea",
     closeLabel: "Cerrar panel de campos",

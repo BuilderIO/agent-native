@@ -163,6 +163,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "Warteschlange vorschlagen",
+    noQueueMatch: "Keine passende Warteschlange",
+    urgentProbability: "Dringlichkeitswahrscheinlichkeit {{percent}} %",
+    applyRoute: "Warteschlange übernehmen",
+    routingError: "Warteschlange konnte nicht vorgeschlagen werden.",
     panelTitle: "Felder",
     panelSubtitle: "Aufgabendetails",
     closeLabel: "Felder-Panel schließen",

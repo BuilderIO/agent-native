@@ -53,6 +53,8 @@ Methods, arguments, and defaults are in the `action-reference` skill.
 | `list-tasks` | List the user's tasks |
 | `create-task` | Create a task |
 | `update-task` | Patch title, done, or field values |
+| `suggest-task-route` | Suggest a queue and urgency for one task without changing it |
+| `apply-task-route` | Apply an accepted queue, creating the Queue field on first use |
 | `delete-task` | Delete a task |
 | `bulk-update-tasks` | Patch title or done on many tasks |
 | `bulk-delete-tasks` | Delete many tasks |

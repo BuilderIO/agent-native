@@ -153,6 +153,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "कतार सुझाएँ",
+    noQueueMatch: "कोई उपयुक्त कतार नहीं",
+    urgentProbability: "तात्कालिकता की संभावना {{percent}}%",
+    applyRoute: "कतार लागू करें",
+    routingError: "कतार सुझाई नहीं जा सकी।",
     panelTitle: "फ़ील्ड्स",
     panelSubtitle: "कार्य विवरण",
     closeLabel: "फ़ील्ड पैनल बंद करें",

@@ -164,6 +164,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "Suggérer une file",
+    noQueueMatch: "Aucune file correspondante",
+    urgentProbability: "Probabilité d'urgence : {{percent}} %",
+    applyRoute: "Appliquer la file",
+    routingError: "Impossible de suggérer une file.",
     panelTitle: "Champs",
     panelSubtitle: "Détails de la tâche",
     closeLabel: "Fermer le panneau des champs",

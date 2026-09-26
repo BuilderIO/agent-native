@@ -1,7 +1,7 @@
 ---
 name: action-reference
 description: >-
-  Full reference for the 25 tasks actions: HTTP method, arguments, defaults,
+  Full reference for the 27 tasks actions: HTTP method, arguments, defaults,
   and confirmation rules. Use when you need an action's method or exact
   behavior beyond the compact index in AGENTS.md, or before adding an action.
 ---
@@ -17,6 +17,8 @@ canonical descriptions and input schemas live in [`actions/`](../../../actions/)
 | `list-tasks`                  | GET    | List current user's tasks; `includeDone` and `includeFields` default to false                |
 | `create-task`                 | POST   | Create a task with `title`                                                                   |
 | `update-task`                 | POST   | Patch `title`, `done`, and/or `fieldValues` by `taskId`                                      |
+| `suggest-task-route`         | POST   | Suggest a queue and urgency for `taskId` without changing the task                           |
+| `apply-task-route`           | POST   | Apply a reviewed `queueName` to `taskId`, creating the Queue field on first use              |
 | `delete-task`                 | POST   | Delete a task by `taskId` (confirm with user first)                                          |
 | `bulk-update-tasks`           | POST   | Patch `title` and/or `done` on multiple tasks by id                                          |
 | `bulk-delete-tasks`           | POST   | Delete multiple tasks by id (confirm with user first)                                        |
