@@ -11,7 +11,7 @@ The analytics app connects to multiple data sources. This skill covers general p
 
 ## Approach
 
-0. **Orient catalog-first** — before querying, consult what already exists: the injected `<data-dictionary>` and data-source status tell you which sources are configured and which table/columns/join paths to use. Use them to pick the one source that owns the fact instead of fanning out blind queries.
+0. **Use retrieved references first** — data questions may start with a small set of relevant data-dictionary entries and saved dashboard panels in `<resource scope="analytics-catalog">`. Treat them as definitions and query examples, never live results. If they do not fit, call `search-analytics-query-catalog` before querying; use data-source status when provider availability matters.
 1. **Route named account health deliberately** — for a customer/org health, QBR, renewal, contract-utilization, risk, or adoption request, read `account-health` before writing SQL. It adds identity-lock and metric-definition checks that an ordinary lookup does not need.
 2. **Read the relevant provider skill first** — check `.agents/skills/<provider>/SKILL.md` for table names, column mappings, auth, and gotchas. For BigQuery, read `.agents/skills/bigquery/SKILL.md` and use `search-bigquery-schema` before guessing table or column names.
 3. **Clarify if ambiguous** — if the metric definition, date range, or grain is unclear and a wrong guess would change the numbers, use the `ask-question` clarifying tool (multiple-choice) before querying. Ask at most once per turn; skip it when the dictionary or the user already answered.
@@ -187,8 +187,25 @@ When you complete an analysis and discover:
 - A schema discovery (table exists but wasn't in the dictionary, a column name differs)
 - An identity-stitching rule (how to match users across two specific sources)
 
-Capture it immediately using `save-memory` or by writing to `LEARNINGS.md` via
-the `resources` tool:
+Analytics automatically captures explicit user corrections and metric
+definitions the user confirms after the thread has been idle. State corrections
+plainly. Before asking for confirmation, restate the complete proposed metric
+definition in plain language, including its key conditions and time window or
+grain when applicable; a bare “yes” to a metric-name-only question is not
+confirmation. Captures stay private to the user and, when learned in an
+organization, are retrieved only in that same organization. Do not call
+`save-memory` again for those same items.
+
+Use `save-memory` for other verified, durable personal Analytics knowledge,
+with a short actionable description; read the existing entry first when
+updating it. Do not save guesses, one-off result values, raw queries,
+credentials, or personal or customer-identifying details such as names, contact
+information, street/billing/mailing addresses, or personal identifiers. If the
+finding is uncertain or only applies to the current analysis, leave it in the
+answer instead of creating a memory.
+
+For entries not suitable for personal memory, use the project `LEARNINGS.md`
+only when it contains genuinely reusable, non-sensitive guidance:
 
 ```
 resources(action: "read", path: "LEARNINGS.md")  -- read first to merge

@@ -14,9 +14,6 @@ export default createAuthPlugin({
   mountGoogleOAuthRoutes: false,
   marketing: {
     appName: "Clips",
-    screenshotPath: "/auth-marketing/clips.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     learnMoreUrl: "https://agent-native.com/apps/clips",
     tagline:
       "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",

@@ -1,7 +1,44 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { listWorkspaceApps } from "../server/lib/app-creation-store.js";
+import {
+  listWorkspaceApps,
+  type ListWorkspaceAppsOptions,
+  type WorkspaceAppSummary,
+} from "../server/lib/app-creation-store.js";
+
+const inFlightWorkspaceAppLists = new Map<
+  string,
+  Promise<WorkspaceAppSummary[]>
+>();
+
+function listWorkspaceAppsForRequest(
+  input: ListWorkspaceAppsOptions,
+  context?: ActionRunContext,
+): Promise<WorkspaceAppSummary[]> {
+  const email = context?.userEmail?.trim().toLowerCase();
+  if (!context || !email) return listWorkspaceApps(input);
+
+  const key = JSON.stringify([
+    email,
+    context.orgId?.trim() || null,
+    context.appId?.trim() || null,
+    context.caller,
+    input,
+  ]);
+  const pending = inFlightWorkspaceAppLists.get(key);
+  if (pending) return pending;
+
+  const request = listWorkspaceApps(input);
+  inFlightWorkspaceAppLists.set(key, request);
+  const removeSettledRequest = () => {
+    if (inFlightWorkspaceAppLists.get(key) === request) {
+      inFlightWorkspaceAppLists.delete(key);
+    }
+  };
+  void request.then(removeSettledRequest, removeSettledRequest);
+  return request;
+}
 
 const httpBoolean = z.preprocess((value) => {
   if (typeof value !== "string") return value;
@@ -29,5 +66,5 @@ export default defineAction({
       .describe("Filter by workspace app audience."),
   }),
   http: { method: "GET" },
-  run: async (input) => listWorkspaceApps(input),
+  run: async (input, context) => listWorkspaceAppsForRequest(input, context),
 });

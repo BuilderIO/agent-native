@@ -34,6 +34,7 @@ const FIXTURE = `<!doctype html><html><body>
     <div data-agent-native-node-id="subject" style="opacity: .65 !important; pointer-events: auto; transition: opacity 2s"><span>Subject</span></div>
     <div data-agent-native-node-id="last">Last</div>
   </main>
+  <section id="detached-parent"><div data-agent-native-node-id="orphan">Orphan</div></section>
 </body></html>`;
 
 describe("delete-element / visual-structure-ack undo", () => {
@@ -50,6 +51,11 @@ describe("delete-element / visual-structure-ack undo", () => {
         await page.evaluate(() => {
           // Identity probe: a re-parsed clone would not carry this listener.
           (window as Window & { __subjectProbes?: number }).__subjectProbes = 0;
+          (
+            window as Window & { __originalSubject?: Element }
+          ).__originalSubject =
+            document.querySelector('[data-agent-native-node-id="subject"]') ??
+            undefined;
           document
             .querySelector('[data-agent-native-node-id="subject"]')
             ?.addEventListener("agent-native-node-identity-probe", () => {
@@ -112,6 +118,7 @@ describe("delete-element / visual-structure-ack undo", () => {
               selector: '[data-agent-native-node-id="subject"]',
               selectorCandidates: ['[data-agent-native-node-id="subject"]'],
               requestId: "delete-1",
+              transactionId: "move-1",
             },
             "*",
           );
@@ -121,6 +128,7 @@ describe("delete-element / visual-structure-ack undo", () => {
               selector: '[data-agent-native-node-id="subject"]',
               selectorCandidates: ['[data-agent-native-node-id="subject"]'],
               requestId: "delete-1",
+              transactionId: "move-1",
             },
             "*",
           );
@@ -130,28 +138,59 @@ describe("delete-element / visual-structure-ack undo", () => {
         ).toBe(0);
 
         // Cmd+Z on the pending live edit.
-        await page.evaluate(() => {
-          window.postMessage(
-            {
-              type: "cancel-pending-delete-element",
-              selector: '[data-agent-native-node-id="subject"]',
-              selectorCandidates: ['[data-agent-native-node-id="subject"]'],
-              requestId: "delete-1",
-            },
-            "*",
-          );
-          window.postMessage(
-            {
-              type: "visual-structure-ack",
-              requestId: "delete-1",
-              applied: false,
-            },
-            "*",
-          );
-        });
+        const cancellation = await page.evaluate(
+          () =>
+            new Promise<{ sourcePresent: boolean }>((resolve) => {
+              const onMessage = (event: MessageEvent) => {
+                if (
+                  event.data?.type !== "runtime-structure-delete-cancelled" ||
+                  event.data?.requestId !== "delete-1"
+                ) {
+                  return;
+                }
+                window.removeEventListener("message", onMessage);
+                resolve({ sourcePresent: event.data.sourcePresent === true });
+              };
+              window.addEventListener("message", onMessage);
+              window.postMessage(
+                {
+                  type: "cancel-pending-delete-element",
+                  selector: '[data-agent-native-node-id="subject"]',
+                  selectorCandidates: ['[data-agent-native-node-id="subject"]'],
+                  requestId: "delete-1",
+                  transactionId: "move-1",
+                },
+                "*",
+              );
+              window.postMessage(
+                {
+                  type: "visual-structure-ack",
+                  requestId: "delete-1",
+                  applied: false,
+                  cancelRuntimeStructureDelete: {
+                    transactionId: "move-1",
+                    selector: '[data-agent-native-node-id="subject"]',
+                    selectorCandidates: [
+                      '[data-agent-native-node-id="subject"]',
+                    ],
+                  },
+                },
+                "*",
+              );
+            }),
+        );
+        expect(cancellation).toEqual({ sourcePresent: true });
 
         const restored = page.locator('[data-agent-native-node-id="subject"]');
         expect(await restored.count()).toBe(1);
+        expect(
+          await restored.evaluate(
+            (element) =>
+              element ===
+              (window as Window & { __originalSubject?: Element })
+                .__originalSubject,
+          ),
+        ).toBe(true);
         await page.evaluate(
           () =>
             new Promise<void>((resolve) =>
@@ -180,6 +219,56 @@ describe("delete-element / visual-structure-ack undo", () => {
             ),
           ),
         ).toEqual(["first", "subject", "last"]);
+
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "delete-element",
+              selector: '[data-agent-native-node-id="orphan"]',
+              selectorCandidates: ['[data-agent-native-node-id="orphan"]'],
+              requestId: "delete-detached-parent",
+              transactionId: "move-detached-parent",
+            },
+            "*",
+          );
+          document.querySelector("#detached-parent")?.remove();
+        });
+        const unresolvedCancellation = await page.evaluate(
+          () =>
+            new Promise<{ sourcePresent: boolean }>((resolve) => {
+              const onMessage = (event: MessageEvent) => {
+                if (
+                  event.data?.type !== "runtime-structure-delete-cancelled" ||
+                  event.data?.requestId !== "delete-detached-parent"
+                ) {
+                  return;
+                }
+                window.removeEventListener("message", onMessage);
+                resolve({ sourcePresent: event.data.sourcePresent === true });
+              };
+              window.addEventListener("message", onMessage);
+              window.postMessage(
+                {
+                  type: "visual-structure-ack",
+                  requestId: "delete-detached-parent",
+                  applied: false,
+                  cancelRuntimeStructureDelete: {
+                    transactionId: "move-detached-parent",
+                    selector: '[data-agent-native-node-id="orphan"]',
+                    selectorCandidates: [
+                      '[data-agent-native-node-id="orphan"]',
+                    ],
+                  },
+                },
+                "*",
+              );
+            }),
+        );
+        expect(unresolvedCancellation).toEqual({ sourcePresent: false });
+        expect(
+          await page.locator('[data-agent-native-node-id="orphan"]').count(),
+        ).toBe(0);
+
         expect(await restored.innerHTML()).toBe("<span>Subject</span>");
         await restored.evaluate((element) => {
           element.dispatchEvent(

@@ -19,6 +19,7 @@ export interface PendingGeneration {
   model?: PromptComposerSubmitOptions["model"];
   engine?: PromptComposerSubmitOptions["engine"];
   effort?: PromptComposerSubmitOptions["effort"];
+  contextItems?: PromptComposerSubmitOptions["contextItems"];
   autoGenerate?: boolean;
   skipQuestions?: boolean;
   attempt?: number;

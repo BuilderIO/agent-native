@@ -12,6 +12,13 @@ import { designFrame, gotoEditor } from "./helpers";
  * Absolutely-positioned rectangles placed well away from the frame origin, so
  * a wrapper that loses its own left/top shows up as a jump to 0,0 rather than
  * as a few pixels of drift.
+ *
+ * Alpha is deliberately left with no inner text: persisting any painted leaf
+ * that DOES have text runs it through `wrapBareTextLeavesInHtml`, which gives
+ * it a `<span>` child — so a single-selected Alpha would no longer be a leaf
+ * and Shift+A would take add-auto-layout.ts's container-convert-in-place
+ * branch instead of the wrapNodes leaf-wrap branch the "Shift+A wraps one
+ * rectangle" test below means to exercise.
  */
 const CHORDS_HTML = `<!doctype html>
 <html lang="en">
@@ -231,6 +238,16 @@ function openTagContaining(html: string, needle: string): string | undefined {
   return tags.find((tag) => tag.includes(needle));
 }
 
+/** Reads a CSS property from a raw opening-tag string, tolerant of the
+ *  "prop:value" (authored/preserved) vs "prop: value" (freshly serialized)
+ *  spacing the app's style patcher mixes within one attribute. */
+function tagStyleValue(tag: string, prop: string): string | undefined {
+  const style = /style="([^"]*)"/.exec(tag)?.[1] ?? "";
+  return new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`)
+    .exec(style)?.[1]
+    ?.trim();
+}
+
 function inlineOffset(html: string, nodeId: string) {
   const open = new RegExp(
     `<[a-z]+[^>]*data-agent-native-node-id="${nodeId}"[^>]*>`,
@@ -273,9 +290,21 @@ test.describe("canvas chords", () => {
     await expectFileContent(request, baseURL, designId, (html) => {
       const wrapper = openTagContaining(html, "display: flex");
       expect(wrapper, "no auto-layout wrapper was created").toBeTruthy();
-      expect(wrapper).toContain("position: absolute");
-      expect(wrapper).toContain("left: 240px");
-      expect(wrapper).toContain("top: 180px");
+      // A wrapper whose own node id is still "ch-alpha" means Shift+A
+      // flex-ified Alpha in place rather than wrapping it — the untouched
+      // authored left/top would then pass below for the wrong reason (see
+      // CHORDS_HTML's comment on why Alpha has no inner text).
+      const wrapperId = /data-agent-native-node-id="([^"]+)"/.exec(
+        wrapper!,
+      )?.[1];
+      expect(wrapperId, "wrapper has no node id").toBeTruthy();
+      expect(wrapperId).not.toBe("ch-alpha");
+      expect(html.indexOf('"ch-alpha"')).toBeGreaterThan(
+        html.indexOf(wrapper!),
+      );
+      expect(tagStyleValue(wrapper!, "position")).toBe("absolute");
+      expect(tagStyleValue(wrapper!, "left")).toBe("240px");
+      expect(tagStyleValue(wrapper!, "top")).toBe("180px");
     });
   });
 

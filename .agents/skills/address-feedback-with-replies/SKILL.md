@@ -85,10 +85,10 @@ need their release marker. Preserve foreign eyes and clean up mistaken claims.
   exhausted; do not ask for evidence already present in Slack or the app.
 - Search recent Slack history, local Git history, and merged PRs for repeat
   reports and existing fixes before editing.
-- Re-read dirty files before changing them. Preserve the shared checkout and
-  peer work. If isolation helps, create a separate task-owned worktree branch
-  from fresh `origin/main`; Steve has granted standing authorization for that.
-  Never switch or overwrite a peer's checkout, or reset/stash its work.
+- Re-read dirty files before edits. In task-owned worktrees, make safe task
+  branch changes without asking; preserve peer changes and never move peer
+  branches. Do not reset, stash, or overwrite peer work. Ask before branch
+  changes in shared checkouts.
 
 ## Slack identity
 

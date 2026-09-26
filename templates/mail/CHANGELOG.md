@@ -3,11 +3,44 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-26
+
+### Changed
+
+- The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
+## 2026-09-25
+
+### Improved
+
+- Mail now guides users to connect Jev before setting up triage and lets them remove existing rules if Jev becomes unavailable.
+- Tune inbox priorities with Jev, label messages clearly, and teach importance with feedback.
+
+### Fixed
+
+- Slack conversations can now use all available Mail actions
+- Editing importance rules preserves disabled instructions and recovers from duplicate-rule deletion failures
+- Handle astral Unicode letters in autocomplete word boundaries
+- Keep existing AI filter rules intact when saving a prompt
+- Keep inbox tab counts consistent when switching tabs
+
 ## 2026-09-24
 
 ### Improved
 
+- Add an All inbox tab that shows every inbox thread and can be hidden in tab settings.
+- Priority sort keeps results when switching inbox tabs, and loading tabs show a skeleton
+- The composer keeps its taller layout in a narrower window.
 - The compose window opens larger, leaving more room to write with quieter toolbar icons.
+
+### Fixed
+
+- Gmail inboxes refresh reliably when push notifications are delayed.
+- Priority sorting stays in place when you return to the inbox
+
+### Security
+
+- Mail automations no longer fall back to shared deployment LLM keys; connect a provider in Settings to enable them.
 
 ## 2026-09-23
 

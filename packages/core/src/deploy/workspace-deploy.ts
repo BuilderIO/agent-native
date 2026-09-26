@@ -94,7 +94,7 @@ function workspaceFrameworkRoutePrefix(): string {
   );
 }
 
-export type WorkspaceDeployPreset = "cloudflare_pages" | "netlify" | "vercel";
+export type WorkspaceDeployPreset = "netlify" | "vercel";
 
 const NETLIFY_WORKSPACE_STATIC_DIR = "_workspace_static";
 const DEFAULT_HOSTED_FEEDBACK_URL =
@@ -123,6 +123,7 @@ const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_DIR = ".agent-native";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
+const WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH = "/_agent-native/google/callback";
 const VERCEL_OUTPUT_DIR = ".vercel/output";
 
 const WORKSPACE_DIRECTORY_ENV_SNIPPET = `
@@ -166,7 +167,7 @@ export interface WorkspaceDeployOptions {
   workspaceRoot?: string;
   /** Only build — don't invoke the deploy platform CLI. */
   buildOnly?: boolean;
-  /** Target preset. Defaults to `cloudflare_pages`. */
+  /** Target preset. Defaults to `netlify`. */
   preset?: WorkspaceDeployPreset;
   /** @internal Override process execution in tests. */
   execFile?: typeof execFileSync;
@@ -265,13 +266,7 @@ export async function runWorkspaceDeploy(
       workspaceAuthMode,
     );
   }
-  writeWorkspaceAppManifests(
-    workspaceRoot,
-    distDir,
-    apps,
-    workspaceApps,
-    preset,
-  );
+  writeWorkspaceAppManifests(workspaceRoot, apps, workspaceApps, preset);
   if (workspaceRootPage === "directory") {
     writeWorkspaceDirectoryPage(
       preset === "vercel" ? path.join(vercelOutputDir, "static") : distDir,
@@ -280,12 +275,15 @@ export async function runWorkspaceDeploy(
   }
 
   if (preset === "netlify") {
-    writeNetlifyRedirects(distDir, apps, workspaceRootPage);
+    writeNetlifyRedirects(distDir, apps, workspaceApps, workspaceRootPage);
     writeNetlifyHeaders(distDir, apps);
-  } else if (preset === "vercel") {
-    writeVercelBuildConfig(vercelOutputDir, apps, workspaceRootPage);
   } else {
-    writeCloudflareRoutingManifest(distDir, apps, workspaceRootPage);
+    writeVercelBuildConfig(
+      vercelOutputDir,
+      apps,
+      workspaceApps,
+      workspaceRootPage,
+    );
   }
 
   if (buildOnly) {
@@ -302,10 +300,8 @@ export async function runWorkspaceDeploy(
     console.log(
       `  netlify deploy --prod --dir=dist --functions=.netlify/functions-internal\n`,
     );
-  } else if (preset === "vercel") {
-    console.log(`  vercel deploy --prebuilt\n`);
   } else {
-    console.log(`  wrangler pages deploy dist\n`);
+    console.log(`  vercel deploy --prebuilt\n`);
   }
   console.log(
     `All apps live at https://<origin>/<app-name>/*. Log in once on any app\nand the session is shared across the workspace.`,
@@ -427,8 +423,7 @@ function moveAppBuildIntoWorkspaceOutput(
   }
 
   // Resolve the per-app build output: prefer dist/ (standard), fall back to
-  // .output/ (Nitro's default). The Cloudflare preset emits into dist/
-  // containing the worker + assets.
+  // .output/ (Nitro's default).
   const candidates = ["dist", ".output"];
   const src = candidates
     .map((c) => path.join(appDir, c))
@@ -456,10 +451,6 @@ function moveAppBuildIntoWorkspaceOutput(
       target,
       workspaceAuthMode,
     );
-  } else {
-    const target = path.join(distDir, app);
-    fs.mkdirSync(target, { recursive: true });
-    copyDir(src, target);
   }
 }
 
@@ -512,129 +503,6 @@ function copyVercelAppBuildIntoWorkspace(
   patchVercelFunctionEntry(functionDest, app, workspaceApps, workspaceAuthMode);
 }
 
-/**
- * Write the Cloudflare Pages `_routes.json` and a dispatcher `_worker.js` at
- * the workspace dist root so each app is reachable under /<app>/*.
- */
-function writeCloudflareRoutingManifest(
-  distDir: string,
-  apps: string[],
-  rootPage: AgentNativeWorkspaceRootPage,
-): void {
-  const dispatchFaviconAsset = apps.includes("dispatch")
-    ? dispatchRootFaviconAsset(distDir)
-    : null;
-  // _routes.json tells Cloudflare which paths are dynamic (Functions) vs
-  // static. Mark both /<app> and /<app>/* as include so every app's worker
-  // handles its root and subtree.
-  const include = [
-    ...apps.flatMap((a) => [`/${a}`, `/${a}/*`]),
-    ...apps.flatMap((app) =>
-      workspaceOAuthDiscoveryRoutes(app).flatMap(({ path, descendants }) => [
-        path,
-        ...(descendants ? [`${path}/*`] : []),
-      ]),
-    ),
-  ];
-  if (rootPage !== "directory") include.push("/");
-  if (apps.includes("dispatch")) {
-    include.push(`${workspaceFrameworkRoutePrefix()}/*`);
-    include.push("/.well-known/*");
-    include.push(
-      ...DISPATCH_WORKSPACE_ROOT_REDIRECTS.map(([from]) => `/${from}`),
-    );
-    include.push("/apps/*");
-    if (dispatchFaviconAsset) include.push("/favicon.ico");
-  }
-  const routes = {
-    version: 1,
-    include,
-    exclude: [],
-  };
-  fs.writeFileSync(
-    path.join(distDir, "_routes.json"),
-    JSON.stringify(routes, null, 2) + "\n",
-  );
-
-  // Dispatcher worker: inspects the path and forwards to the matching
-  // per-app worker.
-  const imports = apps
-    .map((a) => `import ${moduleIdent(a)} from "./${a}/_worker.js";`)
-    .join("\n");
-  const dispatch = apps
-    .map(
-      (a) =>
-        `  if (pathname === "/${a}" || pathname === "/${a}.data" || pathname.startsWith("/${a}/")) return ${moduleIdent(a)}.fetch(requestForMountedApp(request, "/${a}"), env, ctx);`,
-    )
-    .join("\n");
-  const workspaceOAuthRoutes = apps
-    .flatMap((app) =>
-      workspaceOAuthDiscoveryRoutes(app).map(({ path, descendants }) => {
-        const matches = descendants
-          ? `pathname === ${JSON.stringify(path)} || pathname.startsWith(${JSON.stringify(`${path}/`)})`
-          : `pathname === ${JSON.stringify(path)}`;
-        return `    if (${matches}) return ${moduleIdent(app)}.fetch(request, env, ctx);`;
-      }),
-    )
-    .join("\n");
-  const dispatchRootFrameworkRoutes = apps.includes("dispatch")
-    ? `    if (pathname === ${JSON.stringify(workspaceFrameworkRoutePrefix())} || pathname.startsWith(${JSON.stringify(`${workspaceFrameworkRoutePrefix()}/`)}) || pathname === "/.well-known" || pathname.startsWith("/.well-known/")) return ${moduleIdent("dispatch")}.fetch(request, env, ctx);
-`
-    : "";
-  const dispatchRootFaviconRoute = dispatchFaviconAsset
-    ? `    if (pathname === "/favicon.ico") return Response.redirect(new URL("/dispatch/${dispatchFaviconAsset}", request.url).toString(), 302);
-`
-    : "";
-  const dispatchRootAliasRoutes = apps.includes("dispatch")
-    ? DISPATCH_WORKSPACE_ROOT_REDIRECTS.map(
-        ([from, to]) =>
-          `    if (pathname === "/${from}") return Response.redirect(new URL("/dispatch/${to}" + search, request.url).toString(), 302);`,
-      ).join("\n") + "\n"
-    : "";
-  const dispatchRootDynamicAliasRoutes = apps.includes("dispatch")
-    ? `    if (pathname.startsWith("/apps/")) return Response.redirect(new URL("/dispatch" + pathname + search, request.url).toString(), 302);
-`
-    : "";
-  const dispatchMountedRootRedirect = apps.includes("dispatch")
-    ? `    if (pathname === "/dispatch" || pathname === "/dispatch/") return Response.redirect(new URL("/dispatch/overview" + search, request.url).toString(), 302);
-`
-    : "";
-
-  const rootRedirect =
-    rootPage === "directory"
-      ? ""
-      : `    if (pathname === "/") {
-      return Response.redirect(new URL("${cloudflareRootRedirectPath(apps)}", request.url).toString(), 302);
-    }
-`;
-  const worker = `${imports}
-
-function requestForMountedApp(request, basePath) {
-  const url = new URL(request.url);
-  if (url.pathname !== basePath && url.pathname !== \`\${basePath}/\`) {
-    return request;
-  }
-  url.pathname = \`\${basePath}//\`;
-  return new Request(url, request);
-}
-
-export default {
-  async fetch(request, env, ctx) {
-    const { pathname, search } = new URL(request.url);
-${workspaceOAuthRoutes}
-${dispatchRootFrameworkRoutes}${dispatchRootFaviconRoute}${dispatchRootAliasRoutes}${dispatchRootDynamicAliasRoutes}${dispatchMountedRootRedirect}${dispatch}
-${rootRedirect}
-    return new Response("Not found", { status: 404 });
-  },
-};
-`;
-  fs.writeFileSync(path.join(distDir, "_worker.js"), worker);
-}
-
-function cloudflareRootRedirectPath(apps: string[]): string {
-  return apps.includes("dispatch") ? "/dispatch/overview" : `/${apps[0]}/`;
-}
-
 function workspaceOAuthDiscoveryRoutes(
   app: string,
 ): Array<{ path: string; descendants: boolean }> {
@@ -654,9 +522,18 @@ function workspaceOAuthDiscoveryRoutes(
   ];
 }
 
+function workspaceOAuthCallbackApp(
+  workspaceApps: WorkspaceAppManifestEntry[],
+): string | undefined {
+  return (
+    workspaceApps.find((entry) => entry.isDispatch)?.id ?? workspaceApps[0]?.id
+  );
+}
+
 function writeNetlifyRedirects(
   distDir: string,
   apps: string[],
+  workspaceApps: WorkspaceAppManifestEntry[],
   rootPage: AgentNativeWorkspaceRootPage,
 ): void {
   const lines: string[] = [
@@ -697,8 +574,16 @@ function writeNetlifyRedirects(
       lines.push(`/${from} /dispatch/${to} 302`);
     }
     lines.push("/apps/* /dispatch/apps/:splat 302");
-  } else if (rootPage !== "directory") {
-    lines.push(`/ /${apps[0]}/ 302`);
+  } else {
+    const callbackApp = workspaceOAuthCallbackApp(workspaceApps);
+    if (callbackApp) {
+      lines.push(
+        `${WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH} /.netlify/functions/${callbackApp}-server 200`,
+      );
+    }
+    if (rootPage !== "directory") {
+      lines.push(`/ /${apps[0]}/ 302`);
+    }
   }
 
   fs.writeFileSync(path.join(distDir, "_redirects"), lines.join("\n") + "\n");
@@ -729,6 +614,7 @@ function netlifyHeaderBlock(pathname: string): string {
 function writeVercelBuildConfig(
   outputDir: string,
   apps: string[],
+  workspaceApps: WorkspaceAppManifestEntry[],
   rootPage: AgentNativeWorkspaceRootPage,
 ): void {
   const routes: Array<Record<string, any>> = [
@@ -776,8 +662,17 @@ function writeVercelBuildConfig(
       routes.push(vercelRedirect(`/${from}`, `/dispatch/${to}`));
     }
     routes.push(vercelRedirect("/apps/(.*)", "/dispatch/apps/$1"));
-  } else if (rootPage !== "directory") {
-    routes.push(vercelRedirect("/", `/${apps[0]}/`));
+  } else {
+    const callbackApp = workspaceOAuthCallbackApp(workspaceApps);
+    if (callbackApp) {
+      routes.push({
+        src: vercelRouteSrc(WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH),
+        dest: `/${callbackApp}-server`,
+      });
+    }
+    if (rootPage !== "directory") {
+      routes.push(vercelRedirect("/", `/${apps[0]}/`));
+    }
   }
 
   for (const app of apps) {
@@ -1364,6 +1259,11 @@ function patchNetlifyFunctionEntry(
     workspaceApps,
     app,
   );
+  const callbackApp = workspaceOAuthCallbackApp(workspaceApps);
+  const rootGoogleCallbackPath =
+    app === callbackApp && app !== "dispatch"
+      ? [WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH]
+      : [];
   const pathConfig =
     app === "dispatch"
       ? [
@@ -1381,6 +1281,7 @@ function patchNetlifyFunctionEntry(
               ...(descendants ? [`${path}/*`] : []),
             ],
           ),
+          ...rootGoogleCallbackPath,
         ];
   const normalizeBasePathHelper =
     app === "dispatch"
@@ -1630,7 +1531,6 @@ function appUsesNetlifyUnpooledDatabaseUrl(appDir: string): boolean {
 
 function writeWorkspaceAppManifests(
   workspaceRoot: string,
-  distDir: string,
   apps: string[],
   workspaceApps: WorkspaceAppManifestEntry[],
   preset: WorkspaceDeployPreset,
@@ -1654,25 +1554,16 @@ function writeWorkspaceAppManifests(
             WORKSPACE_APPS_MANIFEST_FILE,
           ),
         )
-      : preset === "vercel"
-        ? apps.map((app) =>
-            path.join(
-              workspaceRoot,
-              VERCEL_OUTPUT_DIR,
-              "functions",
-              `${app}-server.func`,
-              WORKSPACE_APPS_MANIFEST_DIR,
-              WORKSPACE_APPS_MANIFEST_FILE,
-            ),
-          )
-        : apps.map((app) =>
-            path.join(
-              distDir,
-              app,
-              WORKSPACE_APPS_MANIFEST_DIR,
-              WORKSPACE_APPS_MANIFEST_FILE,
-            ),
-          );
+      : apps.map((app) =>
+          path.join(
+            workspaceRoot,
+            VERCEL_OUTPUT_DIR,
+            "functions",
+            `${app}-server.func`,
+            WORKSPACE_APPS_MANIFEST_DIR,
+            WORKSPACE_APPS_MANIFEST_FILE,
+          ),
+        );
 
   for (const target of targets) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -2033,7 +1924,7 @@ function resolvePreset(
     optionPreset ??
     parsePresetArg(args) ??
     normalizePreset(process.env.NITRO_PRESET) ??
-    "cloudflare_pages"
+    "netlify"
   );
 }
 
@@ -2069,9 +1960,6 @@ function isProductionWorkspaceDeploy(opts: {
   ) {
     return true;
   }
-  if (opts.preset === "cloudflare_pages" && process.env.CF_PAGES === "1") {
-    return true;
-  }
   if (opts.preset === "vercel" && process.env.VERCEL === "1") {
     return true;
   }
@@ -2083,17 +1971,15 @@ function normalizePreset(
 ): WorkspaceDeployPreset | null {
   if (!value) return null;
   if (value === "cloudflare_pages" || value === "cloudflare-pages") {
-    return "cloudflare_pages";
+    throw new Error(
+      `Unsupported workspace deploy preset "${value}". Cloudflare Pages was removed. Supported presets: netlify, vercel. For standalone Cloudflare Workers use NITRO_PRESET=cloudflare_module.`,
+    );
   }
   if (value === "netlify") return "netlify";
   if (value === "vercel") return "vercel";
   throw new Error(
-    `Unsupported workspace deploy preset "${value}". Supported presets: cloudflare_pages, netlify, vercel.`,
+    `Unsupported workspace deploy preset "${value}". Supported presets: netlify, vercel.`,
   );
-}
-
-function moduleIdent(app: string): string {
-  return "app_" + app.replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
 function workspaceAppAudienceForApp(

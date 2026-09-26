@@ -20,7 +20,7 @@ export function meta() {
   ];
 }
 
-// Private app entry retained at /home; / serves the public marketing page.
+// Private app entry retained at /home; / redirects to shared sign-in/signup.
 export default function IndexRoute() {
   return <Index />;
 }

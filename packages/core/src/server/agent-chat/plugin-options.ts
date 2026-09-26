@@ -4,12 +4,7 @@ import type {
   ProductionAgentOptions,
 } from "../../agent/production-agent.js";
 import type { ActiveRun } from "../../agent/run-manager.js";
-import type {
-  AgentChatAttachment,
-  AgentChatReference,
-  AgentChatScope,
-  MentionProvider,
-} from "../../agent/types.js";
+import type { AgentChatScope, MentionProvider } from "../../agent/types.js";
 import type { FrameworkToolsConfig } from "../../framework-tools.js";
 import type { McpActionEntryOptions } from "../../mcp-client/index.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
@@ -22,6 +17,11 @@ import type { AgentChatMcpIcon, AgentChatMcpOptions } from "./mcp-options.js";
 export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface AgentChatPluginOptions {
+  /** Best-effort app checkpoint taken before the first model generation. */
+  onAgentTurnStart?: (
+    scope: AgentChatScope,
+    run: Pick<ActiveRun, "threadId" | "runId">,
+  ) => void | Promise<void>;
   /**
    * Best-effort app autosave hook. It runs after the chat thread has been
    * persisted and only when the run completed a side effect. Errors are
@@ -29,6 +29,11 @@ export interface AgentChatPluginOptions {
    */
   onAgentTurnComplete?: (
     scope: AgentChatScope,
+    run: ActiveRun,
+  ) => void | Promise<void>;
+  /** Best-effort observer called after thread persistence for every completed agent run, including read-only runs. */
+  onAgentRunComplete?: (
+    scope: AgentChatScope | null | undefined,
     run: ActiveRun,
   ) => void | Promise<void>;
   /** Template-specific actions (email ops, booking ops, etc.) */
@@ -211,28 +216,7 @@ export interface AgentChatPluginOptions {
    * before the model sees the message, so apps can translate chat attachments
    * into template-native file handles while preserving the user's visible text.
    */
-  prepareRequest?: (details: {
-    event: any;
-    ownerEmail: string | null;
-    message: string;
-    displayMessage?: string;
-    attachments: AgentChatAttachment[];
-    references: AgentChatReference[];
-    threadId?: string;
-    internalContinuation?: boolean;
-    mode: "act" | "plan";
-  }) =>
-    | void
-    | {
-        message?: string;
-        displayMessage?: string;
-        attachments?: AgentChatAttachment[];
-      }
-    | Promise<void | {
-        message?: string;
-        displayMessage?: string;
-        attachments?: AgentChatAttachment[];
-      }>;
+  prepareRequest?: ProductionAgentOptions["prepareRequest"];
   /**
    * Resolve the exact native action surface for each interactive chat request.
    * Omitted allowlist names are not sent to the model or discoverable through
@@ -327,7 +311,7 @@ export interface AgentChatPluginOptions {
    * Which of the framework's OWN agent tools this app exposes — raw SQL,
    * extensions, sharing, review comments, version history, feature flags,
    * localization, audit, context X-Ray, profile, automations, docs, resources,
-   * web, cross-app delegation, chat, email.
+   * browser-session controls, web, cross-app delegation, chat, email.
    *
    * Every group defaults to today's behavior, so omitting this leaves the tool
    * surface unchanged. `"minimal"` (or `{ preset: "minimal" }`) turns them all

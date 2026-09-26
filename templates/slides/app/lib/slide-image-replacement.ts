@@ -1,4 +1,7 @@
+import { SOURCE_STAMP_ATTR } from "./slide-source-map";
+
 const PLACEHOLDER_TARGET_PREFIX = "placeholder:";
+const MAX_PENDING_SLIDE_IMAGE_UPLOADS = 16;
 
 interface ReplaceOptions {
   alt?: string;
@@ -32,6 +35,128 @@ export interface OptimisticImagePreview {
   style?: string;
   position?: SlideImageDropPosition;
   objectId?: string;
+}
+
+export interface SlideImageUploadProvenance {
+  editedSourceStamp: string;
+  editedNodeMarkup: string;
+}
+
+const pendingSlideImageUploads = new Map<
+  string,
+  Map<string, SlideImageUploadProvenance | null>
+>();
+let pendingSlideImageUploadCount = 0;
+
+function trimPendingSlideImageUploads(): void {
+  // ponytail: FIFO cap of 16 hints; use upload IDs if simultaneous uploads outgrow it.
+  while (pendingSlideImageUploadCount > MAX_PENDING_SLIDE_IMAGE_UPLOADS) {
+    const firstSlide = pendingSlideImageUploads.entries().next().value;
+    if (!firstSlide) {
+      pendingSlideImageUploadCount = 0;
+      return;
+    }
+
+    const [slideId, contentSnapshots] = firstSlide;
+    const firstContent = contentSnapshots.keys().next().value;
+    if (firstContent === undefined) {
+      pendingSlideImageUploads.delete(slideId);
+      continue;
+    }
+
+    contentSnapshots.delete(firstContent);
+    pendingSlideImageUploadCount -= 1;
+    if (contentSnapshots.size === 0) pendingSlideImageUploads.delete(slideId);
+  }
+}
+
+export function registerSlideImageUploadProvenance(
+  slideId: string,
+  content: string,
+  provenance: SlideImageUploadProvenance,
+): void {
+  let contentSnapshots = pendingSlideImageUploads.get(slideId);
+  if (!contentSnapshots) {
+    contentSnapshots = new Map();
+    pendingSlideImageUploads.set(slideId, contentSnapshots);
+  }
+  if (!contentSnapshots.has(content)) {
+    contentSnapshots.set(content, provenance);
+    pendingSlideImageUploadCount += 1;
+    trimPendingSlideImageUploads();
+    return;
+  }
+
+  const previous = contentSnapshots.get(content);
+  if (
+    !previous ||
+    previous.editedSourceStamp !== provenance.editedSourceStamp ||
+    previous.editedNodeMarkup !== provenance.editedNodeMarkup
+  ) {
+    // Identical results with identical snapshots are interchangeable; ambiguous
+    // same-content writes fail closed instead of borrowing another upload's snapshot.
+    contentSnapshots.set(content, null);
+  }
+}
+
+export function takeSlideImageUploadProvenance(
+  slideId: string,
+  content: string,
+): SlideImageUploadProvenance | null {
+  const provenance =
+    pendingSlideImageUploads.get(slideId)?.get(content) ?? null;
+  discardSlideImageUploadProvenance(slideId, content);
+  return provenance;
+}
+
+/** Drops a snapshot no render will take: its upload failed, was cancelled, or is done. */
+export function discardSlideImageUploadProvenance(
+  slideId: string,
+  content: string,
+): void {
+  const contentSnapshots = pendingSlideImageUploads.get(slideId);
+  if (contentSnapshots?.delete(content)) pendingSlideImageUploadCount -= 1;
+  if (contentSnapshots?.size === 0) pendingSlideImageUploads.delete(slideId);
+}
+
+/** Snapshot the edited source node when an image upload operation begins. */
+export function captureSlideImageUploadProvenance(
+  root: HTMLElement,
+  sourceSnapshotHtml = root.innerHTML,
+): SlideImageUploadProvenance | null {
+  const edited = root.querySelector<HTMLElement>('[contenteditable="true"]');
+  const editedSourceStamp = edited?.getAttribute(SOURCE_STAMP_ATTR);
+  if (!edited || !editedSourceStamp) return null;
+
+  const sourceSnapshot = Array.from(
+    parseFragment(sourceSnapshotHtml).body.querySelectorAll<HTMLElement>(
+      `[${SOURCE_STAMP_ATTR}]`,
+    ),
+  ).find(
+    (element) => element.getAttribute(SOURCE_STAMP_ATTR) === editedSourceStamp,
+  );
+  if (!sourceSnapshot || sourceSnapshot.tagName !== edited.tagName) return null;
+
+  const snapshot = sourceSnapshot.cloneNode(true) as HTMLElement;
+  for (const node of [
+    snapshot,
+    ...snapshot.querySelectorAll<HTMLElement>("*"),
+  ]) {
+    for (const attribute of [
+      "contenteditable",
+      "data-builder-id",
+      "data-slide-text-block",
+      "data-editing-block",
+      "spellcheck",
+    ]) {
+      node.removeAttribute(attribute);
+    }
+  }
+
+  return {
+    editedSourceStamp,
+    editedNodeMarkup: snapshot.outerHTML,
+  };
 }
 
 const DROPPED_IMAGE_WIDTH = 320;
@@ -75,7 +200,9 @@ function parsePlaceholderTarget(src: string): PlaceholderTarget | null {
 }
 
 function parseFragment(html: string): Document {
-  return new DOMParser().parseFromString(html, "text/html");
+  // Opening in <body> keeps a slide's leading <style> (and <link>, comments)
+  // in the body instead of <head>, where serializing the body would drop it.
+  return new DOMParser().parseFromString(`<body>${html}`, "text/html");
 }
 
 function serializeFragment(doc: Document): string {
@@ -93,8 +220,18 @@ function findImageWithSource(
   );
 }
 
-function imageStructure(doc: Document): string {
+/** The markup outside images and an explicitly matched edited node. */
+function imageStructure(doc: Document, ignoredSourceStamp?: string): string {
   const body = doc.body.cloneNode(true) as HTMLElement;
+  if (ignoredSourceStamp) {
+    const editedNode = Array.from(
+      body.querySelectorAll<HTMLElement>(`[${SOURCE_STAMP_ATTR}]`),
+    ).find(
+      (element) =>
+        element.getAttribute(SOURCE_STAMP_ATTR) === ignoredSourceStamp,
+    );
+    editedNode?.remove();
+  }
   body.querySelectorAll("img").forEach((image, index) => {
     image.replaceWith(`__slide-image-${index}__`);
   });
@@ -214,6 +351,73 @@ export function swapImageSourcesInPlace(
   if (liveImages.length !== nextSources.length) return false;
   liveImages.forEach((image, index) => {
     updateImageAttributesInPlace(image, nextImages[index]);
+  });
+  return true;
+}
+
+/**
+ * For a root whose text is being edited, where nothing else may be replaced:
+ * applies the image attribute changes between two renders to the live
+ * images, matched by order. Each live image keeps its source stamp, so the
+ * edit still merges into the source it started from and carries the new
+ * image as one of its changes. False unless images changed and nothing else
+ * did, either since the previous render or since one of the edit's own
+ * drafts (`edit`, stored forms), which an upload built on that draft carries
+ * and the live edit is newer than.
+ */
+export function updateLiveImagesUnderEdit(
+  root: HTMLElement,
+  previousContent: string,
+  nextContent: string,
+  provenance: SlideImageUploadProvenance | null,
+): boolean {
+  const previousDoc = parseFragment(previousContent);
+  const nextDoc = parseFragment(nextContent);
+  const previousImages = Array.from(previousDoc.body.querySelectorAll("img"));
+  const nextImages = Array.from(nextDoc.body.querySelectorAll("img"));
+  const liveImages = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
+  const edited = root.querySelector<HTMLElement>('[contenteditable="true"]');
+  const editedSourceStamp = edited?.getAttribute(SOURCE_STAMP_ATTR);
+  const nextEditedNode = editedSourceStamp
+    ? Array.from(
+        nextDoc.body.querySelectorAll<HTMLElement>(`[${SOURCE_STAMP_ATTR}]`),
+      ).find(
+        (element) =>
+          element.getAttribute(SOURCE_STAMP_ATTR) === editedSourceStamp,
+      )
+    : null;
+  if (
+    !provenance ||
+    !editedSourceStamp ||
+    editedSourceStamp !== provenance.editedSourceStamp ||
+    !nextEditedNode ||
+    nextEditedNode.outerHTML !== provenance.editedNodeMarkup ||
+    !Array.from(
+      previousDoc.body.querySelectorAll<HTMLElement>(`[${SOURCE_STAMP_ATTR}]`),
+    ).some(
+      (element) =>
+        element.getAttribute(SOURCE_STAMP_ATTR) === editedSourceStamp,
+    ) ||
+    nextImages.length === 0 ||
+    previousImages.length !== nextImages.length ||
+    liveImages.length !== nextImages.length ||
+    previousImages.every(
+      (image, index) => image.outerHTML === nextImages[index].outerHTML,
+    )
+  ) {
+    return false;
+  }
+  if (
+    imageStructure(previousDoc, editedSourceStamp) !==
+    imageStructure(nextDoc, editedSourceStamp)
+  ) {
+    return false;
+  }
+  liveImages.forEach((image, index) => {
+    const stamp = image.getAttribute(SOURCE_STAMP_ATTR);
+    updateImageAttributesInPlace(image, nextImages[index]);
+    if (stamp === null) image.removeAttribute(SOURCE_STAMP_ATTR);
+    else image.setAttribute(SOURCE_STAMP_ATTR, stamp);
   });
   return true;
 }

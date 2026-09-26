@@ -2,11 +2,19 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const clipboardMock = vi.hoisted(() => ({
   writeClipboardText: vi.fn(),
 }));
+
+const referralInfoQueryMock = vi.hoisted(() => ({ data: null as unknown }));
+
+vi.mock("../use-action.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../use-action.js")>();
+  return { ...actual, useActionQuery: () => referralInfoQueryMock };
+});
 
 const agentEngineKeyMock = vi.hoisted(() => ({
   saveAgentEngineApiKey: vi.fn(),
@@ -16,12 +24,30 @@ const agentEngineKeyMock = vi.hoisted(() => ({
 
 const deferredUiModuleLoads = vi.hoisted(() => ({
   builderConnectPopover: false,
-  providerSetupForm: false,
 }));
 
 vi.mock("../clipboard.js", () => ({
   writeClipboardText: clipboardMock.writeClipboardText,
 }));
+
+vi.mock("react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router")>();
+  return {
+    ...actual,
+    Link: ({
+      to,
+      children,
+      ...props
+    }: {
+      to: string;
+      children: React.ReactNode;
+      className?: string;
+    }) =>
+      actual.useInRouterContext()
+        ? React.createElement(actual.Link, { to, children, ...props })
+        : React.createElement("a", { ...props, href: to }, children),
+  };
+});
 
 vi.mock("../agent-engine-key.js", () => ({
   saveAgentEngineApiKey: agentEngineKeyMock.saveAgentEngineApiKey,
@@ -63,6 +89,11 @@ vi.mock("../i18n.js", () => ({
         "agentChat.common.details": "Details",
         "agentChat.common.dismiss": "Dismiss",
         "agentChat.common.copied": "Copied",
+        "agentChat.usage.inviteFriends": "Invite friends",
+        "agentChat.usage.inviteCredits":
+          "Earn {{amount}} Builder credits when a friend subscribes.",
+        "agentChat.usage.copyInviteLink": "Copy invite link",
+        "agentChat.usage.inviteLinkCopied": "Invite link copied",
         "agentChat.recovery.copyDebug": "Copy debug info",
         "agentChat.recovery.copyFailed": "Copy failed",
         "agentChat.recovery.credentialRejected":
@@ -118,58 +149,6 @@ vi.mock("../i18n.js", () => ({
   },
 }));
 
-vi.mock("../settings/ProviderSetupForm.js", () => {
-  deferredUiModuleLoads.providerSetupForm = true;
-  return {
-    AgentProviderSetupForm: ({ onConnected }: { onConnected?: () => void }) => {
-      const [providerOpen, setProviderOpen] = React.useState(false);
-      const [apiKey, setApiKey] = React.useState("");
-      return (
-        <div>
-          <button
-            type="button"
-            aria-label="Choose a provider"
-            onClick={() => setProviderOpen((open) => !open)}
-          >
-            Choose a provider
-          </button>
-          {providerOpen ? (
-            <div>
-              <button type="button">OpenRouter</button>
-              <button type="button">Ollama</button>
-            </div>
-          ) : null}
-          <div>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                void agentEngineKeyMock.saveAgentEngineProviderSettings({
-                  provider: "anthropic",
-                  key: "ANTHROPIC_API_KEY",
-                  apiKey,
-                  scope: "org",
-                });
-                void agentEngineKeyMock.setAgentEngineProvider({
-                  provider: "anthropic",
-                  model: "mock-model",
-                });
-                onConnected?.();
-              }}
-            >
-              Save
-            </button>
-          </div>
-        </div>
-      );
-    },
-  };
-});
-
 vi.mock("../settings/BuilderConnectPopover.js", () => {
   deferredUiModuleLoads.builderConnectPopover = true;
   return {
@@ -206,6 +185,7 @@ describe("run recovery surfaces", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     clipboardMock.writeClipboardText.mockReset();
+    referralInfoQueryMock.data = null;
     agentEngineKeyMock.saveAgentEngineApiKey.mockReset();
     agentEngineKeyMock.saveAgentEngineProviderSettings.mockReset();
     agentEngineKeyMock.setAgentEngineProvider.mockReset();
@@ -221,11 +201,125 @@ describe("run recovery surfaces", () => {
     container.remove();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    window.history.replaceState(null, "", "/");
   });
 
-  it("loads provider setup modules only when a setup surface is reached", async () => {
+  it("offers the Builder subscription link for credit limits only", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "You've reached your AI credits limit.",
+              errorCode: "credits-limit-daily",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const upgradeLink = container.querySelector<HTMLAnchorElement>(
+      'a[href^="https://builder.io/account/subscription"]',
+    );
+    expect(container.textContent).toContain(
+      "You've reached your AI credits limit.",
+    );
+    expect(container.textContent).not.toMatch(/error/i);
+    expect(container.firstElementChild?.className).toContain("bg-card");
+    expect(container.firstElementChild?.className).not.toContain("amber");
+    expect(upgradeLink?.textContent).toContain("Add credits in Builder");
+    expect(upgradeLink?.target).toBe("_blank");
+    expect(new URL(upgradeLink!.href).searchParams.get("utm_content")).toBe(
+      "chat_credit_limit",
+    );
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The provider is busy.",
+              errorCode: "provider_rate_limited",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+    expect(
+      container.querySelector(
+        'a[href^="https://builder.io/account/subscription"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("offers the eligible Builder referral link from the credit-limit card", async () => {
+    const inviteUrl = `https://builder.io/signup?fus_ref=${"a".repeat(32)}`;
+    referralInfoQueryMock.data = {
+      eligible: true,
+      inviteUrl,
+      creditsPerReferral: 200,
+      completedReferrals: 1,
+      pendingReferrals: 0,
+      creditsEarned: 200,
+    };
+    clipboardMock.writeClipboardText.mockResolvedValue(true);
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "You've reached your AI credits limit.",
+              errorCode: "credits-limit-monthly",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "Earn 200 Builder credits when a friend subscribes.",
+    );
+    const copyButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Copy invite link"]',
+    );
+    expect(copyButton?.textContent).toContain("Copy invite link");
+
+    await act(async () => {
+      copyButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(clipboardMock.writeClipboardText).toHaveBeenCalledWith(inviteUrl);
+    expect(
+      container.querySelector('button[aria-label="Invite link copied"]'),
+    ).not.toBeNull();
+  });
+
+  it("loads Builder connect UI only when a setup surface is reached", async () => {
     expect(deferredUiModuleLoads.builderConnectPopover).toBe(false);
-    expect(deferredUiModuleLoads.providerSetupForm).toBe(false);
 
     await act(async () => {
       root.render(
@@ -249,7 +343,6 @@ describe("run recovery surfaces", () => {
     });
 
     expect(deferredUiModuleLoads.builderConnectPopover).toBe(false);
-    expect(deferredUiModuleLoads.providerSetupForm).toBe(false);
 
     await act(async () => {
       root.render(
@@ -266,19 +359,9 @@ describe("run recovery surfaces", () => {
     await vi.waitFor(() => {
       expect(deferredUiModuleLoads.builderConnectPopover).toBe(true);
     });
-    expect(deferredUiModuleLoads.providerSetupForm).toBe(false);
-
-    const customKeysButton = Array.from(
-      container.querySelectorAll("button"),
-    ).find((button) => button.textContent?.includes("Custom keys"));
-    await act(async () => {
-      customKeysButton?.click();
-    });
-
-    await vi.waitFor(() => {
-      expect(deferredUiModuleLoads.providerSetupForm).toBe(true);
-    });
-    expect(container.textContent).toContain("Choose a provider");
+    expect(
+      container.querySelector('a[href="/settings/keys"]')?.textContent,
+    ).toBe("Custom keys");
   });
 
   it("shows an explicit failure state when Copy debug cannot write clipboard", async () => {
@@ -469,7 +552,7 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).not.toContain("Custom keys");
   });
 
-  it("shows the searchable provider setup while disclosing API keys", async () => {
+  it("links custom keys to API settings without expanding an inline form", async () => {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
@@ -485,28 +568,42 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Connect AI");
     expect(container.textContent).toContain("Connect Builder.io");
 
-    const apiKeyButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Custom keys"),
+    const customKeysLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/settings/keys"]',
     );
-    expect(apiKeyButton).toBeDefined();
+    expect(customKeysLink?.textContent).toBe("Custom keys");
+    expect(container.querySelector('input[type="password"]')).toBeNull();
+    expect(container.textContent).not.toContain("Choose a provider");
+  });
+
+  it("keeps the Custom keys link within a mounted workspace app", async () => {
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/ask",
+          element: (
+            <AgentNativeI18nProvider
+              initialLocale="en-US"
+              initialPreference="en-US"
+              persistPreference={false}
+            >
+              <BuilderSetupContent />
+            </AgentNativeI18nProvider>
+          ),
+        },
+      ],
+      { basename: "/dispatch", initialEntries: ["/dispatch/ask"] },
+    );
 
     await act(async () => {
-      apiKeyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      root.render(<RouterProvider router={router} />);
     });
 
-    expect(container.textContent).toContain("Custom keys");
-    expect(container.textContent).toContain("Choose a provider");
-
-    const providerButton = container.querySelector(
-      'button[aria-label="Choose a provider"]',
+    const customKeysLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/dispatch/settings/keys"]',
     );
-    await act(async () => {
-      providerButton?.click();
-      await Promise.resolve();
-    });
-
-    expect(document.body.textContent).toContain("OpenRouter");
-    expect(document.body.textContent).toContain("Ollama");
+    expect(customKeysLink?.textContent).toBe("Custom keys");
+    expect(container.querySelector('input[type="password"]')).toBeNull();
   });
 
   it("keeps sidebar provider actions in a horizontal row", async () => {
@@ -700,7 +797,7 @@ describe("run recovery surfaces", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it("renders missing-provider errors as inline setup and retries on click", async () => {
+  it("routes missing-provider errors to API settings and retries on click", async () => {
     const onRetry = vi.fn();
 
     await act(async () => {
@@ -730,36 +827,11 @@ describe("run recovery surfaces", () => {
     );
     expect(onRetry).not.toHaveBeenCalled();
 
-    const addKeysButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Custom keys"),
+    const customKeysLink = Array.from(container.querySelectorAll("a")).find(
+      (link) => link.textContent?.includes("Custom keys"),
     );
-    await act(async () => {
-      addKeysButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    const input = container.querySelector(
-      'input[type="password"]',
-    ) as HTMLInputElement;
-    const inputSetter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value",
-    )?.set;
-    await act(async () => {
-      inputSetter?.call(input, "sk-test");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-
-    const saveButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Save"),
-    );
-    await act(async () => {
-      saveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
-
-    expect(
-      agentEngineKeyMock.saveAgentEngineProviderSettings,
-    ).toHaveBeenCalled();
+    expect(customKeysLink?.getAttribute("href")).toBe("/settings/keys");
+    expect(container.querySelector('input[type="password"]')).toBeNull();
     expect(container.textContent).toContain("Retry");
     expect(onRetry).not.toHaveBeenCalled();
 
@@ -825,7 +897,7 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).not.toContain("The agent hit an error");
   });
 
-  it("dismisses the recovery card after saving a provider key", async () => {
+  it("routes rejected provider keys to API settings without retrying or dismissing", async () => {
     const onDismiss = vi.fn();
     const onRetry = vi.fn();
 
@@ -853,47 +925,17 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Connect AI");
     expect(container.textContent).not.toContain("The agent hit an error");
 
-    const addKeysButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Custom keys"),
+    const customKeysLink = Array.from(container.querySelectorAll("a")).find(
+      (link) => link.textContent?.includes("Custom keys"),
     );
-    await act(async () => {
-      addKeysButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    const input = container.querySelector(
-      'input[type="password"]',
-    ) as HTMLInputElement;
-    const inputSetter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value",
-    )?.set;
-    await act(async () => {
-      inputSetter?.call(input, "sk-test");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-
-    const saveButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Save"),
-    );
-    await act(async () => {
-      saveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
-
+    expect(customKeysLink?.getAttribute("href")).toBe("/settings/keys");
+    expect(container.querySelector('input[type="password"]')).toBeNull();
     expect(
       agentEngineKeyMock.saveAgentEngineProviderSettings,
-    ).toHaveBeenCalledWith({
-      provider: "anthropic",
-      key: "ANTHROPIC_API_KEY",
-      apiKey: "sk-test",
-      scope: "org",
-    });
-    expect(agentEngineKeyMock.setAgentEngineProvider).toHaveBeenCalledWith({
-      provider: "anthropic",
-      model: expect.any(String),
-    });
-    expect(onRetry).toHaveBeenCalledTimes(1);
-    expect(onDismiss).toHaveBeenCalledTimes(1);
+    ).not.toHaveBeenCalled();
+    expect(agentEngineKeyMock.setAgentEngineProvider).not.toHaveBeenCalled();
+    expect(onRetry).not.toHaveBeenCalled();
+    expect(onDismiss).not.toHaveBeenCalled();
   });
 
   it("wraps a long unbroken error message instead of overflowing the card", async () => {

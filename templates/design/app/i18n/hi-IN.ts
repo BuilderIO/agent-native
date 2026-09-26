@@ -578,6 +578,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "लाइव सहयोग",
+      description:
+        "मालिक के localhost तक पहुँच न रखने वाले लोगों को इस डिज़ाइन की लाइव कॉपी देखने और संपादित करने दें।",
+      enabled: "चालू",
+      disabled: "बंद",
+      saving: "सहेजा जा रहा है…",
+      enableError: "लाइव सहयोग अपडेट नहीं हो सका।",
+    },
     vectorEndpoints: {
       startPoint: "प्रारंभ बिंदु",
       endPoint: "अंतिम बिंदु",
@@ -1624,7 +1633,65 @@ export default {
       "इस व्यू से बाहर निकलने पर {{count}} नहीं भेजे गए कमेंट ड्राफ़्ट हटा दिए गए।",
     staleAnchorDetail: "मूल एलिमेंट अब कैनवास पर नहीं मिला।",
   },
+  homeContext: {
+    websiteReference: "वेबसाइट जोड़ें",
+    websiteUrlLabel: "वेबसाइट URL",
+    websiteUrl: "वेबसाइट का URL पेस्ट करें",
+    figmaUrlLabel: "Figma लिंक",
+    invalidFigmaUrl: "figma.com फ़्रेम या फ़ाइल का मान्य URL दर्ज करें।",
+    tooMany: "अधिकतम 20 संदर्भ चुनें।",
+    invalidWebsiteUrl: "मान्य HTTP या HTTPS URL दर्ज करें।",
+    createSystem: "डिज़ाइन सिस्टम बनाएँ",
+    noSystems:
+      "आपके पास अभी कोई डिज़ाइन सिस्टम नहीं है। वेबसाइट, फ़ाइलों या Figma से एक बनाएँ।",
+    searchSystems: "डिज़ाइन सिस्टम खोजें…",
+    searchFrames: "Figma फ़्रेम खोजें…",
+    searchDesigns: "डिज़ाइन खोजें…",
+    searchPresentations: "प्रस्तुतियाँ खोजें…",
+    searchDesign: "डिज़ाइन खोजें…",
+    useDesignSystem: "डिज़ाइन सिस्टम का उपयोग करें",
+    notReady:
+      "प्रॉम्प्ट अभी भेजने के लिए तैयार नहीं है। चुना गया संदर्भ और कनेक्शन जाँचें, फिर प्रयास करें।",
+    search: "संदर्भ खोजें…",
+    figmaUrl: "Figma लिंक पेस्ट करें",
+    browse: "फ़्रेम देखें",
+    loadFailed: "यह संदर्भ लोड नहीं हो सका।",
+    retry: "फिर प्रयास करें",
+    empty: "कोई मिलते-जुलते संदर्भ नहीं हैं।",
+    none: "कोई नहीं",
+    design: "डिज़ाइन",
+    slides: "स्लाइड",
+    referenceDesign: "डिज़ाइन को संदर्भ बनाएँ",
+    figmaReference: "Figma संलग्न करें",
+    referenceDeck: "प्रस्तुति को संदर्भ बनाएँ",
+    quickSaas: "SaaS लैंडिंग पेज बनाएँ",
+    quickDashboard: "डैशबोर्ड बनाएँ",
+    quickDeck: "स्लाइड प्रस्तुति बनाएँ",
+    deckPrompt:
+      "शीर्षक स्लाइड, स्पष्ट कथा, दृश्य डेटा और संक्षिप्त अंतिम स्लाइड के साथ एक आकर्षक प्रस्तुति बनाएँ।",
+  },
   home: {
+    suggestedPrompts: "सुझाए गए प्रॉम्प्ट",
+    import: "आयात करें",
+    importOptions: "आयात विकल्प",
+    figmaLink: "Figma लिंक",
+    importFromFigma: "Figma से आयात करें",
+    figmaFile: "Figma फ़ाइल (.fig)",
+    openImport: "आयात खोलें",
+    importSelectedFile: "चुनी गई फ़ाइल आयात करें",
+    starterSaasPrompt:
+      "डार्क थीम, मुख्य परिचय खंड, तीन फ़ीचर कार्ड और अंत में कार्रवाई के आह्वान वाला एक आधुनिक SaaS लैंडिंग पेज।",
+    starterDashboardPrompt:
+      "साइडबार नेविगेशन, चार प्रमुख संकेतक कार्ड, एक चार्ट और हाल की गतिविधियों की तालिका वाला एक साफ़-सुथरा विश्लेषण डैशबोर्ड।",
+    starterMobilePrompt:
+      "फ़ोन फ़्रेम में दिखाया गया एक मोबाइल ऐप प्रोटोटाइप, जिसमें नीचे टैब बार और होम स्क्रीन पर तीन सूची कार्ड हों।",
+    starterPricingPrompt:
+      "मासिक/वार्षिक टॉगल, फ़ीचर चेकलिस्ट और हाइलाइट की गई अनुशंसित योजना वाला तीन-स्तरीय मूल्य पृष्ठ।",
+    designPromptTitle: "आइए अपना पहला डिज़ाइन बनाएं",
+    recent: "हाल के",
+    browseAllTemplates: "सभी ब्राउज़ करें",
+    connectBuilderIo: "Builder.io कनेक्ट करें",
+    connectingBuilder: "Builder.io से कनेक्ट हो रहा है…",
     pageTitle: "Designs",
     searchPlaceholder: "डिज़ाइन खोजें...",
     newDesign: "नया Design",
@@ -1690,6 +1757,8 @@ export default {
     layoutLabel: "Screen layout save करने के लिए ready",
   },
   templatesPage: {
+    previewEmpty: "इस टेम्पलेट में पूर्वावलोकन के लिए कोई स्क्रीन नहीं है।",
+    loading: "टेम्पलेट लोड हो रहे हैं",
     title: "टेम्पलेट",
     description:
       "सही आकार और डिफ़ॉल्ट से शुरू करें, फिर अनलॉक सामग्री को प्रॉम्प्ट से बदलें।",
@@ -1716,7 +1785,7 @@ export default {
     deleteTitle: "टेम्पलेट हटाएँ?",
     deleteDescription:
       "यह {{title}} को स्थायी रूप से हटाता है। पहले से बने डिज़ाइन प्रभावित नहीं होंगे।",
-    templateActions: "टेम्पलेट कार्रवाइयाँ",
+    templateActions: "{{title}} के लिए कार्रवाइयाँ",
     lockedCount: "{{count}} लॉक",
     categories: {
       ad: "विज्ञापन",

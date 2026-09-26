@@ -1,16 +1,19 @@
+import {
+  AUTH_MARKETING_PRESENTATION,
+  type AuthMarketingPresentation,
+} from "../shared/auth-marketing-presentation.js";
+
+export {
+  AUTH_MARKETING_PRESENTATION,
+  type AuthMarketingPresentation,
+} from "../shared/auth-marketing-presentation.js";
+
 export interface AuthMarketingContent {
   appName: string;
   tagline: string;
   description?: string;
   features?: string[];
-  authHeadline?: string;
-  authDescription?: string;
-  screenshotPath?: string;
-  screenshotWidth?: number;
-  screenshotHeight?: number;
   learnMoreUrl?: string;
-  /** @deprecated Local execution is no longer offered from auth pages. */
-  runLocalCommand?: string;
   signupLocalModeNote?: {
     text: string;
     command: string;
@@ -28,9 +31,6 @@ export interface ResolveBuiltInAuthMarketingOptions {
 export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   analytics: {
     appName: "Agent-Native Analytics",
-    screenshotPath: "/auth-marketing/analytics.webp",
-    screenshotWidth: 927,
-    screenshotHeight: 818,
     tagline:
       "Your AI agent queries your data sources, builds dashboards, and answers business questions alongside you.",
     features: [
@@ -51,9 +51,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   calendar: {
     appName: "Agent-Native Calendar",
-    screenshotPath: "/auth-marketing/calendar.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Your AI agent schedules, reschedules, and manages your calendar so you never have to.",
     features: [
@@ -64,9 +61,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   clips: {
     appName: "Agent-Native Clips",
-    screenshotPath: "/auth-marketing/clips.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
     features: [
@@ -78,9 +72,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   content: {
     appName: "Agent-Native Content",
-    screenshotPath: "/auth-marketing/content.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Open-source Obsidian for MDX: your AI agent edits local docs, creates custom blocks, and organizes everything alongside you.",
     features: [
@@ -91,9 +82,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   plan: {
     appName: "Agent-Native Plan",
-    screenshotPath: "/auth-marketing/plan.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Visual plans, PR recaps, diagrams, wireframes, and shareable reviews for coding-agent work.",
     features: [
@@ -108,9 +96,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   design: {
     appName: "Agent-Native Design",
-    screenshotPath: "/auth-marketing/design.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Design and prototype by describing what you want. The AI agent turns your ideas into interactive, fully responsive designs in seconds.",
     features: [
@@ -121,9 +106,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   dispatch: {
     appName: "Agent-Native Dispatch",
-    screenshotPath: "/auth-marketing/dispatch.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Your AI agent manages secrets, orchestrates other agents, and routes messages across your workspace.",
     features: [
@@ -134,9 +116,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   forms: {
     appName: "Agent-Native Forms",
-    screenshotPath: "/auth-marketing/forms.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Your AI agent builds, publishes, and analyzes forms alongside you.",
     features: [
@@ -147,9 +126,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   assets: {
     appName: "Agent-Native Assets",
-    screenshotPath: "/auth-marketing/assets.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Your AI agent creates, refines, and organizes on-brand assets alongside you.",
     features: [
@@ -160,9 +136,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   mail: {
     appName: "Agent-Native Mail",
-    screenshotPath: "/auth-marketing/mail.webp",
-    screenshotWidth: 927,
-    screenshotHeight: 818,
     tagline: "Your AI agent reads, drafts, and organizes email alongside you.",
     features: [
       "Replies that match your tone and style",
@@ -172,9 +145,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   slides: {
     appName: "Agent-Native Slides",
-    screenshotPath: "/auth-marketing/slides.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Your AI agent builds, edits, and refines presentations alongside you.",
     features: [
@@ -185,9 +155,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   chat: {
     appName: "Agent-Native Chat",
-    screenshotPath: "/auth-marketing/chat.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Start from a chat-first app and add actions, screens, and workflows as your agent grows.",
     features: [
@@ -226,82 +193,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Track what you care about with custom fields — text, numbers, currency, dates, and color-coded selects",
       "Anything you can do here, the agent can do too — and it sees what is on your screen, so “finish these” means the rows you actually selected",
     ],
-  },
-};
-
-export interface AuthMarketingPresentation {
-  headline: string;
-  description: string;
-}
-
-/** The compact two-line auth message replaces the longer public-home copy. */
-export const AUTH_MARKETING_PRESENTATION: Record<
-  string,
-  AuthMarketingPresentation
-> = {
-  analytics: {
-    headline: "Ask it. See it.\nMake better decisions from here.",
-    description: "Live data, agent-built dashboards, and answers in one place.",
-  },
-  assets: {
-    headline: "Make it. Refine it.\nKeep your brand in the loop.",
-    description: "On-brand assets and references, organized by your agent.",
-  },
-  brain: {
-    headline: "Remember it. Find it.\nKeep your company moving.",
-    description: "Reviewed knowledge for every team and every agent.",
-  },
-  calendar: {
-    headline: "Plan it. Book it.\nLet your agent handle the details.",
-    description: "Scheduling that keeps up with the way you work.",
-  },
-  chat: {
-    headline: "Start here.\nLet your agent take it further.",
-    description: "A chat-first workspace for actions and workflows.",
-  },
-  clips: {
-    headline: "Show it. Say it.\nLet your agent take it from here.",
-    description: "Screen recordings built for people and agents.",
-  },
-  content: {
-    headline: "Write it. Shape it.\nLet your agent keep it organized.",
-    description: "Local documents, custom blocks, and shared context.",
-  },
-  crm: {
-    headline: "Know your customers.\nMove the work forward.",
-    description: "A CRM your team and agent can work from together.",
-  },
-  design: {
-    headline: "Imagine it. Make it.\nLet your agent bring it to life.",
-    description: "Interactive, responsive designs from a description.",
-  },
-  dispatch: {
-    headline: "Route it. Run it.\nKeep every agent in sync.",
-    description: "Secrets, messages, and delegated work in one place.",
-  },
-  factory: {
-    headline: "Build it. Ship it.\nKeep the gates in your hands.",
-    description: "Agent work with reviewable feedback and durable control.",
-  },
-  forms: {
-    headline: "Ask once. Ship it.\nLet your agent build the flow.",
-    description: "Forms that publish, collect, and explain themselves.",
-  },
-  mail: {
-    headline: "Read it. Write it.\nLet your agent take it from here.",
-    description: "An inbox that drafts, sorts, and follows up with you.",
-  },
-  plan: {
-    headline: "Think it through.\nMake the work visible.",
-    description: "Visual plans and reviews for coding-agent work.",
-  },
-  slides: {
-    headline: "Say it. Show it.\nLet your agent build the story.",
-    description: "Presentations that grow with your ideas.",
-  },
-  tasks: {
-    headline: "Capture it. Finish it.\nLet your agent handle the list.",
-    description: "Personal tasks that stay in the order you set.",
   },
 };
 

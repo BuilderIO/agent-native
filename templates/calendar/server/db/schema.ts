@@ -22,12 +22,19 @@ export const bookings = table("bookings", {
   fieldResponses: text("field_responses"),
   /** Meeting link (Zoom, Google Meet, or custom) */
   meetingLink: text("meeting_link"),
+  /** The booking is confirmed, but the host still needs to attach its meeting link. */
+  meetingLinkPending: boolean("meeting_link_pending").notNull().default(false),
   /** Google Calendar event created for this booking, if any */
   googleEventId: text("google_event_id"),
   /** Connected calendar account that owns the provider event, if any */
   calendarAccountId: text("calendar_account_id"),
   /** Token for public cancel/reschedule link */
   cancelToken: text("cancel_token"),
+  /** Zoom may have created the meeting before the booking request failed. */
+  zoomNeedsReview: boolean("zoom_needs_review").notNull().default(false),
+  /** Zoom provider identifiers are required to clean up a known meeting. */
+  zoomMeetingId: text("zoom_meeting_id"),
+  zoomAccountId: text("zoom_account_id"),
   status: text("status", { enum: ["confirmed", "cancelled"] })
     .notNull()
     .default("confirmed"),

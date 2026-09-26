@@ -1,9 +1,9 @@
 ---
 name: new-branch
 description: >-
-  Create a task-owned worktree on a fresh branch or safely rotate after merge.
-  Use when task isolation or branch disposition needs a new branch; Steve has
-  granted standing authorization for task-owned branch creation.
+  Create a fresh git branch. Use for an explicit /new-branch request or when a
+  task-owned worktree needs a branch to ship detached work. Keep
+  platform-assigned Builder.io and Fusion branches in place.
 user-invocable: true
 scope: dev
 metadata:
@@ -14,33 +14,40 @@ metadata:
 
 ## Activation guard
 
-Steve has granted standing permission to create and switch branches inside a
-task-owned worktree without asking for per-task approval. Use this skill when
-the user invokes `/new-branch`, a task benefits from isolated work, or its
-authorized ship flow reaches branch disposition. Fetch `origin/main` first and
-base a new branch on that remote-tracking ref. For task isolation, create a
-separate worktree and leave the existing checkout, branch, and dirty changes
-untouched. Platform-assigned Builder.io and Fusion branches stay in place;
-never move or overwrite another task's checkout.
+Use this skill when the user invokes `/new-branch`, asks for a fresh branch, or
+`/ship` needs a branch in a dedicated task-owned worktree. Safe branch
+operations in that worktree need no extra permission. In a shared checkout,
+ask before changing branches unless the user gave the exact operation.
+Platform-assigned Builder.io and Fusion branches stay in place; never touch
+another checkout or move a branch used by another worktree.
 
-### Do NOT invoke this skill in any of these situations
+Steve's standing instruction applies across tasks and sessions: needed, safe
+branch creation or switching inside a task-owned worktree needs no repeated
+permission. It never authorizes moving a branch used by another worktree or
+platform, branch changes in a shared checkout, or destructive branch operations.
+
+If the current branch is already suitable, keep using it. When a detached
+task-owned worktree needs a branch to ship, create one without pausing for
+permission.
+
+### Preserve branch ownership
 
 These are mistakes other agents have made that stranded concurrent work:
 
-- The user said "fix the bug" / "open a PR" / "ship this" / "address review feedback" — use the current branch when it already owns the work. If isolation is useful, the standing authorization covers a separate task-owned worktree and branch; do not branch-then-push from or switch the shared checkout.
-- The current branch name looks unusual (`ai_*`, `claude/*`, `codex/*`, `changes-N`, `updates-N`, `pr-NNN`, `feat/...`). Those are platform-managed or other agents' branches; moving off looks like work-loss to whoever started them.
+- The current branch is attached and suitable for the task — keep using it. A detached task-owned worktree may create a fresh branch to ship.
+- A branch is checked out in another worktree — do not move, reset, rebase, or delete it. Choose a fresh task-owned branch instead.
 - You're running inside Builder.io / Fusion / a project container. The platform tracks the user's work by the branch it assigned — leaving silently breaks their UI.
-- The current checkout has uncommitted changes. That does not block a separate
-  task-owned worktree: leave the source checkout untouched and create the new
-  branch from fresh `origin/main`. For post-merge rotation in the same worktree,
-  unpushed commits and dirty publishable paths still block rotation; preserve
-  and verify any documented exclusions.
+- The working tree has uncommitted changes. Preserve them and carry or reapply
+  task-owned changes on the new branch; never stash, discard, or overwrite
+  them. Stop only when paths are unrelated or belong to another task, and name
+  the exact paths that need attention.
 - You think a fresh branch would be "tidier." Tidiness is not a goal here; concurrent-agent durability is.
 
-Keep the existing checkout on its current branch. For isolated work, fetch
-`origin/main` and create a separate task-owned worktree from that ref; never
-stash or move the source checkout just to start another task. Ask only before
-destructive changes to existing or peer-owned branch state.
+In a task-owned worktree, choose a safe branch and proceed without asking. In a
+shared checkout, ask before changing branches unless the user gave the exact
+operation.
+
+Fetch `origin/main`, inspect the current branch, dirty paths, and worktree ownership, then create the new branch from the freshest base that preserves all current work. Never stash changes as a shortcut.
 
 ## Pre-flight: verify main has the latest merge
 
@@ -54,16 +61,18 @@ git log origin/main --oneline -1
 
 Compare the merge commit SHA. If `origin/main` doesn't include it yet, wait and re-fetch — GitHub can take a few seconds to update after a squash merge. **Never create a branch off stale main.** Creating a branch that's missing a just-merged PR causes chaos: subsequent work assumes the merged code is there, leading to conflicts, regressions, and duplicated changes.
 
-## Guarded post-merge `/ship` rotation
+## Post-merge `/ship` rotation
 
-When the authorized ship workflow reaches post-merge branch rotation, use this
-path after verifying the merge commit on `origin/main`. The standing branch
-authorization means no second permission request is needed. In the current
-user-owned worktree, confirm there are no unpushed commits on any path
-and no dirty publishable paths; only `learnings.md`, `bridge/**`, and `data/**`
-may remain dirty. If any unpushed commit remains, keep the source branch checked
-out and report the commit hashes instead of rotating. This preserves commits
-excluded from `/ship:push`. Use the immutable `ship_merge_head_oid` captured
+During `/ship`, use this path after verifying the merge commit on `origin/main`.
+In a task-owned worktree, this safe rotation needs no extra permission. Confirm
+there are no unpushed commits on any path and no dirty publishable paths; only
+`learnings.md`, `bridge/**`, and `data/**` may remain dirty. If any unpushed
+commit remains, keep the source branch checked out and report the commit hashes
+instead of rotating. This preserves commits excluded from `/ship:push`. Use the
+preserved-path exception only for this post-merge rotation; setup-time branch
+creation or switching still requires every dirty path to belong to this task.
+The excluded paths stay unchanged across rotation.
+immutable `ship_merge_head_oid` captured
 before the guarded merge (from the Codex watcher prompt or foreground task
 transcript, or the Claude `/goal` or foreground task transcript); never
 substitute the live `headRefOid` after merge. This remains verifiable if GitHub
@@ -147,32 +156,30 @@ fi
 These unfiltered checks cover local and remote commits on every path; do not
 use `/ship`'s excluded-path filter for rotation.
 
-Verify the new branch points at current `origin/main` and the excluded local
-changes are still present. Do not check out or pull a local `main`, stash,
-force, reset, or touch another worktree. If Git refuses to carry an excluded
-path, leave the current worktree intact. Retaining the source branch because it
-has unpublished commits is a safe branch disposition; platform-assigned
-Builder.io and Fusion checkouts stay on their assigned branches and do not use
-this path.
+After post-merge rotation, verify the new branch points at current `origin/main`
+and excluded local changes are still present. For other branch creation, verify
+the branch includes the task commits and dirty work it was meant to carry. Do
+not check out or pull a local `main`, stash, force, reset, or touch another
+worktree. If Git refuses to carry a path, leave the current checkout intact.
+Retaining the source branch because it has unpublished commits is a safe
+disposition; platform-assigned Builder.io and Fusion checkouts stay on their
+assigned branches and do not use the rotation path.
 
 ## Steps
 
-For an ordinary `/new-branch`, run the generic command below. For a
-post-merge `/ship` rotation, use the dedicated path above instead.
-
-Run as a single chained command to minimize time off-branch. Resolve the
-authenticated GitHub username before choosing the branch name so concurrent
-users have separate branch namespaces. The `git stash push` is gated so we
-**only pop a stash we just created** — never an old stash from a previous
-session. The stash name embeds the source branch so an orphan can be identified
-later (orphans are how we've lost work in the past — see "Post-flight check"
-below):
-
-```bash
-GITHUB_USER=$(gh api user --jq .login) && test -n "$GITHUB_USER" || { echo "Unable to resolve the authenticated GitHub username" >&2; exit 1; }; LATEST=$({ git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin; git ls-remote --heads origin; } | sed -E -e 's#^[0-9a-f]+[[:space:]]+refs/heads/##' -e 's#^origin/##' | sed -nE 's#^([^/]+/)?changes-([0-9]+)$#\2#p' | awk '$1 >= 50 { print }' | sort -n | tail -1); NEXT=$(( ${LATEST:-49} + 1 )); BRANCH_NAME="${GITHUB_USER}/changes-${NEXT}"; SOURCE=$(git branch --show-current); STASH_MSG="new-branch-from-${SOURCE:-detached}-$(date +%s)"; if git diff-index --quiet HEAD --; then CREATED=0; else git stash push -m "$STASH_MSG" && CREATED=1 || CREATED=0; fi; git checkout main && git pull origin main && git checkout -b "$BRANCH_NAME" && if [ "$CREATED" = "1" ]; then git stash pop; else echo "(no stash to pop)"; fi; echo "--- Done: $(git branch --show-current)"
-```
-
-Why the gate: `git stash push` exits 0 even when there are no local changes ("No local changes to save"), so chaining `&& CREATED=1` would always set CREATED=1 and an unconditional `git stash pop` would pop a *pre-existing* stash from earlier work, dumping unrelated files into the working tree. The `git diff-index --quiet HEAD --` pre-check exits 0 only when there are no differences against HEAD in **tracked** files — we skip stashing entirely in that case so there's nothing to pop. Untracked files are intentionally not part of the gate (and not stashed): for a fast new-branch flow, untracked files following the user across `git checkout` is the desired behaviour, and `git stash push` without `-u` already ignores them. We let `git stash pop` errors (e.g. merge conflicts) surface naturally rather than swallowing them with `2>/dev/null`, since the next section assumes you'll see and resolve them.
+In a task-owned worktree, branch creation or switching needed for the task is
+already authorized; do not pause to ask. Before moving, record
+`git status --short --untracked-files=all` and classify every staged, unstaged,
+and untracked path. A switch carries the whole index and worktree, so proceed
+only when every dirty path belongs to this task. If any path is unrelated or
+incomplete, keep the checkout in place and report the exact paths without
+asking again. Fetch `origin/main`, inspect commits and
+`git worktree list --porcelain`, then create an unused branch without stashing
+or changing another worktree. Carry current commits and local changes. Use fresh
+`origin/main` as the base when that preserves the task's work; otherwise create
+from the current task head and reconcile only when the ship workflow requires
+it. In a shared checkout, ask before changing branches unless the user gave the
+exact operation.
 
 ## Branch naming
 
@@ -185,34 +192,13 @@ Why the gate: `git stash push` exits 0 even when there are no local changes ("No
 ## After creation
 
 - Report the new branch name and working tree status.
-- **If stash pop had merge conflicts** that you can confidently resolve (e.g. `--theirs` for `pnpm-lock.yaml`), resolve them and proceed. **If you can't resolve them confidently, abort the new branch instead of leaving the work stranded:**
-  ```bash
-  git checkout --merge .         # back out the conflicted pop (stash stays in list)
-  git checkout -                  # back to the source branch
-  git branch -D <new-branch>      # remove the freshly-created branch
-  git stash list | head -3        # show the stash so the user can act on it
-  ```
-  Then surface to the user: "Stash pop conflicted on `<files>`; the new branch was rolled back and `<stash-name>` is preserved. Want me to retry, drop the stash, or stay on the source branch?" **Never silently leave a half-built branch + an orphaned stash** — that's how concurrent-agent work disappears.
-- If stash pop brought back `.claude/worktrees` files, unstage them with `git reset HEAD .claude/worktrees`.
-- If a pop accidentally happened and brought in unrelated files (because the gate was bypassed), do NOT silently resolve conflicts. The stashed content stays in the stash list, so discard the popped working-tree changes (`git rm` deleted-by-us files, `git checkout --ours` for both-modified files) and surface this to the user.
-
-## Post-flight check
-
-After every `/new-branch` invocation, list any pre-existing stashes and surface them to the user. Orphaned `new-branch-from-*` / `WIP on *` / `babysit-tick*-concurrent-work-*` stashes are how we've lost real work in the past — they pile up unnoticed.
-
-```bash
-git stash list
-```
-
-If the list shows stashes that aren't yours-from-this-run, name them in your response:
-
-> Heads-up — there are 3 pre-existing stashes (`stash@{1}: WIP on updates-238`, `stash@{2}: On changes-3: new-branch-1777654416`, `stash@{3}: babysit-tick4-concurrent-work...`). These may contain unrecovered work. Want me to inspect them?
-
-This is the only reliable way to catch the leak — git won't warn you on its own.
+- If Git cannot carry a local path safely, keep the current checkout and branch
+  intact, then report the exact path and conflict. Never stash, discard, or
+  overwrite the work to force the switch.
 
 ## Important
 
 - **Speed matters** — other agents run concurrently, so minimize time spent on main.
 - **Never force-push or reset** — other agents' work may be in-flight.
 - **Don't push the new branch** until there are actual changes to ship.
-- **Treat orphaned stashes as bugs.** If you see a `new-branch-from-*` stash older than this session, surface it. Don't drop it without the user's confirmation — it may be the only copy of someone's work.
+- Do not create or use stashes to move task work between branches.

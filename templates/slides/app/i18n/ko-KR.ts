@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "{{title}} 템플릿 작업",
+    previewAction: "미리보기",
+    title: "템플릿",
+    browseAll: "모두 보기",
+    searchPlaceholder: "템플릿 검색…",
+    loading: "템플릿 로딩 중",
+    empty: "검색과 일치하는 템플릿이 없습니다.",
+    loadFailed: "템플릿을 불러오지 못했습니다.",
+    preview: "템플릿 미리보기",
+    useTemplate: "템플릿 사용",
+    opening: "템플릿 여는 중…",
+    createFailed: "이 템플릿으로 프레젠테이션을 만들지 못했습니다.",
+    previous: "이전",
+    next: "다음",
+    slidePosition: "슬라이드 {{current}} / {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["ko-KR"],
   root: {
     commandPresentations: "프레젠테이션",
@@ -26,6 +43,7 @@ const messages = {
     team: "팀",
   },
   settings: {
+    agentObservability: "에이전트 관찰성",
     title: "설정",
     description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
     labs: "Labs",
@@ -672,14 +690,14 @@ const messages = {
     accessApprovalSignIn: "로그인",
     accessApprovalLoading: "액세스 권한을 부여하는 중...",
     backToDecks: "덱으로 돌아가기",
-    tryAgain: "重试",
+    tryAgain: "다시 시도",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:
       "슬라이드에 이미지를 업로드하려면 에이전트 작성기의 모델 메뉴에서 Builder.io를 연결하세요. 빈 캔버스에 이미지를 놓으면 제공자 없이도 에이전트로 보낼 수 있습니다.",
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
-    deckHasNoSlides: "幻灯片没有页面。",
+    deckHasNoSlides: "덱에 슬라이드가 없습니다.",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
     layoutOverflowWarning: "레이아웃이 넘칩니다",
@@ -694,6 +712,10 @@ const messages = {
       "지금 나가거나 새로고침하면 아직 저장되지 않은 변경 사항을 잃을 수 있습니다. 정말 나가시겠어요?",
     keepEditing: "계속 편집",
     leaveWithoutSaving: "저장하지 않고 나가기",
+    editorMarkupNotSaved:
+      "이 편집은 슬라이드에 편집기 마크업이 추가되므로 저장되지 않았습니다.",
+    textEditConflictNotSaved:
+      "같은 텍스트가 동시에 다른 곳에서 변경되어 텍스트 편집이 저장되지 않았습니다.",
   },
   designSystemSetup: {
     importedBrand: "가져온 브랜드",
@@ -779,6 +801,108 @@ const messages = {
     chooseAnotherFile: "다른 파일 선택",
   },
   home: {
+    suggestedPrompts: "추천 프롬프트",
+    importMenu: {
+      import: "가져오기",
+      options: "가져오기 옵션",
+      invalidPdf: "PDF 파일을 선택하세요.",
+      invalidPptx: "PPTX 파일을 선택하세요.",
+      invalidFile: "PDF 또는 PPTX 파일을 선택하세요.",
+      notStarted: "필요한 로그인을 완료한 후 가져오기를 다시 시도하세요.",
+    },
+    importDeck: "덱 가져오기",
+    context: {
+      websiteReference: "웹사이트 첨부",
+      websiteUrlLabel: "웹사이트 URL",
+      websiteUrl: "웹사이트 URL 붙여넣기",
+      figmaUrlLabel: "Figma 링크",
+      invalidFigmaUrl: "유효한 figma.com 프레임 또는 파일 URL을 입력하세요.",
+      createSystem: "디자인 시스템 만들기",
+      noSystems:
+        "아직 디자인 시스템이 없습니다. 웹사이트, 파일 또는 Figma에서 만들어 보세요.",
+      searchSystems: "디자인 시스템 검색…",
+      searchFrames: "Figma 프레임 검색…",
+      searchDesigns: "디자인 검색…",
+      searchPresentations: "프레젠테이션 검색…",
+      menu: {
+        system: "디자인 시스템 사용",
+        figma: "Figma 첨부",
+        design: "디자인 참조",
+        deck: "프레젠테이션 참조",
+        searchDesign: "디자인 검색…",
+      },
+      loadFailed: "참조를 불러올 수 없습니다. 다시 시도하세요.",
+      saveFailed: "컨텍스트 선택을 저장할 수 없습니다.",
+      system: "디자인 시스템",
+      figmaUrl: "Figma 링크 붙여넣기",
+      browse: "프레임 찾아보기",
+      empty: "참조가 없습니다.",
+      previous: "이전",
+      next: "다음",
+      title: "컨텍스트",
+      remove: "참조 제거",
+      deck: "프레젠테이션",
+      design: "디자인 참조",
+      figma: "Figma 프레임",
+      notReady:
+        "컨텍스트를 불러오는 중이거나 사용할 수 없습니다. 전송 전에 다시 시도하거나 제거하세요.",
+      emptySource: "이 소스에 사용 가능한 컨텍스트가 없습니다.",
+      tooMany: "참조를 최대 20개까지 선택하세요.",
+      search: "참조 검색",
+      designCategory: "디자인",
+    },
+    quickStart: {
+      invalidUrl: "올바른 HTTP 또는 HTTPS URL을 입력하세요.",
+      starting: "시작 중…",
+      generate: "생성",
+      connectionRequired:
+        "홈 입력창 위에서 Builder.io를 연결한 후 다시 시도하세요.",
+      invalidPdf: "PDF 파일을 선택하세요.",
+      notReady:
+        "대기 중이거나 실패한 컨텍스트와 연결 상태를 확인한 후 다시 시도하세요.",
+      tooLong: "소스 텍스트는 20,000자 미만으로 입력하세요.",
+      trends: {
+        label: "최신 업계 동향에 대한 프레젠테이션 만들기",
+        field: "업종 또는 주제",
+        prompt:
+          "제공된 주제의 최신 동향을 조사하고 최신 출처를 포함한 프레젠테이션을 만드세요. 생성하기 전에 정보를 검증하세요.",
+      },
+      notes: {
+        label: "회의 메모를 프레젠테이션으로 변환",
+        field: "회의 메모",
+        prompt:
+          "제공된 회의 메모를 바탕으로 핵심 내용, 결정 사항 및 다음 단계를 담은 프레젠테이션을 만드세요. 메모를 자료로 사용하세요.",
+      },
+      pdf: {
+        label: "PDF의 핵심 내용 요약",
+        field: "PDF 파일",
+        prompt:
+          "첨부된 PDF를 읽고 핵심 내용을 요약한 프레젠테이션을 만드세요. 읽을 수 없는 내용은 추측하지 말고 보고하세요.",
+      },
+      website: {
+        label: "회사 웹사이트에서 덱 생성",
+        field: "회사 웹사이트 URL",
+        prompt:
+          "제공된 회사 웹사이트를 읽고 회사 소개 프레젠테이션을 만드세요. 사실을 지어내지 말고 접근 오류를 보고하세요.",
+      },
+    },
+    connectBuilderIo: "Builder.io 연결",
+    connectingBuilder: "Builder.io 연결 중…",
+    recent: "최근 항목",
+    starters: {
+      pitch: {
+        label: "제안 발표",
+        prompt: "다음 주제로 제안 발표를 만들어 주세요: ",
+      },
+      update: {
+        label: "프로젝트 현황",
+        prompt: "다음 프로젝트의 진행 상황, 성과, 다음 단계를 정리해 주세요: ",
+      },
+      lesson: {
+        label: "주제 설명",
+        prompt: "다음 주제를 설명하는 발표를 만들어 주세요: ",
+      },
+    },
     loadFailed: "콘텐츠를 불러올 수 없습니다",
     loadFailedDescription:
       "저장된 콘텐츠는 그대로 있습니다. 연결을 확인하고 다시 시도하세요.",
@@ -809,7 +933,7 @@ const messages = {
     newDeckPromptTitle: "새 프레젠테이션",
     newDeckPlaceholder: "생성할 프레젠테이션을 설명해 주세요...",
     skipPrompt: "프롬프트 건너뛰기",
-    firstDeckPromptTitle: "어떤 프레젠테이션을 생성할까요?",
+    firstDeckPromptTitle: "첫 프레젠테이션을 만들어 보세요",
     firstDeckSkip: "건너뛰기",
     chooseReferences: "참조 선택",
     addDesignSystem: "+ 디자인 시스템",

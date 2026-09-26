@@ -174,10 +174,11 @@ evidence:
    - Verify before fixing: reproduce locally, read the relevant code, inspect logs, or confirm with a stack trace.
    - Keep each fix narrow and mapped to a feedback item.
    - Follow existing project conventions and nearby patterns.
-   - Keep the current checkout intact. Steve has authorized a separate
-     task-owned worktree branch when isolation helps; fetch `origin/main` first
-     and preserve the existing checkout. Do not stash, reset, force-push, or
-     open a PR unless the task authorizes it.
+   - In a task-owned worktree, create or switch to a safe task branch when
+     needed without asking; preserve local changes and never move a branch
+     used by another worktree. In a shared checkout, ask before creating or
+     switching branches unless the user authorized that exact operation.
+     Stash, reset, force-push, and PR creation still require explicit scope.
    - Add or update focused tests when the bug risk warrants it.
 
 7. Treat UX feedback with product judgment.

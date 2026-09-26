@@ -33,6 +33,51 @@ const messages = {
       newest: "Más recientes",
       priority: "Prioridad",
       priorityFailed: "No se pudo ordenar la bandeja.",
+      priorityScoreHelp:
+        "Una puntuación más alta indica que Jev considera el mensaje más importante.",
+      priorityFeedbackSuggestion:
+        "Convierte este patrón en una regla de importancia o archivo automático.",
+      priorityFeedbackAskAgent: "Pedir al agente que sugiera reglas",
+      aiSetupTitle: "Configura tu bandeja con IA",
+      aiSetupTagLabel: "Crear una etiqueta de IA",
+      aiSetupImportanceLabel: "Correo importante",
+      aiSetupSpamLabel: "Spam y correo no deseado",
+      aiSetupArchiveLabel: "Omitir bandeja de entrada",
+      aiSetupSave: "Guardar configuración",
+      aiSetupSkip: "Omitir por ahora",
+      aiSetupImportantHeadline: "Qué es importante",
+      aiSetupSkipInboxHeadline: "Qué puede saltarse la bandeja de entrada",
+      aiSetupTagsHeadline: "Elige tus pestañas",
+      aiSetupArchiveSpamHeadline: "Omitir bandeja de entrada y spam",
+      aiSetupTagReceipts: "Recibos",
+      aiSetupTagUpdates: "Actualizaciones de productos",
+      aiSetupTagGitHub: "Personas en GitHub",
+      aiSetupPromptReceipts:
+        "Recibos y confirmaciones de pedidos de tiendas online",
+      aiSetupPromptUpdates:
+        "Actualizaciones de productos y notas de versión de mis herramientas",
+      aiSetupPromptGitHub:
+        "Notificaciones de GitHub con comentarios de personas",
+      aiSetupImportantPrompt:
+        "Mensajes que necesitan respuesta o tienen una fecha límite, incluidos los comentarios de personas en GitHub. Omitir comentarios de bots.",
+      aiSetupArchiveSpamPrompt:
+        "Archivar automáticamente: notificaciones de GitHub con comentarios de bots o estados automáticos.\nSpam: mensajes claramente promocionales o no deseados que no solicité.",
+      aiSetupCustomTag: "Personalizado",
+      aiSetupDone: "Listo",
+      aiSetupRunAgain: "Volver a configurar",
+      aiSetupTagCalendar: "Calendario",
+      aiSetupPromptCalendar:
+        "Invitaciones y cambios de calendario que necesito",
+      aiSetupTagTravel: "Viajes",
+      aiSetupPromptTravel: "Confirmaciones y reservas de viaje que necesito",
+      aiSetupTagFinance: "Finanzas",
+      aiSetupPromptFinance: "Facturas y extractos que necesito",
+      priorityFeedbackLabel: "Comentarios sobre importancia",
+      priorityScoreHigh: "Importancia alta",
+      priorityScoreMedium: "Importancia media",
+      priorityScoreLow: "Importancia baja",
+      priorityEditRules: "Editar reglas de importancia",
+      aiSetupContinue: "Continuar",
     },
     toolbar: {
       toggleMenu: "Alternar menú",
@@ -47,7 +92,7 @@ const messages = {
       unpinSidebar: "Desfijar barra lateral",
       closeSidebar: "Cerrar barra lateral",
       settings: "Ajustes",
-      aiSettings: "Etiquetas y spam con IA",
+      aiSettings: "Administrar etiquetas y reglas",
     },
     search: {
       label: "Buscar",
@@ -62,6 +107,7 @@ const messages = {
       filtersLimitReached: "Puedes guardar hasta 20 filtros.",
     },
     tabSettings: {
+      splitInbox: "Bandeja de entrada dividida",
       views: "Vistas",
       categories: "Categorías",
       rename: "Cambiar nombre",
@@ -69,7 +115,8 @@ const messages = {
       savedFilters: "Filtros guardados",
       combinedInbox: "Bandeja de entrada combinada",
       allTab: "Pestaña Todo",
-      help: "Todo incluye todos los hilos de la bandeja de entrada. Las etiquetas marcadas dividen la bandeja.",
+      help: "La bandeja combinada reúne todas las cuentas; desactívala para separar el correo en pestañas.",
+      aiSetup: "Configurar etiquetas y reglas de IA",
     },
     accounts: {
       remove: "Eliminar",
@@ -437,6 +484,7 @@ const messages = {
       neverSpam: "Nunca spam",
       neverImportant: "Nunca importante",
       important: "Importante",
+      notImportant: "No importante",
       star: "Destacar",
       trash: "Papelera",
       applyLabel: "Aplicar etiqueta",
@@ -512,9 +560,12 @@ const messages = {
       actionFailed: "No se pudo actualizar el filtro de IA.",
       settingsFailed: "No se pudieron guardar los ajustes del filtro de IA.",
       instructionFailed: "No se pudo guardar la instrucción del filtro de IA.",
+      skipInboxMode: "Omitir bandeja de entrada",
       spamMode: "Spam",
       tagMode: "Etiqueta",
+      aiTagsTitle: "Etiquetas de IA",
       importantMode: "Importante",
+      notImportantMode: "No importante",
       importantLabel: "Importante con IA",
       reviewImportant: "Ver importantes",
       importantPlaceholder:
@@ -528,6 +579,8 @@ const messages = {
         "p. ej., mensajes claramente promocionales o no deseados",
       tagPlaceholder:
         "p. ej., recibos y confirmaciones de pedidos de tiendas online",
+      archivePlaceholder:
+        "p. ej., notificaciones de bots de GitHub que no requieren mi atención",
       addShortcut: "Pulsa ⌘ Enter para añadir",
       previewTitle: "Vista previa del correo reciente",
       previewDescription:
@@ -550,6 +603,16 @@ const messages = {
         "Añade una regla de IA para previsualizar el correo reciente.",
       previewEmpty: "Ejecuta una vista previa para ver posibles coincidencias.",
       previewFailed: "No se pudo previsualizar el correo reciente.",
+      promptRulesCleared: "Reglas de clasificación eliminadas.",
+      tagTabsHelp: "Cada etiqueta se convierte en una pestaña de la bandeja",
+      addTag: "Añadir etiqueta",
+      triageTitle: "Clasificación",
+      connectJev: "Conectar Jev",
+      connectJevToRunTriage: "Conecta Jev para usar el triaje",
+      freeBuilderOrApiKey: "Gratis con Builder.io o añade una clave de API.",
+      jevAvailabilityFailed: "No se pudo comprobar si Jev está disponible.",
+      connectBuilder: "Conectar Builder.io",
+      addJevApiKey: "Añadir clave de API",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -738,7 +801,7 @@ const messages = {
     deleteSnippetDescription:
       'Eliminar el fragmento "{{name}}"? Esta accion no se puede deshacer.',
     automations: "Automatizaciones",
-    aiFilter: "Filtro de IA",
+    aiFilter: "Clasificación",
     gmailFilters: "Filtros de Gmail",
     aliases: "Alias",
     tracking: "Seguimiento",

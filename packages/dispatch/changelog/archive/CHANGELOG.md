@@ -1,3 +1,50 @@
+## 0.23.4
+
+### Patch Changes
+
+- 7c5888c: Render integrations and scheduled work as first-class, chrome-less Electron control-plane pages.
+- 7c5888c: Hide the generic Chat starter from Dispatch's default app launchers.
+- 7c5888c: Open new workspace app requests in a fresh coding chat and guide missing AI setup through Builder or custom keys.
+- Updated dependencies [7c5888c]
+  - @agent-native/toolkit@0.13.10
+
+## 0.23.3
+
+### Patch Changes
+
+- a426c4f: Make Chat-first New chat, Integrations, and Scheduled navigation behave as selected tabs across Dispatch and Desktop, with Integrations promoted out of Settings into a full-page surface.
+- a426c4f: Fix Dispatch app navigation, sidebar selection state, embed-session refreshes, and app-list spacing.
+
+## 0.23.2
+
+### Patch Changes
+
+- 44ac2c4: Require explicit Slack mentions before dispatching channel turns.
+
+## 0.23.1
+
+### Patch Changes
+
+- dab8787: Keep Builder Visual Editor links out of chat-first browser iframes so branch links open without CSP framing errors.
+- dab8787: Widen full-page chat composers and conversation rails to use up to 1000px when space is available.
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+  - @agent-native/toolkit@0.13.9
+
+## 0.23.0
+
+### Minor Changes
+
+- c41fd16: Polish the Electron and Dispatch chat-first app surfaces with a fuller layout, simpler app lists, and inline workspace-app opening.
+
+### Patch Changes
+
+- c41fd16: Keep granted Dispatch app surfaces available from the Chat-first workspace panel.
+- c41fd16: Route Dispatch overview prompts into the full-page chat surface instead of the agent sidebar.
+- Updated dependencies [c41fd16]
+  - @agent-native/toolkit@0.13.8
+
 ## 0.22.1
 
 ### Patch Changes

@@ -7,6 +7,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import { isValidElement, useState } from "react";
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   view: "all",
   headerActions: null as unknown,
   priorityRequest: vi.fn(),
+  priorityFeedback: vi.fn(),
   queryClient: {
     getQueryData: vi.fn(),
     setQueryData: vi.fn(),
@@ -70,6 +72,7 @@ vi.mock("@tanstack/react-virtual", () => ({
 }));
 
 vi.mock("react-router", () => ({
+  Link: ({ children }: { children: React.ReactNode }) => children,
   useNavigate: () => mocks.navigate,
   useParams: () => ({ view: mocks.view }),
   useSearchParams: () => [
@@ -106,7 +109,13 @@ vi.mock("@/components/ui/dropdown-menu", async () => {
   return {
     DropdownMenu: PassThrough,
     DropdownMenuContent: PassThrough,
-    DropdownMenuItem: PassThrough,
+    DropdownMenuItem: ({
+      children,
+      onSelect,
+    }: {
+      children?: React.ReactNode;
+      onSelect?: () => void;
+    }) => React.createElement("button", { onClick: onSelect }, children),
     DropdownMenuLabel: PassThrough,
     DropdownMenuSeparator: () => null,
     DropdownMenuSub: PassThrough,
@@ -124,6 +133,12 @@ vi.mock("@/hooks/use-ai-priority", () => ({
   useAiPriority: () => ({
     isPending: false,
     mutateAsync: mocks.priorityRequest,
+  }),
+}));
+
+vi.mock("@/hooks/use-ai-priority-feedback", () => ({
+  useAiPriorityFeedback: () => ({
+    mutateAsync: mocks.priorityFeedback,
   }),
 }));
 
@@ -206,6 +221,9 @@ function Harness({
   hasNextPage,
   isFetchingNextPage,
   showPrioritySort,
+  jevConfigured = showPrioritySort,
+  jevAvailabilityError,
+  onJevRetry,
   sortMode,
 }: {
   emails?: React.ComponentProps<typeof EmailList>["emails"];
@@ -214,6 +232,9 @@ function Harness({
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
   showPrioritySort?: boolean;
+  jevConfigured?: boolean;
+  jevAvailabilityError?: boolean;
+  onJevRetry?: React.ComponentProps<typeof EmailList>["onJevRetry"];
   sortMode?: "newest" | "priority";
 }) {
   const [focusedId, setFocusedId] = useState<string | null>("first");
@@ -234,6 +255,9 @@ function Harness({
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         showPrioritySort={showPrioritySort}
+        jevConfigured={jevConfigured}
+        jevAvailabilityError={jevAvailabilityError}
+        onJevRetry={onJevRetry}
         sortMode={sortMode}
       />
     </>
@@ -251,8 +275,53 @@ function press(key: string, shiftKey = false) {
 function hasPrioritySortOption(node: unknown): boolean {
   if (Array.isArray(node)) return node.some(hasPrioritySortOption);
   if (!isValidElement(node)) return false;
-  const props = node.props as { children?: unknown; value?: unknown };
-  return props.value === "priority" || hasPrioritySortOption(props.children);
+  const props = node.props as {
+    children?: unknown;
+    onSelect?: unknown;
+    value?: unknown;
+  };
+  const isPriorityAction =
+    props.value === "priority" ||
+    (props.onSelect !== undefined &&
+      hasText(props.children, "mail.sort.priority"));
+  return isPriorityAction || hasPrioritySortOption(props.children);
+}
+
+function hasText(node: unknown, text: string): boolean {
+  if (node === text) return true;
+  if (Array.isArray(node)) return node.some((child) => hasText(child, text));
+  if (!isValidElement(node)) return false;
+  return hasText((node.props as { children?: unknown }).children, text);
+}
+
+function hasJevConnectionPrompt(node: unknown): boolean {
+  if (Array.isArray(node)) return node.some(hasJevConnectionPrompt);
+  if (!isValidElement(node)) return false;
+  if (
+    typeof node.type === "function" &&
+    node.type.name === "JevConnectionPrompt"
+  ) {
+    return true;
+  }
+  return hasJevConnectionPrompt(
+    (node.props as { children?: unknown }).children,
+  );
+}
+
+function jevConnectionPromptVariant(node: unknown): unknown {
+  if (Array.isArray(node)) {
+    return node.map(jevConnectionPromptVariant).find((variant) => variant);
+  }
+  if (!isValidElement(node)) return undefined;
+  if (
+    typeof node.type === "function" &&
+    node.type.name === "JevConnectionPrompt"
+  ) {
+    return (node.props as { variant?: unknown }).variant;
+  }
+  return jevConnectionPromptVariant(
+    (node.props as { children?: unknown }).children,
+  );
 }
 
 describe("EmailList keyboard navigation interactions", () => {
@@ -271,15 +340,50 @@ describe("EmailList keyboard navigation interactions", () => {
       invalidateQueries: vi.fn(),
     };
     mocks.priorityRequest.mockReset().mockResolvedValue({ scores: [] });
+    mocks.priorityFeedback
+      .mockReset()
+      .mockResolvedValue({ totalVotes: 1, recentVotes: [] });
   });
 
   afterEach(() => cleanup());
 
-  it("hides Priority sort when Jev is unavailable", () => {
+  it("keeps Priority visible with a Jev connect action when unavailable", () => {
     mocks.view = "inbox";
     render(<Harness showPrioritySort={false} />);
 
     expect(hasPrioritySortOption(mocks.headerActions)).toBe(false);
+    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(true);
+    expect(jevConnectionPromptVariant(mocks.headerActions)).toBe("menu-item");
+  });
+
+  it("shows a retry menu item when Jev availability lookup fails", () => {
+    mocks.view = "inbox";
+    render(
+      <Harness
+        showPrioritySort={false}
+        jevConfigured={false}
+        jevAvailabilityError
+      />,
+    );
+
+    expect(hasText(mocks.headerActions, "mail.error.tryAgain")).toBe(true);
+    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
+  });
+
+  it("keeps the active Priority option visible when availability lookup fails", () => {
+    mocks.view = "inbox";
+    render(
+      <Harness
+        showPrioritySort
+        jevConfigured={false}
+        jevAvailabilityError
+        sortMode="priority"
+      />,
+    );
+
+    expect(hasPrioritySortOption(mocks.headerActions)).toBe(true);
+    expect(hasText(mocks.headerActions, "mail.error.tryAgain")).toBe(false);
+    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
   });
 
   it("shows Priority sort when Jev is configured", () => {
@@ -287,6 +391,7 @@ describe("EmailList keyboard navigation interactions", () => {
     render(<Harness showPrioritySort />);
 
     expect(hasPrioritySortOption(mocks.headerActions)).toBe(true);
+    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
   });
 
   it("reuses priority scores when the visible inbox emails change", async () => {
@@ -329,6 +434,89 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(mocks.priorityRequest).toHaveBeenLastCalledWith({
       emails: [expect.objectContaining({ id: "last" })],
     });
+  });
+
+  it("does not roll back a newer priority vote when an older vote fails", async () => {
+    mocks.view = "inbox";
+    const inboxEmails = messages.map((email) => ({
+      ...email,
+      labelIds: ["inbox"],
+    }));
+    let rejectOlderVote!: (error: Error) => void;
+    mocks.priorityRequest.mockResolvedValue({
+      scores: inboxEmails.map((email) => ({
+        emailId: email.id,
+        accountEmail: email.accountEmail,
+        score: email.id === "first" ? 0.9 : email.id === "middle" ? 0.6 : 0.2,
+      })),
+    });
+    mocks.priorityFeedback
+      .mockReturnValueOnce(
+        new Promise((_, reject) => {
+          rejectOlderVote = reject;
+        }),
+      )
+      .mockResolvedValueOnce({ totalVotes: 2, recentVotes: [] });
+
+    render(
+      <Harness emails={inboxEmails} showPrioritySort sortMode="priority" />,
+    );
+    await waitFor(() => expect(mocks.priorityRequest).toHaveBeenCalledTimes(1));
+    expect(rows()[0].textContent).toContain("Subject first");
+
+    fireEvent.click(within(rows()[0]).getByText("mail.aiFilter.importantMode"));
+    fireEvent.click(
+      within(rows()[0]).getByText("mail.aiFilter.notImportantMode"),
+    );
+    await waitFor(() =>
+      expect(mocks.priorityFeedback).toHaveBeenCalledTimes(2),
+    );
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Subject middle"),
+    );
+
+    await act(async () => rejectOlderVote(new Error("vote failed")));
+
+    expect(rows()[0].textContent).toContain("Subject middle");
+  });
+
+  it("keeps cached priority scores when volatile labels change", async () => {
+    mocks.view = "inbox";
+    mocks.priorityRequest.mockResolvedValue({
+      scores: messages.map((email) => ({
+        emailId: email.id,
+        accountEmail: email.accountEmail,
+        score: email.id === "middle" ? 0.9 : 0.1,
+      })),
+    });
+    const inboxEmails = messages.map((email) => ({
+      ...email,
+      labelIds: ["inbox"],
+    }));
+    const { rerender } = render(
+      <Harness emails={inboxEmails} showPrioritySort sortMode="priority" />,
+    );
+
+    await waitFor(() => expect(mocks.priorityRequest).toHaveBeenCalledTimes(1));
+    rerender(
+      <Harness
+        emails={inboxEmails.map((email) => ({
+          ...email,
+          labelIds: [
+            "inbox",
+            "UNREAD",
+            "STARRED",
+            "agent-native-important",
+            "[superhuman]/ai/automated",
+          ],
+        }))}
+        showPrioritySort
+        sortMode="priority"
+      />,
+    );
+
+    expect(mocks.priorityRequest).toHaveBeenCalledTimes(1);
+    expect(rows()[0].textContent).toContain("Subject middle");
   });
 
   it("reuses priority scores on the first render after the list remounts", async () => {

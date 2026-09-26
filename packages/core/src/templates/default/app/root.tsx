@@ -20,7 +20,6 @@ import {
   ScrollRestoration,
   isRouteErrorResponse,
   Link,
-  useLocation,
   useRouteError,
 } from "react-router";
 
@@ -213,7 +212,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta charSet="utf-8" />
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=resizes-content"
         />
         <script
           data-agent-native-theme-init
@@ -255,16 +254,10 @@ function DbSyncSetup() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const location = useLocation();
-  const isMarketingHome = location.pathname === "/";
   return (
-    <AppProviders
-      queryClient={queryClient}
-      isPublicPath={isMarketingHome}
-      i18n={{ catalog: i18nCatalog }}
-    >
+    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
       <AppToolkitProvider>
-        {isMarketingHome ? null : <DbSyncSetup />}
+        <DbSyncSetup />
         <Outlet />
       </AppToolkitProvider>
     </AppProviders>

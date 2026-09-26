@@ -301,7 +301,7 @@ npx @agent-native/core@latest deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-每個應用程式均使用 `APP_BASE_PATH=/<name>` 和 `VITE_APP_BASE_PATH=/<name>` 建置，並透過選定的 Nitro 預設發出。 Cloudflare Pages 是預設預設，並使用 `dist/_worker.js` 和 `_routes.json` 的調度程式工作人員。 `npx @agent-native/core@latest deploy --preset netlify` 支援 Netlify；它在 `.netlify/functions-internal/<app>-server` 下發出應用程式功能，並生成重新導向，使靜態資產不受強制，因此 CDN 首先提供檔案。 `npx @agent-native/core@latest deploy --preset vercel` 支援 Vercel；它使用 Vercel 的建置輸出 API 編寫根 `.vercel/output` 包。
+每個應用程式都使用 `APP_BASE_PATH=/<name>` 和 `VITE_APP_BASE_PATH=/<name>` 建置，並透過選定的 Nitro 預設輸出。統一 `deploy` 命令的預設預設是 **Netlify**；它會在 `.netlify/functions-internal/<app>-server` 下輸出應用程式函式，並產生重新導向，使靜態資源不被強制處理，從而讓 CDN 優先提供檔案。**Vercel** 可透過 `npx @agent-native/core@latest deploy --preset vercel` 使用；它使用 Vercel 的 Build Output API 寫入根層級 `.vercel/output` 包。
 
 <Diagram id="doc-block-6uxdox" title={"統一部署：一個來源，每個應用一個路徑"} summary={"每個應用程式都遵循單一來源，因此登入工作階段和跨應用程式 A2A 是免費的。"}>
 
@@ -352,10 +352,11 @@ npx @agent-native/core@latest deploy
 - **零設定跨應用程式 A2A。** `@mail` 標記 `@calendar` 成為同來源取得 - 兄弟之間沒有 CORS，沒有 JWT 簽名。外部 A2A 仍沿用至今的 JWT。
 - **一條 DNS 紀錄，一個證書，一個 CDN 快取。**
 
-發布 `dist/` 輸出：
+發布平台建置：
 
 ```bash
-wrangler pages deploy dist
+npx @agent-native/core@latest deploy
+netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
 對於 Netlify：
@@ -405,7 +406,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 ### 共用資料庫、共用憑證
 
-無論您選取什麼，都將每個應用程式指向相同的 `DATABASE_URL` 以獲得開箱即用的跨應用程式狀態：一組使用者帳戶、一組組織、一組共用設定。如果每個應用程式都有自己的資料庫，那麼工作區模式仍然有效 - 您只是失去了共用狀態的故事。
+若要共用使用者帳戶、組織、設定及其他跨應用程式資料，請讓每個應用程式使用相同的 `DATABASE_URL`。在本機開發時，請於工作區根目錄的 `.env` 設定此值，讓所有應用程式使用同一個 PostgreSQL 資料庫。若未設定，每個應用程式都會使用自己的程序本機 PGlite 資料庫，因此使用者和組織不會共用。
 
 共用同一資料庫的程序會累加連線需求。例如，五個長時間執行的 Node.js 應用程式程序各自為相同的 `DATABASE_URL` 使用一個共用執行階段連線池時，依每個連線池預設 20 個連線計算，最多可使用 100 個連線（`5 × 1 個連線池 × 20`）。對於無伺服器工作區，請根據執行階段對應的連線池預設值估算每個應用程式的暖機函式執行個體數。`AGENT_NATIVE_DB_POOL_MAX` 和完整的預算說明請參閱[伺服器資料庫](/docs/server-database)。
 

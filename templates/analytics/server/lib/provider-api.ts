@@ -49,6 +49,7 @@ const resolveAnalyticsCredential: ProviderApiCredentialResolver = async ({
     connectionId: credential.connectionId,
     connectionLabel: credential.connectionLabel,
     scope: credential.scope,
+    scopeId: credential.scopeId,
   };
 };
 

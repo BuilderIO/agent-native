@@ -2188,7 +2188,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         documentId: runtimeDocumentId
       };
     }
-    function postRuntimeLayerSnapshot(reservationToken) {
+    function postRuntimeLayerSnapshot(reservationToken, requestId) {
       if (runtimeLayerSnapshotTimer !== null) {
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
@@ -2202,7 +2202,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.parent.postMessage(
           {
             type: "agent-native:runtime-layer-snapshot-error",
-            payload: snapshot
+            payload: {
+              ...snapshot,
+              requestId,
+              documentId: runtimeDocumentId,
+              ...reservationToken ? { reservationToken } : {}
+            }
           },
           "*"
         );
@@ -2210,10 +2215,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var snapshotReservationToken = reservationToken || "";
       if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken) {
+        window.parent.postMessage(
+          {
+            type: "agent-native:runtime-layer-snapshot-unchanged",
+            payload: {
+              requestId,
+              documentId: snapshot.documentId,
+              ...reservationToken ? { reservationToken } : {}
+            }
+          },
+          "*"
+        );
         return;
       }
       lastRuntimeLayerSnapshotHtml = snapshot.html;
       lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+      if (requestId !== void 0) snapshot.requestId = requestId;
       if (reservationToken) snapshot.reservationToken = reservationToken;
       window.parent.postMessage(
         {
@@ -2241,7 +2258,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       window.parent.postMessage(
         {
           type: "agent-native:runtime-layer-snapshot-reservation-request",
-          requestId: runtimeLayerSnapshotReservationRequestId
+          requestId: runtimeLayerSnapshotReservationRequestId,
+          documentId: runtimeDocumentId
         },
         "*"
       );
@@ -11919,7 +11937,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           // Use the pre-lift snapshot: during a drag the bridge may temporarily
           // add a translate() transform to the source element, and that
           // editor-only transform must never become destination markup.
-          sourceCloneHtml: phase === "end" ? activeCrossScreenSourceHtml : void 0,
+          // Send it from "start": the host can finalize from its own window
+          // mouseup, in which case this iframe never sees the release and no
+          // "end" is posted.
+          sourceCloneHtml: phase === "start" || phase === "end" ? activeCrossScreenSourceHtml : void 0,
           releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : void 0
         },
         "*"
@@ -15946,7 +15967,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!dragEl) return;
         var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) || crossScreenClaimedByHost : false;
         if (ev && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
-          var sourceDeleteRequestId = activeCrossScreenDeleteRequestId;
           postCrossScreenDrag("end", dragEl, ev, {
             duplicate: duplicatedForDrag,
             modifiers: {
@@ -15965,21 +15985,6 @@ export const editorChromeBridgeScript: string = `"use strict";
             postElementSelect(selectedEl);
           } else {
             restoreSourceDragPosition();
-            if (crossScreenClaimedByHost && sourceDeleteRequestId) {
-              var selector = getSelector(dragEl);
-              var sourceId = getSourceId(dragEl);
-              var selectorCandidates = [selector];
-              if (sourceId) {
-                selectorCandidates.push(
-                  '[data-agent-native-node-id="' + CSS.escape(sourceId) + '"]'
-                );
-              }
-              concealPendingRuntimeDelete(
-                selector,
-                selectorCandidates,
-                sourceDeleteRequestId
-              );
-            }
           }
           return;
         }
@@ -19646,8 +19651,31 @@ export const editorChromeBridgeScript: string = `"use strict";
           requestId: e.data.requestId,
           applied: Boolean(e.data.applied)
         });
+        var cancelRuntimeStructureDelete = e.data.cancelRuntimeStructureDelete;
+        var postRuntimeStructureDeleteCancellationResult = function(sourcePresentOverride) {
+          if (!cancelRuntimeStructureDelete || typeof cancelRuntimeStructureDelete.transactionId !== "string") {
+            return;
+          }
+          var restoredSource = findRuntimeTarget(
+            String(cancelRuntimeStructureDelete.selector || ""),
+            Array.isArray(cancelRuntimeStructureDelete.selectorCandidates) ? cancelRuntimeStructureDelete.selectorCandidates : []
+          );
+          window.parent.postMessage(
+            {
+              type: "runtime-structure-delete-cancelled",
+              requestId: String(e.data.requestId || ""),
+              transactionId: cancelRuntimeStructureDelete.transactionId,
+              routePath: window.location.pathname + window.location.search,
+              sourcePresent: typeof sourcePresentOverride === "boolean" ? sourcePresentOverride : Boolean(restoredSource)
+            },
+            "*"
+          );
+        };
         var move = pendingStructureMoves[e.data.requestId];
-        if (!move) return;
+        if (!move) {
+          postRuntimeStructureDeleteCancellationResult();
+          return;
+        }
         delete pendingStructureMoves[e.data.requestId];
         var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
         var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
@@ -19668,6 +19696,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
           refreshOverlays();
+          postRuntimeStructureDeleteCancellationResult();
           return;
         }
         if (moveWasRemoval) {
@@ -19685,6 +19714,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
           refreshOverlays();
+          postRuntimeStructureDeleteCancellationResult(
+            Boolean(move.el && move.el.isConnected)
+          );
           return;
         }
         if (e.data.applied) {
@@ -19709,6 +19741,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
             if (hoveredEl === move.el) hoveredEl = null;
             refreshOverlays();
+            postRuntimeStructureDeleteCancellationResult();
             return;
           }
           if (move.el && move.el.isConnected && move.origin && "prevParent" in move.origin && move.origin.prevParent && move.origin.prevParent.isConnected) {
@@ -19731,6 +19764,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             postElementSelect(selectedEl);
           }
         }
+        postRuntimeStructureDeleteCancellationResult();
         return;
       }
       if (e.data.type === "replace-document-content") {
@@ -19851,7 +19885,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "grant-runtime-layer-snapshot-reservation") {
-        if (e.data.requestId !== runtimeLayerSnapshotReservationRequestId) return;
+        if (e.data.documentId !== runtimeDocumentId || e.data.requestId !== runtimeLayerSnapshotReservationRequestId) {
+          return;
+        }
         runtimeLayerSnapshotReservationInFlight = false;
         if (runtimeLayerSnapshotReservationDirty) {
           runtimeLayerSnapshotReservationDirty = false;
@@ -19859,7 +19895,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         postRuntimeLayerSnapshot(
-          typeof e.data.reservationToken === "string" ? e.data.reservationToken : void 0
+          typeof e.data.reservationToken === "string" ? e.data.reservationToken : void 0,
+          Number.isSafeInteger(e.data.requestId) ? e.data.requestId : void 0
         );
         return;
       }

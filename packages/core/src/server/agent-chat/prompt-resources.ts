@@ -1,5 +1,6 @@
 import {
-  rankJevCandidates,
+  JEV_TIMEOUT_MS,
+  rankJevCandidatesWithStatus,
   type JevCandidate,
 } from "../../agent/jev-tool-prefetch.js";
 import {
@@ -33,7 +34,7 @@ import type {
 } from "../../shared/context-xray.js";
 import { discoverAgents } from "../agent-discovery.js";
 import type { BuilderGatewayAuth } from "../credential-provider.js";
-import { getRequestOrgId } from "../request-context.js";
+import { getRequestOrgId, getRequestRunContext } from "../request-context.js";
 import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
@@ -157,8 +158,13 @@ const PROMPT_INSTRUCTION_SUMMARY_LIMIT = 20;
 const PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS = 180;
 const JEV_CONTEXT_ITEM_MAX_CHARS = 10_000;
 const JEV_CONTEXT_TOTAL_MAX_CHARS = 24_000;
+const JEV_MEMORY_CANDIDATE_LIMIT = 8;
+const JEV_MEMORY_SELECTION_LIMIT = 2;
+const JEV_MEMORY_DESCRIPTION_MAX_CHARS = 240;
+const JEV_PRELOAD_BUDGET_MS = 1_300;
+const MIN_ANALYTICS_REFERENCE_SIMILARITY = 0.35;
 const JEV_CONTEXT_PREFIX =
-  "<jev-prefetched-context>\nJev ranked these skills for this task. Mandatory AGENTS.md instructions remain authoritative. Treat these sources as task-specific guidance and use the existing tools to read anything else you need.\n\n";
+  "<jev-prefetched-context>\nThese bounded context sources were selected for this task. Mandatory AGENTS.md instructions remain authoritative. Treat stored memories as prior context and verify time-sensitive facts. For Analytics, use a matching preloaded reference first; otherwise make your first tool call search-analytics-query-catalog. Treat references as examples and definitions, then run a live query before reporting values.\n\n";
 const JEV_CONTEXT_SUFFIX = "\n</jev-prefetched-context>";
 const JEV_CONTEXT_SEPARATOR = "\n\n";
 const JEV_CONTEXT_WRAPPER_OVERHEAD_CHARS =
@@ -168,13 +174,24 @@ function escapeJevContextFence(value: string): string {
   return value.replace(/<(?=\s*\/?\s*jev-prefetched-context\b)/gi, "&lt;");
 }
 
-type JevPromptCandidate = JevCandidate & {
-  kind: "skill";
+export interface JevPromptContextCandidate extends JevCandidate {
+  kind?: string;
   name: string;
   scope: string;
-  path: string;
+  path?: string;
   content: string;
-};
+}
+
+type JevPromptCandidate = JevPromptContextCandidate;
+
+interface JevMemoryIndexEntry {
+  name: string;
+  path: string;
+  description: string;
+  updatedAt: number;
+  score: number;
+  scope: "personal" | "current-org";
+}
 
 export interface PromptResourceManifestSection {
   label: string;
@@ -872,9 +889,14 @@ async function loadResourceIndexForPrompt(
   )} Do not assume their contents without reading the relevant file.\n\n${lines.join("\n")}\n</workspace-resources>`;
 }
 
-async function collectJevPromptCandidates(): Promise<JevPromptCandidate[]> {
-  // Do not send SQL resource names, paths, or descriptions to Jev. They are
-  // user-authored metadata and can contain customer/project information.
+async function collectJevPromptCandidates(
+  signal: AbortSignal,
+): Promise<JevPromptCandidate[]> {
+  // Jev receives the current request and recent user turns, short skill and
+  // memory summaries, and bounded Analytics labels with metric definitions,
+  // source/table names, or dashboard/panel details. These may be sensitive
+  // user-authored metadata. Keep assistant text/results, tool payloads,
+  // resource IDs/paths, memory/skill bodies, and full query SQL out of ranking.
   const candidates: JevPromptCandidate[] = [];
   let nextId = 0;
   const add = (
@@ -892,8 +914,8 @@ async function collectJevPromptCandidates(): Promise<JevPromptCandidate[]> {
       ...candidate,
       id: `context-${nextId++}`,
       description,
-      metadata: {
-        kind: candidate.kind,
+      metadata: candidate.metadata ?? {
+        kind: candidate.kind ?? "skill",
         scope: candidate.scope,
       },
     });
@@ -902,8 +924,10 @@ async function collectJevPromptCandidates(): Promise<JevPromptCandidate[]> {
   try {
     const { getRuntimeSkills, loadAgentsBundle } =
       await import("../agents-bundle.js");
+    signal.throwIfAborted();
     const bundle = await loadAgentsBundle();
     for (const skill of getRuntimeSkills(bundle)) {
+      signal.throwIfAborted();
       add({
         kind: "skill",
         name: skill.meta.name,
@@ -923,40 +947,518 @@ async function collectJevPromptCandidates(): Promise<JevPromptCandidate[]> {
   return candidates;
 }
 
+function parseMemoryIndex(
+  content: string,
+  indexPath = "memory/MEMORY.md",
+): Array<{ name: string; path: string; description: string }> {
+  const directory = indexPath.slice(0, indexPath.lastIndexOf("/") + 1);
+  const entries: Array<{ name: string; path: string; description: string }> =
+    [];
+  for (const line of content.split("\n")) {
+    const match = /^\s*-\s+\[([^\]]+)\]\(([^)]+\.md)\)\s*[—-]\s*(.+)$/.exec(
+      line,
+    );
+    if (!match) continue;
+    const [, name, linkedPath, description] = match;
+    const linkedName = linkedPath?.replace(/^memory\//, "");
+    if (
+      !name ||
+      !linkedName ||
+      !description ||
+      linkedName.includes("..") ||
+      /[\\/]/.test(linkedName) ||
+      !/^[a-zA-Z0-9._-]+\.md$/.test(linkedName)
+    ) {
+      continue;
+    }
+    entries.push({ name, path: `${directory}${linkedName}`, description });
+  }
+  return entries;
+}
+
+function memoryRelevanceScore(request: string, text: string): number {
+  const searchable = text.toLowerCase();
+  const terms = new Set(request.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []);
+  let score = 0;
+  for (const term of terms) {
+    if (searchable.includes(term)) score += Math.min(term.length, 8);
+  }
+  return score;
+}
+
+async function collectJevMemoryPromptCandidates(input: {
+  owner?: string;
+  orgId?: string | null;
+  request: string;
+  signal: AbortSignal;
+}): Promise<{ candidates: JevPromptCandidate[]; fallbackIds: string[] }> {
+  if (!input.owner || input.owner === SHARED_OWNER) {
+    return { candidates: [], fallbackIds: [] };
+  }
+  try {
+    input.signal.throwIfAborted();
+    const indexPaths = [
+      {
+        scope: "personal" as const,
+        owner: input.owner,
+        path: "memory/MEMORY.md",
+      },
+      ...(input.orgId
+        ? [
+            {
+              scope: "current-org" as const,
+              owner: sharedResourceOwner(input.orgId),
+              path: "memory/MEMORY.md",
+            },
+          ]
+        : []),
+    ];
+    const indexes = await Promise.all(
+      indexPaths.map(({ owner, path }) =>
+        resourceGetByPath(owner, path, { orgId: input.orgId }),
+      ),
+    );
+    input.signal.throwIfAborted();
+    const memories = indexes
+      .flatMap((index, indexNumber) => {
+        if (!index?.content) return [];
+        const source = indexPaths[indexNumber]!;
+        return parseMemoryIndex(index.content, source.path)
+          .filter((memory) => memory.path !== source.path)
+          .map(
+            (memory, position): JevMemoryIndexEntry => ({
+              ...memory,
+              updatedAt: position,
+              score: memoryRelevanceScore(
+                input.request,
+                `${memory.name} ${memory.description}`,
+              ),
+              scope: source.scope,
+            }),
+          );
+      })
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          b.updatedAt - a.updatedAt ||
+          a.path.localeCompare(b.path),
+      )
+      .slice(0, JEV_MEMORY_CANDIDATE_LIMIT);
+    const candidates = memories.map((memory, index): JevPromptCandidate => {
+      const isOrgMemory = memory.scope === "current-org";
+      const scope = isOrgMemory ? "current-org" : "personal";
+      const label = isOrgMemory
+        ? "Current organization memory"
+        : "Personal memory";
+      return {
+        id: `${scope}-memory-${index}`,
+        kind: "memory",
+        description: `${label}: ${compactPromptLine(memory.description, JEV_MEMORY_DESCRIPTION_MAX_CHARS)}`,
+        metadata: { kind: "personal-memory", scope },
+        name: memory.name,
+        scope,
+        path: memory.path,
+        content: "",
+      };
+    });
+    const fallback = memories.find((memory) => memory.score >= 5);
+    const fallbackIndex = fallback ? memories.indexOf(fallback) : -1;
+    return {
+      candidates,
+      fallbackIds: fallbackIndex >= 0 ? [candidates[fallbackIndex]!.id] : [],
+    };
+  } catch (error) {
+    console.warn(
+      "[agent] Jev memory context unavailable; continuing with the normal memory index.",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    return { candidates: [], fallbackIds: [] };
+  }
+}
+
+type PromptBudgetResult<T> =
+  | { status: "completed"; value: T }
+  | { status: "expired" };
+
+async function withinPromptBudget<T>(
+  work: (signal: AbortSignal) => Promise<T>,
+  deadlineAt: number,
+): Promise<PromptBudgetResult<T>> {
+  const remaining = deadlineAt - Date.now();
+  if (remaining <= 0) return { status: "expired" };
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const result = await Promise.race([
+    Promise.resolve()
+      .then(() => work(controller.signal))
+      .then(
+        (value) => ({ status: "completed" as const, value }),
+        (error: unknown) => ({ status: "failed" as const, error }),
+      ),
+    new Promise<{ status: "expired" }>((resolve) => {
+      timeout = setTimeout(() => {
+        controller.abort();
+        resolve({ status: "expired" });
+      }, remaining);
+    }),
+  ]);
+  if (timeout) clearTimeout(timeout);
+  if (result.status === "failed") {
+    if (controller.signal.aborted) return { status: "expired" };
+    throw result.error;
+  }
+  return result;
+}
+
+async function loadSelectedMemoryBodies(input: {
+  candidates: JevPromptCandidate[];
+  selectedIds: readonly string[];
+  owner?: string;
+  orgId?: string | null;
+  deadlineAt: number;
+}): Promise<JevPromptCandidate[]> {
+  if (!input.owner || input.owner === SHARED_OWNER) return input.candidates;
+  const selected = new Set(input.selectedIds);
+  const memories = input.candidates.filter(
+    (candidate) =>
+      selected.has(candidate.id) &&
+      candidate.kind === "memory" &&
+      Boolean(candidate.path),
+  );
+  if (memories.length === 0) return input.candidates;
+  let loaded: PromptBudgetResult<Array<{ id: string; content: string } | null>>;
+  try {
+    loaded = await withinPromptBudget(async (signal) => {
+      const entries: Array<{ id: string; content: string } | null> = [];
+      for (const candidate of memories) {
+        signal.throwIfAborted();
+        const owner =
+          candidate.scope === "current-org"
+            ? sharedResourceOwner(input.orgId)
+            : input.owner;
+        const resource = await resourceGetByPath(owner!, candidate.path!, {
+          orgId: input.orgId,
+        });
+        signal.throwIfAborted();
+        entries.push(
+          resource?.content.trim()
+            ? { id: candidate.id, content: resource.content }
+            : null,
+        );
+      }
+      return entries;
+    }, input.deadlineAt);
+  } catch (error) {
+    console.warn(
+      "[agent] Selected memory bodies unavailable; continuing without them.",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    return input.candidates;
+  }
+  if (loaded.status === "expired") return input.candidates;
+  const contentById = new Map(
+    loaded.value.flatMap((entry) => (entry ? [[entry.id, entry.content]] : [])),
+  );
+  return input.candidates.map((candidate) => ({
+    ...candidate,
+    content: contentById.get(candidate.id) ?? candidate.content,
+  }));
+}
+
+function trackAnalyticsJevContext(input: {
+  appId?: string;
+  jevConfigured: boolean;
+  status: string;
+  source: string;
+  candidates: readonly JevPromptCandidate[];
+  selectedIds: readonly string[];
+}): void {
+  if (input.appId !== "analytics") return;
+  const selected = new Set(input.selectedIds);
+  const kinds = ["analytics-reference", "memory", "skill"] as const;
+  const properties: Record<string, number | string | boolean> = {
+    jev_configured: input.jevConfigured,
+    jev_status: input.status,
+    selection_source: input.source,
+    candidate_count: input.candidates.length,
+    selected_count: selected.size,
+  };
+  for (const kind of kinds) {
+    const field = kind.replaceAll("-", "_");
+    properties[`candidate_${field}_count`] = input.candidates.filter(
+      (candidate) =>
+        candidate.metadata?.kind === kind || candidate.kind === kind,
+    ).length;
+    properties[`selected_${field}_count`] = input.candidates.filter(
+      (candidate) =>
+        selected.has(candidate.id) &&
+        (candidate.metadata?.kind === kind || candidate.kind === kind),
+    ).length;
+  }
+  void import("../../tracking/registry.js")
+    .then(({ track }) => track("jev_context_prefetch", properties))
+    .catch(() => {});
+}
+
+function recordAnalyticsPreloadedReferenceCount(input: {
+  appId?: string;
+  candidates: readonly JevPromptCandidate[];
+  injectedIds: ReadonlySet<string>;
+}): void {
+  if (input.appId !== "analytics") return;
+  const context = getRequestRunContext();
+  if (!context) return;
+  context.analyticsJevPrefetch = {
+    preloadedReferenceCount: input.candidates.filter(
+      (candidate) =>
+        input.injectedIds.has(candidate.id) &&
+        (candidate.metadata?.kind === "analytics-reference" ||
+          candidate.kind === "analytics-reference"),
+    ).length,
+  };
+}
+
 /** Rank and inline a few optional context sources before the first model call. */
 export async function preloadJevContextForPrompt(options: {
   request: string;
+  appId?: string;
+  owner?: string;
+  orgId?: string | null;
   apiKey?: string;
   personalApiKey?: string;
   builderAuth?: BuilderGatewayAuth | null;
+  candidates?: readonly JevPromptContextCandidate[];
+  fallbackCandidateIds?: readonly string[];
   compact?: boolean;
   maxChars?: number;
+  contextPrefetchDeadlineAt?: number;
+  dispatchToBackground?: boolean;
+  internalContinuation?: boolean;
 }): Promise<string> {
   const request = options.request.trim();
   const apiKey = options.apiKey?.trim();
   const personalApiKey = options.personalApiKey?.trim();
-  if (
-    !request ||
-    (!apiKey && !personalApiKey && !options.builderAuth) ||
-    options.maxChars === 0
-  ) {
+  if (!request || options.maxChars === 0 || options.dispatchToBackground) {
     return "";
   }
 
-  const candidates = await collectJevPromptCandidates();
-  const selectedIds = await rankJevCandidates({
-    request,
-    apiKey,
-    personalApiKey,
-    builderAuth: options.builderAuth,
+  const deadlineAt =
+    options.contextPrefetchDeadlineAt ?? Date.now() + JEV_PRELOAD_BUDGET_MS;
+  const hasJev = Boolean(apiKey || personalApiKey || options.builderAuth);
+  let runtimeCandidates: JevPromptCandidate[] = [];
+  let memoryContext: {
+    candidates: JevPromptCandidate[];
+    fallbackIds: string[];
+  } = { candidates: [], fallbackIds: [] };
+  if (hasJev) {
+    try {
+      const collection = await withinPromptBudget(
+        (signal) =>
+          Promise.all([
+            collectJevPromptCandidates(signal),
+            collectJevMemoryPromptCandidates({
+              owner: options.owner,
+              orgId: options.orgId,
+              request,
+              signal,
+            }),
+          ]),
+        deadlineAt,
+      );
+      if (collection.status === "completed") {
+        runtimeCandidates = collection.value[0];
+        memoryContext = collection.value[1];
+      } else {
+        console.warn(
+          "[agent] Jev context candidates exceeded the preload budget; keeping Analytics retrieval fallback.",
+        );
+      }
+    } catch (error) {
+      console.warn(
+        "[agent] Jev context candidates unavailable; keeping Analytics retrieval fallback.",
+        error instanceof Error ? error.message : "unknown error",
+      );
+    }
+  }
+  const candidates = [
+    ...runtimeCandidates,
+    ...memoryContext.candidates,
+    ...(options.candidates ?? []),
+  ];
+  if (candidates.length === 0) {
+    trackAnalyticsJevContext({
+      appId: options.appId,
+      jevConfigured: hasJev,
+      status: "no_candidates",
+      source: "none",
+      candidates,
+      selectedIds: [],
+    });
+    return "";
+  }
+
+  const categoryFor = (candidate: JevPromptCandidate) => {
+    const kind = candidate.metadata?.kind ?? candidate.kind;
+    if (kind === "analytics-reference") return "analytics-reference" as const;
+    if (kind === "memory" || kind === "personal-memory")
+      return "memory" as const;
+    return "skill" as const;
+  };
+  const categories = ["skill", "memory", "analytics-reference"] as const;
+  const candidatesByCategory = new Map(
+    categories.map((category) => [
+      category,
+      candidates.filter((candidate) => categoryFor(candidate) === category),
+    ]),
+  );
+  const rankings = new Map<
+    (typeof categories)[number],
+    Awaited<ReturnType<typeof rankJevCandidatesWithStatus>>
+  >();
+  if (hasJev) {
+    const rankAllCandidates = (signal: AbortSignal) =>
+      Promise.all(
+        categories.map(async (category) => {
+          const group = candidatesByCategory.get(category) ?? [];
+          if (group.length === 0) return [category, null] as const;
+          const rank = await rankJevCandidatesWithStatus({
+            request,
+            apiKey,
+            personalApiKey,
+            builderAuth: options.builderAuth,
+            candidates: group,
+            candidateStateKey: `candidate_${category.replaceAll("-", "_")}`,
+            answerKey: `best_${category.replaceAll("-", "_")}`,
+            signal,
+            timeoutMs: Math.min(JEV_TIMEOUT_MS, deadlineAt - Date.now()),
+            question:
+              category === "skill"
+                ? "Which skills are relevant to this task? Choose at most 3."
+                : category === "memory"
+                  ? "Which prior user memories are important for this task? Choose at most 2 based only on their short summaries."
+                  : "Which Analytics data-dictionary entries or dashboard panels best match this request? Choose at most 2; references are examples, not live results.",
+            limit: category === "skill" ? 3 : JEV_MEMORY_SELECTION_LIMIT,
+          });
+          const groupIds = new Set(group.map((candidate) => candidate.id));
+          const ids = rank.ids.filter((id) => groupIds.has(id));
+          return [
+            category,
+            ids.length === 0 && rank.status === "selected"
+              ? { status: "no-match" as const, ids: [] }
+              : { ...rank, ids },
+          ] as const;
+        }),
+      );
+    try {
+      const ranked = await withinPromptBudget(rankAllCandidates, deadlineAt);
+      if (ranked.status === "completed") {
+        for (const [category, result] of ranked.value) {
+          if (result) rankings.set(category, result);
+        }
+      } else {
+        console.warn(
+          "[agent] Jev ranking exceeded the preload budget; using bounded retrieval fallbacks.",
+        );
+      }
+    } catch (error) {
+      console.warn(
+        "[agent] Jev ranking unavailable; using bounded retrieval fallbacks.",
+        error instanceof Error ? error.message : "unknown error",
+      );
+    }
+  }
+  const jevSelectedIds = [...rankings.values()]
+    .filter((result) => result.status === "selected")
+    .flatMap((result) => result.ids);
+  const selected = new Set(jevSelectedIds);
+  const analyticsCandidates =
+    candidatesByCategory.get("analytics-reference") ?? [];
+  const highSimilarityReferenceIds = analyticsCandidates
+    .filter((candidate) => {
+      const similarity = Number(candidate.metadata?.similarity);
+      return (
+        Number.isFinite(similarity) &&
+        similarity >= MIN_ANALYTICS_REFERENCE_SIMILARITY
+      );
+    })
+    .slice(0, 1)
+    .map((candidate) => candidate.id);
+  const referenceRanking = rankings.get("analytics-reference");
+  if (
+    analyticsCandidates.length > 0 &&
+    !analyticsCandidates.some((candidate) => selected.has(candidate.id))
+  ) {
+    if (!hasJev) {
+      for (const id of options.fallbackCandidateIds ?? []) selected.add(id);
+    } else if (highSimilarityReferenceIds.length > 0) {
+      for (const id of highSimilarityReferenceIds) selected.add(id);
+    } else if (!referenceRanking || referenceRanking.status === "unavailable") {
+      for (const id of options.fallbackCandidateIds ?? []) selected.add(id);
+    }
+  }
+  const memoryRanking = rankings.get("memory");
+  if (
+    hasJev &&
+    (!memoryRanking || memoryRanking.status === "unavailable") &&
+    memoryContext.fallbackIds.length > 0
+  ) {
+    for (const id of memoryContext.fallbackIds) selected.add(id);
+  }
+  const selectionPriority = {
+    "analytics-reference": 0,
+    memory: 1,
+    skill: 2,
+  } as const;
+  let selectedIds = candidates
+    .filter((candidate) => selected.has(candidate.id))
+    .sort(
+      (left, right) =>
+        selectionPriority[categoryFor(left)] -
+        selectionPriority[categoryFor(right)],
+    )
+    .map((candidate) => candidate.id);
+  const rankingStatuses = [...rankings.values()].map((result) => result.status);
+  const status = rankingStatuses.includes("selected")
+    ? "selected"
+    : rankings.size > 0 &&
+        rankingStatuses.every((value) => value === "no-match")
+      ? "no-match"
+      : "unavailable";
+  const selectionSource = jevSelectedIds.length
+    ? selectedIds.length > jevSelectedIds.length
+      ? "jev+fallback"
+      : "jev"
+    : selectedIds.length
+      ? "fallback"
+      : "none";
+  const withMemoryBodies = await loadSelectedMemoryBodies({
     candidates,
-    candidateStateKey: "candidate_context",
-    answerKey: "best_context",
-    question:
-      "Which skills or reference resources should be loaded into the agent context first for this task? Pick the most useful source; probabilities may be used to keep a small ranked shortlist.",
-    limit: 3,
+    selectedIds,
+    owner: options.owner,
+    orgId: options.orgId,
+    deadlineAt,
   });
-  if (selectedIds.length === 0) return "";
+  const bodyById = new Map(
+    withMemoryBodies.map((candidate) => [candidate.id, candidate]),
+  );
+  candidates.splice(0, candidates.length, ...withMemoryBodies);
+  selectedIds = selectedIds.filter((id) => bodyById.get(id)?.content.trim());
+  trackAnalyticsJevContext({
+    appId: options.appId,
+    jevConfigured: hasJev,
+    status,
+    source: selectionSource,
+    candidates,
+    selectedIds,
+  });
+  if (selectedIds.length === 0) {
+    recordAnalyticsPreloadedReferenceCount({
+      appId: options.appId,
+      candidates,
+      injectedIds: new Set(),
+    });
+    return "";
+  }
 
   const maxItemChars = options.compact ? 6_000 : JEV_CONTEXT_ITEM_MAX_CHARS;
   const maxTotalChars = Math.min(
@@ -968,6 +1470,7 @@ export async function preloadJevContextForPrompt(options: {
     maxTotalChars - JEV_CONTEXT_WRAPPER_OVERHEAD_CHARS,
   );
   const blocks: string[] = [];
+  const injectedIds = new Set<string>();
   let usedChars = 0;
   for (const id of selectedIds) {
     const candidate = candidates.find((item) => item.id === id);
@@ -996,8 +1499,14 @@ export async function preloadJevContextForPrompt(options: {
     if (!block) continue;
     if (block.length > remaining) break;
     blocks.push(block);
+    injectedIds.add(candidate.id);
     usedChars += separatorChars + block.length;
   }
+  recordAnalyticsPreloadedReferenceCount({
+    appId: options.appId,
+    candidates,
+    injectedIds,
+  });
   if (blocks.length === 0) return "";
   return `${JEV_CONTEXT_PREFIX}${escapeJevContextFence(blocks.join(JEV_CONTEXT_SEPARATOR))}${JEV_CONTEXT_SUFFIX}`;
 }

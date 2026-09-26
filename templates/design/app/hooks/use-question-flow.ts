@@ -8,6 +8,10 @@ import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import { useCallback } from "react";
 
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import {
+  formatComposerContext,
+  hasComposerSystemContext,
+} from "@/lib/composer-context";
 import { loadDesignSystemGenerationContext } from "@/pages/design-editor/generation-prompt-directives";
 
 export interface QuestionFlowModelSelection {
@@ -24,6 +28,7 @@ export interface QuestionFlowModelSelection {
  * design system in front of the model at the moment it generates.
  */
 export interface QuestionFlowGenerationBrief {
+  contextItems?: PromptComposerSubmitOptions["contextItems"];
   /** The user's original words, replayed verbatim — never a paraphrase. */
   prompt?: string;
   designSystemId?: string | null;
@@ -81,6 +86,7 @@ export function buildGenerationBriefContext(
         ].join("\n")
       : "",
     brief?.uploadedFileContext?.trim() ?? "",
+    formatComposerContext(brief?.contextItems),
     designSystemContext,
   ]
     .filter(Boolean)
@@ -170,9 +176,10 @@ export function useQuestionFlow(
       // change the design system while the questionnaire is open. This never
       // throws — a load failure returns instruction text telling the agent to
       // stop rather than improvise a generic style.
-      const designSystemContext = brief?.designSystemId
-        ? await loadDesignSystemGenerationContext(brief.designSystemId)
-        : "";
+      const designSystemContext =
+        brief?.designSystemId && !hasComposerSystemContext(brief.contextItems)
+          ? await loadDesignSystemGenerationContext(brief.designSystemId)
+          : "";
       const briefContext = buildGenerationBriefContext(
         brief,
         designSystemContext,

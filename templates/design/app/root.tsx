@@ -221,21 +221,6 @@ function DesignToaster() {
   );
 }
 
-function RootContent() {
-  const location = useLocation();
-  if (location.pathname === "/") return <MarketingRootContent />;
-  return <PrivateRootContent />;
-}
-
-function MarketingRootContent() {
-  return (
-    <>
-      <OpenVisualEditWebMcp />
-      <Outlet />
-    </>
-  );
-}
-
 function PrivateRootContent() {
   const location = useLocation();
   const { session } = useSession();
@@ -281,8 +266,6 @@ export function computeSessionBypass(pathname: string): boolean {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
-  const isMarketingHome = location.pathname === "/";
-  const isPublicPath = isMarketingHome;
   // Public design routes still resolve their editor layout client-side; SSR
   // would render route-state hooks before the document router is available.
   const sessionBypass = computeSessionBypass(location.pathname);
@@ -290,13 +273,12 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath={isPublicPath}
         sessionBypass={sessionBypass}
         webMcpExcludeActionNames={DESIGN_WEBMCP_EXCLUDED_ACTIONS}
-        i18n={{ catalog: i18nCatalog, persistPreference: !isPublicPath }}
+        i18n={{ catalog: i18nCatalog }}
         toaster={<DesignToaster />}
       >
-        <RootContent />
+        <PrivateRootContent />
       </AppProviders>
     </AppToolkitProvider>
   );

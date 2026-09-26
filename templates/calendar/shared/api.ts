@@ -79,6 +79,8 @@ export interface CalendarEvent {
   hangoutLink?: string; // Google Meet link
   /** Meeting URL stored in location/description for non-Google providers such as Zoom */
   meetingLink?: string;
+  /** The booking is confirmed, but the host still needs to attach its meeting link. */
+  meetingLinkPending?: boolean;
   /** Action-result warning when optional video conferencing could not be provisioned. */
   videoConferenceError?: "zoom";
   conferenceData?: {
@@ -399,10 +401,16 @@ export interface Booking {
   fieldResponses?: Record<string, string | boolean>;
   /** Meeting link (Zoom, Google Meet, or custom) */
   meetingLink?: string;
+  /** The time is booked, but the video meeting link needs host follow-up. */
+  meetingLinkPending?: boolean;
   /** Google Calendar event created for this booking, if any */
   googleEventId?: string;
   /** Token for cancel/reschedule link (only returned to the booker) */
   cancelToken?: string;
+  /** Zoom may have created the meeting even though its booking request failed. */
+  zoomNeedsReview?: boolean;
+  /** Cancellation requires a manual Zoom check because no provider ID was saved. */
+  zoomCancellationNeedsReview?: boolean;
   status: "confirmed" | "cancelled";
   createdAt: string;
 }
@@ -497,6 +505,19 @@ export interface Settings {
   bookingPageDescription: string;
   defaultEventDuration: number; // minutes
   weekStart: import("./calendar-week.js").CalendarWeekStart;
+  eventRules?: { accept?: string; decline?: string; hide?: string };
+  hiddenEventKeys?: string[];
+  eventRuleActivity?: CalendarEventRuleActivity[];
+}
+
+export interface CalendarEventRuleActivity {
+  id: string;
+  eventId: string;
+  accountEmail: string;
+  title: string;
+  action: "accepted" | "declined" | "hidden";
+  occurredAt: string;
+  hiddenEventKey?: string;
 }
 
 export type ApolloPersonResult = {

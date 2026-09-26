@@ -41,6 +41,7 @@ describe("shared snapshot route", () => {
     expect(result).toEqual({
       deck: { title: "Launch review", slides: [] },
       basePath: "/slides",
+      origin: "https://workspace.example.test",
     });
   });
 });

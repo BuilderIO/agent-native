@@ -189,11 +189,19 @@ test.beforeEach(async ({ page }, testInfo) => {
     (testInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
 });
 
-test.describe("click selects the container, not the deep child", () => {
+// PR #5644 ("Use direct selection inside design screens") made a plain click
+// inside a SCREEN select the deepest block under the pointer directly — a
+// documented, human-directed exception to Figma (see
+// editor-chrome.bridge.ts's plainClickSelectionTarget). The infinite-canvas
+// board surface keeps the original Figma container-first behavior, so these
+// two tests run the same nested Card/Kid A fixture as a board object
+// (newBoardDesign) instead of a screen (newDesign) to assert the contract
+// where it still holds.
+test.describe("click selects the container on the board surface, not the deep child", () => {
   test("clicking a child inside Card selects Card, not Kid A", async ({
     page,
   }) => {
-    const id = await newDesign(page);
+    const id = await newBoardDesign(page, FIXTURE);
     await openEditorAndExpandLayers(page, id);
     const kidA = (await node(page, "kid-a").boundingBox())!;
     await click(page, kidA);
@@ -209,7 +217,8 @@ test.describe("click selects the container, not the deep child", () => {
           timeout: 10_000,
           message:
             'Figma spec §1: "clicking an object that lives inside a frame/group ' +
-            'selects the outermost/top-level container ... not the deep child."',
+            'selects the outermost/top-level container ... not the deep child." ' +
+            "(board surface only — screens deliberately select the deep child, see PR #5644)",
         },
       )
       .toContain("Card");
@@ -222,7 +231,7 @@ test.describe("click selects the container, not the deep child", () => {
   test("double-click after selecting Card drills into the clicked child", async ({
     page,
   }) => {
-    const id = await newDesign(page);
+    const id = await newBoardDesign(page, FIXTURE);
     await openEditorAndExpandLayers(page, id);
     const kidA = (await node(page, "kid-a").boundingBox())!;
     await click(page, kidA);
@@ -350,11 +359,14 @@ test.describe("shift+click toggles membership", () => {
   });
 });
 
+// Same PR #5644 exception as above: a drilled-in child only exists on the
+// board surface for a plain first click, since a screen now selects Kid A
+// directly. Uses newBoardDesign(FIXTURE) so the "Card" precondition holds.
 test.describe("Esc / Enter traversal from a real drill-in", () => {
   test("Escape clears the selection entirely, even from a drilled-in child", async ({
     page,
   }) => {
-    const id = await newDesign(page);
+    const id = await newBoardDesign(page, FIXTURE);
     await openEditorAndExpandLayers(page, id);
     const kidA = (await node(page, "kid-a").boundingBox())!;
     await click(page, kidA);
@@ -387,7 +399,7 @@ test.describe("Esc / Enter traversal from a real drill-in", () => {
   });
 
   test("Enter descends from Card to its first child", async ({ page }) => {
-    const id = await newDesign(page);
+    const id = await newBoardDesign(page, FIXTURE);
     await openEditorAndExpandLayers(page, id);
     const kidA = (await node(page, "kid-a").boundingBox())!;
     await click(page, kidA);

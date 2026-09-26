@@ -187,17 +187,17 @@ function ThemeToggleItem() {
 }
 
 /**
- * Public booking routes (/book/*, /meet/*, /booking/manage/*) must SSR real
- * content for first-visit signed-out users and crawlers. These paths bypass
- * ClientOnly so entry.server.tsx can stream the actual route markup rather than
- * a bare spinner. Auth/private routes are unaffected.
+ * Public booking routes must SSR real content for first-visit signed-out users
+ * and crawlers. These paths bypass ClientOnly so entry.server.tsx can stream
+ * the actual route markup rather than a bare spinner. Auth/private routes are
+ * unaffected.
  */
 function isPublicBookingPath(pathname: string): boolean {
   const p = pathname.replace(/\/+$/, "") || "/";
   return (
-    p.startsWith("/book/") ||
-    p.startsWith("/meet/") ||
-    p.startsWith("/booking/manage/")
+    /^\/book\/[^/]+(?:\/[^/]+)?$/.test(p) ||
+    /^\/meet\/[^/]+\/[^/]+$/.test(p) ||
+    /^\/booking\/manage\/[^/]+$/.test(p)
   );
 }
 
@@ -206,12 +206,6 @@ function isAgentNativeDesktop(): boolean {
     typeof navigator !== "undefined" &&
     /AgentNativeDesktop/i.test(navigator.userAgent)
   );
-}
-
-function AppContent() {
-  const location = useLocation();
-  if (location.pathname === "/") return <Outlet />;
-  return <PrivateAppContent />;
 }
 
 function PrivateAppContent() {
@@ -295,9 +289,7 @@ export default function Root() {
   );
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
-  const isMarketingHome = location.pathname === "/";
-  const isPublicPath =
-    isMarketingHome || isPublicBookingPath(location.pathname);
+  const isPublicPath = isPublicBookingPath(location.pathname);
 
   return (
     <AppToolkitProvider>
@@ -314,7 +306,7 @@ export default function Root() {
           persistPreference: !isPublicPath,
         }}
       >
-        <AppContent />
+        <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>
   );

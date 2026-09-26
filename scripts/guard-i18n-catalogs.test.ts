@@ -6,8 +6,29 @@ import {
   checkLocalizedDocsCoverage,
   checkRawVisibleLiteralFile,
   checkStaleBaselineEntries,
+  findCorruptedLocalizedDocsIdentifiers,
   normalizeLocalizedDocSlug,
 } from "./guard-i18n-catalogs";
+
+describe("localized documentation identifiers", () => {
+  it("does not match a prefix of a legitimate API identifier", () => {
+    assert.deepEqual(
+      findCorruptedLocalizedDocsIdentifiers(
+        "`PromptHomeLibrary`, `PromptHomeLibraryProps`, and `PromptComposer`",
+      ),
+      [],
+    );
+  });
+
+  it("still rejects translated composer identifiers as whole tokens", () => {
+    for (const identifier of ["PromptKomponierer", "PromptGénérateur"]) {
+      assert.deepEqual(
+        findCorruptedLocalizedDocsIdentifiers(`Use \`${identifier}\` here.`),
+        [identifier],
+      );
+    }
+  });
+});
 
 describe("raw visible literal scanning", () => {
   it("skips generic parameter fragments only in JSX-text candidates", () => {

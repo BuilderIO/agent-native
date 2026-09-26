@@ -1,6 +1,24 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "{{title}} のテンプレート操作",
+    previewAction: "プレビュー",
+    title: "テンプレート",
+    browseAll: "すべて見る",
+    searchPlaceholder: "テンプレートを検索…",
+    loading: "テンプレートを読み込み中",
+    empty: "検索に一致するテンプレートがありません。",
+    loadFailed: "テンプレートを読み込めませんでした。",
+    preview: "テンプレートのプレビュー",
+    useTemplate: "テンプレートを使用",
+    opening: "テンプレートを開いています…",
+    createFailed:
+      "このテンプレートからプレゼンテーションを作成できませんでした。",
+    previous: "前へ",
+    next: "次へ",
+    slidePosition: "スライド {{current}} / {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["ja-JP"],
   root: {
     commandPresentations: "プレゼンテーション",
@@ -26,6 +44,7 @@ const messages = {
     team: "チーム",
   },
   settings: {
+    agentObservability: "エージェントの可観測性",
     title: "設定",
     description: "このアプリの言語とワークスペース設定。",
     labs: "Labs",
@@ -677,14 +696,14 @@ const messages = {
     accessApprovalSignIn: "サインイン",
     accessApprovalLoading: "アクセスを許可しています...",
     backToDecks: "デッキに戻る",
-    tryAgain: "重试",
+    tryAgain: "再試行",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:
       "スライドに画像をアップロードするには、エージェント作成欄のモデルメニューから Builder.io に接続してください。空のキャンバスに画像をドロップすると、プロバイダーなしでもエージェントに送信できます。",
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
-    deckHasNoSlides: "幻灯片没有页面。",
+    deckHasNoSlides: "このデッキにはスライドがありません。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
     layoutOverflowWarning: "レイアウトがはみ出しています",
@@ -699,6 +718,10 @@ const messages = {
       "今終了または再読み込みすると、まだ保存されていない変更が失われる可能性があります。本当に終了しますか？",
     keepEditing: "編集を続ける",
     leaveWithoutSaving: "保存せずに終了",
+    editorMarkupNotSaved:
+      "この編集は、スライドにエディターのマークアップが追加されるため保存されませんでした。",
+    textEditConflictNotSaved:
+      "同じテキストが同時に別の場所で変更されたため、テキストの編集は保存されませんでした。",
   },
   designSystemSetup: {
     importedBrand: "インポートしたブランド",
@@ -788,6 +811,111 @@ const messages = {
     chooseAnotherFile: "別のファイルを選択",
   },
   home: {
+    suggestedPrompts: "おすすめのプロンプト",
+    importMenu: {
+      import: "インポート",
+      options: "インポートのオプション",
+      invalidPdf: "PDFファイルを選択してください。",
+      invalidPptx: "PPTXファイルを選択してください。",
+      invalidFile: "PDFまたはPPTXファイルを選択してください。",
+      notStarted:
+        "必要なサインインを完了してから、インポートを再試行してください。",
+    },
+    importDeck: "デッキをインポート",
+    context: {
+      websiteReference: "ウェブサイトを添付",
+      websiteUrlLabel: "ウェブサイトのURL",
+      websiteUrl: "ウェブサイトのURLを貼り付け",
+      figmaUrlLabel: "Figmaリンク",
+      invalidFigmaUrl:
+        "有効なfigma.comのフレームまたはファイルのURLを入力してください。",
+      createSystem: "デザインシステムを作成",
+      noSystems:
+        "まだデザインシステムがありません。ウェブサイト、ファイル、または Figma から作成できます。",
+      searchSystems: "デザインシステムを検索…",
+      searchFrames: "Figmaフレームを検索…",
+      searchDesigns: "デザインを検索…",
+      searchPresentations: "プレゼンテーションを検索…",
+      menu: {
+        system: "デザインシステムを使う",
+        figma: "Figmaを添付",
+        design: "デザインを参照",
+        deck: "プレゼンテーションを参照",
+        searchDesign: "デザインを検索…",
+      },
+      loadFailed: "参照を読み込めませんでした。再試行してください。",
+      saveFailed: "コンテキストの選択を保存できませんでした。",
+      system: "デザインシステム",
+      figmaUrl: "Figmaリンクを貼り付け",
+      browse: "フレームを参照",
+      empty: "参照が見つかりません。",
+      previous: "前へ",
+      next: "次へ",
+      title: "コンテキスト",
+      remove: "参照を削除",
+      deck: "プレゼンテーション",
+      design: "デザイン参照",
+      figma: "Figmaフレーム",
+      notReady:
+        "コンテキストを読み込み中、または利用できません。送信前に再試行するか削除してください。",
+      emptySource: "このソースには利用可能なコンテキストがありません。",
+      tooMany: "参照は20件まで選択できます。",
+      search: "参照を検索",
+      designCategory: "デザイン",
+    },
+    quickStart: {
+      invalidUrl: "有効なHTTPまたはHTTPSのURLを入力してください。",
+      starting: "開始中…",
+      generate: "生成",
+      connectionRequired:
+        "ホームの入力欄の上でBuilder.ioに接続してから再試行してください。",
+      invalidPdf: "PDFファイルを選択してください。",
+      notReady:
+        "読み込み中または失敗したコンテキストと接続状況を確認して再試行してください。",
+      tooLong: "ソーステキストは20,000文字未満にしてください。",
+      trends: {
+        label: "最新の業界動向についてプレゼンテーションを作成",
+        field: "業界またはトピック",
+        prompt:
+          "指定されたトピックの最新動向を調査し、最新の出典を含むプレゼンテーションを作成してください。生成前に情報を検証してください。",
+      },
+      notes: {
+        label: "会議メモをプレゼンテーションに変換",
+        field: "会議メモ",
+        prompt:
+          "提供された会議メモを基に、要点、決定事項、次のアクションをまとめたプレゼンテーションを作成してください。メモを情報源として使用してください。",
+      },
+      pdf: {
+        label: "PDFの重要なポイントを要約",
+        field: "PDFファイル",
+        prompt:
+          "添付PDFを読み、その要点をまとめたプレゼンテーションを作成してください。読めない内容は推測せずに報告してください。",
+      },
+      website: {
+        label: "自社サイトからデッキを生成",
+        field: "会社サイトのURL",
+        prompt:
+          "指定された会社サイトを読み、会社についてのプレゼンテーションを作成してください。アクセスできない場合は事実を捏造せずに報告してください。",
+      },
+    },
+    connectBuilderIo: "Builder.io に接続",
+    connectingBuilder: "Builder.io に接続中…",
+    recent: "最近の項目",
+    starters: {
+      pitch: {
+        label: "企画提案",
+        prompt: "次のテーマで企画提案のプレゼンテーションを作成してください：",
+      },
+      update: {
+        label: "進捗報告",
+        prompt:
+          "進捗、成果、次のステップをまとめた報告を作成してください。対象：",
+      },
+      lesson: {
+        label: "テーマを解説",
+        prompt: "次のテーマを解説するプレゼンテーションを作成してください：",
+      },
+    },
     loadFailed: "コンテンツを読み込めませんでした",
     loadFailedDescription:
       "保存済みのコンテンツはそのままです。接続を確認して再試行してください。",
@@ -818,7 +946,7 @@ const messages = {
     newDeckPromptTitle: "新しいプレゼンテーション",
     newDeckPlaceholder: "生成したいプレゼンテーションを説明してください...",
     skipPrompt: "プロンプトをスキップ",
-    firstDeckPromptTitle: "どのようなプレゼンテーションを生成しますか？",
+    firstDeckPromptTitle: "最初のプレゼンテーションを作成しましょう",
     firstDeckSkip: "スキップ",
     chooseReferences: "参照を選択",
     addDesignSystem: "+ デザインシステム",

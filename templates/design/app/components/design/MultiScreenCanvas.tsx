@@ -97,6 +97,7 @@ import {
   useLayoutEffect,
   useMemo,
   type CSSProperties,
+  type FocusEvent as ReactFocusEvent,
   type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -145,10 +146,7 @@ import {
   parseGradientCss,
   type GradientStopValue,
 } from "./inspector/GradientEditor";
-import {
-  sendLinkedScreenPreviewCancelPendingDelete,
-  sendLinkedScreenPreviewPendingDelete,
-} from "./multi-screen/linked-screen-preview";
+import { sendLinkedScreenPreviewCancelPendingDelete } from "./multi-screen/linked-screen-preview";
 import type {
   AltHoverMeasurement,
   AltHoverMeasurementLine,
@@ -739,6 +737,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const { resolvedTheme } = useTheme();
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const initialCanvasFocusPendingRef = useRef(true);
+  const initialCanvasFocusAttemptedRef = useRef(false);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const panRef = useRef(pan);
   const [canvasZoom, setCanvasZoom] = useState(zoom);
@@ -875,6 +875,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   );
   const [penPointer, setPenPointer] = useState<Point | null>(null);
   const [penCloseHover, setPenCloseHover] = useState(false);
+  const clearActivePenPath = useCallback(() => {
+    activePenPathRef.current = null;
+    setActivePenPath(null);
+    setPenGesturePreview(null);
+    setPenPointer(null);
+    setPenCloseHover(false);
+  }, []);
   // Last raw client point the pen ghost/close-hover preview was computed
   // from (P18). A wheel pan/zoom gesture mutates pan/zoom every animation
   // frame via applyViewToDom without the mouse itself moving, so the
@@ -1770,6 +1777,62 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     }
     surface.focus({ preventScroll: true });
   }, []);
+
+  useEffect(() => {
+    const markCanvasUsed = () => {
+      initialCanvasFocusPendingRef.current = false;
+    };
+    document.addEventListener("pointerdown", markCanvasUsed, true);
+    document.addEventListener("keydown", markCanvasUsed, true);
+    return () => {
+      document.removeEventListener("pointerdown", markCanvasUsed, true);
+      document.removeEventListener("keydown", markCanvasUsed, true);
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (
+      initialCanvasFocusAttemptedRef.current ||
+      !editableScreenIds?.size ||
+      interactMode ||
+      interactScreenId
+    ) {
+      return;
+    }
+    initialCanvasFocusAttemptedRef.current = true;
+    if (!initialCanvasFocusPendingRef.current) return;
+    const surface = surfaceRef.current;
+    const active = document.activeElement;
+    if (
+      !surface ||
+      (active !== document.body && isEditableHotkeyTarget(active))
+    ) {
+      return;
+    }
+    surface.focus({ preventScroll: true });
+  }, [editableScreenIds?.size, interactMode, interactScreenId]);
+
+  const restoreInitialCanvasFocus = useCallback(
+    (event: ReactFocusEvent<HTMLDivElement>) => {
+      if (
+        !initialCanvasFocusPendingRef.current ||
+        interactMode ||
+        interactScreenId
+      ) {
+        return;
+      }
+      const target = event.target;
+      if (
+        !(target instanceof HTMLIFrameElement) ||
+        !surfaceRef.current?.contains(target) ||
+        target.closest('[data-screen-interact-mode="true"]')
+      ) {
+        return;
+      }
+      surfaceRef.current.focus({ preventScroll: true });
+    },
+    [interactMode, interactScreenId],
+  );
 
   // Per-screen memoization of resolveScreenMetadata (PF20). resolveScreenMetadata
   // string-scans up to 4000 chars of content (deriveSource/derivePreviewState)
@@ -3591,23 +3654,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         clearCrossScreenDrag();
         return;
       }
-      const shouldPreviewSourceDelete =
-        !payload.duplicate &&
-        Boolean(payload.sourceDeleteRequestId) &&
-        editableScreenIds?.has(sourceScreenId) === true &&
-        (targetCandidate.id === boardFileId ||
-          editableScreenIds?.has(targetCandidate.id) === true);
-      if (payload.sourceDeleteRequestId) {
-        if (shouldPreviewSourceDelete) {
-          sendLinkedScreenPreviewPendingDelete(sourceScreenId, {
-            selector: payload.selector,
-            selectorCandidates: sourceDeleteCandidates,
-            requestId: payload.sourceDeleteRequestId,
-          });
-        } else {
-          cancelPendingSourceDelete();
-        }
-      }
+      // The source stays visible until the destination insert is acknowledged.
+      // DesignCanvas starts its delete preview only after that acknowledgement.
       crossScreenHostCommittedRef.current = true;
       if (targetCandidate.id === boardFileId) {
         // A successful prior handoff retains its identity until the paired
@@ -4097,12 +4145,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             styleSnapshotCaptureFailed,
           };
           const lastBoardPoint = crossScreenLastBoardPointRef.current;
+          const releasedAt = eventEpochMilliseconds(ev.timeStamp);
           finalizeCrossScreenDrop(
             sourceScreenId,
             candidate,
             payload,
             lastBoardPoint,
-            eventEpochMilliseconds(ev.timeStamp),
+            releasedAt,
+          );
+          // This release never reached the source iframe, so its gesture is
+          // still armed: the element stays lifted and follows the next hover.
+          // End it there; the "cancel" it posts back trails this end, so the
+          // cancel handler treats it as cleanup and keeps this drop alive.
+          // Stamped with the release so a gesture begun after it survives.
+          sourcePreviewIframe.contentWindow?.postMessage(
+            { type: "agent-native:cancel-active-drag", pressedAt: releasedAt },
+            "*",
           );
         };
         const handleParentWindowBlur = () => {
@@ -5582,6 +5640,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         event.stopImmediatePropagation();
         return;
       }
+      if (activePenPathRef.current) return;
       // No in-flight drag to cancel: Escape while in vector edit mode exits
       // the mode entirely (matches Figma), rather than being a no-op.
       if (vectorEdit) {
@@ -6292,7 +6351,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const lastPersisted = persistedEntries[persistedEntries.length - 1];
     // Do not call onPrimitiveCreated for board objects (sentinel frameId).
     if (lastPersisted && lastPersisted.frameId !== "__board__") {
-      onPrimitiveCreated?.(lastPersisted.frameId, lastPersisted.nodeId);
+      onPrimitiveCreated?.(lastPersisted.frameId, lastPersisted.nodeId, {
+        preserveActiveTool: true,
+      });
     }
   }, [
     onCreatePrimitive,
@@ -6307,19 +6368,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     retryPersistedDraftPrimitives();
   }, [frameGeometry, retryPersistedDraftPrimitives, screens]);
 
-  const clearActivePenPath = useCallback(() => {
-    activePenPathRef.current = null;
-    setActivePenPath(null);
-    setPenGesturePreview(null);
-    setPenPointer(null);
-    setPenCloseHover(false);
-  }, []);
-
   const finishPenPath = useCallback(
     (
       path = activePenPathRef.current,
-      options?: { continueAfterCommit?: boolean },
+      options?: {
+        continueAfterCommit?: boolean;
+        nextTool?: "move" | "pen";
+      },
     ) => {
+      let nextTool: "move" | "pen" = options?.nextTool ?? "pen";
       // Clear before committing: the commit flushes React synchronously, and
       // an effect it wakes can re-enter here and commit the same path twice.
       clearActivePenPath();
@@ -6329,32 +6386,49 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
 
       if (penContinuesVectorEditRef.current) {
-        penContinuesVectorEditRef.current = false;
         const active = vectorEditRef.current;
         const baseCount = penContinuationBaseCountRef.current;
-        penContinuationBaseCountRef.current = 0;
-        if (
-          active &&
-          (path.nodes.length > baseCount || path.closed !== active.path.closed)
-        ) {
-          const toLocal = (point: Point): Point => ({
-            x: point.x - active.originCanvas.x,
-            y: point.y - active.originCanvas.y,
-          });
-          active.onChange(
-            {
-              closed: path.closed,
-              nodes: path.nodes.map((node) => ({
-                ...node,
-                point: toLocal(node.point),
-                handleIn: node.handleIn ? toLocal(node.handleIn) : undefined,
-                handleOut: node.handleOut ? toLocal(node.handleOut) : undefined,
-              })),
-            },
-            "commit",
+        const changed =
+          path.nodes.length > baseCount || path.closed !== active?.path.closed;
+        const accepted =
+          !changed ||
+          Boolean(
+            active &&
+            active.onChange(
+              {
+                closed: path.closed,
+                nodes: path.nodes.map((node) => ({
+                  ...node,
+                  point: {
+                    x: node.point.x - active.originCanvas.x,
+                    y: node.point.y - active.originCanvas.y,
+                  },
+                  handleIn: node.handleIn
+                    ? {
+                        x: node.handleIn.x - active.originCanvas.x,
+                        y: node.handleIn.y - active.originCanvas.y,
+                      }
+                    : undefined,
+                  handleOut: node.handleOut
+                    ? {
+                        x: node.handleOut.x - active.originCanvas.x,
+                        y: node.handleOut.y - active.originCanvas.y,
+                      }
+                    : undefined,
+                })),
+              },
+              "commit",
+            ),
           );
+        if (!accepted) {
+          activePenPathRef.current = path;
+          setActivePenPath(path);
+          return;
         }
-        onActiveToolChange?.("pen");
+        penContinuesVectorEditRef.current = false;
+        penContinuationBaseCountRef.current = 0;
+        if (nextTool === "move") active?.onExit();
+        onActiveToolChange?.(nextTool);
         return;
       }
 
@@ -6368,7 +6442,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           updateNodeId: continuation.nodeId,
         });
         if (!persisted) {
-          continuationPenPathRef.current = null;
           activePenPathRef.current = path;
           setActivePenPath(path);
           return;
@@ -6379,8 +6452,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             : { ...continuation, path: clonePenPath(path) };
       } else {
         const persisted = commitDraftPrimitive(draft, undefined, {
-          nextTool: "pen",
+          nextTool,
         });
+        if (!persisted) nextTool = "pen";
         continuationPenPathRef.current =
           persisted && !path.closed && options?.continueAfterCommit
             ? {
@@ -6390,12 +6464,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               }
             : null;
       }
-      // Keep the Pen tool armed after Enter/Escape/closing a path, matching
-      // Figma. The parent selection callback also receives nextTool="pen",
-      // but board primitives intentionally bypass that generic callback and
-      // asynchronous selection reconciliation can otherwise paint Move for a
-      // frame. Drive the controlled tool explicitly at the commit boundary.
-      onActiveToolChange?.("pen");
+      // The parent selection callback receives nextTool, but board primitives
+      // intentionally bypass it, so update the controlled tool here too.
+      onActiveToolChange?.(nextTool);
     },
     [
       clearActivePenPath,
@@ -10450,7 +10521,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        finishPenPath(path, { continueAfterCommit: true });
+        if (dragState.current?.type === "pen-node") cancelActiveDrag();
+        const pathToFinish = activePenPathRef.current;
+        if (!pathToFinish) return;
+        const continuesExistingPath =
+          continuationPenPathRef.current !== null ||
+          penContinuesVectorEditRef.current;
+        finishPenPath(pathToFinish, {
+          continueAfterCommit: continuationPenPathRef.current !== null,
+          nextTool: continuesExistingPath ? "pen" : "move",
+        });
         return;
       }
 
@@ -10458,11 +10538,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        // Figma: Escape ends the path in progress and keeps what's drawn so
-        // far (no data loss), rather than discarding the whole path.
-        // finishPenPath already falls back to a discard for a path with
-        // fewer than 2 nodes (P16), where there's nothing meaningful to
-        // commit.
         finishPenPath(path);
         return;
       }
@@ -10479,7 +10554,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [finishPenPath, undoActivePenPathSegment]);
+  }, [cancelActiveDrag, finishPenPath, undoActivePenPathSegment]);
 
   useEffect(() => {
     const tool = normalizeCanvasTool(activeTool ?? localActiveTool);
@@ -11605,6 +11680,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       tabIndex={-1}
       className="relative h-full w-full select-none overflow-clip outline-none"
       onMouseDownCapture={handleMouseDown}
+      onFocusCapture={restoreInitialCanvasFocus}
       onMouseMove={handleMouseMove}
       onMouseLeave={() => setAltHoverMeasurement(null)}
       onDragEnter={handleCanvasDragEnter}

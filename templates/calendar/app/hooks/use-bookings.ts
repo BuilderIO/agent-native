@@ -120,9 +120,16 @@ export function useCreateBooking() {
 export function useDeleteBooking() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(appApiPath(`/api/bookings/${id}`), {
+    mutationFn: async (input: {
+      id: string;
+      zoomMeetingResolved?: boolean;
+    }) => {
+      const res = await fetch(appApiPath(`/api/bookings/${input.id}`), {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(input.zoomMeetingResolved ? { zoomMeetingResolved: true } : {}),
+        }),
       });
       if (!res.ok) throw new Error("Failed to cancel booking");
       return res.json();

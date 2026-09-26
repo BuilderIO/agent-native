@@ -548,7 +548,7 @@ describe("production Netlify site concurrency guard", () => {
       String((betaBuild.with as Workflow).artifact_name),
       /github\.run_id/,
     );
-    assert.equal((betaBuild.strategy as Workflow)["max-parallel"], 16);
+    assert.equal((betaBuild.strategy as Workflow)["max-parallel"], 8);
     assert.equal(
       ((beta.jobs as Workflow).deploy as Workflow).strategy?.["max-parallel"],
       8,

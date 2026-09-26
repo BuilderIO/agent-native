@@ -1,6 +1,25 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "عنوان URL",
+  "composer.contextInvalidUrl": "أدخل عنوان URL صالحًا يبدأ بـ HTTP أو HTTPS.",
+  "composer.contextAttach": "إرفاق",
+  "composer.menu.search": "بحث…",
+  "composer.contextPrevious": "السابق",
+  "composer.contextNext": "التالي",
+  "composer.contextLoadFailed": "تعذّر تحميل السياق.",
+  "composer.contextLinkRequired": "أدخل رابطًا.",
+  "composer.submitFailed": "تعذّر الإرسال. حاول مجددًا.",
+  "composer.addContext": "إضافة سياق",
+  "composer.contextActionFailed": "تعذّرت إضافة السياق.",
+  "composer.contextBack": "رجوع",
+  "composer.searchContext": "البحث في السياق…",
+  "composer.noContextResults": "لا يوجد سياق مطابق.",
+  "composer.contextPending": "السياق قيد الانتظار",
+  "composer.contextError": "فشل السياق",
+  "composer.retryContext": "إعادة محاولة سياق {{name}}",
+  "composer.contextLimitExceeded":
+    "السياق كبير جدًا. أزل عنصرًا أو أرفق تحديدًا أصغر.",
   "activity.reasoning": "الاستدلال",
   "approval.alwaysAllow": "السماح دائمًا",
   "approval.alwaysAllowHint": "الموافقة على هذا الأمر المحدد والسماح به دائمًا",
@@ -566,11 +585,14 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "إعادة إنشاء الرد",
   "message.restoreFailed": "فشلت الاستعادة ({{status}}).",
   "message.restoreQuestion": "هل تريد الاستعادة إلى هنا؟",
+  "message.revertQuestion":
+    "هل تريد الرجوع إلى هذه النقطة؟ ستفقد التغييرات التي أُجريت بعدها.",
   "message.restoreRequestFailed": "فشل طلب الاستعادة.",
   "message.threadNotFound":
     "لم تعد سلسلة الدردشة هذه متاحة. ابدأ دردشة جديدة أو أعد المحاولة إذا كان ذلك غير متوقع.",
   "message.restoring": "جارٍ الاستعادة...",
   "message.revertHere": "الرجوع إلى هنا",
+  "message.revertToBeginning": "الرجوع إلى البداية",
   "message.sentAt": "أُرسلت في {{time}}",
   "contextMeter.ariaLabel":
     "السياق {{percent}}%، {{totalTokens}}{{breakdown}}. افتح تحليل السياق.",
@@ -854,6 +876,11 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "البريد الإلكتروني الجديد",
   "settings.emailNewPlaceholder": "أدخل بريدًا إلكترونيًا جديدًا",
   "usage.builderCredits": "أرصدة Builder",
+  "usage.inviteFriends": "ادعُ الأصدقاء",
+  "usage.inviteCredits":
+    "احصل على {{amount}} من أرصدة Builder عندما يشترك صديق.",
+  "usage.copyInviteLink": "نسخ رابط الدعوة",
+  "usage.inviteLinkCopied": "تم نسخ رابط الدعوة",
   "usage.creditBalance": "رصيد مساحة العمل",
   "usage.monthlyPlan": "الخطة الشهرية",
   "usage.dailyFreeLimit": "الحد اليومي المجاني",

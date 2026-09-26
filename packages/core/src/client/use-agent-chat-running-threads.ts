@@ -15,6 +15,8 @@ export interface AgentChatRunningEventDetail {
   threadId?: string;
   /** Legacy alias used by AssistantChat and embedded chat frames. */
   tabId?: string;
+  /** Logical chat turn that may continue across multiple server runs. */
+  turnId?: string;
   runId?: string;
   reason?: string;
 }

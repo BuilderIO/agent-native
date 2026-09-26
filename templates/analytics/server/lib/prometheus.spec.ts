@@ -1,9 +1,39 @@
 import { describe, expect, it, vi } from "vitest";
 
+const resolveCredential = vi.fn(
+  async (_key: string) => undefined as string | undefined,
+);
+const resolveCredentialDetailed = vi.fn(async (key: string) => {
+  const value = await resolveCredential(key);
+  if (!value) return undefined;
+  return key === "PROMETHEUS_URL"
+    ? { value, scope: "user" as const, scopeId: "ada@example.com" }
+    : { value, scope: "org" as const, scopeId: "org-1" };
+});
+
 // Stub the credential infrastructure so the spec can exercise the pure
 // transform functions without dragging in OTel/SQL via the request context.
 vi.mock("./credentials", () => ({
-  resolveCredential: vi.fn(async () => null),
+  resolveCredential,
+  resolveCredentialDetailed,
+  assertCredentialCanReachEndpoint: (
+    endpoint: { scope: string; scopeId?: string },
+    credential: { scope?: string; scopeId?: string } | undefined,
+    key?: string,
+  ) => {
+    if (endpoint.scope !== "user" && endpoint.scope !== "unknown") return;
+    if (
+      endpoint.scope === "user" &&
+      credential?.scope === "user" &&
+      endpoint.scopeId &&
+      credential.scopeId === endpoint.scopeId
+    ) {
+      return;
+    }
+    throw new Error(
+      `Refusing to send ${key ?? "a credential"} to a user-scoped endpoint unless it is saved by the same user.`,
+    );
+  },
 }));
 vi.mock("./credentials-context", () => ({
   requireRequestCredentialContext: vi.fn(() => ({})),
@@ -214,4 +244,42 @@ describe("testConnection", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/PROMETHEUS_URL/i);
   });
+
+  it.each(["PROMETHEUS_USERNAME", "PROMETHEUS_PASSWORD"])(
+    "rejects a shared %s before making the direct Prometheus connection request",
+    async (sharedKey) => {
+      resolveCredentialDetailed.mockImplementation(async (key: string) => {
+        if (key === "PROMETHEUS_URL") {
+          return {
+            value: "https://member-prometheus.example.test",
+            scope: "user" as const,
+            scopeId: "ada@example.com",
+          };
+        }
+        if (key === sharedKey) {
+          return {
+            value: `${sharedKey.toLowerCase()}-test-value`,
+            scope: "org" as const,
+            scopeId: "org-1",
+          };
+        }
+        return {
+          value: "other-test-value",
+          scope: "user" as const,
+          scopeId: "ada@example.com",
+        };
+      });
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+      const { testConnection } = await import("./prometheus");
+      const result = await testConnection();
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toMatch(
+        new RegExp(`${sharedKey}.*user-scoped endpoint`, "i"),
+      );
+      expect(fetchSpy).not.toHaveBeenCalled();
+      fetchSpy.mockRestore();
+    },
+  );
 });

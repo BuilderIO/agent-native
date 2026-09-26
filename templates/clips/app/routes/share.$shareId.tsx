@@ -17,6 +17,7 @@ import {
   DefaultSpinner,
   EnvironmentBadge,
 } from "@agent-native/core/client/ui";
+import { usePersistentSidebarCollapsed } from "@agent-native/toolkit/app-shell";
 import {
   IconAlertTriangle,
   IconDeviceDesktop,
@@ -137,6 +138,10 @@ import {
   isLoomRecordingSource,
 } from "../../shared/loom";
 import {
+  organizationLogoRoutePath,
+  usesOrganizationLogoRoute,
+} from "../../shared/organization-logo.js";
+import {
   CLIPS_ACCESS_REQUEST_TOKEN_PREFIX,
   CLIPS_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
 } from "../../shared/recording-link";
@@ -161,6 +166,7 @@ type SharePageMetaRecording = {
   brandLogoUrl: string | null;
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
+  updatedAt: string;
   visibility: "private" | "org" | "public";
   status: "uploading" | "processing" | "ready" | "failed";
   hasPassword: boolean;
@@ -200,9 +206,10 @@ function emptyLoaderData(
 function shareLoaderData(
   payload: SharePageLoaderData,
   privateAgentAccess = false,
+  varyByQuery = false,
 ) {
   if (!privateAgentAccess) return payload;
-  return privateShareLoaderData(payload);
+  return privateShareLoaderData(payload, 200, varyByQuery);
 }
 
 export function headers({ loaderHeaders }: HeadersArgs) {
@@ -257,6 +264,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       description: schema.recordings.description,
       thumbnailUrl: schema.recordings.thumbnailUrl,
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+      updatedAt: schema.recordings.updatedAt,
       visibility: schema.recordings.visibility,
       status: schema.recordings.status,
       ownerEmail: schema.recordings.ownerEmail,
@@ -312,17 +320,23 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
         )
         .limit(1)
     : [];
+  const storedBrandLogoUrl = organizationSettings?.brandLogoUrl?.trim();
 
   const recording: SharePageMetaRecording = {
     id: rec.id,
     title: rec.title,
     description: rec.description,
     ownerInitial: rec.ownerEmail.trim().charAt(0).toUpperCase() || "C",
-    brandLogoUrl: organizationSettings?.brandLogoUrl?.trim() || null,
+    brandLogoUrl: storedBrandLogoUrl
+      ? usesOrganizationLogoRoute(storedBrandLogoUrl) && rec.organizationId
+        ? `${appBasePath()}${organizationLogoRoutePath(rec.organizationId)}`
+        : storedBrandLogoUrl
+      : null,
     thumbnailUrl: rec.password
       ? null
       : resolvePlayerThumbnailUrl(rec, { appPath }),
     animatedThumbnailUrl: null,
+    updatedAt: rec.updatedAt,
     visibility: rec.visibility,
     status: rec.status,
     hasPassword: Boolean(rec.password),
@@ -349,6 +363,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
         : null,
     },
     hasAgentAccessToken,
+    tokenGrantsAgentAccess,
   );
 }
 
@@ -518,6 +533,9 @@ export default function ShareRoute() {
     status: sessionStatus,
     retry: retrySession,
   } = useSession();
+  // The root entry is public, even for signed-in viewers; keep private
+  // destinations on the app's home route.
+  const homeHref = session ? appPath("/home") : appPath("/");
   const retriedUnavailableSessionRef = useRef(false);
   const requestAccess = useActionMutation<
     {
@@ -543,7 +561,10 @@ export default function ShareRoute() {
   // viewer. Its own tab strip is the only panel navigation; the page toolbar
   // stays focused on recording actions.
   const [panel, setPanel] = useState<SharePanel>("comments");
-  const [sidePanelCollapsed, setSidePanelCollapsed] = useState(false);
+  const { collapsed: sidePanelCollapsed, setCollapsed: setSidePanelCollapsed } =
+    usePersistentSidebarCollapsed({
+      storageKey: "clips:share-sidebar-collapsed",
+    });
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
   const selectCommentsPanel = useCallback(() => {
@@ -555,7 +576,7 @@ export default function ShareRoute() {
         block: "start",
       });
     });
-  }, []);
+  }, [setSidePanelCollapsed]);
   const [downloading, setDownloading] = useState(false);
   const [accessRequestSent, setAccessRequestSent] = useState(false);
   const [accessRequestError, setAccessRequestError] = useState<string | null>(
@@ -1170,6 +1191,7 @@ export default function ShareRoute() {
         <EndState
           title={t("sharePage.somethingWentWrong")}
           message={t("sharePage.pleaseTryAgain")}
+          homeHref={homeHref}
           action={
             <Button
               size="sm"
@@ -1211,6 +1233,7 @@ export default function ShareRoute() {
           icon={<IconLock className="h-5 w-5" aria-hidden="true" />}
           title={t("sharePage.beingEdited")}
           message={t("sharePage.beingEditedMessage")}
+          homeHref={homeHref}
         />
       </>
     );
@@ -1223,6 +1246,7 @@ export default function ShareRoute() {
         <EndState
           title={t("sharePage.linkExpired")}
           message={t("sharePage.linkExpiredMessage")}
+          homeHref={homeHref}
         />
       </>
     );
@@ -1244,6 +1268,7 @@ export default function ShareRoute() {
               ? "sharePage.privateClipMessage"
               : "sharePage.privateClipSignedOutMessage",
           )}
+          homeHref={homeHref}
           error={canRequestAccess ? accessRequestError : null}
           action={
             canRequestAccess ? (
@@ -1298,6 +1323,7 @@ export default function ShareRoute() {
         <EndState
           title={t("sharePage.clipUnavailable")}
           message={t("sharePage.clipUnavailableMessage")}
+          homeHref={homeHref}
         />
       </>
     );
@@ -1310,6 +1336,7 @@ export default function ShareRoute() {
         <EndState
           title={t("sharePage.somethingWentWrong")}
           message={dataQ.data?.data?.error ?? t("sharePage.pleaseTryAgain")}
+          homeHref={homeHref}
         />
       </>
     );
@@ -1837,32 +1864,47 @@ export default function ShareRoute() {
                   ref={commentsSectionRef}
                   className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-2"
                 >
-                  <CommentsPanel
-                    recordingId={recording.id}
-                    comments={comments}
-                    currentMs={playbackMs}
-                    getCurrentMs={resolvePlaybackMs}
-                    currentUserEmail={session?.email}
-                    currentUserName={session?.name}
-                    enableComments={recording.enableComments}
-                    canComment={viewerCanComment}
-                    onSeek={(ms) => playerRef.current?.seek(ms)}
-                    onUnauthenticated={requireSignIn}
-                    queryKey={[
-                      "public-recording",
-                      shareId,
-                      password,
-                      agentAccessToken,
-                      session?.email ?? null,
-                    ]}
-                    selectComments={(d: any) => d?.data?.comments}
-                    applyComments={(d: any, next) =>
-                      d
-                        ? { ...d, data: { ...(d.data ?? {}), comments: next } }
-                        : d
-                    }
-                    presentation="inline"
-                  />
+                  {!session &&
+                  sessionStatus !== "loading" &&
+                  sessionStatus !== "signing-out" &&
+                  comments.length === 0 ? (
+                    <PublicCommentsEmptyState
+                      onSignUp={() => {
+                        fireShareCtaClick("signup");
+                        openCreateAccount("comment");
+                      }}
+                    />
+                  ) : (
+                    <CommentsPanel
+                      recordingId={recording.id}
+                      comments={comments}
+                      currentMs={playbackMs}
+                      getCurrentMs={resolvePlaybackMs}
+                      currentUserEmail={session?.email}
+                      currentUserName={session?.name}
+                      enableComments={recording.enableComments}
+                      canComment={viewerCanComment}
+                      onSeek={(ms) => playerRef.current?.seek(ms)}
+                      onUnauthenticated={requireSignIn}
+                      queryKey={[
+                        "public-recording",
+                        shareId,
+                        password,
+                        agentAccessToken,
+                        session?.email ?? null,
+                      ]}
+                      selectComments={(d: any) => d?.data?.comments}
+                      applyComments={(d: any, next) =>
+                        d
+                          ? {
+                              ...d,
+                              data: { ...(d.data ?? {}), comments: next },
+                            }
+                          : d
+                      }
+                      presentation="inline"
+                    />
+                  )}
                 </section>
               </TabsContent>
             ) : null}
@@ -2010,6 +2052,27 @@ function formatRecordedOn(
   }).format(date);
 }
 
+function PublicCommentsEmptyState({ onSignUp }: { onSignUp: () => void }) {
+  const t = useT();
+
+  return (
+    <div className="mx-auto flex min-h-0 w-full max-w-sm flex-1 flex-col items-center justify-center gap-4 overflow-y-auto px-5 py-5 text-center">
+      <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <AgentNativeIcon aria-hidden="true" className="h-3.5 w-6" />
+      </div>
+      <h2 className="text-base font-semibold tracking-tight">
+        {t("sharePage.commentSignupTitle")}
+      </h2>
+      <p className="max-w-xs text-sm leading-5 text-muted-foreground">
+        {t("sharePage.commentSignupDescription")}
+      </p>
+      <Button type="button" className="w-full" onClick={onSignUp}>
+        {t("signInPrompt.createAccount")}
+      </Button>
+    </div>
+  );
+}
+
 function PublicAgentEmptyState({
   signupHref,
   signInHref,
@@ -2088,12 +2151,14 @@ function EndState({
   message,
   error,
   action,
+  homeHref,
 }: {
   icon?: ReactNode;
   title: string;
   message: string;
   error?: string | null;
   action?: ReactNode;
+  homeHref: string;
 }) {
   const t = useT();
 
@@ -2119,7 +2184,7 @@ function EndState({
       <div className="flex flex-wrap items-center justify-center gap-2">
         {action}
         <Button asChild variant="ghost" size="sm">
-          <a href={appPath("/")}>{t("clipsFinalRaw.goHome")}</a>
+          <a href={homeHref}>{t("clipsFinalRaw.goHome")}</a>
         </Button>
       </div>
     </div>

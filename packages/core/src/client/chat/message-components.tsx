@@ -65,8 +65,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu.js";
 import {
@@ -294,6 +292,7 @@ export interface AssistantMessageActionBarProps {
   messageSeq: number;
   onFork?: () => void | boolean | Promise<void | boolean>;
   onRestore?: () => void;
+  trailingActions?: React.ReactNode;
   className?: string;
 }
 
@@ -305,6 +304,7 @@ export function AssistantMessageActionBar({
   messageSeq,
   onFork,
   onRestore,
+  trailingActions,
   className,
 }: AssistantMessageActionBarProps) {
   const t = useT();
@@ -329,48 +329,52 @@ export function AssistantMessageActionBar({
     <TooltipProvider delayDuration={400}>
       <div
         className={cn(
-          "pointer-events-none inline-flex items-center gap-0.5",
+          "pointer-events-none flex w-full items-center justify-between gap-2",
           messageFooterFadeClassName,
           "group-hover:pointer-events-auto group-focus-within:pointer-events-auto",
           className,
         )}
       >
-        <MessageActionButton
-          label={
-            copied
-              ? t("agentChat.common.copied")
-              : t("agentChat.message.copyMessage")
-          }
-          onClick={handleCopy}
+        <div
+          className="inline-flex min-w-0 items-center gap-0.5"
+          data-message-action-group="feedback"
         >
-          {copied ? (
-            <IconCheck className="size-4" />
-          ) : (
-            <IconCopy className="size-4" />
+          <MessageActionButton
+            label={
+              copied
+                ? t("agentChat.common.copied")
+                : t("agentChat.message.copyMessage")
+            }
+            onClick={handleCopy}
+          >
+            {copied ? (
+              <IconCheck className="size-4" />
+            ) : (
+              <IconCopy className="size-4" />
+            )}
+          </MessageActionButton>
+          <ThumbsFeedback
+            threadId={threadId}
+            runId={runId}
+            messageSeq={messageSeq}
+          />
+        </div>
+        <div
+          className="inline-flex shrink-0 items-center gap-0.5"
+          data-message-action-group="conversation"
+        >
+          {onRestore && (
+            <MessageActionButton
+              label={t("agentChat.message.revertHere")}
+              onClick={onRestore}
+            >
+              <IconArrowBackUp className="size-4" />
+            </MessageActionButton>
           )}
-        </MessageActionButton>
-        <ThumbsFeedback
-          threadId={threadId}
-          runId={runId}
-          messageSeq={messageSeq}
-        />
-        {onFork && (
-          <MessageActionButton
-            label={t("agentChat.message.forkChat")}
-            onClick={() => void onFork()}
-          >
-            <IconGitFork className="size-4" />
-          </MessageActionButton>
-        )}
-        {onRestore && (
-          <MessageActionButton
-            label={t("agentChat.message.revertHere")}
-            onClick={onRestore}
-          >
-            <IconArrowBackUp className="size-4" />
-          </MessageActionButton>
-        )}
-        {timestamp && <MessageTimestamp timestamp={timestamp} />}
+          {trailingActions}
+          {timestamp && <MessageTimestamp timestamp={timestamp} />}
+          <MessageActionsMenu onFork={onFork} threadId={threadId} />
+        </div>
       </div>
     </TooltipProvider>
   );
@@ -499,9 +503,13 @@ export interface AssistantChatHistoryConfig<
   TVersion extends AssistantChatHistoryVersion = AssistantChatHistoryVersion,
   TRestoreResult = unknown,
 > {
+  /** Flush host editor writes before an agent turn starts. */
+  beforeStart?: () => void | Promise<void>;
   list: {
     action: string;
-    args?: Record<string, unknown>;
+    args?:
+      | Record<string, unknown>
+      | ((threadId?: string) => Record<string, unknown>);
     getVersions: (result: TListResult) => readonly TVersion[];
   };
   restore: {
@@ -509,6 +517,7 @@ export interface AssistantChatHistoryConfig<
     args: (
       version: TVersion,
     ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+    beforeRestore?: () => void | Promise<void>;
     onRestored?: (
       result: TRestoreResult,
       version: TVersion,
@@ -529,6 +538,8 @@ export interface AssistantChatHistoryConfig<
 }
 
 export interface AssistantChatHistoryContextValue {
+  beginningVersion: AssistantChatHistoryVersion | null;
+  isRestoring: boolean;
   findVersion: (
     message: AssistantChatHistoryMessage,
   ) => AssistantChatHistoryVersion | null;
@@ -619,7 +630,7 @@ export function findMatchingAssistantChatHistoryVersion<
     return null;
   }
   let match: TVersion | null = null;
-  let matchTime = Number.POSITIVE_INFINITY;
+  let matchTime = Number.NEGATIVE_INFINITY;
 
   for (const version of versions) {
     if (!isAssistantChatHistoryVersion(version)) continue;
@@ -627,6 +638,7 @@ export function findMatchingAssistantChatHistoryVersion<
       continue;
     }
     const chatContext = version.chatContext;
+    if (chatContext?.phase === "start") continue;
     const matchesChatTurn = Boolean(
       chatContext &&
       ((message.turnId && chatContext.turnId
@@ -642,12 +654,40 @@ export function findMatchingAssistantChatHistoryVersion<
     const matches = options.matchVersion
       ? options.matchVersion(version, message)
       : true;
-    if (!matches || versionTime >= matchTime) continue;
+    if (!matches || versionTime <= matchTime) continue;
     match = version;
     matchTime = versionTime;
   }
 
   return match;
+}
+
+export function findAssistantChatHistoryBeginningVersion<
+  TVersion extends AssistantChatHistoryVersion,
+>(
+  versions: readonly TVersion[],
+  threadId?: string,
+  isEditable?: (version: TVersion) => boolean,
+): TVersion | null {
+  if (!threadId) return null;
+  let beginning: TVersion | null = null;
+  let beginningTime = Number.POSITIVE_INFINITY;
+  for (const version of versions) {
+    if (
+      !isAssistantChatHistoryVersion(version) ||
+      version.editable === false ||
+      isEditable?.(version) === false ||
+      version.chatContext?.threadId !== threadId ||
+      version.chatContext.phase !== "start"
+    ) {
+      continue;
+    }
+    const versionTime = coerceMessageDate(version.createdAt)?.getTime();
+    if (versionTime == null || versionTime >= beginningTime) continue;
+    beginning = version;
+    beginningTime = versionTime;
+  }
+  return beginning;
 }
 
 /**
@@ -1011,44 +1051,17 @@ function UserMessageEditComposer() {
 // ─── MessageActionsMenu ────────────────────────────────────────────────────────
 
 export function MessageActionsMenu({
-  showRevert,
-  onRevert,
+  onFork,
   threadId = "",
 }: {
-  showRevert?: boolean;
-  onRevert?: () => void;
+  onFork?: () => void | boolean | Promise<void | boolean>;
   threadId?: string;
 } = {}) {
   const t = useT();
-  const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const messageRuntime = useMessageRuntime();
   const actionsCtx = React.useContext(MessageActionsContext);
-  const timestamp = formatMessageTimestamp(
-    messageRuntime.getState().createdAt,
-    locale,
-    t("agentChat.history.yesterday"),
-  );
-
-  const handleCopyMessage = useCallback(() => {
-    const m = messageRuntime.getState();
-    const text = m.content
-      .filter((p) => p.type === "text")
-      .map((p) => (p as { text: string }).text)
-      .join("\n");
-    // Rich flavor keeps formatting in targets that read text/html (e.g. Slack);
-    // null when the markdown renderer isn't ready yet, so we copy plain markdown.
-    const html = renderMarkdownToClipboardHtml(text);
-    void writeClipboardText(text, html ? { html } : undefined).then((ok) => {
-      if (!ok) return;
-      setCopied("message");
-      setTimeout(() => {
-        setCopied(null);
-        setOpen(false);
-      }, 1000);
-    });
-  }, [messageRuntime]);
 
   const handleCopyRequestId = useCallback(() => {
     const m = messageRuntime.getState();
@@ -1072,13 +1085,8 @@ export function MessageActionsMenu({
 
   const handleForkChat = useCallback(() => {
     setOpen(false);
-    void actionsCtx?.onForkChat?.();
-  }, [actionsCtx]);
-
-  const handleRevert = useCallback(() => {
-    setOpen(false);
-    onRevert?.();
-  }, [onRevert]);
+    void (onFork ?? actionsCtx?.onForkChat)?.();
+  }, [actionsCtx, onFork]);
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -1094,31 +1102,16 @@ export function MessageActionsMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        align="start"
+        align="end"
         sideOffset={6}
         className="w-48 rounded-lg border-border p-1.5 shadow-xl"
       >
-        {actionsCtx?.onForkChat && (
+        {(onFork || actionsCtx?.onForkChat) && (
           <DropdownMenuItem onSelect={handleForkChat}>
             <IconGitFork className="h-3.5 w-3.5" />
             {t("agentChat.message.forkChat")}
           </DropdownMenuItem>
         )}
-        <DropdownMenuItem
-          onSelect={(e) => {
-            e.preventDefault();
-            handleCopyMessage();
-          }}
-        >
-          {copied === "message" ? (
-            <IconCheck className="h-3.5 w-3.5" />
-          ) : (
-            <IconCopy className="h-3.5 w-3.5" />
-          )}
-          {copied === "message"
-            ? t("agentChat.common.copied")
-            : t("agentChat.message.copyMessage")}
-        </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={(e) => {
             e.preventDefault();
@@ -1138,20 +1131,6 @@ export function MessageActionsMenu({
                 ? t("agentChat.recovery.copyFailed")
                 : t("agentChat.message.copyRequestId")}
         </DropdownMenuItem>
-        {showRevert && (
-          <DropdownMenuItem onSelect={handleRevert}>
-            <IconArrowBackUp className="h-3.5 w-3.5" />
-            {t("agentChat.message.revertHere")}
-          </DropdownMenuItem>
-        )}
-        {timestamp && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel className="px-2 py-1 text-[11px] font-normal text-muted-foreground">
-              {t("agentChat.message.sentAt", { time: timestamp.short })}
-            </DropdownMenuLabel>
-          </>
-        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -1160,11 +1139,18 @@ export function MessageActionsMenu({
 function AssistantChatHistoryRevertButton({
   onRestore,
   onRestored,
+  label,
+  persistent = false,
 }: {
   onRestore: () => Promise<void>;
-  onRestored: () => void;
+  onRestored?: () => void;
+  label?: string;
+  persistent?: boolean;
 }) {
   const t = useT();
+  const chatRunning = React.useContext(ChatRunningContext);
+  const history = React.useContext(AssistantChatHistoryContext);
+  const restoreInProgress = chatRunning || Boolean(history?.isRestoring);
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<"confirming" | "restoring" | "error">(
     "confirming",
@@ -1173,7 +1159,7 @@ function AssistantChatHistoryRevertButton({
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
-      if (!nextOpen && state === "restoring") return;
+      if (nextOpen && restoreInProgress) return;
       setOpen(nextOpen);
       if (nextOpen) {
         setState("confirming");
@@ -1182,16 +1168,21 @@ function AssistantChatHistoryRevertButton({
         setError(null);
       }
     },
-    [state],
+    [restoreInProgress],
   );
 
+  useEffect(() => {
+    if (restoreInProgress) setOpen(false);
+  }, [restoreInProgress]);
+
   const handleRestore = useCallback(async () => {
+    if (restoreInProgress) return;
     setState("restoring");
     setError(null);
     try {
       await onRestore();
       setOpen(false);
-      onRestored();
+      onRestored?.();
     } catch (restoreError) {
       const status = (restoreError as { status?: unknown } | undefined)?.status;
       const actionMessage = actionErrorMessage(restoreError);
@@ -1203,7 +1194,7 @@ function AssistantChatHistoryRevertButton({
       );
       setState("error");
     }
-  }, [onRestore, onRestored, t]);
+  }, [onRestore, onRestored, restoreInProgress, t]);
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -1213,10 +1204,11 @@ function AssistantChatHistoryRevertButton({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                aria-label={t("agentChat.message.revertHere")}
+                aria-label={label ?? t("agentChat.message.revertHere")}
+                disabled={restoreInProgress}
                 className={cn(
                   "flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground",
-                  messageFooterFadeClassName,
+                  !persistent && messageFooterFadeClassName,
                   open && "bg-accent text-foreground",
                 )}
               >
@@ -1225,7 +1217,7 @@ function AssistantChatHistoryRevertButton({
             </PopoverTrigger>
           </TooltipTrigger>
           <TooltipContent side="top" className="text-xs">
-            {t("agentChat.message.revertHere")}
+            {label ?? t("agentChat.message.revertHere")}
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -1238,7 +1230,7 @@ function AssistantChatHistoryRevertButton({
         {state === "confirming" ? (
           <div className="grid gap-2">
             <p className="text-xs font-medium text-foreground">
-              {t("agentChat.message.restoreQuestion")}
+              {t("agentChat.message.revertQuestion")}
             </p>
             <div className="flex justify-end gap-1.5">
               <button
@@ -1250,10 +1242,11 @@ function AssistantChatHistoryRevertButton({
               </button>
               <button
                 type="button"
+                disabled={restoreInProgress}
                 onClick={() => void handleRestore()}
                 className="rounded-md bg-destructive px-2 py-1 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
               >
-                {t("agentChat.message.revertHere")}
+                {label ?? t("agentChat.message.revertHere")}
               </button>
             </div>
           </div>
@@ -1278,6 +1271,23 @@ function AssistantChatHistoryRevertButton({
         )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+export function AssistantChatHistoryBeginningRevertButton() {
+  const t = useT();
+  const history = React.useContext(AssistantChatHistoryContext);
+  const chatRunning = React.useContext(ChatRunningContext);
+  const version = history?.beginningVersion;
+  if (!history || !version || chatRunning) return null;
+  return (
+    <div className="flex justify-end">
+      <AssistantChatHistoryRevertButton
+        label={t("agentChat.message.revertToBeginning")}
+        onRestore={() => history.restoreVersion(version)}
+        persistent
+      />
+    </div>
   );
 }
 
@@ -2424,11 +2434,11 @@ export function AssistantMessage() {
     [historyContext, historyMessage],
   );
   const showHistoryRevert =
-    isComplete && !historyReverted && historyVersion !== null;
+    !chatRunning && isComplete && !historyReverted && historyVersion !== null;
   const handleHistoryRestore = useCallback(async () => {
-    if (!historyContext || !historyVersion) return;
+    if (chatRunning || !historyContext || !historyVersion) return;
     await historyContext.restoreVersion(historyVersion);
-  }, [historyContext, historyVersion]);
+  }, [chatRunning, historyContext, historyVersion]);
   const cpCtx = React.useContext(CheckpointContext);
 
   useEffect(() => {
@@ -2693,82 +2703,81 @@ export function AssistantMessage() {
         )}
       </div>
       {isComplete && (
-        <div className="mt-1 flex items-center justify-between">
-          <div className="flex min-w-0 items-center gap-1">
-            {showHistoryRevert && (
-              <AssistantChatHistoryRevertButton
-                onRestore={handleHistoryRestore}
-                onRestored={() => setHistoryReverted(true)}
-              />
-            )}
-            <AssistantMessageActionBar
-              timestamp={timestamp}
-              threadId={cpCtx?.threadId ?? ""}
-              runId={messageRunId ?? ""}
-              messageSeq={msg.index}
-              onFork={messageActions?.onForkChat}
-              onRestore={
-                showRestore && restoreState === "idle"
-                  ? handleRestore
-                  : undefined
-              }
-            />
-            {/* Regenerate button — only on the last assistant message, auto-disabled while running */}
-            {isLast && (
-              <TooltipProvider delayDuration={400}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <ActionBarPrimitive.Reload asChild>
-                      <button
-                        type="button"
-                        aria-label={t("agentChat.message.regenerate")}
-                        className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground ${messageFooterFadeClassName} disabled:cursor-not-allowed disabled:opacity-40`}
-                      >
-                        <IconRefresh className="h-3.5 w-3.5" />
-                      </button>
-                    </ActionBarPrimitive.Reload>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="text-xs">
-                    {t("agentChat.message.regenerate")}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            <MessageBranchPicker />
-          </div>
-          {showRestore && restoreState === "confirming" ? (
-            <div className="flex items-center gap-1 text-xs">
-              <button
-                onClick={handleRestore}
-                className="rounded-md bg-destructive px-1.5 py-0.5 text-destructive-foreground hover:bg-destructive/90"
-              >
-                {t("agentChat.message.restoreQuestion")}
-              </button>
-              <button
-                onClick={cancelRestore}
-                className="rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent"
-              >
-                {t("agentChat.common.cancel")}
-              </button>
-            </div>
-          ) : showRestore && restoreState === "restoring" ? (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              <IconLoader2 className="h-3 w-3 animate-spin" />
-              {t("agentChat.message.restoring")}
-            </span>
-          ) : restoreState === "error" ? (
-            <span className="flex items-center gap-1 text-xs text-destructive">
-              <IconAlertTriangle className="h-3 w-3 shrink-0" />
-              <span className="truncate">{restoreError}</span>
-              <button
-                onClick={cancelRestore}
-                className="cursor-pointer rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent"
-              >
-                {t("agentChat.common.dismiss")}
-              </button>
-            </span>
-          ) : null}
-        </div>
+        <AssistantMessageActionBar
+          className="mt-1"
+          timestamp={timestamp}
+          threadId={cpCtx?.threadId ?? ""}
+          runId={messageRunId ?? ""}
+          messageSeq={msg.index}
+          onFork={messageActions?.onForkChat}
+          onRestore={
+            showRestore && restoreState === "idle" ? handleRestore : undefined
+          }
+          trailingActions={
+            <>
+              {showHistoryRevert && (
+                <AssistantChatHistoryRevertButton
+                  onRestore={handleHistoryRestore}
+                  onRestored={() => setHistoryReverted(true)}
+                />
+              )}
+              {/* Regenerate button — only on the last assistant message, auto-disabled while running */}
+              {isLast && (
+                <TooltipProvider delayDuration={400}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <ActionBarPrimitive.Reload asChild>
+                        <button
+                          type="button"
+                          aria-label={t("agentChat.message.regenerate")}
+                          className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground ${messageFooterFadeClassName} disabled:cursor-not-allowed disabled:opacity-40`}
+                        >
+                          <IconRefresh className="h-3.5 w-3.5" />
+                        </button>
+                      </ActionBarPrimitive.Reload>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">
+                      {t("agentChat.message.regenerate")}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+              <MessageBranchPicker />
+              {showRestore && restoreState === "confirming" ? (
+                <div className="flex items-center gap-1 text-xs">
+                  <button
+                    onClick={handleRestore}
+                    className="rounded-md bg-destructive px-1.5 py-0.5 text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {t("agentChat.message.restoreQuestion")}
+                  </button>
+                  <button
+                    onClick={cancelRestore}
+                    className="rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent"
+                  >
+                    {t("agentChat.common.cancel")}
+                  </button>
+                </div>
+              ) : showRestore && restoreState === "restoring" ? (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <IconLoader2 className="h-3 w-3 animate-spin" />
+                  {t("agentChat.message.restoring")}
+                </span>
+              ) : restoreState === "error" ? (
+                <span className="flex items-center gap-1 text-xs text-destructive">
+                  <IconAlertTriangle className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{restoreError}</span>
+                  <button
+                    onClick={cancelRestore}
+                    className="cursor-pointer rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent"
+                  >
+                    {t("agentChat.common.dismiss")}
+                  </button>
+                </span>
+              ) : null}
+            </>
+          }
+        />
       )}
     </div>
   );

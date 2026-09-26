@@ -163,6 +163,8 @@ type SimpleMessage = {
     | "CLIPS_OFFSCREEN_RESTART"
     | "CLIPS_OFFSCREEN_START_NOW";
   sessionId: string;
+  failureCode?: "user_cancelled";
+  reason?: string;
 };
 
 type CopyTextMessage = {
@@ -922,6 +924,9 @@ async function uploadChunk(
   }
 
   const text = await res.text().catch(() => "");
+  const htmlResponse =
+    res.headers.get("content-type")?.includes("text/html") === true ||
+    /^\s*(?:<!doctype html|<html\b)/i.test(text);
   let data: UploadResult = {};
   if (text) {
     try {
@@ -936,25 +941,33 @@ async function uploadChunk(
       res.status,
       "hadAuth:",
       Boolean(recording.authToken),
-      text.slice(0, 200),
+      htmlResponse ? "HTML error response" : text.slice(0, 200),
     );
     const storageSetupRequired =
       data?.storageSetupRequired === true ||
       isStorageSetupFailureMessage(data?.error || text);
     const error = new Error(
-      storageSetupRequired
-        ? STORAGE_SETUP_REQUIRED_MESSAGE
-        : data?.error ||
+      htmlResponse
+        ? `Chunk upload returned an HTML error response (${res.status}).`
+        : storageSetupRequired
+          ? STORAGE_SETUP_REQUIRED_MESSAGE
+          : data?.error ||
             `Upload failed (${res.status}): ${text || res.statusText}`,
     );
     const uploadError = error as {
       finalUploadRecoveryAttempted?: boolean;
       status?: number;
       storageSetupRequired?: boolean;
+      failureCode?: string;
+      failureStage?: string;
     };
     uploadError.finalUploadRecoveryAttempted = triedFinalUploadRecovery;
     uploadError.status = res.status;
     uploadError.storageSetupRequired = storageSetupRequired;
+    uploadError.failureCode = htmlResponse
+      ? "chunk_html_error"
+      : "upload_failed";
+    uploadError.failureStage = "chunk_upload";
     captureExtensionError(error, {
       tags: {
         surface: "offscreen",
@@ -968,8 +981,33 @@ async function uploadChunk(
         chunkBytes: blob.size,
         total: extra.total,
         mimeType: blob.type || recording.mimeType,
-        responseBodyTail: text.slice(0, 2000),
+        responseBodyTail: htmlResponse ? "" : text.slice(0, 2000),
         hadAuth: Boolean(recording.authToken),
+      },
+    });
+    throw error;
+  }
+  if (htmlResponse) {
+    const error = Object.assign(
+      new Error(
+        `Chunk upload returned an HTML error response (${res.status}).`,
+      ),
+      {
+        status: res.status,
+        failureCode: "chunk_html_error",
+        failureStage: "chunk_upload",
+      },
+    );
+    captureExtensionError(error, {
+      tags: {
+        surface: "offscreen",
+        recordingStep: "chunk-upload",
+        httpStatus: String(res.status),
+      },
+      extra: {
+        recordingId: recording.recordingId,
+        chunkIndex: index,
+        responseBodyTail: "",
       },
     });
     throw error;
@@ -988,9 +1026,12 @@ function uploadAbortUrl(uploadUrl: string): string | null {
   }
 }
 
-async function abortServerUpload(
+export async function abortServerUpload(
   recording: ActiveRecording,
   reason: string,
+  failureCode = "upload_failed",
+  failureStage?: string,
+  httpStatus?: number,
 ): Promise<void> {
   const url = uploadAbortUrl(recording.uploadUrl);
   if (!url) return;
@@ -1004,27 +1045,23 @@ async function abortServerUpload(
   const controller =
     typeof AbortController === "undefined" ? null : new AbortController();
   const timer = controller
-    ? window.setTimeout(() => controller.abort(), 4_000)
+    ? globalThis.setTimeout(() => controller.abort(), 4_000)
     : undefined;
   try {
     const response = await fetch(url, {
       method: "POST",
       headers,
       credentials: "include",
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({ reason, failureCode, failureStage, httpStatus }),
       signal: controller?.signal,
     });
     if (!response.ok) {
-      console.warn(
-        "[clips-offscreen] abort upload returned",
-        response.status,
-        await response.text().catch(() => ""),
-      );
+      console.warn("[clips-offscreen] abort upload returned", response.status);
     }
   } catch (err) {
     console.warn("[clips-offscreen] abort upload failed", err);
   } finally {
-    if (timer) window.clearTimeout(timer);
+    if (timer) globalThis.clearTimeout(timer);
   }
 }
 
@@ -1692,7 +1729,20 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
     // The upload failed — save the buffered recording to disk so it isn't lost.
     const saved = await saveRecordingToDisk(recording);
     if (!(error as { storageSetupRequired?: boolean }).storageSetupRequired) {
-      await abortServerUpload(recording, error.message);
+      const details = error as Error & {
+        failureCode?: string;
+        failureStage?: string;
+        status?: number;
+      };
+      await abortServerUpload(
+        recording,
+        error.message,
+        details.failureCode === "chunk_html_error"
+          ? "chunk_html_error"
+          : "upload_failed",
+        details.failureStage,
+        details.status,
+      );
     }
     reportStatus(recording.sessionId, "error", {
       recordingId: recording.recordingId,
@@ -1765,7 +1815,7 @@ async function stop(
   return { ok: true, result: await recording.stopped };
 }
 
-function cancel(message: SimpleMessage): { ok: boolean } {
+async function cancel(message: SimpleMessage): Promise<{ ok: boolean }> {
   const recording = activeRecording;
   if (recording && recording.sessionId === message.sessionId) {
     recording.cancelled = true;
@@ -1777,6 +1827,13 @@ function cancel(message: SimpleMessage): { ok: boolean } {
     if (recording.recorder.state !== "inactive") recording.recorder.stop();
     cleanup(recording);
     activeRecording = null;
+    if (message.failureCode === "user_cancelled") {
+      await abortServerUpload(
+        recording,
+        message.reason ?? "Recording cancelled by user",
+        "user_cancelled",
+      );
+    }
   } else if (prepared && prepared.sessionId === message.sessionId) {
     stopPreparedStreams();
     disposePrepared();

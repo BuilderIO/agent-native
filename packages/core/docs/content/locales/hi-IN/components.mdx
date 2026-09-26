@@ -105,6 +105,84 @@ import { useToast } from "@/hooks/use-toast";
 
 </Diagram>
 
+## प्रॉम्प्ट होम और टेम्पलेट लाइब्रेरी {#prompt-home}
+
+`PromptHome`, `PromptHomeLibrary`, `TemplateLibraryGrid` और `TemplateLibraryCard`, `@agent-native/toolkit/app-shell` से एक्सपोर्ट होते हैं। इनमें साझा स्पेसिंग, बीच में 700px का कंपोज़र और रिस्पॉन्सिव चार-कॉलम लाइब्रेरी मिलती है। main लैंडमार्क ऐप शेल के पास रहता है। ऐप असली डेटा, अनुवादित लेबल, प्रीव्यू, एक्शन और रूट देती है।
+
+`PromptHome` में `title`, `composer`, वैकल्पिक `mobileToolbar`, `connection`, `quickActions` और लाइब्रेरी के लिए `children` होते हैं। `PromptHomeLibrary` नियंत्रित `value` (`templates` या `recent`), `onValueChange`, `labels`, `showRecent`, `templates` और वैकल्पिक `recent`, `browseAll`, `recentActions` लेता है। हाल का काम न होने पर यह नकली टैब के बिना टेम्पलेट दिखाता है। `browseAll` ऐप का दिया हुआ वास्तविक लिंक होता है। सेमांटिक `Tabs.headerActions` स्लॉट सक्रिय एक्शन को टैब के पास रखता है।
+
+```tsx
+import { PromptHome, PromptHomeLibrary } from "@agent-native/toolkit/app-shell";
+import { Link } from "react-router";
+
+<PromptHome
+  title={labels.create}
+  composer={composer}
+  quickActions={quickActions}
+>
+  <PromptHomeLibrary
+    value={tab}
+    onValueChange={setTab}
+    labels={labels.library}
+    showRecent={hasOwnedWork}
+    browseAll={<Link to="/templates">{labels.browseAll}</Link>}
+    templates={templateGrid}
+    recent={recentItems}
+  />
+</PromptHome>;
+```
+
+`TemplateLibraryGrid` टाइप किए गए `items` लेता है जिनमें `id`, `title`, वैकल्पिक संग्रहित `description` और `disabled` होते हैं, साथ में `renderPreview`। यह `selectedId`, `pendingId`, `disabled`, `loading`, `error`, `onRetry`, वैकल्पिक `empty` और लोडिंग, खाली स्थिति तथा पुनः प्रयास के `labels` संभालता है। `onSelect(item, element)` या `renderLink(item, children)` में से एक चुनें, दोनों नहीं। चित्र और कैप्शन एक ही सक्रियण लक्ष्य साझा करते हैं। `renderActions` सक्रियण लक्ष्य से बाहर, शीर्षक और वैकल्पिक विवरण के साथ उसी पंक्ति में रहता है। कार्ड की पूर्वावलोकन और कैप्शन जगह का आकार समान रहता है; सीधे सक्रिय करने पर टेम्पलेट इस्तेमाल या कॉपी होता है, जबकि पूर्वावलोकन केवल कैप्शन मेनू में रहता है। रीफ़्रेश विफल होने पर लोड हुए आइटम दिखते रहते हैं। `TemplateLibraryCard` एक `item` के लिए यही व्यवहार देता है, जिसमें `preview` और वैकल्पिक `actions`, `selected`, `pending`, `disabled` हैं।
+
+```tsx
+import { TemplateLibraryGrid } from "@agent-native/toolkit/app-shell";
+
+<TemplateLibraryGrid
+  items={templates}
+  labels={labels.grid}
+  renderPreview={renderTemplatePreview}
+  onSelect={selectTemplate}
+  selectedId={selectedId}
+  pendingId={pendingId}
+  loading={loading}
+  error={error}
+  onRetry={reloadTemplates}
+/>;
+```
+
+उसी प्रवेश बिंदु से निर्यात किया गया `TemplatePreviewDialog`, डिफ़ॉल्ट रूप से `size="viewport"` या वैकल्पिक `size="large"` के साथ सिमैंटिक `Dialog` इस्तेमाल करता है। यह नियंत्रित `open`, `onOpenChange`, `title` और ऐप द्वारा रेंडर किए गए `children` लेता है; हेडर में इस्तेमाल करने की कार्रवाई नहीं होती। वैकल्पिक `thumbnails` में `{ id, title, preview, disabled? }` होते हैं और इनके साथ `selectedId` तथा `onSelectedIdChange` ज़रूरी हैं। छोटी स्क्रीन पर पट्टी क्षैतिज हो जाती है और तीर कुंजियाँ, Home तथा End समर्थित हैं।
+
+`viewport` आकार बीच में स्थित, किनारों से दूरी वाला मोडल है: ऊँचाई 90dvh, अधिकतम चौड़ाई 96rem, मोबाइल पर 1rem और बड़ी स्क्रीन पर 1.5rem का पार्श्व अंतर। यह मानक डायलॉग की सीमा, गोलाई, छाया और पृष्ठभूमि बनाए रखता है। होवर समर्थित उपकरणों पर कार्ड के ऊपर पॉइंटर या कीबोर्ड फ़ोकस आने पर कैप्शन मेनू दिखते हैं और टच उपकरणों पर हमेशा दिखते हैं; उनके लिए आरक्षित जगह नहीं बदलती।
+
+अलग-अलग तैयारी स्थितियों के लिए अनुवादित `labels` (`close`, `loading`, `empty`, `retry`, `thumbnails`) और वैकल्पिक `loading`, `error`, `empty`, `onRetry` दें। `initialFocusRef` और `restoreFocusRef` फ़ोकस संभालते हैं। कैप्शन मेनू बंद होने के बाद उससे व्यूअर खोलें; पढ़ना, रद्द करना, प्राधिकरण और सुरक्षित अलग रेंडरिंग ऐप की ज़िम्मेदारी हैं।
+
+```tsx
+import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
+
+<TemplatePreviewDialog
+  open={previewOpen}
+  onOpenChange={setPreviewOpen}
+  title={template.title}
+  labels={labels.preview}
+  loading={previewLoading}
+  error={previewError}
+  empty={!pages.length}
+  onRetry={reloadPreview}
+  restoreFocusRef={menuTriggerRef}
+  thumbnails={pages.map((page) => ({
+    id: page.id,
+    title: page.title,
+    preview: renderThumbnail(page),
+  }))}
+  selectedId={selectedPageId}
+  onSelectedIdChange={setSelectedPageId}
+>
+  {renderSelectedPage(selectedPageId)}
+</TemplatePreviewDialog>;
+```
+
+Toolkit की शैलियों में साझा ज्यामिति शामिल है। `@agent-native/toolkit/app-shell/prompt-home.css` विशेष स्टाइलशीट एक्सपोर्ट है। मौजूदा `toolkit/app-shell` इजेक्शन यूनिट में लेआउट और स्टाइलशीट शामिल हैं। डेटा लोडिंग, अनुमति, आयात और कंपोज़र की स्थिति ऐप की ज़िम्मेदारी रहते हैं।
+
 ## एजेंट और चैट UI {#agent-chat-ui}
 
 | API                                  | आयात पथ                                       | कब उपयोग करें                                                                                           |
@@ -202,6 +280,147 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 
 `TiptapComposer` का उपयोग केवल तभी करें जब आप पहले से ही असिस्टेंट-यूआई प्रिमिटिव वायरिंग कर रहे हों
 स्वयं। यह फ़ील्ड है, संपूर्ण चैट रनटाइम नहीं.
+
+### कंपोज़र में तैयार संदर्भ {#composer-context}
+
+`PromptComposer` और `TiptapComposer` में `submissionDisabled` भेजना रोकता है, लेकिन ड्राफ़्ट, फ़ाइलें और संदर्भ तैयार करने देता है। प्रदाता का सेटअप न होने पर भेजना रुकता है, तैयारी नहीं। `disabled` अब भी पूरा कंपोज़र बंद करता है।
+
+`PromptComposer`, `TiptapComposer` और `AgentKitComposer` में `contextItems` तथा `contextMenuItems` दिए जा सकते हैं। स्रोत पढ़ना और स्थानीयकृत मेनू लेबल ऐप की ज़िम्मेदारी है।
+
+हर `AgentChatContextItem` में `key`, `title` और `context` होते हैं। वैकल्पिक `status` का मान `ready`, `pending` या `error` है। `statusMessage` विफलता बताता है। `onRemoveContextItem`, `onInspectContextItem` और `onRetryContextItem` को आइटम की कुंजी मिलती है। `removable: false` हटाने का विकल्प छिपाता है। लंबित या विफल आइटम भेजने से रोकते हैं, जब तक `blocksSubmission: false` उन्हें स्पष्ट रूप से केवल जानकारी के लिए न रखे।
+
+होस्ट पहले से अधिकृत संदर्भ तैयार करके भेजते समय अपरिवर्तनीय स्नैपशॉट प्राप्त कर सकता है:
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  onRemoveContextItem={removeContext}
+  onSubmit={(text, files, references, options) =>
+    submitPrompt({
+      text,
+      files,
+      references,
+      contextItems: options.contextItems,
+    })
+  }
+/>
+```
+
+संदर्भ स्रोत `ComposerContextMenuItem` पर `picker` रजिस्टर करते हैं। `ComposerContextMenu` एक-दूसरे को बदलने वाले पैनल नहीं, बल्कि जुड़े हुए shadcn/Radix कैस्केडिंग सबमेनू संभालता है: मुख्य मेनू में फ़ाइल अपलोड, फिर संदर्भ जोड़ें → होस्ट श्रेणियाँ → स्रोत पिकर आते हैं। होस्ट एंट्री न होने पर संदर्भ जोड़ें नहीं दिखता। तीर कुंजियाँ और Escape मेनू पदानुक्रम में नेविगेट करते हैं। लिंक पिकर में वापस जाना केवल उसी सबमेनू के परिणामों से लिंक इनपुट पर लौटता है। साझा पिकर खोज, सूची पंक्तियों, लोडिंग, खाली और त्रुटि अवस्थाओं, पुनः प्रयास, पृष्ठों और लिंक इनपुट को संभालता है। ऐप अपना पिकर JSX बनाने के बजाय अधिकृत डेटा और चयन कॉलबैक देते हैं।
+
+पिकर कॉन्फ़िगरेशन में ये विकल्प हैं:
+
+- ऐप के स्थानीयकृत पाठ के रूप में `searchPlaceholder` और वैकल्पिक `emptyMessage`। `selectedIds` चुनी गई पंक्तियाँ दिखाता है। आइटम में `id`, `title` और वैकल्पिक `disabled`, `url` होते हैं।
+- या तो स्थानीय `items` के साथ वैकल्पिक `loading`, `error`, `onRetry()`, या दूरस्थ `load(request)`। दोनों मोड एक साथ नहीं दिए जा सकते।
+- `load(request)` को `search`, एक से शुरू होने वाला `page`, वैकल्पिक `cursor`, `url` और `AbortSignal` मिलता है। यह `{ items, hasMore?, nextCursor? }` लौटाता है। विफलता पर खाली परिणाम लौटाने के बजाय Promise अस्वीकार होना चाहिए।
+- `onSelect(item, request)` स्रोत को तैयार करता है और असिंक्रोनस हो सकता है। `false` लौटाने से पिकर खुला रहता है। त्रुटि फेंकने पर पुनः प्रयास के साथ त्रुटि दिखती है। वैकल्पिक `clearSelection` स्थानीयकृत `label` और `onSelect()` कॉलबैक देता है।
+- वैकल्पिक `link` स्थानीयकृत `placeholder` और `submitLabel` देता है। `validate(url)` त्रुटि संदेश लौटा सकता है। साझा फ़ॉर्म लिंक इनपुट और नेविगेशन संभालता है।
+- पहचान या पहुँच का दायरा बदलने पर `scopeKey` पिकर की सभी अवस्थाएँ रीसेट करता है। स्रोत या संस्करण टोकन बदलने पर `refreshKey` URL रीसेट किए बिना मौजूदा क्वेरी को अमान्य करता है। खोज बदलने पर पहला पृष्ठ खुलता है। एजेंट के लिखने से स्रोत डेटा बदले तो ऐप अपडेट किए गए टोकन देते हैं।
+
+ऐप पहले से अधिकृत विकल्प रजिस्टर कर सकता है। यहाँ `labels` में स्थानीयकृत ऐप पाठ है और `stageReference` होस्ट के तैयार संदर्भ को अपडेट करता है:
+
+```tsx
+import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import { Link } from "react-router";
+
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      items: authorizedReferences,
+      selectedIds,
+      onSelect: stageReference,
+      footerAction: {
+        label: labels.createReference,
+        renderLink: (children) => (
+          <Link to={createReferenceHref}>{children}</Link>
+        ),
+      },
+    },
+  },
+];
+```
+
+खोजने योग्य या लिंक वाले स्रोत के लिए ऐप प्रमाणित लोडर देता है। `loadAuthorizedReferences` ऊपर दिया गया अनुरोध/परिणाम अनुबंध लागू करता है, पहुँच की जाँच बनाए रखता है और रद्द करने का सिग्नल क्लाइंट हेल्पर को भेजता है:
+
+```tsx
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      scopeKey: accessScope,
+      refreshKey: sourceVersion,
+      load: loadAuthorizedReferences,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        onAttach: stageReferences,
+      },
+      link: {
+        label: labels.referenceUrl,
+        placeholder: labels.referenceLink,
+        submitLabel: labels.findReferences,
+        validate: validateReferenceLink,
+      },
+    },
+  },
+];
+```
+
+`presentation` का डिफ़ॉल्ट `"submenu"` है। `{ type: "dialog", mode: "multiple", onAttach }` के साथ सामान्य मेनू आइटम साझा डायलॉग खोलता है, जिसका शीर्षक आइटम के लेबल से आता है। `link.label` URL फ़ील्ड का लेबल देता है। जारी रखें बटन परिणाम लोड करने से पहले बिना क्रेडेंशियल वाला HTTP(S) URL जाँचता है। खाली या अमान्य इनपुट पर प्रदाता को कभी कॉल नहीं किया जाता। `link.validate()` प्रदाता के विशेष नियम लागू कर सकता है। डायलॉग बटन `link.submitLabel` के बजाय साझा अनुवादित लेबल इस्तेमाल करते हैं।
+
+`presentation.onAttach(items, request)` को नए चुने गए आइटम का एक फ़्रीज़ किया गया बैच मिलता है। इस मोड में `onSelect` नहीं होता। खोज और पेज बदलने पर चयन बना रहता है। `selectedIds` चिह्नित और अक्षम होते हैं तथा बैच में शामिल नहीं होते। ID को अलग-अलग स्रोत फ़ाइलों की पहचान करनी चाहिए। `false` लौटाने से डायलॉग खुला रहता है। अस्वीकृति पर दोबारा कोशिश करने योग्य त्रुटि दिखती है। रद्द करने या `scopeKey` बदलने पर लंबित काम रुकता है और देर से आए परिणाम अनदेखे होते हैं। दोबारा खोलने पर URL रीसेट होता है। असिंक्रोनस कॉलबैक के बदलाव लागू करने से पहले होस्ट को `request.signal` का सम्मान करना चाहिए। `footerAction` और `clearSelection` सबमेनू के नियंत्रण बने रहते हैं।
+
+`{ type: "dialog", mode: "url" }` परिणाम सूची लोड किए बिना सीधे अटैच करने देता है। `onSelect(item, request)` को `{ id: url, title: url, url }` और `request.url` मिलते हैं:
+
+```tsx
+const websiteContextItem: ComposerContextMenuItem = {
+  id: "website",
+  label: labels.attachWebsite,
+  picker: {
+    searchPlaceholder: labels.searchReferences,
+    scopeKey: accessScope,
+    presentation: { type: "dialog", mode: "url" },
+    link: {
+      label: labels.websiteUrl,
+      placeholder: labels.websiteUrl,
+      submitLabel: labels.attach,
+      validate: validateWebsiteUrl,
+    },
+    onSelect: stageWebsiteReference,
+  },
+};
+```
+
+`@agent-native/core/server` का `readComposerWebsiteSource(url, extractCallback)` होस्ट के मौजूदा SSRF-सुरक्षित एक्सट्रैक्टर से वेबसाइट संदर्भ बनाता है। `@agent-native/core/shared` का `composerSourceRequestSchema`, `source: "website"` को केवल `operation: "read"` और अधिकतम 2,048 अक्षरों वाले बिना क्रेडेंशियल के HTTP(S) `url` के साथ स्वीकार करता है। हेल्पर स्थिर URL-हैश ID और अधिकतम 20,000 संदर्भ अक्षरों के साथ `{ id, title, url, context }` लौटाता है। निष्कर्षण स्थिति, चेतावनियाँ, रेंडरिंग का स्रोत और कोई भी `[truncated]` चिह्न संदर्भ पाठ में बने रहते हैं। आंशिक निष्कर्षण स्पष्ट रहता है। असफल निष्कर्षण या उपयोगी `designMd` न होने पर टाइप की गई विफलता मिलती है। अनुमति की जाँच होस्ट की [एक्शन](/docs/actions-overview) की ज़िम्मेदारी रहती है।
+
+पिकर एंट्री में साथ-साथ `render` या एंट्री-स्तरीय `onSelect` परिभाषित नहीं होता। श्रेणियाँ `children` का उपयोग करती हैं। मुख्य मेनू और हर श्रेणी के हेडर में खोज फ़ील्ड बनी रहती है। श्रेणियाँ स्थानीयकृत `searchPlaceholder` दे सकती हैं; इसके बिना साझा संदर्भ खोज प्लेसहोल्डर इस्तेमाल होता है। स्रोत सूची के खोज इनपुट का पाठ `picker.searchPlaceholder` देता है। रजिस्ट्रेशन स्रोत तक पहुँच नहीं देता। साझा पिकर नए अनुरोधों से बदले जा चुके लोड उत्तरों को अनदेखा करता है।
+
+वैकल्पिक `footerAction` लोडिंग, त्रुटि या खाली सूची में भी परिणामों के नीचे बना रहता है। इसमें स्थानीयकृत `label`, वैकल्पिक `icon` और `disabled`, तथा `onSelect()` या `renderLink(children)` में से एक होता है। मोडल या अन्य स्थिति वाले कार्यप्रवाह के लिए कॉलबैक इस्तेमाल करें: `false` मेनू खुला रखता है, `true` या `void` उसे बंद करता है, और Promise अस्वीकृत होने पर त्रुटि तथा पुनः प्रयास दिखता है। केवल नेविगेशन के लिए `renderLink` से असली React Router `Link` या HTML लिंक लौटाएँ; साझा मेनू `asChild` से पंक्ति देता है, जिससे `href` और ब्राउज़र का मूल नेविगेशन बना रहता है। पहले से मौजूद अधिकृत कार्यप्रवाह जोड़ें, दिखावटी क्रियाएँ नहीं।
+
+`ComposerContextMenu` को `addAttachment` देने पर मानक अपलोड क्रिया पहले आती है और होस्ट का फ़ाइल कॉलबैक बना रहता है।
+
+`PromptComposer` और `AgentKitComposer`, `@assistant-ui/react` के सार्वजनिक `AttachmentAdapter` प्रकार वाला `attachmentAdapter` स्वीकार करते हैं। इस अडैप्टर से होस्ट की स्वीकार्य फ़ाइलों, आकार जाँच और अटैचमेंट तैयार करने की नीति दें; इसे छोड़ने पर डिफ़ॉल्ट अडैप्टर बने रहते हैं। अपलोड नियंत्रण, फ़ाइल पिकर, संदर्भ पिकर और अटैचमेंट चिप साझा कंपोज़र के अधीन रहते हैं। फ़ाइल तैयारी को अनुकूलित करने के लिए इन नियंत्रणों को न बदलें।
+
+`PromptComposer` और `AgentKitComposer` में `inlineTextAttachments` का डिफ़ॉल्ट `true` है। जब होस्ट सामान्य टेक्स्ट फ़ाइलों का पाठ पहले ही निकालता हो, इसे `false` करें: कंपोज़र फ़ाइलें पढ़कर उनकी सामग्री प्रॉम्प्ट में जोड़ने के बजाय मूल फ़ाइलें होस्ट को देता है। पेस्ट किए गए टेक्स्ट से बने कृत्रिम अटैचमेंट अब भी प्रॉम्प्ट टेक्स्ट बनते हैं। यह विकल्प अटैचमेंट स्वीकृति या साझा नियंत्रण नहीं बदलता।
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  contextMenuItems={contextMenuItems}
+  attachmentAdapter={hostAttachmentAdapter}
+  onRetryContextItem={retryContext}
+  onSubmit={submitPrompt}
+/>
+```
+
+स्नैपशॉट `undefined` और स्पष्ट खाली ऐरे में अंतर करता है। 32 से अधिक आइटम या 64 KiB से अधिक सीरियलाइज़ किए गए UTF-8 डेटा को बिना काटे अस्वीकार करता है। भेजने या कतार में लगाने से पहले `AgentKitComposer.beforeSend(submission)` की प्रतीक्षा होती है। इसमें स्थिर संदर्भ, रेफ़रेंस, अपलोड किए गए अटैचमेंट और रन विकल्प मिलते हैं। अस्वीकृति पर ड्राफ़्ट बचा रहता है। संदर्भ संदेश के पाठ और मेटाडेटा में शामिल होता है।
+
+`composerRef.current.submitWithText(text)` एडिटर को पहले बदले बिना मौजूदा फ़ाइलों और मॉडल सेटिंग के साथ उसी सबमिशन मार्ग का उपयोग करता है। स्वीकार होने पर `true`, रुकने या अस्वीकार होने पर `false` लौटाता है। संदर्भ चुनना पहुँच की अनुमति नहीं है। ऐप को प्रमाणित क्रियाओं से स्रोत की पहुँच फिर जाँचनी चाहिए।
 
 ## बातचीत प्रतिपादन {#conversation}
 

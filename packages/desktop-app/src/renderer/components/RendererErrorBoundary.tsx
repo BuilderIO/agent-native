@@ -30,11 +30,6 @@ const overlayStyle: CSSProperties = {
   background: "var(--shell-bg)",
 };
 
-const actionsStyle: CSSProperties = {
-  display: "flex",
-  gap: 8,
-};
-
 const buttonStyle: CSSProperties = {
   minHeight: 32,
   padding: "6px 14px",
@@ -45,13 +40,6 @@ const buttonStyle: CSSProperties = {
   font: "inherit",
   fontSize: 13,
   cursor: "pointer",
-};
-
-const primaryButtonStyle: CSSProperties = {
-  ...buttonStyle,
-  borderColor: "var(--label-active)",
-  color: "var(--shell-bg)",
-  background: "var(--label-active)",
 };
 
 /**
@@ -87,19 +75,10 @@ export class RendererErrorBoundary extends Component<
 
     return (
       <div style={overlayStyle} data-renderer-error-boundary>
-        <p>Something went wrong. You can try again or reload the app.</p>
-        <div style={actionsStyle}>
-          <button type="button" style={buttonStyle} onClick={this.reset}>
-            Try again
-          </button>
-          <button
-            type="button"
-            style={primaryButtonStyle}
-            onClick={() => window.location.reload()}
-          >
-            Reload
-          </button>
-        </div>
+        <p>Something went wrong. You can try again.</p>
+        <button type="button" style={buttonStyle} onClick={this.reset}>
+          Try again
+        </button>
       </div>
     );
   }

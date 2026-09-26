@@ -1,9 +1,12 @@
+import { isActionContractError } from "@agent-native/core/action";
 import {
+  cdnSafeOriginStatus,
   FeatureNotConfiguredError,
   startBuilderDesignSystemUpload,
 } from "@agent-native/core/server";
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
 
+import { assertDesignSystemWorkflowsEnabled } from "../lib/design-system-workflows.js";
 import {
   resolveSlidesRequestAuth,
   withSlidesRequestContext,
@@ -75,11 +78,18 @@ export const designSystemUploadStart = defineEventHandler(async (event) => {
   try {
     const uploads = await withSlidesRequestContext(
       event,
-      () => startBuilderDesignSystemUpload(attachments),
+      async () => {
+        await assertDesignSystemWorkflowsEnabled();
+        return startBuilderDesignSystemUpload(attachments);
+      },
       session,
     );
     return { uploads };
   } catch (err) {
+    if (isActionContractError(err)) {
+      setResponseStatus(event, err.statusCode);
+      return { error: err.message, errorCode: err.errorCode };
+    }
     if (err instanceof FeatureNotConfiguredError) {
       setResponseStatus(event, 412);
       return {
@@ -88,7 +98,7 @@ export const designSystemUploadStart = defineEventHandler(async (event) => {
           err.builderConnectUrl ?? "/_agent-native/builder/connect",
       };
     }
-    setResponseStatus(event, 502);
+    setResponseStatus(event, cdnSafeOriginStatus(502));
     return {
       error: err instanceof Error ? err.message : "Failed to start upload.",
     };

@@ -16,6 +16,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
+import { needsZoomCancellationReview } from "../server/lib/zoom.js";
 import {
   getCalendarAttendeeCount,
   getCalendarAttendeeStatusCounts,
@@ -38,6 +39,7 @@ const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 // a serverless cold start just resets it, which is fine since the feed is
 // re-fetched on the next call.
 const ICAL_CACHE_TTL_MS = 5 * 60_000;
+const ICAL_CACHE_MAX_ENTRIES = 200;
 const icalCache = new Map<
   string,
   { events: CalendarEvent[]; fetchedAt: number }
@@ -48,11 +50,20 @@ async function fetchICalEventsCached(
   from: string,
   to: string,
 ): Promise<CalendarEvent[]> {
-  const cacheKey = `${cal.url}|${from}|${to}`;
+  const cacheKey = JSON.stringify([
+    cal.id,
+    cal.name,
+    cal.url,
+    cal.color,
+    from,
+    to,
+  ]);
+  const now = Date.now();
   const cached = icalCache.get(cacheKey);
-  if (cached && Date.now() - cached.fetchedAt < ICAL_CACHE_TTL_MS) {
+  if (cached && now - cached.fetchedAt < ICAL_CACHE_TTL_MS) {
     return cached.events;
   }
+  if (cached) icalCache.delete(cacheKey);
   const events = await fetchICalEvents(
     cal.id,
     cal.name,
@@ -62,7 +73,17 @@ async function fetchICalEventsCached(
     to,
     { throwOnError: true },
   );
-  icalCache.set(cacheKey, { events, fetchedAt: Date.now() });
+  const fetchedAt = Date.now();
+  for (const [key, entry] of icalCache) {
+    if (fetchedAt - entry.fetchedAt >= ICAL_CACHE_TTL_MS) {
+      icalCache.delete(key);
+    }
+  }
+  if (icalCache.size >= ICAL_CACHE_MAX_ENTRIES) {
+    const oldestKey = icalCache.keys().next().value;
+    if (oldestKey !== undefined) icalCache.delete(oldestKey);
+  }
+  icalCache.set(cacheKey, { events, fetchedAt });
   return events;
 }
 
@@ -454,6 +475,7 @@ async function listLocalBookingEvents(
       slug: schema.bookingLinks.slug,
       title: schema.bookingLinks.title,
       color: schema.bookingLinks.color,
+      conferencing: schema.bookingLinks.conferencing,
     })
     .from(schema.bookingLinks)
     .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
@@ -476,7 +498,11 @@ async function listLocalBookingEvents(
       eventTitle: schema.bookings.eventTitle,
       notes: schema.bookings.notes,
       meetingLink: schema.bookings.meetingLink,
+      meetingLinkPending: schema.bookings.meetingLinkPending,
       googleEventId: schema.bookings.googleEventId,
+      zoomNeedsReview: schema.bookings.zoomNeedsReview,
+      zoomMeetingId: schema.bookings.zoomMeetingId,
+      zoomAccountId: schema.bookings.zoomAccountId,
       status: schema.bookings.status,
       createdAt: schema.bookings.createdAt,
     })
@@ -490,34 +516,44 @@ async function listLocalBookingEvents(
       ),
     );
 
-  return rows.map((booking) => {
-    const link = linkBySlug.get(booking.slug);
-    const description = [
-      booking.notes,
-      `Booked by ${booking.name} <${booking.email}>`,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+  return rows
+    .filter((booking) => {
+      const link = linkBySlug.get(booking.slug);
+      return !needsZoomCancellationReview({
+        ...booking,
+        conferencing: link?.conferencing,
+      });
+    })
+    .map((booking) => {
+      const link = linkBySlug.get(booking.slug);
+      const description = [
+        booking.notes,
+        `Booked by ${booking.name} <${booking.email}>`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
 
-    return {
-      id: `booking:${booking.id}`,
-      title:
-        booking.eventTitle || link?.title || `Booking with ${booking.name}`,
-      description,
-      start: booking.start,
-      end: booking.end,
-      location: booking.meetingLink ?? "",
-      allDay: false,
-      source: "local",
-      googleEventId: booking.googleEventId ?? undefined,
-      meetingLink: booking.meetingLink ?? undefined,
-      color: link?.color ?? undefined,
-      status: booking.status,
-      attendees: [{ email: booking.email, displayName: booking.name }],
-      createdAt: booking.createdAt,
-      updatedAt: booking.createdAt,
-    };
-  });
+      return {
+        id: `booking:${booking.id}`,
+        title:
+          booking.eventTitle || link?.title || `Booking with ${booking.name}`,
+        description,
+        start: booking.start,
+        end: booking.end,
+        location: booking.meetingLink ?? "",
+        allDay: false,
+        source: "local",
+        googleEventId: booking.googleEventId ?? undefined,
+        meetingLink: booking.meetingLink ?? undefined,
+        meetingLinkPending:
+          booking.meetingLinkPending && !booking.meetingLink ? true : undefined,
+        color: link?.color ?? undefined,
+        status: booking.status,
+        attendees: [{ email: booking.email, displayName: booking.name }],
+        createdAt: booking.createdAt,
+        updatedAt: booking.createdAt,
+      };
+    });
 }
 
 /**
@@ -766,6 +802,19 @@ export async function listCalendarEvents(
     googleResult.errors.length === 0 &&
     (!args.calendarSourceKeys?.length ||
       googleEvents.some((event) => event.calendarPrimary === true));
+  const pendingMeetingGoogleEventIds = new Set(
+    rawBookingEvents
+      .filter((event) => event.meetingLinkPending && event.googleEventId)
+      .map((event) => event.googleEventId!),
+  );
+  const reconciledGoogleEvents = googleEvents.map((event) =>
+    event.googleEventId &&
+    event.calendarPrimary !== false &&
+    !event.overlayEmail &&
+    pendingMeetingGoogleEventIds.has(event.googleEventId)
+      ? { ...event, meetingLinkPending: true }
+      : event,
+  );
   const bookingEvents = rawBookingEvents.filter((event) =>
     shouldShowLocalBookingEvent({
       event,
@@ -774,7 +823,7 @@ export async function listCalendarEvents(
     }),
   );
 
-  let events = [...googleEvents, ...icalEvents, ...bookingEvents];
+  let events = [...reconciledGoogleEvents, ...icalEvents, ...bookingEvents];
   if (args.query) {
     events = events.filter((event) =>
       calendarEventMatchesQuery(event, args.query!),
@@ -869,7 +918,7 @@ export default defineAction({
   run: async (args, ctx) => {
     const inventory =
       args.format === "inventory" || (ctx?.caller === "mcp" && !args.format);
-    const owner = inventory ? getRequestUserEmail() : undefined;
+    const owner = getRequestUserEmail();
     if (inventory && !owner) throw new Error("no authenticated user");
     const calendarTimezone = inventory
       ? await getCalendarTimezone(owner!)
@@ -918,6 +967,32 @@ export default defineAction({
         timezone: calendarTimezone,
       },
     );
+    if (owner) {
+      const settings = (await getUserSetting(owner, "calendar-settings")) as {
+        hiddenEventKeys?: string[];
+      } | null;
+      const hidden = new Set(settings?.hiddenEventKeys ?? []);
+      if (hidden.size) {
+        const legacyAccount =
+          result.requestedAccounts === null &&
+          result.resolvedAccounts.length === 1
+            ? result.resolvedAccounts[0]!.trim().toLowerCase()
+            : undefined;
+        result.events = result.events.filter((event) => {
+          const legacyHidden =
+            legacyAccount &&
+            event.source === "google" &&
+            event.accountEmail?.trim().toLowerCase() === legacyAccount &&
+            !event.calendarSourceKey &&
+            (event.calendarId == null || event.calendarId === "primary") &&
+            hidden.has(event.id);
+          const scopedHidden = hidden.has(
+            `${event.source}:${event.accountEmail?.trim().toLowerCase()}:${event.calendarId ?? "primary"}:${event.googleEventId ?? event.id}`,
+          );
+          return !legacyHidden && !scopedHidden;
+        });
+      }
+    }
 
     if (inventory) {
       const query =

@@ -23,6 +23,7 @@ export const FRAMEWORK_TOOL_GROUPS = [
   "review",
   "history",
   "featureFlags",
+  "launchDarkly",
   "labs",
   "localization",
   "audit",
@@ -31,6 +32,7 @@ export const FRAMEWORK_TOOL_GROUPS = [
   "automation",
   "docs",
   "resources",
+  "browserSessions",
   "web",
   "workspaceApps",
   "chat",
@@ -78,6 +80,8 @@ export interface FrameworkToolsOption {
   history?: boolean;
   /** `get-feature-flags`, `list-feature-flags`, `set-feature-flag`. */
   featureFlags?: boolean;
+  /** `get-launchdarkly-flags`. */
+  launchDarkly?: boolean;
   /** `get-labs`, `set-lab`. */
   labs?: boolean;
   /** @deprecated Use `frameworkTools.labs`. */
@@ -96,6 +100,8 @@ export interface FrameworkToolsOption {
   docs?: boolean;
   /** The `resources` tool — workspace notes, memory, and context files. */
   resources?: boolean;
+  /** Raw browser-session controls such as `run-browser-session-action`. */
+  browserSessions?: boolean;
   /** `web-request` and `web-search`. */
   web?: boolean;
   /** `describe-workspace-apps` and `call-agent` for cross-app delegation. */
@@ -291,6 +297,8 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-feature-flags": "featureFlags",
   "set-feature-flag": "featureFlags",
 
+  "get-launchdarkly-flags": "launchDarkly",
+
   "get-labs": "labs",
   "set-lab": "labs",
   "get-chatgpt-subscription-status": "chat",
@@ -310,6 +318,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "manage-usage-alert": "automation",
   "get-usage-metrics": "automation",
   "get-builder-credit-usage": "automation",
+  "get-builder-referral-info": "automation",
 
   "context-manifest-get": "contextXray",
   "context-preview-get": "contextXray",

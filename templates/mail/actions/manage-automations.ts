@@ -4,6 +4,8 @@ import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
+import type { AutomationAction } from "../shared/types.js";
+
 export const createManageEmailRulesAction = (agentTool: boolean) =>
   defineAction({
     description:
@@ -103,31 +105,26 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
         case "update": {
           if (!args.id) throw new Error("--id is required for update");
 
-          const updates: Record<string, any> = {
-            updatedAt: Math.floor(Date.now() / 1_000),
-          };
-          if (args.name !== undefined) updates.name = args.name;
-          if (args.condition !== undefined) updates.condition = args.condition;
+          const patch: {
+            name?: string;
+            condition?: string;
+            actions?: AutomationAction[];
+            enabled?: boolean;
+          } = {};
+          if (args.name !== undefined) patch.name = args.name;
+          if (args.condition !== undefined) patch.condition = args.condition;
           if (args.actions !== undefined) {
             try {
-              JSON.parse(args.actions);
-              updates.actions = args.actions;
+              patch.actions = JSON.parse(args.actions);
             } catch {
               throw new Error("--actions must be valid JSON array");
             }
           }
-          if (args.enabled !== undefined)
-            updates.enabled = args.enabled ? 1 : 0;
+          if (args.enabled !== undefined) patch.enabled = args.enabled;
 
-          await db
-            .update(schema.automationRules)
-            .set(updates)
-            .where(
-              and(
-                eq(schema.automationRules.id, args.id),
-                eq(schema.automationRules.ownerEmail, ownerEmail),
-              ),
-            );
+          const { updateAutomationRule } =
+            await import("../server/lib/automations.js");
+          await updateAutomationRule(ownerEmail, args.id, patch);
 
           return `Updated automation rule ${args.id}`;
         }
@@ -149,38 +146,18 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
 
         case "enable": {
           if (!args.id) throw new Error("--id is required for enable");
-
-          await db
-            .update(schema.automationRules)
-            .set({
-              enabled: 1,
-              updatedAt: Math.floor(Date.now() / 1_000),
-            } as any)
-            .where(
-              and(
-                eq(schema.automationRules.id, args.id),
-                eq(schema.automationRules.ownerEmail, ownerEmail),
-              ),
-            );
+          const { updateAutomationRule } =
+            await import("../server/lib/automations.js");
+          await updateAutomationRule(ownerEmail, args.id, { enabled: true });
 
           return `Enabled automation rule ${args.id}`;
         }
 
         case "disable": {
           if (!args.id) throw new Error("--id is required for disable");
-
-          await db
-            .update(schema.automationRules)
-            .set({
-              enabled: 0,
-              updatedAt: Math.floor(Date.now() / 1_000),
-            } as any)
-            .where(
-              and(
-                eq(schema.automationRules.id, args.id),
-                eq(schema.automationRules.ownerEmail, ownerEmail),
-              ),
-            );
+          const { updateAutomationRule } =
+            await import("../server/lib/automations.js");
+          await updateAutomationRule(ownerEmail, args.id, { enabled: false });
 
           return `Disabled automation rule ${args.id}`;
         }

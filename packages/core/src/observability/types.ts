@@ -56,6 +56,8 @@ export interface TraceSummary {
   totalOutputTokens: number;
   model: string;
   createdAt: number;
+  /** Populated by the human-review thread rollup query. */
+  runCount?: number;
 }
 
 // ─── Feedback ────────────���────────────────────────────────────────────
@@ -103,10 +105,21 @@ export interface OutputReviewListRow {
   inlineAppTitle?: string;
   threadTitle: string;
   summary: HumanReviewSummaryPayload | null;
+  artifacts: HumanReviewArtifactRef[];
+  runs: OutputReviewRun[];
+  runCount: number;
+  authorName?: string;
+  authorAvatar?: string;
   model: string;
   createdAt: number;
   feedback: FeedbackEntry[];
   instructionUpdate: InstructionUpdate | null;
+}
+
+export interface OutputReviewRun {
+  runId: string;
+  model: string;
+  createdAt: number;
 }
 
 export interface HumanReviewArtifactRef {
@@ -133,11 +146,17 @@ export interface HumanReviewSummary extends HumanReviewSummaryPayload {
 export interface OutputReviewThreadMessage {
   role: "user" | "assistant";
   text: string;
+  toolCalls?: string[];
 }
 
 export interface OutputReviewDetail {
+  runId: string;
   app: AgentMcpAppPayload | null;
   messages: OutputReviewThreadMessage[];
+  artifacts: HumanReviewArtifactRef[];
+  summary: HumanReviewSummaryPayload | null;
+  ask: string;
+  answer: string;
 }
 
 /** @deprecated Use OutputReviewListRow for list data. */

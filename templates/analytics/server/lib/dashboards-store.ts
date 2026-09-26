@@ -31,6 +31,7 @@ import {
 } from "@agent-native/core/sharing";
 import {
   and,
+  asc,
   desc,
   eq,
   inArray,
@@ -220,18 +221,29 @@ interface AccessCtx {
  */
 async function getScopedLegacySettings(
   ctx: Pick<AccessCtx, "email" | "orgId">,
+  options?: { dashboardKind?: DashboardKind; limit?: number },
 ): Promise<Record<string, Record<string, unknown>>> {
   // User scope first, then org: callers append these to the SQL rows in
   // iteration order and never re-sort, so the order is user-visible. The
   // previous full-table read inherited whatever order the settings table
   // returned, which no query pinned.
   const prefixes: string[] = [];
-  if (ctx.email) prefixes.push(`u:${ctx.email}:`);
-  if (ctx.orgId) prefixes.push(`o:${ctx.orgId}:`);
+  if (options?.dashboardKind === "sql") {
+    if (ctx.email) prefixes.push(`u:${ctx.email}:${SQL_PREFIX}`);
+    if (ctx.orgId) prefixes.push(`o:${ctx.orgId}:${SQL_PREFIX}`);
+  } else {
+    if (ctx.email) prefixes.push(`u:${ctx.email}:`);
+    if (ctx.orgId) prefixes.push(`o:${ctx.orgId}:`);
+  }
   if (prefixes.length === 0) return {};
   const scoped: Record<string, Record<string, unknown>> = {};
   for (const entries of await Promise.all(
-    prefixes.map((prefix) => listSettingsByPrefix(prefix)),
+    prefixes.map((prefix) =>
+      listSettingsByPrefix(
+        prefix,
+        options?.limit === undefined ? undefined : { limit: options.limit },
+      ),
+    ),
   )) {
     for (const { key, value } of entries) scoped[key] = value;
   }
@@ -850,6 +862,55 @@ export async function getDashboard(
   );
 }
 
+export async function getOrgDashboardForReview(
+  id: string,
+  orgId: string,
+): Promise<DashboardRecord | null> {
+  const [row] = await getDb()
+    .select()
+    .from(schema.dashboards)
+    .where(
+      and(eq(schema.dashboards.id, id), eq(schema.dashboards.orgId, orgId)),
+    )
+    .limit(1);
+  return row ? rowToDashboard(row, "viewer") : null;
+}
+
+export async function getPublicDashboardMetadata(id: string) {
+  const config = sql`case
+    when ${schema.dashboards.config} is json
+      then ${schema.dashboards.config}::jsonb
+    else '{}'::jsonb
+  end`;
+  const [row] = await (getDb() as any)
+    .select({
+      title: schema.dashboards.title,
+      description: sql<string | null>`(${config} ->> 'description')`,
+      panelTitlesJson: sql<string>`jsonb_path_query_array(${config}, '$.panels[0 to 2].title')::text`,
+    })
+    .from(schema.dashboards)
+    .where(
+      and(
+        eq(schema.dashboards.id, id),
+        eq(schema.dashboards.visibility, "public"),
+        isNull(schema.dashboards.archivedAt),
+      ),
+    )
+    .limit(1);
+  if (!row) return null;
+
+  const panelTitles: unknown = JSON.parse(row.panelTitlesJson);
+  return {
+    title: row.title,
+    description: row.description,
+    panelTitles: Array.isArray(panelTitles)
+      ? panelTitles.filter(
+          (title): title is string => typeof title === "string",
+        )
+      : [],
+  };
+}
+
 /**
  * List dashboards visible to the caller. Union of SQL rows + not-yet-migrated
  * legacy keys.
@@ -956,6 +1017,7 @@ export async function listDashboardSummaries(
     hidden?: DashboardHiddenFilter;
     includeCatalogMetadata?: boolean;
     legacyScan?: "best-effort" | "strict";
+    limit?: number;
   },
   dbOverride?: any,
 ): Promise<DashboardSummaryRecord[]> {
@@ -963,6 +1025,15 @@ export async function listDashboardSummaries(
   const archived = filter?.archived ?? "active";
   const hidden = filter?.hidden ?? "visible";
   const includeCatalogMetadata = filter?.includeCatalogMetadata === true;
+  const summaryLimit = filter?.limit;
+  if (
+    summaryLimit !== undefined &&
+    (!Number.isSafeInteger(summaryLimit) || summaryLimit < 0)
+  ) {
+    throw new RangeError(
+      "Dashboard summary limit must be a non-negative integer.",
+    );
+  }
   const conditions: any[] = [
     accessFilter(schema.dashboards, schema.dashboardShares, {
       userEmail: ctx.email,
@@ -993,7 +1064,7 @@ export async function listDashboardSummaries(
   const demoId = sql<
     string | null
   >`(${schema.dashboards.config}::jsonb -> 'demo' ->> 'id')`;
-  const rows = await db
+  const rowsQuery = db
     .select({
       id: schema.dashboards.id,
       kind: schema.dashboards.kind,
@@ -1016,6 +1087,11 @@ export async function listDashboardSummaries(
     })
     .from(schema.dashboards)
     .where(where);
+  const rows = await (summaryLimit === undefined
+    ? rowsQuery
+    : rowsQuery
+        .orderBy(desc(schema.dashboards.updatedAt), asc(schema.dashboards.id))
+        .limit(summaryLimit));
   const out: DashboardSummaryRecord[] = rows.map((row: any) => {
     const certification = parseDashboardCertification(row.certification);
     const { certification: _rawCertification, ...summaryRow } = row;
@@ -1041,10 +1117,17 @@ export async function listDashboardSummaries(
   });
   const seen = new Set(out.map((row) => row.id));
 
+  if (summaryLimit !== undefined && out.length >= summaryLimit) return out;
   if (archived === "archived" || hidden === "hidden") return out;
   try {
-    const all = await getScopedLegacySettings(ctx);
+    const all = await getScopedLegacySettings(
+      ctx,
+      summaryLimit === undefined
+        ? undefined
+        : { dashboardKind: filter?.kind, limit: summaryLimit },
+    );
     for (const [key, value] of Object.entries(all)) {
+      if (summaryLimit !== undefined && out.length >= summaryLimit) break;
       let id: string | null = null;
       let kind: DashboardKind | null = null;
       let orgId: string | null = null;
@@ -2498,6 +2581,21 @@ export async function getAnalysis(
     legacy.visibility,
     "owner",
   );
+}
+
+export async function getPublicAnalysisMetadata(id: string) {
+  const [row] = await (getDb() as any)
+    .select({
+      name: schema.analyses.name,
+      description: schema.analyses.description,
+      question: schema.analyses.question,
+    })
+    .from(schema.analyses)
+    .where(
+      and(eq(schema.analyses.id, id), eq(schema.analyses.visibility, "public")),
+    )
+    .limit(1);
+  return row ?? null;
 }
 
 export async function listAnalyses(
