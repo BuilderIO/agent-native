@@ -399,10 +399,12 @@ missing, preserve the source branch. Continue through:
    cadence of at most 60 seconds.
 2. Rerun both final review audits below. If new actionable feedback appears
    after merge, record a post-merge follow-up and retain the source branch.
-3. If there is no post-merge follow-up, retain the source branch unless the
-   user explicitly requested its exact rotation in this task. If requested,
-   follow `/new-branch` safety checks and compare local and remote tips before
-   any branch operation.
+3. If there is no post-merge follow-up, follow the inherited mode. In
+   `ship_mode=merge-authorized`, `/ship` authorizes the safe post-merge rotation
+   in this task-owned worktree; run `/new-branch` safety checks and rotate when
+   they pass. Retain the source branch if a check fails. In standalone
+   babysitting or `ship_mode=ready-only`, retain the source branch unless the
+   user requested that exact rotation in this task.
 
 The foreground task owns this continuation; no watcher or lease is required.
 
